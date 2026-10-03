@@ -49,7 +49,9 @@ data class FileView(
     val lastCommit: Commit?,
 )
 
-/** Read-only views of a project's git repo. Every git call runs with cwd = root and a timeout. */
+data class MergeResult(val ok: Boolean, val merged: Boolean, val conflicts: List<String>, val output: String)
+
+/** Views of a project's git repo, plus "update from base". Every git call runs with cwd = root and a timeout. */
 @Service
 class RepoService(private val projects: ProjectService, private val rules: KeelRules) {
 
@@ -222,6 +224,47 @@ class RepoService(private val projects: ProjectService, private val rules: KeelR
             val p = it.split('\u001f')
             Commit(p[0], p.getOrElse(1) { "" }, p.getOrElse(2) { "" }, p.getOrElse(3) { "" })
         }
+    }
+
+    /** `git log --follow` for one path (the file can be deleted; it still has a history). */
+    fun history(pid: String, rel: String): List<Commit> {
+        val root = projects.root(pid)
+        val target = safePath(root, rel)
+        val relNorm = root.relativize(target).toString().replace('\\', '/')
+        val out = git(root, "log", "--follow", "-n", "30", "--format=%H\u001f%s\u001f%an\u001f%aI", "--", relNorm).takeIf { it.ok }?.out
+            ?: return emptyList()
+        return out.lines().filter { it.isNotBlank() }.map {
+            val p = it.split('\u001f')
+            Commit(p[0], p.getOrElse(1) { "" }, p.getOrElse(2) { "" }, p.getOrElse(3) { "" })
+        }
+    }
+
+    /**
+     * `git merge <base>` into the current branch. On a conflict the merge is aborted, so the
+     * work tree is left as it was, and the conflicting files are returned.
+     */
+    @Synchronized
+    fun updateFromBase(pid: String): MergeResult {
+        val root = projects.root(pid)
+        if (!Files.exists(root.resolve(".git"))) throw BadRequest("This project is not a git repo")
+        val branch = projects.branch(root) ?: throw BadRequest("The repo has no current branch", "Check out a branch first.")
+        val base = base(root) ?: throw BadRequest("No base branch found", "keel looks for main or master.")
+        if (branch == base) throw BadRequest("You are on the base branch ($base)", "Switch to a feature branch to bring $base into it.")
+        // A merge commit needs a name; containers often have none configured.
+        val ident = if (gitOut(root, "config", "user.email").isNullOrBlank()) {
+            listOf("-c", "user.name=keel", "-c", "user.email=keel@localhost")
+        } else emptyList()
+        val r = git(root, *(ident + listOf("merge", "--no-edit", base)).toTypedArray(), timeout = 60)
+        val output = (r.out + r.err).trim().take(4000)
+        if (r.ok) {
+            val merged = !output.contains("Already up to date", ignoreCase = true)
+            return MergeResult(true, merged, emptyList(), output)
+        }
+        val conflicts = gitOut(root, "diff", "--name-only", "--diff-filter=U")?.lines()?.filter { it.isNotBlank() }.orEmpty()
+        if (conflicts.isNotEmpty() || Files.exists(root.resolve(".git/MERGE_HEAD"))) {
+            git(root, "merge", "--abort", timeout = 30)
+        }
+        return MergeResult(false, false, conflicts, output)
     }
 
     /** Unix time of the last commit that touched code (not docs/ or .keel/), or null. */

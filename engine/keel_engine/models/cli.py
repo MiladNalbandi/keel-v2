@@ -26,7 +26,28 @@ SAFE_ENV_PREFIXES = ("LC_", "XDG_", "CLAUDE_CONFIG", "CODEX_HOME", "COPILOT_", "
 
 # Never passed to a subscription-mode child, even when a prefix above would match.
 SECRET_VARS = {"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY", "CODEX_API_KEY", "GITHUB_TOKEN",
-               "GH_TOKEN", "COPILOT_GITHUB_TOKEN", "KEEL_INTERNAL_TOKEN"}
+               "GH_TOKEN", "COPILOT_GITHUB_TOKEN", "KEEL_INTERNAL_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"}
+
+
+def claude_login_env(keys: dict | None = None) -> dict:
+    """The subscription login for the claude child: CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`).
+
+    StartThread.keys["claude_oauth"] wins over the engine's environment. API keys are never passed:
+    with one in its environment the CLI bills the API instead of the plan.
+    """
+    tok = (keys or {}).get("claude_oauth") or os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")
+    return {"CLAUDE_CODE_OAUTH_TOKEN": tok} if tok else {}
+
+
+def copilot_login_env(keys: dict | None = None) -> dict:
+    """GitHub token for the Copilot CLI child only: keys["copilot"], else GH_TOKEN / COPILOT_GITHUB_TOKEN (GITHUB_TOKEN last)."""
+    tok = (keys or {}).get("copilot")
+    if tok:
+        return {"GH_TOKEN": tok, "COPILOT_GITHUB_TOKEN": tok}
+    out = {k: os.environ[k] for k in ("GH_TOKEN", "COPILOT_GITHUB_TOKEN") if os.environ.get(k)}
+    if not out and os.environ.get("GITHUB_TOKEN"):
+        out["GH_TOKEN"] = os.environ["GITHUB_TOKEN"]
+    return out
 
 INSTALL_HINT = {
     "claude": "Install Claude Code: npm install -g @anthropic-ai/claude-code, then run `claude` and /login.",

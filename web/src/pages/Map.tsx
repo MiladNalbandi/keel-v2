@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { api, errorParts, type KeelMap, type MapLevel, type MapNode, type MapResponse } from "../api";
+import { OpenKeelV1Button } from "../components/OpenKeelV1";
 import { Async, PageHead, Panel, Tabs } from "../components/ui";
 import { clock } from "../format";
 import { useApp, useLoad } from "../state";
@@ -168,7 +169,7 @@ export function MapPage({ pid }: { pid: string }) {
   };
   return (
     <>
-      <PageHead title="Map" sub={`How ${project?.name ?? pid} is built — read from the code, migrations and API contract. Nothing connects to a running system.`} />
+      <PageHead title="Map" sub={`How ${project?.name ?? pid} is built — read from the code, migrations and API contract. Nothing connects to a running system.`} actions={<OpenKeelV1Button />} />
       <Async r={map} what="Reading the map">
         {(m) => isMissing(m) ? (
           <div className="panel"><div className="panel-body empty grid" style={{ gap: 10, justifyItems: "center" }}>

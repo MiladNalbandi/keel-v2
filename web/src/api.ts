@@ -54,7 +54,14 @@ export type ThreadState = {
   checkpoints: number;
   error?: string;
   updated_at: string;
+  /** v0.2: what still blocks shipping (computed by push_check, refreshed after every commit). */
+  blockers?: Blocker[];
+  /** v0.2: the init flow's setup ladder. */
+  ladder?: LadderRung[];
 };
+export type BlockerGate = "release" | "coverage" | "deps" | "knowledge" | "secrets";
+export type Blocker = { gate: BlockerGate | string; why: string; fix: string };
+export type LadderRung = { n: number; name: string; cmd: string; status: "pass" | "fail" | "fixing" | "waiting" | "skipped"; detail?: string };
 export type Checkpoint = { id: string; n: number; step: string; at: string; note: string };
 export type Estimate = {
   tokens: number;
@@ -168,6 +175,8 @@ export type RepoFile = {
   last_commit: string;
 };
 export type Commit = { sha: string; message: string; author: string; at: string };
+export type UpdateFromBase = { ok: boolean; merged: boolean; conflicts: string[]; output: string };
+export type Unlock = { path: string; phase: string };
 export type KeelDoc = { path: string; what: string; by: string; updated: string; status: "ok" | "live" | "check" };
 export type FactKind = "fact" | "rule" | "flaky" | "unlock";
 export type Fact = { id: string; title: string; text: string; kind: FactKind; source: string; at: string };
@@ -252,7 +261,10 @@ export type Agent = {
   prompt: string;
   enabled: boolean;
   overridden: string[];
+  /** v0.2: which lane the agent works in. "follow" = the AC's layer decides. */
+  lane?: AgentLane;
 };
+export type AgentLane = "follow" | "api" | "web";
 export type CustomAgent = {
   id: string;
   label: string;
@@ -289,11 +301,15 @@ export type Stack = {
   commands: { name: string; cmd: string }[];
   tools: { name: string; on: string; fail: string }[];
   skills: string[];
+  /** v0.2: a keel pack that `keel packs add` can install into this project. */
+  installable?: boolean;
 };
 export type McpServer = McpServerSpec & { enabled: boolean; builtin: boolean; status: "ok" | "off" | "error"; tools: string[] };
 export type McpAllow = Record<string, string[]>;
 
-export type Cap = { scope: string; limit: string; action: string } & Record<string, unknown>;
+export type CapScope = "day" | "flow" | "step" | "api_month";
+export type Cap = { id: string; scope: CapScope; limit: number; unit: "tokens" | "usd"; action: "pause" | "cheaper" | "stop" };
+export type ProviderModels = Record<string, { id: string; label: string }[]>;
 export type Budget = {
   month: { tokens: number; cost_usd: number; premium_requests: number; flows: number };
   days: { day: string; claude: number; codex: number; copilot: number; fake: number }[];
@@ -365,11 +381,14 @@ export type NotificationSettings = {
 export class ApiError extends Error {
   status: number;
   hint?: string;
-  constructor(message: string, status: number, hint?: string) {
+  /** Extra lines some errors carry, e.g. workflow validation `errors: string[]`. */
+  details?: string[];
+  constructor(message: string, status: number, hint?: string, details?: string[]) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.hint = hint;
+    this.details = details;
   }
 }
 
@@ -388,9 +407,10 @@ async function request<T>(method: string, path: string, body?: unknown, opts: { 
   }
   const type = res.headers.get("content-type") ?? "";
   if (!res.ok) {
-    let err: { error?: string; hint?: string } = {};
+    let err: { error?: string; hint?: string; errors?: unknown } = {};
     if (type.includes("json")) err = await res.json().catch(() => ({}));
-    throw new ApiError(err.error || `${res.status} ${res.statusText}`.trim(), res.status, err.hint);
+    const details = Array.isArray(err.errors) ? err.errors.map(String) : undefined;
+    throw new ApiError(err.error || `${res.status} ${res.statusText}`.trim(), res.status, err.hint, details);
   }
   if (opts.text) return (await res.text()) as T;
   if (res.status === 204 || res.headers.get("content-length") === "0") return undefined as T;
@@ -422,7 +442,10 @@ const e = encodeURIComponent;
 
 export const api = {
   health: () => get<Health>("/health"),
+  /** `pid` "*" = every project (notifications + project.changed only). */
   eventsUrl: (pid: string | null) => "/api/events" + q({ project: pid }),
+  keelDashboard: () => get<{ url: string }>("/keel-dashboard"),
+  providerModels: () => get<ProviderModels>("/providers/models"),
 
   // projects
   projects: () => get<Project[]>("/projects"),
@@ -431,7 +454,9 @@ export const api = {
 
   // flow
   flow: (pid: string) => get<FlowView>(`/projects/${e(pid)}/flow`),
-  startFlow: (pid: string, body: { workflow_id: string; title: string; acs?: { id: string; layer: "API" | "WEB"; title: string }[] }) =>
+  startFlow: (pid: string, body: {
+    workflow_id: string; title: string; acs?: { id: string; layer: "API" | "WEB"; title: string }[]; cap_tokens?: number; on_cap?: OnCap;
+  }) =>
     post<ThreadState>(`/projects/${e(pid)}/flows`, body),
   resume: (tid: string, decision: "approve" | "reject", why?: string) =>
     post<ThreadState>(`/threads/${e(tid)}/resume`, why ? { decision, why } : { decision }),
@@ -440,6 +465,8 @@ export const api = {
   rewind: (tid: string, checkpoint_id: string) => post<ThreadState>(`/threads/${e(tid)}/rewind`, { checkpoint_id }),
   estimate: (pid: string, workflow_id: string, acs: number) =>
     get<Estimate>(`/projects/${e(pid)}/estimate${q({ workflow_id, acs })}`),
+  /** Estimate workflow YAML that is not saved yet. */
+  estimateYaml: (pid: string, yaml: string, acs: number) => post<Estimate>(`/projects/${e(pid)}/estimate`, { yaml, acs }),
 
   // jobs
   jobs: (f: { project?: string; status?: string; agent?: string; provider?: string; limit?: number } = {}) =>
@@ -453,6 +480,10 @@ export const api = {
   tree: (pid: string, depth = 4) => get<TreeNode[]>(`/projects/${e(pid)}/repo/tree${q({ depth })}`),
   file: (pid: string, path: string) => get<RepoFile>(`/projects/${e(pid)}/repo/file${q({ path })}`),
   commits: (pid: string, limit = 30) => get<Commit[]>(`/projects/${e(pid)}/repo/commits${q({ limit })}`),
+  updateFromBase: (pid: string) => post<UpdateFromBase>(`/projects/${e(pid)}/repo/update-from-base`),
+  fileHistory: (pid: string, path: string) => get<Commit[]>(`/projects/${e(pid)}/repo/history${q({ path })}`),
+  unlock: (pid: string, path: string, phase?: string) =>
+    post<{ unlocks: Unlock[] }>(`/projects/${e(pid)}/unlock`, phase ? { path, phase } : { path }),
   keelDocs: (pid: string) => get<KeelDoc[]>(`/projects/${e(pid)}/keel-docs`),
   memory: (pid: string) => get<Memory>(`/projects/${e(pid)}/memory`),
   addFact: (pid: string, f: { title: string; text: string; kind: FactKind }) => post<Fact>(`/projects/${e(pid)}/memory`, f),
@@ -465,6 +496,8 @@ export const api = {
   rebuildMap: (pid: string) => post<MapResponse>(`/projects/${e(pid)}/map/rebuild`),
   wiki: (pid: string) => get<WikiTree>(`/projects/${e(pid)}/wiki`),
   wikiPage: (pid: string, id: string) => get<WikiPage>(`/projects/${e(pid)}/wiki/page${q({ id })}`),
+  refreshWiki: (pid: string, sections?: string[]) =>
+    post<ThreadState>(`/projects/${e(pid)}/wiki/refresh`, sections?.length ? { sections } : {}),
 
   // workflows
   workflows: (pid: string) => get<Workflow[]>(`/projects/${e(pid)}/workflows`),
@@ -483,7 +516,7 @@ export const api = {
 
   // agents, skills, stacks, tools
   agents: (pid: string) => get<Agent[]>(`/projects/${e(pid)}/agents`),
-  saveAgent: (pid: string, aid: string, body: Partial<Pick<Agent, "model" | "tools" | "skills" | "prompt" | "enabled">>) =>
+  saveAgent: (pid: string, aid: string, body: Partial<Pick<Agent, "model" | "tools" | "skills" | "prompt" | "enabled" | "lane">>) =>
     put<Agent>(`/projects/${e(pid)}/agents/${e(aid)}`, body),
   newAgent: (pid: string, a: CustomAgent) => post<Agent>(`/projects/${e(pid)}/agents`, a),
   deleteAgent: (pid: string, aid: string) => del(`/projects/${e(pid)}/agents/${e(aid)}`),
@@ -493,7 +526,10 @@ export const api = {
   newSkill: (pid: string, s: { name: string; kind: string; stack: string; body: string }) => post<Skill>(`/projects/${e(pid)}/skills`, s),
   saveSkill: (pid: string, sid: string, s: { agents?: string[]; when?: string; body?: string }) =>
     put<Skill>(`/projects/${e(pid)}/skills/${e(sid)}`, s),
+  importSkill: (pid: string, body: { url: string } | { body: string }) => post<Skill>(`/projects/${e(pid)}/skills/import`, body),
   stacks: (pid: string) => get<Stack[]>(`/projects/${e(pid)}/stacks`),
+  newStack: (pid: string, name: string, from: string) => post<Stack>(`/projects/${e(pid)}/stacks`, { name, from }),
+  installStack: (pid: string, name: string) => post<Stack>(`/projects/${e(pid)}/stacks/${e(name)}/install`),
   mcpServers: () => get<McpServer[]>("/mcp-servers"),
   addMcpServer: (s: McpServerSpec) => post<McpServer>("/mcp-servers", s),
   saveMcpServer: (name: string, s: Partial<McpServer>) => put<McpServer>(`/mcp-servers/${e(name)}`, s),
@@ -504,6 +540,10 @@ export const api = {
 
   // control
   budget: (pid: string) => get<Budget>(`/projects/${e(pid)}/budget`),
+  caps: (pid: string) => get<Cap[]>(`/projects/${e(pid)}/caps`),
+  addCap: (pid: string, c: Omit<Cap, "id"> & { id?: string }) => post<Cap>(`/projects/${e(pid)}/caps`, c),
+  saveCap: (pid: string, c: Cap) => put<Cap>(`/projects/${e(pid)}/caps/${e(c.id)}`, c),
+  deleteCap: (pid: string, id: string) => del(`/projects/${e(pid)}/caps/${e(id)}`),
   limits: () => get<Limit[]>("/limits"),
   saveLimits: (l: Limit[]) => put<Limit[]>("/limits", l),
   generalSettings: () => get<Settings>("/settings/general"),
@@ -526,8 +566,8 @@ export const api = {
 };
 
 /** The message and hint of any thrown value, for error states. */
-export function errorParts(err: unknown): { message: string; hint?: string } {
-  if (err instanceof ApiError) return { message: err.message, hint: err.hint };
+export function errorParts(err: unknown): { message: string; hint?: string; details?: string[] } {
+  if (err instanceof ApiError) return { message: err.message, hint: err.hint, details: err.details };
   if (err instanceof Error) return { message: err.message };
   return { message: String(err) };
 }

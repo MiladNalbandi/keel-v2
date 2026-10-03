@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 
 data class NewSkill(val name: String = "", val kind: String = "knowledge", val stack: String = "any", val body: String = "")
+data class SkillImport(val url: String? = null, val body: String? = null)
 data class SkillPatch(val agents: List<String>? = null, val `when`: String? = null, val body: String? = null, val enabled: Boolean? = null)
 
 @RestController
@@ -25,6 +26,9 @@ class SkillController(private val skills: SkillService) {
     @PostMapping("/projects/{pid}/skills")
     fun create(@PathVariable pid: String, @RequestBody body: NewSkill): Skill =
         skills.create(pid, body.name, body.kind, body.stack, body.body)
+
+    @PostMapping("/projects/{pid}/skills/import")
+    fun import(@PathVariable pid: String, @RequestBody body: SkillImport): Skill = skills.importSkill(pid, body.url, body.body)
 
     @PutMapping("/projects/{pid}/skills/{sid}")
     fun update(@PathVariable pid: String, @PathVariable sid: String, @RequestBody body: SkillPatch): Skill =

@@ -44,6 +44,13 @@ export class FakeEventSource {
   close() {
     this.closed = true;
   }
+  /** Send an event on the streams whose url matches only (e.g. the all-projects stream). */
+  static emitTo(match: (url: string) => boolean, type: string, data: unknown) {
+    FakeEventSource.instances.filter((s) => !s.closed && match(s.url)).forEach((s) => {
+      const e = new MessageEvent(type, { data: JSON.stringify(data) });
+      (s.listeners[type] ?? []).forEach((fn) => fn(e));
+    });
+  }
   static emit(type: string, data: unknown) {
     FakeEventSource.instances.filter((s) => !s.closed).forEach((s) => {
       const e = new MessageEvent(type, { data: JSON.stringify(data) });

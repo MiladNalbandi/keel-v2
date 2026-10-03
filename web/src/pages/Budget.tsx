@@ -2,10 +2,10 @@
 // projects share (editable), tokens per day by provider, estimate vs real, and the biggest users.
 
 import { useState } from "react";
-import { api, errorParts, type Budget, type Limit } from "../api";
+import { api, errorParts, type Budget, type Cap, type CapScope, type Limit } from "../api";
 import { Async, Drawer, ErrorBox, PageHead, Panel, Prov } from "../components/ui";
-import { kfmt, PROV, usd } from "../format";
-import { useApp, useLoad } from "../state";
+import { kfmt, parseTokens, PROV, usd } from "../format";
+import { useApp, useLoad, type Loaded } from "../state";
 
 const PROVS = ["claude", "codex", "copilot", "fake"] as const;
 const FILL: Record<string, string> = { claude: "fill-claude", codex: "fill-codex", copilot: "fill-copilot", fake: "" };
@@ -92,6 +92,118 @@ function LimitsDrawer({ limits, onClose, onSaved }: { limits: Limit[]; onClose: 
   );
 }
 
+export const CAP_SCOPE: Record<CapScope, string> = {
+  day: "All flows, per day",
+  flow: "Each flow",
+  step: "Any single agent step",
+  api_month: "API keys, per month",
+};
+export const CAP_ACTION: Record<Cap["action"], string> = { pause: "pause and ask me", cheaper: "switch to cheaper models", stop: "stop" };
+export const capLimit = (c: Pick<Cap, "limit" | "unit">) => (c.unit === "usd" ? usd(c.limit) : `${kfmt(c.limit)} tokens`);
+
+function CapDrawer({ pid, cap, onClose, onSaved }: { pid: string; cap: Cap | null; onClose: () => void; onSaved: (c: Cap) => void }) {
+  const { toast } = useApp();
+  const [scope, setScope] = useState<CapScope>(cap?.scope ?? "flow");
+  const [unit, setUnit] = useState<Cap["unit"]>(cap?.unit ?? "tokens");
+  const [limit, setLimit] = useState(cap ? (cap.unit === "usd" ? String(cap.limit) : kfmt(cap.limit)) : "");
+  const [action, setAction] = useState<Cap["action"]>(cap?.action ?? "pause");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<{ message: string; hint?: string } | null>(null);
+  const value = unit === "usd" ? Number(limit.replace(/[$,\s]/g, "")) : parseTokens(limit);
+  const valid = Number.isFinite(value) && value > 0;
+  const save = async () => {
+    if (!valid) {
+      setErr({ message: "Write a limit above 0.", hint: unit === "usd" ? "For example 100." : "For example 500k or 1.2M." });
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    try {
+      const body = { scope, unit, limit: value, action };
+      const out = cap ? await api.saveCap(pid, { ...body, id: cap.id }) : await api.addCap(pid, body);
+      onSaved(out ?? { ...body, id: cap?.id ?? `cap-${Date.now()}` });
+      toast(cap ? "Cap saved." : "Cap added. It is checked before every agent step.");
+      onClose();
+    } catch (e) {
+      setErr(errorParts(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Drawer title={cap ? "Edit cap" : "Add cap"} onClose={onClose}
+      footer={<><button className="btn" type="button" onClick={onClose}>Cancel</button>
+        <button className="btn primary" type="button" onClick={save} disabled={busy}>{busy ? "Saving…" : cap ? "Save cap" : "Add cap"}</button></>}>
+      <div className="field"><label htmlFor="cap-scope">What it limits</label>
+        <select id="cap-scope" value={scope} onChange={(e) => {
+          const v = e.target.value as CapScope;
+          setScope(v);
+          if (v === "api_month") setUnit("usd");
+        }}>
+          {(Object.keys(CAP_SCOPE) as CapScope[]).map((k) => <option key={k} value={k}>{CAP_SCOPE[k]}</option>)}
+        </select></div>
+      <div className="field"><label htmlFor="cap-limit">Limit</label>
+        <div className="row">
+          <input type="text" id="cap-limit" value={limit} onChange={(e) => setLimit(e.target.value)} placeholder={unit === "usd" ? "100" : "500k"} style={{ width: 120 }} />
+          <select aria-label="Unit" value={unit} onChange={(e) => setUnit(e.target.value as Cap["unit"])}>
+            <option value="tokens">tokens</option><option value="usd">US dollars (API cost)</option>
+          </select>
+        </div></div>
+      <div className="field"><label htmlFor="cap-action">When it is hit</label>
+        <select id="cap-action" value={action} onChange={(e) => setAction(e.target.value as Cap["action"])}>
+          {(Object.keys(CAP_ACTION) as Cap["action"][]).map((k) => <option key={k} value={k}>{CAP_ACTION[k]}</option>)}
+        </select></div>
+      {err && <ErrorBox error={err} />}
+    </Drawer>
+  );
+}
+
+function CapsPanel({ pid, onAdd, onEdit, caps }: { pid: string; caps: Loaded<Cap[]>; onAdd: () => void; onEdit: (c: Cap) => void }) {
+  const { toast } = useApp();
+  const [asking, setAsking] = useState<string | null>(null);
+  const remove = async (c: Cap) => {
+    try {
+      await api.deleteCap(pid, c.id);
+      caps.setData((l) => (l ? l.filter((x) => x.id !== c.id) : l));
+      toast("Cap deleted.");
+    } catch (e) {
+      toast(`Not deleted: ${errorParts(e).message}`);
+    } finally {
+      setAsking(null);
+    }
+  };
+  return (
+    <Panel title="Caps" extra={<span className="row"><span className="hint">checked before every agent step</span><button className="btn sm" type="button" onClick={onAdd}>Add cap</button></span>} body={false}>
+      {caps.error ? <div className="panel-body"><ErrorBox error={caps.error} onRetry={() => void caps.reload()} /></div> : !caps.data ? <div className="empty loading">Loading…</div> : (
+        <div className="table-wrap"><table aria-label="Caps">
+          <thead><tr><th>Scope</th><th>Limit</th><th>When hit</th><th></th></tr></thead>
+          <tbody>
+            {caps.data.map((c) => (
+              <tr key={c.id}>
+                <td>{CAP_SCOPE[c.scope] ?? c.scope}</td><td className="num mono">{capLimit(c)}</td><td className="sub">{CAP_ACTION[c.action] ?? c.action}</td>
+                <td><div className="row" style={{ gap: 4, flexWrap: "nowrap", justifyContent: "flex-end" }}>
+                  {asking === c.id ? (
+                    <>
+                      <button className="btn sm warn" type="button" onClick={() => remove(c)}>Yes, delete</button>
+                      <button className="btn sm" type="button" onClick={() => setAsking(null)}>Keep</button>
+                    </>
+                  ) : (
+                    <>
+                      <button className="btn sm ghost" type="button" aria-label={`Edit cap ${CAP_SCOPE[c.scope] ?? c.scope}`} onClick={() => onEdit(c)}>Edit</button>
+                      <button className="btn sm ghost" type="button" aria-label={`Delete cap ${CAP_SCOPE[c.scope] ?? c.scope}`} onClick={() => setAsking(c.id)}>Delete</button>
+                    </>
+                  )}
+                </div></td>
+              </tr>
+            ))}
+            {!caps.data.length && <tr><td colSpan={4} className="empty">No cap. Flows run until they finish.</td></tr>}
+          </tbody>
+        </table></div>
+      )}
+    </Panel>
+  );
+}
+
 const limitProv = (l: Limit) => (/claude|anthropic/i.test(l.name) ? "claude" : /codex|openai|gpt/i.test(l.name) ? "codex" : /copilot|github/i.test(l.name) ? "copilot" : "claude");
 
 export function BudgetPage({ pid }: { pid: string }) {
@@ -99,11 +211,16 @@ export function BudgetPage({ pid }: { pid: string }) {
   const budget = useLoad(`budget:${pid}`, () => api.budget(pid));
   const limits = useLoad("limits", () => api.limits());
   const [editing, setEditing] = useState(false);
+  const caps = useLoad(`caps:${pid}`, () => api.caps(pid), { live: false });
+  const [capEdit, setCapEdit] = useState<Cap | "new" | null>(null);
   const name = project?.name ?? pid;
   return (
     <>
       <PageHead title="Budget" sub={`What ${name} uses, the caps that stop its flows, and the account limits all projects share.`}
-        actions={<button className="btn" type="button" onClick={() => setEditing(true)} disabled={!limits.data}>Edit limits</button>} />
+        actions={<>
+          <button className="btn" type="button" onClick={() => setEditing(true)} disabled={!limits.data}>Edit limits</button>
+          <button className="btn primary" type="button" onClick={() => setCapEdit("new")}>Add cap</button>
+        </>} />
       <Async r={budget} what="Loading the budget">
         {(b) => (
           <>
@@ -137,15 +254,7 @@ export function BudgetPage({ pid }: { pid: string }) {
                 {b.days.length ? <div className="table-wrap"><UsageChart days={b.days} /></div> : <div className="empty">No usage yet.</div>}
                 <p className="hint" style={{ margin: "6px 0 0" }}>This month: {kfmt(b.month.tokens)} tokens · API cost {usd(b.month.cost_usd)} · Copilot {b.month.premium_requests} premium requests.</p>
               </Panel>
-              <Panel title="Caps" extra={<span className="hint">checked before every agent step · change them in <a href="#/settings">Settings</a></span>} body={false}>
-                <div className="table-wrap"><table>
-                  <thead><tr><th>Scope</th><th>Limit</th><th>When hit</th></tr></thead>
-                  <tbody>
-                    {b.caps.map((c, i) => <tr key={i}><td>{c.scope}</td><td className="num mono">{c.limit}</td><td className="sub">{c.action}</td></tr>)}
-                    {!b.caps.length && <tr><td colSpan={3} className="empty">No cap.</td></tr>}
-                  </tbody>
-                </table></div>
-              </Panel>
+              <CapsPanel pid={pid} caps={caps} onAdd={() => setCapEdit("new")} onEdit={(c) => setCapEdit(c)} />
             </div>
             <div className="grid g2" style={{ marginTop: 16 }}>
               <Panel title="Estimate vs real, last flows" body={false}>
@@ -181,6 +290,8 @@ export function BudgetPage({ pid }: { pid: string }) {
         )}
       </Async>
       <p className="hint" style={{ marginTop: 12 }}>Where the numbers come from: LangChain usage metadata for API calls, the CLI's own usage line for claude / codex / copilot / opencode. Plan limits are values you can edit.</p>
+      {capEdit && <CapDrawer pid={pid} cap={capEdit === "new" ? null : capEdit} onClose={() => setCapEdit(null)}
+        onSaved={(c) => caps.setData((l) => (l ? (l.some((x) => x.id === c.id) ? l.map((x) => (x.id === c.id ? c : x)) : [...l, c]) : [c]))} />}
       {editing && limits.data && <LimitsDrawer limits={limits.data} onClose={() => setEditing(false)} onSaved={(l) => limits.setData(l)} />}
     </>
   );

@@ -19,7 +19,6 @@ export function StartFlowDrawer({ onClose, workflowId }: { onClose: () => void; 
   const [estErr, setEstErr] = useState<{ message: string; hint?: string } | null>(null);
   const [limits, setLimits] = useState<Limit[]>([]);
   const [cap, setCap] = useState("");
-  const [capOrig, setCapOrig] = useState({ cap: "", on: "pause" as OnCap });
   const [onCap, setOnCap] = useState<OnCap>("pause");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<{ message: string; hint?: string } | null>(null);
@@ -35,7 +34,6 @@ export function StartFlowDrawer({ onClose, workflowId }: { onClose: () => void; 
       const c = kfmt(s.effective.cap_tokens);
       setCap(c);
       setOnCap(s.effective.on_cap);
-      setCapOrig({ cap: c, on: s.effective.on_cap });
     }, () => undefined);
   }, [p]);
 
@@ -69,10 +67,12 @@ export function StartFlowDrawer({ onClose, workflowId }: { onClose: () => void; 
     setBusy(true);
     setErr(null);
     try {
-      if (cap !== capOrig.cap || onCap !== capOrig.on) {
-        await api.saveProjectSettings(p, { cap_tokens: parseTokens(cap), on_cap: onCap });
-      }
-      await api.startFlow(p, { workflow_id: wid, title: title.trim() });
+      const capTokens = parseTokens(cap);
+      await api.startFlow(p, {
+        workflow_id: wid, title: title.trim(),
+        // the cap belongs to this flow only; project settings stay as they are
+        ...(capTokens > 0 ? { cap_tokens: capTokens } : {}), on_cap: onCap,
+      });
       if (p !== pid) setProjectId(p);
       await reloadProjects();
       toast("Flow started as a new LangGraph thread.");
@@ -137,7 +137,7 @@ export function StartFlowDrawer({ onClose, workflowId }: { onClose: () => void; 
             {ON_CAP.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
           </select>
         </div>
-        <span className="hint">The estimate gets exact after the spec is approved and the real number of ACs is known. A changed cap is saved for this project.</span>
+        <span className="hint">The estimate gets exact after the spec is approved and the real number of ACs is known. This cap is for this flow only; the project default stays in Settings.</span>
       </div>
       {err && <ErrorBox error={err} />}
     </Drawer>

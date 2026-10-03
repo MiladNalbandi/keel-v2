@@ -72,19 +72,26 @@ function Editor({ pid, wid, wfs, agents, tab, tabs, onNew, onImport, onSaved }: 
   const [sel, setSel] = useState<string | null>(null);
   const [acs, setAcs] = useState(3);
   const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<{ message: string; hint?: string } | null>(null);
+  const [err, setErr] = useState<{ message: string; hint?: string; details?: string[] } | null>(null);
+  // YAML typed by hand in the YAML tab. null = not edited (the tab shows the YAML of the diagram).
+  const [yamlText, setYamlText] = useState<string | null>(null);
   const saved = loaded.data;
   useEffect(() => {
     if (saved) {
       setDraft(clone(saved));
+      setYamlText(null);
       setSel((s) => s ?? saved.steps[0]?.id ?? null);
     }
   }, [saved]);
   const w = draft ?? saved;
-  const dirty = !!draft && !!saved && !same(draft, saved);
+  const stepsDirty = !!draft && !!saved && !same(draft, saved);
+  const dirty = stepsDirty || yamlText !== null;
+  const currentYaml = w ? (yamlText ?? (stepsDirty || !w.yaml ? toYaml(w) : w.yaml)) : "";
   const b = useBuilder(w ?? { id: wid, name: "", keel_rules: true, version: 0, steps: [], yaml: "" }, (n) => setDraft(n), setSel);
   const est = useLoad(`wfest:${pid}:${wid}:${acs}:${saved?.version ?? 0}`, () => api.estimate(pid, wid, acs), { live: false });
-  const tokens = useMemo(() => (w ? tokensByStep(w, est.data) : undefined), [w, est.data]);
+  const draftEst = useDraftEstimate(pid, dirty ? currentYaml : null, acs);
+  const shownEst = dirty ? draftEst.est : est.data;
+  const tokens = useMemo(() => (w ? tokensByStep(w, shownEst) : undefined), [w, shownEst]);
   const customAgents = useMemo(() => new Set(agents.filter((a) => a.custom).map((a) => a.id)), [agents]);
 
   if (loaded.error) return <ErrorBox error={loaded.error} onRetry={() => void loaded.reload()} />;
@@ -95,7 +102,9 @@ function Editor({ pid, wid, wfs, agents, tab, tabs, onNew, onImport, onSaved }: 
     setBusy(true);
     setErr(null);
     try {
-      const out = await api.saveWorkflow({ ...w, yaml: toYaml(w) });
+      // A hand-edited YAML is the source of truth: the api validates it with the engine and sends back the parsed steps.
+      const out = await api.saveWorkflow({ ...w, yaml: yamlText ?? toYaml(w) });
+      setYamlText(null);
       loaded.setData(out);
       onSaved(out);
       b.clear();
@@ -123,7 +132,7 @@ function Editor({ pid, wid, wfs, agents, tab, tabs, onNew, onImport, onSaved }: 
         {tabs}
         <div className="row">
           {dirty && <span className="hint amber">unsaved changes</span>}
-          {dirty && <button className="btn sm ghost" type="button" onClick={() => { setDraft(saved ? clone(saved) : null); b.clear(); }}>Discard</button>}
+          {dirty && <button className="btn sm ghost" type="button" onClick={() => { setDraft(saved ? clone(saved) : null); setYamlText(null); setErr(null); b.clear(); }}>Discard</button>}
           <label className="chk"><input type="checkbox" id="wrules" checked={w.keel_rules}
             onChange={(e) => {
               setDraft({ ...w, keel_rules: e.target.checked });
@@ -132,25 +141,58 @@ function Editor({ pid, wid, wfs, agents, tab, tabs, onNew, onImport, onSaved }: 
             }} /> keel rules {w.keel_rules ? "on" : "off"}</label>
         </div>
       </div>
-      {err && <div style={{ marginBottom: 12 }}><ErrorBox error={err} /></div>}
+      {err && tab !== "yaml" && <div style={{ marginBottom: 12 }}><ErrorBox error={err} /></div>}
+      {tab === "builder" && yamlText !== null && <p className="hint amber" style={{ marginTop: 0 }}>You changed the YAML by hand. Save to see those changes in the diagram.</p>}
       {tab === "builder" && <Builder w={w} sel={sel} onSelect={setSel} b={b} tokens={tokens} customAgents={customAgents} />}
       <div className="grid g2" style={{ marginTop: 16 }}>
         <div className="grid" style={{ alignContent: "start" }}>
           {tab === "builder" ? <StepsTable w={w} sel={sel} onSelect={setSel} tokens={tokens} onMove={(id, d) => setDraft(moveStep(w, id, d))} onRemove={(id) => b.remove(id)} />
             : (
-              <Panel title="YAML" extra={<span className="hint">{dirty ? "with your unsaved changes" : `version ${w.version}`}</span>}>
-                <pre className="yaml">{dirty || !w.yaml ? toYaml(w) : w.yaml}</pre>
+              <Panel title="YAML" extra={<span className="hint">{dirty ? "with your unsaved changes" : `version ${w.version}`}</span>} body="grid">
+                <div className="grid" style={{ gap: 8 }}>
+                  <label htmlFor="wyaml" className="sub">Edit the workflow as text. Save checks it with the engine; problems show below.</label>
+                  <textarea id="wyaml" className="yaml-edit" spellCheck={false} value={currentYaml}
+                    aria-invalid={err?.details?.length ? true : undefined} aria-describedby={err ? "wyaml-err" : undefined}
+                    onChange={(e) => setYamlText(e.target.value)} />
+                  {err && <div id="wyaml-err"><ErrorBox error={err} /></div>}
+                  {yamlText !== null && <span className="hint">The diagram shows your YAML after you save.</span>}
+                </div>
               </Panel>
             )}
         </div>
         <div className="grid" style={{ alignContent: "start" }}>
           {step && <Inspector w={w} s={step} agents={agents} onChange={(patch) => setDraft(updateStep(w, step.id, patch))}
             onMove={(d) => setDraft(moveStep(w, step.id, d))} onRemove={() => b.remove(step.id)} />}
-          <EstimatePanel est={est.data} error={est.error} acs={acs} setAcs={setAcs} dirty={dirty} />
+          <EstimatePanel est={shownEst} error={dirty ? draftEst.error : est.error} acs={acs} setAcs={setAcs} dirty={dirty} />
         </div>
       </div>
     </>
   );
+}
+
+/** Estimate for YAML that is not saved yet: POST /api/projects/{pid}/estimate, 600 ms after the last change. */
+function useDraftEstimate(pid: string, yaml: string | null, acs: number) {
+  const [est, setEst] = useState<Estimate | null>(null);
+  const [error, setError] = useState<{ message: string; hint?: string } | null>(null);
+  useEffect(() => {
+    if (yaml === null) {
+      setEst(null);
+      setError(null);
+      return;
+    }
+    let gone = false;
+    const t = window.setTimeout(() => {
+      api.estimateYaml(pid, yaml, acs).then(
+        (e) => { if (!gone) { setEst(e); setError(null); } },
+        (e) => { if (!gone) { setEst(null); setError(errorParts(e)); } },
+      );
+    }, 600);
+    return () => {
+      gone = true;
+      window.clearTimeout(t);
+    };
+  }, [pid, yaml, acs]);
+  return { est, error };
 }
 
 function StepsTable({ w, sel, onSelect, tokens, onMove, onRemove }: {
@@ -268,7 +310,7 @@ function EstimatePanel({ est, error, acs, setAcs, dirty }: { est: Estimate | nul
   const by = Object.entries(est?.by_provider ?? {}).filter(([, v]) => v) as [string, number][];
   const tot = by.reduce((a, [, v]) => a + v, 0) || 1;
   return (
-    <Panel title="Estimate for this workflow" extra={<span className="hint">from this project's past runs</span>} body="grid">
+    <Panel title={dirty ? "Estimate with your changes" : "Estimate for this workflow"} extra={<span className="hint">{dirty ? "not saved yet" : "from this project's past runs"}</span>} body="grid">
       <div className="grid" style={{ gap: 12 }}>
         <div className="field"><label htmlFor="acn">Acceptance criteria in the spec</label>
           <div className="row"><input type="range" id="acn" min={1} max={10} value={acs} onChange={(e) => setAcs(Number(e.target.value))} style={{ flex: "1 1 140px" }} /><b className="num">{acs}</b></div></div>
@@ -285,7 +327,7 @@ function EstimatePanel({ est, error, acs, setAcs, dirty }: { est: Estimate | nul
         )}
         <p className="hint" style={{ margin: 0 }}>
           Per agent step: (input + output tokens, median of past runs) × runs per AC × (1 + retry rate). The range uses the 10th and 90th percentile.
-          {dirty ? " Save to estimate your changes." : ""}
+          {dirty ? " This estimate includes your unsaved changes." : ""}
         </p>
       </div>
     </Panel>

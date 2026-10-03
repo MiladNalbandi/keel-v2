@@ -57,6 +57,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "commands": {},
     "loops": {"red_accept": RED_ACCEPT, "red_reject": RED_REJECT, "stall_repeats": 3},
     "gates": {"mode": "every-ac", "bug_gates": True},
+    "change": {"max_inline_acs": 3, "must_escalate": ["contract", "migration", "auth"], "size_limits_files": 10,
+               "size_limits_lines": 300, "auth_paths": ["**/security/**", "**/auth/**"]},
     "commit": {"author_name": "keelbot", "author_email": "keel.dev.bot@gmail.com"},
     "guards": {
         "protected": ["**/.env", "**/.env.*", "!**/.env.example"],
@@ -212,6 +214,7 @@ class Verdict:
     bucket: str = ""
     reason: str = ""
     note: str = ""
+    path: str = ""      # the file a shell write targeted, when a command was refused for it
 
 
 def _hint(phase: str, bucket: str) -> str:
@@ -228,8 +231,13 @@ def _hint(phase: str, bucket: str) -> str:
     return ""
 
 
+def unlocked(unlocks: list[dict] | None, rel: str, phase: str) -> bool:
+    """keel v1: an unlock {path, phase} lets exactly that path bypass the matrix in that phase."""
+    return any(_rel(u.get("path", "")) == rel and u.get("phase") == phase for u in unlocks or [])
+
+
 def check_edit(phase: str, path: str, cfg: dict | None = None, *, exists: bool = False,
-               lane: str | None = None, flow_active: bool = True) -> Verdict:
+               lane: str | None = None, flow_active: bool = True, unlocks: list[dict] | None = None) -> Verdict:
     """May a file be written in this phase? `exists` = the file is already there (for new-only rules)."""
     cfg = cfg if cfg and "guards" in cfg else make_config(cfg)
     bucket = classify(cfg, path)
@@ -243,6 +251,8 @@ def check_edit(phase: str, path: str, cfg: dict | None = None, *, exists: bool =
         return Verdict(False, bucket, f"{rel} is an existing migration and is immutable. Add a new migration file instead.")
     if not flow_active or phase in (None, "", "none"):
         return Verdict(True, bucket)
+    if unlocked(unlocks, rel, phase):
+        return Verdict(True, bucket, note="unlocked")
     rules = MATRIX.get(phase, CLOSED)
     rule = rules.get(bucket) or rules.get("*") or "deny"
     if phase in LANE_SCOPED_PHASES and lane and LANE_OF.get(bucket) and LANE_OF[bucket] != lane and rule != "deny":
@@ -325,7 +335,7 @@ def adds_dependency(cmd: str) -> str | None:
 
 
 def check_bash(phase: str, command: str, cfg: dict | None = None, *, root: str | None = None,
-               exists=lambda rel: False) -> Verdict:
+               exists=lambda rel: False, unlocks: list[dict] | None = None) -> Verdict:
     cfg = cfg if cfg and "guards" in cfg else make_config(cfg)
     cmd = str(command or "")
     for pat in cfg["guards"]["bash_deny_always"]:
@@ -348,9 +358,9 @@ def check_bash(phase: str, command: str, cfg: dict | None = None, *, root: str |
     if m:
         target = m.group(1).strip("\"'")
         if not target.startswith("/dev/"):
-            v = check_edit(phase, target, cfg, exists=exists(target))
+            v = check_edit(phase, target, cfg, exists=exists(target), unlocks=unlocks)
             if not v.ok:
-                return Verdict(False, v.bucket, f"Shell write to {v.reason}")
+                return Verdict(False, v.bucket, f"Shell write to {v.reason}", path=_rel(target))
     return Verdict(True)
 
 

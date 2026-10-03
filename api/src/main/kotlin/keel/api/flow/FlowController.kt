@@ -9,7 +9,15 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 
-data class StartFlow(val workflowId: String = "", val title: String = "", val acs: List<Ac>? = null)
+data class StartFlow(
+    val workflowId: String = "",
+    val title: String = "",
+    val acs: List<Ac>? = null,
+    val capTokens: Int? = null,
+    val onCap: String? = null,
+)
+data class EstimateYaml(val yaml: String = "", val acs: JsonNode? = null)
+data class UnlockBody(val path: String = "", val phase: String? = null, val reason: String? = null)
 data class Resume(val decision: String = "", val why: String? = null, val payload: Map<String, Any?>? = null)
 data class Rewind(val checkpointId: String = "")
 
@@ -22,7 +30,7 @@ class FlowController(private val flows: FlowService) {
 
     @PostMapping("/projects/{pid}/flows")
     fun start(@PathVariable pid: String, @RequestBody body: StartFlow): JsonNode =
-        flows.start(pid, body.workflowId, body.title, body.acs)
+        flows.start(pid, body.workflowId, body.title, body.acs, FlowCap(body.capTokens, body.onCap))
 
     @PostMapping("/threads/{tid}/resume")
     fun resume(@PathVariable tid: String, @RequestBody body: Resume): JsonNode = flows.resume(tid, body.decision, body.why, body.payload)
@@ -42,4 +50,20 @@ class FlowController(private val flows: FlowService) {
         @RequestParam("workflow_id") workflowId: String,
         @RequestParam(defaultValue = "3") acs: Int,
     ): JsonNode = flows.estimate(pid, workflowId, acs)
+
+    /** Estimate unsaved workflow YAML. `acs` is a count, or a list of ACs (its size is used). */
+    @PostMapping("/projects/{pid}/estimate")
+    fun estimateYaml(@PathVariable pid: String, @RequestBody body: EstimateYaml): JsonNode {
+        val n = when {
+            body.acs == null || body.acs.isNull -> 3
+            body.acs.isArray -> body.acs.size()
+            body.acs.isNumber || body.acs.isTextual -> body.acs.asInt(3)
+            else -> 3
+        }
+        return flows.estimateYaml(pid, body.yaml, n)
+    }
+
+    @PostMapping("/projects/{pid}/unlock")
+    fun unlock(@PathVariable pid: String, @RequestBody body: UnlockBody): UnlockResult =
+        flows.unlock(pid, body.path, body.phase, body.reason)
 }

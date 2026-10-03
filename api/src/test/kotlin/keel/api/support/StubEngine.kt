@@ -29,17 +29,36 @@ class StubEngine private constructor(private val server: HttpServer) {
         "yaml" to "",
     )
 
-    private fun state(id: String, status: String = "running") = mapOf(
+    val knowledgeTemplate = mapOf(
+        "id" to "knowledge-refresh", "name" to "knowledge refresh (keel)", "based_on" to null, "keel_rules" to true, "version" to 1,
+        "steps" to listOf(
+            mapOf("id" to "write", "kind" to "parallel", "name" to "librarians", "agent" to "librarian", "per_ac" to true, "phase" to "memory"),
+            mapOf("id" to "check", "kind" to "code", "name" to "memory_check", "action" to "memory_check", "phase" to "memory"),
+            mapOf("id" to "commit", "kind" to "code", "name" to "commit", "action" to "commit", "phase" to "memory"),
+        ),
+        "yaml" to "",
+    )
+
+    /** Extra ThreadState fields per thread id (for example a "fix" wait), merged over the default. */
+    val overrides = java.util.concurrent.ConcurrentHashMap<String, Map<String, Any?>>()
+
+    private fun state(id: String, status: String = "running"): Map<String, Any?> = mapOf(
         "thread_id" to id, "project_id" to "p", "workflow_id" to "feature", "title" to "t", "status" to status,
         "current" to "spec", "phase" to "spec", "ac" to null,
         "acs" to listOf(mapOf("id" to "AC-001", "layer" to "API", "title" to "a", "status" to "todo")),
         "usage" to mapOf("tokens_in" to 0, "tokens_out" to 0, "cost_usd" to 0, "premium_requests" to 0, "cap_tokens" to 500000),
         "checkpoints" to 1, "updated_at" to "2026-10-03T00:00:00Z",
-    )
+        "blockers" to listOf(mapOf("gate" to "coverage", "why" to "Coverage is 61%", "fix" to "Add tests for Score.kt")),
+        "ladder" to listOf(mapOf("n" to 1, "name" to "build", "cmd" to "./gradlew build", "status" to "pass")),
+    ) + overrides[id].orEmpty()
 
     private fun route(method: String, path: String, body: JsonNode?): Pair<Int, Any?> = when {
         path == "/health" -> 200 to mapOf("ok" to true, "version" to "stub", "fake" to true)
-        path == "/templates" -> 200 to listOf(featureTemplate)
+        path == "/templates" -> 200 to listOf(featureTemplate, knowledgeTemplate)
+        path == "/providers/models" -> 200 to mapOf(
+            "fake" to listOf(mapOf("id" to "fake", "label" to "Fake model")),
+            "claude" to listOf(mapOf("id" to "claude-sonnet", "label" to "Sonnet")),
+        )
         path == "/workflows/validate" -> {
             val yaml = body?.get("yaml")?.asText() ?: ""
             if (yaml.contains("INVALID")) 200 to mapOf("ok" to false, "errors" to listOf("step INVALID is not allowed"))
@@ -51,7 +70,12 @@ class StubEngine private constructor(private val server: HttpServer) {
         )
         path == "/threads" && method == "POST" -> 200 to mapOf("thread_id" to "t-stub-1")
         path.matches(Regex("/threads/[^/]+")) -> 200 to state(path.removePrefix("/threads/"))
-        path.endsWith("/resume") -> 200 to state(path.split('/')[2], "running")
+        path.endsWith("/resume") -> {
+            val id = path.split('/')[2]
+            overrides.remove(id)
+            val unlock = body?.get("payload")?.get("unlock")?.let { mapper.convertValue(it, Map::class.java) }
+            200 to (state(id, "running") + (if (unlock != null) mapOf("unlocks" to listOf(unlock)) else emptyMap()))
+        }
         path.endsWith("/stop") -> 200 to state(path.split('/')[2], "stopped")
         path.endsWith("/history") -> 200 to listOf(mapOf("id" to "c1", "n" to 1, "step" to "spec", "at" to "2026-10-03T00:00:00Z", "note" to "start"))
         path == "/providers/test" -> 200 to mapOf("ok" to true, "text" to "OK", "ms" to 3)

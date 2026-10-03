@@ -16,13 +16,15 @@ import java.util.concurrent.CopyOnWriteArrayList
 class EventHub(private val mapper: ObjectMapper) {
     private val log = LoggerFactory.getLogger(javaClass)
 
-    private data class Sub(val project: String?, val emitter: SseEmitter)
+    /** [light]: `project=*` — every project, but only the events the bell needs. */
+    private data class Sub(val project: String?, val emitter: SseEmitter, val light: Boolean = false)
 
     private val subs = CopyOnWriteArrayList<Sub>()
 
     fun subscribe(project: String?): SseEmitter {
         val emitter = SseEmitter(0L) // no timeout; the heartbeat finds dead clients
-        val sub = Sub(project?.takeIf { it.isNotBlank() }, emitter)
+        val all = project?.trim() == "*"
+        val sub = Sub(project?.takeIf { it.isNotBlank() && !all }, emitter, light = all)
         subs += sub
         emitter.onCompletion { subs.remove(sub) }
         emitter.onTimeout { subs.remove(sub) }
@@ -40,6 +42,7 @@ class EventHub(private val mapper: ObjectMapper) {
         val json = mapper.writeValueAsString(data)
         for (sub in subs) {
             if (sub.project != null && project != null && sub.project != project) continue
+            if (sub.light && type !in LIGHT) continue
             try {
                 sub.emitter.send(SseEmitter.event().name(type).data(json, MediaType.APPLICATION_JSON))
             } catch (e: Exception) {
@@ -50,6 +53,10 @@ class EventHub(private val mapper: ObjectMapper) {
     }
 
     fun count(): Int = subs.size
+
+    companion object {
+        val LIGHT = setOf("notification", "project.changed")
+    }
 
     @Scheduled(fixedRate = 20_000, initialDelay = 20_000)
     fun heartbeat() {

@@ -46,6 +46,17 @@ def key_for(provider: str, keys: dict | None = None) -> str | None:
         (os.environ.get("GH_TOKEN") if provider == "copilot" else None)
 
 
+def login_keys(provider: str, mode: str, key: str | None) -> dict:
+    """POST /providers/test: a key given for a subscription CLI is its login, under the same names StartThread.keys uses."""
+    if not key or mode == "api":
+        return {}
+    if provider == "claude":
+        return {"claude_oauth": key}
+    if provider == "copilot":
+        return {"copilot": key}
+    return {}
+
+
 async def test_provider(provider: str, mode: str, model: str, key: str | None = None) -> dict:
     """Send "Reply with exactly: OK" and report how it went (POST /providers/test)."""
     m = effective({"provider": provider, "mode": mode, "model": model})
@@ -54,7 +65,8 @@ async def test_provider(provider: str, mode: str, model: str, key: str | None = 
     try:
         with tempfile.TemporaryDirectory(prefix="keel-test-") as tmp:
             req = AgentRequest(agent="test", system="", prompt="Reply with exactly: OK", root=tmp, phase="none", model=m,
-                               toolbox=ToolBox(tmp, "none"), key=key or key_for(m["provider"]), workdir=tmp, timeout=120)
+                               toolbox=ToolBox(tmp, "none"), key=key or key_for(m["provider"]), workdir=tmp, timeout=120,
+                               keys=login_keys(m["provider"], m.get("mode", "api"), key))
             if m["provider"] != "fake" and m.get("mode") == "api":
                 from .api_runner import _text, chat_model
                 reply = await chat_model(m["provider"], m.get("model", ""), req.key).ainvoke(req.prompt)

@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 
 
 def data_dir() -> Path:

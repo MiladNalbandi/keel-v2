@@ -33,15 +33,16 @@ def unified_diff(rel: str, old: str, new: str) -> str:
 class ToolBox:
     def __init__(self, root: str, phase: str, *, cfg: dict | None = None, lane: str | None = None,
                  ac: str | None = None, ac_layer: str = "API",
-                 on_refuse: Callable[[str, str, str], None] | None = None):
+                 on_refuse: Callable[[str, str, str], None] | None = None, unlocks: list[dict] | None = None):
         self.root = str(Path(root).resolve())
         self.phase = phase
         self.cfg = cfg or rules.load_config(self.root)
         self.lane = lane
         self.ac = ac
         self.ac_layer = ac_layer
-        self.on_refuse = on_refuse or (lambda tool, path, reason: None)
+        self.on_refuse = on_refuse or (lambda *_a: None)
         self.writes: list[dict] = []
+        self.unlocks = list(unlocks or [])
 
     def _resolve(self, path: str) -> tuple[Path, str] | None:
         p = Path(path)
@@ -52,8 +53,14 @@ class ToolBox:
             return None
         return full, rel
 
-    def _refuse(self, tool: str, path: str, reason: str) -> str:
-        self.on_refuse(tool, path, reason)
+    def _refuse(self, tool: str, path: str, reason: str, command: str | None = None) -> str:
+        if command is not None:
+            try:
+                self.on_refuse(tool, path, reason, command)
+            except TypeError:  # an on_refuse that takes (tool, path, reason) only
+                self.on_refuse(tool, path, reason)
+        else:
+            self.on_refuse(tool, path, reason)
         return f"REFUSED: {reason}"
 
     def read_file(self, path: str, offset: int | None = None, limit: int | None = None) -> str:
@@ -78,7 +85,7 @@ class ToolBox:
         if not r:
             return self._refuse("write_file", path, f"{path} is outside the project.")
         full, rel = r
-        v = rules.check_edit(self.phase, rel, self.cfg, exists=full.exists(), lane=self.lane)
+        v = rules.check_edit(self.phase, rel, self.cfg, exists=full.exists(), lane=self.lane, unlocks=self.unlocks)
         if not v.ok:
             return self._refuse("write_file", rel, v.reason)
         old = full.read_text(errors="replace") if full.is_file() else ""
@@ -90,9 +97,10 @@ class ToolBox:
 
     def run_command(self, command: str, timeout: int = 300) -> str:
         v = rules.check_bash(self.phase, command, self.cfg,
-                             exists=lambda rel: (Path(self.root) / rel).exists())
+                             exists=lambda rel: (Path(self.root) / rel).exists(), unlocks=self.unlocks)
         if not v.ok:
-            return self._refuse("run_command", command, v.reason)
+            # path is the file the command tried to write (empty for a refused command with no target).
+            return self._refuse("run_command", v.path, v.reason, command=command)
         code, out = testcmd.run(self.root, command, timeout=timeout, env=command_env())
         return f"exit {code}\n{out[-8000:]}"
 

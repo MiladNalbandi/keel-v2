@@ -33,6 +33,11 @@ class FlowState(TypedDict, total=False):
     last_failure: str | None
     note: str
     error: str | None
+    base_head: str | None       # HEAD when the thread started; the branch diff for blockers starts here
+    unlocks: list[dict]         # [{path, phase, by?}] keel v1 unlocks: that path bypasses the matrix in that phase
+    deps: list[str]             # dependencies the user approved at a commit (keel v1 state.deps)
+    blockers: list[dict]        # [{gate, why, fix}] push blockers, refreshed by push_check and every commit
+    ladder: list[dict] | None   # init: [{n, name, cmd, status, detail?}]
 
 
 @dataclass
@@ -59,6 +64,29 @@ class ThreadContext:
         v = self.settings.get("simulate_checks")
         return self.fake if v is None else bool(v)
 
+    def disk_unlocks(self) -> list[dict]:
+        """Unlocks the api (or keel v1's CLI) appended to <root>/.keel/state.json while this thread runs."""
+        from ..events import mirror
+
+        return normalize_unlocks(mirror.read_state(self.root).get("unlocks"), "none", "api")
+
+    def write_mirror(self, values: dict, merge_disk: bool = True):
+        """Write <root>/.keel/state.json from graph values (keel v1 hooks read it before every tool call).
+
+        Unlocks already on disk are merged in (by path+phase), never overwritten: the api may add them
+        while the thread runs. A thread's first write (merge_disk=False) starts clean, like `keel state start`.
+        """
+        from ..events import mirror
+
+        if not values:
+            return
+        if merge_disk:
+            merged = merge_unlocks(list(values.get("unlocks") or []), self.disk_unlocks())
+            if len(merged) != len(values.get("unlocks") or []):
+                values = {**values, "unlocks": merged}
+        step = self.workflow.step(values.get("current") or "")
+        mirror.write_state(self.root, mirror.state_json(values, self.workflow.flow, self.thread_id, step.name if step else None))
+
     def emit(self, type: str, *, step: str | None = None, call_id: str | None = None, data: dict | None = None):
         if self.bus:
             self.bus.emit(type, self.thread_id, self.project_id, step=step, call_id=call_id, data=data)
@@ -74,5 +102,24 @@ def initial_state(ctx: ThreadContext, acs: list[dict] | None) -> FlowState:
         stall={"fingerprint": None, "count": 0, "step": 0},
         usage={"tokens_in": 0, "tokens_out": 0, "cost_usd": 0.0, "premium_requests": 0, "cap_tokens": cap},
         retries={}, step_tokens={}, feedback=None, model_override=None, warned=False, spec=None, branch=None,
-        git_head=None, last_failure=None, note="started", error=None,
+        git_head=None, last_failure=None, note="started", error=None, base_head=None,
+        unlocks=normalize_unlocks(s.get("unlocks"), "none", "settings"), deps=[], blockers=[], ladder=None,
     )
+
+
+def normalize_unlocks(raw, phase: str, by: str) -> list[dict]:
+    """[{path, phase, by}] from a dict or a list of dicts; phase defaults to the current phase."""
+    items = raw if isinstance(raw, list) else ([raw] if isinstance(raw, dict) else [])
+    out = []
+    for u in items:
+        if not isinstance(u, dict) or not str(u.get("path") or "").strip():
+            continue
+        item = {"path": str(u["path"]).strip().removeprefix("./"), "phase": u.get("phase") or phase, "by": u.get("by") or by}
+        item.update({k: u[k] for k in ("reason", "at") if u.get(k)})
+        out.append(item)
+    return out
+
+
+def merge_unlocks(have: list[dict], new: list[dict]) -> list[dict]:
+    seen = {(u["path"], u["phase"]) for u in have}
+    return list(have) + [u for u in new if (u["path"], u["phase"]) not in seen]

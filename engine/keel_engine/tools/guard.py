@@ -67,7 +67,7 @@ def _restore(root: str, rel: str, before: Snapshot):
 
 
 def guard_diff(root: str, phase: str, before: Snapshot | None, cfg: dict | None = None,
-               lane: str | None = None) -> list[dict]:
+               lane: str | None = None, unlocks: list[dict] | None = None) -> list[dict]:
     """Revert disallowed changes. Returns [{path, bucket, reason}] for each file put back."""
     if before is None or not phase or phase == "none":
         return []
@@ -76,7 +76,7 @@ def guard_diff(root: str, phase: str, before: Snapshot | None, cfg: dict | None 
     for rel in _changed_since(root, before):
         existed = (rel in before.content and before.content[rel] is not None) or \
                   (rel not in before.content and git.tracked_in_head(root, rel))
-        v = rules.check_edit(phase, rel, cfg, exists=existed, lane=lane)
+        v = rules.check_edit(phase, rel, cfg, exists=existed, lane=lane, unlocks=unlocks)
         if v.ok:
             continue
         _restore(root, rel, before)

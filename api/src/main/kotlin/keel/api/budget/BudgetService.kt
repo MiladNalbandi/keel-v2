@@ -17,10 +17,19 @@ import java.time.format.DateTimeFormatter
 
 data class Month(val tokens: Long, val costUsd: Double, val premiumRequests: Long, val flows: Int)
 data class Day(val day: String, val claude: Long, val codex: Long, val copilot: Long, val fake: Long)
-data class Cap(val name: String, val limit: String, val action: String)
+/** A cap as the budget page shows it: the contract Cap plus a readable name and where it comes from. */
+data class BudgetCap(
+    val id: String,
+    val scope: String,
+    val limit: Double,
+    val unit: String,
+    val action: String,
+    val name: String,
+    val source: String,
+)
 data class TopAgent(val agent: String, val provider: String?, val tokens: Long, val costUsd: Double)
 data class RecentFlow(val title: String, val estimate: Long?, val real: Long, val status: String)
-data class Budget(val month: Month, val days: List<Day>, val caps: List<Cap>, val top: List<TopAgent>, val recent: List<RecentFlow>)
+data class Budget(val month: Month, val days: List<Day>, val caps: List<BudgetCap>, val top: List<TopAgent>, val recent: List<RecentFlow>)
 
 data class Limit(
     val id: String = "",
@@ -37,6 +46,7 @@ class BudgetService(
     private val projects: ProjectService,
     private val settings: SettingsService,
     private val kv: KvStore,
+    private val capService: CapService,
 ) {
     private fun monthStart(): String = LocalDate.now(ZoneOffset.UTC).withDayOfMonth(1).atStartOfDay().toInstant(ZoneOffset.UTC).toString()
 
@@ -61,10 +71,13 @@ class BudgetService(
         }
 
         val s = settings.effective(pid)
-        val onCap = mapOf("pause" to "pause and ask me", "cheaper" to "switch to cheaper model", "stop" to "stop")
+        val name = projects.require(pid).name
+        val scopeText = mapOf("day" to "per day", "flow" to "per flow", "step" to "per step", "api_month" to "API spend per month")
         val caps = listOf(
-            Cap("${projects.require(pid).name}, per flow", "${s.capTokens / 1000}k tokens", onCap[s.onCap] ?: s.onCap),
-        )
+            BudgetCap("settings", "flow", s.capTokens.toDouble(), "tokens", s.onCap, "$name, per flow (settings)", "settings"),
+        ) + capService.list(pid).map { c ->
+            BudgetCap(c.id, c.scope, c.limit, c.unit, c.action, "$name, ${scopeText[c.scope] ?: c.scope}", "yours")
+        }
 
         val top = jdbc.query(
             "SELECT agent, provider, SUM(tokens_in + tokens_out) t, SUM(cost_usd) FROM agent_calls WHERE project_id = ? AND started_at >= ? AND agent IS NOT NULL GROUP BY agent, provider ORDER BY t DESC LIMIT 5",

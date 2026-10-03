@@ -155,6 +155,54 @@ class SkillService(
         return view(def(sid, pid), pid)
     }
 
+    /**
+     * Imports a SKILL.md, from a URL (http/https, at most 256 KB) or pasted text. The front matter
+     * gives the name and description; without a name, the URL's folder name is used.
+     */
+    fun importSkill(pid: String, url: String?, body: String?): Skill {
+        projects.require(pid)
+        val (text, fallbackName) = when {
+            !body.isNullOrBlank() -> body to null
+            !url.isNullOrBlank() -> fetch(url.trim()) to nameFromUrl(url.trim())
+            else -> throw BadRequest("Send { url } or { body }", "A link to a SKILL.md, or its text.")
+        }
+        if (text.length > MAX_IMPORT) throw BadRequest("The skill is too large", "At most 256 KB.")
+        val (fm, rest) = FrontMatter.split(text)
+        val name = fm["name"]?.toString()?.trim()?.takeIf { it.isNotBlank() } ?: fallbackName
+            ?: throw BadRequest("The SKILL.md has no name", "Add front matter: ---\nname: my-skill\ndescription: ...\n---")
+        if (rest.isBlank()) throw BadRequest("The skill has no text after its front matter")
+        val stack = stackOf(Slug.of(name))
+        return create(pid, name, kindOf(Slug.of(name)), stack, text)
+    }
+
+    private fun nameFromUrl(url: String): String? = runCatching {
+        val parts = java.net.URI(url).path.split('/').filter { it.isNotBlank() }
+        val last = parts.lastOrNull()
+        (if (last != null && last.equals("SKILL.md", ignoreCase = true)) parts.getOrNull(parts.size - 2) else last?.removeSuffix(".md"))
+    }.getOrNull()?.takeIf { it.isNotBlank() }
+
+    private fun fetch(url: String): String {
+        val uri = try { java.net.URI(url) } catch (e: Exception) { throw BadRequest("That is not a valid URL") }
+        if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.host.isNullOrBlank()) {
+            throw BadRequest("Only http and https links can be imported")
+        }
+        val client = java.net.http.HttpClient.newBuilder()
+            .connectTimeout(java.time.Duration.ofSeconds(10))
+            .followRedirects(java.net.http.HttpClient.Redirect.NORMAL).build()
+        val req = java.net.http.HttpRequest.newBuilder(uri).timeout(java.time.Duration.ofSeconds(20)).GET().build()
+        val res = try {
+            client.send(req, java.net.http.HttpResponse.BodyHandlers.ofInputStream())
+        } catch (e: Exception) {
+            throw BadRequest("Could not download the skill", e.message?.take(200))
+        }
+        res.body().use { input ->
+            if (res.statusCode() !in 200..299) throw BadRequest("The link answered ${res.statusCode()}", "Use the raw file link.")
+            val bytes = input.readNBytes(MAX_IMPORT + 1)
+            if (bytes.size > MAX_IMPORT) throw BadRequest("The skill is too large", "At most 256 KB.")
+            return String(bytes, Charsets.UTF_8)
+        }
+    }
+
     /** SKILL.md bodies of the skills assigned to an agent, joined, for the engine to add to its prompt. */
     fun textFor(pid: String, skillIds: List<String>): String {
         val all = (builtins() + custom(pid)).associateBy { it.id }
@@ -189,6 +237,8 @@ class SkillService(
             id.startsWith("django") -> "django"
             else -> "any"
         }
+
+        const val MAX_IMPORT = 256 * 1024
 
         val FLOW_SKILLS = setOf("feature", "fix", "change", "hunt", "hunt-next", "init", "ship", "cover", "status")
 

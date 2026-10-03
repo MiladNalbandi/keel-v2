@@ -1,5 +1,6 @@
 package keel.api.engine
 
+import com.fasterxml.jackson.databind.JsonNode
 import keel.api.common.KeelHome
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RestController
@@ -19,4 +20,8 @@ class HealthController(private val engine: EngineClient, private val home: KeelH
             fake = h?.get("fake")?.asBoolean() ?: false,
         )
     }
+
+    /** The engine's model list per provider (`{ [provider]: {id, label}[] }`), passed through. */
+    @GetMapping("/api/providers/models")
+    fun models(): JsonNode = engine.models()
 }

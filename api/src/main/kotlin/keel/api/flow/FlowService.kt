@@ -42,6 +42,14 @@ data class StartThread(
     val keys: Map<String, String>? = null,
 )
 
+/** Per-flow cap from POST /flows; null fields fall back to the project's settings. */
+data class FlowCap(val capTokens: Int? = null, val onCap: String? = null) {
+    fun check() {
+        if (capTokens != null && capTokens <= 0) throw BadRequest("cap_tokens must be above 0")
+        if (onCap != null && onCap !in setOf("pause", "cheaper", "stop")) throw BadRequest("on_cap cannot be \"$onCap\"", "Pick one of: pause, cheaper, stop")
+    }
+}
+
 data class FlowView(val thread: JsonNode?, val workflow: Workflow?, val keelState: JsonNode?)
 
 @Service
@@ -59,7 +67,7 @@ class FlowService(
     private val secrets: SecretService,
 ) {
     /** Builds StartThread from the workflow + effective settings + agent models + MCP + skills. */
-    fun buildStart(pid: String, workflowId: String, title: String, acs: List<Ac>?): StartThread {
+    fun buildStart(pid: String, workflowId: String, title: String, acs: List<Ac>?, cap: FlowCap? = null): StartThread {
         val project = projects.require(pid)
         val wf = workflows.get(workflowId)
         val s = settings.effective(pid)
@@ -75,7 +83,11 @@ class FlowService(
         val allow = mcp.allow(pid)
         val steps = wf.steps.map { st ->
             val a = st.agent
-            if (st.tools == null && a != null && allow[a] != null) st.copy(tools = allow[a]) else st
+            var next = if (st.tools == null && a != null && allow[a] != null) st.copy(tools = allow[a]) else st
+            // An agent's lane ("api" | "web") rides along as step metadata; "follow" leaves the step as it is.
+            val lane = a?.let { byId[it]?.lane }?.takeIf { it != "follow" }
+            if (lane != null) next = next.copy(lane = lane)
+            next
         }
         val skillText = used.mapNotNull { id ->
             val ids = byId[id]?.skills.orEmpty()
@@ -85,14 +97,15 @@ class FlowService(
         return StartThread(
             projectId = pid, root = project.root, workflow = wf.copy(steps = steps), title = title, acs = acs?.takeIf { it.isNotEmpty() },
             models = models,
-            settings = ThreadSettings(s.gatesMode, s.capTokens, s.onCap, s.cheaperModel),
+            settings = ThreadSettings(s.gatesMode, cap?.capTokens ?: s.capTokens, cap?.onCap ?: s.onCap, s.cheaperModel),
             mcp = mcp.specsFor(s.mcp), skills = skillText,
         )
     }
 
-    fun start(pid: String, workflowId: String, title: String, acs: List<Ac>?): JsonNode {
+    fun start(pid: String, workflowId: String, title: String, acs: List<Ac>?, cap: FlowCap? = null): JsonNode {
         if (title.isBlank()) throw BadRequest("Give the flow a title", "One short line: what should this flow build or fix?")
-        val start = buildStart(pid, workflowId, title, acs)
+        cap?.check()
+        val start = buildStart(pid, workflowId, title, acs, cap)
         val keys = start.models.values.filter { it.mode == "api" }.map { it.provider }.distinct()
             .mapNotNull { p -> secrets.keyForProvider(p)?.let { p to it } }.toMap()
         val body = if (keys.isEmpty()) start else start.copy(keys = keys)
@@ -173,13 +186,75 @@ class FlowService(
     /** Engine estimate, fed with this project's job history. */
     fun estimate(pid: String, workflowId: String, acs: Int): JsonNode {
         projects.require(pid)
-        val wf = workflows.get(workflowId)
+        return estimateYaml(pid, workflows.get(workflowId).yaml, acs)
+    }
+
+    /** Estimate for workflow YAML that is not saved yet (POST /estimate). */
+    fun estimateYaml(pid: String, yaml: String, acs: Int): JsonNode {
+        projects.require(pid)
+        if (yaml.isBlank()) throw BadRequest("yaml is empty", "Send the workflow YAML to estimate.")
         val history = jdbc.query(
             "SELECT agent, tokens_in, tokens_out FROM agent_calls WHERE project_id = ? AND status = 'done' AND agent IS NOT NULL ORDER BY started_at DESC LIMIT 300",
             { rs, _ -> mapOf("agent" to rs.getString(1), "tokens_in" to rs.getLong(2), "tokens_out" to rs.getLong(3), "retries" to 0) }, pid,
         )
         val models = linkedMapOf<String, Model>("default" to settings.effective(pid).defaultModel)
         agents.list(pid).filter { it.enabled }.forEach { models[it.id] = it.model }
-        return engine.estimate(mapOf("yaml" to wf.yaml, "acs" to acs.coerceIn(0, 50), "history" to history, "models" to models))
+        return engine.estimate(mapOf("yaml" to yaml, "acs" to acs.coerceIn(0, 50), "history" to history, "models" to models))
+    }
+
+    // ---- unlocks ----------------------------------------------------------------------------
+
+    /**
+     * Opens one path for one phase (keel v1 `keel unlock`). When the project's flow waits on a
+     * "fix" (a guard refused an edit), the unlock goes to the engine as a resume payload, so the
+     * thread continues with it. Otherwise it is written to `<root>/.keel/state.json` `unlocks`.
+     */
+    fun unlock(pid: String, path: String, phase: String?, reason: String?): UnlockResult {
+        val root = projects.root(pid)
+        val rel = path.trim().removePrefix("./")
+        if (rel.isBlank()) throw BadRequest("path is empty", "Send the file path relative to the repo root.")
+        if (rel.startsWith("/") || rel.split('/').any { it == ".." } || rel.contains('\u0000')) {
+            throw BadRequest("That path is outside the project", "Use a path relative to the repo root.")
+        }
+        val why = reason?.takeIf { it.isNotBlank() } ?: "unlocked from keel v2"
+        val waiting = jdbc.query(
+            "SELECT id FROM threads WHERE project_id = ? AND status = 'waiting' ORDER BY updated_at DESC LIMIT 1",
+            { rs, _ -> rs.getString(1) }, pid,
+        ).firstOrNull()
+        if (waiting != null) {
+            val state = runCatching { engine.thread(waiting) }.getOrNull()
+            val kind = state?.get("waiting")?.get("kind")?.asText()
+            if (state != null && state.get("status")?.asText() == "waiting" && kind == "fix") {
+                val ph = phase?.takeIf { it.isNotBlank() } ?: state.get("phase")?.asText() ?: "none"
+                val unlock = mapOf("path" to rel, "phase" to ph)
+                val next = resume(waiting, "approve", "unlock $rel in $ph: $why", mapOf("unlock" to unlock))
+                val list = next.get("unlocks")?.takeIf { it.isArray }?.let { mapper.convertValue(it, List::class.java) }
+                    ?: listOf(unlock)
+                return UnlockResult(list, "thread", waiting)
+            }
+        }
+        val list = writeUnlock(root, rel, phase, why)
+        hub.publish(pid, "project.changed", mapOf("id" to pid))
+        return UnlockResult(list, "state", null)
+    }
+
+    /** Appends `{path, phase, reason, at}` to `.keel/state.json` unlocks (keel v1 format). */
+    @Synchronized
+    private fun writeUnlock(root: java.nio.file.Path, rel: String, phase: String?, why: String): List<Any?> {
+        val file = root.resolve(".keel/state.json")
+        val node = (projects.keelState(root) as? com.fasterxml.jackson.databind.node.ObjectNode) ?: mapper.createObjectNode()
+        val ph = phase?.takeIf { it.isNotBlank() } ?: node.get("phase")?.asText()?.takeIf { it.isNotBlank() } ?: "none"
+        val arr = (node.get("unlocks") as? com.fasterxml.jackson.databind.node.ArrayNode) ?: node.putArray("unlocks")
+        val exists = arr.any { it.get("path")?.asText() == rel && it.get("phase")?.asText() == ph }
+        if (!exists) {
+            arr.addObject().put("path", rel).put("phase", ph).put("reason", why).put("at", Time.now())
+        }
+        java.nio.file.Files.createDirectories(file.parent)
+        val tmp = file.resolveSibling("state.json.tmp")
+        java.nio.file.Files.writeString(tmp, mapper.writerWithDefaultPrettyPrinter().writeValueAsString(node))
+        java.nio.file.Files.move(tmp, file, java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE)
+        return mapper.convertValue(arr, List::class.java)
     }
 }
+
+data class UnlockResult(val unlocks: List<Any?>, val via: String, val threadId: String?)

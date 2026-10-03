@@ -76,11 +76,12 @@ export function Tabs<T extends string>({ value, options, onChange, label }: {
   );
 }
 
-export function ErrorBox({ error, onRetry }: { error: { message: string; hint?: string }; onRetry?: () => void }) {
+export function ErrorBox({ error, onRetry }: { error: { message: string; hint?: string; details?: string[] }; onRetry?: () => void }) {
   return (
     <div className="errbox" role="alert">
       <b>{error.message}</b>
       {error.hint && <span className="sub">{error.hint}</span>}
+      {!!error.details?.length && <ul className="errlist">{error.details.map((d, i) => <li key={i}>{d}</li>)}</ul>}
       {onRetry && <div><button className="btn sm" type="button" onClick={onRetry}>Try again</button></div>}
     </div>
   );
@@ -173,6 +174,19 @@ export function Legend({ items }: { items: [React.CSSProperties, ReactNode][] })
   return (
     <div className="legend">
       {items.map(([st, l], i) => <span key={i}><i style={st} />{l}</span>)}
+    </div>
+  );
+}
+
+/** Two-step confirm for actions that change something important: first click asks, second click does it. */
+export function Confirm({ text, yes, onYes, onNo, busy }: { text: ReactNode; yes: string; onYes: () => void; onNo: () => void; busy?: boolean }) {
+  return (
+    <div className="confirm" role="group" aria-label="Confirm">
+      <span>{text}</span>
+      <div className="row">
+        <button className="btn sm warn" type="button" onClick={onYes} disabled={busy}>{busy ? "Working…" : yes}</button>
+        <button className="btn sm" type="button" onClick={onNo} disabled={busy}>Cancel</button>
+      </div>
     </div>
   );
 }

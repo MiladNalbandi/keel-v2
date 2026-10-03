@@ -47,9 +47,16 @@ def _allowed(phase: str) -> str:
 
 
 def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str, ac: dict | None,
-                acs: list[dict], feedback: str | None, index: int = 0, spec: str | None = None) -> str:
+                acs: list[dict], feedback: str | None, index: int = 0, spec: str | None = None,
+                section: str | None = None, unlocks: list[dict] | None = None) -> str:
     lines = [f"Project folder: {root}", f"Flow: {title}", f"Step: {step_name} (keel phase: {phase})",
              f"Files you may change in this phase: {_allowed(phase)}. Anything else is put back automatically."]
+    mine = [u["path"] for u in unlocks or [] if u.get("phase") == phase]
+    if mine:
+        lines.append("Unlocked for this phase by the user: " + ", ".join(mine))
+    if section:
+        lines.append(f"Knowledge section: {section}. Rewrite docs/knowledge/{section}.md from the code, "
+                     "with a file:line citation behind every claim. Touch no other file.")
     if spec:
         lines.append(f"Spec: {spec}")
     if acs:
@@ -65,7 +72,7 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
                      "Do not write production code.")
     if phase == "green":
         lines.append("Write the minimum production code that makes the current criterion's test pass. Tests are frozen.")
-    if index:
+    if index and not section:
         lines.append(f"You are copy {index + 1} of a parallel step; take a different angle from the others.")
     if feedback:
         lines.append(f"This was sent back. Reason:\n{feedback}")

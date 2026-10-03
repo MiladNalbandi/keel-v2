@@ -22,6 +22,7 @@ from .. import config
 from ..events import EventBus, mirror
 from ..tools import git
 from ..workflows.model import Workflow, from_dict
+from . import ladder as ladder_mod
 from .compiler import compile_workflow
 from .state import ThreadContext, initial_state
 
@@ -170,8 +171,15 @@ class Engine:
     def _mirror(self, ctx: ThreadContext, values: dict):
         if not values:
             return
-        step = ctx.workflow.step(values.get("current") or "")
-        mirror.write_state(ctx.root, mirror.state_json(values, ctx.workflow.flow, ctx.thread_id, step.name if step else None))
+        if not values.get("ladder") and self._has_ladder(ctx):
+            rungs = ladder_mod.previous(ctx.root)
+            if rungs:
+                values = {**values, "ladder": rungs}
+        ctx.write_mirror(values)
+
+    @staticmethod
+    def _has_ladder(ctx: ThreadContext) -> bool:
+        return any("ladder" in s.actions() or any(l.sub == "ladder" for l in s.lanes or []) for s in ctx.workflow.steps)
 
     @staticmethod
     def _waiting(snap) -> dict | None:
@@ -209,6 +217,11 @@ class Engine:
         if git.is_repo(root):
             state["branch"] = git.branch(root)
             state["git_head"] = git.head(root)
+            state["base_head"] = state["git_head"]
+        ctx.write_mirror(state, merge_disk=False)
+        for u in state.get("unlocks") or []:
+            mirror.append_log(root, {"kind": "gate", "gate": "unlock", "verdict": "approve",
+                                     "detail": f"{u['path']} in {u['phase']} (from settings)"})
         ctx.emit("thread.started", data={"workflow": wf.id, "title": ctx.title, "flow": wf.flow, "root": root,
                                          "acs": len(state["acs"]), "fake": ctx.fake})
         self._launch(tid, state)
@@ -239,7 +252,17 @@ class Engine:
                     for a in v.get("acs") or []],
             "usage": {**{"tokens_in": 0, "tokens_out": 0, "cost_usd": 0.0, "premium_requests": 0, "cap_tokens": 0}, **(v.get("usage") or {})},
             "checkpoints": n, "updated_at": row["updated_at"],
+            "blockers": list(v.get("blockers") or []),
+            "unlocks": [{"path": u.get("path"), "phase": u.get("phase")} for u in v.get("unlocks") or []],
         }
+        ctx = await self._context(tid)
+        rungs = v.get("ladder")
+        if self._has_ladder(ctx):
+            # A failed rung stops the step at a "fix" pause before the graph state is updated,
+            # so .keel/ladder.json (written as the ladder runs) is the fresher source.
+            rungs = ladder_mod.previous(ctx.root) or rungs
+        if rungs:
+            out["ladder"] = rungs
         if waiting and status == "waiting":
             out["waiting"] = {"step": waiting.get("step"), "kind": waiting.get("kind", "gate"), "title": waiting.get("title", ""),
                               "detail": waiting.get("detail", ""), "options": waiting.get("options") or ["approve", "reject"]}

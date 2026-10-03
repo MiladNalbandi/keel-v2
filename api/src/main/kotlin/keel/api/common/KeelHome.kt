@@ -17,5 +17,16 @@ class KeelHome(private val props: KeelProperties, private val mapper: ObjectMapp
     }
 
     fun bin(): Path = path.resolve("bin/keel")
+
+    fun installed(): Boolean = Files.isRegularFile(bin())
+
+    /** The command line for `keel <args>`: the bin itself when executable, else through node (or sh for a script). */
+    fun command(vararg args: String): List<String> {
+        val bin = bin()
+        if (Files.isExecutable(bin)) return listOf(bin.toString(), *args)
+        val first = runCatching { Files.newBufferedReader(bin).use { it.readLine() } }.getOrNull().orEmpty()
+        val runner = if (first.startsWith("#!") && first.contains("sh") && !first.contains("node")) "sh" else "node"
+        return listOf(runner, bin.toString(), *args)
+    }
     fun mcpServer(): Path = path.resolve("mcp/server.js")
 }

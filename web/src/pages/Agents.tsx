@@ -2,13 +2,15 @@
 // for this project only (PUT /api/projects/{pid}/agents/{aid}).
 
 import { useState } from "react";
-import { api, errorParts, type Agent, type CustomAgent, type McpServer, type Model } from "../api";
+import { api, errorParts, type Agent, type AgentLane, type CustomAgent, type McpServer, type Model } from "../api";
 import { MODES_FOR, ModelPicker, modeLabel } from "../components/ModelPicker";
 import { Async, Drawer, ErrorBox, GoButton, PageHead, Prov, Tabs } from "../components/ui";
 import { slug } from "../format";
 import { useApp, useLoad } from "../state";
 
 type Err = { message: string; hint?: string } | null;
+
+const LANES: Record<AgentLane, string> = { follow: "follow the AC (api or web)", api: "api only", web: "web only" };
 
 function AgentRow({ a, onOpen }: { a: Agent; onOpen: () => void }) {
   return (
@@ -32,6 +34,7 @@ function AgentDrawer({ pid, a, onClose, onSaved, onDeleted }: { pid: string; a: 
   const [model, setModel] = useState<Model>(a.model ?? { provider: "fake", mode: "api", model: "fake" });
   const [prompt, setPrompt] = useState(a.prompt);
   const [enabled, setEnabled] = useState(a.enabled);
+  const [lane, setLane] = useState<AgentLane>(a.lane ?? "follow");
   const [busy, setBusy] = useState(false);
   const [test, setTest] = useState<string>("");
   const [err, setErr] = useState<Err>(null);
@@ -43,6 +46,7 @@ function AgentDrawer({ pid, a, onClose, onSaved, onDeleted }: { pid: string; a: 
       if (JSON.stringify(model) !== JSON.stringify(a.model)) body.model = model;
       if (prompt !== a.prompt) body.prompt = prompt;
       if (enabled !== a.enabled) body.enabled = enabled;
+      if (lane !== (a.lane ?? "follow")) body.lane = lane;
       const out = await api.saveAgent(pid, a.id, body);
       onSaved(out ?? { ...a, ...body });
       toast("Saved for this project.");
@@ -94,7 +98,11 @@ function AgentDrawer({ pid, a, onClose, onSaved, onDeleted }: { pid: string; a: 
         </div>
         <span className="hint">Picked by phase, layer and the project's stack.</span>
       </div>
-      <div className="field"><span className="lab">Stack and lane</span><span className="sub">follows the AC (api or web)</span></div>
+      <div className="field"><label htmlFor="alane">Lane</label>
+        <select id="alane" value={lane} onChange={(e) => setLane(e.target.value as AgentLane)}>
+          {(Object.keys(LANES) as AgentLane[]).map((k) => <option key={k} value={k}>{LANES[k]}</option>)}
+        </select>
+        <span className="hint">Which acceptance criteria this agent works on. "Follow the AC" takes the AC's layer (API or WEB) and its stack.</span></div>
       <div className="field"><label htmlFor="ap">System prompt</label><textarea id="ap" value={prompt} onChange={(e) => setPrompt(e.target.value)} /></div>
       <label className="chk"><input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} /> Enabled in this project</label>
       {a.overridden.length > 0 && <span className="hint">Changed for this project: {a.overridden.join(", ")}.</span>}

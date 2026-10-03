@@ -35,6 +35,8 @@ class AgentRequest:
     key: str | None = None           # API key or GitHub token for this provider, never logged
     workdir: str = ""                # scratch folder for config files (mcp.json, schema files)
     timeout: int = 1800
+    keys: dict[str, str] = field(default_factory=dict)   # StartThread.keys (e.g. claude_oauth, copilot), never logged
+    section: str | None = None       # knowledge-refresh: the knowledge section this librarian writes
 
 
 @dataclass

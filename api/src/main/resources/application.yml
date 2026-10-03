@@ -32,6 +32,7 @@ keel:
   secret: ${KEEL_SECRET:}
   projects-file: ${user.home}/.keel/projects.json
   scan-on-start: true
+  dashboard-port: ${KEEL_DASHBOARD_PORT:7391}
 
 logging:
   level:

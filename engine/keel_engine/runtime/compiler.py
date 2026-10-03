@@ -32,12 +32,13 @@ from ..tools import git, guard
 from ..tools.agent_tools import ToolBox
 from ..workflows.model import Step, Workflow
 from . import prompts
-from .actions import ActionInput, ActionResult, run_action
-from .state import FlowState, ThreadContext
+from .actions import ActionInput, ActionResult, revert_manifests, run_action
+from .state import FlowState, ThreadContext, merge_unlocks, normalize_unlocks
 
 log = logging.getLogger(__name__)
 
 AC_BEGIN, AC_END, FINISH = "__ac_begin", "__ac_end", "__finish"
+KNOWN_SECTIONS = {"architecture", "domain", "conventions", "data", "integrations"}
 OPTIONS = ["approve", "reject"]
 
 
@@ -122,13 +123,24 @@ class Compiler:
         async def node(state: FlowState):
             if state.get("status") in ("stopped", "failed"):
                 return Command(goto=END)
+            # Unlocks the api appended to .keel/state.json since the last step join the thread's state.
+            have = list(state.get("unlocks") or [])
+            merged = merge_unlocks(have, await asyncio.to_thread(ctx.disk_unlocks))
+            if len(merged) != len(have):
+                state = {**state, "unlocks": merged}
             prev = state.get("phase") or "none"
             phase = step.phase or prev
             ac = state.get("ac") if step.per_ac else None
             ctx.emit("step.started", step=step.id, data={
                 "name": step.name, "kind": step.kind, "phase": phase, "ac": ac, "from": prev, "flow": self.wf.flow,
                 "phase_changed": prev != phase, "transition_ok": rules.can_transition(prev, phase)})
+            if step.kind in ("agent", "parallel", "branch"):
+                # keel v1's hooks (claude --plugin-dir, the opencode adapter) read .keel/state.json on every
+                # tool call, so it must show this step's phase, AC and unlocks before the agent starts.
+                await asyncio.to_thread(ctx.write_mirror, {**state, "phase": phase, "current": step.id})
             update, goto = await fn(i, step, {**state, "phase": phase})
+            if len(merged) != len(have):
+                update.setdefault("unlocks", merged)
             update.setdefault("phase", phase)
             update.setdefault("current", step.id)
             failed = update.get("status") in ("stopped", "failed")
@@ -172,7 +184,26 @@ class Compiler:
             m = self.ctx.models["default"]
         return models.effective(m)
 
-    async def _run_agent(self, state: FlowState, step: Step, agent: str, index: int) -> tuple[AgentResult, dict, ToolBox]:
+    def _ask(self, state: FlowState, question: dict) -> tuple[dict, dict]:
+        """interrupt() for any pause, plus what every answer may carry: payload.unlock {path, phase}.
+
+        Returns (answer, state update). An unlock is added to state.unlocks and logged as a gate event.
+        """
+        answer = interrupt(question) or {}
+        payload = answer.get("payload") or {}
+        new = normalize_unlocks(payload.get("unlock"), state.get("phase") or "none", "user")
+        if not new:
+            return answer, {}
+        have = list(state.get("unlocks") or [])
+        merged = merge_unlocks(have, new)
+        for u in merged[len(have):]:
+            # gate.decided becomes a `gate` line in .keel/logs/events.jsonl through the bus.
+            self.ctx.emit("gate.decided", step=question.get("step"), data={
+                "gate": "unlock", "decision": "approve", "unlock": {"path": u["path"], "phase": u["phase"]},
+                "why": f"{u['path']} in {u['phase']}" + (f": {answer.get('why')}" if answer.get("why") else "")})
+        return answer, {"unlocks": merged}
+
+    async def _run_agent(self, state: FlowState, step: Step, agent: str, index: int, section: str | None = None) -> tuple[AgentResult, dict, ToolBox]:
         ctx = self.ctx
         phase = state["phase"]
         ac = _ac(state) if step.per_ac else None
@@ -180,12 +211,15 @@ class Compiler:
         call_id = uuid.uuid4().hex
         cfg = rules.load_config(ctx.root)
 
-        def on_refuse(tool: str, path: str, reason: str):
-            ctx.emit("guard.refused", step=step.id, call_id=call_id,
-                     data={"tool": tool, "path": path, "reason": reason, "agent": agent, "phase": phase})
+        def on_refuse(tool: str, path: str, reason: str, command: str | None = None):
+            data = {"tool": tool, "path": path or "", "reason": reason, "agent": agent, "phase": phase}
+            if command:
+                data["command"] = command
+            ctx.emit("guard.refused", step=step.id, call_id=call_id, data=data)
 
         toolbox = ToolBox(ctx.root, phase, cfg=cfg, lane=rules.ac_lane(ac) if ac else None,
-                          ac=(ac or {}).get("id"), ac_layer=(ac or {}).get("layer", "API"), on_refuse=on_refuse)
+                          ac=(ac or {}).get("id"), ac_layer=(ac or {}).get("layer", "API"), on_refuse=on_refuse,
+                          unlocks=state.get("unlocks") or [])
         ctx.emit("agent.started", step=step.id, call_id=call_id, data={
             "agent": agent, "provider": model["provider"], "model": model.get("model"), "mode": model.get("mode"),
             "phase": phase, "ac": (ac or {}).get("id"), "index": index})
@@ -198,12 +232,14 @@ class Compiler:
             ctx.emit("agent.step", step=step.id, call_id=call_id, data=data)
 
         prompt = prompts.task_prompt(agent=agent, phase=phase, step_name=step.name, title=ctx.title, root=ctx.root, ac=ac,
-                                     acs=state.get("acs") or [], feedback=state.get("feedback"), index=index, spec=state.get("spec"))
+                                     acs=state.get("acs") or [], feedback=state.get("feedback"), index=index, spec=state.get("spec"),
+                                     section=section, unlocks=state.get("unlocks") or [])
         with tempfile.TemporaryDirectory(prefix="keel-agent-") as tmp:
             req = AgentRequest(agent=agent, system=prompts.system_prompt(agent, ctx.skills), prompt=prompt, root=ctx.root,
                                phase=phase, model=model, toolbox=toolbox, ac=ac, acs=state.get("acs") or [], title=ctx.title,
                                step_name=step.name, index=index, feedback=state.get("feedback"), mcp_specs=ctx.mcp,
-                               tools_allow=step.tools or [], key=models.key_for(model["provider"], ctx.keys), workdir=tmp)
+                               tools_allow=step.tools or [], key=models.key_for(model["provider"], ctx.keys), workdir=tmp,
+                               keys=dict(ctx.keys), section=section)
             try:
                 res = await models.runner_for(model).run(req, emit)
             except asyncio.CancelledError:
@@ -249,14 +285,14 @@ class Compiler:
             ctx.emit("budget.stop", step=step.id, data=info)
             return {"status": "stopped", "note": "token cap reached; flow stopped"}
         limit_txt = f"{step_used:,} of {step.max_tokens:,} tokens for this step" if over_step else f"{used:,} of {cap:,} tokens"
-        answer = interrupt({"step": step.id, "kind": "budget", "title": "Token cap reached",
-                            "detail": f"This flow has used {limit_txt}. Approve to continue past the cap, reject to stop.",
-                            "options": OPTIONS})
+        answer, extra = self._ask(state, {"step": step.id, "kind": "budget", "title": "Token cap reached",
+                                          "detail": f"This flow has used {limit_txt}. Approve to continue past the cap, reject to stop.",
+                                          "options": OPTIONS})
         if (answer or {}).get("decision") != "approve":
             ctx.emit("budget.stop", step=step.id, data={**info, "why": (answer or {}).get("why")})
-            return {"status": "stopped", "note": "stopped at the token cap"}
+            return {**extra, "status": "stopped", "note": "stopped at the token cap"}
         payload = (answer or {}).get("payload") or {}
-        upd: dict = {"warned": False}
+        upd: dict = {"warned": False, **extra}
         if over_cap:
             usage["cap_tokens"] = int(payload.get("cap_tokens") or (used + max(cap, 1)))
             upd["usage"] = usage
@@ -287,6 +323,9 @@ class Compiler:
                     code_lanes.append(lane.sub)
         else:
             calls = [(step.agent or "", k) for k in range(max(1, step.parallel or 1))]
+        sections = self._sections(step, state)
+        if sections:
+            calls = [(step.agent or "librarian", k) for k in range(len(sections))]
 
         before = await asyncio.to_thread(guard.snapshot, ctx.root)
         ac = _ac(state) if step.per_ac else None
@@ -299,24 +338,29 @@ class Compiler:
 
         while True:
             try:
-                out = await asyncio.gather(*[self._run_agent(state, step, a, k) for a, k in calls],
+                out = await asyncio.gather(*[self._run_agent(state, step, a, k, sections[k] if sections else None) for a, k in calls],
                                            *[lane(c) for c in code_lanes])
                 break
             except (asyncio.CancelledError, GraphBubbleUp):
                 raise
             except Exception as exc:
                 log.warning("step %s failed: %s", step.id, exc)
-                answer = interrupt({"step": step.id, "kind": "fix", "title": f"{step.name} failed",
-                                    "detail": f"{exc}{(' ' + exc.hint) if getattr(exc, 'hint', '') else ''}\n\nApprove to try again, reject to stop the flow.",
-                                    "options": OPTIONS})
+                answer, extra = self._ask(state, {"step": step.id, "kind": "fix", "title": f"{step.name} failed",
+                                                  "detail": f"{exc}{(' ' + exc.hint) if getattr(exc, 'hint', '') else ''}\n\nApprove to try again, reject to stop the flow.",
+                                                  "options": OPTIONS})
+                upd.update(extra)
+                state = {**state, **extra}
                 if (answer or {}).get("decision") != "approve":
                     return {**upd, "status": "failed", "error": str(exc)[:500], "note": f"{step.name} failed"}, END
 
         agent_results = [o for o in out if isinstance(o, tuple)]
         lane_notes = [o.note for o in out if isinstance(o, ActionResult)]
+        for o in out:
+            if isinstance(o, ActionResult):
+                upd.update(o.update)
 
         refused = await asyncio.to_thread(guard.guard_diff, ctx.root, state["phase"], before, None,
-                                          rules.ac_lane(ac) if ac else None)
+                                          rules.ac_lane(ac) if ac else None, state.get("unlocks") or [])
         for r in refused:
             ctx.emit("guard.refused", step=step.id, data={"tool": "diff-guard", "phase": state["phase"], **r})
 
@@ -338,7 +382,17 @@ class Compiler:
         upd["note"] = " · ".join(x for x in [label, *notes[:2], *lane_notes] if x)
         if refused:
             upd["note"] += f" · guard put back {len(refused)} file(s)"
+        if sections and state.get("acs"):
+            upd["acs"] = [dict(a, status="done") if a["id"] in sections else dict(a) for a in state["acs"]]
 
+        for res, _m, tb in agent_results:
+            # A CLI agent stopped by keel v1's hooks: the runner reported it as a guard step.
+            for r in res.data.get("refusals") or []:
+                data = {"tool": r.get("tool") or "hook", "phase": state["phase"], "path": r.get("path") or "",
+                        "reason": r.get("reason", ""), "source": "keel-hook"}
+                if r.get("command"):
+                    data["command"] = r["command"]
+                ctx.emit("guard.refused", step=step.id, data=data)
         if state["phase"] in ("spec", "triage") and not state.get("acs"):
             acs, spec = self._acs_from(agent_results)
             if acs:
@@ -346,6 +400,19 @@ class Compiler:
             if spec:
                 upd["spec"] = spec
         return upd, self.nav.after(i)
+
+    def _sections(self, step: Step, state: FlowState) -> list[str]:
+        """knowledge-refresh: one librarian per section, for a parallel librarian step.
+
+        Sections come from settings.sections, else from the thread's acs (the api starts the flow with
+        one AC per stale section: {id: <section>, layer: "API", title: <section>}).
+        """
+        if step.kind != "parallel" or step.lanes or (step.agent or "") != "librarian":
+            return []
+        secs = [str(x) for x in self.ctx.settings.get("sections") or [] if str(x).strip()]
+        if not secs and (self.wf.flow == "knowledge-refresh" or all(a["id"] in KNOWN_SECTIONS for a in state.get("acs") or [{"id": "-"}])):
+            secs = [a["id"] for a in state.get("acs") or []]
+        return secs
 
     def _acs_from(self, results) -> tuple[list[dict], str | None]:
         from pathlib import Path
@@ -370,7 +437,9 @@ class Compiler:
 
     def _action_input(self, state: FlowState, ac: dict | None) -> ActionInput:
         return ActionInput(root=self.ctx.root, phase=state["phase"], title=self.ctx.title, ac=ac,
-                           acs=copy.deepcopy(state.get("acs") or []), fake=self.ctx.simulate_checks, flow=self.wf.flow)
+                           acs=copy.deepcopy(state.get("acs") or []), fake=self.ctx.simulate_checks, flow=self.wf.flow,
+                           deps=list(state.get("deps") or []), gates_log=list((state.get("gates") or {}).get("log") or []),
+                           base=state.get("base_head"), unlocks=list(state.get("unlocks") or []))
 
     async def code_step(self, i: int, step: Step, state: FlowState):
         ac = _ac(state) if step.per_ac else None
@@ -379,7 +448,12 @@ class Compiler:
         notes = []
         for action in step.actions():
             r = await run_action(action, self._action_input(st, ac))
+            if r.ask:
+                return await self._answer_check(i, step, st, r, upd)
             if not r.ok:
+                for k in ("blockers", "ladder"):
+                    if k in r.update:
+                        upd[k] = r.update[k]
                 return self._check_failed(i, step, st, ac, r, upd)
             st.update(r.update)
             upd.update(r.update)
@@ -389,6 +463,39 @@ class Compiler:
         retries.pop(key, None)
         upd.update(note="; ".join(notes), retries=retries, stall={"fingerprint": None, "count": 0, "step": 0}, last_failure=None)
         return upd, self.nav.after(i)
+
+    async def _answer_check(self, i: int, step: Step, state: FlowState, r: ActionResult, upd: dict):
+        """A commit check asked the user (new dependency, escalation). Apply the answer and run the step again.
+
+        Returning to the same step keeps one interrupt per node run, so a resume can never hand one
+        question's answer to another.
+        """
+        q = r.ask
+        answer, extra = self._ask(state, {"step": step.id, "kind": q["kind"], "title": q["title"], "detail": q["detail"],
+                                          "options": OPTIONS})
+        upd = {**upd, **extra}
+        decision = answer.get("decision", "reject")
+        why = (answer.get("why") or "").strip()
+        gates = copy.deepcopy(state.get("gates") or {"mode": "every-ac", "log": [], "skipped": {}})
+        if q["type"] == "deps":
+            if decision == "approve":
+                deps = list(state.get("deps") or []) + [d for d in q["deps"] if d not in (state.get("deps") or [])]
+                gates["log"].append("deps approve: " + ", ".join(q["deps"]) + (f": {why}" if why else ""))
+                upd.update(deps=deps, gates=gates, note="new dependency approved: " + ", ".join(q["deps"]))
+            else:
+                await asyncio.to_thread(revert_manifests, self.ctx.root, q["files"])
+                gates["log"].append("deps reject: " + ", ".join(q["deps"]) + (f": {why}" if why else ""))
+                upd.update(gates=gates, note="new dependency rejected; manifest put back: " + ", ".join(q["files"]))
+            self.ctx.emit("gate.decided", step=step.id, data={"gate": q["title"], "decision": decision, "why": why})
+            return upd, step.id
+        # escalate
+        self.ctx.emit("gate.decided", step=step.id, data={"gate": q["title"], "decision": decision, "why": why})
+        if decision == "approve":
+            gates["log"].append(f"escalation: {q['why']}")
+            return {**upd, "gates": gates, "status": "stopped", "error": f"Escalated to a feature flow: {q['why']}.",
+                    "note": "escalated: start a feature flow for this work"}, END
+        gates["log"].append(f"escalation-override: {why or q['why']}")
+        return {**upd, "gates": gates, "note": f"stays a small change: {why}"}, step.id
 
     def _check_failed(self, i: int, step: Step, state: FlowState, ac: dict | None, r: ActionResult, upd: dict):
         key = f"{step.id}:{(ac or {}).get('id')}"
@@ -411,9 +518,10 @@ class Compiler:
         if target and count <= attempts:
             retries[key] = count
             return {**base, "retries": retries}, target
-        answer = interrupt({"step": step.id, "kind": "fix", "title": f"{step.name} keeps failing",
-                            "detail": f"{r.note}\n\n{r.detail[-1500:]}\n\nApprove to try again, reject to stop the flow.",
-                            "options": OPTIONS})
+        answer, extra = self._ask(state, {"step": step.id, "kind": "fix", "title": f"{step.name} keeps failing",
+                                          "detail": f"{r.note}\n\n{r.detail[-1500:]}\n\nApprove to try again, reject to stop the flow.",
+                                          "options": OPTIONS})
+        base.update(extra)
         if (answer or {}).get("decision") != "approve":
             return {**base, "status": "failed", "error": r.note}, END
         retries[key] = 0
@@ -438,15 +546,15 @@ class Compiler:
             detail = "\n".join(f"{a['id']} [{a.get('layer', 'API')}] {a.get('title', '')}" for a in acs) or (state.get("note") or "")
             if state.get("spec"):
                 detail = f"Spec: {state['spec']}\n{detail}"
-        answer = interrupt({"step": step.id, "kind": "gate", "title": step.name + (f" · {ac['id']}" if ac else ""),
-                            "detail": detail, "options": OPTIONS}) or {}
+        answer, extra = self._ask(state, {"step": step.id, "kind": "gate", "title": step.name + (f" · {ac['id']}" if ac else ""),
+                                          "detail": detail, "options": OPTIONS})
         decision = answer.get("decision", "reject")
         why = (answer.get("why") or "").strip()
         payload = answer.get("payload") or {}
         subject = f"ac {ac['id']}" if ac else f"gate {step.id}"
         gates["log"].append(f"{subject} {decision}" + (f": {why}" if why else ""))
         ctx.emit("gate.decided", step=step.id, data={"gate": step.name, "decision": decision, "why": why, "ac": (ac or {}).get("id")})
-        upd: dict = {"gates": gates}
+        upd: dict = {"gates": gates, **extra}
         if payload.get("acs"):
             acs = [{"id": a["id"], "layer": a.get("layer", "API"), "title": a.get("title", ""), "status": a.get("status", "todo")}
                    for a in payload["acs"]]
