@@ -5,10 +5,9 @@ services:
     image: ${KEEL_IMAGE:-keel-v2:local}
     build:
       context: .
-      additional_contexts:
-        keel: ${KEEL_SRC:-../keel}
       args:
         INSTALL_CLIS: ${INSTALL_CLIS:-1}
+        KEEL_REF: ${KEEL_REF:-main}
     ports:
       - "127.0.0.1:${PORT:-8080}:8080"
     environment:

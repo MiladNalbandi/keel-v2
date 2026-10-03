@@ -48,8 +48,9 @@ images. `./keel2 token <claude|codex|copilot>` saves one from the terminal; `./k
 ## Build the image yourself
 
 ```bash
-docker build --build-context keel=../keel -t keel-v2 .          # keel v1 source next to this repo
-docker build --build-context keel=../keel --build-arg INSTALL_CLIS=0 -t keel-v2:slim .   # without the CLIs
+docker build -t keel-v2 .                                   # installs everything; keel v1 is cloned from GitHub
+docker build --build-arg KEEL_REF=v0.67.0 -t keel-v2 .      # pin keel v1 to a tag or branch
+docker build --build-arg INSTALL_CLIS=0 -t keel-v2:slim .   # without the CLIs
 docker compose up --build                                         # same, with PROJECT=/path/to/repo
 ```
 
