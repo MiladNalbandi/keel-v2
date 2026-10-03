@@ -1,0 +1,253 @@
+# keel v2 — build contract
+
+The single source of truth for how the three parts fit. `docs/mockup.html` is the UI reference
+(look, screens, wording). If code and this file disagree, fix one of them in the same change.
+
+## Shape
+
+```
+ one Docker image  ─  docker run -p 127.0.0.1:8080:8080 -v /path/to/project:/workspace -v keel-data:/data keel-v2
+ ┌──────────────────────────────────────────────────────────────────────────────────────────┐
+ │ tini → /usr/local/bin/keel-start (bash): starts engine, then api; exits if either dies     │
+ │                                                                                            │
+ │  api   (Kotlin Spring Boot 3, JDK 21)  0.0.0.0:8080   /api/** + serves web/dist at /        │
+ │        SQLite  /data/keel.db  (Flyway)                                                     │
+ │  engine (Python 3.12, FastAPI, LangGraph) 127.0.0.1:8090  (only the api talks to it)        │
+ │        SQLite  /data/checkpoints.db  (langgraph-checkpoint-sqlite)                          │
+ │  keel v1 at /opt/keel  (node; `keel` on PATH; MCP server /opt/keel/mcp/server.js)          │
+ │  CLIs (optional, build arg INSTALL_CLIS=1): claude, codex, copilot, opencode                │
+ └──────────────────────────────────────────────────────────────────────────────────────────┘
+ /workspace  = a mounted project (a git repo) or a folder of repos   → registered at start
+ /data       = all state (db, checkpoints, master.key for secrets, notification inbox)
+```
+
+Local development without Docker: engine `cd engine && uv run keel-engine` (port 8090),
+api `cd api && ./gradlew bootRun` (port 8080, `KEEL_ENGINE_URL=http://127.0.0.1:8090`),
+web `cd web && npm run dev` (port 5173, proxies `/api` to 8080).
+
+## Environment variables
+
+| Var | Default | Used by |
+|---|---|---|
+| `KEEL_DATA` | `/data` (dev: `./.data`) | api, engine |
+| `KEEL_WORKSPACE` | `/workspace` (dev: unset) | api — scan for projects at start |
+| `KEEL_HOME` | `/opt/keel` (dev: `../keel`) | api, engine — keel v1 (agents/, skills/, stacks/, packs/, mcp/, bin/keel) |
+| `KEEL_ENGINE_URL` | `http://127.0.0.1:8090` | api |
+| `KEEL_API_URL` | `http://127.0.0.1:8080` | engine — where it POSTs events |
+| `KEEL_INTERNAL_TOKEN` | random at start, shared by both | header `X-Keel-Token` on engine↔api calls |
+| `KEEL_FAKE` | `0` | engine — `1` forces the fake model everywhere (tests, demo) |
+| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GITHUB_TOKEN` | — | optional; Connections can store keys instead |
+
+## Engine API (FastAPI, 127.0.0.1:8090) — called only by the api
+
+All JSON. Errors: `{ "error": string, "hint"?: string }` with 4xx/5xx.
+
+```
+GET  /health                                  → { ok: true, version, fake: bool }
+GET  /templates                               → Workflow[]        built-in keel flows: feature, change, fix, init
+POST /workflows/validate   { yaml }           → { ok, errors: string[], workflow?: Workflow }
+POST /workflows/estimate   { yaml, acs, history?: StepHistory[] } → Estimate
+POST /threads              StartThread        → { thread_id }
+GET  /threads/{id}                            → ThreadState
+POST /threads/{id}/resume  { decision: "approve"|"reject", why?: string, payload?: object } → ThreadState
+POST /threads/{id}/stop                       → ThreadState
+GET  /threads/{id}/history                    → Checkpoint[]      newest first
+POST /threads/{id}/rewind  { checkpoint_id }  → ThreadState       continues from that checkpoint (new branch)
+POST /mcp/tools            McpServerSpec      → { ok, tools: {name, description}[], error? }   (tools/list)
+POST /providers/test       { provider, mode, model, key? } → { ok, text?, ms, error? }        ("Reply with exactly: OK")
+GET  /providers/models                        → { [provider]: {id, label}[] }
+```
+
+Engine → api events: `POST {KEEL_API_URL}/internal/events` header `X-Keel-Token`, body `EngineEvent[]`.
+The engine buffers and retries; the api stores them and fans out over SSE.
+
+## Shared types
+
+```ts
+type Provider = "fake" | "claude" | "codex" | "copilot";
+type Mode = "subscription" | "api" | "opencode";        // copilot: "subscription" = Copilot CLI, "opencode" = OpenCode, "api" = GitHub Models key
+type Model = { provider: Provider; mode: Mode; model: string; effort?: string };
+
+type StepKind = "agent" | "code" | "gate" | "branch" | "parallel";
+type Step = {
+  id: string; kind: StepKind; name: string;
+  agent?: string;              // keel agent id (agents/*.md) or custom agent id
+  model?: string;              // key into the model table, or "default"
+  phase?: string;              // keel v1 phase this step belongs to (for guards + .keel/state.json mirror): spec, red, green, gate, ...
+  action?: string;             // code steps: "verify_red" | "verify_green" | "commit" | "push_check" | "write_config" | "ladder" | "memory_check" | "run:<cmd>"
+  per_ac?: boolean;            // inside the "for each AC" loop
+  parallel?: number;           // parallel copies (kind "parallel")
+  lanes?: { name: string; sub?: string; kind: "agent"|"code" }[];   // two different things at the same time
+  back?: string;               // gate: where "send back" goes (step id)
+  no?: string;                 // branch: where "no" goes; "yes" = next step
+  lock?: boolean;              // keel rule: cannot be removed while keel_rules is on
+  max_tokens?: number; on_limit?: "pause" | "cheaper" | "stop";
+  tools?: string[];            // MCP tools allowed, e.g. "mcp:keel:keel_next"
+};
+type Workflow = { id: string; name: string; based_on?: string; keel_rules: boolean; version: number; steps: Step[]; yaml: string };
+
+// Workflow YAML (what users edit, export, import)
+// name: Hotfix
+// based_on: keel/fix
+// keel_rules: true
+// budget: { max_tokens: 150000, on_limit: pause }
+// steps:
+//   - { id: repro, kind: agent, name: bug-repro, agent: reproducer, model: default, phase: bug-repro }
+//   - { id: gr, kind: gate, name: gate R, back: repro, lock: true, phase: gate-r }
+
+type StartThread = {
+  project_id: string; root: string;            // absolute path of the repo inside the container
+  workflow: Workflow; title: string;
+  acs?: { id: string; layer: "API"|"WEB"; title: string }[];   // optional; otherwise the spec step writes them
+  models: Record<string, Model>;               // agent id → model ("default" key = fallback)
+  settings: { gates_mode: "every-ac"|"end-of-lane"|"end"; cap_tokens: number; on_cap: "pause"|"cheaper"|"stop"; cheaper_model?: Model };
+  mcp: McpServerSpec[];                        // servers this flow may use; per-agent allowlist inside Step.tools
+  skills: Record<string, string>;              // agent id → concatenated SKILL.md text to add to its prompt
+};
+type ThreadState = {
+  thread_id: string; project_id: string; workflow_id: string; title: string;
+  status: "running" | "waiting" | "done" | "failed" | "stopped";
+  current: string | null;                      // step id
+  phase: string;                               // keel v1 phase name (mirrored to .keel/state.json)
+  ac: string | null;
+  acs: { id: string; layer: string; title: string; status: "todo"|"red"|"green"|"done" }[];
+  waiting?: { step: string; kind: "gate"|"budget"|"fix"; title: string; detail: string; options: ("approve"|"reject")[] };
+  usage: { tokens_in: number; tokens_out: number; cost_usd: number; premium_requests: number; cap_tokens: number };
+  checkpoints: number; error?: string; updated_at: string;
+};
+type Checkpoint = { id: string; n: number; step: string; at: string; note: string };
+type Estimate = { tokens: number; low: number; high: number; cost_usd: number; premium_requests: number;
+                  by_provider: Record<Provider, number>; per_step: { step: string; tokens: number }[] };
+type StepHistory = { agent: string; tokens_in: number; tokens_out: number; retries: number };
+type McpServerSpec = { name: string; command: string; args: string[]; env?: Record<string,string>; cwd?: string };
+
+type EngineEvent = {
+  type: "thread.started" | "step.started" | "step.finished" | "agent.started" | "agent.step" | "agent.finished"
+      | "gate.waiting" | "gate.decided" | "budget.warn" | "budget.stop" | "guard.refused" | "thread.done" | "thread.failed";
+  thread_id: string; project_id: string; step?: string; at: string;
+  call_id?: string;                            // agent.* events: one id per agent call
+  data: Record<string, unknown>;
+  // agent.started  data: { agent, provider, model, phase, ac }
+  // agent.step     data: { n, kind: "text"|"thinking"|"tool"|"write"|"edit"|"result"|"answer"|"guard"|"error", text, tool?, server?, path?, diff?, ms?, ok? }
+  // agent.finished data: { status: "done"|"failed"|"stopped", tokens_in, tokens_out, cost_usd, premium_requests, result? }
+  // gate.waiting   data: { kind, title, detail }
+};
+```
+
+## The api (Spring Boot, /api) — called by the web
+
+JSON, errors `{ error, hint? }`. All project routes take `{pid}` (project id = slug of the folder name).
+
+```
+GET    /api/health                                   → { ok, engine: bool, keel: { version, home }, fake }
+GET    /api/events?project={pid}                     SSE: event: <EngineEvent.type | "notification" | "project.changed">, data: JSON
+
+# projects
+GET    /api/projects                                 → Project[]
+POST   /api/projects            { root, name? }      → Project            (registers a path inside the container)
+GET    /api/projects/{pid}                           → Project
+type Project = { id, name, root, branch, flow: string|null, phase: string, acs: [done,total], waiting: number, running: number }
+
+# flow (Run)
+GET    /api/projects/{pid}/flow                      → { thread: ThreadState|null, workflow: Workflow|null, keel_state: object|null }
+POST   /api/projects/{pid}/flows  { workflow_id, title, acs? }  → ThreadState
+POST   /api/threads/{tid}/resume  { decision, why? }  → ThreadState
+POST   /api/threads/{tid}/stop                        → ThreadState
+GET    /api/threads/{tid}/history                     → Checkpoint[]
+POST   /api/threads/{tid}/rewind  { checkpoint_id }   → ThreadState
+GET    /api/projects/{pid}/estimate?workflow_id=&acs=3 → Estimate     (uses this project's job history)
+
+# jobs / live (Run)
+GET    /api/jobs?project=&status=running|done|failed&agent=&provider=&limit=50 → Job[]
+GET    /api/jobs/{id}                                 → Job & { steps: JobStep[] }
+GET    /api/jobs/{id}/steps?after=n                   → { steps: JobStep[], running: bool }
+POST   /api/jobs/{id}/stop
+type Job = { id, project_id, thread_id, agent, provider, model, step, phase, ac, status, started_at, ended_at, tokens_in, tokens_out, cost_usd, premium_requests, steps_count, mcp_calls }
+type JobStep = { n, at, kind, text, tool?, server?, path?, diff?, ms?, ok? }
+
+# repo (Project)
+GET    /api/projects/{pid}/repo                       → { branch, base, ahead, behind, remote, worktrees: {branch,path}[], branches: {name, note}[] }
+GET    /api/projects/{pid}/repo/tree?depth=4          → TreeNode[]   { path, name, depth, kind: "dir"|"file", mark?: "A"|"M"|"D", keel: bool, frozen: bool, ac?: string }
+GET    /api/projects/{pid}/repo/file?path=            → { path, size, mark?, frozen, keel, ac?, head: string (first 120 lines), last_commit }
+GET    /api/projects/{pid}/repo/commits?limit=30      → { sha, message, author, at }[]
+GET    /api/projects/{pid}/keel-docs                  → { path, what, by, updated, status: "ok"|"live"|"check" }[]
+GET    /api/projects/{pid}/memory                     → { facts: Fact[], knowledge: { id, status: "written"|"stale"|"missing", words, cites }[] }
+POST   /api/projects/{pid}/memory  { title, text, kind }      PUT /api/projects/{pid}/memory/{fid}   DELETE /api/projects/{pid}/memory/{fid}
+type Fact = { id, title, text, kind: "fact"|"rule"|"flaky"|"unlock", source, at }
+
+# map + wiki (Project)
+GET    /api/projects/{pid}/map                        → keel v1 map JSON (.keel/map.json) or { missing: string }
+POST   /api/projects/{pid}/map/rebuild                → runs `keel map` in the repo, returns the new map
+GET    /api/projects/{pid}/wiki                       → { sections: {id, title, items: {id, title, status?}[]}[] }   (knowledge, workflows, runbook, decisions)
+GET    /api/projects/{pid}/wiki/page?id=kb:architecture|wf:<id>|runbook|adr:<file> → { id, title, markdown, meta }
+
+# workflows (Build)
+GET    /api/projects/{pid}/workflows                  → Workflow[]   (templates + this project's + installed)
+POST   /api/projects/{pid}/workflows  { name, from: "template:<id>"|"blank"|"library:<id>", keel_rules } → Workflow
+GET    /api/workflows/{wid}                           → Workflow
+PUT    /api/workflows/{wid}           Workflow        → Workflow (version+1; validated by the engine)
+DELETE /api/workflows/{wid}
+GET    /api/workflows/{wid}/export                    → text/yaml, Content-Disposition: attachment; filename=<id>.workflow.yaml
+POST   /api/projects/{pid}/workflows/import  { yaml } | { url }  → { workflow, review: InstallReview }
+GET    /api/library                                   → LibraryItem[]
+POST   /api/projects/{pid}/library/{id}/install  { scope: "project"|"all" } → Workflow
+type LibraryItem = { id, name, source, version, about, steps, gates, est_tokens, agents: string[], mcp: string[], edits_files: bool, installed: bool }
+
+# agents, skills, stacks, tools (Build)
+GET    /api/projects/{pid}/agents                     → Agent[]
+PUT    /api/projects/{pid}/agents/{aid}   { model?, tools?, skills?, prompt?, enabled? }   (project override)
+POST   /api/projects/{pid}/agents         CustomAgent  → Agent
+DELETE /api/projects/{pid}/agents/{aid}               (custom only)
+POST   /api/agents/{aid}/test             { pid }      → { ok, text, ms, error? }
+type Agent = { id, label, about, custom: bool, phases: string[], model: Model, tools: string[], skills: string[], prompt: string, enabled: bool, overridden: string[] }
+GET    /api/projects/{pid}/skills                     → Skill[]
+GET    /api/skills/{sid}                              → Skill & { body: string, refs: {path, tokens}[] }
+POST   /api/projects/{pid}/skills         { name, kind, stack, body } → Skill
+PUT    /api/projects/{pid}/skills/{sid}   { agents?, when?, body? }
+type Skill = { id, kind, source: "keel"|"keel pack"|"claude"|"yours", stack, version, tokens, agents: string[], when: string, enabled: bool }
+GET    /api/projects/{pid}/stacks                     → Stack[]   { name, lane, source, detected, detect, layers, commands: {name, cmd}[], tools: {name, on, fail}[], skills }
+GET    /api/mcp-servers                               → McpServer[]
+POST   /api/mcp-servers  McpServerSpec   PUT /api/mcp-servers/{name}   DELETE /api/mcp-servers/{name}
+POST   /api/mcp-servers/{name}/test                   → { ok, tools, error? }
+GET    /api/projects/{pid}/mcp-allow                  → { [agent]: string[] }     PUT same shape
+type McpServer = McpServerSpec & { enabled, builtin, status: "ok"|"off"|"error", tools: string[] }
+
+# control
+GET    /api/projects/{pid}/budget                     → { month: { tokens, cost_usd, premium_requests, flows }, days: { day, claude, codex, copilot, fake }[], caps: Cap[], top: { agent, provider, tokens, cost_usd }[], recent: { title, estimate, real, status }[] }
+GET    /api/limits                                    → Limit[]      PUT /api/limits  Limit[]
+type Limit = { id, name, unit, used, cap, note }       // account windows: editable; "used" from jobs
+GET    /api/settings/general                          → Settings
+PUT    /api/settings/general        Partial<Settings>
+GET    /api/projects/{pid}/settings                   → { general: Settings, overrides: Partial<Settings>, effective: Settings }
+PUT    /api/projects/{pid}/settings  { [key]: value | null }    (null = use general)
+type Settings = { gates_mode, keel_rules, fix_attempts, coverage_min, default_model: Model, implementer_model: Model, reviewer_model: Model, cheaper_model: Model,
+                  cap_tokens, on_cap, branch_pattern, web_lane_worktree, push_pr, notify: "all"|"needs_you"|"none", env_names: string[], mcp: string[] }
+GET    /api/connections                               → { providers: { id, label, modes: { id, label, ready: bool, detail }[], selected, key_set: bool, key_hint?: string }[], machine: { name, ok, version? }[] }
+PUT    /api/connections/{provider}  { mode }
+PUT    /api/secrets/{name}   { value }   → { hint }   (stored AES-GCM in /data; never returned)
+DELETE /api/secrets/{name}
+POST   /api/connections/{provider}/test               → { ok, text?, ms, error? }
+
+# notifications
+GET    /api/notifications?limit=50                    → Notification[]   { id, type: "review"|"failed"|"budget"|"finished"|"started", project_id, title, body, link, at, read }
+POST   /api/notifications/read-all      POST /api/notifications/{id}/read
+GET    /api/notification-settings     PUT same       { sound, volume, tone, popup, desktop, scope, kinds: {review, failed, budget, finished, started}, quiet }
+
+# internal (engine only, X-Keel-Token)
+POST   /internal/events   EngineEvent[]
+```
+
+## Rules the code must keep
+
+- **keel rules** (`engine/keel_engine/rules/`): ported from keel v1 and tested against `engine/tests/fixtures/keel_v1_rules.json`
+  (PHASES, TRANSITIONS, RAILS, MATRIX, COMMIT_RULES, FLOW_START, red_accept/red_reject, classify cases).
+- **Guards**: agent tools `write_file` / `run_command` refuse what `MATRIX[phase]` denies; after every agent step the
+  engine diffs the repo (`git status --porcelain`) and reverts files the phase does not allow, emitting `guard.refused`.
+- **Gates** are LangGraph `interrupt()`; only `POST /threads/{id}/resume` continues them. Locked steps can only be removed
+  from a workflow when `keel_rules` is false (the api refuses otherwise with `{error, hint}`).
+- **Mirror**: the engine writes `<root>/.keel/state.json` (keel v1 schema: flow, phase, acs, gates, ...) and appends
+  `<root>/.keel/logs/events.jsonl` (`{at, kind: tool|agent|phase|gate|guard, ...}`) so keel v1's CLI and dashboard read v2 projects.
+- **Secrets**: never logged, never returned; subscription mode removes `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GITHUB_TOKEN`… from CLI child env.
+- **Fake model** (provider `fake`): deterministic, no network; a full feature flow on the bundled demo repo must reach `done`
+  with gates approved through the API. It is the default model until the user picks another in Connections/Settings.
+- Writing for people: short plain sentences in UI text (see mockup).

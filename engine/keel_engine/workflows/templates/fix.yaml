@@ -1,0 +1,12 @@
+id: fix
+name: fix (keel)
+keel_rules: true
+version: 1
+steps:
+  - { id: repro, kind: agent, name: bug-repro, agent: reproducer, model: default, phase: bug-repro }
+  - { id: gate_r, kind: gate, name: gate R, back: repro, lock: true, phase: gate-r }
+  - { id: investigate, kind: agent, name: bug-investigate, agent: investigator, model: default, phase: bug-investigate }
+  - { id: gate_f, kind: gate, name: gate F, back: investigate, lock: true, phase: gate-f }
+  - { id: fix, kind: agent, name: bug-fix, agent: implementer, model: default, phase: bug-fix }
+  - { id: verify_fix, kind: code, name: verify + commit, action: verify_green+commit, lock: true, phase: bug-fix }
+  - { id: ship_review, kind: parallel, name: ship review x 2 lenses, agent: reviewer, model: default, parallel: 2, phase: ship }

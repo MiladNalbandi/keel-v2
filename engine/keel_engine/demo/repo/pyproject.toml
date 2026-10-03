@@ -1,0 +1,9 @@
+[project]
+name = "scores"
+version = "0.1.0"
+description = "A tiny score table, used as keel's demo project."
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

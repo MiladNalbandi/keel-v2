@@ -1,0 +1,124 @@
+"""Running coding-agent CLIs (claude, codex, copilot, opencode) safely.
+
+Subscription mode means the CLI uses the login of your plan. If an API key is in its environment,
+the CLI quietly bills the API instead, so subscription mode gives the child only a safe set of
+variables (no keys, no tokens). The prompt goes through stdin where the CLI allows it, the child
+gets its own process group, and a timeout or a stop kills the whole group.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import os
+import re
+import shutil
+import signal
+from typing import Callable
+
+from .base import ModelError
+
+KILL_GRACE = 10
+
+SAFE_ENV_VARS = {"PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LANGUAGE", "TERM", "TMPDIR", "TZ",
+                 "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS", "REQUESTS_CA_BUNDLE",
+                 "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy"}
+SAFE_ENV_PREFIXES = ("LC_", "XDG_", "CLAUDE_CONFIG", "CODEX_HOME", "COPILOT_", "OPENCODE_")
+
+# Never passed to a subscription-mode child, even when a prefix above would match.
+SECRET_VARS = {"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY", "CODEX_API_KEY", "GITHUB_TOKEN",
+               "GH_TOKEN", "COPILOT_GITHUB_TOKEN", "KEEL_INTERNAL_TOKEN"}
+
+INSTALL_HINT = {
+    "claude": "Install Claude Code: npm install -g @anthropic-ai/claude-code, then run `claude` and /login.",
+    "codex": "Install Codex: npm install -g @openai/codex, then `codex login`.",
+    "copilot": "Install the Copilot CLI: npm install -g @github/copilot, then `copilot` and /login.",
+    "opencode": "Install OpenCode: npm install -g opencode-ai, then `opencode auth login` (GitHub Copilot).",
+}
+LOGIN_HINT = {
+    "claude": "Run `claude` in a terminal and type /login.",
+    "codex": "Run `codex login`.",
+    "copilot": "Run `copilot` and /login, or add a GitHub token in Connections.",
+    "opencode": "Run `opencode auth login` and pick GitHub Copilot.",
+}
+
+
+def find(tool: str) -> str:
+    path = os.environ.get(f"KEEL_{tool.upper()}_BIN") or shutil.which(tool)
+    if not path:
+        raise ModelError(f"`{tool}` is not installed or not on PATH.", INSTALL_HINT.get(tool, ""))
+    return path
+
+
+def safe_env(extra: dict | None = None) -> dict:
+    env = {k: v for k, v in os.environ.items()
+           if (k in SAFE_ENV_VARS or k.startswith(SAFE_ENV_PREFIXES)) and k not in SECRET_VARS}
+    env.update(extra or {})
+    return env
+
+
+LIMIT_RE = re.compile(r"usage limit|rate limit|\b429\b|limit reached|quota|too many requests")
+AUTH_RE = re.compile(r"not logged in|please run /login|unauthori[sz]ed|\b401\b|invalid api key|authentication|codex login")
+
+
+def classify_failure(tool: str, stdout: str, stderr: str, code) -> ModelError:
+    short = (stderr or stdout).strip()[-600:]
+    tail = f"{stdout[-3000:]}\n{stderr[-3000:]}".lower()
+    if LIMIT_RE.search(tail):
+        return ModelError(f"`{tool}` hit a usage limit: {short}", "Wait for the limit to reset, or switch this agent to another model.")
+    if AUTH_RE.search((stderr if stderr.strip() else stdout)[-3000:].lower()):
+        return ModelError(f"`{tool}` is not logged in: {short}", LOGIN_HINT.get(tool, ""))
+    return ModelError(f"`{tool}` exited with code {code}: {short}")
+
+
+async def run_cli(tool: str, argv: list[str], *, stdin: str = "", cwd: str | None = None, env: dict | None = None,
+                  timeout: int = 1800, on_line: Callable[[str], None] | None = None) -> tuple[str, str]:
+    proc = await asyncio.create_subprocess_exec(
+        *argv, cwd=cwd, env=env, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE, start_new_session=True, limit=16 * 1024 * 1024)
+
+    def kill(sig):
+        try:
+            os.killpg(proc.pid, sig)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+    out_lines: list[str] = []
+    err_chunks: list[bytes] = []
+
+    async def read_out():
+        assert proc.stdout
+        async for raw in proc.stdout:
+            line = raw.decode(errors="replace").rstrip("\n")
+            out_lines.append(line)
+            if on_line:
+                try:
+                    on_line(line)
+                except Exception:  # a parser bug must not kill the run
+                    pass
+
+    async def read_err():
+        assert proc.stderr
+        err_chunks.append(await proc.stderr.read())
+
+    async def feed():
+        assert proc.stdin
+        if stdin:
+            proc.stdin.write(stdin.encode())
+            await proc.stdin.drain()
+        proc.stdin.close()
+
+    try:
+        await asyncio.wait_for(asyncio.gather(feed(), read_out(), read_err(), proc.wait()), timeout=timeout)
+    except asyncio.TimeoutError:
+        kill(signal.SIGTERM)
+        await asyncio.sleep(0)
+        asyncio.get_running_loop().call_later(KILL_GRACE, kill, signal.SIGKILL)
+        raise ModelError(f"`{tool}` did not finish within {timeout}s and was stopped.")
+    except asyncio.CancelledError:
+        kill(signal.SIGTERM)
+        asyncio.get_running_loop().call_later(KILL_GRACE, kill, signal.SIGKILL)
+        raise
+    stdout, stderr = "\n".join(out_lines), b"".join(err_chunks).decode(errors="replace")
+    if proc.returncode != 0:
+        raise classify_failure(tool, stdout, stderr, proc.returncode)
+    return stdout, stderr

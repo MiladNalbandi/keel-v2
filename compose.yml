@@ -1,0 +1,20 @@
+# docker compose up --build        → http://localhost:8080
+# PROJECT=/path/to/repo docker compose up
+services:
+  keel:
+    image: ${KEEL_IMAGE:-keel-v2:local}
+    build:
+      context: .
+      additional_contexts:
+        keel: ${KEEL_SRC:-../keel}
+      args:
+        INSTALL_CLIS: ${INSTALL_CLIS:-0}
+    ports:
+      - "127.0.0.1:${PORT:-8080}:8080"
+    environment:
+      KEEL_FAKE: ${KEEL_FAKE:-0}
+    volumes:
+      - ${PROJECT:-./.demo-workspace}:/workspace
+      - keel-data:/data
+volumes:
+  keel-data:

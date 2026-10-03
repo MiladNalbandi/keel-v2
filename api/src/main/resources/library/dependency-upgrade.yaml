@@ -1,0 +1,17 @@
+id: dependency-upgrade
+name: Dependency upgrade
+source: keel
+version: 1.3.0
+about: Bump one dependency, run the module suite, triage new CVEs, then ask you.
+est_tokens: 90000
+mcp: []
+based_on: keel/change
+keel_rules: true
+budget: { max_tokens: 120000, on_limit: pause }
+steps:
+  - { id: bump, kind: agent, name: bump the dependency, agent: implementer, model: default, phase: small-change }
+  - { id: suite, kind: code, name: run the module suite, action: verify_green, lock: true, phase: green }
+  - { id: triage, kind: agent, name: triage new CVEs, agent: dependency-triager, model: default, phase: security }
+  - { id: g1, kind: gate, name: upgrade review, back: bump, lock: true, phase: gate }
+  - { id: commit, kind: code, name: commit, action: commit, lock: true, phase: green }
+  - { id: g2, kind: gate, name: ready to push, back: bump, phase: ship }

@@ -1,0 +1,57 @@
+"""What every model runner takes and returns.
+
+A runner gets one agent call (AgentRequest) and an `emit(kind, text, **extra)` callback. Each
+thing the agent does becomes one emitted step (kind: text|thinking|tool|write|edit|result|answer|
+guard|error), which the runtime forwards as an `agent.step` event.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, Callable, Protocol
+
+from ..tools.agent_tools import ToolBox
+
+Emit = Callable[..., None]
+
+
+@dataclass
+class AgentRequest:
+    agent: str
+    system: str
+    prompt: str
+    root: str
+    phase: str
+    model: dict                      # {provider, mode, model, effort?}
+    toolbox: ToolBox
+    ac: dict | None = None
+    acs: list[dict] = field(default_factory=list)
+    title: str = ""
+    step_name: str = ""
+    index: int = 0                   # copy number in a parallel step
+    feedback: str | None = None
+    mcp_specs: list[dict] = field(default_factory=list)
+    tools_allow: list[str] = field(default_factory=list)
+    key: str | None = None           # API key or GitHub token for this provider, never logged
+    workdir: str = ""                # scratch folder for config files (mcp.json, schema files)
+    timeout: int = 1800
+
+
+@dataclass
+class AgentResult:
+    text: str = ""
+    tokens_in: int = 0
+    tokens_out: int = 0
+    cost_usd: float = 0.0
+    premium_requests: int = 0
+    data: dict[str, Any] = field(default_factory=dict)
+
+
+class Runner(Protocol):
+    async def run(self, req: AgentRequest, emit: Emit) -> AgentResult: ...
+
+
+class ModelError(Exception):
+    def __init__(self, message: str, hint: str = ""):
+        super().__init__(message)
+        self.hint = hint

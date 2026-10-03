@@ -1,0 +1,20 @@
+id: init
+name: init (keel)
+keel_rules: true
+version: 1
+steps:
+  - { id: discover, kind: agent, name: discover, agent: explorer, model: default, phase: setup }
+  - { id: questions, kind: gate, name: questions, back: discover, phase: setup }
+  - { id: plan_gate, kind: gate, name: setup plan, back: discover, lock: true, phase: setup }
+  - { id: write_config, kind: code, name: write config, action: write_config, lock: true, phase: setup }
+  - id: lanes
+    kind: parallel
+    name: ladder + knowledge
+    parallel: 3
+    phase: setup
+    lanes:
+      - { name: ladder, kind: code, sub: ladder }
+      - { name: knowledge, kind: agent, sub: librarian }
+  - { id: memory_check, kind: code, name: memory check, action: memory_check, phase: setup }
+  - { id: commit, kind: code, name: commit, action: commit, lock: true, phase: setup }
+  - { id: hand_over, kind: gate, name: hand over, phase: setup }

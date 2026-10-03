@@ -1,0 +1,11 @@
+.git
+.data
+.demo-workspace
+**/node_modules
+web/dist
+api/build
+api/.gradle
+engine/.venv
+**/__pycache__
+**/.pytest_cache
+docs/mockup.html

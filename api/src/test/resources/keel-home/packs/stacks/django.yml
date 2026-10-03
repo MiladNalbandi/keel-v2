@@ -1,0 +1,7 @@
+name: django
+lane: api
+detect:
+  files: [manage.py]
+  package_deps: [django]
+commands:
+  api_test_ac: pytest -k {AC}

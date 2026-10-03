@@ -1,0 +1,19 @@
+id: api-contract-first
+name: API contract first
+source: community
+version: 2.0.1
+about: Write the OpenAPI change, generate clients, then the normal red/green loop.
+est_tokens: 260000
+mcp: []
+based_on: keel/feature
+keel_rules: true
+steps:
+  - { id: spec, kind: agent, name: spec, agent: explorer, model: default, phase: spec }
+  - { id: g-spec, kind: gate, name: spec approval, back: spec, lock: true, phase: spec }
+  - { id: contract, kind: agent, name: contract, agent: explorer, model: default, phase: contract }
+  - { id: g-contract, kind: gate, name: contract approval, back: contract, lock: true, phase: contract }
+  - { id: red, kind: agent, name: red, agent: test-author, model: default, phase: red, per_ac: true }
+  - { id: vred, kind: code, name: verify_red, action: verify_red, per_ac: true, lock: true, phase: red }
+  - { id: green, kind: agent, name: green, agent: implementer, model: default, phase: green, per_ac: true }
+  - { id: vgreen, kind: code, name: verify_green + commit, action: verify_green, per_ac: true, lock: true, phase: green }
+  - { id: g-ac, kind: gate, name: AC gate, back: green, per_ac: true, lock: true, phase: gate }

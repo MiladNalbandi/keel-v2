@@ -1,0 +1,14 @@
+id: change
+name: change (keel)
+keel_rules: true
+version: 1
+steps:
+  - { id: triage, kind: agent, name: triage, agent: explorer, model: default, phase: triage }
+  - { id: scope_gate, kind: gate, name: scope check, back: triage, lock: true, phase: small-change }
+  - { id: red, kind: agent, name: red, agent: test-author, model: default, phase: red, per_ac: true }
+  - { id: verify_red, kind: code, name: verify_red, action: verify_red+commit, phase: red, per_ac: true, lock: true }
+  - { id: green, kind: agent, name: green, agent: implementer, model: default, phase: green, per_ac: true }
+  - { id: verify_green, kind: code, name: verify_green + commit, action: verify_green+commit, phase: green, per_ac: true, lock: true }
+  - { id: ac_gate, kind: gate, name: AC gate, back: red, lock: true, phase: gate, per_ac: true }
+  - { id: ship_review, kind: parallel, name: ship review x 2 lenses, agent: reviewer, model: default, parallel: 2, phase: ship }
+  - { id: final_review, kind: gate, name: final review, lock: true, phase: final-review }

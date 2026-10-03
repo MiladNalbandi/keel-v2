@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Starts the engine, waits for it, then the api. If either stops, the container stops.
+set -euo pipefail
+
+export KEEL_INTERNAL_TOKEN="${KEEL_INTERNAL_TOKEN:-$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')}"
+mkdir -p "$KEEL_DATA"
+
+echo "keel v2 · data $KEEL_DATA · workspace $KEEL_WORKSPACE · keel $(node -p "require('$KEEL_HOME/.claude-plugin/plugin.json').version" 2>/dev/null || echo '?')"
+
+KEEL_ENGINE_HOST=127.0.0.1 KEEL_ENGINE_PORT=8090 keel-engine &
+engine=$!
+
+for _ in $(seq 1 60); do
+  curl -fs http://127.0.0.1:8090/health > /dev/null && break
+  kill -0 "$engine" 2>/dev/null || { echo "engine failed to start"; exit 1; }
+  sleep 0.5
+done
+
+java ${JAVA_OPTS:--XX:MaxRAMPercentage=60} -jar /opt/api/app.jar &
+api=$!
+
+trap 'kill -TERM "$engine" "$api" 2>/dev/null; wait' TERM INT
+echo "keel v2 is starting on http://localhost:8080"
+wait -n "$engine" "$api"
+code=$?
+kill -TERM "$engine" "$api" 2>/dev/null || true
+wait || true
+exit "$code"

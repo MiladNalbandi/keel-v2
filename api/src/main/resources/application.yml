@@ -1,0 +1,39 @@
+server:
+  port: ${KEEL_PORT:8080}
+  shutdown: graceful
+
+spring:
+  application:
+    name: keel-api
+  main:
+    banner-mode: "off"
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+    serialization:
+      write-dates-as-timestamps: false
+    deserialization:
+      fail-on-unknown-properties: false
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  mvc:
+    async:
+      request-timeout: -1
+  web:
+    resources:
+      add-mappings: false
+
+keel:
+  data: ${KEEL_DATA:./.data}
+  workspace: ${KEEL_WORKSPACE:}
+  home: ${KEEL_HOME:}
+  engine-url: ${KEEL_ENGINE_URL:http://127.0.0.1:8090}
+  internal-token: ${KEEL_INTERNAL_TOKEN:}
+  secret: ${KEEL_SECRET:}
+  projects-file: ${user.home}/.keel/projects.json
+  scan-on-start: true
+
+logging:
+  level:
+    root: INFO
+    org.flywaydb: WARN
