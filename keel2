@@ -8,7 +8,7 @@
 # Logins: open the dashboard › Control › Connections › "Set up login" (Claude, Codex, Copilot). They are saved
 # encrypted in keel's database on the keel-data volume, so they survive restarts and new images.
 set -euo pipefail
-IMAGE="${KEEL_IMAGE:-milimarty/keel-v2:latest}"
+IMAGE="${KEEL_IMAGE:-ghcr.io/miladnalbandi/keel-v2:latest}"
 NAME="${KEEL_NAME:-keel-v2}"
 PORT="${PORT:-8080}"
 
