@@ -27,7 +27,13 @@ save_token() {
   if [ -z "$value" ] && [ "$which" = codex ] && [ -f "$HOME/.codex/auth.json" ]; then value="$(cat "$HOME/.codex/auth.json")"; fi
   if [ -z "$value" ]; then
     [ "$which" = claude ] && echo "Get it with: claude setup-token"
-    read -rsp "Paste $name (input hidden): " value; echo
+    # A long token is often shown over two lines; a paste then holds line breaks. Read every line that
+    # arrives with the paste and join them (tokens never contain spaces).
+    local line more
+    IFS= read -rsp "Paste $name (input hidden), then press Enter: " line; echo
+    value="$line"
+    while IFS= read -rs -t 1 more; do value+="$more"; done
+    [ "$which" = codex ] || value="$(printf '%s' "$value" | tr -d '[:space:]')"
   fi
   [ -n "$value" ] || { echo "nothing saved"; exit 1; }
   curl -fs "$API/health" >/dev/null || { echo "keel v2 is not running on port $PORT. Start it first: ./keel2 /path/to/project"; exit 1; }
