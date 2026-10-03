@@ -32,7 +32,7 @@ export function go(page: ScreenId, arg?: string) {
 
 // ---------- context ----------
 
-export type LiveStatus = "connecting" | "live" | "reconnecting" | "off";
+export type LiveStatus = "connecting" | "live" | "reconnecting" | "paused" | "off";
 export type Popup = { key: number; note: Note };
 
 interface Ctx {
@@ -250,7 +250,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     const connect = () => {
       if (closed) return;
-      es = new EventSource(api.eventsUrl(pid));
+      // One stream per tab: this project's events plus the bell's events from every project.
+      // Browsers allow only 6 connections per server, so every extra stream per tab can freeze other tabs.
+      es = new EventSource(api.eventsUrl(pid, true));
       ENGINE_EVENT_TYPES.forEach((t) => es!.addEventListener(t, onEngine as EventListener));
       es.addEventListener("notification", onNote as EventListener);
       es.addEventListener("project.changed", onChanged);
@@ -268,54 +270,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
         timer = window.setTimeout(connect, wait);
       };
     };
+    // A tab in the background gives its connection back after 30 s and catches up when it is shown again.
+    let hiddenTimer: number | null = null;
+    const onVisibility = () => {
+      if (document.hidden) {
+        hiddenTimer = window.setTimeout(() => {
+          if (timer) window.clearTimeout(timer);
+          es?.close();
+          es = null;
+          setLive("paused");
+        }, 30000);
+      } else {
+        if (hiddenTimer) window.clearTimeout(hiddenTimer);
+        hiddenTimer = null;
+        if (!es && !closed) {
+          attempt = 0;
+          connect();
+          void reloadProjects();
+          bump();
+        }
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
     setLive("connecting");
     setRecent([]);
     connect();
     return () => {
       closed = true;
+      document.removeEventListener("visibilitychange", onVisibility);
+      if (hiddenTimer) window.clearTimeout(hiddenTimer);
       if (timer) window.clearTimeout(timer);
       es?.close();
     };
   }, [pid, arrive, bump, reloadProjects]);
-
-  // ---- SSE: one stream for every project, for the bell (notifications from all projects) ----
-  // The per-project stream may send the same notification too; `arrive` drops ids it has seen, so it pops up once.
-  useEffect(() => {
-    if (typeof EventSource === "undefined") return;
-    let es: EventSource | null = null;
-    let timer: number | null = null;
-    let attempt = 0;
-    let closed = false;
-    const onNote = (e: MessageEvent) => {
-      try {
-        arrive(JSON.parse(e.data) as Note);
-      } catch {
-        /* ignore */
-      }
-    };
-    const onChanged = () => void reloadProjects();
-    const connect = () => {
-      if (closed) return;
-      es = new EventSource(api.eventsUrl("*"));
-      es.addEventListener("notification", onNote as EventListener);
-      es.addEventListener("project.changed", onChanged);
-      es.onopen = () => {
-        attempt = 0;
-      };
-      es.onerror = () => {
-        es?.close();
-        es = null;
-        if (closed) return;
-        timer = window.setTimeout(connect, Math.min(30000, 1000 * 2 ** attempt++));
-      };
-    };
-    connect();
-    return () => {
-      closed = true;
-      if (timer) window.clearTimeout(timer);
-      es?.close();
-    };
-  }, [arrive, reloadProjects]);
 
   // waiting / running counts in the project list change with every event
   useEffect(() => {

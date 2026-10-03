@@ -269,22 +269,23 @@ describe("cross-project notifications", () => {
     body: "investigator tried to edit Tally.kt", link: "#/jobs", at: new Date().toISOString(), read: false, ...over,
   });
 
+  const STREAM = "/api/events?project=ludus-engine&notify=all";
   async function ready() {
     render(<App />);
     await screen.findByText(/AC gate — AC-002/);
-    await waitFor(() => expect(FakeEventSource.instances.some((s) => s.url === "/api/events?project=*")).toBe(true));
+    await waitFor(() => expect(FakeEventSource.instances.some((s) => s.url === STREAM && !s.closed)).toBe(true));
   }
 
-  it("opens one stream for all projects next to the project stream", async () => {
+  it("opens exactly one stream per tab: the project plus every project's notifications", async () => {
     await ready();
-    const urls = FakeEventSource.instances.filter((s) => !s.closed).map((s) => s.url);
-    expect(urls).toContain("/api/events?project=*");
-    expect(urls).toContain("/api/events?project=ludus-engine");
+    const open = FakeEventSource.instances.filter((s) => !s.closed).map((s) => s.url);
+    expect(open).toEqual([STREAM]);
   });
 
-  it("a notification from another project pops up once, even when both streams send it", async () => {
+  it("a notification from another project pops up once, even when it arrives twice", async () => {
     await ready();
-    act(() => FakeEventSource.emit("notification", note())); // both streams deliver the same id
+    act(() => FakeEventSource.emit("notification", note()));
+    act(() => FakeEventSource.emit("notification", note()));
     const pops = await screen.findByTestId("popups");
     expect(within(pops).getAllByText("Guard reverted an edit in platform")).toHaveLength(1);
     expect(pops.querySelectorAll(".pop")).toHaveLength(1);
@@ -292,13 +293,21 @@ describe("cross-project notifications", () => {
     expect(screen.getByTestId("unread")).toHaveTextContent("2");
   });
 
-  it("a notification only on the all-projects stream still pops up", async () => {
+  it("a hidden tab gives its stream back after 30 s and reconnects when shown", async () => {
     await ready();
-    act(() => FakeEventSource.emitTo((u) => u.endsWith("=*"), "notification", note({ id: "x-yegi", project_id: "yegi", type: "finished", title: "Hunt finished in YegiResearcher" })));
-    const pops = await screen.findByTestId("popups");
-    expect(within(pops).getByText("Hunt finished in YegiResearcher")).toBeInTheDocument();
-    act(() => FakeEventSource.emitTo((u) => u.includes("ludus-engine"), "notification", note({ id: "x-yegi", project_id: "yegi", type: "finished", title: "Hunt finished in YegiResearcher" })));
-    expect(pops.querySelectorAll(".pop")).toHaveLength(1);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
+      act(() => { document.dispatchEvent(new Event("visibilitychange")); });
+      act(() => { vi.advanceTimersByTime(31000); });
+      expect(FakeEventSource.instances.filter((s) => !s.closed)).toHaveLength(0);
+      Object.defineProperty(document, "hidden", { configurable: true, get: () => false });
+      act(() => { document.dispatchEvent(new Event("visibilitychange")); });
+      expect(FakeEventSource.instances.filter((s) => !s.closed).map((s) => s.url)).toEqual([STREAM]);
+    } finally {
+      Object.defineProperty(document, "hidden", { configurable: true, get: () => false });
+      vi.useRealTimers();
+    }
   });
 });
 

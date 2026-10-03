@@ -16,15 +16,19 @@ import java.util.concurrent.CopyOnWriteArrayList
 class EventHub(private val mapper: ObjectMapper) {
     private val log = LoggerFactory.getLogger(javaClass)
 
-    /** [light]: `project=*` — every project, but only the events the bell needs. */
-    private data class Sub(val project: String?, val emitter: SseEmitter, val light: Boolean = false)
+    /**
+     * [light]: `project=*` — every project, but only the events the bell needs.
+     * [notifyAll]: `project=X&notify=all` — everything for X plus the bell's events from every project, so a
+     * browser tab needs one stream (browsers allow only 6 connections per server; each open tab used two).
+     */
+    private data class Sub(val project: String?, val emitter: SseEmitter, val light: Boolean = false, val notifyAll: Boolean = false)
 
     private val subs = CopyOnWriteArrayList<Sub>()
 
-    fun subscribe(project: String?): SseEmitter {
+    fun subscribe(project: String?, notify: String? = null): SseEmitter {
         val emitter = SseEmitter(0L) // no timeout; the heartbeat finds dead clients
         val all = project?.trim() == "*"
-        val sub = Sub(project?.takeIf { it.isNotBlank() && !all }, emitter, light = all)
+        val sub = Sub(project?.takeIf { it.isNotBlank() && !all }, emitter, light = all, notifyAll = notify == "all" && !all)
         subs += sub
         emitter.onCompletion { subs.remove(sub) }
         emitter.onTimeout { subs.remove(sub) }
@@ -41,7 +45,8 @@ class EventHub(private val mapper: ObjectMapper) {
     fun publish(project: String?, type: String, data: Any?) {
         val json = mapper.writeValueAsString(data)
         for (sub in subs) {
-            if (sub.project != null && project != null && sub.project != project) continue
+            val otherProject = sub.project != null && project != null && sub.project != project
+            if (otherProject && !(sub.notifyAll && type in LIGHT)) continue
             if (sub.light && type !in LIGHT) continue
             try {
                 sub.emitter.send(SseEmitter.event().name(type).data(json, MediaType.APPLICATION_JSON))

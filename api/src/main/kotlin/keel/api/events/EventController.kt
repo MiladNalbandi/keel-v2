@@ -18,7 +18,8 @@ class EventController(
     private val props: KeelProperties,
 ) {
     @GetMapping("/api/events", produces = ["text/event-stream"])
-    fun stream(@RequestParam(required = false) project: String?): SseEmitter = hub.subscribe(project)
+    fun stream(@RequestParam(required = false) project: String?, @RequestParam(required = false) notify: String?): SseEmitter =
+        hub.subscribe(project, notify)
 
     /** Engine → api. Checks X-Keel-Token when KEEL_INTERNAL_TOKEN is set (dev without it accepts any). */
     @PostMapping("/internal/events")
