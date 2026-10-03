@@ -431,6 +431,13 @@ export const put = <T>(path: string, body: unknown) => request<T>("PUT", path, b
 export const del = <T = void>(path: string) => request<T>("DELETE", path);
 export const getText = (path: string) => request<string>("GET", path, undefined, { text: true });
 
+// ---- workspace Doctor ----
+export type DoctorAction = "commit" | "stash" | "ignore" | "keep";
+export type DirtyFile = { path: string; status: string; size: number; kind: "tooling" | "docs" | "code" | "local" | "secret"; secret: boolean; tracked: boolean };
+export type PlanItem = { id: string; title: string; why: string; action: DoctorAction; files: string[]; message?: string | null; patterns?: string[] | null };
+export type Diagnosis = { by: string; summary: string; files: DirtyFile[]; plan: PlanItem[]; note?: string | null; tokens_in: number; tokens_out: number };
+export type DoctorApplied = { results: { action: string; files: string[]; ok: boolean; detail: string }[]; remaining: string[]; clean: boolean };
+
 const q = (params: Record<string, string | number | undefined | null>) => {
   const s = new URLSearchParams();
   Object.entries(params).forEach(([k, v]) => {
@@ -457,6 +464,9 @@ export const api = {
 
   // flow
   flow: (pid: string) => get<FlowView>(`/projects/${e(pid)}/flow`),
+  doctorWorkspace: (pid: string) => post<Diagnosis>(`/projects/${e(pid)}/doctor/workspace`),
+  applyDoctor: (pid: string, plan: { action: DoctorAction; files: string[]; message?: string | null; patterns?: string[] | null; title?: string }[]) =>
+    post<DoctorApplied>(`/projects/${e(pid)}/doctor/workspace/apply`, { plan }),
   startFlow: (pid: string, body: {
     workflow_id: string; title: string; acs?: { id: string; layer: "API" | "WEB"; title: string }[]; cap_tokens?: number; on_cap?: OnCap;
     allow_fake?: boolean; allow_dirty?: boolean;

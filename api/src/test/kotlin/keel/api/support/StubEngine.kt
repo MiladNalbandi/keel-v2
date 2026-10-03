@@ -39,6 +39,9 @@ class StubEngine private constructor(private val server: HttpServer) {
         "yaml" to "",
     )
 
+    /** What POST /agents/ask answers (the Doctor's model call); null = "fake" (rules only). */
+    @Volatile var askAnswer: Map<String, Any?>? = null
+
     /** Extra ThreadState fields per thread id (for example a "fix" wait), merged over the default. */
     val overrides = java.util.concurrent.ConcurrentHashMap<String, Map<String, Any?>>()
 
@@ -54,6 +57,7 @@ class StubEngine private constructor(private val server: HttpServer) {
 
     private fun route(method: String, path: String, body: JsonNode?): Pair<Int, Any?> = when {
         path == "/health" -> 200 to mapOf("ok" to true, "version" to "stub", "fake" to true)
+        path == "/agents/ask" -> 200 to (askAnswer ?: mapOf("ok" to true, "fake" to true, "text" to ""))
         path == "/templates" -> 200 to listOf(featureTemplate, knowledgeTemplate)
         path == "/providers/models" -> 200 to mapOf(
             "fake" to listOf(mapOf("id" to "fake", "label" to "Fake model")),

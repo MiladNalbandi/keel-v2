@@ -77,6 +77,14 @@ class StartThread(BaseModel):
     keys: dict[str, str] | None = None   # optional: provider -> key, kept in memory only
 
 
+class Ask(BaseModel):
+    model: ModelSpec
+    system: str = ""
+    prompt: str
+    keys: dict[str, str] | None = None
+    timeout: int = Field(default=300, ge=10, le=1800)
+
+
 class Resume(BaseModel):
     decision: Literal["approve", "reject"]
     why: str | None = None
@@ -230,6 +238,10 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     @app.post("/providers/test")
     async def post_provider_test(body: ProviderTest):
         return await models.test_provider(body.provider, body.mode, body.model, body.key)
+
+    @app.post("/agents/ask")
+    async def post_agents_ask(body: Ask):
+        return await models.ask(body.model.model_dump(), body.system, body.prompt, body.keys, body.timeout)
 
     @app.get("/providers/models")
     async def get_models():

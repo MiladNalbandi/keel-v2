@@ -5,6 +5,7 @@ import { api, errorParts, type Estimate, type Limit, type OnCap, type Workflow }
 import { kfmt, parseTokens, usd } from "../format";
 import { go, useApp } from "../state";
 import { Drawer, ErrorBox } from "./ui";
+import { WorkspaceDoctor } from "./WorkspaceDoctor";
 
 const ON_CAP: [OnCap, string][] = [["pause", "pause and ask me"], ["cheaper", "switch to cheaper models"], ["stop", "stop"]];
 
@@ -25,6 +26,7 @@ export function StartFlowDrawer({ onClose, workflowId }: { onClose: () => void; 
   const [model, setModel] = useState<{ provider: string; model: string } | null>(null);
   const [allowFake, setAllowFake] = useState(false);
   const [allowDirty, setAllowDirty] = useState(false);
+  const [doctor, setDoctor] = useState(false);
   const isDemo = projects.find((x) => x.id === p)?.root === "/data/demo";
   const fakeRefused = !!err && /fake model/i.test(err.message);
   const dirtyRefused = !!err && /uncommitted changes/i.test(err.message);
@@ -159,6 +161,10 @@ export function StartFlowDrawer({ onClose, workflowId }: { onClose: () => void; 
       {(fakeRefused || allowFake) && (
         <label className="chk"><input type="checkbox" checked={allowFake} onChange={(e) => setAllowFake(e.target.checked)} /> Run with the fake model anyway (it writes example files and commits them on the flow's branch)</label>
       )}
+      {dirtyRefused && !doctor && (
+        <button className="btn" type="button" onClick={() => setDoctor(true)}>Ask the Doctor what to do with these files</button>
+      )}
+      {doctor && <WorkspaceDoctor pid={p} onClean={() => { setErr(null); toast("The working tree is clean. Press Start flow."); }} />}
       {(dirtyRefused || allowDirty) && (
         <label className="chk"><input type="checkbox" checked={allowDirty} onChange={(e) => setAllowDirty(e.target.checked)} /> Start anyway — my uncommitted files stay out of keel's commits</label>
       )}

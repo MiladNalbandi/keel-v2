@@ -4,6 +4,7 @@
 import { Fragment, useState } from "react";
 import { api, errorParts, type Commit, type Fact, type FactKind, type Memory, type RepoFile, type RepoInfo, type TreeNode, type UpdateFromBase } from "../api";
 import { RefreshStaleButton } from "../components/RefreshStale";
+import { WorkspaceDoctor } from "../components/WorkspaceDoctor";
 import { Async, Confirm, Drawer, ErrorBox, PageHead, Panel, Pill, Tabs, type PillTone } from "../components/ui";
 import { clock, plural } from "../format";
 import { useApp, useLoad } from "../state";
@@ -124,7 +125,17 @@ function FilesTab({ pid }: { pid: string }) {
   const tree = useLoad(`tree:${pid}`, () => api.tree(pid, 4));
   const [path, setPath] = useState<string | null>(null);
   const file = useLoad(path ? `file:${pid}:${path}` : null, () => api.file(pid, path!));
+  const [doctor, setDoctor] = useState(false);
+  const dirty = (tree.data ?? []).filter((n) => n.mark).length;
   return (
+    <>
+    {dirty > 0 && (
+      <div className="wbar" style={{ marginBottom: 12 }}>
+        <span>{dirty} uncommitted file{dirty === 1 ? "" : "s"}. A flow starts only on a clean tree.</span>
+        {!doctor && <button className="btn sm" type="button" onClick={() => setDoctor(true)}>Clean up with the Doctor</button>}
+      </div>
+    )}
+    {doctor && <div style={{ marginBottom: 12 }}><WorkspaceDoctor pid={pid} onClean={() => void tree.reload()} /></div>}
     <div className="grid g2">
       <Panel title="Project structure" extra={<div className="legend">
         <span><b className="fm a">A</b> added</span><span><b className="fm m">M</b> changed</span>
@@ -157,6 +168,7 @@ function FilesTab({ pid }: { pid: string }) {
         )}
       </Panel>
     </div>
+    </>
   );
 }
 
