@@ -117,7 +117,7 @@ function Nav() {
 
 function LiveDot() {
   const { live } = useApp();
-  const label = live === "live" ? "Live" : live === "reconnecting" ? "Reconnecting" : live === "connecting" ? "Connecting" : "Offline";
+  const label = live === "live" ? "Live" : live === "reconnecting" ? "Reconnecting" : live === "connecting" ? "Connecting" : live === "paused" ? "Paused (tab hidden)" : "Offline";
   const tone = live === "live" ? "p-ok" : live === "off" ? "p-bad" : "p-warn";
   return <span className={`pill ${tone}`} data-testid="live" title="Server events (SSE)">{label}</span>;
 }

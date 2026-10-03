@@ -25,7 +25,7 @@ class EngineDown : ApiException(
 class EngineClient(private val props: KeelProperties, private val mapper: ObjectMapper) {
 
     private fun client(readTimeout: Duration): RestClient {
-        val http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build()
+        val http = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(3)).build()
         val factory = JdkClientHttpRequestFactory(http).apply { setReadTimeout(readTimeout) }
         return RestClient.builder()
             .baseUrl(props.engineUrl.trimEnd('/'))

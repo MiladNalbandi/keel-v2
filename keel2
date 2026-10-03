@@ -76,4 +76,4 @@ docker run -d --name "$NAME" -p "127.0.0.1:$PORT:8080" "${mounts[@]}" -e KEEL_PR
 echo "keel v2 is starting for $PROJECT"
 for _ in $(seq 1 90); do curl -fs "http://localhost:$PORT/api/health" >/dev/null 2>&1 && break; sleep 1; done
 echo "open http://localhost:$PORT"
-command -v open >/dev/null && open "http://localhost:$PORT" || true
+[ "${KEEL_OPEN:-1}" = 1 ] && command -v open >/dev/null && open "http://localhost:$PORT" || true   # KEEL_OPEN=0: no new browser tab

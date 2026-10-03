@@ -446,7 +446,7 @@ const e = encodeURIComponent;
 export const api = {
   health: () => get<Health>("/health"),
   /** `pid` "*" = every project (notifications + project.changed only). */
-  eventsUrl: (pid: string | null) => "/api/events" + q({ project: pid }),
+  eventsUrl: (pid: string | null, notifyAll = false) => "/api/events" + q({ project: pid ?? (notifyAll ? "*" : null), notify: notifyAll && pid ? "all" : null }),
   keelDashboard: () => get<{ url: string }>("/keel-dashboard"),
   providerModels: () => get<ProviderModels>("/providers/models"),
 

@@ -158,4 +158,15 @@ class V02FlowApiTest : ApiTest() {
         val mine = one.response.contentAsString
         assertThat(mine).contains("step-a", "note-a").doesNotContain("note-b")
     }
+
+    @Test
+    fun `one stream per tab - a project plus the bell's events from every project`() {
+        val tab = mvc.perform(MockMvcRequestBuilders.get("/api/events?project=tab-a&notify=all")).andExpect(request().asyncStarted()).andReturn()
+        hub.publish("tab-a", "agent.step", mapOf("text" to "step-mine"))
+        hub.publish("tab-b", "agent.step", mapOf("text" to "step-other"))
+        hub.publish("tab-b", "notification", mapOf("title" to "note-other"))
+        hub.publish("tab-b", "project.changed", mapOf("id" to "tab-b"))
+        val text = tab.response.contentAsString
+        assertThat(text).contains("step-mine", "note-other", "event:project.changed").doesNotContain("step-other")
+    }
 }

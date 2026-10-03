@@ -41,7 +41,7 @@ class KeelDashboardService(
     val port: Int get() = props.dashboardPort
     val base: String get() = "http://127.0.0.1:$port"
 
-    val http: HttpClient = HttpClient.newBuilder()
+    val http: HttpClient = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
         .connectTimeout(Duration.ofSeconds(3))
         .followRedirects(HttpClient.Redirect.NEVER)
         .build()
