@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import re
+
+from ..tools import testcmd
 from functools import lru_cache
 
 from .. import config, rules
@@ -61,6 +63,9 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
                 acs: list[dict], feedback: str | None, index: int = 0, spec: str | None = None,
                 section: str | None = None, unlocks: list[dict] | None = None, request: str = "") -> str:
     lines = [f"Project folder: {root}", f"Flow: {title}", f"Step: {step_name} (keel phase: {phase})",
+             "How this works: the keel engine runs the tests, makes the commits and moves between phases after you. "
+             "Do not run keel commands, do not run git commit, reset, checkout or stash, and do not read or change "
+             "anything under .keel/. Do only what this step asks, then stop with a short summary (a few lines).",
              f"Files you may change in this phase: {_allowed(phase)}. Anything else is put back automatically."]
     if request:
         lines.append("What the user asked for:\n" + request)
@@ -82,11 +87,16 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
                      "- **AC-1** [API] <what must be true>\n"
                      "Write real criteria for what the user asked for. If the request is too unclear to write any, write no "
                      "criteria and say in one or two sentences what you need to know.")
+    test_cmd = testcmd.command_for(root, ac["id"], ac.get("layer", "API")) if ac else None
     if phase == "red":
-        lines.append("Write the failing test for the current criterion only. Name the test after the criterion id. "
-                     "Do not write production code.")
+        lines.append("Write the failing test for the current criterion only. Put the criterion id in the test's name "
+                     f"(for example \"{(ac or {}).get('id', 'AC-1')} ...\"), so the engine can run it alone. Do not write production code.")
+        if test_cmd:
+            lines.append(f"The engine runs it with: {test_cmd}  (run it once yourself to see it fail for the right reason).")
     if phase == "green":
         lines.append("Write the minimum production code that makes the current criterion's test pass. Tests are frozen.")
+        if test_cmd:
+            lines.append(f"The engine checks it with: {test_cmd}  (run it to confirm, then stop).")
     if index and not section:
         lines.append(f"You are copy {index + 1} of a parallel step; take a different angle from the others.")
     if feedback:

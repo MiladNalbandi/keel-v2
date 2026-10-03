@@ -136,10 +136,16 @@ class ClaudeCLIRunner:
         if req.system:
             argv += ["--system-prompt", req.system]
         home = config.keel_home()
-        if (home / ".claude-plugin").is_dir() or (home / "hooks" / "hooks.json").is_file():
-            # keel v1's hooks enforce the phase rules on every tool call, reading .keel/state.json,
-            # which the runtime writes before this step starts.
-            argv += ["--plugin-dir", str(home)]
+        if (home / "bin" / "keel").is_file():
+            # Only keel v1's guard (its PreToolUse hook) is loaded, not the whole plugin: the plugin's start-up
+            # text teaches keel v1's own workflow (keel state ..., .keel/ files), which the v2 engine owns, and its
+            # after-edit hooks slow every tool call. The guard reads .keel/state.json, written before this step.
+            settings = Path(req.workdir or req.root) / "keel-guard.json"
+            settings.write_text(json.dumps({"hooks": {"PreToolUse": [{
+                "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|Read|mcp__.*",
+                "hooks": [{"type": "command", "command": f'"{home / "bin" / "keel"}" hook pre-tool', "timeout": 10}],
+            }]}}))
+            argv += ["--settings", str(settings)]
         else:
             emit("text", f"keel is not installed at {home}: the live guard is off; the after-step diff guard still applies.")
         stream = ClaudeStream(emit, req.root)
