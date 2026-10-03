@@ -68,5 +68,18 @@ def snapshot(root: str) -> dict[str, str]:
     return {rel: fingerprint(root, rel) for rel in dirty(root)}
 
 
+def exclude_engine_files(root: str) -> None:
+    """keel's own state files never show up as changes: add them to .git/info/exclude (local, not committed)."""
+    info = Path(root) / ".git" / "info"
+    if not info.is_dir():
+        return
+    f = info / "exclude"
+    have = f.read_text().splitlines() if f.exists() else []
+    add = [p for p in (".keel/state.json", ".keel/.state.json*", ".keel/logs/", ".keel/ladder.json", ".keel/agents/") if p not in have]
+    if add:
+        with f.open("a") as out:
+            out.write(("\n" if have and have[-1] else "") + "# keel v2 engine files\n" + "\n".join(add) + "\n")
+
+
 def tracked_in_head(root: str, rel: str) -> bool:
     return git(root, "cat-file", "-e", f"HEAD:{rel}").returncode == 0

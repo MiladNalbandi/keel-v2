@@ -218,6 +218,7 @@ class Engine:
             state["branch"] = git.branch(root)
             state["git_head"] = git.head(root)
             state["base_head"] = state["git_head"]
+            git.exclude_engine_files(root)
             state["preexisting"] = git.snapshot(root)
         ctx.write_mirror(state, merge_disk=False)
         for u in state.get("unlocks") or []:

@@ -357,6 +357,8 @@ def keel_home(tmp_path, monkeypatch):
     (home / ".claude-plugin").mkdir(parents=True)
     (home / "hooks").mkdir()
     (home / "hooks" / "hooks.json").write_text("{}")
+    (home / "bin").mkdir()
+    (home / "bin" / "keel").write_text("#!/bin/sh\n")
     monkeypatch.setenv("KEEL_HOME", str(home))
     return home
 
@@ -398,7 +400,11 @@ async def test_claude_runner_plugin_dir_oauth_and_hook_refusal(tmp_path, monkeyp
                                           keys={"claude_oauth": "key-oauth"}), lambda k, t="", **kw: steps.append((k, t, kw)))
     argv = (tmp_path / "argv").read_text()
     env = (tmp_path / "env").read_text()
-    assert f"--plugin-dir {home}" in argv
+    # only keel's guard is loaded (not the whole plugin with its keel v1 workflow text)
+    assert "--plugin-dir" not in argv and "--settings" in argv
+    settings = argv.split("--settings ")[1].split()[0]
+    hook = json.loads(open(settings).read())["hooks"]["PreToolUse"][0]
+    assert hook["hooks"][0]["command"] == f'"{home}/bin/keel" hook pre-tool' and "Edit" in hook["matcher"]
     assert "CLAUDE_CODE_OAUTH_TOKEN=key-oauth" in env
     assert "ANTHROPIC_API_KEY" not in env and "GH_TOKEN" not in env
     guard = [s for s in steps if s[0] == "guard"]
