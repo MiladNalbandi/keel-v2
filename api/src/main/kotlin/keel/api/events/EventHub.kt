@@ -64,9 +64,9 @@ class EventHub(private val mapper: ObjectMapper) {
             try {
                 sub.emitter.send(SseEmitter.event().comment("ping"))
             } catch (e: Exception) {
+                // The connection is already gone; completing it would only start an error dispatch.
                 log.debug("dropping SSE client: {}", e.message)
                 subs.remove(sub)
-                runCatching { sub.emitter.complete() }
             }
         }
     }
