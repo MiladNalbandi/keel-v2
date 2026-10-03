@@ -12,10 +12,25 @@ import org.springframework.web.bind.annotation.RestController
 
 data class SelectMode(val mode: String = "")
 data class SecretValue(val value: String = "")
+data class StartLogin(val provider: String = "")
+data class LoginCode(val code: String = "")
 
 @RestController
 @RequestMapping("/api")
-class ConnectionController(private val connections: ConnectionService, private val secrets: SecretService) {
+class ConnectionController(private val connections: ConnectionService, private val secrets: SecretService, private val logins: LoginService) {
+
+    /** Log a CLI in from the dashboard (inside the container); the result is saved encrypted. */
+    @PostMapping("/logins")
+    fun startLogin(@RequestBody body: StartLogin): LoginView = logins.start(body.provider)
+
+    @GetMapping("/logins/{id}")
+    fun login(@PathVariable id: String): LoginView = logins.get(id)
+
+    @PostMapping("/logins/{id}/code")
+    fun loginCode(@PathVariable id: String, @RequestBody body: LoginCode): LoginView = logins.code(id, body.code)
+
+    @DeleteMapping("/logins/{id}")
+    fun cancelLogin(@PathVariable id: String): LoginView = logins.cancel(id)
 
     @GetMapping("/connections")
     fun list(): Connections = connections.connections()

@@ -8,7 +8,7 @@ services:
       additional_contexts:
         keel: ${KEEL_SRC:-../keel}
       args:
-        INSTALL_CLIS: ${INSTALL_CLIS:-0}
+        INSTALL_CLIS: ${INSTALL_CLIS:-1}
     ports:
       - "127.0.0.1:${PORT:-8080}:8080"
     environment:

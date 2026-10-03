@@ -27,17 +27,17 @@ The first time, every agent uses the built-in **fake** model, so you can try a w
 any login. Then open **Control › Connections** and pick Claude, Codex/GPT or GitHub Copilot
 (CLI login, OpenCode, or an API key).
 
-Logins for the CLIs inside the container (the published image has claude, codex, copilot and opencode):
+Logins: the image has claude, codex, copilot and opencode installed. Nothing from your computer is copied in.
+Open **Control › Connections** and press **Set up login**:
 
-| Tool | How |
-|---|---|
-| Claude (subscription) | `claude setup-token` once, then `export CLAUDE_CODE_OAUTH_TOKEN=...` before `./keel2` (on a Mac the normal login is in the Keychain, which a container cannot read) |
-| Codex (ChatGPT) | `codex login` on your machine; `./keel2` copies `~/.codex` in |
-| GitHub Copilot | `export GH_TOKEN=...` (a token with Copilot access), or Connections › GitHub Copilot |
-| API keys | Connections, or `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GITHUB_TOKEN` in your shell |
+| Tool | Log in here (in the container) | Or paste |
+|---|---|---|
+| Claude (subscription) | sign in on claude.com, paste the code the page shows | `claude setup-token` on your computer |
+| Codex (ChatGPT) | open the device link, type the code | `~/.codex/auth.json` from your computer |
+| GitHub Copilot | open github.com/login/device, type the code | a fine-grained token with "Copilot Requests" |
 
-`./keel2` mounts `~/.claude`, `~/.codex`, `~/.copilot` read-only and the container copies them into its own
-home at start, so nothing on your machine is changed.
+Every login is saved encrypted in keel's SQLite database on the `keel-data` volume, so it survives restarts and new
+images. `./keel2 token <claude|codex|copilot>` saves one from the terminal; `./keel2 tokens` lists what is saved.
 
 | Folder in the container | What |
 |---|---|
@@ -49,7 +49,7 @@ home at start, so nothing on your machine is changed.
 
 ```bash
 docker build --build-context keel=../keel -t keel-v2 .          # keel v1 source next to this repo
-docker build --build-context keel=../keel --build-arg INSTALL_CLIS=1 -t keel-v2 .   # with claude, codex, copilot, opencode CLIs
+docker build --build-context keel=../keel --build-arg INSTALL_CLIS=0 -t keel-v2:slim .   # without the CLIs
 docker compose up --build                                         # same, with PROJECT=/path/to/repo
 ```
 

@@ -1,7 +1,8 @@
 # keel v2 — one image: web + api (Kotlin) + engine (Python, LangGraph) + keel v1.
 #
 # Build (keel v1 source comes in as a named build context, so nothing is fetched from git):
-#   docker build --build-context keel=../keel -t keel-v2 .
+#   docker build --build-context keel=../keel -t keel-v2 .            (claude, codex, copilot, opencode included)
+#   docker build --build-context keel=../keel --build-arg INSTALL_CLIS=0 -t keel-v2:slim .   (no CLIs)
 # Run:
 #   docker run -p 127.0.0.1:8080:8080 -v /path/to/project:/workspace -v keel-data:/data keel-v2
 
@@ -36,7 +37,7 @@ RUN uv sync --no-dev $( [ -f uv.lock ] && echo --frozen )
 
 # ---------- runtime ----------
 FROM python:3.12-slim-bookworm
-ARG INSTALL_CLIS=0
+ARG INSTALL_CLIS=1
 ENV LANG=C.UTF-8 \
     JAVA_HOME=/opt/java \
     PATH=/opt/java/bin:/opt/engine/.venv/bin:/usr/local/bin:$PATH \
