@@ -25,8 +25,19 @@ Open http://localhost:8080. Or with the launcher in this repo:
 
 The first time, every agent uses the built-in **fake** model, so you can try a whole flow without
 any login. Then open **Control › Connections** and pick Claude, Codex/GPT or GitHub Copilot
-(CLI login, OpenCode, or an API key). `./keel2` mounts `~/.claude`, `~/.codex` and `~/.copilot`
-read-only when they exist, so CLI logins on your machine work inside the container.
+(CLI login, OpenCode, or an API key).
+
+Logins for the CLIs inside the container (the published image has claude, codex, copilot and opencode):
+
+| Tool | How |
+|---|---|
+| Claude (subscription) | `claude setup-token` once, then `export CLAUDE_CODE_OAUTH_TOKEN=...` before `./keel2` (on a Mac the normal login is in the Keychain, which a container cannot read) |
+| Codex (ChatGPT) | `codex login` on your machine; `./keel2` copies `~/.codex` in |
+| GitHub Copilot | `export GH_TOKEN=...` (a token with Copilot access), or Connections › GitHub Copilot |
+| API keys | Connections, or `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GITHUB_TOKEN` in your shell |
+
+`./keel2` mounts `~/.claude`, `~/.codex`, `~/.copilot` read-only and the container copies them into its own
+home at start, so nothing on your machine is changed.
 
 | Folder in the container | What |
 |---|---|

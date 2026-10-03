@@ -251,3 +251,57 @@ POST   /internal/events   EngineEvent[]
 - **Fake model** (provider `fake`): deterministic, no network; a full feature flow on the bundled demo repo must reach `done`
   with gates approved through the API. It is the default model until the user picks another in Connections/Settings.
 - Writing for people: short plain sentences in UI text (see mockup).
+
+## v0.2 additions (all routes below are new; existing routes keep working)
+
+### Engine
+```
+POST /workflows/estimate   + optional { models }          (already accepted) — the api always sends models
+GET  /providers/models                                    (exists) — the api now proxies it
+POST /threads              StartThread + { keys?, settings.fix_attempts?, settings.simulate_checks? }  (exists)
+```
+- **ThreadState** gains `blockers: { gate: "release"|"coverage"|"deps"|"knowledge"|"secrets", why: string, fix: string }[]`
+  (computed by the `push_check` step and refreshed after every commit) and `ladder?: { n, name, cmd, status: "pass"|"fail"|"fixing"|"waiting"|"skipped", detail? }[]`
+  (init flow). Both are also mirrored into `.keel/state.json` (`blockers`, `setup.rungs`).
+- **Unlocks**: `StartThread.settings.unlocks?: { path, phase }[]` and resume `payload.unlock: { path, phase }` add to
+  `state.unlocks` (keel v1 semantics: that path bypasses the guard matrix in that phase). Logged as a `gate` event.
+- **Commit checks** (keel v1 `keel commit`): staged-diff secret scan (allow line marker `keel:allow-secret`), new
+  manifest dependencies need approval (refused with `waiting.kind="fix"` titled "Approve new dependency"), coverage commits
+  may only delete production lines, trivial commits may not edit existing tests, change-flow escalation triggers
+  (contract / migration / auth paths / size) → `waiting.kind="gate"` "Escalate to a feature flow?".
+- **Live guard for the claude CLI**: subscription claude runs with `--plugin-dir $KEEL_HOME` so keel v1's hooks enforce the
+  phase rules on every tool call (engine keeps `.keel/state.json` current before each agent step). opencode runs with
+  keel's opencode adapter (`$KEEL_HOME/opencode`). codex/copilot keep the after-step diff guard.
+- New built-in template **`knowledge-refresh`**: one librarian per selected stale section (parallel) → `memory_check` → commit.
+  Started by the api's wiki refresh.
+
+### Api
+```
+POST /api/projects/{pid}/repo/update-from-base             → { ok, merged: bool, conflicts: string[], output }   (git merge <base>; aborts on conflict)
+GET  /api/projects/{pid}/repo/history?path=                → { sha, message, author, at }[]      (git log --follow -n 30)
+POST /api/projects/{pid}/unlock      { path, phase? }       → { unlocks }   (writes to the active thread via resume payload, else to .keel/state.json)
+GET  /api/projects/{pid}/stacks                             (exists) + Stack.installable: bool
+POST /api/projects/{pid}/stacks      { name, from }         → Stack          (copies the closest keel stack YAML into <root>/.keel/stacks/<name>.yml)
+POST /api/projects/{pid}/stacks/{name}/install              → Stack          (runs `keel packs add <packs dir> --project` in the repo)
+POST /api/projects/{pid}/wiki/refresh  { sections?: string[] } → ThreadState (starts the knowledge-refresh workflow for stale sections)
+GET  /api/projects/{pid}/caps        → Cap[]     POST /api/projects/{pid}/caps  Cap    PUT /api/projects/{pid}/caps/{id}  Cap    DELETE /api/projects/{pid}/caps/{id}
+type Cap = { id, scope: "day"|"flow"|"step"|"api_month", limit: number, unit: "tokens"|"usd", action: "pause"|"cheaper"|"stop" }
+POST /api/projects/{pid}/skills/import { url } | { body }   → Skill   (a SKILL.md from a URL or pasted text; http/https, 256 KB)
+GET  /api/providers/models                                  → engine /providers/models
+POST /api/projects/{pid}/flows       + { cap_tokens?, on_cap? }          (per-flow cap; overrides settings for that thread)
+GET  /api/projects/{pid}/estimate    + POST variant { yaml, acs }         (estimate unsaved workflow YAML)
+Agent                                + lane: "follow"|"api"|"web"          (PUT accepts it; passed to the engine as Step metadata)
+GET  /api/events?project=*                                   SSE for all projects (notifications + project.changed); web uses this for the bell
+GET  /api/projects/{pid}/flow        + thread.blockers, thread.ladder (from ThreadState)
+```
+- "Open in editor" stays out (no editor inside a container). "Open in keel v1": `GET /api/keel-dashboard` starts
+  `keel dashboard` inside the container on 7391 and returns `{ url: "/keel-v1/" }`; the api reverse-proxies `/keel-v1/**`
+  to 127.0.0.1:7391 with the Host header keel expects.
+
+### v0.2 shapes as built
+- `POST /api/projects/{pid}/unlock` → `{ unlocks, via: "thread"|"state", thread_id }`; unlocks go to a thread only while it waits with `kind:"fix"`, else into `.keel/state.json` `unlocks` (`{path, phase, reason, at}`); the engine merges on-disk unlocks into a running thread before every step.
+- `/budget.caps` rows are `BudgetCap = Cap & { name, source: "settings"|"yours" }` (the settings row has `id:"settings"`); the web reads `/caps` for editing.
+- `ThreadState` always has `blockers` and `unlocks`; `ladder` for init flows. `Estimate` has `cost_by_provider`.
+- Validation failures: 400/422 with `{ error, hint?, errors: string[] }`.
+- knowledge-refresh reads sections from `settings.sections`, else from `acs[].id`.
+- CLI logins: claude subscription gets `CLAUDE_CODE_OAUTH_TOKEN` (env or `keys.claude_oauth`); the copilot CLI gets `GH_TOKEN`/`COPILOT_GITHUB_TOKEN` (env or `keys.copilot`); every other child has them stripped.

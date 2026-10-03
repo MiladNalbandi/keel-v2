@@ -1,7 +1,7 @@
 // MSW handlers for every /api route the web uses, backed by a small in-memory db (reset per test).
 
 import { http, HttpResponse } from "msw";
-import type { Settings, ThreadState, Workflow } from "../api";
+import type { Cap, Settings, Stack, ThreadState, Workflow } from "../api";
 import * as fx from "./fixtures";
 
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v));
@@ -16,6 +16,12 @@ export function createDb() {
     notifications: clone(fx.notifications),
     nset: clone(fx.notificationSettings),
     memory: clone(fx.memory),
+    caps: clone(fx.caps) as Cap[],
+    stacks: clone(fx.stacks) as Stack[],
+    /** What POST /repo/update-from-base answers (tests change it). */
+    update: { ok: true, merged: true, conflicts: [] as string[], output: "Merge made by the 'ort' strategy.\n 1 file changed" },
+    /** When set, PUT /workflows/:wid answers 422 with these validation errors. */
+    yamlErrors: null as string[] | null,
     calls: [] as { method: string; path: string; body: unknown }[],
   };
 }
@@ -62,6 +68,13 @@ export function handlers(db: Db) {
     http.get("/api/threads/:tid/history", () => HttpResponse.json(fx.checkpoints)),
     http.post("/api/threads/:tid/rewind", async ({ request }) => { await log(request); return HttpResponse.json(db.flows["ludus-engine"].thread); }),
     http.get("/api/projects/:pid/estimate", () => HttpResponse.json(fx.estimate)),
+    http.post("/api/projects/:pid/estimate", async ({ request }) => {
+      const b = await log(request);
+      const lines = String(b.yaml ?? "").split("\n").filter((l) => l.trim().startsWith("- ")).length;
+      return HttpResponse.json({ ...fx.estimate, tokens: 100000 + lines * 1000 });
+    }),
+    http.get("/api/keel-dashboard", () => HttpResponse.json({ url: "/keel-v1/" })),
+    http.get("/api/providers/models", () => HttpResponse.json(fx.providerModels)),
 
     http.get("/api/jobs", ({ request }) => {
       const u = new URL(request.url);
@@ -77,6 +90,18 @@ export function handlers(db: Db) {
     http.get("/api/projects/:pid/repo/tree", () => HttpResponse.json(fx.tree)),
     http.get("/api/projects/:pid/repo/file", () => HttpResponse.json(fx.file)),
     http.get("/api/projects/:pid/repo/commits", () => HttpResponse.json([{ sha: "a81c3f0aa", message: "feat(AC-002) refuse a negative score", author: "implementer", at: new Date().toISOString() }])),
+    http.post("/api/projects/:pid/repo/update-from-base", async ({ request }) => { await log(request); return HttpResponse.json(db.update); }),
+    http.get("/api/projects/:pid/repo/history", ({ request }) => {
+      const path = new URL(request.url).searchParams.get("path");
+      return HttpResponse.json([
+        { sha: "a81c3f0aa", message: `feat(AC-002) refuse a negative score (${path})`, author: "implementer", at: new Date().toISOString() },
+        { sha: "77b1e02cc", message: "feat(AC-001) save a score", author: "implementer", at: new Date().toISOString() },
+      ]);
+    }),
+    http.post("/api/projects/:pid/unlock", async ({ request }) => {
+      const b = await log(request);
+      return HttpResponse.json({ unlocks: [{ path: b.path, phase: b.phase ?? "green" }] });
+    }),
     http.get("/api/projects/:pid/keel-docs", () => HttpResponse.json(fx.keelDocs)),
     http.get("/api/projects/:pid/memory", () => HttpResponse.json(db.memory)),
     http.post("/api/projects/:pid/memory", async ({ request }) => {
@@ -95,6 +120,10 @@ export function handlers(db: Db) {
     http.get("/api/projects/:pid/map", () => HttpResponse.json(fx.map)),
     http.post("/api/projects/:pid/map/rebuild", () => HttpResponse.json(fx.map)),
     http.get("/api/projects/:pid/wiki", () => HttpResponse.json(fx.wiki)),
+    http.post("/api/projects/:pid/wiki/refresh", async ({ request, params }) => {
+      await log(request);
+      return HttpResponse.json({ ...clone(fx.thread), thread_id: "th_kr1", workflow_id: "knowledge-refresh", status: "running", waiting: undefined, project_id: params.pid });
+    }),
     http.get("/api/projects/:pid/wiki/page", () => HttpResponse.json(fx.wikiPage)),
 
     http.get("/api/projects/:pid/workflows", () => HttpResponse.json(db.workflows)),
@@ -110,6 +139,7 @@ export function handlers(db: Db) {
     }),
     http.put("/api/workflows/:wid", async ({ request, params }) => {
       const b = (await log(request)) as unknown as Workflow;
+      if (db.yamlErrors) return HttpResponse.json({ error: "The workflow YAML is not valid.", hint: "Fix the lines below and save again.", errors: db.yamlErrors }, { status: 422 });
       const old = db.workflows.find((x) => x.id === params.wid)!;
       if (old.keel_rules && b.keel_rules) {
         const gone = old.steps.filter((s) => s.lock && !b.steps.some((n) => n.id === s.id));
@@ -135,13 +165,47 @@ export function handlers(db: Db) {
     http.post("/api/agents/:aid/test", () => HttpResponse.json({ ok: true, text: "OK", ms: 1400 })),
     http.get("/api/projects/:pid/skills", () => HttpResponse.json(fx.skills)),
     http.get("/api/skills/:sid", () => HttpResponse.json(fx.skillDetail)),
-    http.get("/api/projects/:pid/stacks", () => HttpResponse.json(fx.stacks)),
+    http.get("/api/projects/:pid/stacks", () => HttpResponse.json(db.stacks)),
+    http.post("/api/projects/:pid/stacks", async ({ request }) => {
+      const b = await log(request);
+      const from = db.stacks.find((x) => x.name === b.from) ?? db.stacks[0];
+      const st = { ...clone(from), name: String(b.name), source: "this project", detected: true, installable: false };
+      db.stacks.push(st);
+      return HttpResponse.json(st);
+    }),
+    http.post("/api/projects/:pid/stacks/:name/install", async ({ request, params }) => {
+      await log(request);
+      const st = { ...db.stacks.find((x) => x.name === params.name)!, installable: false, detected: true, source: "keel pack (installed)" };
+      db.stacks = db.stacks.map((x) => (x.name === st.name ? st : x));
+      return HttpResponse.json(st);
+    }),
+    http.post("/api/projects/:pid/skills/import", async ({ request }) => {
+      await log(request);
+      return HttpResponse.json({ id: "imported-skill", kind: "knowledge", source: "yours", stack: "any", version: "v1", tokens: 500, agents: [], when: "", enabled: true });
+    }),
     http.get("/api/mcp-servers", () => HttpResponse.json(fx.mcpServers)),
     http.post("/api/mcp-servers/:name/test", () => HttpResponse.json({ ok: true, tools: [{ name: "keel_status" }, { name: "keel_next" }] })),
     http.get("/api/projects/:pid/mcp-allow", () => HttpResponse.json({ explorer: ["keel"] })),
     http.put("/api/projects/:pid/mcp-allow", async ({ request }) => HttpResponse.json(await log(request))),
 
     http.get("/api/projects/:pid/budget", () => HttpResponse.json(fx.budget)),
+    http.get("/api/projects/:pid/caps", () => HttpResponse.json(db.caps)),
+    http.post("/api/projects/:pid/caps", async ({ request }) => {
+      const b = (await log(request)) as unknown as Cap;
+      const c = { ...b, id: `c${db.caps.length + 10}` };
+      db.caps.push(c);
+      return HttpResponse.json(c);
+    }),
+    http.put("/api/projects/:pid/caps/:id", async ({ request, params }) => {
+      const b = (await log(request)) as unknown as Cap;
+      db.caps = db.caps.map((c) => (c.id === params.id ? { ...b, id: c.id } : c));
+      return HttpResponse.json({ ...b, id: params.id });
+    }),
+    http.delete("/api/projects/:pid/caps/:id", async ({ request, params }) => {
+      await log(request);
+      db.caps = db.caps.filter((c) => c.id !== params.id);
+      return new HttpResponse(null, { status: 204 });
+    }),
     http.get("/api/limits", () => HttpResponse.json(fx.limits)),
     http.put("/api/limits", async ({ request }) => HttpResponse.json(await log(request))),
     http.get("/api/settings/general", () => HttpResponse.json(db.general)),

@@ -53,9 +53,13 @@ abstract class ApiTest {
         return res.get("id").asText() to root
     }
 
-    fun git(root: Path, vararg args: String): String {
-        val p = ProcessBuilder(listOf("git", "-c", "user.name=Test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false", *args))
-            .directory(root.toFile()).redirectErrorStream(true).start()
+    fun git(root: Path, vararg args: String): String = gitEnv(root, emptyMap(), *args)
+
+    fun gitEnv(root: Path, env: Map<String, String>, vararg args: String): String {
+        val pb = ProcessBuilder(listOf("git", "-c", "user.name=Test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false", *args))
+            .directory(root.toFile()).redirectErrorStream(true)
+        pb.environment().putAll(env)
+        val p = pb.start()
         val out = p.inputStream.readAllBytes().toString(Charsets.UTF_8)
         p.waitFor(20, TimeUnit.SECONDS)
         check(p.exitValue() == 0) { "git ${args.joinToString(" ")} failed: $out" }
@@ -67,6 +71,7 @@ abstract class ApiTest {
         val engine: StubEngine = StubEngine.start()
         val keelHome: Path = Paths.get(ApiTest::class.java.getResource("/keel-home")!!.toURI())
         const val TOKEN = "test-token"
+        val dashboardPort: Int = java.net.ServerSocket(0).use { it.localPort }
 
         @JvmStatic
         @DynamicPropertySource
@@ -78,6 +83,7 @@ abstract class ApiTest {
             r.add("keel.workspace") { "" }
             r.add("keel.internal-token") { TOKEN }
             r.add("keel.secret") { "" }
+            r.add("keel.dashboard-port") { dashboardPort }
         }
     }
 }

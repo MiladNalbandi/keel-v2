@@ -8,7 +8,7 @@ from pathlib import Path
 from ..model import Workflow, load_yaml
 
 HERE = Path(__file__).parent
-ORDER = ["feature", "change", "fix", "init"]
+ORDER = ["feature", "change", "fix", "init", "knowledge-refresh"]
 
 
 @lru_cache(maxsize=None)

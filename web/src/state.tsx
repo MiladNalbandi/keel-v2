@@ -195,7 +195,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
   const dismissPopup = useCallback((key: number) => setPopups((p) => p.filter((x) => x.key !== key)), []);
 
-  // ---- SSE: one stream for the chosen project, reconnect with backoff ----
+  // ---- SSE: one stream for the chosen project (live data), reconnect with backoff ----
   const pending = useRef<number | null>(null);
   const bump = useCallback(() => {
     if (pending.current !== null) return;
@@ -277,6 +277,45 @@ export function AppProvider({ children }: { children: ReactNode }) {
       es?.close();
     };
   }, [pid, arrive, bump, reloadProjects]);
+
+  // ---- SSE: one stream for every project, for the bell (notifications from all projects) ----
+  // The per-project stream may send the same notification too; `arrive` drops ids it has seen, so it pops up once.
+  useEffect(() => {
+    if (typeof EventSource === "undefined") return;
+    let es: EventSource | null = null;
+    let timer: number | null = null;
+    let attempt = 0;
+    let closed = false;
+    const onNote = (e: MessageEvent) => {
+      try {
+        arrive(JSON.parse(e.data) as Note);
+      } catch {
+        /* ignore */
+      }
+    };
+    const onChanged = () => void reloadProjects();
+    const connect = () => {
+      if (closed) return;
+      es = new EventSource(api.eventsUrl("*"));
+      es.addEventListener("notification", onNote as EventListener);
+      es.addEventListener("project.changed", onChanged);
+      es.onopen = () => {
+        attempt = 0;
+      };
+      es.onerror = () => {
+        es?.close();
+        es = null;
+        if (closed) return;
+        timer = window.setTimeout(connect, Math.min(30000, 1000 * 2 ** attempt++));
+      };
+    };
+    connect();
+    return () => {
+      closed = true;
+      if (timer) window.clearTimeout(timer);
+      es?.close();
+    };
+  }, [arrive, reloadProjects]);
 
   // waiting / running counts in the project list change with every event
   useEffect(() => {

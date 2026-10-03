@@ -2,8 +2,9 @@
 // the files keel wrote, and what agents remember (memory facts you can add, edit and forget).
 
 import { Fragment, useState } from "react";
-import { api, errorParts, type Fact, type FactKind, type Memory, type RepoInfo, type TreeNode } from "../api";
-import { Async, Drawer, ErrorBox, PageHead, Panel, Pill, Tabs, type PillTone } from "../components/ui";
+import { api, errorParts, type Commit, type Fact, type FactKind, type Memory, type RepoFile, type RepoInfo, type TreeNode, type UpdateFromBase } from "../api";
+import { RefreshStaleButton } from "../components/RefreshStale";
+import { Async, Confirm, Drawer, ErrorBox, PageHead, Panel, Pill, Tabs, type PillTone } from "../components/ui";
 import { clock, plural } from "../format";
 import { useApp, useLoad } from "../state";
 
@@ -13,6 +14,8 @@ export function RepoPage({ pid }: { pid: string }) {
   const { project } = useApp();
   const [tab, setTab] = useState<Tab>("files");
   const repo = useLoad(`repo:${pid}`, () => api.repo(pid));
+  const [result, setResult] = useState<UpdateFromBase | { error: { message: string; hint?: string } } | null>(null);
+  const update = result && <UpdateResult result={result} base={repo.data?.base ?? "base"} onClose={() => setResult(null)} />;
   return (
     <>
       <PageHead title="Repo" sub={<>{project?.name} · <span className="mono">{project?.root}</span></>} />
@@ -23,9 +26,11 @@ export function RepoPage({ pid }: { pid: string }) {
             <span className="sub">from <span className="mono">{r.base}</span></span>
             <span className="tag">↑ {r.ahead} ahead</span><span className={`tag ${r.behind ? "star" : ""}`}>↓ {r.behind} behind</span>
             <span className="sub mono">{r.remote || "no remote"}</span>
+            <UpdateFromBaseButton pid={pid} r={r} onResult={(x) => { setResult(x); void repo.reload(); }} />
           </div>
         )}
       </Async>
+      {update}
       <div className="row" style={{ margin: "12px 0" }}>
         <Tabs value={tab} onChange={setTab} label="Repo" options={[["files", "Files"], ["branch", "Branch & commits"], ["docs", "keel docs"], ["memory", "Memory"]]} />
       </div>
@@ -34,6 +39,69 @@ export function RepoPage({ pid }: { pid: string }) {
       {tab === "docs" && <DocsTab pid={pid} />}
       {tab === "memory" && <MemoryTab pid={pid} />}
     </>
+  );
+}
+
+function UpdateFromBaseButton({ pid, r, onResult }: {
+  pid: string; r: RepoInfo; onResult: (x: UpdateFromBase | { error: { message: string; hint?: string } }) => void;
+}) {
+  const { toast } = useApp();
+  const [busy, setBusy] = useState(false);
+  const run = async () => {
+    setBusy(true);
+    try {
+      const out = await api.updateFromBase(pid);
+      onResult(out);
+      if (out.merged) toast(`Merged ${r.base} into ${r.branch}.`);
+    } catch (e) {
+      onResult({ error: errorParts(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <span style={{ marginLeft: "auto" }}>
+      <button className={`btn sm ${r.behind ? "primary" : ""}`} type="button" onClick={run} disabled={busy}
+        title={`git merge ${r.base} into ${r.branch}; stops and changes nothing if files conflict`}>
+        {busy ? "Updating…" : `Update from ${r.base}`}
+      </button>
+    </span>
+  );
+}
+
+function UpdateResult({ result, base, onClose }: { result: UpdateFromBase | { error: { message: string; hint?: string } }; base: string; onClose: () => void }) {
+  const close = <button className="btn sm ghost" type="button" onClick={onClose}>Close</button>;
+  if ("error" in result) {
+    return <div style={{ marginTop: 12 }}><ErrorBox error={result.error} /></div>;
+  }
+  const out = result.output?.trim();
+  const details = out ? <details><summary className="sub">git output</summary><pre className="outbox mono">{out}</pre></details> : null;
+  if (result.conflicts?.length) {
+    return (
+      <div className="errbox" role="alert" style={{ marginTop: 12 }}>
+        <b>Not updated: {result.conflicts.length === 1 ? "1 file conflicts" : `${result.conflicts.length} files conflict`} with {base}.</b>
+        <span className="sub">keel stopped the merge, so nothing changed. Fix these files by hand (or ask an agent), then try again.</span>
+        <ul className="errlist mono">{result.conflicts.map((c) => <li key={c}>{c}</li>)}</ul>
+        {details}
+        <div>{close}</div>
+      </div>
+    );
+  }
+  if (!result.ok) {
+    return (
+      <div className="errbox" role="alert" style={{ marginTop: 12 }}>
+        <b>The update did not work.</b>
+        {details ?? <span className="sub">git gave no output.</span>}
+        <div>{close}</div>
+      </div>
+    );
+  }
+  return (
+    <div className="okbox" role="status" style={{ marginTop: 12 }}>
+      <b>{result.merged ? `Updated: ${base} is merged into this branch.` : `Already up to date with ${base}.`}</b>
+      {details}
+      <div>{close}</div>
+    </div>
   );
 }
 
@@ -82,11 +150,84 @@ function FilesTab({ pid }: { pid: string }) {
                   <span>Last commit</span><b className="mono">{f.last_commit || "—"}</b>
                 </div>
                 <pre className="head" aria-label="First lines of the file">{f.head || "(empty)"}</pre>
+                <FileActions key={f.path} pid={pid} f={f} />
               </div>
             )}
           </Async>
         )}
       </Panel>
+    </div>
+  );
+}
+
+function FileActions({ pid, f }: { pid: string; f: RepoFile }) {
+  const { project, toast } = useApp();
+  const [hist, setHist] = useState<Commit[] | null>(null);
+  const [histErr, setHistErr] = useState<{ message: string; hint?: string } | null>(null);
+  const [histOpen, setHistOpen] = useState(false);
+  const [asking, setAsking] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [unlockErr, setUnlockErr] = useState<{ message: string; hint?: string } | null>(null);
+  const [unlocked, setUnlocked] = useState(false);
+  const phase = project?.phase && project.phase !== "none" ? project.phase : undefined;
+
+  const showHistory = async () => {
+    if (histOpen) {
+      setHistOpen(false);
+      return;
+    }
+    setHistOpen(true);
+    if (hist) return;
+    setHistErr(null);
+    try {
+      setHist(await api.fileHistory(pid, f.path));
+    } catch (e) {
+      setHistErr(errorParts(e));
+    }
+  };
+  const unlock = async () => {
+    setBusy(true);
+    setUnlockErr(null);
+    try {
+      await api.unlock(pid, f.path, phase);
+      setUnlocked(true);
+      setAsking(false);
+      toast(`${f.path} is unlocked${phase ? ` in ${phase}` : ""}. The unlock is logged.`);
+    } catch (e) {
+      setUnlockErr(errorParts(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="grid" style={{ gap: 8 }}>
+      <div className="row">
+        <button className="btn sm" type="button" onClick={showHistory} aria-expanded={histOpen}>History</button>
+        {unlocked ? <Pill tone="ok">unlocked{phase ? ` in ${phase}` : ""}</Pill> : (
+          <button className="btn sm ghost" type="button" onClick={() => setAsking(true)} disabled={asking}>Unlock for this phase</button>
+        )}
+      </div>
+      {asking && (
+        <Confirm
+          text={<>Let agents edit <b className="mono">{f.path}</b>{phase ? <> in the <b>{phase}</b> phase</> : " in the current phase"}, for this flow only?
+            keel rules normally stop this. The unlock is logged in <span className="mono">.keel/logs/events.jsonl</span> and shows in Memory.</>}
+          yes="Yes, unlock it" busy={busy} onYes={unlock} onNo={() => setAsking(false)} />
+      )}
+      {unlockErr && <ErrorBox error={unlockErr} />}
+      {histOpen && (
+        <Panel title={`History of ${f.path.split("/").pop()}`} body={false} className="inner">
+          {histErr ? <div className="panel-body"><ErrorBox error={histErr} /></div> : !hist ? <div className="empty loading">Reading history…</div> : (
+            <div className="table-wrap"><table aria-label="File history">
+              <thead><tr><th>Commit</th><th>Message</th><th>By</th><th>When</th></tr></thead>
+              <tbody>
+                {hist.map((c) => <tr key={c.sha}><td className="mono sub">{c.sha.slice(0, 7)}</td><td>{commitTag(c.message)}</td><td className="sub">{c.author}</td><td className="mono sub">{clock(c.at, false)}</td></tr>)}
+                {!hist.length && <tr><td colSpan={4} className="empty">No commit touched this file yet.</td></tr>}
+              </tbody>
+            </table></div>
+          )}
+        </Panel>
+      )}
     </div>
   );
 }
@@ -243,6 +384,9 @@ function MemoryTab({ pid }: { pid: string }) {
             </Panel>
             <div className="grid" style={{ alignContent: "start" }}>
               <Panel title="Knowledge base" extra={<span className="hint">checked against HEAD</span>} body="grid">
+                {m.knowledge.some((k) => k.status === "stale") && (
+                  <div style={{ marginBottom: 8 }}><RefreshStaleButton pid={pid} sections={m.knowledge.filter((k) => k.status === "stale").map((k) => k.id)} /></div>
+                )}
                 <div className="grid" style={{ gap: 6 }}>
                   {!m.knowledge.length && <span className="sub">No knowledge base yet. The init flow writes it.</span>}
                   {m.knowledge.map((k) => (

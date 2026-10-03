@@ -28,6 +28,8 @@ data class Agent(
     val prompt: String,
     val enabled: Boolean,
     val overridden: List<String>,
+    /** Which lane this agent works in: "follow" (the workflow decides), "api" or "web". */
+    val lane: String = "follow",
 )
 
 /** Project override (PUT /api/projects/{pid}/agents/{aid}); null = keep the default. */
@@ -37,6 +39,7 @@ data class AgentOverride(
     val skills: List<String>? = null,
     val prompt: String? = null,
     val enabled: Boolean? = null,
+    val lane: String? = null,
 )
 
 data class CustomAgent(
@@ -88,7 +91,7 @@ class AgentService(
                 id = d.id, label = d.label, about = d.about, custom = false, phases = d.phases,
                 model = o.model ?: baseModel(d.id, s), tools = o.tools ?: d.tools,
                 skills = o.skills ?: assigned[d.id].orEmpty(), prompt = o.prompt ?: d.prompt,
-                enabled = o.enabled ?: true, overridden = overriddenKeys(o),
+                enabled = o.enabled ?: true, overridden = overriddenKeys(o), lane = o.lane ?: "follow",
             )
         }
         val custom = customs(pid).map { c ->
@@ -98,7 +101,7 @@ class AgentService(
                 id = id, label = c.label ?: c.name ?: id, about = c.about, custom = true, phases = c.phases,
                 model = o.model ?: c.model ?: s.defaultModel, tools = o.tools ?: c.tools,
                 skills = o.skills ?: (c.skills + assigned[id].orEmpty()).distinct(), prompt = o.prompt ?: c.prompt,
-                enabled = o.enabled ?: c.enabled, overridden = overriddenKeys(o),
+                enabled = o.enabled ?: c.enabled, overridden = overriddenKeys(o), lane = o.lane ?: "follow",
             )
         }
         return defaults + custom
@@ -106,7 +109,7 @@ class AgentService(
 
     private fun overriddenKeys(o: AgentOverride) = listOfNotNull(
         "model".takeIf { o.model != null }, "tools".takeIf { o.tools != null }, "skills".takeIf { o.skills != null },
-        "prompt".takeIf { o.prompt != null }, "enabled".takeIf { o.enabled != null },
+        "prompt".takeIf { o.prompt != null }, "enabled".takeIf { o.enabled != null }, "lane".takeIf { o.lane != null },
     )
 
     fun get(pid: String, aid: String): Agent = list(pid).firstOrNull { it.id == aid } ?: throw NotFound("No agent called \"$aid\"")
@@ -114,9 +117,11 @@ class AgentService(
     /** Merges the given fields into the project's override. Sending a field as JSON null clears it. */
     fun override(pid: String, aid: String, patch: Map<String, Any?>): Agent {
         get(pid, aid)
-        val allowed = setOf("model", "tools", "skills", "prompt", "enabled")
+        val allowed = setOf("model", "tools", "skills", "prompt", "enabled", "lane")
         val unknown = patch.keys - allowed
         if (unknown.isNotEmpty()) throw BadRequest("Unknown field: ${unknown.joinToString()}", "You can change: ${allowed.joinToString()}")
+        val lane = patch["lane"]
+        if (lane != null && lane.toString() !in LANES) throw BadRequest("lane cannot be \"$lane\"", "Pick one of: ${LANES.joinToString()}")
         val prev = jdbc.query("SELECT json FROM agent_overrides WHERE project_id = ? AND agent_id = ?", { rs, _ -> rs.getString(1) }, pid, aid)
             .firstOrNull()?.let { Json.readMap(it) } ?: emptyMap()
         val next = prev.toMutableMap()
@@ -156,5 +161,9 @@ class AgentService(
         val body = mutableMapOf<String, Any?>("provider" to m.provider, "mode" to m.mode, "model" to m.model)
         if (m.mode == "api") secrets.keyForProvider(m.provider)?.let { body["key"] = it }
         return engine.providerTest(body)
+    }
+
+    companion object {
+        val LANES = setOf("follow", "api", "web")
     }
 }

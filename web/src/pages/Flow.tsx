@@ -3,12 +3,13 @@
 
 import { Fragment, useMemo, useState } from "react";
 import {
-  api, errorParts, type Checkpoint, type EngineEvent, type FlowView, type Job, type Memory, type ThreadState, type Workflow,
+  api, errorParts, type Blocker, type Checkpoint, type EngineEvent, type FlowView, type Job, type LadderRung, type Memory, type ThreadState, type Workflow,
 } from "../api";
+import { OpenKeelV1Button } from "../components/OpenKeelV1";
 import { eventLine } from "../components/events";
 import { Graph, GraphLegend } from "../components/Graph";
 import { StartFlowDrawer } from "../components/StartFlow";
-import { Async, ErrorBox, GoButton, PageHead, Panel, Pill, Prov, type PillTone } from "../components/ui";
+import { Async, Confirm, ErrorBox, GoButton, PageHead, Panel, Pill, Prov, type PillTone } from "../components/ui";
 import { clock, kfmt, usd } from "../format";
 import { useApp, useLoad } from "../state";
 
@@ -62,6 +63,7 @@ function Header({ thread, workflow, onStart, extra }: { thread: ThreadState; wor
       sub={<>{thread.title && <>{thread.title} · </>}Branch <span className="mono">{project?.branch ?? "—"}</span> · thread <span className="mono">{thread.thread_id}</span> · v{workflow.version}</>}
       actions={<>
         {extra}
+        <OpenKeelV1Button />
         {live ? (
           <button className="btn" type="button" disabled={busy} onClick={async () => {
             setBusy(true);
@@ -100,8 +102,9 @@ function ThreadView({ pid, thread, workflow, keelState, reload, onStart }: {
           <CheckpointsPanel thread={thread} history={history.data} error={history.error} onRewound={reload} />
           <div className="grid" style={{ alignContent: "start" }}>
             <AcsPanel thread={thread} />
+            <BeforeShipPanel blockers={thread.blockers} />
             <KeelStatePanel state={keelState} />
-            <EventsPanel threadId={thread.thread_id} />
+            <EventsPanel pid={pid} thread={thread} />
           </div>
         </div>
       </div>
@@ -152,6 +155,61 @@ export function StatusCard({ pid, thread, workflow, job, onDone }: {
   );
 }
 
+type GateLabels = {
+  approve: string; reject: string; needWhy: boolean; whyLabel?: string; explain?: string;
+  approved: string; rejected: string; special?: boolean;
+};
+
+/** Button labels per waiting kind, so the choice is clear without reading the code. */
+export function gateLabels(w: NonNullable<ThreadState["waiting"]>, acId?: string, backName?: string): GateLabels {
+  const t = w.title.toLowerCase();
+  if (w.kind === "budget") {
+    return { approve: "Continue over the cap", reject: "Stop here", needWhy: false, approved: "The flow continues over its cap.", rejected: "Stopped.", special: true };
+  }
+  if (w.kind === "fix" && /dependenc/.test(t)) {
+    return {
+      approve: "Approve the new dependency", reject: "Refuse it", needWhy: true, whyLabel: "Why (needed to refuse)",
+      explain: "The commit adds a dependency to a manifest. keel asks before new code from outside comes in.",
+      approved: "Dependency approved. The commit goes on.", rejected: "Refused. The agent gets your reason and tries without it.", special: true,
+    };
+  }
+  if (w.kind === "fix") {
+    return { approve: "Approve fix", reject: "Reject fix", needWhy: true, whyLabel: "Why (needed to reject)", approved: "Fix approved.", rejected: "Fix rejected. The agent gets your reason.", special: true };
+  }
+  if (/escalat/.test(t)) {
+    return {
+      approve: "Yes, switch to a feature flow", reject: "No, keep the change flow", needWhy: false, whyLabel: "Note (optional)",
+      explain: "This change touches a contract, a migration, auth code, or is large. A feature flow adds a spec and an AC gate.",
+      approved: "Escalated. The work continues as a feature flow.", rejected: "Kept as a change flow.", special: true,
+    };
+  }
+  return {
+    approve: `Approve${acId ? " " + acId : ""}`, reject: `Send back${backName ? " to " + backName : ""}`, needWhy: true, whyLabel: "Why (needed to send back)",
+    approved: "Approved. The flow moves on.", rejected: "Sent back. The agent gets your reason in its prompt.",
+  };
+}
+
+const GATE_LABEL: Record<string, string> = { release: "release", coverage: "coverage", deps: "dependencies", knowledge: "knowledge", secrets: "secrets" };
+
+export function BeforeShipPanel({ blockers }: { blockers?: Blocker[] }) {
+  return (
+    <Panel title="Before ship" extra={<span className="hint">checked at push_check and after every commit</span>}>
+      {!blockers ? <span className="sub">Not checked yet. It runs at push_check.</span> : !blockers.length ? (
+        <div className="row"><Pill tone="ok">ready</Pill><span className="sub">Nothing blocks shipping.</span></div>
+      ) : (
+        <div className="blockers" aria-label="What blocks shipping">
+          {blockers.map((b, i) => (
+            <div key={i} className="blocker">
+              <div className="row"><Pill tone={b.gate === "secrets" ? "bad" : "warn"}>{GATE_LABEL[b.gate] ?? b.gate}</Pill><span>{b.why}</span></div>
+              {b.fix && <span className="sub">Fix: {b.fix}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
 function GateCard({ thread, workflow, onDone }: { thread: ThreadState; workflow: Workflow; onDone: () => Promise<void> }) {
   const { toast, reloadProjects } = useApp();
   const w = thread.waiting!;
@@ -161,11 +219,9 @@ function GateCard({ thread, workflow, onDone }: { thread: ThreadState; workflow:
   const step = workflow.steps.find((s) => s.id === w.step) ?? workflow.steps.find((s) => s.id === thread.current);
   const back = step?.back ? workflow.steps.find((s) => s.id === step.back) : undefined;
   const ac = thread.acs.find((a) => a.id === thread.ac);
-  const labels = w.kind === "budget"
-    ? { approve: "Continue over the cap", reject: "Stop here", needWhy: false }
-    : w.kind === "fix"
-      ? { approve: "Approve fix", reject: "Reject fix", needWhy: true }
-      : { approve: `Approve${ac ? " " + ac.id : ""}`, reject: `Send back${back ? " to " + back.name : ""}`, needWhy: true };
+  const labels = gateLabels(w, ac?.id, back?.name);
+
+  const showAc = w.kind === "gate" && !labels.special;
 
   const decide = async (decision: "approve" | "reject") => {
     if (decision === "reject" && labels.needWhy && !why.trim()) {
@@ -177,7 +233,7 @@ function GateCard({ thread, workflow, onDone }: { thread: ThreadState; workflow:
     setErr(null);
     try {
       await api.resume(thread.thread_id, decision, why.trim() || undefined);
-      toast(decision === "approve" ? "Approved. The flow moves on." : labels.needWhy ? "Sent back. The agent gets your reason in its prompt." : "Stopped.");
+      toast(decision === "approve" ? labels.approved : labels.rejected);
       setWhy("");
       await Promise.all([onDone(), reloadProjects()]);
     } catch (e) {
@@ -189,11 +245,12 @@ function GateCard({ thread, workflow, onDone }: { thread: ThreadState; workflow:
 
   return (
     <div className="interrupt" role="region" aria-label="Gate waits for you">
-      <h3><Pill tone="warn">◆ waits for you</Pill> {w.title}{ac ? ` — ${ac.id} [${ac.layer}] ${ac.title}` : ""}</h3>
+      <h3><Pill tone="warn">◆ waits for you</Pill> {w.title}{showAc && ac ? ` — ${ac.id} [${ac.layer}] ${ac.title}` : ""}</h3>
+      {labels.explain && <p className="sub" style={{ margin: 0 }}>{labels.explain}</p>}
       {w.detail && <div className="facts" style={{ whiteSpace: "pre-wrap" }}>{w.detail}</div>}
-      {labels.needWhy && (
+      {labels.whyLabel && (
         <div className="field">
-          <label htmlFor="why">Why (needed to send back)</label>
+          <label htmlFor="why">{labels.whyLabel}</label>
           <textarea id="why" value={why} onChange={(e) => setWhy(e.target.value)} placeholder="e.g. also check the error message text in the test" />
         </div>
       )}
@@ -296,44 +353,89 @@ function KeelStatePanel({ state }: { state: Record<string, unknown> | null }) {
   );
 }
 
-export function EventsPanel({ threadId }: { threadId: string }) {
+export function EventsPanel({ pid, thread }: { pid: string; thread: ThreadState }) {
   const { recent } = useApp();
-  const mine = recent.filter((e: EngineEvent) => e.thread_id === threadId && e.type !== "agent.step").slice(-12).reverse();
+  const mine = recent.filter((e: EngineEvent) => e.thread_id === thread.thread_id && e.type !== "agent.step").slice(-12).reverse();
+  const [asking, setAsking] = useState<EngineEvent | null>(null);
   return (
     <Panel title="Events">
       <div className="events">
         {!mine.length ? <span className="sub">Events show here as they happen.</span> : mine.map((e, i) => {
           const l = eventLine(e);
-          return <div key={i}><span className="t mono sub">{clock(e.at, false)}</span><span className="k">{l.k}</span><span>{l.text}</span></div>;
+          const path = e.type === "guard.refused" && typeof e.data?.path === "string" ? e.data.path : null;
+          return (
+            <div key={i}>
+              <span className="t mono sub">{clock(e.at, false)}</span><span className="k">{l.k}</span>
+              <span>{l.text}{path && asking !== e && (
+                <> <button className="btn sm ghost" type="button" onClick={() => setAsking(e)} aria-label={`Allow ${path} in this phase`}>Allow this file in this phase</button></>
+              )}</span>
+            </div>
+          );
         })}
       </div>
+      {asking && <UnlockConfirm pid={pid} path={String(asking.data.path)} phase={typeof asking.data.phase === "string" ? asking.data.phase : thread.phase} onClose={() => setAsking(null)} />}
     </Panel>
+  );
+}
+
+function UnlockConfirm({ pid, path, phase, onClose }: { pid: string; path: string; phase: string; onClose: () => void }) {
+  const { toast } = useApp();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<{ message: string; hint?: string } | null>(null);
+  const yes = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.unlock(pid, path, phase || undefined);
+      toast(`${path} is allowed in ${phase || "this phase"}. The unlock is logged.`);
+      onClose();
+    } catch (e) {
+      setErr(errorParts(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="grid" style={{ gap: 8, marginTop: 10 }}>
+      <Confirm text={<>The guard stopped a write to <b className="mono">{path}</b>{phase ? <> in <b>{phase}</b></> : null}. Allow agents to edit this file in this phase, for this flow only?
+        The unlock is logged in <span className="mono">.keel/logs/events.jsonl</span>.</>}
+        yes="Yes, allow it" busy={busy} onYes={yes} onNo={onClose} />
+      {err && <ErrorBox error={err} />}
+    </div>
   );
 }
 
 // ---------- init flow: ladder ‖ knowledge build ----------
 
-type Rung = { label: string; cmd: string; status: "ok" | "fix" | "todo" | "skip"; note: string };
+type Rung = { label: string; cmd: string; status: "ok" | "fail" | "fix" | "todo" | "skip"; note: string };
 
-function rungsFrom(state: Record<string, unknown> | null): Rung[] {
+const LADDER_STATUS: Record<LadderRung["status"], Rung["status"]> = { pass: "ok", fail: "fail", fixing: "fix", waiting: "todo", skipped: "skip" };
+
+/** The ladder from the thread (v0.2), else from keel v1's .keel/state.json (setup.rungs). */
+export function rungsFrom(thread: ThreadState | null, state: Record<string, unknown> | null): Rung[] {
+  if (thread?.ladder?.length) {
+    return [...thread.ladder].sort((a, b) => a.n - b.n).map((r) => ({
+      label: r.name, cmd: r.cmd, status: LADDER_STATUS[r.status] ?? "todo", note: r.detail ?? "",
+    }));
+  }
   if (!state) return [];
   const raw = (state.ladder ?? (state.setup as Record<string, unknown> | undefined)?.rungs ?? null) as unknown;
   const list: Record<string, unknown>[] = Array.isArray(raw) ? raw : raw && typeof raw === "object" ? Object.values(raw as object) : [];
   return list.map((r) => {
     const s = String(r.status ?? (r.ok === true ? "ok" : r.ok === false ? "fail" : "todo"));
-    const status: Rung["status"] = /ok|pass/.test(s) ? "ok" : /fail|fix/.test(s) ? "fix" : /skip/.test(s) ? "skip" : "todo";
-    return { label: String(r.label ?? r.id ?? "rung"), cmd: String(r.cmd ?? r.command ?? ""), status, note: String(r.note ?? r.why ?? (r.attempts ? `attempt ${r.attempts}` : "")) };
+    const status: Rung["status"] = /ok|pass/.test(s) ? "ok" : /fail/.test(s) ? "fail" : /fix/.test(s) ? "fix" : /skip/.test(s) ? "skip" : "todo";
+    return { label: String(r.label ?? r.name ?? r.id ?? "rung"), cmd: String(r.cmd ?? r.command ?? ""), status, note: String(r.note ?? r.why ?? (r.attempts ? `attempt ${r.attempts}` : "")) };
   });
 }
 
-const RUNG_PILL: Record<Rung["status"], [PillTone, string]> = { ok: ["ok", "pass"], fix: ["warn", "fixing"], todo: ["idle", "waiting"], skip: ["idle", "skipped"] };
+const RUNG_PILL: Record<Rung["status"], [PillTone, string]> = { ok: ["ok", "pass"], fail: ["bad", "fail"], fix: ["warn", "fixing"], todo: ["idle", "waiting"], skip: ["idle", "skipped"] };
 const KB_PILL: Record<string, [PillTone, string]> = { written: ["ok", "written"], stale: ["warn", "stale"], missing: ["idle", "not written"], writing: ["run", "writing"] };
 
 function InitFlow({ pid, f, onStart, reload }: { pid: string; f: { thread: ThreadState; workflow: Workflow; keel_state: Record<string, unknown> | null }; onStart: () => void; reload: () => Promise<void> }) {
   const { thread, workflow } = f;
   const { est, job, jobs } = useThreadBits(pid, thread, workflow);
   const memory = useLoad<Memory>(`mem:${pid}`, () => api.memory(pid));
-  const rungs = rungsFrom(f.keel_state);
+  const rungs = rungsFrom(thread, f.keel_state);
   const passed = rungs.filter((r) => r.status === "ok").length;
   const kb = memory.data?.knowledge ?? [];
   const writing = (jobs.data ?? []).filter((j) => j.thread_id === thread.thread_id && /librarian/.test(j.agent));
@@ -366,7 +468,7 @@ function InitFlow({ pid, f, onStart, reload }: { pid: string; f: { thread: Threa
               <tbody>{rungs.map((r, i) => (
                 <tr key={i}>
                   <td className="num sub">{i + 1}</td>
-                  <td><b>{r.label}</b>{r.status === "fix" && r.note && <div className="sub">{r.note}</div>}</td>
+                  <td><b>{r.label}</b>{(r.status === "fix" || r.status === "fail") && r.note && <div className="sub">{r.note}</div>}</td>
                   <td className="mono sub">{r.cmd}</td>
                   <td><Pill tone={RUNG_PILL[r.status][0]}>{RUNG_PILL[r.status][1]}</Pill></td>
                 </tr>
@@ -387,7 +489,7 @@ function InitFlow({ pid, f, onStart, reload }: { pid: string; f: { thread: Threa
             </div>
           </Panel>
           <BudgetMeter thread={thread} estimate={est.data?.tokens ?? null} title="Budget for init" />
-          <EventsPanel threadId={thread.thread_id} />
+          <EventsPanel pid={pid} thread={thread} />
         </div>
       </div>
     </>

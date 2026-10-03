@@ -40,6 +40,11 @@ class AC(BaseModel):
     title: str = ""
 
 
+class Unlock(BaseModel):
+    path: str
+    phase: str | None = None
+
+
 class Settings(BaseModel):
     gates_mode: Literal["every-ac", "end-of-lane", "end"] = "every-ac"
     cap_tokens: int = 0
@@ -47,6 +52,8 @@ class Settings(BaseModel):
     cheaper_model: ModelSpec | None = None
     fix_attempts: int = 3
     simulate_checks: bool | None = None   # default: simulate test runs when every model is fake
+    unlocks: list[Unlock] | None = None   # keel v1 unlocks: that path bypasses the guard matrix in that phase
+    sections: list[str] | None = None     # knowledge-refresh: one librarian per section
 
 
 class McpServerSpec(BaseModel):
@@ -98,10 +105,12 @@ class ProviderTest(BaseModel):
     key: str | None = None
 
 
-def _err(status: int, error: str, hint: str | None = None) -> JSONResponse:
-    body = {"error": error}
+def _err(status: int, error: str, hint: str | None = None, errors: list[str] | None = None) -> JSONResponse:
+    body: dict = {"error": error}
     if hint:
         body["hint"] = hint
+    if errors is not None:
+        body["errors"] = errors
     return JSONResponse(body, status_code=status)
 
 
@@ -172,7 +181,7 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     async def post_estimate(body: EstimateBody):
         r = validate_yaml(body.yaml)
         if r.get("workflow") is None:
-            return _err(400, "The workflow does not parse.", "; ".join(r["errors"]))
+            return _err(400, "The workflow does not parse.", "; ".join(r["errors"]), r["errors"])
         m = {k: v.model_dump() for k, v in (body.models or {}).items()}
         return estimate(r["workflow"], body.acs, body.history, m)
 
@@ -181,10 +190,10 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
         try:
             wf = from_dict(body.workflow, body.workflow.get("yaml") or None)
         except WorkflowError as exc:
-            return _err(400, str(exc))
+            return _err(400, str(exc), errors=[str(exc)])
         errors = validate(wf)
         if errors:
-            return _err(400, "The workflow is not valid.", "; ".join(errors))
+            return _err(400, "The workflow is not valid.", "; ".join(errors), errors)
         data = body.model_dump()
         data["workflow"] = wf
         data["acs"] = [a.model_dump() for a in body.acs] if body.acs else None

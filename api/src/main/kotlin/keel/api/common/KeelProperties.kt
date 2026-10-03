@@ -15,6 +15,8 @@ data class KeelProperties(
     val secret: String = "",
     val projectsFile: String = "",
     val scanOnStart: Boolean = true,
+    /** keel v1 dashboard port (`keel dashboard`), reverse-proxied at /keel-v1/. */
+    val dashboardPort: Int = 7391,
 ) {
     /** Absolute data folder; created on first use. */
     val dataDir: Path by lazy {

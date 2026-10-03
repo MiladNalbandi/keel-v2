@@ -75,7 +75,7 @@ def _plan(req: AgentRequest) -> tuple[str | None, str, str, dict]:
         return f"e2e/test_{key_of(title)}_e2e.py", f'"""E2E for {title}."""\n\n\ndef test_flow():\n    assert True\n', \
             "E2E spec written and passing.", {}
     if agent == "librarian":
-        section = SECTIONS[req.index % len(SECTIONS)] if phase == "setup" else "architecture"
+        section = req.section or (SECTIONS[req.index % len(SECTIONS)] if phase in ("setup", "memory") else "architecture")
         return f"docs/knowledge/{section}.md", f"# {section.title()}\n\nThe package lives in src/scores (src/scores/__init__.py:1).\n", \
             f"Knowledge section {section} written with citations.", {}
     if agent == "ac-reviewer":

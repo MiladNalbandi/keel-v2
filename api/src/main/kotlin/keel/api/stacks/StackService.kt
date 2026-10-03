@@ -1,12 +1,20 @@
 package keel.api.stacks
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import keel.api.common.ApiException
+import keel.api.common.BadRequest
+import keel.api.common.Conflict
 import keel.api.common.KeelHome
+import keel.api.common.NotFound
+import keel.api.common.Proc
 import keel.api.common.Yaml
 import keel.api.projects.ProjectService
+import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Service
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
+import org.springframework.web.bind.annotation.PostMapping
+import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RestController
 import java.nio.file.Files
 import java.nio.file.Path
@@ -24,27 +32,53 @@ data class Stack(
     val commands: List<StackCommand>,
     val tools: List<StackTool>,
     val skills: Map<String, Any?>,
+    /** A keel pack that is not installed in this project yet (POST .../stacks/{name}/install). */
+    val installable: Boolean = false,
 )
 
-private data class StackDef(val doc: Map<String, Any?>, val source: String)
+data class NewStack(val name: String = "", val from: String? = null)
+
+private data class StackDef(val doc: Map<String, Any?>, val source: String, val file: Path) {
+    val name: String get() = doc["name"].toString()
+}
 
 /** keel v1 stack packs (stacks/NAME.yml and packs/stacks/NAME.yml) and which ones a project matches. */
 @Service
 class StackService(private val home: KeelHome, private val projects: ProjectService, private val mapper: ObjectMapper) {
 
-    private fun defs(): List<StackDef> {
-        fun load(dir: Path, source: String): List<StackDef> {
-            if (!Files.isDirectory(dir)) return emptyList()
-            return Files.list(dir).use { s -> s.filter { it.toString().endsWith(".yml") }.sorted().toList() }
-                .mapNotNull { f -> Yaml.readMap(Files.readString(f))?.takeIf { it["name"] != null }?.let { StackDef(it, source) } }
-        }
-        return load(home.path.resolve("stacks"), "keel") + load(home.path.resolve("packs/stacks"), "keel pack")
+    private fun read(f: Path, source: String): StackDef? =
+        runCatching { Yaml.readMap(Files.readString(f)) }.getOrNull()?.takeIf { it["name"] != null }?.let { StackDef(it, source, f) }
+
+    private fun load(dir: Path, source: String): List<StackDef> {
+        if (!Files.isDirectory(dir)) return emptyList()
+        return Files.list(dir).use { s -> s.filter { it.toString().endsWith(".yml") }.sorted().toList() }.mapNotNull { read(it, source) }
+    }
+
+    private fun shipped(): List<StackDef> = load(home.path.resolve("stacks"), "keel") + load(home.path.resolve("packs/stacks"), "keel pack")
+
+    /**
+     * Packs in `<root>/.keel/stacks`, the way keel v1 finds them: a `<name>.yml`, a `<dir>/stack.yml`,
+     * or yml files in `<dir>` or `<dir>/stacks` (what `keel packs add --project` leaves). Up to 3 levels deep.
+     */
+    private fun projectDefs(root: Path): List<StackDef> {
+        val dir = root.resolve(".keel/stacks")
+        if (!Files.isDirectory(dir)) return emptyList()
+        return runCatching {
+            Files.walk(dir, 3).use { w -> w.filter { Files.isRegularFile(it) && it.toString().endsWith(".yml") }.sorted().toList() }
+        }.getOrDefault(emptyList()).mapNotNull { read(it, "project") }
+    }
+
+    /** keel v1 order: this project's packs beat the ones keel ships. */
+    private fun defs(root: Path): List<StackDef> {
+        val project = projectDefs(root).distinctBy { it.name }
+        val names = project.map { it.name }.toSet()
+        return shipped().filter { it.name !in names } + project
     }
 
     fun list(pid: String): List<Stack> {
         val root = projects.root(pid)
         val files = ProjectFiles(root)
-        return defs().map { d ->
+        return defs(root).map { d ->
             val doc = d.doc
             @Suppress("UNCHECKED_CAST")
             val detect = doc["detect"] as? Map<String, Any?> ?: emptyMap()
@@ -58,11 +92,59 @@ class StackService(private val home: KeelHome, private val projects: ProjectServ
             @Suppress("UNCHECKED_CAST")
             Stack(
                 name = doc["name"].toString(), lane = doc["lane"]?.toString(), source = d.source,
-                detected = detects(detect, files), detect = detect,
+                // A stack the user put in the project is in use, whatever the files say.
+                detected = d.source == "project" || detects(detect, files), detect = detect,
                 layers = (doc["layers"] as? List<Map<String, Any?>>).orEmpty(), commands = commands, tools = tools,
                 skills = (doc["skills"] as? Map<String, Any?>).orEmpty(),
+                installable = d.source == "keel pack",
             )
         }
+    }
+
+    fun get(pid: String, name: String): Stack = list(pid).firstOrNull { it.name == name } ?: throw NotFound("No stack called \"$name\"")
+
+    /**
+     * Copies the closest keel stack YAML to `<root>/.keel/stacks/<name>.yml` and renames it.
+     * Closest = `from` when given, else a stack with the same name, else the first detected one.
+     */
+    fun create(pid: String, name: String, from: String?): Stack {
+        val root = projects.root(pid)
+        if (!Regex("^[a-z0-9][a-z0-9-]{0,40}$").matches(name)) {
+            throw BadRequest("The stack name is not valid", "Use lower case letters, digits and dashes, like my-api.")
+        }
+        val target = root.resolve(".keel/stacks/$name.yml")
+        if (Files.exists(target) || projectDefs(root).any { it.name == name }) throw Conflict("This project already has a stack called \"$name\"")
+        val all = shipped()
+        val source = when {
+            !from.isNullOrBlank() -> all.firstOrNull { it.name == from } ?: throw NotFound("No keel stack called \"$from\"", "GET /stacks lists them.")
+            else -> all.firstOrNull { it.name == name }
+                ?: run { val files = ProjectFiles(root); all.firstOrNull { d -> @Suppress("UNCHECKED_CAST") detects((d.doc["detect"] as? Map<String, Any?>).orEmpty(), files) } }
+                ?: all.firstOrNull()
+                ?: throw NotFound("keel has no stack to copy from", "Check KEEL_HOME: it needs stacks/*.yml.")
+        }
+        val text = Files.readString(source.file)
+        val nameLine = Regex("(?m)^name:.*$")
+        val renamed = if (nameLine.containsMatchIn(text)) text.replaceFirst(nameLine, "name: $name") else "name: $name\n$text"
+        Files.createDirectories(target.parent)
+        Files.writeString(target, renamed)
+        return get(pid, name)
+    }
+
+    /** Runs `keel packs add $KEEL_HOME/packs --project` in the repo, then returns the stack. */
+    fun install(pid: String, name: String): Stack {
+        val root = projects.root(pid)
+        val stack = get(pid, name)
+        if (stack.source == "project") return stack
+        if (!stack.installable) throw Conflict("\"$name\" ships with keel", "It is always there; nothing to install.")
+        if (!home.installed()) throw ApiException(HttpStatus.SERVICE_UNAVAILABLE, "keel is not installed at ${home.path}", "Set KEEL_HOME.")
+        val r = Proc.run(home.command("packs", "add", home.path.resolve("packs").toString(), "--project"), root, 120)
+        val output = (r.out + r.err).trim()
+        // keel refuses when the pack folder is already there: that is "installed" for us.
+        if (!r.ok && !output.contains("already exists")) {
+            val why = if (r.timedOut) "keel packs add took too long." else output.lines().filter { it.isNotBlank() }.takeLast(5).joinToString("\n")
+            throw ApiException(HttpStatus.BAD_GATEWAY, "keel could not install the pack", why)
+        }
+        return get(pid, name)
     }
 
     private fun strings(v: Any?): List<String> = (v as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
@@ -117,4 +199,10 @@ class StackService(private val home: KeelHome, private val projects: ProjectServ
 class StackController(private val stacks: StackService) {
     @GetMapping("/api/projects/{pid}/stacks")
     fun list(@PathVariable pid: String): List<Stack> = stacks.list(pid)
+
+    @PostMapping("/api/projects/{pid}/stacks")
+    fun create(@PathVariable pid: String, @RequestBody body: NewStack): Stack = stacks.create(pid, body.name.trim(), body.from)
+
+    @PostMapping("/api/projects/{pid}/stacks/{name}/install")
+    fun install(@PathVariable pid: String, @PathVariable name: String): Stack = stacks.install(pid, name)
 }

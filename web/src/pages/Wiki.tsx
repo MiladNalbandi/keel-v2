@@ -5,6 +5,7 @@ import { useState } from "react";
 import { api, type WikiTree } from "../api";
 import { Graph, GraphLegend } from "../components/Graph";
 import { Markdown } from "../components/Markdown";
+import { RefreshStaleButton } from "../components/RefreshStale";
 import { Async, ErrorBox, Loading, PageHead, Pill } from "../components/ui";
 import { KIND, tokensByStep } from "../components/workflow";
 import { kfmt } from "../format";
@@ -115,11 +116,15 @@ export function WikiPage({ pid }: { pid: string }) {
   const [q, setQ] = useState("");
   const first = tree.data?.sections.flatMap((s) => s.items)[0]?.id;
   const cur = arg ?? first ?? "";
+  const stale = (tree.data?.sections ?? []).flatMap((s) => s.items).filter((i) => i.status === "stale" && i.id.startsWith("kb:")).map((i) => i.id.slice(3));
   return (
     <>
       <PageHead title="Wiki"
         sub={`What keel knows about ${project?.name ?? pid}: the knowledge base the librarians write, a page for every workflow, the setup runbook and decisions.`}
-        actions={<input type="text" className="inline-input" placeholder="Search the wiki" aria-label="Search the wiki" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 200 }} />} />
+        actions={<>
+          <input type="text" className="inline-input" placeholder="Search the wiki" aria-label="Search the wiki" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 200 }} />
+          <RefreshStaleButton pid={pid} sections={stale} className="btn" />
+        </>} />
       <Async r={tree} what="Loading the wiki">
         {(t) => !t.sections.some((s) => s.items.length) ? (
           <div className="panel"><div className="panel-body empty">The wiki is empty. The init flow writes the knowledge base; every workflow gets a page.</div></div>

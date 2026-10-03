@@ -2,7 +2,8 @@
 # keel2 — run keel v2 on a project with one command.
 #   ./keel2 /path/to/project            start (or restart) keel v2 for that project, open the browser
 #   ./keel2 stop | logs | update
-# Logins: if ~/.claude, ~/.codex or ~/.copilot exist they are mounted read-only so the CLIs inside can use them.
+# Logins: ~/.claude, ~/.codex, ~/.copilot (if present) are copied in read-only. On a Mac the Claude login is in the
+# Keychain, so run `claude setup-token` once and export CLAUDE_CODE_OAUTH_TOKEN before ./keel2. Copilot: export GH_TOKEN.
 set -euo pipefail
 IMAGE="${KEEL_IMAGE:-milimarty/keel-v2:latest}"
 NAME="${KEEL_NAME:-keel-v2}"
@@ -18,12 +19,14 @@ esac
 PROJECT="$(cd "$1" && pwd)"
 [ -d "$PROJECT/.git" ] || ls -d "$PROJECT"/*/.git >/dev/null 2>&1 || { echo "$PROJECT is not a git repo (and has no git repos inside). Run: git init \"$PROJECT\""; exit 1; }
 mounts=(-v "$PROJECT:/workspace" -v keel-data:/data)
-for d in .claude .codex .copilot; do [ -d "$HOME/$d" ] && mounts+=(-v "$HOME/$d:/home/keel/$d:ro"); done
-[ -f "$HOME/.claude.json" ] && mounts+=(-v "$HOME/.claude.json:/home/keel/.claude.json:ro")
+# CLI logins: mounted read-only under /host-auth and copied into the container's home at start.
+for d in .claude .codex .copilot .config/github-copilot .local/share/opencode; do [ -d "$HOME/$d" ] && mounts+=(-v "$HOME/$d:/host-auth/$d:ro"); done
+[ -f "$HOME/.claude.json" ] && mounts+=(-v "$HOME/.claude.json:/host-auth/.claude.json:ro")
 
 docker rm -f "$NAME" >/dev/null 2>&1 || true
 docker run -d --name "$NAME" -p "127.0.0.1:$PORT:8080" "${mounts[@]}" -e KEEL_PROJECT_NAME="$(basename "$PROJECT")" \
   ${ANTHROPIC_API_KEY:+-e ANTHROPIC_API_KEY} ${OPENAI_API_KEY:+-e OPENAI_API_KEY} ${GITHUB_TOKEN:+-e GITHUB_TOKEN} \
+  ${GH_TOKEN:+-e GH_TOKEN} ${CLAUDE_CODE_OAUTH_TOKEN:+-e CLAUDE_CODE_OAUTH_TOKEN} \
   "$IMAGE" >/dev/null
 
 echo "keel v2 is starting for $PROJECT"

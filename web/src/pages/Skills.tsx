@@ -120,6 +120,53 @@ function NewSkillDrawer({ pid, stacks, onClose, onCreated }: { pid: string; stac
   );
 }
 
+function ImportSkillDrawer({ pid, onClose, onImported }: { pid: string; onClose: () => void; onImported: (s: Skill) => void }) {
+  const { toast } = useApp();
+  const [how, setHow] = useState<"url" | "paste">("url");
+  const [url, setUrl] = useState("");
+  const [body, setBody] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<{ message: string; hint?: string } | null>(null);
+  const urlOk = /^https?:\/\/\S+$/i.test(url.trim());
+  const ready = how === "url" ? urlOk : body.trim().length > 0;
+  const save = async () => {
+    if (!ready) {
+      setErr(how === "url" ? { message: "Write a link that starts with http:// or https://." } : { message: "Paste the SKILL.md text first." });
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    try {
+      const sk = await api.importSkill(pid, how === "url" ? { url: url.trim() } : { body });
+      toast(`${sk?.id ?? "Skill"} imported. Assign it to agents in its details.`);
+      onImported(sk);
+      onClose();
+    } catch (e) {
+      setErr(errorParts(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Drawer title="Import a skill" onClose={onClose}
+      footer={<><button className="btn" type="button" onClick={onClose}>Cancel</button>
+        <button className="btn primary" type="button" onClick={save} disabled={busy}>{busy ? "Importing…" : "Import"}</button></>}>
+      <Tabs value={how} onChange={(v) => { setHow(v); setErr(null); }} label="Import from" options={[["url", "From a link"], ["paste", "Paste SKILL.md"]]} />
+      {how === "url" ? (
+        <div className="field"><label htmlFor="isk-url">Link to a SKILL.md</label>
+          <input type="text" id="isk-url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://raw.githubusercontent.com/…/SKILL.md" />
+          <span className="hint">http or https, up to 256 KB. keel reads it once and keeps a copy in this project.</span></div>
+      ) : (
+        <div className="field"><label htmlFor="isk-body">SKILL.md</label>
+          <textarea id="isk-body" value={body} onChange={(e) => setBody(e.target.value)} style={{ minHeight: 240 }}
+            placeholder={"---\nname: my-skill\ndescription: What it is about. Load when …\n---\n\n# My skill"} />
+          <span className="hint">The name and description come from the front matter at the top.</span></div>
+      )}
+      {err && <ErrorBox error={err} />}
+    </Drawer>
+  );
+}
+
 export function SkillsPage({ pid }: { pid: string }) {
   const { project } = useApp();
   const skills = useLoad(`skills:${pid}`, () => api.skills(pid), { live: false });
@@ -129,12 +176,16 @@ export function SkillsPage({ pid }: { pid: string }) {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [importing, setImporting] = useState(false);
   const needle = q.trim().toLowerCase();
   const match = (s: Skill) => (filter === "all" || s.source === filter) && (!needle || (s.id + s.kind + s.stack).toLowerCase().includes(needle));
   return (
     <>
       <PageHead title="Skill hub" sub={`Skills agents use in ${project?.name ?? pid}: keel skills for its stacks, plus skills only this project has.`}
-        actions={<button className="btn primary" type="button" id="newSkill" onClick={() => setCreating(true)}>New skill</button>} />
+        actions={<>
+          <button className="btn" type="button" onClick={() => setImporting(true)}>Import</button>
+          <button className="btn primary" type="button" id="newSkill" onClick={() => setCreating(true)}>New skill</button>
+        </>} />
       <div className="row" style={{ marginBottom: 12, justifyContent: "space-between" }}>
         <Tabs value={filter} onChange={setFilter} label="Source" options={(Object.keys(SRC_LABEL) as Src[]).map((k) => [k, SRC_LABEL[k]])} />
         <input type="text" id="skq" className="inline-input" placeholder="Search skills" aria-label="Search skills" value={q} onChange={(e) => setQ(e.target.value)} style={{ flex: "0 1 220px" }} />
@@ -180,6 +231,7 @@ export function SkillsPage({ pid }: { pid: string }) {
         </Panel>
       </div>
       {open && <SkillDrawer pid={pid} id={open} agents={agents.data ?? []} onClose={() => setOpen(null)} onSaved={() => void skills.reload()} />}
+      {importing && <ImportSkillDrawer pid={pid} onClose={() => setImporting(false)} onImported={() => { setFilter("yours"); void skills.reload(); }} />}
       {creating && <NewSkillDrawer pid={pid} stacks={stacks.data ?? []} onClose={() => setCreating(false)} onCreated={() => { setFilter("yours"); void skills.reload(); }} />}
     </>
   );

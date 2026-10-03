@@ -40,7 +40,10 @@ class WebConfig : WebMvcConfigurer {
 
     class SpaResolver : PathResourceResolver() {
         override fun getResource(resourcePath: String, location: Resource): Resource? {
-            if (resourcePath.startsWith("api/") || resourcePath == "api" || resourcePath.startsWith("internal/")) return null
+            if (
+                resourcePath.startsWith("api/") || resourcePath == "api" || resourcePath.startsWith("internal/") ||
+                resourcePath == "keel-v1" || resourcePath.startsWith("keel-v1/")
+            ) return null
             val index = ClassPathResource("static/index.html")
             if (resourcePath.isEmpty() || resourcePath == "index.html") return if (index.exists()) index else null
             val found = super.getResource(resourcePath, location)

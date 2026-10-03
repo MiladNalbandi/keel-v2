@@ -43,10 +43,27 @@ def state_json(values: dict, flow: str, thread_id: str, step_name: str | None = 
     stall = values.get("stall") or {}
     s["stall"] = {"fingerprint": stall.get("fingerprint"), "count": stall.get("count", 0), "step": stall.get("step", 0)}
     s["last_failure"] = values.get("last_failure")
+    cur = next((a for a in acs if a["id"] == values.get("ac")), None)
+    if cur:
+        s["lane"] = "web" if str(cur.get("layer", "API")).upper() == "WEB" else "api"
+    s["unlocks"] = [{"path": u.get("path"), "phase": u.get("phase"), **{k: u[k] for k in ("by", "reason", "at") if u.get(k)}}
+                    for u in values.get("unlocks") or []]
+    s["deps"] = list(values.get("deps") or [])
+    s["blockers"] = list(values.get("blockers") or [])
+    if values.get("ladder"):
+        s["setup"] = {"rungs": list(values["ladder"])}
     if values.get("status") in ("done", "stopped") and values.get("phase") in (None, "none"):
         s["flow"] = None
     s["engine"] = {"thread_id": thread_id, "step": values.get("current"), "step_name": step_name, "status": values.get("status"), "updated_at": now()}
     return s
+
+
+def read_state(root: str | None) -> dict:
+    try:
+        data = json.loads((Path(root) / ".keel" / "state.json").read_text())
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
 
 
 def write_state(root: str | None, data: dict) -> bool:

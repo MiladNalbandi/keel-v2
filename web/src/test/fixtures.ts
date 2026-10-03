@@ -1,7 +1,7 @@
 // Example api data for tests (MSW). Shapes follow docs/CONTRACT.md; values follow docs/mockup.html.
 
 import type {
-  Agent, Budget, Checkpoint, Connections, Estimate, Health, Job, JobStep, KeelDoc, KeelMap, LibraryItem, Limit, McpServer,
+  Agent, Budget, Cap, Checkpoint, Connections, Estimate, Health, Job, JobStep, KeelDoc, KeelMap, LibraryItem, Limit, McpServer,
   Memory, Notification, NotificationSettings, Project, ProjectSettings, RepoFile, RepoInfo, Settings, Skill, SkillDetail,
   Stack, ThreadState, TreeNode, WikiPage, WikiTree, Workflow,
 } from "../api";
@@ -69,6 +69,10 @@ export const thread: ThreadState = {
   waiting: { step: "s8", kind: "gate", title: "AC gate", detail: "RED 4be12d9 · GREEN a81c3f0 · tests 2/2 pass · ac-reviewer: PASS", options: ["approve", "reject"] },
   usage: { tokens_in: 160000, tokens_out: 22000, cost_usd: 2.86, premium_requests: 41, cap_tokens: 600000 },
   checkpoints: 31, updated_at: ago(30),
+  blockers: [
+    { gate: "coverage", why: "No coverage verdict for HEAD yet.", fix: "Run the coverage step: keel verify coverage." },
+    { gate: "deps", why: "build.gradle.kts adds io.ktor:ktor-server-core.", fix: "Approve the new dependency at the next commit." },
+  ],
 };
 
 export const checkpoints: Checkpoint[] = [
@@ -171,6 +175,8 @@ export const skillDetail: SkillDetail = { ...skills[0], body: "---\nname: web-te
 export const stacks: Stack[] = [
   { name: "ts-react", lane: "web", source: "built-in", detected: true, detect: "tsconfig.json, *.tsx", layers: ["unit", "component", "page"],
     commands: [{ name: "typecheck", cmd: "npx tsc --noEmit" }], tools: [{ name: "eslint", on: "pre-commit", fail: "block" }], skills: ["web-testing"] },
+  { name: "kotlin-spring", lane: "api", source: "keel pack", detected: false, detect: "build.gradle.kts", layers: ["unit", "slice"],
+    commands: [{ name: "test", cmd: "./gradlew test" }], tools: [], skills: [], installable: true },
 ];
 
 export const mcpServers: McpServer[] = [
@@ -181,9 +187,19 @@ export const mcpServers: McpServer[] = [
 export const budget: Budget = {
   month: { tokens: 1900000, cost_usd: 24.1, premium_requests: 212, flows: 6 },
   days: [{ day: "2026-10-01", claude: 180000, codex: 60000, copilot: 40000, fake: 0 }, { day: "2026-10-02", claude: 220000, codex: 90000, copilot: 30000, fake: 0 }],
-  caps: [{ scope: "ludus-engine, per flow", limit: "600k tokens", action: "pause and ask me" }],
+  caps: [{ id: "c1", scope: "flow", limit: 600000, unit: "tokens", action: "pause" }],
   top: [{ agent: "implementer", provider: "copilot", tokens: 1420000, cost_usd: 0 }],
   recent: [{ title: "ludus-engine · feature", estimate: 410000, real: 386000, status: "running" }],
+};
+export const caps: Cap[] = [
+  { id: "c1", scope: "flow", limit: 600000, unit: "tokens", action: "pause" },
+  { id: "c2", scope: "api_month", limit: 100, unit: "usd", action: "stop" },
+];
+export const providerModels = {
+  claude: [{ id: "opus", label: "Claude Opus" }, { id: "sonnet", label: "Claude Sonnet" }],
+  codex: [{ id: "gpt-5.6-sol", label: "GPT-5.6 Sol" }],
+  copilot: [{ id: "gpt-5", label: "GPT-5 (Copilot)" }],
+  fake: [{ id: "fake", label: "Fake model" }],
 };
 export const limits: Limit[] = [{ id: "claude", name: "Claude Max", unit: "% of 5-hour window", used: 62, cap: 100, note: "resets in 1h 48m" }];
 

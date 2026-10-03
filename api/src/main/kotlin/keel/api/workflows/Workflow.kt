@@ -27,6 +27,8 @@ data class Step(
     val maxTokens: Int? = null,
     val onLimit: String? = null,
     val tools: List<String>? = null,
+    /** Agent lane metadata ("api" | "web"), set by the api from the agent's project override at flow start. */
+    val lane: String? = null,
 ) {
     val locked: Boolean @com.fasterxml.jackson.annotation.JsonIgnore get() = lock == true
 }

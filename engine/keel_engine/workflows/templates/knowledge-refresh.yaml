@@ -1,0 +1,11 @@
+id: knowledge-refresh
+name: knowledge refresh (keel)
+keel_rules: true
+version: 1
+# Which sections: StartThread.settings.sections (e.g. ["architecture", "data"]) gives one librarian
+# per section. Without it, `parallel` librarians cover keel's five sections in order
+# (architecture, domain, conventions, data, integrations).
+steps:
+  - { id: librarians, kind: parallel, name: librarian per section, agent: librarian, model: default, parallel: 5, phase: memory }
+  - { id: memory_check, kind: code, name: memory check, action: memory_check, lock: true, phase: memory }
+  - { id: commit, kind: code, name: commit, action: commit, lock: true, phase: memory }
