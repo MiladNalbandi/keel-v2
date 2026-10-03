@@ -61,9 +61,11 @@ esac
 PROJECT="$(cd "$1" && pwd)"
 [ -d "$PROJECT/.git" ] || ls -d "$PROJECT"/*/.git >/dev/null 2>&1 || { echo "$PROJECT is not a git repo (and has no git repos inside). Run: git init \"$PROJECT\""; exit 1; }
 mounts=(-v "$PROJECT:/workspace" -v keel-data:/data)
-# CLI logins: mounted read-only under /host-auth and copied into the container's home at start.
-for d in .claude .codex .copilot .config/github-copilot .local/share/opencode; do [ -d "$HOME/$d" ] && mounts+=(-v "$HOME/$d:/host-auth/$d:ro"); done
-[ -f "$HOME/.claude.json" ] && mounts+=(-v "$HOME/.claude.json:/host-auth/.claude.json:ro")
+# CLI logins: only the login files (never chat histories), mounted read-only under /host-auth and copied in at start.
+for f in .claude/.credentials.json .codex/auth.json .codex/config.toml .local/share/opencode/auth.json; do
+  [ -f "$HOME/$f" ] && mounts+=(-v "$HOME/$f:/host-auth/$f:ro")
+done
+for d in .copilot .config/github-copilot; do [ -d "$HOME/$d" ] && mounts+=(-v "$HOME/$d:/host-auth/$d:ro"); done
 
 docker rm -f "$NAME" >/dev/null 2>&1 || true
 docker run -d --name "$NAME" -p "127.0.0.1:$PORT:8080" "${mounts[@]}" -e KEEL_PROJECT_NAME="$(basename "$PROJECT")" \

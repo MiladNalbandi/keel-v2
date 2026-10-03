@@ -68,7 +68,12 @@ class ErrorAdvice {
     }
 
     @ExceptionHandler(Exception::class)
-    fun other(e: Exception): ResponseEntity<ErrorBody> {
+    fun other(e: Exception): ResponseEntity<ErrorBody>? {
+        // A browser tab that closed during a live (SSE) stream is normal, not a server error; nothing can be sent back.
+        if (e is java.io.IOException || e is IllegalStateException && e.message?.startsWith("Cannot start async") == true) {
+            log.debug("client went away: {}", e.message)
+            return null
+        }
         log.error("unhandled error", e)
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
             .body(ErrorBody("Something went wrong in the api", e.message?.take(300)))

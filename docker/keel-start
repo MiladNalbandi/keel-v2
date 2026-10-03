@@ -7,12 +7,15 @@ mkdir -p "$KEEL_DATA"
 
 # CLI logins from the host (read-only mounts) become writable copies in this container's home.
 if [ -d /host-auth ]; then
-  for item in .claude .codex .copilot .config/github-copilot .local/share/opencode .claude.json; do
+  for item in .claude/.credentials.json .codex/auth.json .codex/config.toml .local/share/opencode/auth.json .copilot .config/github-copilot; do
     if [ -e "/host-auth/$item" ] && [ ! -e "$HOME/$item" ]; then
       mkdir -p "$(dirname "$HOME/$item")"; cp -R "/host-auth/$item" "$HOME/$item" 2>/dev/null || true
     fi
   done
 fi
+
+# Claude Code asks for onboarding on a fresh home; headless runs only need this flag.
+[ -f "$HOME/.claude.json" ] || echo '{"hasCompletedOnboarding": true}' > "$HOME/.claude.json"
 
 echo "keel v2 · data $KEEL_DATA · workspace $KEEL_WORKSPACE · keel $(node -p "require('$KEEL_HOME/.claude-plugin/plugin.json').version" 2>/dev/null || echo '?')"
 
