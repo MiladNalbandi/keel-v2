@@ -59,6 +59,37 @@ def login_keys(provider: str, mode: str, key: str | None) -> dict:
     return {}
 
 
+async def ask(model: dict, system: str, prompt: str, keys: dict | None = None, timeout: int = 300) -> dict:
+    """One question to a model, no tools, in a scratch folder (POST /agents/ask; used by the api's Doctor).
+
+    keys follow StartThread.keys: {provider: api key} for api mode, claude_oauth / codex_auth / copilot for CLIs.
+    The fake model has nothing to say here: it answers with fake=True and the caller uses its own rules.
+    """
+    m = effective(model)
+    t0 = time.monotonic()
+    ms = lambda: int((time.monotonic() - t0) * 1000)  # noqa: E731
+    if m["provider"] == "fake":
+        return {"ok": True, "fake": True, "text": "", "tokens_in": 0, "tokens_out": 0, "ms": ms()}
+    keys = dict(keys or {})
+    try:
+        with tempfile.TemporaryDirectory(prefix="keel-ask-") as tmp:
+            req = AgentRequest(agent="doctor", system=system, prompt=prompt, root=tmp, phase="none", model=m,
+                               toolbox=ToolBox(tmp, "none"), key=key_for(m["provider"], keys), workdir=tmp,
+                               timeout=timeout, keys=keys)
+            if m.get("mode") == "api":
+                from .api_runner import _text, chat_model
+                reply = await chat_model(m["provider"], m.get("model", ""), req.key).ainvoke([("system", system), ("human", prompt)])
+                usage = getattr(reply, "usage_metadata", None) or {}
+                return {"ok": True, "fake": False, "text": _text(reply.content), "tokens_in": int(usage.get("input_tokens", 0)),
+                        "tokens_out": int(usage.get("output_tokens", 0)), "ms": ms()}
+            res: AgentResult = await runner_for(m).run(req, lambda *a, **k: None)
+            return {"ok": True, "fake": False, "text": res.text or "", "tokens_in": res.tokens_in, "tokens_out": res.tokens_out, "ms": ms()}
+    except ModelError as exc:
+        return {"ok": False, "fake": False, "text": "", "ms": ms(), "error": f"{exc}{(' ' + exc.hint) if exc.hint else ''}"}
+    except Exception as exc:
+        return {"ok": False, "fake": False, "text": "", "ms": ms(), "error": f"{type(exc).__name__}: {str(exc)[:300]}"}
+
+
 async def test_provider(provider: str, mode: str, model: str, key: str | None = None) -> dict:
     """Send "Reply with exactly: OK" and report how it went (POST /providers/test)."""
     m = effective({"provider": provider, "mode": mode, "model": model})

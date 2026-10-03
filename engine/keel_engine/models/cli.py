@@ -73,9 +73,9 @@ INSTALL_HINT = {
     "opencode": "Install OpenCode: npm install -g opencode-ai, then `opencode auth login` (GitHub Copilot).",
 }
 LOGIN_HINT = {
-    "claude": "Run `claude` in a terminal and type /login.",
-    "codex": "Run `codex login`.",
-    "copilot": "Run `copilot` and /login, or add a GitHub token in Connections.",
+    "claude": "Run `claude setup-token` on your computer and save the token in Connections › Claude login token (or ./keel2 token claude).",
+    "codex": "Run `codex login` on your computer and paste ~/.codex/auth.json in Connections › Codex login (or ./keel2 token codex).",
+    "copilot": "Save a GitHub token with Copilot access in Connections › GitHub token for Copilot (or ./keel2 token copilot).",
     "opencode": "Run `opencode auth login` and pick GitHub Copilot.",
 }
 
@@ -104,7 +104,7 @@ def classify_failure(tool: str, stdout: str, stderr: str, code) -> ModelError:
     if LIMIT_RE.search(tail):
         return ModelError(f"`{tool}` hit a usage limit: {short}", "Wait for the limit to reset, or switch this agent to another model.")
     if AUTH_RE.search((stderr if stderr.strip() else stdout)[-3000:].lower()):
-        return ModelError(f"`{tool}` is not logged in: {short}", LOGIN_HINT.get(tool, ""))
+        return ModelError(f"`{tool}` is not logged in inside the container.", LOGIN_HINT.get(tool, ""))
     return ModelError(f"`{tool}` exited with code {code}: {short}")
 
 
