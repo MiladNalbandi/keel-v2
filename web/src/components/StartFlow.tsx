@@ -22,6 +22,12 @@ export function StartFlowDrawer({ onClose, workflowId }: { onClose: () => void; 
   const [onCap, setOnCap] = useState<OnCap>("pause");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<{ message: string; hint?: string } | null>(null);
+  const [model, setModel] = useState<{ provider: string; model: string } | null>(null);
+  const [allowFake, setAllowFake] = useState(false);
+  const [allowDirty, setAllowDirty] = useState(false);
+  const isDemo = projects.find((x) => x.id === p)?.root === "/data/demo";
+  const fakeRefused = !!err && /fake model/i.test(err.message);
+  const dirtyRefused = !!err && /uncommitted changes/i.test(err.message);
 
   useEffect(() => {
     if (!p) return;
@@ -31,6 +37,7 @@ export function StartFlowDrawer({ onClose, workflowId }: { onClose: () => void; 
       setWid((w) => (w && list.some((x) => x.id === w) ? w : list.find((x) => x.id === "feature")?.id ?? list[0]?.id ?? ""));
     }, (e) => setErr(errorParts(e)));
     api.projectSettings(p).then((s) => {
+      setModel({ provider: s.effective.default_model.provider, model: s.effective.default_model.model });
       const c = kfmt(s.effective.cap_tokens);
       setCap(c);
       setOnCap(s.effective.on_cap);
@@ -72,6 +79,7 @@ export function StartFlowDrawer({ onClose, workflowId }: { onClose: () => void; 
         workflow_id: wid, title: title.trim(),
         // the cap belongs to this flow only; project settings stay as they are
         ...(capTokens > 0 ? { cap_tokens: capTokens } : {}), on_cap: onCap,
+        ...(allowFake ? { allow_fake: true } : {}), ...(allowDirty ? { allow_dirty: true } : {}),
       });
       if (p !== pid) setProjectId(p);
       await reloadProjects();
@@ -112,6 +120,14 @@ export function StartFlowDrawer({ onClose, workflowId }: { onClose: () => void; 
         <label htmlFor="sf-acs">About how many acceptance criteria</label>
         <div className="row"><input type="range" id="sf-acs" min={1} max={10} value={acs} onChange={(e) => setAcs(Number(e.target.value))} style={{ flex: "1 1 140px" }} /><b className="num">{acs}</b></div>
       </div>
+      {model && (
+        <div className={model.provider === "fake" && !isDemo ? "wbar warn" : "wbar"} role="note">
+          <span>Agents use <b>{model.provider === "fake" ? "the fake model" : `${model.provider} · ${model.model}`}</b>
+            {model.provider === "fake" ? (isDemo ? " — fine for the demo." : ": it writes example files, not real code. Pick a real model in Connections › Use for all agents.") : "."}
+            {!isDemo && " The flow works on its own branch (Settings › Branch name)."}</span>
+          {model.provider === "fake" && !isDemo && <button className="btn sm" type="button" onClick={() => { onClose(); go("connections"); }}>Open Connections</button>}
+        </div>
+      )}
       <div className="est-box" aria-live="polite">
         <span className="lab">Before you start</span>
         {estErr ? <span className="sub">No estimate: {estErr.message}{estErr.hint ? ` ${estErr.hint}` : ""}</span> : !est ? <span className="sub loading">Estimating…</span> : (
@@ -140,6 +156,12 @@ export function StartFlowDrawer({ onClose, workflowId }: { onClose: () => void; 
         <span className="hint">The estimate gets exact after the spec is approved and the real number of ACs is known. This cap is for this flow only; the project default stays in Settings.</span>
       </div>
       {err && <ErrorBox error={err} />}
+      {(fakeRefused || allowFake) && (
+        <label className="chk"><input type="checkbox" checked={allowFake} onChange={(e) => setAllowFake(e.target.checked)} /> Run with the fake model anyway (it writes example files and commits them on the flow's branch)</label>
+      )}
+      {(dirtyRefused || allowDirty) && (
+        <label className="chk"><input type="checkbox" checked={allowDirty} onChange={(e) => setAllowDirty(e.target.checked)} /> Start anyway — my uncommitted files stay out of keel's commits</label>
+      )}
     </Drawer>
   );
 }

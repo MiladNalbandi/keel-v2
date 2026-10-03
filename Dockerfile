@@ -43,7 +43,7 @@ ENV LANG=C.UTF-8 \
     KEEL_DATA=/data KEEL_WORKSPACE=/workspace KEEL_HOME=/opt/keel \
     KEEL_ENGINE_URL=http://127.0.0.1:8090 KEEL_API_URL=http://127.0.0.1:8080
 
-RUN apt-get update && apt-get install -y --no-install-recommends git tini curl ca-certificates openssh-client \
+RUN apt-get update && apt-get install -y --no-install-recommends git tini curl ca-certificates openssh-client sqlite3 \
     && rm -rf /var/lib/apt/lists/* \
     && git config --system --add safe.directory '*' \
     && git config --system user.name "keel" && git config --system user.email "keel@localhost"

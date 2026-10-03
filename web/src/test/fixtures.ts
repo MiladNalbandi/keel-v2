@@ -217,7 +217,7 @@ export function projectSettings(overrides: Partial<Settings>): ProjectSettings {
 
 export const connections: Connections = {
   providers: [
-    { id: "claude", label: "Claude", selected: "subscription", key_set: false,
+    { id: "claude", label: "Claude", selected: "subscription", key_set: false, login_secret: "CLAUDE_CODE_OAUTH_TOKEN", login_set: false,
       modes: [{ id: "subscription", label: "Subscription", ready: true, detail: "claude CLI, logged in" }, { id: "api", label: "API key", ready: false, detail: "ANTHROPIC_API_KEY" }] },
   ],
   machine: [{ name: "git", ok: true, version: "2.47" }, { name: "serena", ok: false }],

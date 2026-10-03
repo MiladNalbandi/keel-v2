@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from pathlib import Path
 import re
 import shutil
 import signal
@@ -48,6 +49,22 @@ def copilot_login_env(keys: dict | None = None) -> dict:
     if not out and os.environ.get("GITHUB_TOKEN"):
         out["GH_TOKEN"] = os.environ["GITHUB_TOKEN"]
     return out
+
+def codex_login_env(keys: dict | None = None) -> dict:
+    """ChatGPT login for the codex child: keys["codex_auth"] is the content of ~/.codex/auth.json (saved in keel's
+    database). It is written to a private CODEX_HOME under $KEEL_DATA so the user's own ~/.codex is never touched."""
+    auth = (keys or {}).get("codex_auth")
+    if not auth:
+        return {}
+    home = Path(os.environ.get("KEEL_DATA", "./.data")).resolve() / "codex-home"
+    home.mkdir(parents=True, exist_ok=True)
+    os.chmod(home, 0o700)
+    f = home / "auth.json"
+    if not f.exists() or f.read_text() != auth:
+        f.write_text(auth)
+        os.chmod(f, 0o600)
+    return {"CODEX_HOME": str(home)}
+
 
 INSTALL_HINT = {
     "claude": "Install Claude Code: npm install -g @anthropic-ai/claude-code, then run `claude` and /login.",

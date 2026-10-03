@@ -84,6 +84,7 @@ abstract class ApiTest {
             r.add("keel.internal-token") { TOKEN }
             r.add("keel.secret") { "" }
             r.add("keel.dashboard-port") { dashboardPort }
+            r.add("keel.fake-on-real-projects") { true }
         }
     }
 }

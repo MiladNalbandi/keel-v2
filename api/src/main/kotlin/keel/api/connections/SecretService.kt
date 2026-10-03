@@ -45,6 +45,7 @@ class SecretService(private val jdbc: JdbcTemplate, private val props: KeelPrope
     fun put(name: String, value: String): String {
         checkName(name)
         if (value.isEmpty()) throw BadRequest("The value is empty")
+        if (value.length > 65_536) throw BadRequest("The value is too long (64 KB at most)")
         val iv = ByteArray(12).also { random.nextBytes(it) }
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, key, GCMParameterSpec(128, iv))
@@ -88,6 +89,17 @@ class SecretService(private val jdbc: JdbcTemplate, private val props: KeelPrope
         return get(name) ?: System.getenv(name)?.takeIf { it.isNotBlank() }
     }
 
+    /** The CLI login for a subscription provider (Claude setup-token, Codex auth.json, GitHub token): stored first, then the environment. */
+    fun loginFor(provider: String): String? {
+        val name = LOGIN_NAMES[provider] ?: return null
+        return get(name) ?: System.getenv(name)?.takeIf { it.isNotBlank() }
+    }
+
+    /** The keys a flow or a test needs for this model, under the names the engine reads (StartThread.keys). */
+    fun engineKeys(provider: String, mode: String): Map<String, String> =
+        if (mode == "api") keyForProvider(provider)?.let { mapOf(provider to it) } ?: emptyMap()
+        else loginFor(provider)?.let { mapOf(ENGINE_LOGIN_KEY.getValue(provider) to it) } ?: emptyMap()
+
     private fun checkName(name: String) {
         if (!Regex("^[A-Za-z0-9_.-]{1,64}$").matches(name)) {
             throw BadRequest("A secret name may use letters, digits, _ . - (up to 64)")
@@ -96,5 +108,7 @@ class SecretService(private val jdbc: JdbcTemplate, private val props: KeelPrope
 
     companion object {
         val KEY_NAMES = mapOf("claude" to "ANTHROPIC_API_KEY", "codex" to "OPENAI_API_KEY", "copilot" to "GITHUB_TOKEN")
+        val LOGIN_NAMES = mapOf("claude" to "CLAUDE_CODE_OAUTH_TOKEN", "codex" to "CODEX_AUTH_JSON", "copilot" to "GH_TOKEN")
+        private val ENGINE_LOGIN_KEY = mapOf("claude" to "claude_oauth", "codex" to "codex_auth", "copilot" to "copilot")
     }
 }

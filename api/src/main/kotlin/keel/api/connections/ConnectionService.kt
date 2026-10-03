@@ -20,6 +20,10 @@ data class ProviderView(
     val selected: String,
     val keySet: Boolean,
     val keyHint: String? = null,
+    /** Secret name of the CLI login (subscription), e.g. CLAUDE_CODE_OAUTH_TOKEN; null when the provider has none. */
+    val loginSecret: String? = null,
+    val loginSet: Boolean = false,
+    val loginHint: String? = null,
 )
 
 data class MachineTool(val name: String, val ok: Boolean, val version: String? = null)
@@ -57,6 +61,13 @@ class ConnectionService(
         return if (!env.isNullOrBlank()) true to "from the environment" else false to null
     }
 
+    private fun loginView(provider: String): Triple<String?, Boolean, String?> {
+        val name = SecretService.LOGIN_NAMES[provider] ?: return Triple(null, false, null)
+        if (secrets.has(name)) return Triple(name, true, secrets.hintOf(name))
+        val env = System.getenv(name)
+        return if (!env.isNullOrBlank()) Triple(name, true, "from the environment") else Triple(name, false, null)
+    }
+
     fun connections(): Connections {
         val sel = selectedModes()
         val providers = PROVIDERS.map { (id, label) ->
@@ -79,7 +90,8 @@ class ConnectionService(
                 else -> emptyList()
             }
             val selected = sel[id] ?: modes.firstOrNull { it.ready }?.id ?: modes.first().id
-            ProviderView(id, label, modes, selected, keySet, hint)
+            val (loginName, loginSet, loginHint) = loginView(id)
+            ProviderView(id, label, modes, selected, keySet, hint, loginName, loginSet, loginHint)
         }
         val machine = listOf("node", "git").map { tool(it) } + keelTool() + listOf("claude", "codex", "copilot", "opencode").map { tool(it) }
         return Connections(providers, machine)
@@ -109,7 +121,7 @@ class ConnectionService(
         val model = listOf(general.defaultModel, general.implementerModel, general.reviewerModel, general.cheaperModel)
             .firstOrNull { it.provider == provider }?.model ?: DEFAULT_MODELS[provider] ?: provider
         val body = mutableMapOf<String, Any?>("provider" to provider, "mode" to p.selected, "model" to model)
-        if (p.selected == "api") secrets.keyForProvider(provider)?.let { body["key"] = it }
+        (if (p.selected == "api") secrets.keyForProvider(provider) else secrets.loginFor(provider))?.let { body["key"] = it }
         return engine.providerTest(body)
     }
 

@@ -439,7 +439,8 @@ class Compiler:
         return ActionInput(root=self.ctx.root, phase=state["phase"], title=self.ctx.title, ac=ac,
                            acs=copy.deepcopy(state.get("acs") or []), fake=self.ctx.simulate_checks, flow=self.wf.flow,
                            deps=list(state.get("deps") or []), gates_log=list((state.get("gates") or {}).get("log") or []),
-                           base=state.get("base_head"), unlocks=list(state.get("unlocks") or []))
+                           base=state.get("base_head"), unlocks=list(state.get("unlocks") or []),
+                           preexisting=dict(state.get("preexisting") or {}))
 
     async def code_step(self, i: int, step: Step, state: FlowState):
         ac = _ac(state) if step.per_ac else None
