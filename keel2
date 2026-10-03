@@ -5,8 +5,8 @@
 #   ./keel2 tokens                      which logins and keys are saved (hints only)
 #   ./keel2 sql                         open keel's SQLite database
 #   ./keel2 stop | logs | update
-# Logins: ~/.claude, ~/.codex, ~/.copilot (if present) are copied in read-only. On a Mac the Claude login is in the
-# Keychain, so run `claude setup-token` once and export CLAUDE_CODE_OAUTH_TOKEN before ./keel2. Copilot: export GH_TOKEN.
+# Logins: open the dashboard › Control › Connections › "Set up login" (Claude, Codex, Copilot). They are saved
+# encrypted in keel's database on the keel-data volume, so they survive restarts and new images.
 set -euo pipefail
 IMAGE="${KEEL_IMAGE:-milimarty/keel-v2:latest}"
 NAME="${KEEL_NAME:-keel-v2}"
@@ -67,11 +67,7 @@ esac
 PROJECT="$(cd "$1" && pwd)"
 [ -d "$PROJECT/.git" ] || ls -d "$PROJECT"/*/.git >/dev/null 2>&1 || { echo "$PROJECT is not a git repo (and has no git repos inside). Run: git init \"$PROJECT\""; exit 1; }
 mounts=(-v "$PROJECT:/workspace" -v keel-data:/data)
-# CLI logins: only the login files (never chat histories), mounted read-only under /host-auth and copied in at start.
-for f in .claude/.credentials.json .codex/auth.json .codex/config.toml .local/share/opencode/auth.json; do
-  [ -f "$HOME/$f" ] && mounts+=(-v "$HOME/$f:/host-auth/$f:ro")
-done
-for d in .copilot .config/github-copilot; do [ -d "$HOME/$d" ] && mounts+=(-v "$HOME/$d:/host-auth/$d:ro"); done
+# Nothing from your computer is copied in. Log the CLIs in from the dashboard: Connections › Set up login.
 
 docker rm -f "$NAME" >/dev/null 2>&1 || true
 docker run -d --name "$NAME" -p "127.0.0.1:$PORT:8080" "${mounts[@]}" -e KEEL_PROJECT_NAME="$(basename "$PROJECT")" \

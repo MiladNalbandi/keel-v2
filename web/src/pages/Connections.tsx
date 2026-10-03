@@ -1,9 +1,9 @@
 // Connections (Control): which accounts the agents use — mode per provider, API keys (stored encrypted,
 // never shown again), a test call per provider, and what is installed on this machine.
 
-import { useState } from "react";
-import { api, errorParts, type Connections, type Mode } from "../api";
-import { Async, PageHead, Panel, Prov } from "../components/ui";
+import { useEffect, useRef, useState } from "react";
+import { api, errorParts, type Connections, type LoginView, type Mode } from "../api";
+import { Async, Drawer, PageHead, Panel, Prov } from "../components/ui";
 import { useApp, useLoad } from "../state";
 
 const SECRET: Record<string, string> = { claude: "ANTHROPIC_API_KEY", codex: "OPENAI_API_KEY", copilot: "GITHUB_TOKEN" };
@@ -62,6 +62,140 @@ function SecretField({ id, name, label, how, set, hint, multiline }: { id: strin
 const DEFAULT_MODEL: Record<string, string> = { claude: "sonnet", codex: "gpt-5", copilot: "gpt-5", fake: "fake" };
 const USE: Record<string, string> = { claude: "research, tests, review", codex: "planning, review", copilot: "implementer, custom agents", fake: "tests and demos — no network" };
 
+
+// ---- Login helper: log the CLI in from here (inside the container), or paste a token ----
+const HELP: Record<string, { name: string; here: string; paste: { steps: string[]; link?: [string, string] } }> = {
+  claude: {
+    name: "Claude",
+    here: "keel starts `claude setup-token` inside the container. You sign in on claude.com; the page then shows a code that you paste below. keel saves the long-lived token.",
+    paste: { steps: ["On your computer run `claude setup-token`.", "Copy the whole token it prints (starts with sk-ant-oat01-).", "Paste it below and press Save."] },
+  },
+  codex: {
+    name: "GPT / Codex",
+    here: "keel starts `codex login --device-auth` inside the container. You open a link, sign in with your ChatGPT account and type a short code. keel saves the login by itself.",
+    paste: { steps: ["On your computer run `codex login`.", "Open ~/.codex/auth.json (for example: cat ~/.codex/auth.json | pbcopy).", "Paste the whole file below and press Save."] },
+  },
+  copilot: {
+    name: "GitHub Copilot",
+    here: "keel starts `copilot login --device-code` inside the container. You open github.com/login/device and type a short code. keel saves the GitHub token by itself.",
+    paste: { steps: ["Create a fine-grained token on GitHub with the permission “Copilot Requests”. (Classic ghp_ tokens do not work.)", "Copy it.", "Paste it below and press Save."],
+      link: ["https://github.com/settings/personal-access-tokens/new", "Create a token on GitHub"] },
+  },
+};
+
+function copy(text: string, toast: (m: string) => void) {
+  navigator.clipboard?.writeText(text).then(() => toast("Copied."), () => toast("Select the text to copy it."));
+}
+
+function LoginHelper({ p, onClose, onSaved }: { p: Connections["providers"][number]; onClose: () => void; onSaved: () => void }) {
+  const { toast } = useApp();
+  const h = HELP[p.id];
+  const [way, setWay] = useState<"here" | "paste">("here");
+  const [login, setLogin] = useState<LoginView | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [code, setCode] = useState("");
+  const [test, setTest] = useState<{ ok: boolean; text: string } | null>(null);
+  const live = useRef(true);
+  useEffect(() => () => { live.current = false; }, []);
+
+  // poll while the login runs
+  useEffect(() => {
+    if (!login || ["done", "failed", "cancelled"].includes(login.status)) return;
+    const t = window.setTimeout(() => {
+      api.login(login.id).then((v) => live.current && setLogin(v), () => undefined);
+    }, 2000);
+    return () => window.clearTimeout(t);
+  }, [login]);
+
+  // when it is saved: refresh the page behind and run the test once
+  useEffect(() => {
+    if (login?.status !== "done") return;
+    onSaved();
+    if (p.selected !== "api") {
+      api.testConnection(p.id).then((r) => live.current && setTest({ ok: r.ok, text: r.ok ? `${r.text ?? "OK"} · ${(r.ms / 1000).toFixed(1)}s` : (r.error ?? "no answer") }),
+        (e) => live.current && setTest({ ok: false, text: errorParts(e).message }));
+    }
+  }, [login?.status]);
+
+  const start = async () => {
+    setBusy(true); setErr(null); setTest(null); setCode("");
+    try { setLogin(await api.startLogin(p.id)); } catch (e) { setErr(errorParts(e).message); } finally { setBusy(false); }
+  };
+  const send = async () => {
+    if (!login || !code.trim()) return;
+    setBusy(true); setErr(null);
+    try { setLogin(await api.loginCode(login.id, code.trim())); setCode(""); } catch (e) { setErr(errorParts(e).message); } finally { setBusy(false); }
+  };
+  const close = () => {
+    if (login && ["starting", "waiting", "code_needed"].includes(login.status)) void api.cancelLogin(login.id).catch(() => undefined);
+    onClose();
+  };
+
+  return (
+    <Drawer title={`Set up ${h.name} login`} onClose={close} footer={<button className="btn" type="button" onClick={close}>Close</button>}>
+      <div className="tabs" role="tablist">
+        <button role="tab" type="button" aria-selected={way === "here"} onClick={() => setWay("here")}>Log in here</button>
+        <button role="tab" type="button" aria-selected={way === "paste"} onClick={() => setWay("paste")}>Paste a token</button>
+      </div>
+
+      {way === "here" ? (
+        <div className="grid" style={{ gap: 12 }}>
+          <p className="sub" style={{ margin: 0 }}>{h.here}</p>
+          {(!login || ["failed", "cancelled"].includes(login.status)) && (
+            <button className="btn primary" type="button" onClick={start} disabled={busy}>{busy ? "Starting…" : login ? "Start again" : "Start login"}</button>
+          )}
+          {login && (
+            <ol className="steps">
+              {login.url && (
+                <li>
+                  <span>Open this page{p.id === "claude" ? " and sign in with your Claude account" : ""}:</span>
+                  <div className="row">
+                    <a className="btn sm primary" href={login.url} target="_blank" rel="noreferrer">Open {new URL(login.url).host}</a>
+                    <button className="btn sm ghost" type="button" onClick={() => copy(login.url!, toast)}>Copy link</button>
+                  </div>
+                </li>
+              )}
+              {login.code && (
+                <li>
+                  <span>Type this code on that page:</span>
+                  <div className="row"><b className="devcode">{login.code}</b><button className="btn sm ghost" type="button" onClick={() => copy(login.code!, toast)}>Copy code</button></div>
+                </li>
+              )}
+              {p.id === "claude" && login.status === "code_needed" && (
+                <li>
+                  <label htmlFor="login-code">After you sign in, the page shows a code. Paste it here:</label>
+                  <div className="row">
+                    <input id="login-code" type="text" value={code} onChange={(e) => setCode(e.target.value)} autoComplete="off" placeholder="code from the Claude page"
+                      style={{ flex: "1 1 220px" }} onKeyDown={(e) => e.key === "Enter" && void send()} />
+                    <button className="btn sm primary" type="button" onClick={send} disabled={busy || !code.trim()}>Send</button>
+                  </div>
+                </li>
+              )}
+              <li>
+                <span role="status" className={login.status === "done" ? "okc" : login.status === "failed" ? "badc" : "sub"}>
+                  {login.status === "done" ? `✓ ${login.message} (${login.hint ?? "saved"})` : login.status === "failed" ? `✕ ${login.message}` : `… ${login.message}`}
+                </span>
+                {test && <div className={test.ok ? "okc" : "badc"}>{test.ok ? "Test: " : "Test failed: "}{test.text}</div>}
+              </li>
+            </ol>
+          )}
+          {err && <span className="badc">{err}</span>}
+        </div>
+      ) : (
+        <div className="grid" style={{ gap: 12 }}>
+          <ol className="steps">{h.paste.steps.map((x) => <li key={x}>{x}</li>)}</ol>
+          {h.paste.link && <a className="btn sm" href={h.paste.link[0]} target="_blank" rel="noreferrer">{h.paste.link[1]}</a>}
+          {p.login_secret && (
+            <SecretField id={`helper-${p.id}`} name={p.login_secret} label={LOGIN_HELP[p.id]?.label ?? "Login"} how="" set={!!p.login_set}
+              hint={p.login_hint} multiline={LOGIN_HELP[p.id]?.multiline} />
+          )}
+        </div>
+      )}
+    </Drawer>
+  );
+}
+
 function Provider({ p, onChanged }: { p: Connections["providers"][number]; onChanged: () => void }) {
   const { toast } = useApp();
   const [key, setKey] = useState("");
@@ -69,6 +203,7 @@ function Provider({ p, onChanged }: { p: Connections["providers"][number]; onCha
   const [keySet, setKeySet] = useState(p.key_set);
   const [mode, setMode] = useState<Mode>(p.selected);
   const [test, setTest] = useState<{ ok?: boolean; text: string } | null>(null);
+  const [helper, setHelper] = useState(false);
   const secret = SECRET[p.id];
   const pick = async (m: Mode) => {
     const old = mode;
@@ -117,6 +252,7 @@ function Provider({ p, onChanged }: { p: Connections["providers"][number]; onCha
   };
   return (
     <div className="conn">
+      {helper && <LoginHelper p={p} onClose={() => setHelper(false)} onSaved={onChanged} />}
       <div><h3><Prov p={p.id} /></h3><span className="sub">{USE[p.id] ?? p.label}</span></div>
       <div className="modes">
         {p.modes.map((m) => (
@@ -153,6 +289,7 @@ function Provider({ p, onChanged }: { p: Connections["providers"][number]; onCha
         )}
         <div className="row">
           <button className="btn sm" type="button" onClick={runTest}>Test</button>
+          {HELP[p.id] && <button className="btn sm" type="button" onClick={() => setHelper(true)}>{p.login_set ? "Log in again" : "Set up login"}</button>}
           {p.id !== "fake" && <button className="btn sm primary" type="button" onClick={useForAll}>Use for all agents</button>}
           {test && <span className="hint" role="status">{test.ok === true ? <b style={{ color: "var(--ok)" }}>OK</b> : test.ok === false ? <b style={{ color: "var(--bad)" }}>Failed</b> : null} {test.text}</span>}
         </div>

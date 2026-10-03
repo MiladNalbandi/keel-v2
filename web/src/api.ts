@@ -431,6 +431,10 @@ export const put = <T>(path: string, body: unknown) => request<T>("PUT", path, b
 export const del = <T = void>(path: string) => request<T>("DELETE", path);
 export const getText = (path: string) => request<string>("GET", path, undefined, { text: true });
 
+// ---- login helper ----
+export type LoginView = { id: string; provider: string; status: "starting" | "waiting" | "code_needed" | "done" | "failed" | "cancelled";
+  url?: string | null; code?: string | null; message: string; hint?: string | null };
+
 // ---- workspace Doctor ----
 export type DoctorAction = "commit" | "stash" | "ignore" | "keep";
 export type DirtyFile = { path: string; status: string; size: number; kind: "tooling" | "docs" | "code" | "local" | "secret"; secret: boolean; tracked: boolean };
@@ -464,6 +468,10 @@ export const api = {
 
   // flow
   flow: (pid: string) => get<FlowView>(`/projects/${e(pid)}/flow`),
+  startLogin: (provider: string) => post<LoginView>("/logins", { provider }),
+  login: (id: string) => get<LoginView>(`/logins/${e(id)}`),
+  loginCode: (id: string, code: string) => post<LoginView>(`/logins/${e(id)}/code`, { code }),
+  cancelLogin: (id: string) => del<LoginView>(`/logins/${e(id)}`),
   doctorWorkspace: (pid: string) => post<Diagnosis>(`/projects/${e(pid)}/doctor/workspace`),
   applyDoctor: (pid: string, plan: { action: DoctorAction; files: string[]; message?: string | null; patterns?: string[] | null; title?: string }[]) =>
     post<DoctorApplied>(`/projects/${e(pid)}/doctor/workspace/apply`, { plan }),

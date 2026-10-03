@@ -85,6 +85,20 @@ abstract class ApiTest {
             r.add("keel.secret") { "" }
             r.add("keel.dashboard-port") { dashboardPort }
             r.add("keel.fake-on-real-projects") { true }
+            // Login helpers: no pseudo-terminal in tests, and stand-in CLIs that behave like the real ones.
+            r.add("keel.login-pty") { false }
+            r.add("keel.login-commands.codex") {
+                "echo 'Open this link: https://auth.openai.com/codex/device'; echo 'Enter this one-time code: AB12-CD345'; sleep 1; " +
+                    "mkdir -p \"\$CODEX_HOME\"; echo '{\"tokens\":{\"access_token\":\"codex-from-device\"}}' > \"\$CODEX_HOME/auth.json\""
+            }
+            r.add("keel.login-commands.copilot") {
+                "echo 'To authenticate, visit https://github.com/login/device and enter code 32B2-75E8'; sleep 1; " +
+                    "mkdir -p \"\$HOME/.copilot\"; echo '{\"token\":\"gho_abcdefghijklmnopqrstuvwxyz123456\"}' > \"\$HOME/.copilot/config.json\""
+            }
+            r.add("keel.login-commands.claude") {
+                "echo 'Browse to https://claude.com/cai/oauth/authorize?code=true&client_id=x'; printf 'Paste code here if prompted> '; read code; " +
+                    "if [ \"\$code\" = good-code ]; then echo 'Your OAuth token: sk-ant-oat01-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123'; else echo 'OAuth error: invalid code'; exit 1; fi"
+            }
         }
     }
 }
