@@ -1,34 +1,61 @@
-# Builds the one image for amd64 + arm64 and pushes it to Docker Hub on a version tag (v*).
-# Needs repository secrets DOCKERHUB_USERNAME and DOCKERHUB_TOKEN. Optional variable KEEL_REF pins keel v1 (default main).
+# Builds the image for amd64 + arm64 on a version tag (v*) and pushes it to
+#   ghcr.io/<owner>/keel-v2         always (uses the workflow's GITHUB_TOKEN)
+#   docker.io/<user>/keel-v2        when the secrets DOCKERHUB_USERNAME and DOCKERHUB_TOKEN exist
+# Optional repository variable KEEL_REF pins keel v1 (default: main).
 name: docker
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+permissions:
+  contents: read
+  packages: write
 jobs:
   image:
     runs-on: ubuntu-latest
+    env:
+      HAS_DOCKERHUB: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/login-action@v3
+        if: env.HAS_DOCKERHUB == 'true'
+        with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - id: names
+        run: |
+          owner="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+          images="ghcr.io/${owner}/keel-v2"
+          if [ "$HAS_DOCKERHUB" = "true" ]; then images="${images}"$'\n'"docker.io/${{ secrets.DOCKERHUB_USERNAME }}/keel-v2"; fi
+          { echo "images<<EOF"; echo "$images"; echo "EOF"; } >> "$GITHUB_OUTPUT"
       - uses: docker/metadata-action@v5
         id: meta
         with:
-          images: ${{ secrets.DOCKERHUB_USERNAME }}/keel-v2
+          images: ${{ steps.names.outputs.images }}
           tags: |
             type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest
+          labels: |
+            org.opencontainers.image.title=keel v2
+            org.opencontainers.image.description=keel's test-first flow as a LangGraph graph, with a dashboard, in one image
+            org.opencontainers.image.licenses=MIT
       - uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             INSTALL_CLIS=1
             KEEL_REF=${{ vars.KEEL_REF || 'main' }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
