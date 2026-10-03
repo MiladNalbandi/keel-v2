@@ -50,7 +50,7 @@ class ProjectScanner(
         val wsName = System.getenv("KEEL_PROJECT_NAME")?.takeIf { it.isNotBlank() }
         val wsPath = props.workspace.takeIf { it.isNotBlank() }?.let { Paths.get(it).toAbsolutePath().normalize() }
         val ids = found.distinct().mapNotNull { root ->
-            runCatching { projects.register(root.toString(), if (root == wsPath) wsName else null).id }
+            runCatching { if (root == wsPath && wsName != null) projects.registerWorkspace(root.toString(), wsName).id else projects.register(root.toString()).id }
                 .onFailure { log.warn("could not register {}: {}", root, it.message) }
                 .getOrNull()
         }

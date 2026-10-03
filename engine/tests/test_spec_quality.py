@@ -52,3 +52,26 @@ def test_a_spec_gate_without_criteria_only_allows_send_back(client, repo, monkey
     client.post(f"/threads/{tid}/resume", json={"decision": "approve", "why": "x"})
     st = wait(client, tid)
     assert st["acs"] == [] and st["status"] == "waiting"
+
+
+def test_a_criterion_wrapped_over_lines_is_read_whole():
+    text = """## Acceptance criteria
+
+- **AC-1** [API] Given players with distinct best scores, when
+  `rankOf(playerId)` is called, then it returns the 1-based rank.
+- **AC-2** [WEB] Short one.
+    - a nested note is not part of the title
+"""
+    acs = prompts.parse_acs(text)
+    assert acs[0]["title"] == "Given players with distinct best scores, when `rankOf(playerId)` is called, then it returns the 1-based rank."
+    assert acs[1]["title"] == "Short one."
+
+
+def test_logins_can_be_given_again_after_a_restart(client, repo):
+    tid = start(client, repo)
+    wait(client, tid)
+    svc = client.app.state.engine
+    svc.keys.pop(tid, None)                      # what an engine restart does
+    r = client.post(f"/threads/{tid}/resume", json={"decision": "approve", "keys": {"claude_oauth": "tok-again"}})
+    assert r.status_code == 200
+    assert svc.keys[tid] == {"claude_oauth": "tok-again"}

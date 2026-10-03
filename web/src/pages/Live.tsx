@@ -85,7 +85,7 @@ function Outcome({ job, steps }: { job: Job; steps: JobStep[] }) {
       <div className="kv">
         {last && <><span>Answer</span><b style={{ whiteSpace: "pre-wrap" }}>{last.text}</b></>}
         <span>Files changed</span><b className="mono">{files.length ? files.join(", ") : "none"}</b>
-        <span>Tokens in / out</span><b className="num">{kfmt(job.tokens_in)} / {kfmt(job.tokens_out)}</b>
+        <span>Tokens in / out</span><b className="num">{kfmt(job.tokens_in)} / {kfmt(job.tokens_out)}{job.tokens_cached ? ` (+${kfmt(job.tokens_cached)} cached)` : ""}</b>
         <span>Time</span><b className="num">{since(job.started_at, job.ended_at)}</b>
       </div>
     </div>
@@ -104,7 +104,7 @@ function Feed({ job }: { job: Job }) {
   useEffect(() => {
     if (follow) box.current?.lastElementChild?.scrollIntoView?.({ block: "nearest" });
   }, [shown.length, follow]);
-  const tokens = job.tokens_in + job.tokens_out;
+  const tokens = job.tokens_in + job.tokens_out + Math.floor((job.tokens_cached ?? 0) / 10);
   return (
     <Panel
       title={<h2>{job.agent}{job.ac ? ` · ${job.ac}` : ""}</h2>}

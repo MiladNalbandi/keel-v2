@@ -42,6 +42,11 @@ KNOWN_SECTIONS = {"architecture", "domain", "conventions", "data", "integrations
 OPTIONS = ["approve", "reject"]
 
 
+
+def budget_tokens(usage: dict) -> int:
+    """Tokens that count toward caps: new input + output + a tenth of cache reads (they cost about a tenth)."""
+    return int(usage.get("tokens_in", 0)) + int(usage.get("tokens_out", 0)) + int(usage.get("tokens_cached", 0)) // 10
+
 class LaneFailed(Exception):
     pass
 
@@ -255,7 +260,7 @@ class Compiler:
         if not res.cost_usd and model.get("mode") == "api" and model["provider"] != "fake":
             res.cost_usd = catalog.cost_usd(model["provider"], model.get("model", ""), res.tokens_in, res.tokens_out)
         ctx.emit("agent.finished", step=step.id, call_id=call_id, data={
-            "agent": agent, "status": "done", "tokens_in": res.tokens_in, "tokens_out": res.tokens_out,
+            "agent": agent, "status": "done", "tokens_in": res.tokens_in, "tokens_out": res.tokens_out, "tokens_cached": res.tokens_cached,
             "cost_usd": round(res.cost_usd, 6), "premium_requests": res.premium_requests, "result": res.text[:2000]})
         return res, model, toolbox
 
@@ -265,7 +270,7 @@ class Compiler:
         ctx = self.ctx
         usage = dict(state.get("usage") or {})
         cap = int(usage.get("cap_tokens") or 0)
-        used = int(usage.get("tokens_in", 0)) + int(usage.get("tokens_out", 0))
+        used = budget_tokens(usage)
         step_used = int((state.get("step_tokens") or {}).get(step.id, 0))
         over_step = bool(step.max_tokens) and step_used >= step.max_tokens
         over_cap = bool(cap) and used >= cap
@@ -370,9 +375,10 @@ class Compiler:
         for res, model, _tb in agent_results:
             usage["tokens_in"] = usage.get("tokens_in", 0) + res.tokens_in
             usage["tokens_out"] = usage.get("tokens_out", 0) + res.tokens_out
+            usage["tokens_cached"] = usage.get("tokens_cached", 0) + res.tokens_cached
             usage["cost_usd"] = round(usage.get("cost_usd", 0.0) + res.cost_usd, 6)
             usage["premium_requests"] = usage.get("premium_requests", 0) + res.premium_requests
-            step_tokens[step.id] = step_tokens.get(step.id, 0) + res.tokens_in + res.tokens_out
+            step_tokens[step.id] = step_tokens.get(step.id, 0) + res.tokens_in + res.tokens_out + res.tokens_cached // 10
             notes.append(res.text.strip().splitlines()[0][:160] if res.text.strip() else "")
         upd.update(usage=usage, step_tokens=step_tokens, feedback=None)
         label = step.agent or "lanes"

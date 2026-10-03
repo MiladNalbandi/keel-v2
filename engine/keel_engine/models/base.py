@@ -42,7 +42,8 @@ class AgentRequest:
 @dataclass
 class AgentResult:
     text: str = ""
-    tokens_in: int = 0
+    tokens_in: int = 0               # new input (fresh + cache writes)
+    tokens_cached: int = 0           # cache reads: re-sent context, about a tenth of the price
     tokens_out: int = 0
     cost_usd: float = 0.0
     premium_requests: int = 0

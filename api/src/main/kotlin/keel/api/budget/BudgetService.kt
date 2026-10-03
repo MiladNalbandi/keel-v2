@@ -54,7 +54,7 @@ class BudgetService(
         projects.require(pid)
         val since = monthStart()
         val month = jdbc.queryForObject(
-            "SELECT COALESCE(SUM(tokens_in + tokens_out), 0), COALESCE(SUM(cost_usd), 0), COALESCE(SUM(premium_requests), 0) FROM agent_calls WHERE project_id = ? AND started_at >= ?",
+            "SELECT COALESCE(SUM(tokens_in + tokens_out + tokens_cached / 10), 0), COALESCE(SUM(cost_usd), 0), COALESCE(SUM(premium_requests), 0) FROM agent_calls WHERE project_id = ? AND started_at >= ?",
             { rs, _ -> Triple(rs.getLong(1), rs.getDouble(2), rs.getLong(3)) }, pid, since,
         )!!
         val flows = jdbc.queryForObject("SELECT COUNT(*) FROM threads WHERE project_id = ? AND created_at >= ?", Int::class.java, pid, since) ?: 0
@@ -62,7 +62,7 @@ class BudgetService(
         val today = LocalDate.now(ZoneOffset.UTC)
         val first = today.minusDays(13)
         val byDay = jdbc.query(
-            "SELECT substr(started_at, 1, 10) AS d, COALESCE(provider, 'fake'), SUM(tokens_in + tokens_out) FROM agent_calls WHERE project_id = ? AND started_at >= ? GROUP BY d, 2",
+            "SELECT substr(started_at, 1, 10) AS d, COALESCE(provider, 'fake'), SUM(tokens_in + tokens_out + tokens_cached / 10) FROM agent_calls WHERE project_id = ? AND started_at >= ? GROUP BY d, 2",
             { rs, _ -> Triple(rs.getString(1), rs.getString(2), rs.getLong(3)) }, pid, first.toString(),
         ).groupBy { it.first }
         val days = (0L..13L).map { first.plusDays(it) }.map { d ->
@@ -80,11 +80,11 @@ class BudgetService(
         }
 
         val top = jdbc.query(
-            "SELECT agent, provider, SUM(tokens_in + tokens_out) t, SUM(cost_usd) FROM agent_calls WHERE project_id = ? AND started_at >= ? AND agent IS NOT NULL GROUP BY agent, provider ORDER BY t DESC LIMIT 5",
+            "SELECT agent, provider, SUM(tokens_in + tokens_out + tokens_cached / 10) t, SUM(cost_usd) FROM agent_calls WHERE project_id = ? AND started_at >= ? AND agent IS NOT NULL GROUP BY agent, provider ORDER BY t DESC LIMIT 5",
             { rs, _ -> TopAgent(rs.getString(1), rs.getString(2), rs.getLong(3), rs.getDouble(4)) }, pid, since,
         )
         val recent = jdbc.query(
-            """SELECT t.title, t.estimate, COALESCE((SELECT SUM(tokens_in + tokens_out) FROM agent_calls c WHERE c.thread_id = t.id), 0), t.status
+            """SELECT t.title, t.estimate, COALESCE((SELECT SUM(tokens_in + tokens_out + tokens_cached / 10) FROM agent_calls c WHERE c.thread_id = t.id), 0), t.status
                FROM threads t WHERE t.project_id = ? ORDER BY t.created_at DESC LIMIT 10""",
             { rs, _ -> RecentFlow(rs.getString(1), rs.getLong(2).takeIf { !rs.wasNull() }, rs.getLong(3), rs.getString(4)) }, pid,
         )
@@ -100,7 +100,7 @@ class BudgetService(
         val since = monthStart()
         val fiveHours = java.time.Instant.now().minusSeconds(5 * 3600).toString()
         fun tokens(provider: String, from: String) = jdbc.queryForObject(
-            "SELECT COALESCE(SUM(tokens_in + tokens_out), 0) FROM agent_calls WHERE provider = ? AND started_at >= ?", Long::class.java, provider, from,
+            "SELECT COALESCE(SUM(tokens_in + tokens_out + tokens_cached / 10), 0) FROM agent_calls WHERE provider = ? AND started_at >= ?", Long::class.java, provider, from,
         ) ?: 0L
         return stored().map { l ->
             when (l.id) {

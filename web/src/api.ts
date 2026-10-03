@@ -50,7 +50,7 @@ export type ThreadState = {
   ac: string | null;
   acs: { id: string; layer: string; title: string; status: AcStatus }[];
   waiting?: { step: string; kind: "gate" | "budget" | "fix"; title: string; detail: string; options: ("approve" | "reject")[] };
-  usage: { tokens_in: number; tokens_out: number; cost_usd: number; premium_requests: number; cap_tokens: number };
+  usage: { tokens_in: number; tokens_out: number; tokens_cached?: number; cost_usd: number; premium_requests: number; cap_tokens: number };
   checkpoints: number;
   error?: string;
   updated_at: string;
@@ -124,6 +124,7 @@ export type Job = {
   started_at: string;
   ended_at: string | null;
   tokens_in: number;
+  tokens_cached?: number;   // cache reads: re-sent context, about a tenth of the price
   tokens_out: number;
   cost_usd: number;
   premium_requests: number;

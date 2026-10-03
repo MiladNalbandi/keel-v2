@@ -30,8 +30,27 @@ data class Project(
 @Service
 class ProjectService(private val jdbc: JdbcTemplate, private val mapper: ObjectMapper) {
 
+    /** Projects that are reachable now (a parked workspace project is kept with its history but not listed). */
     fun rows(): List<ProjectRow> =
-        jdbc.query("SELECT id, name, root FROM projects ORDER BY name") { rs, _ -> ProjectRow(rs.getString(1), rs.getString(2), rs.getString(3)) }
+        jdbc.query("SELECT id, name, root FROM projects WHERE root NOT LIKE '%$PARKED%' ORDER BY name") { rs, _ -> ProjectRow(rs.getString(1), rs.getString(2), rs.getString(3)) }
+
+    /**
+     * The mounted folder (/workspace) is the same path for every project the launcher starts, so it is known by
+     * its name: another name there parks the old project (history kept, not listed) and the same name re-attaches it.
+     */
+    fun registerWorkspace(rootText: String, name: String): ProjectRow {
+        val root = Paths.get(rootText).toAbsolutePath().normalize().toString()
+        val id = keel.api.common.Slug.of(name)
+        val here = jdbc.query("SELECT id, name, root FROM projects WHERE root = ?", { rs, _ -> ProjectRow(rs.getString(1), rs.getString(2), rs.getString(3)) }, root).firstOrNull()
+        if (here != null && here.id == id) return here
+        if (here != null) jdbc.update("UPDATE projects SET root = ? WHERE id = ?", "$root$PARKED${here.id}", here.id)
+        val parked = find(id)
+        if (parked != null) {
+            jdbc.update("UPDATE projects SET root = ?, name = ? WHERE id = ?", root, name, id)
+            return ProjectRow(id, name, root)
+        }
+        return register(root, name)
+    }
 
     fun find(pid: String): ProjectRow? =
         jdbc.query("SELECT id, name, root FROM projects WHERE id = ?", { rs, _ -> ProjectRow(rs.getString(1), rs.getString(2), rs.getString(3)) }, pid).firstOrNull()
@@ -104,3 +123,6 @@ class ProjectService(private val jdbc: JdbcTemplate, private val mapper: ObjectM
         return listOf(0, 0)
     }
 }
+
+/** Marker appended to a parked workspace project's root. */
+const val PARKED = "#parked:"

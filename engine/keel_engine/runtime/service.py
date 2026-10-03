@@ -251,7 +251,7 @@ class Engine:
             "status": status, "current": v.get("current"), "phase": v.get("phase") or "none", "ac": v.get("ac"),
             "acs": [{"id": a["id"], "layer": a.get("layer", "API"), "title": a.get("title", ""), "status": a.get("status", "todo")}
                     for a in v.get("acs") or []],
-            "usage": {**{"tokens_in": 0, "tokens_out": 0, "cost_usd": 0.0, "premium_requests": 0, "cap_tokens": 0}, **(v.get("usage") or {})},
+            "usage": {**{"tokens_in": 0, "tokens_out": 0, "tokens_cached": 0, "cost_usd": 0.0, "premium_requests": 0, "cap_tokens": 0}, **(v.get("usage") or {})},
             "checkpoints": n, "updated_at": row["updated_at"],
             "blockers": list(v.get("blockers") or []),
             "unlocks": [{"path": u.get("path"), "phase": u.get("phase")} for u in v.get("unlocks") or []],
@@ -271,6 +271,13 @@ class Engine:
         if err and status in ("failed", "stopped"):
             out["error"] = err
         return out
+
+    async def set_keys(self, tid: str, keys: dict) -> None:
+        """Logins are kept in memory only (never stored), so after an engine restart the api sends them again."""
+        await self._row(tid)
+        self.keys[tid] = dict(keys)
+        if tid in self.ctxs:
+            self.ctxs[tid].keys = dict(keys)
 
     async def resume(self, tid: str, decision: str, why: str | None, payload: dict | None) -> dict:
         row = await self._row(tid)
@@ -337,6 +344,14 @@ class Engine:
                 break
         if not target:
             raise EngineError(404, f"No checkpoint {checkpoint_id} in this thread.")
+        # "Rewind here" re-runs that step: go to the state before it. Continuing *after* it would keep the step's
+        # result in the flow while git (back at the last commit) no longer has its files.
+        if target.parent_config:
+            async for snap in graph.aget_state_history(self._cfg(tid)):
+                if snap.config["configurable"]["checkpoint_id"] == target.parent_config["configurable"]["checkpoint_id"]:
+                    target = snap
+                    break
+        checkpoint_id = target.config["configurable"]["checkpoint_id"]
         task = self.tasks.get(tid)
         if task:
             task.cancel()

@@ -151,11 +151,12 @@ class ClaudeCLIRunner:
         if res.get("is_error"):
             raise ModelError(f"claude reported an error: {_short(res.get('result'), 500)}")
         usage = res.get("usage") or {}
-        tin = int(usage.get("input_tokens", 0)) + int(usage.get("cache_read_input_tokens", 0)) + int(usage.get("cache_creation_input_tokens", 0))
+        tin = int(usage.get("input_tokens", 0)) + int(usage.get("cache_creation_input_tokens", 0))
+        cached = int(usage.get("cache_read_input_tokens", 0))
         tout = int(usage.get("output_tokens", 0))
         text = res.get("result", "")
         emit("answer", _short(text, 4000))
-        return AgentResult(text=text, tokens_in=tin, tokens_out=tout, cost_usd=float(res.get("total_cost_usd") or 0.0),
+        return AgentResult(text=text, tokens_in=tin, tokens_out=tout, tokens_cached=cached, cost_usd=float(res.get("total_cost_usd") or 0.0),
                            data={"refusals": stream.refusals} if stream.refusals else {})
 
 
@@ -217,11 +218,12 @@ class CodexCLIRunner:
         if state.get("error"):
             raise ModelError(f"codex reported an error: {_short(state['error'], 500)}")
         usage = state.get("usage") or {}
-        tin, tout = int(usage.get("input_tokens", 0)), int(usage.get("output_tokens", 0))
+        cached = int(usage.get("cached_input_tokens", 0))
+        tin, tout = max(int(usage.get("input_tokens", 0)) - cached, 0), int(usage.get("output_tokens", 0))
         text = state.get("text", "")
         emit("answer", _short(text, 4000))
         # Subscription use has no per-token price; the plan pays for it.
-        return AgentResult(text=text, tokens_in=tin, tokens_out=tout)
+        return AgentResult(text=text, tokens_in=tin, tokens_out=tout, tokens_cached=cached)
 
 
 class CopilotCLIRunner:

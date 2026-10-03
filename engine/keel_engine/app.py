@@ -90,10 +90,12 @@ class Resume(BaseModel):
     decision: Literal["approve", "reject"]
     why: str | None = None
     payload: dict[str, Any] | None = None
+    keys: dict[str, str] | None = None   # logins again: they live in memory only and a restart forgets them
 
 
 class Rewind(BaseModel):
     checkpoint_id: str
+    keys: dict[str, str] | None = None   # logins again: they live in memory only and a restart forgets them
 
 
 class YamlBody(BaseModel):
@@ -218,6 +220,8 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
 
     @app.post("/threads/{tid}/resume")
     async def post_resume(tid: str, body: Resume, request: Request):
+        if body.keys:
+            await engine(request).set_keys(tid, body.keys)
         return await engine(request).resume(tid, body.decision, body.why, body.payload)
 
     @app.post("/threads/{tid}/stop")
@@ -230,6 +234,8 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
 
     @app.post("/threads/{tid}/rewind")
     async def post_rewind(tid: str, body: Rewind, request: Request):
+        if body.keys:
+            await engine(request).set_keys(tid, body.keys)
         return await engine(request).rewind(tid, body.checkpoint_id)
 
     @app.post("/mcp/tools")

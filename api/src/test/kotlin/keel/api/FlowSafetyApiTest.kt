@@ -3,6 +3,7 @@ package keel.api
 import keel.api.support.ApiTest
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import java.nio.file.Files
 
@@ -45,5 +46,20 @@ class FlowSafetyApiTest : ApiTest() {
         // On a feature branch already: stays there.
         post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "Another one")).andExpect(status().isOk)
         assertThat(branchOf(root)).isEqualTo("feat/top-10-scores")
+    }
+
+    @Autowired lateinit var projectService: keel.api.projects.ProjectService
+
+    @Test
+    fun `a different project mounted at the same path is a different project, and comes back with its history`() {
+        val (_, root) = newProject("mount-a")
+        val a = projectService.registerWorkspace(root.toString(), "ludus-x")
+        val b = projectService.registerWorkspace(root.toString(), "scores-x")
+        assertThat(b.id).isEqualTo("scores-x").isNotEqualTo(a.id)
+        val listed = get("/api/projects").json().map { it["id"].asText() }
+        assertThat(listed).contains("scores-x").doesNotContain("ludus-x")
+        val back = projectService.registerWorkspace(root.toString(), "ludus-x")
+        assertThat(back.id).isEqualTo("ludus-x")
+        assertThat(get("/api/projects").json().map { it["id"].asText() }).contains("ludus-x").doesNotContain("scores-x")
     }
 }
