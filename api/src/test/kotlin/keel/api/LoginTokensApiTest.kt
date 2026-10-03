@@ -78,4 +78,14 @@ class LoginTokensApiTest : ApiTest() {
         post("/api/connections/claude/test").andExpect(status().isOk)
         assertThat(engine.lastBody("/providers/test")!!["key"].asText()).isEqualTo("sk-ant-oat01-firstsecond-half-gAA")
     }
+
+    @Test
+    fun `resume sends the logins again, because the engine keeps them only in memory`() {
+        put("/api/secrets/CLAUDE_CODE_OAUTH_TOKEN", mapOf("value" to claudeToken)).andExpect(status().isOk)
+        put("/api/settings/general", mapOf("default_model" to mapOf("provider" to "claude", "mode" to "subscription", "model" to "sonnet"))).andExpect(status().isOk)
+        val (pid, _) = newProject("resume-keys")
+        val tid = post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "x")).json()["thread_id"].asText()
+        post("/api/threads/$tid/resume", mapOf("decision" to "approve")).andExpect(status().isOk)
+        assertThat(engine.lastBody("/threads/$tid/resume")!!["keys"]["claude_oauth"].asText()).isEqualTo(claudeToken)
+    }
 }

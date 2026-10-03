@@ -103,7 +103,7 @@ def initial_state(ctx: ThreadContext, acs: list[dict] | None) -> FlowState:
         current=None, acs=[{"id": a["id"], "layer": a.get("layer", "API"), "title": a.get("title", ""), "status": "todo"} for a in acs or []],
         ac=None, gates={"mode": s.get("gates_mode", "every-ac"), "log": [], "skipped": {}},
         stall={"fingerprint": None, "count": 0, "step": 0},
-        usage={"tokens_in": 0, "tokens_out": 0, "cost_usd": 0.0, "premium_requests": 0, "cap_tokens": cap},
+        usage={"tokens_in": 0, "tokens_out": 0, "tokens_cached": 0, "cost_usd": 0.0, "premium_requests": 0, "cap_tokens": cap},
         retries={}, step_tokens={}, feedback=None, model_override=None, warned=False, spec=None, branch=None,
         git_head=None, last_failure=None, note="started", error=None, base_head=None, preexisting={}, last_answer="",
         unlocks=normalize_unlocks(s.get("unlocks"), "none", "settings"), deps=[], blockers=[], ladder=None,

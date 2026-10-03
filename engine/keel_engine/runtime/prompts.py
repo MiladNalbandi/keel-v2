@@ -105,6 +105,15 @@ def parse_acs(text: str) -> list[dict]:
     "<behaviour>" are not criteria (an agent may quote an old template while explaining)."""
     seen, out = set(), []
     text = re.sub(r"```.*?(```|\Z)", "", text or "", flags=re.S)
+    # A criterion may wrap over indented follow-up lines; join them so the title is the whole sentence.
+    joined, out_lines = [], text.splitlines()
+    for line in out_lines:
+        if joined and AC_LINE.search(joined[-1]) and line.startswith((" ", "\t")) and line.strip() \
+                and not re.match(r"\s*([-*+]|\d+\.)\s", line):
+            joined[-1] = joined[-1].rstrip() + " " + line.strip()
+        else:
+            joined.append(line)
+    text = "\n".join(joined)
     for m in AC_LINE.finditer(text):
         aid = m.group(1).upper()
         title = m.group(3).strip().strip("*").strip()

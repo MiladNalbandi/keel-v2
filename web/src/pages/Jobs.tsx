@@ -104,7 +104,7 @@ export function JobsPage({ pid }: { pid: string }) {
                       <td><Prov p={j.provider} m={j.model} /></td>
                       <td className="mono">{j.phase || j.step}</td>
                       <td className="num">{since(j.started_at, j.ended_at)}</td>
-                      <td className="num mono">{kfmt(j.tokens_in)} / {kfmt(j.tokens_out)}</td>
+                      <td className="num mono" title="new input / output (cached context re-sent)">{kfmt(j.tokens_in)} / {kfmt(j.tokens_out)}{j.tokens_cached ? <span className="sub"> (+{kfmt(j.tokens_cached)} cached)</span> : null}</td>
                       <td className="num">{j.cost_usd ? usd(j.cost_usd) : "—"}</td>
                       <td><StatusPill status={j.status} /></td>
                     </tr>

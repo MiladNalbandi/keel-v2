@@ -36,8 +36,22 @@ def command_for(root: str, ac: str | None = None, layer: str = "API") -> str | N
         except (OSError, json.JSONDecodeError):
             scripts = {}
         if "test" in scripts:
-            return f"npm test --silent -- -t {shlex.quote(ac)}" if ac else "npm test --silent"
+            if not ac:
+                return "npm test --silent"
+            # Each runner names its filter differently; node:test does not know Jest's -t.
+            runner = scripts["test"]
+            flag = "--test-name-pattern=" if "node --test" in runner or "node  --test" in runner else "-t "
+            return f"npm test --silent -- {flag}{shlex.quote(ac)}"
     return None
+
+
+# A run that executed no test at all, or rejected its own options, proves nothing either way.
+NO_TESTS = re.compile(r"(^|\n)\s*(ℹ|#)\s*tests 0\b|no tests? (found|ran)|collected 0 items|no test files found|"
+                      r"0 passed.*0 failed|bad option|unknown (option|argument)|unrecognized (option|argument)", re.I)
+
+
+def ran_no_tests(output: str) -> bool:
+    return bool(NO_TESTS.search(output or ""))
 
 
 def run(root: str, command: str, timeout: int = 600, env: dict | None = None) -> tuple[int, str]:

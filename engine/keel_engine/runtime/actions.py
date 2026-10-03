@@ -95,6 +95,9 @@ async def verify_red(a: ActionInput) -> ActionResult:
     cmd, code, out = await _tests(a)
     if cmd is None:
         return ActionResult(False, out, out)
+    if testcmd.ran_no_tests(out):
+        return ActionResult(False, f"No test for {ac_id} ran, so this is not a red state.",
+                            f"$ {cmd}\n{out[-3000:]}\nWrite a failing test whose name contains {ac_id}.")
     if code == 0:
         return ActionResult(False, f"The tests for {ac_id} already pass, so this is not a red state.",
                             f"$ {cmd}\n{out[-3000:]}\nEither the behaviour already exists or the test asserts nothing.")
@@ -115,6 +118,9 @@ async def verify_green(a: ActionInput) -> ActionResult:
     cmd, code, out = await _tests(a, whole_suite=not ac_id)
     if cmd is None:
         return ActionResult(False, out, out)
+    if ac_id and testcmd.ran_no_tests(out):
+        return ActionResult(False, f"No test for {ac_id} ran, so it cannot be green.",
+                            f"$ {cmd}\n{out[-3000:]}\nThe RED test for {ac_id} is missing. Rewind to its red step.")
     if code != 0:
         return ActionResult(False, f"{label} does not pass yet.", f"$ {cmd}\n{out[-3000:]}")
     return ActionResult(True, f"{label}: green.", f"$ {cmd}\n{out[-1500:]}",

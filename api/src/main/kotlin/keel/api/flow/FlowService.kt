@@ -122,8 +122,7 @@ class FlowService(
         refuseDirty(root, allowDirty)
         ownBranch(pid, root, title)
         // API keys for "api" models and CLI logins for subscription models, from the encrypted secrets table.
-        val keys = start.models.values.distinctBy { it.provider to it.mode }
-            .fold(mutableMapOf<String, String>()) { acc, m -> secrets.engineKeys(m.provider, m.mode).forEach { (k, v) -> acc.putIfAbsent(k, v) }; acc }
+        val keys = keysFor(start.models.values)
         val withRequest = start.copy(request = request?.trim()?.takeIf { it.isNotEmpty() }?.take(8000))
         val body = if (keys.isEmpty()) withRequest else withRequest.copy(keys = keys)
         val res = engine.startThread(body)
@@ -197,9 +196,22 @@ class FlowService(
     private fun threadProject(tid: String): String? =
         jdbc.query("SELECT project_id FROM threads WHERE id = ?", { rs, _ -> rs.getString(1) }, tid).firstOrNull()
 
+    /** API keys and CLI logins for these models, under the engine's names (never stored by the engine). */
+    private fun keysFor(models: Collection<Model>): Map<String, String> =
+        models.distinctBy { it.provider to it.mode }
+            .fold(mutableMapOf()) { acc, m -> secrets.engineKeys(m.provider, m.mode).forEach { (k, v) -> acc.putIfAbsent(k, v) }; acc }
+
+    /** The logins a thread's agents need right now; sent with every resume and rewind because an engine restart forgets them. */
+    private fun keysForThread(tid: String): Map<String, String> {
+        val pid = threadProject(tid) ?: return emptyMap()
+        val models = listOf(settings.effective(pid).defaultModel) + agents.list(pid).filter { it.enabled }.map { it.model }
+        return keysFor(models)
+    }
+
     fun resume(tid: String, decision: String, why: String?, payload: Map<String, Any?>?): JsonNode {
         if (decision !in setOf("approve", "reject")) throw BadRequest("decision must be approve or reject")
-        val state = engine.resume(tid, mapOf("decision" to decision, "why" to why, "payload" to payload).filterValues { it != null })
+        val keys = keysForThread(tid).takeIf { it.isNotEmpty() }
+        val state = engine.resume(tid, mapOf("decision" to decision, "why" to why, "payload" to payload, "keys" to keys).filterValues { it != null })
         save(tid, state)
         threadProject(tid)?.let { hub.publish(it, "project.changed", mapOf("id" to it)) }
         return state
@@ -217,7 +229,7 @@ class FlowService(
 
     fun rewind(tid: String, checkpointId: String): JsonNode {
         if (checkpointId.isBlank()) throw BadRequest("checkpoint_id is missing")
-        val state = engine.rewind(tid, checkpointId)
+        val state = engine.rewind(tid, checkpointId, keysForThread(tid).takeIf { it.isNotEmpty() })
         save(tid, state)
         return state
     }

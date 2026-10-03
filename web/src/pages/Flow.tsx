@@ -266,7 +266,8 @@ function GateCard({ thread, workflow, onDone }: { thread: ThreadState; workflow:
 
 export function BudgetMeter({ thread, estimate, title = "Budget for this flow" }: { thread: ThreadState; estimate: number | null; title?: string }) {
   const u = thread.usage;
-  const used = u.tokens_in + u.tokens_out;
+  // cache reads count a tenth, like their price (same rule as the engine's caps)
+  const used = u.tokens_in + u.tokens_out + Math.floor((u.tokens_cached ?? 0) / 10);
   const cap = u.cap_tokens || Math.max(used, estimate ?? 0, 1);
   const pct = (n: number) => `${Math.min(100, (n / cap) * 100)}%`;
   return (

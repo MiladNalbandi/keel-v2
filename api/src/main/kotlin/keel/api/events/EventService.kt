@@ -97,9 +97,9 @@ class EventService(
                 ensureCall(id, e, at)
                 val status = d.str("status") ?: "done"
                 jdbc.update(
-                    """UPDATE agent_calls SET status = ?, ended_at = ?, tokens_in = ?, tokens_out = ?, cost_usd = ?,
+                    """UPDATE agent_calls SET status = ?, ended_at = ?, tokens_in = ?, tokens_out = ?, tokens_cached = ?, cost_usd = ?,
                        premium_requests = ?, result = ? WHERE id = ?""",
-                    status, at, d.long("tokens_in") ?: 0, d.long("tokens_out") ?: 0, d.double("cost_usd") ?: 0.0,
+                    status, at, d.long("tokens_in") ?: 0, d.long("tokens_out") ?: 0, d.long("tokens_cached") ?: 0, d.double("cost_usd") ?: 0.0,
                     d.long("premium_requests") ?: 0, d["result"]?.let { if (it is String) it else Json.write(it) }, id,
                 )
                 if (status == "failed") {
