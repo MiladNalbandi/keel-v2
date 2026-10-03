@@ -19,6 +19,8 @@ data class StartFlow(
     val allowFake: Boolean = false,
     /** Start although the working tree has uncommitted changes (they stay out of keel's commits). */
     val allowDirty: Boolean = false,
+    /** What to build, in the user's words; every agent gets it. */
+    val request: String? = null,
 )
 data class EstimateYaml(val yaml: String = "", val acs: JsonNode? = null)
 data class UnlockBody(val path: String = "", val phase: String? = null, val reason: String? = null)
@@ -34,7 +36,7 @@ class FlowController(private val flows: FlowService) {
 
     @PostMapping("/projects/{pid}/flows")
     fun start(@PathVariable pid: String, @RequestBody body: StartFlow): JsonNode =
-        flows.start(pid, body.workflowId, body.title, body.acs, FlowCap(body.capTokens, body.onCap), body.allowFake, body.allowDirty)
+        flows.start(pid, body.workflowId, body.title, body.acs, FlowCap(body.capTokens, body.onCap), body.allowFake, body.allowDirty, body.request)
 
     @PostMapping("/threads/{tid}/resume")
     fun resume(@PathVariable tid: String, @RequestBody body: Resume): JsonNode = flows.resume(tid, body.decision, body.why, body.payload)

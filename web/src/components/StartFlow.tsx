@@ -15,6 +15,8 @@ export function StartFlowDrawer({ onClose, workflowId }: { onClose: () => void; 
   const [wfs, setWfs] = useState<Workflow[] | null>(null);
   const [wid, setWid] = useState(workflowId ?? "");
   const [title, setTitle] = useState("");
+  const [request, setRequest] = useState("");
+  const vague = (title + " " + request).trim().split(/\s+/).filter(Boolean).length < 6;
   const [acs, setAcs] = useState(3);
   const [est, setEst] = useState<Estimate | null>(null);
   const [estErr, setEstErr] = useState<{ message: string; hint?: string } | null>(null);
@@ -82,6 +84,7 @@ export function StartFlowDrawer({ onClose, workflowId }: { onClose: () => void; 
         // the cap belongs to this flow only; project settings stay as they are
         ...(capTokens > 0 ? { cap_tokens: capTokens } : {}), on_cap: onCap,
         ...(allowFake ? { allow_fake: true } : {}), ...(allowDirty ? { allow_dirty: true } : {}),
+        ...(request.trim() ? { request: request.trim() } : {}),
       });
       if (p !== pid) setProjectId(p);
       await reloadProjects();
@@ -117,6 +120,12 @@ export function StartFlowDrawer({ onClose, workflowId }: { onClose: () => void; 
       <div className="field">
         <label htmlFor="sf-what">What to build</label>
         <input type="text" id="sf-what" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Players can see their rank next to the top 10" />
+      </div>
+      <div className="field">
+        <label htmlFor="sf-request">Describe it for the agents</label>
+        <textarea id="sf-request" value={request} onChange={(e) => setRequest(e.target.value)} rows={4}
+          placeholder="Who needs it, what should happen, what must not happen, where in the code if you know. The spec agent turns this into acceptance criteria." />
+        {vague && title.trim() && <span className="hint amber">This is very short. The agents may not know what to build — a few sentences save a lot of tokens.</span>}
       </div>
       <div className="field">
         <label htmlFor="sf-acs">About how many acceptance criteria</label>

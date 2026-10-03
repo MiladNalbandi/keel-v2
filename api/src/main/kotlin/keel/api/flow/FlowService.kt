@@ -46,6 +46,8 @@ data class StartThread(
     val skills: Map<String, String>,
     /** provider -> API key for models that run in "api" mode; the engine keeps them in memory only. */
     val keys: Map<String, String>? = null,
+    /** What the user asked for, in their words. */
+    val request: String? = null,
 )
 
 /** Per-flow cap from POST /flows; null fields fall back to the project's settings. */
@@ -111,7 +113,7 @@ class FlowService(
     }
 
     fun start(pid: String, workflowId: String, title: String, acs: List<Ac>?, cap: FlowCap? = null,
-              allowFake: Boolean = false, allowDirty: Boolean = false): JsonNode {
+              allowFake: Boolean = false, allowDirty: Boolean = false, request: String? = null): JsonNode {
         if (title.isBlank()) throw BadRequest("Give the flow a title", "One short line: what should this flow build or fix?")
         cap?.check()
         var start = buildStart(pid, workflowId, title, acs, cap)
@@ -122,7 +124,8 @@ class FlowService(
         // API keys for "api" models and CLI logins for subscription models, from the encrypted secrets table.
         val keys = start.models.values.distinctBy { it.provider to it.mode }
             .fold(mutableMapOf<String, String>()) { acc, m -> secrets.engineKeys(m.provider, m.mode).forEach { (k, v) -> acc.putIfAbsent(k, v) }; acc }
-        val body = if (keys.isEmpty()) start else start.copy(keys = keys)
+        val withRequest = start.copy(request = request?.trim()?.takeIf { it.isNotEmpty() }?.take(8000))
+        val body = if (keys.isEmpty()) withRequest else withRequest.copy(keys = keys)
         val res = engine.startThread(body)
         val tid = res.get("thread_id")?.asText() ?: throw ApiException(HttpStatus.BAD_GATEWAY, "The engine did not return a thread id")
         val now = Time.now()

@@ -233,7 +233,7 @@ class Compiler:
 
         prompt = prompts.task_prompt(agent=agent, phase=phase, step_name=step.name, title=ctx.title, root=ctx.root, ac=ac,
                                      acs=state.get("acs") or [], feedback=state.get("feedback"), index=index, spec=state.get("spec"),
-                                     section=section, unlocks=state.get("unlocks") or [])
+                                     section=section, unlocks=state.get("unlocks") or [], request=ctx.request)
         with tempfile.TemporaryDirectory(prefix="keel-agent-") as tmp:
             req = AgentRequest(agent=agent, system=prompts.system_prompt(agent, ctx.skills), prompt=prompt, root=ctx.root,
                                phase=phase, model=model, toolbox=toolbox, ac=ac, acs=state.get("acs") or [], title=ctx.title,
@@ -393,6 +393,8 @@ class Compiler:
                 if r.get("command"):
                     data["command"] = r["command"]
                 ctx.emit("guard.refused", step=step.id, data=data)
+        if agent_results:
+            upd["last_answer"] = (agent_results[-1][0].text or "")[:2000]
         if state["phase"] in ("spec", "triage") and not state.get("acs"):
             acs, spec = self._acs_from(agent_results)
             if acs:
@@ -422,14 +424,15 @@ class Compiler:
                 return [dict(a, status="todo") for a in res.data["acs"]], res.data.get("spec")
         for res, _m, tb in results:
             spec = next((w["path"] for w in tb.writes if w["path"].endswith(".md")), None)
-            texts = [res.text] + [(Path(self.ctx.root) / w["path"]).read_text(errors="replace") for w in tb.writes
-                                  if (Path(self.ctx.root) / w["path"]).is_file()]
+            # The spec file the agent wrote comes first; its chat answer only when no file has criteria.
+            texts = [(Path(self.ctx.root) / w["path"]).read_text(errors="replace") for w in tb.writes
+                     if (Path(self.ctx.root) / w["path"]).is_file()]
             if git.is_repo(self.ctx.root):
                 for rel in git.dirty(self.ctx.root):
                     if "spec" in rel and rel.endswith(".md") and (Path(self.ctx.root) / rel).is_file():
                         texts.append((Path(self.ctx.root) / rel).read_text(errors="replace"))
                         spec = spec or rel
-            for t in texts:
+            for t in texts + [res.text]:
                 acs = prompts.parse_acs(t)
                 if acs:
                     return acs, spec
@@ -541,15 +544,24 @@ class Compiler:
             if not due["due"]:
                 gates["log"].append(f"ac {ac['id']} approve: no gate here ({due['why']})")
                 return {"gates": gates, "acs": _set_ac(acs, ac["id"], "done"), "note": f"no gate: {due['why']}"}, self.nav.after(i)
-        if ac:
+        options = OPTIONS
+        title = step.name + (f" · {ac['id']}" if ac else "")
+        no_criteria = not ac and step.phase in ("spec", "triage") and not acs
+        if no_criteria:
+            # Nothing real to approve: say so and only allow "send back" with what the agent should do.
+            options = ["reject"]
+            title = f"{step.name} — no acceptance criteria yet"
+            said = (state.get("last_answer") or state.get("note") or "").strip()
+            detail = ("The spec step wrote no acceptance criteria, so there is nothing to approve yet. "
+                      "Send it back and say what to build.\n\nWhat the agent said:\n" + said[:1200])
+        elif ac:
             detail = f"{ac['id']} [{ac.get('layer', 'API')}] {ac.get('title', '')}\nLast step: {state.get('note', '')}"
         else:
             detail = "\n".join(f"{a['id']} [{a.get('layer', 'API')}] {a.get('title', '')}" for a in acs) or (state.get("note") or "")
             if state.get("spec"):
                 detail = f"Spec: {state['spec']}\n{detail}"
-        answer, extra = self._ask(state, {"step": step.id, "kind": "gate", "title": step.name + (f" · {ac['id']}" if ac else ""),
-                                          "detail": detail, "options": OPTIONS})
-        decision = answer.get("decision", "reject")
+        answer, extra = self._ask(state, {"step": step.id, "kind": "gate", "title": title, "detail": detail, "options": options})
+        decision = answer.get("decision", "reject") if not no_criteria else "reject"
         why = (answer.get("why") or "").strip()
         payload = answer.get("payload") or {}
         subject = f"ac {ac['id']}" if ac else f"gate {step.id}"

@@ -27,6 +27,17 @@ def _agent_file(home: str, agent: str) -> str | None:
     return re.sub(r"\A---\n.*?\n---\n", "", text, flags=re.S).strip()
 
 
+def max_turns(agent: str) -> int | None:
+    """maxTurns from keel's agent file front matter (explorer: 20), so one step cannot run away."""
+    from pathlib import Path
+
+    f = Path(str(config.keel_home())) / "agents" / f"{agent}.md"
+    if not f.is_file():
+        return None
+    m = re.search(r"\A---\n.*?^maxTurns:\s*(\d+)\s*$.*?\n---\n", f.read_text(), flags=re.S | re.M)
+    return int(m.group(1)) if m else None
+
+
 def role_text(agent: str) -> str:
     return _agent_file(str(config.keel_home()), agent) or BUILTIN_ROLES.get(agent) or GENERIC_ROLE
 
@@ -48,9 +59,11 @@ def _allowed(phase: str) -> str:
 
 def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str, ac: dict | None,
                 acs: list[dict], feedback: str | None, index: int = 0, spec: str | None = None,
-                section: str | None = None, unlocks: list[dict] | None = None) -> str:
+                section: str | None = None, unlocks: list[dict] | None = None, request: str = "") -> str:
     lines = [f"Project folder: {root}", f"Flow: {title}", f"Step: {step_name} (keel phase: {phase})",
              f"Files you may change in this phase: {_allowed(phase)}. Anything else is put back automatically."]
+    if request:
+        lines.append("What the user asked for:\n" + request)
     mine = [u["path"] for u in unlocks or [] if u.get("phase") == phase]
     if mine:
         lines.append("Unlocked for this phase by the user: " + ", ".join(mine))
@@ -66,7 +79,9 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
         lines.append(f"Current criterion: {ac['id']} [{ac.get('layer', 'API')}] {ac.get('title', '')}")
     if phase in ("spec", "triage") and not acs:
         lines.append("Write the spec under docs/specs/ with numbered criteria, one per line, in this form:\n"
-                     "- **AC-1** [API] <what must be true>")
+                     "- **AC-1** [API] <what must be true>\n"
+                     "Write real criteria for what the user asked for. If the request is too unclear to write any, write no "
+                     "criteria and say in one or two sentences what you need to know.")
     if phase == "red":
         lines.append("Write the failing test for the current criterion only. Name the test after the criterion id. "
                      "Do not write production code.")
@@ -82,12 +97,19 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
 AC_LINE = re.compile(r"\b(AC-\d+)\b\**\s*\[(API|WEB)\]\s*(.+)", re.I)
 
 
+PLACEHOLDER = re.compile(r"^\s*<[^>]*>\s*$|what must be true|^\s*(tbd|todo|\.\.\.|…)\s*$", re.I)
+
+
 def parse_acs(text: str) -> list[dict]:
+    """Numbered criteria from a spec. Examples in code blocks and template placeholders such as
+    "<behaviour>" are not criteria (an agent may quote an old template while explaining)."""
     seen, out = set(), []
-    for m in AC_LINE.finditer(text or ""):
+    text = re.sub(r"```.*?(```|\Z)", "", text or "", flags=re.S)
+    for m in AC_LINE.finditer(text):
         aid = m.group(1).upper()
-        if aid in seen:
+        title = m.group(3).strip().strip("*").strip()
+        if aid in seen or PLACEHOLDER.search(title) or len(title) < 3:
             continue
         seen.add(aid)
-        out.append({"id": aid, "layer": m.group(2).upper(), "title": m.group(3).strip().strip("*").strip(), "status": "todo"})
+        out.append({"id": aid, "layer": m.group(2).upper(), "title": title, "status": "todo"})
     return out
