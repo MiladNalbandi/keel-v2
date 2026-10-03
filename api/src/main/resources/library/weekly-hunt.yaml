@@ -1,0 +1,15 @@
+id: weekly-hunt
+name: Weekly bug hunt
+source: keel
+version: 1.1.0
+about: "Every Monday: sweep three lenses, prove what is real, file a backlog."
+est_tokens: 300000
+mcp: []
+based_on: keel/hunt
+keel_rules: true
+steps:
+  - { id: scope, kind: code, name: pick three lenses, action: "run:keel hunt lenses", phase: hunt-scope }
+  - { id: sweep, kind: parallel, name: sweep × 3 lenses, agent: hunter, model: default, parallel: 3, phase: hunt-sweep }
+  - { id: prove, kind: agent, name: prove findings, agent: prover, model: default, phase: hunt-prove }
+  - { id: report, kind: code, name: write the backlog, action: "run:keel hunt report", phase: hunt-report }
+  - { id: triage, kind: gate, name: triage the backlog, back: prove, lock: true, phase: hunt-triage }

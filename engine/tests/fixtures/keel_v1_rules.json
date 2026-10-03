@@ -1,0 +1,736 @@
+{
+  "PHASES": [
+    "none",
+    "setup",
+    "preflight",
+    "workspace",
+    "triage",
+    "spec",
+    "contract",
+    "red",
+    "green",
+    "ac",
+    "refactor",
+    "gate",
+    "review-fix",
+    "integration",
+    "e2e",
+    "smoke",
+    "coverage-fix",
+    "trivial",
+    "small-change",
+    "bug-report",
+    "bug-repro",
+    "bug-investigate",
+    "gate-r",
+    "gate-f",
+    "bug-fix",
+    "reset",
+    "security",
+    "ship",
+    "final-review",
+    "memory",
+    "close",
+    "hunt-scope",
+    "hunt-sweep",
+    "hunt-prove",
+    "hunt-report",
+    "hunt-triage"
+  ],
+  "TRANSITIONS": {
+    "none": [
+      "setup",
+      "preflight",
+      "triage",
+      "bug-report",
+      "spec",
+      "hunt-scope"
+    ],
+    "setup": [
+      "none",
+      "preflight"
+    ],
+    "preflight": [
+      "workspace",
+      "spec",
+      "bug-repro",
+      "none"
+    ],
+    "workspace": [
+      "spec",
+      "bug-repro",
+      "none"
+    ],
+    "triage": [
+      "trivial",
+      "small-change",
+      "spec",
+      "none"
+    ],
+    "trivial": [
+      "ship",
+      "small-change",
+      "none"
+    ],
+    "small-change": [
+      "red",
+      "spec",
+      "none"
+    ],
+    "spec": [
+      "contract",
+      "red",
+      "ac",
+      "none"
+    ],
+    "ac": [
+      "gate",
+      "refactor",
+      "spec",
+      "integration",
+      "none"
+    ],
+    "contract": [
+      "red",
+      "ac",
+      "none"
+    ],
+    "red": [
+      "green",
+      "spec",
+      "none"
+    ],
+    "green": [
+      "gate",
+      "refactor",
+      "red",
+      "spec",
+      "integration",
+      "none"
+    ],
+    "refactor": [
+      "gate",
+      "green",
+      "none"
+    ],
+    "gate": [
+      "red",
+      "green",
+      "ac",
+      "spec",
+      "review-fix",
+      "integration",
+      "e2e",
+      "smoke",
+      "ship",
+      "none"
+    ],
+    "review-fix": [
+      "gate",
+      "security",
+      "ship",
+      "none"
+    ],
+    "integration": [
+      "security",
+      "review-fix",
+      "e2e",
+      "smoke",
+      "ship",
+      "none"
+    ],
+    "security": [
+      "e2e",
+      "review-fix",
+      "smoke",
+      "ship",
+      "none"
+    ],
+    "e2e": [
+      "smoke",
+      "ship",
+      "none"
+    ],
+    "smoke": [
+      "ship",
+      "none"
+    ],
+    "coverage-fix": [
+      "ship",
+      "gate",
+      "none"
+    ],
+    "bug-report": [
+      "bug-repro",
+      "workspace",
+      "none"
+    ],
+    "bug-repro": [
+      "gate-r",
+      "bug-investigate",
+      "none"
+    ],
+    "gate-r": [
+      "bug-investigate",
+      "bug-repro",
+      "none"
+    ],
+    "bug-investigate": [
+      "gate-f",
+      "bug-fix",
+      "none"
+    ],
+    "gate-f": [
+      "bug-fix",
+      "bug-investigate",
+      "spec",
+      "none"
+    ],
+    "bug-fix": [
+      "bug-investigate",
+      "reset",
+      "e2e",
+      "ship",
+      "none"
+    ],
+    "reset": [
+      "bug-repro",
+      "none"
+    ],
+    "ship": [
+      "coverage-fix",
+      "review-fix",
+      "red",
+      "gate",
+      "security",
+      "final-review",
+      "close",
+      "none"
+    ],
+    "final-review": [
+      "memory",
+      "ship",
+      "close",
+      "none"
+    ],
+    "memory": [
+      "close",
+      "ship",
+      "none"
+    ],
+    "close": [
+      "none"
+    ],
+    "hunt-scope": [
+      "hunt-sweep",
+      "none"
+    ],
+    "hunt-sweep": [
+      "hunt-prove",
+      "hunt-report",
+      "none"
+    ],
+    "hunt-prove": [
+      "hunt-report",
+      "hunt-sweep",
+      "none"
+    ],
+    "hunt-report": [
+      "hunt-triage",
+      "hunt-prove",
+      "none"
+    ],
+    "hunt-triage": [
+      "hunt-report",
+      "none"
+    ]
+  },
+  "LADDER": [
+    "Step 1: re-read the trimmed failure and the acceptance criterion; do not guess.",
+    "Step 2: ask keel:investigator for a fresh-context diagnosis before the next attempt.",
+    "Step 3: step the model up for the next attempt (`/model opus`, or Fable if the cause stays ambiguous).",
+    "Step 4: stop and ask the user. Show the failure, what you tried, and the two options you see."
+  ],
+  "RAILS": {
+    "feature": [
+      "preflight",
+      "workspace",
+      "spec",
+      "contract",
+      "red",
+      "green",
+      "gate",
+      "integration",
+      "security",
+      "e2e",
+      "smoke",
+      "ship",
+      "memory",
+      "close"
+    ],
+    "change": [
+      "triage",
+      "trivial",
+      "small-change",
+      "red",
+      "green",
+      "gate",
+      "ship",
+      "close"
+    ],
+    "fix": [
+      "bug-report",
+      "workspace",
+      "bug-repro",
+      "gate-r",
+      "bug-investigate",
+      "gate-f",
+      "bug-fix",
+      "e2e",
+      "ship",
+      "close"
+    ],
+    "hunt": [
+      "hunt-scope",
+      "hunt-sweep",
+      "hunt-prove",
+      "hunt-report",
+      "hunt-triage"
+    ]
+  },
+  "MATRIX": {
+    "none": {
+      "*": "allow"
+    },
+    "setup": {
+      "other": "allow",
+      "*": "deny"
+    },
+    "spec": {
+      "specs": "allow",
+      "other": "allow",
+      "*": "deny"
+    },
+    "contract": {
+      "contract": "allow",
+      "other": "allow",
+      "*": "deny"
+    },
+    "red": {
+      "api-test": "allow",
+      "web-test": "allow",
+      "other": "allow",
+      "*": "deny"
+    },
+    "green": {
+      "api-main": "allow",
+      "web-src": "allow",
+      "migration": "new-only",
+      "other": "allow",
+      "*": "deny"
+    },
+    "refactor": {
+      "api-main": "allow",
+      "web-src": "allow",
+      "other": "allow",
+      "*": "deny"
+    },
+    "ac": {
+      "api-main": "allow",
+      "web-src": "allow",
+      "api-test": "allow",
+      "web-test": "allow",
+      "migration": "new-only",
+      "other": "allow",
+      "*": "deny"
+    },
+    "gate": {
+      "*": "deny",
+      "other": "allow"
+    },
+    "review-fix": {
+      "api-main": "allow",
+      "web-src": "allow",
+      "api-test": "allow",
+      "web-test": "allow",
+      "migration": "new-only",
+      "other": "allow",
+      "*": "deny"
+    },
+    "integration": {
+      "api-main": "allow",
+      "web-src": "allow",
+      "other": "allow",
+      "*": "deny"
+    },
+    "e2e": {
+      "e2e": "allow",
+      "other": "allow",
+      "*": "deny"
+    },
+    "smoke": {
+      "smoke": "allow",
+      "other": "allow",
+      "*": "deny"
+    },
+    "coverage-fix": {
+      "api-test": "allow",
+      "web-test": "allow",
+      "api-main": "delete-only",
+      "web-src": "delete-only",
+      "e2e": "deny",
+      "other": "allow",
+      "*": "deny"
+    },
+    "trivial": {
+      "api-main": "allow",
+      "web-src": "allow",
+      "api-test": "new-only",
+      "web-test": "new-only",
+      "other": "allow",
+      "*": "deny"
+    },
+    "bug-report": {
+      "other": "allow",
+      "*": "deny"
+    },
+    "bug-repro": {
+      "api-test": "allow",
+      "web-test": "allow",
+      "e2e": "allow",
+      "other": "allow",
+      "*": "deny"
+    },
+    "bug-investigate": {
+      "other": "allow",
+      "*": "deny"
+    },
+    "bug-fix": {
+      "api-main": "allow",
+      "web-src": "allow",
+      "migration": "new-only",
+      "other": "allow",
+      "*": "deny"
+    },
+    "ship": {
+      "other": "allow",
+      "*": "deny"
+    },
+    "preflight": {
+      "other": "allow",
+      "*": "deny"
+    },
+    "workspace": {
+      "other": "allow",
+      "*": "deny"
+    },
+    "triage": {
+      "other": "allow",
+      "*": "deny"
+    },
+    "small-change": {
+      "other": "allow",
+      "*": "deny"
+    },
+    "gate-r": {
+      "other": "allow",
+      "*": "deny"
+    },
+    "gate-f": {
+      "other": "allow",
+      "*": "deny"
+    },
+    "reset": {
+      "other": "allow",
+      "*": "deny"
+    },
+    "final-review": {
+      "other": "allow",
+      "*": "deny"
+    },
+    "close": {
+      "specs": "allow",
+      "other": "allow",
+      "*": "deny"
+    },
+    "memory": {
+      "other": "allow",
+      "*": "deny"
+    },
+    "security": {
+      "other": "allow",
+      "*": "deny"
+    },
+    "hunt-scope": {
+      "other": "allow",
+      "*": "deny"
+    },
+    "hunt-sweep": {
+      "other": "allow",
+      "*": "deny"
+    },
+    "hunt-prove": {
+      "other": "allow",
+      "*": "deny"
+    },
+    "hunt-report": {
+      "other": "allow",
+      "*": "deny"
+    },
+    "hunt-triage": {
+      "other": "allow",
+      "*": "deny"
+    }
+  },
+  "COMMIT_RULES": {
+    "red": {
+      "allow": [
+        "api-test",
+        "web-test",
+        "e2e"
+      ],
+      "deny": [
+        "api-main",
+        "web-src"
+      ]
+    },
+    "green": {
+      "allow": [
+        "api-main",
+        "web-src",
+        "migration",
+        "other"
+      ],
+      "deny": [
+        "api-test",
+        "web-test"
+      ]
+    },
+    "refactor": {
+      "allow": [
+        "api-main",
+        "web-src",
+        "other"
+      ],
+      "deny": [
+        "api-test",
+        "web-test"
+      ]
+    },
+    "fix": {
+      "allow": [
+        "api-main",
+        "web-src",
+        "api-test",
+        "web-test",
+        "migration",
+        "other"
+      ],
+      "deny": []
+    },
+    "coverage": {
+      "allow": [
+        "api-test",
+        "web-test",
+        "api-main",
+        "web-src"
+      ],
+      "deny": [],
+      "deleteOnlyProd": true,
+      "noId": true
+    },
+    "contract": {
+      "allow": [
+        "contract",
+        "other"
+      ],
+      "deny": [
+        "api-test",
+        "web-test"
+      ]
+    },
+    "e2e": {
+      "allow": [
+        "e2e"
+      ],
+      "deny": [
+        "api-main",
+        "web-src",
+        "api-test",
+        "web-test"
+      ]
+    },
+    "smoke": {
+      "allow": [
+        "smoke",
+        "other"
+      ],
+      "deny": [
+        "api-main",
+        "web-src"
+      ],
+      "noId": true
+    },
+    "trivial": {
+      "allow": [
+        "api-main",
+        "web-src",
+        "other"
+      ],
+      "deny": [],
+      "trivial": true
+    },
+    "docs": {
+      "allow": [
+        "specs",
+        "other"
+      ],
+      "deny": [
+        "api-main",
+        "web-src"
+      ]
+    },
+    "ac": {
+      "allow": [
+        "api-main",
+        "web-src",
+        "api-test",
+        "web-test",
+        "migration",
+        "other"
+      ],
+      "deny": []
+    },
+    "memory": {
+      "allow": [
+        "other"
+      ],
+      "deny": [
+        "api-main",
+        "web-src",
+        "api-test",
+        "web-test",
+        "contract",
+        "migration"
+      ],
+      "memoryOnly": true,
+      "noId": true
+    },
+    "setup": {
+      "allow": [
+        "other"
+      ],
+      "deny": [
+        "api-main",
+        "web-src",
+        "api-test",
+        "web-test",
+        "contract",
+        "migration"
+      ],
+      "setupOnly": true,
+      "noId": true
+    }
+  },
+  "FLOW_START": {
+    "feature": "spec",
+    "change": "triage",
+    "fix": "bug-report",
+    "hunt": "hunt-scope"
+  },
+  "classify": {
+    "api/src/main/kotlin/app/A.kt": "other",
+    "api/src/test/kotlin/app/ATest.kt": "api-test",
+    "api/src/main/resources/db/migration/V1__a.sql": "migration",
+    "web/src/App.tsx": "other",
+    "web/src/App.test.tsx": "api-test",
+    "docs/specs/x.md": "other",
+    "docs/contract/openapi.yaml": "contract",
+    "e2e/a.spec.ts": "e2e",
+    "smoke/a.spec.ts": "smoke",
+    ".env": "protected-env",
+    "build/generated/x.kt": "generated",
+    "README.md": "other",
+    ".keel/state.json": "other"
+  },
+  "EMPTY": {
+    "flow": null,
+    "size": null,
+    "phase": "none",
+    "spec": null,
+    "branch": null,
+    "lane": "api",
+    "current": null,
+    "acs": {},
+    "lanes": {},
+    "gates": {
+      "mode": "every-ac",
+      "bug_gates": true,
+      "skipped": {},
+      "log": []
+    },
+    "stall": {
+      "fingerprint": null,
+      "count": 0,
+      "step": 0
+    },
+    "unlocks": [],
+    "flaky": [],
+    "last_failure": null,
+    "ship_skipped": [],
+    "stop_blocks": 0,
+    "turns": {},
+    "agents": {}
+  },
+  "red_accept": [
+    "assertionfailederror",
+    "assertionerror",
+    "comparisonfailure",
+    "expected:",
+    "expected <",
+    "expected but was",
+    "received:",
+    "tobe(",
+    "toequal(",
+    "status expected",
+    "but was:"
+  ],
+  "red_reject": [
+    "compilation error",
+    "cannot find symbol",
+    "unresolved reference",
+    "applicationcontext",
+    "no qualifying bean",
+    "could not connect to docker",
+    "docker environment",
+    "initializationerror",
+    "no tests found",
+    "classnotfoundexception",
+    "noclassdeffounderror",
+    "syntax error"
+  ],
+  "classify_cfg": {
+    "backend": {
+      "dir": "apps/api",
+      "build": "./gradlew",
+      "migrations": "src/main/resources/db/migration",
+      "schema_snapshot": ""
+    },
+    "frontend": {
+      "dir": "apps/web",
+      "package_manager": "pnpm",
+      "generated": "src/api/generated"
+    },
+    "contract": {
+      "file": "contracts/openapi.yaml"
+    },
+    "e2e": {
+      "dir": "e2e",
+      "web_url": "http://localhost:5173",
+      "api_url": "http://localhost:8080"
+    },
+    "specs": {
+      "dir": "specs"
+    }
+  }
+}

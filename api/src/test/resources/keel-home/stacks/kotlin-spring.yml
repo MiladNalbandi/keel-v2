@@ -1,0 +1,17 @@
+name: kotlin-spring
+lane: api
+detect:
+  files: [gradlew, build.gradle.kts]
+  extensions: ['.kt']
+layers:
+  - id: unit
+    what: pure rules
+commands:
+  api_test_ac: "{BUILD} -q test --tests '*{AC}*'"
+tools:
+  detekt:
+    run: '{BUILD} -q detekt'
+    on: manual
+    fail: block
+skills:
+  testing: keel:kotlin-spring-testing

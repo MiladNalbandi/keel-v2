@@ -1,0 +1,13 @@
+id: release-notes
+name: Release notes
+source: your team
+version: 1.0.0
+about: Collect merged PRs since the last tag and write notes for people, not machines.
+est_tokens: 25000
+mcp: [github]
+keel_rules: false
+steps:
+  - { id: collect, kind: code, name: merged PRs since the last tag, action: "run:git log --merges --oneline $(git describe --tags --abbrev=0)..HEAD" }
+  - { id: write, kind: agent, name: write the notes, agent: librarian, model: default, tools: ["mcp:github:list_pull_requests"] }
+  - { id: save, kind: code, name: save CHANGELOG.md, action: "run:true" }
+  - { id: review, kind: gate, name: review the notes, back: write }

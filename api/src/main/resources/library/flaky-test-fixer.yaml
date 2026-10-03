@@ -1,0 +1,15 @@
+id: flaky-test-fixer
+name: Flaky test fixer
+source: community
+version: 0.9.2
+about: Rerun a test 10 times, find the cause of the flake, fix it, prove 50 green runs.
+est_tokens: 70000
+mcp: []
+based_on: keel/fix
+keel_rules: true
+steps:
+  - { id: rerun, kind: code, name: rerun the test 10 times, action: "run:keel verify ac --repeat 10", phase: bug-repro }
+  - { id: cause, kind: agent, name: find the cause, agent: investigator, model: default, phase: bug-investigate }
+  - { id: fix, kind: agent, name: fix the flake, agent: implementer, model: default, phase: bug-fix }
+  - { id: prove, kind: code, name: prove 50 green runs, action: "run:keel verify ac --repeat 50", lock: true, phase: bug-fix }
+  - { id: gf, kind: gate, name: review the fix, back: fix, lock: true, phase: gate-f }

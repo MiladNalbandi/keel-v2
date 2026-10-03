@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# keel2 — run keel v2 on a project with one command.
+#   ./keel2 /path/to/project            start (or restart) keel v2 for that project, open the browser
+#   ./keel2 stop | logs | update
+# Logins: if ~/.claude, ~/.codex or ~/.copilot exist they are mounted read-only so the CLIs inside can use them.
+set -euo pipefail
+IMAGE="${KEEL_IMAGE:-milimarty/keel-v2:latest}"
+NAME="${KEEL_NAME:-keel-v2}"
+PORT="${PORT:-8080}"
+
+case "${1:-}" in
+  stop)   docker rm -f "$NAME" >/dev/null && echo "stopped"; exit 0 ;;
+  logs)   exec docker logs -f "$NAME" ;;
+  update) exec docker pull "$IMAGE" ;;
+  ""|-h|--help) sed -n 2,6p "$0"; exit 0 ;;
+esac
+
+PROJECT="$(cd "$1" && pwd)"
+[ -d "$PROJECT/.git" ] || ls -d "$PROJECT"/*/.git >/dev/null 2>&1 || { echo "$PROJECT is not a git repo (and has no git repos inside). Run: git init \"$PROJECT\""; exit 1; }
+mounts=(-v "$PROJECT:/workspace" -v keel-data:/data)
+for d in .claude .codex .copilot; do [ -d "$HOME/$d" ] && mounts+=(-v "$HOME/$d:/home/keel/$d:ro"); done
+[ -f "$HOME/.claude.json" ] && mounts+=(-v "$HOME/.claude.json:/home/keel/.claude.json:ro")
+
+docker rm -f "$NAME" >/dev/null 2>&1 || true
+docker run -d --name "$NAME" -p "127.0.0.1:$PORT:8080" "${mounts[@]}" -e KEEL_PROJECT_NAME="$(basename "$PROJECT")" \
+  ${ANTHROPIC_API_KEY:+-e ANTHROPIC_API_KEY} ${OPENAI_API_KEY:+-e OPENAI_API_KEY} ${GITHUB_TOKEN:+-e GITHUB_TOKEN} \
+  "$IMAGE" >/dev/null
+
+echo "keel v2 is starting for $PROJECT"
+for _ in $(seq 1 90); do curl -fs "http://localhost:$PORT/api/health" >/dev/null 2>&1 && break; sleep 1; done
+echo "open http://localhost:$PORT"
+command -v open >/dev/null && open "http://localhost:$PORT" || true

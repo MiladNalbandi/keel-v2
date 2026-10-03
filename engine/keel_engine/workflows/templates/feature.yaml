@@ -1,0 +1,20 @@
+id: feature
+name: feature (keel)
+keel_rules: true
+version: 1
+steps:
+  - { id: spec, kind: agent, name: spec, agent: explorer, model: default, phase: spec, tools: ["mcp:keel:*"] }
+  - { id: spec_gate, kind: gate, name: spec approval, back: spec, lock: true, phase: spec }
+  - { id: contract, kind: agent, name: contract, agent: contract-author, model: default, phase: contract }
+  - { id: red, kind: agent, name: red, agent: test-author, model: default, phase: red, per_ac: true, tools: ["mcp:keel:*"] }
+  - { id: verify_red, kind: code, name: verify_red, action: verify_red+commit, phase: red, per_ac: true, lock: true }
+  - { id: green, kind: agent, name: green, agent: implementer, model: default, phase: green, per_ac: true, tools: ["mcp:keel:*"] }
+  - { id: verify_green, kind: code, name: verify_green + commit, action: verify_green+commit, phase: green, per_ac: true, lock: true }
+  - { id: ac_review, kind: agent, name: AC review, agent: ac-reviewer, model: default, phase: gate, per_ac: true }
+  - { id: ac_gate, kind: gate, name: AC gate, back: red, lock: true, phase: gate, per_ac: true }
+  - { id: integration, kind: agent, name: integration, agent: code-reviewer, model: default, phase: integration }
+  - { id: security, kind: agent, name: security, agent: security-auditor, model: default, phase: security }
+  - { id: e2e, kind: agent, name: e2e, agent: e2e-author, model: default, phase: e2e }
+  - { id: ship_review, kind: parallel, name: ship review x 4 lenses, agent: reviewer, model: default, parallel: 4, phase: ship }
+  - { id: final_review, kind: gate, name: final review, lock: true, phase: final-review }
+  - { id: memory, kind: agent, name: memory, agent: librarian, model: default, phase: memory }
