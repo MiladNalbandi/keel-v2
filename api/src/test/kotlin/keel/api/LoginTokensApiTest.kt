@@ -58,4 +58,24 @@ class LoginTokensApiTest : ApiTest() {
         assertThat(keys["codex_auth"].asText()).isEqualTo(codexAuth)
         assertThat(keys.has("claude")).isFalse()   // no API key is sent for a subscription model
     }
+
+    @Test
+    fun `a failed test explains a badly copied token without showing it`() {
+        put("/api/secrets/CLAUDE_CODE_OAUTH_TOKEN", mapOf("value" to "••••••abcdef-half")).andExpect(status().isOk)
+        put("/api/connections/claude", mapOf("mode" to "subscription")).andExpect(status().isOk)
+        engine.providerTestAnswer = mapOf("ok" to false, "ms" to 10, "error" to "`claude` is not logged in inside the container.")
+        val res = post("/api/connections/claude/test").andExpect(status().isOk).json()
+        assertThat(res["error"].asText()).contains("characters a token never has").doesNotContain("abcdef")
+        put("/api/secrets/CLAUDE_CODE_OAUTH_TOKEN", mapOf("value" to "half-of-a-token-ABC")).andExpect(status().isOk)
+        assertThat(post("/api/connections/claude/test").json()["error"].asText()).contains("does not start with sk-ant-oat01-").contains("19 characters")
+        engine.providerTestAnswer = null
+    }
+
+    @Test
+    fun `whitespace from a wrapped terminal copy is removed from a token`() {
+        put("/api/secrets/CLAUDE_CODE_OAUTH_TOKEN", mapOf("value" to "sk-ant-oat01-first\n   second-half-gAA")).andExpect(status().isOk)
+        put("/api/connections/claude", mapOf("mode" to "subscription")).andExpect(status().isOk)
+        post("/api/connections/claude/test").andExpect(status().isOk)
+        assertThat(engine.lastBody("/providers/test")!!["key"].asText()).isEqualTo("sk-ant-oat01-firstsecond-half-gAA")
+    }
 }

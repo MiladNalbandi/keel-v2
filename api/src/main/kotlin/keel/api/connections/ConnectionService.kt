@@ -121,8 +121,26 @@ class ConnectionService(
         val model = listOf(general.defaultModel, general.implementerModel, general.reviewerModel, general.cheaperModel)
             .firstOrNull { it.provider == provider }?.model ?: DEFAULT_MODELS[provider] ?: provider
         val body = mutableMapOf<String, Any?>("provider" to provider, "mode" to p.selected, "model" to model)
-        (if (p.selected == "api") secrets.keyForProvider(provider) else secrets.loginFor(provider))?.let { body["key"] = it }
-        return engine.providerTest(body)
+        val secret = if (p.selected == "api") secrets.keyForProvider(provider) else secrets.loginFor(provider)
+        secret?.let { body["key"] = it }
+        val res = engine.providerTest(body)
+        // When the test fails, say what is wrong with the saved value's shape (never the value itself).
+        val problem = if (res.path("ok").asBoolean(false) || secret == null) null else shapeProblem(provider, p.selected, secret)
+        return if (problem == null) res else (res as com.fasterxml.jackson.databind.node.ObjectNode).put("error", problem)
+    }
+
+    /** Plain checks on a saved login or key; the message never contains the value. */
+    fun shapeProblem(provider: String, mode: String, v: String): String? {
+        val bad = v.filter { !(it.isLetterOrDigit() && it.code < 128) && it !in "-_.=" }
+        val what = if (mode == "api") "API key" else "login token"
+        return when {
+            bad.isNotEmpty() -> "The saved $what has characters a token never has (${bad.toSet().joinToString("") { if (it.isWhitespace()) "␣" else it.toString() }}): " +
+                "probably a copy with spaces, line breaks or • dots. Paste it again in one piece."
+            provider == "claude" && mode == "subscription" && !v.startsWith("sk-ant-oat01-") ->
+                "The saved Claude login token does not start with sk-ant-oat01- (it has ${v.length} characters). Copy the whole token that `claude setup-token` prints and save it again."
+            provider == "claude" && mode == "api" && !v.startsWith("sk-ant-") -> "The saved Anthropic API key does not start with sk-ant-. Check that you pasted the right key."
+            else -> null
+        }
     }
 
     companion object {

@@ -42,8 +42,13 @@ class SecretService(private val jdbc: JdbcTemplate, private val props: KeelPrope
 
     fun hint(value: String): String = "…" + value.takeLast(3)
 
-    fun put(name: String, value: String): String {
+    /** Tokens and API keys never contain whitespace; a copy from a wrapped terminal line often does. */
+    private fun clean(name: String, value: String): String =
+        if (name in TOKEN_NAMES) value.filterNot { it.isWhitespace() } else value
+
+    fun put(name: String, raw: String): String {
         checkName(name)
+        val value = clean(name, raw)
         if (value.isEmpty()) throw BadRequest("The value is empty")
         if (value.length > 65_536) throw BadRequest("The value is too long (64 KB at most)")
         val iv = ByteArray(12).also { random.nextBytes(it) }
@@ -86,13 +91,13 @@ class SecretService(private val jdbc: JdbcTemplate, private val props: KeelPrope
     /** The API key for a provider: stored secret first, then the environment. */
     fun keyForProvider(provider: String): String? {
         val name = KEY_NAMES[provider] ?: return null
-        return get(name) ?: System.getenv(name)?.takeIf { it.isNotBlank() }
+        return (get(name) ?: System.getenv(name)?.takeIf { it.isNotBlank() })?.let { clean(name, it) }
     }
 
     /** The CLI login for a subscription provider (Claude setup-token, Codex auth.json, GitHub token): stored first, then the environment. */
     fun loginFor(provider: String): String? {
         val name = LOGIN_NAMES[provider] ?: return null
-        return get(name) ?: System.getenv(name)?.takeIf { it.isNotBlank() }
+        return (get(name) ?: System.getenv(name)?.takeIf { it.isNotBlank() })?.let { clean(name, it) }
     }
 
     /** The keys a flow or a test needs for this model, under the names the engine reads (StartThread.keys). */
@@ -109,6 +114,8 @@ class SecretService(private val jdbc: JdbcTemplate, private val props: KeelPrope
     companion object {
         val KEY_NAMES = mapOf("claude" to "ANTHROPIC_API_KEY", "codex" to "OPENAI_API_KEY", "copilot" to "GITHUB_TOKEN")
         val LOGIN_NAMES = mapOf("claude" to "CLAUDE_CODE_OAUTH_TOKEN", "codex" to "CODEX_AUTH_JSON", "copilot" to "GH_TOKEN")
+        /** Secret names whose value is a single token (whitespace is removed); CODEX_AUTH_JSON is a JSON file. */
+        val TOKEN_NAMES = setOf("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GITHUB_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "GH_TOKEN")
         private val ENGINE_LOGIN_KEY = mapOf("claude" to "claude_oauth", "codex" to "codex_auth", "copilot" to "copilot")
     }
 }

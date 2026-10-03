@@ -39,6 +39,9 @@ class StubEngine private constructor(private val server: HttpServer) {
         "yaml" to "",
     )
 
+    /** What POST /providers/test answers; null = OK. */
+    @Volatile var providerTestAnswer: Map<String, Any?>? = null
+
     /** What POST /agents/ask answers (the Doctor's model call); null = "fake" (rules only). */
     @Volatile var askAnswer: Map<String, Any?>? = null
 
@@ -82,7 +85,7 @@ class StubEngine private constructor(private val server: HttpServer) {
         }
         path.endsWith("/stop") -> 200 to state(path.split('/')[2], "stopped")
         path.endsWith("/history") -> 200 to listOf(mapOf("id" to "c1", "n" to 1, "step" to "spec", "at" to "2026-10-03T00:00:00Z", "note" to "start"))
-        path == "/providers/test" -> 200 to mapOf("ok" to true, "text" to "OK", "ms" to 3)
+        path == "/providers/test" -> 200 to (providerTestAnswer ?: mapOf("ok" to true, "text" to "OK", "ms" to 3))
         path == "/mcp/tools" -> 200 to mapOf("ok" to true, "tools" to listOf(mapOf("name" to "keel_next", "description" to "next step")))
         else -> 404 to mapOf("error" to "no route $path")
     }
