@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # keel2 — run keel v2 on a project with one command.
 #   ./keel2 /path/to/project            start (or restart) keel v2 for that project, open the browser
+#   ./keel2 token claude|codex|copilot|anthropic|openai|github   save a login/key in keel's database (encrypted)
+#   ./keel2 tokens                      which logins and keys are saved (hints only)
+#   ./keel2 sql                         open keel's SQLite database
 #   ./keel2 stop | logs | update
 # Logins: ~/.claude, ~/.codex, ~/.copilot (if present) are copied in read-only. On a Mac the Claude login is in the
 # Keychain, so run `claude setup-token` once and export CLAUDE_CODE_OAUTH_TOKEN before ./keel2. Copilot: export GH_TOKEN.
@@ -9,13 +12,52 @@ IMAGE="${KEEL_IMAGE:-milimarty/keel-v2:latest}"
 NAME="${KEEL_NAME:-keel-v2}"
 PORT="${PORT:-8080}"
 
+API="http://localhost:$PORT/api"
+
+# ./keel2 token <claude|codex|copilot|anthropic|openai|github> [value]
+# Saves a login or key in keel's database (encrypted). Without a value it asks for it (not shown, not in shell
+# history); `token codex` reads ~/.codex/auth.json when you give no value.
+save_token() {
+  local which="${1:-}" value="${2:-}" name
+  case "$which" in
+    claude) name=CLAUDE_CODE_OAUTH_TOKEN ;; codex) name=CODEX_AUTH_JSON ;; copilot) name=GH_TOKEN ;;
+    anthropic) name=ANTHROPIC_API_KEY ;; openai) name=OPENAI_API_KEY ;; github) name=GITHUB_TOKEN ;;
+    *) echo "usage: ./keel2 token <claude|codex|copilot|anthropic|openai|github> [value]"; exit 1 ;;
+  esac
+  if [ -z "$value" ] && [ "$which" = codex ] && [ -f "$HOME/.codex/auth.json" ]; then value="$(cat "$HOME/.codex/auth.json")"; fi
+  if [ -z "$value" ]; then
+    [ "$which" = claude ] && echo "Get it with: claude setup-token"
+    read -rsp "Paste $name (input hidden): " value; echo
+  fi
+  [ -n "$value" ] || { echo "nothing saved"; exit 1; }
+  curl -fs "$API/health" >/dev/null || { echo "keel v2 is not running on port $PORT. Start it first: ./keel2 /path/to/project"; exit 1; }
+  local body; body="$(VALUE="$value" python3 -c 'import json,os; print(json.dumps({"value": os.environ["VALUE"]}))')"
+  local out; out="$(curl -fsS -X PUT "$API/secrets/$name" -H 'content-type: application/json' --data-binary @- <<<"$body")" \
+    && echo "saved $name in keel's database (encrypted) · $(echo "$out" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("hint",""))')" \
+    || { echo "could not save $name"; exit 1; }
+}
+
+LIST_TOKENS='
+import json, sys
+for p in json.load(sys.stdin)["providers"]:
+    if p["id"] == "fake":
+        continue
+    login = (p.get("login_hint") or "saved") if p.get("login_set") else "not set"
+    key = (p.get("key_hint") or "saved") if p.get("key_set") else "not set"
+    print("%-12s login %-24s %-10s  api key: %s" % (p["label"], p.get("login_secret") or "-", login, key))
+'
+
 case "${1:-}" in
+  token)  save_token "${2:-}" "${3:-}"; exit 0 ;;
+  tokens) curl -fs "$API/connections" | python3 -c "$LIST_TOKENS"; exit 0 ;;
+  sql)    exec docker exec -it "$NAME" sqlite3 -header -column /data/keel.db ;;
   stop)   docker rm -f "$NAME" >/dev/null && echo "stopped"; exit 0 ;;
   logs)   exec docker logs -f "$NAME" ;;
   update) exec docker pull "$IMAGE" ;;
-  ""|-h|--help) sed -n 2,6p "$0"; exit 0 ;;
+  ""|-h|--help) sed -n 2,9p "$0"; exit 0 ;;
 esac
 
+[ -d "$1" ] || { echo "There is no folder at: $1"; echo "Give the folder of your project, for example: ./keel2 ~/Projects/my-app"; exit 1; }
 PROJECT="$(cd "$1" && pwd)"
 [ -d "$PROJECT/.git" ] || ls -d "$PROJECT"/*/.git >/dev/null 2>&1 || { echo "$PROJECT is not a git repo (and has no git repos inside). Run: git init \"$PROJECT\""; exit 1; }
 mounts=(-v "$PROJECT:/workspace" -v keel-data:/data)

@@ -5,6 +5,12 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import keel.api.agents.AgentService
 import keel.api.common.ApiException
 import keel.api.common.BadRequest
+import keel.api.common.Conflict
+import keel.api.common.KeelProperties
+import keel.api.common.Slug
+import keel.api.repo.RepoService
+import java.nio.file.Path
+import java.nio.file.Paths
 import keel.api.common.NotFound
 import keel.api.common.Time
 import keel.api.connections.SecretService
@@ -65,6 +71,8 @@ class FlowService(
     private val hub: EventHub,
     private val mapper: ObjectMapper,
     private val secrets: SecretService,
+    private val repo: RepoService,
+    private val props: KeelProperties,
 ) {
     /** Builds StartThread from the workflow + effective settings + agent models + MCP + skills. */
     fun buildStart(pid: String, workflowId: String, title: String, acs: List<Ac>?, cap: FlowCap? = null): StartThread {
@@ -102,12 +110,18 @@ class FlowService(
         )
     }
 
-    fun start(pid: String, workflowId: String, title: String, acs: List<Ac>?, cap: FlowCap? = null): JsonNode {
+    fun start(pid: String, workflowId: String, title: String, acs: List<Ac>?, cap: FlowCap? = null,
+              allowFake: Boolean = false, allowDirty: Boolean = false): JsonNode {
         if (title.isBlank()) throw BadRequest("Give the flow a title", "One short line: what should this flow build or fix?")
         cap?.check()
-        val start = buildStart(pid, workflowId, title, acs, cap)
-        val keys = start.models.values.filter { it.mode == "api" }.map { it.provider }.distinct()
-            .mapNotNull { p -> secrets.keyForProvider(p)?.let { p to it } }.toMap()
+        var start = buildStart(pid, workflowId, title, acs, cap)
+        val root = Paths.get(start.root)
+        refuseFake(start, root, allowFake)
+        refuseDirty(root, allowDirty)
+        ownBranch(pid, root, title)
+        // API keys for "api" models and CLI logins for subscription models, from the encrypted secrets table.
+        val keys = start.models.values.distinctBy { it.provider to it.mode }
+            .fold(mutableMapOf<String, String>()) { acc, m -> secrets.engineKeys(m.provider, m.mode).forEach { (k, v) -> acc.putIfAbsent(k, v) }; acc }
         val body = if (keys.isEmpty()) start else start.copy(keys = keys)
         val res = engine.startThread(body)
         val tid = res.get("thread_id")?.asText() ?: throw ApiException(HttpStatus.BAD_GATEWAY, "The engine did not return a thread id")
@@ -121,6 +135,49 @@ class FlowService(
         save(tid, state)
         hub.publish(pid, "project.changed", mapOf("id" to pid))
         return state
+    }
+
+    private fun isDemo(root: Path) = root.toAbsolutePath().normalize() == props.dataDir.resolve("demo").toAbsolutePath().normalize()
+
+    /** The fake model writes example files and commits them; on a real project that must be a conscious choice. */
+    private fun refuseFake(start: StartThread, root: Path, allowFake: Boolean) {
+        if (allowFake || props.fakeOnRealProjects || isDemo(root)) return
+        val used = start.workflow.steps.flatMap { st -> listOfNotNull(st.agent) + st.lanes.orEmpty().filter { it.kind == "agent" }.mapNotNull { it.sub } }.distinct()
+        val fake = used.filter { (start.models[it] ?: start.models["default"])?.provider == "fake" }
+        if (fake.isEmpty()) return
+        throw Conflict(
+            "These agents would use the fake model: ${fake.joinToString()}. It writes example files, not real code.",
+            "Pick a real model in Control › Connections (Use for all agents) or Settings › Models. To try the flow anyway, tick \"Run with the fake model\".",
+        )
+    }
+
+    /** keel commits only what its agents change; uncommitted work in the tree is a reason to stop and ask first. */
+    private fun refuseDirty(root: Path, allowDirty: Boolean) {
+        if (allowDirty) return
+        val r = repo.git(root, "status", "--porcelain", "--untracked-files=all")
+        if (!r.ok) return
+        val files = r.out.lines().filter { it.length > 3 }.map { it.substring(3).trim() }
+            .filterNot { it.startsWith(".keel/logs/") || it == ".keel/state.json" || it.startsWith(".keel/.state.json") }
+        if (files.isEmpty()) return
+        throw Conflict(
+            "This project has uncommitted changes (${files.size} file${if (files.size == 1) "" else "s"}): ${files.take(5).joinToString()}${if (files.size > 5) ", …" else ""}",
+            "Commit or stash them first, so keel's commits hold only what its agents wrote. Or tick \"Start anyway\": your files then stay out of keel's commits.",
+        )
+    }
+
+    /** Never work on main/master: a flow gets its own branch from the branch pattern in Settings (feat/{slug}). */
+    private fun ownBranch(pid: String, root: Path, title: String) {
+        if (isDemo(root)) return
+        val current = repo.git(root, "rev-parse", "--abbrev-ref", "HEAD").takeIf { it.ok }?.out?.trim() ?: return
+        val base = repo.base(root) ?: return
+        if (current != base) return
+        val pattern = settings.effective(pid).branchPattern.ifBlank { "feat/{slug}" }
+        val first = pattern.replace("{slug}", Slug.of(title).take(40)).replace("{user}", "keel").replace("{flow}", "flow")
+        var name = first
+        var n = 2
+        while (repo.git(root, "rev-parse", "--verify", "--quiet", "refs/heads/$name").ok) name = "$first-${n++}"
+        val r = repo.git(root, "checkout", "-q", "-b", name)
+        if (!r.ok) throw Conflict("Could not create the branch $name", r.err.ifBlank { r.out }.take(300))
     }
 
     /** Stores the latest ThreadState we saw, so the UI has something when the engine is down. */

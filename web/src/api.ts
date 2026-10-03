@@ -349,6 +349,9 @@ export type Connections = {
     selected: Mode;
     key_set: boolean;
     key_hint?: string;
+    login_secret?: string | null;  // CLI login secret name (subscription), e.g. CLAUDE_CODE_OAUTH_TOKEN
+    login_set?: boolean;
+    login_hint?: string | null;
   }[];
   machine: { name: string; ok: boolean; version?: string }[];
 };
@@ -456,6 +459,7 @@ export const api = {
   flow: (pid: string) => get<FlowView>(`/projects/${e(pid)}/flow`),
   startFlow: (pid: string, body: {
     workflow_id: string; title: string; acs?: { id: string; layer: "API" | "WEB"; title: string }[]; cap_tokens?: number; on_cap?: OnCap;
+    allow_fake?: boolean; allow_dirty?: boolean;
   }) =>
     post<ThreadState>(`/projects/${e(pid)}/flows`, body),
   resume: (tid: string, decision: "approve" | "reject", why?: string) =>

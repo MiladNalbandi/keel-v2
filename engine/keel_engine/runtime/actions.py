@@ -48,6 +48,7 @@ class ActionInput:
     gates_log: list[str] = field(default_factory=list)
     base: str | None = None                            # HEAD when the thread started: the branch diff starts here
     unlocks: list[dict] = field(default_factory=list)
+    preexisting: dict = field(default_factory=dict)    # the user's uncommitted files at start: {path: fingerprint}
 
 
 async def run_action(action: str, a: ActionInput) -> ActionResult:
@@ -131,6 +132,11 @@ def commit(a: ActionInput) -> ActionResult:
         return ActionResult(True, "Not a git repository; nothing committed.")
     ctype = rules.commit_type_for(a.phase)
     git.git(a.root, "add", "-A", "--", ".", *COMMIT_EXCLUDES)
+    # Never sweep the user's own uncommitted work into a keel commit: a file that was already changed when the
+    # flow started, and that no agent has touched since, is unstaged again.
+    theirs = [f for f, fp in a.preexisting.items() if git.fingerprint(a.root, f) == fp]
+    if theirs:
+        git.git(a.root, "reset", "-q", "--", *theirs)
     staged = [f for f in git.git(a.root, "diff", "--cached", "--name-only").stdout.splitlines() if f.strip()]
     if not staged:
         return ActionResult(True, "Nothing to commit.")

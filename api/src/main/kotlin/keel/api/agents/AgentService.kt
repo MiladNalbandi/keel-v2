@@ -159,7 +159,7 @@ class AgentService(
         val agent = get(pid, aid)
         val m = agent.model
         val body = mutableMapOf<String, Any?>("provider" to m.provider, "mode" to m.mode, "model" to m.model)
-        if (m.mode == "api") secrets.keyForProvider(m.provider)?.let { body["key"] = it }
+        (if (m.mode == "api") secrets.keyForProvider(m.provider) else secrets.loginFor(m.provider))?.let { body["key"] = it }
         return engine.providerTest(body)
     }
 

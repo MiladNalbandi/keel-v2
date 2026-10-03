@@ -52,5 +52,21 @@ def dirty(root: str) -> dict[str, str]:
     return out
 
 
+def fingerprint(root: str, rel: str) -> str:
+    """A cheap content id for a working-tree path ("-" when it does not exist)."""
+    p = Path(root) / rel
+    if not p.exists():
+        return "-"
+    if p.is_dir():
+        return "dir"
+    import hashlib
+    return hashlib.sha1(p.read_bytes()).hexdigest()
+
+
+def snapshot(root: str) -> dict[str, str]:
+    """{path: fingerprint} of every file that is already changed before a flow starts (the user's own work)."""
+    return {rel: fingerprint(root, rel) for rel in dirty(root)}
+
+
 def tracked_in_head(root: str, rel: str) -> bool:
     return git(root, "cat-file", "-e", f"HEAD:{rel}").returncode == 0

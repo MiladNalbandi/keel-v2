@@ -218,6 +218,7 @@ class Engine:
             state["branch"] = git.branch(root)
             state["git_head"] = git.head(root)
             state["base_head"] = state["git_head"]
+            state["preexisting"] = git.snapshot(root)
         ctx.write_mirror(state, merge_disk=False)
         for u in state.get("unlocks") or []:
             mirror.append_log(root, {"kind": "gate", "gate": "unlock", "verdict": "approve",

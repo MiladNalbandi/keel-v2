@@ -19,7 +19,7 @@ from .. import config
 from ..tools import git, mcp
 from ..tools.agent_tools import unified_diff
 from .base import AgentRequest, AgentResult, Emit, ModelError
-from .cli import claude_login_env, copilot_login_env, find, run_cli, safe_env
+from .cli import claude_login_env, codex_login_env, copilot_login_env, find, run_cli, safe_env
 
 # keel v1's PreToolUse hook exits 2 with "keel: <reason>" on stderr; Claude Code returns that to the
 # model as an error tool_result naming the hook.
@@ -209,7 +209,7 @@ class CodexCLIRunner:
                 pass
 
         prompt = f"{req.system}\n\n{req.prompt}" if req.system else req.prompt
-        await run_cli("codex", argv, stdin=prompt, cwd=req.root, env=safe_env(), timeout=req.timeout, on_line=on_line)
+        await run_cli("codex", argv, stdin=prompt, cwd=req.root, env=safe_env(codex_login_env(req.keys)), timeout=req.timeout, on_line=on_line)
         if state.get("error"):
             raise ModelError(f"codex reported an error: {_short(state['error'], 500)}")
         usage = state.get("usage") or {}

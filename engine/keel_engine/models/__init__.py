@@ -54,6 +54,8 @@ def login_keys(provider: str, mode: str, key: str | None) -> dict:
         return {"claude_oauth": key}
     if provider == "copilot":
         return {"copilot": key}
+    if provider == "codex":
+        return {"codex_auth": key}
     return {}
 
 
