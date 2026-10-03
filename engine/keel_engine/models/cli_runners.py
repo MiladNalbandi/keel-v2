@@ -19,6 +19,7 @@ from .. import config
 from ..tools import git, mcp
 from ..tools.agent_tools import unified_diff
 from .base import AgentRequest, AgentResult, Emit, ModelError
+from ..runtime import prompts
 from .cli import claude_login_env, codex_login_env, copilot_login_env, find, run_cli, safe_env
 
 # keel v1's PreToolUse hook exits 2 with "keel: <reason>" on stderr; Claude Code returns that to the
@@ -123,6 +124,9 @@ class ClaudeCLIRunner:
                 "--no-session-persistence", "--permission-mode", "acceptEdits"]
         if req.model.get("effort"):
             argv += ["--effort", req.model["effort"]]
+        turns = prompts.max_turns(req.agent)
+        if turns:
+            argv += ["--max-turns", str(turns)]
         allowed = list(CLAUDE_TOOLS)
         cfg_path, mcp_allowed = mcp.claude_mcp_config(req.mcp_specs, req.tools_allow, req.workdir)
         if cfg_path:

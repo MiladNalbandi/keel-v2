@@ -109,7 +109,7 @@ class Engine:
         body = json.loads(row["body"])
         wf = from_dict(body["workflow"], body["workflow"].get("yaml") or None)
         ctx = ThreadContext(thread_id=tid, project_id=row["project_id"], root=row["root"], workflow=wf, title=row["title"],
-                            models=body.get("models") or {}, settings=body.get("settings") or {}, mcp=body.get("mcp") or [],
+                            request=(body.get("request") or "").strip(), models=body.get("models") or {}, settings=body.get("settings") or {}, mcp=body.get("mcp") or [],
                             skills=body.get("skills") or {}, keys=self.keys.get(tid, {}), bus=self.bus)
         self.ctxs[tid] = ctx
         self.bus.register(tid, ctx.root)

@@ -34,6 +34,7 @@ class FlowState(TypedDict, total=False):
     note: str
     error: str | None
     base_head: str | None       # HEAD when the thread started; the branch diff for blockers starts here
+    last_answer: str            # the last agent's final answer (shown at a spec gate that has no criteria)
     preexisting: dict           # {path: fingerprint} of the user's uncommitted files at start; never committed unless an agent changed them
     unlocks: list[dict]         # [{path, phase, by?}] keel v1 unlocks: that path bypasses the matrix in that phase
     deps: list[str]             # dependencies the user approved at a commit (keel v1 state.deps)
@@ -48,6 +49,7 @@ class ThreadContext:
     root: str
     workflow: Workflow
     title: str
+    request: str = ""                                    # what the user asked for, in their words
     models: dict[str, dict] = field(default_factory=dict)
     settings: dict[str, Any] = field(default_factory=dict)
     mcp: list[dict] = field(default_factory=list)
@@ -103,7 +105,7 @@ def initial_state(ctx: ThreadContext, acs: list[dict] | None) -> FlowState:
         stall={"fingerprint": None, "count": 0, "step": 0},
         usage={"tokens_in": 0, "tokens_out": 0, "cost_usd": 0.0, "premium_requests": 0, "cap_tokens": cap},
         retries={}, step_tokens={}, feedback=None, model_override=None, warned=False, spec=None, branch=None,
-        git_head=None, last_failure=None, note="started", error=None, base_head=None, preexisting={},
+        git_head=None, last_failure=None, note="started", error=None, base_head=None, preexisting={}, last_answer="",
         unlocks=normalize_unlocks(s.get("unlocks"), "none", "settings"), deps=[], blockers=[], ladder=None,
     )
 

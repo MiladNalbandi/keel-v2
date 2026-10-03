@@ -75,6 +75,7 @@ class StartThread(BaseModel):
     mcp: list[McpServerSpec] = Field(default_factory=list)
     skills: dict[str, str] = Field(default_factory=dict)
     keys: dict[str, str] | None = None   # optional: provider -> key, kept in memory only
+    request: str | None = None           # what the user asked for, in their words (every agent gets it)
 
 
 class Ask(BaseModel):

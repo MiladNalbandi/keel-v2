@@ -477,7 +477,7 @@ export const api = {
     post<DoctorApplied>(`/projects/${e(pid)}/doctor/workspace/apply`, { plan }),
   startFlow: (pid: string, body: {
     workflow_id: string; title: string; acs?: { id: string; layer: "API" | "WEB"; title: string }[]; cap_tokens?: number; on_cap?: OnCap;
-    allow_fake?: boolean; allow_dirty?: boolean;
+    allow_fake?: boolean; allow_dirty?: boolean; request?: string;
   }) =>
     post<ThreadState>(`/projects/${e(pid)}/flows`, body),
   resume: (tid: string, decision: "approve" | "reject", why?: string) =>
