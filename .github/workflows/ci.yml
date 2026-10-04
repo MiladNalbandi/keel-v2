@@ -1,4 +1,4 @@
-# Runs the three test suites on every push and pull request.
+# Runs the three test suites and checks the shell scripts on every push and pull request.
 name: ci
 on:
   push:
@@ -7,6 +7,13 @@ on:
 permissions:
   contents: read
 jobs:
+  scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash -n keel2 && bash -n install.sh && bash -n docker/keel-start
+      - run: shellcheck -S error keel2 install.sh docker/keel-start
+      - run: ./keel2 help | grep -q "keel2 start" && ./keel2 version
   engine:
     runs-on: ubuntu-latest
     steps:
