@@ -51,11 +51,27 @@ def role_text(agent: str) -> str:
     return _agent_file(str(config.keel_home()), agent) or BUILTIN_ROLES.get(agent) or GENERIC_ROLE
 
 
+def skill_paths(text: str) -> str:
+    """`references/x.md` in a skill → its full path in keel's skills folder, so an agent opens it instead of
+    searching the whole disk for it (one did: `find / -iname acceptance-criteria.md`)."""
+    from pathlib import Path
+
+    found: dict[str, list[str]] = {}
+    for f in (Path(str(config.keel_home())) / "skills").glob("*/references/*.md"):
+        found.setdefault(f.name, []).append(str(f))
+
+    def full(m):
+        hits = found.get(m.group(1)) or []
+        return hits[0] if len(hits) == 1 else m.group(0)
+    return re.sub(r"(?<![\w/])references/([\w.-]+\.md)", full, text)
+
+
 def system_prompt(agent: str, skills: dict[str, str] | None) -> str:
     parts = [role_text(agent)]
     extra = (skills or {}).get(agent)
     if extra:
-        parts.append("## Skills\n\n" + extra)
+        parts.append("## Skills\n\n" + skill_paths(extra) + "\n\nSkill files are under "
+                     f"{config.keel_home()}/skills/; open them by that path, never search the disk for them.")
     parts.append("Commits are made by the engine after a check, never by you. Do not run git commit.")
     return "\n\n".join(parts)
 
@@ -100,6 +116,9 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
         lines += [f"- {a['id']} [{a.get('layer', 'API')}] {a.get('title', '')} ({a.get('status', 'todo')})" for a in acs]
     if ac:
         lines.append(f"Current criterion: {ac['id']} [{ac.get('layer', 'API')}] {ac.get('title', '')}")
+    if phase in ("spec", "triage") and feedback and spec:
+        lines.append(f"The spec {spec} exists from the last try and was sent back with the note below. Change that "
+                     "file to answer the note. Read only what the note needs; do not explore the project again.")
     if phase in ("spec", "triage") and not acs:
         lines.append("Keep the reading short: the request, the README, docs/knowledge/ if it exists, and the files the "
                      "request names. Write the spec file early (before half of your turns are used), then improve it; "
