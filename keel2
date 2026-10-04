@@ -1,98 +1,399 @@
 #!/usr/bin/env bash
-# keel2 — run keel v2 on a project with one command.
-#   ./keel2 /path/to/project            start (or restart) keel v2 for that project, open the browser
-#   ./keel2 --docker /path/to/project   same, and let the project's tests use your Docker (Testcontainers, compose)
-#   ./keel2 token claude|codex|copilot|anthropic|openai|github   save a login/key in keel's database (encrypted)
-#   ./keel2 tokens                      which logins and keys are saved (hints only)
-#   ./keel2 sql                         open keel's SQLite database
-#   ./keel2 stop | logs | update
-# Logins: open the dashboard › Control › Connections › "Set up login" (Claude, Codex, Copilot). They are saved
-# encrypted in keel's database on the keel-data volume, so they survive restarts and new images.
+# keel2 — start and manage keel v2 (one Docker container) for your project.
+#
+#   keel2 start [folder]        start keel for a project (default: this folder) and open the browser
+#   keel2 start --docker [dir]  same, and let the project's tests use your Docker (Testcontainers, compose)
+#   keel2 stop | restart        stop keel / start it again with the same project and options
+#   keel2 status                is keel running, for which project, on which port
+#   keel2 open                  open the dashboard in the browser
+#   keel2 logs                  follow keel's log (Ctrl+C to leave)
+#   keel2 doctor                check Docker, the port, the image and the project, and say how to fix problems
+#   keel2 update                get the newest image and restart keel if it is running
+#   keel2 token <claude|codex|copilot|anthropic|openai|github>   save a login or key (encrypted, input hidden)
+#   keel2 tokens                which logins and keys are saved (hints only)
+#   keel2 backup [file]         save keel's data (database, logins, history) to a .tgz file
+#   keel2 restore <file>        put a backup back (keel is stopped first)
+#   keel2 sql                   open keel's SQLite database
+#   keel2 uninstall [--all]     remove the container (--all: also keel's data, after you confirm)
+#   keel2 version | help
+#
+# Settings (environment): KEEL_IMAGE, PORT (default 8080; a busy port moves to the next free one), KEEL_NAME,
+# KEEL_VOLUME (a second keel needs its own), KEEL_OPEN=0 (no browser), KEEL_DOCKER=1 (same as --docker).
+# Logins: dashboard › Control › Connections › "Set up login". They are saved encrypted in keel's database on the
+# data volume, so they survive restarts and new images. Nothing from your computer is copied into the container.
 set -euo pipefail
+
+KEEL2_VERSION="0.3.1"
 IMAGE="${KEEL_IMAGE:-ghcr.io/miladnalbandi/keel-v2:latest}"
 NAME="${KEEL_NAME:-keel-v2}"
-VOLUME="${KEEL_VOLUME:-keel-data}"   # a second keel (another KEEL_NAME and PORT) needs its own volume
-PORT="${PORT:-8080}"
+VOLUME="${KEEL_VOLUME:-keel-data}"
+WANT_PORT="${PORT:-8080}"
 
-API="http://localhost:$PORT/api"
+# ---------------------------------------------------------------- output
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then B=$'\033[1m'; G=$'\033[32m'; Y=$'\033[33m'; R=$'\033[31m'; D=$'\033[2m'; N=$'\033[0m'
+else B=""; G=""; Y=""; R=""; D=""; N=""; fi
+ok()   { printf '  %s✓%s %s\n' "$G" "$N" "$*"; }
+warn() { printf '  %s!%s %s\n' "$Y" "$N" "$*"; }
+bad()  { printf '  %s✗%s %s\n' "$R" "$N" "$*"; }
+info() { printf '%s\n' "$*"; }
+die()  { printf '%s✗ %s%s\n' "$R" "$1" "$N" >&2; shift; for l in "$@"; do printf '  %s\n' "$l" >&2; done; exit 1; }
+interactive() { [ -t 0 ] && [ -t 1 ]; }
+ask_yes() {  # ask_yes "question" → 0 for yes
+  interactive || return 1
+  local a; read -r -p "  $1 [y/N] " a || return 1
+  case "$a" in y|Y|yes|YES) return 0 ;; *) return 1 ;; esac
+}
+os() { case "$(uname -s)" in Darwin) echo mac ;; Linux) echo linux ;; MINGW*|MSYS*|CYGWIN*) echo windows ;; *) echo other ;; esac; }
 
-# ./keel2 token <claude|codex|copilot|anthropic|openai|github> [value]
-# Saves a login or key in keel's database (encrypted). Without a value it asks for it (not shown, not in shell
-# history); `token codex` reads ~/.codex/auth.json when you give no value.
-save_token() {
+# ---------------------------------------------------------------- docker checks
+docker_install_hint() {
+  case "$(os)" in
+    mac)     echo "Install Docker Desktop: https://docs.docker.com/desktop/setup/install/mac-install/" ;;
+    linux)   echo "Install Docker Engine: https://docs.docker.com/engine/install/  (then: sudo usermod -aG docker \$USER, and log in again)" ;;
+    windows) echo "Install Docker Desktop and run keel2 inside WSL 2: https://docs.docker.com/desktop/setup/install/windows-install/" ;;
+    *)       echo "Install Docker: https://docs.docker.com/get-started/get-docker/" ;;
+  esac
+}
+
+need_docker() {  # makes sure the docker command exists and the engine answers; starts Docker Desktop on a Mac
+  command -v docker >/dev/null 2>&1 || die "Docker is not installed." "$(docker_install_hint)"
+  docker info >/dev/null 2>&1 && return 0
+  local err; err="$(docker info 2>&1 | tail -3 || true)"
+  if printf '%s' "$err" | grep -qi "permission denied"; then
+    die "Docker is installed, but this user may not use it." "Run: sudo usermod -aG docker \$USER   then log out and in again."
+  fi
+  if [ "$(os)" = mac ] && [ -d /Applications/Docker.app ]; then
+    info "Docker Desktop is not running. Starting it…"
+    open -a Docker || true
+    local i; for i in $(seq 1 90); do docker info >/dev/null 2>&1 && { ok "Docker is running"; return 0; }; sleep 2; done
+    die "Docker Desktop did not start within 3 minutes." "Open Docker Desktop yourself, wait until it says it is running, then try again."
+  fi
+  die "The Docker engine is not running." "Start Docker (Docker Desktop, or: sudo systemctl start docker), then try again."
+}
+
+port_busy() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }   # something listens on 127.0.0.1:<port>
+
+container_exists() { docker inspect "$NAME" >/dev/null 2>&1; }
+container_running() { [ "$(docker inspect -f '{{.State.Running}}' "$NAME" 2>/dev/null || echo false)" = true ]; }
+label() { docker inspect -f "{{index .Config.Labels \"keel2.$1\"}}" "$NAME" 2>/dev/null || true; }
+running_port() { docker port "$NAME" 8080/tcp 2>/dev/null | head -1 | sed 's/.*://'; }
+
+pick_port() {  # the wanted port, or the next free one; our own container's port counts as free (it is replaced)
+  local p="$WANT_PORT" mine; mine="$(container_running && running_port || true)"
+  local i; for i in $(seq 0 20); do
+    if [ "$p" = "$mine" ] || ! port_busy "$p"; then echo "$p"; return 0; fi
+    p=$((p + 1))
+  done
+  die "No free port between $WANT_PORT and $p." "Free one, or choose another: PORT=9090 keel2 start"
+}
+
+ensure_image() {
+  docker image inspect "$IMAGE" >/dev/null 2>&1 && return 0
+  info "Getting the keel image ($IMAGE). The first time this takes a few minutes…"
+  if ! docker pull "$IMAGE"; then
+    die "Could not download $IMAGE." "Check your internet connection, then run: keel2 update" \
+        "Behind a company proxy? Set it in Docker Desktop › Settings › Resources › Proxies."
+  fi
+}
+
+api() { echo "http://localhost:${1:-$(running_port)}/api"; }
+
+wait_healthy() {  # wait_healthy <port>
+  local i; for i in $(seq 1 120); do
+    curl -fs "$(api "$1")/health" >/dev/null 2>&1 && return 0
+    container_running || break
+    sleep 1
+  done
+  bad "keel did not start. The last lines of its log:"
+  docker logs --tail 25 "$NAME" 2>&1 | sed 's/^/    /' || true
+  die "Start failed." "Run 'keel2 doctor' to check your setup, or 'keel2 logs' to see the whole log."
+}
+
+# ---------------------------------------------------------------- project checks
+project_path() {  # resolves a folder to an absolute path, or explains what is wrong
+  local p="${1:-.}"
+  case "$p" in "~"*) p="$HOME${p#\~}" ;; esac
+  [ -e "$p" ] || die "There is no folder at: $p" "Give the folder of your project, for example: keel2 start ~/Projects/my-app"
+  [ -d "$p" ] || die "$p is a file, not a folder." "Give the project's folder."
+  (cd "$p" && pwd -P)
+}
+
+check_git() {  # a git repo, or a folder of git repos; offers git init
+  local p="$1"
+  [ -d "$p/.git" ] || [ -f "$p/.git" ] && return 0
+  ls -d "$p"/*/.git >/dev/null 2>&1 && return 0
+  warn "$p is not a git repository. keel works on its own git branch and commits there."
+  if command -v git >/dev/null 2>&1 && ask_yes "Make it a git repository now (git init, plus a first commit of what is there)?"; then
+    git -C "$p" init -q
+    git -C "$p" add -A
+    git -C "$p" -c user.name="${GIT_AUTHOR_NAME:-keel2}" -c user.email="${GIT_AUTHOR_EMAIL:-keel2@localhost}" commit -qm "Initial commit" --allow-empty
+    ok "git repository created"
+    return 0
+  fi
+  die "keel needs a git repository." "Run: git init \"$p\" && git -C \"$p\" add -A && git -C \"$p\" commit -m 'Initial commit'"
+}
+
+check_shared() {  # Docker Desktop only shares some folders with containers by default
+  [ "$(os)" = mac ] || return 0
+  case "$1" in /Users/*|/Volumes/*|/private/*|/tmp/*|/var/folders/*) return 0 ;; esac
+  warn "$1 is outside the folders Docker Desktop shares by default (/Users, /Volumes, /private, /tmp)."
+  warn "If keel shows an empty project: Docker Desktop › Settings › Resources › File sharing › add this folder."
+}
+
+docker_socket() {  # the host's Docker socket path, for --docker
+  # Docker Desktop (Mac, Windows) serves its socket to containers at /var/run/docker.sock, whatever DOCKER_HOST says.
+  [ "$(os)" = linux ] || { echo /var/run/docker.sock; return; }
+  local s="${DOCKER_HOST:-}"
+  case "$s" in unix://*) echo "${s#unix://}"; return ;; esac
+  echo /var/run/docker.sock
+}
+
+# ---------------------------------------------------------------- commands
+cmd_start() {
+  local docker_mode="${KEEL_DOCKER:-0}" folder=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --docker) docker_mode=1 ;;
+      --no-docker) docker_mode=0 ;;
+      -*) die "Unknown option $1" "See: keel2 help" ;;
+      *) folder="$1" ;;
+    esac
+    shift
+  done
+  local project; project="$(project_path "${folder:-.}")"
+  need_docker
+  check_git "$project"
+  check_shared "$project"
+  ensure_image
+
+  if container_exists; then
+    local old; old="$(label project)"
+    if [ -n "$old" ] && [ "$old" != "$project" ]; then info "keel was running for $old — switching to $project."; fi
+    docker rm -f "$NAME" >/dev/null 2>&1 || true
+  fi
+  local port; port="$(pick_port)"
+  [ "$port" = "$WANT_PORT" ] || warn "Port $WANT_PORT is in use, so keel uses port $port."
+
+  local args=(-d --name "$NAME" --restart unless-stopped -p "127.0.0.1:$port:8080" -v "$VOLUME:/data"
+              --label "keel2.project=$project" --label "keel2.docker=$docker_mode"
+              -e KEEL_PROJECT_NAME="$(basename "$project")")
+  if [ "$docker_mode" = 1 ]; then
+    # The host's Docker runs the containers tests start. The project is mounted at the SAME path as on this
+    # computer, so bind mounts that tests ask the host Docker for (Testcontainers, compose) point at real folders.
+    local sock; sock="$(docker_socket)"
+    [ -S "$sock" ] || [ "$(os)" = mac ] || die "No Docker socket at $sock." "Is Docker running? With rootless Docker set DOCKER_HOST=unix:///run/user/\$UID/docker.sock"
+    local gid; gid="$(docker run --rm -v "$sock:/var/run/docker.sock" --entrypoint stat "$IMAGE" -c %g /var/run/docker.sock 2>/dev/null || echo 0)"
+    args+=(-v "$project:$project" -v "$sock:/var/run/docker.sock" --group-add "$gid"
+           --add-host host.docker.internal:host-gateway -e KEEL_WORKSPACE="$project")
+    warn "Docker access is on: keel's agents can start containers on this computer (that is as strong as root)."
+  else
+    args+=(-v "$project:/workspace")
+  fi
+  local v; for v in ANTHROPIC_API_KEY OPENAI_API_KEY GITHUB_TOKEN GH_TOKEN CLAUDE_CODE_OAUTH_TOKEN; do
+    if [ -n "${!v:-}" ]; then args+=(-e "$v"); fi
+  done
+
+  info "Starting keel for ${B}$project${N}…"
+  docker run "${args[@]}" "$IMAGE" >/dev/null || die "Docker could not start the container." "Run 'keel2 doctor' to find out why."
+  wait_healthy "$port"
+  ok "keel is running: ${B}http://localhost:$port${N}"
+  info "  ${D}Next: open Control › Connections › Set up login (Claude, Codex or GitHub Copilot).${N}"
+  info "  ${D}Stop: keel2 stop · Status: keel2 status · Problems: keel2 doctor${N}"
+  [ "${KEEL_OPEN:-1}" = 1 ] && open_url "http://localhost:$port" || true
+}
+
+open_url() {
+  if command -v open >/dev/null 2>&1; then open "$1" >/dev/null 2>&1 || true
+  elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$1" >/dev/null 2>&1 || true
+  elif command -v wslview >/dev/null 2>&1; then wslview "$1" >/dev/null 2>&1 || true; fi
+}
+
+cmd_stop() {
+  need_docker
+  container_exists || { info "keel is not running."; return 0; }
+  docker rm -f "$NAME" >/dev/null && ok "keel stopped (your data and logins are kept)"
+}
+
+cmd_restart() {
+  need_docker
+  container_exists || die "keel has not been started yet." "Start it: keel2 start /path/to/project"
+  local p d; p="$(label project)"; d="$(label docker)"
+  [ -n "$p" ] || die "This container was started by an older keel2 and does not say which project it has." "Start it again: keel2 start /path/to/project"
+  local port; port="$(running_port || true)"
+  if [ -n "$port" ] && [ -z "${PORT:-}" ]; then WANT_PORT="$port"; fi
+  if [ "$d" = 1 ]; then cmd_start --docker "$p"; else cmd_start --no-docker "$p"; fi
+}
+
+cmd_status() {
+  need_docker
+  if ! container_exists; then info "keel is ${B}not running${N}. Start it: keel2 start /path/to/project"; return 0; fi
+  if ! container_running; then info "keel is ${B}stopped${N} (container $NAME exists). Start it again: keel2 restart"; return 0; fi
+  local port; port="$(running_port)"
+  local health=starting; curl -fs "$(api "$port")/health" >/dev/null 2>&1 && health=ready
+  info "keel is ${B}running${N} ($health)"
+  info "  dashboard  http://localhost:$port"
+  info "  project    $(label project)"
+  info "  docker     $([ "$(label docker)" = 1 ] && echo "on (tests may start containers)" || echo off)"
+  info "  image      $(docker inspect -f '{{.Config.Image}}' "$NAME")"
+  info "  data       volume $VOLUME"
+}
+
+cmd_open() {
+  need_docker
+  container_running || die "keel is not running." "Start it: keel2 start /path/to/project"
+  local u="http://localhost:$(running_port)"; info "$u"; open_url "$u"
+}
+
+cmd_doctor() {
+  local problems=0
+  info "${B}keel2 doctor${N}"
+  if command -v docker >/dev/null 2>&1; then ok "docker command: $(docker --version 2>/dev/null | sed 's/,.*//')"
+  else bad "Docker is not installed. $(docker_install_hint)"; problems=$((problems + 1)); fi
+  if command -v docker >/dev/null 2>&1; then
+    if docker info >/dev/null 2>&1; then ok "Docker engine is running ($(docker info -f '{{.ServerVersion}}' 2>/dev/null), $(docker info -f '{{.NCPU}}' 2>/dev/null) CPUs, $(( $(docker info -f '{{.MemTotal}}' 2>/dev/null || echo 0) / 1073741824 )) GB memory)"
+      local mem; mem="$(docker info -f '{{.MemTotal}}' 2>/dev/null || echo 0)"
+      [ "$mem" -ge 3500000000 ] 2>/dev/null || warn "Docker has less than 4 GB memory. Agents and builds are faster with more (Docker Desktop › Settings › Resources)."
+      if docker image inspect "$IMAGE" >/dev/null 2>&1; then ok "image: $IMAGE"
+      else warn "image $IMAGE is not downloaded yet (keel2 start gets it)"; fi
+      if container_running; then ok "keel is running on http://localhost:$(running_port) for $(label project)"
+        curl -fs "$(api)/health" >/dev/null 2>&1 && ok "keel answers" || { bad "keel's container runs but does not answer. See: keel2 logs"; problems=$((problems + 1)); }
+      elif container_exists; then warn "keel's container exists but is stopped (keel2 restart)"
+      else info "  ${D}keel is not running${N}"; fi
+      if ! container_running && port_busy "$WANT_PORT"; then warn "port $WANT_PORT is in use by another program; keel2 start will use the next free port"; fi
+      local sock; sock="$(docker_socket)"
+      if [ "$(os)" = mac ] || [ -S "$sock" ]; then ok "Docker socket for --docker: $sock"; else warn "no Docker socket at $sock (only needed for --docker)"; fi
+    else
+      bad "Docker is installed but its engine is not running. Start Docker Desktop (or: sudo systemctl start docker)."; problems=$((problems + 1))
+    fi
+  fi
+  command -v curl >/dev/null 2>&1 && ok "curl" || { bad "curl is missing (install it with your package manager)"; problems=$((problems + 1)); }
+  command -v git >/dev/null 2>&1 && ok "git" || warn "git is missing on this computer (keel has its own; you need git to look at keel's commits)"
+  if [ -n "${1:-}" ]; then
+    local p; p="$(project_path "$1")"
+    if [ -d "$p/.git" ] || ls -d "$p"/*/.git >/dev/null 2>&1; then ok "project: $p is a git repository"
+      local dirty; dirty="$(git -C "$p" status --porcelain 2>/dev/null | grep -v '^?? .keel/' | wc -l | tr -d ' ')"
+      [ "$dirty" = 0 ] || warn "project has $dirty uncommitted change(s); keel will ask (or its Doctor helps) before a flow starts"
+    else bad "project: $p is not a git repository (keel2 start offers git init)"; problems=$((problems + 1)); fi
+    check_shared "$p"
+  fi
+  if [ "$problems" = 0 ]; then info "${G}All good.${N}"; else info "${R}$problems problem(s) found.${N} Fix them and run keel2 doctor again."; return 1; fi
+}
+
+cmd_update() {
+  need_docker
+  info "Getting the newest image ($IMAGE)…"
+  docker pull "$IMAGE" || die "Could not download $IMAGE." "Check your internet connection."
+  if container_exists && [ -n "$(label project)" ]; then cmd_restart; else ok "updated. Start keel with: keel2 start /path/to/project"; fi
+}
+
+# keel2 token <claude|codex|copilot|anthropic|openai|github> [value]
+# Without a value it asks (hidden, not in shell history); `token codex` reads ~/.codex/auth.json when there is one.
+cmd_token() {
   local which="${1:-}" value="${2:-}" name
   case "$which" in
     claude) name=CLAUDE_CODE_OAUTH_TOKEN ;; codex) name=CODEX_AUTH_JSON ;; copilot) name=GH_TOKEN ;;
     anthropic) name=ANTHROPIC_API_KEY ;; openai) name=OPENAI_API_KEY ;; github) name=GITHUB_TOKEN ;;
-    *) echo "usage: ./keel2 token <claude|codex|copilot|anthropic|openai|github> [value]"; exit 1 ;;
+    *) die "usage: keel2 token <claude|codex|copilot|anthropic|openai|github> [value]" ;;
   esac
+  need_docker
+  container_running || die "keel is not running." "Start it first: keel2 start /path/to/project"
   if [ -z "$value" ] && [ "$which" = codex ] && [ -f "$HOME/.codex/auth.json" ]; then value="$(cat "$HOME/.codex/auth.json")"; fi
   if [ -z "$value" ]; then
-    [ "$which" = claude ] && echo "Get it with: claude setup-token"
-    # A long token is often shown over two lines; a paste then holds line breaks. Read every line that
-    # arrives with the paste and join them (tokens never contain spaces).
+    [ "$which" = claude ] && info "Get it with: claude setup-token   (or use the dashboard: Connections › Set up login)"
+    # A long token is often shown over two lines, so a paste holds line breaks: read every line of the paste.
     local line more
     IFS= read -rsp "Paste $name (input hidden), then press Enter: " line; echo
     value="$line"
     while IFS= read -rs -t 1 more; do value+="$more"; done
     [ "$which" = codex ] || value="$(printf '%s' "$value" | tr -d '[:space:]')"
   fi
-  [ -n "$value" ] || { echo "nothing saved"; exit 1; }
-  curl -fs "$API/health" >/dev/null || { echo "keel v2 is not running on port $PORT. Start it first: ./keel2 /path/to/project"; exit 1; }
-  local body; body="$(VALUE="$value" python3 -c 'import json,os; print(json.dumps({"value": os.environ["VALUE"]}))')"
-  local out; out="$(curl -fsS -X PUT "$API/secrets/$name" -H 'content-type: application/json' --data-binary @- <<<"$body")" \
-    && echo "saved $name in keel's database (encrypted) · $(echo "$out" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("hint",""))')" \
-    || { echo "could not save $name"; exit 1; }
+  [ -n "$value" ] || die "Nothing saved (empty)."
+  # JSON is built inside keel's container (it has python3), so this computer needs no python.
+  local body out
+  body="$(printf '%s' "$value" | docker exec -i "$NAME" python3 -c 'import json,sys; print(json.dumps({"value": sys.stdin.read()}))')"
+  out="$(printf '%s' "$body" | curl -fsS -X PUT "$(api)/secrets/$name" -H 'content-type: application/json' --data-binary @-)" \
+    || die "Could not save $name." "Is it complete? Try the dashboard: Control › Connections."
+  ok "saved $name in keel's database (encrypted) · $(printf '%s' "$out" | docker exec -i "$NAME" python3 -c 'import json,sys; print(json.load(sys.stdin).get("hint",""))')"
 }
 
-LIST_TOKENS='
+cmd_tokens() {
+  need_docker
+  container_running || die "keel is not running." "Start it first: keel2 start /path/to/project"
+  curl -fs "$(api)/connections" | docker exec -i "$NAME" python3 -c '
 import json, sys
 for p in json.load(sys.stdin)["providers"]:
     if p["id"] == "fake":
         continue
     login = (p.get("login_hint") or "saved") if p.get("login_set") else "not set"
     key = (p.get("key_hint") or "saved") if p.get("key_set") else "not set"
-    print("%-12s login %-24s %-10s  api key: %s" % (p["label"], p.get("login_secret") or "-", login, key))
-'
+    print("%-14s login %-24s %-10s  api key: %s" % (p["label"], p.get("login_secret") or "-", login, key))'
+}
 
-DOCKER="${KEEL_DOCKER:-0}"
-if [ "${1:-}" = "--docker" ]; then DOCKER=1; shift; fi
+cmd_backup() {
+  need_docker
+  local file="${1:-keel-backup-$(date +%Y%m%d-%H%M%S).tgz}"
+  case "$file" in /*) ;; *) file="$PWD/$file" ;; esac
+  docker volume inspect "$VOLUME" >/dev/null 2>&1 || die "There is no keel data yet (volume $VOLUME)."
+  local was=0; container_running && was=1
+  # The database is copied while keel is stopped, so the copy is consistent.
+  [ "$was" = 1 ] && docker stop "$NAME" >/dev/null
+  docker run --rm -v "$VOLUME:/data:ro" -v "$(dirname "$file"):/out" --entrypoint tar "$IMAGE" -czf "/out/$(basename "$file")" -C /data . \
+    || { [ "$was" = 1 ] && docker start "$NAME" >/dev/null; die "Backup failed."; }
+  [ "$was" = 1 ] && docker start "$NAME" >/dev/null
+  ok "saved $file  ($(du -h "$file" | cut -f1)). It holds your encrypted logins and their key: keep it private."
+}
 
-case "${1:-}" in
-  token)  save_token "${2:-}" "${3:-}"; exit 0 ;;
-  tokens) curl -fs "$API/connections" | python3 -c "$LIST_TOKENS"; exit 0 ;;
-  sql)    exec docker exec -it "$NAME" sqlite3 -header -column /data/keel.db ;;
-  stop)   docker rm -f "$NAME" >/dev/null && echo "stopped"; exit 0 ;;
-  logs)   exec docker logs -f "$NAME" ;;
-  update) exec docker pull "$IMAGE" ;;
-  ""|-h|--help) sed -n 2,9p "$0"; exit 0 ;;
+cmd_restore() {
+  local file="${1:-}"
+  [ -f "$file" ] || die "usage: keel2 restore <backup.tgz>"
+  need_docker
+  case "$file" in /*) ;; *) file="$PWD/$file" ;; esac
+  ask_yes "Replace keel's current data (volume $VOLUME) with $file?" || die "Nothing changed."
+  local was=0; container_running && was=1
+  [ "$was" = 1 ] && docker stop "$NAME" >/dev/null
+  docker run --rm -v "$VOLUME:/data" -v "$(dirname "$file"):/in:ro" --entrypoint sh "$IMAGE" -c \
+    "find /data -mindepth 1 -delete && tar -xzf \"/in/$(basename "$file")\" -C /data" || die "Restore failed."
+  [ "$was" = 1 ] && docker start "$NAME" >/dev/null
+  ok "restored from $file"
+}
+
+cmd_uninstall() {
+  need_docker
+  container_exists && docker rm -f "$NAME" >/dev/null && ok "removed the keel container"
+  if [ "${1:-}" = "--all" ]; then
+    docker volume inspect "$VOLUME" >/dev/null 2>&1 || { info "No keel data to remove."; return 0; }
+    warn "This deletes keel's data: logins, settings, flow history (volume $VOLUME). Your projects are not touched."
+    ask_yes "Delete keel's data for good? (keel2 backup first if you may need it)" || { info "Kept keel's data."; return 0; }
+    docker volume rm "$VOLUME" >/dev/null && ok "removed keel's data"
+  else
+    info "  ${D}keel's data (volume $VOLUME) is kept. To remove it too: keel2 uninstall --all${N}"
+  fi
+}
+
+cmd_help() { sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; }
+
+# ---------------------------------------------------------------- main
+cmd="${1:-}"
+[ $# -gt 0 ] && shift
+case "$cmd" in
+  start)            cmd_start "$@" ;;
+  --docker)         cmd_start --docker "$@" ;;          # keel2 --docker <folder>   (older form)
+  stop)             cmd_stop ;;
+  restart)          cmd_restart ;;
+  status|ps)        cmd_status ;;
+  open)             cmd_open ;;
+  logs)             need_docker; container_exists || die "keel is not running."; exec docker logs -f --tail 100 "$NAME" ;;
+  doctor|check)     cmd_doctor "$@" ;;
+  update|upgrade)   cmd_update ;;
+  token)            cmd_token "$@" ;;
+  tokens)           cmd_tokens ;;
+  backup)           cmd_backup "$@" ;;
+  restore)          cmd_restore "$@" ;;
+  sql)              need_docker; container_running || die "keel is not running."; exec docker exec -it "$NAME" sqlite3 -header -column /data/keel.db ;;
+  uninstall)        cmd_uninstall "$@" ;;
+  version|-v|--version) echo "keel2 $KEEL2_VERSION · image $IMAGE" ;;
+  ""|help|-h|--help) cmd_help ;;
+  *)
+    if [ -d "$cmd" ]; then cmd_start "$cmd" "$@"          # keel2 <folder>   (older form)
+    else die "Unknown command: $cmd" "See: keel2 help"; fi ;;
 esac
-
-[ -d "$1" ] || { echo "There is no folder at: $1"; echo "Give the folder of your project, for example: ./keel2 ~/Projects/my-app"; exit 1; }
-PROJECT="$(cd "$1" && pwd)"
-[ -d "$PROJECT/.git" ] || ls -d "$PROJECT"/*/.git >/dev/null 2>&1 || { echo "$PROJECT is not a git repo (and has no git repos inside). Run: git init \"$PROJECT\""; exit 1; }
-mounts=(-v "$VOLUME:/data")
-extra=()
-if [ "$DOCKER" = 1 ]; then
-  # The host's Docker runs the containers tests start. Mount the project at the SAME path as on this computer,
-  # so bind mounts that tests ask the host Docker for (Testcontainers, compose) point at real folders.
-  SOCK=/var/run/docker.sock
-  GID="$(docker run --rm -v "$SOCK:$SOCK" --entrypoint stat "$IMAGE" -c %g "$SOCK" 2>/dev/null || echo 0)"
-  mounts+=(-v "$PROJECT:$PROJECT" -v "$SOCK:$SOCK")
-  extra+=(--group-add "$GID" --add-host host.docker.internal:host-gateway -e KEEL_WORKSPACE="$PROJECT")
-  echo "Docker: on — the agents can start containers on this computer's Docker (it can do anything Docker can)."
-else
-  mounts+=(-v "$PROJECT:/workspace")
-fi
-# Nothing from your computer is copied in. Log the CLIs in from the dashboard: Connections › Set up login.
-
-docker rm -f "$NAME" >/dev/null 2>&1 || true
-docker run -d --name "$NAME" -p "127.0.0.1:$PORT:8080" "${mounts[@]}" ${extra[@]+"${extra[@]}"} -e KEEL_PROJECT_NAME="$(basename "$PROJECT")" \
-  ${ANTHROPIC_API_KEY:+-e ANTHROPIC_API_KEY} ${OPENAI_API_KEY:+-e OPENAI_API_KEY} ${GITHUB_TOKEN:+-e GITHUB_TOKEN} \
-  ${GH_TOKEN:+-e GH_TOKEN} ${CLAUDE_CODE_OAUTH_TOKEN:+-e CLAUDE_CODE_OAUTH_TOKEN} \
-  "$IMAGE" >/dev/null
-
-echo "keel v2 is starting for $PROJECT"
-for _ in $(seq 1 90); do curl -fs "http://localhost:$PORT/api/health" >/dev/null 2>&1 && break; sleep 1; done
-echo "open http://localhost:$PORT"
-[ "${KEEL_OPEN:-1}" = 1 ] && command -v open >/dev/null && open "http://localhost:$PORT" || true   # KEEL_OPEN=0: no new browser tab
