@@ -30,9 +30,14 @@ data class Project(
 @Service
 class ProjectService(private val jdbc: JdbcTemplate, private val mapper: ObjectMapper) {
 
-    /** Projects that are reachable now (a parked workspace project is kept with its history but not listed). */
+    /**
+     * Projects that are reachable now. A parked workspace project, or one whose folder is not mounted in this
+     * container (keel was started for another project, or with/without --docker), is kept with its history but not
+     * listed; it comes back when its folder is mounted again.
+     */
     fun rows(): List<ProjectRow> =
         jdbc.query("SELECT id, name, root FROM projects WHERE root NOT LIKE '%$PARKED%' ORDER BY name") { rs, _ -> ProjectRow(rs.getString(1), rs.getString(2), rs.getString(3)) }
+            .filter { java.nio.file.Files.isDirectory(Paths.get(it.root)) }
 
     /**
      * The mounted folder (/workspace) is the same path for every project the launcher starts, so it is known by

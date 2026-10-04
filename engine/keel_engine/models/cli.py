@@ -9,6 +9,7 @@ gets its own process group, and a timeout or a stop kills the whole group.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from pathlib import Path
 import re
@@ -98,12 +99,52 @@ LIMIT_RE = re.compile(r"usage limit|rate limit|\b429\b|limit reached|quota|too m
 AUTH_RE = re.compile(r"not logged in|please run /login|unauthori[sz]ed|\b401\b|invalid api key|authentication|codex login")
 
 
+def _result_line(stdout: str) -> dict | None:
+    """The CLI's final JSON result (claude stream-json: {"type": "result", "subtype": ..., "num_turns": ...})."""
+    for line in reversed(stdout.strip().splitlines()[-20:]):
+        line = line.strip()
+        if line.startswith("{") and '"result"' in line:
+            try:
+                data = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(data, dict) and data.get("type") == "result":
+                return data
+    return None
+
+
+def result_usage(res: dict | None) -> dict:
+    """Token use from a CLI's final result line (claude): counted even when the run failed."""
+    u = (res or {}).get("usage") or {}
+    if not u:
+        return {}
+    return {"tokens_in": int(u.get("input_tokens", 0)) + int(u.get("cache_creation_input_tokens", 0)),
+            "tokens_out": int(u.get("output_tokens", 0)), "tokens_cached": int(u.get("cache_read_input_tokens", 0)),
+            "cost_usd": float((res or {}).get("total_cost_usd") or 0.0)}
+
+
 def classify_failure(tool: str, stdout: str, stderr: str, code) -> ModelError:
-    short = (stderr or stdout).strip()[-600:]
-    tail = f"{stdout[-3000:]}\n{stderr[-3000:]}".lower()
+    err = _classify(tool, stdout, stderr, code)
+    err.usage = result_usage(_result_line(stdout))
+    return err
+
+
+def _classify(tool: str, stdout: str, stderr: str, code) -> ModelError:
+    res = _result_line(stdout)
+    if res and (res.get("subtype") == "error_max_turns" or res.get("terminal_reason") == "max_turns"):
+        n = res.get("num_turns")
+        return ModelError(f"The agent used all its turns{f' ({n})' if n else ''} before it finished.",
+                          "Approve to try again (it starts fresh), or give this agent more turns: maxTurns in its agent file.")
+    if res and res.get("subtype") == "error_during_execution":
+        msg = str(res.get("result") or res.get("error") or "").strip()[:300]
+        return ModelError(f"`{tool}` stopped with an error{': ' + msg if msg else ''}.", "Approve to try again.")
+    # JSON lines (token counts, model names) are left out of the text checks: "inputTokens":429 is not HTTP 429.
+    plain_out = "\n".join(l for l in stdout.splitlines() if not l.lstrip().startswith("{"))
+    short = (stderr.strip() or plain_out.strip())[-600:] or f"no message (exit code {code})"
+    tail = f"{plain_out[-3000:]}\n{stderr[-3000:]}".lower()
     if LIMIT_RE.search(tail):
         return ModelError(f"`{tool}` hit a usage limit: {short}", "Wait for the limit to reset, or switch this agent to another model.")
-    if AUTH_RE.search((stderr if stderr.strip() else stdout)[-3000:].lower()):
+    if AUTH_RE.search((stderr if stderr.strip() else plain_out)[-3000:].lower()):
         return ModelError(f"`{tool}` is not logged in inside the container.", LOGIN_HINT.get(tool, ""))
     return ModelError(f"`{tool}` exited with code {code}: {short}")
 

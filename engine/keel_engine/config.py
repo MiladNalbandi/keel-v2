@@ -44,3 +44,8 @@ def host() -> str:
 
 def port() -> int:
     return int(os.environ.get("KEEL_ENGINE_PORT", "8090"))
+
+
+def workspace() -> Path:
+    """Where the project is mounted: /workspace, or its real path with `keel2 start --docker`."""
+    return Path(os.environ.get("KEEL_WORKSPACE") or "/workspace")

@@ -20,7 +20,7 @@ from ..tools import git, mcp
 from ..tools.agent_tools import unified_diff
 from .base import AgentRequest, AgentResult, Emit, ModelError
 from ..runtime import prompts
-from .cli import claude_login_env, codex_login_env, copilot_login_env, find, run_cli, safe_env
+from .cli import result_usage, claude_login_env, codex_login_env, copilot_login_env, find, run_cli, safe_env
 
 # keel v1's PreToolUse hook exits 2 with "keel: <reason>" on stderr; Claude Code returns that to the
 # model as an error tool_result naming the hook.
@@ -303,7 +303,7 @@ class ClaudeCLIRunner:
                 "--no-session-persistence", "--permission-mode", "acceptEdits"]
         if req.model.get("effort"):
             argv += ["--effort", req.model["effort"]]
-        turns = prompts.max_turns(req.agent)
+        turns = prompts.max_turns(req.agent, req.phase)
         if turns:
             argv += ["--max-turns", str(turns)]
         allowed = list(CLAUDE_TOOLS)
@@ -334,7 +334,7 @@ class ClaudeCLIRunner:
         if not res:
             raise ModelError("claude printed no result.")
         if res.get("is_error"):
-            raise ModelError(f"claude reported an error: {_short(res.get('result'), 500)}")
+            raise ModelError(f"claude reported an error: {_short(res.get('result'), 500)}", usage=result_usage(res))
         usage = res.get("usage") or {}
         tin = int(usage.get("input_tokens", 0)) + int(usage.get("cache_creation_input_tokens", 0))
         cached = int(usage.get("cache_read_input_tokens", 0))

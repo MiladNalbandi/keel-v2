@@ -153,7 +153,9 @@ def test_fix_flow_and_init_flow(client, repo):
     assert s["status"] == "done", s
     assert [g for g, _ in gates] == ["questions", "plan_gate", "hand_over"]
     assert (Path(repo) / ".keel/config.yml").is_file()
-    assert {p.name for p in (Path(repo) / "docs/knowledge").glob("*.md")} == {"architecture.md", "domain.md", "conventions.md"}
+    # The defaults (approved questions): all five knowledge sections, one librarian each.
+    assert {p.name for p in (Path(repo) / "docs/knowledge").glob("*.md")} == \
+        {"architecture.md", "domain.md", "conventions.md", "data.md", "integrations.md"}
     assert "chore(setup): keel init" in git_log(repo)
 
 

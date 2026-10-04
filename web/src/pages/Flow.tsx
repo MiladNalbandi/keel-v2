@@ -204,7 +204,8 @@ export function gateLabels(w: NonNullable<ThreadState["waiting"]>, acId?: string
   }
   if (w.labels?.approve || w.labels?.reject) {
     return {
-      approve: w.labels.approve ?? "Approve", reject: w.labels.reject ?? "Send back", needWhy: true, whyLabel: "Why (needed for the second choice)",
+      approve: w.labels.approve ?? "Approve", reject: w.labels.reject ?? "Send back", needWhy: true,
+      whyLabel: /question/.test(t) ? `Your answers (needed for “${w.labels.reject ?? "Send back"}”)` : `Why (needed for “${w.labels.reject ?? "Send back"}”)`,
       approved: "Done. The flow moves on.", rejected: "Sent back with your reason.",
     };
   }

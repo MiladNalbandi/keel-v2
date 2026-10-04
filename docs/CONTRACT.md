@@ -347,3 +347,26 @@ github-copilot`), else a built-in list. Effort is passed to the CLIs: claude `--
 - **AC status `already-met`.** When an AC's new test passes before any code is written, the engine pauses with
   `"<AC> already passes"`. Approve commits the test and sets this status.
 - **Commit subjects** are at most 72 characters, cut at a whole word with `…`; the full criterion goes in the body.
+
+## v0.3.2 additions
+
+- **A flow follows its project folder.** `POST /threads/{id}/resume` and `/rewind` take `root` (the api sends the
+  project's folder now). When it differs, the engine moves the thread there. It refuses (409) to run in a folder that
+  is missing or holds only `.keel/`. Threads that were running when the engine restarted are moved by the same rule
+  (/workspace ⇄ the real path that `keel2 start --docker` uses), or marked failed with the reason.
+- **keel v1 sees v2 flows that wait.** While a step waits, `.keel/state.json` shows that step and its phase, with
+  `engine.status: "waiting"`. Every step writes the state when it starts.
+- **Failures read well.** A Claude turn limit says "The agent used all its turns (N) before it finished." The
+  usage-limit and login checks ignore JSON lines. A failed run's tokens are counted in its job (`agent.finished`
+  with `status: failed` carries the tokens).
+- **Parallel steps retry only what failed.** After "try again", agents of that step that already finished are not run
+  again (memory only; cleared when the step finishes or on rewind).
+- **Turns.** The explorer gets 40 turns in the spec and triage steps (its keel v1 file says 20, for mapping only).
+- **fix workflow:** `repro → verify_repro (verify red + commit test(BUG)) → gate R → …`.
+- **init:** the `questions` pause shows keel v1's three questions with the detected defaults (labels "Use the
+  defaults" / "Use my answers"; both go on). The answers are written to `.keel/config.yml` under `init:`
+  (`runs_on`, `services`, `knowledge_sections`). The `setup plan` pause shows the config, the commands and the steps.
+  Init writes the same test command keel detects (node:test: `--test-name-pattern`).
+- **knowledge-refresh** without a section list: the sections from `init.knowledge_sections`, else the existing
+  ones, else all five. Each librarian gets one.
+- **Projects whose folder is not mounted** are not listed (their history is kept).
