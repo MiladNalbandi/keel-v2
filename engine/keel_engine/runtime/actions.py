@@ -71,6 +71,17 @@ async def run_action(action: str, a: ActionInput) -> ActionResult:
     return ActionResult(False, f"Unknown action {action}.")
 
 
+
+def tail(text: str, limit: int) -> str:
+    """The end of a command's output, cut at a line start, saying how much was left out."""
+    text = text or ""
+    if len(text) <= limit:
+        return text
+    cut = text[-limit:]
+    cut = cut[cut.find("\n") + 1:] if "\n" in cut else cut
+    hidden = text[: len(text) - len(cut)].count("\n")
+    return f"… {hidden} earlier lines not shown\n{cut}"
+
 def _with_ac_status(acs: list[dict], ac_id: str | None, status: str) -> list[dict]:
     return [dict(x, status=status) if x["id"] == ac_id else dict(x) for x in acs]
 
@@ -97,15 +108,29 @@ async def verify_red(a: ActionInput) -> ActionResult:
         return ActionResult(False, out, out)
     if testcmd.ran_no_tests(out):
         return ActionResult(False, f"No test for {ac_id} ran, so this is not a red state.",
-                            f"$ {cmd}\n{out[-3000:]}\nWrite a failing test whose name contains {ac_id}.")
+                            f"$ {cmd}\n{tail(out, 3000)}\nWrite a failing test whose name contains {ac_id}.")
     if code == 0:
+        named = testcmd.ac_test_passed(out, ac_id) if a.ac else None
+        if named is False:
+            return ActionResult(False, f"No test for {ac_id} ran, so this is not a red state.",
+                                f"$ {cmd}\n{tail(out, 3000)}\nWrite a failing test whose name contains {ac_id}.")
+        if a.ac:
+            # keel v1's "already-met": the AC's own test ran and passed, so code from earlier criteria covers it.
+            # Retrying the red agent cannot change that; the user decides (approve = mark as already met).
+            return ActionResult(False, f"{ac_id} already passes.", f"$ {cmd}\n{tail(out, 3000)}", ask={
+                "type": "already-met", "kind": "gate", "title": f"{ac_id} already passes",
+                "detail": (f"The test for {ac_id} ran and passed before any new code was written: the code from earlier "
+                           f"criteria already covers it.\n\nApprove to mark {ac_id} as already met: its test is committed "
+                           f"as test({ac_id}) and its green, review and gate steps are skipped.\nReject to send it back to "
+                           f"the red step with your note, to write a stricter test that fails today.\n\n"
+                           f"$ {cmd}\n{tail(out, 1500)}")})
         return ActionResult(False, f"The tests for {ac_id} already pass, so this is not a red state.",
-                            f"$ {cmd}\n{out[-3000:]}\nEither the behaviour already exists or the test asserts nothing.")
+                            f"$ {cmd}\n{tail(out, 3000)}\nEither the behaviour already exists or the test asserts nothing.")
     kind = rules.classify_failure(out)
     if kind["kind"] == "setup":
         return ActionResult(False, f"The tests for {ac_id} fail from a setup problem, not an assertion (matched \"{kind['matched']}\").",
-                            f"$ {cmd}\n{out[-3000:]}")
-    return ActionResult(True, f"{ac_id}: red confirmed (assertion failure).", f"$ {cmd}\n{out[-3000:]}",
+                            f"$ {cmd}\n{tail(out, 3000)}")
+    return ActionResult(True, f"{ac_id}: red confirmed (assertion failure).", f"$ {cmd}\n{tail(out, 3000)}",
                         {"acs": _with_ac_status(a.acs, (a.ac or {}).get("id"), "red")})
 
 
@@ -120,10 +145,10 @@ async def verify_green(a: ActionInput) -> ActionResult:
         return ActionResult(False, out, out)
     if ac_id and testcmd.ran_no_tests(out):
         return ActionResult(False, f"No test for {ac_id} ran, so it cannot be green.",
-                            f"$ {cmd}\n{out[-3000:]}\nThe RED test for {ac_id} is missing. Rewind to its red step.")
+                            f"$ {cmd}\n{tail(out, 3000)}\nThe RED test for {ac_id} is missing. Rewind to its red step.")
     if code != 0:
-        return ActionResult(False, f"{label} does not pass yet.", f"$ {cmd}\n{out[-3000:]}")
-    return ActionResult(True, f"{label}: green.", f"$ {cmd}\n{out[-1500:]}",
+        return ActionResult(False, f"{label} does not pass yet.", f"$ {cmd}\n{tail(out, 3000)}")
+    return ActionResult(True, f"{label}: green.", f"$ {cmd}\n{tail(out, 1500)}",
                         {"acs": _with_ac_status(a.acs, ac_id, "green")} if ac_id else {})
 
 
@@ -212,20 +237,32 @@ def commit(a: ActionInput) -> ActionResult:
                                      "why": why})
 
     rule = rules.COMMIT_RULES[ctype]
-    ident = "" if rule.get("noId") else ((a.ac or {}).get("id") or "BUG")
+    ident = "" if rule.get("noId") else ((a.ac or {}).get("id") or ("review" if a.phase == "review-fix" else "BUG"))
     subject = (a.ac or {}).get("title") or a.title or a.flow
     if ctype == "setup":
         subject = "keel init"
-    message = f"{rules.commit_prefix(ctype, ident)}: {subject}"[:200]
+    message, body = commit_message(rules.commit_prefix(ctype, ident), subject)
     author = cfg.get("commit", {})
+    extra = ["-m", body] if body else []
     r = git.git(a.root, "-c", f"user.name={author.get('author_name', 'keelbot')}",
-                "-c", f"user.email={author.get('author_email', 'keel.dev.bot@gmail.com')}", "commit", "-q", "-m", message)
+                "-c", f"user.email={author.get('author_email', 'keel.dev.bot@gmail.com')}", "commit", "-q", "-m", message, *extra)
     if r.returncode != 0:
         git.git(a.root, "reset", "-q")
         return ActionResult(False, "git commit failed.", (r.stderr or r.stdout)[-2000:])
     sha = git.head(a.root)
     return ActionResult(True, f"{message} {sha[:7] if sha else ''}".strip(), "\n".join(staged),
                         {"git_head": sha, "blockers": push_gates.push_blockers(a.root, a.base)})
+
+
+def commit_message(prefix: str, subject: str, limit: int = 72) -> tuple[str, str]:
+    """A short subject line (whole words, at most `limit` chars) and the full criterion as the body when it was cut."""
+    text = " ".join(str(subject).split())
+    first = f"{prefix}: {text}"
+    if len(first) <= limit:
+        return first, ""
+    room = limit - len(prefix) - 3
+    cut = text[:room].rsplit(" ", 1)[0].rstrip(",;:.") or text[:room]
+    return f"{prefix}: {cut}…", text
 
 
 def revert_manifests(root: str, files: list[str]):
@@ -318,4 +355,4 @@ async def run_command(cmd: str, a: ActionInput) -> ActionResult:
     if not v.ok:
         return ActionResult(False, "Command refused.", v.reason)
     code, out = await asyncio.to_thread(testcmd.run, a.root, cmd, 900, command_env())
-    return ActionResult(code == 0, f"`{cmd}` exited {code}.", out[-3000:])
+    return ActionResult(code == 0, f"`{cmd}` exited {code}.", tail(out, 3000))

@@ -268,6 +268,9 @@ class Engine:
         if waiting and status == "waiting":
             out["waiting"] = {"step": waiting.get("step"), "kind": waiting.get("kind", "gate"), "title": waiting.get("title", ""),
                               "detail": waiting.get("detail", ""), "options": waiting.get("options") or ["approve", "reject"]}
+            if waiting.get("labels"):
+                out["waiting"]["labels"] = dict(waiting["labels"])
+        out["gate_log"] = list(((v.get("gates") or {}).get("log") or [])[-50:])
         err = row["error"] or v.get("error")
         if err and status in ("failed", "stopped"):
             out["error"] = err
@@ -295,7 +298,8 @@ class Engine:
         if decision == "reject" and self._waiting(snap).get("kind") == "gate" and not (why or "").strip():
             raise EngineError(400, "Say why when you send it back.", "The reason goes into the next agent's prompt.")
         await self._set_status(tid, "running")
-        self._launch(tid, Command(resume={"decision": decision, "why": why or "", "payload": payload or {}}))
+        asked = self._waiting(snap).get("id")
+        self._launch(tid, Command(resume={"decision": decision, "why": why or "", "payload": payload or {}, "asked": asked}))
         return await self.state(tid)
 
     async def stop(self, tid: str) -> dict:

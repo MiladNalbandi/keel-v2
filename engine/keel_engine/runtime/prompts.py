@@ -75,6 +75,13 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
     if section:
         lines.append(f"Knowledge section: {section}. Rewrite docs/knowledge/{section}.md from the code, "
                      "with a file:line citation behind every claim. Touch no other file.")
+    if agent == "librarian":
+        tpl = config.keel_home() / "templates" / "knowledge"
+        lines.append(f"Section templates: {tpl}/<section>.md (read only the ones you write). Do not read keel's own "
+                     "source code; everything you need is in the project and these templates.")
+        if phase == "memory" and not section:
+            lines.append("At the end of a flow: update only the knowledge sections this branch changes (see git diff "
+                         "against the base branch), and only with facts from this branch. Keep each section short.")
     if spec:
         lines.append(f"Spec: {spec}")
     if acs:
@@ -95,6 +102,11 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
             lines.append(f"The engine runs it with: {test_cmd}  (run it once yourself to see it fail for the right reason).")
     if phase == "green":
         lines.append("Write the minimum production code that makes the current criterion's test pass. Tests are frozen.")
+        later = [a["id"] for a in acs or [] if ac and a.get("status") in (None, "todo") and a["id"] != ac["id"]]
+        if later:
+            lines.append(f"Do not build behaviour for later criteria ({', '.join(later)}): each gets its own failing test "
+                         "first. Edge cases they name (ties, empty input, errors) are not this step's job unless this "
+                         "criterion's test needs them.")
         if test_cmd:
             lines.append(f"The engine checks it with: {test_cmd}  (run it to confirm, then stop).")
     if index and not section:

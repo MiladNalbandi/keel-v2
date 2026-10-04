@@ -3,8 +3,8 @@
 // square box, agents are round boxes. "for each AC" draws a loop above, send back / if-no draw below.
 
 import { useId, type KeyboardEvent, type ReactNode } from "react";
-import type { Step, ThreadStatus } from "../api";
-import { kfmt } from "../format";
+import type { AcStatus, Step, ThreadStatus } from "../api";
+import { acLabel, kfmt } from "../format";
 
 export type GraphProps = {
   steps: Step[];
@@ -26,9 +26,19 @@ export type GraphProps = {
   onInsert?: (afterIndex: number) => void;
   onRemove?: (id: string) => void;
   label?: string;
+  /** The thread's acceptance criteria: one dot each under the "next AC" loop, coloured by status. */
+  acs?: { id: string; status: AcStatus | string }[];
+  /** The AC the thread works on now (its dot gets a ring). */
+  currentAc?: string | null;
 };
 
 type NodeState = "todo" | "done" | "run" | "wait" | "fail";
+
+/** "verify_green + commit" → ["verify_green", "+ commit"]: a long plain-code step name on two lines. */
+export function splitName(name: string): [string, string] | null {
+  const at = name.indexOf(" + ") >= 0 ? name.indexOf(" + ") : name.lastIndexOf(" ", 15);
+  return at > 0 ? [name.slice(0, at), name.slice(at + 1)] : null;
+}
 
 const short = (t: string) => (t.length > 15 ? t.slice(0, 14) + "…" : t);
 
@@ -56,7 +66,8 @@ export function Graph(o: GraphProps) {
     const r = Math.floor(i / PER), c = i % PER;
     return { x: r % 2 ? X1 - c * stepX : X0 + c * stepX, y: top + r * ROWH, r };
   });
-  const idx = (id?: string | null) => (id ? steps.findIndex((s) => s.id === id) : -1);
+  // A review step's fix node (`<id>__fix`, added by the engine) shows on its review step.
+  const idx = (id?: string | null) => (id ? steps.findIndex((s) => s.id === id.replace(/__fix$/, "")) : -1);
   const cur = idx(o.current);
   const state = (i: number): NodeState => {
     if (o.status === "done") return "done";
@@ -123,6 +134,19 @@ export function Graph(o: GraphProps) {
       <g key="loop">
         <path className="edge loop" d={`M${a.x} ${ya} C${a.x} ${cy}, ${b.x} ${cy}, ${b.x} ${yb}`} markerEnd={`url(#${arr})`} />
         <text className="looplbl" x={(a.x + b.x) / 2} y={cy + 10} textAnchor="middle">next AC</text>
+        {o.acs?.length ? (
+          <g className="acdots" data-testid="graph-acs">
+            {o.acs.map((ac, k) => {
+              const x = (a.x + b.x) / 2 + (k - (o.acs!.length - 1) / 2) * 13;
+              return (
+                <g key={ac.id} className={`acdot s-${ac.status} ${ac.id === o.currentAc ? "cur" : ""}`} data-ac={ac.id} data-status={ac.status}>
+                  <circle cx={x} cy={cy + 22} r={4.5} />
+                  <title>{`${ac.id} · ${acLabel(ac.status)}`}</title>
+                </g>
+              );
+            })}
+          </g>
+        ) : null}
       </g>,
     );
   }
@@ -154,7 +178,7 @@ export function Graph(o: GraphProps) {
         : {};
     const title = <title>{s.name + (s.agent ? " — " + s.agent : "")}</title>;
     const tokN = o.tokens?.[s.id];
-    const tok = tokN ? <text className="lbl2" x={x} y={y + (s.lanes?.length ? 62 : 34)} textAnchor="middle">≈ {kfmt(tokN)}</text> : null;
+    const tok = tokN ? <text className="lbl2 tok" x={x} y={y + (s.lanes?.length ? 62 : 34)} textAnchor="middle">≈ {kfmt(tokN)}</text> : null;
     const locked = !!s.lock && o.keel !== false;
     const lift = s.lanes?.length ? 22 : 0;
     const badge = !o.edit ? null : locked ? (
@@ -219,9 +243,20 @@ export function Graph(o: GraphProps) {
         <g className={`node n-${cls}${sel}`} {...interactive}>
           {title}
           <rect x={x - NW / 2} y={y - NH / 2} width={NW} height={NH} rx={s.kind === "code" ? 3 : 8} />
-          <text x={x} y={y + (s.agent ? -1 : 4)} textAnchor="middle">
-            {short(s.name.replace(/ × \d+.*$/, ""))}{count ? ` ×${count}` : ""}
-          </text>
+          {(() => {
+            const name = s.name.replace(/ × \d+.*$/, "");
+            const two = !s.agent && name.length > 15 ? splitName(name) : null;
+            return two ? (
+              <text x={x} y={y - 3} textAnchor="middle">
+                <tspan x={x}>{short(two[0])}</tspan>
+                <tspan x={x} dy={13}>{short(two[1])}</tspan>
+              </text>
+            ) : (
+              <text x={x} y={y + (s.agent ? -1 : 4)} textAnchor="middle">
+                {short(name)}{count ? ` ×${count}` : ""}
+              </text>
+            );
+          })()}
           {s.agent && <text className="lbl2" x={x} y={y + 11} textAnchor="middle">{short(agentLabel)}</text>}
         </g>
         {tok}
@@ -249,6 +284,7 @@ export function GraphLegend() {
   return (
     <div className="legend">
       <span><i style={{ background: "var(--ok-soft)", borderColor: "var(--ok)" }} />done</span>
+      <span><i style={{ background: "var(--met-soft)", borderColor: "var(--met)", borderRadius: "50%" }} />AC already met</span>
       <span><i style={{ background: "var(--run-soft)", borderColor: "var(--run)" }} />running</span>
       <span><i style={{ background: "var(--warn-soft)", borderColor: "var(--warn)" }} />◆ waits for you</span>
       <span><i style={{ borderColor: "var(--warn)", borderStyle: "dashed" }} />★ custom agent</span>

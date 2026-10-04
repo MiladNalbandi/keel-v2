@@ -2,7 +2,8 @@
 // never shown again), a test call per provider, and what is installed on this machine.
 
 import { useEffect, useRef, useState } from "react";
-import { api, errorParts, type Connections, type LoginView, type Mode } from "../api";
+import { api, errorParts, type Connections, type LoginView, type Mode, type Model } from "../api";
+import { defaultModel, ModelPicker, modeLabel, useCatalog } from "../components/ModelPicker";
 import { Async, Drawer, PageHead, Panel, Prov } from "../components/ui";
 import { useApp, useLoad } from "../state";
 
@@ -59,7 +60,6 @@ function SecretField({ id, name, label, how, set, hint, multiline }: { id: strin
   );
 }
 
-const DEFAULT_MODEL: Record<string, string> = { claude: "sonnet", codex: "gpt-5", copilot: "gpt-5", fake: "fake" };
 const USE: Record<string, string> = { claude: "research, tests, review", codex: "planning, review", copilot: "implementer, custom agents", fake: "tests and demos — no network" };
 
 
@@ -204,6 +204,10 @@ function Provider({ p, onChanged }: { p: Connections["providers"][number]; onCha
   const [mode, setMode] = useState<Mode>(p.selected);
   const [test, setTest] = useState<{ ok?: boolean; text: string } | null>(null);
   const [helper, setHelper] = useState(false);
+  const catalog = useCatalog();
+  // The model "Use for all agents" sets: this provider, the mode picked above, a model and effort from the catalog.
+  const [allModel, setAllModel] = useState<Model | null>(null);
+  const forAll: Model = allModel && allModel.mode === mode ? allModel : defaultModel(catalog, p.id, mode);
   const secret = SECRET[p.id];
   const pick = async (m: Mode) => {
     const old = mode;
@@ -230,11 +234,10 @@ function Provider({ p, onChanged }: { p: Connections["providers"][number]; onCha
     }
   };
   const useForAll = async () => {
-    const name = DEFAULT_MODEL[p.id] ?? "default";
-    const m = { provider: p.id, mode, model: name };
+    const m: Model = { ...forAll, provider: p.id, mode, model: forAll.model.trim() || defaultModel(catalog, p.id, mode).model };
     try {
       await api.saveGeneralSettings({ default_model: m, implementer_model: m, reviewer_model: m });
-      toast(`All agents now use ${p.label} (${p.modes.find((x) => x.id === mode)?.label ?? mode}). Change single agents in Agents.`);
+      toast(`All agents now use ${p.label} ${m.model}${m.effort ? ` (${m.effort})` : ""} · ${p.modes.find((x) => x.id === mode)?.label ?? modeLabel(p.id, mode)}. Change single agents in Agents.`);
       onChanged();
     } catch (e) {
       toast(errorParts(e).message);
@@ -287,10 +290,19 @@ function Provider({ p, onChanged }: { p: Connections["providers"][number]; onCha
             <span className="hint">Stored encrypted; only the last characters are shown. Subscription mode removes it from the CLI's environment.</span>
           </div>
         )}
+        {p.id !== "fake" && (
+          <div className="field">
+            <span className="lab">Model for all agents</span>
+            <div className="row">
+              <ModelPicker id={`all-${p.id}`} value={forAll} onChange={setAllModel} provider={false} mode={false} />
+              <button className="btn sm primary" type="button" onClick={useForAll}>Use for all agents</button>
+            </div>
+            <span className="hint">Sets the default, implementer and reviewer model, running on the mode chosen above.</span>
+          </div>
+        )}
         <div className="row">
           <button className="btn sm" type="button" onClick={runTest}>Test</button>
           {HELP[p.id] && <button className="btn sm" type="button" onClick={() => setHelper(true)}>{p.login_set ? "Log in again" : "Set up login"}</button>}
-          {p.id !== "fake" && <button className="btn sm primary" type="button" onClick={useForAll}>Use for all agents</button>}
           {test && <span className="hint" role="status">{test.ok === true ? <b style={{ color: "var(--ok)" }}>OK</b> : test.ok === false ? <b style={{ color: "var(--bad)" }}>Failed</b> : null} {test.text}</span>}
         </div>
       </div>

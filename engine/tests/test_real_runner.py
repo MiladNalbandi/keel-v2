@@ -48,3 +48,85 @@ def test_option_errors_and_empty_runs_are_spotted():
     assert testcmd.ran_no_tests("node: bad option: -t")
     assert testcmd.ran_no_tests("ℹ tests 0\nℹ pass 0")
     assert not testcmd.ran_no_tests("ℹ tests 3\nℹ fail 1")
+
+
+# ------------------------------------------------------------------ already-met (keel v1)
+
+def met_project(tmp_path):
+    root = tmp_path / "met"
+    (root / "test").mkdir(parents=True)
+    (root / "package.json").write_text(json.dumps({"name": "p", "type": "module", "scripts": {"test": "node --test"}}))
+    (root / "test" / "a.test.js").write_text('import {test} from "node:test"; test("old", () => {});\n')
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=root, check=True)
+    subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "add", "-A"], cwd=root, check=True)
+    subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"], cwd=root, check=True)
+    # The AC's test: earlier work already makes it pass.
+    (root / "test" / "rank.test.js").write_text(
+        'import {test} from "node:test"; import assert from "node:assert/strict";\n'
+        'test("AC-1 ranks the best player first", () => { assert.equal(1, 1); });\n')
+    return root
+
+
+def met_flow():
+    from keel_engine.workflows.model import from_dict
+
+    return from_dict({"name": "met", "keel_rules": False, "steps": [
+        {"id": "red", "kind": "agent", "name": "red", "agent": "test-author", "phase": "red", "per_ac": True},
+        {"id": "verify_red", "kind": "code", "name": "verify_red", "action": "verify_red+commit", "phase": "red", "per_ac": True},
+        {"id": "green", "kind": "agent", "name": "green", "agent": "implementer", "phase": "green", "per_ac": True},
+        {"id": "verify_green", "kind": "code", "name": "verify_green", "action": "verify_green", "phase": "green", "per_ac": True},
+        {"id": "ac_gate", "kind": "gate", "name": "AC gate", "back": "red", "phase": "gate", "per_ac": True},
+    ]})
+
+
+def start_met(client, root):
+    from conftest import start
+
+    return start(client, root, workflow=met_flow(), acs=[{"id": "AC-1", "layer": "API", "title": "ranks"}],
+                 settings={"gates_mode": "every-ac", "cap_tokens": 0, "on_cap": "pause", "simulate_checks": False})
+
+
+def test_an_ac_test_that_already_passes_asks_at_once_and_can_be_marked_met(client, tmp_path):
+    from conftest import decide, wait
+
+    root = met_project(tmp_path)
+    tid = start_met(client, root)
+    s = wait(client, tid, timeout=60)
+    assert s["status"] == "waiting", s
+    w = s["waiting"]
+    assert w["kind"] == "gate" and w["title"] == "AC-1 already passes" and w["options"] == ["approve", "reject"]
+    assert "earlier" in w["detail"] and "AC-1 ranks the best player first" in w["detail"]
+    assert len(client.bus.of(tid, "agent.started")) == 1                 # no retries of the red agent
+
+    s = decide(client, tid, "approve", why="covered by AC-0")
+    assert s["status"] == "done", s
+    assert s["acs"][0]["status"] == "already-met"
+    subjects = subprocess.run(["git", "log", "--format=%s"], cwd=root, capture_output=True, text=True).stdout.splitlines()
+    assert subjects[0].startswith("test(AC-1)")
+    started = [e["data"]["agent"] for e in client.bus.of(tid, "agent.started")]
+    assert started == ["test-author"]                                    # green and the AC gate were skipped
+    state = json.loads((root / ".keel" / "state.json").read_text())
+    assert state["acs"]["AC-1"]["status"] == "already-met"
+
+
+def test_rejecting_already_met_sends_the_red_step_back_with_the_note(client, tmp_path):
+    from conftest import decide, wait
+
+    root = met_project(tmp_path)
+    tid = start_met(client, root)
+    assert wait(client, tid, timeout=60)["waiting"]["title"] == "AC-1 already passes"
+    s = decide(client, tid, "reject", why="assert the order, not just the length")
+    assert s["status"] == "waiting" and s["waiting"]["title"] == "AC-1 already passes", s   # still passes: asked again
+    started = client.bus.of(tid, "agent.started")
+    assert len(started) == 2
+    fed = [e["data"]["text"] for e in client.bus.of(tid, "agent.step") if e["data"]["kind"] == "thinking"]
+    assert fed and "stricter test" in fed[-1] and "assert the order" in fed[-1]
+
+
+def test_unmatched_node_pattern_is_not_already_met():
+    out = "✔ test/a.test.js (43ms)\n✔ test/r.test.js (41ms)\nℹ tests 2\nℹ pass 2\nℹ fail 0\n"
+    assert testcmd.ac_test_passed(out, "AC-1") is False
+    assert testcmd.ac_test_passed("✔ test/a.test.js (52ms)\n✔ AC-1 ranks (0.3ms)\nℹ tests 2\n", "AC-1") is True
+    assert testcmd.ac_test_passed("ok 2 - AC-1 ranks\n# tests 2\n", "AC-1") is True
+    assert testcmd.ac_test_passed("1 passed, 3 deselected in 0.02s", "AC-1") is None
+    assert not testcmd.ran_no_tests("# tests 5\n# suites 0\n# pass 1\n# fail 0\n# skipped 4\n")

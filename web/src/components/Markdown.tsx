@@ -1,8 +1,10 @@
-// A small, safe Markdown renderer for wiki pages (no HTML passthrough): headings, paragraphs, lists,
-// fenced code, block quotes, tables, rules, and inline code / bold / italic / links. `file:line` in
-// backticks shows as a citation chip.
+// A small, safe Markdown renderer for wiki pages and agent output (no HTML passthrough): headings,
+// paragraphs, lists, fenced code (highlighted, folded when long), block quotes, tables, rules, and inline
+// code / bold / italic / links. `file:line` in backticks shows as a citation chip. With `breaks`, a single
+// newline inside a paragraph stays a line break (agents write like that).
 
 import { Fragment, type ReactNode } from "react";
+import { CodeBlock, FOLD } from "./Code";
 
 const CITE = /^[\w@./-]+\.[\w]+:\d+(-\d+)?$/;
 
@@ -33,21 +35,28 @@ function inline(text: string, key = 0): ReactNode[] {
 
 const cells = (line: string) => line.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
 
-export function Markdown({ text }: { text: string }) {
-  const lines = (text ?? "").replace(/\r\n/g, "\n").split("\n");
+/** Lines joined by `<br>` (breaks) or by a space (classic Markdown). */
+function joined(lines: string[], breaks: boolean, key: number): ReactNode[] {
+  if (!breaks) return inline(lines.join(" "), key);
+  return lines.flatMap((l, j) => (j ? [<br key={`br${j}`} />, ...inline(l, key + j)] : inline(l, key)));
+}
+
+export function Markdown({ text, breaks = false, fold = FOLD }: { text: string; breaks?: boolean; fold?: number }) {
+  const lines = (text ?? "").replace(/\r\n?/g, "\n").split("\n");
   const blocks: ReactNode[] = [];
   let i = 0;
   let key = 0;
   while (i < lines.length) {
     const line = lines[i];
     if (!line.trim()) { i++; continue; }
-    const fence = line.match(/^```(\w*)/);
+    const fence = line.match(/^\s*(```+|~~~+)\s*([\w+#.-]*)/);
     if (fence) {
       const body: string[] = [];
+      const close = fence[1];
       i++;
-      while (i < lines.length && !lines[i].startsWith("```")) body.push(lines[i++]);
+      while (i < lines.length && !lines[i].trimStart().startsWith(close)) body.push(lines[i++]);
       i++;
-      blocks.push(<pre key={key++}><code>{body.join("\n")}</code></pre>);
+      blocks.push(<CodeBlock key={key++} className="md-code" text={body.join("\n")} lang={fence[2]} gutter={body.length > 3} fold={fold} />);
       continue;
     }
     const h = line.match(/^(#{1,6})\s+(.*)$/);
@@ -75,7 +84,7 @@ export function Markdown({ text }: { text: string }) {
     if (/^\s*>/.test(line)) {
       const body: string[] = [];
       while (i < lines.length && /^\s*>/.test(lines[i])) body.push(lines[i++].replace(/^\s*>\s?/, ""));
-      blocks.push(<blockquote key={key++}>{inline(body.join(" "), key)}</blockquote>);
+      blocks.push(<blockquote key={key++}>{joined(body, breaks, key)}</blockquote>);
       continue;
     }
     const li = line.match(/^\s*([-*+]|\d+[.)])\s+/);
@@ -94,11 +103,11 @@ export function Markdown({ text }: { text: string }) {
       continue;
     }
     const para: string[] = [];
-    while (i < lines.length && lines[i].trim() && !/^(#{1,6}\s|```|\s*>|\s*([-*+]|\d+[.)])\s)/.test(lines[i]) && !lines[i].trim().startsWith("|")) {
+    while (i < lines.length && lines[i].trim() && !/^(#{1,6}\s|\s*```|\s*~~~|\s*>|\s*([-*+]|\d+[.)])\s)/.test(lines[i]) && !lines[i].trim().startsWith("|")) {
       para.push(lines[i++].trim());
     }
     if (!para.length) { para.push(lines[i++]); }
-    blocks.push(<p key={key++}>{inline(para.join(" "), key)}</p>);
+    blocks.push(<p key={key++}>{joined(para, breaks, key)}</p>);
   }
   return <Fragment>{blocks}</Fragment>;
 }

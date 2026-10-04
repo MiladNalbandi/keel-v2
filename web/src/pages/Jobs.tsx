@@ -1,8 +1,9 @@
 // Jobs (Run): every agent call — what runs now, and everything before. One row per call, with its steps.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, errorParts, type Job } from "../api";
-import { mergeSteps, StepItem } from "../components/StepFeed";
+import { mergeSteps } from "../components/StepFeed";
+import { FilesTouched, Outcome, StepView, useJumpToStep } from "../components/StepView";
 import { Async, ErrorBox, GoButton, PageHead, Panel, Prov, Since, StatusPill, Tabs } from "../components/ui";
 import { clock, kfmt, since, usd } from "../format";
 import { go, useApp, useLoad, useRoute } from "../state";
@@ -11,14 +12,24 @@ import { useJobSteps } from "./Live";
 function JobSteps({ id, onClose }: { id: string; onClose: () => void }) {
   const job = useLoad(`job:${id}`, () => api.job(id), { live: false });
   const live = useJobSteps(job.data?.status === "running" ? id : null);
-  const ref = (el: HTMLDivElement | null) => el?.scrollIntoView?.({ block: "nearest" });
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => box.current?.scrollIntoView?.({ block: "nearest" }), []);
   const steps = mergeSteps(job.data?.steps ?? [], live.steps);
+  const anchor = `job-${id}`;
+  const jump = useJumpToStep(anchor);
+  const running = job.data?.status === "running" || live.running;
   return (
-    <div ref={ref} style={{ marginTop: 16 }}>
+    <div ref={box} style={{ marginTop: 16 }}>
       <Panel title={<h2>{job.data ? `${job.data.agent} · ${job.data.phase || job.data.step}` : id} · step feed</h2>}
         extra={<button className="btn sm ghost" type="button" id="closeJob" onClick={onClose}>Close</button>} body="feed">
         {job.error ? <ErrorBox error={job.error} onRetry={() => void job.reload()} /> : !job.data ? <div className="empty loading">Loading…</div>
-          : !steps.length ? <div className="empty">No steps recorded.</div> : steps.map((s) => <StepItem key={s.n} s={s} />)}
+          : !steps.length ? <div className="empty">No steps recorded.</div> : (
+            <>
+              <FilesTouched steps={steps} onJump={jump} />
+              {steps.map((s) => <StepView key={s.n} s={s} idPrefix={anchor} />)}
+              {!running && <Outcome job={job.data} steps={steps} onJump={jump} />}
+            </>
+          )}
       </Panel>
     </div>
   );

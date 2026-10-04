@@ -37,7 +37,8 @@ export type Workflow = {
   yaml: string;
 };
 
-export type AcStatus = "todo" | "red" | "green" | "done";
+/** v0.3: "already-met" = an earlier criterion's code already covers it (shown like done, own label). */
+export type AcStatus = "todo" | "red" | "green" | "done" | "already-met";
 export type ThreadStatus = "running" | "waiting" | "done" | "failed" | "stopped";
 export type ThreadState = {
   thread_id: string;
@@ -49,7 +50,7 @@ export type ThreadState = {
   phase: string;
   ac: string | null;
   acs: { id: string; layer: string; title: string; status: AcStatus }[];
-  waiting?: { step: string; kind: "gate" | "budget" | "fix"; title: string; detail: string; options: ("approve" | "reject")[] };
+  waiting?: { step: string; kind: "gate" | "budget" | "fix"; title: string; detail: string; options: ("approve" | "reject")[]; labels?: { approve?: string; reject?: string } };
   usage: { tokens_in: number; tokens_out: number; tokens_cached?: number; cost_usd: number; premium_requests: number; cap_tokens: number };
   checkpoints: number;
   error?: string;
@@ -131,7 +132,14 @@ export type Job = {
   steps_count: number;
   mcp_calls: number;
 };
-export type JobStepKind = "text" | "thinking" | "tool" | "write" | "edit" | "result" | "answer" | "guard" | "error" | string;
+export type JobStepKind = "text" | "thinking" | "tool" | "read" | "write" | "edit" | "answer" | "guard" | "error" | string;
+/**
+ * One agent step (CONTRACT.md, "Agent step quality"). Newlines are kept in every text field.
+ * - read: `path`, `text` = file content.
+ * - write / edit: `path`, `diff` = unified diff, `text` = one-line summary.
+ * - tool: `tool`, `text` = the command (or arguments), `output`, `ok`, `ms`; `server` for an MCP tool.
+ * - text / thinking / answer: `text` is Markdown.
+ */
 export type JobStep = {
   n: number;
   at: string;
@@ -141,6 +149,7 @@ export type JobStep = {
   server?: string;
   path?: string;
   diff?: string;
+  output?: string;
   ms?: number;
   ok?: boolean;
 };
@@ -310,7 +319,20 @@ export type McpAllow = Record<string, string[]>;
 
 export type CapScope = "day" | "flow" | "step" | "api_month";
 export type Cap = { id: string; scope: CapScope; limit: number; unit: "tokens" | "usd"; action: "pause" | "cheaper" | "stop" };
-export type ProviderModels = Record<string, { id: string; label: string }[]>;
+/** v0.3 model catalog (`GET /api/providers/models`): per provider, the models of each mode and the effort choices. */
+export type CatalogModel = { id: string; label: string; efforts?: string[] };
+export type CatalogSource = "cli" | "cache" | "builtin";
+export type CatalogProvider = {
+  label: string;
+  /** Only the modes this provider has. */
+  modes: Partial<Record<Mode, CatalogModel[]>>;
+  /** Default effort choices for this provider ([] = no effort setting). */
+  efforts: string[];
+  default: { mode: Mode; model: string; effort?: string };
+  /** Where the list came from: cli = asked the installed CLI. */
+  source: CatalogSource;
+};
+export type Catalog = Record<string, CatalogProvider>;
 export type Budget = {
   month: { tokens: number; cost_usd: number; premium_requests: number; flows: number };
   days: { day: string; claude: number; codex: number; copilot: number; fake: number }[];
@@ -460,7 +482,8 @@ export const api = {
   /** `pid` "*" = every project (notifications + project.changed only). */
   eventsUrl: (pid: string | null, notifyAll = false) => "/api/events" + q({ project: pid ?? (notifyAll ? "*" : null), notify: notifyAll && pid ? "all" : null }),
   keelDashboard: () => get<{ url: string }>("/keel-dashboard"),
-  providerModels: () => get<ProviderModels>("/providers/models"),
+  /** The raw answer; `normalizeCatalog` (ModelPicker) also accepts the pre-v0.3 `{provider: [{id,label}]}` shape. */
+  providerModels: () => get<unknown>("/providers/models"),
 
   // projects
   projects: () => get<Project[]>("/projects"),

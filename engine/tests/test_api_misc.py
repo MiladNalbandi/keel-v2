@@ -18,7 +18,7 @@ def test_health_and_models(client):
     assert h["ok"] is True and h["fake"] is True and h["version"]
     m = client.get("/providers/models").json()
     assert set(m) == {"fake", "claude", "codex", "copilot"}
-    assert all({"id", "label"} <= set(x) for items in m.values() for x in items)
+    assert all({"id", "label"} <= set(x) for p in m.values() for items in p["modes"].values() for x in items)
 
 
 def test_provider_test_fake(client):

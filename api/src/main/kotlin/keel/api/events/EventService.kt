@@ -82,10 +82,10 @@ class EventService(
                 val n = d.long("n") ?: ((jdbc.queryForObject("SELECT COALESCE(MAX(n), 0) FROM agent_steps WHERE call_id = ?", Long::class.java, id) ?: 0L) + 1)
                 val kind = d.str("kind") ?: "text"
                 val inserted = jdbc.update(
-                    """INSERT OR IGNORE INTO agent_steps(call_id, n, at, kind, text, tool, server, path, diff, ms, ok)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    """INSERT OR IGNORE INTO agent_steps(call_id, n, at, kind, text, tool, server, path, diff, ms, ok, output)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     id, n, at, kind, d.str("text"), d.str("tool"), d.str("server"), d.str("path"), d.str("diff"),
-                    d.long("ms"), d["ok"]?.let { if (it == true || it.toString() == "true") 1 else 0 },
+                    d.long("ms"), d["ok"]?.let { if (it == true || it.toString() == "true") 1 else 0 }, d.str("output"),
                 )
                 if (inserted > 0) {
                     val mcp = if (kind == "tool" && !d.str("server").isNullOrBlank()) 1 else 0

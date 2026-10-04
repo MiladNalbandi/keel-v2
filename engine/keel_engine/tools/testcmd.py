@@ -54,6 +54,29 @@ def ran_no_tests(output: str) -> bool:
     return bool(NO_TESTS.search(output or ""))
 
 
+# One line per test result: node:test spec (✔ / ✖), TAP (ok N / not ok N), Jest/Vitest verbose (✓ / ✕ / √).
+TEST_LINE = re.compile(r"^\s*(?:✔|✓|√|✖|✕|×|(?:not )?ok \d+\b)", re.M)
+PASS_LINE = re.compile(r"^\s*(?:✔|✓|√|ok \d+\b)", re.M)
+
+
+def ac_test_passed(output: str, ac: str) -> bool | None:
+    """Did a test named after the AC run and pass?
+
+    True: a passing result line names the AC. False: the output lists results per test but none of the
+    passing ones names the AC (node:test reports a test file with no matching test as a pass, so a
+    green run alone proves nothing). None: no per-test lines (pytest -q, gradle -q): the runner's own
+    name filter decides, and a zero exit means at least one matching test ran.
+    """
+    output = output or ""
+    if not TEST_LINE.search(output):
+        return None
+    names = {ac.lower(), _pytest_key(ac)}
+    for line in output.splitlines():
+        if PASS_LINE.match(line) and any(n and n in line.lower() for n in names):
+            return True
+    return False
+
+
 def run(root: str, command: str, timeout: int = 600, env: dict | None = None) -> tuple[int, str]:
     """Run a shell command in the repo. Returns (exit code, combined output trimmed to the tail)."""
     try:

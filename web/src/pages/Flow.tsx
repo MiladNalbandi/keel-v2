@@ -5,15 +5,31 @@ import { Fragment, useMemo, useState } from "react";
 import {
   api, errorParts, type Blocker, type Checkpoint, type EngineEvent, type FlowView, type Job, type LadderRung, type Memory, type ThreadState, type Workflow,
 } from "../api";
+import { CodeBlock, FoldedText } from "../components/Code";
+import { Markdown } from "../components/Markdown";
 import { OpenKeelV1Button } from "../components/OpenKeelV1";
 import { eventLine } from "../components/events";
 import { Graph, GraphLegend } from "../components/Graph";
 import { StartFlowDrawer } from "../components/StartFlow";
 import { Async, Confirm, ErrorBox, GoButton, PageHead, Panel, Pill, Prov, type PillTone } from "../components/ui";
-import { clock, kfmt, usd } from "../format";
+import { acLabel, clock, kfmt, usd } from "../format";
 import { useApp, useLoad } from "../state";
 
-const AC_TONE: Record<string, PillTone> = { done: "ok", green: "ok", red: "bad", todo: "idle" };
+const AC_TONE: Record<string, PillTone> = { done: "ok", green: "ok", red: "bad", todo: "idle", "already-met": "met" };
+
+/** The ACs in one line (under the graph): id + status, the current one marked. */
+function AcStrip({ thread }: { thread: ThreadState }) {
+  if (!thread.acs.length) return null;
+  return (
+    <div className="acstrip" aria-label="Acceptance criteria status">
+      {thread.acs.map((a) => (
+        <span key={a.id} className={`acchip s-${a.status} ${a.id === thread.ac ? "cur" : ""}`} title={`${a.id} [${a.layer}] ${a.title}`} data-status={a.status}>
+          <b>{a.id}</b> {acLabel(a.status)}
+        </span>
+      ))}
+    </div>
+  );
+}
 
 export function FlowPage({ pid }: { pid: string }) {
   const flow = useLoad(`flow:${pid}`, () => api.flow(pid));
@@ -93,8 +109,10 @@ function ThreadView({ pid, thread, workflow, keelState, reload, onStart }: {
       <div className="grid" style={{ gap: 16 }}>
         <Panel title="Graph" extra={<GraphLegend />}>
           <div className="graph-wrap">
-            <Graph steps={workflow.steps} current={thread.current} status={thread.status} tokens={thread.status === "done" ? undefined : tokens} />
+            <Graph steps={workflow.steps} current={thread.current} status={thread.status} tokens={thread.status === "done" ? undefined : tokens}
+              acs={thread.acs} currentAc={thread.ac} />
           </div>
+          <AcStrip thread={thread} />
         </Panel>
         <StatusCard pid={pid} thread={thread} workflow={workflow} job={job} onDone={reload} />
         <BudgetMeter thread={thread} estimate={est.data?.tokens ?? null} />
@@ -126,7 +144,7 @@ function perStep(w: Workflow, per?: { step: string; tokens: number }[]) {
 export function StatusCard({ pid, thread, workflow, job, onDone }: {
   pid: string; thread: ThreadState; workflow: Workflow; job: Job | null; onDone: () => Promise<void>;
 }) {
-  const step = workflow.steps.find((s) => s.id === thread.current);
+  const step = workflow.steps.find((s) => s.id === (thread.current ?? "").replace(/__fix$/, ""));
   if (thread.status === "waiting" && thread.waiting) return <GateCard thread={thread} workflow={workflow} onDone={onDone} />;
   if (thread.status === "running") {
     return (
@@ -176,6 +194,28 @@ export function gateLabels(w: NonNullable<ThreadState["waiting"]>, acId?: string
   if (w.kind === "fix") {
     return { approve: "Approve fix", reject: "Reject fix", needWhy: true, whyLabel: "Why (needed to reject)", approved: "Fix approved.", rejected: "Fix rejected. The agent gets your reason.", special: true };
   }
+  if (w.kind === "gate" && /blocking finding/.test(t)) {
+    return {
+      approve: w.labels?.approve ?? "Fix them", reject: w.labels?.reject ?? "Go on anyway", needWhy: true, whyLabel: "Why (needed to go on anyway)",
+      explain: "A reviewer marked these findings as blocking. The implementer can fix them, then the review runs again.",
+      approved: "The implementer fixes the findings; the tests run and the review runs again.",
+      rejected: "Accepted with your reason. The flow goes on.",
+    };
+  }
+  if (w.labels?.approve || w.labels?.reject) {
+    return {
+      approve: w.labels.approve ?? "Approve", reject: w.labels.reject ?? "Send back", needWhy: true, whyLabel: "Why (needed for the second choice)",
+      approved: "Done. The flow moves on.", rejected: "Sent back with your reason.",
+    };
+  }
+  if (w.kind === "gate" && /already passes/.test(t)) {
+    return {
+      approve: "Mark as already met", reject: "Send back for a stricter test", needWhy: true, whyLabel: "Why (needed to send back)",
+      explain: "The new test passes without new code: an earlier criterion's code already covers this one.",
+      approved: "Marked as already met. The flow goes on with the next AC.",
+      rejected: "Sent back. The test author writes a stricter test with your reason.",
+    };
+  }
   if (/escalat/.test(t)) {
     return {
       approve: "Yes, switch to a feature flow", reject: "No, keep the change flow", needWhy: false, whyLabel: "Note (optional)",
@@ -216,7 +256,7 @@ function GateCard({ thread, workflow, onDone }: { thread: ThreadState; workflow:
   const [why, setWhy] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<{ message: string; hint?: string } | null>(null);
-  const step = workflow.steps.find((s) => s.id === w.step) ?? workflow.steps.find((s) => s.id === thread.current);
+  const step = workflow.steps.find((s) => s.id === w.step.replace(/__fix$/, "")) ?? workflow.steps.find((s) => s.id === thread.current);
   const back = step?.back ? workflow.steps.find((s) => s.id === step.back) : undefined;
   const ac = thread.acs.find((a) => a.id === thread.ac);
   const labels = gateLabels(w, ac?.id, back?.name);
@@ -247,7 +287,7 @@ function GateCard({ thread, workflow, onDone }: { thread: ThreadState; workflow:
     <div className="interrupt" role="region" aria-label="Gate waits for you">
       <h3><Pill tone="warn">◆ waits for you</Pill> {w.title}{showAc && ac ? ` — ${ac.id} [${ac.layer}] ${ac.title}` : ""}</h3>
       {labels.explain && <p className="sub" style={{ margin: 0 }}>{labels.explain}</p>}
-      {w.detail && <div className="facts" style={{ whiteSpace: "pre-wrap" }}>{w.detail}</div>}
+      {w.detail && <GateDetail text={w.detail} />}
       {labels.whyLabel && (
         <div className="field">
           <label htmlFor="why">{labels.whyLabel}</label>
@@ -333,7 +373,7 @@ function AcsPanel({ thread }: { thread: ThreadState }) {
         <div className="acs">
           {thread.acs.map((a) => (
             <div key={a.id} className="ac">
-              <div className="row" style={{ justifyContent: "space-between" }}><b>{a.id}</b><Pill tone={AC_TONE[a.status] ?? "idle"}>{a.status}</Pill></div>
+              <div className="row" style={{ justifyContent: "space-between" }}><b>{a.id}</b><Pill tone={AC_TONE[a.status] ?? "idle"}>{acLabel(a.status)}</Pill></div>
               <span className="sub">[{a.layer}] {a.title}</span>
             </div>
           ))}
@@ -494,5 +534,26 @@ function InitFlow({ pid, f, onStart, reload }: { pid: string; f: { thread: Threa
         </div>
       </div>
     </>
+  );
+}
+
+/** A pause's detail: the explanation as text, then each `$ command` with its output folded (like agent steps). */
+export function GateDetail({ text }: { text: string }) {
+  const lines = text.replace(/\r\n?/g, "\n").split("\n");
+  const at = lines.findIndex((l) => l.startsWith("$ "));
+  const prose = (at < 0 ? lines : lines.slice(0, at)).join("\n").trim();
+  const cmd = at < 0 ? null : lines[at].slice(2);
+  const out = at < 0 ? "" : lines.slice(at + 1).join("\n").replace(/\s+$/, "");
+  return (
+    <div className="gate-detail" data-testid="gate-detail">
+      {prose && <div className="facts"><Markdown text={prose} breaks /></div>}
+      {cmd !== null && (
+        <div className="cmd" data-testid="gate-cmd">
+          <span className="prompt" aria-hidden="true">$</span>
+          <CodeBlock text={cmd} lang="bash" gutter={false} className="cmd-code" />
+        </div>
+      )}
+      {out && <FoldedText text={out} className="cmd-out" />}
+    </div>
   );
 }

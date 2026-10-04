@@ -463,6 +463,8 @@ def gate_due(mode: str, acs: list[dict], ac_id: str, skipped: dict | None = None
     if sk:
         return {"due": False, "why": f"gates are skipped for this {'flow' if sk == 'flow' else 'lane'}"}
     mode = mode or "every-ac"
+    # An already-met AC has no gate of its own (its approval was the question), so it never holds the lane's last gate.
+    acs = [a for a in acs if a.get("status") != "already-met" or a.get("id") == ac_id]
     ids = sorted(a["id"] for a in acs)
     if mode == "every-ac":
         return {"due": True}

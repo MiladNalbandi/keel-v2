@@ -9,6 +9,12 @@ mkdir -p "$KEEL_DATA"
 # Claude Code asks for onboarding on a fresh home; headless runs only need this flag.
 [ -f "$HOME/.claude.json" ] || echo '{"hasCompletedOnboarding": true}' > "$HOME/.claude.json"
 
+# Host Docker (keel2 --docker): tests inside reach the containers they start through the host.
+if [ -S /var/run/docker.sock ]; then
+  export TESTCONTAINERS_HOST_OVERRIDE="${TESTCONTAINERS_HOST_OVERRIDE:-host.docker.internal}"
+  docker version --format 'docker: client {{.Client.Version}}, host engine {{.Server.Version}}' 2>/dev/null || echo "docker: socket mounted but not usable (permissions?)"
+fi
+
 echo "keel v2 · data $KEEL_DATA · workspace $KEEL_WORKSPACE · keel $(node -p "require('$KEEL_HOME/.claude-plugin/plugin.json').version" 2>/dev/null || echo '?')"
 
 KEEL_ENGINE_HOST=127.0.0.1 KEEL_ENGINE_PORT=8090 keel-engine &

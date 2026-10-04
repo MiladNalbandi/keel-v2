@@ -161,7 +161,7 @@ function NewAgentDrawer({ pid, servers, onClose, onCreated }: { pid: string; ser
         </div>
         <span className="hint">keel's guard still applies: a phase only allows the files it allows.</span>
       </div>
-      <div className="field"><span className="lab">Model</span><ModelPicker id="nam" value={model} onChange={setModel} effort={false} /></div>
+      <div className="field"><span className="lab">Model</span><ModelPicker id="nam" value={model} onChange={setModel} /></div>
       <div className="field"><span className="lab">MCP tools</span>
         <div className="grid" style={{ gap: 6 }}>
           {servers.map((s) => (

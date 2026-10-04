@@ -1,9 +1,10 @@
 // Live agents (Run): watch each agent while it works — what it says, which tools it calls, what code it writes,
 // and what it returns. Steps arrive over SSE (agent.step) and by polling /api/jobs/{id}/steps.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, errorParts, type Job, type JobStep } from "../api";
-import { filesTouched, kindClass, mergeSteps, StepItem } from "../components/StepFeed";
+import { kindClass, mergeSteps } from "../components/StepFeed";
+import { FilesTouched, kindLabel, Outcome, StepView, useJumpToStep } from "../components/StepView";
 import { Async, ErrorBox, PageHead, Panel, Pill, Prov, Since, Tabs } from "../components/ui";
 import { kfmt, PROV, since } from "../format";
 import { go, useApp, useLoad, useRoute } from "../state";
@@ -11,8 +12,8 @@ import { go, useApp, useLoad, useRoute } from "../state";
 type Filter = "all" | "code" | "msg";
 const FILTERS: Record<Filter, (s: JobStep) => boolean> = {
   all: () => true,
-  code: (s) => ["tool", "write", "edit", "guard", "error"].includes(s.kind),
-  msg: (s) => ["text", "thinking", "answer", "result"].includes(s.kind),
+  code: (s) => ["tool", "read", "write", "edit", "guard", "error"].includes(s.kind),
+  msg: (s) => ["text", "thinking", "answer"].includes(s.kind),
 };
 
 /** Steps of one job: the first load, then new ones every 2 s while it runs, merged with SSE steps. */
@@ -67,28 +68,11 @@ function AgentCard({ j, sel, steps }: { j: Job; sel: boolean; steps?: JobStep[] 
       {sel && steps && (
         <div className="grid" style={{ gap: 3 }}>
           {steps.slice(-4).map((s) => (
-            <div key={s.n} className="mini"><span className={`kind ${kindClass(s.kind)}`}>{s.kind}</span><span className="sub">{(s.text || s.tool || s.path || "").slice(0, 46)}</span></div>
+            <div key={s.n} className="mini"><span className={`kind ${kindClass(s.kind)}`}>{kindLabel(s.kind)}</span><span className="sub">{(s.path || s.text || s.tool || "").split("\n")[0].slice(0, 46)}</span></div>
           ))}
         </div>
       )}
     </button>
-  );
-}
-
-function Outcome({ job, steps }: { job: Job; steps: JobStep[] }) {
-  const last = [...steps].reverse().find((s) => s.kind === "answer" || s.kind === "result");
-  const files = filesTouched(steps);
-  const tone = job.status === "done" ? "ok" : job.status === "running" ? "run" : "bad";
-  return (
-    <div className="result">
-      <div className="row" style={{ justifyContent: "space-between" }}><b>Outcome</b><Pill tone={tone}>{job.status}</Pill></div>
-      <div className="kv">
-        {last && <><span>Answer</span><b style={{ whiteSpace: "pre-wrap" }}>{last.text}</b></>}
-        <span>Files changed</span><b className="mono">{files.length ? files.join(", ") : "none"}</b>
-        <span>Tokens in / out</span><b className="num">{kfmt(job.tokens_in)} / {kfmt(job.tokens_out)}{job.tokens_cached ? ` (+${kfmt(job.tokens_cached)} cached)` : ""}</b>
-        <span>Time</span><b className="num">{since(job.started_at, job.ended_at)}</b>
-      </div>
-    </div>
   );
 }
 
@@ -99,7 +83,12 @@ function Feed({ job }: { job: Job }) {
   const [follow, setFollow] = useState(true);
   const box = useRef<HTMLDivElement>(null);
   const shown = steps.filter(FILTERS[filter]);
-  const files = filesTouched(steps);
+  const showAll = useCallback(() => {
+    setFilter("all");
+    setFollow(false);
+  }, []);
+  const anchor = `live-${job.id}`;
+  const jump = useJumpToStep(anchor, showAll);
   const isRunning = running || job.status === "running";
   useEffect(() => {
     if (follow) box.current?.lastElementChild?.scrollIntoView?.({ block: "nearest" });
@@ -119,14 +108,12 @@ function Feed({ job }: { job: Job }) {
           <Tabs value={filter} onChange={setFilter} label="Show" options={[["all", "Everything"], ["code", "Code & commands"], ["msg", "Messages"]]} />
           <label className="chk"><input type="checkbox" id="follow" checked={follow} onChange={(e) => setFollow(e.target.checked)} /> Follow the newest step</label>
         </div>
-        <div className="row"><span className="lab-s">Files touched</span>
-          {files.length ? files.map((f) => <span key={f} className="tag" title={f}>{f.split("/").pop()}</span>) : <span className="sub">no files yet</span>}
-        </div>
+        <FilesTouched steps={steps} onJump={jump} />
         {error && <ErrorBox error={error} />}
         <div ref={box} className="feed live-feed" aria-live="polite">
-          {shown.length ? shown.map((s) => <StepItem key={s.n} s={s} />) : <div className="empty">{isRunning ? "Waiting for the first step…" : "No steps."}</div>}
+          {shown.length ? shown.map((s) => <StepView key={s.n} s={s} idPrefix={anchor} />) : <div className="empty">{isRunning ? "Waiting for the first step…" : "No steps."}</div>}
         </div>
-        {!isRunning && <Outcome job={job} steps={steps} />}
+        {!isRunning && <Outcome job={job} steps={steps} onJump={jump} />}
         {isRunning && (
           <div className="row">
             <button className="btn sm" type="button" onClick={async () => {

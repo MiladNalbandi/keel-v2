@@ -3,6 +3,9 @@
 import type { Model, Provider } from "./api";
 
 export const PROV: Record<string, string> = { claude: "Claude", codex: "GPT / Codex", copilot: "Copilot", fake: "Fake model" };
+/** How an AC status reads in the UI. */
+export const AC_LABEL: Record<string, string> = { "already-met": "already met" };
+export const acLabel = (s: string) => AC_LABEL[s] ?? s;
 export const MODE_LABEL: Record<string, string> = { subscription: "Subscription", api: "API key", opencode: "OpenCode" };
 
 /** 1234 → "1k", 1_500_000 → "1.50M". */

@@ -167,3 +167,14 @@ def test_invalid_workflow_refused(client, repo):
         {"id": "a", "kind": "gate", "name": "g", "back": "zzz"}]}}
     r = client.post("/threads", json=body)
     assert r.status_code == 400 and "back target" in r.json()["hint"]
+
+
+def test_feature_flow_leaves_nothing_uncommitted(client, repo):
+    tid = start(client, repo)
+    s, _ = run_to_done(client, tid, wait(client, tid))
+    assert s["status"] == "done", s
+    log = git_log(repo)
+    assert any(m.startswith("e2e") for m in log), log
+    assert any(m.startswith("docs(memory)") for m in log), log
+    dirty = subprocess.run(["git", "status", "--porcelain"], cwd=repo, capture_output=True, text=True).stdout
+    assert [l for l in dirty.splitlines() if ".keel/" not in l] == []

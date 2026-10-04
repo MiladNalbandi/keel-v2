@@ -50,6 +50,7 @@ data class JobStep(
     val diff: String? = null,
     val ms: Long? = null,
     val ok: Boolean? = null,
+    val output: String? = null,
 )
 
 data class JobDetail(@get:JsonUnwrapped val job: Job, val steps: List<JobStep>)
@@ -74,7 +75,7 @@ class JobService(private val jdbc: JdbcTemplate) {
         JobStep(
             rs.getInt("n"), rs.getString("at"), rs.getString("kind"), rs.getString("text"), rs.getString("tool"),
             rs.getString("server"), rs.getString("path"), rs.getString("diff"),
-            rs.getLong("ms").takeIf { !rs.wasNull() }, rs.getInt("ok").takeIf { !rs.wasNull() }?.let { it == 1 },
+            rs.getLong("ms").takeIf { !rs.wasNull() }, rs.getInt("ok").takeIf { !rs.wasNull() }?.let { it == 1 }, rs.getString("output"),
         )
     }
 

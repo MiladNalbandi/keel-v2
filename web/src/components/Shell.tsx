@@ -4,6 +4,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { GROUPS, groupOf, hashFor, type ScreenId } from "../routes";
 import { go, useApp, useRoute } from "../state";
+import { Mascot } from "./Mascot";
 import { NotificationDrawer, Popups } from "./Notifications";
 
 const THEME_KEY = "keel2.theme";
@@ -56,7 +57,7 @@ function ProjectBox({ onBell }: { onBell: () => void }) {
     <div className="projbox">
       <div className="pb-top">
         <label htmlFor="projPick" className="pb-lab">Project</label>
-        <Bell onClick={onBell} />
+        <span className="pb-right"><Mascot /><Bell onClick={onBell} /></span>
       </div>
       <select
         id="projPick"
