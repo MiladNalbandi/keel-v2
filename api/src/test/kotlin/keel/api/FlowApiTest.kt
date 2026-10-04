@@ -147,6 +147,7 @@ class FlowApiTest : ApiTest() {
 
         // "/" is forwarded to index.html by Spring's welcome page; MockMvc does not follow forwards.
         get("/index.html").andExpect(status().isOk).andExpect(content().string(org.hamcrest.Matchers.containsString("web app is not built")))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header().string("Cache-Control", "no-cache"))
         get("/projects/x/flow").andExpect(status().isOk).andExpect(content().string(org.hamcrest.Matchers.containsString("web app is not built")))
         get("/assets/missing.js").andExpect(status().isNotFound)
         val nf = get("/api/does-not-exist").andExpect(status().isNotFound).json()
