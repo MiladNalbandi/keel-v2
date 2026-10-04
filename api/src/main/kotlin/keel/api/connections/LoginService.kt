@@ -82,8 +82,9 @@ class LoginService(
         sessions[s.id] = s
         thread(isDaemon = true, name = "login-${s.id}") { read(s) }
         thread(isDaemon = true, name = "login-wait-${s.id}") { finish(s) }
-        // Give the CLI a moment to print its link, so the first answer is already useful.
-        repeat(40) { if (s.url == null && s.status == "starting") Thread.sleep(250) }
+        // Give the CLI a moment to print its link (and its device code: it can come in a later chunk),
+        // so the first answer is already useful.
+        repeat(40) { if ((s.url == null || (provider != "claude" && s.code == null)) && s.status == "starting") Thread.sleep(250) }
         return view(s)
     }
 
