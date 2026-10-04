@@ -382,3 +382,22 @@ github-copilot`), else a built-in list. Effort is passed to the CLIs: claude `--
   live only in memory; the api sends them when it is ready and marks the cut-off agent runs `stopped`. Without that
   call a thread continues by itself after `KEEL_CONTINUE_GRACE` seconds (60).
 - Agents are told to read keel's memory (`docs/knowledge/`) before exploring the code.
+
+## v0.3.4 additions — the clarify loop
+
+- **Questions before the spec.** The explorer (spec and triage steps) may end its answer with one fenced
+  ` ```keel-questions ` block (JSON, max 4 questions, 2–4 options each, the recommended one first) and no criteria.
+  The engine (`runtime/clarify.py`) reads it; `spec_gate` then pauses with `waiting.kind: "clarify"`,
+  `waiting.questions: [{id, question, why?, options: [{label, description?, recommended?}]}]`,
+  `options: ["approve"]`, `labels.approve: "Send my answers"`.
+- **Answering:** `POST /threads/{id}/resume {decision: "approve", why?, payload: {answers: {<question id>: <label or typed text>}}}`.
+  An unanswered question gets its recommended option, and the explorer is told so. The answers go back to the same
+  explorer session (agent memory), which writes the spec. After `MAX_ROUNDS` (2) rounds the explorer must decide.
+- **Spec check** (`runtime/spec_check.py`, keel v1's `keel spec check`): `[WEB]` criteria need a Mockup with four
+  states, `[API]` criteria a Request path; empty sections, vague or "then"-less criteria, an AC id inside a drawing,
+  more than 8 criteria are noted. Gaps that are clearly missing send the spec back to the explorer once (same session;
+  real models by default, `settings.spec_check` overrides). The spec gate shows the rest as "Spec check" lines.
+- **Skills** (`skills/`, in the image at `/opt/keel-v2/skills`, shown in Build › Skill hub with source "keel v2"):
+  `spec-clarify` (the question format, identity and work-placement probes) and `spec-writing` (spec layout, criteria
+  form, drawings); both assigned to the `explorer` for phase `spec`. keel v1's `spec-authoring` (a live chat) is no
+  longer assigned. Example result: `docs/examples/spec-leaderboard.md`.

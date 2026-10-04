@@ -40,6 +40,14 @@ export type Workflow = {
 /** v0.3: "already-met" = an earlier criterion's code already covers it (shown like done, own label). */
 export type AcStatus = "todo" | "red" | "green" | "done" | "already-met";
 export type ThreadStatus = "running" | "waiting" | "done" | "failed" | "stopped";
+/** One question of the explorer's clarify loop: 2-4 options, the recommended one first. */
+export type ClarifyQuestion = {
+  id: string;
+  question: string;
+  why?: string;
+  options: { label: string; description?: string; recommended?: boolean }[];
+};
+
 export type ThreadState = {
   thread_id: string;
   project_id: string;
@@ -50,7 +58,7 @@ export type ThreadState = {
   phase: string;
   ac: string | null;
   acs: { id: string; layer: string; title: string; status: AcStatus }[];
-  waiting?: { step: string; kind: "gate" | "budget" | "fix"; title: string; detail: string; options: ("approve" | "reject")[]; labels?: { approve?: string; reject?: string } };
+  waiting?: { step: string; kind: "gate" | "budget" | "fix" | "clarify"; title: string; detail: string; options: ("approve" | "reject")[]; labels?: { approve?: string; reject?: string }; questions?: ClarifyQuestion[] };
   usage: { tokens_in: number; tokens_out: number; tokens_cached?: number; cost_usd: number; premium_requests: number; cap_tokens: number };
   checkpoints: number;
   error?: string;
@@ -504,8 +512,8 @@ export const api = {
     allow_fake?: boolean; allow_dirty?: boolean; request?: string;
   }) =>
     post<ThreadState>(`/projects/${e(pid)}/flows`, body),
-  resume: (tid: string, decision: "approve" | "reject", why?: string) =>
-    post<ThreadState>(`/threads/${e(tid)}/resume`, why ? { decision, why } : { decision }),
+  resume: (tid: string, decision: "approve" | "reject", why?: string, payload?: Record<string, unknown>) =>
+    post<ThreadState>(`/threads/${e(tid)}/resume`, { decision, ...(why ? { why } : {}), ...(payload ? { payload } : {}) }),
   stopThread: (tid: string) => post<ThreadState>(`/threads/${e(tid)}/stop`),
   history: (tid: string) => get<Checkpoint[]>(`/threads/${e(tid)}/history`),
   rewind: (tid: string, checkpoint_id: string) => post<ThreadState>(`/threads/${e(tid)}/rewind`, { checkpoint_id }),

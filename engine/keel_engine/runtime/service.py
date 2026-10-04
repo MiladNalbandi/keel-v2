@@ -324,6 +324,8 @@ class Engine:
                               "detail": waiting.get("detail", ""), "options": waiting.get("options") or ["approve", "reject"]}
             if waiting.get("labels"):
                 out["waiting"]["labels"] = dict(waiting["labels"])
+            if waiting.get("questions"):
+                out["waiting"]["questions"] = list(waiting["questions"])
         out["gate_log"] = list(((v.get("gates") or {}).get("log") or [])[-50:])
         err = row["error"] or v.get("error")
         if err and status in ("failed", "stopped"):

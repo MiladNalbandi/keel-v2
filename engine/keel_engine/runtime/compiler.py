@@ -33,7 +33,7 @@ from .findings import REVIEWERS, blocking, unique
 from ..tools import git, guard
 from ..tools.agent_tools import ToolBox
 from ..workflows.model import Step, Workflow
-from . import init_gates, prompts
+from . import clarify, init_gates, prompts, spec_check
 from . import memory as memory_mod
 from .actions import ActionInput, ActionResult, revert_manifests, run_action
 from .state import FlowState, ThreadContext, merge_unlocks, normalize_unlocks
@@ -503,7 +503,22 @@ class Compiler:
         if state["phase"] in ("spec", "triage") and not state.get("acs"):
             acs, spec = self._acs_from(agent_results)
             if acs:
+                # keel's spec check: something clear is missing (a screen with no mockup, an API with no request path)
+                # → send the spec back to the explorer ONCE, in the same session. Otherwise the gate shows the warnings.
+                found = spec_check.check(await asyncio.to_thread(spec_check.read_spec, ctx.root, spec or state.get("spec")), acs)
+                if any(f["level"] == "fix" for f in found) and not state.get("spec_revisions") \
+                        and ctx.settings.get("spec_check", not ctx.fake):
+                    upd.update(spec_revisions=1, feedback=spec_check.revision_note(found), clarify={},
+                               note=upd["note"] + " · spec check: sent back once")
+                    if spec:
+                        upd["spec"] = spec
+                    return upd, self.nav.jump(step.id, i)
                 upd["acs"] = acs
+                upd["clarify"] = {}
+            elif state.get("clarify_rounds", 0) < clarify.MAX_ROUNDS:
+                # No criteria, but questions: the spec gate shows them as buttons (clarify loop).
+                asked = [q for res, _m, _tb in agent_results for q in clarify.parse_questions(res.text)]
+                upd["clarify"] = {"questions": asked[:clarify.MAX_QUESTIONS]} if asked else {}
             if spec:
                 upd["spec"] = spec
         if self._reviews(step):
@@ -774,6 +789,9 @@ class Compiler:
         options = OPTIONS
         title = step.name + (f" · {ac['id']}" if ac else "")
         no_criteria = not ac and step.phase in ("spec", "triage") and not acs
+        asked = (state.get("clarify") or {}).get("questions") if no_criteria else None
+        if asked:
+            return self._clarify_gate(i, step, state, gates, asked)
         if no_criteria:
             # Nothing real to approve: say so and only allow "send back" with what the agent should do.
             options = ["reject"]
@@ -789,6 +807,8 @@ class Compiler:
             detail = "\n".join(f"{a['id']} [{a.get('layer', 'API')}] {a.get('title', '')}" for a in acs) or (state.get("note") or "")
             if state.get("spec"):
                 detail = f"Spec: {state['spec']}\n{detail}"
+                if step.phase in ("spec", "triage"):
+                    detail += "\n\n" + spec_check.describe(spec_check.check(spec_check.read_spec(ctx.root, state["spec"]), acs))
         answer, extra = self._ask(state, {"step": step.id, "kind": "gate", "title": title, "detail": detail, "options": options})
         decision = answer.get("decision", "reject") if not no_criteria else "reject"
         why = (answer.get("why") or "").strip()
@@ -810,6 +830,24 @@ class Compiler:
             upd["acs"] = _set_ac(acs, ac["id"], "todo")
         upd["feedback"] = why or f"Sent back at {step.name}."
         upd["note"] = f"{step.name} sent back" + (f": {why}" if why else "")
+        target = self.nav.jump(step.back, i) if step.back else self.nav.enter(max(i - 1, 0))
+        return upd, target
+
+    def _clarify_gate(self, i: int, step: Step, state: FlowState, gates: dict, asked: list[dict]):
+        """The explorer's questions as a pause with buttons. Answers (clicked or typed) go back to the explorer."""
+        n = len(asked)
+        answer, extra = self._ask(state, {
+            "step": step.id, "kind": "clarify", "title": f"The explorer has {n} question{'s' if n != 1 else ''} before the spec",
+            "detail": clarify.describe(asked), "questions": asked, "options": ["approve"],
+            "labels": {"approve": "Send my answers"}})
+        payload = answer.get("payload") or {}
+        round_no = int(state.get("clarify_rounds") or 0) + 1
+        text = clarify.answers_text(asked, payload.get("answers"), (answer.get("why") or ""), round_no)
+        gates["log"].append(f"gate {step.id} answered the explorer's {n} question(s)")
+        self.ctx.emit("gate.decided", step=step.id, data={"gate": step.name, "decision": "approve", "why": text[:600],
+                                                          "clarify": True})
+        upd = {"gates": gates, **extra, "feedback": text, "clarify": {}, "clarify_rounds": round_no,
+               "note": f"answered {n} question(s)"}
         target = self.nav.jump(step.back, i) if step.back else self.nav.enter(max(i - 1, 0))
         return upd, target
 

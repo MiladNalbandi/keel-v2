@@ -32,6 +32,14 @@ data class KeelProperties(
     /**
      * keel v1 home: KEEL_HOME, else /opt/keel, else a sibling `keel` checkout (dev).
      */
+    /** keel v2's own skills (spec-clarify, spec-writing): KEEL_V2_SKILLS, else /opt/keel-v2/skills, else ../skills (dev). */
+    val v2Skills: Path by lazy {
+        val env = System.getenv("KEEL_V2_SKILLS")
+        if (!env.isNullOrBlank()) return@lazy Paths.get(env).toAbsolutePath().normalize()
+        listOf("/opt/keel-v2/skills", "../skills", "../../skills").map { Paths.get(it).toAbsolutePath().normalize() }
+            .firstOrNull { Files.isDirectory(it.resolve("spec-clarify")) } ?: Paths.get("/opt/keel-v2/skills")
+    }
+
     val keelHome: Path by lazy {
         if (home.isNotBlank()) return@lazy Paths.get(home).toAbsolutePath().normalize()
         val candidates = listOf("/opt/keel", "../keel", "../../keel").map { Paths.get(it).toAbsolutePath().normalize() }

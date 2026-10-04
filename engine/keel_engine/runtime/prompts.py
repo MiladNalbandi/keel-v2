@@ -60,6 +60,8 @@ def skill_paths(text: str) -> str:
     found: dict[str, list[str]] = {}
     for f in (Path(str(config.keel_home())) / "skills").glob("*/references/*.md"):
         found.setdefault(f.name, []).append(str(f))
+    for f in config.v2_skills().glob("*/references/*.md"):     # keel v2's own copy wins over keel v1's
+        found[f.name] = [str(f)]
 
     def full(m):
         hits = found.get(m.group(1)) or []
@@ -72,7 +74,7 @@ def system_prompt(agent: str, skills: dict[str, str] | None) -> str:
     extra = (skills or {}).get(agent)
     if extra:
         parts.append("## Skills\n\n" + skill_paths(extra) + "\n\nSkill files are under "
-                     f"{config.keel_home()}/skills/; open them by that path, never search the disk for them.")
+                     f"{config.keel_home()}/skills/ and {config.v2_skills()}/; open them by that path, never search the disk for them.")
     parts.append("Commits are made by the engine after a check, never by you. Do not run git commit.")
     return "\n\n".join(parts)
 
@@ -130,6 +132,10 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
         lines.append("Keep the reading short: the request, the README, docs/knowledge/ if it exists, and the files the "
                      "request names. Write the spec file early (before half of your turns are used), then improve it; "
                      "a spec that exists beats a perfect map of the code.")
+        lines.append("Before the criteria: if something the code cannot answer would change them (what \"user\" means, where a "
+                     "filter runs, two reasonable behaviours), write NO spec and end your answer with one ```keel-questions "
+                     "block (max 4 questions, 2-4 options each, the recommended one first, valid JSON; the format is in the "
+                     "spec-clarify skill). The user clicks and you continue this conversation. Ask only what changes the criteria.")
         lines.append("Each criterion is a behaviour a test can check from the outside (what a caller or user sees), "
                      "not a step of the work: \"imports are updated\" or \"all calls use the new name\" are steps, and so "
                      "is \"behaviour stays the same\" when the existing tests already prove it. A small change usually "
@@ -155,7 +161,9 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
             lines.append(f"The engine checks it with: {test_cmd}  (run it to confirm, then stop).")
     if index and not section:
         lines.append(f"You are copy {index + 1} of a parallel step; take a different angle from the others.")
-    if feedback:
+    if feedback and feedback.startswith("Answers to your questions:"):
+        lines.append(feedback)
+    elif feedback:
         lines.append(f"This was sent back. Reason:\n{feedback}")
     return "\n".join(lines)
 
