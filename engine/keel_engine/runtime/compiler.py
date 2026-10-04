@@ -20,6 +20,7 @@ import hashlib
 import logging
 import tempfile
 import uuid
+from pathlib import Path
 
 from langgraph.errors import GraphBubbleUp
 from langgraph.graph import END, START, StateGraph
@@ -32,7 +33,7 @@ from .findings import REVIEWERS, blocking, unique
 from ..tools import git, guard
 from ..tools.agent_tools import ToolBox
 from ..workflows.model import Step, Workflow
-from . import prompts
+from . import init_gates, prompts
 from .actions import ActionInput, ActionResult, revert_manifests, run_action
 from .state import FlowState, ThreadContext, merge_unlocks, normalize_unlocks
 
@@ -172,10 +173,9 @@ class Compiler:
             ctx.emit("step.started", step=step.id, data={
                 "name": step.name, "kind": step.kind, "phase": phase, "ac": ac, "from": prev, "flow": self.wf.flow,
                 "phase_changed": prev != phase, "transition_ok": rules.can_transition(prev, phase)})
-            if step.kind in ("agent", "parallel", "branch"):
-                # keel v1's hooks (claude --plugin-dir, the opencode adapter) read .keel/state.json on every
-                # tool call, so it must show this step's phase, AC and unlocks before the agent starts.
-                await asyncio.to_thread(ctx.write_mirror, {**state, "phase": phase, "current": step.id})
+            # keel v1 reads .keel/state.json: its hooks on every tool call (this step's phase, AC and unlocks must be
+            # there before an agent starts) and `keel status` (a flow whose phase is still "none" looks finished).
+            await asyncio.to_thread(ctx.write_mirror, {**state, "phase": phase, "current": step.id})
             update, goto = await fn(i, step, {**state, "phase": phase})
             if len(merged) != len(have):
                 update.setdefault("unlocks", merged)
@@ -288,9 +288,12 @@ class Compiler:
                 raise
             except Exception as exc:
                 emit("error", f"{exc}{(' ' + exc.hint) if getattr(exc, 'hint', '') else ''}", ok=False)
-                ctx.emit("agent.finished", step=step.id, call_id=call_id, data={"agent": agent, "status": "failed", "tokens_in": 0,
-                                                                                "tokens_out": 0, "cost_usd": 0, "premium_requests": 0,
-                                                                                "result": str(exc)[:500]})
+                used = getattr(exc, "usage", None) or {}
+                # A failed run still used tokens (a turn limit after 30 turns is not free): the job and the budget count them.
+                ctx.emit("agent.finished", step=step.id, call_id=call_id, data={
+                    "agent": agent, "status": "failed", "tokens_in": used.get("tokens_in", 0), "tokens_out": used.get("tokens_out", 0),
+                    "tokens_cached": used.get("tokens_cached", 0), "cost_usd": round(used.get("cost_usd", 0.0), 6),
+                    "premium_requests": 0, "result": str(exc)[:500]})
                 raise
         if not res.cost_usd and model.get("mode") == "api" and model["provider"] != "fake":
             res.cost_usd = catalog.cost_usd(model["provider"], model.get("model", ""), res.tokens_in, res.tokens_out)
@@ -356,9 +359,18 @@ class Compiler:
         if step.kind == "agent":
             calls = [(step.agent or "", 0)]
         elif step.lanes:
+            lane_sections: dict[int, str] = {}
             for lane in step.lanes:
                 if lane.kind == "agent":
-                    calls += [(lane.sub or step.agent or "", k) for k in range(max(1, step.parallel or 1))]
+                    who = lane.sub or step.agent or ""
+                    chosen = (state.get("init") or {}).get("knowledge_sections")
+                    if who == "librarian" and isinstance(chosen, list):
+                        # init: one librarian per section the user chose, each told its section (none: no librarian).
+                        for sec in chosen:
+                            lane_sections[len(calls)] = sec
+                            calls.append((who, len(lane_sections) - 1))
+                    else:
+                        calls += [(who, k) for k in range(max(1, step.parallel or 1))]
                 elif lane.sub:
                     code_lanes.append(lane.sub)
         else:
@@ -366,6 +378,8 @@ class Compiler:
         sections = self._sections(step, state)
         if sections:
             calls = [(step.agent or "librarian", k) for k in range(len(sections))]
+        section_of = {n: sections[k] for n, (_a, k) in enumerate(calls)} if sections else \
+            (dict(lane_sections) if step.lanes else {})
 
         before = await asyncio.to_thread(guard.snapshot, ctx.root)
         ac = _ac(state) if step.per_ac else None
@@ -376,15 +390,37 @@ class Compiler:
                 raise LaneFailed(f"{action}: {r.note}\n{r.detail}")
             return r
 
+        done = ctx.done_calls
+        attempt = f"{step.id}|{(ac or {}).get('id', '')}"
+
+        async def one(n: int, a: str, k: int):
+            key = f"{attempt}|{a}|{k}"
+            if key in done:
+                return done[key]
+            r = await self._run_agent(state, step, a, k, section_of.get(n))
+            if len(calls) > 1:
+                done[key] = r
+            return r
+
         while True:
             try:
-                out = await asyncio.gather(*[self._run_agent(state, step, a, k, sections[k] if sections else None) for a, k in calls],
-                                           *[lane(c) for c in code_lanes])
+                outs = await asyncio.gather(*[one(n, a, k) for n, (a, k) in enumerate(calls)], *[lane(c) for c in code_lanes], return_exceptions=True)
+                for o in outs:
+                    if isinstance(o, (asyncio.CancelledError, GraphBubbleUp)):
+                        raise o
+                failed = [o for o in outs if isinstance(o, BaseException)]
+                if failed:
+                    raise failed[0]
+                out = list(outs)
                 break
             except (asyncio.CancelledError, GraphBubbleUp):
                 raise
             except Exception as exc:
                 log.warning("step %s failed: %s", step.id, exc)
+                if len(calls) > 1:
+                    kept = sum(1 for key in done if key.startswith(attempt + "|"))
+                    if kept:
+                        exc.args = (f"{exc} ({kept} of {len(calls)} agents finished; try again runs only the others)",)
                 answer, extra = self._ask(state, {"step": step.id, "kind": "fix", "title": f"{step.name} failed",
                                                   "detail": f"{exc}{(' ' + exc.hint) if getattr(exc, 'hint', '') else ''}\n\nApprove to try again, reject to stop the flow.",
                                                   "options": OPTIONS})
@@ -393,6 +429,8 @@ class Compiler:
                 if (answer or {}).get("decision") != "approve":
                     return {**upd, "status": "failed", "error": str(exc)[:500], "note": f"{step.name} failed"}, END
 
+        for key in [key for key in done if key.startswith(attempt + "|")]:
+            del done[key]
         agent_results = [o for o in out if isinstance(o, tuple)]
         lane_notes = [o.note for o in out if isinstance(o, ActionResult)]
         for o in out:
@@ -518,6 +556,12 @@ class Compiler:
         secs = [str(x) for x in self.ctx.settings.get("sections") or [] if str(x).strip()]
         if not secs and (self.wf.flow == "knowledge-refresh" or all(a["id"] in KNOWN_SECTIONS for a in state.get("acs") or [{"id": "-"}])):
             secs = [a["id"] for a in state.get("acs") or []]
+        if not secs and self.wf.flow == "knowledge-refresh":
+            # Started without a list (the plain "start a flow" form): the sections init chose, else the ones that
+            # exist, else all five. A librarian always gets its own section; without one it wanders.
+            chosen = (rules.load_config(self.ctx.root).get("init") or {}).get("knowledge_sections")
+            have = [s for s in init_gates.SECTIONS if (Path(self.ctx.root) / "docs" / "knowledge" / f"{s}.md").is_file()]
+            secs = list(chosen) if isinstance(chosen, list) and chosen else (have or list(init_gates.SECTIONS))
         return secs
 
     def _acs_from(self, results) -> tuple[list[dict], str | None]:
@@ -543,7 +587,7 @@ class Compiler:
         return [], None
 
     def _action_input(self, state: FlowState, ac: dict | None) -> ActionInput:
-        return ActionInput(root=self.ctx.root, phase=state["phase"], title=self.ctx.title, ac=ac,
+        return ActionInput(root=self.ctx.root, phase=state["phase"], title=self.ctx.title, ac=ac, init=dict(state.get("init") or {}),
                            acs=copy.deepcopy(state.get("acs") or []), fake=self.ctx.simulate_checks, flow=self.wf.flow,
                            deps=list(state.get("deps") or []), gates_log=list((state.get("gates") or {}).get("log") or []),
                            base=state.get("base_head"), unlocks=list(state.get("unlocks") or []),
@@ -696,6 +740,8 @@ class Compiler:
             if not due["due"]:
                 gates["log"].append(f"ac {ac['id']} approve: no gate here ({due['why']})")
                 return {"gates": gates, "acs": _set_ac(acs, ac["id"], "done"), "note": f"no gate: {due['why']}"}, self.nav.after(i)
+        if self.wf.flow == "init" and step.id == "questions":
+            return self._init_questions(step, state, gates), self.nav.after(i)
         options = OPTIONS
         title = step.name + (f" · {ac['id']}" if ac else "")
         no_criteria = not ac and step.phase in ("spec", "triage") and not acs
@@ -706,6 +752,8 @@ class Compiler:
             said = (state.get("last_answer") or state.get("note") or "").strip()
             detail = ("The spec step wrote no acceptance criteria, so there is nothing to approve yet. "
                       "Send it back and say what to build.\n\nWhat the agent said:\n" + said[:1200])
+        elif self.wf.flow == "init" and step.id == "plan_gate":
+            detail = init_gates.plan(ctx.root, state.get("init") or init_gates.defaults(ctx.root))
         elif ac:
             detail = f"{ac['id']} [{ac.get('layer', 'API')}] {ac.get('title', '')}\nLast step: {state.get('note', '')}"
         else:
@@ -735,6 +783,19 @@ class Compiler:
         upd["note"] = f"{step.name} sent back" + (f": {why}" if why else "")
         target = self.nav.jump(step.back, i) if step.back else self.nav.enter(max(i - 1, 0))
         return upd, target
+
+    def _init_questions(self, step: Step, state: FlowState, gates: dict) -> dict:
+        """keel init's three questions: approve = the defaults, "Use my answers" = the user's words. Both go on."""
+        answer, extra = self._ask(state, {
+            "step": step.id, "kind": "gate", "title": "three questions", "detail": init_gates.questions(self.ctx.root),
+            "options": OPTIONS, "labels": {"approve": "Use the defaults", "reject": "Use my answers"}})
+        why = (answer.get("why") or "").strip()
+        mine = answer.get("decision") == "reject" and why
+        init = init_gates.answers(self.ctx.root, why if mine else None)
+        gates["log"].append(f"gate questions: {'answered: ' + why if mine else 'defaults'}")
+        self.ctx.emit("gate.decided", step=step.id, data={"gate": step.name, "decision": "approve", "why": why if mine else "defaults"})
+        return {"gates": gates, **extra, "init": init,
+                "note": "answers: " + ", ".join(f"{k} {v}" for k, v in init.items() if k != "said")[:300]}
 
     async def branch_step(self, i: int, step: Step, state: FlowState):
         yes = True

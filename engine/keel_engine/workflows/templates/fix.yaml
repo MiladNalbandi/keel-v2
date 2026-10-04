@@ -4,6 +4,7 @@ keel_rules: true
 version: 1
 steps:
   - { id: repro, kind: agent, name: bug-repro, agent: reproducer, model: default, phase: bug-repro }
+  - { id: verify_repro, kind: code, name: verify red + commit, action: verify_red+commit, lock: true, phase: bug-repro }
   - { id: gate_r, kind: gate, name: gate R, back: repro, lock: true, phase: gate-r }
   - { id: investigate, kind: agent, name: bug-investigate, agent: investigator, model: default, phase: bug-investigate }
   - { id: gate_f, kind: gate, name: gate F, back: investigate, lock: true, phase: gate-f }

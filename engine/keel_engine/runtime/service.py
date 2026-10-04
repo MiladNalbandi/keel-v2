@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -72,6 +73,12 @@ class Engine:
             async with self.conn.execute("select thread_id from keel_threads where status = 'running'") as cur:
                 rows = await cur.fetchall()
             for (tid,) in rows:
+                try:
+                    await self.set_root(tid, None)
+                except EngineError as exc:
+                    log.warning("not continuing thread %s: %s", tid, exc)
+                    await self._set_status(tid, "failed", f"{exc} {exc.hint or ''}".strip())
+                    continue
                 log.info("continuing thread %s after a restart", tid)
                 self._launch(tid, None)
 
@@ -142,8 +149,8 @@ class Engine:
             async for values in graph.astream(inp, cfg or self._cfg(tid), stream_mode="values"):
                 self._mirror(ctx, values)
             snap = await graph.aget_state(self._cfg(tid))
-            self._mirror(ctx, snap.values)
             waiting = self._waiting(snap)
+            self._mirror(ctx, self._at_pause(ctx, snap) if waiting else snap.values)
             if waiting:
                 await self._set_status(tid, "waiting")
                 kind = waiting.get("kind")
@@ -167,6 +174,21 @@ class Engine:
             log.exception("thread %s failed", tid)
             await self._set_status(tid, "failed", f"{type(exc).__name__}: {exc}"[:1000])
             ctx.emit("thread.failed", data={"error": f"{type(exc).__name__}: {exc}"[:1000]})
+
+    @staticmethod
+    def _at_pause(ctx: ThreadContext, snap) -> dict:
+        """The state keel v1 should see while a step waits for the user.
+
+        A paused node has not returned yet, so the graph values still hold the step before it (on the first step:
+        phase "none", which keel v1 reads as "no active flow"). Show the paused step and its phase instead.
+        """
+        values = dict(snap.values or {})
+        node = next(iter(snap.next or ()), None)
+        if not node:
+            return values
+        step = ctx.workflow.step(node[: -len("__fix")] if node.endswith("__fix") else node)
+        phase = "review-fix" if node.endswith("__fix") else ((step.phase if step else None) or values.get("phase") or "none")
+        return {**values, "current": node, "phase": phase, "status": "waiting"}
 
     def _mirror(self, ctx: ThreadContext, values: dict):
         if not values:
@@ -276,6 +298,33 @@ class Engine:
             out["error"] = err
         return out
 
+    async def set_root(self, tid: str, root: str | None) -> None:
+        """Moves a thread to its project's folder now, and refuses to go on in a folder that is gone.
+
+        A thread keeps the folder it started in. Started again another way (`keel2 start --docker` mounts the
+        project at its real path instead of /workspace), the old folder is empty or missing: agents there would
+        work on nothing and the commits would go nowhere.
+        """
+        row = await self._row(tid)
+        old = row["root"]
+        if not root and not _project_there(old):
+            root = relocate(old)
+        if root and root != old:
+            if not _project_there(root):
+                raise EngineError(409, f"The project folder {root} is empty or missing.", "Check how keel was started (keel2 status).")
+            await self.conn.execute("update keel_threads set root = ? where thread_id = ?", (root, tid))
+            await self.conn.commit()
+            ctx = self.ctxs.get(tid)
+            if ctx:
+                ctx.root = root
+                self.bus.register(tid, root)
+            log.info("thread %s moved from %s to %s", tid, old, root)
+            return
+        if not _project_there(old):
+            raise EngineError(409, f"This flow's project folder {old} is empty or missing.",
+                              "keel was started another way since this flow began (for example with or without --docker). "
+                              "Start keel the same way again, or start a new flow.")
+
     async def set_keys(self, tid: str, keys: dict) -> None:
         """Logins are kept in memory only (never stored), so after an engine restart the api sends them again."""
         await self._row(tid)
@@ -342,6 +391,7 @@ class Engine:
         await self._row(tid)
         graph = await self._graph(tid)
         ctx = await self._context(tid)
+        ctx.done_calls.clear()
         target = None
         async for snap in graph.aget_state_history(self._cfg(tid)):
             if snap.config["configurable"]["checkpoint_id"] == checkpoint_id:
@@ -372,3 +422,28 @@ class Engine:
         await self._set_status(tid, "running")
         self._launch(tid, None, self._cfg(tid, checkpoint_id))
         return await self.state(tid)
+
+
+def _project_there(root: str | None) -> bool:
+    """A git repo, or a folder of them; not a folder that holds nothing but keel's own .keel/."""
+    if not root or not os.path.isdir(root):
+        return False
+    if git.is_repo(root):
+        return True
+    return any(name != ".keel" for name in os.listdir(root))
+
+
+def relocate(old: str | None) -> str | None:
+    """Where a thread's project is now, when keel2 mounts it the other way (/workspace <-> its real path)."""
+    if not old:
+        return None
+    ws = str(config.workspace())
+    cands = []
+    if old == "/workspace" or old.startswith("/workspace/"):
+        cands.append(ws + old[len("/workspace"):])
+    elif ws == "/workspace":
+        name = os.path.basename(old.rstrip("/"))
+        if name == os.environ.get("KEEL_PROJECT_NAME"):
+            cands.append("/workspace")
+        cands.append(f"/workspace/{name}")
+    return next((c for c in cands if c != old and _project_there(c)), None)

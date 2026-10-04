@@ -88,4 +88,14 @@ class LoginTokensApiTest : ApiTest() {
         post("/api/threads/$tid/resume", mapOf("decision" to "approve")).andExpect(status().isOk)
         assertThat(engine.lastBody("/threads/$tid/resume")!!["keys"]["claude_oauth"].asText()).isEqualTo(claudeToken)
     }
+
+    @Test
+    fun `resume and rewind send the project's folder now, so a flow follows a moved mount`() {
+        val (pid, root) = newProject("resume-root")
+        val tid = post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "x", "allow_fake" to true)).json()["thread_id"].asText()
+        post("/api/threads/$tid/resume", mapOf("decision" to "approve")).andExpect(status().isOk)
+        assertThat(engine.lastBody("/threads/$tid/resume")!!["root"].asText()).isEqualTo(root.toString())
+        post("/api/threads/$tid/rewind", mapOf("checkpoint_id" to "c1"))
+        assertThat(engine.lastBody("/threads/$tid/rewind")!!["root"].asText()).isEqualTo(root.toString())
+    }
 }

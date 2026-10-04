@@ -65,3 +65,33 @@ def test_output_tail_starts_at_a_whole_line():
     first, second = t.split("\n")[:2]
     assert first.endswith("earlier lines not shown") and second.startswith("line ") and second.endswith("some text")
     assert t.endswith("line 199 some text") and tail("short", 300) == "short"
+
+
+def test_keel_v1_sees_a_flow_that_waits_at_its_first_step(client, repo, monkeypatch):
+    """A spec step that fails pauses before its node returns; state.json must still say phase spec (not none)."""
+    import json as _json
+    from pathlib import Path as _P
+    from keel_engine.models import fake as fake_mod
+    from conftest import start, wait
+
+    def boom(req):
+        raise RuntimeError("explorer broke")
+    monkeypatch.setattr(fake_mod, "_plan", boom)
+    tid = start(client, repo)
+    s = wait(client, tid)
+    assert s["status"] == "waiting" and s["waiting"]["kind"] == "fix"
+    st = _json.loads((_P(repo) / ".keel" / "state.json").read_text())
+    assert st["flow"] == "feature" and st["phase"] == "spec"
+    assert st["engine"]["status"] == "waiting" and st["engine"]["step"] == "spec"
+
+
+def test_init_writes_the_test_command_keel_detects(tmp_path):
+    import json as _json
+    from keel_engine.runtime.actions import _detect
+    (tmp_path / "package.json").write_text(_json.dumps({"scripts": {"test": "node --test"}}))
+    assert _detect(str(tmp_path))["commands"] == {"api_test_ac": "npm test --silent -- --test-name-pattern={AC}",
+                                                 "api_test_module": "npm test --silent"}
+    (tmp_path / "package.json").write_text(_json.dumps({"scripts": {"test": "jest"}}))
+    assert _detect(str(tmp_path))["commands"]["api_test_ac"] == "npm test --silent -- -t {AC}"
+    py = tmp_path / "py"; py.mkdir(); (py / "pyproject.toml").write_text("[project]\nname='x'\n")
+    assert _detect(str(py))["commands"]["api_test_ac"] == "python -m pytest -q -k {AC_KEY}"

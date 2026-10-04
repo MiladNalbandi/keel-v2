@@ -208,10 +208,14 @@ class FlowService(
         return keysFor(models)
     }
 
+    /** The thread's project folder now: it moves when keel is started another way (keel2 start --docker). */
+    private fun rootNow(tid: String): String? = threadProject(tid)?.let { runCatching { projects.root(it).toString() }.getOrNull() }
+
     fun resume(tid: String, decision: String, why: String?, payload: Map<String, Any?>?): JsonNode {
         if (decision !in setOf("approve", "reject")) throw BadRequest("decision must be approve or reject")
         val keys = keysForThread(tid).takeIf { it.isNotEmpty() }
-        val state = engine.resume(tid, mapOf("decision" to decision, "why" to why, "payload" to payload, "keys" to keys).filterValues { it != null })
+        val state = engine.resume(tid, mapOf("decision" to decision, "why" to why, "payload" to payload, "keys" to keys,
+            "root" to rootNow(tid)).filterValues { it != null })
         save(tid, state)
         threadProject(tid)?.let { hub.publish(it, "project.changed", mapOf("id" to it)) }
         return state
@@ -229,7 +233,7 @@ class FlowService(
 
     fun rewind(tid: String, checkpointId: String): JsonNode {
         if (checkpointId.isBlank()) throw BadRequest("checkpoint_id is missing")
-        val state = engine.rewind(tid, checkpointId, keysForThread(tid).takeIf { it.isNotEmpty() })
+        val state = engine.rewind(tid, checkpointId, keysForThread(tid).takeIf { it.isNotEmpty() }, rootNow(tid))
         save(tid, state)
         return state
     }

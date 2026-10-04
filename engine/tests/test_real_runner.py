@@ -130,3 +130,28 @@ def test_unmatched_node_pattern_is_not_already_met():
     assert testcmd.ac_test_passed("ok 2 - AC-1 ranks\n# tests 2\n", "AC-1") is True
     assert testcmd.ac_test_passed("1 passed, 3 deselected in 0.02s", "AC-1") is None
     assert not testcmd.ran_no_tests("# tests 5\n# suites 0\n# pass 1\n# fail 0\n# skipped 4\n")
+
+
+def test_turn_limit_is_explained_and_token_counts_are_not_a_rate_limit():
+    from keel_engine.models.cli import classify_failure
+    out = ('{"type":"assistant","message":{"usage":{"input_tokens":429}}}\n'
+           '{"type":"result","subtype":"error_max_turns","num_turns":21,"is_error":true,"modelUsage":{"claude-haiku-4-5":'
+           '{"inputTokens":429,"outputTokens":15,"contextWindow":200000}},"terminal_reason":"max_turns"}\n')
+    e = classify_failure("claude", out, "", 1)
+    assert str(e).startswith("The agent used all its turns (21)") and "{" not in str(e)
+    assert "maxTurns" in e.hint
+    e2 = classify_failure("claude", '{"type":"assistant","usage":{"input_tokens":429}}\n', "", 1)
+    assert "usage limit" not in str(e2) and "{" not in str(e2)
+    e3 = classify_failure("claude", "", "Error: 429 Too Many Requests", 1)
+    assert "usage limit" in str(e3)
+
+
+def test_the_spec_step_gives_the_explorer_more_turns(tmp_path, monkeypatch):
+    from keel_engine.runtime import prompts
+    (tmp_path / "agents").mkdir()
+    (tmp_path / "agents" / "explorer.md").write_text("---\nname: explorer\nmaxTurns: 20\n---\nYou map code.\n")
+    monkeypatch.setenv("KEEL_HOME", str(tmp_path))
+    assert prompts.max_turns("explorer") == 20
+    assert prompts.max_turns("explorer", "spec") == 40
+    assert prompts.max_turns("explorer", "triage") == 40
+    assert prompts.max_turns("explorer", "red") == 20

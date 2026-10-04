@@ -49,6 +49,7 @@ class ActionInput:
     base: str | None = None                            # HEAD when the thread started: the branch diff starts here
     unlocks: list[dict] = field(default_factory=list)
     preexisting: dict = field(default_factory=dict)    # the user's uncommitted files at start: {path: fingerprint}
+    init: dict = field(default_factory=dict)           # keel init's answers (runs_on, services, knowledge_sections)
 
 
 async def run_action(action: str, a: ActionInput) -> ActionResult:
@@ -277,13 +278,12 @@ def revert_manifests(root: str, files: list[str]):
 def _detect(root: str) -> dict:
     r = Path(root)
     cfg: dict = {"version": 4}
-    if (r / "gradlew").exists():
-        cfg["commands"] = {"api_test_ac": "./gradlew -q test --tests '*{AC}*'", "api_test_module": "./gradlew -q test"}
-    elif (r / "pyproject.toml").exists():
+    if (r / "pyproject.toml").exists():
         cfg["backend"] = {"dir": "", "build": "python -m pytest"}
-        cfg["commands"] = {"api_test_ac": "python -m pytest -q -k {AC_KEY}", "api_test_module": "python -m pytest -q"}
-    elif (r / "package.json").exists():
-        cfg["commands"] = {"api_test_ac": "npm test --silent -- -t {AC}", "api_test_module": "npm test --silent"}
+    # The same commands keel uses without a config (node:test needs --test-name-pattern, not Jest's -t).
+    cmds = testcmd.config_commands(root)
+    if cmds:
+        cfg["commands"] = cmds
     if (r / "docs" / "specs").is_dir():
         cfg["specs"] = {"dir": "docs/specs"}
     return cfg
@@ -294,7 +294,10 @@ def write_config(a: ActionInput) -> ActionResult:
     if f.exists():
         return ActionResult(True, ".keel/config.yml already exists; left as it is.")
     f.parent.mkdir(parents=True, exist_ok=True)
-    f.write_text("# Written by keel v2 init. Edit freely.\n" + yaml.safe_dump(_detect(a.root), sort_keys=False))
+    cfg = _detect(a.root)
+    if a.init:
+        cfg["init"] = {k: v for k, v in a.init.items() if k != "said"}
+    f.write_text("# Written by keel v2 init. Edit freely.\n" + yaml.safe_dump(cfg, sort_keys=False))
     return ActionResult(True, "Wrote .keel/config.yml.", f.read_text())
 
 

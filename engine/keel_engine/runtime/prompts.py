@@ -29,15 +29,22 @@ def _agent_file(home: str, agent: str) -> str | None:
     return re.sub(r"\A---\n.*?\n---\n", "", text, flags=re.S).strip()
 
 
-def max_turns(agent: str) -> int | None:
+# Steps where an agent does more than its keel v1 role: the explorer only maps code in keel v1 (20 turns), but in
+# keel v2's spec and triage steps it also writes the spec.
+WRITING_TURNS = {("explorer", "spec"): 40, ("explorer", "triage"): 40}
+
+
+def max_turns(agent: str, phase: str | None = None) -> int | None:
     """maxTurns from keel's agent file front matter (explorer: 20), so one step cannot run away."""
     from pathlib import Path
 
     f = Path(str(config.keel_home())) / "agents" / f"{agent}.md"
-    if not f.is_file():
-        return None
-    m = re.search(r"\A---\n.*?^maxTurns:\s*(\d+)\s*$.*?\n---\n", f.read_text(), flags=re.S | re.M)
-    return int(m.group(1)) if m else None
+    n = None
+    if f.is_file():
+        m = re.search(r"\A---\n.*?^maxTurns:\s*(\d+)\s*$.*?\n---\n", f.read_text(), flags=re.S | re.M)
+        n = int(m.group(1)) if m else None
+    more = WRITING_TURNS.get((agent, phase or ""))
+    return max(n or 0, more) if more and n is not None else n
 
 
 def role_text(agent: str) -> str:
@@ -79,6 +86,10 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
         tpl = config.keel_home() / "templates" / "knowledge"
         lines.append(f"Section templates: {tpl}/<section>.md (read only the ones you write). Do not read keel's own "
                      "source code; everything you need is in the project and these templates.")
+        chosen = ((rules.load_config(root) or {}).get("init") or {}).get("knowledge_sections")
+        if phase == "setup" and not section and isinstance(chosen, list):
+            lines.append("Knowledge sections the user chose: " + (", ".join(chosen) if chosen else "none — write nothing")
+                         + ". Write only these, one file each under docs/knowledge/.")
         if phase == "memory" and not section:
             lines.append("At the end of a flow: update only the knowledge sections this branch changes (see git diff "
                          "against the base branch), and only with facts from this branch. Keep each section short.")
@@ -90,6 +101,13 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
     if ac:
         lines.append(f"Current criterion: {ac['id']} [{ac.get('layer', 'API')}] {ac.get('title', '')}")
     if phase in ("spec", "triage") and not acs:
+        lines.append("Keep the reading short: the request, the README, docs/knowledge/ if it exists, and the files the "
+                     "request names. Write the spec file early (before half of your turns are used), then improve it; "
+                     "a spec that exists beats a perfect map of the code.")
+        lines.append("Each criterion is a behaviour a test can check from the outside (what a caller or user sees), "
+                     "not a step of the work: \"imports are updated\" or \"all calls use the new name\" are steps, and so "
+                     "is \"behaviour stays the same\" when the existing tests already prove it. A small change usually "
+                     "needs one to three criteria.")
         lines.append("Write the spec under docs/specs/ with numbered criteria, one per line, in this form:\n"
                      "- **AC-1** [API] <what must be true>\n"
                      "Write real criteria for what the user asked for. If the request is too unclear to write any, write no "

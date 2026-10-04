@@ -23,6 +23,23 @@ def command_for(root: str, ac: str | None = None, layer: str = "API") -> str | N
     cfg_file = Path(root) / ".keel" / "config.yml"
     if custom and cfg_file.is_file():
         return custom.replace("{AC_KEY}", _pytest_key(ac or "")).replace("{AC}", ac or "")
+    return detected(root, ac)
+
+
+def config_commands(root: str) -> dict:
+    """The detected commands in .keel/config.yml form ({AC} / {AC_KEY} placeholders), for init to write."""
+    mark = "ZZACZZ"
+    one, all_ = detected(root, mark), detected(root)
+    out = {}
+    if one:
+        out["api_test_ac"] = one.replace(_pytest_key(mark), "{AC_KEY}").replace(mark, "{AC}")
+    if all_:
+        out["api_test_module"] = all_
+    return out
+
+
+def detected(root: str, ac: str | None = None) -> str | None:
+    """The test command keel finds by itself (no .keel/config.yml)."""
     r = Path(root)
     if (r / "gradlew").exists():
         return f"./gradlew -q test --tests '*{ac}*'" if ac else "./gradlew -q test"

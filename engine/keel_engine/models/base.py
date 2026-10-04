@@ -55,6 +55,7 @@ class Runner(Protocol):
 
 
 class ModelError(Exception):
-    def __init__(self, message: str, hint: str = ""):
+    def __init__(self, message: str, hint: str = "", usage: dict | None = None):
         super().__init__(message)
         self.hint = hint
+        self.usage = usage or {}   # what a failed run still used: tokens_in, tokens_out, tokens_cached, cost_usd
