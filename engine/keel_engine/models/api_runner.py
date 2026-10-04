@@ -82,25 +82,34 @@ class APIRunner:
                 messages.append(ToolMessage(content=out[:20000], tool_call_id=call["id"]))
         else:
             emit("error", f"Stopped after {MAX_TURNS} turns.")
-        emit("answer", text[:4000])
+        emit("answer", text[:20000])
         premium = 1 if provider == "copilot" else 0
         return AgentResult(text=text, tokens_in=tin, tokens_out=tout, cost_usd=catalog.cost_usd(provider, model, tin, tout),
                            premium_requests=premium)
 
     @staticmethod
     def _step(emit: Emit, req: AgentRequest, name: str, args: dict, out: str, ms: int):
+        from .cli_runners import OUTPUT_LINES, READ_LINES, cap, diff_stat, head_lines
+
         refused = out.startswith("REFUSED")
-        if name == "write_file" and not refused:
-            w = req.toolbox.writes[-1] if req.toolbox.writes else {}
-            emit("write" if w.get("new") else "edit", f"Write {args.get('path')}", path=args.get("path"), diff=w.get("diff"), ms=ms, ok=True)
-            return
+        ok = not out.startswith("ERROR")
         if refused:
             emit("guard", out, tool=name, path=args.get("path"), ok=False, ms=ms)
             return
-        if name.startswith("mcp__"):
+        if name == "write_file":
+            w = req.toolbox.writes[-1] if req.toolbox.writes else {}
+            diff = w.get("diff") or ""
+            emit("write" if w.get("new") else "edit", f"Write {args.get('path')} ({diff_stat(diff)})", path=args.get("path"),
+                 diff=cap(diff), ms=ms, ok=True)
+        elif name == "read_file" and ok:
+            emit("read", head_lines(out, READ_LINES), path=args.get("path"), ms=ms, ok=True)
+        elif name.startswith("mcp__"):
             _, server, tool = (name.split("__", 2) + ["", ""])[:3]
-            emit("tool", f"{server} {tool}", tool=tool, server=server, ms=ms, ok=not out.startswith("ERROR"))
+            emit("tool", cap(json.dumps(args, ensure_ascii=False), 2000) if args else "", tool=tool, server=server,
+                 output=head_lines(out, OUTPUT_LINES), ms=ms, ok=ok)
         else:
-            target = args.get("path") or args.get("command") or args.get("ac") or ""
-            emit("tool", f"{name} {target}".strip(), tool=name, path=args.get("path"), ms=ms, ok=not out.startswith("ERROR"))
-        emit("result", out[:2000], tool=name)
+            if name in ("run_command", "run_tests"):
+                ok = ok and out.startswith("exit 0")
+            target = args.get("command") or args.get("path") or args.get("ac") or ""
+            emit("tool", cap(str(target), 4000), tool="Bash" if name == "run_command" else name, path=args.get("path"),
+                 output=head_lines(out, OUTPUT_LINES), ms=ms, ok=ok)

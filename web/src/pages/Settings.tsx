@@ -54,7 +54,7 @@ export function show(row: Row, v: unknown): string {
   switch (row.kind.t) {
     case "select": return row.kind.opts.find(([k]) => k === String(v))?.[1] ?? String(v);
     case "bool": return v ? row.kind.on ?? "on" : row.kind.off ?? "off";
-    case "model": { const m = v as Model; return `${PROV[m.provider] ?? m.provider} ${m.model}`; }
+    case "model": { const m = v as Model; return `${PROV[m.provider] ?? m.provider} ${m.model}${m.effort ? ` (${m.effort})` : ""}`; }
     case "tokens": return `${kfmt(Number(v))} tokens`;
     case "list": return (v as string[]).length ? (v as string[]).join(", ") : "none";
     default: return String(v);
@@ -95,7 +95,7 @@ function Control({ row, value, onSave }: { row: Row; value: unknown; onSave: (v:
         </select>
       );
     case "model":
-      return <ModelPicker id={id} value={value as Model} onChange={(m) => onSave(m)} effort={false} />;
+      return <ModelPicker id={id} value={value as Model} onChange={(m) => onSave(m)} />;
     case "text":
       return <><input {...textProps} list={`${id}-l`} /><datalist id={`${id}-l`}>{k.suggest?.map((s) => <option key={s} value={s} />)}</datalist></>;
     default:

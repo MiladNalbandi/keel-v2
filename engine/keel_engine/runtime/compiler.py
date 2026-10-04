@@ -28,6 +28,7 @@ from langgraph.types import Command, interrupt
 from .. import models, rules
 from ..models import catalog
 from ..models.base import AgentRequest, AgentResult
+from .findings import REVIEWERS, blocking, unique
 from ..tools import git, guard
 from ..tools.agent_tools import ToolBox
 from ..workflows.model import Step, Workflow
@@ -40,12 +41,36 @@ log = logging.getLogger(__name__)
 AC_BEGIN, AC_END, FINISH = "__ac_begin", "__ac_end", "__finish"
 KNOWN_SECTIONS = {"architecture", "domain", "conventions", "data", "integrations"}
 OPTIONS = ["approve", "reject"]
+ALREADY_MET = "already-met"
+DONE = ("done", ALREADY_MET)        # AC statuses the per-AC loop is finished with
+STEP_FIELD_MAX = 24_000          # per string field of an agent.step (runners already cap at 20 KB plus a note)
 
 
 
 def budget_tokens(usage: dict) -> int:
     """Tokens that count toward caps: new input + output + a tenth of cache reads (they cost about a tenth)."""
     return int(usage.get("tokens_in", 0)) + int(usage.get("tokens_out", 0)) + int(usage.get("tokens_cached", 0)) // 10
+
+
+def question_id(question: dict) -> str:
+    """Names a question by what it asks (not its detail, which changes between runs)."""
+    raw = "|".join(str(question.get(k) or "") for k in ("step", "kind", "title"))
+    return hashlib.sha1(raw.encode()).hexdigest()[:12]
+
+
+def ask_once(question: dict) -> dict:
+    """interrupt(), but an answer only counts for the question it was given to.
+
+    A resumed node runs again from the top, so it can reach a different question first (verify_red: "keeps
+    failing" before, "already passes" now). The resume carries `asked` = the id the user saw; when it does not
+    match, the node pauses again on the new question. LangGraph keeps one resume value per interrupt() in a node.
+    """
+    qid = question_id(question)
+    question = {**question, "id": qid}
+    answer = interrupt(question) or {}
+    while answer.get("asked") and answer["asked"] != qid:
+        answer = interrupt(question) or {}
+    return answer
 
 class LaneFailed(Exception):
     pass
@@ -94,6 +119,10 @@ class Nav:
         return None
 
 
+def fix_id(review_id: str) -> str:
+    return f"{review_id}__fix"
+
+
 def _ac(state: FlowState) -> dict | None:
     return next((a for a in state.get("acs") or [] if a["id"] == state.get("ac")), None)
 
@@ -116,6 +145,10 @@ class Compiler:
             fn = {"agent": self.agent_step, "parallel": self.agent_step, "code": self.code_step,
                   "gate": self.gate_step, "branch": self.branch_step}[step.kind]
             g.add_node(step.id, self._wrap(i, step, fn))
+            if self._reviews(step):
+                fix = Step(id=fix_id(step.id), kind="agent", name=f"{step.name}: fix findings", agent="implementer",
+                           model=step.model, phase="review-fix")
+                g.add_node(fix.id, self._wrap(i, fix, self.findings_step))
         g.add_node(AC_BEGIN, self.ac_begin)
         g.add_node(AC_END, self.ac_end)
         g.add_node(FINISH, self.finish)
@@ -161,14 +194,15 @@ class Compiler:
     async def ac_begin(self, state: FlowState):
         if state.get("status") in ("stopped", "failed"):
             return Command(goto=END)
-        nxt = next((a for a in state.get("acs") or [] if a.get("status") != "done"), None)
+        nxt = next((a for a in state.get("acs") or [] if a.get("status") not in DONE), None)
         if not nxt:
             return Command(update={"ac": None}, goto=self.nav.after_loop())
         return Command(update={"ac": nxt["id"], "retries": {}}, goto=self.wf.steps[self.nav.first].id)
 
     async def ac_end(self, state: FlowState):
         acs = state.get("acs") or []
-        if state.get("ac"):
+        cur = next((a for a in acs if a["id"] == state.get("ac")), None)
+        if cur and cur.get("status") != ALREADY_MET:
             acs = _set_ac(acs, state["ac"], "done")
         return Command(update={"acs": acs}, goto=AC_BEGIN)
 
@@ -194,7 +228,7 @@ class Compiler:
 
         Returns (answer, state update). An unlock is added to state.unlocks and logged as a gate event.
         """
-        answer = interrupt(question) or {}
+        answer = ask_once(question)
         payload = answer.get("payload") or {}
         new = normalize_unlocks(payload.get("unlock"), state.get("phase") or "none", "user")
         if not new:
@@ -232,8 +266,9 @@ class Compiler:
 
         def emit(kind: str, text: str = "", **extra):
             counter["n"] += 1
-            data = {"n": counter["n"], "kind": kind, "text": str(text)[:6000]}
-            data.update({k: v for k, v in extra.items() if v is not None})
+            # Every string field (text, diff, output, ...) is bounded; newlines are kept for the web's Markdown and diff views.
+            data = {"n": counter["n"], "kind": kind, "text": str(text)[:STEP_FIELD_MAX]}
+            data.update({k: (v[:STEP_FIELD_MAX] if isinstance(v, str) else v) for k, v in extra.items() if v is not None})
             ctx.emit("agent.step", step=step.id, call_id=call_id, data=data)
 
         prompt = prompts.task_prompt(agent=agent, phase=phase, step_name=step.name, title=ctx.title, root=ctx.root, ac=ac,
@@ -407,7 +442,70 @@ class Compiler:
                 upd["acs"] = acs
             if spec:
                 upd["spec"] = spec
+        if self._reviews(step):
+            found = unique([{"lens": f"{step.name} #{n + 1}" if len(agent_results) > 1 else step.name, "text": t}
+                            for n, (res, _m, _tb) in enumerate(agent_results) for t in blocking(res.text)])
+            upd["findings"] = found
+            if found:
+                upd["note"] += f" · {len(found)} blocking finding(s)"
+                return upd, fix_id(step.id)
         return upd, self.nav.after(i)
+
+    def _reviews(self, step: Step) -> bool:
+        """A review step whose blocking findings must be fixed or accepted before the flow goes on."""
+        return step.kind in ("agent", "parallel") and not step.per_ac and not step.lanes and (step.agent or "") in REVIEWERS
+
+    async def findings_step(self, i: int, fix: Step, state: FlowState):
+        """After a review with blocking findings: ask; fix (implementer in review-fix, tests, commit) and review again,
+        or go on with the user's reason. Nothing runs before the question, so answering it never re-runs anything."""
+        ctx = self.ctx
+        review = self.wf.steps[i]
+        found = list(state.get("findings") or [])
+        rounds = dict(state.get("review_rounds") or {})
+        listed = "\n".join(f"- [{f['lens']}] {f['text']}" for f in found)
+        again = f" (fix round {rounds[review.id] + 1})" if rounds.get(review.id) else ""
+        answer, extra = self._ask(state, {
+            "step": fix.id, "kind": "gate", "title": f"{review.name}: {len(found)} blocking finding(s){again}",
+            "detail": f"{listed}\n\nFix them: the implementer fixes these findings, the tests run, the fix is committed, "
+                      f"and {review.name} runs again.\nGo on anyway: say why; the findings are kept in the gate log.",
+            "options": OPTIONS, "labels": {"approve": "Fix them", "reject": "Go on anyway"}})
+        gates = copy.deepcopy(state.get("gates") or {"mode": "every-ac", "log": [], "skipped": {}})
+        why = (answer.get("why") or "").strip()
+        if answer.get("decision") != "approve":
+            gates["log"].append(f"{review.name} findings accepted: {why}")
+            ctx.emit("gate.decided", step=fix.id, data={"gate": f"{review.name} findings", "decision": "reject", "why": why,
+                                                        "findings": [f["text"] for f in found]})
+            return {**extra, "gates": gates, "findings": [], "note": f"{len(found)} finding(s) accepted: {why}"[:300]}, self.nav.after(i)
+        ctx.emit("gate.decided", step=fix.id, data={"gate": f"{review.name} findings", "decision": "approve", "why": why})
+        state = {**state, **extra, "feedback": f"Fix these blocking findings from {review.name}:\n{listed}"
+                                               + (f"\n\nFrom the user: {why}" if why else "")}
+        before = await asyncio.to_thread(guard.snapshot, ctx.root)
+        res, model, _tb = await self._run_agent(state, fix, "implementer", 0)
+        refused = await asyncio.to_thread(guard.guard_diff, ctx.root, "review-fix", before, None, None, state.get("unlocks") or [])
+        for r in refused:
+            ctx.emit("guard.refused", step=fix.id, data={"tool": "diff-guard", "phase": "review-fix", **r})
+        usage = dict(state.get("usage") or {})
+        for k in ("tokens_in", "tokens_out", "tokens_cached", "premium_requests"):
+            usage[k] = usage.get(k, 0) + getattr(res, k)
+        usage["cost_usd"] = round(usage.get("cost_usd", 0.0) + res.cost_usd, 6)
+        step_tokens = dict(state.get("step_tokens") or {})
+        step_tokens[review.id] = step_tokens.get(review.id, 0) + res.tokens_in + res.tokens_out + res.tokens_cached // 10
+        rounds[review.id] = rounds.get(review.id, 0) + 1
+        upd = {**extra, "gates": gates, "usage": usage, "step_tokens": step_tokens, "review_rounds": rounds, "findings": [],
+               "feedback": None, "last_answer": (res.text or "")[:2000]}
+        a = self._action_input({**state, "phase": "review-fix"}, None)
+        a.title = f"address {review.name} findings"
+        notes = []
+        for action in ("verify_green", "commit"):
+            r = await run_action(action, a)
+            notes.append(r.note)
+            upd.update(r.update)
+            if not r.ok:
+                # Tests broke or the commit was refused: back to the question with what went wrong.
+                found = found + [{"lens": "keel", "text": f"after the fix: {r.note}"}]
+                return {**upd, "findings": found, "note": f"fix round {rounds[review.id]}: {r.note}"[:300]}, fix.id
+        upd["note"] = " · ".join([f"implementer · {model['provider']} {model.get('model', '')}", *notes])[:300]
+        return upd, self.nav.jump(review.id, i)
 
     def _sections(self, step: Step, state: FlowState) -> list[str]:
         """knowledge-refresh: one librarian per section, for a parallel librarian step.
@@ -456,8 +554,11 @@ class Compiler:
         st = dict(state)
         upd: dict = {}
         notes = []
-        for action in step.actions():
+        actions = step.actions()
+        for n, action in enumerate(actions):
             r = await run_action(action, self._action_input(st, ac))
+            if r.ask and r.ask.get("type") == "already-met" and ac:
+                return await self._already_met(i, step, st, ac, r, upd, actions[n + 1:])
             if r.ask:
                 return await self._answer_check(i, step, st, r, upd)
             if not r.ok:
@@ -473,6 +574,51 @@ class Compiler:
         retries.pop(key, None)
         upd.update(note="; ".join(notes), retries=retries, stall={"fingerprint": None, "count": 0, "step": 0}, last_failure=None)
         return upd, self.nav.after(i)
+
+    async def _already_met(self, i: int, step: Step, state: FlowState, ac: dict, r: ActionResult, upd: dict, rest: list[str]):
+        """verify_red found the AC's own test already passing (keel v1 "already-met"). No retries: ask right away.
+
+        approve: run the rest of this step (the red commit: `test(<AC>): ...`), set the AC to already-met and
+        skip its green, review and gate steps. reject: back to the red step with the user's note as feedback.
+        """
+        q = r.ask
+        answer, extra = self._ask(state, {"step": step.id, "kind": q["kind"], "title": q["title"], "detail": q["detail"],
+                                          "options": OPTIONS})
+        upd = {**upd, **extra}
+        state = {**state, **extra}
+        decision = answer.get("decision", "reject")
+        why = (answer.get("why") or "").strip()
+        gates = copy.deepcopy(state.get("gates") or {"mode": "every-ac", "log": [], "skipped": {}})
+        gates["log"].append(f"ac {ac['id']} already-met {decision}" + (f": {why}" if why else ""))
+        self.ctx.emit("gate.decided", step=step.id, data={"gate": q["title"], "decision": decision, "why": why, "ac": ac["id"]})
+        key = f"{step.id}:{ac['id']}"
+        retries = dict(state.get("retries") or {})
+        retries.pop(key, None)
+        if decision != "approve":
+            feedback = (f"{ac['id']}: the test passed before any code was written, so it does not prove the criterion. "
+                        f"Write a stricter test that fails until {ac['id']} is built.")
+            if why:
+                feedback += f"\n\nFrom the user: {why}"
+            target = self.nav.retry_target(i) or step.id
+            return {**upd, "gates": gates, "retries": retries, "feedback": feedback, "last_failure": r.note[:300],
+                    "note": f"{ac['id']} already passes; sent back for a stricter test" + (f": {why}" if why else "")}, target
+        st = {**state, "gates": gates}
+        notes = [r.note]
+        for action in rest:
+            res = await run_action(action, self._action_input(st, ac))
+            if not res.ok or res.ask:
+                # A refused commit is an ordinary failed check (it goes back to the red agent).
+                return self._check_failed(i, step, st, ac, res, {**upd, "gates": gates})
+            st.update(res.update)
+            upd.update(res.update)
+            notes.append(res.note)
+        acs = _set_ac(st.get("acs") or [], ac["id"], ALREADY_MET)
+        st.update(acs=acs, current=step.id)
+        await asyncio.to_thread(self.ctx.write_mirror, st)       # keel v1 shows the AC as already-met too
+        upd.update(acs=acs, gates=gates, retries=retries, feedback=None, last_failure=None,
+                   stall={"fingerprint": None, "count": 0, "step": 0},
+                   note=" · ".join([f"{ac['id']} marked as already met" + (f": {why}" if why else ""), *notes[1:]]))
+        return upd, AC_END if step.per_ac and self.nav.last is not None else self.nav.after(i)
 
     async def _answer_check(self, i: int, step: Step, state: FlowState, r: ActionResult, upd: dict):
         """A commit check asked the user (new dependency, escalation). Apply the answer and run the step again.

@@ -305,3 +305,45 @@ GET  /api/projects/{pid}/flow        + thread.blockers, thread.ladder (from Thre
 - Validation failures: 400/422 with `{ error, hint?, errors: string[] }`.
 - knowledge-refresh reads sections from `settings.sections`, else from `acs[].id`.
 - CLI logins: claude subscription gets `CLAUDE_CODE_OAUTH_TOKEN` (env or `keys.claude_oauth`); the copilot CLI gets `GH_TOKEN`/`COPILOT_GITHUB_TOKEN` (env or `keys.copilot`); every other child has them stripped.
+
+## v0.3 additions
+
+### Model catalog (engine `GET /providers/models`, proxied by the api at `GET /api/providers/models`)
+```ts
+type Catalog = Record<Provider, {
+  label: string;                                     // "Claude", "GPT / Codex", "GitHub Copilot", "Fake"
+  modes: Record<Mode, { id: string; label: string; efforts?: string[] }[]>;   // only the modes this provider has
+  efforts: string[];                                 // default effort choices for this provider ([] = no effort setting)
+  default: { mode: Mode; model: string; effort?: string };
+  source: "cli" | "cache" | "builtin";               // where the list came from (cli = asked the installed CLI)
+}>;
+```
+Lists come from the CLIs where possible (codex models cache / `codex`, `copilot` help or config, `opencode models
+github-copilot`), else a built-in list. Effort is passed to the CLIs: claude `--effort`, codex `-c model_reasoning_effort=…`.
+
+### Agent step quality (engine → `agent.step` data, shown in Live agents / Jobs)
+- `kind: "read"` — `path`, `text` = file content (first 400 lines, newlines kept).
+- `kind: "write" | "edit"` — `path`, `diff` = unified diff (`---/+++/@@` lines), `text` = one-line summary.
+- `kind: "tool"` — `tool` (e.g. Bash), `text` = the command, `output` = its output (first 300 lines, newlines kept), `ok`, `ms`.
+- `kind: "text" | "thinking" | "answer"` — Markdown, newlines kept.
+
+## v0.3.1 additions
+
+- **Pauses have an id.** `waiting.id` names the question (from step, kind and title). The engine sends it back as
+  `asked` on resume; an answer only counts for the question with that id. When a resumed node reaches a different
+  question first, it pauses again on that one instead of using the answer.
+- **`waiting.labels`** `{approve?, reject?}`: the button texts the engine wants, when they are not the usual ones.
+- **`gate_log`** on the thread state: the last 50 gate decisions as text lines.
+- **Review findings.** After a review step (agent `code-reviewer`, `security-auditor` or `reviewer`, not per AC), the
+  engine reads the "Blocking" section of each answer (and `E2E-RESULT: fail`). If there are blocking findings, the
+  flow goes to the node `<step id>__fix` and pauses: `kind: gate`, title `"<step name>: N blocking finding(s)"`,
+  labels `Fix them` / `Go on anyway`.
+  - approve: the implementer runs in phase `review-fix`, the whole test suite runs, and the fix is committed as
+    `fix(review): address <step name> findings`. Then the review step runs again.
+  - reject (`why` needed): the findings are written to the gate log and the flow goes on.
+  - While this runs, `current` is `<step id>__fix`; the web shows it on the review step.
+- **Agent steps keep `output`.** `agent_steps.output` (migration V4) stores a tool step's output; `GET /api/jobs/{id}`
+  and `/steps` return it.
+- **AC status `already-met`.** When an AC's new test passes before any code is written, the engine pauses with
+  `"<AC> already passes"`. Approve commits the test and sets this status.
+- **Commit subjects** are at most 72 characters, cut at a whole word with `…`; the full criterion goes in the body.

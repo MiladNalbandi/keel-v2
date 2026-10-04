@@ -28,7 +28,7 @@ class EventsApiTest : ApiTest() {
             ev("thread.started", pid, tid, data = mapOf("title" to "Scores")),
             ev("agent.started", pid, tid, "c1", "red", mapOf("agent" to "test-author", "provider" to "fake", "model" to "fake", "phase" to "red", "ac" to "AC-001")),
             ev("agent.step", pid, tid, "c1", "red", mapOf("n" to 1, "kind" to "thinking", "text" to "Reading the AC")),
-            ev("agent.step", pid, tid, "c1", "red", mapOf("n" to 2, "kind" to "tool", "text" to "keel_next", "tool" to "keel_next", "server" to "keel", "ms" to 12, "ok" to true)),
+            ev("agent.step", pid, tid, "c1", "red", mapOf("n" to 2, "kind" to "tool", "text" to "keel_next", "tool" to "keel_next", "server" to "keel", "ms" to 12, "ok" to true, "output" to "phase: red\nnext: write the test")),
             ev("agent.step", pid, tid, "c1", "red", mapOf("n" to 3, "kind" to "write", "text" to "wrote test", "path" to "src/test/ScoreTest.kt", "diff" to "+ test")),
             // a retried duplicate must not count twice
             ev("agent.step", pid, tid, "c1", "red", mapOf("n" to 3, "kind" to "write", "text" to "wrote test")),
@@ -54,6 +54,7 @@ class EventsApiTest : ApiTest() {
         assertThat(detail["steps"].map { it["kind"].asText() }).containsExactly("thinking", "tool", "write")
         assertThat(detail["steps"][1]["server"].asText()).isEqualTo("keel")
         assertThat(detail["steps"][1]["ok"].asBoolean()).isTrue()
+        assertThat(detail["steps"][1]["output"].asText()).isEqualTo("phase: red\nnext: write the test")
 
         val after = get("/api/jobs/c1/steps?after=2").json()
         assertThat(after["steps"].map { it["n"].asInt() }).containsExactly(3)

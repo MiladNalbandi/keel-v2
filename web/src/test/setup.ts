@@ -2,6 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, beforeEach, vi } from "vitest";
+import { resetProviderModels } from "../components/ModelPicker";
 import { resetAudio } from "../notify";
 import { createDb, handlers, type Db } from "./handlers";
 
@@ -19,6 +20,7 @@ beforeEach(() => {
   FakeEventSource.instances = [];
   audioLog.length = 0;
   resetAudio();
+  resetProviderModels();
 });
 afterEach(() => cleanup());
 afterAll(() => server.close());

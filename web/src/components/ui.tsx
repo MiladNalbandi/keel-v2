@@ -39,7 +39,7 @@ export function Panel({ title, extra, children, body = true, className = "", sty
   );
 }
 
-export type PillTone = "ok" | "run" | "warn" | "bad" | "idle";
+export type PillTone = "ok" | "run" | "warn" | "bad" | "idle" | "met";
 export const Pill = ({ tone, children, title }: { tone: PillTone; children: ReactNode; title?: string }) => (
   <span className={`pill p-${tone}`} title={title}>{children}</span>
 );
@@ -58,10 +58,11 @@ export function Prov({ p, m }: { p?: Provider | string; m?: string }) {
 export function StatusPill({ status }: { status: string }) {
   const tone: PillTone =
     status === "done" || status === "ok" || status === "green" ? "ok"
+      : status === "already-met" ? "met"
       : status === "running" ? "run"
         : status === "waiting" ? "warn"
           : status === "failed" || status === "guard" || status === "error" ? "bad" : "idle";
-  return <Pill tone={tone} title={status === "guard" ? "the diff guard reverted an edit" : undefined}>{status}</Pill>;
+  return <Pill tone={tone} title={status === "guard" ? "the diff guard reverted an edit" : undefined}>{status === "already-met" ? "already met" : status}</Pill>;
 }
 
 export function Tabs<T extends string>({ value, options, onChange, label }: {

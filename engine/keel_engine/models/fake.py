@@ -108,13 +108,12 @@ class FakeRunner:
         await pause()
         if req.feedback:
             emit("thinking", f"Taking the feedback into account: {req.feedback[:200]}")
-        emit("tool", "keel keel_next", tool="keel_next", server="keel", ok=True, ms=14)
-        emit("result", f"keel_next: next step is {req.phase}", tool="keel_next")
+        emit("tool", "{}", tool="keel_next", server="keel", output=f"next step is {req.phase}", ok=True, ms=14)
         await pause()
         for candidate in ("README.md", "pyproject.toml"):
             if (Path(req.root) / candidate).is_file():
                 out = req.toolbox.read_file(candidate)
-                emit("tool", f"read_file {candidate}", tool="read_file", path=candidate, ok=not out.startswith("REFUSED"), ms=2)
+                emit("read", "\n".join(out.splitlines()[:400]), path=candidate, ok=not out.startswith("REFUSED"), ms=2)
                 break
         await pause()
 

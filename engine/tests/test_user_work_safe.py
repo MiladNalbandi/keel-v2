@@ -47,3 +47,21 @@ def test_a_preexisting_file_the_agent_changed_is_committed(tmp_path):
     res = asyncio.run(commit(a)) if asyncio.iscoroutinefunction(commit) else commit(a)
     assert res.ok, res
     assert sh(root, "show", "--name-only", "--format=", "HEAD").split() == ["tests/test_a.py"]
+
+
+def test_commit_subject_is_short_and_body_keeps_the_criterion():
+    from keel_engine.runtime.actions import commit_message
+    long = "For a playerId with at least one recorded score, `rankOf` returns the 1-based rank of that player's best score"
+    subject, body = commit_message("feat(AC-2)", long)
+    assert len(subject) <= 72 and subject.startswith("feat(AC-2): For a playerId") and subject.endswith("…")
+    assert body == long
+    assert commit_message("test(AC-1)", "rankOf is exported") == ("test(AC-1): rankOf is exported", "")
+
+
+def test_output_tail_starts_at_a_whole_line():
+    from keel_engine.runtime.actions import tail
+    out = "\n".join(f"line {i} some text" for i in range(200))
+    t = tail(out, 300)
+    first, second = t.split("\n")[:2]
+    assert first.endswith("earlier lines not shown") and second.startswith("line ") and second.endswith("some text")
+    assert t.endswith("line 199 some text") and tail("short", 300) == "short"

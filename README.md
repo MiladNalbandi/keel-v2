@@ -43,6 +43,19 @@ Open **Control › Connections** and press **Set up login**:
 Every login is saved encrypted in keel's SQLite database on the `keel-data` volume, so it survives restarts and new
 images. `./keel2 token <claude|codex|copilot>` saves one from the terminal; `./keel2 tokens` lists what is saved.
 
+### Projects whose tests need Docker
+
+The image has a full JDK 21, Node 20, Python 3.12 and the Docker CLI (with compose and buildx). When your tests
+start containers (Testcontainers, `docker compose`), start keel with `--docker`:
+
+```bash
+./keel2 --docker /path/to/your/project
+```
+
+This gives keel your computer's Docker (it mounts `/var/run/docker.sock`) and mounts the project at the **same
+path** as on your computer, so bind mounts in compose files and Testcontainers work. Only use it with projects you
+trust: access to the Docker socket is the same as root on your computer.
+
 | Folder in the container | What |
 |---|---|
 | `/workspace` | your project (one git repo, or a folder of repos) |

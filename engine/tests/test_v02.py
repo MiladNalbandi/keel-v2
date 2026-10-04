@@ -402,6 +402,7 @@ async def test_claude_runner_plugin_dir_oauth_and_hook_refusal(tmp_path, monkeyp
     env = (tmp_path / "env").read_text()
     # only keel's guard is loaded (not the whole plugin with its keel v1 workflow text)
     assert "--plugin-dir" not in argv and "--settings" in argv
+    assert "--disallowedTools Skill,Task" in argv
     settings = argv.split("--settings ")[1].split()[0]
     hook = json.loads(open(settings).read())["hooks"]["PreToolUse"][0]
     assert hook["hooks"][0]["command"] == f'"{home}/bin/keel" hook pre-tool' and "Edit" in hook["matcher"]
@@ -518,7 +519,7 @@ def test_estimate_prices_per_provider_and_catalog(client):
     assert sub["cost_usd"] == 0 and sub["premium_requests"] >= 1 and sub["by_provider"]["claude"] == api["by_provider"]["claude"]
     cat = client.get("/providers/models").json()
     assert set(cat) == {"fake", "claude", "codex", "copilot"}
-    assert all({"id", "label"} <= set(m) for ms in cat.values() for m in ms)
+    assert all({"id", "label"} <= set(x) for p in cat.values() for items in p["modes"].values() for x in items)
 
 
 def test_knowledge_refresh_sections_from_acs(client, repo):

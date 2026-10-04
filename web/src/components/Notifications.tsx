@@ -8,7 +8,7 @@ import { useApp } from "../state";
 import { Drawer, Tabs } from "./ui";
 
 function NoteSettings() {
-  const { nset, saveNset, project, notifyLocal, toast } = useApp();
+  const { nset, saveNset, project, notifyLocal, toast, showMascot, setShowMascot } = useApp();
   const [perm, setPerm] = useState(permission());
   const set = (patch: Partial<NotificationSettings>) => saveNset({ ...nset, ...patch });
   return (
@@ -75,6 +75,13 @@ function NoteSettings() {
         <span className="lab">From</span>
         <label className="radio"><input type="radio" name="n-scope" checked={nset.scope === "all"} onChange={() => set({ scope: "all" })} /><span>All projects</span></label>
         <label className="radio"><input type="radio" name="n-scope" checked={nset.scope === "project"} onChange={() => set({ scope: "project" })} /><span>Only {project?.name ?? "this project"}</span></label>
+      </div>
+      <div className="field">
+        <span className="lab">keel</span>
+        <label className="chk switch">
+          <input type="checkbox" role="switch" id="n-mascot" checked={showMascot} onChange={(e) => setShowMascot(e.target.checked)} /> Show keel
+        </label>
+        <span className="hint">The little hull by the bell jumps when something arrives and says what it is. Saved in this browser.</span>
       </div>
       <label className="chk"><input type="checkbox" checked={nset.quiet} onChange={(e) => set({ quiet: e.target.checked })} /> Do not disturb — keep them in the list, no sound or pop-up</label>
       <button className="btn" type="button" onClick={() => notifyLocal({

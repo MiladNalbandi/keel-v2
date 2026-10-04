@@ -64,8 +64,10 @@ def test_claude_stream_parsing(tmp_path):
     for line in lines:
         s.line(json.dumps(line))
     kinds = [k for k, _, _ in steps]
-    assert kinds == ["text", "tool", "write", "result"]
-    assert steps[1][2]["server"] == "keel" and steps[2][2]["path"] == "a.py" and "+x = 1" in steps[2][2]["diff"]
+    # v0.3: a tool call is one step, paired with its result; calls without a result are flushed at the end
+    assert kinds == ["text", "tool", "write"]
+    assert steps[1][2]["server"] == "keel" and steps[1][2]["output"] == "red"
+    assert steps[2][2]["path"] == "a.py" and "+x = 1" in steps[2][2]["diff"]
     assert s.result["result"] == "done"
 
 
@@ -80,5 +82,6 @@ def test_codex_stream_parsing(tmp_path):
         {"type": "turn.completed", "usage": {"input_tokens": 5, "output_tokens": 3}},
     ]:
         codex_line(emit, str(tmp_path), ev, state)
-    assert [k for k, _ in steps] == ["tool", "error", "write", "text"]
+    assert [k for k, _ in steps] == ["tool", "write", "text"]
+    assert steps[0][1]["output"] == "1 failed" and steps[0][1]["ok"] is False
     assert state["usage"]["output_tokens"] == 3 and state["text"] == "All done."

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import secrets
@@ -252,7 +253,7 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
 
     @app.get("/providers/models")
     async def get_models():
-        return catalog.MODELS
+        return await asyncio.to_thread(catalog.build_catalog)
 
     return app
 

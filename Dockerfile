@@ -26,8 +26,8 @@ COPY api/src ./src
 COPY --from=web /src/web/dist ./src/main/resources/static
 RUN ./gradlew --no-daemon -q bootJar -x test && cp build/libs/*.jar /app.jar
 
-# ---------- runtime: Ubuntu 24.04 with Java 21 ----------
-FROM eclipse-temurin:21-jre-noble
+# ---------- runtime: Ubuntu 24.04 with a full JDK 21 (projects compile and test inside) ----------
+FROM eclipse-temurin:21-jdk-noble
 ARG INSTALL_CLIS=1
 ARG KEEL_REPO=https://github.com/MiladNalbandi/keel.git
 ARG KEEL_REF=main
@@ -39,11 +39,15 @@ ENV LANG=C.UTF-8 \
     KEEL_ENGINE_URL=http://127.0.0.1:8090 KEEL_API_URL=http://127.0.0.1:8080 \
     UV_PROJECT_ENVIRONMENT=/opt/engine/.venv UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never
 
-# System tools, Python 3.12 and Node.js (from NodeSource)
+# System tools, Python 3.12, Node.js (NodeSource) and the Docker CLI with compose + buildx (Docker's apt repo).
+# The Docker daemon is the host's: `keel2 --docker` mounts its socket, so tests can use Testcontainers or compose.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        python3 python3-venv git tini curl ca-certificates gnupg sqlite3 openssh-client \
+        python3 python3-venv python3-pip git tini curl ca-certificates gnupg sqlite3 openssh-client make zip unzip \
     && curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
+    && install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable" > /etc/apt/sources.list.d/docker.list \
+    && apt-get update && apt-get install -y --no-install-recommends nodejs docker-ce-cli docker-compose-plugin docker-buildx-plugin \
     && rm -rf /var/lib/apt/lists/* \
     && git config --system --add safe.directory '*' \
     && git config --system user.name "keel" && git config --system user.email "keel@localhost"

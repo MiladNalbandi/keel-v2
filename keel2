@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # keel2 — run keel v2 on a project with one command.
 #   ./keel2 /path/to/project            start (or restart) keel v2 for that project, open the browser
+#   ./keel2 --docker /path/to/project   same, and let the project's tests use your Docker (Testcontainers, compose)
 #   ./keel2 token claude|codex|copilot|anthropic|openai|github   save a login/key in keel's database (encrypted)
 #   ./keel2 tokens                      which logins and keys are saved (hints only)
 #   ./keel2 sql                         open keel's SQLite database
@@ -10,6 +11,7 @@
 set -euo pipefail
 IMAGE="${KEEL_IMAGE:-ghcr.io/miladnalbandi/keel-v2:latest}"
 NAME="${KEEL_NAME:-keel-v2}"
+VOLUME="${KEEL_VOLUME:-keel-data}"   # a second keel (another KEEL_NAME and PORT) needs its own volume
 PORT="${PORT:-8080}"
 
 API="http://localhost:$PORT/api"
@@ -53,6 +55,9 @@ for p in json.load(sys.stdin)["providers"]:
     print("%-12s login %-24s %-10s  api key: %s" % (p["label"], p.get("login_secret") or "-", login, key))
 '
 
+DOCKER="${KEEL_DOCKER:-0}"
+if [ "${1:-}" = "--docker" ]; then DOCKER=1; shift; fi
+
 case "${1:-}" in
   token)  save_token "${2:-}" "${3:-}"; exit 0 ;;
   tokens) curl -fs "$API/connections" | python3 -c "$LIST_TOKENS"; exit 0 ;;
@@ -66,11 +71,23 @@ esac
 [ -d "$1" ] || { echo "There is no folder at: $1"; echo "Give the folder of your project, for example: ./keel2 ~/Projects/my-app"; exit 1; }
 PROJECT="$(cd "$1" && pwd)"
 [ -d "$PROJECT/.git" ] || ls -d "$PROJECT"/*/.git >/dev/null 2>&1 || { echo "$PROJECT is not a git repo (and has no git repos inside). Run: git init \"$PROJECT\""; exit 1; }
-mounts=(-v "$PROJECT:/workspace" -v keel-data:/data)
+mounts=(-v "$VOLUME:/data")
+extra=()
+if [ "$DOCKER" = 1 ]; then
+  # The host's Docker runs the containers tests start. Mount the project at the SAME path as on this computer,
+  # so bind mounts that tests ask the host Docker for (Testcontainers, compose) point at real folders.
+  SOCK=/var/run/docker.sock
+  GID="$(docker run --rm -v "$SOCK:$SOCK" --entrypoint stat "$IMAGE" -c %g "$SOCK" 2>/dev/null || echo 0)"
+  mounts+=(-v "$PROJECT:$PROJECT" -v "$SOCK:$SOCK")
+  extra+=(--group-add "$GID" --add-host host.docker.internal:host-gateway -e KEEL_WORKSPACE="$PROJECT")
+  echo "Docker: on — the agents can start containers on this computer's Docker (it can do anything Docker can)."
+else
+  mounts+=(-v "$PROJECT:/workspace")
+fi
 # Nothing from your computer is copied in. Log the CLIs in from the dashboard: Connections › Set up login.
 
 docker rm -f "$NAME" >/dev/null 2>&1 || true
-docker run -d --name "$NAME" -p "127.0.0.1:$PORT:8080" "${mounts[@]}" -e KEEL_PROJECT_NAME="$(basename "$PROJECT")" \
+docker run -d --name "$NAME" -p "127.0.0.1:$PORT:8080" "${mounts[@]}" ${extra[@]+"${extra[@]}"} -e KEEL_PROJECT_NAME="$(basename "$PROJECT")" \
   ${ANTHROPIC_API_KEY:+-e ANTHROPIC_API_KEY} ${OPENAI_API_KEY:+-e OPENAI_API_KEY} ${GITHUB_TOKEN:+-e GITHUB_TOKEN} \
   ${GH_TOKEN:+-e GH_TOKEN} ${CLAUDE_CODE_OAUTH_TOKEN:+-e CLAUDE_CODE_OAUTH_TOKEN} \
   "$IMAGE" >/dev/null

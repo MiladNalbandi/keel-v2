@@ -35,6 +35,8 @@ class FlowState(TypedDict, total=False):
     error: str | None
     base_head: str | None       # HEAD when the thread started; the branch diff for blockers starts here
     last_answer: str            # the last agent's final answer (shown at a spec gate that has no criteria)
+    findings: list              # blocking findings of the review step that just ran: [{lens, text}]
+    review_rounds: dict         # {review step id: fix rounds so far}
     preexisting: dict           # {path: fingerprint} of the user's uncommitted files at start; never committed unless an agent changed them
     unlocks: list[dict]         # [{path, phase, by?}] keel v1 unlocks: that path bypasses the matrix in that phase
     deps: list[str]             # dependencies the user approved at a commit (keel v1 state.deps)
@@ -105,7 +107,7 @@ def initial_state(ctx: ThreadContext, acs: list[dict] | None) -> FlowState:
         stall={"fingerprint": None, "count": 0, "step": 0},
         usage={"tokens_in": 0, "tokens_out": 0, "tokens_cached": 0, "cost_usd": 0.0, "premium_requests": 0, "cap_tokens": cap},
         retries={}, step_tokens={}, feedback=None, model_override=None, warned=False, spec=None, branch=None,
-        git_head=None, last_failure=None, note="started", error=None, base_head=None, preexisting={}, last_answer="",
+        git_head=None, last_failure=None, note="started", error=None, base_head=None, preexisting={}, last_answer="", findings=[], review_rounds={},
         unlocks=normalize_unlocks(s.get("unlocks"), "none", "settings"), deps=[], blockers=[], ladder=None,
     )
 

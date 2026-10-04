@@ -75,3 +75,21 @@ def test_logins_can_be_given_again_after_a_restart(client, repo):
     r = client.post(f"/threads/{tid}/resume", json={"decision": "approve", "keys": {"claude_oauth": "tok-again"}})
     assert r.status_code == 200
     assert svc.keys[tid] == {"claude_oauth": "tok-again"}
+
+
+def test_green_prompt_keeps_later_criteria_out(tmp_path):
+    from keel_engine.runtime.prompts import task_prompt
+    acs = [{"id": "AC-1", "layer": "API", "title": "a", "status": "done"},
+           {"id": "AC-2", "layer": "API", "title": "b", "status": "todo"},
+           {"id": "AC-3", "layer": "API", "title": "c", "status": "todo"}]
+    text = task_prompt(agent="implementer", phase="green", step_name="green", title="t", root=str(tmp_path),
+                       ac=acs[1], acs=acs, feedback=None)
+    assert "later criteria (AC-3)" in text and "AC-1" not in text.split("later criteria")[1].split(")")[0]
+
+
+def test_librarian_gets_the_templates_and_a_short_memory_brief(tmp_path, monkeypatch):
+    from keel_engine.runtime.prompts import task_prompt
+    monkeypatch.setenv("KEEL_HOME", str(tmp_path))
+    text = task_prompt(agent="librarian", phase="memory", step_name="memory", title="t", root="/r", ac=None, acs=[], feedback=None)
+    assert f"{tmp_path}/templates/knowledge/<section>.md" in text and "Do not read keel's own source" in text
+    assert "only the knowledge sections this branch changes" in text

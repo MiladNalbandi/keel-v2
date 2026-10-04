@@ -1,7 +1,7 @@
 // Example api data for tests (MSW). Shapes follow docs/CONTRACT.md; values follow docs/mockup.html.
 
 import type {
-  Agent, Budget, Cap, Checkpoint, Connections, Estimate, Health, Job, JobStep, KeelDoc, KeelMap, LibraryItem, Limit, McpServer,
+  Agent, Budget, Cap, Catalog, Checkpoint, Connections, Estimate, Health, Job, JobStep, KeelDoc, KeelMap, LibraryItem, Limit, McpServer,
   Memory, Notification, NotificationSettings, Project, ProjectSettings, RepoFile, RepoInfo, Settings, Skill, SkillDetail,
   Stack, ThreadState, TreeNode, WikiPage, WikiTree, Workflow,
 } from "../api";
@@ -96,8 +96,9 @@ export const jobs: Job[] = [
 
 export const steps: JobStep[] = [
   { n: 1, at: ago(70), kind: "text", text: "Looking at what the gate needs: RED and GREEN commits for AC-002." },
-  { n: 2, at: ago(65), kind: "tool", text: "{filter: \"gates\"}", tool: "keel_timeline", server: "keel", ms: 38, ok: true },
-  { n: 3, at: ago(60), kind: "edit", text: "", path: "api/src/main/kotlin/scores/ScoreController.kt", diff: "-    fun save(s: ScoreDto)\n+    fun save(@Valid s: ScoreDto)" },
+  { n: 2, at: ago(65), kind: "tool", text: "{filter: \"gates\"}", tool: "keel_timeline", server: "keel", output: "RED 4be12d9\nGREEN a81c3f0", ms: 38, ok: true },
+  { n: 3, at: ago(60), kind: "edit", text: "", path: "api/src/main/kotlin/scores/ScoreController.kt", diff: "-    fun save(s: ScoreDto)\n+    fun save(@Valid s: ScoreDto)", ok: true, ms: 12 },
+  { n: 4, at: ago(55), kind: "answer", text: "**PASS** — the test proves AC-002.\n- RED 4be12d9\n- GREEN a81c3f0" },
 ];
 
 export const repo: RepoInfo = {
@@ -195,11 +196,35 @@ export const caps: Cap[] = [
   { id: "c1", scope: "flow", limit: 600000, unit: "tokens", action: "pause" },
   { id: "c2", scope: "api_month", limit: 100, unit: "usd", action: "stop" },
 ];
-export const providerModels = {
-  claude: [{ id: "opus", label: "Claude Opus" }, { id: "sonnet", label: "Claude Sonnet" }],
-  codex: [{ id: "gpt-5.6-sol", label: "GPT-5.6 Sol" }],
-  copilot: [{ id: "gpt-5", label: "GPT-5 (Copilot)" }],
-  fake: [{ id: "fake", label: "Fake model" }],
+/** v0.3 model catalog (CONTRACT.md "v0.3 additions"). */
+export const providerModels: Catalog = {
+  claude: {
+    label: "Claude", source: "cli", efforts: ["low", "medium", "high", "max"],
+    default: { mode: "subscription", model: "sonnet" },
+    modes: {
+      subscription: [{ id: "opus", label: "Claude Opus" }, { id: "sonnet", label: "Claude Sonnet" }, { id: "haiku", label: "Claude Haiku", efforts: [] }],
+      api: [{ id: "claude-opus-4-1", label: "Opus 4.1 (API)" }, { id: "claude-sonnet-4-5", label: "Sonnet 4.5 (API)" }],
+    },
+  },
+  codex: {
+    // as the engine sends it: codex models from the CLI cache, each with its own efforts (up to "ultra")
+    label: "GPT / Codex", source: "cache", efforts: ["low", "medium", "high", "ultra"],
+    default: { mode: "subscription", model: "gpt-5.6-sol", effort: "medium" },
+    modes: {
+      subscription: [{ id: "gpt-5.6-sol", label: "GPT-5.6 Sol", efforts: ["low", "medium", "high", "ultra"] }, { id: "gpt-5-mini", label: "GPT-5 mini", efforts: ["low", "medium"] }],
+      api: [{ id: "gpt-5", label: "GPT-5 (API)", efforts: ["minimal", "low", "medium", "high"] }],
+    },
+  },
+  copilot: {
+    label: "GitHub Copilot", source: "builtin", efforts: [],
+    default: { mode: "subscription", model: "gpt-5" },
+    modes: {
+      subscription: [{ id: "gpt-5", label: "GPT-5 (Copilot)" }, { id: "claude-sonnet-4.5", label: "Claude Sonnet 4.5 (Copilot)" }],
+      opencode: [{ id: "github-copilot/gpt-5", label: "GPT-5 via OpenCode" }],
+      api: [{ id: "openai/gpt-5", label: "GPT-5 (GitHub Models)" }],
+    },
+  },
+  fake: { label: "Fake", source: "builtin", efforts: [], default: { mode: "api", model: "fake" }, modes: { api: [{ id: "fake", label: "Fake model" }] } },
 };
 export const limits: Limit[] = [{ id: "claude", name: "Claude Max", unit: "% of 5-hour window", used: 62, cap: 100, note: "resets in 1h 48m" }];
 

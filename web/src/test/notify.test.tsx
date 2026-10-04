@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { App } from "../App";
@@ -34,7 +34,7 @@ describe("notifications", () => {
   it("a failure plays the lower tone", async () => {
     await ready();
     act(() => FakeEventSource.emit("notification", note({ type: "failed", title: "Guard reverted an edit" })));
-    await screen.findByText("Guard reverted an edit");
+    await within(await screen.findByTestId("popups")).findByText("Guard reverted an edit");
     expect(audioLog).toEqual([392, 262]);
   });
 

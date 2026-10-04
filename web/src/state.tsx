@@ -62,6 +62,11 @@ interface Ctx {
   openNote: (n: Note) => void;
   popups: Popup[];
   dismissPopup: (key: number) => void;
+  /** The last notification that alerted (sound / pop-up rules passed); the mascot reacts to it. */
+  alert: { key: number; note: Note } | null;
+  /** "Show keel" (the mascot by the bell). Kept in this browser: the api's notification settings are typed. */
+  showMascot: boolean;
+  setShowMascot: (on: boolean) => void;
   toast: (msg: string) => void;
 }
 
@@ -74,6 +79,14 @@ export function useApp(): Ctx {
 }
 
 const PROJECT_KEY = "keel2.project";
+const MASCOT_KEY = "keel2.mascot";
+function storedMascot(): boolean {
+  try {
+    return localStorage.getItem(MASCOT_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
 function storedProject(): string | null {
   try {
     return localStorage.getItem(PROJECT_KEY);
@@ -95,6 +108,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [notes, setNotes] = useState<Note[]>([]);
   const [nset, setNset] = useState<NotificationSettings>(NOTIFY_DEFAULTS);
   const [popups, setPopups] = useState<Popup[]>([]);
+  const [alert, setAlert] = useState<{ key: number; note: Note } | null>(null);
+  const [showMascot, setShowMascotState] = useState(storedMascot);
+  const setShowMascot = useCallback((on: boolean) => {
+    setShowMascotState(on);
+    try {
+      localStorage.setItem(MASCOT_KEY, on ? "1" : "0");
+    } catch {
+      /* private window */
+    }
+  }, []);
   const [toastMsg, setToastMsg] = useState<{ text: string; n: number } | null>(null);
 
   const toast = useCallback((text: string) => setToastMsg({ text, n: Date.now() + Math.random() }), []);
@@ -164,6 +187,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setNotes((ns) => (ns.some((x) => x.id === n.id) ? ns : [n, ...ns].slice(0, 200)));
       const s = nsetRef.current;
       if (!shouldAlert(n, s, pidRef.current)) return;
+      setAlert({ key: ++popKey.current, note: n });
       playSound(n.type, s);
       if (s.popup) {
         const key = ++popKey.current;
@@ -320,10 +344,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const value = useMemo<Ctx>(
     () => ({
       health, projects, projectsError, projectsLoaded, project, pid, setProjectId, reloadProjects, tick, live, recent,
-      liveSteps, notes, unread, markRead, markAllRead, nset, saveNset, notifyLocal: arrive, openNote, popups, dismissPopup, toast,
+      liveSteps, notes, unread, markRead, markAllRead, nset, saveNset, notifyLocal: arrive, openNote, popups, dismissPopup, alert, showMascot, setShowMascot, toast,
     }),
     [health, projects, projectsError, projectsLoaded, project, pid, setProjectId, reloadProjects, tick, live, recent,
-      liveSteps, notes, unread, markRead, markAllRead, nset, saveNset, arrive, openNote, popups, dismissPopup, toast],
+      liveSteps, notes, unread, markRead, markAllRead, nset, saveNset, arrive, openNote, popups, dismissPopup, alert, showMascot, setShowMascot, toast],
   );
 
   return (

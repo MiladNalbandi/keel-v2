@@ -93,8 +93,21 @@ class ConnectionService(
             val (loginName, loginSet, loginHint) = loginView(id)
             ProviderView(id, label, modes, selected, keySet, hint, loginName, loginSet, loginHint)
         }
-        val machine = listOf("node", "git").map { tool(it) } + keelTool() + listOf("claude", "codex", "copilot", "opencode").map { tool(it) }
+        val machine = listOf("node", "git", "java").map { tool(it) } + dockerTool() + keelTool() + listOf("claude", "codex", "copilot", "opencode").map { tool(it) }
         return Connections(providers, machine)
+    }
+
+    /** Can the project's tests use Docker? Needs the CLI and a reachable engine (keel2 --docker mounts the host's). */
+    private fun dockerTool(): MachineTool {
+        cache["docker-engine"]?.takeIf { System.currentTimeMillis() - it.at < 60_000 }?.let { return it.tool }
+        val path = Proc.which("docker")
+        val t = if (path == null) MachineTool("docker", false, "not installed") else {
+            val r = Proc.run(listOf(path, "version", "--format", "{{.Server.Version}}"), null, 5)
+            if (r.ok && r.out.isNotBlank()) MachineTool("docker", true, "engine ${r.out.trim()}")
+            else MachineTool("docker", false, "CLI only — start with ./keel2 --docker so tests can use Docker")
+        }
+        cache["docker-engine"] = Cached(System.currentTimeMillis(), t)
+        return t
     }
 
     private fun keelTool(): MachineTool {
