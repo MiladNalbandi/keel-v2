@@ -11,8 +11,9 @@ from .. import config, rules
 
 # Roles for agents keel v1 has no file for.
 BUILTIN_ROLES = {
-    "contract-author": "You write or update the API contract (OpenAPI or interface notes) for the approved spec. "
-                       "Only the contract and notes; no production code, no tests.",
+    "contract-author": "You write or update the contract for the approved spec: only the outside surface the criteria "
+                       "change (HTTP routes, wire schemas, public types or interfaces). Keep it short; do not write "
+                       "design documents, production code or tests. If nothing outside changes, say so and stop.",
 }
 
 GENERIC_ROLE = "You are a careful software engineer working inside a keel flow. Do the step you are given and nothing else."
@@ -89,7 +90,9 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
              "How this works: the keel engine runs the tests, makes the commits and moves between phases after you. "
              "Do not run keel commands, do not run git commit, reset, checkout or stash, and do not read or change "
              "anything under .keel/. Do only what this step asks, then stop with a short summary (a few lines).",
-             f"Files you may change in this phase: {_allowed(phase)}. Anything else is put back automatically."]
+             f"Files you may change in this phase: {_allowed(phase)}. Anything else is put back automatically.",
+             "Read with care for tokens: find what you need with grep -n (or the code index tools, when you have "
+             "them) and read only those lines; never read a large file whole, and never read the same file twice."]
     if request:
         lines.append("What the user asked for:\n" + request)
     from pathlib import Path as _P

@@ -238,7 +238,8 @@ def commit(a: ActionInput) -> ActionResult:
                                      "why": why})
 
     rule = rules.COMMIT_RULES[ctype]
-    ident = "" if rule.get("noId") else ((a.ac or {}).get("id") or ("review" if a.phase == "review-fix" else "BUG"))
+    ident = "" if rule.get("noId") else ((a.ac or {}).get("id") or ("review" if a.phase == "review-fix"
+                                                                    else "BUG" if ctype in ("fix", "red") else ""))
     subject = (a.ac or {}).get("title") or a.title or a.flow
     if ctype == "setup":
         subject = "keel init"
