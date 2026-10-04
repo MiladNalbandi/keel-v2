@@ -287,6 +287,7 @@ class Engine:
         v = snap.values or {}
         waiting = self._waiting(snap)
         running = tid in self.tasks
+        ctx_now = await self._context(tid)
         status = row["status"]
         if running:
             status = "running"
@@ -295,12 +296,14 @@ class Engine:
                 status = "waiting"
             elif v.get("status") in ("done", "failed", "stopped"):
                 status = v["status"]
+        # The graph's values hold the last step that FINISHED; while a step runs (or waits) show that step instead.
+        now = self._at_pause(ctx_now, snap) if (running or waiting) and snap.next else v
         n = 0
         async for _ in graph.aget_state_history(self._cfg(tid)):
             n += 1
         out = {
             "thread_id": tid, "project_id": row["project_id"], "workflow_id": row["workflow_id"], "title": row["title"],
-            "status": status, "current": v.get("current"), "phase": v.get("phase") or "none", "ac": v.get("ac"),
+            "status": status, "current": now.get("current"), "phase": now.get("phase") or "none", "ac": v.get("ac"),
             "acs": [{"id": a["id"], "layer": a.get("layer", "API"), "title": a.get("title", ""), "status": a.get("status", "todo")}
                     for a in v.get("acs") or []],
             "usage": {**{"tokens_in": 0, "tokens_out": 0, "tokens_cached": 0, "cost_usd": 0.0, "premium_requests": 0, "cap_tokens": 0}, **(v.get("usage") or {})},

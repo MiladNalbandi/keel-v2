@@ -180,3 +180,29 @@ def test_feature_flow_leaves_nothing_uncommitted(client, repo):
     assert any(m.startswith("docs(memory)") for m in log), log
     dirty = subprocess.run(["git", "status", "--porcelain"], cwd=repo, capture_output=True, text=True).stdout
     assert [l for l in dirty.splitlines() if ".keel/" not in l] == []
+
+
+def test_contract_is_committed_on_its_own(client, repo):
+    tid = start(client, repo)
+    s = wait(client, tid)
+    s = decide(client, tid)          # approve the spec
+    log = git_log(repo)
+    assert any(m.startswith("contract: ") for m in log), log
+
+
+def test_a_running_step_is_shown_not_the_last_finished_one(client, repo, monkeypatch):
+    import time as _t
+    from keel_engine.models import fake as fake_mod
+    real = fake_mod._plan
+
+    def slow(req):
+        if req.agent == "contract-author":
+            _t.sleep(1.5)
+        return real(req)
+    monkeypatch.setattr(fake_mod, "_plan", slow)
+    tid = start(client, repo)
+    wait(client, tid)
+    client.post(f"/threads/{tid}/resume", json={"decision": "approve"})
+    _t.sleep(0.5)
+    s = client.get(f"/threads/{tid}").json()
+    assert s["status"] == "running" and s["current"] == "contract" and s["phase"] == "contract", s
