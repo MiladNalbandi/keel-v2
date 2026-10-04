@@ -19,6 +19,7 @@ import { ToolsPage } from "./pages/Tools";
 import { WikiPage } from "./pages/Wiki";
 import { WorkflowsPage } from "./pages/Workflows";
 import type { ScreenId } from "./routes";
+import { PageBoundary } from "./components/PageBoundary";
 import { AppProvider, useApp, useRoute } from "./state";
 
 /** Screens that need a chosen project. */
@@ -63,7 +64,7 @@ function Router() {
     );
   }
   const Page = PAGES[page];
-  return <Page key={pid} pid={pid} />;
+  return <PageBoundary resetKey={`${page}:${pid}`}><Page key={pid} pid={pid} /></PageBoundary>;
 }
 
 export function App() {

@@ -7,6 +7,7 @@ import org.springframework.context.annotation.Configuration
 import org.springframework.core.io.ClassPathResource
 import org.springframework.core.io.Resource
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry
+import org.springframework.http.CacheControl
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer
 import org.springframework.web.servlet.resource.PathResourceResolver
 import javax.sql.DataSource
@@ -34,8 +35,14 @@ class WebConfig : WebMvcConfigurer {
     override fun addResourceHandlers(registry: ResourceHandlerRegistry) {
         registry.addResourceHandler("/**")
             .addResourceLocations("classpath:/static/")
+            // index.html names the current JavaScript file, so it is always re-checked (a browser that kept an old one
+            // kept running the old app after an update); the hashed files under /assets never change.
+            .setCacheControl(CacheControl.noCache())
             .resourceChain(true)
             .addResolver(SpaResolver())
+        registry.addResourceHandler("/assets/**")
+            .addResourceLocations("classpath:/static/assets/")
+            .setCacheControl(CacheControl.maxAge(java.time.Duration.ofDays(365)).cachePublic().immutable())
     }
 
     class SpaResolver : PathResourceResolver() {

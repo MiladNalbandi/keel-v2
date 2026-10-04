@@ -208,6 +208,8 @@ pre.yaml { margin: 0; font: 12.5px/1.6 var(--f-mono); overflow-x: auto; }
 .stack i { display: block; height: 100%; }
 .kv { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 4px 12px; font-size: 13px; }
 .kv span { color: var(--dim); }
+.kv.kv-col { grid-template-columns: minmax(0,1fr); gap: 2px 0; }
+.kv.kv-col b { overflow-wrap: anywhere; white-space: pre-wrap; margin-bottom: 8px; }
 /* Budget */
 .g4 { grid-template-columns: repeat(4, minmax(0,1fr)); }
 .big { font-size: 24px; font-weight: 700; letter-spacing: -.02em; }

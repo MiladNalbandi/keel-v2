@@ -358,3 +358,32 @@ describe("clarify gate (the explorer's questions as buttons)", () => {
     expect(answersOf(questions, { identity: "A · Named entity" }, { identity: "  none of these ", where: "" })).toEqual({ identity: "none of these" });
   });
 });
+
+describe("stacks in keel v1's newer shape", () => {
+  it("normalizeStack turns object-shaped detect, layers and skills into text", async () => {
+    const { normalizeStack } = await import("../api");
+    const s = normalizeStack({
+      name: "kotlin-spring", lane: "api", source: "keel", detected: true,
+      detect: { files: ["gradlew", "pom.xml"], extensions: [".kt", ".java"] },
+      layers: [{ id: "unit", what: "pure rules", where: "src/test" }, { id: "web-slice", what: "x", where: "y" }],
+      commands: [{ name: "api_test_ac", cmd: "{BUILD} test" }], tools: [{ name: "detekt", on: "manual", fail: "block" }],
+      skills: { testing: "keel:kotlin-spring-testing", implementation: "keel:kotlin-spring-implementation" },
+    });
+    expect(s.detect).toBe("gradlew, pom.xml · .kt, .java");
+    expect(s.layers).toEqual(["unit", "web-slice"]);
+    expect(s.skills).toEqual(["keel:kotlin-spring-testing", "keel:kotlin-spring-implementation"]);
+    expect(normalizeStack({ name: "old", detect: "build.gradle", layers: ["unit"], skills: ["a"] })).toMatchObject({ detect: "build.gradle", layers: ["unit"], skills: ["a"] });
+    expect(normalizeStack(null).name).toBe("");
+  });
+
+  it("a page that throws shows a message and leaves the menu working", async () => {
+    const { PageBoundary } = await import("../components/PageBoundary");
+    const Bomb = () => { throw new Error("object with keys {files, extensions}"); };
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    render(<><nav>menu</nav><PageBoundary resetKey="a"><Bomb /></PageBoundary></>);
+    expect(screen.getByRole("alert")).toHaveTextContent("This page could not be shown");
+    expect(screen.getByRole("alert")).toHaveTextContent("object with keys {files, extensions}");
+    expect(screen.getByText("menu")).toBeInTheDocument();
+    spy.mockRestore();
+  });
+});

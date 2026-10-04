@@ -64,7 +64,7 @@ export function StacksPage({ pid }: { pid: string }) {
                       <div className="row">{cur.layers.length ? cur.layers.map((l, i) => <span key={l} className="tag">{i + 1}. {l}</span>) : <span className="sub">none listed</span>}</div>
                       <span className="hint">The AC loop picks the lowest layer that can show the criterion.</span></div>
                     <div className="field"><span className="lab">Commands</span>
-                      {cur.commands.length ? <div className="kv">{cur.commands.map((c) => <Fragment key={c.name}><span>{c.name}</span><b className="mono">{c.cmd}</b></Fragment>)}</div> : <span className="sub">none</span>}</div>
+                      {cur.commands.length ? <div className="kv kv-col">{cur.commands.map((c) => <Fragment key={c.name}><span>{c.name}</span><b className="mono">{c.cmd}</b></Fragment>)}</div> : <span className="sub">none</span>}</div>
                     <div className="field"><span className="lab">Tools</span>
                       {cur.tools.length ? (
                         <div className="table-wrap"><table><thead><tr><th>Tool</th><th>Runs on</th><th>If it fails</th></tr></thead>

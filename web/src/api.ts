@@ -322,6 +322,36 @@ export type Stack = {
   /** v0.2: a keel pack that `keel packs add` can install into this project. */
   installable?: boolean;
 };
+/** keel v1's stack files describe `detect` and `layers` as objects and `skills` as a map; older data is plain text/lists.
+ *  Both become what the Stacks page shows, so a new shape can never crash the page. */
+export function normalizeStack(raw: unknown): Stack {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const text = (v: unknown): string => {
+    if (v == null) return "";
+    if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return String(v);
+    if (Array.isArray(v)) return v.map(text).filter(Boolean).join(", ");
+    if (typeof v === "object") {
+      return Object.entries(v as Record<string, unknown>).map(([k, x]) => `${k}: ${text(x)}`).filter((t) => !t.endsWith(": ")).join(" · ");
+    }
+    return "";
+  };
+  const detect = r.detect && typeof r.detect === "object" && !Array.isArray(r.detect)
+    ? Object.values(r.detect as Record<string, unknown>).map(text).filter(Boolean).join(" · ")
+    : text(r.detect);
+  const layers = (Array.isArray(r.layers) ? r.layers : []).map((l) =>
+    l && typeof l === "object" ? String((l as Record<string, unknown>).id ?? text(l)) : text(l)).filter(Boolean);
+  const skills = Array.isArray(r.skills) ? r.skills.map(text).filter(Boolean)
+    : r.skills && typeof r.skills === "object" ? Object.values(r.skills as Record<string, unknown>).map(text).filter(Boolean) : [];
+  const list = (v: unknown) => (Array.isArray(v) ? v : []);
+  return {
+    name: String(r.name ?? ""), lane: text(r.lane), source: text(r.source), detected: !!r.detected, detect, layers,
+    commands: list(r.commands).map((c) => ({ name: text((c as Record<string, unknown>)?.name), cmd: text((c as Record<string, unknown>)?.cmd) })),
+    tools: list(r.tools).map((t) => ({ name: text((t as Record<string, unknown>)?.name), on: text((t as Record<string, unknown>)?.on),
+      fail: text((t as Record<string, unknown>)?.fail) })),
+    skills, installable: !!r.installable,
+  };
+}
+
 export type McpServer = McpServerSpec & { enabled: boolean; builtin: boolean; status: "ok" | "off" | "error"; tools: string[] };
 export type McpAllow = Record<string, string[]>;
 
@@ -581,9 +611,9 @@ export const api = {
   saveSkill: (pid: string, sid: string, s: { agents?: string[]; when?: string; body?: string }) =>
     put<Skill>(`/projects/${e(pid)}/skills/${e(sid)}`, s),
   importSkill: (pid: string, body: { url: string } | { body: string }) => post<Skill>(`/projects/${e(pid)}/skills/import`, body),
-  stacks: (pid: string) => get<Stack[]>(`/projects/${e(pid)}/stacks`),
-  newStack: (pid: string, name: string, from: string) => post<Stack>(`/projects/${e(pid)}/stacks`, { name, from }),
-  installStack: (pid: string, name: string) => post<Stack>(`/projects/${e(pid)}/stacks/${e(name)}/install`),
+  stacks: (pid: string) => get<unknown[]>(`/projects/${e(pid)}/stacks`).then((l) => l.map(normalizeStack)),
+  newStack: (pid: string, name: string, from: string) => post<unknown>(`/projects/${e(pid)}/stacks`, { name, from }).then(normalizeStack),
+  installStack: (pid: string, name: string) => post<unknown>(`/projects/${e(pid)}/stacks/${e(name)}/install`).then(normalizeStack),
   mcpServers: () => get<McpServer[]>("/mcp-servers"),
   addMcpServer: (s: McpServerSpec) => post<McpServer>("/mcp-servers", s),
   saveMcpServer: (name: string, s: Partial<McpServer>) => put<McpServer>(`/mcp-servers/${e(name)}`, s),
