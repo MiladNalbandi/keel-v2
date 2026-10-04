@@ -108,7 +108,8 @@ api() { echo "http://localhost:${1:-$(running_port)}/api"; }
 # Agents working right now (a restart or stop would throw their work away and the step starts again).
 busy_agents() {
   container_running || { echo 0; return; }
-  curl -fs -m 5 "$(api)/jobs?status=running&limit=50" 2>/dev/null | grep -o '"agent":"[^"]*"' | wc -l | tr -d ' '
+  # grep finds nothing when no agent works: that is not an error (set -e / pipefail would end the script silently)
+  { curl -fs -m 5 "$(api)/jobs?status=running&limit=50" 2>/dev/null || true; } | { grep -o '"agent":"[^"]*"' || true; } | wc -l | tr -d ' '
 }
 
 guard_busy() {  # guard_busy "restart" — asks (or refuses) when agents are working; KEEL_FORCE=1 / --force skips it
