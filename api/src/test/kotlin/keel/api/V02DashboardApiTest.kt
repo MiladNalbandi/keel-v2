@@ -42,8 +42,8 @@ class V02DashboardApiTest : ApiTest() {
     @Test
     fun `the proxy forwards to keel with keel's Host, rewrites absolute paths in the page and streams events`() {
         newProject("v2-dash-proxy")
-        // Not running yet: the proxy says how to start it.
-        assertThat(get("/keel-v1/").andExpect(status().isBadGateway).json()["hint"].asText()).contains("/api/keel-dashboard")
+        // Not running yet: the proxy tries to start it itself (this test's keel stand-in cannot), and says so.
+        assertThat(get("/keel-v1/").andExpect(status().isBadGateway).json()["error"].asText()).contains("could not start")
 
         val hosts = CopyOnWriteArrayList<String>()
         val origins = CopyOnWriteArrayList<String>()

@@ -37,6 +37,7 @@ class KeelDashboardService(
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
     private var process: Process? = null
+    @Volatile private var lastPid: String? = null
 
     val port: Int get() = props.dashboardPort
     val base: String get() = "http://127.0.0.1:$port"
@@ -56,11 +57,14 @@ class KeelDashboardService(
 
     @Synchronized
     fun ensure(pid: String?): DashboardInfo {
+        if (pid != null) lastPid = pid
         if (running()) return DashboardInfo(URL, started = false)
         if (!home.installed()) {
             throw ApiException(HttpStatus.SERVICE_UNAVAILABLE, "keel v1 is not installed at ${home.path}", "Set KEEL_HOME to a keel checkout.")
         }
-        val row = if (pid != null) projects.require(pid) else projects.rows().firstOrNull()
+        val row = if (pid != null) projects.require(pid)
+            else (lastPid?.let { runCatching { projects.require(it) }.getOrNull() }
+                ?: projects.rows().firstOrNull { it.id != "demo" } ?: projects.rows().firstOrNull())
             ?: throw BadRequest("Add a project first", "keel's dashboard starts inside a project folder.")
         process?.takeIf { it.isAlive }?.destroy()
 
@@ -133,10 +137,19 @@ class KeelDashboardController(private val dashboard: KeelDashboardService) {
                 b.header(name, if (lower == "origin") dashboard.base else v)
             }
         }
+        val request = b.build()
         val upstream = try {
-            dashboard.http.send(b.build(), HttpResponse.BodyHandlers.ofInputStream())
+            dashboard.http.send(request, HttpResponse.BodyHandlers.ofInputStream())
         } catch (e: ConnectException) {
-            return error(res, "keel dashboard is not running", "Open it with GET /api/keel-dashboard first.")
+            // Not running (keel was restarted since it was opened): start it and try once more.
+            try {
+                dashboard.ensure(null)
+                dashboard.http.send(request, HttpResponse.BodyHandlers.ofInputStream())
+            } catch (e2: ApiException) {
+                return error(res, "keel v1's dashboard could not start: ${e2.message}", "See Repo › Open in keel v1, or keel2 logs.")
+            } catch (e2: IOException) {
+                return error(res, "keel v1's dashboard could not start", e2.message)
+            }
         } catch (e: IOException) {
             return error(res, "keel dashboard did not answer", e.message)
         }
