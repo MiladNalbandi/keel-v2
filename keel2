@@ -234,6 +234,8 @@ cmd_status() {
   info "  dashboard  http://localhost:$port"
   info "  project    $(label project)"
   info "  docker     $([ "$(label docker)" = 1 ] && echo "on (tests may start containers)" || echo off)"
+  local v1=starting; curl -fs "http://localhost:$port/keel-v1/api/hello" >/dev/null 2>&1 && v1=running
+  info "  keel v1    http://localhost:$port/keel-v1/ ($v1)"
   info "  image      $(docker inspect -f '{{.Config.Image}}' "$NAME")"
   info "  data       volume $VOLUME"
 }
