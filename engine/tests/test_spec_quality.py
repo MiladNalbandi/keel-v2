@@ -101,9 +101,16 @@ def test_skill_references_get_full_paths(tmp_path, monkeypatch):
     ref.mkdir(parents=True)
     (ref / "acceptance-criteria.md").write_text("# AC")
     monkeypatch.setenv("KEEL_HOME", str(tmp_path))
+    monkeypatch.setenv("KEEL_V2_SKILLS", str(tmp_path / "no-v2-skills"))
     out = prompts.system_prompt("explorer", {"explorer": "Read `references/acceptance-criteria.md` and references/nope.md"})
     assert f"{ref}/acceptance-criteria.md" in out and "references/nope.md" in out
     assert "never search the disk" in out
+    # keel v2's own copy of a reference wins over keel v1's
+    v2 = tmp_path / "v2" / "spec-writing" / "references"
+    v2.mkdir(parents=True)
+    (v2 / "acceptance-criteria.md").write_text("# v2")
+    monkeypatch.setenv("KEEL_V2_SKILLS", str(tmp_path / "v2"))
+    assert f"{v2}/acceptance-criteria.md" in prompts.system_prompt("explorer", {"explorer": "Read references/acceptance-criteria.md"})
 
 
 def test_a_sent_back_spec_is_changed_not_rewritten_from_scratch():

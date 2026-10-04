@@ -73,6 +73,7 @@ RUN uv sync --no-dev --python /usr/bin/python3 $( [ -f uv.lock ] && echo --froze
 
 # The api (built above) and the start script
 COPY --from=api /app.jar /opt/api/app.jar
+COPY skills /opt/keel-v2/skills
 COPY docker/keel-start /usr/local/bin/keel-start
 RUN chmod +x /usr/local/bin/keel-start \
     && (id -u ubuntu >/dev/null 2>&1 && userdel -r ubuntu || true) \

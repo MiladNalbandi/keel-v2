@@ -324,3 +324,37 @@ describe("blocking findings gate", () => {
     expect(l.needWhy).toBe(true);
   });
 });
+
+describe("clarify gate (the explorer's questions as buttons)", () => {
+  const questions = [
+    { id: "identity", question: "What does \"user\" mean here?", why: "scope differs a lot",
+      options: [{ label: "A · Named entity", description: "name + email", recommended: true }, { label: "B · Login", description: "needs its own spec" }] },
+    { id: "where", question: "Where does the filter run?",
+      options: [{ label: "In the browser", recommended: true }, { label: "On the server" }] },
+  ];
+
+  it("shows each question with its options, and sends clicked and typed answers with the resume", async () => {
+    const user = userEvent.setup();
+    db.flows["ludus-engine"].thread!.waiting = { step: "spec_gate", kind: "clarify", title: "The explorer has 2 questions before the spec",
+      detail: "1. ...", options: ["approve"], labels: { approve: "Send my answers" }, questions };
+    render(<App />);
+    const form = await screen.findByTestId("clarify-form");
+    expect(within(form).getByText("What does \"user\" mean here?")).toBeInTheDocument();
+    expect(within(form).getAllByText("recommended")).toHaveLength(2);
+    await user.click(within(form).getByRole("radio", { name: /B · Login/ }));
+    expect(within(form).getByRole("radio", { name: /B · Login/ })).toHaveAttribute("aria-checked", "true");
+    await user.type(within(form).getByLabelText(/Your own answer to: Where does the filter run/), "both, server is the truth");
+    expect(within(form).getByRole("radio", { name: /In the browser/ })).toHaveAttribute("aria-checked", "false");
+    await user.type(screen.getByLabelText(/Anything else the explorer should know/), "keep it small");
+    await user.click(screen.getByRole("button", { name: "Send my answers" }));
+    await waitFor(() => expect(calls("POST", "/api/threads/th_7f3a/resume")[0]?.body).toEqual({
+      decision: "approve", why: "keep it small",
+      payload: { answers: { identity: "B · Login", where: "both, server is the truth" } } }));
+  });
+
+  it("answersOf leaves unanswered questions out and lets typed text win over a click", async () => {
+    const { answersOf } = await import("../components/ClarifyForm");
+    expect(answersOf(questions, { identity: "A · Named entity" }, {})).toEqual({ identity: "A · Named entity" });
+    expect(answersOf(questions, { identity: "A · Named entity" }, { identity: "  none of these ", where: "" })).toEqual({ identity: "none of these" });
+  });
+});

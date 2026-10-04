@@ -55,6 +55,7 @@ class Settings(BaseModel):
     simulate_checks: bool | None = None   # default: simulate test runs when every model is fake
     unlocks: list[Unlock] | None = None   # keel v1 unlocks: that path bypasses the guard matrix in that phase
     sections: list[str] | None = None     # knowledge-refresh: one librarian per section
+    spec_check: bool | None = None        # send a spec back once when keel's spec check finds a gap (default: real models only)
 
 
 class McpServerSpec(BaseModel):

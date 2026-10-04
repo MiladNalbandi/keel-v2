@@ -6,6 +6,7 @@ import {
   api, errorParts, type Blocker, type Checkpoint, type EngineEvent, type FlowView, type Job, type LadderRung, type Memory, type ThreadState, type Workflow,
 } from "../api";
 import { CodeBlock, FoldedText } from "../components/Code";
+import { answersOf, ClarifyForm, type ClarifyAnswers } from "../components/ClarifyForm";
 import { Markdown } from "../components/Markdown";
 import { OpenKeelV1Button } from "../components/OpenKeelV1";
 import { eventLine } from "../components/events";
@@ -194,6 +195,14 @@ export function gateLabels(w: NonNullable<ThreadState["waiting"]>, acId?: string
   if (w.kind === "fix") {
     return { approve: "Approve fix", reject: "Reject fix", needWhy: true, whyLabel: "Why (needed to reject)", approved: "Fix approved.", rejected: "Fix rejected. The agent gets your reason.", special: true };
   }
+  if (w.kind === "clarify") {
+    return {
+      approve: w.labels?.approve ?? "Send my answers", reject: "Send back", needWhy: false,
+      whyLabel: "Anything else the explorer should know (optional)",
+      explain: "The explorer could not decide these from the code. One click each: the recommended option comes first, and your own words win over a click.",
+      approved: "Answers sent. The explorer continues with them.", rejected: "Sent back.", special: true,
+    };
+  }
   if (w.kind === "gate" && /blocking finding/.test(t)) {
     return {
       approve: w.labels?.approve ?? "Fix them", reject: w.labels?.reject ?? "Go on anyway", needWhy: true, whyLabel: "Why (needed to go on anyway)",
@@ -255,6 +264,8 @@ function GateCard({ thread, workflow, onDone }: { thread: ThreadState; workflow:
   const { toast, reloadProjects } = useApp();
   const w = thread.waiting!;
   const [why, setWhy] = useState("");
+  const [picked, setPicked] = useState<ClarifyAnswers>({});
+  const [typed, setTyped] = useState<ClarifyAnswers>({});
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<{ message: string; hint?: string } | null>(null);
   const step = workflow.steps.find((s) => s.id === w.step.replace(/__fix$/, "")) ?? workflow.steps.find((s) => s.id === thread.current);
@@ -273,7 +284,10 @@ function GateCard({ thread, workflow, onDone }: { thread: ThreadState; workflow:
     setBusy(true);
     setErr(null);
     try {
-      await api.resume(thread.thread_id, decision, why.trim() || undefined);
+      const answers = w.kind === "clarify" && w.questions ? { answers: answersOf(w.questions, picked, typed) } : undefined;
+      await api.resume(thread.thread_id, decision, why.trim() || undefined, answers);
+      setPicked({});
+      setTyped({});
       toast(decision === "approve" ? labels.approved : labels.rejected);
       setWhy("");
       await Promise.all([onDone(), reloadProjects()]);
@@ -288,7 +302,10 @@ function GateCard({ thread, workflow, onDone }: { thread: ThreadState; workflow:
     <div className="interrupt" role="region" aria-label="Gate waits for you">
       <h3><Pill tone="warn">◆ waits for you</Pill> {w.title}{showAc && ac ? ` — ${ac.id} [${ac.layer}] ${ac.title}` : ""}</h3>
       {labels.explain && <p className="sub" style={{ margin: 0 }}>{labels.explain}</p>}
-      {w.detail && <GateDetail text={w.detail} />}
+      {w.kind === "clarify" && w.questions
+        ? <ClarifyForm questions={w.questions} picked={picked} typed={typed}
+            onPick={(id, label) => setPicked((p) => ({ ...p, [id]: label }))} onType={(id, text) => setTyped((p) => ({ ...p, [id]: text }))} />
+        : w.detail && <GateDetail text={w.detail} />}
       {labels.whyLabel && (
         <div className="field">
           <label htmlFor="why">{labels.whyLabel}</label>

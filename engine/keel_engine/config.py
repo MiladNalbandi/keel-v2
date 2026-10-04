@@ -49,3 +49,13 @@ def port() -> int:
 def workspace() -> Path:
     """Where the project is mounted: /workspace, or its real path with `keel2 start --docker`."""
     return Path(os.environ.get("KEEL_WORKSPACE") or "/workspace")
+
+
+def v2_skills() -> Path:
+    """keel v2's own skills (spec-clarify, spec-writing): KEEL_V2_SKILLS, else /opt/keel-v2/skills, else ../skills (dev)."""
+    if os.environ.get("KEEL_V2_SKILLS"):
+        return Path(os.environ["KEEL_V2_SKILLS"])
+    for c in (Path("/opt/keel-v2/skills"), Path(__file__).resolve().parents[2] / "skills"):
+        if (c / "spec-clarify").is_dir():
+            return c
+    return Path("/opt/keel-v2/skills")

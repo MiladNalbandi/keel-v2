@@ -58,10 +58,11 @@ class SkillService(
     private val jdbc: JdbcTemplate,
     private val home: KeelHome,
     private val projects: ProjectService,
+    private val props: keel.api.common.KeelProperties,
 ) {
-    private fun scan(dir: Path, source: String): List<SkillDef> {
+    private fun scan(dir: Path, source: String, versionOf: String? = null): List<SkillDef> {
         if (!Files.isDirectory(dir)) return emptyList()
-        val version = home.version() ?: "dev"
+        val version = versionOf ?: home.version() ?: "dev"
         return Files.list(dir).use { s -> s.filter { Files.isRegularFile(it.resolve("SKILL.md")) }.sorted().toList() }.map { d ->
             val file = d.resolve("SKILL.md")
             val text = Files.readString(file)
@@ -80,7 +81,8 @@ class SkillService(
     }
 
     private fun builtins(): List<SkillDef> =
-        scan(home.path.resolve("skills"), "keel") + scan(home.path.resolve("packs/skills"), "keel pack")
+        scan(home.path.resolve("skills"), "keel") + scan(home.path.resolve("packs/skills"), "keel pack") +
+            scan(props.v2Skills, "keel v2", "v2")
 
     private fun custom(pid: String?): List<SkillDef> {
         val sql = "SELECT id, project_id, name, kind, stack, body FROM custom_skills" + (if (pid != null) " WHERE project_id = ?" else "")
@@ -224,7 +226,7 @@ class SkillService(
             id == "debugging" || id == "diagnose" -> "debugging"
             id == "security" || id == "review" -> "review"
             id == "memory" -> "knowledge"
-            id == "spec-authoring" -> "authoring"
+            id == "spec-authoring" || id == "spec-clarify" || id == "spec-writing" -> "authoring"
             id in FLOW_SKILLS -> "flow"
             else -> "knowledge"
         }
@@ -248,7 +250,11 @@ class SkillService(
             id == "architecture" -> listOf("implementer", "arch-surveyor") to "green, ship"
             id == "debugging" -> listOf("reproducer", "investigator") to "bug-repro, bug-investigate"
             id == "security" -> listOf("security-auditor", "dependency-triager") to "security"
-            id == "spec-authoring" -> listOf("explorer") to "spec"
+            // keel v1's spec-authoring talks to a live user (AskUserQuestion, keel commands); in keel v2 the explorer
+            // gets spec-clarify (questions as buttons) and spec-writing instead.
+            id == "spec-authoring" -> emptyList<String>() to "replaced by spec-clarify + spec-writing in keel v2"
+            id == "spec-clarify" -> listOf("explorer") to "spec"
+            id == "spec-writing" -> listOf("explorer") to "spec"
             id == "memory" -> listOf("librarian") to "memory"
             id == "playwright" -> listOf("e2e-author") to "e2e"
             id == "review" -> listOf("reviewer") to "ship"
