@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import uuid
+import dataclasses
 import re
 import shutil
 import subprocess
@@ -296,11 +298,35 @@ class ClaudeStream:
                 self.steps.finish(call_id, text, not b.get("is_error"), structured)
 
 
+NO_SESSION = re.compile(r"no conversation found|session .{0,40}not found|invalid session", re.I)
+
+
+def claude_home() -> str:
+    """claude's config folder on /data: its sessions survive a keel restart (the home folder does not)."""
+    d = config.data_dir() / "agent-home" / "claude"
+    d.mkdir(parents=True, exist_ok=True)
+    marker = d / ".claude.json"
+    if not marker.exists():
+        marker.write_text('{"hasCompletedOnboarding": true}')
+    return str(d)
+
+
 class ClaudeCLIRunner:
+    async def _fresh(self, req: AgentRequest, emit: Emit) -> AgentResult:
+        """The saved session is gone (cleaned up, or another machine): start a new one for this step."""
+        emit("text", "Could not continue the earlier session for this step; starting a new one.")
+        new = str(uuid.uuid4())
+        if req.on_session:
+            req.on_session(new)
+        return await self.run(dataclasses.replace(req, session=new, resume=False), emit)
+
     async def run(self, req: AgentRequest, emit: Emit) -> AgentResult:
         model = req.model.get("model") or "sonnet"
         argv = [find("claude"), "-p", "--output-format", "stream-json", "--verbose", "--model", model,
-                "--no-session-persistence", "--permission-mode", "acceptEdits"]
+                "--permission-mode", "acceptEdits"]
+        # The session is kept (on /data, see claude_home) so this step can continue it after a restart or send-back.
+        if req.session:
+            argv += ["--resume", req.session] if req.resume else ["--session-id", req.session]
         if req.model.get("effort"):
             argv += ["--effort", req.model["effort"]]
         turns = prompts.max_turns(req.agent, req.phase)
@@ -328,9 +354,16 @@ class ClaudeCLIRunner:
         else:
             emit("text", f"keel is not installed at {home}: the live guard is off; the after-step diff guard still applies.")
         stream = ClaudeStream(emit, req.root)
-        env = safe_env({**claude_login_env(req.keys), "KEEL_BIN": str(home / "bin" / "keel")})
-        await run_cli("claude", argv, stdin=req.prompt, cwd=req.root, env=env, timeout=req.timeout, on_line=stream.line)
+        env = safe_env({**claude_login_env(req.keys), "KEEL_BIN": str(home / "bin" / "keel"), "CLAUDE_CONFIG_DIR": claude_home()})
+        try:
+            await run_cli("claude", argv, stdin=req.prompt, cwd=req.root, env=env, timeout=req.timeout, on_line=stream.line)
+        except ModelError as exc:
+            if req.resume and NO_SESSION.search(str(exc) + json.dumps(stream.result or {})):
+                return await self._fresh(req, emit)
+            raise
         res = stream.result
+        if req.resume and res and res.get("is_error") and NO_SESSION.search(json.dumps(res)):
+            return await self._fresh(req, emit)
         if not res:
             raise ModelError("claude printed no result.")
         if res.get("is_error"):
@@ -359,6 +392,9 @@ def file_diff(root: str, rel: str, added: bool = False) -> str:
 
 def codex_line(emit: Emit, root: str, ev: dict, state: dict):
     t = ev.get("type")
+    if t == "thread.started" and ev.get("thread_id"):
+        state["session"] = ev["thread_id"]
+        return
     if t == "turn.completed":
         state["usage"] = ev.get("usage") or {}
         return
@@ -412,7 +448,7 @@ def codex_line(emit: Emit, root: str, ev: dict, state: dict):
 
 class CodexCLIRunner:
     async def run(self, req: AgentRequest, emit: Emit) -> AgentResult:
-        argv = [find("codex"), "exec", "-", "--json", "-s", "workspace-write", "--skip-git-repo-check", "-C", req.root]
+        argv = [find("codex"), "exec", "--json", "-s", "workspace-write", "--skip-git-repo-check", "-C", req.root]
         if req.model.get("model"):
             argv += ["-m", req.model["model"]]
         if req.model.get("effort"):
@@ -420,6 +456,8 @@ class CodexCLIRunner:
         for s in mcp.servers_for(req.mcp_specs, req.tools_allow):
             argv += ["-c", f"mcp_servers.{s['name']}.command={json.dumps(s['command'])}",
                      "-c", f"mcp_servers.{s['name']}.args={json.dumps(list(s.get('args') or []))}"]
+        # Sessions live in CODEX_HOME on /data; continue this step's session when there is one.
+        argv += ["resume", req.session, "-"] if (req.session and req.resume) else ["-"]
         state: dict = {}
 
         def on_line(raw: str):
@@ -429,7 +467,15 @@ class CodexCLIRunner:
                 pass
 
         prompt = f"{req.system}\n\n{req.prompt}" if req.system else req.prompt
-        await run_cli("codex", argv, stdin=prompt, cwd=req.root, env=safe_env(codex_login_env(req.keys)), timeout=req.timeout, on_line=on_line)
+        try:
+            await run_cli("codex", argv, stdin=prompt, cwd=req.root, env=safe_env(codex_login_env(req.keys)), timeout=req.timeout, on_line=on_line)
+        except ModelError as exc:
+            if req.session and req.resume and NO_SESSION.search(str(exc)):
+                emit("text", "Could not continue the earlier session for this step; starting a new one.")
+                return await self.run(dataclasses.replace(req, session=None, resume=False), emit)
+            raise
+        if state.get("session") and req.on_session:
+            req.on_session(state["session"])
         if state.get("error"):
             raise ModelError(f"codex reported an error: {_short(state['error'], 500)}")
         usage = state.get("usage") or {}

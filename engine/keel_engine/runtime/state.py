@@ -62,6 +62,7 @@ class ThreadContext:
     # Agent results of a parallel step whose other agents failed: "try again" re-runs the node from the top
     # (LangGraph), and only the failed agents should run again. Memory only; cleared when the step finishes.
     done_calls: dict[str, Any] = field(default_factory=dict)
+    memory: Any = None                                   # AgentMemory: agent sessions and trails on /data
 
     @property
     def fake(self) -> bool:

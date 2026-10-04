@@ -370,3 +370,15 @@ github-copilot`), else a built-in list. Effort is passed to the CLIs: claude `--
 - **knowledge-refresh** without a section list: the sections from `init.knowledge_sections`, else the existing
   ones, else all five. Each librarian gets one.
 - **Projects whose folder is not mounted** are not listed (their history is kept).
+
+## v0.3.3 additions — agents keep their work
+
+- **Agent sessions are kept.** Each agent run is known by its attempt key (step, criterion, agent, copy, section).
+  claude runs with `--session-id <uuid>` (its sessions are kept in `/data/agent-home/claude`), codex sessions are in
+  `CODEX_HOME` on /data. The same step again — after a restart, a "try again" or a send-back — continues that session
+  (`claude --resume`, `codex exec resume`); the agent is told why. A lost session starts a new one. Providers that
+  cannot resume get a short trail of what their last try read and did. A rewind clears the thread's agent memory.
+- **Restart:** threads that were running wait for the api (`POST /threads/{id}/continue {keys, root}`), because logins
+  live only in memory; the api sends them when it is ready and marks the cut-off agent runs `stopped`. Without that
+  call a thread continues by itself after `KEEL_CONTINUE_GRACE` seconds (60).
+- Agents are told to read keel's memory (`docs/knowledge/`) before exploring the code.

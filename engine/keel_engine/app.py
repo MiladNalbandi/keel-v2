@@ -95,6 +95,11 @@ class Resume(BaseModel):
     root: str | None = None              # the project's folder now (it moves when keel is started another way)
 
 
+class Continue(BaseModel):
+    keys: dict[str, str] | None = None   # the thread's logins (the engine keeps them in memory only)
+    root: str | None = None
+
+
 class Rewind(BaseModel):
     checkpoint_id: str
     keys: dict[str, str] | None = None   # logins again: they live in memory only and a restart forgets them
@@ -227,6 +232,10 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
             await engine(request).set_keys(tid, body.keys)
         await engine(request).set_root(tid, body.root)
         return await engine(request).resume(tid, body.decision, body.why, body.payload)
+
+    @app.post("/threads/{tid}/continue")
+    async def post_continue(tid: str, body: Continue, request: Request):
+        return await engine(request).continue_after_restart(tid, body.keys, body.root)
 
     @app.post("/threads/{tid}/stop")
     async def post_stop(tid: str, request: Request):

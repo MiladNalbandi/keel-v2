@@ -24,6 +24,7 @@ from ..events import EventBus, mirror
 from ..tools import git
 from ..workflows.model import Workflow, from_dict
 from . import ladder as ladder_mod
+from . import memory as memory_mod
 from .compiler import compile_workflow
 from .state import ThreadContext, initial_state
 
@@ -35,6 +36,9 @@ create table if not exists keel_threads (
   status text not null, root text not null, body text not null, error text,
   created_at text not null, updated_at text not null
 )"""
+
+
+CONTINUE_GRACE = float(os.environ.get("KEEL_CONTINUE_GRACE", "60"))
 
 
 class EngineError(Exception):
@@ -56,6 +60,8 @@ class Engine:
         self.graphs: dict[str, object] = {}
         self.ctxs: dict[str, ThreadContext] = {}
         self.tasks: dict[str, asyncio.Task] = {}
+        self.pending: set[str] = set()            # running when keel stopped; continued by the api (or the grace timer)
+        self._grace: asyncio.Task | None = None
         self.keys: dict[str, dict] = {}
 
     # ------------------------------------------------------------ lifecycle
@@ -68,21 +74,43 @@ class Engine:
         self.saver = AsyncSqliteSaver(self.conn)
         await self.saver.setup()
         await self.conn.execute(REGISTRY)
+        await self.conn.execute(memory_mod.SCHEMA)
         await self.conn.commit()
         if resume_running:
+            # Threads that were running when keel stopped continue once the api has sent their logins (they live in
+            # memory only) and their folder: POST /threads/{id}/continue. Without that call they continue by
+            # themselves after CONTINUE_GRACE seconds (fine for models that need no login).
             async with self.conn.execute("select thread_id from keel_threads where status = 'running'") as cur:
-                rows = await cur.fetchall()
-            for (tid,) in rows:
-                try:
-                    await self.set_root(tid, None)
-                except EngineError as exc:
-                    log.warning("not continuing thread %s: %s", tid, exc)
-                    await self._set_status(tid, "failed", f"{exc} {exc.hint or ''}".strip())
-                    continue
-                log.info("continuing thread %s after a restart", tid)
-                self._launch(tid, None)
+                self.pending = {tid for (tid,) in await cur.fetchall()}
+            if self.pending:
+                log.info("%d thread(s) wait for the api to continue them", len(self.pending))
+                self._grace = asyncio.create_task(self._continue_later())
+
+    async def _continue_later(self):
+        await asyncio.sleep(CONTINUE_GRACE)
+        for tid in list(self.pending):
+            await self.continue_after_restart(tid, None, None)
+
+    async def continue_after_restart(self, tid: str, keys: dict | None, root: str | None) -> dict:
+        """Continue a thread that was running when keel stopped, with its logins and its folder now."""
+        await self._row(tid)
+        if keys:
+            await self.set_keys(tid, keys)
+        if tid in self.pending and tid not in self.tasks:
+            self.pending.discard(tid)
+            try:
+                await self.set_root(tid, root)
+            except EngineError as exc:
+                log.warning("not continuing thread %s: %s", tid, exc)
+                await self._set_status(tid, "failed", f"{exc} {exc.hint or ''}".strip())
+                return await self.state(tid)
+            log.info("continuing thread %s after a restart%s", tid, "" if keys else " (no logins sent)")
+            self._launch(tid, None)
+        return await self.state(tid)
 
     async def close(self):
+        if self._grace:
+            self._grace.cancel()
         for t in list(self.tasks.values()):
             t.cancel()
         for t in list(self.tasks.values()):
@@ -117,7 +145,8 @@ class Engine:
         wf = from_dict(body["workflow"], body["workflow"].get("yaml") or None)
         ctx = ThreadContext(thread_id=tid, project_id=row["project_id"], root=row["root"], workflow=wf, title=row["title"],
                             request=(body.get("request") or "").strip(), models=body.get("models") or {}, settings=body.get("settings") or {}, mcp=body.get("mcp") or [],
-                            skills=body.get("skills") or {}, keys=self.keys.get(tid, {}), bus=self.bus)
+                            skills=body.get("skills") or {}, keys=self.keys.get(tid, {}), bus=self.bus,
+                            memory=memory_mod.AgentMemory(self.conn, tid))
         self.ctxs[tid] = ctx
         self.bus.register(tid, ctx.root)
         return ctx
@@ -392,6 +421,7 @@ class Engine:
         graph = await self._graph(tid)
         ctx = await self._context(tid)
         ctx.done_calls.clear()
+        await ctx.memory.clear()          # a rewind goes back on purpose: agents start fresh from there
         target = None
         async for snap in graph.aget_state_history(self._cfg(tid)):
             if snap.config["configurable"]["checkpoint_id"] == checkpoint_id:
