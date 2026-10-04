@@ -93,3 +93,21 @@ def test_librarian_gets_the_templates_and_a_short_memory_brief(tmp_path, monkeyp
     text = task_prompt(agent="librarian", phase="memory", step_name="memory", title="t", root="/r", ac=None, acs=[], feedback=None)
     assert f"{tmp_path}/templates/knowledge/<section>.md" in text and "Do not read keel's own source" in text
     assert "only the knowledge sections this branch changes" in text
+
+
+def test_skill_references_get_full_paths(tmp_path, monkeypatch):
+    from keel_engine.runtime import prompts
+    ref = tmp_path / "skills" / "spec-authoring" / "references"
+    ref.mkdir(parents=True)
+    (ref / "acceptance-criteria.md").write_text("# AC")
+    monkeypatch.setenv("KEEL_HOME", str(tmp_path))
+    out = prompts.system_prompt("explorer", {"explorer": "Read `references/acceptance-criteria.md` and references/nope.md"})
+    assert f"{ref}/acceptance-criteria.md" in out and "references/nope.md" in out
+    assert "never search the disk" in out
+
+
+def test_a_sent_back_spec_is_changed_not_rewritten_from_scratch():
+    from keel_engine.runtime.prompts import task_prompt
+    p = task_prompt(agent="explorer", phase="spec", step_name="spec", title="t", root="/r", ac=None, acs=[],
+                    feedback="1 entity types first", spec="docs/specs/x.md")
+    assert "The spec docs/specs/x.md exists from the last try" in p and "do not explore the project again" in p

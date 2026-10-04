@@ -570,6 +570,7 @@ class Compiler:
         for res, _m, tb in results:
             if res.data.get("acs"):
                 return [dict(a, status="todo") for a in res.data["acs"]], res.data.get("spec")
+        seen = None
         for res, _m, tb in results:
             spec = next((w["path"] for w in tb.writes if w["path"].endswith(".md")), None)
             # The spec file the agent wrote comes first; its chat answer only when no file has criteria.
@@ -580,11 +581,13 @@ class Compiler:
                     if "spec" in rel and rel.endswith(".md") and (Path(self.ctx.root) / rel).is_file():
                         texts.append((Path(self.ctx.root) / rel).read_text(errors="replace"))
                         spec = spec or rel
+            seen = seen or spec
             for t in texts + [res.text]:
                 acs = prompts.parse_acs(t)
                 if acs:
                     return acs, spec
-        return [], None
+        # No criteria yet, but the spec file is known: a send-back changes that file instead of starting over.
+        return [], seen
 
     def _action_input(self, state: FlowState, ac: dict | None) -> ActionInput:
         return ActionInput(root=self.ctx.root, phase=state["phase"], title=self.ctx.title, ac=ac, init=dict(state.get("init") or {}),

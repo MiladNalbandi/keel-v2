@@ -3,7 +3,8 @@
 #
 #   keel2 start [folder]        start keel for a project (default: this folder) and open the browser
 #   keel2 start --docker [dir]  same, and let the project's tests use your Docker (Testcontainers, compose)
-#   keel2 stop | restart        stop keel / start it again with the same project and options
+#   keel2 stop | restart        stop keel / start it again with the same project and options (they ask first
+#                               when agents are working; --force does not ask)
 #   keel2 status                is keel running, for which project, on which port
 #   keel2 open                  open the dashboard in the browser
 #   keel2 logs                  follow keel's log (Ctrl+C to leave)
@@ -98,6 +99,21 @@ ensure_image() {
 
 api() { echo "http://localhost:${1:-$(running_port)}/api"; }
 
+# Agents working right now (a restart or stop would throw their work away and the step starts again).
+busy_agents() {
+  container_running || { echo 0; return; }
+  curl -fs -m 5 "$(api)/jobs?status=running&limit=50" 2>/dev/null | grep -o '"agent":"[^"]*"' | wc -l | tr -d ' '
+}
+
+guard_busy() {  # guard_busy "restart" — asks (or refuses) when agents are working; KEEL_FORCE=1 / --force skips it
+  [ "${KEEL_FORCE:-0}" = 1 ] && return 0
+  local n; n="$(busy_agents)"
+  [ "${n:-0}" -gt 0 ] 2>/dev/null || return 0
+  warn "$n agent(s) are working right now. To $1 keel stops them: their step starts again later and its tokens are spent again."
+  ask_yes "$1 anyway?" && return 0
+  die "Not done; keel keeps working." "Wait until the step finishes (keel2 status, or the dashboard), or use --force."
+}
+
 wait_healthy() {  # wait_healthy <port>
   local i; for i in $(seq 1 120); do
     curl -fs "$(api "$1")/health" >/dev/null 2>&1 && return 0
@@ -155,6 +171,7 @@ cmd_start() {
     case "$1" in
       --docker) docker_mode=1 ;;
       --no-docker) docker_mode=0 ;;
+      --force) KEEL_FORCE=1 ;;
       -*) die "Unknown option $1" "See: keel2 help" ;;
       *) folder="$1" ;;
     esac
@@ -167,6 +184,7 @@ cmd_start() {
   ensure_image
 
   if container_exists; then
+    guard_busy restart
     local old; old="$(label project)"
     if [ -n "$old" ] && [ "$old" != "$project" ]; then info "keel was running for $old — switching to $project."; fi
     docker rm -f "$NAME" >/dev/null 2>&1 || true
@@ -211,6 +229,8 @@ open_url() {
 cmd_stop() {
   need_docker
   container_exists || { info "keel is not running."; return 0; }
+  [ "${1:-}" = "--force" ] && KEEL_FORCE=1
+  guard_busy stop
   docker rm -f "$NAME" >/dev/null && ok "keel stopped (your data and logins are kept)"
 }
 
@@ -372,7 +392,7 @@ cmd_uninstall() {
   fi
 }
 
-cmd_help() { sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; }
+cmd_help() { sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; }
 
 # ---------------------------------------------------------------- main
 cmd="${1:-}"
@@ -380,8 +400,8 @@ cmd="${1:-}"
 case "$cmd" in
   start)            cmd_start "$@" ;;
   --docker)         cmd_start --docker "$@" ;;          # keel2 --docker <folder>   (older form)
-  stop)             cmd_stop ;;
-  restart)          cmd_restart ;;
+  stop)             cmd_stop "$@" ;;
+  restart)          [ "${1:-}" = "--force" ] && KEEL_FORCE=1; cmd_restart ;;
   status|ps)        cmd_status ;;
   open)             cmd_open ;;
   logs)             need_docker; container_exists || die "keel is not running."; exec docker logs -f --tail 100 "$NAME" ;;
