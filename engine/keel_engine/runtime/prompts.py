@@ -92,6 +92,10 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
              f"Files you may change in this phase: {_allowed(phase)}. Anything else is put back automatically."]
     if request:
         lines.append("What the user asked for:\n" + request)
+    from pathlib import Path as _P
+    if (_P(root) / "docs" / "knowledge").is_dir() and not section:
+        lines.append("keel's memory of this project is in docs/knowledge/ (start with index.md if it exists, then only the "
+                     "section you need). Read it before exploring the code and trust its file:line citations.")
     mine = [u["path"] for u in unlocks or [] if u.get("phase") == phase]
     if mine:
         lines.append("Unlocked for this phase by the user: " + ", ".join(mine))

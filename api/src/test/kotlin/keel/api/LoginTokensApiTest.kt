@@ -98,4 +98,20 @@ class LoginTokensApiTest : ApiTest() {
         post("/api/threads/$tid/rewind", mapOf("checkpoint_id" to "c1"))
         assertThat(engine.lastBody("/threads/$tid/rewind")!!["root"].asText()).isEqualTo(root.toString())
     }
+
+    @org.springframework.beans.factory.annotation.Autowired lateinit var jdbc: org.springframework.jdbc.core.JdbcTemplate
+    @org.springframework.beans.factory.annotation.Autowired lateinit var flows: keel.api.flow.FlowService
+
+    @Test
+    fun `after a restart running flows get their logins and folder back`() {
+        put("/api/secrets/CLAUDE_CODE_OAUTH_TOKEN", mapOf("value" to claudeToken)).andExpect(status().isOk)
+        put("/api/settings/general", mapOf("default_model" to mapOf("provider" to "claude", "mode" to "subscription", "model" to "sonnet"))).andExpect(status().isOk)
+        val (pid, root) = newProject("continue-after-restart")
+        val tid = post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "x")).json()["thread_id"].asText()
+        jdbc.update("UPDATE threads SET status = 'running' WHERE id = ?", tid)
+        flows.continueAfterRestart()
+        val body = engine.lastBody("/threads/$tid/continue")!!
+        assertThat(body["keys"]["claude_oauth"].asText()).isEqualTo(claudeToken)
+        assertThat(body["root"].asText()).isEqualTo(root.toString())
+    }
 }

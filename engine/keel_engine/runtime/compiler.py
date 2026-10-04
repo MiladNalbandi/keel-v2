@@ -34,6 +34,7 @@ from ..tools import git, guard
 from ..tools.agent_tools import ToolBox
 from ..workflows.model import Step, Workflow
 from . import init_gates, prompts
+from . import memory as memory_mod
 from .actions import ActionInput, ActionResult, revert_manifests, run_action
 from .state import FlowState, ThreadContext, merge_unlocks, normalize_unlocks
 
@@ -42,6 +43,7 @@ log = logging.getLogger(__name__)
 AC_BEGIN, AC_END, FINISH = "__ac_begin", "__ac_end", "__finish"
 KNOWN_SECTIONS = {"architecture", "domain", "conventions", "data", "integrations"}
 OPTIONS = ["approve", "reject"]
+RESUMABLE = {"claude", "codex"}      # CLIs whose sessions keel can continue (claude --resume, codex exec resume)
 ALREADY_MET = "already-met"
 DONE = ("done", ALREADY_MET)        # AC statuses the per-AC loop is finished with
 STEP_FIELD_MAX = 24_000          # per string field of an agent.step (runners already cap at 20 KB plus a note)
@@ -264,22 +266,42 @@ class Compiler:
             "phase": phase, "ac": (ac or {}).get("id"), "index": index})
         counter = {"n": 0}
 
+        # Agent memory: the same step again (restart, try again, send-back) continues this agent's own session.
+        mem = ctx.memory
+        key = memory_mod.attempt_key(step.id, ac, agent, index, section)
+        prev = await mem.get(key) if mem else None
+        same = bool(prev and prev["provider"] == model["provider"] and prev["root"] == ctx.root)
+        can_resume = model.get("mode") != "api" and model["provider"] in RESUMABLE
+        resuming = bool(same and can_resume and prev.get("session"))
+        session = prev["session"] if resuming else (str(uuid.uuid4()) if can_resume and model["provider"] == "claude" else None)
+        if mem:
+            await mem.start(key, model["provider"], ctx.root, session, keep_trail=same)
+
         def emit(kind: str, text: str = "", **extra):
             counter["n"] += 1
             # Every string field (text, diff, output, ...) is bounded; newlines are kept for the web's Markdown and diff views.
             data = {"n": counter["n"], "kind": kind, "text": str(text)[:STEP_FIELD_MAX]}
             data.update({k: (v[:STEP_FIELD_MAX] if isinstance(v, str) else v) for k, v in extra.items() if v is not None})
             ctx.emit("agent.step", step=step.id, call_id=call_id, data=data)
+            line = memory_mod.trail_line(kind, str(text), extra) if mem else None
+            if line:
+                mem.note(key, line)
 
         prompt = prompts.task_prompt(agent=agent, phase=phase, step_name=step.name, title=ctx.title, root=ctx.root, ac=ac,
                                      acs=state.get("acs") or [], feedback=state.get("feedback"), index=index, spec=state.get("spec"),
                                      section=section, unlocks=state.get("unlocks") or [], request=ctx.request)
+        note = memory_mod.resume_note(prev, resuming) if same else ""
+        if note:
+            prompt = f"{note}\n\n{prompt}"
+            emit("text", "Continuing this agent's earlier session for this step." if resuming
+                 else "This agent gets a summary of its last try on this step.")
         with tempfile.TemporaryDirectory(prefix="keel-agent-") as tmp:
             req = AgentRequest(agent=agent, system=prompts.system_prompt(agent, ctx.skills), prompt=prompt, root=ctx.root,
                                phase=phase, model=model, toolbox=toolbox, ac=ac, acs=state.get("acs") or [], title=ctx.title,
                                step_name=step.name, index=index, feedback=state.get("feedback"), mcp_specs=ctx.mcp,
                                tools_allow=step.tools or [], key=models.key_for(model["provider"], ctx.keys), workdir=tmp,
-                               keys=dict(ctx.keys), section=section)
+                               keys=dict(ctx.keys), section=section, session=session, resume=resuming,
+                               on_session=(lambda sid: mem.set_session(key, sid)) if mem else None)
             try:
                 res = await models.runner_for(model).run(req, emit)
             except asyncio.CancelledError:
@@ -288,6 +310,8 @@ class Compiler:
                 raise
             except Exception as exc:
                 emit("error", f"{exc}{(' ' + exc.hint) if getattr(exc, 'hint', '') else ''}", ok=False)
+                if mem:
+                    await mem.finish(key, "failed", str(exc))
                 used = getattr(exc, "usage", None) or {}
                 # A failed run still used tokens (a turn limit after 30 turns is not free): the job and the budget count them.
                 ctx.emit("agent.finished", step=step.id, call_id=call_id, data={
@@ -295,6 +319,8 @@ class Compiler:
                     "tokens_cached": used.get("tokens_cached", 0), "cost_usd": round(used.get("cost_usd", 0.0), 6),
                     "premium_requests": 0, "result": str(exc)[:500]})
                 raise
+        if mem:
+            await mem.finish(key, "done", res.text or "")
         if not res.cost_usd and model.get("mode") == "api" and model["provider"] != "fake":
             res.cost_usd = catalog.cost_usd(model["provider"], model.get("model", ""), res.tokens_in, res.tokens_out)
         ctx.emit("agent.finished", step=step.id, call_id=call_id, data={

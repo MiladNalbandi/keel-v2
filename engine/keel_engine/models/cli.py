@@ -113,6 +113,20 @@ def _result_line(stdout: str) -> dict | None:
     return None
 
 
+def _last_assistant_text(stdout: str) -> str:
+    """The last thing the CLI said (claude prints "Not logged in · Please run /login" as an assistant message)."""
+    for line in reversed(stdout.strip().splitlines()[-30:]):
+        if line.lstrip().startswith("{") and '"assistant"' in line:
+            try:
+                ev = json.loads(line)
+            except ValueError:
+                continue
+            for b in (ev.get("message") or {}).get("content") or []:
+                if isinstance(b, dict) and b.get("type") == "text" and b.get("text", "").strip():
+                    return b["text"].strip()[:300]
+    return ""
+
+
 def result_usage(res: dict | None) -> dict:
     """Token use from a CLI's final result line (claude): counted even when the run failed."""
     u = (res or {}).get("usage") or {}
@@ -140,6 +154,12 @@ def _classify(tool: str, stdout: str, stderr: str, code) -> ModelError:
         return ModelError(f"`{tool}` stopped with an error{': ' + msg if msg else ''}.", "Approve to try again.")
     # JSON lines (token counts, model names) are left out of the text checks: "inputTokens":429 is not HTTP 429.
     plain_out = "\n".join(l for l in stdout.splitlines() if not l.lstrip().startswith("{"))
+    said = ""
+    if res:
+        said = str(res.get("result") or "; ".join(str(x) for x in res.get("errors") or []) or "")
+    if not said:
+        said = _last_assistant_text(stdout)
+    plain_out = f"{plain_out}\n{said}".strip()
     short = (stderr.strip() or plain_out.strip())[-600:] or f"no message (exit code {code})"
     tail = f"{plain_out[-3000:]}\n{stderr[-3000:]}".lower()
     if LIMIT_RE.search(tail):

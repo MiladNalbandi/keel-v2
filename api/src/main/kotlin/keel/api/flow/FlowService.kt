@@ -76,6 +76,8 @@ class FlowService(
     private val repo: RepoService,
     private val props: KeelProperties,
 ) {
+    private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
+
     /** Builds StartThread from the workflow + effective settings + agent models + MCP + skills. */
     fun buildStart(pid: String, workflowId: String, title: String, acs: List<Ac>?, cap: FlowCap? = null): StartThread {
         val project = projects.require(pid)
@@ -208,6 +210,23 @@ class FlowService(
         return keysFor(models)
     }
 
+    /**
+     * After a keel restart: the engine waits with the threads that were running until it has their logins (it keeps
+     * them in memory only). Send each one its logins and folder, so its agents continue where they stopped.
+     */
+    fun continueAfterRestart(): Int {
+        // Agent runs that were cut off by the restart: their agent continues in a new run (with its own session).
+        jdbc.update("UPDATE agent_calls SET status = 'stopped', ended_at = COALESCE(ended_at, ?) WHERE status = 'running'", Time.now())
+        val running = jdbc.queryForList("SELECT id FROM threads WHERE status = 'running'", String::class.java)
+        var n = 0
+        for (tid in running) {
+            runCatching { engine.continueThread(tid, keysForThread(tid).takeIf { it.isNotEmpty() }, rootNow(tid)) }
+                .onSuccess { save(tid, it); n++ }
+                .onFailure { log.warn("could not continue thread {} after a restart: {}", tid, it.message) }
+        }
+        return n
+    }
+
     /** The thread's project folder now: it moves when keel is started another way (keel2 start --docker). */
     private fun rootNow(tid: String): String? = threadProject(tid)?.let { runCatching { projects.root(it).toString() }.getOrNull() }
 
@@ -334,3 +353,18 @@ class FlowService(
 }
 
 data class UnlockResult(val unlocks: List<Any?>, val via: String, val threadId: String?)
+
+
+/** When the api is ready (the engine is already up: keel-start starts it first), hand running threads back to it. */
+@org.springframework.stereotype.Component
+class ContinueAfterRestart(private val flows: FlowService) {
+    private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
+
+    @org.springframework.context.event.EventListener(org.springframework.boot.context.event.ApplicationReadyEvent::class)
+    fun onReady() {
+        Thread({
+            val n = runCatching { flows.continueAfterRestart() }.getOrElse { log.warn("continue after restart: {}", it.message); 0 }
+            if (n > 0) log.info("continued {} flow(s) that were running when keel stopped", n)
+        }, "continue-after-restart").apply { isDaemon = true }.start()
+    }
+}

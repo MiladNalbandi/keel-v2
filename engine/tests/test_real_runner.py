@@ -155,3 +155,10 @@ def test_the_spec_step_gives_the_explorer_more_turns(tmp_path, monkeypatch):
     assert prompts.max_turns("explorer", "spec") == 40
     assert prompts.max_turns("explorer", "triage") == 40
     assert prompts.max_turns("explorer", "red") == 20
+
+
+def test_not_logged_in_inside_claudes_json_is_reported_as_such():
+    from keel_engine.models.cli import classify_failure
+    out = ('{"type":"assistant","message":{"content":[{"type":"text","text":"Not logged in · Please run /login"}]}}\n'
+           '{"type":"result","subtype":"success","is_error":true,"result":"Not logged in · Please run /login"}\n')
+    assert "not logged in" in str(classify_failure("claude", out, "", 1))
