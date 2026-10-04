@@ -84,6 +84,7 @@ abstract class ApiTest {
             r.add("keel.internal-token") { TOKEN }
             r.add("keel.secret") { "" }
             r.add("keel.dashboard-port") { dashboardPort }
+            r.add("keel.dashboard-autostart") { false }
             r.add("keel.fake-on-real-projects") { true }
             // Login helpers: no pseudo-terminal in tests, and stand-in CLIs that behave like the real ones.
             r.add("keel.login-pty") { false }

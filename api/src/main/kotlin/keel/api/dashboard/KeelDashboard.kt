@@ -8,6 +8,9 @@ import keel.api.common.KeelHome
 import keel.api.common.KeelProperties
 import keel.api.projects.ProjectService
 import org.slf4j.LoggerFactory
+import org.springframework.boot.context.event.ApplicationReadyEvent
+import org.springframework.context.event.EventListener
+import org.springframework.stereotype.Component
 import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Service
 import org.springframework.web.bind.annotation.GetMapping
@@ -220,6 +223,52 @@ class KeelDashboardController(private val dashboard: KeelDashboardService) {
                 out = out.replace("$q/api/", "$q$PREFIX/api/").replace("$q/events", "$q$PREFIX/events")
             }
             return out
+        }
+    }
+}
+
+
+/**
+ * keel.dashboard-autostart (on in the container): keel v1's dashboard starts when the api is ready (after the
+ * projects are found) and is started again when it stops. A failed start is logged and never stops keel itself;
+ * after failures it waits longer before the next try. The /keel-v1/ proxy also starts it when a page asks.
+ */
+@Component
+class KeelDashboardBoot(private val dashboard: KeelDashboardService, private val props: KeelProperties, private val home: KeelHome) {
+    private val log = LoggerFactory.getLogger(javaClass)
+
+    @EventListener(ApplicationReadyEvent::class)
+    fun onReady() {
+        if (!props.dashboardAutostart) return
+        if (!home.installed()) {
+            log.info("keel v1 is not installed at {}: its dashboard is not started", home.path)
+            return
+        }
+        Thread({ watch() }, "keel-dashboard-watch").apply { isDaemon = true }.start()
+    }
+
+    private fun watch() {
+        var failures = 0
+        var announced = false
+        while (true) {
+            if (!dashboard.running()) {
+                try {
+                    dashboard.ensure(null)
+                    if (announced) log.info("keel v1 dashboard had stopped; started it again")
+                    else log.info("keel v1 dashboard is running at {}", KeelDashboardService.URL)
+                    announced = true
+                    failures = 0
+                } catch (e: Exception) {
+                    failures++
+                    if (failures <= 3 || failures % 10 == 0) log.warn("keel v1 dashboard did not start ({}): {}", failures, e.message)
+                }
+            }
+            val wait = when {
+                failures == 0 -> 30_000L
+                failures < 3 -> 60_000L
+                else -> 300_000L
+            }
+            try { Thread.sleep(wait) } catch (e: InterruptedException) { return }
         }
     }
 }

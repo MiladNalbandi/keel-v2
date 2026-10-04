@@ -35,7 +35,7 @@ ARG NODE_MAJOR=20
 ENV LANG=C.UTF-8 \
     DEBIAN_FRONTEND=noninteractive \
     PATH=/opt/engine/.venv/bin:/usr/local/bin:$PATH \
-    KEEL_DATA=/data KEEL_WORKSPACE=/workspace KEEL_HOME=/opt/keel \
+    KEEL_DATA=/data KEEL_WORKSPACE=/workspace KEEL_HOME=/opt/keel KEEL_DASHBOARD_AUTOSTART=true \
     KEEL_ENGINE_URL=http://127.0.0.1:8090 KEEL_API_URL=http://127.0.0.1:8080 \
     UV_PROJECT_ENVIRONMENT=/opt/engine/.venv UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never
 

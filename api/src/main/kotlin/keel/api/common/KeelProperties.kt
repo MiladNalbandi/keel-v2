@@ -17,6 +17,8 @@ data class KeelProperties(
     val scanOnStart: Boolean = true,
     /** keel v1 dashboard port (`keel dashboard`), reverse-proxied at /keel-v1/. */
     val dashboardPort: Int = 7391,
+    /** Start keel v1's dashboard when the api is ready, and start it again if it stops (on in the container). */
+    val dashboardAutostart: Boolean = false,
     /** Let flows on real projects run with the fake model without asking (tests). The demo project always may. */
     val fakeOnRealProjects: Boolean = false,
 ) {

@@ -33,6 +33,7 @@ keel:
   projects-file: ${user.home}/.keel/projects.json
   scan-on-start: true
   dashboard-port: ${KEEL_DASHBOARD_PORT:7391}
+  dashboard-autostart: ${KEEL_DASHBOARD_AUTOSTART:false}
 
 logging:
   level:
