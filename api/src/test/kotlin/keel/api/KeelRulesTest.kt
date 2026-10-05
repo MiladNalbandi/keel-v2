@@ -7,14 +7,14 @@ import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.core.io.ClassPathResource
 
-/** The ported classify + MATRIX must agree with keel v1's own fixture. */
+/** classify + MATRIX must agree with the shared rules file (the engine reads the same bytes). */
 class KeelRulesTest {
     private val mapper = jacksonObjectMapper()
     private val fixture = ClassPathResource("keel/keel_rules.json").inputStream.use { mapper.readTree(it) }
     private val rules = KeelRules(mapper)
 
     @Test
-    fun `classify matches keel v1 for every fixture case`() {
+    fun `classify matches the shared rules file for every case`() {
         @Suppress("UNCHECKED_CAST")
         val cfg = ClassifyConfig.from(mapper.convertValue(fixture["classify_cfg"], Map::class.java) as Map<String, Any?>)
         fixture["classify"].fields().forEach { (path, bucket) ->

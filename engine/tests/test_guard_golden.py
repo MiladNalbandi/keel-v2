@@ -174,3 +174,17 @@ def test_engine_and_api_read_the_same_rules_file():
     engine = here / "engine" / "keel_engine" / "rules" / "data" / "keel_rules.json"
     api = here / "api" / "src" / "main" / "resources" / "keel" / "keel_rules.json"
     assert engine.read_bytes() == api.read_bytes()
+
+
+@pytest.mark.parametrize("path,bucket", [
+    ("src/scores.js", "api-main"), ("test/scores.test.js", "api-test"), ("app/models.py", "api-main"),
+    ("tests/test_models.py", "api-test"), ("pkg/x_test.go", "api-test"), ("web/src/App.tsx", "web-src"),
+    ("web/src/App.test.tsx", "web-test"), ("README.md", "other"), ("package.json", "other"),
+    ("vite.config.ts", "other"), ("build.gradle.kts", "other"), ("conftest.py", "other"),
+])
+def test_a_project_without_keel_config_still_protects_its_code(path, bucket):
+    """A real run: an explorer edited src/scores.js in the spec phase of a plain JS project, because outside keel's
+    configured folders every file was "other". Production code is now known by its kind."""
+    assert rules.classify(None, path) == bucket
+    if bucket == "api-main":
+        assert not rules.check_edit("spec", path, rules.make_config(None), exists=True).ok

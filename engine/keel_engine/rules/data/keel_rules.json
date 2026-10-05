@@ -639,11 +639,11 @@
     "hunt": "hunt-scope"
   },
   "classify": {
-    "api/src/main/kotlin/app/A.kt": "other",
+    "api/src/main/kotlin/app/A.kt": "api-main",
     "api/src/test/kotlin/app/ATest.kt": "api-test",
     "api/src/main/resources/db/migration/V1__a.sql": "migration",
-    "web/src/App.tsx": "other",
-    "web/src/App.test.tsx": "api-test",
+    "web/src/App.tsx": "web-src",
+    "web/src/App.test.tsx": "web-test",
     "docs/specs/x.md": "other",
     "docs/contract/openapi.yaml": "contract",
     "e2e/a.spec.ts": "e2e",
