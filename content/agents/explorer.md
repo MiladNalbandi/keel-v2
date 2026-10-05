@@ -8,7 +8,7 @@ maxTurns: 20
 disallowedTools: Write, Edit
 knowledge:
   sections: [architecture, domain, conventions, data, integrations, journeys]
-  code_graph: true
+  code_graph: false
   memory: true
   strict: false
 ---

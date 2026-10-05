@@ -23,7 +23,8 @@ def kb(root: Path, *sections: str) -> Path:
 
 
 def test_defaults_come_from_front_matter():
-    assert ak.default_for("explorer") == {"sections": ALL, "code_graph": True, "memory": True, "strict": False}
+    # the code graph is opt-in: measured on ludus it did not save tokens (see tools/codegraph.py)
+    assert ak.default_for("explorer") == {"sections": ALL, "code_graph": False, "memory": True, "strict": False}
     assert ak.default_for("test-author")["sections"] == ["domain", "conventions"]
     assert ak.default_for("implementer")["sections"] == ["architecture", "conventions", "data"]
     assert ak.default_for("security-auditor") == {"sections": ["data", "integrations"], "code_graph": False,
@@ -38,7 +39,7 @@ def test_defaults_come_from_front_matter():
 def test_the_thread_value_merges_over_the_default():
     sent = {"test-author": {"knowledge": {"sections": ["data", "nonsense"], "strict": True}}}
     k = ak.for_agent("test-author", sent)
-    assert k == {"sections": ["data"], "code_graph": True, "memory": True, "strict": True}
+    assert k == {"sections": ["data"], "code_graph": False, "memory": True, "strict": True}
     assert ak.for_agent("implementer", sent) == ak.default_for("implementer")
     assert ak.for_agent("implementer", {}) == ak.default_for("implementer")
 
@@ -46,7 +47,7 @@ def test_the_thread_value_merges_over_the_default():
 def test_prompt_block_lists_exactly_the_allowed_files_that_exist(tmp_path):
     root = tmp_path / "p"
     d = kb(root, "architecture", "domain", "data")
-    k = ak.for_agent("test-author", {})   # domain, conventions
+    k = {**ak.for_agent("test-author", {}), "code_graph": True}   # domain, conventions; graph turned on
     p = prompts.task_prompt(agent="test-author", phase="red", step_name="red", title="t", root=str(root), ac=None, acs=[],
                             feedback=None, knowledge=k, graph=True)
     assert "Knowledge you can use" in p
@@ -54,7 +55,7 @@ def test_prompt_block_lists_exactly_the_allowed_files_that_exist(tmp_path):
     for other in ("architecture", "conventions", "data", "integrations", "journeys"):
         assert f"{other}.md" not in p
     assert "keel's memory of this project is in docs/knowledge/" not in p   # the generic line is replaced
-    assert "codegraph_explore" in p and "Memory:" in p
+    assert "codegraph_search" in p and "Memory:" in p
     # no graph server, or the graph turned off: no graph line
     assert "codegraph tools" not in prompts.task_prompt(agent="test-author", phase="red", step_name="red", title="t",
                                                         root=str(root), ac=None, acs=[], feedback=None, knowledge=k, graph=False)

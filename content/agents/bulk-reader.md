@@ -8,7 +8,7 @@ maxTurns: 10
 disallowedTools: Write, Edit, Bash
 knowledge:
   sections: [architecture]
-  code_graph: true
+  code_graph: false
   memory: true
   strict: false
 ---

@@ -25,8 +25,12 @@ log = logging.getLogger(__name__)
 DIR = ".codegraph"
 INDEX_TIMEOUT = int(os.environ.get("KEEL_CODEGRAPH_TIMEOUT", "900"))
 SYNC_TIMEOUT = 120
-# The MCP tools agents see: explore answers most questions in one call; the others are the direct lookups.
-MCP_TOOLS = "explore,callers,callees,impact,search"
+# The MCP tools agents see. Measured on ludus (Haiku explorer, 2+2 runs): codegraph_explore returns 10-17k characters
+# per call even with maxFiles 1-2 and agents still read the files afterwards, so it cost ~38% MORE tokens than no
+# graph. The lookups are small (search: locations only; callers/callees/impact: lists), so those are the default.
+# Lookup-only was measured too (2 runs: 196k, 158k vs 95k, 155k without): no saving, so every agent's code_graph is
+# off by default in content/agents; turn it on per agent in the Agents drawer.
+MCP_TOOLS = os.environ.get("KEEL_CODEGRAPH_TOOLS", "search,callers,callees,impact")
 QUIET = {"CODEGRAPH_TELEMETRY": "0", "DO_NOT_TRACK": "1", "CODEGRAPH_NO_UPDATE_CHECK": "1"}
 
 _syncing: set[str] = set()
