@@ -72,6 +72,9 @@ class SettingsService(private val jdbc: JdbcTemplate, private val mapper: Object
         if (unknown.isNotEmpty()) throw BadRequest("Unknown setting: ${unknown.joinToString()}", "Known settings: ${Settings.KEYS.joinToString()}")
         for ((k, v) in patch) {
             if (v == null && !allowNull) throw BadRequest("$k cannot be empty in General settings")
+            if (v != null && k in setOf("usage_warn", "usage_pause") && (v.toString().toDoubleOrNull() ?: -1.0) !in 0.0..1.0) {
+                throw BadRequest("$k must be a number from 0 to 1", "For example 0.8 for 80%.")
+            }
             val choices = Settings.CHOICES[k]
             if (v != null && choices != null && v.toString() !in choices) {
                 throw BadRequest("$k cannot be \"$v\"", "Pick one of: ${choices.joinToString()}")

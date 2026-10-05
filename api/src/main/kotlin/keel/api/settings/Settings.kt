@@ -22,6 +22,9 @@ data class Settings(
     val cheaperModel: Model = Model(),
     val capTokens: Int = 500_000,
     val onCap: String = "pause",
+    /** Plan windows (5-hour, weekly): warn before a subscription agent at this much used, pause at usagePause. */
+    val usageWarn: Double = 0.8,
+    val usagePause: Double = 0.95,
     val branchPattern: String = "feat/{slug}",
     val webLaneWorktree: Boolean = true,
     val pushPr: String = "ask",
@@ -32,7 +35,7 @@ data class Settings(
     companion object {
         val KEYS = listOf(
             "gates_mode", "keel_rules", "fix_attempts", "coverage_min", "default_model", "implementer_model",
-            "reviewer_model", "cheaper_model", "cap_tokens", "on_cap", "branch_pattern", "web_lane_worktree",
+            "reviewer_model", "cheaper_model", "cap_tokens", "on_cap", "usage_warn", "usage_pause", "branch_pattern", "web_lane_worktree",
             "push_pr", "notify", "env_names", "mcp",
         )
         val CHOICES = mapOf(
