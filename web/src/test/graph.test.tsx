@@ -83,3 +83,26 @@ describe("Builder", () => {
     expect(screen.getByTestId("rules")).toHaveTextContent("false");
   });
 });
+
+describe("Zoom", () => {
+  it("zooms with the buttons and Ctrl + wheel, remembers it, and Fit resets", async () => {
+    const { Zoom } = await import("../components/Zoom");
+    localStorage.removeItem("keel2.zoom.t");
+    const { unmount } = render(<Zoom id="t"><Graph steps={featureWorkflow.steps} /></Zoom>);
+    expect(screen.getByText("100%")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Zoom in" }));
+    expect(screen.getByText("125%")).toBeInTheDocument();
+    expect(screen.getByTestId("zoom-t").style.getPropertyValue("--zoom")).toBe("1.25");
+    expect(localStorage.getItem("keel2.zoom.t")).toBe("1.25");
+    screen.getByTestId("zoom-t").dispatchEvent(new WheelEvent("wheel", { deltaY: 200, ctrlKey: true, bubbles: true, cancelable: true }));
+    expect(await screen.findByText(/^\d+%$/)).not.toHaveTextContent("125%");
+    unmount();
+    render(<Zoom id="t"><Graph steps={featureWorkflow.steps} /></Zoom>);   // remembered per place
+    expect(screen.queryByText("100%")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Fit to width" }));
+    expect(screen.getByText("100%")).toBeInTheDocument();
+    for (let i = 0; i < 8; i++) await userEvent.click(screen.getByRole("button", { name: "Zoom out" }));
+    expect(screen.getByText("40%")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Zoom out" })).toBeDisabled();
+  });
+});

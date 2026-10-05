@@ -4,6 +4,7 @@
 import { useState } from "react";
 import { api, type WikiTree } from "../api";
 import { Graph, GraphLegend } from "../components/Graph";
+import { Zoom } from "../components/Zoom";
 import { Markdown } from "../components/Markdown";
 import { RefreshStaleButton } from "../components/RefreshStale";
 import { Async, ErrorBox, Loading, PageHead, Pill } from "../components/ui";
@@ -62,7 +63,7 @@ function WorkflowPage({ pid, wid }: { pid: string; wid: string }) {
               {est.data ? ` · about ${kfmt(est.data.tokens)} tokens for 3 ACs` : ""}
             </p>
             <div className="panel" style={{ margin: "12px 0" }}><div className="panel-body">
-              <div className="graph-wrap"><Graph steps={w.steps} tokens={tokens} /></div>
+              <Zoom id="wiki"><Graph steps={w.steps} tokens={tokens} /></Zoom>
               <GraphLegend />
             </div></div>
             <div className="table-wrap"><table>

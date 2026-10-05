@@ -102,6 +102,14 @@ tr.click:hover td { background: var(--panel-2); }
 /* Flow graph */
 .graph-wrap { overflow-x: auto; padding: 6px 0; }
 .graph { width: 100%; min-width: 860px; height: auto; display: block; }
+.zoomer { display: grid; gap: 6px; }
+.zoombar { display: flex; align-items: center; gap: 6px; justify-self: end; }
+.zoombar .btn { min-width: 30px; justify-content: center; }
+.zoomlvl { font: 500 12px var(--f-mono); color: var(--dim); min-width: 42px; text-align: center; }
+.zoombox { overflow: auto; max-height: 78vh; overscroll-behavior: contain; }
+.zoombox > .graph { width: calc(100% * var(--zoom, 1)); min-width: calc(860px * var(--zoom, 1)); }
+.zoombox.pannable { cursor: grab; }
+.zoombox.pannable:active { cursor: grabbing; }
 .graph .edge { fill: none; stroke: var(--rail); stroke-width: 1.6; }
 .graph .edge.done { stroke: var(--ok); }
 .graph .edge.loop { stroke-dasharray: 4 4; stroke: var(--faint); }
