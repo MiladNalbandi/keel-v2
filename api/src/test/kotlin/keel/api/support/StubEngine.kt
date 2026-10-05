@@ -127,6 +127,19 @@ class StubEngine private constructor(private val server: HttpServer) {
             200 to maps[pid]
         }
         path.matches(Regex("/projects/[^/]+/map")) -> 200 to (maps[path.split('/')[2]] ?: mapOf("missing" to "No map yet. Build it to draw one."))
+        path.matches(Regex("/projects/[^/]+/hunts")) -> 200 to listOf(mapOf("run" to "2026-10-05-01", "mode" to "semi", "open" to 1,
+            "counts" to mapOf("candidate" to 0, "proven" to 1, "unproven" to 0, "false" to 0)))
+        path.matches(Regex("/projects/[^/]+/hunts/[^/]+/close")) -> {
+            val id = body?.get("id")?.asText()
+            200 to mapOf("run" to path.split('/')[4], "candidates" to listOf(mapOf("id" to id, "status" to "proven",
+                "close" to mapOf("as" to body?.get("as")?.asText(), "note" to body?.get("note")?.asText()))))
+        }
+        path.matches(Regex("/projects/[^/]+/hunts/[^/]+")) -> {
+            val run = path.split('/')[4]
+            if (run == "nope") 404 to mapOf("error" to "No hunt nope in project ${path.split('/')[2]}.")
+            else 200 to mapOf("run" to run, "candidates" to listOf(mapOf("id" to "F-001", "status" to "proven", "severity" to "high")),
+                "groups" to emptyList<Any>(), "report_markdown" to "# Bug hunt")
+        }
         path == "/mcp/tools" -> 200 to mapOf("ok" to true, "tools" to listOf(mapOf("name" to "keel_next", "description" to "next step")))
         else -> 404 to mapOf("error" to "no route $path")
     }

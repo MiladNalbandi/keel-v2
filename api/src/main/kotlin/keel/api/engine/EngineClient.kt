@@ -94,4 +94,9 @@ class EngineClient(private val props: KeelProperties, private val mapper: Object
     fun index(pid: String): JsonNode = get("/projects/$pid/index")
     fun map(pid: String): JsonNode = get("/projects/$pid/map")
     fun buildMap(pid: String, root: String): JsonNode = post("/projects/$pid/map", mapOf("root" to root), long = true)
+
+    // ---- bug hunt backlog (engine runtime/hunt.py) ------------------------------------------
+    fun hunts(pid: String): JsonNode = get("/projects/$pid/hunts")
+    fun hunt(pid: String, run: String): JsonNode = get("/projects/$pid/hunts/$run")
+    fun closeHunt(pid: String, run: String, body: Map<String, Any?>): JsonNode = post("/projects/$pid/hunts/$run/close", body)
 }

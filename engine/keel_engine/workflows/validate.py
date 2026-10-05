@@ -11,10 +11,15 @@ CODE_ACTIONS = {"verify_red", "verify_green", "verify_release", "verify_coverage
                 # verdict actions (runtime/verdict_actions.py), the PR body, and the hand-off to another workflow
                 "verify_fast", "verify_module", "verify_deps", "audit", "trace", "trace_strict", "arch", "pr", "open_pr",
                 "start_flow"}
+# the hunt and hunt-next flows (runtime/hunt_actions.py) and init's extra steps (runtime/init_actions.py)
+FLOW_ACTIONS = {"hunt_start", "hunt_deps", "hunt_confirm", "hunt_ingest", "hunt_verdicts", "hunt_group", "hunt_report",
+                "hunt_commit", "hunt_close", "hunt_take", "arch_detect", "arch_set", "ladder_soft", "ladder_retry",
+                "rung_apply"}
+END = "end"          # a branch's no, or a gate choice, may finish the flow
 
 
 def _action_ok(action: str) -> bool:
-    return action in CODE_ACTIONS or (action.startswith("run:") and len(action) > 4)
+    return action in CODE_ACTIONS or action in FLOW_ACTIONS or (action.startswith("run:") and len(action) > 4)
 
 
 def successors(wf: Workflow, i: int) -> list[int]:
@@ -24,7 +29,7 @@ def successors(wf: Workflow, i: int) -> list[int]:
     out = []
     if i + 1 < len(wf.steps):
         out.append(i + 1)
-    for target in (s.back, s.no):
+    for target in (s.back, s.no, *(s.choices or {}).values()):
         if target in ids:
             out.append(ids[target])
     loop = wf.loop_of(i)
@@ -59,17 +64,26 @@ def validate(wf: Workflow) -> list[str]:
             for a in s.actions():
                 if not _action_ok(a):
                     errors.append(f"{where}: unknown action '{a}'.")
-        if s.kind == "gate" and s.back:
+        if s.kind in ("gate", "code") and s.back:
+            # a code step's back: where a failed check goes (with the failure as feedback) instead of a retry
             if s.back not in index:
                 errors.append(f"{where}: back target '{s.back}' does not exist.")
-            elif index[s.back] >= n:
+            elif index[s.back] >= n and s.kind == "gate":
                 errors.append(f"{where}: back must point to an earlier step, not '{s.back}'.")
-        if s.back and s.kind != "gate":
-            errors.append(f"{where}: only gates have a back target.")
+        if s.back and s.kind not in ("gate", "code"):
+            errors.append(f"{where}: only gates and code steps have a back target.")
+        if s.choices is not None:
+            if s.kind != "gate":
+                errors.append(f"{where}: only gates have choices.")
+            elif not s.choices:
+                errors.append(f"{where}: choices needs at least one exit.")
+            for name, target in (s.choices or {}).items():
+                if target != END and target not in index:
+                    errors.append(f"{where}: choice '{name}' goes to '{target}', which does not exist.")
         if s.kind == "branch":
             if not s.no:
                 errors.append(f"{where}: a branch needs a 'no' target.")
-            elif s.no not in index:
+            elif s.no not in index and s.no != END:
                 errors.append(f"{where}: no target '{s.no}' does not exist.")
         elif s.no:
             errors.append(f"{where}: only branches have a 'no' target.")
@@ -90,7 +104,10 @@ def validate(wf: Workflow) -> list[str]:
         if s.items_from and s.lanes:
             errors.append(f"{where}: 'from' and lanes do not go together.")
         for name, v in (("cap", s.cap), ("batch", s.batch)):
-            if v is not None and v < 1:
+            if isinstance(v, str):
+                if not v.startswith("$"):
+                    errors.append(f"{where}: {name} is a number or a \"$<state path>\".")
+            elif v is not None and v < 1:
                 errors.append(f"{where}: {name} must be 1 or more.")
         if s.batch is not None and s.kind != "parallel":
             errors.append(f"{where}: only a parallel step takes batch.")
@@ -99,10 +116,11 @@ def validate(wf: Workflow) -> list[str]:
         if s.collect and s.kind not in ("agent", "parallel"):
             errors.append(f"{where}: only agent steps collect a list.")
         if s.when is not None:
-            if s.kind != "branch":
-                errors.append(f"{where}: only branches have a 'when'.")
-            elif not str(s.when.get("marker") or "").strip():
-                errors.append(f"{where}: when needs a marker name (when: {{marker: REPRO, equals: confirmed}}).")
+            if s.kind not in ("branch", "gate"):
+                errors.append(f"{where}: only branches and gates have a 'when'.")
+            elif not str(s.when.get("marker") or s.when.get("data") or "").strip():
+                errors.append(f"{where}: when needs a marker name (when: {{marker: REPRO, equals: confirmed}}) "
+                              "or a data path (when: {data: hunt.mode, equals: semi}).")
             elif s.when.get("step") and s.when["step"] not in index:
                 errors.append(f"{where}: when.step '{s.when['step']}' does not exist.")
         if "start_flow" in s.actions():
