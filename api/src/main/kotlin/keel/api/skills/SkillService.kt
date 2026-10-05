@@ -4,7 +4,7 @@ import keel.api.agents.FrontMatter
 import keel.api.common.BadRequest
 import keel.api.common.Conflict
 import keel.api.common.Json
-import keel.api.common.KeelHome
+import keel.api.common.KeelProperties
 import keel.api.common.NotFound
 import keel.api.common.Slug
 import keel.api.common.Time
@@ -52,17 +52,15 @@ private data class SkillDef(
     val agents: List<String>, val `when`: String, val projectId: String? = null,
 )
 
-/** Skills: keel's own, installed keel packs, and the user's (stored in the db). */
+/** Skills: keel's own (content/skills), each keel pack's (content/packs/NAME/skills), and the user's (stored in the db). */
 @Service
 class SkillService(
     private val jdbc: JdbcTemplate,
-    private val home: KeelHome,
     private val projects: ProjectService,
-    private val props: keel.api.common.KeelProperties,
+    private val props: KeelProperties,
 ) {
-    private fun scan(dir: Path, source: String, versionOf: String? = null): List<SkillDef> {
+    private fun scan(dir: Path, source: String): List<SkillDef> {
         if (!Files.isDirectory(dir)) return emptyList()
-        val version = versionOf ?: home.version() ?: "dev"
         return Files.list(dir).use { s -> s.filter { Files.isRegularFile(it.resolve("SKILL.md")) }.sorted().toList() }.map { d ->
             val file = d.resolve("SKILL.md")
             val text = Files.readString(file)
@@ -76,13 +74,18 @@ class SkillService(
                 }
             } else emptyList()
             val (agents, whenText) = defaultAssignment(id)
-            SkillDef(id, kindOf(id), source, stackOf(id), version, fm["description"]?.toString() ?: "", body, Files.size(file), refs, agents, whenText)
+            SkillDef(id, kindOf(id), source, stackOf(id), VERSION, fm["description"]?.toString() ?: "", body, Files.size(file), refs, agents, whenText)
         }
     }
 
-    private fun builtins(): List<SkillDef> =
-        scan(home.path.resolve("skills"), "keel") + scan(home.path.resolve("packs/skills"), "keel pack") +
-            scan(props.v2Skills, "keel v2", "v2")
+    private fun builtins(): List<SkillDef> = scan(props.contentDir.resolve("skills"), "keel") + packSkills()
+
+    private fun packSkills(): List<SkillDef> {
+        val packs = props.contentDir.resolve("packs")
+        if (!Files.isDirectory(packs)) return emptyList()
+        return Files.list(packs).use { s -> s.filter { Files.isDirectory(it) }.sorted().toList() }
+            .flatMap { scan(it.resolve("skills"), "keel pack") }
+    }
 
     private fun custom(pid: String?): List<SkillDef> {
         val sql = "SELECT id, project_id, name, kind, stack, body FROM custom_skills" + (if (pid != null) " WHERE project_id = ?" else "")
@@ -226,7 +229,7 @@ class SkillService(
             id == "debugging" || id == "diagnose" -> "debugging"
             id == "security" || id == "review" -> "review"
             id == "memory" -> "knowledge"
-            id == "spec-authoring" || id == "spec-clarify" || id == "spec-writing" -> "authoring"
+            id == "spec-clarify" || id == "spec-writing" -> "authoring"
             id in FLOW_SKILLS -> "flow"
             else -> "knowledge"
         }
@@ -242,6 +245,9 @@ class SkillService(
 
         const val MAX_IMPORT = 256 * 1024
 
+        /** keel's own skills ship with keel v2 (content/), so they carry its version line. */
+        const val VERSION = "v2"
+
         val FLOW_SKILLS = setOf("feature", "fix", "change", "hunt", "hunt-next", "init", "ship", "cover", "status")
 
         fun defaultAssignment(id: String): Pair<List<String>, String> = when {
@@ -250,9 +256,6 @@ class SkillService(
             id == "architecture" -> listOf("implementer", "arch-surveyor") to "green, ship"
             id == "debugging" -> listOf("reproducer", "investigator") to "bug-repro, bug-investigate"
             id == "security" -> listOf("security-auditor", "dependency-triager") to "security"
-            // keel v1's spec-authoring talks to a live user (AskUserQuestion, keel commands); in keel v2 the explorer
-            // gets spec-clarify (questions as buttons) and spec-writing instead.
-            id == "spec-authoring" -> emptyList<String>() to "replaced by spec-clarify + spec-writing in keel v2"
             id == "spec-clarify" -> listOf("explorer") to "spec"
             id == "spec-writing" -> listOf("explorer") to "spec"
             id == "memory" -> listOf("librarian") to "memory"

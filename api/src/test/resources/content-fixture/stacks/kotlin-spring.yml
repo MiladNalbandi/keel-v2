@@ -14,4 +14,4 @@ tools:
     on: manual
     fail: block
 skills:
-  testing: keel:kotlin-spring-testing
+  testing: kotlin-spring-testing

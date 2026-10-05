@@ -57,7 +57,7 @@ class FlowApiTest : ApiTest() {
     }
 
     @Test
-    fun `agents come from KEEL_HOME with phases, and projects can override and add their own`() {
+    fun `agents come from content with phases, and projects can override and add their own`() {
         val (pid, _) = newProject("flow-agents")
         val agents = get("/api/projects/$pid/agents").json()
         val impl = agents.first { it["id"].asText() == "implementer" }
@@ -98,6 +98,11 @@ class FlowApiTest : ApiTest() {
         val detail = get("/api/skills/kotlin-spring-testing").json()
         assertThat(detail["refs"][0]["path"].asText()).isEqualTo("references/slices.md")
         assertThat(detail["refs"][0]["tokens"].asInt()).isGreaterThan(100)
+        assertThat(detail["version"].asText()).isEqualTo("v2")
+        // a pack's skills come from its own folder, content/packs/<name>/skills
+        val packSkill = skills.first { it["id"].asText() == "django-testing" }
+        assertThat(packSkill["source"].asText()).isEqualTo("keel pack")
+        assertThat(packSkill["stack"].asText()).isEqualTo("django")
 
         val mine = post("/api/projects/$pid/skills", mapOf("name" to "Scoring rules", "kind" to "knowledge", "stack" to "any", "body" to "---\nname: scoring-rules\ndescription: How scores work.\n---\n\n# Scores\n"))
             .andExpect(status().isOk).json()
@@ -105,7 +110,7 @@ class FlowApiTest : ApiTest() {
         put("/api/projects/$pid/skills/${mine["id"].asText()}", mapOf("agents" to listOf("implementer"), "when" to "green")).andExpect(status().isOk)
         val impl = get("/api/projects/$pid/agents").json().first { it["id"].asText() == "implementer" }
         assertThat(impl["skills"].map { it.asText() }).contains(mine["id"].asText())
-        put("/api/projects/$pid/skills/feature", mapOf("body" to "nope")).andExpect(status().isConflict)
+        put("/api/projects/$pid/skills/kotlin-spring-testing", mapOf("body" to "nope")).andExpect(status().isConflict)
 
         val stacks = get("/api/projects/$pid/stacks").json()
         val ks = stacks.first { it["name"].asText() == "kotlin-spring" }

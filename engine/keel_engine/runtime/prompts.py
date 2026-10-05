@@ -9,7 +9,7 @@ from functools import lru_cache
 
 from .. import config, rules
 
-# Roles for agents keel v1 has no file for.
+# Roles for agents that have no file in content/agents.
 BUILTIN_ROLES = {
     "contract-author": "You write or update the contract for the approved spec: only the outside surface the criteria "
                        "change (HTTP routes, wire schemas, public types or interfaces). Keep it short; do not write "
@@ -20,26 +20,24 @@ GENERIC_ROLE = "You are a careful software engineer working inside a keel flow. 
 
 
 @lru_cache(maxsize=64)
-def _agent_file(home: str, agent: str) -> str | None:
+def _agent_file(content: str, agent: str) -> str | None:
     from pathlib import Path
 
-    f = Path(home) / "agents" / f"{agent}.md"
+    f = Path(content) / "agents" / f"{agent}.md"
     if not f.is_file():
         return None
     text = f.read_text()
     return re.sub(r"\A---\n.*?\n---\n", "", text, flags=re.S).strip()
 
 
-# Steps where an agent does more than its keel v1 role: the explorer only maps code in keel v1 (20 turns), but in
-# keel v2's spec and triage steps it also writes the spec.
+# Steps where an agent does more than its file's role: the explorer only maps code (20 turns), but in the spec and
+# triage steps it also writes the spec.
 WRITING_TURNS = {("explorer", "spec"): 40, ("explorer", "triage"): 40}
 
 
 def max_turns(agent: str, phase: str | None = None) -> int | None:
-    """maxTurns from keel's agent file front matter (explorer: 20), so one step cannot run away."""
-    from pathlib import Path
-
-    f = Path(str(config.keel_home())) / "agents" / f"{agent}.md"
+    """maxTurns from the agent file's front matter (explorer: 20), so one step cannot run away."""
+    f = config.content_dir() / "agents" / f"{agent}.md"
     n = None
     if f.is_file():
         m = re.search(r"\A---\n.*?^maxTurns:\s*(\d+)\s*$.*?\n---\n", f.read_text(), flags=re.S | re.M)
@@ -49,19 +47,16 @@ def max_turns(agent: str, phase: str | None = None) -> int | None:
 
 
 def role_text(agent: str) -> str:
-    return _agent_file(str(config.keel_home()), agent) or BUILTIN_ROLES.get(agent) or GENERIC_ROLE
+    return _agent_file(str(config.content_dir()), agent) or BUILTIN_ROLES.get(agent) or GENERIC_ROLE
 
 
 def skill_paths(text: str) -> str:
     """`references/x.md` in a skill → its full path in keel's skills folder, so an agent opens it instead of
-    searching the whole disk for it (one did: `find / -iname acceptance-criteria.md`)."""
-    from pathlib import Path
-
+    searching the whole disk for it (one did: `find / -iname acceptance-criteria.md`). A name two skills share
+    stays as written."""
     found: dict[str, list[str]] = {}
-    for f in (Path(str(config.keel_home())) / "skills").glob("*/references/*.md"):
+    for f in sorted(config.v2_skills().glob("*/references/*.md")):
         found.setdefault(f.name, []).append(str(f))
-    for f in config.v2_skills().glob("*/references/*.md"):     # keel v2's own copy wins over keel v1's
-        found[f.name] = [str(f)]
 
     def full(m):
         hits = found.get(m.group(1)) or []
@@ -74,7 +69,7 @@ def system_prompt(agent: str, skills: dict[str, str] | None) -> str:
     extra = (skills or {}).get(agent)
     if extra:
         parts.append("## Skills\n\n" + skill_paths(extra) + "\n\nSkill files are under "
-                     f"{config.keel_home()}/skills/ and {config.v2_skills()}/; open them by that path, never search the disk for them.")
+                     f"{config.v2_skills()}/; open them by that path, never search the disk for them.")
     parts.append("Commits are made by the engine after a check, never by you. Do not run git commit.")
     return "\n\n".join(parts)
 
@@ -108,7 +103,7 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
         lines.append(f"Knowledge section: {section}. Rewrite docs/knowledge/{section}.md from the code, "
                      "with a file:line citation behind every claim. Touch no other file.")
     if agent == "librarian":
-        tpl = config.keel_home() / "templates" / "knowledge"
+        tpl = config.content_dir() / "templates" / "knowledge"
         lines.append(f"Section templates: {tpl}/<section>.md (read only the ones you write). Do not read keel's own "
                      "source code; everything you need is in the project and these templates.")
         chosen = ((rules.load_config(root) or {}).get("init") or {}).get("knowledge_sections")

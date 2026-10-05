@@ -143,7 +143,7 @@ class V02RepoApiTest : ApiTest() {
             val installed = post("/api/projects/$pid/stacks/django/install").andExpect(status().isOk).json()
             assertThat(installed["source"].asText()).isEqualTo("project")
             assertThat(installed["installable"].asBoolean()).isFalse()
-            assertThat(Files.readString(root.resolve(".keel-fake-args"))).contains("packs add ${keelHome.resolve("packs")} --project")
+            assertThat(Files.readString(root.resolve(".keel-fake-args"))).contains("packs add ${contentDir.resolve("packs/django")} --project")
             // a second install of an installed pack is fine
             post("/api/projects/$pid/stacks/django/install").andExpect(status().isOk)
         }
@@ -189,8 +189,9 @@ class V02RepoApiTest : ApiTest() {
             #!/bin/sh
             echo "${'$'}@" >> "${'$'}PWD/.keel-fake-args"
             if [ "${'$'}1" = "packs" ]; then
-              if [ -e .keel/stacks/packs ]; then echo ".keel/stacks/packs already exists. Remove it first" >&2; exit 1; fi
-              mkdir -p .keel/stacks && cp -R "${'$'}3" .keel/stacks/packs
+              dest=".keel/stacks/${'$'}(basename "${'$'}3")"
+              if [ -e "${'$'}dest" ]; then echo "${'$'}dest already exists. Remove it first" >&2; exit 1; fi
+              mkdir -p .keel/stacks && cp -R "${'$'}3" "${'$'}dest"
             fi
         """.trimIndent() + "\n"
 

@@ -26,7 +26,7 @@ def test_request_text_reaches_the_agents():
 def test_max_turns_comes_from_the_agent_file(tmp_path, monkeypatch):
     (tmp_path / "agents").mkdir()
     (tmp_path / "agents" / "explorer.md").write_text("---\nname: explorer\nmaxTurns: 20\n---\nYou map code.\n")
-    monkeypatch.setenv("KEEL_HOME", str(tmp_path))
+    monkeypatch.setenv("KEEL_CONTENT", str(tmp_path))
     assert prompts.max_turns("explorer") == 20
     assert prompts.max_turns("nobody") is None
 
@@ -89,7 +89,7 @@ def test_green_prompt_keeps_later_criteria_out(tmp_path):
 
 def test_librarian_gets_the_templates_and_a_short_memory_brief(tmp_path, monkeypatch):
     from keel_engine.runtime.prompts import task_prompt
-    monkeypatch.setenv("KEEL_HOME", str(tmp_path))
+    monkeypatch.setenv("KEEL_CONTENT", str(tmp_path))
     text = task_prompt(agent="librarian", phase="memory", step_name="memory", title="t", root="/r", ac=None, acs=[], feedback=None)
     assert f"{tmp_path}/templates/knowledge/<section>.md" in text and "Do not read keel's own source" in text
     assert "only the knowledge sections this branch changes" in text
@@ -97,20 +97,18 @@ def test_librarian_gets_the_templates_and_a_short_memory_brief(tmp_path, monkeyp
 
 def test_skill_references_get_full_paths(tmp_path, monkeypatch):
     from keel_engine.runtime import prompts
-    ref = tmp_path / "skills" / "spec-authoring" / "references"
+    ref = tmp_path / "skills" / "spec-writing" / "references"
     ref.mkdir(parents=True)
     (ref / "acceptance-criteria.md").write_text("# AC")
-    monkeypatch.setenv("KEEL_HOME", str(tmp_path))
-    monkeypatch.setenv("KEEL_V2_SKILLS", str(tmp_path / "no-v2-skills"))
+    monkeypatch.setenv("KEEL_CONTENT", str(tmp_path))
     out = prompts.system_prompt("explorer", {"explorer": "Read `references/acceptance-criteria.md` and references/nope.md"})
     assert f"{ref}/acceptance-criteria.md" in out and "references/nope.md" in out
-    assert "never search the disk" in out
-    # keel v2's own copy of a reference wins over keel v1's
-    v2 = tmp_path / "v2" / "spec-writing" / "references"
-    v2.mkdir(parents=True)
-    (v2 / "acceptance-criteria.md").write_text("# v2")
-    monkeypatch.setenv("KEEL_V2_SKILLS", str(tmp_path / "v2"))
-    assert f"{v2}/acceptance-criteria.md" in prompts.system_prompt("explorer", {"explorer": "Read references/acceptance-criteria.md"})
+    assert f"Skill files are under {tmp_path}/skills/;" in out and "never search the disk" in out
+    # a name two skills share stays as written: the agent must not be sent to the wrong one
+    other = tmp_path / "skills" / "web-implementation" / "references"
+    other.mkdir(parents=True)
+    (other / "acceptance-criteria.md").write_text("# other")
+    assert "Read references/acceptance-criteria.md" in prompts.system_prompt("explorer", {"explorer": "Read references/acceptance-criteria.md"})
 
 
 def test_a_sent_back_spec_is_changed_not_rewritten_from_scratch():

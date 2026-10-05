@@ -35,12 +35,12 @@ object FrontMatter {
     }
 }
 
-/** keel v1's agents (one markdown file per agent in $KEEL_HOME/agents) and which keel phases each one works in. */
+/** keel's agents (one markdown file per agent in content/agents) and which keel phases each one works in. */
 @Component
 class AgentCatalog(private val props: KeelProperties) {
 
     fun defaults(): List<AgentDef> {
-        val dir = props.keelHome.resolve("agents")
+        val dir = props.contentDir.resolve("agents")
         if (!Files.isDirectory(dir)) return emptyList()
         return Files.list(dir).use { s -> s.filter { it.toString().endsWith(".md") }.sorted().toList() }
             .mapNotNull { read(it) }
