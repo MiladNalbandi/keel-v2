@@ -812,3 +812,83 @@ StepExplanation = { id, name, kind, phase, phase_meaning, phase_inherited, lock,
 - Action words live in `engine/keel_engine/runtime/action_docs.py` (`DOCS`: summary + steps, else the function's
   docstring); `tests/test_explain.py` fails when an action the engine dispatches has no entry, or an entry has no action.
 - A code step now keeps the head of what its actions printed in the state (`output`), for the last run.
+
+
+## v0.4.1: inbox, notifications, run modes
+
+### Run modes (engine `runtime/run_mode.py`)
+`StartThread.settings.run_mode`: `manual` (default) | `important` | `auto` | `readonly`. `Compiler._ask` asks the policy
+before every `interrupt()`: `run_mode.classify(question, step, …)` names the pause, `run_mode.decide(mode, kind, …)` returns
+the answer keel gives itself (`{decision: "approve", why: "auto-approved (mode <m>)", payload, auto: true}`) or `None` (ask).
+The caller logs an automatic answer like any other, so the gate log reads `gate spec_gate approve: auto-approved (mode auto)`,
+`ac AC-1 approve: auto-approved (mode important)`.
+
+| kind (`classify`) | what it is | manual | important | auto | readonly |
+|---|---|---|---|---|---|
+| `ac` | a per-criterion AC gate | ask | approve when `last_failure` is empty and the AC review before it (ac-reviewer/reviewer) has no `AC-REVIEW: findings` and no Blocking items | approve | ask |
+| `spec` | spec / triage gate, amendments | ask | ask | approve (never when only a send-back fits: no criteria) | ask |
+| `clarify` | the explorer's questions | ask | ask | approve with each question's recommended option | ask |
+| `contract`, `final-review`, `pr` | contract gate, `report: verdicts`, the gate after a `pr` step | ask | ask | approve | ask |
+| `choice`, `skip-menu`, `gate` | named choices (default = first / `recommend`), skip menus (run everything), any other gate | ask | ask | approve | ask |
+| `findings`, `already-met`, `escalate` | review findings within `rounds or 2`, a test that passes before code, a change-flow escalation | ask | ask | approve | ask |
+| **safety**: `failure`, `rounds`, `rung`, `budget`, `dependency`, `secrets`, `readonly`, `note` | step failed / keeps failing, loop past its rounds (branch, findings past their limit), init rung_gate, token cap and plan windows, new dependency, a secret staged for commit, a read-only commit, hunt-next close_gate | ask | ask | ask | ask |
+
+- keel approves the very same question (same `waiting.id`) by itself at most `MAX_REPEATS` (3) times in a run, then asks.
+- **Secrets stop every mode**: the commit's secret scan now asks (`kind: fix`, "A secret is staged for commit", labels
+  "Send back to remove it" / "Stop the flow"): approve sends the refusal to the agent before the commit, reject stops the flow.
+- New-dependency questions carry labels `Allow` / `Refuse`.
+- **readonly**: the guard context gains `readonly: true` (hook: every Edit/Write/MultiEdit/NotebookEdit, serena edit, write-ish
+  MCP tool, and shell command that writes — redirects, rm/mv/cp/mkdir/touch, git add/commit/push/reset/checkout…, package
+  installs, sed -i — is refused; an unlock or `mcp.allow` does not open it); the ToolBox refuses `write_file` and such
+  commands; the diff guard puts back every changed file in any phase; the edit-hook tools do not run; the `commit` action
+  asks before staging (`kind: fix`, "Read-only run: the commit is refused"; approve tries again, reject stops).
+- **auto**: `open_pr` returns the body and opens no PR (also when the PR gate's own approval was automatic). The final review's
+  Exceptions list `- gate auto-approved: <line>`; the PR body has `## Auto-approved gates` (run mode + lines) in important/auto.
+- keel never pushes in any mode; stop and rewind always work (a rewind clears the repeat counter).
+
+```
+engine  POST /threads/{id}/mode  { mode }   → ThreadState     (stored with the thread's settings; counts from the next pause;
+                                                              the question that waits now stays the user's: a resume carries
+                                                              its id and the policy never answers that one; event thread.mode {mode, from})
+        ThreadState + run_mode, waiting.id (the question id; already sent back as `asked`)
+api     POST /api/threads/{tid}/mode { mode }    → the engine's state (400 for an unknown mode)
+        POST /api/projects/{pid}/flows + { run_mode? }   (default: the project's setting)
+        Settings + run_mode: "manual" | "important" | "auto" | "readonly"  (general + project override)
+```
+
+### Inbox (api)
+```
+GET  /api/inbox?project=&kind=   → { items: InboxItem[], count, kinds: string[], projects: {id, name, count}[] }
+GET  /api/inbox/count            → { count, projects: {pid: n} }      (the database only)
+POST /api/inbox/{tid}/act  { decision, why?, payload?, id? }  → ThreadState
+     (FlowService.resume — the Flow page's path; 409 when the thread no longer waits or now asks another question than `id`)
+InboxItem = { project_id, project_name, thread_id, flow (the flow's title), workflow_id, step,
+              kind: gate | clarify | fix | budget | usage | dependency, title, detail (≤ 700 chars), more, options, choices?,
+              questions?, labels?, id?, phase?, ac?, run_mode?, auto_approved, last_auto?, since }
+```
+Built from `threads` rows with status `waiting` in listed projects, each asked of the engine (`GET /threads/{id}`, cached 3 s;
+the saved `state_json` when the engine is down); a thread the engine says moved on is saved and left out. `since` = the
+thread's last `gate.waiting` event. Gate events (`gate.waiting`, `gate.decided`, `thread.done`, `thread.failed`) publish
+`project.changed`, so every tab's project waiting counts (the Inbox badge) follow.
+
+### Notifications
+```
+DELETE /api/notifications/{id}     → { ok }            (404 when missing)
+DELETE /api/notifications          → { ok, count }     (clear all)
+POST   /api/notifications/read-all → { ok, count }
+Notification + thread_id?, step?, done: bool          (migration V6)
+SSE    notification.done  { thread_id, ids, read }    (light: every tab gets it)
+```
+A gate's `review` notification keeps its thread and step. It becomes **done** (and read) when that gate is decided from anywhere:
+`POST /api/threads/{tid}/resume` (Flow page, Inbox, MCP `keel_approve_gate`; only notifications older than the resume) or an
+engine `gate.decided` event (the run mode, a waived gate); `thread.done` / `thread.failed` mark the rest done (read state kept).
+
+### Web
+- **Run › Inbox** (`#/inbox`, no project needed; `pages/Inbox.tsx`): filters (project, kind), one card per item with inline
+  actions (approve, send back with a reason, choices, clarify answers, allow/refuse, budget and plan-window choices),
+  `Open flow ▸` (switches project, `#/flow`), "Nothing is waiting for you". Nav badge = the sum of `Project.waiting`.
+- `components/RunMode.tsx`: `RunModePicker` (Start a flow; default from Settings), `RunModeSwitch` (`<RunModeSwitch pid threadId
+  mode onChange? compact?/>`, mounted in the Flow page's summary bar next to Stop), `RunModeNote` (gate card and inbox item:
+  the mode, gates keel approved by itself, why this one waits). Settings › Flow and gates › Run mode (new flows).
+- Notifications drawer: mark one read, delete one, mark all read, clear all (confirm); decided gates show "✓ decided".
+
