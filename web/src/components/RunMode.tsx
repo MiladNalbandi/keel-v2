@@ -27,16 +27,16 @@ const SAFETY_KINDS = new Set(["fix", "budget", "usage", "dependency"]);
 export function whyItWaits(mode: string | null | undefined, kind: string, title = ""): string | null {
   if (mode === "auto") {
     if (SAFETY_KINDS.has(kind) || /secret|keeps failing|still no|read-only/i.test(title)) {
-      return "Auto mode still stops here: keel never decides money, new dependencies, secrets or a check that keeps failing by itself.";
+      return "Still stops here: keel never decides money, new dependencies, secrets or a check that keeps failing by itself.";
     }
-    return "Auto mode stops when keel cannot decide: only a send-back fits, a loop is past its rounds, or it already approved this question three times.";
+    return "Stops when keel cannot decide: only a send-back fits, a loop is past its rounds, or it already approved this question three times.";
   }
   if (mode === "important") {
     return /^AC gate/.test(title)
-      ? "Important only stops at an AC gate when its checks failed or its AC review found something."
-      : "Important only approves clean AC gates by itself; every other gate waits for you.";
+      ? "Stops at an AC gate when its checks failed or its AC review found something."
+      : "Approves clean AC gates by itself; every other gate waits for you.";
   }
-  if (mode === "readonly") return "Read-only: agents cannot edit or commit; every gate waits for you.";
+  if (mode === "readonly") return "Agents cannot edit or commit; every gate waits for you.";
   return null;
 }
 

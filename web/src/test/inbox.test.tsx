@@ -155,7 +155,7 @@ describe("auto-approved info and the Flow page switch", () => {
     const note = within(gate).getByTestId("run-mode-note");
     expect(note).toHaveTextContent("keel approved 2 gates by itself in this flow");
     expect(note).toHaveTextContent("ac AC-001 approve: auto-approved (mode auto)");
-    expect(note).toHaveTextContent("Auto mode stops when keel cannot decide");
+    expect(note).toHaveTextContent("Stops when keel cannot decide");
     await user.selectOptions(sel, "manual");
     await waitFor(() => expect(calls("POST", "/api/threads/th_7f3a/mode")[0]?.body).toEqual({ mode: "manual" }));
   });
@@ -169,7 +169,7 @@ describe("auto-approved info and the Flow page switch", () => {
     const ask = await screen.findByRole("article", { name: "The explorer has 1 question" });
     expect(within(ask).getByTestId("run-mode-note")).toHaveTextContent("Important only keel approved 1 gate by itself in this flow");
     const dep = screen.getByRole("article", { name: "Approve new dependency" });
-    expect(within(dep).getByTestId("run-mode-note")).toHaveTextContent("Auto mode still stops here");
+    expect(within(dep).getByTestId("run-mode-note")).toHaveTextContent("Auto Still stops here");
     expect(within(screen.getByRole("article", { name: "AC gate · AC-002" })).queryByTestId("run-mode-note")).toBeNull();   // manual
   });
 });
