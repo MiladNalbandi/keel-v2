@@ -5,6 +5,7 @@ import { useState } from "react";
 import type { StepKind, Workflow } from "../api";
 import { insertStep, removeStep, undoRemove, type Removed } from "./builderOps";
 import { Graph, GraphLegend } from "./Graph";
+import { Zoom } from "./Zoom";
 import { KIND } from "./workflow";
 
 export type BuilderState = { insertAt: number | null; removed: Removed | null; lockAsk: string | null };
@@ -88,10 +89,10 @@ export function Builder({ w, sel, onSelect, b, tokens, customAgents }: {
             <button className="btn sm" type="button" onClick={b.undo}>Undo</button>
           </div>
         )}
-        <div className="graph-wrap">
+        <Zoom id="builder">
           <Graph steps={w.steps} edit per={6} selected={sel} insertAt={st.insertAt} keel={w.keel_rules} tokens={tokens} customAgents={customAgents}
             onSelect={(id) => { onSelect(id); b.closeInsert(); }} onInsert={b.insertAt} onRemove={(id) => b.remove(id)} />
-        </div>
+        </Zoom>
         <GraphLegend />
       </div>
     </div>

@@ -11,6 +11,7 @@ import { Markdown } from "../components/Markdown";
 import { OpenKeelV1Button } from "../components/OpenKeelV1";
 import { eventLine } from "../components/events";
 import { Graph, GraphLegend } from "../components/Graph";
+import { Zoom } from "../components/Zoom";
 import { StartFlowDrawer } from "../components/StartFlow";
 import { Async, Confirm, ErrorBox, GoButton, PageHead, Panel, Pill, Prov, type PillTone } from "../components/ui";
 import { acLabel, clock, kfmt, usd } from "../format";
@@ -109,10 +110,10 @@ function ThreadView({ pid, thread, workflow, keelState, reload, onStart }: {
       <Header thread={thread} workflow={workflow} onStart={onStart} />
       <div className="grid" style={{ gap: 16 }}>
         <Panel title="Graph" extra={<GraphLegend />}>
-          <div className="graph-wrap">
+          <Zoom id="flow">
             <Graph steps={workflow.steps} current={thread.current} status={thread.status} tokens={thread.status === "done" ? undefined : tokens}
               acs={thread.acs} currentAc={thread.ac} />
-          </div>
+          </Zoom>
           <AcStrip thread={thread} />
         </Panel>
         <StatusCard pid={pid} thread={thread} workflow={workflow} job={job} onDone={reload} />
@@ -525,7 +526,7 @@ function InitFlow({ pid, f, onStart, reload }: { pid: string; f: { thread: Threa
       <Header thread={thread} workflow={workflow} onStart={onStart} extra={<GoButton to="wiki" className="btn">Open wiki</GoButton>} />
       <Panel title="Graph" extra={<GraphLegend />} body="grid">
         <div className="grid" style={{ gap: 14 }}>
-          <div className="graph-wrap"><Graph steps={workflow.steps} current={thread.current} status={thread.status} /></div>
+          <Zoom id="flow-done"><Graph steps={workflow.steps} current={thread.current} status={thread.status} /></Zoom>
           <div className="lanes">
             <div className="lane">
               <div className="lane-h"><b>Ladder</b><span className="sub num">{rungs.length ? `${passed} / ${rungs.length} rungs` : "not started"}</span></div>
