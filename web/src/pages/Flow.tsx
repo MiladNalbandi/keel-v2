@@ -326,6 +326,13 @@ function GateCard({ thread, workflow, onDone }: { thread: ThreadState; workflow:
           {w.choices.includes("cheaper") && <button className="btn" type="button" disabled={busy} onClick={() => decide("approve", { choice: "cheaper" })}>Use the cheaper model</button>}
           {w.choices.includes("stop") && <button className="btn" type="button" id="sendback" disabled={busy} onClick={() => decide("reject")}>Stop here</button>}
         </div>
+      ) : w.kind === "gate" && w.choices?.length ? (
+        <div className="row" aria-label="Choose one">
+          {w.choices.map((c, n) => (
+            <button key={c} className={n === 0 ? "btn warn" : "btn"} type="button" id={n === 0 ? "approve" : undefined} disabled={busy}
+              onClick={() => decide("approve", { choice: c })}>{c}</button>))}
+          {w.options.includes("reject") && <button className="btn" type="button" id="sendback" disabled={busy} onClick={() => decide("reject")}>{labels.reject}</button>}
+        </div>
       ) : <div className="row">
         {w.options.includes("approve") && <button className="btn warn" type="button" id="approve" disabled={busy} onClick={() => decide("approve")}>{labels.approve}</button>}
         {w.options.includes("reject") && <button className="btn" type="button" id="sendback" disabled={busy} onClick={() => decide("reject")}>{labels.reject}</button>}

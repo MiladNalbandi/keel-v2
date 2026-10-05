@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ..rules import PHASES
+from ..runtime.findings import REVIEWERS
 from .model import Workflow, WorkflowError, load_yaml
 from .templates import get_template
 
@@ -11,6 +12,8 @@ CODE_ACTIONS = {"verify_red", "verify_green", "verify_release", "verify_coverage
                 # verdict actions (runtime/verdict_actions.py), the PR body, and the hand-off to another workflow
                 "verify_fast", "verify_module", "verify_deps", "audit", "trace", "trace_strict", "arch", "pr", "open_pr",
                 "start_flow",
+                # ship and cover (runtime/ship.py)
+                "review_lenses", "coverage_report",
                 # flow helpers: review scope, reports, the bug and change flows (runtime/flow_actions.py), model escalation
                 "review_scope", "report", "investigation_note", "bug_intake", "reset", "change_size", "change_start",
                 "escalate_model"}
@@ -27,7 +30,7 @@ def successors(wf: Workflow, i: int) -> list[int]:
     out = []
     if i + 1 < len(wf.steps):
         out.append(i + 1)
-    for target in (s.back, s.no, s.then):
+    for target in (s.back, s.no, s.then, s.after_rounds):
         if target in ids:
             out.append(ids[target])
     loop = wf.loop_of(i)
@@ -67,17 +70,37 @@ def validate(wf: Workflow) -> list[str]:
                 errors.append(f"{where}: back target '{s.back}' does not exist.")
             elif index[s.back] >= n:
                 errors.append(f"{where}: back must point to an earlier step, not '{s.back}'.")
-        if s.kind == "code" and s.back and s.back not in index:
-            errors.append(f"{where}: back target '{s.back}' does not exist.")
-        if s.back and s.kind not in ("gate", "code"):
-            errors.append(f"{where}: only gates and code steps have a back target.")
-        if s.choices is not None:
-            if s.kind != "gate":
-                errors.append(f"{where}: only gates have choices.")
-            elif not s.choices or len(set(s.choices)) != len(s.choices):
-                errors.append(f"{where}: choices must be a list of different names.")
-        if s.attempts is not None and (s.kind != "code" or s.attempts < 0):
-            errors.append(f"{where}: attempts belongs to a code step and cannot be negative.")
+        review = s.kind in ("agent", "parallel") and (s.agent or "") in REVIEWERS and not s.per_ac and not s.lanes
+        if s.back and s.kind != "gate":
+            if s.kind != "code" and not review:
+                errors.append(f"{where}: only gates, code steps and review steps have a back target.")
+            elif s.back not in index or index[s.back] >= n:
+                errors.append(f"{where}: back target '{s.back}' must be an earlier step.")
+        if s.redo is not None:
+            if not review:
+                errors.append(f"{where}: only a review step has redo (where the flow goes on after a fix).")
+            elif s.redo not in index:
+                errors.append(f"{where}: redo target '{s.redo}' does not exist.")
+        if s.rounds is not None:
+            if s.rounds < 1:
+                errors.append(f"{where}: rounds must be 1 or more.")
+            if s.kind not in ("code", "branch") and not review:
+                errors.append(f"{where}: rounds belongs to a code step, a branch or a review step.")
+        if s.soft and s.kind != "code":
+            errors.append(f"{where}: only a code step is soft.")
+        if s.retry_only and s.kind not in ("agent", "code"):
+            errors.append(f"{where}: only agent and code steps are retry_only.")
+        if (s.skip_menu or s.report or s.choices or s.on_skip) and s.kind != "gate":
+            errors.append(f"{where}: skip_menu, report, choices and on_skip belong to a gate.")
+        if s.on_skip is not None:
+            if not s.per_item:
+                errors.append(f"{where}: on_skip belongs to a gate inside a for_each loop.")
+            if s.on_skip.get("choice") and s.on_skip["choice"] not in (s.choices or []):
+                errors.append(f"{where}: on_skip choice '{s.on_skip['choice']}' is not one of the choices.")
+        if s.choices is not None and (not s.choices or len(set(s.choices)) != len(s.choices)):
+            errors.append(f"{where}: choices must be a list of different names.")
+        if s.after_rounds is not None and (s.kind != "code" or s.after_rounds not in index):
+            errors.append(f"{where}: after_rounds belongs to a code step and names an existing step.")
         if s.then and s.then not in ("end", "continue"):
             if s.kind != "code":
                 errors.append(f"{where}: only code steps have a 'then'.")

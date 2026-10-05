@@ -451,12 +451,22 @@ def coverage_from_reports(a) -> tuple[dict, object]:
     if not m["ok"]:
         detail["summary"] = "; ".join(m["problems"])[:300]
     record_verdict(a.key, "coverage", m["ok"], detail, root=a.root)
-    upd = {"data": {**a.data, "coverage_groups": m["groups"]}}
-    open_groups = "\n".join(f"  {'! ' if g['critical'] else '  '}{g['title']}" for g in m["groups"][:20])
+    # keel v1 cover.json: decisions carry across rounds, so an accepted group is not proposed again.
+    accepted = {str(x.get("key") or x.get("id")): x for x in a.data.get("coverage_accepted") or [] if isinstance(x, dict)}
+    for g in m["groups"]:
+        if g["key"] in accepted:
+            g.update(status="skipped", decision="accept", reason=accepted[g["key"]].get("reason"))
+    still = [g for g in m["groups"] if g.get("status") != "skipped"]
+    # The stall fingerprint is the set of groups still open: a round that does not move it says so.
+    fp = "|".join(sorted(g["key"] for g in still))
+    stalled = bool(still) and fp == a.data.get("coverage_fingerprint")
+    upd = {"data": {**a.data, "coverage_groups": m["groups"], "coverage_fingerprint": fp}}
+    open_groups = "\n".join(f"  {'! ' if g['critical'] else '  '}{g['title']}" for g in still[:20])
+    stall = " The same lines are still uncovered as in the last round: change the approach, do not just try again." if stalled else ""
     if not m["ok"]:
-        return m, _result(False, "Coverage: " + "; ".join(m["problems"])[:300],
+        return m, _result(False, ("Coverage: " + "; ".join(m["problems"]))[:300] + stall,
                           (m["summary"] + "\n\nUncovered groups:\n" + open_groups).strip(), upd)
-    more = f" {len(m['groups'])} uncovered group(s) left." if m["groups"] else ""
+    more = f" {len(still)} uncovered group(s) left." if still else ""
     return m, _result(True, f"Coverage: {m['summary']}; verdict recorded.{more}", open_groups, upd)
 
 

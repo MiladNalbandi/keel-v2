@@ -57,6 +57,16 @@ class FlowApiTest : ApiTest() {
     }
 
     @Test
+    fun `flow options reach the engine as the thread's data`() {
+        val (pid, _) = newProject("flow-options")
+        post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "Review it",
+            "options" to mapOf("lens" to "all", "base" to "main"))).andExpect(status().isOk)
+        val data = engine.lastBody("/threads")!!["data"]
+        assertThat(data["lens"].asText()).isEqualTo("all")
+        assertThat(data["base"].asText()).isEqualTo("main")
+    }
+
+    @Test
     fun `agents come from content with phases, and projects can override and add their own`() {
         val (pid, _) = newProject("flow-agents")
         val agents = get("/api/projects/$pid/agents").json()

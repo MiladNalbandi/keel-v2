@@ -18,6 +18,15 @@ describe("Flow gate", () => {
     expect(screen.queryByRole("region", { name: "Gate waits for you" })).not.toBeInTheDocument();
   });
 
+  it("a gate with named exits shows one button per choice and resumes with it", async () => {
+    const user = userEvent.setup();
+    db.flows["ludus-engine"].thread!.waiting = { step: "decide", kind: "gate", title: "diagnosis", detail: "Ranked: the race wins.",
+      options: ["approve", "reject"], choices: ["fix", "feature", "unresolved"] };
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "feature" }));
+    await waitFor(() => expect(db.calls.find((c) => c.path.endsWith("/resume"))?.body).toEqual({ decision: "approve", payload: { choice: "feature" } }));
+  });
+
   it("Send back needs a reason, then sends it", async () => {
     const user = userEvent.setup();
     render(<App />);

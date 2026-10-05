@@ -56,6 +56,7 @@ class FlowState(TypedDict, total=False):
     flaky: list[dict]           # tests that failed once and passed on the rerun: [{label, tests, at}]
     show: str | None            # what a code step prepared for the gate right after it (a report, a proposal)
     agent_models: dict          # {agent: model} after escalate_model (a stronger model for that agent)
+    rounds: dict                # {branch step id: send-backs so far} for a branch with `rounds`
 
 
 @dataclass
@@ -122,7 +123,7 @@ def initial_state(ctx: ThreadContext, acs: list[dict] | None) -> FlowState:
         retries={}, step_tokens={}, feedback=None, model_override=None, warned=False, spec=None, branch=None,
         git_head=None, last_failure=None, note="started", error=None, base_head=None, preexisting={}, last_answer="", findings=[], review_rounds={}, init={}, clarify={}, clarify_rounds=0, spec_revisions=0,
         unlocks=normalize_unlocks(s.get("unlocks"), "none", "settings"), deps=[], blockers=[], ladder=None,
-        data={}, markers={}, item=None, children=[], parent=None, pr_body=None, flaky=[], show=None, agent_models={},
+        data={}, markers={}, item=None, children=[], parent=None, pr_body=None, flaky=[], rounds={}, show=None, agent_models={},
     )
 
 

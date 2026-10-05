@@ -61,6 +61,8 @@ data class StartThread(
     val keys: Map<String, String>? = null,
     /** What the user asked for, in their words. */
     val request: String? = null,
+    /** Flow inputs (state.data): review lens and base, fix no_gates, ... */
+    val data: Map<String, Any?>? = null,
 )
 
 /** One agent's entry in StartThread.agents. */
@@ -134,7 +136,8 @@ class FlowService(
     }
 
     fun start(pid: String, workflowId: String, title: String, acs: List<Ac>?, cap: FlowCap? = null,
-              allowFake: Boolean = false, allowDirty: Boolean = false, request: String? = null): JsonNode {
+              allowFake: Boolean = false, allowDirty: Boolean = false, request: String? = null,
+              options: Map<String, Any?>? = null): JsonNode {
         if (title.isBlank()) throw BadRequest("Give the flow a title", "One short line: what should this flow build or fix?")
         cap?.check()
         var start = buildStart(pid, workflowId, title, acs, cap)
@@ -144,7 +147,8 @@ class FlowService(
         ownBranch(pid, root, title)
         // API keys for "api" models and CLI logins for subscription models, from the encrypted secrets table.
         val keys = keysFor(start.models.values)
-        val withRequest = start.copy(request = request?.trim()?.takeIf { it.isNotEmpty() }?.take(8000))
+        val withRequest = start.copy(request = request?.trim()?.takeIf { it.isNotEmpty() }?.take(8000),
+            data = options?.takeIf { it.isNotEmpty() })
         val body = if (keys.isEmpty()) withRequest else withRequest.copy(keys = keys)
         val res = engine.startThread(body)
         val tid = res.get("thread_id")?.asText() ?: throw ApiException(HttpStatus.BAD_GATEWAY, "The engine did not return a thread id")
