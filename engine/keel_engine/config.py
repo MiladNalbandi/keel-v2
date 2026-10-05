@@ -51,11 +51,17 @@ def workspace() -> Path:
     return Path(os.environ.get("KEEL_WORKSPACE") or "/workspace")
 
 
+def content_dir() -> Path:
+    """keel v2's own content (agents, skills, stacks, packs, templates): KEEL_CONTENT, else /opt/keel-v2/content,
+    else <repo>/content (dev)."""
+    if os.environ.get("KEEL_CONTENT"):
+        return Path(os.environ["KEEL_CONTENT"])
+    image = Path("/opt/keel-v2/content")
+    if image.is_dir():
+        return image
+    return Path(__file__).resolve().parents[2] / "content"
+
+
 def v2_skills() -> Path:
-    """keel v2's own skills (spec-clarify, spec-writing): KEEL_V2_SKILLS, else /opt/keel-v2/skills, else ../skills (dev)."""
-    if os.environ.get("KEEL_V2_SKILLS"):
-        return Path(os.environ["KEEL_V2_SKILLS"])
-    for c in (Path("/opt/keel-v2/skills"), Path(__file__).resolve().parents[2] / "skills"):
-        if (c / "spec-clarify").is_dir():
-            return c
-    return Path("/opt/keel-v2/skills")
+    """keel v2's skills: content_dir()/skills."""
+    return content_dir() / "skills"

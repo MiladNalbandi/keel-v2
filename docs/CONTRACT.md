@@ -31,7 +31,8 @@ web `cd web && npm run dev` (port 5173, proxies `/api` to 8080).
 |---|---|---|
 | `KEEL_DATA` | `/data` (dev: `./.data`) | api, engine |
 | `KEEL_WORKSPACE` | `/workspace` (dev: unset) | api — scan for projects at start |
-| `KEEL_HOME` | `/opt/keel` (dev: `../keel`) | api, engine — keel v1 (agents/, skills/, stacks/, packs/, mcp/, bin/keel) |
+| `KEEL_CONTENT` | `/opt/keel-v2/content` (dev: `<repo>/content`) | api, engine — keel v2's agents/, skills/, stacks/, packs/, templates/ |
+| `KEEL_HOME` | `/opt/keel` (dev: `../keel`) | api, engine — keel v1 (mcp/, bin/keel, dashboard; going away in v0.4.0) |
 | `KEEL_ENGINE_URL` | `http://127.0.0.1:8090` | api |
 | `KEEL_API_URL` | `http://127.0.0.1:8080` | engine — where it POSTs events |
 | `KEEL_INTERNAL_TOKEN` | random at start, shared by both | header `X-Keel-Token` on engine↔api calls |
@@ -397,7 +398,22 @@ github-copilot`), else a built-in list. Effort is passed to the CLIs: claude `--
   states, `[API]` criteria a Request path; empty sections, vague or "then"-less criteria, an AC id inside a drawing,
   more than 8 criteria are noted. Gaps that are clearly missing send the spec back to the explorer once (same session;
   real models by default, `settings.spec_check` overrides). The spec gate shows the rest as "Spec check" lines.
-- **Skills** (`skills/`, in the image at `/opt/keel-v2/skills`, shown in Build › Skill hub with source "keel v2"):
+- **Skills** (now `content/skills/`, see v0.4.0 below; shown in Build › Skill hub with source "keel"):
   `spec-clarify` (the question format, identity and work-placement probes) and `spec-writing` (spec layout, criteria
   form, drawings); both assigned to the `explorer` for phase `spec`. keel v1's `spec-authoring` (a live chat) is no
   longer assigned. Example result: `docs/examples/spec-leaderboard.md`.
+
+## v0.4.0: content
+
+- **One content folder.** keel v2 reads every agent, skill, stack, pack and template from its own `content/`
+  (`content/README.md` says what each folder is). In the image it is `/opt/keel-v2/content` (`ENV KEEL_CONTENT`);
+  `KEEL_CONTENT` overrides it anywhere; a dev checkout falls back to `<repo>/content`. Nothing reads agents, skills,
+  stacks or templates from `KEEL_HOME` any more. Most files started as copies of keel v1 (MIT, commit `a9ed9e3`,
+  `content/NOTICE.md`), edited so no agent is told to run a keel command, a slash command or read `.keel/state.json`.
+- **Engine:** `config.content_dir()`; the role text and `maxTurns` come from `content/agents/<agent>.md`, skill
+  `references/x.md` paths resolve under `content/skills/`, the librarian's templates are `content/templates/knowledge/`.
+- **Api:** `KeelProperties.contentDir` (`keel.content`, env `KEEL_CONTENT`). Agents from `content/agents`; skills from
+  `content/skills` (source `keel`) and `content/packs/<name>/skills` (source `keel pack`), version `v2`, plus the
+  user's; stacks from `content/stacks/*.yml` and `content/packs/<name>/stack.yml` (+ the project's `.keel/stacks`).
+  Installing a pack copies `content/packs/<name>` into `<root>/.keel/stacks/<name>`.
+- `engine/tests/test_content.py` checks the front matter, the YAML, the packs' paths and the forbidden v1 words.

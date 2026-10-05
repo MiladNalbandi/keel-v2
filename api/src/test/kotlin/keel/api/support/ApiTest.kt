@@ -17,7 +17,7 @@ import java.nio.file.Path
 import java.nio.file.Paths
 import java.util.concurrent.TimeUnit
 
-/** Shared Spring context: temp data dir, stub engine, fixture KEEL_HOME. */
+/** Shared Spring context: temp data dir, stub engine, fixture content (KEEL_CONTENT) and KEEL_HOME. */
 @SpringBootTest
 @AutoConfigureMockMvc
 abstract class ApiTest {
@@ -70,6 +70,7 @@ abstract class ApiTest {
         val dataDir: Path = Files.createTempDirectory("keel-data")
         val engine: StubEngine = StubEngine.start()
         val keelHome: Path = Paths.get(ApiTest::class.java.getResource("/keel-home")!!.toURI())
+        val contentDir: Path = Paths.get(ApiTest::class.java.getResource("/content-fixture")!!.toURI())
         const val TOKEN = "test-token"
         val dashboardPort: Int = java.net.ServerSocket(0).use { it.localPort }
 
@@ -79,6 +80,7 @@ abstract class ApiTest {
             r.add("keel.data") { dataDir.toString() }
             r.add("keel.engine-url") { engine.url }
             r.add("keel.home") { keelHome.toString() }
+            r.add("keel.content") { contentDir.toString() }
             r.add("keel.projects-file") { "" }
             r.add("keel.workspace") { "" }
             r.add("keel.internal-token") { TOKEN }

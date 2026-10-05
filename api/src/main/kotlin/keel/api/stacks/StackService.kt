@@ -5,6 +5,7 @@ import keel.api.common.ApiException
 import keel.api.common.BadRequest
 import keel.api.common.Conflict
 import keel.api.common.KeelHome
+import keel.api.common.KeelProperties
 import keel.api.common.NotFound
 import keel.api.common.Proc
 import keel.api.common.Yaml
@@ -42,9 +43,14 @@ private data class StackDef(val doc: Map<String, Any?>, val source: String, val 
     val name: String get() = doc["name"].toString()
 }
 
-/** keel v1 stack packs (stacks/NAME.yml and packs/stacks/NAME.yml) and which ones a project matches. */
+/** keel's stacks (content/stacks/NAME.yml and content/packs/NAME/stack.yml) and which ones a project matches. */
 @Service
-class StackService(private val home: KeelHome, private val projects: ProjectService, private val mapper: ObjectMapper) {
+class StackService(
+    private val home: KeelHome,
+    private val props: KeelProperties,
+    private val projects: ProjectService,
+    private val mapper: ObjectMapper,
+) {
 
     private fun read(f: Path, source: String): StackDef? =
         runCatching { Yaml.readMap(Files.readString(f)) }.getOrNull()?.takeIf { it["name"] != null }?.let { StackDef(it, source, f) }
@@ -54,7 +60,15 @@ class StackService(private val home: KeelHome, private val projects: ProjectServ
         return Files.list(dir).use { s -> s.filter { it.toString().endsWith(".yml") }.sorted().toList() }.mapNotNull { read(it, source) }
     }
 
-    private fun shipped(): List<StackDef> = load(home.path.resolve("stacks"), "keel") + load(home.path.resolve("packs/stacks"), "keel pack")
+    private fun shipped(): List<StackDef> = load(props.contentDir.resolve("stacks"), "keel") + packs()
+
+    /** One folder per pack: `content/packs/<name>/stack.yml`, with its skills and templates beside it. */
+    private fun packs(): List<StackDef> {
+        val dir = props.contentDir.resolve("packs")
+        if (!Files.isDirectory(dir)) return emptyList()
+        return Files.list(dir).use { s -> s.map { it.resolve("stack.yml") }.filter { Files.isRegularFile(it) }.sorted().toList() }
+            .mapNotNull { read(it, "keel pack") }
+    }
 
     /**
      * Packs in `<root>/.keel/stacks`, the way keel v1 finds them: a `<name>.yml`, a `<dir>/stack.yml`,
@@ -120,7 +134,7 @@ class StackService(private val home: KeelHome, private val projects: ProjectServ
             else -> all.firstOrNull { it.name == name }
                 ?: run { val files = ProjectFiles(root); all.firstOrNull { d -> @Suppress("UNCHECKED_CAST") detects((d.doc["detect"] as? Map<String, Any?>).orEmpty(), files) } }
                 ?: all.firstOrNull()
-                ?: throw NotFound("keel has no stack to copy from", "Check KEEL_HOME: it needs stacks/*.yml.")
+                ?: throw NotFound("keel has no stack to copy from", "Check KEEL_CONTENT: it needs stacks/*.yml.")
         }
         val text = Files.readString(source.file)
         val nameLine = Regex("(?m)^name:.*$")
@@ -130,14 +144,14 @@ class StackService(private val home: KeelHome, private val projects: ProjectServ
         return get(pid, name)
     }
 
-    /** Runs `keel packs add $KEEL_HOME/packs --project` in the repo, then returns the stack. */
+    /** Runs `keel packs add <content>/packs/<name> --project` in the repo (the pack's folder lands in .keel/stacks), then returns the stack. */
     fun install(pid: String, name: String): Stack {
         val root = projects.root(pid)
         val stack = get(pid, name)
         if (stack.source == "project") return stack
         if (!stack.installable) throw Conflict("\"$name\" ships with keel", "It is always there; nothing to install.")
         if (!home.installed()) throw ApiException(HttpStatus.SERVICE_UNAVAILABLE, "keel is not installed at ${home.path}", "Set KEEL_HOME.")
-        val r = Proc.run(home.command("packs", "add", home.path.resolve("packs").toString(), "--project"), root, 120)
+        val r = Proc.run(home.command("packs", "add", props.contentDir.resolve("packs").resolve(name).toString(), "--project"), root, 120)
         val output = (r.out + r.err).trim()
         // keel refuses when the pack folder is already there: that is "installed" for us.
         if (!r.ok && !output.contains("already exists")) {

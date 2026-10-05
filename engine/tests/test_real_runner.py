@@ -150,7 +150,7 @@ def test_the_spec_step_gives_the_explorer_more_turns(tmp_path, monkeypatch):
     from keel_engine.runtime import prompts
     (tmp_path / "agents").mkdir()
     (tmp_path / "agents" / "explorer.md").write_text("---\nname: explorer\nmaxTurns: 20\n---\nYou map code.\n")
-    monkeypatch.setenv("KEEL_HOME", str(tmp_path))
+    monkeypatch.setenv("KEEL_CONTENT", str(tmp_path))
     assert prompts.max_turns("explorer") == 20
     assert prompts.max_turns("explorer", "spec") == 40
     assert prompts.max_turns("explorer", "triage") == 40

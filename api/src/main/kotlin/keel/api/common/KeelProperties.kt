@@ -10,6 +10,8 @@ data class KeelProperties(
     val data: String = "./.data",
     val workspace: String = "",
     val home: String = "",
+    /** keel v2's content folder (KEEL_CONTENT); blank = found, see [contentDir]. */
+    val content: String = "",
     val engineUrl: String = "http://127.0.0.1:8090",
     val internalToken: String = "",
     val secret: String = "",
@@ -30,16 +32,16 @@ data class KeelProperties(
     }
 
     /**
-     * keel v1 home: KEEL_HOME, else /opt/keel, else a sibling `keel` checkout (dev).
+     * keel v2's own content (agents, skills, stacks, packs, templates): KEEL_CONTENT, else /opt/keel-v2/content,
+     * else ../content or ../../content from the api folder (dev).
      */
-    /** keel v2's own skills (spec-clarify, spec-writing): KEEL_V2_SKILLS, else /opt/keel-v2/skills, else ../skills (dev). */
-    val v2Skills: Path by lazy {
-        val env = System.getenv("KEEL_V2_SKILLS")
-        if (!env.isNullOrBlank()) return@lazy Paths.get(env).toAbsolutePath().normalize()
-        listOf("/opt/keel-v2/skills", "../skills", "../../skills").map { Paths.get(it).toAbsolutePath().normalize() }
-            .firstOrNull { Files.isDirectory(it.resolve("spec-clarify")) } ?: Paths.get("/opt/keel-v2/skills")
+    val contentDir: Path by lazy {
+        if (content.isNotBlank()) return@lazy Paths.get(content).toAbsolutePath().normalize()
+        listOf("/opt/keel-v2/content", "../content", "../../content").map { Paths.get(it).toAbsolutePath().normalize() }
+            .firstOrNull { Files.isDirectory(it.resolve("agents")) } ?: Paths.get("/opt/keel-v2/content")
     }
 
+    /** keel v1 home: KEEL_HOME, else /opt/keel, else a sibling `keel` checkout (dev). */
     val keelHome: Path by lazy {
         if (home.isNotBlank()) return@lazy Paths.get(home).toAbsolutePath().normalize()
         val candidates = listOf("/opt/keel", "../keel", "../../keel").map { Paths.get(it).toAbsolutePath().normalize() }

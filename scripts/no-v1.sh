@@ -6,8 +6,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 PATTERN='KEEL_HOME|keel_home|/opt/keel([^-]|$)|keel-v1/|bin/keel|\.keel/state\.json|events\.jsonl|KeelDashboard|OpenKeelV1|keelDashboard|projects\.json|keel_v1_rules'
-# Allowed: this script, history/changelog text, and the optional external MCP entry for keel v1 (stage 4).
-ALLOW='^(scripts/no-v1\.sh|CHANGELOG\.md|docs/CONTRACT\.md|docs/mockup\.html):|keel-v1-optional'
+# Allowed: this script, the content test (it names the words content/ must not contain), history/changelog
+# text, and the optional external MCP entry for keel v1 (stage 4).
+ALLOW='^(scripts/no-v1\.sh|engine/tests/test_content\.py|CHANGELOG\.md|docs/CONTRACT\.md|docs/mockup\.html):|keel-v1-optional'
 hits="$(git grep -nE "$PATTERN" -- . ':!*.lock' ':!web/package-lock.json' 2>/dev/null | grep -vE "$ALLOW" || true)"
 n=$(printf '%s' "$hits" | grep -c . || true)
 if [ "$n" -eq 0 ]; then echo "no-v1: clean"; exit 0; fi
