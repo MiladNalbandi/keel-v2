@@ -1,0 +1,143 @@
+# Stack pack: Symfony (PHP) backend.
+# A new stack is one file like this plus one testing skill; the flow skills never change.
+name: symfony
+lane: api
+# Which `skills/architecture/references/<style>-<suffix>.md` file this stack reads.
+arch_ref_suffix: php
+
+# How to recognise this stack in a repo, cheapest signal first.
+detect:
+  files: [composer.json, symfony.lock, bin/console]
+  extensions: ['.php']
+
+# Test layers, lowest first. The AC loop picks the lowest layer that can express the AC.
+layers:
+  - id: unit
+    what: pure PHP, no framework — domain rules
+    where: tests/Unit
+  - id: kernel
+    what: service wiring, no HTTP — KernelTestCase
+    where: tests/Kernel
+  - id: web
+    what: routes, status codes, validation — WebTestCase
+    where: tests/Controller
+  - id: body
+    what: request and response bodies validated against the contract
+    where: tests/Contract
+  - id: integration
+    what: Doctrine against a real (test) database
+    where: tests/Integration
+
+# Command defaults for this stack. `{AC}`, `{PKG}` and `{PATHS}` are substituted. PHP has no
+# compile step, so `composer validate` — the cheapest command that proves the manifest and
+# autoloader are coherent — stands in for it, the same role `compileKotlin` plays elsewhere.
+commands:
+  api_compile: 'composer validate --strict'
+  api_test_ac: "vendor/bin/phpunit --filter '{AC}'"
+  api_test_module: 'vendor/bin/phpunit'
+  api_test_pkg: "vendor/bin/phpunit --filter '{PKG}'"
+  coverage_api: 'vendor/bin/phpunit --coverage-clover var/coverage/clover.xml'
+  static_checks: 'vendor/bin/phpstan analyse && vendor/bin/php-cs-fixer fix --dry-run --diff'
+  migrate: 'bin/console doctrine:migrations:migrate --no-interaction'
+
+# Programs keel runs for this stack. `static_checks` above still reports both in one string for
+# the `full` tier; these are the same programs addressable one at a time — so cs-fix can actually
+# fix, which a --dry-run folded into another command can never do.
+tools:
+  cs-fix:
+    run: 'vendor/bin/php-cs-fixer fix {FILES}'
+    on: pre-commit
+    match: '\.php$'
+    # It rewrites the file and exits 0. Blocking on it would refuse a commit it just repaired.
+    fail: fix
+    timeout: 90
+    description: 'Format the staged PHP to the project standard'
+  phpstan:
+    run: 'vendor/bin/phpstan analyse --no-progress'
+    on: manual
+    fail: block
+    timeout: 300
+    description: 'Static analysis over the whole project'
+  # Doctrine migrations are PHP wrapping $this->addSql(...), which keel does not read — it reads
+  # SQL. This dumps the schema Doctrine's own metadata describes, into a file the map parses with
+  # the same parser it uses for real migrations. --dump-sql prints and applies nothing.
+  #
+  # Commit the result: the map then works on a clean checkout with no PHP installed and no database
+  # anywhere, which is the point of a snapshot rather than a live connection.
+  schema-dump:
+    run: 'mkdir -p docs && bin/console doctrine:schema:create --dump-sql > docs/schema.sql'
+    on: manual
+    fail: block
+    timeout: 120
+    description: 'Write docs/schema.sql so the map can draw the database'
+  sonar:
+    run: 'vendor/bin/sonar-scanner'
+    on: manual
+    # On demand only: it needs a token and a server, and takes minutes. An automatic slow tool
+    # can wedge a commit or a RED/GREEN loop, which is a bad trade for a report nobody asked for.
+    fail: warn
+    kind: status
+    timeout: 900
+    description: 'SonarQube scan — needs SONAR_TOKEN and a reachable server'
+
+coverage_report: var/coverage/clover.xml
+
+# Which files declare a dependency for this stack — read by keel's manifest-diff check, the same way `build.gradle.kts` and `package.json` already are.
+# Doctrine's migrations are not SQL, so the map reads this snapshot instead. The
+# schema-dump tool writes it.
+schema_snapshot: docs/schema.sql
+
+dependency_files: [composer.json]
+
+# What this stack needs inside a dev container. Same keys as every other pack's block — see
+# stacks/kotlin-spring.yml's comment for why.
+devcontainer:
+  primary: true
+  image: mcr.microsoft.com/devcontainers/php:8.3
+  toolchain_install:
+    - run: apt-get update && apt-get install -y --no-install-recommends unzip git && rm -rf /var/lib/apt/lists/* && curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+  volumes:
+    - name: composer-cache
+      at: /root/.composer/cache
+  ports:
+    - host: 8000
+      container: 8000
+  env:
+    DATABASE_URL: postgresql://db:5432/app?serverVersion=16&charset=utf8
+
+# Which skill teaches tests for this stack, and which architecture references apply.
+# `skills:` names the skills by id; `skill_files:` is the path of the same file inside this
+# pack's own directory. Both point at the SAME file, so there is one copy of every skill.
+skills:
+  testing: symfony-testing
+  implementation: symfony-implementation
+  architecture: architecture
+skill_files:
+  testing: skills/symfony-testing/SKILL.md
+  implementation: skills/symfony-implementation/SKILL.md
+
+# This pack ships its own hexagonal/ddd/layered placement references, so keel does not have to
+# carry a file for a language it no longer ships.
+arch_refs: references
+
+starter:
+  - from: templates/starter/composer.json
+    to: '{BACKEND}/composer.json'
+  - from: templates/starter/HealthTest.php
+    to: '{BACKEND}/tests/Controller/HealthTest.php'
+architecture_styles: [hexagonal, ddd, layered]
+
+# Import boundaries worth enforcing per style, merged into boundaries.rules.
+boundary_defaults:
+  hexagonal:
+    - name: domain-framework-free
+      from: '{DIR}/**/Domain/**'
+      deny_imports: ['Symfony\\', 'Doctrine\\ORM\\']
+  ddd:
+    - name: domain-framework-free
+      from: '{DIR}/**/Domain/**'
+      deny_imports: ['Symfony\\', 'Doctrine\\ORM\\']
+  layered:
+    - name: no-controller-in-repository
+      from: '{DIR}/**/Repository/**'
+      deny_imports: ['**\\Controller\\']

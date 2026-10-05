@@ -1,0 +1,6 @@
+{
+  "name": "{{PROJECT}}",
+  "dockerComposeFile": ["../{{DEV_COMPOSE}}"],
+  "service": "dev",
+  "workspaceFolder": "/workspace"
+}

@@ -1,0 +1,187 @@
+# keel project settings (.keel/config.yml). Written at setup; edit freely.
+version: 4
+flow_default: full
+
+runtime:
+  services: {{SERVICES}}      # docker | external | none
+  app: host                   # host | container
+  agent: host                 # host | devcontainer
+
+backend:
+  dir: {{BACKEND_DIR}}
+  build: {{BUILD}}
+  migrations: src/main/resources/db/migration
+frontend:
+  dir: {{FRONTEND_DIR}}
+  package_manager: {{PM}}
+  generated: src/api/generated
+contract:
+  file: {{CONTRACT}}
+e2e:
+  dir: {{E2E_DIR}}
+  web_url: {{WEB_URL}}
+  api_url: http://localhost:8080
+smoke:
+  dir: smoke
+  max_seconds: 60
+specs:
+  dir: specs
+
+base_branch: main
+
+# Every command keel runs lives here. A required command that is blank fails loudly
+# rather than passing with the check silently skipped.
+#
+# Working directory, because it is not the same for every key and nothing else says so:
+#   api_*, coverage_api, migrate, unit_tests, testcontainers_test, deps_api  ->  backend.dir
+#   web_*, coverage_web, deps_web                                           ->  frontend.dir
+#   e2e, smoke_e2e                                                          ->  e2e.dir
+#   contract_lint, codegen, static_checks, api_health_check,
+#   web_health_check, smoke                                                 ->  the repo root
+# A relative command is resolved from there, so `cd frontend && ...` in a web_* key is one
+# directory too deep. If the directory does not exist keel runs at the repo root and says so.
+commands:
+  api_compile: {{BUILD}} -q compileKotlin compileTestKotlin
+  api_test_ac: {{BUILD}} -q test --tests '*{AC}*'
+  api_test_module: {{BUILD}} -q test
+  api_test_pkg: {{BUILD}} -q test --tests '{PKG}.*'
+  web_typecheck: npx tsc --noEmit
+  web_test_ac: {{WEB_TEST_AC}}
+  web_test_module: {{WEB_TEST_MODULE}}
+  web_test_paths: {{WEB_TEST_PATHS}}
+  coverage_api: {{COVERAGE_API}}
+  coverage_web: {{COVERAGE_WEB}}
+  e2e: {{E2E_CMD}}
+  smoke_e2e: {{SMOKE_E2E_CMD}}
+  # Left blank on purpose: keel's stacks fill these in per stack
+  # (static_checks becomes detekt + ktlint + eslint), and the run ladder records what
+  # actually worked. Set one here only to override.
+  contract_lint: ''           # e.g. npx @redocly/cli lint {{CONTRACT}}
+  codegen: ''                 # e.g. {{BUILD}} -q openApiGenerate && npx orval
+  static_checks: ''           # filled from the stack packs; set to override
+  migrate: ''                 # e.g. {{BUILD}} -q flywayMigrate
+  testcontainers_test: ''     # one container-backed test, for the run ladder
+  api_health_check: ''        # e.g. curl -fsS http://localhost:8080/actuator/health
+  web_health_check: ''        # e.g. curl -fsS http://localhost:5173
+  smoke: ''                   # a single smoke command for the run ladder
+
+# Every commit keel makes is authored as this identity, not as whichever human or
+# coding agent is driving the shell. Override per project if you want your own bot identity.
+commit:
+  author_name: keelbot
+  author_email: keel.dev.bot@gmail.com
+
+# Programs for this project: formatters, linters, CI probes. A tool declared here wins over
+# the stack's, and `<name>: false` turns one off.
+#
+# `on:` is when it runs — manual (only on request), edit (the file just edited), batch (once
+# per turn), or pre-commit. `fail:` is what a nonzero exit means — fix (it repaired something,
+# carry on), block (refuse the commit), warn (say so, carry on).
+#
+#tools:
+#  cs-fix:
+#    run: 'vendor/bin/php-cs-fixer fix {FILES}'
+#    on: pre-commit
+#    match: '\.php$'
+#    fail: fix
+#  ci:
+#    run: 'gh run list --limit 5'    # GitLab: glab ci list
+#    on: manual
+#    kind: status
+
+gates:
+  mode: every-ac              # every-ac | end-of-lane | end
+  ai_review_on_skip: false
+  bug_gates: true             # false auto-approves the bug flow's repro and fix gates
+
+# The run ladder. `ladder: []` runs every rung; listing a subset marks the rest as not-checked
+# rather than hiding them, which is how a seven-rung run used to look like a twelve-rung one.
+setup:
+  ladder: []                  # e.g. [toolchain, dependencies, compile, unit-tests]
+  max_parallel: 4             # rungs of one level at a time
+  fix_attempts_per_rung: 3    # after this many failures the rung becomes a blocking question
+  runbook: docs/RUNNING.md
+
+# The hunt flow proposes these lenses and asks you to confirm the set before anything fans out.
+# A seventh lens is a line here plus a brief in the hunt skill's references/lenses.md — the
+# flow, the guards and the agents do not change.
+hunt:
+  lenses: [exploration, observability, security, behavioral, technical, concurrency, idempotency, contract-drift, reachability, test-integrity, data-migration]
+  # `messaging` ships a brief but stays off here: most projects have no broker, and a lens with
+  # nothing to act on spends a hunter every sweep. Add it, and `messaging: [api]` below, when
+  # there is one — it needs a dedicated broker, never a shared environment.
+  # Which half of the tree each lens reads. Two lanes means two hunters, each given half — which is
+  # what keeps a wide sweep affordable. `both` means one agent that must see both sides:
+  # contract-drift's subject is the disagreement between them, so splitting it blinds it.
+  lens_lanes:
+    exploration: [api, web]
+    observability: [api, web]
+    security: [api, web]
+    behavioral: [web, api]
+    technical: [api, web]
+    concurrency: [api]
+    idempotency: [api, web]
+    contract-drift: [both]
+    # Two hunters, each half the target list — reachability's whole brief is a time budget, and
+    # splitting the list in half is the cheapest way to keep it.
+    reachability: [api, web]
+    test-integrity: [api, web]
+    data-migration: [api]
+  # What a fast hunt sweeps. The lenses that carry the most per token: exploration and
+  # observability arrive with proof attached, contract-drift and reachability are both nearly
+  # mechanical (one a static diff, the other one live call per target). concurrency and idempotency
+  # are left out as the most expensive to *prove* — a fast hunt narrows what is looked at, never
+  # whether a finding is verified.
+  fast_lenses: [exploration, observability, security, technical, contract-drift, reachability]
+  dedup_line_window: 10       # same file within N lines = the same finding, seen twice
+  severity_floor_5xx: high    # a proven 5xx cannot be filed below this
+  # A semi-automatic hunt waits at each of these; an automatic one pre-approves them and the
+  # report says so.
+  gates: [sweep, prove, report]
+  default_scope: diff         # all | diff | <comma-separated paths>
+  max_candidates_per_lens: 12
+  prove_concurrency: 4
+  report_dir: docs/hunts
+
+loops:
+  # paired = test commit then code commit, with red-done proving the test failed first.
+  # single = test and code together, one commit, no red-done. Faster; nothing then proves
+  # the test ever failed, so ship's assertions lens is the only net left.
+  commit_style: paired        # paired | single
+  stall_repeats: 3
+  flaky_reruns: 1
+  red_author: main            # main | subagent
+  green_author: main          # main | subagent
+
+tests:
+  per_ac_scope: changed-packages
+  module_suite_at: gate       # every-ac | gate | lane-end
+
+coverage:
+  # `enabled: false` turns the push gate off for a project that measures coverage elsewhere.
+  # Note `gate_commands: []` does NOT do this — an empty list reads as "unset" and falls back
+  # to the defaults, so it looks like an off switch and is not one.
+  enabled: true
+  changed_lines: 95
+  changed_branches: 90
+  per_ac: warn                # off | warn | enforce
+  global: ratchet             # a number, or ratchet to never drop below the stored baseline
+  # Derived from the app directories when omitted; set these only for a custom layout.
+  reports:
+    api: {{BACKEND_DIR}}/build/reports/kover/report.xml
+    web: {{FRONTEND_DIR}}/coverage/lcov.info
+  exclude:
+    api: ['**/generated/**', '**/*ApplicationKt*']
+    web: ['src/api/generated/**', 'src/main.tsx']
+  gate_commands: ['git push', 'gh pr create']
+
+stack:
+  compose: {{COMPOSE}}
+  per_lane_isolation: true
+
+caps:
+  red_turns: 8
+  green_turns: 15
+  e2e_turns: 40
+  ship_rounds: 2
+
