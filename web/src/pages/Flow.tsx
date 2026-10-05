@@ -366,7 +366,13 @@ export function gateLabels(w: NonNullable<ThreadState["waiting"]>, acId?: string
     };
   }
   if (w.kind === "fix") {
-    return { approve: "Approve fix", reject: "Reject fix", needWhy: true, whyLabel: "Why (needed to reject)", approved: "Fix approved.", rejected: "Fix rejected. The agent gets your reason.", special: true };
+    // The engine names the buttons of its newer questions (a staged secret, a readonly commit): use its words.
+    return {
+      approve: w.labels?.approve ?? "Approve fix", reject: w.labels?.reject ?? "Reject fix", needWhy: true,
+      whyLabel: `Why (needed for “${w.labels?.reject ?? "Reject fix"}”)`,
+      approved: w.labels?.approve ? "Done. The flow moves on." : "Fix approved.",
+      rejected: w.labels?.reject ? "Done, with your reason." : "Fix rejected. The agent gets your reason.", special: true,
+    };
   }
   if (w.kind === "clarify") {
     return {
