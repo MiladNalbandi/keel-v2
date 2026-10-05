@@ -42,7 +42,8 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
+            # A pre-release tag (v0.4.0-rc.1) publishes :0.4.0-rc.1 only; :latest moves on real releases.
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
           labels: |
             org.opencontainers.image.title=keel v2
             org.opencontainers.image.description=keel's test-first flow as a LangGraph graph, with a dashboard, in one image
