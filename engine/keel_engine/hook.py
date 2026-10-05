@@ -94,6 +94,11 @@ def decide(tool: str, ti: dict, ctx: dict) -> str | None:
     lane, unlocks = ctx.get("lane"), list(ctx.get("unlocks") or [])
     cfg = rules.load_config(root)
 
+    def knowledge(text: str) -> str | None:
+        # strict per-agent knowledge (5c): a section the agent was not given is not read, by Read or by a shell command
+        v = rules.check_knowledge(text, ctx.get("agent") or "", ctx.get("knowledge_allowed"), bool(ctx.get("knowledge_strict")))
+        return None if v.ok else v.reason
+
     def edit(path: str) -> str | None:
         rel, full = _locate(root, path)
         v = rules.check_edit(phase, rel, cfg, exists=full.exists(), lane=lane, unlocks=unlocks)
@@ -106,9 +111,13 @@ def decide(tool: str, ti: dict, ctx: dict) -> str | None:
         path = _path_arg(ti)
         if not path:
             return None
-        v = rules.check_read(_locate(root, path)[0], cfg)
-        return None if v.ok else v.reason
+        rel = _locate(root, path)[0]
+        v = rules.check_read(rel, cfg)
+        return knowledge(rel) if v.ok else v.reason
     if tool == "Bash":
+        refused = knowledge(str(ti.get("command") or ""))
+        if refused:
+            return refused
         v = rules.check_bash(phase, str(ti.get("command") or ""), cfg,
                              exists=lambda rel: (Path(root) / rel).exists(), unlocks=unlocks)
         return None if v.ok else v.reason

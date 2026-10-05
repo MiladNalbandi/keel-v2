@@ -148,7 +148,7 @@ class Engine:
         wf = from_dict(body["workflow"], body["workflow"].get("yaml") or None)
         ctx = ThreadContext(thread_id=tid, project_id=row["project_id"], root=row["root"], workflow=wf, title=row["title"],
                             request=(body.get("request") or "").strip(), models=body.get("models") or {}, settings=body.get("settings") or {}, mcp=body.get("mcp") or [],
-                            skills=body.get("skills") or {}, keys=self.keys.get(tid, {}), bus=self.bus,
+                            skills=body.get("skills") or {}, agents=body.get("agents") or {}, keys=self.keys.get(tid, {}), bus=self.bus,
                             memory=memory_mod.AgentMemory(self.conn, tid))
         async with self.conn.execute("select path, phase, by, reason, at from thread_unlocks where thread_id = ? order by rowid",
                                      (tid,)) as cur:

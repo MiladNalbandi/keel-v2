@@ -33,7 +33,8 @@ def unified_diff(rel: str, old: str, new: str) -> str:
 class ToolBox:
     def __init__(self, root: str, phase: str, *, cfg: dict | None = None, lane: str | None = None,
                  ac: str | None = None, ac_layer: str = "API",
-                 on_refuse: Callable[[str, str, str], None] | None = None, unlocks: list[dict] | None = None):
+                 on_refuse: Callable[[str, str, str], None] | None = None, unlocks: list[dict] | None = None,
+                 agent: str = "", knowledge: dict | None = None):
         self.root = str(Path(root).resolve())
         self.phase = phase
         self.cfg = cfg or rules.load_config(self.root)
@@ -43,6 +44,8 @@ class ToolBox:
         self.on_refuse = on_refuse or (lambda *_a: None)
         self.writes: list[dict] = []
         self.unlocks = list(unlocks or [])
+        self.agent = agent
+        self.knowledge = knowledge   # {sections, strict, ...}: with strict on, other docs/knowledge sections are refused
 
     def add_unlocks(self, new: list[dict]):
         """An unlock granted while this agent runs (the engine calls this for every running agent of the thread)."""
@@ -74,6 +77,8 @@ class ToolBox:
             return self._refuse("read_file", path, f"{path} is outside the project.")
         full, rel = r
         v = rules.check_read(rel, self.cfg)
+        if v.ok and self.knowledge:
+            v = rules.check_knowledge(rel, self.agent, self.knowledge.get("sections"), bool(self.knowledge.get("strict")))
         if not v.ok:
             return self._refuse("read_file", rel, v.reason)
         if not full.is_file():

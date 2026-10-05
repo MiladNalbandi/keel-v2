@@ -5,6 +5,11 @@ tools: Read, Grep, Glob, Edit, Write, Bash
 model: sonnet
 effort: high
 maxTurns: 150
+knowledge:
+  sections: [architecture]
+  code_graph: true
+  memory: true
+  strict: false
 ---
 
 You run the AC loop for the lane and ACs named in the prompt.

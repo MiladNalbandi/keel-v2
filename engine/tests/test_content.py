@@ -36,6 +36,21 @@ def test_every_agent_has_a_name_and_max_turns():
         assert isinstance(fm.get("maxTurns"), int) and fm["maxTurns"] > 0, f
 
 
+SECTIONS = {"architecture", "domain", "conventions", "data", "integrations", "journeys"}
+
+
+def test_every_agent_has_a_valid_knowledge_block():
+    for f in sorted((CONTENT / "agents").glob("*.md")):
+        k = front_matter(f).get("knowledge")
+        assert isinstance(k, dict), f"{f.name}: no knowledge block"
+        assert set(k) == {"sections", "code_graph", "memory", "strict"}, f.name
+        assert isinstance(k["sections"], list) and set(k["sections"]) <= SECTIONS, f.name
+        assert len(set(k["sections"])) == len(k["sections"]), f.name
+        assert all(isinstance(k[b], bool) for b in ("code_graph", "memory", "strict")), f.name
+    # the librarian writes the sections; it is given none to read
+    assert front_matter(CONTENT / "agents" / "librarian.md")["knowledge"]["sections"] == []
+
+
 def skill_dirs():
     return sorted([*(CONTENT / "skills").iterdir(), *(CONTENT / "packs").glob("*/skills/*")])
 

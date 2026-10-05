@@ -8,6 +8,7 @@ from ..tools import testcmd
 from functools import lru_cache
 
 from .. import config, rules
+from . import agent_knowledge
 
 # Roles for agents that have no file in content/agents.
 BUILTIN_ROLES = {
@@ -82,7 +83,8 @@ def _allowed(phase: str) -> str:
 
 def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str, ac: dict | None,
                 acs: list[dict], feedback: str | None, index: int = 0, spec: str | None = None,
-                section: str | None = None, unlocks: list[dict] | None = None, request: str = "") -> str:
+                section: str | None = None, unlocks: list[dict] | None = None, request: str = "",
+                knowledge: dict | None = None, graph: bool = False) -> str:
     lines = [f"Project folder: {root}", f"Flow: {title}", f"Step: {step_name} (keel phase: {phase})",
              "How this works: the keel engine runs the tests, makes the commits and moves between phases after you. "
              "Do not run keel commands, do not run git commit, reset, checkout or stash, and do not read or change "
@@ -93,7 +95,12 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
     if request:
         lines.append("What the user asked for:\n" + request)
     from pathlib import Path as _P
-    if (_P(root) / "docs" / "knowledge").is_dir() and not section:
+    if knowledge is not None and agent != "librarian" and not section:
+        # The agent's own knowledge setting (agent_knowledge.py): the sections it was given, the graph, its memory.
+        block = agent_knowledge.prompt_block(root, knowledge, graph)
+        if block:
+            lines.append(block)
+    elif (_P(root) / "docs" / "knowledge").is_dir() and not section:
         lines.append("keel's memory of this project is in docs/knowledge/ (start with index.md if it exists, then only the "
                      "section you need). Read it before exploring the code and trust its file:line citations.")
     mine = [u["path"] for u in unlocks or [] if u.get("phase") == phase]

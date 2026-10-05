@@ -2,10 +2,10 @@
 // for this project only (PUT /api/projects/{pid}/agents/{aid}).
 
 import { useState } from "react";
-import { api, errorParts, type Agent, type AgentLane, type CustomAgent, type McpServer, type Model } from "../api";
+import { api, errorParts, KNOWLEDGE_SECTIONS, type Agent, type AgentKnowledge, type AgentLane, type CustomAgent, type McpServer, type Model } from "../api";
 import { MODES_FOR, ModelPicker, modeLabel } from "../components/ModelPicker";
 import { Async, Drawer, ErrorBox, GoButton, PageHead, Prov, Tabs } from "../components/ui";
-import { slug } from "../format";
+import { kfmt, slug } from "../format";
 import { useApp, useLoad } from "../state";
 
 type Err = { message: string; hint?: string } | null;
@@ -29,12 +29,51 @@ function AgentRow({ a, onOpen }: { a: Agent; onOpen: () => void }) {
   );
 }
 
+const SECTION_ABOUT: Record<string, string> = {
+  architecture: "where code lives and its layers",
+  domain: "what the system is for, the business words",
+  conventions: "how code here is written",
+  data: "tables and migrations",
+  integrations: "outside services and their test stand-ins",
+  journeys: "what users do, end to end",
+};
+
+/** "Knowledge this agent uses": which docs/knowledge sections, the code graph, memory, strict. */
+function KnowledgeField({ k, files, onChange, overridden, onDefaults }: {
+  k: AgentKnowledge; files: Record<string, number>; onChange: (k: AgentKnowledge) => void; overridden: boolean; onDefaults: () => void;
+}) {
+  const total = k.sections.reduce((n, s) => n + (files[s] ?? 0), 0);
+  const tick = (s: AgentKnowledge["sections"][number], on: boolean) =>
+    onChange({ ...k, sections: KNOWLEDGE_SECTIONS.filter((x) => (x === s ? on : k.sections.includes(x))) });
+  return (
+    <fieldset className="field" style={{ border: 0, padding: 0, margin: 0 }}>
+      <legend className="lab">Knowledge this agent uses</legend>
+      <div className="grid" style={{ gap: 4 }}>
+        {KNOWLEDGE_SECTIONS.map((s) => (
+          <label key={s} className="chk">
+            <input type="checkbox" checked={k.sections.includes(s)} onChange={(e) => tick(s, e.target.checked)} />{" "}
+            <b>{s}</b> <span className="sub">{SECTION_ABOUT[s]} · {s in files ? `~${kfmt(files[s])} tokens` : "not written yet"}</span>
+          </label>
+        ))}
+      </div>
+      <span className="hint">About {kfmt(total)} tokens if it reads every ticked section. Sections come from docs/knowledge/ in the project.</span>
+      <label className="chk"><input type="checkbox" checked={k.code_graph} onChange={(e) => onChange({ ...k, code_graph: e.target.checked })} /> Code graph <span className="sub">look up code by symbols and calls before grep</span></label>
+      <label className="chk"><input type="checkbox" checked={k.memory} onChange={(e) => onChange({ ...k, memory: e.target.checked })} /> Memory <span className="sub">a repeated step continues its own earlier session</span></label>
+      <label className="chk"><input type="checkbox" checked={k.strict} onChange={(e) => onChange({ ...k, strict: e.target.checked })} /> Strict <span className="sub">block reading sections that are not ticked (off: the agent is only told)</span></label>
+      {overridden && <button className="btn sm ghost" type="button" onClick={onDefaults}>Use defaults</button>}
+    </fieldset>
+  );
+}
+
 function AgentDrawer({ pid, a, onClose, onSaved, onDeleted }: { pid: string; a: Agent; onClose: () => void; onSaved: (a: Agent) => void; onDeleted: () => void }) {
   const { toast } = useApp();
   const [model, setModel] = useState<Model>(a.model ?? { provider: "fake", mode: "api", model: "fake" });
   const [prompt, setPrompt] = useState(a.prompt);
   const [enabled, setEnabled] = useState(a.enabled);
   const [lane, setLane] = useState<AgentLane>(a.lane ?? "follow");
+  const [know, setKnow] = useState<AgentKnowledge | undefined>(a.knowledge);
+  // What the server has now (changes when "Use defaults" clears this project's change).
+  const [savedKnow, setSavedKnow] = useState({ k: a.knowledge, overridden: a.overridden.includes("knowledge") });
   const [busy, setBusy] = useState(false);
   const [test, setTest] = useState<string>("");
   const [err, setErr] = useState<Err>(null);
@@ -47,14 +86,27 @@ function AgentDrawer({ pid, a, onClose, onSaved, onDeleted }: { pid: string; a: 
       if (prompt !== a.prompt) body.prompt = prompt;
       if (enabled !== a.enabled) body.enabled = enabled;
       if (lane !== (a.lane ?? "follow")) body.lane = lane;
+      if (know && JSON.stringify(know) !== JSON.stringify(savedKnow.k)) body.knowledge = know;
       const out = await api.saveAgent(pid, a.id, body);
-      onSaved(out ?? { ...a, ...body });
+      onSaved(out ?? { ...a, ...body, knowledge: body.knowledge ?? a.knowledge });
       toast("Saved for this project.");
       onClose();
     } catch (e) {
       setErr(errorParts(e));
     } finally {
       setBusy(false);
+    }
+  };
+  const useDefaults = async () => {
+    setErr(null);
+    try {
+      const out = await api.saveAgent(pid, a.id, { knowledge: null });
+      setKnow(out.knowledge);
+      setSavedKnow({ k: out.knowledge, overridden: false });
+      onSaved(out);
+      toast("Knowledge is back to this agent's defaults.");
+    } catch (e) {
+      setErr(errorParts(e));
     }
   };
   const runTest = async () => {
@@ -98,6 +150,8 @@ function AgentDrawer({ pid, a, onClose, onSaved, onDeleted }: { pid: string; a: 
         </div>
         <span className="hint">Picked by phase, layer and the project's stack.</span>
       </div>
+      {know && <KnowledgeField k={know} files={a.knowledge_files ?? {}} onChange={setKnow}
+        overridden={savedKnow.overridden} onDefaults={useDefaults} />}
       <div className="field"><label htmlFor="alane">Lane</label>
         <select id="alane" value={lane} onChange={(e) => setLane(e.target.value as AgentLane)}>
           {(Object.keys(LANES) as AgentLane[]).map((k) => <option key={k} value={k}>{LANES[k]}</option>)}

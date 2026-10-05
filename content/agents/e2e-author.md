@@ -5,6 +5,11 @@ tools: Read, Grep, Glob, Edit, Write, Bash
 model: sonnet
 effort: medium
 maxTurns: 40
+knowledge:
+  sections: [conventions, journeys]
+  code_graph: false
+  memory: true
+  strict: false
 ---
 
 You write end-to-end specs for the ACs named in the prompt, and only files under the E2E directory.

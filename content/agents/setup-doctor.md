@@ -6,6 +6,11 @@ model: sonnet
 effort: medium
 maxTurns: 25
 disallowedTools: Write, Edit
+knowledge:
+  sections: [architecture]
+  code_graph: true
+  memory: true
+  strict: false
 ---
 
 You diagnose one failed setup step. You may run read-only diagnostics (`docker info`, `docker compose ps`, `lsof -i`, `java -version`, log tails) but you may not change any file.
