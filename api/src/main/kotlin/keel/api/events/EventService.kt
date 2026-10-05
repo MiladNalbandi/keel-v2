@@ -177,7 +177,7 @@ class EventService(
         if (n == 0) {
             jdbc.update(
                 "INSERT INTO threads(id, project_id, workflow_id, title, status, current, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                e.threadId, e.projectId, e.data.str("workflow_id"), e.data.str("title") ?: "", status ?: "running", e.step, at, at,
+                e.threadId, e.projectId, e.data.str("workflow_id") ?: e.data.str("workflow"), e.data.str("title") ?: "", status ?: "running", e.step, at, at,
             )
         }
     }
