@@ -54,6 +54,7 @@ class FlowState(TypedDict, total=False):
     parent: dict | None         # the flow that started this one: {thread_id, workflow, step}
     pr_body: str | None         # the PR body the pr action built
     flaky: list[dict]           # tests that failed once and passed on the rerun: [{label, tests, at}]
+    rounds: dict                # {branch step id: send-backs so far} for a branch with `rounds`
 
 
 @dataclass
@@ -120,7 +121,7 @@ def initial_state(ctx: ThreadContext, acs: list[dict] | None) -> FlowState:
         retries={}, step_tokens={}, feedback=None, model_override=None, warned=False, spec=None, branch=None,
         git_head=None, last_failure=None, note="started", error=None, base_head=None, preexisting={}, last_answer="", findings=[], review_rounds={}, init={}, clarify={}, clarify_rounds=0, spec_revisions=0,
         unlocks=normalize_unlocks(s.get("unlocks"), "none", "settings"), deps=[], blockers=[], ladder=None,
-        data={}, markers={}, item=None, children=[], parent=None, pr_body=None, flaky=[],
+        data={}, markers={}, item=None, children=[], parent=None, pr_body=None, flaky=[], rounds={},
     )
 
 

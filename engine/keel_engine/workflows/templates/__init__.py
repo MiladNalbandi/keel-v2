@@ -9,7 +9,7 @@ from ..model import Workflow, load_yaml
 
 from ...config import content_dir
 
-ORDER = ["feature", "change", "fix", "init", "knowledge-refresh", "hunt", "hunt-next"]
+ORDER = ["feature", "change", "fix", "init", "knowledge-refresh", "cover", "ship", "hunt", "hunt-next"]
 
 
 def folder() -> Path:

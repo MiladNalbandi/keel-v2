@@ -45,7 +45,19 @@ data class Step(
     val flow: String? = null,
     val seed: Map<String, Any?>? = null,
     val then: String? = null,
-    val choices: Map<String, String>? = null,
+    // ship and cover (engine docs/CONTRACT.md "v0.4.0 additions: cover, ship and include"): soft checks, retry_only,
+    // rounds, a review's redo, the skip menu (skippable, group, skip_menu), the final report and choice gates.
+    val soft: Boolean? = null,
+    val retryOnly: Boolean? = null,
+    val rounds: Int? = null,
+    val redo: String? = null,
+    val skippable: String? = null,
+    val group: String? = null,
+    val skipMenu: Boolean? = null,
+    val report: String? = null,
+    /** A list (one choice per loop item, cover) or a map of named exits {name: step id | "end"} (hunt). */
+    val choices: Any? = null,
+    val onSkip: Map<String, Any?>? = null,
 ) {
     val locked: Boolean @com.fasterxml.jackson.annotation.JsonIgnore get() = lock == true
 }
@@ -72,7 +84,8 @@ data class WorkflowDoc(
     fun toYaml(): String = Yaml.mapper.writeValueAsString(this)
 
     companion object {
-        val KINDS = setOf("agent", "code", "gate", "branch", "parallel")
+        /** `include` is expanded by the engine into the steps of the workflow it names (flow: ship). */
+        val KINDS = setOf("agent", "code", "gate", "branch", "parallel", "include")
 
         fun parse(yaml: String): WorkflowDoc {
             if (yaml.isBlank()) throw BadRequest("The workflow YAML is empty")

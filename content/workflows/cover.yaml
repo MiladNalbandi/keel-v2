@@ -1,0 +1,22 @@
+id: cover
+name: cover (keel)
+keel_rules: true
+version: 1
+# Ported from keel v1 cover. A coverage test is written against code that already exists, so it passes the moment it is
+# written: the assertions review replaces "it must fail first". Measure (coverage.reports: changed lines vs the base,
+# groups by file and proximity, security paths at 100%) -> per group decide test / delete / accept (accept needs a
+# reason: data.coverage_accepted, printed in the final review and the PR body) -> write -> review (assertions lens,
+# BLOCKING: yes sends it back to the writer, 2 rounds) -> coverage commit (refuses added production lines and
+# .keel/config.yml) -> measure again; at most 2 rounds, then keel asks. Every measure writes the sha-stamped verdict.
+# ship includes these steps (kind: include, flow: cover).
+steps:
+  - { id: measure, kind: code, name: measure coverage, action: verify_coverage, phase: coverage-fix, soft: true, lock: true }
+  - { id: needs_work, kind: branch, name: coverage fails, when: { marker: RESULT, step: measure, equals: fail }, no: report, phase: coverage-fix }
+  - { id: decide, kind: gate, name: decide test / delete / accept, for_each: coverage_groups, phase: coverage-fix, lock: true,
+      choices: [test, delete, accept], on_skip: { choice: accept, record: coverage_accepted } }
+  - { id: write, kind: agent, name: "cover the group: write the test, or delete the unreachable lines", agent: test-author, model: default, phase: coverage-fix, per_item: true }
+  - { id: review, kind: agent, name: "review the coverage test: assertions lens", agent: reviewer, model: default, phase: coverage-fix, per_item: true, back: write, rounds: 2, lock: true }
+  - { id: commit, kind: code, name: coverage commit, action: commit, phase: coverage-fix, per_item: true, back: write, lock: true }
+  - { id: remeasure, kind: code, name: measure again, action: verify_coverage, phase: coverage-fix, soft: true, lock: true }
+  - { id: covered, kind: branch, name: coverage passes, when: { marker: RESULT, step: remeasure, equals: pass }, no: decide, rounds: 2, phase: coverage-fix }
+  - { id: report, kind: code, name: coverage verdict, action: coverage_report, phase: coverage-fix }
