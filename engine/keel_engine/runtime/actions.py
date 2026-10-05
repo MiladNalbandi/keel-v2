@@ -240,8 +240,13 @@ async def verify_coverage(a: ActionInput) -> ActionResult:
     if verdict_actions.reports_of(cfg):
         if a.fake:
             return ActionResult(True, "Coverage: passed (simulated, no verdict written).")
-        if cmd:
-            code, out = await asyncio.to_thread(testcmd.run, a.root, cmd, 1800, command_env())
+        # The reports come from commands.coverage, else commands.coverage_<app> (keel's config template) in the app's dir.
+        runs = [(cmd, a.root)] if cmd else [
+            (c, str(Path(a.root) / d) if d and (Path(a.root) / d).is_dir() else a.root)
+            for app, key in (("api", "backend"), ("web", "frontend")) if app in verdict_actions.reports_of(cfg)
+            for c, d in [(str((cfg.get("commands") or {}).get(f"coverage_{app}") or "").strip(), verdict_actions._dir_of(cfg, key))] if c]
+        for cmd, cwd in runs:
+            code, out = await asyncio.to_thread(testcmd.run, cwd, cmd, 1800, command_env())
             if code != 0:
                 await asyncio.to_thread(verdict_actions.record_verdict, a.key, "coverage", False,
                                         {"command": cmd, "summary": f"`{cmd}` exited {code}", "output": tail(out, 1500)}, None, a.root)

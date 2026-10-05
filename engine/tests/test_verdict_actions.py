@@ -124,6 +124,19 @@ def test_verify_coverage_passes_with_nothing_changed_and_has_no_gate_without_con
     assert r.ok and verdicts.latest("p1", "coverage")["ok"] is True
 
 
+def test_backend_dir_dot_is_the_root_and_coverage_app_command_makes_the_report(proj):
+    # Real run (lab, shop): backend.dir "." matched no changed file, and commands.coverage_api never ran.
+    write(proj, "fixtures/lcov.info", "SF:src/cart.js\nDA:1,1\nDA:2,0\nDA:3,0\nend_of_record\n")
+    config(proj, "backend: {dir: .}\ncoverage: {reports: {api: coverage/lcov.info}, changed_lines: 90}\n"
+                 "commands: {coverage_api: 'mkdir -p coverage && cp fixtures/lcov.info coverage/'}\n")
+    write(proj, "src/cart.js", lines(3))
+    commit(proj, "feat: cart")
+    r = run("verify_coverage", ai(proj))
+    assert not r.ok and "changed lines" in r.note
+    assert [g["key"] for g in r.update["data"]["coverage_groups"]] == ["src/cart.js:2-3"]
+    assert va._dir_of({"backend": {"dir": "./"}}, "backend") is None and va._dir_of({"backend": {"dir": "./api"}}, "backend") == "api"
+
+
 # ------------------------------------------------------------------ flaky
 
 def flaky_cmd(tmp_path):
@@ -198,6 +211,15 @@ def test_audit_finds_mixed_commits_skips_and_unlocks_without_reason(proj):
     assert "a test commit contains production code" in r.detail and "@pytest.mark.skip" in r.detail
     assert "unlock of src/x.py in red has no reason" in r.detail
     assert verdicts.latest("p1", "audit")["ok"] is False
+
+
+def test_audit_allows_tests_in_keels_own_repair_commits(proj):
+    # Real run (lab ship): the review-fix commit "fix(review): ..." changed src and test and audit refused it forever.
+    write(proj, "src/main/kotlin/A.kt", "a\n")
+    write(proj, "src/test/kotlin/ATest.kt", "t\n")
+    commit(proj, "fix(review): address ship review findings")
+    r = run("audit", ai(proj))
+    assert r.ok, r.note
 
 
 def test_audit_clean_branch(proj):

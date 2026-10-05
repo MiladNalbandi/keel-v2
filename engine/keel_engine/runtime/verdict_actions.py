@@ -121,7 +121,9 @@ def _run(root: str, cmd: str, cwd: str | None = None, timeout: int = 1800) -> tu
 
 def _dir_of(cfg: dict, key: str) -> str | None:
     d = str(((cfg.get(key) or {}).get("dir")) or "").strip().strip("/")
-    return d or None
+    while d.startswith("./"):
+        d = d[2:]
+    return None if d in ("", ".") else d      # "." is the repo root: every file belongs to it
 
 
 def _touched(files: list[str], d: str | None) -> bool:
@@ -526,7 +528,10 @@ def audit_problems(root: str, cfg: dict, base: str | None, unlocks: list[dict]) 
         buckets = [rules.classify(cfg, f) for f in files]
         if subject.startswith("test(") and any(b in ("api-main", "web-src") for b in buckets):
             problems.append(f"{sha[:7]} {subject}: a test commit contains production code")
-        if re.match(r"^(feat|fix)\(", subject) and not single and any(b in ("api-test", "web-test") for b in buckets):
+        # Repair phases (review-fix, coverage-fix, security, ship) may change code and tests together, like the guard
+        # allows there; the paired separation only applies to criterion and bug commits.
+        repair = re.match(r"^fix\((review|coverage|security|ship)\)", subject)
+        if re.match(r"^(feat|fix)\(", subject) and not repair and not single and any(b in ("api-test", "web-test") for b in buckets):
             problems.append(f"{sha[:7]} {subject}: an implementation commit contains test files")
         diff = git.git(root, "show", "--format=", sha).stdout
         found = [name for rx, name in DISABLED if rx.search(diff)]
