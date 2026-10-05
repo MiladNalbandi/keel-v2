@@ -106,3 +106,22 @@ describe("Zoom", () => {
     expect(screen.getByRole("button", { name: "Zoom out" })).toBeDisabled();
   });
 });
+
+describe("toYaml", () => {
+  it("keeps every key a step has, not only the ones the builder edits", async () => {
+    // Real bug: saving any edit of a v0.4 template dropped then/flow/seed/when/choices and the engine refused it (422).
+    const { toYaml } = await import("../components/workflow");
+    const steps = [
+      { id: "keep", kind: "code", name: "stop here", phase: "gate-r", then: "end" },
+      { id: "hand", kind: "code", name: "hand to diagnose", action: "start_flow", flow: "diagnose", then: "end",
+        seed: { title: "$title", symptoms: ["$request"] } },
+      { id: "g", kind: "gate", name: "gate R", choices: { investigate: "hyp", stop: "keep" }, when: { data: "x" } },
+      { id: "a", kind: "agent", name: "fix", agent: "implementer", instructions: "Fix it: one line, no new deps.", for_each: "groups" },
+    ] as unknown as Workflow["steps"];
+    const y = toYaml({ id: "w", name: "w", keel_rules: true, version: 1, steps, yaml: "" });
+    for (const want of ["then: end", "flow: diagnose", 'seed: {"title":"$title","symptoms":["$request"]}',
+      'choices: {"investigate":"hyp","stop":"keep"}', 'when: {"data":"x"}', 'instructions: "Fix it: one line, no new deps."', "for_each: groups"]) {
+      expect(y).toContain(want);
+    }
+  });
+});
