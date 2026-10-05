@@ -7,6 +7,7 @@ import { Graph, GraphLegend } from "../components/Graph";
 import { Zoom } from "../components/Zoom";
 import { Markdown } from "../components/Markdown";
 import { RefreshStaleButton } from "../components/RefreshStale";
+import { StepExplainDrawer } from "../components/StepExplain";
 import { Async, ErrorBox, Loading, PageHead, Pill } from "../components/ui";
 import { KIND, tokensByStep } from "../components/workflow";
 import { kfmt } from "../format";
@@ -43,7 +44,10 @@ function Tree({ tree, cur, q }: { tree: WikiTree; cur: string; q: string }) {
 function WorkflowPage({ pid, wid }: { pid: string; wid: string }) {
   const wf = useLoad(`wf:${wid}`, () => api.workflow(wid));
   const est = useLoad(`wfest:${pid}:${wid}`, () => api.estimate(pid, wid, 3), { live: false });
+  const [explain, setExplain] = useState<string | null>(null);
   return (
+    <>
+    {explain && <StepExplainDrawer pid={pid} req={{ step_id: explain, workflow_id: wid }} onClose={() => setExplain(null)} />}
     <Async r={wf} what="Loading the workflow">
       {(w) => {
         const gates = w.steps.filter((s) => s.kind === "gate").length;
@@ -63,14 +67,14 @@ function WorkflowPage({ pid, wid }: { pid: string; wid: string }) {
               {est.data ? ` · about ${kfmt(est.data.tokens)} tokens for 3 ACs` : ""}
             </p>
             <div className="panel" style={{ margin: "12px 0" }}><div className="panel-body">
-              <Zoom id="wiki"><Graph steps={w.steps} tokens={tokens} /></Zoom>
+              <Zoom id="wiki"><Graph steps={w.steps} tokens={tokens} onSelect={setExplain} /></Zoom>
               <GraphLegend />
             </div></div>
             <div className="table-wrap"><table>
               <thead><tr><th>Step</th><th>Type</th><th>Who</th><th>Model</th><th>Tokens</th></tr></thead>
               <tbody>{w.steps.map((s) => (
                 <tr key={s.id}>
-                  <td><b>{s.name}</b>{s.per_ac && <> <span className="tag">each AC</span></>}</td>
+                  <td><button type="button" className="linkbtn" onClick={() => setExplain(s.id)}><b>{s.name}</b></button>{s.per_ac && <> <span className="tag">each AC</span></>}</td>
                   <td className="sub">{KIND[s.kind]}</td>
                   <td className="sub">{s.agent || (s.kind === "gate" ? "you" : "plain code")}</td>
                   <td>{s.model ? <span className="mono sub">{s.model}</span> : "—"}</td>
@@ -78,11 +82,12 @@ function WorkflowPage({ pid, wid }: { pid: string; wid: string }) {
                 </tr>
               ))}</tbody>
             </table></div>
-            <p className="hint">This page is generated from the workflow file, so it is always the version that runs.</p>
+            <p className="hint">This page is generated from the workflow file, so it is always the version that runs. Click a step to see what it really does.</p>
           </>
         );
       }}
     </Async>
+    </>
   );
 }
 

@@ -941,7 +941,7 @@ class Compiler:
         item = self._item(state, step)
         st = dict(state)
         upd: dict = {}
-        notes = []
+        notes, details = [], []
         actions = step.actions()
         for n, action in enumerate(actions):
             if action == "start_flow":
@@ -978,6 +978,8 @@ class Compiler:
             st.update(r.update)
             upd.update(r.update)
             notes.append(r.note)
+            if r.detail:
+                details.append(r.detail)
         else:
             r = None
         if step.soft:
@@ -989,7 +991,8 @@ class Compiler:
         key = f"{step.id}:{(ac or item or {}).get('id')}"
         retries = dict(state.get("retries") or {})
         retries.pop(key, None)
-        upd.update(note="; ".join(notes), retries=retries, stall={"fingerprint": None, "count": 0, "step": 0}, last_failure=None)
+        upd.update(note="; ".join(notes), retries=retries, stall={"fingerprint": None, "count": 0, "step": 0}, last_failure=None,
+                   output="\n".join(details)[:2000] or None)   # what the actions printed (explain.py shows its head)
         upd.setdefault("show", None)        # what the next gate shows: only an action of this step sets it
         if step.then == "end":
             # The work goes on in the flow start_flow started (or there is nothing more to do); this one ends here.

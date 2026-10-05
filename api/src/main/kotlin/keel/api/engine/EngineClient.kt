@@ -99,4 +99,7 @@ class EngineClient(private val props: KeelProperties, private val mapper: Object
     fun hunts(pid: String): JsonNode = get("/projects/$pid/hunts")
     fun hunt(pid: String, run: String): JsonNode = get("/projects/$pid/hunts/$run")
     fun closeHunt(pid: String, run: String, body: Map<String, Any?>): JsonNode = post("/projects/$pid/hunts/$run/close", body)
+
+    // ---- explain a step (engine runtime/explain.py) -----------------------------------------
+    fun explainStep(body: Map<String, Any?>): JsonNode = post("/steps/explain", body)
 }

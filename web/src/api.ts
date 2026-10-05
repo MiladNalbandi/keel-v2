@@ -73,6 +73,40 @@ export type ThreadState = {
   /** v0.2: the init flow's setup ladder. */
   ladder?: LadderRung[];
 };
+/** v0.4.1: what one step really does (engine POST /steps/explain via POST /api/projects/{pid}/workflows/explain-step). */
+export type StepRoute = { label: string; to: string | null; to_name: string; text?: string };
+export type BucketRule = { bucket: string; what: string; may: "edit" | "new-only" | "delete-only" | "read-only" | "no-access"; label: string; note?: string };
+export type CommitInfo = { type: string; about: string; prefix: string; message: string; author: string; may_contain: string[]; may_not_contain: string[]; extra: string[] };
+export type ActionDoc = { name: string; known: boolean; summary: string; steps: string[]; for_this_step?: string; after?: string; command?: string };
+export type StepRun = {
+  checkpoint: string; at: string; note: string; ok: boolean; ac?: string; item?: string; went_to?: string; output?: string;
+  commit?: { sha: string; subject: string }; answer?: string; tokens?: { in: number; out: number; step: number };
+  markers?: Record<string, string>; decided?: string[];
+};
+export type StepExplanation = {
+  id: string; name: string; kind: StepKind; phase: string; phase_meaning: string; phase_inherited?: boolean; lock?: boolean; thread: boolean;
+  workflow?: { id: string; name: string };
+  included_from?: { flow: string; step: string; text: string };
+  runs_only_when?: string;
+  skippable?: { band: string; unit: string; text: string };
+  rules: { phase: string; buckets: BucketRule[]; shell_refused: string[]; read_only?: boolean; lane_scoped?: boolean; lane_note?: string; reads_blocked?: string; commit?: CommitInfo };
+  loop?: { kind?: string; text?: string; fan_out?: { text: string }; lanes?: Lane[] } | null;
+  next: StepRoute[];
+  agent?: {
+    id: string; about: string; custom?: boolean; tools?: string | null; max_turns?: number | null;
+    model: { step: string; agent_file?: string | null; effort?: string | null; rule: string; now?: Partial<Model> };
+    knowledge?: { sections: string[]; code_graph: boolean; memory: boolean; strict: boolean };
+    instructions?: string | null; markers: { name: string; values: string[]; registered: boolean; text: string }[];
+    collect?: { key: string; text: string } | null; mcp_tools?: string[]; role?: string;
+    prompt: string; placeholders: boolean; prompt_notes?: string[]; system?: string;
+  };
+  code?: { actions: ActionDoc[]; chain: string | null; text?: string; soft?: string; rounds?: string };
+  gate?: { answers: StepRoute[]; notes: string[]; costs?: string };
+  branch?: { condition: string; routes: StepRoute[]; rounds?: string };
+  last_runs?: { count: number; runs: StepRun[]; now?: string | null; calls?: { agent: string; provider?: string; model?: string; status: string; tokens_in: number; tokens_out: number; result: string }[] };
+};
+export type ExplainRequest = { workflow_id?: string; workflow?: Workflow; step_id: string; thread_id?: string };
+
 export type BlockerGate = "release" | "coverage" | "deps" | "knowledge" | "secrets";
 export type Blocker = { gate: BlockerGate | string; why: string; fix: string };
 export type LadderRung = { n: number; name: string; cmd: string; status: "pass" | "fail" | "fixing" | "waiting" | "skipped"; detail?: string };
@@ -644,6 +678,8 @@ export const api = {
   library: () => get<LibraryItem[]>("/library"),
   install: (pid: string, id: string, scope: "project" | "all") =>
     post<Workflow>(`/projects/${e(pid)}/library/${e(id)}/install`, { scope }),
+  /** What one step really does: rules, routes, the real prompt or its actions in words, and (with a thread) its last runs. */
+  explainStep: (pid: string, body: ExplainRequest) => post<StepExplanation>(`/projects/${e(pid)}/workflows/explain-step`, body),
 
   // agents, skills, stacks, tools
   agents: (pid: string) => get<Agent[]>(`/projects/${e(pid)}/agents`),

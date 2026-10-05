@@ -725,3 +725,28 @@ one; a soft code step keeps what it said in `data["<id>_output"]`; markers SECUR
 text, never asked for) are registered; a reviewer answer ending `CODE-REVIEW|SECURITY|DEPS: findings` without a Blocking
 section counts its list items as findings; commit takes `paths` (only those are staged) and names integration commits
 `fix(integration)`; StartThread acs may carry `status`. Actions in `runtime/feature_actions.py`.
+
+## v0.4.1: explain a step
+
+"What does this step really do": the graph's nodes (Flow, both layouts; Wiki; the Wiki step table) open a drawer, and the
+builder's step panel has a "What it does" button (it explains the unsaved draft).
+
+```
+engine  POST /steps/explain  { workflow?, step_id, root?, thread_id?, project_id?, agents? }  → StepExplanation
+        (workflow missing = the thread's own; 400 without both, 404 for an unknown step or thread)
+api     POST /api/projects/{pid}/workflows/explain-step  { workflow_id? | workflow?, step_id, thread_id? }
+        → the engine's answer; the api adds root (the project folder), project_id and agents (each agent's knowledge)
+StepExplanation = { id, name, kind, phase, phase_meaning, phase_inherited, lock, thread: bool, included_from?, runs_only_when?,
+  skippable?, rules: { buckets: [{bucket, what, may: edit|new-only|delete-only|read-only|no-access, label, note?}],
+  shell_refused: string[], lane_scoped, commit?: {type, prefix, message, author, may_contain, may_not_contain, extra} },
+  loop?: {kind, text, fan_out?}, next: [{label, to, to_name, text}],
+  agent?: {id, about, model: {step, agent_file, effort, rule, now?}, knowledge, instructions, markers, collect, prompt,
+           placeholders, prompt_notes, system},          // prompt = prompts.task_prompt + step_asks, as Compiler._run_agent builds it
+  code?: {chain, actions: [{name, summary, steps[], for_this_step?, after?}]}, gate?: {answers, notes}, branch?: {condition, routes},
+  last_runs?: {count, now?, runs: [{at, note, ok, ac?, item?, went_to?, output?, commit?: {sha, subject}, answer?, tokens?,
+               markers?, decided?}], calls?} }   // with thread_id, from the thread's checkpoints (+ the engine's recent events)
+```
+- Without a thread the prompt carries «placeholders» (`«the current criterion»`, `«data.report: filled in ...»`).
+- Action words live in `engine/keel_engine/runtime/action_docs.py` (`DOCS`: summary + steps, else the function's
+  docstring); `tests/test_explain.py` fails when an action the engine dispatches has no entry, or an entry has no action.
+- A code step now keeps the head of what its actions printed in the state (`output`), for the last run.

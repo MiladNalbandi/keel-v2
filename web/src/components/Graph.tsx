@@ -174,7 +174,9 @@ export function Graph(o: GraphProps) {
     const interactive = o.edit
       ? { role: "button", tabIndex: 0, "aria-label": `Step ${s.name}`, onClick: () => o.onSelect?.(s.id), onKeyDown: keyActivate(() => o.onSelect?.(s.id)) }
       : o.onSelect
-        ? { onClick: () => o.onSelect?.(s.id), style: { cursor: "pointer" } }
+        // Read-only graphs (Flow, Wiki): a click or Enter opens "what this step does". The Zoom wrapper never pans from a .node.
+        ? { role: "button", tabIndex: 0, "aria-label": `What ${s.name} does`, onClick: () => o.onSelect?.(s.id),
+            onKeyDown: keyActivate(() => o.onSelect?.(s.id)), style: { cursor: "pointer" } }
         : {};
     const title = <title>{s.name + (s.agent ? " — " + s.agent : "")}</title>;
     const tokN = o.tokens?.[s.id];

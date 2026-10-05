@@ -57,6 +57,7 @@ class FlowState(TypedDict, total=False):
     show: str | None            # what a code step prepared for the gate right after it (a report, a proposal)
     agent_models: dict          # {agent: model} after escalate_model (a stronger model for that agent)
     rounds: dict                # {branch step id: send-backs so far} for a branch with `rounds`
+    output: str | None          # the head of what the last code step's actions printed (commands, staged files)
 
 
 @dataclass

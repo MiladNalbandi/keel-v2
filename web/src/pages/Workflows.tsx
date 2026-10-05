@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, errorParts, type Agent, type Estimate, type OnCap, type Step, type Workflow } from "../api";
 import { Builder, useBuilder } from "../components/Builder";
+import { StepExplainDrawer } from "../components/StepExplain";
 import { clone, moveStep, same, updateStep } from "../components/builderOps";
 import { Async, ErrorBox, PageHead, Panel, Tabs } from "../components/ui";
 import { KIND, toYaml, tokensByStep } from "../components/workflow";
@@ -75,6 +76,8 @@ function Editor({ pid, wid, wfs, agents, tab, tabs, onNew, onImport, onSaved }: 
   const [err, setErr] = useState<{ message: string; hint?: string; details?: string[] } | null>(null);
   // YAML typed by hand in the YAML tab. null = not edited (the tab shows the YAML of the diagram).
   const [yamlText, setYamlText] = useState<string | null>(null);
+  // "What it does" for the selected step: the engine explains the draft, so unsaved edits show too.
+  const [explain, setExplain] = useState<string | null>(null);
   const saved = loaded.data;
   useEffect(() => {
     if (saved) {
@@ -143,6 +146,9 @@ function Editor({ pid, wid, wfs, agents, tab, tabs, onNew, onImport, onSaved }: 
       </div>
       {err && tab !== "yaml" && <div style={{ marginBottom: 12 }}><ErrorBox error={err} /></div>}
       {tab === "builder" && yamlText !== null && <p className="hint amber" style={{ marginTop: 0 }}>You changed the YAML by hand. Save to see those changes in the diagram.</p>}
+      {explain && w.steps.some((x) => x.id === explain) && (
+        <StepExplainDrawer pid={pid} req={{ step_id: explain, workflow: w }} onClose={() => setExplain(null)} />
+      )}
       {tab === "builder" && <Builder w={w} sel={sel} onSelect={setSel} b={b} tokens={tokens} customAgents={customAgents} />}
       <div className="grid g2" style={{ marginTop: 16 }}>
         <div className="grid" style={{ alignContent: "start" }}>
@@ -162,7 +168,7 @@ function Editor({ pid, wid, wfs, agents, tab, tabs, onNew, onImport, onSaved }: 
         </div>
         <div className="grid" style={{ alignContent: "start" }}>
           {step && <Inspector w={w} s={step} agents={agents} onChange={(patch) => setDraft(updateStep(w, step.id, patch))}
-            onMove={(d) => setDraft(moveStep(w, step.id, d))} onRemove={() => b.remove(step.id)} />}
+            onMove={(d) => setDraft(moveStep(w, step.id, d))} onRemove={() => b.remove(step.id)} onExplain={() => setExplain(step.id)} />}
           <EstimatePanel est={shownEst} error={dirty ? draftEst.error : est.error} acs={acs} setAcs={setAcs} dirty={dirty} />
         </div>
       </div>
@@ -227,8 +233,9 @@ function StepsTable({ w, sel, onSelect, tokens, onMove, onRemove }: {
 
 const ON_LIMIT: [OnCap, string][] = [["pause", "pause and ask me"], ["cheaper", "switch to a cheaper model"], ["stop", "stop the step"]];
 
-function Inspector({ w, s, agents, onChange, onMove, onRemove }: {
+function Inspector({ w, s, agents, onChange, onMove, onRemove, onExplain }: {
   w: Workflow; s: Step; agents: Agent[]; onChange: (p: Partial<Step>) => void; onMove: (d: -1 | 1) => void; onRemove: () => void;
+  onExplain?: () => void;
 }) {
   const i = w.steps.indexOf(s);
   const prev = w.steps[i - 1], next = w.steps[i + 1];
@@ -236,7 +243,10 @@ function Inspector({ w, s, agents, onChange, onMove, onRemove }: {
   const llm = s.kind === "agent" || s.kind === "parallel";
   const models = [...new Set(["default", ...w.steps.map((x) => x.model).filter(Boolean) as string[], ...agents.map((a) => a.model?.model).filter(Boolean)])];
   return (
-    <Panel title="Step" extra={<button className="btn sm ghost" type="button" onClick={onRemove}>{locked ? "keel rule · why?" : "Remove step"}</button>} body="grid">
+    <Panel title="Step" extra={<div className="row" style={{ gap: 6 }}>
+      {onExplain && <button className="btn sm" type="button" onClick={onExplain}>What it does</button>}
+      <button className="btn sm ghost" type="button" onClick={onRemove}>{locked ? "keel rule · why?" : "Remove step"}</button>
+    </div>} body="grid">
       <div className="grid" style={{ gap: 12 }}>
         <div className="field"><label htmlFor="wn">Name</label><input type="text" id="wn" value={s.name} onChange={(e) => onChange({ name: e.target.value })} /></div>
         <div className="field"><span className="lab">Type</span><span>{KIND[s.kind]}{s.phase ? <> · phase <span className="mono">{s.phase}</span></> : null}</span></div>

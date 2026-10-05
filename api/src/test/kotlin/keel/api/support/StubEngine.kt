@@ -140,6 +140,12 @@ class StubEngine private constructor(private val server: HttpServer) {
             else 200 to mapOf("run" to run, "candidates" to listOf(mapOf("id" to "F-001", "status" to "proven", "severity" to "high")),
                 "groups" to emptyList<Any>(), "report_markdown" to "# Bug hunt")
         }
+        path == "/steps/explain" -> {
+            val step = body?.get("step_id")?.asText()
+            if (step == "nope") 404 to mapOf("error" to "No step 'nope' in workflow feature.")
+            else 200 to mapOf("id" to step, "name" to step, "kind" to "agent", "phase" to "red", "thread" to (body?.has("thread_id") == true),
+                "rules" to mapOf("buckets" to emptyList<Any>(), "shell_refused" to emptyList<Any>()), "next" to emptyList<Any>())
+        }
         path == "/mcp/tools" -> 200 to mapOf("ok" to true, "tools" to listOf(mapOf("name" to "keel_next", "description" to "next step")))
         else -> 404 to mapOf("error" to "no route $path")
     }
