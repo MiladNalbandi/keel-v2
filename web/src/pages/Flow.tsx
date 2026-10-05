@@ -13,7 +13,7 @@ import { eventLine } from "../components/events";
 import { Graph, GraphLegend } from "../components/Graph";
 import { Zoom } from "../components/Zoom";
 import { StartFlowDrawer } from "../components/StartFlow";
-import { StepExplainDrawer } from "../components/StepExplain";
+import { StepInfoDrawer } from "../components/StepInfo";
 import { Async, Confirm, ErrorBox, GoButton, PageHead, Panel, Pill, Prov, type PillTone } from "../components/ui";
 import { acLabel, clock, kfmt, usd } from "../format";
 import { useApp, useLoad } from "../state";
@@ -110,10 +110,9 @@ function ThreadView({ pid, thread, workflow, keelState, reload, onStart }: {
   return (
     <>
       <Header thread={thread} workflow={workflow} onStart={onStart} />
-      {explain && <StepExplainDrawer pid={pid} req={{ step_id: explain, thread_id: thread.thread_id }} onClose={() => setExplain(null)} />}
+      {explain && <StepInfoDrawer pid={pid} stepId={explain} threadId={thread.thread_id} onClose={() => setExplain(null)} />}
       <div className="grid" style={{ gap: 16 }}>
         <Panel title="Graph" extra={<GraphLegend />}>
-          <p className="hint" style={{ margin: "0 0 6px" }}>Click a step to see what it really does.</p>
           <Zoom id="flow">
             <Graph steps={workflow.steps} current={thread.current} status={thread.status} tokens={thread.status === "done" ? undefined : tokens}
               acs={thread.acs} currentAc={thread.ac} onSelect={setExplain} />
@@ -528,7 +527,7 @@ function InitFlow({ pid, f, onStart, reload }: { pid: string; f: { thread: Threa
   const [explain, setExplain] = useState<string | null>(null);
   return (
     <>
-      {explain && <StepExplainDrawer pid={pid} req={{ step_id: explain, thread_id: thread.thread_id }} onClose={() => setExplain(null)} />}
+      {explain && <StepInfoDrawer pid={pid} stepId={explain} threadId={thread.thread_id} onClose={() => setExplain(null)} />}
       <Header thread={thread} workflow={workflow} onStart={onStart} extra={<GoButton to="wiki" className="btn">Open wiki</GoButton>} />
       <Panel title="Graph" extra={<GraphLegend />} body="grid">
         <div className="grid" style={{ gap: 14 }}>
