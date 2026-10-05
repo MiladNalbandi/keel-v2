@@ -19,14 +19,15 @@ import aiosqlite
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.types import Command
 
-from .. import config
-from ..events import EventBus, mirror
+from .. import config, rules
+from ..events import EventBus
 from ..tools import git
 from ..workflows.model import Workflow, from_dict
 from . import ladder as ladder_mod
 from . import memory as memory_mod
+from . import migrate
 from .compiler import compile_workflow
-from .state import ThreadContext, initial_state
+from .state import ThreadContext, initial_state, merge_unlocks, normalize_unlocks
 
 log = logging.getLogger(__name__)
 
@@ -76,6 +77,7 @@ class Engine:
         await self.conn.execute(REGISTRY)
         await self.conn.execute(memory_mod.SCHEMA)
         await self.conn.commit()
+        await migrate.migrate(self.conn)
         if resume_running:
             # Threads that were running when keel stopped continue once the api has sent their logins (they live in
             # memory only) and their folder: POST /threads/{id}/continue. Without that call they continue by
@@ -105,6 +107,7 @@ class Engine:
                 await self._set_status(tid, "failed", f"{exc} {exc.hint or ''}".strip())
                 return await self.state(tid)
             log.info("continuing thread %s after a restart%s", tid, "" if keys else " (no logins sent)")
+            await self._import_legacy_unlocks(tid)
             self._launch(tid, None)
         return await self.state(tid)
 
@@ -147,8 +150,10 @@ class Engine:
                             request=(body.get("request") or "").strip(), models=body.get("models") or {}, settings=body.get("settings") or {}, mcp=body.get("mcp") or [],
                             skills=body.get("skills") or {}, keys=self.keys.get(tid, {}), bus=self.bus,
                             memory=memory_mod.AgentMemory(self.conn, tid))
+        async with self.conn.execute("select path, phase, by, reason, at from thread_unlocks where thread_id = ? order by rowid",
+                                     (tid,)) as cur:
+            ctx.api_unlocks = [{k: v for k, v in zip(("path", "phase", "by", "reason", "at"), r) if v} for r in await cur.fetchall()]
         self.ctxs[tid] = ctx
-        self.bus.register(tid, ctx.root)
         return ctx
 
     async def _graph(self, tid: str):
@@ -175,11 +180,10 @@ class Engine:
         graph = await self._graph(tid)
         await self._set_status(tid, "running")
         try:
-            async for values in graph.astream(inp, cfg or self._cfg(tid), stream_mode="values"):
-                self._mirror(ctx, values)
+            async for _values in graph.astream(inp, cfg or self._cfg(tid), stream_mode="values"):
+                pass
             snap = await graph.aget_state(self._cfg(tid))
             waiting = self._waiting(snap)
-            self._mirror(ctx, self._at_pause(ctx, snap) if waiting else snap.values)
             if waiting:
                 await self._set_status(tid, "waiting")
                 kind = waiting.get("kind")
@@ -206,10 +210,10 @@ class Engine:
 
     @staticmethod
     def _at_pause(ctx: ThreadContext, snap) -> dict:
-        """The state keel v1 should see while a step waits for the user.
+        """The state to show while a step runs or waits for the user.
 
         A paused node has not returned yet, so the graph values still hold the step before it (on the first step:
-        phase "none", which keel v1 reads as "no active flow"). Show the paused step and its phase instead.
+        phase "none"). Show the paused step and its phase instead.
         """
         values = dict(snap.values or {})
         node = next(iter(snap.next or ()), None)
@@ -218,15 +222,6 @@ class Engine:
         step = ctx.workflow.step(node[: -len("__fix")] if node.endswith("__fix") else node)
         phase = "review-fix" if node.endswith("__fix") else ((step.phase if step else None) or values.get("phase") or "none")
         return {**values, "current": node, "phase": phase, "status": "waiting"}
-
-    def _mirror(self, ctx: ThreadContext, values: dict):
-        if not values:
-            return
-        if not values.get("ladder") and self._has_ladder(ctx):
-            rungs = ladder_mod.previous(ctx.root)
-            if rungs:
-                values = {**values, "ladder": rungs}
-        ctx.write_mirror(values)
 
     @staticmethod
     def _has_ladder(ctx: ThreadContext) -> bool:
@@ -271,10 +266,7 @@ class Engine:
             state["base_head"] = state["git_head"]
             git.exclude_engine_files(root)
             state["preexisting"] = git.snapshot(root)
-        ctx.write_mirror(state, merge_disk=False)
-        for u in state.get("unlocks") or []:
-            mirror.append_log(root, {"kind": "gate", "gate": "unlock", "verdict": "approve",
-                                     "detail": f"{u['path']} in {u['phase']} (from settings)"})
+        await self._import_legacy_unlocks(tid)
         ctx.emit("thread.started", data={"workflow": wf.id, "title": ctx.title, "flow": wf.flow, "root": root,
                                          "acs": len(state["acs"]), "fake": ctx.fake})
         self._launch(tid, state)
@@ -309,7 +301,7 @@ class Engine:
             "usage": {**{"tokens_in": 0, "tokens_out": 0, "tokens_cached": 0, "cost_usd": 0.0, "premium_requests": 0, "cap_tokens": 0}, **(v.get("usage") or {})},
             "checkpoints": n, "updated_at": row["updated_at"],
             "blockers": list(v.get("blockers") or []),
-            "unlocks": [{"path": u.get("path"), "phase": u.get("phase")} for u in v.get("unlocks") or []],
+            "unlocks": [{"path": u.get("path"), "phase": u.get("phase")} for u in merge_unlocks(list(v.get("unlocks") or []), ctx_now.api_unlocks)],
         }
         ctx = await self._context(tid)
         rungs = v.get("ladder")
@@ -351,7 +343,6 @@ class Engine:
             ctx = self.ctxs.get(tid)
             if ctx:
                 ctx.root = root
-                self.bus.register(tid, root)
             log.info("thread %s moved from %s to %s", tid, old, root)
             return
         if not _project_there(old):
@@ -381,6 +372,7 @@ class Engine:
         if decision == "reject" and self._waiting(snap).get("kind") == "gate" and not (why or "").strip():
             raise EngineError(400, "Say why when you send it back.", "The reason goes into the next agent's prompt.")
         await self._set_status(tid, "running")
+        await self._import_legacy_unlocks(tid)
         asked = self._waiting(snap).get("id")
         self._launch(tid, Command(resume={"decision": decision, "why": why or "", "payload": payload or {}, "asked": asked}))
         return await self.state(tid)
@@ -396,11 +388,57 @@ class Engine:
                 pass
         await self._set_status(tid, "stopped")
         ctx = await self._context(tid)
-        graph = await self._graph(tid)
-        snap = await graph.aget_state(self._cfg(tid))
-        self._mirror(ctx, {**(snap.values or {}), "status": "stopped"})
         ctx.emit("thread.done", data={"status": "stopped"})
         return await self.state(tid)
+
+    # ------------------------------------------------------------ unlocks
+
+    async def unlocks(self, tid: str) -> list[dict]:
+        """The thread's unlocks: those in its graph state plus those granted since its last step."""
+        await self._row(tid)
+        ctx = await self._context(tid)
+        snap = await (await self._graph(tid)).aget_state(self._cfg(tid))
+        return merge_unlocks(list((snap.values or {}).get("unlocks") or []), ctx.api_unlocks)
+
+    async def add_unlock(self, tid: str, path: str, phase: str | None, reason: str | None, by: str = "api") -> list[dict]:
+        """Opens one path for one phase (default: the phase the thread is in now). The engine is the only writer:
+        the unlock is stored in the engine DB, merged into the flow state at the next step, and the guards of the
+        thread's running agents (hook context files, ToolBoxes) get it at once."""
+        rel = str(path or "").strip().removeprefix("./")
+        if not rel:
+            raise EngineError(400, "path is empty.", "Send the file path relative to the repo root.")
+        if rel.startswith("/") or ".." in rel.split("/") or "\0" in rel:
+            raise EngineError(400, "That path is outside the project.", "Use a path relative to the repo root.")
+        phase = (phase or "").strip() or (await self.state(tid))["phase"]
+        if phase not in rules.PHASES:
+            raise EngineError(400, f'"{phase}" is not a keel phase.', "Pick one of: " + ", ".join(rules.PHASES))
+        item = {"path": rel, "phase": phase, "by": by, "at": _now()}
+        if (reason or "").strip():
+            item["reason"] = reason.strip()[:500]
+        await self._store_unlocks(tid, normalize_unlocks(item, phase, by))
+        return await self.unlocks(tid)
+
+    async def _store_unlocks(self, tid: str, items: list[dict]):
+        for u in items:
+            await self.conn.execute("insert or ignore into thread_unlocks values (?,?,?,?,?,?)",
+                                    (tid, u["path"], u["phase"], u.get("by") or "api", u.get("reason"), u.get("at") or _now()))
+        await self.conn.commit()
+        if tid in self.ctxs:              # a context made later reads them from the table
+            self.ctxs[tid].add_unlocks(items)
+
+    async def _import_legacy_unlocks(self, tid: str):
+        """Once per project: unlocks a keel v0.3 state file in the project still holds join this thread (that file is
+        never written again). Recorded in legacy_unlock_imports, so a later start or resume does not import them twice."""
+        root = (await self._row(tid))["root"]
+        async with self.conn.execute("select 1 from legacy_unlock_imports where root = ?", (root,)) as cur:
+            if await cur.fetchone():
+                return
+        items = await asyncio.to_thread(migrate.legacy_unlocks, root, tid)
+        if not items:
+            return
+        await self.conn.execute("insert or ignore into legacy_unlock_imports values (?,?,?,?)", (root, tid, len(items), _now()))
+        await self._store_unlocks(tid, items)
+        log.info("thread %s: imported %d unlock(s) from the project's keel v0.3 state file", tid, len(items))
 
     async def history(self, tid: str) -> list[dict]:
         await self._row(tid)

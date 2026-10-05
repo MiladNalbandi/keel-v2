@@ -1,8 +1,9 @@
 """Subscription-mode runners: claude, codex, copilot (Copilot CLI) and opencode.
 
 Each turns its CLI's stream into steps, like Yegi's activity.py: text, thinking, tool, write, edit,
-result, answer. CLI agents edit files directly, so the runtime's diff guard is what enforces the
-phase rules for them.
+result, answer. CLI agents edit files directly. claude and opencode run keel's PreToolUse hook
+(keel_engine.hook) before every guarded tool call; codex and copilot have no such hook, so for them the
+runtime's after-step diff guard (tools/guard.py) is what enforces the phase rules.
 """
 
 from __future__ import annotations
@@ -12,7 +13,6 @@ import json
 import uuid
 import dataclasses
 import re
-import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -21,18 +21,16 @@ from .. import config
 from ..tools import git, mcp
 from ..tools.agent_tools import unified_diff
 from .base import AgentRequest, AgentResult, Emit, ModelError
-from ..runtime import prompts
+from .. import hook
+from ..runtime import guard_ctx, prompts
 from .cli import result_usage, claude_login_env, codex_login_env, copilot_login_env, find, run_cli, safe_env
 
-# keel v1's PreToolUse hook exits 2 with "keel: <reason>" on stderr; Claude Code returns that to the
-# model as an error tool_result naming the hook.
-HOOK_REFUSAL = re.compile(r"keel:\s*(.+)", re.S)
+# keel's PreToolUse hook (keel_engine.hook) exits 2 with "[keel guard] <reason>" on stderr; Claude Code returns
+# that to the model as an error tool_result ("PreToolUse:Write hook error: [<command>]: [keel guard] ...").
+HOOK_REFUSAL = re.compile(re.escape(hook.MARKER) + r"\s*(.+)", re.S)
 
 
 def hook_refusal(text: str) -> str | None:
-    low = text.lower()
-    if "hook" not in low and "blocked" not in low:
-        return None
     m = HOOK_REFUSAL.search(text)
     return " ".join(m.group(1).split())[:600] if m else None
 
@@ -340,21 +338,13 @@ class ClaudeCLIRunner:
         argv += ["--allowedTools", ",".join(allowed), "--disallowedTools", ",".join(CLAUDE_HIDDEN)]
         if req.system:
             argv += ["--system-prompt", req.system]
-        home = config.keel_home()
-        if (home / "bin" / "keel").is_file():
-            # Only keel v1's guard (its PreToolUse hook) is loaded, not the whole plugin: the plugin's start-up
-            # text teaches keel v1's own workflow (keel state ..., .keel/ files), which the v2 engine owns, and its
-            # after-edit hooks slow every tool call. The guard reads .keel/state.json, written before this step.
-            settings = Path(req.workdir or req.root) / "keel-guard.json"
-            settings.write_text(json.dumps({"hooks": {"PreToolUse": [{
-                "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|Read|mcp__.*",
-                "hooks": [{"type": "command", "command": f'"{home / "bin" / "keel"}" hook pre-tool', "timeout": 10}],
-            }]}}))
-            argv += ["--settings", str(settings)]
-        else:
-            emit("text", f"keel is not installed at {home}: the live guard is off; the after-step diff guard still applies.")
+        # keel's guard: its own PreToolUse hook (python -m keel_engine.hook) judges every edit, shell command, read and
+        # MCP call against this step's phase before it runs. Always on. Its context file and the settings file live in
+        # the run's scratch folder, outside the project, so the agent cannot edit them.
+        scratch = guard_ctx.scratch(req)
+        argv += ["--settings", guard_ctx.claude_settings(Path(scratch) / "keel-guard.json")]
         stream = ClaudeStream(emit, req.root)
-        env = safe_env({**claude_login_env(req.keys), "KEEL_BIN": str(home / "bin" / "keel"), "CLAUDE_CONFIG_DIR": claude_home()})
+        env = safe_env({**claude_login_env(req.keys), guard_ctx.ENV: guard_ctx.ensure(req, scratch), "CLAUDE_CONFIG_DIR": claude_home()})
         try:
             await run_cli("claude", argv, stdin=req.prompt, cwd=req.root, env=env, timeout=req.timeout, on_line=stream.line)
         except ModelError as exc:
@@ -533,11 +523,16 @@ class OpenCodeRunner:
         prompt = f"{req.system}\n\n{req.prompt}" if req.system else req.prompt
         model = req.model.get("model") or "gpt-5"
         argv = [find("opencode"), "run", "--format", "json", "-m", f"github-copilot/{model}", prompt]
-        note = await asyncio.to_thread(ensure_opencode_adapter, req.root)
+        note = await asyncio.to_thread(retire_v1_adapter, req.root)
         if note:
             emit("text", note)
+        # keel's guard: a plugin generated for this run (in the run's scratch folder, loaded through OPENCODE_CONFIG_DIR)
+        # hands each guarded call to the same hook Claude Code runs.
+        scratch = guard_ctx.scratch(req)
+        conf = await asyncio.to_thread(write_opencode_plugin, Path(scratch) / "opencode")
         state = {"text": [], "in": 0, "out": 0, "cost": 0.0}
         steps = Steps(emit, req.root)
+        refusals: list[dict] = []
 
         def on_line(raw: str):
             try:
@@ -552,7 +547,9 @@ class OpenCodeRunner:
             elif t == "reasoning" and part.get("text", "").strip():
                 emit("thinking", cap(part["text"].strip()))
             elif t in ("tool_use", "tool"):
-                opencode_tool(steps, part)
+                r = opencode_tool(steps, part)
+                if r:
+                    refusals.append(r)
             elif t == "step_finish":
                 tok = part.get("tokens") or {}
                 state["in"] += int(tok.get("input", 0))
@@ -561,22 +558,34 @@ class OpenCodeRunner:
             elif t == "error":
                 state["error"] = json.dumps(ev.get("error") or ev)[:400]
 
-        env = safe_env({"KEEL_BIN": str(config.keel_home() / "bin" / "keel")})
+        env = safe_env({guard_ctx.ENV: guard_ctx.ensure(req, scratch), "OPENCODE_CONFIG_DIR": conf})
         await run_cli("opencode", argv, cwd=req.root, env=env, timeout=req.timeout, on_line=on_line)
         if state.get("error"):
             raise ModelError(f"opencode reported an error: {state['error']}")
         text = "\n".join(state["text"])
         emit("answer", cap(text))
-        return AgentResult(text=text, tokens_in=state["in"], tokens_out=state["out"], cost_usd=state["cost"], premium_requests=1)
+        return AgentResult(text=text, tokens_in=state["in"], tokens_out=state["out"], cost_usd=state["cost"], premium_requests=1,
+                           data={"refusals": refusals} if refusals else {})
 
 
-def opencode_tool(steps: "Steps", part: dict):
+def opencode_tool(steps: "Steps", part: dict) -> dict | None:
     """One opencode tool part: {tool, state: {status, input, output, error, metadata: {diff?}, time: {start, end}}}.
-    Only finished calls become steps (opencode also reports pending/running states)."""
+    Only finished calls become steps (opencode also reports pending/running states). Returns the refusal when
+    keel's guard plugin refused the call."""
     st = part.get("state") or {}
     status = st.get("status")
     if status in ("pending", "running"):
-        return
+        return None
+    reason = hook_refusal(str(st.get("error") or "")) if status == "error" else None
+    if reason:
+        args = st.get("input") or {}
+        p = _path_arg(args)
+        rel = _rel(steps.root, p) if p else ""
+        item = {"tool": part.get("tool", "tool"), "path": rel, "reason": reason}
+        if args.get("command"):
+            item["command"] = str(args["command"])[:500]
+        steps.emit("guard", reason, tool=item["tool"], path=rel or None, ok=False)
+        return item
     tm = st.get("time") or {}
     ms = int(tm["end"] - tm["start"]) if isinstance(tm.get("end"), (int, float)) and isinstance(tm.get("start"), (int, float)) else None
     meta = st.get("metadata") or {}
@@ -590,53 +599,110 @@ def opencode_tool(steps: "Steps", part: dict):
         server, tool = name.split("_", 1)      # opencode's own tools have no "_"; MCP tools are <server>_<tool>
         steps.emit("tool", cap(json.dumps(st.get("input") or {}, ensure_ascii=False), 2000), tool=tool, server=server,
                    output=None if output is None else head_lines(output, OUTPUT_LINES), ok=ok, ms=ms)
-        return
+        return None
     steps.done(name, st.get("input") or {}, output, ok, ms, diff=diff)
+    return None
 
 
 def ms_since(t0: float) -> int:
     return int((time.monotonic() - t0) * 1000)
 
 
-def opencode_adapter_present(root: str) -> bool:
-    return any((Path(root) / ".opencode" / d / "keel.js").is_file() for d in ("plugin", "plugins"))
+# keel's guard for opencode. opencode loads every `plugins/*.js` of the folder named by OPENCODE_CONFIG_DIR (next to the
+# project's .opencode/ and the user's global config); a plugin refuses a call by throwing from tool.execute.before.
+OPENCODE_PLUGIN = """// keel's guard for opencode: generated by keel v2 for one agent run, rewritten every run (do not edit).
+// Each guarded call goes to keel's PreToolUse hook, the same one Claude Code runs; exit 2 refuses the call with
+// the hook's reason. No rule lives here. A hook that cannot run refuses too: a guard that looks on and is not is worse.
+import { spawnSync } from 'node:child_process';
+
+const HOOK = __HOOK__;
+const TOOL = { read: 'Read', write: 'Write', edit: 'Edit', bash: 'Bash' };
+const PATCH = new Set(['apply_patch', 'patch']);
+
+// File paths named in a patch body: opencode's `*** Update File:` envelope and plain unified-diff headers.
+function patchPaths(text) {
+  const out = new Set();
+  for (const line of String(text || '').split('\\n')) {
+    let m = line.match(/^\\*\\*\\*\\s+(?:Add|Update|Delete)\\s+File:\\s*(.+?)\\s*$/);
+    if (m) { out.add(m[1]); continue; }
+    m = line.match(/^\\+\\+\\+\\s+(?:b\\/)?(.+?)\\s*$/);
+    if (m && m[1] !== '/dev/null') out.add(m[1]);
+  }
+  return [...out];
+}
+
+// null when the hook allows the call, else the reason it does not.
+function ask(tool_name, tool_input, cwd) {
+  const r = spawnSync(HOOK[0], HOOK.slice(1), {
+    input: JSON.stringify({ tool_name, tool_input, cwd }), encoding: 'utf8', env: process.env, timeout: 10000,
+  });
+  if (r.error || r.status === null) return `keel's guard could not run (${r.error ? r.error.message : 'no exit status'}).`;
+  if (r.status === 0) return null;
+  return (r.stderr || '').trim().replace(/^\\[keel guard\\]\\s*/, '') || `keel's guard exited ${r.status}.`;
+}
+
+function refuse(reason) {
+  throw new Error(`[keel guard] ${reason}`);
+}
+
+export const KeelGuard = async ({ directory, worktree }) => {
+  const cwd = worktree || directory || process.cwd();
+  return {
+    'tool.execute.before': async (input, output) => {
+      const tool = String((input && input.tool) || '');
+      const args = (output && output.args) || {};
+      if (tool === 'task') {
+        refuse('sub-agents are off in keel runs: opencode does not run plugins inside them, so their edits would not be checked.');
+      }
+      if (PATCH.has(tool)) {
+        const files = patchPaths(args.patchText || args.patch);
+        if (!files.length) refuse('no file could be read out of this patch, so keel cannot check it. Use the edit or write tool.');
+        for (const file of files) {
+          const reason = ask('Edit', { file_path: file }, cwd);
+          if (reason) refuse(reason);
+        }
+        return;
+      }
+      let name = TOOL[tool];
+      let toolInput;
+      if (name === 'Bash') toolInput = { command: args.command };
+      else if (name) toolInput = { file_path: args.filePath || args.path };
+      else if (tool.includes('_')) {
+        const at = tool.indexOf('_');     // MCP tools are <server>_<tool>
+        name = `mcp__${tool.slice(0, at)}__${tool.slice(at + 1)}`;
+        toolInput = args;
+      } else return;                      // glob, grep, list, webfetch, todowrite: nothing to guard
+      const reason = ask(name, toolInput, cwd);
+      if (reason) refuse(reason);
+    },
+  };
+};
+"""
+
+V1_ADAPTER = "keel's enforcement, for OpenCode."
 
 
-def ensure_opencode_adapter(root: str) -> str | None:
-    """Install keel's opencode adapter into <root>/.opencode/ when it is missing. Returns a note when it could not.
+def write_opencode_plugin(conf: Path) -> str:
+    """Writes keel's guard plugin into `conf/plugins/` and returns `conf` (the run's OPENCODE_CONFIG_DIR)."""
+    d = Path(conf) / "plugins"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "keel-guard.js").write_text(OPENCODE_PLUGIN.replace("__HOOK__", json.dumps(guard_ctx.hook_argv())))
+    return str(conf)
 
-    The installed files are kept out of git (`.git/info/exclude`), so they never show up in a diff,
-    a guard check or a commit.
-    """
-    if opencode_adapter_present(root):
-        return None
-    installer = config.keel_home() / "opencode" / "install.mjs"
-    if not installer.is_file():
-        return f"keel's opencode adapter was not found at {installer}: the live guard is off; the after-step diff guard still applies."
-    node = shutil.which("node")
-    if not node:
-        return "node is not installed, so keel's opencode adapter could not be installed: the live guard is off."
-    try:
-        p = subprocess.run([node, str(installer)], cwd=root, capture_output=True, text=True, timeout=120, env=safe_env())
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        return f"Installing keel's opencode adapter failed: {exc}"
-    if p.returncode != 0:
-        return f"Installing keel's opencode adapter failed: {(p.stderr or p.stdout).strip()[-400:]}"
-    _exclude(root, ".opencode/")
+
+def retire_v1_adapter(root: str) -> str | None:
+    """keel v0.3 installed keel v1's opencode adapter into <root>/.opencode/ (kept out of git). It calls a `keel` binary
+    that is gone, so it would refuse every call: remove it when it is that file and git does not track it."""
+    for d in ("plugin", "plugins"):
+        rel = f".opencode/{d}/keel.js"
+        f = Path(root) / rel
+        try:
+            if not f.is_file() or V1_ADAPTER not in f.read_text(errors="replace"):
+                continue
+            if git.is_repo(root) and git.tracked_in_head(root, rel):
+                continue
+            f.unlink()
+        except OSError:
+            continue
+        return f"Removed keel v1's opencode adapter ({rel}): keel loads its own guard plugin for each run."
     return None
-
-
-def _exclude(root: str, pattern: str):
-    if not git.is_repo(root):
-        return
-    r = git.git(root, "rev-parse", "--git-path", "info/exclude")
-    if r.returncode != 0:
-        return
-    f = Path(root) / r.stdout.strip()
-    try:
-        have = f.read_text() if f.is_file() else ""
-        if pattern not in have.splitlines():
-            f.parent.mkdir(parents=True, exist_ok=True)
-            f.write_text(have + ("" if not have or have.endswith("\n") else "\n") + pattern + "\n")
-    except OSError:
-        pass

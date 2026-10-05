@@ -40,6 +40,8 @@ class AgentRequest:
     session: str | None = None       # the CLI session id to use (claude --session-id) or continue (resume=True)
     resume: bool = False             # continue `session` (claude --resume, codex exec resume) instead of a new one
     on_session: Any = None           # callback(session_id) when the CLI reports its session id (codex)
+    guard_ctx: str = ""              # the guard context file keel's hook reads (runtime/guard_ctx.py); "" = the runner writes one
+    thread: str = ""                 # the thread this call belongs to
 
 
 @dataclass

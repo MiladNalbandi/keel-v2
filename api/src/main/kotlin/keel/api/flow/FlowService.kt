@@ -300,55 +300,40 @@ class FlowService(
     // ---- unlocks ----------------------------------------------------------------------------
 
     /**
-     * Opens one path for one phase (keel v1 `keel unlock`). When the project's flow waits on a
-     * "fix" (a guard refused an edit), the unlock goes to the engine as a resume payload, so the
-     * thread continues with it. Otherwise it is written to `<root>/.keel/state.json` `unlocks`.
+     * Opens one path for one phase. When the project's flow waits on a "fix" (a guard refused an edit), the unlock
+     * goes to the engine as a resume payload, so the thread continues with it. Otherwise it goes to the project's
+     * running or waiting thread through the engine (`POST /threads/{id}/unlocks`): the engine keeps it in the flow
+     * state and hands it to the guards of the agents running now.
      */
     fun unlock(pid: String, path: String, phase: String?, reason: String?): UnlockResult {
-        val root = projects.root(pid)
+        projects.require(pid)
         val rel = path.trim().removePrefix("./")
         if (rel.isBlank()) throw BadRequest("path is empty", "Send the file path relative to the repo root.")
         if (rel.startsWith("/") || rel.split('/').any { it == ".." } || rel.contains('\u0000')) {
             throw BadRequest("That path is outside the project", "Use a path relative to the repo root.")
         }
         val why = reason?.takeIf { it.isNotBlank() } ?: "unlocked from keel v2"
-        val waiting = jdbc.query(
-            "SELECT id FROM threads WHERE project_id = ? AND status = 'waiting' ORDER BY updated_at DESC LIMIT 1",
-            { rs, _ -> rs.getString(1) }, pid,
-        ).firstOrNull()
-        if (waiting != null) {
-            val state = runCatching { engine.thread(waiting) }.getOrNull()
+        val active = jdbc.query(
+            "SELECT id, status FROM threads WHERE project_id = ? AND status IN ('running', 'waiting') ORDER BY updated_at DESC LIMIT 1",
+            { rs, _ -> rs.getString(1) to rs.getString(2) }, pid,
+        ).firstOrNull() ?: throw Conflict("No flow is running in this project", "Unlocks belong to a flow: start one, then unlock the file in it.")
+        val (tid, status) = active
+        if (status == "waiting") {
+            val state = runCatching { engine.thread(tid) }.getOrNull()
             val kind = state?.get("waiting")?.get("kind")?.asText()
             if (state != null && state.get("status")?.asText() == "waiting" && kind == "fix") {
                 val ph = phase?.takeIf { it.isNotBlank() } ?: state.get("phase")?.asText() ?: "none"
                 val unlock = mapOf("path" to rel, "phase" to ph)
-                val next = resume(waiting, "approve", "unlock $rel in $ph: $why", mapOf("unlock" to unlock))
+                val next = resume(tid, "approve", "unlock $rel in $ph: $why", mapOf("unlock" to unlock))
                 val list = next.get("unlocks")?.takeIf { it.isArray }?.let { mapper.convertValue(it, List::class.java) }
                     ?: listOf(unlock)
-                return UnlockResult(list, "thread", waiting)
+                return UnlockResult(list, "thread", tid)
             }
         }
-        val list = writeUnlock(root, rel, phase, why)
+        val body = mapOf("path" to rel, "phase" to phase?.takeIf { it.isNotBlank() }, "reason" to why).filterValues { it != null }
+        val list = mapper.convertValue(engine.addUnlock(tid, body), List::class.java)
         hub.publish(pid, "project.changed", mapOf("id" to pid))
-        return UnlockResult(list, "state", null)
-    }
-
-    /** Appends `{path, phase, reason, at}` to `.keel/state.json` unlocks (keel v1 format). */
-    @Synchronized
-    private fun writeUnlock(root: java.nio.file.Path, rel: String, phase: String?, why: String): List<Any?> {
-        val file = root.resolve(".keel/state.json")
-        val node = (projects.keelState(root) as? com.fasterxml.jackson.databind.node.ObjectNode) ?: mapper.createObjectNode()
-        val ph = phase?.takeIf { it.isNotBlank() } ?: node.get("phase")?.asText()?.takeIf { it.isNotBlank() } ?: "none"
-        val arr = (node.get("unlocks") as? com.fasterxml.jackson.databind.node.ArrayNode) ?: node.putArray("unlocks")
-        val exists = arr.any { it.get("path")?.asText() == rel && it.get("phase")?.asText() == ph }
-        if (!exists) {
-            arr.addObject().put("path", rel).put("phase", ph).put("reason", why).put("at", Time.now())
-        }
-        java.nio.file.Files.createDirectories(file.parent)
-        val tmp = file.resolveSibling("state.json.tmp")
-        java.nio.file.Files.writeString(tmp, mapper.writerWithDefaultPrettyPrinter().writeValueAsString(node))
-        java.nio.file.Files.move(tmp, file, java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE)
-        return mapper.convertValue(arr, List::class.java)
+        return UnlockResult(list, "engine", tid)
     }
 }
 

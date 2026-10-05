@@ -51,11 +51,11 @@ data class ClassifyConfig(
 
 /**
  * A small port of keel v1's `lib/guards.js` classify + MATRIX. The matrix itself comes from the
- * shared fixture (`keel/keel_v1_rules.json`), the same file the engine's rules are tested against.
+ * shared fixture (`keel/keel_rules.json`), the same file the engine's rules are tested against.
  */
 @Component
 class KeelRules(mapper: ObjectMapper) {
-    private val fixture: JsonNode = ClassPathResource("keel/keel_v1_rules.json").inputStream.use { mapper.readTree(it) }
+    private val fixture: JsonNode = ClassPathResource("keel/keel_rules.json").inputStream.use { mapper.readTree(it) }
 
     val matrix: Map<String, Map<String, String>> = fixture.get("MATRIX").fields().asSequence().associate { (phase, rules) ->
         phase to rules.fields().asSequence().associate { (bucket, verdict) -> bucket to verdict.asText() }

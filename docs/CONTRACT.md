@@ -53,6 +53,8 @@ POST /threads/{id}/resume  { decision: "approve"|"reject", why?: string, payload
 POST /threads/{id}/stop                       → ThreadState
 GET  /threads/{id}/history                    → Checkpoint[]      newest first
 POST /threads/{id}/rewind  { checkpoint_id }  → ThreadState       continues from that checkpoint (new branch)
+GET  /threads/{id}/unlocks                    → Unlock[]          { path, phase, by, reason?, at? }
+POST /threads/{id}/unlocks { path, phase?, reason? } → Unlock[]   phase defaults to the thread's phase now
 POST /mcp/tools            McpServerSpec      → { ok, tools: {name, description}[], error? }   (tools/list)
 POST /providers/test       { provider, mode, model, key? } → { ok, text?, ms, error? }        ("Reply with exactly: OK")
 GET  /providers/models                        → { [provider]: {id, label}[] }
@@ -239,14 +241,15 @@ POST   /internal/events   EngineEvent[]
 
 ## Rules the code must keep
 
-- **keel rules** (`engine/keel_engine/rules/`): ported from keel v1 and tested against `engine/tests/fixtures/keel_v1_rules.json`
+- **keel rules** (`engine/keel_engine/rules/`, tables in `rules/data/keel_rules.json`; the api reads a byte-identical copy in
+  `api/src/main/resources/keel/keel_rules.json`): tested against keel v2's golden file `engine/tests/fixtures/guard_golden.json`
   (PHASES, TRANSITIONS, RAILS, MATRIX, COMMIT_RULES, FLOW_START, red_accept/red_reject, classify cases).
 - **Guards**: agent tools `write_file` / `run_command` refuse what `MATRIX[phase]` denies; after every agent step the
   engine diffs the repo (`git status --porcelain`) and reverts files the phase does not allow, emitting `guard.refused`.
 - **Gates** are LangGraph `interrupt()`; only `POST /threads/{id}/resume` continues them. Locked steps can only be removed
   from a workflow when `keel_rules` is false (the api refuses otherwise with `{error, hint}`).
-- **Mirror**: the engine writes `<root>/.keel/state.json` (keel v1 schema: flow, phase, acs, gates, ...) and appends
-  `<root>/.keel/logs/events.jsonl` (`{at, kind: tool|agent|phase|gate|guard, ...}`) so keel v1's CLI and dashboard read v2 projects.
+- **No mirror** (since v0.4.0): the flow's state lives only in the engine (`/data`); the engine writes no v1-format state
+  file or event log into the project. `.keel/config.yml` (project settings) stays.
 - **Secrets**: never logged, never returned; subscription mode removes `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GITHUB_TOKEN`… from CLI child env.
 - **Fake model** (provider `fake`): deterministic, no network; a full feature flow on the bundled demo repo must reach `done`
   with gates approved through the API. It is the default model until the user picks another in Connections/Settings.
@@ -269,9 +272,7 @@ POST /threads              StartThread + { keys?, settings.fix_attempts?, settin
   manifest dependencies need approval (refused with `waiting.kind="fix"` titled "Approve new dependency"), coverage commits
   may only delete production lines, trivial commits may not edit existing tests, change-flow escalation triggers
   (contract / migration / auth paths / size) → `waiting.kind="gate"` "Escalate to a feature flow?".
-- **Live guard for the claude CLI**: subscription claude runs with `--plugin-dir $KEEL_HOME` so keel v1's hooks enforce the
-  phase rules on every tool call (engine keeps `.keel/state.json` current before each agent step). opencode runs with
-  keel's opencode adapter (`$KEEL_HOME/opencode`). codex/copilot keep the after-step diff guard.
+- **Live guard for the claude CLI** (v0.4.0: keel v2's own hook, see "v0.4.0 additions"). codex/copilot keep the after-step diff guard.
 - New built-in template **`knowledge-refresh`**: one librarian per selected stale section (parallel) → `memory_check` → commit.
   Started by the api's wiki refresh.
 
@@ -401,3 +402,28 @@ github-copilot`), else a built-in list. Effort is passed to the CLIs: claude `--
   `spec-clarify` (the question format, identity and work-placement probes) and `spec-writing` (spec layout, criteria
   form, drawings); both assigned to the `explorer` for phase `spec`. keel v1's `spec-authoring` (a live chat) is no
   longer assigned. Example result: `docs/examples/spec-leaderboard.md`.
+
+## v0.4.0 additions — keel v2's own guard
+
+- **Guard hook** `python -m keel_engine.hook pre-tool` (`engine/keel_engine/hook.py`): reads the Claude hook JSON
+  (`{tool_name, tool_input, cwd}`) on stdin and the guard context from the file named by `KEEL_GUARD_CTX`
+  (`{root, phase, ac: {id, layer}, lane, unlocks, agent, thread}`, written by the engine per agent run into the run's scratch
+  folder, mode 0600). Decides with keel's rules: `check_edit` (Edit, Write, MultiEdit, NotebookEdit; serena edit tools),
+  `check_read` (Read), `check_bash` (Bash), MCP write-ish tools need `mcp.allow` during a flow. Allow = exit 0; deny = exit 2
+  with `[keel guard] <reason>` on stderr, which the claude runner turns into a `guard` step and a `guard.refused` event
+  (`source: "keel-hook"`). **Fails closed**: no readable context or any error → only Read/Glob/Grep/LS pass.
+- **claude**: `--settings <scratch>/keel-guard.json` with one PreToolUse hook
+  (`"<engine python>" -I -m keel_engine.hook pre-tool || exit 2`, matcher `Edit|Write|MultiEdit|NotebookEdit|Bash|Read|mcp__.*`). Always on.
+- **opencode**: the engine writes a small plugin (`<scratch>/opencode/plugins/keel-guard.js`, loaded through
+  `OPENCODE_CONFIG_DIR`) that hands each guarded call to the same hook. keel v1's adapter left in `<root>/.opencode/` by
+  v0.3 is removed when found (only that file, only when git does not track it).
+- **codex and copilot** have no pre-tool hook: they are guarded after each step only (the diff guard puts back the files the
+  phase does not allow, `tools/guard.py`), so a forbidden edit exists on disk until the step ends.
+- **Unlocks** live in the thread (engine DB + graph state). `POST /threads/{id}/unlocks` stores one, rewrites the guard
+  context files of the thread's running agents at once, and the next step merges it into `state.unlocks`. The api's
+  `POST /api/projects/{pid}/unlock` → `{ unlocks, via: "thread"|"engine", thread_id }`: a thread waiting with `kind:"fix"` gets it
+  as a resume payload (as before), otherwise the project's running or waiting thread gets it through the engine; with no
+  such thread the api answers 409.
+- **Upgrade**: on the first start or resume of a thread, unlocks of an active flow in a project's old v0.3 state file are
+  imported once into that thread (recorded in `legacy_unlock_imports`); that file is never written again.
+- **Ladder rung 12** is the guard self-test: a context in phase red, a production-file edit must exit 2 and a read exit 0.

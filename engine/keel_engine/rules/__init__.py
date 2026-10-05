@@ -1,8 +1,8 @@
-"""keel v1 rules, ported as data plus small functions.
+"""keel's rules (first ported from keel v1), as data plus small functions.
 
-The tables come from `data/keel_v1_rules.json`, exported from keel v1 (lib/state.js, lib/guards.js,
-lib/cli.js, lib/config.js). Keeping them as data means a parity test can compare them one to one,
-and the functions below carry the behaviour that the tables alone do not express.
+The tables live in `data/keel_rules.json` (the api reads a byte-identical copy). Keeping them as data
+means a golden test can compare them one to one, and the functions below carry the behaviour that
+the tables alone do not express.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from typing import Any
 
 import yaml
 
-_DATA = json.loads((Path(__file__).parent / "data" / "keel_v1_rules.json").read_text())
+_DATA = json.loads((Path(__file__).parent / "data" / "keel_rules.json").read_text())
 
 PHASES: list[str] = _DATA["PHASES"]
 TRANSITIONS: dict[str, list[str]] = _DATA["TRANSITIONS"]
