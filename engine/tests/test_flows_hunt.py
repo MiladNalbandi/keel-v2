@@ -178,7 +178,8 @@ def test_an_auto_hunt_stops_only_at_the_lenses_and_the_triage_then_hands_over(cl
     nxt = s["children"][0]
     assert nxt["workflow"] == "hunt-next"
     n = wait(client, nxt["thread_id"])
-    assert n["waiting"]["step"] == "close_gate", n
+    # hunt-next ends at the hand-off (a real run once asked "close it: fixed?" while the fix had only just started)
+    assert n["status"] == "done", n
     fix = n["children"][0]
     assert fix["workflow"] == "fix" and fix["title"].startswith("F-001")
     eng = client.app.state.engine
@@ -189,14 +190,23 @@ def test_an_auto_hunt_stops_only_at_the_lenses_and_the_triage_then_hands_over(cl
     fv = values(client, fix["thread_id"])
     assert fv["data"]["needs_e2e"] is True and fv["data"]["symptoms"][0].startswith("F-001:")
     assert hunt.candidates("demo", run_id)[0]["dispatch"]["flow"] == "fix"
+    assert not hunt.candidates("demo", run_id)[0].get("close")
 
-    # the close gate needs a note: without one it asks again
-    n = decide(client, nxt["thread_id"], "approve", payload={"choice": "fixed"})
-    assert n["waiting"]["step"] == "close_gate"
-    n = decide(client, nxt["thread_id"], "approve", why="PR #12", payload={"choice": "fixed"})
-    assert n["status"] == "done"
-    closed = hunt.candidates("demo", run_id)[0]["close"]
-    assert closed["as"] == "fixed" and closed["note"] == "PR #12"
+
+def test_the_child_flows_end_closes_or_reopens_its_group(repo):
+    run = _proven_run(repo)
+    r = hunt.take("demo", str(repo), run)
+    data = {"seed": r["seed"]}
+    assert hunt.candidates("demo", run)[0]["dispatch"]
+    # failed / stopped: open again, so the next hunt-next takes it
+    assert "open again" in hunt.child_finished("demo", str(repo), data, "stopped", "F-001 fix", "fix")
+    assert not hunt.candidates("demo", run)[0].get("dispatch")
+    # done: closed as fixed, the branch and the commit in the note
+    msg = hunt.child_finished("demo", str(repo), data, "done", "F-001 fix", "fix")
+    closed = hunt.candidates("demo", run)[0]["close"]
+    assert msg.startswith("Closed") and closed["as"] == "fixed" and "keel does not merge" in closed["note"] and closed["sha"]
+    # a flow no hunt started: nothing
+    assert hunt.child_finished("demo", str(repo), {}, "done", "x", "fix") is None
 
 
 def test_an_unspecified_finding_goes_to_the_feature_flow_and_nothing_open_ends(client, repo, monkeypatch):
@@ -204,10 +214,7 @@ def test_an_unspecified_finding_goes_to_the_feature_flow_and_nothing_open_ends(c
     answers(monkeypatch, {})
     tid = start(client, repo, workflow="hunt-next", title="next", settings=SETTINGS)
     s = wait(client, tid)
-    assert s["waiting"]["step"] == "close_gate"
-    assert s["children"][0]["workflow"] == "feature"
-    s = decide(client, tid, "approve", payload={"choice": "later"})
-    assert s["status"] == "done"
+    assert s["status"] == "done" and s["children"][0]["workflow"] == "feature"
     # the group is dispatched: nothing is open, so the next hunt-next ends at once
     s = wait(client, start(client, repo, workflow="hunt-next", title="next", settings={**SETTINGS, "hunt_run": run}))
     assert s["status"] == "done" and not s.get("children")
