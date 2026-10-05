@@ -49,6 +49,11 @@ def proof(cid, verdict, severity=None, runs=2, body=None, evidence="ran it twice
 
 def start_hunt(client, repo, monkeypatch, mode="semi", provers=None, groups=None, lenses=("security", "technical", "contract-drift")):
     rounds: dict[str, int] = {}
+    # the demo is api only; a web file gives the sweep its web lane (a lane with no files gets no hunter)
+    (repo / "web" / "src").mkdir(parents=True, exist_ok=True)
+    (repo / "web" / "src" / "App.tsx").write_text("export const App = () => null;\n")
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "chore: web"], cwd=repo, check=True)
 
     def prover(req):
         cid = req.item["id"]
@@ -317,3 +322,17 @@ def test_the_engine_close_endpoint(client, repo):
     assert r.status_code == 400 and "note" in r.json()["error"]
     r = client.post(f"/projects/demo/hunts/{run}/close", json={"id": "F-001", "as": "wontfix", "note": "by design"})
     assert r.status_code == 200 and r.json()["candidates"][0]["close"]["as"] == "wontfix"
+
+
+def test_a_lane_without_files_gets_no_hunter(tmp_path):
+    # Real run (lab, node project with no web code): the web hunters searched until they ran out of turns.
+    import subprocess
+    root = tmp_path / "p"
+    (root / "src").mkdir(parents=True)
+    (root / "src" / "cart.js").write_text("export const a = 1;\n")
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    from keel_engine.runtime import hunt
+    assert hunt.lanes_present(str(root)) == {"api"}
+    pairs = hunt.sweep_pairs(hunt.settings(str(root)), ["behavioral", "security"])
+    assert pairs and all(p.endswith(":api") or p.endswith(":both") for p in pairs)
