@@ -29,6 +29,7 @@ export function StartFlowDrawer({ onClose, workflowId }: { onClose: () => void; 
   const [allowFake, setAllowFake] = useState(false);
   const [allowDirty, setAllowDirty] = useState(false);
   const [doctor, setDoctor] = useState(false);
+  const [lintScope, setLintScope] = useState<"diff" | "all">("diff");
   const isDemo = projects.find((x) => x.id === p)?.root === "/data/demo";
   const fakeRefused = !!err && /fake model/i.test(err.message);
   const dirtyRefused = !!err && /uncommitted changes/i.test(err.message);
@@ -85,6 +86,8 @@ export function StartFlowDrawer({ onClose, workflowId }: { onClose: () => void; 
         ...(capTokens > 0 ? { cap_tokens: capTokens } : {}), on_cap: onCap,
         ...(allowFake ? { allow_fake: true } : {}), ...(allowDirty ? { allow_dirty: true } : {}),
         ...(request.trim() ? { request: request.trim() } : {}),
+        // the lint flow reads its scope from the flow's data (docs/CONTRACT.md, v0.4.1)
+        ...(wid === "lint" ? { options: { scope: lintScope } } : {}),
       });
       if (p !== pid) setProjectId(p);
       await reloadProjects();
@@ -117,6 +120,16 @@ export function StartFlowDrawer({ onClose, workflowId }: { onClose: () => void; 
           {wfs?.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
         </select>
       </div>
+      {wid === "lint" && (
+        <div className="field">
+          <label htmlFor="sf-scope">What to check</label>
+          <select id="sf-scope" value={lintScope} onChange={(e) => setLintScope(e.target.value as "diff" | "all")}>
+            <option value="diff">The files this branch changed</option>
+            <option value="all">The whole project</option>
+          </select>
+          <span className="hint">keel runs the formatters and linters of this project's stacks, fixes what they find without changing behaviour (2 rounds at most) and commits it as chore(lint).</span>
+        </div>
+      )}
       <div className="field">
         <label htmlFor="sf-what">What to build</label>
         <input type="text" id="sf-what" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Players can see their rank next to the top 10" />
