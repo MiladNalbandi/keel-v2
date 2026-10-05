@@ -38,7 +38,8 @@ ENV LANG=C.UTF-8 \
     KEEL_DATA=/data KEEL_WORKSPACE=/workspace KEEL_HOME=/opt/keel KEEL_DASHBOARD_AUTOSTART=true \
     KEEL_CONTENT=/opt/keel-v2/content \
     KEEL_ENGINE_URL=http://127.0.0.1:8090 KEEL_API_URL=http://127.0.0.1:8080 \
-    UV_PROJECT_ENVIRONMENT=/opt/engine/.venv UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never
+    UV_PROJECT_ENVIRONMENT=/opt/engine/.venv UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never \
+    CODEGRAPH_NO_DAEMON=1 CODEGRAPH_TELEMETRY=0 DO_NOT_TRACK=1 CODEGRAPH_NO_UPDATE_CHECK=1
 
 # System tools, Python 3.12, Node.js (NodeSource) and the Docker CLI with compose + buildx (Docker's apt repo).
 # The Docker daemon is the host's: `keel2 --docker` mounts its socket, so tests can use Testcontainers or compose.
@@ -53,9 +54,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && git config --system --add safe.directory '*' \
     && git config --system user.name "keel" && git config --system user.email "keel@localhost"
 
-# The agent CLIs
+# The agent CLIs, and CodeGraph (the code index agents query through MCP; content/NOTICE.md). CodeGraph is pinned:
+# keel parses its `status --json` and starts `serve --mcp`.
+ARG CODEGRAPH_VERSION=1.6.2
 RUN if [ "$INSTALL_CLIS" = "1" ]; then \
-      npm i -g --no-audit --no-fund @anthropic-ai/claude-code @openai/codex @github/copilot opencode-ai && npm cache clean --force; \
+      npm i -g --no-audit --no-fund @anthropic-ai/claude-code @openai/codex @github/copilot opencode-ai \
+        "@colbymchenry/codegraph@${CODEGRAPH_VERSION}" && npm cache clean --force && codegraph --version; \
     fi
 
 # keel v1 from GitHub (no npm dependencies; node is enough)

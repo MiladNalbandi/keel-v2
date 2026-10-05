@@ -1,7 +1,7 @@
 // MSW handlers for every /api route the web uses, backed by a small in-memory db (reset per test).
 
 import { http, HttpResponse } from "msw";
-import type { Cap, Settings, Stack, ThreadState, Workflow } from "../api";
+import type { Cap, IndexStatus, Settings, Stack, ThreadState, Workflow } from "../api";
 import * as fx from "./fixtures";
 
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v));
@@ -20,6 +20,8 @@ export function createDb() {
     stacks: clone(fx.stacks) as Stack[],
     mcpServers: clone(fx.mcpServers),
     agents: clone(fx.agents),
+    /** What GET /index answers (tests change it). */
+    index: { project: "ludus-engine", status: "ready", files: 412, symbols: 3100, indexed_at: new Date(Date.now() - 5 * 60_000).toISOString() } as IndexStatus,
     /** What POST /repo/update-from-base answers (tests change it). */
     update: { ok: true, merged: true, conflicts: [] as string[], output: "Merge made by the 'ort' strategy.\n 1 file changed" },
     /** When set, PUT /workflows/:wid answers 422 with these validation errors. */
@@ -89,6 +91,12 @@ export function handlers(db: Db) {
     http.post("/api/jobs/:id/stop", async ({ request }) => { await log(request); return new HttpResponse(null, { status: 204 }); }),
 
     http.get("/api/projects/:pid/repo", () => HttpResponse.json(fx.repo)),
+    http.get("/api/projects/:pid/index", () => HttpResponse.json(db.index)),
+    http.post("/api/projects/:pid/index/rebuild", async ({ request }) => {
+      await log(request);
+      db.index = { ...db.index, status: "indexing" };
+      return HttpResponse.json(db.index);
+    }),
     http.get("/api/projects/:pid/repo/tree", () => HttpResponse.json(fx.tree)),
     http.get("/api/projects/:pid/repo/file", () => HttpResponse.json(fx.file)),
     http.get("/api/projects/:pid/repo/commits", () => HttpResponse.json([{ sha: "a81c3f0aa", message: "feat(AC-002) refuse a negative score", author: "implementer", at: new Date().toISOString() }])),
