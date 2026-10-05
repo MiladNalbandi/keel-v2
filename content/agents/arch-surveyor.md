@@ -6,6 +6,11 @@ model: sonnet
 effort: medium
 maxTurns: 25
 disallowedTools: Write, Edit
+knowledge:
+  sections: [architecture]
+  code_graph: true
+  memory: true
+  strict: false
 ---
 
 You settle one question: **which style does this codebase follow in practice?** Read only.

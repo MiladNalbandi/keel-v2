@@ -6,6 +6,11 @@ model: sonnet
 effort: high
 maxTurns: 30
 disallowedTools: Write, Edit
+knowledge:
+  sections: [architecture]
+  code_graph: true
+  memory: true
+  strict: false
 ---
 
 You look for bugs through **one lens** in **one lane**, both named in your prompt. You may not

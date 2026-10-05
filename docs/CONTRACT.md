@@ -106,6 +106,7 @@ type StartThread = {
   settings: { gates_mode: "every-ac"|"end-of-lane"|"end"; cap_tokens: number; on_cap: "pause"|"cheaper"|"stop"; cheaper_model?: Model };
   mcp: McpServerSpec[];                        // servers this flow may use; per-agent allowlist inside Step.tools
   skills: Record<string, string>;              // agent id → concatenated SKILL.md text to add to its prompt
+  agents?: Record<string, { knowledge: Knowledge }>;   // v0.4: what each agent uses (missing → its front matter default)
 };
 type ThreadState = {
   thread_id: string; project_id: string; workflow_id: string; title: string;
@@ -293,6 +294,13 @@ GET  /api/providers/models                                  → engine /provider
 POST /api/projects/{pid}/flows       + { cap_tokens?, on_cap? }          (per-flow cap; overrides settings for that thread)
 GET  /api/projects/{pid}/estimate    + POST variant { yaml, acs }         (estimate unsaved workflow YAML)
 Agent                                + lane: "follow"|"api"|"web"          (PUT accepts it; passed to the engine as Step metadata)
+Agent (v0.4)                         + knowledge: Knowledge, knowledge_tokens: int, knowledge_files: {section: tokens}
+                                       Knowledge = { sections: ("architecture"|"domain"|"conventions"|"data"|"integrations"|"journeys")[],
+                                       code_graph, memory, strict: bool }; default = the `knowledge:` front matter block of
+                                       content/agents/<id>.md; PUT { knowledge: {...} | null } overrides / clears it; an
+                                       unknown section is 400. Sent to the engine in StartThread.agents; the estimate gets
+                                       knowledge_tokens per agent (counted for agents with no history). strict → the guard
+                                       refuses reading other docs/knowledge sections ("knowledge section <x> is not given to <agent> (strict)").
 GET  /api/events?project=*                                   SSE for all projects (notifications + project.changed); web uses this for the bell
 GET  /api/projects/{pid}/flow        + thread.blockers, thread.ladder (from ThreadState)
 ```
@@ -462,7 +470,7 @@ longer built in.
 
 - **Guard hook** `python -m keel_engine.hook pre-tool` (`engine/keel_engine/hook.py`): reads the Claude hook JSON
   (`{tool_name, tool_input, cwd}`) on stdin and the guard context from the file named by `KEEL_GUARD_CTX`
-  (`{root, phase, ac: {id, layer}, lane, unlocks, agent, thread}`, written by the engine per agent run into the run's scratch
+  (`{root, phase, ac: {id, layer}, lane, unlocks, agent, thread, knowledge_allowed, knowledge_strict}`, written by the engine per agent run into the run's scratch
   folder, mode 0600). Decides with keel's rules: `check_edit` (Edit, Write, MultiEdit, NotebookEdit; serena edit tools),
   `check_read` (Read), `check_bash` (Bash), MCP write-ish tools need `mcp.allow` during a flow. Allow = exit 0; deny = exit 2
   with `[keel guard] <reason>` on stderr, which the claude runner turns into a `guard` step and a `guard.refused` event

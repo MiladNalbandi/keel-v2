@@ -19,6 +19,7 @@ export function createDb() {
     caps: clone(fx.caps) as Cap[],
     stacks: clone(fx.stacks) as Stack[],
     mcpServers: clone(fx.mcpServers),
+    agents: clone(fx.agents),
     /** What POST /repo/update-from-base answers (tests change it). */
     update: { ok: true, merged: true, conflicts: [] as string[], output: "Merge made by the 'ort' strategy.\n 1 file changed" },
     /** When set, PUT /workflows/:wid answers 422 with these validation errors. */
@@ -157,10 +158,18 @@ export function handlers(db: Db) {
     http.get("/api/library", () => HttpResponse.json(fx.library)),
     http.post("/api/projects/:pid/library/:id/install", async ({ request }) => { await log(request); return HttpResponse.json(fx.fixWorkflow); }),
 
-    http.get("/api/projects/:pid/agents", () => HttpResponse.json(fx.agents)),
+    http.get("/api/projects/:pid/agents", () => HttpResponse.json(db.agents)),
     http.put("/api/projects/:pid/agents/:aid", async ({ request, params }) => {
       const b = await log(request);
-      return HttpResponse.json({ ...fx.agents.find((a) => a.id === params.aid), ...b });
+      const i = db.agents.findIndex((a) => a.id === params.aid);
+      const prev = db.agents[i];
+      // like the api: a field sent as null goes back to the default; knowledge changes the token count
+      const knowledge = b.knowledge === null ? fx.agents.find((a) => a.id === params.aid)?.knowledge : (b.knowledge as typeof prev.knowledge) ?? prev.knowledge;
+      const files = prev.knowledge_files ?? {};
+      const next = { ...prev, ...b, knowledge, knowledge_tokens: (knowledge?.sections ?? []).reduce((n, s) => n + (files[s] ?? 0), 0),
+        overridden: [...new Set([...prev.overridden.filter((k) => b[k] !== null), ...Object.keys(b).filter((k) => b[k] !== null)])] };
+      db.agents[i] = next;
+      return HttpResponse.json(next);
     }),
     http.post("/api/projects/:pid/agents", async ({ request }) => { const b = await log(request); return HttpResponse.json({ ...b, custom: true, enabled: true, overridden: [] }); }),
     http.post("/api/agents/:aid/test", () => HttpResponse.json({ ok: true, text: "OK", ms: 1400 })),

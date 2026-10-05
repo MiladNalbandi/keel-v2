@@ -6,6 +6,11 @@ model: opus
 effort: high
 maxTurns: 25
 disallowedTools: Write, Edit
+knowledge:
+  sections: [architecture, conventions]
+  code_graph: true
+  memory: true
+  strict: false
 ---
 
 You review **the whole branch diff** — `git diff main...HEAD` — the first point in the flow anyone

@@ -305,6 +305,23 @@ def check_read(path: str, cfg: dict | None = None) -> Verdict:
     return Verdict(True, bucket)
 
 
+# ---------------------------------------------------------------- per-agent knowledge (strict mode)
+
+# The knowledge base sections an agent can be given (docs/knowledge/<section>.md). index.md is not a section.
+KNOWLEDGE_SECTIONS = ["architecture", "domain", "conventions", "data", "integrations", "journeys"]
+_KNOWLEDGE_FILE = re.compile(r"(?:^|[/\s'\"])docs/knowledge/(" + "|".join(KNOWLEDGE_SECTIONS) + r")\.md\b")
+
+
+def check_knowledge(path_or_command: str, agent: str, allowed: list[str] | None, strict: bool) -> Verdict:
+    """Strict mode: an agent may not read a knowledge section it was not given. Not strict, it is only told."""
+    if not strict or allowed is None:
+        return Verdict(True)
+    for m in _KNOWLEDGE_FILE.finditer(str(path_or_command or "").replace("\\", "/")):
+        if m.group(1) not in allowed:
+            return Verdict(False, "knowledge", f"knowledge section {m.group(1)} is not given to {agent or 'this agent'} (strict)")
+    return Verdict(True)
+
+
 # ---------------------------------------------------------------- shell guard
 
 _ENV_PRINTERS = {"cat", "less", "more", "head", "tail", "grep", "egrep", "fgrep", "bat", "xxd", "od", "strings", "awk", "nl"}

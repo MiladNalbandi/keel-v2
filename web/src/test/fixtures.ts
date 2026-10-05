@@ -162,7 +162,9 @@ export const agents: Agent[] = [
   { id: "explorer", label: "explorer", about: "Maps the code an AC touches, read-only.", custom: false, phases: ["spec"],
     model: { provider: "claude", mode: "subscription", model: "sonnet" }, tools: ["mcp:keel"], skills: ["spec-authoring"], prompt: "You map code.", enabled: true, overridden: [] },
   { id: "implementer", label: "implementer", about: "Writes the minimum code to make the failing test pass.", custom: false, phases: ["green"],
-    model: { provider: "copilot", mode: "subscription", model: "gpt-5" }, tools: ["mcp:keel"], skills: [], prompt: "You implement.", enabled: true, overridden: ["model"] },
+    model: { provider: "copilot", mode: "subscription", model: "gpt-5" }, tools: ["mcp:keel"], skills: [], prompt: "You implement.", enabled: true, overridden: ["model"],
+    knowledge: { sections: ["architecture", "conventions", "data"], code_graph: true, memory: true, strict: false },
+    knowledge_tokens: 1700, knowledge_files: { architecture: 1200, conventions: 500, domain: 300 } },
   { id: "lit-check", label: "Lit-Check", about: "Checks the spec against docs/.", custom: true, phases: ["spec"],
     model: { provider: "copilot", mode: "api", model: "gpt-5" }, tools: ["mcp:keel", "mcp:github"], skills: [], prompt: "Check the spec.", enabled: true, overridden: [] },
 ];

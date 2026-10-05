@@ -6,6 +6,11 @@ model: opus
 effort: medium
 maxTurns: 12
 disallowedTools: Write, Edit
+knowledge:
+  sections: [architecture, conventions]
+  code_graph: true
+  memory: true
+  strict: false
 ---
 
 You review **one acceptance criterion**: its RED commit, its GREEN commit, and nothing else. The

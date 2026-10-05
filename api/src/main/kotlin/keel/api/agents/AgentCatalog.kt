@@ -14,6 +14,46 @@ data class AgentDef(
     val model: String?,
     val prompt: String,
     val phases: List<String>,
+    val knowledge: Knowledge = Knowledge.FALLBACK,
+)
+
+/**
+ * What project knowledge an agent uses (plan 5c): the docs/knowledge sections it is given, the code graph, its own
+ * session memory, and strict (the guard refuses other sections; otherwise the agent is only told).
+ */
+data class Knowledge(
+    val sections: List<String> = emptyList(),
+    val codeGraph: Boolean = true,
+    val memory: Boolean = true,
+    val strict: Boolean = false,
+) {
+    /** This setting with the given fields of a patch on top. */
+    fun with(p: KnowledgePatch?): Knowledge = if (p == null) this else Knowledge(
+        sections = p.sections?.let { s -> SECTIONS.filter { it in s } } ?: sections,
+        codeGraph = p.codeGraph ?: codeGraph, memory = p.memory ?: memory, strict = p.strict ?: strict,
+    )
+
+    companion object {
+        val SECTIONS = listOf("architecture", "domain", "conventions", "data", "integrations", "journeys")
+        /** Agents with no knowledge block (custom agents too); the engine has the same fallback. */
+        val FALLBACK = Knowledge(sections = listOf("architecture"))
+
+        /** The `knowledge:` block of an agent file's front matter; null if there is none. */
+        fun parse(v: Any?): Knowledge? {
+            val m = v as? Map<*, *> ?: return null
+            fun flag(k: String, d: Boolean) = (m[k] as? Boolean) ?: m[k]?.toString()?.toBooleanStrictOrNull() ?: d
+            val wanted = FrontMatter.list(m["sections"])
+            return Knowledge(SECTIONS.filter { it in wanted }, flag("code_graph", true), flag("memory", true), flag("strict", false))
+        }
+    }
+}
+
+/** A project's change to an agent's knowledge; null fields keep the default. */
+data class KnowledgePatch(
+    val sections: List<String>? = null,
+    val codeGraph: Boolean? = null,
+    val memory: Boolean? = null,
+    val strict: Boolean? = null,
 )
 
 /** Splits a markdown file with YAML front matter into (front matter, body). */
@@ -59,6 +99,7 @@ class AgentCatalog(private val props: KeelProperties) {
             model = fm["model"]?.toString(),
             prompt = body.trim(),
             phases = PHASES[id] ?: emptyList(),
+            knowledge = Knowledge.parse(fm["knowledge"]) ?: Knowledge.FALLBACK,
         )
     }.getOrNull()
 

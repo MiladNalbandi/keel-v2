@@ -3,6 +3,7 @@ package keel.api.flow
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import keel.api.agents.AgentService
+import keel.api.agents.Knowledge
 import keel.api.common.ApiException
 import keel.api.common.BadRequest
 import keel.api.common.Conflict
@@ -44,11 +45,16 @@ data class StartThread(
     val settings: ThreadSettings,
     val mcp: List<McpServerSpec>,
     val skills: Map<String, String>,
+    /** Per agent: what it uses besides its prompt (its knowledge setting). */
+    val agents: Map<String, AgentStart> = emptyMap(),
     /** provider -> API key for models that run in "api" mode; the engine keeps them in memory only. */
     val keys: Map<String, String>? = null,
     /** What the user asked for, in their words. */
     val request: String? = null,
 )
+
+/** One agent's entry in StartThread.agents. */
+data class AgentStart(val knowledge: Knowledge)
 
 /** Per-flow cap from POST /flows; null fields fall back to the project's settings. */
 data class FlowCap(val capTokens: Int? = null, val onCap: String? = null) {
@@ -111,6 +117,7 @@ class FlowService(
             models = models,
             settings = ThreadSettings(s.gatesMode, cap?.capTokens ?: s.capTokens, cap?.onCap ?: s.onCap, s.cheaperModel),
             mcp = mcp.specsFor(s.mcp), skills = skillText,
+            agents = all.filter { it.enabled }.associate { it.id to AgentStart(it.knowledge) },
         )
     }
 
@@ -293,8 +300,12 @@ class FlowService(
             { rs, _ -> mapOf("agent" to rs.getString(1), "tokens_in" to rs.getLong(2), "tokens_out" to rs.getLong(3), "retries" to 0) }, pid,
         )
         val models = linkedMapOf<String, Model>("default" to settings.effective(pid).defaultModel)
-        agents.list(pid).filter { it.enabled }.forEach { models[it.id] = it.model }
-        return engine.estimate(mapOf("yaml" to yaml, "acs" to acs.coerceIn(0, 50), "history" to history, "models" to models))
+        val enabled = agents.list(pid).filter { it.enabled }
+        enabled.forEach { models[it.id] = it.model }
+        // What each agent reads of the knowledge base it is given (counted for agents with no history yet).
+        val knowledge = enabled.filter { it.knowledgeTokens > 0 }.associate { it.id to it.knowledgeTokens }
+        return engine.estimate(mapOf("yaml" to yaml, "acs" to acs.coerceIn(0, 50), "history" to history, "models" to models,
+            "knowledge_tokens" to knowledge))
     }
 
     // ---- unlocks ----------------------------------------------------------------------------

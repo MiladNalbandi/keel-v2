@@ -1,6 +1,10 @@
 """The guard context: what keel's PreToolUse hook (keel_engine.hook) needs to judge one tool call.
 
-    {root, phase, ac: {id, layer} | null, lane, unlocks: [{path, phase, by?, reason?, at?}], agent, thread}
+    {root, phase, ac: {id, layer} | null, lane, unlocks: [{path, phase, by?, reason?, at?}], agent, thread,
+     knowledge_allowed: [section] | null, knowledge_strict: bool}
+
+knowledge_*: the agent's knowledge setting (runtime/agent_knowledge.py); with strict on, reading a docs/knowledge
+section the agent was not given is refused.
 
 The engine writes it into the run's scratch folder (outside the project, mode 0600) before a CLI agent
 runs, and rewrites the same file when an unlock is granted while that agent runs (runtime/service.py
@@ -86,10 +90,12 @@ def context_for(req) -> dict:
     """The context of one AgentRequest (its ToolBox carries the lane and the unlocks)."""
     tb = req.toolbox
     ac = req.ac or None
+    k = getattr(req, "knowledge", None)
     return {"root": str(Path(req.root).resolve()), "phase": req.phase or "none",
             "ac": {"id": ac.get("id"), "layer": ac.get("layer", "API")} if ac else None,
             "lane": getattr(tb, "lane", None), "unlocks": list(getattr(tb, "unlocks", None) or []),
-            "agent": req.agent, "thread": getattr(req, "thread", "") or ""}
+            "agent": req.agent, "thread": getattr(req, "thread", "") or "",
+            "knowledge_allowed": list(k["sections"]) if k else None, "knowledge_strict": bool(k and k.get("strict"))}
 
 
 def ensure(req, folder: str | None = None) -> str:
