@@ -5,6 +5,8 @@ In fake mode the test runs are simulated with fixed outputs (the demo has no tes
 image). Commits are real whenever the root is a git repository, so COMMIT_RULES are exercised.
 Checks that decide a push write a verdict to the engine DB (runtime/verdicts.py): knowledge_check -> memory,
 verify_release and a whole-suite verify_green -> release, verify_coverage -> coverage. Simulated runs write none.
+The other verdict actions (verify_fast, verify_module, verify_deps, audit, trace, arch) and the PR (pr, open_pr) live
+in runtime/verdict_actions.py; start_flow is the compiler's (it starts a thread).
 """
 
 from __future__ import annotations
@@ -20,10 +22,16 @@ from ..rules import checks
 from ..tools import codegraph, git, testcmd
 from ..tools.agent_tools import command_env
 from . import blockers as push_gates
-from . import knowledge, verdicts
+from . import knowledge, verdict_actions, verdicts
 from . import ladder as run_ladder
 
 COMMIT_EXCLUDES = [f":!{p.rstrip('/')}" for p in git.ENGINE_FILES]
+VERDICT_ACTIONS = {
+    "verify_fast": verdict_actions.verify_fast, "verify_module": verdict_actions.verify_module,
+    "verify_deps": verdict_actions.verify_deps, "audit": verdict_actions.audit, "trace": verdict_actions.trace,
+    "trace_strict": lambda a: verdict_actions.trace(a, strict=True), "arch": verdict_actions.arch,
+    "pr": verdict_actions.pr, "open_pr": verdict_actions.open_pr,
+}
 
 
 @dataclass
@@ -53,6 +61,10 @@ class ActionInput:
     preexisting: dict = field(default_factory=dict)    # the user's uncommitted files at start: {path: fingerprint}
     init: dict = field(default_factory=dict)           # keel init's answers (runs_on, services, knowledge_sections)
     project: str = ""                                  # the api's project id: verdicts are stored under it
+    item: dict | None = None                           # a for_each loop's current item
+    data: dict = field(default_factory=dict)           # the flow's data lists (state.data)
+    keys: dict = field(default_factory=dict)           # the thread's logins (open_pr reads a GitHub token), memory only
+    state: dict = field(default_factory=dict)          # a copy of the flow state (the pr action reads spec, gates, unlocks)
 
     @property
     def key(self) -> str:
@@ -68,6 +80,8 @@ async def run_action(action: str, a: ActionInput) -> ActionResult:
         return await verify_release(a)
     if action == "verify_coverage":
         return await verify_coverage(a)
+    if action in VERDICT_ACTIONS:
+        return await VERDICT_ACTIONS[action](a)
     if action == "commit":
         return await asyncio.to_thread(commit, a)
     if action == "write_config":
@@ -167,28 +181,52 @@ async def verify_green(a: ActionInput) -> ActionResult:
                         {"acs": _with_ac_status(a.acs, ac_id, "green")} if ac_id else {})
 
 
-def _release_verdict(a: ActionInput, ok: bool, cmd: str, out: str) -> dict:
+def _release_verdict(a: ActionInput, ok: bool, cmd: str, out: str, flaky: list | None = None) -> dict:
     head, tree = verdicts.stamp(a.root)
-    return verdicts.write(a.key, "release", ok, {"command": cmd, "tree": tree, "summary": None if ok else "the test suite failed",
-                                                 "output": tail(out, 1500)}, head)
+    detail = {"command": cmd, "tree": tree, "summary": None if ok else "the test suite failed", "output": tail(out, 1500)}
+    if flaky:
+        detail.update(flaky=flaky, summary="passed on the rerun (flaky)")
+    return verdicts.write(a.key, "release", ok, detail, head)
 
 
 async def verify_release(a: ActionInput) -> ActionResult:
-    """The whole test suite (the module command); its result is the release verdict, pass or fail."""
+    """The whole test suite (the module command); its result is the release verdict, pass or fail.
+    A failing run runs once more (loops.flaky_reruns, default 1): failed then passed is flaky, a pass with a warning."""
     if a.fake:
         return ActionResult(True, "Release suite: green (simulated, no verdict written).", "1 passed")
-    cmd, code, out = await _tests(a, whole_suite=True)
+    cmd = testcmd.command_for(a.root, None, "API")
     if cmd is None:
+        out = "No test command found. Add commands to .keel/config.yml."
         return ActionResult(False, out, out)
-    await asyncio.to_thread(_release_verdict, a, code == 0, cmd, out)
-    if code != 0:
-        return ActionResult(False, "The release suite fails.", f"$ {cmd}\n{tail(out, 3000)}")
-    return ActionResult(True, "Release suite: green; verdict recorded for this commit.", f"$ {cmd}\n{tail(out, 1500)}")
+    reruns = int((rules.load_config(a.root).get("loops") or {}).get("flaky_reruns", 1) or 0)
+    r = await asyncio.to_thread(verdict_actions.run_suite, a.root, cmd, "release suite", reruns)
+    await asyncio.to_thread(_release_verdict, a, r["ok"], cmd, r["out"], r["flaky"])
+    upd = verdict_actions.flaky_update(a, r["flaky"])
+    if not r["ok"]:
+        return ActionResult(False, "The release suite fails.", f"$ {cmd}\n{tail(r['out'], 3000)}")
+    return ActionResult(True, "Release suite: green; verdict recorded for this commit." + verdict_actions._flaky_note(r["flaky"]),
+                        f"$ {cmd}\n{tail(r['out'], 1500)}", upd)
 
 
 async def verify_coverage(a: ActionInput) -> ActionResult:
-    """`commands.coverage` from .keel/config.yml; exit 0 = the coverage gate passes. Without it there is no coverage gate."""
-    cmd = (rules.load_config(a.root).get("commands") or {}).get("coverage")
+    """`commands.coverage` from .keel/config.yml; exit 0 = the coverage gate passes. Without it there is no coverage gate.
+
+    With coverage.reports (jacoco/kover XML or lcov, keel v1's keys), the reports decide instead: the lines changed since
+    the base branch, coverage.changed_lines / changed_branches / global, 100% on security.coverage_paths; the uncovered
+    lines become groups (same file, at most 8 lines apart) in state.data.coverage_groups for a cover loop."""
+    cfg = rules.load_config(a.root)
+    cmd = (cfg.get("commands") or {}).get("coverage")
+    if verdict_actions.reports_of(cfg):
+        if a.fake:
+            return ActionResult(True, "Coverage: passed (simulated, no verdict written).")
+        if cmd:
+            code, out = await asyncio.to_thread(testcmd.run, a.root, cmd, 1800, command_env())
+            if code != 0:
+                await asyncio.to_thread(verdict_actions.record_verdict, a.key, "coverage", False,
+                                        {"command": cmd, "summary": f"`{cmd}` exited {code}", "output": tail(out, 1500)}, None, a.root)
+                return ActionResult(False, f"The coverage command `{cmd}` failed.", f"$ {cmd}\n{tail(out, 3000)}")
+        _m, r = await asyncio.to_thread(verdict_actions.coverage_from_reports, a)
+        return r
     if not cmd:
         return ActionResult(True, "No coverage command in .keel/config.yml (commands.coverage); coverage is not checked.")
     if a.fake:

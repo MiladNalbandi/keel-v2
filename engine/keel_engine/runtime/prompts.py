@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 
 from ..tools import testcmd
@@ -84,7 +85,7 @@ def _allowed(phase: str) -> str:
 def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str, ac: dict | None,
                 acs: list[dict], feedback: str | None, index: int = 0, spec: str | None = None,
                 section: str | None = None, unlocks: list[dict] | None = None, request: str = "",
-                knowledge: dict | None = None, graph: bool = False) -> str:
+                knowledge: dict | None = None, graph: bool = False, item: dict | None = None) -> str:
     lines = [f"Project folder: {root}", f"Flow: {title}", f"Step: {step_name} (keel phase: {phase})",
              "How this works: the keel engine runs the tests, makes the commits and moves between phases after you. "
              "Do not run keel commands, do not run git commit, reset, checkout or stash, and do not read or change "
@@ -161,7 +162,11 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
                          "criterion's test needs them.")
         if test_cmd:
             lines.append(f"The engine checks it with: {test_cmd}  (run it to confirm, then stop).")
-    if index and not section:
+    if item:
+        shown = {k: v for k, v in item.items() if k != "status"}
+        lines.append("Your item (work on this one only; other agents have the others):\n"
+                     + json.dumps(shown, indent=2, ensure_ascii=False, default=str)[:6000])
+    if index and not section and not item:
         lines.append(f"You are copy {index + 1} of a parallel step; take a different angle from the others.")
     if feedback and feedback.startswith("Answers to your questions:"):
         lines.append(feedback)

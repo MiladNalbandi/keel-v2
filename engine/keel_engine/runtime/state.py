@@ -47,6 +47,13 @@ class FlowState(TypedDict, total=False):
     deps: list[str]             # dependencies the user approved at a commit
     blockers: list[dict]        # [{gate, why, fix}] push blockers, refreshed by push_check and every commit
     ladder: list[dict] | None   # init: [{n, name, cmd, status, detail?}]
+    data: dict                  # lists and results steps make: a `collect` list, "<step>_results" of a fan-out, a seed
+    markers: dict               # {step id: {NAME: value}} from agents' answers; "*" holds the latest value of each name
+    item: str | None            # the current item id of a for_each loop
+    children: list[dict]        # flows this one started (start_flow): [{thread_id, workflow, step, title}]
+    parent: dict | None         # the flow that started this one: {thread_id, workflow, step}
+    pr_body: str | None         # the PR body the pr action built
+    flaky: list[dict]           # tests that failed once and passed on the rerun: [{label, tests, at}]
 
 
 @dataclass
@@ -72,6 +79,8 @@ class ThreadContext:
     # graph state) and the guards of the agents running now (guard context files, ToolBoxes), which get them at once.
     api_unlocks: list[dict] = field(default_factory=list)
     guards: list = field(default_factory=list)
+    # start_flow: async (workflow id, seed, link to this thread) -> the new thread's id (set by the Engine)
+    spawn: Any = None
 
     @property
     def fake(self) -> bool:
@@ -111,6 +120,7 @@ def initial_state(ctx: ThreadContext, acs: list[dict] | None) -> FlowState:
         retries={}, step_tokens={}, feedback=None, model_override=None, warned=False, spec=None, branch=None,
         git_head=None, last_failure=None, note="started", error=None, base_head=None, preexisting={}, last_answer="", findings=[], review_rounds={}, init={}, clarify={}, clarify_rounds=0, spec_revisions=0,
         unlocks=normalize_unlocks(s.get("unlocks"), "none", "settings"), deps=[], blockers=[], ladder=None,
+        data={}, markers={}, item=None, children=[], parent=None, pr_body=None, flaky=[],
     )
 
 
