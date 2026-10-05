@@ -68,6 +68,20 @@ Then go to **Run › Flow › Start a flow**, describe what you want, and approv
 
 ◆ = keel stops and waits for you. Each flow was run for real with Claude Haiku before this release.
 
+**Inbox and run modes.** **Run › Inbox** lists everything that waits for you in every project (gates, the explorer's
+questions, a check that keeps failing, a budget pause, a new dependency); answer it there or open its flow. Each flow
+has a run mode, picked in *Start a flow* (default in Settings) and changeable on the Flow page while it runs:
+
+| Run mode | keel decides by itself |
+|---|---|
+| **manual** (default) | nothing: it stops at every gate |
+| **important** | a criterion's AC gate, when its checks pass and its AC review is clean |
+| **auto** | every gate it can decide (plain approve, the default choice, the recommended answers); each is logged and listed in the final review and the PR body; it never opens a PR |
+| **readonly** | nothing; agents cannot edit, write or commit anything |
+
+In every mode keel still stops for the token cap, a new dependency, a secret in a commit, a check that keeps failing,
+and anything only you can answer. It never pushes.
+
 ## Everyday commands
 
 | Command | What it does |
