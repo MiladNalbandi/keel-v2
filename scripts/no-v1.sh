@@ -5,7 +5,7 @@
 #   scripts/no-v1.sh --strict   fail when anything is found (CI, from v0.4.0)
 set -euo pipefail
 cd "$(dirname "$0")/.."
-PATTERN='KEEL_HOME|keel_home|/opt/keel([^-]|$)|keel-v1/|bin/keel|\.keel/state\.json|events\.jsonl|KeelDashboard|OpenKeelV1|keelDashboard|projects\.json|keel_v1_rules'
+PATTERN='KEEL_HOME|keel_home|/opt/keel([^-]|$)|keel-v1/|bin/keel|\.keel/state\.json|(^|[^_a-z])events\.jsonl|KeelDashboard|OpenKeelV1|keelDashboard|projects\.json|keel_v1_rules'
 # Allowed: this script, the content test (it names the words content/ must not contain), history/changelog
 # text, and the optional external MCP entry for keel v1 (stage 4).
 ALLOW='^(scripts/no-v1\.sh|engine/tests/test_content\.py|CHANGELOG\.md|docs/CONTRACT\.md|docs/mockup\.html):|keel-v1-optional'
