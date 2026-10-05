@@ -112,6 +112,7 @@ type Step = {
   // v0.4.0 review, diagnose, fix, change (section "v0.4.0 additions: review, diagnose, fix and change"):
   instructions?: string;       // agent: extra task text; "{{data.report}}" is replaced by that state value
   after_rounds?: string;       // code: where failures go once `rounds` are used up, instead of asking
+  recommend?: string;          // gate with list choices: plain approve takes this marker's value when it names a choice (change: SIZE)
 };
 // kind "include" (+ flow): replaced by the steps of that workflow when the engine loads it (ids prefixed "<id>_").
 type Workflow = { id: string; name: string; based_on?: string; keel_rules: boolean; version: number; steps: Step[]; yaml: string };

@@ -74,6 +74,8 @@ class Step(BaseModel):
     rounds: int | None = None
     # A code step: where its failures go once the rounds are used up (instead of asking): "reset and reproduce again".
     after_rounds: str | None = None
+    # gate with list choices: the marker (any step) whose value is the default choice, e.g. SIZE from a triage
+    recommend: str | None = None
     # A review step: after a fix round, the flow goes on from this step (default: the review step itself).
     redo: str | None = None
     # The opening skip menu (a gate with skip_menu) may turn this step off: deferred = its push gate still waits,

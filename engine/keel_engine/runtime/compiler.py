@@ -1219,7 +1219,7 @@ class Compiler:
                 upd["data"] = {**(state.get("data") or {}), f"{step.id}_answer": {"choice": first, "why": "waived", "payload": {}}}
                 return upd, self.nav.jump(step.choices[first], i)
             if step.choices:
-                upd["markers"] = self._choice_markers(state, step, step.choices[0], "waived")
+                upd["markers"] = self._choice_markers(state, step, _default_choice(state, step), "waived")
             return upd, self.nav.after(i)
         options = OPTIONS
         title = step.name + (f" · {ac['id']}" if ac else f" · {item['id']}" if item else "")
@@ -1266,7 +1266,7 @@ class Compiler:
         elif step.choices and not no_criteria:
             # A list outside a loop: named exits as markers CHOICE and WHY (branches route on them); reject sends back.
             question.update(choices=list(step.choices), detail=detail + "\n\nApprove with one of: " + ", ".join(step.choices)
-                            + f" (default {step.choices[0]}). Send back to {step.back or 'the step before'} with a note.")
+                            + f" (default {_default_choice(state, step)}). Send back to {step.back or 'the step before'} with a note.")
         answer, extra = self._ask(state, question)
         decision = answer.get("decision", "reject") if not no_criteria else "reject"
         why = (answer.get("why") or "").strip()
@@ -1275,7 +1275,7 @@ class Compiler:
             return self._choice(i, step, state, gates, extra, answer, item)
         choice = None
         if step.choices and decision == "approve":
-            choice = payload.get("choice") if payload.get("choice") in step.choices else step.choices[0]
+            choice = payload.get("choice") if payload.get("choice") in step.choices else _default_choice(state, step)
         subject = f"ac {ac['id']}" if ac else f"gate {step.id}"
         gates["log"].append(f"{subject} {decision}" + (f" ({item['id']})" if item else "") + (f" [{choice}]" if choice else "")
                             + (f": {why}" if why else ""))
@@ -1531,6 +1531,15 @@ class Compiler:
                     "note": f"stopped: {step.name} still no after {step.rounds} round(s)"}, END
         gates["log"].append(f"gate {step.id} go on after {step.rounds} round(s): {why or 'no reason given'}")
         return {**extra, "gates": gates, "rounds": rounds, "note": f"{step.name}: went on after {step.rounds} round(s)"}, self.nav.after(i)
+
+
+def _default_choice(state, step) -> str:
+    """What a plain approve picks: the recommended marker's value when it names a choice, else the first choice."""
+    if step.recommend:
+        said = str(((state.get("markers") or {}).get("*") or {}).get(step.recommend) or "").strip().lower().split(" ")[0]
+        if said in step.choices:
+            return said
+    return step.choices[0]
 
 
 def stronger(model: dict) -> dict:
