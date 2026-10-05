@@ -18,6 +18,7 @@ from . import config, models
 from .demo import create_demo, workspace_missing
 from .events import EventBus, bus as default_bus
 from .models import catalog
+from .runtime import mapper, scan
 from .runtime.service import Engine, EngineError
 from .tools import mcp
 from .workflows.estimate import estimate
@@ -124,6 +125,15 @@ class EstimateBody(BaseModel):
     models: dict[str, ModelSpec] | None = None   # optional: agent -> model, for cost and by_provider
 
 
+class ScanBody(BaseModel):
+    root: str
+    rebuild: bool = False                 # a full re-index instead of an incremental sync of an existing index
+
+
+class MapBody(BaseModel):
+    root: str
+
+
 class ProviderTest(BaseModel):
     provider: Literal["fake", "claude", "codex", "copilot"]
     mode: Literal["subscription", "api", "opencode"] = "api"
@@ -147,6 +157,7 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     async def lifespan(app: FastAPI):
         engine = Engine(bus)
         app.state.engine = engine
+        app.state.scanner = scan.Scanner(bus)
         app.state.bus = bus
         app.state.demo = None
         if workspace_missing() and os.environ.get("KEEL_DEMO", "1") != "0":
@@ -266,6 +277,29 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     @app.post("/threads/{tid}/unlocks")
     async def post_unlock(tid: str, body: UnlockBody, request: Request):
         return await engine(request).add_unlock(tid, body.path, body.phase, body.reason)
+
+    def project_root(root: str) -> str:
+        if not os.path.isdir(root):
+            raise EngineError(400, f"The project folder {root} does not exist.", "Send the folder as the engine sees it.")
+        return os.path.realpath(root)
+
+    @app.post("/projects/{pid}/scan")
+    async def post_scan(pid: str, body: ScanBody, request: Request):
+        """Starts the scan (stack, code graph, map, knowledge sections) and answers at once with the index status."""
+        return await request.app.state.scanner.start(pid, project_root(body.root), body.rebuild)
+
+    @app.get("/projects/{pid}/index")
+    async def get_index(pid: str):
+        return await asyncio.to_thread(scan.status, pid)
+
+    @app.post("/projects/{pid}/map")
+    async def post_map(pid: str, body: MapBody):
+        return await asyncio.to_thread(mapper.build_and_store, pid, project_root(body.root))
+
+    @app.get("/projects/{pid}/map")
+    async def get_map(pid: str):
+        m = await asyncio.to_thread(mapper.load, pid)
+        return m or {"missing": "No map yet. Build it to draw one."}
 
     @app.post("/mcp/tools")
     async def post_mcp_tools(body: McpServerSpec):

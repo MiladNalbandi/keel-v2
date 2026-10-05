@@ -30,7 +30,7 @@ from .. import models, rules
 from ..models import catalog
 from ..models.base import AgentRequest, AgentResult
 from .findings import REVIEWERS, blocking, unique
-from ..tools import git, guard
+from ..tools import git, guard, mcp
 from ..tools.agent_tools import ToolBox
 from ..workflows.model import Step, Workflow
 from . import clarify, guard_ctx, init_gates, prompts, spec_check
@@ -636,7 +636,7 @@ class Compiler:
         return [], seen
 
     def _action_input(self, state: FlowState, ac: dict | None) -> ActionInput:
-        return ActionInput(root=self.ctx.root, phase=state["phase"], title=self.ctx.title, ac=ac, init=dict(state.get("init") or {}),
+        return ActionInput(root=self.ctx.root, project=self.ctx.project_id, phase=state["phase"], title=self.ctx.title, ac=ac, init=dict(state.get("init") or {}),
                            acs=copy.deepcopy(state.get("acs") or []), fake=self.ctx.simulate_checks, flow=self.wf.flow,
                            deps=list(state.get("deps") or []), gates_log=list((state.get("gates") or {}).get("log") or []),
                            base=state.get("base_head"), unlocks=list(state.get("unlocks") or []),

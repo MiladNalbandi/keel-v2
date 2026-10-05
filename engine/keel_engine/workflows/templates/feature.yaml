@@ -20,5 +20,5 @@ steps:
   - { id: ship_review, kind: parallel, name: ship review x 4 lenses, agent: reviewer, model: default, parallel: 4, phase: ship }
   - { id: final_review, kind: gate, name: final review, lock: true, phase: final-review }
   - { id: memory, kind: agent, name: memory, agent: librarian, model: default, phase: memory }
-  - { id: memory_check, kind: code, name: memory check, action: memory_check, phase: memory }
+  - { id: memory_check, kind: code, name: knowledge check, action: knowledge_check, phase: memory }
   - { id: memory_commit, kind: code, name: commit memory, action: commit, phase: memory }
