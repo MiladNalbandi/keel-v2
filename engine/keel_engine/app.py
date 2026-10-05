@@ -41,6 +41,7 @@ class AC(BaseModel):
     id: str
     layer: str = "API"
     title: str = ""
+    status: str | None = None       # a criterion handed over finished (done, already-met) stays finished
 
 
 class Unlock(BaseModel):

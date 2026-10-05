@@ -7,7 +7,8 @@ Checks that decide a push write a verdict to the engine DB (runtime/verdicts.py)
 verify_release and a whole-suite verify_green -> release, verify_coverage -> coverage. Simulated runs write none.
 The other verdict actions (verify_fast, verify_module, verify_deps, audit, trace, arch) and the PR (pr, open_pr) live
 in runtime/verdict_actions.py; review_lenses and coverage_report in runtime/ship.py; the review, diagnose, fix and change
-helpers in runtime/flow_actions.py; start_flow and escalate_model are the compiler's (they start a thread, change a model).
+helpers in runtime/flow_actions.py, the feature flow's in runtime/feature_actions.py; start_flow and escalate_model are
+the compiler's (they start a thread, change a model).
 The hunt's backlog actions (hunt_*) are in runtime/hunt_actions.py, init's architecture and ladder-repair steps
 in runtime/init_actions.py.
 """
@@ -25,7 +26,7 @@ from ..rules import checks
 from ..tools import codegraph, git, testcmd
 from ..tools.agent_tools import command_env
 from . import blockers as push_gates
-from . import flow_actions, knowledge, ship, verdict_actions, verdicts
+from . import feature_actions, flow_actions, knowledge, ship, verdict_actions, verdicts
 from . import ladder as run_ladder
 
 COMMIT_EXCLUDES = [f":!{p.rstrip('/')}" for p in git.ENGINE_FILES]
@@ -75,6 +76,7 @@ class ActionInput:
     request: str = ""                                  # what the user asked for, in their words
     settings: dict = field(default_factory=dict)       # the thread's settings (StartThread.settings: a flow's options)
     thread_id: str = ""                                # the thread running this action (a hunt run records it)
+    paths: list[str] = field(default_factory=list)     # commit: stage only these paths (feature: the spec alone)
 
     @property
     def key(self) -> str:
@@ -94,6 +96,8 @@ async def run_action(action: str, a: ActionInput) -> ActionResult:
         return await VERDICT_ACTIONS[action](a)
     if action in flow_actions.ACTIONS:
         return await asyncio.to_thread(flow_actions.ACTIONS[action], a)
+    if action in feature_actions.ACTIONS:
+        return await asyncio.to_thread(feature_actions.ACTIONS[action], a)
     if action == "commit":
         return await asyncio.to_thread(commit, a)
     if action == "write_config":
@@ -279,7 +283,7 @@ def commit(a: ActionInput) -> ActionResult:
     if not git.is_repo(a.root):
         return ActionResult(True, "Not a git repository; nothing committed.")
     ctype = rules.commit_type_for(a.phase)
-    git.git(a.root, "add", "-A", "--", ".", *COMMIT_EXCLUDES)
+    git.git(a.root, "add", "-A", "--", *(a.paths or ["."]), *COMMIT_EXCLUDES)
     # Never sweep the user's own uncommitted work into a keel commit: a file that was already changed when the
     # flow started, and that no agent has touched since, is unstaged again.
     theirs = [f for f, fp in a.preexisting.items() if git.fingerprint(a.root, f) == fp]
@@ -355,7 +359,8 @@ def commit(a: ActionInput) -> ActionResult:
 
     rule = rules.COMMIT_RULES[ctype]
     bug = ctype in ("fix", "red") or (ctype == "e2e" and a.flow == "fix")
-    ident = "" if rule.get("noId") else ((a.ac or {}).get("id") or ("review" if a.phase == "review-fix" else "BUG" if bug else ""))
+    named = {"review-fix": "review", "integration": "integration"}.get(a.phase)
+    ident = "" if rule.get("noId") else ((a.ac or {}).get("id") or named or ("BUG" if bug else ""))
     subject = (a.ac or {}).get("title") or a.title or a.flow
     if ctype == "setup":
         subject = "keel init"

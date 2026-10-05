@@ -3,7 +3,7 @@ import json
 import httpx
 from fastapi.testclient import TestClient
 
-from conftest import decide, start, wait
+from conftest import decide, start, to_loop, wait
 from keel_engine.app import create_app
 from keel_engine.events import EventBus
 from keel_engine.models.cli_runners import ClaudeStream, codex_line
@@ -16,7 +16,7 @@ def test_thread_survives_engine_restart(repo):
     with TestClient(create_app(EventBus())) as c2:
         s = c2.get(f"/threads/{tid}").json()
         assert s["status"] == "waiting" and s["waiting"]["step"] == "spec_gate"
-        s = decide(c2, tid)
+        s = to_loop(c2, tid, s)
         assert s["waiting"]["step"] == "ac_gate" and s["ac"] == "AC-1"
 
 

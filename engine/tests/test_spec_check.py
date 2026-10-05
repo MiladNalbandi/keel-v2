@@ -57,7 +57,7 @@ def test_the_engine_sends_a_spec_back_once_when_something_clear_is_missing(clien
     feedback = []
 
     def plan(req):
-        if req.agent == "explorer" and req.phase == "spec":
+        if req.agent == "explorer" and req.phase == "spec" and req.step_name == "spec":
             feedback.append(req.feedback)
             path, content, answer, data = real(req)
             if len(feedback) == 1:      # the first spec has a [WEB] criterion and no mockup

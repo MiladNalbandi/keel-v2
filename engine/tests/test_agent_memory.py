@@ -42,6 +42,7 @@ def test_what_the_agent_is_told():
 def _claude(tmp_path, out_lines):
     (tmp_path / "claude.out").write_text("\n".join(json.dumps(x) for x in out_lines) + "\n")
     return script(tmp_path, "claude", f"""cat > {tmp_path}/prompt
+(echo "=== PROMPT"; cat {tmp_path}/prompt) >> {tmp_path}/prompts.log
 echo "=== CALL $@" >> {tmp_path}/argv.log
 cat {tmp_path}/claude.out
 """)
@@ -90,8 +91,9 @@ def test_a_send_back_continues_the_explorers_own_session(client, repo, tmp_path,
     assert s["waiting"]["step"] == "spec_gate", s
     first = calls(tmp_path)[0]
     sid = first.split("--session-id ")[1].split()[0]
+    n = len(calls(tmp_path))          # the spec, one explorer per area, the plan
     s = decide(client, tid, "reject", why="ties must share a rank")
-    second = calls(tmp_path)[1]
+    second = calls(tmp_path)[n]         # the spec step again, after the spec gate's reject
     assert f"--resume {sid}" in second
-    prompt = (tmp_path / "prompt").read_text()
+    prompt = (tmp_path / "prompts.log").read_text().split("=== PROMPT")[1:][n]
     assert "earlier conversation" in prompt and "ties must share a rank" in prompt

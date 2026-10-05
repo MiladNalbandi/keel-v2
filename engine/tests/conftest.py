@@ -62,3 +62,15 @@ def decide(client, tid, decision="approve", why=None, **kw):
     r = client.post(f"/threads/{tid}/resume", json={"decision": decision, "why": why, **kw})
     assert r.status_code == 200, r.text
     return wait(client, tid)
+
+
+def to_loop(client, tid, s=None, upto="contract_gate"):
+    """The feature flow up to its criteria loop: approve the spec gate, the optional-phases menu and the contract gate
+    (stop after `upto`). Returns the state at the next pause."""
+    s = s or wait(client, tid)
+    for step in ("spec_gate", "options", "contract_gate"):
+        assert s.get("waiting", {}).get("step") == step, s
+        s = decide(client, tid)
+        if step == upto:
+            break
+    return s
