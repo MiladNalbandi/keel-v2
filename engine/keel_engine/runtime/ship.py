@@ -175,10 +175,13 @@ def final_report(root: str, key: str, state: dict, title: str) -> str:
         exc.append(f"- flaky: {f.get('label')}: {', '.join(f.get('tests') or [])}")
     if repo:
         for b in blockers.push_blockers(root, base, project=key):
+            if b["gate"] == "knowledge":
+                continue        # the knowledge update and its check run after this approval (ship's memory steps)
             exc.append(f"- push blocker, {b['gate']}: {b['why']}")
 
     out = [f"# Final review: {title}", ""]
     out += [f"## Exceptions ({len(exc)})", ""] + (exc or ["None: nothing skipped, accepted, dismissed or blocking."]) + [""]
+    out += ["The knowledge update and its check run after you approve.", ""]
     out += [f"## Verdicts for HEAD {str(head or 'not a git repository')[:7]}", "", "| check | result | summary |", "|---|---|---|"]
     for kind in VERDICT_ROWS:
         res, summary = _mark(verdicts.latest(key, kind), head, tree)
