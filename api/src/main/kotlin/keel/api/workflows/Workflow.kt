@@ -31,10 +31,12 @@ data class Step(
     val lane: String? = null,
     // Engine workflow features the api passes through unchanged (engine/keel_engine/workflows/model.py):
     // fan-out from a state list (from, cap, batch), for_each loops (for_each, per_item), result markers and a
-    // collected list, a branch on a marker (when), and the start_flow hand-off (flow, seed, then).
+    // collected list, a branch on a marker or a data path (when; on a gate: when it pauses), named gate exits
+    // (choices: {name: step id | "end"}), and the start_flow hand-off (flow, seed, then).
     val from: String? = null,
     val cap: Int? = null,
-    val batch: Int? = null,
+    /** A number, or "$<state path>" the engine reads when the step runs (e.g. "$data.hunt.prove_concurrency"). */
+    val batch: Any? = null,
     val forEach: String? = null,
     val perItem: Boolean? = null,
     val markers: List<String>? = null,
@@ -43,6 +45,7 @@ data class Step(
     val flow: String? = null,
     val seed: Map<String, Any?>? = null,
     val then: String? = null,
+    val choices: Map<String, String>? = null,
 ) {
     val locked: Boolean @com.fasterxml.jackson.annotation.JsonIgnore get() = lock == true
 }

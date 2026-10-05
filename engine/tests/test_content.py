@@ -65,10 +65,13 @@ def test_every_skill_has_a_skill_md_with_name_and_description():
 
 
 def test_flow_skills_are_not_content():
-    # the flows are keel's graph, not a skill an agent follows
+    # the flows are keel's graph, not a skill an agent follows. `hunt` is the exception by name only: it holds the
+    # lens briefs and the severity rubric the hunt's agents are judged against, not the flow.
     names = {d.name for d in skill_dirs()}
-    assert not names & {"feature", "fix", "change", "hunt", "hunt-next", "init", "ship", "cover", "status",
+    assert not names & {"feature", "fix", "change", "hunt-next", "init", "ship", "cover", "status",
                         "diagnose", "spec-authoring"}
+    hunt = (CONTENT / "skills" / "hunt").iterdir()
+    assert {f.name for f in hunt} == {"SKILL.md", "references"}
 
 
 @pytest.mark.parametrize("f", sorted([*(CONTENT / "stacks").glob("*.yml"), *(CONTENT / "packs").glob("*/stack.yml")]),

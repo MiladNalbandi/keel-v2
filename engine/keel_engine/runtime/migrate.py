@@ -8,6 +8,10 @@
                             replaces keel v1's .keel/{release,coverage,security,memory}.json (runtime/verdicts.py)
     project_map             the latest map of each project (runtime/mapper.py), in the shape the web's Map page draws
     project_index           each project's code-graph index: idle | indexing | ready | failed (runtime/scan.py)
+    hunt_runs               one row per bug hunt (runtime/hunt.py): scope, mode, lenses, sweep record, report path
+    hunt_candidates         every finding of a hunt with its verdict, severity, group, dispatch and close; never deleted
+    hunt_groups             findings that share one cause: the cause in a sentence and the lead finding
+    hunt_recipes            a proven finding's repro recipe (the file the fix flow's reproducer gets, never the claim)
 """
 
 from __future__ import annotations
@@ -35,6 +39,26 @@ MIGRATIONS = [
     """create table if not exists project_index (
       project text primary key, root text, status text not null, files integer, symbols integer, indexed_at text,
       error text, detail_json text, updated_at text not null
+    )""",
+    """create table if not exists hunt_runs (
+      project text not null, run text not null, root text, thread_id text, at text not null, sha text, branch text,
+      scope_json text, mode text, fast integer not null default 0, lenses_json text, swept_json text, gates_json text,
+      stack_json text, report text, candidates_report text, next_id integer not null default 1,
+      next_group integer not null default 1, updated_at text not null, primary key (project, run)
+    )""",
+    """create table if not exists hunt_candidates (
+      project text not null, run text not null, id text not null, lens text, lane text, also_json text, title text,
+      where_json text, symptom text, impact text, claim text, repro_hint text, kind text, status text not null,
+      severity text, group_id text, group_role text, evidence text, proved_at text, proved_sha text, needs_e2e integer,
+      e2e_spec text, dispatch_json text, close_json text, at text not null, primary key (project, run, id)
+    )""",
+    """create table if not exists hunt_groups (
+      project text not null, run text not null, id text not null, cause text not null, lead text not null,
+      at text not null, primary key (project, run, id)
+    )""",
+    """create table if not exists hunt_recipes (
+      project text not null, run text not null, candidate text not null, file text not null, body text not null,
+      runs integer, at text not null, primary key (project, run, candidate)
     )""",
 ]
 

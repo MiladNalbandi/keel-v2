@@ -44,6 +44,7 @@ from .state import FlowState, ThreadContext, merge_unlocks, normalize_unlocks
 log = logging.getLogger(__name__)
 
 AC_BEGIN, AC_END, FINISH = "__ac_begin", "__ac_end", "__finish"
+END_TARGET = "end"                   # a branch's `no` or a gate choice that finishes the flow
 KNOWN_SECTIONS = {"architecture", "domain", "conventions", "data", "integrations"}
 OPTIONS = ["approve", "reject"]
 RESUMABLE = {"claude", "codex"}      # CLIs whose sessions keel can continue (claude --resume, codex exec resume)
@@ -125,6 +126,8 @@ class Nav:
         return self.enter(lp.last + 1) if lp else FINISH
 
     def jump(self, sid: str, from_i: int) -> str:
+        if sid == END_TARGET:
+            return FINISH
         j = self.index[sid]
         target, here = self.loop_of(j), self.loop_of(from_i)
         if target and (not here or here.id != target.id):
@@ -574,7 +577,10 @@ class Compiler:
         done = ctx.done_calls
         attempt = f"{step.id}|{(ac or loop_item or {}).get('id', '')}"
         # `batch: N`: at most N agents of this step run at the same time; the step is still one node.
-        gate = asyncio.Semaphore(step.batch) if step.batch else None
+        # "$data.x" reads the number from the state when the step runs.
+        batch = self._seed_value(step.batch, state, None) if isinstance(step.batch, str) else step.batch
+        batch = int(batch) if isinstance(batch, (int, float)) or str(batch or "").isdigit() else None
+        gate = asyncio.Semaphore(batch) if batch and batch > 0 else None
 
         async def one(n: int, a: str, k: int):
             key = f"{attempt}|{a}|{k}"
@@ -713,8 +719,10 @@ class Compiler:
             upd["markers"] = mk
         if step.collect:
             got: list[dict] = []
-            for r in results:
-                got += markers.collect(r.text, step.collect)
+            for n, r in enumerate(results):
+                # In a fan-out, each collected entry says which item's agent gave it (from_item).
+                src = (item_of.get(n) or {}).get("id") if step.items_from else None
+                got += [dict(x, from_item=src) if src else x for x in markers.collect(r.text, step.collect)]
             ids = [x["id"] for x in got]
             if len(set(ids)) != len(ids):
                 got = [dict(x, id=f"{step.collect}-{n + 1}") for n, x in enumerate(got)]
@@ -829,7 +837,8 @@ class Compiler:
                            deps=list(state.get("deps") or []), gates_log=list((state.get("gates") or {}).get("log") or []),
                            base=state.get("base_head"), unlocks=list(state.get("unlocks") or []),
                            preexisting=dict(state.get("preexisting") or {}), item=item, data=dict(state.get("data") or {}),
-                           keys=dict(self.ctx.keys), state=dict(state))
+                           keys=dict(self.ctx.keys), state=dict(state), settings=dict(self.ctx.settings or {}),
+                           thread_id=self.ctx.thread_id)
 
     async def code_step(self, i: int, step: Step, state: FlowState):
         ac = _ac(state) if step.per_ac else None
@@ -1008,6 +1017,9 @@ class Compiler:
         target = self.nav.retry_target(i)
         attempts = int(self.ctx.settings.get("fix_attempts") or 3)
         base = {**upd, "stall": stall, "last_failure": r.note[:300], "feedback": feedback, "note": r.note}
+        if step.kind == "code" and step.back:
+            # A code step with `back`: a failed check goes back there (a gate asks again, with this as its note).
+            return {**base, "retries": retries}, self.nav.jump(step.back, i)
         if target and count <= attempts:
             retries[key] = count
             return {**base, "retries": retries}, target
@@ -1041,6 +1053,14 @@ class Compiler:
             if not due["due"]:
                 gates["log"].append(f"ac {ac['id']} approve: no gate here ({due['why']})")
                 return {"gates": gates, "acs": _set_ac(acs, ac["id"], "done"), "note": f"no gate: {due['why']}"}, self.nav.after(i)
+        if step.when:
+            label, value = self._when(state, step.when)
+            if not markers.matches(value, step.when):
+                # Not this time (a --semi gate in an --auto run, a question with nothing to ask): approved unasked.
+                why = f"not asked, {label}: {value if value not in (None, '') else 'not given'}"
+                gates["log"].append(f"gate {step.id} approve: {why}")
+                ctx.emit("gate.decided", step=step.id, data={"gate": step.name, "decision": "approve", "why": why, "by": "engine"})
+                return {"gates": gates, "note": f"{step.name}: {why}"[:300]}, self.nav.after(i)
         if self.wf.flow == "init" and step.id == "questions":
             return self._init_questions(step, state, gates), self.nav.after(i)
         options = OPTIONS
@@ -1057,7 +1077,10 @@ class Compiler:
             detail = ("The spec step wrote no acceptance criteria, so there is nothing to approve yet. "
                       "Send it back and say what to build.\n\nWhat the agent said:\n" + said[:1200])
         elif self.wf.flow == "init" and step.id == "plan_gate":
-            detail = init_gates.plan(ctx.root, state.get("init") or init_gates.defaults(ctx.root))
+            detail = init_gates.plan(ctx.root, state.get("init") or init_gates.defaults(ctx.root, bool(ctx.settings.get("fast"))))
+        elif (state.get("data") or {}).get(f"{step.id}_detail"):
+            # A step before this gate wrote what it should show (the hunt's lens list, its report summary).
+            detail = str(state["data"][f"{step.id}_detail"])
         elif ac:
             detail = f"{ac['id']} [{ac.get('layer', 'API')}] {ac.get('title', '')}\nLast step: {state.get('note', '')}"
         elif item:
@@ -1073,10 +1096,15 @@ class Compiler:
                 detail = f"Spec: {state['spec']}\n{detail}"
                 if step.phase in ("spec", "triage"):
                     detail += "\n\n" + spec_check.describe(spec_check.check(spec_check.read_spec(ctx.root, state["spec"]), acs))
-        answer, extra = self._ask(state, {"step": step.id, "kind": "gate", "title": title, "detail": detail, "options": options})
+        question = {"step": step.id, "kind": "gate", "title": title, "detail": detail, "options": options}
+        if step.choices and not no_criteria:
+            question.update(options=["approve"], choices=list(step.choices))
+        answer, extra = self._ask(state, question)
         decision = answer.get("decision", "reject") if not no_criteria else "reject"
         why = (answer.get("why") or "").strip()
         payload = answer.get("payload") or {}
+        if step.choices and not no_criteria:
+            return self._choice(i, step, state, gates, extra, answer, item)
         subject = f"ac {ac['id']}" if ac else f"gate {step.id}"
         gates["log"].append(f"{subject} {decision}" + (f" ({item['id']})" if item else "") + (f": {why}" if why else ""))
         decided = {"gate": step.name, "decision": decision, "why": why, "ac": (ac or {}).get("id")}
@@ -1105,6 +1133,33 @@ class Compiler:
         target = self.nav.jump(step.back, i) if step.back else self.nav.enter(max(i - 1, 0))
         return upd, target
 
+    def _when(self, state: FlowState, when: dict) -> tuple[str, object]:
+        """A `when`'s subject: a marker an earlier agent ended with (when.step names that step, else the latest value
+        from any step), or a path in state.data (`data: hunt.mode`). Empty values count as not given."""
+        if when.get("data"):
+            path = str(when["data"]).removeprefix("data.")
+            value = self._seed_value(f"$data.{path}", state, None)
+            return path, (None if value in (None, "", [], {}) else value)
+        name = str(when["marker"]).upper()
+        return name, ((state.get("markers") or {}).get(when.get("step") or "*") or {}).get(name)
+
+    def _choice(self, i: int, step: Step, state: FlowState, gates: dict, extra: dict, answer: dict, item: dict | None):
+        """A gate with named exits: payload.choice picks one (default the first); its answer is kept in
+        state.data["<gate id>_answer"] for the step it leads to ({choice, why, payload})."""
+        payload = answer.get("payload") or {}
+        why = (answer.get("why") or "").strip()
+        names = list(step.choices or {})
+        choice = str(payload.get("choice") or names[0])
+        if choice not in step.choices:
+            gates["log"].append(f"gate {step.id} unknown choice {choice}")
+            return {"gates": gates, **extra, "note": f"{step.name}: '{choice}' is not one of {', '.join(names)}"}, step.id
+        gates["log"].append(f"gate {step.id} {choice}" + (f" ({item['id']})" if item else "") + (f": {why}" if why else ""))
+        self.ctx.emit("gate.decided", step=step.id, data={"gate": step.name, "decision": "approve", "choice": choice, "why": why})
+        data = {**(state.get("data") or {}), f"{step.id}_answer": {"choice": choice, "why": why, "payload": payload}}
+        upd = {"gates": gates, **extra, "data": data, "feedback": why or None,
+               "note": f"{step.name}: {choice}" + (f": {why}" if why else "")}
+        return upd, self.nav.jump(step.choices[choice], i)
+
     def _clarify_gate(self, i: int, step: Step, state: FlowState, gates: dict, asked: list[dict]):
         """The explorer's questions as a pause with buttons. Answers (clicked or typed) go back to the explorer."""
         n = len(asked)
@@ -1126,11 +1181,11 @@ class Compiler:
     def _init_questions(self, step: Step, state: FlowState, gates: dict) -> dict:
         """keel init's three questions: approve = the defaults, "Use my answers" = the user's words. Both go on."""
         answer, extra = self._ask(state, {
-            "step": step.id, "kind": "gate", "title": "three questions", "detail": init_gates.questions(self.ctx.root),
+            "step": step.id, "kind": "gate", "title": "three questions", "detail": init_gates.questions(self.ctx.root, fast=bool(self.ctx.settings.get("fast"))),
             "options": OPTIONS, "labels": {"approve": "Use the defaults", "reject": "Use my answers"}})
         why = (answer.get("why") or "").strip()
         mine = answer.get("decision") == "reject" and why
-        init = init_gates.answers(self.ctx.root, why if mine else None)
+        init = init_gates.answers(self.ctx.root, why if mine else None, fast=bool(self.ctx.settings.get("fast")))
         gates["log"].append(f"gate questions: {'answered: ' + why if mine else 'defaults'}")
         self.ctx.emit("gate.decided", step=step.id, data={"gate": step.name, "decision": "approve", "why": why if mine else "defaults"})
         return {"gates": gates, **extra, "init": init,
@@ -1140,10 +1195,7 @@ class Compiler:
         yes = True
         note = "yes"
         if step.when:
-            # A marker an earlier agent ended with: when.step names that step, else the latest value from any step.
-            name = str(step.when["marker"]).upper()
-            src = step.when.get("step")
-            value = ((state.get("markers") or {}).get(src or "*") or {}).get(name)
+            name, value = self._when(state, step.when)
             yes = markers.matches(value, step.when)
             note = f"{name}: {value or 'not given'}"
         elif step.action and step.action.startswith("run:"):

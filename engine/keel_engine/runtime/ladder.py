@@ -8,6 +8,10 @@ command. Simulated mode (fake models) runs nothing and is deterministic: a rung 
 passes, one without is skipped. Rung 12 (keel's guard hook refuses a forbidden edit) always runs for
 real. On a retry the rung that failed last time shows as "fixing" while it runs again. The result
 goes to `.keel/ladder.json` ({at, rungs}).
+
+A rung the user excluded (`setup.ladder_exclude: [n]`) or accepted as not checked (`setup.not_checked: [n]`) in
+`.keel/config.yml` is skipped and says so. A fast init (`reuse`) passes a rung that passed last time with the same
+command without running it again; the guard self-test always runs.
 """
 
 from __future__ import annotations
@@ -72,8 +76,15 @@ def plan(root: str) -> list[dict]:
     for n in range(2, 12):
         out.append({"n": n, "name": NAMES[n - 1], "cmd": cmds.get(n), "status": "waiting"})
     out.append({"n": 12, "name": NAMES[11], "cmd": SELF_TEST, "status": "waiting"})
+    setup = (rules.load_config(root) or {}).get("setup") or {}
+    excluded = {int(n) for n in setup.get("ladder_exclude") or [] if str(n).isdigit()}
+    unchecked = {int(n) for n in setup.get("not_checked") or [] if str(n).isdigit()}
     for rung in out:
-        if not rung["cmd"]:
+        if rung["n"] in excluded | unchecked and rung["n"] != 12:
+            rung["status"] = "skipped"
+            rung["detail"] = "excluded in setup.ladder_exclude" if rung["n"] in excluded else \
+                "accepted as not checked (setup.not_checked)"
+        elif not rung["cmd"]:
             rung["status"] = "skipped"
             rung["detail"] = ("optional: no commands." + CONFIG_KEY[rung["n"]] + " in .keel/config.yml") if rung["n"] in OPTIONAL \
                 else "no command for this stack"
@@ -93,10 +104,13 @@ def save(root: str, rungs: list[dict]):
     (d / FILE).write_text(json.dumps({"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "rungs": rungs}, indent=2) + "\n")
 
 
-def run(root: str, simulate: bool, runner: Callable[[str, str], tuple[int, str]]) -> tuple[bool, list[dict]]:
-    """Run the ladder. `runner(root, cmd) -> (exit code, output)`. Returns (all required rungs passed, rungs)."""
+def run(root: str, simulate: bool, runner: Callable[[str, str], tuple[int, str]], reuse: bool = False) -> tuple[bool, list[dict]]:
+    """Run the ladder. `runner(root, cmd) -> (exit code, output)`. Returns (all required rungs passed, rungs).
+    reuse (a fast init): a rung that passed last time with the same command passes again without running."""
     rungs = plan(root)
-    failed_before = {r["n"] for r in previous(root) if r.get("status") in ("fail", "fixing")}
+    before = previous(root)
+    failed_before = {r["n"] for r in before if r.get("status") in ("fail", "fixing")}
+    passed_before = {(r["n"], r.get("cmd")) for r in before if r.get("status") == "pass"} if reuse else set()
     ok = True
     for rung in rungs:
         if rung["status"] == "skipped":
@@ -110,6 +124,8 @@ def run(root: str, simulate: bool, runner: Callable[[str, str], tuple[int, str]]
         if rung["n"] == 1:
             missing = [t for t in _toolchain(root) if not simulate and not shutil.which(t)]
             rung["status"], rung["detail"] = ("fail", "missing: " + ", ".join(missing)) if missing else ("pass", "found")
+        elif (rung["n"], rung["cmd"]) in passed_before and rung["n"] != 12:
+            rung["status"], rung["detail"] = "pass", "passed before with this command (fast init re-used it)"
         elif rung["n"] == 12:
             # Real in simulated mode too: it is cheap, and a guard that does not work must stop the setup.
             passed, rung["detail"] = hook.self_test(root)

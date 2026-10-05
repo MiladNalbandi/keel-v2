@@ -42,7 +42,8 @@ class Step(BaseModel):
     # `cap` of them, `batch` at a time. Results land in state.data["<step id>_results"].
     items_from: str | None = Field(default=None, alias="from")
     cap: int | None = None
-    batch: int | None = None
+    # an int, or "$<state path>" read when the step runs (e.g. "$data.hunt.prove_concurrency")
+    batch: int | str | None = None
     # A loop over a list of dicts with an `id` (like per_ac over acs): `for_each` on the loop's first step names the
     # list; every `per_item` step that follows it runs once per item.
     for_each: str | None = None
@@ -51,8 +52,13 @@ class Step(BaseModel):
     markers: list[str] | None = None
     # An agent step whose final text holds a JSON list: it is stored as state.data[<collect>] (for `from`/`for_each`).
     collect: str | None = None
-    # branch: `when: {marker: REPRO, equals: confirmed, step: <id, optional>}` instead of a run: command or an agent.
+    # branch: `when: {marker: REPRO, equals: confirmed, step: <id, optional>}` instead of a run: command or an agent;
+    # `when: {data: hunt.mode, equals: semi}` reads state.data instead. On a gate, `when` says when it pauses: when it
+    # does not hold, the gate is approved by the engine and logged as not asked.
     when: dict | None = None
+    # gate: named exits instead of approve/reject. `choices: {take: take_step, close: close_step, stop: end}`; the
+    # answer's payload.choice picks one (default: the first); "end" finishes the flow.
+    choices: dict[str, str] | None = None
     # start_flow: the workflow to start, its seed (literals, or "$<state path>"), and what this flow does next.
     flow: str | None = None
     seed: dict | None = None
