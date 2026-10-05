@@ -242,7 +242,8 @@ def test_start_flow_with_an_unknown_workflow_asks(client, repo, monkeypatch):
 
 def test_flow_start_rows_for_every_flow():
     want = {"feature": "spec", "change": "triage", "fix": "bug-report", "hunt": "hunt-scope", "review": "review",
-            "diagnose": "bug-investigate", "cover": "coverage-fix", "ship": "ship", "init": "setup", "knowledge-refresh": "memory"}
+            "diagnose": "bug-investigate", "cover": "coverage-fix", "ship": "ship", "init": "setup", "knowledge-refresh": "memory",
+            "lint": "lint-fix"}
     assert rules.FLOW_START == want
     for flow, phase in want.items():
         assert phase in rules.PHASES and phase in rules.RAILS[flow] and rules.can_transition("none", phase)

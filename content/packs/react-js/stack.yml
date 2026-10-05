@@ -25,7 +25,7 @@ commands:
   web_test_module: 'npx vitest run'
   web_test_paths: 'npx vitest run {PATHS}'
   coverage_web: 'npx vitest run --coverage'
-  static_checks: 'npx eslint .'
+  static_checks: 'npx --no-install eslint .'
   # Deliberately no `web_typecheck` — there is nothing to typecheck. the contract check
   # already treats an unset-but-optional command as `skipped:` rather than `MISSING:`, which
   # is the correct outcome for a stack that genuinely has no equivalent step.
@@ -33,6 +33,29 @@ commands:
 coverage_report: coverage/lcov.info
 
 dependency_files: [package.json]
+
+# Programs keel runs for this stack, in frontend.dir (runtime/tools.py). See ts-react.yml: the same, without tsc.
+tools:
+  eslint-fix:
+    run: 'npx --no-install eslint --fix {FILES}'
+    on: edit
+    match: '\.(js|jsx|mjs|cjs)$'
+    fail: fix
+    timeout: 120
+    description: 'Fix the lint problems eslint can fix in the files an agent just changed'
+  prettier:
+    run: 'npx --no-install prettier --write {FILES}'
+    on: edit
+    match: '\.(js|jsx|mjs|cjs|css|scss|json)$'
+    fail: fix
+    timeout: 60
+    description: 'Format the files an agent just changed'
+  eslint:
+    run: 'npx --no-install eslint .'
+    on: manual
+    fail: block
+    timeout: 300
+    description: 'Lint the whole frontend'
 
 # Same keys as ts-react's block; `primary: false` for the same reason — it only contributes
 # `toolchain_install` when matched alongside a primary (backend) pack.

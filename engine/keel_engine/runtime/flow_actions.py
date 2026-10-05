@@ -60,9 +60,9 @@ def review_scope(a):
     low = arg.lower()
     if low.startswith("ac "):
         return _ac_scope(a, cfg, arg[3:].strip().upper())
-    if low not in ["code", "all", *LENSES]:
+    if low not in ["code", "all", "lint", *LENSES]:
         return _stop(f"Unknown review argument '{arg}'.",
-                     f"Use code, all, one lens ({', '.join(LENSES)}) or ac <AC-ID>.")
+                     f"Use code, all, lint, one lens ({', '.join(LENSES)}) or ac <AC-ID>.")
     base = str(a.data.get("base") or "").strip() or verdict_actions.base_ref(a.root, cfg)
     if not base or git.git(a.root, "rev-parse", "--verify", "-q", f"{base}^{{commit}}").returncode != 0:
         return _stop(f"The base ref {base or '(none)'} does not exist.", "Pass base: <branch or commit> to compare with.")
@@ -71,13 +71,22 @@ def review_scope(a):
         return _stop(f"Nothing to review: git diff {base}...HEAD is empty.",
                      "A reviewer sent to review nothing finds something to say anyway.")
     scope = {"scope": f"git diff {base}...HEAD", "base": base, "files": files[:60]}
+    lint = None
+    if low == "lint" or a.data.get("lint"):
+        # Static checks (lens lint, or data.lint with any lens): the stacks' check tools on the diff, reported only.
+        from . import lint_actions
+        lint = lint_actions.lint_review(a, base)
+    if low == "lint":
+        return _ok(f"Review scope: {scope['scope']} ({len(files)} file(s)); {lint[0]}.", "\n".join(files[:60]),
+                   {"data": {**a.data, "review_lenses": [], "lint_report": lint[1]}})
     if low == "code":
         items = [{"id": "code", "title": "whole-branch code review", "agent": "code-reviewer", **scope}]
     else:
         lenses = _all_lenses(cfg) if low == "all" else [low]
         items = [{"id": lens, "title": f"{lens} lens", "agent": "reviewer", "lens": lens, **scope} for lens in lenses]
-    data = {**a.data, "review_lenses": items}
-    return _ok(f"Review scope: {scope['scope']} ({len(files)} file(s)); " + ", ".join(i["title"] for i in items) + ".",
+    data = {**a.data, "review_lenses": items, **({"lint_report": lint[1]} if lint else {})}
+    return _ok(f"Review scope: {scope['scope']} ({len(files)} file(s)); " + ", ".join(i["title"] for i in items)
+               + (f"; {lint[0]}" if lint else "") + ".",
                "\n".join(files[:60]), {"data": data})
 
 
@@ -126,6 +135,8 @@ def report(a):
     prev = a.state.get("current")
     if prev and f"{prev}_results" not in data and (a.state.get("last_answer") or "").strip():
         out += [a.state["last_answer"].strip(), ""]
+    if data.get("lint_report"):
+        out += ["## Static checks", "", str(data["lint_report"]).strip(), ""]
     for key in keys:
         for r in data[key]:
             out += [f"## {r.get('title') or r.get('item')}", "", str(r.get("text") or "").strip() or "(no answer)", ""]

@@ -45,6 +45,11 @@ def _changed_since(root: str, before: Snapshot) -> list[str]:
     return changed
 
 
+def changed_since(root: str, before: Snapshot | None) -> list[str]:
+    """The files an agent step changed (created, edited or deleted) since the snapshot."""
+    return _changed_since(root, before) if before is not None else []
+
+
 def _restore(root: str, rel: str, before: Snapshot):
     f = Path(root) / rel
     if rel in before.content:

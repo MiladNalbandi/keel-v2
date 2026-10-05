@@ -26,7 +26,8 @@ from ..rules import checks
 from ..tools import codegraph, git, testcmd
 from ..tools.agent_tools import command_env
 from . import blockers as push_gates
-from . import feature_actions, flow_actions, knowledge, ship, verdict_actions, verdicts
+from . import feature_actions, flow_actions, knowledge, lint_actions, ship, verdict_actions, verdicts
+from . import tools as tool_runner
 from . import ladder as run_ladder
 
 COMMIT_EXCLUDES = [f":!{p.rstrip('/')}" for p in git.ENGINE_FILES]
@@ -35,7 +36,7 @@ VERDICT_ACTIONS = {
     "verify_deps": verdict_actions.verify_deps, "audit": verdict_actions.audit, "trace": verdict_actions.trace,
     "trace_strict": lambda a: verdict_actions.trace(a, strict=True), "arch": verdict_actions.arch,
     "pr": verdict_actions.pr, "open_pr": verdict_actions.open_pr,
-    "review_lenses": ship.review_lenses, "coverage_report": ship.coverage_report,
+    "review_lenses": ship.review_lenses, "coverage_report": ship.coverage_report, **lint_actions.ACTIONS,
 }
 
 
@@ -77,6 +78,7 @@ class ActionInput:
     settings: dict = field(default_factory=dict)       # the thread's settings (StartThread.settings: a flow's options)
     thread_id: str = ""                                # the thread running this action (a hunt run records it)
     paths: list[str] = field(default_factory=list)     # commit: stage only these paths (feature: the spec alone)
+    emit: object = None                                # tool runs report here (event tool.ran, full output)
 
     @property
     def key(self) -> str:
@@ -292,6 +294,9 @@ def commit(a: ActionInput) -> ActionResult:
     staged = [f for f in git.git(a.root, "diff", "--cached", "--name-only").stdout.splitlines() if f.strip()]
     if not staged:
         return ActionResult(True, "Nothing to commit.")
+    tool_notes, staged = _pre_commit_tools(a, staged)
+    if isinstance(tool_notes, ActionResult):
+        return tool_notes
     cfg = rules.load_config(a.root)
     diff = git.git(a.root, "diff", "--cached", "-U0").stdout
 
@@ -374,8 +379,35 @@ def commit(a: ActionInput) -> ActionResult:
         return ActionResult(False, "git commit failed.", (r.stderr or r.stdout)[-2000:])
     sha = git.head(a.root)
     codegraph.sync_later(a.root)            # the code graph follows every keel commit (best effort, in the background)
-    return ActionResult(True, f"{message} {sha[:7] if sha else ''}".strip(), "\n".join(staged),
+    tail_note = f" · tools: {'; '.join(tool_notes)}" if tool_notes else ""
+    return ActionResult(True, f"{message} {sha[:7] if sha else ''}".strip() + tail_note, "\n".join(staged),
                         {"git_head": sha, "blockers": push_gates.push_blockers(a.root, a.base, project=a.key)})
+
+
+def _pre_commit_tools(a: ActionInput, staged: list[str]):
+    """The project's `on: pre-commit` tools on the staged files (runtime/tools.py): a fixer's changes are staged again,
+    a block failure refuses the commit with the trimmed output (the code step's retry hands it to the agent before it),
+    a warn failure is one line in the commit note. Skipped when a lint run already checked exactly these files.
+    Returns (note lines, staged files), or (a refusal, staged files)."""
+    lint_tree = a.data.get("lint_tree")
+    if lint_tree and lint_tree == git.worktree_tree(a.root):
+        return ["checked by the lint run"], staged
+    pc = tool_runner.pre_commit(a.root, staged, include_stacks=not a.fake, emit=a.emit,
+                                restage=lambda: git.git(a.root, "add", "-A", "--", *staged))
+    if not pc["ran"]:
+        return [], staged
+    if not pc["ok"]:
+        names = ", ".join(r["name"] for r in tool_runner.failing(pc["ran"], ("block",)))
+        return _refuse(a, f"Static checks refused the commit: {names}.",
+                       "\n\n".join(pc["problems"]) + "\n\nFix what they report; the commit runs them again."), staged
+    if pc["fixed"]:
+        staged = [f for f in git.git(a.root, "diff", "--cached", "--name-only").stdout.splitlines() if f.strip()]
+    fixed = [r["name"] for r in pc["ran"] if r["fail"] == "fix" and r["available"]]
+    missing = [r["name"] for r in pc["ran"] if not r["available"]]
+    notes = ([f"{', '.join(fixed)} re-staged"] if fixed else []) + pc["warnings"] + \
+        ([f"not installed: {', '.join(missing)}"] if missing else [])
+    passed = len(pc["ran"]) - len(missing)
+    return notes or [f"{passed} check(s) passed"], staged
 
 
 def commit_message(prefix: str, subject: str, limit: int = 72) -> tuple[str, str]:
