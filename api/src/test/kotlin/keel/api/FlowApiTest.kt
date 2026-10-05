@@ -34,7 +34,7 @@ class FlowApiTest : ApiTest() {
         assertThat(body["settings"]["cap_tokens"].asInt()).isEqualTo(200000)
         assertThat(body["settings"]["gates_mode"].asText()).isEqualTo("every-ac")
         assertThat(body["mcp"].map { it["name"].asText() }).containsExactly("keel")
-        assertThat(body["mcp"][0]["args"][0].asText()).endsWith("mcp/server.js")
+        assertThat(body["mcp"][0]["args"].map { it.asText() }).containsExactly("-m", "keel_engine.mcp", "--read-only")
         assertThat(body["skills"]["test-author"].asText()).contains("Kotlin + Spring Boot test patterns")
         assertThat(body["acs"][0]["id"].asText()).isEqualTo("AC-001")
         val green = body["workflow"]["steps"].first { it["id"].asText() == "green" }
@@ -119,7 +119,8 @@ class FlowApiTest : ApiTest() {
         val servers = get("/api/mcp-servers").json()
         val keel = servers.first { it["name"].asText() == "keel" }
         assertThat(keel["builtin"].asBoolean()).isTrue()
-        assertThat(keel["command"].asText()).isEqualTo("node")
+        assertThat(keel["command"].asText()).matches(".*python3?")
+        assertThat(keel["label"].asText()).isEqualTo("keel v2 (read-only)")
         delete("/api/mcp-servers/keel").andExpect(status().isConflict)
         post("/api/mcp-servers", mapOf("name" to "github", "command" to "npx", "args" to listOf("-y", "github-mcp"))).andExpect(status().isOk)
         post("/api/mcp-servers", mapOf("name" to "github", "command" to "npx")).andExpect(status().isConflict)
