@@ -72,3 +72,16 @@ def test_the_engine_sends_a_spec_back_once_when_something_clear_is_missing(clien
     assert len(feedback) == 2 and "spec check found problems" in feedback[1] and "no Mockup" in feedback[1]
     assert s["waiting"]["step"] == "spec_gate"
     assert "Spec check" in s["waiting"]["detail"]
+
+
+def test_cases_of_one_rule_split_into_criteria_are_sent_back_to_be_merged():
+    # Real feature run: three criteria differing only in the percent; the first code already met all of them.
+    acs = [{"id": "AC-5", "title": "Given a cart, when applyCoupon(cart, 50.5) is called, then it throws an error naming percent"},
+           {"id": "AC-6", "title": "Given a cart, when applyCoupon(cart, -1) is called, then it throws an error naming percent"},
+           {"id": "AC-7", "title": "Given a cart, when applyCoupon(cart, 101) is called, then it throws an error naming percent"},
+           {"id": "AC-1", "title": "Given a cart with total 100, when applyCoupon(cart, 50) is called, then it returns 50"},
+           {"id": "AC-2", "title": "Given the player's best score, when the user's rank is read, then it is shown"},
+           {"id": "AC-3", "title": "Given a cart, when an item 'apple' is added twice, then its quantity is the sum"}]
+    found = [f for f in spec_check.check("", acs) if "cases of one rule" in f["text"]]
+    assert len(found) == 1 and found[0]["level"] == "fix"
+    assert found[0]["text"].startswith("AC-5, AC-6, AC-7 differ only in their values")

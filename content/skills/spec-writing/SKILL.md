@@ -41,6 +41,12 @@ One per line (wrap long lines with a 2-space indent), exactly this shape:
 - **Behaviours, not work steps.** "Imports are updated" or "behaviour stays the same" are steps. A small change needs one to three criteria.
 - Name the number when the criterion is about speed or size ("renders in under 200 ms with 10,000 rows"). No number, no criterion: move it to Out of scope.
 - Cover the edges you found while drawing: empty, error, duplicate, limit, a field the user may not see.
+- **One rule, one criterion; its cases are examples.** The boundaries and bad inputs of the same rule go into that rule's
+  criterion as examples, not into criteria of their own: "Given a cart, when applyCoupon gets a percent that is not a whole
+  number from 0 to 100 (e.g. -1, 101, 50.5), then it throws an error naming percent". The test author tests every example.
+- **Every criterion costs a full round** (a failing test, the code, a review, your approval: often 40–60k tokens), so each
+  one must be able to fail on its own. If the code for one criterion would already make another pass, merge them.
+  Size guide: one function or one endpoint → 2 to 4 criteria; a screen with its API → 4 to 8.
 
 Details and worked examples: `references/acceptance-criteria.md` (full path below). Read it once when writing criteria.
 

@@ -18,7 +18,9 @@ describe("What this step does", () => {
     render(<App />);
     await user.click(await screen.findByRole("button", { name: "What red does" }));
     const dlg = await screen.findByRole("dialog", { name: "What red does" });
-    await waitFor(() => expect(explains().at(-1)?.body).toEqual({ step_id: "s3", thread_id: "th_7f3a" }));
+    // The drawer explains the workflow the page draws, plus the thread: a thread started on an older template has fewer
+    // steps, and asking with the thread alone said "No step 'review_fix' in workflow feature" for a step on screen.
+    await waitFor(() => expect(explains().at(-1)?.body).toMatchObject({ step_id: "s3", thread_id: "th_7f3a", workflow: { id: "feature" } }));
     const task = await within(dlg).findByRole("region", { name: "Task" });
     expect(within(task).getByText("test-author")).toBeInTheDocument();
     expect(within(task).getByTestId("explain-prompt")).toHaveTextContent("Current criterion: AC-1 [API] main case");
