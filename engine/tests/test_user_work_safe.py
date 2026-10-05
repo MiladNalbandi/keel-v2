@@ -67,9 +67,8 @@ def test_output_tail_starts_at_a_whole_line():
     assert t.endswith("line 199 some text") and tail("short", 300) == "short"
 
 
-def test_keel_v1_sees_a_flow_that_waits_at_its_first_step(client, repo, monkeypatch):
-    """A spec step that fails pauses before its node returns; state.json must still say phase spec (not none)."""
-    import json as _json
+def test_a_flow_that_waits_at_its_first_step_shows_that_step(client, repo, monkeypatch):
+    """A spec step that fails pauses before its node returns; the thread must still say phase spec (not none)."""
     from pathlib import Path as _P
     from keel_engine.models import fake as fake_mod
     from conftest import start, wait
@@ -80,9 +79,8 @@ def test_keel_v1_sees_a_flow_that_waits_at_its_first_step(client, repo, monkeypa
     tid = start(client, repo)
     s = wait(client, tid)
     assert s["status"] == "waiting" and s["waiting"]["kind"] == "fix"
-    st = _json.loads((_P(repo) / ".keel" / "state.json").read_text())
-    assert st["flow"] == "feature" and st["phase"] == "spec"
-    assert st["engine"]["status"] == "waiting" and st["engine"]["step"] == "spec"
+    assert s["phase"] == "spec" and s["current"] == "spec"
+    assert not (_P(repo) / ".keel" / "state.json").exists()        # keel writes no v1-format state file
 
 
 def test_init_writes_the_test_command_keel_detects(tmp_path):

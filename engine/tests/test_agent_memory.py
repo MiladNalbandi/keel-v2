@@ -8,7 +8,7 @@ from keel_engine.models.base import AgentRequest
 from keel_engine.models.cli_runners import ClaudeCLIRunner
 from keel_engine.runtime import memory as mem
 from keel_engine.tools.agent_tools import ToolBox
-from test_v02 import keel_home, script
+from test_v02 import script
 
 RESULT = {"type": "result", "result": "done", "usage": {"input_tokens": 10, "output_tokens": 2}}
 
@@ -58,7 +58,6 @@ def _req(root, **kw):
 
 
 async def test_claude_new_session_resume_and_lost_session(tmp_path, monkeypatch, repo):
-    keel_home(tmp_path, monkeypatch)
     monkeypatch.setenv("KEEL_DATA", str(tmp_path / "data"))
     monkeypatch.setenv("KEEL_CLAUDE_BIN", _claude(tmp_path, [RESULT]))
     await ClaudeCLIRunner().run(_req(repo, session="s-1"), lambda *a, **k: None)
@@ -82,7 +81,6 @@ case "$*" in *--resume*) echo '{json.dumps(lost)}' ;; *) echo '{json.dumps(RESUL
 
 
 def test_a_send_back_continues_the_explorers_own_session(client, repo, tmp_path, monkeypatch):
-    keel_home(tmp_path, monkeypatch)
     monkeypatch.setenv("KEEL_FAKE", "0")
     spec = {"type": "result", "result": "- **AC-1** [API] A player's rank is shown next to their best score",
             "usage": {"input_tokens": 10, "output_tokens": 2}}

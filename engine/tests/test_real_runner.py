@@ -105,8 +105,6 @@ def test_an_ac_test_that_already_passes_asks_at_once_and_can_be_marked_met(clien
     assert subjects[0].startswith("test(AC-1)")
     started = [e["data"]["agent"] for e in client.bus.of(tid, "agent.started")]
     assert started == ["test-author"]                                    # green and the AC gate were skipped
-    state = json.loads((root / ".keel" / "state.json").read_text())
-    assert state["acs"]["AC-1"]["status"] == "already-met"
 
 
 def test_rejecting_already_met_sends_the_red_step_back_with_the_note(client, tmp_path):

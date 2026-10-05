@@ -10,7 +10,7 @@ import org.springframework.core.io.ClassPathResource
 /** The ported classify + MATRIX must agree with keel v1's own fixture. */
 class KeelRulesTest {
     private val mapper = jacksonObjectMapper()
-    private val fixture = ClassPathResource("keel/keel_v1_rules.json").inputStream.use { mapper.readTree(it) }
+    private val fixture = ClassPathResource("keel/keel_rules.json").inputStream.use { mapper.readTree(it) }
     private val rules = KeelRules(mapper)
 
     @Test

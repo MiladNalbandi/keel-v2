@@ -44,6 +44,11 @@ class ToolBox:
         self.writes: list[dict] = []
         self.unlocks = list(unlocks or [])
 
+    def add_unlocks(self, new: list[dict]):
+        """An unlock granted while this agent runs (the engine calls this for every running agent of the thread)."""
+        seen = {(u.get("path"), u.get("phase")) for u in self.unlocks}
+        self.unlocks += [u for u in new if (u.get("path"), u.get("phase")) not in seen]
+
     def _resolve(self, path: str) -> tuple[Path, str] | None:
         p = Path(path)
         full = (p if p.is_absolute() else Path(self.root) / p).resolve()
