@@ -49,12 +49,16 @@ def _hunt(a: ActionInput) -> dict:
 
 
 def _options(a: ActionInput) -> dict:
-    """The hunt's start options: the thread's settings, else the seed a parent flow passed (init's audit-now)."""
+    """The hunt's start options: the thread's settings, the flow options (the API's `options`, kept in data), else the
+    seed a parent flow passed (init's audit-now)."""
     seed = a.data.get("seed") if isinstance(a.data.get("seed"), dict) else {}
     out = {}
     for k in ("mode", "scope", "lenses", "fast", "run"):
-        v = a.settings.get(f"hunt_{k}", a.settings.get(k))
-        out[k] = v if v not in (None, "", []) else seed.get(k)
+        for src in (a.settings, a.data, seed):
+            v = src.get(f"hunt_{k}", src.get(k))
+            if v not in (None, "", []):
+                break
+        out[k] = v if v not in (None, "", []) else None
     return out
 
 

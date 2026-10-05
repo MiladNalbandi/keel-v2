@@ -336,3 +336,11 @@ def test_a_lane_without_files_gets_no_hunter(tmp_path):
     assert hunt.lanes_present(str(root)) == {"api"}
     pairs = hunt.sweep_pairs(hunt.settings(str(root)), ["behavioral", "security"])
     assert pairs and all(p.endswith(":api") or p.endswith(":both") for p in pairs)
+
+
+def test_flow_options_from_the_api_reach_the_hunt():
+    # Real run: the API sends options as data ({"hunt_mode": "auto"}); the hunt read only settings and ran semi.
+    from types import SimpleNamespace
+    from keel_engine.runtime import hunt_actions
+    a = SimpleNamespace(settings={}, data={"hunt_mode": "auto", "lenses": "security", "seed": {"scope": "all"}})
+    assert hunt_actions._options(a) == {"mode": "auto", "scope": "all", "lenses": "security", "fast": None, "run": None}
