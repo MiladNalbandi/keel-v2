@@ -1,4 +1,4 @@
-"""Built-in keel workflows, stored as YAML next to this file."""
+"""Built-in keel workflows: content/workflows/<name>.yaml (KEEL_CONTENT in the image)."""
 
 from __future__ import annotations
 
@@ -7,13 +7,18 @@ from pathlib import Path
 
 from ..model import Workflow, load_yaml
 
-HERE = Path(__file__).parent
+from ...config import content_dir
+
 ORDER = ["feature", "change", "fix", "init", "knowledge-refresh"]
+
+
+def folder() -> Path:
+    return content_dir() / "workflows"
 
 
 @lru_cache(maxsize=None)
 def _load(name: str) -> Workflow | None:
-    f = HERE / f"{name}.yaml"
+    f = folder() / f"{name}.yaml"
     return load_yaml(f.read_text()) if f.is_file() else None
 
 
@@ -23,4 +28,5 @@ def get_template(name: str) -> Workflow | None:
 
 
 def templates() -> list[Workflow]:
-    return [get_template(n) for n in ORDER]
+    extra = sorted(f.stem for f in folder().glob("*.yaml") if f.stem not in ORDER) if folder().is_dir() else []
+    return [wf for wf in (get_template(n) for n in ORDER + extra) if wf]
