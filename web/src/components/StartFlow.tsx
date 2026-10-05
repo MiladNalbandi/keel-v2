@@ -1,9 +1,10 @@
 // "Start a flow" drawer: pick the project and workflow, say what to build, and see the estimate before it starts.
 
 import { useEffect, useState } from "react";
-import { api, errorParts, type Estimate, type Limit, type OnCap, type Workflow } from "../api";
+import { api, errorParts, type Estimate, type Limit, type OnCap, type RunMode, type Workflow } from "../api";
 import { kfmt, parseTokens, usd } from "../format";
 import { go, useApp } from "../state";
+import { RunModePicker } from "./RunMode";
 import { Drawer, ErrorBox } from "./ui";
 import { WorkspaceDoctor } from "./WorkspaceDoctor";
 
@@ -23,6 +24,8 @@ export function StartFlowDrawer({ onClose, workflowId }: { onClose: () => void; 
   const [limits, setLimits] = useState<Limit[]>([]);
   const [cap, setCap] = useState("");
   const [onCap, setOnCap] = useState<OnCap>("pause");
+  const [runMode, setRunMode] = useState<RunMode>("manual");
+  const [modeDefault, setModeDefault] = useState<RunMode>("manual");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<{ message: string; hint?: string } | null>(null);
   const [model, setModel] = useState<{ provider: string; model: string } | null>(null);
@@ -46,6 +49,10 @@ export function StartFlowDrawer({ onClose, workflowId }: { onClose: () => void; 
       const c = kfmt(s.effective.cap_tokens);
       setCap(c);
       setOnCap(s.effective.on_cap);
+      // v0.4.1: the project's default run mode (Settings › Run mode); this flow may pick another
+      const m = s.effective.run_mode ?? "manual";
+      setRunMode(m);
+      setModeDefault(m);
     }, () => undefined);
   }, [p]);
 
@@ -86,6 +93,8 @@ export function StartFlowDrawer({ onClose, workflowId }: { onClose: () => void; 
         ...(capTokens > 0 ? { cap_tokens: capTokens } : {}), on_cap: onCap,
         ...(allowFake ? { allow_fake: true } : {}), ...(allowDirty ? { allow_dirty: true } : {}),
         ...(request.trim() ? { request: request.trim() } : {}),
+        // the api falls back to the project's run mode; send it only when this flow picks another one
+        ...(runMode !== modeDefault ? { run_mode: runMode } : {}),
         // the lint flow reads its scope from the flow's data (docs/CONTRACT.md, v0.4.1)
         ...(wid === "lint" ? { options: { scope: lintScope } } : {}),
       });
@@ -179,6 +188,8 @@ export function StartFlowDrawer({ onClose, workflowId }: { onClose: () => void; 
         </div>
         <span className="hint">The estimate gets exact after the spec is approved and the real number of ACs is known. This cap is for this flow only; the project default stays in Settings.</span>
       </div>
+      <RunModePicker value={runMode} onChange={setRunMode}
+        hint={`The project default is ${modeDefault} (Settings › Run mode). You can change it on the Flow page while the flow runs.`} />
       {err && <ErrorBox error={err} />}
       {(fakeRefused || allowFake) && (
         <label className="chk"><input type="checkbox" checked={allowFake} onChange={(e) => setAllowFake(e.target.checked)} /> Run with the fake model anyway (it writes example files and commits them on the flow's branch)</label>

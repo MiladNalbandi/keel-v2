@@ -1,6 +1,7 @@
 // Bell drawer (Inbox + Settings) and the in-app pop-ups (top right, with an action button).
 
 import { useState } from "react";
+import "./inbox.css";
 import type { Notification as Note, NotificationSettings } from "../api";
 import { clock } from "../format";
 import { askPermission, EVTYPES, NTONE, permission, playSound } from "../notify";
@@ -93,22 +94,41 @@ function NoteSettings() {
 }
 
 export function NotificationDrawer({ onClose }: { onClose: () => void }) {
-  const { notes, unread, markAllRead, openNote, projects } = useApp();
+  const { notes, unread, markAllRead, markRead, deleteNote, clearNotes, openNote, projects } = useApp();
   const [tab, setTab] = useState<"inbox" | "settings">("inbox");
+  const [confirmClear, setConfirmClear] = useState(false);
   const pname = (id: string) => projects.find((p) => p.id === id)?.name ?? id;
   return (
     <Drawer title="Notifications" onClose={onClose} id="notedrawer">
       <Tabs value={tab} onChange={setTab} label="Notifications" options={[["inbox", `Inbox${unread ? ` (${unread})` : ""}`], ["settings", "Settings"]]} />
       {tab === "settings" ? <NoteSettings /> : notes.length ? (
         <>
-          {notes.map((n) => (
-            <button key={n.id} type="button" className={`note ${n.read ? "" : "unread"} t-${NTONE[n.type] ?? "run"}`}
-              onClick={() => { openNote(n); onClose(); }}>
-              <span className="row" style={{ justifyContent: "space-between" }}><b>{n.title}</b><span className="hint">{clock(n.at, false)}</span></span>
-              <span className="sub">{pname(n.project_id)} · {n.body}</span>
-            </button>
-          ))}
-          {unread > 0 && <button className="btn sm ghost" type="button" onClick={markAllRead}>Mark all as read</button>}
+          <ul className="note-list" aria-label="Notifications" style={{ listStyle: "none", margin: 0, padding: 0 }}>
+            {notes.map((n) => (
+              <li key={n.id} className="note-row">
+                <button type="button" className={`note ${n.read ? "" : "unread"} ${n.done ? "done" : ""} t-${NTONE[n.type] ?? "run"}`}
+                  onClick={() => { openNote(n); onClose(); }}>
+                  <span className="row" style={{ justifyContent: "space-between" }}><b>{n.title}</b><span className="hint">{clock(n.at, false)}</span></span>
+                  <span className="sub">{pname(n.project_id)} · {n.body}</span>
+                  {n.done && <span className="note-done">✓ decided</span>}
+                </button>
+                <span className="note-acts">
+                  {!n.read && <button type="button" className="btn sm ghost" aria-label={`Mark read: ${n.title}`} title="Mark read" onClick={() => markRead(n.id)}>✓</button>}
+                  <button type="button" className="btn sm ghost" aria-label={`Delete: ${n.title}`} title="Delete" onClick={() => deleteNote(n.id)}>×</button>
+                </span>
+              </li>
+            ))}
+          </ul>
+          <div className="note-foot">
+            {unread > 0 && <button className="btn sm ghost" type="button" onClick={markAllRead}>Mark all as read</button>}
+            {confirmClear ? (
+              <>
+                <span className="sub">Delete all {notes.length}?</span>
+                <button className="btn sm warn" type="button" onClick={() => { clearNotes(); setConfirmClear(false); }}>Yes, clear all</button>
+                <button className="btn sm ghost" type="button" onClick={() => setConfirmClear(false)}>Keep them</button>
+              </>
+            ) : <button className="btn sm ghost" type="button" onClick={() => setConfirmClear(true)}>Clear all</button>}
+          </div>
         </>
       ) : <div className="empty">Nothing yet.</div>}
     </Drawer>

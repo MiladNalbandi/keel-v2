@@ -1,13 +1,13 @@
 // Screens and their groups — the same grouped navigation as docs/mockup.html.
 
 export type ScreenId =
-  | "projects" | "flow" | "live" | "jobs" | "repo" | "map" | "wiki"
+  | "projects" | "inbox" | "flow" | "live" | "jobs" | "repo" | "map" | "wiki"
   | "workflows" | "agents" | "skills" | "stacks" | "tools" | "budget" | "settings" | "connections";
 
 export type Group = { id: string; label: string; hint: string; pages: [ScreenId, string][] };
 
 export const GROUPS: Group[] = [
-  { id: "run", label: "Run", hint: "what is happening now", pages: [["flow", "Flow"], ["live", "Live agents"], ["jobs", "Jobs"]] },
+  { id: "run", label: "Run", hint: "what is happening now", pages: [["flow", "Flow"], ["inbox", "Inbox"], ["live", "Live agents"], ["jobs", "Jobs"]] },
   { id: "know", label: "Project", hint: "what this project is", pages: [["repo", "Repo"], ["map", "Map"], ["wiki", "Wiki"]] },
   {
     id: "build", label: "Build", hint: "how agents work",

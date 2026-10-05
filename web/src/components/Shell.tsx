@@ -90,11 +90,15 @@ function ProjectBox({ onBell }: { onBell: () => void }) {
 
 function Nav() {
   const { page } = useRoute();
-  const { project } = useApp();
+  const { project, projects } = useApp();
   const cur = groupOf(page);
   const running = project?.running ?? 0;
+  // The inbox badge: flows that wait for a person in every project (the project list follows the event stream).
+  const waitingAll = projects.reduce((a, p) => a + (p.waiting || 0), 0);
   const badge = (id: ScreenId) =>
-    (id === "jobs" || id === "live") && running > 0 ? <span className="count run" title="running now">{running}</span> : null;
+    id === "inbox" ? (waitingAll > 0 ? <span className="count" data-testid="inbox-count" title="waiting for you in all projects"
+      aria-label={`${waitingAll} waiting`}>{waitingAll}</span> : null)
+      : (id === "jobs" || id === "live") && running > 0 ? <span className="count run" title="running now">{running}</span> : null;
   return (
     <nav className="nav" id="nav" aria-label="Screens">
       <div className="nav-groups" role="tablist" aria-label="Sections" style={{ ["--gn" as string]: GROUPS.length }}>

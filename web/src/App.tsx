@@ -7,6 +7,7 @@ import { AgentsPage } from "./pages/Agents";
 import { BudgetPage } from "./pages/Budget";
 import { ConnectionsPage } from "./pages/Connections";
 import { FlowPage } from "./pages/Flow";
+import { InboxPage } from "./pages/Inbox";
 import { JobsPage } from "./pages/Jobs";
 import { LivePage } from "./pages/Live";
 import { MapPage } from "./pages/Map";
@@ -23,7 +24,7 @@ import { PageBoundary } from "./components/PageBoundary";
 import { AppProvider, useApp, useRoute } from "./state";
 
 /** Screens that need a chosen project. */
-const PAGES: Record<Exclude<ScreenId, "projects">, (p: { pid: string }) => ReactElement> = {
+const PAGES: Record<Exclude<ScreenId, "projects" | "inbox">, (p: { pid: string }) => ReactElement> = {
   flow: FlowPage,
   live: LivePage,
   jobs: JobsPage,
@@ -51,6 +52,8 @@ function Router() {
     }
   }, [page]);
   if (page === "projects") return <ProjectsPage />;
+  // The inbox spans every project: it needs no chosen one.
+  if (page === "inbox") return <PageBoundary resetKey="inbox"><InboxPage /></PageBoundary>;
   // Connections and General settings work without a project, but every other screen needs one.
   if (!pid) {
     if (!projectsLoaded) return <div className="empty loading" role="status">Loading…</div>;
