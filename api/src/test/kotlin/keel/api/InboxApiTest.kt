@@ -36,7 +36,8 @@ class InboxApiTest : ApiTest() {
         waits("ib-a", mapOf("step" to "spec_gate", "kind" to "clarify", "title" to "The explorer has 1 question", "detail" to long,
             "options" to listOf("approve"), "id" to "qa", "labels" to mapOf("approve" to "Send my answers"),
             "questions" to listOf(mapOf("id" to "q1", "question" to "Who sees it?", "options" to listOf(mapOf("label" to "players", "recommended" to true))))),
-            mapOf("run_mode" to "important", "phase" to "spec"))
+            mapOf("run_mode" to "important", "phase" to "spec",
+                "gate_log" to listOf("gate options approve", "ac AC-1 approve: auto-approved (mode important)")))
         waits("ib-b", mapOf("step" to "commit", "kind" to "fix", "title" to "Approve new dependency", "detail" to "httpx = \">=0.27\"",
             "options" to listOf("approve", "reject"), "id" to "qb", "labels" to mapOf("approve" to "Allow", "reject" to "Refuse")))
         // ib-gone: the engine says it runs again (no override), so it is not listed and the api's row follows
@@ -56,6 +57,8 @@ class InboxApiTest : ApiTest() {
         assertThat(a["options"].map { it.asText() }).containsExactly("approve")
         assertThat(a["id"].asText()).isEqualTo("qa")
         assertThat(a["run_mode"].asText()).isEqualTo("important")
+        assertThat(a["auto_approved"].asInt()).isEqualTo(1)
+        assertThat(a["last_auto"].asText()).isEqualTo("ac AC-1 approve: auto-approved (mode important)")
         assertThat(a["since"].asText()).isEqualTo("2026-10-06T09:00:00Z")
         val b = mine[1]
         assertThat(b["kind"].asText()).isEqualTo("dependency")

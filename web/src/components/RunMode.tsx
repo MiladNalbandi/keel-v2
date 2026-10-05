@@ -18,6 +18,47 @@ export const RUN_MODES: [RunMode, string, string][] = [
 export const runModeLabel = (m?: string | null) => RUN_MODES.find(([k]) => k === m)?.[1] ?? "Manual";
 export const runModeAbout = (m?: string | null) => RUN_MODES.find(([k]) => k === m)?.[2] ?? RUN_MODES[0][2];
 
+/** The gate-log lines the run mode wrote ("… approve: auto-approved (mode auto)"). */
+export const autoLines = (log?: string[] | null) => (log ?? []).filter((l) => l.includes("auto-approved (mode "));
+
+const SAFETY_KINDS = new Set(["fix", "budget", "usage", "dependency"]);
+
+/** Why this pause waits for a person in this run mode (null in manual, where every gate waits). */
+export function whyItWaits(mode: string | null | undefined, kind: string, title = ""): string | null {
+  if (mode === "auto") {
+    if (SAFETY_KINDS.has(kind) || /secret|keeps failing|still no|read-only/i.test(title)) {
+      return "Auto mode still stops here: keel never decides money, new dependencies, secrets or a check that keeps failing by itself.";
+    }
+    return "Auto mode stops when keel cannot decide: only a send-back fits, a loop is past its rounds, or it already approved this question three times.";
+  }
+  if (mode === "important") {
+    return /^AC gate/.test(title)
+      ? "Important only stops at an AC gate when its checks failed or its AC review found something."
+      : "Important only approves clean AC gates by itself; every other gate waits for you.";
+  }
+  if (mode === "readonly") return "Read-only: agents cannot edit or commit; every gate waits for you.";
+  return null;
+}
+
+/**
+ * One short note on a waiting gate (Flow page gate card, Inbox item): the flow's run mode, how many gates keel already
+ * approved by itself (and the last one), and why this one waits for you.
+ */
+export function RunModeNote({ mode, kind, title, auto }: {
+  mode?: RunMode | null; kind: string; title?: string; auto?: { count: number; last?: string | null };
+}) {
+  const why = whyItWaits(mode, kind, title);
+  const n = auto?.count ?? 0;
+  if (!why && !n) return null;
+  return (
+    <p className="runmode-note" data-testid="run-mode-note">
+      <span className="tag" title="run mode">{runModeLabel(mode)}</span>{" "}
+      {n > 0 && <span>keel approved {n} gate{n === 1 ? "" : "s"} by itself in this flow{auto?.last ? <> (last: <span className="mono">{auto.last}</span>)</> : null}. </span>}
+      {why && <span className="sub">{why}</span>}
+    </p>
+  );
+}
+
 /** A radio group with one line per mode (Start a flow). */
 export function RunModePicker({ value, onChange, legend = "Run mode", hint }: {
   value: RunMode; onChange: (m: RunMode) => void; legend?: string; hint?: string;

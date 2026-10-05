@@ -135,6 +135,45 @@ describe("inbox", () => {
   });
 });
 
+describe("auto-approved info and the Flow page switch", () => {
+  it("the Flow page's bar has the run mode switch next to Stop, and the gate card says what keel approved", async () => {
+    const user = userEvent.setup();
+    server.use(http.post("/api/threads/:tid/mode", async ({ request, params }) => {
+      const body = await request.json();
+      db.calls.push({ method: "POST", path: `/api/threads/${params.tid}/mode`, body });
+      return HttpResponse.json({ ...db.flows["ludus-engine"].thread, run_mode: (body as { mode: string }).mode });
+    }));
+    const t = db.flows["ludus-engine"].thread!;
+    db.flows["ludus-engine"].thread = { ...t, run_mode: "auto",
+      gate_log: ["gate spec_gate approve: auto-approved (mode auto)", "ac AC-001 approve: auto-approved (mode auto)"] };
+    render(<App />);
+    const bar = await screen.findByRole("region", { name: "This flow" });
+    const sel = within(bar).getByLabelText("Run mode");
+    expect(sel).toHaveValue("auto");
+    expect(within(bar).getByRole("button", { name: "Stop flow" })).toBeInTheDocument();
+    const gate = screen.getByRole("region", { name: "Gate waits for you" });
+    const note = within(gate).getByTestId("run-mode-note");
+    expect(note).toHaveTextContent("keel approved 2 gates by itself in this flow");
+    expect(note).toHaveTextContent("ac AC-001 approve: auto-approved (mode auto)");
+    expect(note).toHaveTextContent("Auto mode stops when keel cannot decide");
+    await user.selectOptions(sel, "manual");
+    await waitFor(() => expect(calls("POST", "/api/threads/th_7f3a/mode")[0]?.body).toEqual({ mode: "manual" }));
+  });
+
+  it("an inbox item says the same: the run mode, what keel approved, why this one waits", async () => {
+    const list = items();
+    list[1] = { ...list[1], auto_approved: 1, last_auto: "ac AC-1 approve: auto-approved (mode important)" };
+    list[2] = { ...list[2], run_mode: "auto" };
+    inboxServer(list);
+    await openInbox();
+    const ask = await screen.findByRole("article", { name: "The explorer has 1 question" });
+    expect(within(ask).getByTestId("run-mode-note")).toHaveTextContent("Important only keel approved 1 gate by itself in this flow");
+    const dep = screen.getByRole("article", { name: "Approve new dependency" });
+    expect(within(dep).getByTestId("run-mode-note")).toHaveTextContent("Auto mode still stops here");
+    expect(within(screen.getByRole("article", { name: "AC gate · AC-002" })).queryByTestId("run-mode-note")).toBeNull();   // manual
+  });
+});
+
 describe("notification clean-up", () => {
   function cleanupServer() {
     server.use(

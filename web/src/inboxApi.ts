@@ -27,6 +27,9 @@ export type InboxItem = {
   phase?: string | null;
   ac?: string | null;
   run_mode?: RunMode | null;
+  /** gates the run mode already approved in this flow, and the last such gate-log line */
+  auto_approved?: number;
+  last_auto?: string | null;
   since?: string | null;
 };
 export type InboxView = { items: InboxItem[]; count: number; kinds: string[]; projects: { id: string; name: string; count: number }[] };
