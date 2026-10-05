@@ -110,7 +110,7 @@ function ThreadView({ pid, thread, workflow, keelState, reload, onStart }: {
   return (
     <>
       <Header thread={thread} workflow={workflow} onStart={onStart} />
-      {explain && <StepInfoDrawer pid={pid} stepId={explain} threadId={thread.thread_id} onClose={() => setExplain(null)} />}
+      {explain && <StepInfoDrawer pid={pid} workflow={workflow} stepId={explain} threadId={thread.thread_id} onClose={() => setExplain(null)} />}
       <div className="grid" style={{ gap: 16 }}>
         <Panel title="Graph" extra={<GraphLegend />}>
           <Zoom id="flow">
@@ -527,7 +527,7 @@ function InitFlow({ pid, f, onStart, reload }: { pid: string; f: { thread: Threa
   const [explain, setExplain] = useState<string | null>(null);
   return (
     <>
-      {explain && <StepInfoDrawer pid={pid} stepId={explain} threadId={thread.thread_id} onClose={() => setExplain(null)} />}
+      {explain && <StepInfoDrawer pid={pid} workflow={workflow} stepId={explain} threadId={thread.thread_id} onClose={() => setExplain(null)} />}
       <Header thread={thread} workflow={workflow} onStart={onStart} extra={<GoButton to="wiki" className="btn">Open wiki</GoButton>} />
       <Panel title="Graph" extra={<GraphLegend />} body="grid">
         <div className="grid" style={{ gap: 14 }}>

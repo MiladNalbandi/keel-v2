@@ -197,8 +197,9 @@ export function infoRequest(stepId: string, workflow?: Workflow | string | null,
   };
 }
 
-/** "What this step does" in a drawer. `workflow`: a saved workflow's id or a draft; with `threadId` alone the engine uses
- * the thread's own workflow and adds what the step did in that thread. */
+/** "What this step does" in a drawer. `workflow`: a saved workflow's id or a draft — pass the one the page draws, so the
+ * drawer and the graph never disagree (a thread started on an older template has fewer steps); `threadId` adds the
+ * thread's state and what the step did there. With `threadId` alone the engine uses the thread's own workflow. */
 export function StepInfoDrawer({ pid, workflow, stepId, threadId, onClose }: {
   pid: string; workflow?: Workflow | string | null; stepId: string; threadId?: string | null; onClose: () => void;
 }) {

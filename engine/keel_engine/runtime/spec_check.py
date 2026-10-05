@@ -23,6 +23,12 @@ def sections(text: str) -> dict[str, str]:
     return out
 
 
+def _shape(title: str) -> str:
+    """A criterion with its numbers and quoted values blanked out: two criteria with the same shape test one rule."""
+    t = re.sub(r"`[^`]{1,60}`|'[^'\s]{1,40}'|\"[^\"]{1,60}\"|-?\d+(?:\.\d+)?", "#", title.lower())
+    return re.sub(r"\s+", " ", t).strip() if "#" in t else ""
+
+
 def check(text: str, acs: list[dict]) -> list[dict]:
     """Findings as {level: "fix"|"note", text}. "fix" ones are worth one automatic revision."""
     found: list[dict] = []
@@ -62,6 +68,14 @@ def check(text: str, acs: list[dict]) -> list[dict]:
     ids = [a["id"] for a in acs]
     if len(set(ids)) != len(ids):
         found.append({"level": "fix", "text": "Two criteria have the same id."})
+    # Cases of one rule split into criteria (only a number or a quoted value differs) cost a full round each; a real
+    # feature run had applyCoupon(cart, -1), (cart, 101) and (cart, 50.5) as three criteria the first code already met.
+    shapes: dict[str, list[str]] = {}
+    for a in acs:
+        shapes.setdefault(_shape(str(a.get("title") or "")), []).append(a["id"])
+    for same in (v for k, v in shapes.items() if k and len(v) > 1):
+        found.append({"level": "fix", "text": f"{', '.join(same)} differ only in their values: they are cases of one rule. "
+                                               "Merge them into one criterion and list the values as examples."})
     if len(acs) > 8:
         found.append({"level": "note", "text": f"{len(acs)} criteria: more than 8 usually means two features. Split it?"})
     for block in re.findall(r"```.*?```", text, re.S):
