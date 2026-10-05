@@ -77,6 +77,9 @@ class Settings(BaseModel):
     hunt_scope: str | None = None               # hunt: all | diff | <path,path>
     hunt_lenses: list[str] | None = None        # hunt: the lenses to propose (default: hunt.lenses in .keel/config.yml)
     hunt_run: str | None = None                 # hunt-next: the run to drain (default: the project's latest)
+    # v0.4.1 run modes (runtime/run_mode.py): manual stops at every gate, important approves clean AC gates, auto approves
+    # every gate keel can decide (the safety stops still stop), readonly lets no agent edit or commit
+    run_mode: Literal["manual", "important", "auto", "readonly"] = "manual"
 
 
 class McpServerSpec(BaseModel):
@@ -133,6 +136,10 @@ class Resume(BaseModel):
     payload: dict[str, Any] | None = None
     keys: dict[str, str] | None = None   # logins again: they live in memory only and a restart forgets them
     root: str | None = None              # the project's folder now (it moves when keel is started another way)
+
+
+class ModeBody(BaseModel):
+    mode: Literal["manual", "important", "auto", "readonly"]
 
 
 class Continue(BaseModel):
@@ -315,6 +322,11 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
             await engine(request).set_keys(tid, body.keys)
         await engine(request).set_root(tid, body.root)
         return await engine(request).resume(tid, body.decision, body.why, body.payload)
+
+    @app.post("/threads/{tid}/mode")
+    async def post_mode(tid: str, body: ModeBody, request: Request):
+        """The run mode from the next pause on (manual | important | auto | readonly)."""
+        return await engine(request).set_mode(tid, body.mode)
 
     @app.post("/threads/{tid}/continue")
     async def post_continue(tid: str, body: Continue, request: Request):

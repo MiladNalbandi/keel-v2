@@ -21,6 +21,7 @@ import sys
 from pathlib import Path
 
 from . import rules
+from .runtime import run_mode
 from .runtime.guard_ctx import ENV
 
 MARKER = "[keel guard]"
@@ -100,11 +101,17 @@ def decide(tool: str, ti: dict, ctx: dict) -> str | None:
         v = rules.check_knowledge(text, ctx.get("agent") or "", ctx.get("knowledge_allowed"), bool(ctx.get("knowledge_strict")))
         return None if v.ok else v.reason
 
+    readonly = bool(ctx.get("readonly"))
+
     def edit(path: str) -> str | None:
+        if readonly:
+            return run_mode.READONLY_EDIT
         rel, full = _locate(root, path)
         v = rules.check_edit(phase, rel, cfg, exists=full.exists(), lane=lane, unlocks=unlocks)
         return None if v.ok else v.reason
 
+    if readonly and tool in WRITE_TOOLS:
+        return run_mode.READONLY_EDIT
     if tool in WRITE_TOOLS:
         path = _path_arg(ti)
         return edit(path) if path else None
@@ -117,13 +124,15 @@ def decide(tool: str, ti: dict, ctx: dict) -> str | None:
         refused = knowledge(rel) if v.ok else v.reason
         return refused or already_read(ctx.get("_path"), rel, full, ti.get("offset"), ti.get("limit"))
     if tool == "Bash":
-        refused = knowledge(str(ti.get("command") or ""))
+        refused = knowledge(str(ti.get("command") or "")) or (run_mode.readonly_bash(str(ti.get("command") or "")) if readonly else None)
         if refused:
             return refused
         v = rules.check_bash(phase, str(ti.get("command") or ""), cfg,
                              exists=lambda rel: (Path(root) / rel).exists(), unlocks=unlocks)
         return None if v.ok else v.reason
     if tool.startswith("mcp__"):
+        if readonly and (WRITEISH.search(tool.split("__", 2)[-1]) or (re.search("serena", tool, re.I) and SERENA_EDIT.search(tool))):
+            return run_mode.READONLY_MCP
         return check_mcp(tool, ti, phase, cfg, edit)
     return None
 

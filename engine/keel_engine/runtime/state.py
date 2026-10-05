@@ -85,6 +85,10 @@ class ThreadContext:
     guards: list = field(default_factory=list)
     # start_flow: async (workflow id, seed, link to this thread) -> the new thread's id (set by the Engine)
     spawn: Any = None
+    # Run modes (runtime/run_mode.py): the id of the question a resume answers (the user's answer wins over the mode),
+    # and how often keel approved each question by itself in this run (memory only; a rewind clears it).
+    resume_qid: str | None = None
+    auto_seen: dict[str, int] = field(default_factory=dict)
 
     @property
     def fake(self) -> bool:

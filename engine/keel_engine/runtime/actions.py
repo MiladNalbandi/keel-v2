@@ -284,6 +284,13 @@ def commit(a: ActionInput) -> ActionResult:
     """keel v1 `keel commit`: bucket rules plus the diff-level checks, then a real commit."""
     if not git.is_repo(a.root):
         return ActionResult(True, "Not a git repository; nothing committed.")
+    if (a.settings or {}).get("run_mode") == "readonly":
+        # Run mode readonly: keel commits nothing. The user switches the mode and tries again, or stops the flow.
+        detail = ("This flow runs read-only (run mode readonly): agents may not edit, and keel makes no commit.\n\n"
+                  "Change the run mode (manual, important or auto) and approve to try the commit again, or reject to stop the flow.")
+        return ActionResult(False, "Read-only run: keel commits nothing.", detail, ask={
+            "type": "readonly", "kind": "fix", "title": "Read-only run: the commit is refused", "detail": detail,
+            "labels": {"approve": "Try the commit again", "reject": "Stop the flow"}})
     ctype = rules.commit_type_for(a.phase)
     git.git(a.root, "add", "-A", "--", *(a.paths or ["."]), *COMMIT_EXCLUDES)
     # Never sweep the user's own uncommitted work into a keel commit: a file that was already changed when the
@@ -304,10 +311,14 @@ def commit(a: ActionInput) -> ActionResult:
     found = checks.secrets_in_diff(diff)
     if found:
         kinds = sorted({f["why"] for f in found})
-        return _refuse(a, f"The {ctype} commit stages what looks like a secret: {', '.join(kinds)}.",
-                       "\n".join(f"  {f['file']}: {f['why']}" for f in found) +
-                       "\nRemove it and read it from an environment variable. A fixture line may carry the marker keel:allow-secret.",
-                       update={"blockers": push_gates.push_blockers(a.root, a.base, found, project=a.key)})
+        note = f"The {ctype} commit stages what looks like a secret: {', '.join(kinds)}."
+        detail = ("\n".join(f"  {f['file']}: {f['why']}" for f in found) +
+                  "\nRemove it and read it from an environment variable. A fixture line may carry the marker keel:allow-secret.")
+        # Every run mode stops here (runtime/run_mode.py): approve sends it back to the agent to remove it, reject stops.
+        return _refuse(a, note, detail, update={"blockers": push_gates.push_blockers(a.root, a.base, found, project=a.key)},
+                       ask={"type": "secrets", "kind": "fix", "title": "A secret is staged for commit",
+                            "detail": f"{note}\n{detail}\n\nApprove to send it back to the agent to remove it. Reject to stop the flow.",
+                            "labels": {"approve": "Send back to remove it", "reject": "Stop the flow"}})
 
     # A new dependency outlives the branch: a human approves it (keel v1 refuses; v2 asks).
     if a.phase not in (None, "", "none"):
@@ -321,7 +332,7 @@ def commit(a: ActionInput) -> ActionResult:
             git.git(a.root, "reset", "-q")
             return ActionResult(False, f"New dependency needs approval: {', '.join(names)}.", detail,
                                 ask={"type": "deps", "kind": "fix", "title": "Approve new dependency", "detail": detail,
-                                     "deps": names, "files": files})
+                                     "deps": names, "files": files, "labels": {"approve": "Allow", "reject": "Refuse"}})
 
     # A file the user unlocked for this phase passes the bucket rule too; otherwise "allow this file"
     # would only move the refusal from the edit to the commit. (keel v1 checks unlocks at edit time only.)
