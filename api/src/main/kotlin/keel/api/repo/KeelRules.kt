@@ -72,8 +72,22 @@ class KeelRules(mapper: ObjectMapper) {
 
     companion object {
         private val TEST_PATTERNS = listOf(
-            Regex("(^|/)(test|tests)/"), Regex("\\.(test|spec)\\.(ts|tsx|js|jsx)$"), Regex("Test\\.(kt|java|php)$"),
+            Regex("(^|/)(test|tests|__tests__|spec)/"), Regex("(^|/)test_[^/]+\\.py$"), Regex("_test\\.(py|go|rb|exs?)$"),
+            Regex("_spec\\.rb$"), Regex("\\.(test|spec)\\.(ts|tsx|js|jsx)$"), Regex("Test\\.(kt|java|php)$"),
             Regex("Tests\\.(kt|java)$"), Regex("(^|/)src/test/"), Regex("(^|/)src/integrationTest/"),
+        )
+
+        /** Same as the engine (rules/__init__.py): outside the configured folders, decide by the kind of file. */
+        private val CODE_EXT = setOf(
+            "js", "mjs", "cjs", "ts", "mts", "cts", "py", "go", "rs", "java", "kt", "scala", "groovy", "rb", "php", "cs", "fs",
+            "vb", "swift", "m", "mm", "c", "cc", "cpp", "cxx", "h", "hpp", "ex", "exs", "erl", "clj", "dart", "lua", "r", "jl",
+            "sol", "zig", "nim", "ml", "hs", "elm",
+        )
+        private val WEB_EXT = setOf("tsx", "jsx", "vue", "svelte", "astro", "css", "scss", "sass", "less", "html", "htm")
+        private val TOOL_CONFIG = Regex(
+            "(^|\\.)(config|conf|rc)\\.(js|mjs|cjs|ts|mts|cts)$|^(build|settings)\\.gradle(\\.kts)?$|" +
+                "^(setup|conftest|manage|noxfile|fabfile)\\.py$|^\\.?(eslint|prettier|babel|jest|vite|vitest|" +
+                "webpack|rollup|tailwind|postcss|playwright|tsconfig)",
         )
 
         fun classify(cfg: ClassifyConfig, path: String): String {
@@ -94,7 +108,12 @@ class KeelRules(mapper: ObjectMapper) {
             }
             if (inDir(cfg.frontendDir)) return if (isTest) "web-test" else "web-src"
             if (Regex("(^|/)db/migration/").containsMatchIn(rel)) return "migration"
+            val name = rel.substringAfterLast('/').lowercase()
+            val ext = if ('.' in name) name.substringAfterLast('.') else ""
+            if (TOOL_CONFIG.containsMatchIn(name)) return if (isTest) "api-test" else "other"
+            if (ext in WEB_EXT) return if (isTest) "web-test" else "web-src"
             if (isTest) return "api-test"
+            if (ext in CODE_EXT) return "api-main"
             return "other"
         }
 

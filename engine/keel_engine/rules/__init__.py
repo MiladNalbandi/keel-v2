@@ -147,7 +147,10 @@ def negated(file: str, patterns: list[str]) -> bool:
 
 
 _TEST_PATH = [
-    re.compile(r"(^|/)(test|tests)/"),
+    re.compile(r"(^|/)(test|tests|__tests__|spec)/"),
+    re.compile(r"(^|/)test_[^/]+\.py$"),
+    re.compile(r"_test\.(py|go|rb|exs?)$"),
+    re.compile(r"_spec\.rb$"),
     re.compile(r"\.(test|spec)\.(ts|tsx|js|jsx)$"),
     re.compile(r"Test\.(kt|java|php)$"),
     re.compile(r"Tests\.(kt|java)$"),
@@ -201,9 +204,30 @@ def classify(cfg: dict | None, path: str) -> str:
         return "web-test" if is_test else "web-src"
     if re.search(r"(^|/)db/migration/", rel):
         return "migration"
+    # Outside the configured folders, decide by the kind of file: a project that never ran init (or is not laid out
+    # like apps/api + apps/web) must still have its production code protected. keel v1 called all of it "other".
+    name = rel.rsplit("/", 1)[-1].lower()
+    ext = "." + name.rsplit(".", 1)[-1] if "." in name else ""
+    if TOOL_CONFIG.search(name):
+        return "api-test" if is_test else "other"
+    if ext in WEB_EXT:
+        return "web-test" if is_test else "web-src"
     if is_test:
         return "api-test"
+    if ext in CODE_EXT:
+        return "api-main"
     return "other"
+
+
+# Source files by extension (production code unless the path says test); UI files go to the web buckets.
+CODE_EXT = {".js", ".mjs", ".cjs", ".ts", ".mts", ".cts", ".py", ".go", ".rs", ".java", ".kt", ".scala", ".groovy", ".rb",
+            ".php", ".cs", ".fs", ".vb", ".swift", ".m", ".mm", ".c", ".cc", ".cpp", ".cxx", ".h", ".hpp", ".ex", ".exs",
+            ".erl", ".clj", ".dart", ".lua", ".r", ".jl", ".sol", ".zig", ".nim", ".ml", ".hs", ".elm"}
+WEB_EXT = {".tsx", ".jsx", ".vue", ".svelte", ".astro", ".css", ".scss", ".sass", ".less", ".html", ".htm"}
+# Build and tool configuration is not production code (vite.config.ts, build.gradle.kts, eslint.config.js ...).
+TOOL_CONFIG = re.compile(r"(^|\.)(config|conf|rc)\.(js|mjs|cjs|ts|mts|cts)$|^(build|settings)\.gradle(\.kts)?$|"
+                         r"^(setup|conftest|manage|noxfile|fabfile)\.py$|^\.?(eslint|prettier|babel|jest|vite|vitest|"
+                         r"webpack|rollup|tailwind|postcss|playwright|tsconfig)")
 
 
 # ---------------------------------------------------------------- edit guard
