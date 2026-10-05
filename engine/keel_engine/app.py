@@ -20,6 +20,7 @@ from .demo import create_demo, workspace_missing
 from .events import EventBus, bus as default_bus
 from .models import catalog
 from .runtime import hunt, mapper, scan
+from .runtime.explain import ExplainError, explain_step
 from .runtime.service import Engine, EngineError
 from .tools import mcp
 from .workflows.estimate import estimate
@@ -157,6 +158,15 @@ class EstimateBody(BaseModel):
     knowledge_tokens: dict[str, int] | None = None   # optional: agent -> tokens of the knowledge it is given
 
 
+class ExplainBody(BaseModel):
+    workflow: dict[str, Any] | None = None   # the workflow as JSON (includes allowed); missing = the thread's own
+    step_id: str
+    root: str | None = None                  # the project folder: real test commands, knowledge files, code graph
+    thread_id: str | None = None             # the thread's state fills the prompt; its checkpoints give the last runs
+    project_id: str | None = None
+    agents: dict[str, AgentSettings] = Field(default_factory=dict)   # per agent: {knowledge}, as in StartThread
+
+
 class ScanBody(BaseModel):
     root: str
     rebuild: bool = False                 # a full re-index instead of an incremental sync of an existing index
@@ -264,6 +274,16 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
             return _err(400, "The workflow does not parse.", "; ".join(r["errors"]), r["errors"])
         m = {k: v.model_dump() for k, v in (body.models or {}).items()}
         return estimate(r["workflow"], body.acs, body.history, m, body.knowledge_tokens)
+
+    @app.post("/steps/explain")
+    async def post_explain(body: ExplainBody, request: Request):
+        """What one step really does: rules, routes, the real task prompt or the actions in words, and its last runs."""
+        data = body.model_dump()
+        data["agents"] = {k: v.model_dump(exclude_none=True) for k, v in body.agents.items()}
+        try:
+            return await explain_step(data, engine(request))
+        except ExplainError as exc:
+            return _err(exc.status, exc.error)
 
     @app.post("/threads")
     async def post_thread(body: StartThread, request: Request):

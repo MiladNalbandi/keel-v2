@@ -13,6 +13,7 @@ import { eventLine } from "../components/events";
 import { Graph, GraphLegend } from "../components/Graph";
 import { Zoom } from "../components/Zoom";
 import { StartFlowDrawer } from "../components/StartFlow";
+import { StepExplainDrawer } from "../components/StepExplain";
 import { Async, Confirm, ErrorBox, GoButton, PageHead, Panel, Pill, Prov, type PillTone } from "../components/ui";
 import { acLabel, clock, kfmt, usd } from "../format";
 import { useApp, useLoad } from "../state";
@@ -105,14 +106,17 @@ function ThreadView({ pid, thread, workflow, keelState, reload, onStart }: {
 }) {
   const { history, est, job } = useThreadBits(pid, thread, workflow);
   const tokens = useMemo(() => perStep(workflow, est.data?.per_step), [workflow, est.data]);
+  const [explain, setExplain] = useState<string | null>(null);
   return (
     <>
       <Header thread={thread} workflow={workflow} onStart={onStart} />
+      {explain && <StepExplainDrawer pid={pid} req={{ step_id: explain, thread_id: thread.thread_id }} onClose={() => setExplain(null)} />}
       <div className="grid" style={{ gap: 16 }}>
         <Panel title="Graph" extra={<GraphLegend />}>
+          <p className="hint" style={{ margin: "0 0 6px" }}>Click a step to see what it really does.</p>
           <Zoom id="flow">
             <Graph steps={workflow.steps} current={thread.current} status={thread.status} tokens={thread.status === "done" ? undefined : tokens}
-              acs={thread.acs} currentAc={thread.ac} />
+              acs={thread.acs} currentAc={thread.ac} onSelect={setExplain} />
           </Zoom>
           <AcStrip thread={thread} />
         </Panel>
@@ -521,12 +525,14 @@ function InitFlow({ pid, f, onStart, reload }: { pid: string; f: { thread: Threa
   const kb = memory.data?.knowledge ?? [];
   const writing = (jobs.data ?? []).filter((j) => j.thread_id === thread.thread_id && /librarian/.test(j.agent));
   const written = kb.filter((k) => k.status === "written").length;
+  const [explain, setExplain] = useState<string | null>(null);
   return (
     <>
+      {explain && <StepExplainDrawer pid={pid} req={{ step_id: explain, thread_id: thread.thread_id }} onClose={() => setExplain(null)} />}
       <Header thread={thread} workflow={workflow} onStart={onStart} extra={<GoButton to="wiki" className="btn">Open wiki</GoButton>} />
       <Panel title="Graph" extra={<GraphLegend />} body="grid">
         <div className="grid" style={{ gap: 14 }}>
-          <Zoom id="flow-done"><Graph steps={workflow.steps} current={thread.current} status={thread.status} /></Zoom>
+          <Zoom id="flow-done"><Graph steps={workflow.steps} current={thread.current} status={thread.status} onSelect={setExplain} /></Zoom>
           <div className="lanes">
             <div className="lane">
               <div className="lane-h"><b>Ladder</b><span className="sub num">{rungs.length ? `${passed} / ${rungs.length} rungs` : "not started"}</span></div>

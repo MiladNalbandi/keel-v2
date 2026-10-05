@@ -160,6 +160,10 @@ export function handlers(db: Db) {
       db.workflows = db.workflows.map((x) => (x.id === saved.id ? saved : x));
       return HttpResponse.json(saved);
     }),
+    http.post("/api/projects/:pid/workflows/explain-step", async ({ request }) => {
+      const b = await log(request);
+      return HttpResponse.json(fx.explanation(String(b.step_id), Boolean(b.thread_id)));
+    }),
     http.post("/api/projects/:pid/workflows/import", async ({ request }) => {
       await log(request);
       return HttpResponse.json({ workflow: fx.fixWorkflow, review: { agents: ["reproducer"], mcp: [], gates: 1, est_tokens: 60000, edits_files: true } });

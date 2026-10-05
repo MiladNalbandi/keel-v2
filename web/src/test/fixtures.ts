@@ -3,7 +3,7 @@
 import type {
   Agent, Budget, Cap, Catalog, Checkpoint, Connections, Estimate, Health, Job, JobStep, KeelDoc, KeelMap, LibraryItem, Limit, McpServer,
   Memory, Notification, NotificationSettings, Project, ProjectSettings, ProviderUsage, RepoFile, RepoInfo, Settings, Skill, SkillDetail,
-  Stack, ThreadState, TreeNode, WikiPage, WikiTree, Workflow,
+  Stack, StepExplanation, ThreadState, TreeNode, WikiPage, WikiTree, Workflow,
 } from "../api";
 
 const now = Date.now();
@@ -271,3 +271,34 @@ export const notificationSettings: NotificationSettings = {
   sound: true, volume: 0.5, tone: "chime", popup: true, desktop: false, scope: "all",
   kinds: { review: true, failed: true, budget: true, finished: true, started: false }, quiet: false,
 };
+
+/** v0.4.1: what POST /workflows/explain-step answers for an agent step (red) and a code step (commit contract). */
+const buckets = (may: Record<string, string>) => ["api-main", "api-test", "web-src", "web-test", "migration", "other", "protected-env"].map((b) => ({
+  bucket: b, what: b, may: (may[b] ?? "read-only") as "edit" | "new-only" | "read-only" | "no-access", label: may[b] === "edit" ? "edit" : "read only",
+}));
+export function explanation(step: string, thread: boolean): StepExplanation {
+  const code = step === "s4";
+  return {
+    id: step, name: code ? "commit contract" : "red", kind: code ? "code" : "agent", phase: code ? "contract" : "red", thread,
+    phase_meaning: code ? "Write the outside surface the criteria change." : "Test first: write a failing test for the current criterion.",
+    rules: {
+      phase: code ? "contract" : "red", buckets: buckets(code ? { other: "edit" } : { "api-test": "edit", "web-test": "edit", other: "edit", "protected-env": "no-access" }),
+      shell_refused: ["git commit: the engine's commit step makes every commit"],
+      commit: { type: code ? "contract" : "red", about: code ? "the contract" : "the failing test", prefix: code ? "contract" : "test(AC-n)",
+        message: code ? "contract: «the flow's title»" : "test(AC-n): «the criterion's title»", author: "keelbot", may_contain: [], may_not_contain: [], extra: [] },
+    },
+    loop: code ? null : { kind: "per_ac", text: "Runs once per acceptance criterion." },
+    next: [{ label: code ? "passes" : "next", to: "s5", to_name: "green", text: "green" }],
+    ...(code ? {
+      code: { chain: "commit", actions: [{ name: "commit", known: true, summary: "Makes the real git commit for this phase.",
+        steps: ["Looks for secrets in the staged diff."], for_this_step: "In phase contract this is a contract commit." }] },
+    } : {
+      agent: { id: "test-author", about: "Writes the failing tests.", model: { step: "default", agent_file: "opus", rule: "the agent's model" },
+        markers: [{ name: "AMEND", values: [], registered: true, text: "free text" }], instructions: "If the frozen spec is wrong, stop.",
+        prompt: thread ? "Flow: Player ranks\nCurrent criterion: AC-1 [API] main case" : "Flow: «the flow's title»\nCurrent criterion: «AC-n» [API] «the current criterion»",
+        placeholders: !thread },
+    }),
+    ...(thread ? { last_runs: { count: 1, now: null, runs: [{ checkpoint: "c9", at: "2026-10-05T10:00:00Z", note: "test-author · RED done", ok: true, ac: "AC-1",
+      commit: { sha: "3e53b6aa9caa", subject: "test(AC-1): main case" }, answer: "RED: tests/test_ac_1.py asserts AC-1.", tokens: { in: 24000, out: 3000, step: 27000 } }] } } : {}),
+  };
+}
