@@ -17,9 +17,16 @@ def test_resume_moves_the_flow_to_the_folder_the_api_sends(client, repo, tmp_pat
     r = client.post(f"/threads/{tid}/resume", json={"decision": "approve", "root": str(moved)})
     assert r.status_code == 200, r.text
     s = wait(client, tid)
-    st = json.loads((moved / ".keel" / "state.json").read_text())
-    assert st["engine"]["thread_id"] == tid and st["phase"] != "none"
+    assert s["phase"] != "none"
+    assert thread_root(client, tid) == str(moved)
     assert not (repo / ".keel").exists(), "nothing is written in the old, empty folder"
+
+
+def thread_root(client, tid) -> str:
+    """The folder the engine runs the thread in now."""
+    from keel_engine.runtime.service import Engine
+    eng: Engine = client.app.state.engine
+    return eng.ctxs[tid].root
 
 
 def test_resume_refuses_an_empty_or_missing_folder(client, repo):

@@ -21,7 +21,7 @@ from ..tools.agent_tools import command_env
 from . import blockers as push_gates
 from . import ladder as run_ladder
 
-COMMIT_EXCLUDES = [":!.keel/state.json", ":!.keel/logs", ":!.keel/.state.json*"]
+COMMIT_EXCLUDES = [f":!{p.rstrip('/')}" for p in git.ENGINE_FILES]
 
 
 @dataclass

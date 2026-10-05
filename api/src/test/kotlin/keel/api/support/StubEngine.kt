@@ -48,6 +48,9 @@ class StubEngine private constructor(private val server: HttpServer) {
     /** Extra ThreadState fields per thread id (for example a "fix" wait), merged over the default. */
     val overrides = java.util.concurrent.ConcurrentHashMap<String, Map<String, Any?>>()
 
+    /** Unlocks posted per thread (POST /threads/{id}/unlocks), like the engine keeps them. */
+    val unlocks = java.util.concurrent.ConcurrentHashMap<String, MutableList<Map<String, Any?>>>()
+
     private fun state(id: String, status: String = "running"): Map<String, Any?> = mapOf(
         "thread_id" to id, "project_id" to "p", "workflow_id" to "feature", "title" to "t", "status" to status,
         "current" to "spec", "phase" to "spec", "ac" to null,
@@ -83,6 +86,15 @@ class StubEngine private constructor(private val server: HttpServer) {
             val unlock = body?.get("payload")?.get("unlock")?.let { mapper.convertValue(it, Map::class.java) }
             200 to (state(id, "running") + (if (unlock != null) mapOf("unlocks" to listOf(unlock)) else emptyMap()))
         }
+        path.endsWith("/unlocks") && method == "POST" -> {
+            val id = path.split('/')[2]
+            val phase = body?.get("phase")?.asText() ?: state(id)["phase"]
+            val item = mapOf("path" to body?.get("path")?.asText(), "phase" to phase, "by" to "api", "reason" to body?.get("reason")?.asText())
+            val list = unlocks.getOrPut(id) { java.util.concurrent.CopyOnWriteArrayList() }
+            if (list.none { it["path"] == item["path"] && it["phase"] == item["phase"] }) list += item
+            200 to list
+        }
+        path.endsWith("/unlocks") -> 200 to unlocks[path.split('/')[2]].orEmpty()
         path.endsWith("/stop") -> 200 to state(path.split('/')[2], "stopped")
         path.endsWith("/history") -> 200 to listOf(mapOf("id" to "c1", "n" to 1, "step" to "spec", "at" to "2026-10-03T00:00:00Z", "note" to "start"))
         path == "/providers/test" -> 200 to (providerTestAnswer ?: mapOf("ok" to true, "text" to "OK", "ms" to 3))

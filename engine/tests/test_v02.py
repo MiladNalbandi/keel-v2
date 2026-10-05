@@ -1,12 +1,11 @@
 """v0.2 engine additions: blockers, ladder, unlocks, commit checks, live guard, knowledge-refresh, estimate."""
 
 import json
-import shutil
 import stat
 import subprocess
+import sys
 from pathlib import Path
 
-import pytest
 
 from conftest import decide, start, wait
 from keel_engine import rules
@@ -54,6 +53,16 @@ def write(repo, rel, text):
 def configure(repo, text="version: 4\n"):
     write(repo, ".keel/config.yml", text)
     commit_all(repo, "chore: keel config")
+
+
+def graph_values(client, tid) -> dict:
+    """The thread's graph state (what the engine checkpoints), read on the app's own event loop."""
+    eng = client.app.state.engine
+
+    async def get():
+        return (await (await eng._graph(tid)).aget_state(eng._cfg(tid))).values
+
+    return client.portal.call(get)
 
 
 def wf(steps, name="custom"):
@@ -106,8 +115,6 @@ def test_push_check_and_commit_fill_blockers(client, repo):
     assert s["status"] == "done", s
     assert {b["gate"] for b in s["blockers"]} == {"release", "coverage"}
     assert all(set(b) == {"gate", "why", "fix"} for b in s["blockers"])
-    state = json.loads((Path(repo) / ".keel/state.json").read_text())
-    assert {b["gate"] for b in state["blockers"]} == {"release", "coverage"}
 
     tid = start(client, repo, workflow="fix", title="Average is wrong")
     s = run_to_end(client, tid, wait(client, tid))
@@ -126,11 +133,10 @@ def test_init_flow_ladder_simulated(client, repo):
     assert all(set(r) >= {"n", "name", "cmd", "status"} for r in rungs)
     status = {r["n"]: r["status"] for r in rungs}
     assert status == {1: "pass", 2: "skipped", 3: "skipped", 4: "pass", 5: "skipped", 6: "pass", 7: "skipped",
-                      8: "skipped", 9: "skipped", 10: "skipped", 11: "skipped", 12: "skipped"}
+                      8: "skipped", 9: "skipped", 10: "skipped", 11: "skipped", 12: "pass"}
+    assert "refused an edit" in rungs[11]["detail"]                   # the guard self-test runs for real
     assert rungs[5]["cmd"] == "python -m pytest -q" and rungs[3]["cmd"].startswith("python3 -m compileall")
     assert json.loads((Path(repo) / ".keel/ladder.json").read_text())["rungs"] == rungs
-    state = json.loads((Path(repo) / ".keel/state.json").read_text())
-    assert state["setup"]["rungs"] == rungs
     assert "python -m pytest -q" in (Path(repo) / "docs/RUNNING.md").read_text()
     # deterministic: a second plan gives the same commands
     assert [r["cmd"] for r in ladder.plan(str(repo))] == [r["cmd"] for r in rungs]
@@ -194,10 +200,7 @@ def test_settings_unlock_lets_guard_keep_file(client, repo):
     assert (Path(repo) / rel).exists()
     assert not any(e["data"]["path"] == rel for e in client.bus.of(tid, "guard.refused"))
     assert s["unlocks"] == [{"path": rel, "phase": "green"}]
-    state = json.loads((Path(repo) / ".keel/state.json").read_text())
-    assert state["unlocks"][0]["path"] == rel and state["unlocks"][0]["phase"] == "green"
-    lines = [json.loads(x) for x in (Path(repo) / ".keel/logs/events.jsonl").read_text().splitlines()]
-    assert any(x["kind"] == "gate" and x.get("gate") == "unlock" for x in lines)
+    assert not (Path(repo) / ".keel" / "state.json").exists()
 
 
 def test_resume_payload_unlock(client, repo):
@@ -211,8 +214,6 @@ def test_resume_payload_unlock(client, repo):
     assert {"path": rel, "phase": "green"} in s["unlocks"]
     ev = [e for e in client.bus.of(tid, "gate.decided") if e["data"]["gate"] == "unlock"]
     assert ev and ev[0]["data"]["unlock"] == {"path": rel, "phase": "green"}
-    lines = [json.loads(x) for x in (Path(repo) / ".keel/logs/events.jsonl").read_text().splitlines()]
-    assert any(x["kind"] == "gate" and x.get("gate") == "unlock" for x in lines)
 
 
 def test_guard_refused_events_carry_path_and_phase(client, repo):
@@ -280,7 +281,7 @@ def test_new_dependency_approve_commits(client, repo):
     assert s["status"] == "done", s
     assert log(repo)[0].startswith("feat")
     assert "httpx" in (Path(repo) / "pyproject.toml").read_text()
-    assert "httpx" in json.loads((Path(repo) / ".keel/state.json").read_text())["deps"]
+    assert "httpx" in graph_values(client, tid)["deps"]
 
 
 def test_new_dependency_reject_reverts_manifest(client, repo):
@@ -330,8 +331,7 @@ def test_change_flow_escalation_override(client, repo):
     assert any(x.startswith("feat(AC-1)") for x in log(repo))
     s = run_to_end(client, tid, s)
     assert s["status"] == "done"          # AC-2 did not ask again: the override stands for the flow
-    state = json.loads((Path(repo) / ".keel/state.json").read_text())
-    assert any(x.startswith("escalation-override") for x in state["gates"]["log"])
+    assert any(x.startswith("escalation-override") for x in s["gate_log"])
 
 
 def test_change_flow_escalation_approve_stops(client, repo):
@@ -352,22 +352,12 @@ def script(tmp_path, name, body):
     return str(f)
 
 
-def keel_home(tmp_path, monkeypatch):
-    home = tmp_path / "keel-home"
-    (home / ".claude-plugin").mkdir(parents=True)
-    (home / "hooks").mkdir()
-    (home / "hooks" / "hooks.json").write_text("{}")
-    (home / "bin").mkdir()
-    (home / "bin" / "keel").write_text("#!/bin/sh\n")
-    monkeypatch.setenv("KEEL_HOME", str(home))
-    return home
-
-
 CLAUDE_OUT = [
     {"type": "assistant", "message": {"content": [
         {"type": "tool_use", "id": "1", "name": "Write", "input": {"file_path": "__ROOT__/src/scores/x.py", "content": "x"}}]}},
     {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "1", "is_error": True,
-                                              "content": "PreToolUse:Write hook error: [keel hook pre-tool]: keel: src/scores/x.py: "
+                                              "content": "PreToolUse:Write hook error: [\"/venv/bin/python\" -I -m keel_engine.hook pre-tool"
+                                                         " || exit 2]: [keel guard] src/scores/x.py: "
                                                          "editing api-main is blocked in phase \"red\"."}]}},
     {"type": "result", "result": "done", "usage": {"input_tokens": 10, "output_tokens": 2}},
 ]
@@ -379,7 +369,7 @@ def fake_claude(tmp_path, root, out_dir):
     return script(tmp_path, "claude", f"""cat > /dev/null
 echo "$@" > {out_dir}/argv
 env > {out_dir}/env
-cp .keel/state.json {out_dir}/state.json 2>/dev/null
+cp "$KEEL_GUARD_CTX" {out_dir}/guard.json 2>/dev/null
 cat {tmp_path}/claude.out
 """)
 
@@ -389,8 +379,7 @@ def req(root, model, **kw):
                         toolbox=ToolBox(str(root), "red"), workdir=str(root), **kw)
 
 
-async def test_claude_runner_plugin_dir_oauth_and_hook_refusal(tmp_path, monkeypatch, repo):
-    home = keel_home(tmp_path, monkeypatch)
+async def test_claude_runner_loads_keels_own_hook_oauth_and_hook_refusal(tmp_path, monkeypatch, repo):
     monkeypatch.setenv("KEEL_CLAUDE_BIN", fake_claude(tmp_path, repo, tmp_path))
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-should-not-pass")
     monkeypatch.setenv("GH_TOKEN", "gh-should-not-pass")
@@ -400,16 +389,23 @@ async def test_claude_runner_plugin_dir_oauth_and_hook_refusal(tmp_path, monkeyp
                                           keys={"claude_oauth": "key-oauth"}), lambda k, t="", **kw: steps.append((k, t, kw)))
     argv = (tmp_path / "argv").read_text()
     env = (tmp_path / "env").read_text()
-    # only keel's guard is loaded (not the whole plugin with its keel v1 workflow text)
+    # only keel's guard hook is loaded (no plugin), and it is keel v2's own: this venv's python, outside the project
     assert "--plugin-dir" not in argv and "--settings" in argv
     assert "--disallowedTools Skill,Task" in argv
     settings = argv.split("--settings ")[1].split()[0]
+    assert not settings.startswith(str(repo))
     hook = json.loads(open(settings).read())["hooks"]["PreToolUse"][0]
-    assert hook["hooks"][0]["command"] == f'"{home}/bin/keel" hook pre-tool' and "Edit" in hook["matcher"]
+    assert hook["hooks"][0]["command"] == f'"{sys.executable}" -I -m keel_engine.hook pre-tool || exit 2'
+    assert hook["matcher"] == "Edit|Write|MultiEdit|NotebookEdit|Bash|Read|mcp__.*"
+    ctx_file = next(line.split("=", 1)[1] for line in env.splitlines() if line.startswith("KEEL_GUARD_CTX="))
+    assert not ctx_file.startswith(str(repo))
+    ctx = json.loads((tmp_path / "guard.json").read_text())
+    assert ctx["phase"] == "red" and ctx["root"] == str(Path(repo).resolve()) and ctx["agent"] == "test-author"
+    assert "KEEL_BIN" not in env
     assert "CLAUDE_CODE_OAUTH_TOKEN=key-oauth" in env
     assert "ANTHROPIC_API_KEY" not in env and "GH_TOKEN" not in env
     guard = [s for s in steps if s[0] == "guard"]
-    assert guard and "blocked in phase" in guard[0][1] and guard[0][2]["path"] == "src/scores/x.py"
+    assert guard and guard[0][1] == 'src/scores/x.py: editing api-main is blocked in phase "red".' and guard[0][2]["path"] == "src/scores/x.py"
     assert res.data["refusals"][0]["path"] == "src/scores/x.py"
 
     monkeypatch.delenv("KEEL_CLAUDE_BIN")
@@ -418,8 +414,7 @@ async def test_claude_runner_plugin_dir_oauth_and_hook_refusal(tmp_path, monkeyp
     assert "CLAUDE_CODE_OAUTH_TOKEN=env-oauth" in (tmp_path / "env").read_text()
 
 
-def test_claude_flow_writes_state_first_and_reports_hook_refusals(client, repo, tmp_path, monkeypatch):
-    keel_home(tmp_path, monkeypatch)
+def test_claude_flow_writes_the_guard_context_first_and_reports_hook_refusals(client, repo, tmp_path, monkeypatch):
     monkeypatch.setenv("KEEL_FAKE", "0")
     monkeypatch.setenv("KEEL_CLAUDE_BIN", fake_claude(tmp_path, repo, tmp_path))
     flow = wf([{"id": "r", "kind": "agent", "name": "red", "agent": "test-author", "phase": "red"}])
@@ -428,12 +423,13 @@ def test_claude_flow_writes_state_first_and_reports_hook_refusals(client, repo, 
                           "unlocks": [{"path": "src/scores/y.py", "phase": "red"}]})
     s = wait(client, tid)
     assert s["status"] == "done", s
-    seen = json.loads((tmp_path / "state.json").read_text())
-    assert seen["phase"] == "red" and seen["engine"]["step"] == "r"
+    seen = json.loads((tmp_path / "guard.json").read_text())
+    assert seen["phase"] == "red" and seen["thread"] == tid and seen["agent"] == "test-author"
     assert seen["unlocks"][0]["path"] == "src/scores/y.py"
     refused = client.bus.of(tid, "guard.refused")
     assert refused and refused[0]["data"]["source"] == "keel-hook"
     assert refused[0]["data"]["path"] == "src/scores/x.py" and refused[0]["data"]["phase"] == "red"
+    assert not (Path(repo) / ".keel" / "state.json").exists()
 
 
 async def test_copilot_runner_gets_github_token_only_for_copilot(tmp_path, monkeypatch, repo):
@@ -451,22 +447,31 @@ async def test_copilot_runner_gets_github_token_only_for_copilot(tmp_path, monke
     assert "GH_TOKEN" not in safe_env() and "CLAUDE_CODE_OAUTH_TOKEN" not in safe_env()
 
 
-@pytest.mark.skipif(not shutil.which("node"), reason="node is not installed")
-async def test_opencode_installs_adapter_and_sets_keel_bin(tmp_path, monkeypatch, repo):
-    home = tmp_path / "keel-home"
-    (home / "opencode").mkdir(parents=True)
-    (home / "opencode" / "install.mjs").write_text(
-        "import { mkdirSync, writeFileSync } from 'node:fs';\n"
-        "mkdirSync('.opencode/plugins', { recursive: true });\n"
-        "writeFileSync('.opencode/plugins/keel.js', '// keel');\n")
-    monkeypatch.setenv("KEEL_HOME", str(home))
-    out = json.dumps({"type": "step_finish", "part": {"type": "step_finish", "tokens": {"input": 3, "output": 1}}})
-    monkeypatch.setenv("KEEL_OPENCODE_BIN", script(tmp_path, "opencode", f"env > {tmp_path}/env\necho '{out}'\n"))
-    res = await OpenCodeRunner().run(req(repo, {"provider": "copilot", "mode": "opencode", "model": "gpt-5"}), lambda *a, **k: None)
+async def test_opencode_loads_keels_guard_plugin_from_the_run_folder(tmp_path, monkeypatch, repo):
+    old = Path(repo) / ".opencode" / "plugins" / "keel.js"          # keel v0.3 installed keel v1's adapter here
+    old.parent.mkdir(parents=True)
+    old.write_text("// keel's enforcement, for OpenCode.\n")
+    refused = {"type": "tool_use", "part": {"type": "tool", "tool": "write", "state": {
+        "status": "error", "input": {"filePath": str(Path(repo) / "src/scores/x.py")},
+        "error": 'Error: [keel guard] src/scores/x.py: editing api-main is blocked in phase "red".'}}}
+    done = {"type": "step_finish", "part": {"type": "step_finish", "tokens": {"input": 3, "output": 1}}}
+    out = "\n".join(json.dumps(x) for x in (refused, done))
+    (tmp_path / "oc.out").write_text(out + "\n")
+    monkeypatch.setenv("KEEL_OPENCODE_BIN", script(tmp_path, "opencode", f"env > {tmp_path}/env\ncat {tmp_path}/oc.out\n"))
+    notes = []
+    res = await OpenCodeRunner().run(req(repo, {"provider": "copilot", "mode": "opencode", "model": "gpt-5"}),
+                                     lambda k, t="", **kw: notes.append((k, t)))
     assert res.tokens_in == 3
-    assert (Path(repo) / ".opencode/plugins/keel.js").is_file()
-    assert f"KEEL_BIN={home}/bin/keel" in (tmp_path / "env").read_text()
-    assert git(repo, "status", "--porcelain").stdout == ""          # kept out of git via .git/info/exclude
+    env = dict(line.split("=", 1) for line in (tmp_path / "env").read_text().splitlines() if "=" in line)
+    conf = Path(env["OPENCODE_CONFIG_DIR"])
+    plugin = (conf / "plugins" / "keel-guard.js").read_text()
+    assert json.dumps([sys.executable, "-I", "-m", "keel_engine.hook", "pre-tool"]) in plugin
+    assert "tool.execute.before" in plugin and "KEEL_BIN" not in plugin
+    assert not str(conf).startswith(str(repo)) and Path(env["KEEL_GUARD_CTX"]).is_file()
+    assert "KEEL_BIN" not in env
+    assert not old.exists() and any("keel v1's opencode adapter" in t for k, t in notes)
+    assert res.data["refusals"][0]["path"] == "src/scores/x.py" and "blocked in phase" in res.data["refusals"][0]["reason"]
+    assert git(repo, "status", "--porcelain").stdout == ""          # nothing of keel's is written into the project
 
 
 def test_provider_test_uses_login_rules(client, tmp_path, monkeypatch, repo):
@@ -536,14 +541,15 @@ def test_api_written_unlocks_are_merged_and_honoured(client, repo):
     tid = start(client, repo, models=_rogue_models())
     s = wait(client, tid)
     assert s["waiting"]["step"] == "spec_gate"
-    f = Path(repo) / ".keel/state.json"
-    data = json.loads(f.read_text())
-    data["unlocks"].append({"path": rel, "phase": "green", "reason": "fixture helper", "at": "2026-10-03T00:00:00Z"})
-    f.write_text(json.dumps(data))
+    r = client.post(f"/threads/{tid}/unlocks", json={"path": rel, "phase": "green", "reason": "fixture helper"})
+    assert r.status_code == 200, r.text
+    assert [u for u in r.json() if u["path"] == rel][0]["by"] == "api"
+    assert {"path": rel, "phase": "green"} in client.get(f"/threads/{tid}").json()["unlocks"]
     s = decide(client, tid)
     assert s["waiting"]["step"] == "ac_gate"
     assert (Path(repo) / rel).exists()                                   # the guard honoured it
     assert {"path": rel, "phase": "green"} in s["unlocks"]
-    on_disk = json.loads(f.read_text())["unlocks"]
-    assert [u for u in on_disk if u["path"] == rel] == [
-        {"path": rel, "phase": "green", "by": "api", "reason": "fixture helper", "at": "2026-10-03T00:00:00Z"}]
+    mine = [u for u in client.get(f"/threads/{tid}/unlocks").json() if u["path"] == rel]
+    assert len(mine) == 1 and mine[0]["reason"] == "fixture helper" and mine[0]["phase"] == "green"
+    assert [u for u in graph_values(client, tid)["unlocks"] if u["path"] == rel]   # merged into the flow state
+    assert not (Path(repo) / ".keel" / "state.json").exists()

@@ -75,21 +75,30 @@ class V02RepoApiTest : ApiTest() {
     }
 
     @Test
-    fun `unlock writes keel v1 unlocks to state json when no flow waits on a fix`() {
-        val (pid, root) = newProject("v2-unlock", mapOf(".keel/state.json" to """{"flow":"feature","phase":"red","unlocks":[],"acs":{}}"""))
-        val r = post("/api/projects/$pid/unlock", mapOf("path" to "src/main/App.kt")).andExpect(status().isOk).json()
-        assertThat(r["via"].asText()).isEqualTo("state")
+    fun `unlock goes to the project's flow through the engine and is refused without one`() {
+        val (pid, root) = newProject("v2-unlock")
+        post("/api/projects/$pid/unlock", mapOf("path" to "src/main/App.kt")).andExpect(status().isConflict)
+
+        val tid = "t-unlock-engine"
+        post("/internal/events", listOf(mapOf("type" to "thread.started", "thread_id" to tid, "project_id" to pid, "at" to "2026-10-03T10:00:00Z",
+            "data" to mapOf("title" to "Ranks"))), mapOf("X-Keel-Token" to TOKEN)).andExpect(status().isOk)
+        engine.overrides[tid] = mapOf("phase" to "red")
+        val r = post("/api/projects/$pid/unlock", mapOf("path" to "./src/main/App.kt", "reason" to "helper")).andExpect(status().isOk).json()
+        assertThat(r["via"].asText()).isEqualTo("engine")
+        assertThat(r["thread_id"].asText()).isEqualTo(tid)
         assertThat(r["unlocks"][0]["path"].asText()).isEqualTo("src/main/App.kt")
         assertThat(r["unlocks"][0]["phase"].asText()).isEqualTo("red")
-        val state = mapper.readTree(root.resolve(".keel/state.json").toFile())
-        assertThat(state["flow"].asText()).isEqualTo("feature")
-        assertThat(state["unlocks"].size()).isEqualTo(1)
-        assertThat(state["unlocks"][0]["reason"].asText()).isNotBlank()
+        val body = engine.lastBody("/threads/$tid/unlocks")!!
+        assertThat(body["path"].asText()).isEqualTo("src/main/App.kt")
+        assertThat(body["reason"].asText()).isEqualTo("helper")
+        assertThat(body.has("phase")).isFalse()                       // the engine picks the thread's phase
 
         // same path + phase again: no duplicate; another phase: a second entry
         post("/api/projects/$pid/unlock", mapOf("path" to "src/main/App.kt")).andExpect(status().isOk)
         val two = post("/api/projects/$pid/unlock", mapOf("path" to "src/main/App.kt", "phase" to "green")).json()
         assertThat(two["unlocks"].map { it["phase"].asText() }).containsExactly("red", "green")
+        assertThat(engine.lastBody("/threads/$tid/unlocks")!!["phase"].asText()).isEqualTo("green")
+        assertThat(Files.exists(root.resolve(".keel").resolve("state.json"))).isFalse()   // nothing written into the project
 
         post("/api/projects/$pid/unlock", mapOf("path" to "../etc/passwd")).andExpect(status().isBadRequest)
         post("/api/projects/$pid/unlock", mapOf("path" to "")).andExpect(status().isBadRequest)
@@ -102,9 +111,10 @@ class V02RepoApiTest : ApiTest() {
         post("/internal/events", listOf(mapOf("type" to "gate.waiting", "thread_id" to tid, "project_id" to pid, "at" to "2026-10-03T10:00:00Z",
             "data" to mapOf("title" to "Guard refused"))), mapOf("X-Keel-Token" to TOKEN)).andExpect(status().isOk)
 
-        // a gate wait is not approved by an unlock: it goes to state.json instead
+        // a gate wait is not approved by an unlock: it goes to the thread's unlocks in the engine instead
         engine.overrides[tid] = mapOf("status" to "waiting", "phase" to "green", "waiting" to mapOf("step" to "g", "kind" to "gate", "title" to "t", "detail" to "", "options" to listOf("approve", "reject")))
-        assertThat(post("/api/projects/$pid/unlock", mapOf("path" to "a.kt")).json()["via"].asText()).isEqualTo("state")
+        assertThat(post("/api/projects/$pid/unlock", mapOf("path" to "a.kt")).json()["via"].asText()).isEqualTo("engine")
+        assertThat(engine.calls.none { it.path == "/threads/$tid/resume" }).isTrue()
 
         engine.overrides[tid] = mapOf("status" to "waiting", "phase" to "green", "waiting" to mapOf("step" to "green", "kind" to "fix", "title" to "Guard refused", "detail" to "", "options" to listOf("approve", "reject")))
         val r = post("/api/projects/$pid/unlock", mapOf("path" to "src/main/Score.kt")).andExpect(status().isOk).json()
@@ -115,7 +125,8 @@ class V02RepoApiTest : ApiTest() {
         assertThat(body["decision"].asText()).isEqualTo("approve")
         assertThat(body["payload"]["unlock"]["path"].asText()).isEqualTo("src/main/Score.kt")
         assertThat(body["payload"]["unlock"]["phase"].asText()).isEqualTo("green")
-        assertThat(mapper.readTree(root.resolve(".keel/state.json").toFile())["unlocks"].map { it["path"].asText() }).containsExactly("a.kt")
+        assertThat(engine.unlocks[tid]!!.map { it["path"] }).containsExactly("a.kt")
+        assertThat(Files.exists(root.resolve(".keel").resolve("state.json"))).isFalse()
     }
 
     @Test

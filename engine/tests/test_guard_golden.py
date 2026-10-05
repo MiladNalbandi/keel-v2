@@ -1,4 +1,4 @@
-"""keel v2 rules must behave like keel v1. The fixture was exported from keel v1 itself."""
+"""keel's rules against keel v2's own golden file (tests/fixtures/guard_golden.json; first exported from keel v1)."""
 
 import json
 from pathlib import Path
@@ -7,7 +7,7 @@ import pytest
 
 from keel_engine import rules
 
-FIX = json.loads((Path(__file__).parent / "fixtures" / "keel_v1_rules.json").read_text())
+FIX = json.loads((Path(__file__).parent / "fixtures" / "guard_golden.json").read_text())
 
 # One file per bucket under keel's default layout.
 SAMPLES = {
@@ -26,7 +26,7 @@ SAMPLES = {
 }
 
 
-def test_tables_match_v1():
+def test_tables_match_golden():
     assert rules.PHASES == FIX["PHASES"]
     assert rules.TRANSITIONS == FIX["TRANSITIONS"]
     assert rules.LADDER == FIX["LADDER"]
@@ -166,3 +166,11 @@ def test_bash_guard():
 
 def test_empty_state_shape():
     assert rules.EMPTY_STATE == FIX["EMPTY"]
+
+
+def test_engine_and_api_read_the_same_rules_file():
+    """The api ships its own copy of the rules (KeelRules.kt); the two must never drift."""
+    here = Path(__file__).resolve().parents[2]
+    engine = here / "engine" / "keel_engine" / "rules" / "data" / "keel_rules.json"
+    api = here / "api" / "src" / "main" / "resources" / "keel" / "keel_rules.json"
+    assert engine.read_bytes() == api.read_bytes()
