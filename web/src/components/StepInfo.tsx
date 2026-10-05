@@ -3,7 +3,7 @@
 // lets an agent touch), Next (where it goes, by step name) and Last run (with a thread: what it really did).
 
 import { useEffect, useState, type ReactNode } from "react";
-import { api, errorParts, type ExplainRequest, type StepExplanation, type StepRoute } from "../api";
+import { api, errorParts, type ExplainRequest, type StepExplanation, type StepRoute, type Workflow } from "../api";
 import { kfmt } from "../format";
 import { Drawer, ErrorBox, Loading, Pill } from "./ui";
 import { KIND } from "./workflow";
@@ -155,7 +155,7 @@ function LastRun({ x }: { x: StepExplanation }) {
 }
 
 /** The explanation itself (also used inside the builder's step panel). */
-export function StepExplainBody({ x }: { x: StepExplanation }) {
+export function StepInfoBody({ x }: { x: StepExplanation }) {
   return (
     <div className="grid xbody" style={{ gap: 16 }}>
       <p className="sub" style={{ margin: 0 }}>
@@ -173,7 +173,7 @@ export function StepExplainBody({ x }: { x: StepExplanation }) {
   );
 }
 
-export function useStepExplain(pid: string, req: ExplainRequest | null) {
+export function useStepInfo(pid: string, req: ExplainRequest | null) {
   const [x, setX] = useState<StepExplanation | null>(null);
   const [error, setError] = useState<{ message: string; hint?: string } | null>(null);
   const key = req ? JSON.stringify(req) : "";
@@ -188,11 +188,25 @@ export function useStepExplain(pid: string, req: ExplainRequest | null) {
   return { x, error };
 }
 
-export function StepExplainDrawer({ pid, req, name, onClose }: { pid: string; req: ExplainRequest; name?: string; onClose: () => void }) {
-  const { x, error } = useStepExplain(pid, req);
+/** The request for one step: a saved workflow (its id), a draft (the object), and/or a thread (its state and last runs). */
+export function infoRequest(stepId: string, workflow?: Workflow | string | null, threadId?: string | null): ExplainRequest {
+  return {
+    step_id: stepId,
+    ...(typeof workflow === "string" ? { workflow_id: workflow } : workflow ? { workflow } : {}),
+    ...(threadId ? { thread_id: threadId } : {}),
+  };
+}
+
+/** "What this step does" in a drawer. `workflow`: a saved workflow's id or a draft; with `threadId` alone the engine uses
+ * the thread's own workflow and adds what the step did in that thread. */
+export function StepInfoDrawer({ pid, workflow, stepId, threadId, onClose }: {
+  pid: string; workflow?: Workflow | string | null; stepId: string; threadId?: string | null; onClose: () => void;
+}) {
+  const { x, error } = useStepInfo(pid, infoRequest(stepId, workflow, threadId));
+  const name = typeof workflow === "object" && workflow ? workflow.steps.find((s) => s.id === stepId)?.name : undefined;
   return (
-    <Drawer title={`What ${x?.name ?? name ?? req.step_id} does`} onClose={onClose}>
-      {error ? <ErrorBox error={error} /> : !x ? <Loading what="Reading the step" /> : <StepExplainBody x={x} />}
+    <Drawer title={`What ${x?.name ?? name ?? stepId} does`} onClose={onClose}>
+      {error ? <ErrorBox error={error} /> : !x ? <Loading what="Reading the step" /> : <StepInfoBody x={x} />}
     </Drawer>
   );
 }

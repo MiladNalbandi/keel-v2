@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, errorParts, type Agent, type Estimate, type OnCap, type Step, type Workflow } from "../api";
 import { Builder, useBuilder } from "../components/Builder";
-import { StepExplainDrawer } from "../components/StepExplain";
+import { StepInfoDrawer } from "../components/StepInfo";
 import { clone, moveStep, same, updateStep } from "../components/builderOps";
 import { Async, ErrorBox, PageHead, Panel, Tabs } from "../components/ui";
 import { KIND, toYaml, tokensByStep } from "../components/workflow";
@@ -147,7 +147,7 @@ function Editor({ pid, wid, wfs, agents, tab, tabs, onNew, onImport, onSaved }: 
       {err && tab !== "yaml" && <div style={{ marginBottom: 12 }}><ErrorBox error={err} /></div>}
       {tab === "builder" && yamlText !== null && <p className="hint amber" style={{ marginTop: 0 }}>You changed the YAML by hand. Save to see those changes in the diagram.</p>}
       {explain && w.steps.some((x) => x.id === explain) && (
-        <StepExplainDrawer pid={pid} req={{ step_id: explain, workflow: w }} onClose={() => setExplain(null)} />
+        <StepInfoDrawer pid={pid} workflow={w} stepId={explain} onClose={() => setExplain(null)} />
       )}
       {tab === "builder" && <Builder w={w} sel={sel} onSelect={setSel} b={b} tokens={tokens} customAgents={customAgents} />}
       <div className="grid g2" style={{ marginTop: 16 }}>
@@ -243,13 +243,11 @@ function Inspector({ w, s, agents, onChange, onMove, onRemove, onExplain }: {
   const llm = s.kind === "agent" || s.kind === "parallel";
   const models = [...new Set(["default", ...w.steps.map((x) => x.model).filter(Boolean) as string[], ...agents.map((a) => a.model?.model).filter(Boolean)])];
   return (
-    <Panel title="Step" extra={<div className="row" style={{ gap: 6 }}>
-      {onExplain && <button className="btn sm" type="button" onClick={onExplain}>What it does</button>}
-      <button className="btn sm ghost" type="button" onClick={onRemove}>{locked ? "keel rule · why?" : "Remove step"}</button>
-    </div>} body="grid">
+    <Panel title="Step" extra={<button className="btn sm ghost" type="button" onClick={onRemove}>{locked ? "keel rule · why?" : "Remove step"}</button>} body="grid">
       <div className="grid" style={{ gap: 12 }}>
         <div className="field"><label htmlFor="wn">Name</label><input type="text" id="wn" value={s.name} onChange={(e) => onChange({ name: e.target.value })} /></div>
         <div className="field"><span className="lab">Type</span><span>{KIND[s.kind]}{s.phase ? <> · phase <span className="mono">{s.phase}</span></> : null}</span></div>
+        {onExplain && <div><button className="btn sm" type="button" onClick={onExplain}>What it does</button></div>}
         <div className="field">
           <span className="lab">Connections</span>
           <div className="conn-mini"><span className="sub">comes after</span><b>{prev ? prev.name : "start"}</b><span className="sub">goes to</span><b>{next ? next.name : "done"}</b></div>

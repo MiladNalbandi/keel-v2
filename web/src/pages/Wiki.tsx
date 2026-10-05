@@ -7,7 +7,7 @@ import { Graph, GraphLegend } from "../components/Graph";
 import { Zoom } from "../components/Zoom";
 import { Markdown } from "../components/Markdown";
 import { RefreshStaleButton } from "../components/RefreshStale";
-import { StepExplainDrawer } from "../components/StepExplain";
+import { StepInfoDrawer } from "../components/StepInfo";
 import { Async, ErrorBox, Loading, PageHead, Pill } from "../components/ui";
 import { KIND, tokensByStep } from "../components/workflow";
 import { kfmt } from "../format";
@@ -47,7 +47,7 @@ function WorkflowPage({ pid, wid }: { pid: string; wid: string }) {
   const [explain, setExplain] = useState<string | null>(null);
   return (
     <>
-    {explain && <StepExplainDrawer pid={pid} req={{ step_id: explain, workflow_id: wid }} onClose={() => setExplain(null)} />}
+    {explain && <StepInfoDrawer pid={pid} workflow={wid} stepId={explain} onClose={() => setExplain(null)} />}
     <Async r={wf} what="Loading the workflow">
       {(w) => {
         const gates = w.steps.filter((s) => s.kind === "gate").length;
@@ -82,7 +82,7 @@ function WorkflowPage({ pid, wid }: { pid: string; wid: string }) {
                 </tr>
               ))}</tbody>
             </table></div>
-            <p className="hint">This page is generated from the workflow file, so it is always the version that runs. Click a step to see what it really does.</p>
+            <p className="hint">This page is generated from the workflow file, so it is always the version that runs.</p>
           </>
         );
       }}

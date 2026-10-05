@@ -672,7 +672,7 @@ details.file-card[open] > summary.file-bar::before { content: "▾"; }
 .ucard.compact .btn.sm { padding: 0 6px; min-height: 22px; }
 @media (max-width: 900px) { .side .ustrip.compact { display: none; } }
 
-/* "What this step does" drawer (components/StepExplain.tsx) */
+/* "What this step does" drawer (components/StepInfo.tsx) */
 .xsec { display: grid; gap: 8px; }
 .xsec h3 { margin: 0; font-size: 14px; }
 .xsec p { margin: 0; }
