@@ -46,6 +46,12 @@ class Unlock(BaseModel):
     phase: str | None = None
 
 
+class UnlockBody(BaseModel):
+    path: str
+    phase: str | None = None              # default: the phase the thread is in now
+    reason: str | None = None
+
+
 class Settings(BaseModel):
     gates_mode: Literal["every-ac", "end-of-lane", "end"] = "every-ac"
     cap_tokens: int = 0
@@ -53,7 +59,7 @@ class Settings(BaseModel):
     cheaper_model: ModelSpec | None = None
     fix_attempts: int = 3
     simulate_checks: bool | None = None   # default: simulate test runs when every model is fake
-    unlocks: list[Unlock] | None = None   # keel v1 unlocks: that path bypasses the guard matrix in that phase
+    unlocks: list[Unlock] | None = None   # unlocks: that path bypasses the guard matrix in that phase
     sections: list[str] | None = None     # knowledge-refresh: one librarian per section
     spec_check: bool | None = None        # send a spec back once when keel's spec check finds a gap (default: real models only)
 
@@ -252,6 +258,14 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
             await engine(request).set_keys(tid, body.keys)
         await engine(request).set_root(tid, body.root)
         return await engine(request).rewind(tid, body.checkpoint_id)
+
+    @app.get("/threads/{tid}/unlocks")
+    async def get_unlocks(tid: str, request: Request):
+        return await engine(request).unlocks(tid)
+
+    @app.post("/threads/{tid}/unlocks")
+    async def post_unlock(tid: str, body: UnlockBody, request: Request):
+        return await engine(request).add_unlock(tid, body.path, body.phase, body.reason)
 
     @app.post("/mcp/tools")
     async def post_mcp_tools(body: McpServerSpec):

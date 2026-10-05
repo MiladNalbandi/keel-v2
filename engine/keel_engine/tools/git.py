@@ -5,8 +5,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-# keel's own engine files: written by the mirror, never staged or guarded.
-ENGINE_FILES = (".keel/state.json", ".keel/logs/", ".keel/.state.json")
+# keel's own engine files in a project: written by the engine, never staged or guarded.
+ENGINE_FILES = (".keel/ladder.json", ".keel/agents/")
 
 
 def git(root: str, *args: str, check: bool = False, env: dict | None = None) -> subprocess.CompletedProcess:
@@ -75,7 +75,7 @@ def exclude_engine_files(root: str) -> None:
         return
     f = info / "exclude"
     have = f.read_text().splitlines() if f.exists() else []
-    add = [p for p in (".keel/state.json", ".keel/.state.json*", ".keel/logs/", ".keel/ladder.json", ".keel/agents/") if p not in have]
+    add = [p for p in ENGINE_FILES if p not in have]
     if add:
         with f.open("a") as out:
             out.write(("\n" if have and have[-1] else "") + "# keel v2 engine files\n" + "\n".join(add) + "\n")

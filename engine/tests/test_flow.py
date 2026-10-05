@@ -41,12 +41,9 @@ def test_feature_flow_reaches_done(client, repo):
     assert "test(AC-1): Player ranks: the main case works" in log
     assert "feat(AC-2): Player ranks: bad input is refused with a clear message" in log
 
-    # keel v1 mirror
-    state = json.loads((Path(repo) / ".keel/state.json").read_text())
-    assert state["flow"] == "feature" and state["acs"]["AC-1"]["status"] == "done"
-    assert any(e.startswith("ac AC-2 approve") for e in state["gates"]["log"])
-    kinds = {json.loads(line)["kind"] for line in (Path(repo) / ".keel/logs/events.jsonl").read_text().splitlines()}
-    assert {"agent", "tool", "phase", "gate"} <= kinds
+    # the flow's state lives in the engine only: nothing is mirrored into the project
+    assert any(e.startswith("ac AC-2 approve") for e in s["gate_log"])
+    assert not (Path(repo) / ".keel" / "state.json").exists() and not (Path(repo) / ".keel" / "logs").exists()
 
     types = {e["type"] for e in client.bus.of(tid)}
     assert {"thread.started", "step.started", "step.finished", "agent.started", "agent.step", "agent.finished",

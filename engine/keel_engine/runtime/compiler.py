@@ -33,7 +33,7 @@ from .findings import REVIEWERS, blocking, unique
 from ..tools import git, guard
 from ..tools.agent_tools import ToolBox
 from ..workflows.model import Step, Workflow
-from . import clarify, init_gates, prompts, spec_check
+from . import clarify, guard_ctx, init_gates, prompts, spec_check
 from . import memory as memory_mod
 from .actions import ActionInput, ActionResult, revert_manifests, run_action
 from .state import FlowState, ThreadContext, merge_unlocks, normalize_unlocks
@@ -164,9 +164,9 @@ class Compiler:
         async def node(state: FlowState):
             if state.get("status") in ("stopped", "failed"):
                 return Command(goto=END)
-            # Unlocks the api appended to .keel/state.json since the last step join the thread's state.
+            # Unlocks granted through the engine API (POST /threads/{id}/unlocks) since the last step join the thread's state.
             have = list(state.get("unlocks") or [])
-            merged = merge_unlocks(have, await asyncio.to_thread(ctx.disk_unlocks))
+            merged = merge_unlocks(have, ctx.api_unlocks)
             if len(merged) != len(have):
                 state = {**state, "unlocks": merged}
             prev = state.get("phase") or "none"
@@ -175,9 +175,6 @@ class Compiler:
             ctx.emit("step.started", step=step.id, data={
                 "name": step.name, "kind": step.kind, "phase": phase, "ac": ac, "from": prev, "flow": self.wf.flow,
                 "phase_changed": prev != phase, "transition_ok": rules.can_transition(prev, phase)})
-            # keel v1 reads .keel/state.json: its hooks on every tool call (this step's phase, AC and unlocks must be
-            # there before an agent starts) and `keel status` (a flow whose phase is still "none" looks finished).
-            await asyncio.to_thread(ctx.write_mirror, {**state, "phase": phase, "current": step.id})
             update, goto = await fn(i, step, {**state, "phase": phase})
             if len(merged) != len(have):
                 update.setdefault("unlocks", merged)
@@ -238,7 +235,6 @@ class Compiler:
         have = list(state.get("unlocks") or [])
         merged = merge_unlocks(have, new)
         for u in merged[len(have):]:
-            # gate.decided becomes a `gate` line in .keel/logs/events.jsonl through the bus.
             self.ctx.emit("gate.decided", step=question.get("step"), data={
                 "gate": "unlock", "decision": "approve", "unlock": {"path": u["path"], "phase": u["phase"]},
                 "why": f"{u['path']} in {u['phase']}" + (f": {answer.get('why')}" if answer.get("why") else "")})
@@ -301,7 +297,13 @@ class Compiler:
                                step_name=step.name, index=index, feedback=state.get("feedback"), mcp_specs=ctx.mcp,
                                tools_allow=step.tools or [], key=models.key_for(model["provider"], ctx.keys), workdir=tmp,
                                keys=dict(ctx.keys), section=section, session=session, resume=resuming,
-                               on_session=(lambda sid: mem.set_session(key, sid)) if mem else None)
+                               on_session=(lambda sid: mem.set_session(key, sid)) if mem else None, thread=ctx.thread_id)
+            # The guard context keel's hook reads on every tool call (CLI agents). It sits in this run's scratch folder,
+            # outside the project; an unlock granted while the agent runs rewrites it (ThreadContext.add_unlocks).
+            gfile = guard_ctx.GuardFile(Path(tmp) / guard_ctx.FILE, **guard_ctx.context_for(req))
+            req.guard_ctx = gfile.path
+            live = [gfile, toolbox]
+            ctx.guards.extend(live)
             try:
                 res = await models.runner_for(model).run(req, emit)
             except asyncio.CancelledError:
@@ -319,6 +321,9 @@ class Compiler:
                     "tokens_cached": used.get("tokens_cached", 0), "cost_usd": round(used.get("cost_usd", 0.0), 6),
                     "premium_requests": 0, "result": str(exc)[:500]})
                 raise
+            finally:
+                for g in live:
+                    ctx.guards.remove(g)
         if mem:
             await mem.finish(key, "done", res.text or "")
         if not res.cost_usd and model.get("mode") == "api" and model["provider"] != "fake":
@@ -491,7 +496,7 @@ class Compiler:
             upd["acs"] = [dict(a, status="done") if a["id"] in sections else dict(a) for a in state["acs"]]
 
         for res, _m, tb in agent_results:
-            # A CLI agent stopped by keel v1's hooks: the runner reported it as a guard step.
+            # A CLI agent stopped by keel's PreToolUse hook: the runner reported it as a guard step.
             for r in res.data.get("refusals") or []:
                 data = {"tool": r.get("tool") or "hook", "phase": state["phase"], "path": r.get("path") or "",
                         "reason": r.get("reason", ""), "source": "keel-hook"}
@@ -701,8 +706,6 @@ class Compiler:
             upd.update(res.update)
             notes.append(res.note)
         acs = _set_ac(st.get("acs") or [], ac["id"], ALREADY_MET)
-        st.update(acs=acs, current=step.id)
-        await asyncio.to_thread(self.ctx.write_mirror, st)       # keel v1 shows the AC as already-met too
         upd.update(acs=acs, gates=gates, retries=retries, feedback=None, last_failure=None,
                    stall={"fingerprint": None, "count": 0, "step": 0},
                    note=" · ".join([f"{ac['id']} marked as already met" + (f": {why}" if why else ""), *notes[1:]]))

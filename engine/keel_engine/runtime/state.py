@@ -1,4 +1,4 @@
-"""Graph state (mirrors keel v1 state) and the per-thread context the nodes need."""
+"""Graph state (the flow's whole state lives here, in the engine's checkpoints) and the per-thread context the nodes need."""
 
 from __future__ import annotations
 
@@ -42,8 +42,8 @@ class FlowState(TypedDict, total=False):
     clarify_rounds: int         # rounds of questions asked so far (the explorer decides after clarify.MAX_ROUNDS)
     spec_revisions: int         # times keel's spec check sent the spec back by itself (once)
     preexisting: dict           # {path: fingerprint} of the user's uncommitted files at start; never committed unless an agent changed them
-    unlocks: list[dict]         # [{path, phase, by?}] keel v1 unlocks: that path bypasses the matrix in that phase
-    deps: list[str]             # dependencies the user approved at a commit (keel v1 state.deps)
+    unlocks: list[dict]         # [{path, phase, by?, reason?, at?}]: that path bypasses the guard matrix in that phase
+    deps: list[str]             # dependencies the user approved at a commit
     blockers: list[dict]        # [{gate, why, fix}] push blockers, refreshed by push_check and every commit
     ladder: list[dict] | None   # init: [{n, name, cmd, status, detail?}]
 
@@ -66,6 +66,10 @@ class ThreadContext:
     # (LangGraph), and only the failed agents should run again. Memory only; cleared when the step finishes.
     done_calls: dict[str, Any] = field(default_factory=dict)
     memory: Any = None                                   # AgentMemory: agent sessions and trails on /data
+    # Unlocks granted through POST /threads/{id}/unlocks (stored in the engine DB; the next step merges them into the
+    # graph state) and the guards of the agents running now (guard context files, ToolBoxes), which get them at once.
+    api_unlocks: list[dict] = field(default_factory=list)
+    guards: list = field(default_factory=list)
 
     @property
     def fake(self) -> bool:
@@ -77,28 +81,16 @@ class ThreadContext:
         v = self.settings.get("simulate_checks")
         return self.fake if v is None else bool(v)
 
-    def disk_unlocks(self) -> list[dict]:
-        """Unlocks the api (or keel v1's CLI) appended to <root>/.keel/state.json while this thread runs."""
-        from ..events import mirror
-
-        return normalize_unlocks(mirror.read_state(self.root).get("unlocks"), "none", "api")
-
-    def write_mirror(self, values: dict, merge_disk: bool = True):
-        """Write <root>/.keel/state.json from graph values (keel v1 hooks read it before every tool call).
-
-        Unlocks already on disk are merged in (by path+phase), never overwritten: the api may add them
-        while the thread runs. A thread's first write (merge_disk=False) starts clean, like `keel state start`.
-        """
-        from ..events import mirror
-
-        if not values:
-            return
-        if merge_disk:
-            merged = merge_unlocks(list(values.get("unlocks") or []), self.disk_unlocks())
-            if len(merged) != len(values.get("unlocks") or []):
-                values = {**values, "unlocks": merged}
-        step = self.workflow.step(values.get("current") or "")
-        mirror.write_state(self.root, mirror.state_json(values, self.workflow.flow, self.thread_id, step.name if step else None))
+    def add_unlocks(self, new: list[dict]) -> list[dict]:
+        """Adds unlocks for this thread; every guard running now (hook context file, ToolBox) gets them at once.
+        Returns the ones that were new."""
+        merged = merge_unlocks(self.api_unlocks, new)
+        added = merged[len(self.api_unlocks):]
+        self.api_unlocks = merged
+        if added:
+            for g in list(self.guards):
+                g.add_unlocks(added)
+        return added
 
     def emit(self, type: str, *, step: str | None = None, call_id: str | None = None, data: dict | None = None):
         if self.bus:

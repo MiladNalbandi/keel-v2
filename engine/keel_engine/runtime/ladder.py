@@ -5,8 +5,9 @@
 Each rung must pass before the next runs; rungs after a failure stay "waiting". A rung with no
 command is "skipped". Rungs 7-11 are optional: they run only when `.keel/config.yml` names their
 command. Simulated mode (fake models) runs nothing and is deterministic: a rung with a command
-passes, one without is skipped. On a retry the rung that failed last time shows as "fixing" while
-it runs again. The result goes to `.keel/ladder.json` ({at, rungs}).
+passes, one without is skipped. Rung 12 (keel's guard hook refuses a forbidden edit) always runs for
+real. On a retry the rung that failed last time shows as "fixing" while it runs again. The result
+goes to `.keel/ladder.json` ({at, rungs}).
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-from .. import config, rules
+from .. import hook, rules
 from ..tools import testcmd
 
 NAMES = ["Toolchain", "Dependencies resolve", "Frontend dependencies", "Both apps compile", "Frontend typecheck",
@@ -27,6 +28,7 @@ OPTIONAL = {7, 8, 9, 10, 11}
 CONFIG_KEY = {2: "deps_api", 3: "deps_web", 4: "api_compile", 5: "web_typecheck", 6: "unit_tests", 7: "testcontainers_test",
               8: "services", 9: "api_health_check", 10: "web_health_check", 11: "smoke"}
 FILE = "ladder.json"
+SELF_TEST = "keel guard self-test (an edit the phase forbids must be refused)"
 
 
 def _custom(root: str) -> dict:
@@ -69,13 +71,12 @@ def plan(root: str) -> list[dict]:
     out = [{"n": 1, "name": NAMES[0], "cmd": "check: " + ", ".join(_toolchain(root)), "status": "waiting"}]
     for n in range(2, 12):
         out.append({"n": n, "name": NAMES[n - 1], "cmd": cmds.get(n), "status": "waiting"})
-    keel = config.keel_home() / "bin" / "keel"
-    out.append({"n": 12, "name": NAMES[11], "cmd": f"{keel} doctor --hooks" if keel.is_file() else None, "status": "waiting"})
+    out.append({"n": 12, "name": NAMES[11], "cmd": SELF_TEST, "status": "waiting"})
     for rung in out:
         if not rung["cmd"]:
             rung["status"] = "skipped"
             rung["detail"] = ("optional: no commands." + CONFIG_KEY[rung["n"]] + " in .keel/config.yml") if rung["n"] in OPTIONAL \
-                else ("keel is not installed at " + str(config.keel_home()) if rung["n"] == 12 else "no command for this stack")
+                else "no command for this stack"
     return out
 
 
@@ -109,6 +110,10 @@ def run(root: str, simulate: bool, runner: Callable[[str, str], tuple[int, str]]
         if rung["n"] == 1:
             missing = [t for t in _toolchain(root) if not simulate and not shutil.which(t)]
             rung["status"], rung["detail"] = ("fail", "missing: " + ", ".join(missing)) if missing else ("pass", "found")
+        elif rung["n"] == 12:
+            # Real in simulated mode too: it is cheap, and a guard that does not work must stop the setup.
+            passed, rung["detail"] = hook.self_test(root)
+            rung["status"] = "pass" if passed else "fail"
         elif simulate:
             rung["status"], rung["detail"] = "pass", "simulated"
         else:

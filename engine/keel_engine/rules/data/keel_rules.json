@@ -651,7 +651,7 @@
     ".env": "protected-env",
     "build/generated/x.kt": "generated",
     "README.md": "other",
-    ".keel/state.json": "other"
+    ".keel/config.yml": "other"
   },
   "EMPTY": {
     "flow": null,

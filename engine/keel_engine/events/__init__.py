@@ -1,4 +1,4 @@
-"""EngineEvents: buffered POSTs to the api, plus the keel v1 log mirror.
+"""EngineEvents: buffered POSTs to the api.
 
 emit() never blocks and never raises. A background task sends batches to
 `$KEEL_API_URL/internal/events` with `X-Keel-Token`; when the api is down it keeps a bounded buffer,
@@ -10,11 +10,11 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import deque
+from datetime import datetime, timezone
 
 import httpx
 
 from .. import config
-from . import mirror
 
 log = logging.getLogger(__name__)
 
@@ -22,19 +22,18 @@ MAX_BUFFER = 10_000
 BATCH = 200
 
 
+def now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
 class EventBus:
     def __init__(self):
         self.recent: deque[dict] = deque(maxlen=5000)  # newest last; tests and debugging read this
         self._pending: deque[dict] = deque(maxlen=MAX_BUFFER)
-        self._roots: dict[str, str] = {}
         self._open_step: dict[str, tuple] = {}
         self._wake: asyncio.Event | None = None
         self._task: asyncio.Task | None = None
         self._down_logged = False
-
-    def register(self, thread_id: str, root: str | None):
-        if root:
-            self._roots[thread_id] = root
 
     def emit(self, type: str, thread_id: str, project_id: str, *, step: str | None = None,
              call_id: str | None = None, data: dict | None = None) -> dict | None:
@@ -48,16 +47,13 @@ class EventBus:
                 self._open_step[thread_id] = key
             elif type == "step.finished":
                 self._open_step.pop(thread_id, None)
-            ev = {"type": type, "thread_id": thread_id, "project_id": project_id, "at": mirror.now(), "data": data}
+            ev = {"type": type, "thread_id": thread_id, "project_id": project_id, "at": now(), "data": data}
             if step is not None:
                 ev["step"] = step
             if call_id is not None:
                 ev["call_id"] = call_id
             self.recent.append(ev)
             self._pending.append(ev)
-            entry = mirror.log_entry(ev)
-            if entry:
-                mirror.append_log(self._roots.get(thread_id), entry)
             if self._wake:
                 self._wake.set()
             return ev
