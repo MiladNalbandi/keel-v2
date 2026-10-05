@@ -8,12 +8,15 @@ version: 1
 # coverage runs the cover steps (coverage-fix), a review finding is fixed in review-fix, coverage-fix or red (payload
 # route), and the flow goes on from verify again. keel never pushes: open_pr only opens a PR for a pushed branch, after
 # the PR gate is approved and with a GitHub token.
+# lint (v0.4.1): the stacks' and the project's check tools on the branch diff, fixers left out; soft (a failure is shown
+# at the final review and in the PR body, the lint flow fixes it); optional.
 # Other flows end with these steps: `- { id: ship, kind: include, name: ship, flow: ship }`.
 steps:
   - { id: plan, kind: gate, name: which ship steps run, phase: ship, skip_menu: true, lock: true }
   - { id: verify_fix, kind: agent, name: fix what the checks found, agent: implementer, model: default, phase: review-fix, retry_only: true }
   - { id: verify_fix_commit, kind: code, name: commit the fix, action: commit, phase: review-fix }
   - { id: verify, kind: code, name: verify fast + module, action: verify_fast+verify_module, phase: ship, rounds: 2, lock: true }
+  - { id: lint, kind: code, name: static checks, action: verify_lint, phase: ship, soft: true, skippable: optional }
   - { id: release, kind: code, name: verify release, action: verify_release, phase: ship, rounds: 2, skippable: deferred }
   - { id: cover, kind: include, name: coverage, flow: cover, skippable: deferred }
   - { id: deps, kind: code, name: verify deps, action: verify_deps, phase: ship, skippable: deferred }

@@ -1,0 +1,32 @@
+id: lint
+name: lint (keel)
+keel_rules: true
+version: 1
+# Static checks for this project: the `tools:` of its stacks and of .keel/config.yml (docs/CONTRACT.md, "v0.4.1: lint and
+# static checks"). Inputs (StartThread.data, the api's `options`):
+#   scope: diff (default: the branch diff and uncommitted files) | all (the whole project)
+# run every check tool (manual, edit, batch, pre-commit; fixers first) -> clean: commit what the fixers changed -> report.
+# Findings: the implementer fixes them in phase lint-fix (code and tests may change, behaviour may not; migrations,
+# the contract and specs may not) -> run again; at most 2 rounds, then keel asks: go on anyway or stop.
+# The commit is `chore(lint): <title>`; every run writes the sha-stamped lint verdict.
+steps:
+  - { id: scope, kind: code, name: lint scope, action: lint_scope, phase: lint-fix, lock: true }
+  - { id: run, kind: code, name: run the static checks, action: lint_run, phase: lint-fix, soft: true, lock: true }
+  - { id: findings, kind: branch, name: the checks found problems, when: { marker: RESULT, step: run, equals: fail }, no: commit, phase: lint-fix }
+  - id: fix
+    kind: agent
+    name: fix what the checks found, without changing behaviour
+    agent: implementer
+    model: default
+    phase: lint-fix
+    instructions: >-
+      Fix only what these static checks report, in the files they name. Do not change behaviour: no new features, no
+      changed logic, no deleted or weakened tests, no disabled rules or suppression comments unless the finding is a false
+      positive you explain in one line. Run nothing that needs the network. What the checks said:
+
+      {{data.lint_findings}}
+  - { id: rerun, kind: code, name: run the checks again, action: lint_run, phase: lint-fix, soft: true, lock: true }
+  - { id: clean, kind: branch, name: the checks pass, when: { marker: RESULT, step: rerun, equals: pass }, no: fix, rounds: 2, phase: lint-fix }
+  - { id: commit, kind: code, name: "commit: chore(lint)", action: commit, phase: lint-fix, lock: true }
+  - { id: report, kind: code, name: lint report, action: lint_report, phase: lint-fix }
+  - { id: read_report, kind: gate, name: lint report, phase: lint-fix, back: run }
