@@ -1,0 +1,64 @@
+# Stack pack: Go (a service or a CLI, one module).
+name: go
+lane: api
+
+detect:
+  files: [go.mod]
+  extensions: ['.go']
+
+layers:
+  - id: unit
+    what: one package's functions and types, table tests
+    where: '**/*_test.go'
+  - id: integration
+    what: the HTTP handlers and the database through the real wiring (build tag integration)
+    where: '**/*_integration_test.go'
+
+# `{AC}` and `{PKG}` are substituted. Go test names cannot hold a dash, so a test for AC-3 is named TestAC3...;
+# `-run` takes a regular expression, so 'AC.?3' would also do.
+commands:
+  api_compile: 'go build ./...'
+  api_test_ac: "go test ./... -run '{AC_KEY}'"
+  api_test_module: 'go test ./...'
+  api_test_pkg: 'go test ./{PKG}/...'
+  coverage_api: 'go test ./... -coverprofile=coverage.out'
+  static_checks: 'go vet ./... && golangci-lint run'
+
+dependency_files: [go.mod]
+
+# Programs keel runs for this stack, in backend.dir (runtime/tools.py).
+tools:
+  gofmt:
+    run: 'gofmt -w {FILES}'
+    on: edit
+    match: '\.go$'
+    fail: fix
+    timeout: 60
+    description: 'Format the Go an agent just changed'
+  go-vet:
+    run: 'go vet ./...'
+    on: pre-commit
+    match: '\.go$'
+    fail: block
+    timeout: 300
+    description: 'Refuse a commit that go vet reports on'
+  golangci-lint:
+    run: 'golangci-lint run'
+    on: manual
+    fail: block
+    timeout: 600
+    description: 'The golangci-lint linters over the whole module'
+
+devcontainer:
+  primary: true
+  image: mcr.microsoft.com/devcontainers/go:1.23
+  toolchain_install:
+    - run: curl -fsSL https://go.dev/dl/go1.23.4.linux-amd64.tar.gz | tar -C /usr/local -xz
+  volumes:
+    - name: go-cache
+      at: /root/go
+  ports: []
+
+skills:
+  architecture: architecture
+architecture_styles: [hexagonal, layered]

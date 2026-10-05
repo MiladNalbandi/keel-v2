@@ -8,7 +8,7 @@ from keel_engine.workflows.validate import validate
 
 def test_templates_are_valid_and_have_phases():
     ids = [t.id for t in templates()]
-    assert ids == ["feature", "change", "fix", "diagnose", "review", "init", "knowledge-refresh", "cover", "ship", "hunt", "hunt-next"]
+    assert ids == ["feature", "change", "fix", "diagnose", "review", "init", "knowledge-refresh", "cover", "ship", "hunt", "hunt-next", "lint"]
     for t in templates():
         assert validate(t) == [], t.id
         assert all(s.phase for s in t.steps), t.id
@@ -102,7 +102,7 @@ def test_estimate_cost_by_provider_and_premium():
 
 def test_api_validate_and_estimate(client):
     tpls = client.get("/templates").json()
-    assert [t["id"] for t in tpls] == ["feature", "change", "fix", "diagnose", "review", "init", "knowledge-refresh", "cover", "ship", "hunt", "hunt-next"]
+    assert [t["id"] for t in tpls] == ["feature", "change", "fix", "diagnose", "review", "init", "knowledge-refresh", "cover", "ship", "hunt", "hunt-next", "lint"]
     good = tpls[0]["yaml"]
     r = client.post("/workflows/validate", json={"yaml": good}).json()
     assert r["ok"] and r["errors"] == [] and r["workflow"]["id"] == "feature"

@@ -60,8 +60,9 @@ Then go to **Run › Flow › Start a flow**, describe what you want, and approv
 | **fix** | reproduce the bug as a failing test ◆ → find the cause (parallel investigators) ◆ → fix → regression test → ship |
 | **diagnose** | a bug you cannot reproduce yet: 3–4 guesses, one investigator each → hand to fix or feature, or write a note |
 | **review** | read-only review of the branch, one reviewer per lens; the report word for word |
+| **lint** | run the project's formatters and linters (from its stacks and `.keel/config.yml`) on the branch or the whole project → fix the findings without changing behaviour (2 rounds) → `chore(lint)` commit → report ◆ |
 | **cover** | measure coverage of the changed lines → per gap: test / delete / accept with a reason |
-| **ship** | verify, release tests, coverage, deps, audit, trace, lens reviewers, final review ◆, memory, PR body ◆ (never pushes) |
+| **ship** | verify, static checks, release tests, coverage, deps, audit, trace, lens reviewers, final review ◆, memory, PR body ◆ (never pushes) |
 | **hunt** · **hunt-next** | read-only bug hunt: hunters per lens, provers reproduce each candidate twice, a report; the top bug goes to fix |
 | **init** · **knowledge-refresh** | set a project up (architecture, setup checks, knowledge) · refresh `docs/knowledge/` |
 

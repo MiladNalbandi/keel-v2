@@ -41,8 +41,24 @@ commands:
   static_checks: '{BUILD} -q detekt ktlintCheck'
   migrate: '{BUILD} -q flywayMigrate'
 
-# The same programs `static_checks` runs as one string, addressable one at a time.
+# The same programs `static_checks` runs as one string, addressable one at a time (runtime/tools.py runs them in
+# backend.dir; {BUILD} is backend.build). ktlint here is the org.jlleitschuh.gradle.ktlint plugin's tasks.
 tools:
+  ktlint-format:
+    run: '{BUILD} -q ktlintFormat'
+    on: pre-commit
+    match: '\.kts?$'
+    # It rewrites the files and exits 0 when it could fix everything; the commit re-stages them.
+    fail: fix
+    timeout: 300
+    description: 'Format the Kotlin to the ktlint standard before the commit'
+  ktlint:
+    run: '{BUILD} -q ktlintCheck'
+    on: pre-commit
+    match: '\.kts?$'
+    fail: block
+    timeout: 300
+    description: 'Refuse a commit whose Kotlin breaks the ktlint rules'
   detekt:
     run: '{BUILD} -q detekt'
     on: manual

@@ -36,7 +36,8 @@
     "hunt-prove",
     "hunt-report",
     "hunt-triage",
-    "review"
+    "review",
+    "lint-fix"
   ],
   "TRANSITIONS": {
     "none": [
@@ -50,7 +51,8 @@
       "coverage-fix",
       "ship",
       "memory",
-      "review"
+      "review",
+      "lint-fix"
     ],
     "setup": [
       "none",
@@ -252,6 +254,11 @@
     ],
     "review": [
       "none"
+    ],
+    "lint-fix": [
+      "ship",
+      "close",
+      "none"
     ]
   },
   "LADDER": [
@@ -328,6 +335,10 @@
     ],
     "knowledge-refresh": [
       "memory"
+    ],
+    "lint": [
+      "lint-fix",
+      "close"
     ]
   },
   "MATRIX": {
@@ -515,6 +526,16 @@
     },
     "review": {
       "*": "deny"
+    },
+    "lint-fix": {
+      "api-main": "allow",
+      "web-src": "allow",
+      "api-test": "allow",
+      "web-test": "allow",
+      "e2e": "allow",
+      "smoke": "allow",
+      "other": "allow",
+      "*": "deny"
     }
   },
   "COMMIT_RULES": {
@@ -665,6 +686,23 @@
       ],
       "setupOnly": true,
       "noId": true
+    },
+    "lint": {
+      "allow": [
+        "api-main",
+        "web-src",
+        "api-test",
+        "web-test",
+        "e2e",
+        "smoke",
+        "other"
+      ],
+      "deny": [
+        "migration",
+        "contract",
+        "specs"
+      ],
+      "noId": true
     }
   },
   "FLOW_START": {
@@ -677,7 +715,8 @@
     "cover": "coverage-fix",
     "ship": "ship",
     "init": "setup",
-    "knowledge-refresh": "memory"
+    "knowledge-refresh": "memory",
+    "lint": "lint-fix"
   },
   "classify": {
     "api/src/main/kotlin/app/A.kt": "api-main",

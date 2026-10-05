@@ -21,7 +21,17 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 data class StackCommand(val name: String, val cmd: String)
-data class StackTool(val name: String, val on: String?, val fail: String?)
+/** One `tools:` entry of a stack (v0.4.1: the engine runs them; see docs/CONTRACT.md "lint and static checks"). */
+data class StackTool(
+    val name: String,
+    val on: String?,
+    val fail: String?,
+    val description: String? = null,
+    val kind: String? = null,
+    val match: String? = null,
+    /** `<name>: false` in a stack file: the tool is turned off. */
+    val off: Boolean = false,
+)
 
 data class Stack(
     val name: String,
@@ -101,7 +111,12 @@ class StackService(
             @Suppress("UNCHECKED_CAST")
             val tools = (doc["tools"] as? Map<String, Any?>).orEmpty().map { (k, v) ->
                 val m = v as? Map<*, *> ?: emptyMap<String, Any>()
-                StackTool(k, m["on"]?.toString(), m["fail"]?.toString())
+                // `on:` is the word; a YAML 1.1 reader may have turned the key into true
+                val on = (m["on"] ?: m[true] ?: m["true"])?.toString() ?: if (v is Map<*, *>) "manual" else null
+                StackTool(
+                    k, on, m["fail"]?.toString() ?: if (v is Map<*, *>) "warn" else null, m["description"]?.toString(),
+                    m["kind"]?.toString() ?: if (v is Map<*, *>) "check" else null, m["match"]?.toString(), off = v == false,
+                )
             }
             @Suppress("UNCHECKED_CAST")
             Stack(
