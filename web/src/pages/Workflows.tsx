@@ -54,7 +54,7 @@ export function WorkflowsPage({ pid }: { pid: string }) {
 
   return (
     <>
-      <PageHead title="Workflows" sub={`What ${project?.name ?? pid} can run, as blocks. keel's flows are templates; keel rules keep the gates and test checks you cannot remove.`} />
+      <PageHead title="Workflows" sub={`What ${project?.name ?? pid} can run, as blocks. keel rules keep the gates and test checks locked.`} />
       {library ? (
         <Wf cls="wf-lib">
           {rail}
@@ -199,7 +199,7 @@ function Editor({ pid, wid, agents, rail, onSaved }: {
   };
   const inspector = step && (
     <Inspector w={w} s={step} agents={agents} onChange={(patch) => setDraft(updateStep(w, step.id, patch))}
-      onMove={(d) => b.move(step.id, d)} onRemove={() => b.remove(step.id)} onPick={pick} onClose={() => setSel(null)} />
+      onMove={(d) => b.move(step.id, d)} onRemove={() => b.remove(step.id)} onPick={pick} onClose={wide ? () => setSel(null) : undefined} />
   );
   const estimate = (
     <EstimatePanel est={shownEst} error={dirty ? draftEst.error : est.error} acs={acs} setAcs={setAcs} dirty={dirty} w={w} tokens={tokens} />
@@ -216,7 +216,7 @@ function Editor({ pid, wid, agents, rail, onSaved }: {
               <span className="wf-sub">
                 {isTemplate(w) ? <span className="tag keel">keel template</span> : w.based_on ? <span className="tag">from {w.based_on}</span> : null}
                 <span>v{w.version}</span><span>{w.steps.length} steps</span>
-                {shownEst ? <span title="estimated tokens for the whole workflow">≈ {kfmt(shownEst.tokens)} tokens for {acs} {acs === 1 ? "criterion" : "criteria"}</span> : null}
+                {shownEst ? <span title={`estimated tokens for the whole workflow, ${acs} ${acs === 1 ? "criterion" : "criteria"}`}>≈ {kfmt(shownEst.tokens)} tokens</span> : null}
               </span>
             </div>
             <div className="wf-save">
@@ -479,7 +479,9 @@ function Inspector({ w, s, agents, onChange, onMove, onRemove, onPick, onClose }
           <span className="lab">Connections</span>
           <div className="conn-mini">
             <span className="sub">comes after</span>{prev ? step(prev.id, prev.name) : <b>start</b>}
-            <span className="sub">goes to</span>{s.then === "end" ? <b>end of the flow</b> : s.then && s.then !== "continue" ? step(s.then, w.steps.find((x) => x.id === s.then)?.name ?? s.then) : next ? step(next.id, next.name) : <b>done</b>}
+            {!(s.kind === "gate" && s.choices && !Array.isArray(s.choices)) && <>
+              <span className="sub">{s.kind === "branch" ? "if yes" : "goes to"}</span>{s.then === "end" ? <b>end of the flow</b> : s.then && s.then !== "continue" ? step(s.then, w.steps.find((x) => x.id === s.then)?.name ?? s.then) : next ? step(next.id, next.name) : <b>done</b>}
+            </>}
             {exits.filter((e) => e.kind !== "then" && e.kind !== "yes").map((e, k) => (
               <Fragment key={k}><span className="sub">{e.label}</span>{e.to ? step(e.to, `${e.back ? "↩ " : ""}${e.toName}`) : <b>{e.toName}</b>}</Fragment>
             ))}
