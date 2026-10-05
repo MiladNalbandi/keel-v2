@@ -135,6 +135,14 @@ class V02RepoApiTest : ApiTest() {
         val before = get("/api/projects/$pid/stacks").json()
         assertThat(before.first { it["name"].asText() == "django" }["installable"].asBoolean()).isTrue()
         assertThat(before.first { it["name"].asText() == "kotlin-spring" }["installable"].asBoolean()).isFalse()
+        // v0.4.1: every stack lists its tools with when they run, what a failure means and what they are for
+        val ktlint = before.first { it["name"].asText() == "kotlin-spring" }["tools"].first { it["name"].asText() == "ktlint" }
+        assertThat(ktlint["on"].asText()).isEqualTo("pre-commit")
+        assertThat(ktlint["fail"].asText()).isEqualTo("block")
+        assertThat(ktlint["description"].asText()).isEqualTo("Refuse a commit whose Kotlin breaks the ktlint rules")
+        assertThat(ktlint["match"].asText()).isEqualTo("\\.kts?$")
+        val sonar = before.first { it["name"].asText() == "kotlin-spring" }["tools"].first { it["name"].asText() == "sonar" }
+        assertThat(sonar["off"].asBoolean()).isTrue()
 
         val made = post("/api/projects/$pid/stacks", mapOf("name" to "my-api", "from" to "kotlin-spring")).andExpect(status().isOk).json()
         assertThat(made["name"].asText()).isEqualTo("my-api")

@@ -13,5 +13,12 @@ tools:
     run: '{BUILD} -q detekt'
     on: manual
     fail: block
+  ktlint:
+    run: '{BUILD} -q ktlintCheck'
+    on: pre-commit
+    match: '\.kts?$'
+    fail: block
+    description: 'Refuse a commit whose Kotlin breaks the ktlint rules'
+  sonar: false
 skills:
   testing: kotlin-spring-testing
