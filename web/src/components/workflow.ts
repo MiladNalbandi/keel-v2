@@ -2,7 +2,7 @@
 
 import type { Estimate, Step, StepKind, Workflow } from "../api";
 
-export const KIND: Record<StepKind, string> = { agent: "Agent", code: "Plain code", gate: "◆ Gate", branch: "Branch", parallel: "Parallel" };
+export const KIND: Record<StepKind, string> = { agent: "Agent", code: "Plain code", gate: "◆ Gate", branch: "Branch", parallel: "Parallel", include: "Include" };
 
 /** Estimated tokens per step id (the estimate names steps by id or by name). */
 export function tokensByStep(w: Workflow, est: Estimate | null | undefined): Record<string, number> | undefined {
@@ -54,6 +54,7 @@ export function newStep(kind: StepKind, id: string): Step {
     case "gate": return { id, kind, name: "approval" };
     case "branch": return { id, kind, name: "tests pass?" };
     case "code": return { id, kind, name: "run command", action: "run:" };
+    case "include": return { id, kind, name: "ship", flow: "ship" };
   }
 }
 

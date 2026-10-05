@@ -1,5 +1,6 @@
-// v0.4.1 "What this step does": a click (or Enter) on a node of the Flow and Wiki graphs, the Wiki's step table, and the
-// builder's "What it does" button open the drawer with Task / Rules / Next / Last run; a click on a node never pans.
+// v0.4.1 "What this step does": a click (or Enter) on a block of the Flow page (its side panel) and the Wiki (the drawer),
+// the Wiki's table, and the builder's "What it does" tab show Task / Rules / Next / Last run; a click on a graph node
+// never pans.
 
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -13,11 +14,12 @@ import { db } from "./setup";
 const explains = () => db.calls.filter((c) => c.method === "POST" && c.path === "/api/projects/ludus-engine/workflows/explain-step");
 
 describe("What this step does", () => {
-  it("opens from a Flow graph node with the thread: the real prompt, the rules, next and the last run", async () => {
+  it("opens from a Flow block with the thread: the real prompt, the rules, next and the last run", async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: "What red does" }));
-    const dlg = await screen.findByRole("dialog", { name: "What red does" });
+    await user.click(await screen.findByRole("button", { name: /^red, agent/ }));
+    // wide screens: the side panel shows it (narrow ones: the drawer)
+    const dlg = await screen.findByRole("region", { name: "What red does" });
     // The drawer explains the workflow the page draws, plus the thread: a thread started on an older template has fewer
     // steps, and asking with the thread alone said "No step 'review_fix' in workflow feature" for a step on screen.
     await waitFor(() => expect(explains().at(-1)?.body).toMatchObject({ step_id: "s3", thread_id: "th_7f3a", workflow: { id: "feature" } }));
@@ -34,18 +36,17 @@ describe("What this step does", () => {
     const last = within(dlg).getByRole("region", { name: "Last run" });
     expect(within(last).getByText(/test\(AC-1\): main case/)).toBeInTheDocument();
     expect(within(last).getByText("RED: tests/test_ac_1.py asserts AC-1.")).toBeInTheDocument();
-    await user.keyboard("{Escape}");
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    await user.click(within(dlg).getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("region", { name: "What red does" })).not.toBeInTheDocument();
   });
 
-  it("nodes are keyboard buttons: Enter opens a code step, in words", async () => {
+  it("blocks are keyboard buttons: Enter opens a code step, in words", async () => {
     const user = userEvent.setup();
     render(<App />);
-    const node = await screen.findByRole("button", { name: "What verify_red does" });
-    expect(node).toHaveAttribute("tabindex", "0");
+    const node = await screen.findByRole("button", { name: /^verify_red, plain code/ });
     node.focus();
     await user.keyboard("{Enter}");
-    const dlg = await screen.findByRole("dialog", { name: "What commit contract does" });
+    const dlg = await screen.findByRole("region", { name: "What commit contract does" });
     const task = await within(dlg).findByRole("region", { name: "Task" });
     expect(within(task).getByText("Looks for secrets in the staged diff.")).toBeInTheDocument();
     expect(within(task).getByText("In phase contract this is a contract commit.")).toBeInTheDocument();
@@ -69,18 +70,18 @@ describe("What this step does", () => {
     window.PointerEvent = had;
   });
 
-  it("opens from the Wiki's workflow page: the graph and the step table, with placeholders", async () => {
+  it("opens from the Wiki's workflow page: the blocks and the table, with placeholders", async () => {
     const user = userEvent.setup();
     location.hash = "#/wiki/wf%3Afeature";
     render(<App />);
-    const table = (await screen.findAllByRole("button", { name: "red" }))[0];
-    await user.click(table);
+    await user.click(await screen.findByRole("button", { name: /^red, agent/ }));
     const dlg = await screen.findByRole("dialog", { name: "What red does" });
     await waitFor(() => expect(explains().at(-1)?.body).toEqual({ step_id: "s3", workflow_id: "feature" }));
     expect(await within(dlg).findByText(/with «placeholders»/)).toBeInTheDocument();
     expect(within(dlg).queryByRole("region", { name: "Last run" })).not.toBeInTheDocument();
     await user.keyboard("{Escape}");
-    await user.click(screen.getByRole("button", { name: "What verify_red does" }));
+    await user.click(screen.getByRole("button", { name: "Table" }));
+    await user.click(screen.getByRole("button", { name: "verify_red" }));
     await waitFor(() => expect(explains().at(-1)?.body).toEqual({ step_id: "s4", workflow_id: "feature" }));
   });
 
@@ -88,14 +89,14 @@ describe("What this step does", () => {
     const user = userEvent.setup();
     location.hash = "#/workflows/feature";
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Step red" }));
+    await user.click(await screen.findByRole("button", { name: /^red, agent/ }));
     await user.type(await screen.findByLabelText("Name"), " tests");
-    await user.click(screen.getByRole("button", { name: "What it does" }));
-    await screen.findByRole("dialog");
+    await user.click(screen.getByRole("tab", { name: "What it does" }));
+    await screen.findByRole("region", { name: "Task" });
     await waitFor(() => expect(explains().at(-1)?.body).toMatchObject({ step_id: "s3", workflow: { id: "feature" } }));
     const sent = explains().at(-1)!.body as { workflow: { steps: { id: string; name: string }[] } };
     expect(sent.workflow.steps.find((s) => s.id === "s3")?.name).toBe("red tests");
-    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("tab", { name: "Block" }));
     expect(screen.getByText("unsaved changes")).toBeInTheDocument();
     expect(screen.getByLabelText("Name")).toHaveValue("red tests");
   });

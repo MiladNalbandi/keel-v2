@@ -1,9 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useState } from "react";
 import { describe, expect, it } from "vitest";
 import type { Workflow } from "../api";
-import { Builder, useBuilder } from "../components/Builder";
 import { Graph } from "../components/Graph";
 import { featureWorkflow, fixWorkflow } from "./fixtures";
 
@@ -36,53 +34,8 @@ describe("Graph", () => {
   });
 });
 
-function Harness({ start }: { start: Workflow }) {
-  const [w, setW] = useState(start);
-  const [sel, setSel] = useState<string | null>(null);
-  const b = useBuilder(w, setW, setSel);
-  return (
-    <>
-      <Builder w={w} sel={sel} onSelect={setSel} b={b} />
-      <ol data-testid="order">{w.steps.map((s) => <li key={s.id}>{s.name}</li>)}</ol>
-      <span data-testid="rules">{String(w.keel_rules)}</span>
-    </>
-  );
-}
-const order = () => [...screen.getByTestId("order").querySelectorAll("li")].map((l) => l.textContent);
-
-describe("Builder", () => {
-  it("inserts a step with + on an arrow", async () => {
-    const user = userEvent.setup();
-    render(<Harness start={fixWorkflow} />);
-    await user.click(screen.getByRole("button", { name: "Insert a step after bug-repro" }));
-    expect(screen.getByText(/Insert after/)).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Gate" }));
-    expect(order()).toEqual(["bug-repro", "approval", "gate R", "bug-investigate", "bug-fix", "verify + commit"]);
-  });
-
-  it("removes a step with × and undoes it", async () => {
-    const user = userEvent.setup();
-    render(<Harness start={fixWorkflow} />);
-    await user.click(screen.getByRole("button", { name: "Remove bug-repro" }));
-    expect(order()).not.toContain("bug-repro");
-    expect(screen.getByText(/Arrows were reconnected/)).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Undo" }));
-    expect(order()[0]).toBe("bug-repro");
-    // the gate's "send back" link came back too
-    expect(screen.getAllByText("send back").length).toBe(1);
-  });
-
-  it("asks before removing a keel rule, and can turn rules off", async () => {
-    const user = userEvent.setup();
-    render(<Harness start={fixWorkflow} />);
-    await user.click(screen.getByRole("button", { name: "gate R is a keel rule" }));
-    expect(screen.getByRole("alert")).toHaveTextContent("gate R is a keel rule: a person must approve here");
-    expect(order()).toContain("gate R");
-    await user.click(screen.getByRole("button", { name: "Turn rules off and remove" }));
-    expect(order()).not.toContain("gate R");
-    expect(screen.getByTestId("rules")).toHaveTextContent("false");
-  });
-});
+// The builder's add / remove / undo / keel-rule tests moved to blocks.test.tsx (the Blocks view is the default now;
+// the graph stays as a view with the same edit operations).
 
 describe("Zoom", () => {
   it("zooms with the buttons and Ctrl + wheel, remembers it, and Fit resets", async () => {

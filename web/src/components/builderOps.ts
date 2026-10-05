@@ -5,16 +5,44 @@ import { newStep, nextStepId } from "./workflow";
 
 export type Removed = { step: Step; index: number; links: { id: string; field: "back" | "no" }[] };
 
+/** Where a dropped or added step lands: inside a loop's mouth ("ac" / "each"), outside any loop (null), or — not
+ * given — inside the per-AC loop when the steps on both sides are in it. */
+export type LoopCtx = "ac" | "each" | null | undefined;
+
+function joinLoop(s: Step, prev: Step | undefined, next: Step | undefined, loop: LoopCtx) {
+  if (loop === undefined) {
+    if (prev?.per_ac && next?.per_ac) s.per_ac = true;
+    return;
+  }
+  delete s.per_ac;
+  delete s.per_item;
+  if (loop === "ac") s.per_ac = true;
+  if (loop === "each") s.per_item = true;
+}
+
 /** Insert a new step after `afterIndex` (-1 = at the start). Inside the per-AC loop it joins the loop. */
-export function insertStep(w: Workflow, afterIndex: number, kind: StepKind): { w: Workflow; id: string } {
+export function insertStep(w: Workflow, afterIndex: number, kind: StepKind, loop?: LoopCtx): { w: Workflow; id: string } {
   const id = nextStepId(w.steps);
   const s = newStep(kind, id);
-  const prev = w.steps[afterIndex];
-  const next = w.steps[afterIndex + 1];
-  if (prev?.per_ac && next?.per_ac) s.per_ac = true;
+  joinLoop(s, w.steps[afterIndex], w.steps[afterIndex + 1], loop);
   const steps = [...w.steps];
   steps.splice(afterIndex + 1, 0, s);
   return { w: { ...w, steps }, id };
+}
+
+/** Move a step to just after `afterIndex` (an index in the workflow before the move; -1 = to the start). Dropped into a
+ * loop's mouth it joins that loop; dropped outside one it leaves its loop. A for_each step (it starts its loop) keeps
+ * its loop. */
+export function moveStepTo(w: Workflow, id: string, afterIndex: number, loop?: LoopCtx): Workflow {
+  const i = w.steps.findIndex((s) => s.id === id);
+  if (i < 0) return w;
+  const steps = [...w.steps];
+  const [s0] = steps.splice(i, 1);
+  const at = afterIndex >= i ? afterIndex : afterIndex + 1;    // indexes after the removed step shift by one
+  const s = { ...s0 };
+  if (!s.for_each) joinLoop(s, steps[at - 1], steps[at], loop);
+  steps.splice(Math.max(0, Math.min(at, steps.length)), 0, s);
+  return { ...w, steps };
 }
 
 /** Remove a step. A locked step cannot go while keel rules are on: `{ locked: true }`. */
