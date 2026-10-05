@@ -262,7 +262,8 @@ export const Blocks = memo(forwardRef<BlocksHandle, BlocksProps>(function Blocks
   const label = p.label ?? `Blocks of the workflow: ${steps.length} steps`;
   const used = p.actual ? sumOf(steps.map((s) => s.id), p.actual) : 0;
   return (
-    <div className={`sx ${edit ? "sx-edit" : ""} ${states ? "sx-live" : ""} ${isDragging ? "is-dragging" : ""}`} ref={root} aria-label={label} role="region">
+    <div className={`sx ${edit ? "sx-edit" : ""} ${states ? "sx-live" : ""} ${isDragging ? "is-dragging" : ""}`} ref={root} aria-label={label} role="region"
+      onDragEnter={edit ? () => { if (!isDragging) setDragging(true); } : undefined}>
       {p.tokens && total > 0 && (
         <div className="sx-total" aria-label="Tokens for the whole workflow">
           <span className="sx-total-n">{used ? <><b>{kfmt(used)}</b> used of </> : null}≈ <b>{kfmt(total)}</b> tokens</span>
@@ -457,13 +458,25 @@ function Face({ ctx, s, row, head, cls = "", children }: {
   return (
     <div className={`sb-face ${cls} ${p.selected === s.id ? "is-sel" : ""} ${flash === s.id ? "is-flash" : ""}`}
       draggable={draggable || undefined}
-      onDragStart={draggable ? (e) => { e.stopPropagation(); dragging = { id: s.id }; e.dataTransfer?.setData("text/plain", `step:${s.id}`); ctx.setDragging(true); } : undefined}>
+      onDragStart={draggable ? (e) => {
+        e.stopPropagation();
+        dragging = { id: s.id };
+        e.dataTransfer?.setData("text/plain", `step:${s.id}`);
+        if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+        // Not in this event: Chrome drops a drag whose page changes while it starts.
+        window.setTimeout(() => ctx.setDragging(true), 0);
+      } : undefined}>
       {p.onOpenStep ? (
-        <button type="button" className="sb-main" aria-label={aria} aria-current={live ? "step" : undefined}
+        // A div with the button role, not a <button>: browsers do not start dragging a block from inside a <button>.
+        <div role="button" tabIndex={0} className="sb-main" aria-label={aria} aria-current={live ? "step" : undefined}
           aria-pressed={edit ? p.selected === s.id : undefined}
-          onClick={() => p.onOpenStep!(s.id)} onKeyDown={(e) => ctx.onKey(e, s)}>
+          onClick={() => p.onOpenStep!(s.id)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") { e.preventDefault(); p.onOpenStep!(s.id); return; }
+            ctx.onKey(e, s);
+          }}>
           <FaceText s={s} head={head} custom={custom} count={count} locked={locked} tags={tags} />
-        </button>
+        </div>
       ) : (
         <div className="sb-main" aria-label={aria} role="group"><FaceText s={s} head={head} custom={custom} count={count} locked={locked} tags={tags} /></div>
       )}
