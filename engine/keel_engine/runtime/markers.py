@@ -6,10 +6,15 @@
     E2E-RESULT: pass | fail                    (e2e-author)
     CODE-REVIEW: pass | findings               (code-reviewer)
     AC-REVIEW: pass | findings                 (ac-reviewer)
+    SECURITY: clean | findings                 (security-auditor)
+    DEPS: clean | findings                     (dependency-triager)
+    AMEND: <what the frozen spec gets wrong>   (feature: test-author / implementer, only when the spec is wrong)
     NAME: any value                            any other name a step declares in `markers: [NAME]`
 
-A registered marker keeps only its first word, lower case (`REPRO: Confirmed — the test fails` -> "confirmed");
-any other marker keeps the rest of its line. The last line that names a marker wins. A step can also collect a JSON
+A registered marker with values keeps only its first word, lower case (`REPRO: Confirmed — the test fails` ->
+"confirmed"); any other marker keeps the rest of its line. A registered marker without values (AMEND) is free text the
+agent writes only when it applies, so a step that reads it does not ask for the line. The last line that names a marker
+wins. A step can also collect a JSON
 list from its answer (`collect: <key>`): the last ```json (or ```keel-items) block that holds a list.
 """
 
@@ -25,6 +30,9 @@ REGISTRY: dict[str, tuple[str, ...]] = {
     "E2E-RESULT": ("pass", "fail"),
     "CODE-REVIEW": ("pass", "findings"),
     "AC-REVIEW": ("pass", "findings"),
+    "SECURITY": ("clean", "findings"),
+    "DEPS": ("clean", "findings"),
+    "AMEND": (),
 }
 
 _FENCE = re.compile(r"```(?:json|keel-items)\s*\n(.*?)```", re.S)
@@ -43,7 +51,7 @@ def parse(text: str, names: list[str] | None = None) -> dict[str, str]:
         if not found:
             continue
         value = found[-1].strip()
-        if name in REGISTRY:
+        if REGISTRY.get(name):
             word = re.match(r"[\w-]+", value)
             value = word.group(0).lower() if word else ""
         if value:

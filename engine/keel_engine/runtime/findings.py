@@ -1,7 +1,8 @@
 """Blocking findings in a reviewer's answer (code-reviewer, security-auditor, the ship review lenses).
 
 keel's reviewer agents answer with a "Blocking" section (a heading, a bold label, or "Blocking: none") and a
-"Non-blocking" one. Only the blocking items stop the flow; "none" means there are none.
+"Non-blocking" one. Only the blocking items stop the flow; "none" means there are none. An agent that ends with its own
+verdict line instead (CODE-REVIEW, SECURITY or DEPS: findings) stops it with the items it lists.
 """
 from __future__ import annotations
 
@@ -18,6 +19,10 @@ _NONE = re.compile(r"^\s*(?:\*\*|__)?\s*(?:none|nothing|no (?:blocking )?(?:find
 _VERDICT = re.compile(r"^\s*(?:\*\*|__|`)?\s*BLOCKING\s*:\s*(?:\*\*|__)?\s*(yes|no)\b", re.I | re.M)
 _REF = re.compile(r"`?([\w./-]+\.\w+:\d+(?:-\d+)?)`?")
 _E2E_FAIL = re.compile(r"^\s*E2E-RESULT:\s*fail\b(.*)$", re.I | re.M)
+# The other reviewers' verdict lines (code-reviewer, security-auditor, dependency-triager): "findings" without a Blocking
+# section still stops the flow; their findings are the answer's list items.
+_OWN_VERDICT = re.compile(r"^\s*(?:\*\*|__|`)?\s*(?:CODE-REVIEW|SECURITY|DEPS)\s*:\s*(?:\*\*|__)?\s*(pass|clean|findings)\b",
+                          re.I | re.M)
 
 
 def blocking(text: str) -> list[str]:
@@ -32,7 +37,21 @@ def blocking(text: str) -> list[str]:
     if verdicts and not found:
         lead = next((l.strip() for l in (text or "").splitlines() if l.strip() and not _VERDICT.match(l)), "")
         found = [f"The reviewer marked this blocking: {lead[:300]}"]
+    own = _OWN_VERDICT.findall(text or "")
+    if not verdicts and not found and own and own[-1].lower() == "findings":
+        found = _listed(text) or ["The reviewer reported findings: " + next(
+            (l.strip() for l in (text or "").splitlines() if l.strip() and not _OWN_VERDICT.match(l)), "")[:300]]
     return found
+
+
+def _listed(text: str) -> list[str]:
+    """The list items of an answer (a reviewer that names its findings without a Blocking heading)."""
+    out = []
+    for line in (text or "").splitlines():
+        b = _BULLET.match(line)
+        if b and b.group(1).strip() and not _NONE.match(b.group(1)):
+            out.append(re.sub(r"\s+", " ", b.group(1)).strip())
+    return out
 
 
 def unique(findings: list[dict]) -> list[dict]:

@@ -37,7 +37,7 @@ def test_a_spec_gate_without_criteria_only_allows_send_back(client, repo, monkey
     real = fake_mod._plan
 
     def no_spec(req):
-        if req.agent == "explorer" and req.phase == "spec":
+        if req.agent == "explorer" and req.phase == "spec" and req.step_name == "spec":
             return None, "", "No feature topic was named. Pattern: - **AC-1** [API] <behaviour>", {}
         return real(req)
     monkeypatch.setattr(fake_mod, "_plan", no_spec)

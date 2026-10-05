@@ -99,6 +99,7 @@ type Step = {
   markers?: string[];          // NAME: value lines read from the agent's answer into state.markers[<id>] (REPRO, ROOT-CAUSE, ...)
   collect?: string;            // the JSON list in the agent's answer (```json) becomes state.data[collect]
   when?: { marker: string; equals?: string; in?: string[]; step?: string | string[]; any?: boolean };   // branch on a marker
+                               // (also data: <path> or state: <path>; on agent/parallel/code steps: run only when it holds)
   flow?: string; seed?: Record<string, unknown>;   // start_flow: workflow id, seed ("$state.path" reads state)
   then?: "end" | "continue" | string;              // code: after the actions end the flow, go on, or jump to that step id
   // v0.4.0 cover + ship (section "v0.4.0 additions: cover, ship and include"):
@@ -128,7 +129,7 @@ type Workflow = { id: string; name: string; based_on?: string; keel_rules: boole
 type StartThread = {
   project_id: string; root: string;            // absolute path of the repo inside the container
   workflow: Workflow; title: string;
-  acs?: { id: string; layer: "API"|"WEB"; title: string }[];   // optional; otherwise the spec step writes them
+  acs?: { id: string; layer: "API"|"WEB"; title: string; status?: string }[];   // optional; otherwise the spec step writes them (done/already-met stay finished)
   models: Record<string, Model>;               // agent id → model ("default" key = fallback)
   settings: { gates_mode: "every-ac"|"end-of-lane"|"end"; cap_tokens: number; on_cap: "pause"|"cheaper"|"stop"; cheaper_model?: Model };
   mcp: McpServerSpec[];                        // servers this flow may use; per-agent allowlist inside Step.tools
@@ -687,3 +688,39 @@ GET  /projects/{p}/hunts/{run}          → that + {swept, gates, stack, candida
 POST /projects/{p}/hunts/{run}/close  {id, as: fixed|accepted|wontfix, note}   → the run (400 without a note)
 api: GET /api/projects/{pid}/hunts, GET /api/projects/{pid}/hunts/{run}, POST /api/projects/{pid}/hunts/{run}/close (pass-through)
 ```
+
+## v0.4.0 additions: feature
+
+`content/workflows/feature.yaml` (version 2; keel v1 skills/feature). Ship's review, final review, memory and PR come from the
+`ship` include; feature keeps no copies.
+
+`preflight` (test command, own branch `feat/<slug>` when on the base branch, else stays: handed-over commits stay; data.no_gates
+waives the integration/e2e/smoke gates) → `spec` (explorer: the interview; clarify questions on `spec_gate`) → only once there are
+criteria (`when: {state: acs}`): `explore_areas` → `explore` (one explorer per area: api, web, data) → `maps` (report) → `plan`
+(appends `## Plan`, marker ORDER) → `spec_sync` (criteria re-read from the spec, ORDER applied, the gate text) → `spec_gate`
+(locked; exits approve → `freeze` | edit, rewrite → `spec_edit` | review → `spec_review` (reviewer, phase review, shown on the
+gate) | order → `plan` | reject → `spec_restart` → `spec`) → `freeze` (frontmatter status frozen + approved/frozen dates; only
+the spec is committed, `docs: spec and plan: <title>`) → `options` (skip menu: integration_gate, security, e2e, smoke) →
+`contract` → `contract_diff` → `contract_gate` (approve → commit | change → contract | amend → the contract draft is put back,
+then the amendment) → AC loop (red/green may end with `AMEND: <why>` → `red_to_amend`/`green_to_amend`) → `integration` →
+`integration_commit` (`fix(integration)`) → `integration_gate` → `security_deps` (verify_deps, soft) → `security_scope` →
+`security` (fan-out: security-auditor, plus dependency-triager when verify deps failed; findings → the findings question) →
+`review_fix` (retry_only) → `review_fix_commit` → `code_review` (code-reviewer, back review_fix, 2 rounds) → `e2e_scope` ([E2E]
+criteria or needs_e2e; marker TOOL) → `e2e_tool` (only when commands.e2e is missing: write → specs written unrun, recorded in
+data.ship_skipped `e2e-run` | check → look again) → `e2e` → `e2e_commit` (verify_e2e) → `e2e_gate` → `smoke_scope` ([SMOKE] or a
+Smoke checks section) → `smoke` → `smoke_commit` (verify_smoke: smoke/*.sh + commands.smoke_e2e) → `smoke_gate` → ship_* → `adr`
+→ `adr_commit` → `close`.
+
+Amendment: `amend_start` (reason from the AMEND line or the contract gate note) → `amend` (explorer writes a dated block under
+`## Amendments`, markers REOPEN, CONTRACT) → `amend_show` (no block → back to amend) → `amend_gate` (locked; approve | context |
+change → amend again | rebuild → start_flow feature with the reason, commits stay) → `amend_commit` (only the spec,
+`docs: amend: ...`; new criteria join, REOPEN ones are todo) → the contract again when CONTRACT yes (or it came from the
+contract gate), else back into the AC loop. Seeds: inline acs (change) skip the questions and keep their status; evidence (fix,
+diagnose) goes into the request. Deferred: lanes in worktrees, spike mode.
+
+Engine (generic): `when` on agent/parallel/code steps (skipped when it does not hold) and `when.state: <path>`; a skip menu
+covers the steps up to the next skip menu; a plain reject on a gate with named exits takes the `reject` exit when there is
+one; a soft code step keeps what it said in `data["<id>_output"]`; markers SECURITY, DEPS (clean | findings) and AMEND (free
+text, never asked for) are registered; a reviewer answer ending `CODE-REVIEW|SECURITY|DEPS: findings` without a Blocking
+section counts its list items as findings; commit takes `paths` (only those are staged) and names integration commits
+`fix(integration)`; StartThread acs may carry `status`. Actions in `runtime/feature_actions.py`.

@@ -9,7 +9,7 @@ def _reviewer_finds_once(monkeypatch, calls):
     real = fake_mod._plan
 
     def plan(req):
-        if req.agent == "code-reviewer":
+        if req.agent == "security-auditor":
             calls.append(req.feedback)
             if len(calls) == 1:
                 return None, "", ("## Review\n\n**Blocking**\n\n- `src/scores/ac_1.py:2` returns a constant, not the rank.\n\n"
@@ -32,27 +32,27 @@ def test_fix_them_runs_the_implementer_commits_and_reviews_again(client, repo, m
     calls = []
     _reviewer_finds_once(monkeypatch, calls)
     tid = start(client, repo)
-    s = _to(client, tid, wait(client, tid), "integration__fix")
+    s = _to(client, tid, wait(client, tid), "security__fix")
     w = s["waiting"]
-    assert w["title"] == "integration: 1 blocking finding(s)"
+    assert w["title"] == "security auditor + dependency triager: 1 blocking finding(s)"
     assert "returns a constant, not the rank" in w["detail"] and "naming" not in w["detail"]
     assert w["labels"] == {"approve": "Fix them", "reject": "Go on anyway"}
 
     s = decide(client, tid, "approve")
     log = subprocess.run(["git", "log", "--format=%s"], cwd=repo, capture_output=True, text=True).stdout
-    assert "fix(review): address integration findings" in log
+    assert "fix(review): address security auditor + dependency triager findings" in log
     assert len(calls) == 2, "the review runs again after the fix"
-    assert s["waiting"]["step"] != "integration__fix"
+    assert s["waiting"]["step"] != "security__fix"
 
 
 def test_go_on_anyway_needs_a_reason_and_is_logged(client, repo, monkeypatch):
     calls = []
     _reviewer_finds_once(monkeypatch, calls)
     tid = start(client, repo)
-    _to(client, tid, wait(client, tid), "integration__fix")
+    _to(client, tid, wait(client, tid), "security__fix")
     r = client.post(f"/threads/{tid}/resume", json={"decision": "reject"})
     assert r.status_code == 400
     s = decide(client, tid, "reject", why="known limitation, ticket 42")
     assert len(calls) == 1, "no second review when the findings are accepted"
-    assert any("integration findings accepted: known limitation" in x for x in s["gate_log"])
-    assert s["waiting"]["step"] != "integration__fix"
+    assert any("security auditor + dependency triager findings accepted: known limitation" in x for x in s["gate_log"])
+    assert s["waiting"]["step"] != "security__fix"

@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 
-from conftest import decide, start, wait
+from conftest import decide, start, to_loop, wait
 from keel_engine import rules
 from keel_engine.models import login_keys
 from keel_engine.models.base import AgentRequest
@@ -208,8 +208,7 @@ def test_settings_unlock_lets_guard_keep_file(client, repo):
     rel = "tests/test_rogue_implementer.py"
     tid = start(client, repo, models=_rogue_models(),
                 settings={"gates_mode": "every-ac", "cap_tokens": 0, "on_cap": "pause", "unlocks": [{"path": rel, "phase": "green"}]})
-    wait(client, tid)
-    s = decide(client, tid)
+    s = to_loop(client, tid)
     assert s["waiting"]["step"] == "ac_gate"
     assert (Path(repo) / rel).exists()
     assert not any(e["data"]["path"] == rel for e in client.bus.of(tid, "guard.refused"))
@@ -223,6 +222,8 @@ def test_resume_payload_unlock(client, repo):
     s = wait(client, tid)
     assert s["waiting"]["step"] == "spec_gate"
     s = decide(client, tid, payload={"unlock": {"path": rel, "phase": "green"}})
+    for _ in ("options", "contract_gate"):
+        s = decide(client, tid)
     assert s["waiting"]["step"] == "ac_gate"
     assert (Path(repo) / rel).exists()
     assert {"path": rel, "phase": "green"} in s["unlocks"]
@@ -232,8 +233,7 @@ def test_resume_payload_unlock(client, repo):
 
 def test_guard_refused_events_carry_path_and_phase(client, repo):
     tid = start(client, repo, models=_rogue_models())
-    wait(client, tid)
-    decide(client, tid)
+    to_loop(client, tid)
     refused = client.bus.of(tid, "guard.refused")
     assert refused
     for e in refused:
@@ -564,7 +564,7 @@ def test_api_written_unlocks_are_merged_and_honoured(client, repo):
     assert r.status_code == 200, r.text
     assert [u for u in r.json() if u["path"] == rel][0]["by"] == "api"
     assert {"path": rel, "phase": "green"} in client.get(f"/threads/{tid}").json()["unlocks"]
-    s = decide(client, tid)
+    s = to_loop(client, tid, s)
     assert s["waiting"]["step"] == "ac_gate"
     assert (Path(repo) / rel).exists()                                   # the guard honoured it
     assert {"path": rel, "phase": "green"} in s["unlocks"]

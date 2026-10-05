@@ -36,7 +36,7 @@ def test_questions_become_a_gate_and_the_answers_reach_the_explorer(client, repo
     seen = []
 
     def plan(req):
-        if req.agent == "explorer" and req.phase == "spec":
+        if req.agent == "explorer" and req.phase == "spec" and req.step_name == "spec":
             seen.append(req.feedback)
             if len(seen) == 1:
                 return None, "", BLOCK, {}
@@ -61,7 +61,7 @@ def test_the_third_round_is_never_asked(client, repo, monkeypatch):
     real = fake_mod._plan
 
     def always_asks(req):
-        if req.agent == "explorer" and req.phase == "spec" and not (req.feedback or "").count("Do not ask again"):
+        if req.agent == "explorer" and req.step_name == "spec" and not (req.feedback or "").count("Do not ask again"):
             return None, "", BLOCK, {}
         return real(req)
     monkeypatch.setattr(fake_mod, "_plan", always_asks)

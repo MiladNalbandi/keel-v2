@@ -71,3 +71,12 @@ def test_keel_verdict_line_decides_and_is_never_a_finding():
     two = [{"lens": "#2", "text": "`test/x.js:72-79` dup of AC-2"}, {"lens": "#4", "text": "`test/x.js:72-79` — same dup"},
            {"lens": "#4", "text": "`test/x.js:81-90` dup of AC-3"}]
     assert [f["lens"] for f in unique(two)] == ["#2", "#4"]
+
+
+def test_an_own_verdict_line_with_findings_stops_the_flow_with_its_list_items():
+    text = "Read the diff.\n\n- `a.py:3` duplicates `b.py:9`\n- `c.py:1` renames a public field\n\nCODE-REVIEW: findings"
+    assert blocking(text) == ["`a.py:3` duplicates `b.py:9`", "`c.py:1` renames a public field"]
+    assert blocking("All good.\nCODE-REVIEW: pass") == []
+    assert blocking("Checked the routes and the queries.\nSECURITY: clean") == []
+    assert blocking("lodash is reachable from upload.ts:4.\nDEPS: findings") == [
+        "The reviewer reported findings: lodash is reachable from upload.ts:4."]
