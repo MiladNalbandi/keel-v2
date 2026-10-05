@@ -34,7 +34,7 @@ PURPOSE = {
 
 # Agents with no file in content/agents (prompts.BUILTIN_ROLES) and the fallback for any other agent.
 BUILTIN = {"contract-author": {"sections": ["domain", "integrations"], "code_graph": False}}
-FALLBACK = {"sections": ["architecture"], "code_graph": True, "memory": True, "strict": False}
+FALLBACK = {"sections": ["architecture"], "code_graph": False, "memory": True, "strict": False}
 
 
 def normalize(raw: dict | None, base: dict | None = None) -> dict:
@@ -111,10 +111,9 @@ def prompt_block(root: str, k: dict, graph: bool) -> str:
         lines.append(f"Knowledge you can use: none of your sections ({', '.join(k['sections'])}) exist in "
                      "docs/knowledge/ yet, so read the code.")
     if graph and k["code_graph"]:
-        lines.append("Code graph: start with ONE codegraph_explore call (maxFiles: 4) that names the symbols or files you "
-                     "need; it returns their source. Then read only the line ranges it did not show (Read with offset and "
-                     "limit) — do not read whole files the graph already showed you. codegraph_callers/callees/impact "
-                     "answer who calls what and what a change touches.")
+        lines.append("Code graph: codegraph_search finds where a class, function or route is (file:line, no code); then "
+                     "read only those lines (Read with offset and limit) instead of whole files. codegraph_callers, "
+                     "codegraph_callees and codegraph_impact list who calls what and what a change touches.")
     if k["memory"]:
         lines.append("Memory: if you ran this step before, you continue that session (or get its summary); do not redo "
                      "finished work.")

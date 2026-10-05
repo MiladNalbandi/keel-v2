@@ -261,7 +261,7 @@ def test_codegraph_mcp_entry_only_when_the_index_is_ready(client, repo, tmp_path
     spec = mcp.codegraph_server_spec(root)
     assert spec["name"] == "codegraph" and spec["command"] == str(exe) and spec["cwd"] == root
     assert spec["args"] == ["serve", "--mcp", "--path", root, "--no-watch"]
-    assert spec["env"]["CODEGRAPH_MCP_TOOLS"] == "explore,callers,callees,impact,search" and spec["env"]["CODEGRAPH_NO_DAEMON"] == "0"
+    assert spec["env"]["CODEGRAPH_MCP_TOOLS"] == "search,callers,callees,impact" and spec["env"]["CODEGRAPH_NO_DAEMON"] == "0"
     scan._save("demo", root, "indexing")
     assert mcp.codegraph_server_spec(root) is None               # re-indexing: not handed out
 

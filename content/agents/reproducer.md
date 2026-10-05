@@ -7,7 +7,7 @@ effort: medium
 maxTurns: 25
 knowledge:
   sections: [architecture, data]
-  code_graph: true
+  code_graph: false
   memory: true
   strict: false
 ---

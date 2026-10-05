@@ -7,7 +7,7 @@ effort: high
 maxTurns: 40
 knowledge:
   sections: [architecture, conventions, data]
-  code_graph: true
+  code_graph: false
   memory: true
   strict: false
 ---
