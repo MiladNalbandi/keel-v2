@@ -15,6 +15,6 @@ steps:
     lanes:
       - { name: ladder, kind: code, sub: ladder }
       - { name: knowledge, kind: agent, sub: librarian }
-  - { id: memory_check, kind: code, name: memory check, action: memory_check, phase: setup }
+  - { id: memory_check, kind: code, name: knowledge check, action: knowledge_check, phase: setup }
   - { id: commit, kind: code, name: commit, action: commit, lock: true, phase: setup }
   - { id: hand_over, kind: gate, name: hand over, phase: setup }

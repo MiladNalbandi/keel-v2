@@ -497,3 +497,41 @@ longer built in.
 - **Upgrade**: on the first start or resume of a thread, unlocks of an active flow in a project's old v0.3 state file are
   imported once into that thread (recorded in `legacy_unlock_imports`); that file is never written again.
 - **Ladder rung 12** is the guard self-test: a context in phase red, a production-file edit must exit 2 and a read exit 0.
+
+## v0.4.0 additions — verdicts, knowledge check, map, scan and code graph
+
+### Engine
+```
+POST /projects/{p}/scan  { root, rebuild?: false }  → IndexStatus (status "indexing"; the scan runs in the background)
+GET  /projects/{p}/index                           → IndexStatus
+POST /projects/{p}/map   { root }                  → Map (built for HEAD and stored)
+GET  /projects/{p}/map                             → Map | { missing }
+IndexStatus = { project, root?, status: idle|indexing|ready|failed, files, symbols, indexed_at?, error?,
+                stack?: string[], knowledge?: { present, missing, configured }, map?: { counts, sha } | { error },
+                index_dir?, available: bool }
+```
+- Scan = stack (marker files) → `codegraph init -y` (first time) / `sync -q` / `index -q` (rebuild) → map → which
+  `docs/knowledge/` sections exist. Events `index.progress` `{status, step: stack|graph|map}` and `index.done`
+  `{status, files, symbols, error, ...}` with `thread_id: ""`. `.codegraph/` is added to `.git/info/exclude`. When SQLite
+  cannot live in the project, the index moves to `$KEEL_DATA/index/<project>` and `.codegraph` links to it.
+- `codegraph sync` runs in the background at every flow start and after every keel commit (best effort).
+- Agents get the MCP server `codegraph` (`codegraph serve --mcp --path <root> --no-watch`, `CODEGRAPH_MCP_TOOLS=
+  explore,callers,callees,impact,search`) only while the project's index is `ready`, and only agents with
+  `knowledge.code_graph` on.
+- Map = keel v1's `.keel/map.json` shape (`sha, at, limits, counts, levels`) with `levels.system`, `levels.modules`
+  and `levels.er` (from SQL migrations); `flow` and `classes` are not built (the Map page shows its empty state).
+- Engine DB tables: `verdicts(project, kind, ok, detail_json, "commit", at)`, `project_map`, `project_index`.
+- Code actions: `knowledge_check` (old name `memory_check`) writes the `memory` verdict; `verify_release` and a
+  whole-suite `verify_green` write `release`; `verify_coverage` runs `commands.coverage` and writes `coverage`.
+  Simulated runs write no verdict. Push blockers read these; `deps` and `security` are "not run" warnings unless
+  `.keel/config.yml` sets `security.required: true` (or a list of gates).
+
+### Api
+```
+GET  /api/projects/{pid}/index           → IndexStatus (engine proxy)
+POST /api/projects/{pid}/index/rebuild   → IndexStatus (a scan with rebuild: true)
+```
+- Registering a project (POST /api/projects, the workspace, the startup scan) starts an engine scan (fire and forget).
+- `index.done` becomes a notification: "Index ready: N files, N symbols" or "Index failed: <reason>".
+- `GET /api/projects/{pid}/map` reads the engine's map (an old `.keel/map.json` only while the engine has none);
+  `POST …/map/rebuild` asks the engine to build it.

@@ -4,6 +4,10 @@
                             into its graph state, and the guards of running agents get them at once
     legacy_unlock_imports   projects whose keel v0.3 `.keel/` state file had unlocks, imported once into a thread
                             (keel no longer writes or reads that file otherwise)
+    verdicts                one row per check run (memory, release, coverage, ...), stamped with the commit it saw;
+                            replaces keel v1's .keel/{release,coverage,security,memory}.json (runtime/verdicts.py)
+    project_map             the latest map of each project (runtime/mapper.py), in the shape the web's Map page draws
+    project_index           each project's code-graph index: idle | indexing | ready | failed (runtime/scan.py)
 """
 
 from __future__ import annotations
@@ -20,6 +24,17 @@ MIGRATIONS = [
     )""",
     """create table if not exists legacy_unlock_imports (
       root text primary key, thread_id text not null, unlocks integer not null, at text not null
+    )""",
+    """create table if not exists verdicts (
+      project text not null, kind text not null, ok integer not null, detail_json text, "commit" text, at text not null
+    )""",
+    "create index if not exists verdicts_by_kind on verdicts (project, kind)",
+    """create table if not exists project_map (
+      project text primary key, "commit" text, json text not null, at text not null
+    )""",
+    """create table if not exists project_index (
+      project text primary key, root text, status text not null, files integer, symbols integer, indexed_at text,
+      error text, detail_json text, updated_at text not null
     )""",
 ]
 

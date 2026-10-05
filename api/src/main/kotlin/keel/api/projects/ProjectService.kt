@@ -7,11 +7,14 @@ import keel.api.common.NotFound
 import keel.api.common.Proc
 import keel.api.common.Slug
 import keel.api.common.Time
+import keel.api.engine.EngineClient
+import org.slf4j.LoggerFactory
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
+import java.util.concurrent.Executors
 
 data class ProjectRow(val id: String, val name: String, val root: String)
 
@@ -28,7 +31,30 @@ data class Project(
 )
 
 @Service
-class ProjectService(private val jdbc: JdbcTemplate, private val mapper: ObjectMapper) {
+class ProjectService(private val jdbc: JdbcTemplate, private val mapper: ObjectMapper, private val engine: EngineClient) {
+    private val log = LoggerFactory.getLogger(javaClass)
+    private val scans = Executors.newSingleThreadExecutor { r -> Thread(r, "project-scan").apply { isDaemon = true } }
+
+    /**
+     * Asks the engine to scan the project (stack, code graph index, map). Fire and forget: the engine answers at once
+     * and reports progress as index.* events. At startup the engine may not be up yet, so this retries for a minute.
+     */
+    fun triggerScan(row: ProjectRow, rebuild: Boolean = false) {
+        scans.execute {
+            for (attempt in 1..30) {
+                try {
+                    engine.scan(row.id, row.root, rebuild)
+                    return@execute
+                } catch (e: keel.api.engine.EngineDown) {
+                    Thread.sleep(2000)
+                } catch (e: Exception) {
+                    log.info("scan of {} not started: {}", row.id, e.message)
+                    return@execute
+                }
+            }
+            log.info("scan of {} not started: the engine did not answer", row.id)
+        }
+    }
 
     /**
      * Projects that are reachable now. A parked workspace project, or one whose folder is not mounted in this
@@ -43,7 +69,7 @@ class ProjectService(private val jdbc: JdbcTemplate, private val mapper: ObjectM
      * The mounted folder (/workspace) is the same path for every project the launcher starts, so it is known by
      * its name: another name there parks the old project (history kept, not listed) and the same name re-attaches it.
      */
-    fun registerWorkspace(rootText: String, name: String): ProjectRow {
+    fun registerWorkspace(rootText: String, name: String, scan: Boolean = true): ProjectRow {
         val root = Paths.get(rootText).toAbsolutePath().normalize().toString()
         val id = keel.api.common.Slug.of(name)
         val here = jdbc.query("SELECT id, name, root FROM projects WHERE root = ?", { rs, _ -> ProjectRow(rs.getString(1), rs.getString(2), rs.getString(3)) }, root).firstOrNull()
@@ -52,9 +78,9 @@ class ProjectService(private val jdbc: JdbcTemplate, private val mapper: ObjectM
         val parked = find(id)
         if (parked != null) {
             jdbc.update("UPDATE projects SET root = ?, name = ? WHERE id = ?", root, name, id)
-            return ProjectRow(id, name, root)
+            return ProjectRow(id, name, root).also { if (scan) triggerScan(it) }
         }
-        return register(root, name)
+        return register(root, name, scan)
     }
 
     fun find(pid: String): ProjectRow? =
@@ -65,8 +91,8 @@ class ProjectService(private val jdbc: JdbcTemplate, private val mapper: ObjectM
 
     fun root(pid: String): Path = Paths.get(require(pid).root)
 
-    /** Registers a folder. Same root again returns the existing project. */
-    fun register(rootText: String, name: String? = null): ProjectRow {
+    /** Registers a folder (a new one is scanned). Same root again returns the existing project. */
+    fun register(rootText: String, name: String? = null, scan: Boolean = true): ProjectRow {
         if (rootText.isBlank()) throw BadRequest("root is empty", "Send the absolute path of the repo inside the container.")
         val root = Paths.get(rootText).toAbsolutePath().normalize()
         if (!Files.isDirectory(root)) throw BadRequest("There is no folder at $root", "Mount the project and use the path inside the container.")
@@ -78,7 +104,7 @@ class ProjectService(private val jdbc: JdbcTemplate, private val mapper: ObjectM
         while (find(id) != null) id = "$base-${n++}"
         val display = name?.takeIf { it.isNotBlank() } ?: root.fileName?.toString() ?: id
         jdbc.update("INSERT INTO projects(id, name, root, created_at) VALUES (?, ?, ?, ?)", id, display, root.toString(), Time.now())
-        return ProjectRow(id, display, root.toString())
+        return ProjectRow(id, display, root.toString()).also { if (scan) triggerScan(it) }
     }
 
     fun keelState(root: Path): JsonNode? {

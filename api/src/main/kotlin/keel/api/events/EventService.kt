@@ -131,6 +131,16 @@ class EventService(
                 d.str("text") ?: listOfNotNull(d.str("agent"), d.str("path")?.let { "tried to change $it" }, d.str("phase")?.let { "in $it" }).joinToString(" "),
                 link,
             )
+            "index.done" -> {
+                val repo = "/projects/${e.projectId}/repo"
+                if (d.str("status") == "ready") {
+                    notifications.create("finished", e.projectId, "Index ready: ${d.long("files") ?: 0} files, ${d.long("symbols") ?: 0} symbols",
+                        "Agents can use the code graph for this project.", repo)
+                } else {
+                    notifications.create("failed", e.projectId, "Index failed: ${d.str("error")?.take(160) ?: "unknown reason"}",
+                        "Agents find their way with grep instead. Rebuild it from the Repo page.", repo)
+                }
+            }
             "thread.done" -> {
                 upsertThread(e, "done", at)
                 notifications.create("finished", e.projectId, "The flow is done", d.str("title") ?: "All steps finished.", link)

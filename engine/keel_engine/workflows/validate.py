@@ -6,7 +6,8 @@ from ..rules import PHASES
 from .model import Workflow, WorkflowError, load_yaml
 from .templates import get_template
 
-CODE_ACTIONS = {"verify_red", "verify_green", "commit", "push_check", "write_config", "ladder", "memory_check"}
+CODE_ACTIONS = {"verify_red", "verify_green", "verify_release", "verify_coverage", "commit", "push_check", "write_config",
+                "ladder", "knowledge_check", "memory_check"}
 
 
 def _action_ok(action: str) -> bool:
