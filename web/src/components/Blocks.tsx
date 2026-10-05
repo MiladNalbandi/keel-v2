@@ -443,6 +443,7 @@ function Face({ ctx, s, row, head, cls = "", children }: {
   if (s.skippable === "optional") tags.push("optional");
   if (s.skippable === "deferred") tags.push("can be deferred");
   if (s.kind === "include") tags.push(`runs the ${s.flow ?? "?"} flow`);
+  s.lanes?.forEach((l) => tags.push(`lane: ${l.name}${l.sub ? ` (${l.sub})` : ""}`));
   const live = st === "run" || st === "wait" || st === "fail" || st === "stop";
   const est = ctx.per(s, p.tokens);
   const aria = [
@@ -712,7 +713,6 @@ function AddPicker({ ctx, after }: { ctx: Ctx; after: Step | null }) {
 export function Palette({ onAdd, where }: { onAdd: (kind: StepKind | "loop") => void; where: string }) {
   return (
     <div className="sx-palette" role="group" aria-label="Blocks to add">
-      <span className="sx-palette-t">Blocks</span>
       {ADD_KINDS.map((k) => (
         <button key={k.kind} type="button" className={`pal k-${k.kind}`} draggable onDragStart={(e) => startPaletteDrag(e, k.kind)}
           onClick={() => onAdd(k.kind)} title={`${k.hint}. Drag it into the stack, or click to add it ${where}.`}
@@ -724,7 +724,7 @@ export function Palette({ onAdd, where }: { onAdd: (kind: StepKind | "loop") => 
         title={`a step that runs once per criterion. Click to add it ${where}.`} aria-label={`Add a loop (for each criterion) ${where}`}>
         <KindIcon kind="loop" /> Loop
       </button>
-      <span className="sx-palette-h">drag into the stack · or click to add {where}</span>
+      <span className="sx-palette-h">drag one in, or click to add it {where}</span>
     </div>
   );
 }
