@@ -16,7 +16,13 @@ export function tokensByStep(w: Workflow, est: Estimate | null | undefined): Rec
 }
 
 const scalar = (v: unknown): string => {
-  if (typeof v === "string") return /^[\w./:@★ -]+$/.test(v) && !/^(true|false|null|yes|no|on|off|\d.*)$/i.test(v) && !/^[\s-]/.test(v) && !v.includes(": ") ? v : JSON.stringify(v);
+  if (typeof v === "string") {
+    const plain = /^[\w./:@★ -]+$/.test(v) && !/^(true|false|null|yes|no|on|off|\d.*)$/i.test(v) && !/^[\s-]/.test(v)
+      && !v.includes(": ") && !v.endsWith(":");
+    return plain ? v : JSON.stringify(v);
+  }
+  // A list or a map is written as JSON: YAML reads JSON, and it keeps nested values (seed, when, choices) intact.
+  if (v !== null && typeof v === "object") return JSON.stringify(v);
   return String(v);
 };
 
@@ -27,13 +33,15 @@ export function toYaml(w: Workflow, budget?: { max_tokens?: number; on_limit?: s
   lines.push(`keel_rules: ${w.keel_rules}`);
   if (budget?.max_tokens) lines.push(`budget: { max_tokens: ${budget.max_tokens}, on_limit: ${budget.on_limit ?? "pause"} }`);
   lines.push("steps:");
-  const order: (keyof Step)[] = ["id", "kind", "name", "agent", "model", "phase", "action", "per_ac", "parallel", "back", "no", "lock", "max_tokens", "on_limit"];
+  // Every key a step has, the common ones first. A step keeps keys this page does not edit (then, flow, seed, when,
+  // choices, instructions, for_each …): writing only known keys once dropped them and the engine refused the save.
+  const order = ["id", "kind", "name", "agent", "model", "phase", "action", "per_ac", "parallel", "back", "no", "lock", "max_tokens", "on_limit"];
   w.steps.forEach((s) => {
-    const parts = order
-      .filter((k) => s[k] !== undefined && s[k] !== null && s[k] !== false && s[k] !== "")
-      .map((k) => `${k}: ${scalar(s[k])}`);
-    if (s.tools?.length) parts.push(`tools: [${s.tools.map(scalar).join(", ")}]`);
-    if (s.lanes?.length) parts.push(`lanes: [${s.lanes.map((l) => `{ name: ${scalar(l.name)}, kind: ${l.kind}${l.sub ? `, sub: ${scalar(l.sub)}` : ""} }`).join(", ")}]`);
+    const rec = s as Record<string, unknown>;
+    const keys = [...order.filter((k) => k in rec), ...Object.keys(rec).filter((k) => !order.includes(k)).sort()];
+    const parts = keys
+      .filter((k) => rec[k] !== undefined && rec[k] !== null && rec[k] !== false && rec[k] !== "" && !(Array.isArray(rec[k]) && !(rec[k] as unknown[]).length))
+      .map((k) => `${k}: ${scalar(rec[k])}`);
     lines.push(`  - { ${parts.join(", ")} }`);
   });
   return lines.join("\n") + "\n";
