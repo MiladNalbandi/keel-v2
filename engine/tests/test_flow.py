@@ -188,18 +188,25 @@ def test_contract_is_committed_on_its_own(client, repo):
 
 
 def test_a_running_step_is_shown_not_the_last_finished_one(client, repo, monkeypatch):
+    import threading
     import time as _t
     from keel_engine.models import fake as fake_mod
     real = fake_mod._plan
+    release = threading.Event()
 
     def slow(req):
         if req.agent == "contract-author":
-            _t.sleep(1.5)
+            release.wait(10)        # holds the contract step until the test has looked
         return real(req)
     monkeypatch.setattr(fake_mod, "_plan", slow)
     tid = start(client, repo)
     wait(client, tid)
     client.post(f"/threads/{tid}/resume", json={"decision": "approve"})
-    _t.sleep(0.5)
-    s = client.get(f"/threads/{tid}").json()
-    assert s["status"] == "running" and s["current"] == "contract" and s["phase"] == "contract", s
+    seen = None
+    for _ in range(100):            # poll: no fixed sleep, so a fast or slow machine sees the same thing
+        seen = client.get(f"/threads/{tid}").json()
+        if seen["status"] == "running" and seen.get("current") == "contract":
+            break
+        _t.sleep(0.05)
+    release.set()
+    assert seen["status"] == "running" and seen["current"] == "contract" and seen["phase"] == "contract", seen
