@@ -29,6 +29,20 @@ data class Step(
     val tools: List<String>? = null,
     /** Agent lane metadata ("api" | "web"), set by the api from the agent's project override at flow start. */
     val lane: String? = null,
+    // Engine workflow features the api passes through unchanged (engine/keel_engine/workflows/model.py):
+    // fan-out from a state list (from, cap, batch), for_each loops (for_each, per_item), result markers and a
+    // collected list, a branch on a marker (when), and the start_flow hand-off (flow, seed, then).
+    val from: String? = null,
+    val cap: Int? = null,
+    val batch: Int? = null,
+    val forEach: String? = null,
+    val perItem: Boolean? = null,
+    val markers: List<String>? = null,
+    val collect: String? = null,
+    val `when`: Map<String, Any?>? = null,
+    val flow: String? = null,
+    val seed: Map<String, Any?>? = null,
+    val then: String? = null,
 ) {
     val locked: Boolean @com.fasterxml.jackson.annotation.JsonIgnore get() = lock == true
 }
