@@ -4,6 +4,7 @@
 import { useState } from "react";
 import { api, errorParts, type Budget, type Cap, type CapScope, type Limit } from "../api";
 import { Async, Drawer, ErrorBox, PageHead, Panel, Prov } from "../components/ui";
+import { UsageStrip } from "../components/UsageStrip";
 import { kfmt, parseTokens, PROV, usd } from "../format";
 import { useApp, useLoad, type Loaded } from "../state";
 
@@ -52,6 +53,9 @@ export function UsageChart({ days }: { days: Budget["days"] }) {
   );
 }
 
+/** A limit keel can read from the provider is not typed by hand; its manual cap stays as the fallback. */
+const hasLiveSource = (l: Limit) => !!l.source && l.id !== "claude";
+
 function LimitsDrawer({ limits, onClose, onSaved }: { limits: Limit[]; onClose: () => void; onSaved: (l: Limit[]) => void }) {
   const { toast } = useApp();
   const [rows, setRows] = useState(limits.map((l) => ({ ...l })));
@@ -74,8 +78,10 @@ function LimitsDrawer({ limits, onClose, onSaved }: { limits: Limit[]; onClose: 
   return (
     <Drawer title="Account limits" onClose={onClose}
       footer={<><button className="btn" type="button" onClick={onClose}>Cancel</button><button className="btn primary" type="button" onClick={save} disabled={busy}>{busy ? "Saving…" : "Save"}</button></>}>
-      <p className="sub" style={{ margin: 0 }}>Plan windows are not readable from the providers. Write the limit of your plan; "used" comes from the jobs keel ran.</p>
-      {rows.map((l, i) => (
+      <p className="sub" style={{ margin: 0 }}>Codex and Copilot are read from the provider, and Claude from its runs (see Accounts). Write a cap here only where keel has no number from the provider; "used" then comes from the jobs keel ran.</p>
+      {rows.map((l, i) => hasLiveSource(l) ? (
+        <div key={l.id} className="field"><span className="lab">{l.name}</span><span className="hint">Read from {l.source}. No cap to type.</span></div>
+      ) : (
         <div key={l.id} className="field">
           <label htmlFor={`lim-${l.id}`}>{l.name} <span className="sub" style={{ textTransform: "none", letterSpacing: 0 }}>({l.unit})</span></label>
           <div className="row">
@@ -230,10 +236,14 @@ export function BudgetPage({ pid }: { pid: string }) {
               <div><span className="sub">Flows</span><b className="big num">{b.month.flows}</b></div>
               <div><span className="sub">Copilot premium requests</span><b className="big num">{b.month.premium_requests}</b></div>
             </Panel>
-            <span className="lab-s" style={{ display: "block", marginBottom: 8 }}>Account limits · shared by all projects</span>
+            <span className="lab-s" style={{ display: "block", marginBottom: 8 }}>Accounts · what each plan says is used and what remains</span>
+            <div style={{ marginBottom: 12 }}>
+              <UsageStrip empty={<div className="empty">No provider is set up yet. Save a login or a key in Connections.</div>} />
+            </div>
+            <span className="lab-s" style={{ display: "block", marginBottom: 8 }}>Manual caps · where keel cannot read the provider</span>
             {limits.error ? <ErrorBox error={limits.error} /> : !limits.data ? <div className="empty loading">Loading…</div> : !limits.data.length ? <div className="empty">No account limits set.</div> : (
               <div className="grid g4">
-                {limits.data.map((l) => {
+                {limits.data.filter((l) => !hasLiveSource(l)).map((l) => {
                   const pc = l.cap ? (l.used / l.cap) * 100 : 0;
                   const cls = pc > 80 ? "bad" : pc > 60 ? "warn" : "ok";
                   const money = /\$|usd|spent/i.test(l.unit);
@@ -289,7 +299,7 @@ export function BudgetPage({ pid }: { pid: string }) {
           </>
         )}
       </Async>
-      <p className="hint" style={{ marginTop: 12 }}>Where the numbers come from: LangChain usage metadata for API calls, the CLI's own usage line for claude / codex / copilot / opencode. Plan limits are values you can edit.</p>
+      <p className="hint" style={{ marginTop: 12 }}>Where the numbers come from: LangChain usage metadata for API calls, the CLI's own usage line for claude / codex / copilot / opencode. Plan windows come from the providers (Claude: its last run; Codex: codex app-server; Copilot: GitHub, unofficial). Manual caps are values you can edit.</p>
       {capEdit && <CapDrawer pid={pid} cap={capEdit === "new" ? null : capEdit} onClose={() => setCapEdit(null)}
         onSaved={(c) => caps.setData((l) => (l ? (l.some((x) => x.id === c.id) ? l.map((x) => (x.id === c.id ? c : x)) : [...l, c]) : [c]))} />}
       {editing && limits.data && <LimitsDrawer limits={limits.data} onClose={() => setEditing(false)} onSaved={(l) => limits.setData(l)} />}

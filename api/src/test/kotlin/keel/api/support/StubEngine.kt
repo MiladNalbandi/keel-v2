@@ -42,6 +42,9 @@ class StubEngine private constructor(private val server: HttpServer) {
     /** What POST /providers/test answers; null = OK. */
     @Volatile var providerTestAnswer: Map<String, Any?>? = null
 
+    /** What POST /providers/usage answers per provider; missing = an error answer. */
+    val usageAnswers = java.util.concurrent.ConcurrentHashMap<String, Map<String, Any?>>()
+
     /** What POST /agents/ask answers (the Doctor's model call); null = "fake" (rules only). */
     @Volatile var askAnswer: Map<String, Any?>? = null
 
@@ -103,6 +106,8 @@ class StubEngine private constructor(private val server: HttpServer) {
         path.endsWith("/unlocks") -> 200 to unlocks[path.split('/')[2]].orEmpty()
         path.endsWith("/stop") -> 200 to state(path.split('/')[2], "stopped")
         path.endsWith("/history") -> 200 to listOf(mapOf("id" to "c1", "n" to 1, "step" to "spec", "at" to "2026-10-03T00:00:00Z", "note" to "start"))
+        path == "/providers/usage" -> 200 to (usageAnswers[body?.get("provider")?.asText()]
+            ?: mapOf("ok" to false, "windows" to emptyList<Any>(), "error" to "no answer"))
         path == "/providers/test" -> 200 to (providerTestAnswer ?: mapOf("ok" to true, "text" to "OK", "ms" to 3))
         path.matches(Regex("/projects/[^/]+/scan")) -> {
             val pid = path.split('/')[2]

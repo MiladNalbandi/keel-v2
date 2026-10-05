@@ -19,6 +19,7 @@ import copy
 import hashlib
 import logging
 import tempfile
+import time
 import uuid
 from pathlib import Path
 
@@ -28,6 +29,7 @@ from langgraph.types import Command, interrupt
 
 from .. import models, rules
 from ..models import catalog
+from ..models import usage as provider_usage
 from ..models.base import AgentRequest, AgentResult
 from .findings import REVIEWERS, blocking, unique
 from ..tools import git, guard, mcp
@@ -314,6 +316,7 @@ class Compiler:
             req.guard_ctx = gfile.path
             live = [gfile, toolbox]
             ctx.guards.extend(live)
+            t0 = time.time()
             try:
                 res = await models.runner_for(model).run(req, emit)
             except asyncio.CancelledError:
@@ -334,6 +337,7 @@ class Compiler:
             finally:
                 for g in live:
                     ctx.guards.remove(g)
+                self._usage_event(step, model["provider"], t0)
         if mem:
             await mem.finish(key, "done", res.text or "")
         if not res.cost_usd and model.get("mode") == "api" and model["provider"] != "fake":
@@ -344,6 +348,57 @@ class Compiler:
         return res, model, toolbox
 
     # ------------------------------------------------------------ budget
+
+    def _usage_event(self, step: Step, provider: str, since: float):
+        """provider.usage: the plan's windows this run reported (claude's rate_limit_event), for the api's usage cards."""
+        entry = provider_usage.LATEST.get(provider)
+        if entry and entry["at"] >= since:
+            self.ctx.emit("provider.usage", step=step.id, data={"provider": provider, "windows": entry["windows"],
+                                                                "source": entry["source"], "at": provider_usage.iso(entry["at"])})
+
+    async def _provider_window(self, state: FlowState, step: Step) -> dict:
+        """Before a subscription agent: warn when its plan window is nearly used (settings.usage_warn, default 0.80) and
+        pause at settings.usage_pause (default 0.95): continue, wait for the reset, use the cheaper model, or stop."""
+        ctx = self.ctx
+        model = self._model(state, step, step.agent or "")
+        provider = model.get("provider")
+        if model.get("mode") == "api" or provider in (None, "fake"):
+            return {}
+        await provider_usage.refresh_before_step(model, ctx.keys)
+        w = provider_usage.fullest(provider)
+        warn, pause = float(ctx.settings.get("usage_warn") or 0.8), float(ctx.settings.get("usage_pause") or 0.95)
+        if not w or w["used_pct"] < warn:
+            return {}
+        seen = dict(state.get("usage_seen") or {})
+        key = f"{provider}:{w['window']}:{w.get('resets_at') or ''}"
+        info = {"provider": provider, "window": w["window"], "used_pct": w["used_pct"], "resets_at": provider_usage.iso(w.get("resets_at")),
+                "detail": provider_usage.headline(provider, w), "kind": "usage"}
+        if w["used_pct"] < pause or seen.get(key) == "ok":
+            if seen.get(key):
+                return {}
+            ctx.emit("budget.warn", step=step.id, data=info)
+            return {"usage_seen": {**seen, key: "warn"}}
+        qkey = (ctx.thread_id, step.id, key)
+        question = provider_usage.QUESTIONS.setdefault(qkey, {
+            "step": step.id, "kind": "usage", "title": info["detail"], "options": OPTIONS, "choices": ["continue", "wait", "cheaper", "stop"],
+            "detail": "Continue uses the plan anyway (the provider may refuse when it is full). Wait sleeps until the window resets, "
+                      "then goes on. Cheaper switches to the cheaper model in settings. Stop ends the flow here."})
+        answer, extra = self._ask(state, question)
+        provider_usage.QUESTIONS.pop(qkey, None)
+        choice = ((answer or {}).get("payload") or {}).get("choice")
+        if (answer or {}).get("decision") != "approve" or choice == "stop":
+            ctx.emit("budget.stop", step=step.id, data={**info, "why": (answer or {}).get("why")})
+            return {**extra, "status": "stopped", "note": f"stopped: {info['detail']}"}
+        upd = {**extra, "usage_seen": {**seen, key: "ok"}}
+        cheaper = ctx.settings.get("cheaper_model")
+        if choice == "cheaper" and cheaper:
+            ctx.emit("budget.warn", step=step.id, data={**info, "action": "cheaper", "model": cheaper})
+            return {**upd, "model_override": cheaper, "note": "plan window nearly used; switched to the cheaper model"}
+        if choice == "wait" and w.get("resets_at"):
+            delay = min(max(0.0, w["resets_at"] - time.time()) + 30, 8 * 24 * 3600)
+            ctx.emit("budget.warn", step=step.id, data={**info, "action": "wait", "seconds": int(delay)})
+            await asyncio.sleep(delay)
+        return upd
 
     def _budget(self, state: FlowState, step: Step) -> dict:
         ctx = self.ctx
@@ -394,6 +449,11 @@ class Compiler:
         if upd.get("status") == "stopped":
             return upd, END
         state = {**state, **upd}
+        plan = await self._provider_window(state, step)
+        upd = {**upd, **plan}
+        if plan.get("status") == "stopped":
+            return upd, END
+        state = {**state, **plan}
 
         calls: list[tuple[str, int]] = []
         code_lanes: list[str] = []

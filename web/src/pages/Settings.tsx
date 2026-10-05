@@ -34,6 +34,8 @@ export const SECTIONS: [string, Row[]][] = [
   ["Budget", [
     { key: "cap_tokens", label: "Cap per flow (tokens)", kind: { t: "tokens" } },
     { key: "on_cap", label: "When a cap is hit", kind: { t: "select", opts: [["pause", "pause and ask me"], ["cheaper", "switch to cheaper model"], ["stop", "stop"]] } },
+    { key: "usage_warn", label: "Warn when a plan window is", kind: { t: "select", opts: [["0.7", "70% used"], ["0.8", "80% used"], ["0.9", "90% used"]] } },
+    { key: "usage_pause", label: "Pause before the next agent at", kind: { t: "select", opts: [["0.9", "90% used"], ["0.95", "95% used"], ["0.99", "99% used"], ["1", "100% (only when full)"]] } },
   ]],
   ["Git", [
     { key: "branch_pattern", label: "Branch name", kind: { t: "text", suggest: ["feat/{slug}", "{user}/{slug}", "keel/{flow}-{slug}"] } },
