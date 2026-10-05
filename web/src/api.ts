@@ -106,6 +106,8 @@ export type ThreadState = {
   ladder?: LadderRung[];
   /** v0.4.1: how much keel decides by itself in this flow (changeable during a run). */
   run_mode?: RunMode;
+  /** v0.3.1: the last 50 gate decisions as text; "auto-approved (mode …)" marks the run mode's own. */
+  gate_log?: string[];
 };
 /** v0.4.1 run modes (engine runtime/run_mode.py). */
 export type RunMode = "manual" | "important" | "auto" | "readonly";

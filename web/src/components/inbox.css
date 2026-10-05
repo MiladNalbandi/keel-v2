@@ -41,3 +41,5 @@
 .note .note-done { color: var(--ok); font-weight: 600; font-size: 11.5px; }
 .note-foot { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 4px; }
 .note-list { display: grid; gap: 8px; }
+.runmode-note { margin: 0; font-size: 12.5px; overflow-wrap: anywhere; }
+.runmode-note .mono { font-size: 11.5px; }

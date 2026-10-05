@@ -14,6 +14,7 @@ import { Markdown } from "../components/Markdown";
 import { OpenKeelV1Button } from "../components/OpenKeelV1";
 import { eventLine } from "../components/events";
 import { StartFlowDrawer } from "../components/StartFlow";
+import { autoLines, RunModeNote, RunModeSwitch } from "../components/RunMode";
 import { AcChips, Blocks, BlocksLegend, StepTable, useMapView, ViewToggle, type BlocksHandle } from "../components/Blocks";
 import { phaseTitle } from "../components/flowmap";
 import { Graph, GraphLegend } from "../components/Graph";
@@ -139,6 +140,7 @@ function FlowBar({ thread, workflow, estimate, started, onStart, onJump, extra }
         {extra}
         {onJump && live && <button className="btn" type="button" onClick={onJump}>Jump to current</button>}
         <OpenKeelV1Button />
+        {live && <RunModeSwitch compact pid={thread.project_id} threadId={thread.thread_id} mode={thread.run_mode} />}
         {live ? (
           <button className="btn" type="button" disabled={busy} onClick={async () => {
             setBusy(true);
@@ -472,6 +474,8 @@ function GateCard({ thread, workflow, onDone }: { thread: ThreadState; workflow:
   return (
     <div className="interrupt" role="region" aria-label="Gate waits for you">
       <h3><Pill tone="warn">◆ waits for you</Pill> {w.title}{showAc && ac ? ` — ${ac.id} [${ac.layer}] ${ac.title}` : ""}</h3>
+      <RunModeNote mode={thread.run_mode} kind={w.kind === "fix" && /dependenc/i.test(w.title) ? "dependency" : w.kind} title={w.title}
+        auto={{ count: autoLines(thread.gate_log).length, last: autoLines(thread.gate_log).at(-1) }} />
       {labels.explain && <p className="sub" style={{ margin: 0 }}>{labels.explain}</p>}
       {w.kind === "clarify" && w.questions
         ? <ClarifyForm questions={w.questions} picked={picked} typed={typed}

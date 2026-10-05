@@ -37,6 +37,9 @@ data class InboxItem(
     val phase: String? = null,
     val ac: String? = null,
     val runMode: String? = null,
+    /** Gates the run mode already approved in this flow ("auto-approved (mode …)" in the gate log), and the last one. */
+    val autoApproved: Int = 0,
+    val lastAuto: String? = null,
     /** When it started to wait (the last gate.waiting of the thread). */
     val since: String?,
 )
@@ -132,6 +135,7 @@ class InboxService(
         val rawKind = w.get("kind")?.asText() ?: "gate"
         val kind = if (rawKind == "fix" && title.startsWith("Approve new dependency")) "dependency" else rawKind
         val detail = w.get("detail")?.asText().orEmpty()
+        val auto = state.get("gate_log")?.takeIf { it.isArray }?.map { it.asText() }.orEmpty().filter { "auto-approved (mode " in it }
         val since = jdbc.queryForObject("SELECT MAX(at) FROM events WHERE thread_id = ? AND type = 'gate.waiting'", String::class.java, row.tid)
             ?: row.updatedAt
         return InboxItem(
@@ -146,7 +150,7 @@ class InboxService(
             labels = w.get("labels")?.takeIf { it.isObject },
             id = w.get("id")?.asText(),
             phase = state.get("phase")?.asText(), ac = state.get("ac")?.takeIf { !it.isNull }?.asText(),
-            runMode = state.get("run_mode")?.asText(), since = since,
+            runMode = state.get("run_mode")?.asText(), autoApproved = auto.size, lastAuto = auto.lastOrNull(), since = since,
         )
     }
 

@@ -5,7 +5,7 @@
 import { useMemo, useState } from "react";
 import { errorParts } from "../api";
 import { answersOf, ClarifyForm, type ClarifyAnswers } from "../components/ClarifyForm";
-import { runModeLabel } from "../components/RunMode";
+import { RunModeNote } from "../components/RunMode";
 import { ErrorBox, Loading, PageHead, Pill, Since } from "../components/ui";
 import { inboxApi, type InboxAnswer, type InboxItem } from "../inboxApi";
 import { go, useApp, useLoad } from "../state";
@@ -71,10 +71,10 @@ function InboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) => Pro
       <div className="inbox-meta">
         <Pill tone={it.kind === "fix" || it.kind === "budget" || it.kind === "usage" ? "bad" : "warn"}>{kindLabel(it.kind)}</Pill>
         <span className="sub"><b>{it.project_name}</b> · {it.flow}{it.workflow_id ? <> · <span className="mono">{it.workflow_id}</span></> : null}</span>
-        {it.run_mode && it.run_mode !== "manual" && <span className="tag" title="run mode">{runModeLabel(it.run_mode)}</span>}
         {it.since && <span className="hint inbox-since">waiting <Since from={it.since} /></span>}
       </div>
       <h2 id={hid} className="inbox-title">{it.title}</h2>
+      <RunModeNote mode={it.run_mode} kind={it.kind} title={it.title} auto={{ count: it.auto_approved ?? 0, last: it.last_auto }} />
       {it.kind === "clarify" && it.questions?.length ? (
         <ClarifyForm questions={it.questions} picked={picked} typed={typed}
           onPick={(id, label) => setPicked((p) => ({ ...p, [id]: label }))} onType={(id, text) => setTyped((p) => ({ ...p, [id]: text }))} />
