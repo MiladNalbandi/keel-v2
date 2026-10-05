@@ -118,9 +118,16 @@ class EventService(
             }
             "gate.waiting" -> {
                 upsertThread(e, "waiting", at)
-                notifications.create("review", e.projectId, d.str("title") ?: "A gate waits for you", d.str("detail") ?: "", link)
+                notifications.create("review", e.projectId, d.str("title") ?: "A gate waits for you", d.str("detail") ?: "", link,
+                    threadId = e.threadId, step = e.step)
+                changed(e)
             }
-            "gate.decided" -> upsertThread(e, "running", at)
+            "gate.decided" -> {
+                upsertThread(e, "running", at)
+                // Decided from anywhere (Flow page, Inbox, MCP, or by the engine's run mode): the gate's notification is done.
+                if (d.str("gate") != "unlock") notifications.markDone(e.threadId)
+                changed(e)
+            }
             "budget.warn" -> notifications.create("budget", e.projectId, "The flow is near its budget", d.str("detail") ?: budgetText(d), link)
             "budget.stop" -> {
                 upsertThread(e, "waiting", at)
@@ -143,14 +150,23 @@ class EventService(
             }
             "thread.done" -> {
                 upsertThread(e, "done", at)
+                notifications.markDone(e.threadId, read = false)
                 notifications.create("finished", e.projectId, "The flow is done", d.str("title") ?: "All steps finished.", link)
+                changed(e)
             }
             "thread.failed" -> {
                 upsertThread(e, "failed", at)
                 jdbc.update("UPDATE threads SET error = ? WHERE id = ?", d.str("error"), e.threadId)
+                notifications.markDone(e.threadId, read = false)
                 notifications.create("failed", e.projectId, "The flow failed", d.str("error")?.take(200) ?: "A step failed.", link)
+                changed(e)
             }
         }
+    }
+
+    /** What waits for a person changed: every tab's sidebar (project waiting counts, the Inbox badge) reloads. */
+    private fun changed(e: EngineEvent) {
+        if (e.projectId.isNotBlank()) hub.publish(e.projectId, "project.changed", mapOf("id" to e.projectId))
     }
 
     /** How a job runs: the engine's "subscription" and "opencode" are both the plan; only "api" bills a key. */

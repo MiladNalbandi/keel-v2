@@ -60,7 +60,7 @@ class EventHub(private val mapper: ObjectMapper) {
     fun count(): Int = subs.size
 
     companion object {
-        val LIGHT = setOf("notification", "project.changed")
+        val LIGHT = setOf("notification", "notification.done", "project.changed")
     }
 
     @Scheduled(fixedRate = 20_000, initialDelay = 20_000)

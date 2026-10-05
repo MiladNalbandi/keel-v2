@@ -35,6 +35,8 @@ data class Ac(val id: String = "", val layer: String = "API", val title: String 
 
 data class ThreadSettings(
     val gatesMode: String,
+    /** v0.4.1: manual | important | auto | readonly (the engine's runtime/run_mode.py). */
+    val runMode: String = "manual",
     val capTokens: Int,
     val onCap: String,
     val cheaperModel: Model?,
@@ -68,11 +70,19 @@ data class StartThread(
 /** One agent's entry in StartThread.agents. */
 data class AgentStart(val knowledge: Knowledge)
 
-/** Per-flow cap from POST /flows; null fields fall back to the project's settings. */
-data class FlowCap(val capTokens: Int? = null, val onCap: String? = null) {
+/** Per-flow cap (and v0.4.1 run mode) from POST /flows; null fields fall back to the project's settings. */
+data class FlowCap(val capTokens: Int? = null, val onCap: String? = null, val runMode: String? = null) {
     fun check() {
         if (capTokens != null && capTokens <= 0) throw BadRequest("cap_tokens must be above 0")
         if (onCap != null && onCap !in setOf("pause", "cheaper", "stop")) throw BadRequest("on_cap cannot be \"$onCap\"", "Pick one of: pause, cheaper, stop")
+        checkRunMode(runMode)
+    }
+}
+
+/** A run mode the engine knows, or a 400 that lists them. */
+fun checkRunMode(mode: String?) {
+    if (mode != null && mode !in keel.api.settings.Settings.RUN_MODES) {
+        throw BadRequest("run_mode cannot be \"$mode\"", "Pick one of: ${keel.api.settings.Settings.RUN_MODES.joinToString()}")
     }
 }
 
@@ -94,6 +104,7 @@ class FlowService(
     private val repo: RepoService,
     private val props: KeelProperties,
     private val providerUsage: ProviderUsageService,
+    private val notifications: keel.api.notifications.NotificationService,
 ) {
     private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
 
@@ -128,7 +139,7 @@ class FlowService(
         return StartThread(
             projectId = pid, root = project.root, workflow = wf.copy(steps = steps), title = title, acs = acs?.takeIf { it.isNotEmpty() },
             models = models,
-            settings = ThreadSettings(s.gatesMode, cap?.capTokens ?: s.capTokens, cap?.onCap ?: s.onCap, s.cheaperModel,
+            settings = ThreadSettings(s.gatesMode, cap?.runMode ?: s.runMode, cap?.capTokens ?: s.capTokens, cap?.onCap ?: s.onCap, s.cheaperModel,
                 s.usageWarn, s.usagePause, providerUsage.windowsForEngine().takeIf { it.isNotEmpty() }),
             mcp = mcp.specsFor(s.mcp), skills = skillText,
             agents = all.filter { it.enabled }.associate { it.id to AgentStart(it.knowledge) },
@@ -256,8 +267,21 @@ class FlowService(
     fun resume(tid: String, decision: String, why: String?, payload: Map<String, Any?>?): JsonNode {
         if (decision !in setOf("approve", "reject")) throw BadRequest("decision must be approve or reject")
         val keys = keysForThread(tid).takeIf { it.isNotEmpty() }
+        // The gate's notification is done once the engine took the answer; one that arrives meanwhile (the next gate) stays.
+        val open = notifications.openGateId(tid)
         val state = engine.resume(tid, mapOf("decision" to decision, "why" to why, "payload" to payload, "keys" to keys,
             "root" to rootNow(tid)).filterValues { it != null })
+        save(tid, state)
+        if (open != null) notifications.markDone(tid, open)
+        threadProject(tid)?.let { hub.publish(it, "project.changed", mapOf("id" to it)) }
+        return state
+    }
+
+    /** v0.4.1: the thread's run mode from its next pause on (the engine keeps it with the thread). */
+    fun setMode(tid: String, mode: String): JsonNode {
+        if (mode.isBlank()) throw BadRequest("mode is missing", "Pick one of: ${keel.api.settings.Settings.RUN_MODES.joinToString()}")
+        checkRunMode(mode)
+        val state = engine.setMode(tid, mode)
         save(tid, state)
         threadProject(tid)?.let { hub.publish(it, "project.changed", mapOf("id" to it)) }
         return state
