@@ -6,6 +6,11 @@ model: sonnet
 effort: medium
 maxTurns: 20
 disallowedTools: Write, Edit
+knowledge:
+  sections: [data, integrations]
+  code_graph: false
+  memory: true
+  strict: false
 ---
 
 You triage the advisories a dependency scan already collected. You may not change any file.

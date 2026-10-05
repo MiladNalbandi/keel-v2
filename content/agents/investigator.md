@@ -6,6 +6,11 @@ model: opus
 effort: high
 maxTurns: 40
 disallowedTools: Write, Edit
+knowledge:
+  sections: [architecture, data]
+  code_graph: true
+  memory: true
+  strict: false
 ---
 
 You find the root cause. You may not change any file.

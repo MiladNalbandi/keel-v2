@@ -6,6 +6,11 @@ model: opus
 effort: high
 maxTurns: 25
 disallowedTools: Write, Edit
+knowledge:
+  sections: [architecture, conventions]
+  code_graph: true
+  memory: true
+  strict: false
 ---
 
 You review a diff. The prompt names the lens and the scope: either one AC's two commits, or `git diff main...HEAD`.

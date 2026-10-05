@@ -5,6 +5,11 @@ tools: Read, Grep, Glob, Edit, Write, Bash
 model: opus
 effort: high
 maxTurns: 40
+knowledge:
+  sections: [architecture, conventions, data]
+  code_graph: true
+  memory: true
+  strict: false
 ---
 
 You make one AC's failing test pass. The test is already written and committed; you may not change any test file (keel enforces this).

@@ -6,6 +6,11 @@ model: opus
 effort: high
 maxTurns: 30
 disallowedTools: Edit
+knowledge:
+  sections: [architecture]
+  code_graph: true
+  memory: true
+  strict: false
 ---
 
 You take **one candidate finding** and try to make it fail on demand. You may not change

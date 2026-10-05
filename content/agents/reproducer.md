@@ -5,6 +5,11 @@ tools: Read, Grep, Glob, Edit, Write, Bash
 model: sonnet
 effort: medium
 maxTurns: 25
+knowledge:
+  sections: [architecture, data]
+  code_graph: true
+  memory: true
+  strict: false
 ---
 
 You turn a symptom report into one failing test. You work from the **symptom only**.
