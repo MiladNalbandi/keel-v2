@@ -1,24 +1,276 @@
 id: feature
 name: feature (keel)
 keel_rules: true
-version: 1
+version: 2
+# The spec flow, ported from keel v1 skills/feature. Preflight and the flow's own branch; the interview (the explorer's
+# questions as buttons on the spec gate) and the numbered criteria; only then one explorer per area (api, web, data) and
+# the plan under the criteria; the spec gate (approve freezes and commits the spec; edit, rewrite, review, order and
+# reject come back to it); the contract and its gate; the test-first loop per criterion, where an agent that finds the
+# frozen spec wrong stops with AMEND and the spec gets a dated amendment with its own gate; integration and its gate;
+# security (auditor + dependency triager, shown only when they report something); the full-diff review (2 rounds);
+# e2e (asks when no e2e command is set) and smoke with their gates; ship (its steps are included, ids ship_*); an ADR
+# when a decision had a real alternative; close.
+# Inputs (StartThread.data / a start_flow seed): acs (inline criteria from change; finished ones stay finished, no
+# interview), evidence (fix, diagnose: added to the request), needs_e2e (hunt), no_gates (waives the optional gates).
+# Deferred: lanes in their own worktrees, spike mode.
 steps:
-  - { id: spec, kind: agent, name: spec, agent: explorer, model: default, phase: spec, tools: ["mcp:keel:*"] }
-  - { id: spec_gate, kind: gate, name: spec approval, back: spec, lock: true, phase: spec }
+  - { id: preflight, kind: code, name: preflight + own branch, action: preflight, phase: preflight }
+  - id: spec
+    kind: agent
+    name: spec
+    agent: explorer
+    model: default
+    phase: spec
+    tools: ["mcp:keel:*"]
+    instructions: >-
+      Interview first, criteria second, code last: write the criteria from what was asked, not from the code that
+      exists. Draw before you finish the list: a UI mockup with four states (default, empty, loading, error) for any
+      [WEB] criterion, a request path (each hop marked + new or ~ changed) for any [API] one; a schema change gets its
+      own Migration section. Fill Validation and security rules, Out of scope, and Smoke checks. Tag a journey that
+      needs a browser [E2E] and a check that must also pass after a deploy [SMOKE]. When the criteria are listed above
+      already (handed over by a change flow), do not ask questions: write the spec around them, keep their ids and
+      words, and leave the finished ones finished.
+  - { id: explore_areas, kind: code, name: areas to map, action: explore_areas, phase: spec, when: { state: acs } }
+  - id: explore
+    kind: parallel
+    name: one explorer per area
+    agent: explorer
+    model: default
+    from: explore_areas
+    phase: spec
+    when: { state: acs }
+    instructions: >-
+      The criteria are settled. Map your area for the criteria in your item: the files each one touches, the pattern
+      to copy (file:line), the test layer and where similar tests live (say so when none do), and the exposures this
+      work inherits (concurrency, idempotency, authorization, data shape). Read only, at most 60 lines, no opinion on
+      architecture, no code. End with MAP-END.
+  - { id: maps, kind: code, name: collect the maps, action: report, phase: spec, when: { state: acs } }
+  - id: plan
+    kind: agent
+    name: plan under the criteria
+    agent: explorer
+    model: default
+    phase: spec
+    markers: [ORDER]
+    when: { state: acs }
+    instructions: >-
+      Append a "## Plan" section to the spec (replace the one that is there): the AC order (dependencies first: the
+      criterion that creates a row before the one that reads it), the files per criterion from the maps below, the
+      contract delta (or "none"), and the test layer per criterion (the lowest that can express it). An exposure the
+      maps found that no criterion covers becomes a new criterion now, numbered after the last one. Do not change the
+      other criteria. ORDER lists the criteria ids in build order. The explorers' maps:
+
+      {{data.report}}
+  - { id: spec_sync, kind: code, name: criteria + plan for the gate, action: spec_sync, phase: spec }
+  - id: spec_gate
+    kind: gate
+    name: spec approval
+    back: spec
+    lock: true
+    phase: spec
+    choices: { approve: freeze, edit: spec_edit, rewrite: spec_edit, review: spec_review, order: plan, reject: spec_restart }
+  - { id: freeze, kind: code, name: freeze + commit the spec, action: spec_freeze, back: spec, lock: true, phase: spec }
+  - { id: options, kind: gate, name: which optional phases run, phase: spec, skip_menu: true }
   - { id: contract, kind: agent, name: contract, agent: contract-author, model: default, phase: contract }
+  - { id: contract_diff, kind: code, name: the contract delta, action: show_diff, phase: contract }
+  - id: contract_gate
+    kind: gate
+    name: contract delta
+    lock: true
+    phase: contract
+    choices: { approve: contract_commit, change: contract, amend: contract_undo }
   - { id: contract_commit, kind: code, name: commit contract, action: commit, phase: contract }
-  - { id: red, kind: agent, name: red, agent: test-author, model: default, phase: red, per_ac: true, tools: ["mcp:keel:*"] }
+  - id: red
+    kind: agent
+    name: red
+    agent: test-author
+    model: default
+    phase: red
+    per_ac: true
+    tools: ["mcp:keel:*"]
+    markers: [AMEND]
+    instructions: >-
+      If the frozen spec is wrong for this criterion (it cannot be true, it contradicts what the code shows, or a
+      criterion is missing), do not work around it: stop and end your answer with one line AMEND: <what the spec
+      says, what the code shows, what should change>. Otherwise do not write that line.
+  - { id: red_amend, kind: branch, name: the spec needs an amendment, when: { marker: AMEND, step: red }, no: verify_red, per_ac: true, phase: red }
+  - { id: red_to_amend, kind: code, name: to the amendment, action: amend_start, then: amend, per_ac: true, phase: red }
   - { id: verify_red, kind: code, name: verify_red, action: verify_red+commit, phase: red, per_ac: true, lock: true }
-  - { id: green, kind: agent, name: green, agent: implementer, model: default, phase: green, per_ac: true, tools: ["mcp:keel:*"] }
+  - id: green
+    kind: agent
+    name: green
+    agent: implementer
+    model: default
+    phase: green
+    per_ac: true
+    tools: ["mcp:keel:*"]
+    markers: [AMEND]
+    instructions: >-
+      If the frozen spec turns out to be wrong for this criterion, do not build around it: stop and end your answer
+      with one line AMEND: <what the spec says, what the code shows, what should change>. Otherwise do not write
+      that line.
+  - { id: green_amend, kind: branch, name: the spec needs an amendment, when: { marker: AMEND, step: green }, no: verify_green, per_ac: true, phase: green }
+  - { id: green_to_amend, kind: code, name: to the amendment, action: amend_start, then: amend, per_ac: true, phase: green }
   - { id: verify_green, kind: code, name: verify_green + commit, action: verify_green+commit, phase: green, per_ac: true, lock: true }
   - { id: ac_review, kind: agent, name: AC review, agent: ac-reviewer, model: default, phase: gate, per_ac: true }
   - { id: ac_gate, kind: gate, name: AC gate, back: red, lock: true, phase: gate, per_ac: true }
-  - { id: integration, kind: agent, name: integration, agent: code-reviewer, model: default, phase: integration }
-  - { id: security, kind: agent, name: security, agent: security-auditor, model: default, phase: security }
-  - { id: e2e, kind: agent, name: e2e, agent: e2e-author, model: default, phase: e2e }
-  - { id: e2e_commit, kind: code, name: commit e2e, action: commit, phase: e2e }
-  - { id: ship_review, kind: parallel, name: ship review x 4 lenses, agent: reviewer, model: default, parallel: 4, phase: ship }
-  - { id: final_review, kind: gate, name: final review, lock: true, phase: final-review }
-  - { id: memory, kind: agent, name: memory, agent: librarian, model: default, phase: memory }
-  - { id: memory_check, kind: code, name: knowledge check, action: knowledge_check, phase: memory }
-  - { id: memory_commit, kind: code, name: commit memory, action: commit, phase: memory }
+  - id: integration
+    kind: agent
+    name: integration
+    agent: implementer
+    model: default
+    phase: integration
+    instructions: >-
+      Every criterion is green. Wire the real client to the real API where the criteria's code still uses a stand-in
+      (wiring, not new behaviour; tests are frozen). New behaviour here is a missed criterion: do not write it, say
+      which criterion is missing. When nothing needs wiring, change nothing and say so.
+  - { id: integration_commit, kind: code, name: verify the suite + commit, action: verify_green+commit, phase: integration }
+  - { id: integration_diff, kind: code, name: the diff for the integration gate, action: show_diff, phase: integration }
+  - { id: integration_gate, kind: gate, name: integration, back: integration, phase: integration, skippable: optional }
+  - { id: security_deps, kind: code, name: verify deps, action: verify_deps, soft: true, phase: security, skippable: optional, group: security }
+  - { id: security_scope, kind: code, name: what security reads, action: security_scope, phase: security, skippable: optional, group: security }
+  - id: security
+    kind: parallel
+    name: security auditor + dependency triager
+    agent: security-auditor
+    model: default
+    from: security_items
+    phase: security
+    redo: security_deps
+    skippable: optional
+    group: security
+    instructions: >-
+      The audit reads the branch diff in your item against the spec's authorization, validation and data rules. The
+      dependency triage judges each advisory in your item: is it reachable from this code? Report findings only.
+  - { id: review_fix, kind: agent, name: fix the full-diff review's findings, agent: implementer, model: default, phase: review-fix, retry_only: true }
+  - { id: review_fix_commit, kind: code, name: verify the suite + commit the fix, action: verify_green+commit, phase: review-fix }
+  - id: code_review
+    kind: agent
+    name: full-diff review
+    agent: code-reviewer
+    model: default
+    phase: gate
+    back: review_fix
+    rounds: 2
+    instructions: >-
+      Read the spec's criteria and scope, then the whole branch diff against the base branch. Report only what needs
+      the whole diff in view.
+  - { id: e2e_scope, kind: code, name: e2e criteria + tool, action: e2e_scope, phase: e2e, skippable: optional, group: e2e }
+  - { id: e2e_needed, kind: branch, name: e2e criteria, when: { marker: E2E, equals: "yes", step: e2e_scope }, no: smoke_scope, phase: e2e, skippable: optional, group: e2e }
+  - id: e2e_tool
+    kind: gate
+    name: no e2e command
+    phase: e2e
+    when: { marker: TOOL, equals: "no", step: e2e_scope }
+    choices: { write: e2e_unrun, check: e2e_scope }
+    skippable: optional
+    group: e2e
+  - id: e2e
+    kind: agent
+    name: e2e
+    agent: e2e-author
+    model: default
+    phase: e2e
+    markers: [E2E-RESULT]
+    skippable: optional
+    group: e2e
+    instructions: >-
+      Write one end-to-end test per criterion below, the criterion id in its title, tagged @e2e. Only the e2e folder
+      is writable: a test that needs a UI change to be testable is a [WEB] criterion; stop and say so.
+      {{data.e2e.note}} The criteria:
+
+      {{data.e2e.criteria}}
+  - { id: e2e_commit, kind: code, name: verify e2e + commit, action: verify_e2e+commit, phase: e2e, rounds: 2, skippable: optional, group: e2e }
+  - { id: e2e_gate, kind: gate, name: e2e, back: e2e, phase: e2e, skippable: optional, group: e2e }
+  - { id: smoke_scope, kind: code, name: smoke checks, action: smoke_scope, phase: smoke, skippable: optional, group: smoke }
+  - { id: smoke_needed, kind: branch, name: smoke checks, when: { marker: SMOKE, equals: "yes", step: smoke_scope }, no: ship_plan, phase: smoke, skippable: optional, group: smoke }
+  - id: smoke
+    kind: agent
+    name: smoke
+    agent: e2e-author
+    model: default
+    phase: smoke
+    skippable: optional
+    group: smoke
+    instructions: >-
+      This step writes the smoke checks, not E2E specs: smoke/<feature>.sh (portable bash against BASE_URL and
+      API_URL: health, one critical write, the read of what it wrote) and one @smoke test for the most critical path.
+      Every check seeds its own data, is safe against a deployed environment and runs in under 60 seconds. The checks:
+
+      {{data.smoke.checks}}
+  - { id: smoke_commit, kind: code, name: run smoke + commit, action: verify_smoke+commit, phase: smoke, rounds: 2, skippable: optional, group: smoke }
+  - { id: smoke_gate, kind: gate, name: smoke, back: smoke, phase: smoke, skippable: optional, group: smoke }
+  - { id: ship, kind: include, name: ship, flow: ship }
+  - id: adr
+    kind: agent
+    name: ADR
+    agent: explorer
+    model: default
+    phase: close
+    instructions: >-
+      Write an ADR under docs/adr/NNNN-<title>.md (the next number) only for a decision this feature made that had a
+      real alternative: Context (three sentences), Decision (present tense), Alternatives (and why they lost),
+      Consequences (what gets easy, what gets hard). One per such decision. If nothing had a real alternative, write
+      nothing and say so: an ADR that records the obvious approach is noise.
+  - { id: adr_commit, kind: code, name: commit the ADR, action: commit, phase: close }
+  - { id: close, kind: code, name: close, action: close_flow, then: end, phase: close }
+  # Side paths, reached only by a gate choice or a jump.
+  - id: spec_edit
+    kind: agent
+    name: edit the spec
+    agent: explorer
+    model: default
+    phase: spec
+    instructions: >-
+      At the spec gate the user chose "{{data.spec_gate_answer.choice}}". edit: change only the criteria the note
+      names (keep the ids of the others). rewrite: rewrite only the section the note names. Leave everything else as
+      it is. The note: {{data.spec_gate_answer.why}}
+  - { id: spec_edit_sync, kind: code, name: criteria + plan for the gate, action: spec_sync, then: spec_gate, phase: spec }
+  - id: spec_review
+    kind: agent
+    name: review the spec before approving
+    agent: reviewer
+    model: default
+    phase: review
+    instructions: >-
+      An adversarial read of the spec before it is approved (not of any code): criteria that are vague, untestable
+      from outside, overlapping, or missing (an empty state, an error, an authorization rule, a limit); drawings that
+      disagree with the criteria; a plan whose order breaks a dependency. Do not edit anything. Spec: {{spec}}
+  - { id: spec_review_sync, kind: code, name: criteria + plan + the review for the gate, action: spec_sync, then: spec_gate, phase: spec }
+  - { id: spec_restart, kind: code, name: the interview starts again, action: spec_restart, then: spec, phase: spec }
+  - { id: contract_undo, kind: code, name: put the contract draft back, action: reset+amend_start, then: amend, phase: contract }
+  - id: amend
+    kind: agent
+    name: spec amendment
+    agent: explorer
+    model: default
+    phase: spec
+    markers: [REOPEN, CONTRACT]
+    instructions: >-
+      The spec is frozen and approved, and it is wrong here: {{data.amend.reason}}
+
+      Read it again first: is the behaviour already there in other words, covered by another criterion, or out of
+      scope? Only if none holds, append a dated block under "## Amendments" (never edit the frozen criteria in place):
+      "### <date> — <criteria>", then "Was:" (the old wording, kept visible), "Now:", "Why:" (measured, not assumed).
+      A new criterion goes in the block with the next free id. For a criterion already done under the old wording,
+      say whether it is reopened or ships under the old wording and why. REOPEN lists the done criteria to build
+      again (or none); CONTRACT is yes when the outside surface (routes, schemas) changes.
+  - { id: amend_show, kind: code, name: the amendment for the gate, action: spec_amendment, back: amend, phase: spec }
+  - id: amend_gate
+    kind: gate
+    name: spec amendment
+    lock: true
+    phase: spec
+    choices: { approve: amend_commit, context: amend, change: amend, rebuild: rebuild }
+  - { id: amend_commit, kind: code, name: commit the amendment, action: spec_amend_commit, phase: spec }
+  - { id: amend_contract, kind: branch, name: the contract moves, when: { marker: CONTRACT, equals: "yes", step: amend_commit }, no: red, phase: spec }
+  - { id: amend_to_contract, kind: code, name: back to the contract, then: contract, phase: contract }
+  - id: rebuild
+    kind: code
+    name: start the spec again in a new feature flow
+    action: start_flow
+    flow: feature
+    then: end
+    phase: spec
+    seed: { title: $title, evidence: $data.amend.reason }
+  - { id: e2e_unrun, kind: code, name: e2e specs without a tool, action: e2e_unrun, then: e2e, phase: e2e }

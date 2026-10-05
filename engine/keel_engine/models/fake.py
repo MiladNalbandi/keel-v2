@@ -60,10 +60,21 @@ def _canned(req: AgentRequest) -> tuple[str | None, str, str, dict]:
     ac = req.ac or {}
     ac_id = ac.get("id") or "BUG-1"
     k = key_of(ac_id)
+    if agent == "explorer" and req.item:
+        return None, "", f"MAP ({req.item.get('id')}): src/scores/__init__.py:1 is the pattern; tests under tests/. MAP-END", {}
+    if agent == "explorer" and phase == "spec" and req.step_name == "spec amendment":
+        path = f"docs/specs/{slug(title)}.md"
+        old = (Path(req.root) / path).read_text() if (Path(req.root) / path).is_file() else spec_text(title, req.acs or [])
+        block = ("\n## Amendments\n\n### 2026-01-01 — AC-1\nWas: the main case works.\nNow: the main case works for ties too.\n"
+                 "Why: the test showed ties.\n")
+        return path, old.rstrip() + "\n" + block, "Amendment written.\nREOPEN: none\nCONTRACT: no", {}
     if agent == "explorer" and phase in ("spec", "triage"):
         acs = req.acs or default_acs(title)
         path = f"docs/specs/{slug(title)}.md"
-        return path, spec_text(title, acs), f"Spec written with {len(acs)} acceptance criteria.", {"acs": acs, "spec": path}
+        answer = f"Spec written with {len(acs)} acceptance criteria."
+        if req.step_name.startswith("plan"):
+            answer = "Plan written under the criteria.\nORDER: " + ", ".join(a["id"] for a in acs)
+        return path, spec_text(title, acs), answer, {"acs": acs, "spec": path}
     if agent == "explorer":
         return None, "", "MAP: Python package with pytest tests under tests/. MAP-END", {}
     if agent == "contract-author":
@@ -77,6 +88,10 @@ def _canned(req: AgentRequest) -> tuple[str | None, str, str, dict]:
         body = (f'"""{title}: reproduces the bug."""\nfrom scores.fix_{key_of(title)} import run\n\n\n'
                 f"def test_bug_{key_of(title)}():\n    assert run() == \"fixed\"\n")
         return f"tests/test_bug_{key_of(title)}.py", body, "The test fails for the reported reason.\nREPRO: confirmed", {}
+    if agent == "implementer" and phase == "integration":
+        return None, "", "Nothing to wire: the criteria already call the real code.", {}
+    if agent == "e2e-author" and phase == "smoke":
+        return f"smoke/{slug(title)}.sh", "#!/usr/bin/env bash\nset -e\necho smoke ok\n", "Smoke check written.", {}
     if agent == "implementer" and phase == "bug-fix":
         return f"src/scores/fix_{key_of(title)}.py", 'def run():\n    return "fixed"\n', "Fixed at the root cause.", {}
     if agent == "implementer":

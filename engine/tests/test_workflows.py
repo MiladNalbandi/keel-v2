@@ -17,10 +17,20 @@ def test_templates_are_valid_and_have_phases():
 def test_feature_template_shape():
     t = get_template("feature")
     loop = [s.id for s in t.steps if s.per_ac]
-    assert loop == ["red", "verify_red", "green", "verify_green", "ac_review", "ac_gate"]
+    assert loop == ["red", "red_amend", "red_to_amend", "verify_red", "green", "green_amend", "green_to_amend", "verify_green",
+                    "ac_review", "ac_gate"]
     assert t.step("ac_gate").back == "red" and t.step("spec_gate").back == "spec"
-    assert t.step("ship_review").parallel == 4
-    assert {s.id for s in t.steps if s.lock} == {"spec_gate", "verify_red", "verify_green", "ac_gate", "final_review"}
+    assert list(t.step("spec_gate").choices) == ["approve", "edit", "rewrite", "review", "order", "reject"]
+    main = [s.id for s in t.steps[:t.steps.index(t.step("close")) + 1] if not s.per_ac and not s.id.startswith("ship_")]
+    assert main == ["preflight", "spec", "explore_areas", "explore", "maps", "plan", "spec_sync", "spec_gate", "freeze", "options",
+                    "contract", "contract_diff", "contract_gate", "contract_commit", "integration", "integration_commit",
+                    "integration_diff", "integration_gate", "security_deps", "security_scope", "security", "review_fix",
+                    "review_fix_commit", "code_review", "e2e_scope", "e2e_needed", "e2e_tool", "e2e", "e2e_commit", "e2e_gate",
+                    "smoke_scope", "smoke_needed", "smoke", "smoke_commit", "smoke_gate", "adr", "adr_commit", "close"]
+    # ship's steps are included (its review, final review, memory and PR); feature has no copies of its own
+    assert t.step("ship_final_review").lock and t.step("ship_open_pr") and not t.step("final_review")
+    assert {s.id for s in t.steps if s.lock} >= {"spec_gate", "freeze", "contract_gate", "verify_red", "verify_green", "ac_gate",
+                                                 "amend_gate", "ship_final_review"}
 
 
 def test_yaml_round_trip():
@@ -53,6 +63,9 @@ def test_locked_steps_stay_while_keel_rules_on():
     t = get_template("feature")
     data = yaml.safe_load(dump_yaml(t))
     data["steps"] = [s for s in data["steps"] if s["id"] != "verify_red"]
+    for s in data["steps"]:
+        if s.get("no") == "verify_red":
+            s["no"] = "green"        # the amendment branch skipped to verify_red
     data["based_on"] = "keel/feature"
     data["id"] = "mine"
     errors = validate(load_yaml(yaml.safe_dump(data)))
@@ -70,7 +83,7 @@ def test_estimate_defaults_and_history():
     per = {p["step"]: p["tokens"] for p in e3["per_step"]}
     assert per["spec_gate"] == 0 and per["verify_red"] == 0
     assert per["red"] == round((24_000 + 3_000) * 3 * 1.2)
-    assert per["ship_review"] == 4 * 33_000
+    assert per["explore"] == round(3 * 44_000 * 1.1) and per["ship_review"] == 3 * 33_000
 
     hist = [{"agent": "test-author", "tokens_in": 1000, "tokens_out": 100, "retries": 0}] * 3
     e = estimate(t, 3, hist)

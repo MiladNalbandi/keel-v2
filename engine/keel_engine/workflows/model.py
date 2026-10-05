@@ -54,7 +54,8 @@ class Step(BaseModel):
     collect: str | None = None
     # branch: `when: {marker: REPRO, equals: confirmed, step: <id, optional>}` instead of a run: command or an agent;
     # `when: {data: hunt.mode, equals: semi}` reads state.data instead. On a gate, `when` says when it pauses: when it
-    # does not hold, the gate is approved by the engine and logged as not asked.
+    # does not hold, the gate is approved by the engine and logged as not asked. `when: {state: acs}` reads any state path;
+    # on an agent, parallel or code step `when` says when it runs (skipped otherwise).
     when: dict | None = None
     # start_flow: the workflow to start, its seed (literals, or "$<state path>"), and what this flow does next.
     flow: str | None = None

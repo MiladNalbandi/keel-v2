@@ -4,7 +4,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from conftest import decide, start, wait
+from conftest import decide, start, to_loop, wait
 from keel_engine.app import create_app
 from keel_engine.events import EventBus
 from keel_engine.models.cli import safe_env
@@ -98,8 +98,7 @@ def test_diff_guard_unit(repo):
 def test_real_checks_on_demo(client, repo):
     """simulate_checks=false: verify_red/verify_green run pytest on the demo for real."""
     tid = start(client, repo, settings={"gates_mode": "every-ac", "cap_tokens": 0, "on_cap": "pause", "simulate_checks": False})
-    wait(client, tid)
-    s = decide(client, tid)
+    s = to_loop(client, tid)
     assert s["waiting"]["step"] == "ac_gate", s
     notes = [e["data"]["note"] for e in client.bus.of(tid, "step.finished") if e["step"] in ("verify_red", "verify_green")]
     assert any("red confirmed" in n and "simulated" not in n for n in notes), notes

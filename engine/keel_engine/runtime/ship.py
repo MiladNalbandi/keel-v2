@@ -85,10 +85,21 @@ def unit_of(step) -> str:
     return step.group or step.id
 
 
-def skip_units(steps: list, after: int) -> list[dict]:
-    """The skippable units after step `after`, in order: {name, band, steps: [step ids]}."""
-    out: dict[str, dict] = {}
+def covered(steps: list, after: int) -> list:
+    """The steps a skip menu at `after` decides about: the ones after it, up to the next skip menu (feature's opening
+    menu stops where ship's own begins)."""
+    out = []
     for s in steps[after + 1:]:
+        if s.skip_menu:
+            break
+        out.append(s)
+    return out
+
+
+def skip_units(steps: list, after: int) -> list[dict]:
+    """The skippable units after step `after` (up to the next skip menu), in order: {name, band, steps: [step ids]}."""
+    out: dict[str, dict] = {}
+    for s in covered(steps, after):
         if s.skippable:
             u = out.setdefault(unit_of(s), {"name": unit_of(s), "band": s.skippable, "steps": []})
             u["steps"].append(s.id)
@@ -98,7 +109,7 @@ def skip_units(steps: list, after: int) -> list[dict]:
 def skip_menu_detail(steps: list, after: int) -> str:
     units = skip_units(steps, after)
     skippable = {sid for u in units for sid in u["steps"]}
-    always = [s.name for s in steps[after + 1:] if s.id not in skippable]
+    always = [s.name for s in covered(steps, after) if s.id not in skippable]
     lines = ["Which steps run this time? Skipping a step is not the same as removing its gate: every skip needs a reason, "
              "is shown again at the final review and printed in the PR body.", "",
              "Always runs: " + (", ".join(always) or "nothing else")]
