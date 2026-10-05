@@ -261,6 +261,11 @@ class Compiler:
                 return f"{unit} skipped: {skip.get('reason') or 'no reason given'}", self.nav.after(j)
         if step.retry_only and not (state.get("last_failure") or state.get("feedback")):
             return f"{step.name}: nothing was sent back; not needed", self.nav.after(i)
+        if step.when and step.kind in ("agent", "parallel", "code"):
+            # On a working step, `when` says when it runs (feature: the explorers only once there are criteria).
+            label, values = self._when(state, step.when)
+            if not self._holds(step.when, values):
+                return f"{step.name}: not needed ({label}: {self._shown_values(values)})", self.nav.after(i)
         return None
 
     # ------------------------------------------------------------ loop + end
@@ -957,9 +962,12 @@ class Compiler:
                 # A refusal no retry can change (an empty diff to review): the flow ends here and says why.
                 return {**upd, "status": "stopped", "error": r.note, "note": r.note}, END
             if not r.ok and step.soft:
-                # A soft check records what it found and goes on; a branch reads markers[<id>].RESULT.
+                # A soft check records what it found and goes on; a branch reads markers[<id>].RESULT, a later step
+                # reads what it said in data["<id>_output"].
                 st.update(r.update)
                 upd.update(r.update)
+                data = {**(st.get("data") or {}), f"{step.id}_output": f"{r.note}\n{r.detail}".strip()[:6000]}
+                st["data"] = upd["data"] = data
                 notes.append(r.note)
                 break
             if not r.ok:
@@ -1324,9 +1332,10 @@ class Compiler:
         """A `when`'s subject and the values it looks at: a path in state.data (`data: hunt.mode`), or a marker an earlier
         agent ended with (when.step names that step or a list of steps, else the latest value from any step; `any: true`
         adds each fan-out item's marker). Empty values count as not given."""
-        if when.get("data"):
-            path = str(when["data"]).removeprefix("data.")
-            value = self._seed_value(f"$data.{path}", state, None)
+        if when.get("data") or when.get("state"):
+            # `data: hunt.mode` reads state.data; `state: acs` reads any path of the flow state.
+            path = str(when["data"]).removeprefix("data.") if when.get("data") else str(when["state"])
+            value = self._seed_value(f"$data.{path}" if when.get("data") else f"${path}", state, None)
             return path, [None if value in (None, "", [], {}) else value]
         name = str(when["marker"]).upper()
         return name, self._marker_values(state, when, name)
@@ -1337,7 +1346,8 @@ class Compiler:
 
     @staticmethod
     def _shown_values(values: list) -> str:
-        return ", ".join(str(v) for v in values if v not in (None, "")) or "not given"
+        shown = [f"{len(v)} item(s)" if isinstance(v, (list, dict)) else str(v) for v in values if v not in (None, "")]
+        return ", ".join(shown) or "not given"
 
     def _choice(self, i: int, step: Step, state: FlowState, gates: dict, extra: dict, answer: dict, item: dict | None):
         """A gate with named exits: payload.choice picks one (default the first); its answer is kept in
@@ -1345,7 +1355,9 @@ class Compiler:
         payload = answer.get("payload") or {}
         why = (answer.get("why") or "").strip()
         names = list(step.choices or {})
-        choice = str(payload.get("choice") or names[0])
+        # A plain "send back" picks the exit named reject when the gate has one; otherwise the first exit.
+        plain = "reject" if answer.get("decision") == "reject" and "reject" in names else names[0]
+        choice = str(payload.get("choice") or plain)
         if choice not in step.choices:
             gates["log"].append(f"gate {step.id} unknown choice {choice}")
             return {"gates": gates, **extra, "note": f"{step.name}: '{choice}' is not one of {', '.join(names)}"}, step.id

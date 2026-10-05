@@ -4,7 +4,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from conftest import decide, start, wait
+from conftest import decide, start, to_loop, wait
 
 
 def git_log(repo):
@@ -33,7 +33,8 @@ def test_feature_flow_reaches_done(client, repo):
 
     s, gates = run_to_done(client, tid, s)
     assert s["status"] == "done", s
-    assert gates == [("spec_gate", None), ("ac_gate", "AC-1"), ("ac_gate", "AC-2"), ("final_review", None)]
+    assert gates == [("spec_gate", None), ("options", None), ("contract_gate", None), ("ac_gate", "AC-1"), ("ac_gate", "AC-2"),
+                     ("integration_gate", None), ("ship_plan", None), ("ship_final_review", None), ("ship_pr_gate", None)]
     assert all(a["status"] == "done" for a in s["acs"])
     assert s["usage"]["tokens_in"] > 0 and s["checkpoints"] > 10
 
@@ -55,8 +56,7 @@ def test_feature_flow_reaches_done(client, repo):
 
 def test_reject_at_ac_gate_goes_back_to_red(client, repo):
     tid = start(client, repo)
-    wait(client, tid)
-    s = decide(client, tid)                       # spec approved
+    s = to_loop(client, tid)                      # spec, options and contract approved
     assert s["waiting"]["step"] == "ac_gate" and s["ac"] == "AC-1"
     r = client.post(f"/threads/{tid}/resume", json={"decision": "reject"})
     assert r.status_code == 400                   # a reason is required to send back
@@ -72,8 +72,7 @@ def test_reject_at_ac_gate_goes_back_to_red(client, repo):
 
 def test_rewind_continues_from_checkpoint(client, repo):
     tid = start(client, repo)
-    wait(client, tid)
-    s = decide(client, tid)
+    s = to_loop(client, tid)
     assert s["ac"] == "AC-1"
     s = decide(client, tid)
     assert s["waiting"]["step"] == "ac_gate" and s["ac"] == "AC-2"
@@ -85,28 +84,28 @@ def test_rewind_continues_from_checkpoint(client, repo):
     assert s["status"] == "waiting" and s["waiting"]["step"] == "spec_gate"
     assert all(a["status"] == "todo" for a in s["acs"])
     assert not any(line.startswith("test(") for line in git_log(repo))   # code went back too
-    s = decide(client, tid)
+    s = to_loop(client, tid, s)
     assert s["waiting"]["step"] == "ac_gate" and s["ac"] == "AC-1"
 
 
 def test_budget_cap_pauses_and_can_continue(client, repo):
-    tid = start(client, repo, settings={"gates_mode": "every-ac", "cap_tokens": 50_000, "on_cap": "pause"})
+    tid = start(client, repo, settings={"gates_mode": "every-ac", "cap_tokens": 180_000, "on_cap": "pause"})
     s = wait(client, tid)
-    assert s["waiting"]["step"] == "spec_gate"
-    s = decide(client, tid)       # contract (18k) pushes past 50k after spec (44k)
+    assert s["waiting"]["step"] == "spec_gate"      # spec (44k), two explorers and the plan: about 176k
+    s = to_loop(client, tid, s)     # the contract (18k) pushes past 180k; red is not started
     assert s["status"] == "waiting" and s["waiting"]["kind"] == "budget", s
-    assert s["usage"]["tokens_in"] + s["usage"]["tokens_out"] >= 50_000
+    assert s["usage"]["tokens_in"] + s["usage"]["tokens_out"] >= 180_000
     assert client.bus.of(tid, "budget.warn")
     s = decide(client, tid, "approve")
-    assert s["usage"]["cap_tokens"] > 50_000
+    assert s["usage"]["cap_tokens"] > 180_000
     assert s["status"] in ("waiting", "done")
 
 
 def test_budget_stop(client, repo):
-    tid = start(client, repo, settings={"gates_mode": "every-ac", "cap_tokens": 10_000, "on_cap": "stop"})
+    tid = start(client, repo, settings={"gates_mode": "every-ac", "cap_tokens": 180_000, "on_cap": "stop"})
     s = wait(client, tid)
     assert s["waiting"]["step"] == "spec_gate"
-    s = decide(client, tid)
+    s = to_loop(client, tid, s)
     assert s["status"] == "stopped"
     assert client.bus.of(tid, "budget.stop")
 
@@ -114,8 +113,7 @@ def test_budget_stop(client, repo):
 def test_guard_reverts_disallowed_write(client, repo):
     tid = start(client, repo, models={"default": {"provider": "fake", "mode": "api", "model": "fake"},
                                      "implementer": {"provider": "fake", "mode": "api", "model": "fake-rogue"}})
-    wait(client, tid)
-    s = decide(client, tid)
+    s = to_loop(client, tid)
     assert s["waiting"]["step"] == "ac_gate"
     refused = client.bus.of(tid, "guard.refused")
     assert any(e["data"]["path"] == "tests/test_rogue_implementer.py" and e["data"]["phase"] == "green" for e in refused)
@@ -134,8 +132,7 @@ def test_stop_and_resume_refused(client, repo):
 
 def test_gates_mode_end_only_stops_at_last_ac(client, repo):
     tid = start(client, repo, settings={"gates_mode": "end", "cap_tokens": 0, "on_cap": "pause"})
-    s = wait(client, tid)
-    s = decide(client, tid)
+    s = to_loop(client, tid)
     assert s["waiting"]["step"] == "ac_gate" and s["ac"] == "AC-2"
 
 
@@ -174,7 +171,7 @@ def test_feature_flow_leaves_nothing_uncommitted(client, repo):
     s, _ = run_to_done(client, tid, wait(client, tid))
     assert s["status"] == "done", s
     log = git_log(repo)
-    assert any(m.startswith("e2e") for m in log), log
+    assert any(m.startswith("docs: spec and plan") for m in log), log
     assert any(m.startswith("docs(memory)") for m in log), log
     dirty = subprocess.run(["git", "status", "--porcelain"], cwd=repo, capture_output=True, text=True).stdout
     assert [l for l in dirty.splitlines() if ".keel/" not in l] == []
@@ -183,9 +180,9 @@ def test_feature_flow_leaves_nothing_uncommitted(client, repo):
 def test_contract_is_committed_on_its_own(client, repo):
     tid = start(client, repo)
     s = wait(client, tid)
-    s = decide(client, tid)          # approve the spec
+    s = to_loop(client, tid, s)      # approve the spec, the options and the contract delta
     log = git_log(repo)
-    assert any(m.startswith("contract: ") for m in log), log
+    assert log.count("contract: Player ranks") == 1 and log[0] != "contract: Player ranks", log
 
 
 def test_a_running_step_is_shown_not_the_last_finished_one(client, repo, monkeypatch):
@@ -201,8 +198,8 @@ def test_a_running_step_is_shown_not_the_last_finished_one(client, repo, monkeyp
         return real(req)
     monkeypatch.setattr(fake_mod, "_plan", slow)
     tid = start(client, repo)
-    wait(client, tid)
-    client.post(f"/threads/{tid}/resume", json={"decision": "approve"})
+    to_loop(client, tid, upto="spec_gate")
+    client.post(f"/threads/{tid}/resume", json={"decision": "approve"})       # the options menu
     seen = None
     for _ in range(100):            # poll: no fixed sleep, so a fast or slow machine sees the same thing
         seen = client.get(f"/threads/{tid}").json()

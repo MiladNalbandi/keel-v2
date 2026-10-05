@@ -16,7 +16,11 @@ CODE_ACTIONS = {"verify_red", "verify_green", "verify_release", "verify_coverage
                 "review_lenses", "coverage_report",
                 # flow helpers: review scope, reports, the bug and change flows (runtime/flow_actions.py), model escalation
                 "review_scope", "report", "investigation_note", "bug_intake", "reset", "change_size", "change_start",
-                "escalate_model"}
+                "escalate_model",
+                # the feature flow (runtime/feature_actions.py)
+                "preflight", "explore_areas", "spec_sync", "spec_freeze", "spec_restart", "amend_start", "spec_amendment",
+                "spec_amend_commit", "show_diff", "security_scope", "e2e_scope", "e2e_unrun", "verify_e2e", "smoke_scope",
+                "verify_smoke", "close_flow"}
 # the hunt and hunt-next flows (runtime/hunt_actions.py) and init's extra steps (runtime/init_actions.py)
 FLOW_ACTIONS = {"hunt_start", "hunt_deps", "hunt_confirm", "hunt_ingest", "hunt_verdicts", "hunt_group", "hunt_report",
                 "hunt_commit", "hunt_close", "hunt_take", "arch_detect", "arch_set", "ladder_soft", "ladder_retry",
@@ -158,11 +162,11 @@ def validate(wf: Workflow) -> list[str]:
         if s.collect and s.kind not in ("agent", "parallel"):
             errors.append(f"{where}: only agent steps collect a list.")
         if s.when is not None:
-            if s.kind not in ("branch", "gate"):
-                errors.append(f"{where}: only branches and gates have a 'when'.")
-            elif not str(s.when.get("marker") or s.when.get("data") or "").strip():
-                errors.append(f"{where}: when needs a marker name (when: {{marker: REPRO, equals: confirmed}}) "
-                              "or a data path (when: {data: hunt.mode, equals: semi}).")
+            if s.kind not in ("branch", "gate", "agent", "parallel", "code"):
+                errors.append(f"{where}: a {s.kind} step has no 'when'.")
+            elif not str(s.when.get("marker") or s.when.get("data") or s.when.get("state") or "").strip():
+                errors.append(f"{where}: when needs a marker name (when: {{marker: REPRO, equals: confirmed}}), "
+                              "a data path (when: {data: hunt.mode, equals: semi}) or a state path (when: {state: acs}).")
             else:
                 src = s.when.get("step")
                 for name in (src if isinstance(src, list) else [src] if src else []):
