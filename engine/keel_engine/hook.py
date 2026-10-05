@@ -50,6 +50,7 @@ def load_context(path: str | None) -> dict:
         raise NoContext(f"the guard context {path} has no root or phase")
     if not Path(ctx["root"]).is_dir():
         raise NoContext(f"the project folder {ctx['root']} in the guard context does not exist")
+    ctx["_path"] = path      # the run's own folder also holds its list of reads (already_read)
     return ctx
 
 
@@ -111,9 +112,10 @@ def decide(tool: str, ti: dict, ctx: dict) -> str | None:
         path = _path_arg(ti)
         if not path:
             return None
-        rel = _locate(root, path)[0]
+        rel, full = _locate(root, path)
         v = rules.check_read(rel, cfg)
-        return knowledge(rel) if v.ok else v.reason
+        refused = knowledge(rel) if v.ok else v.reason
+        return refused or already_read(ctx.get("_path"), rel, full, ti.get("offset"), ti.get("limit"))
     if tool == "Bash":
         refused = knowledge(str(ti.get("command") or ""))
         if refused:
@@ -123,6 +125,32 @@ def decide(tool: str, ti: dict, ctx: dict) -> str | None:
         return None if v.ok else v.reason
     if tool.startswith("mcp__"):
         return check_mcp(tool, ti, phase, cfg, edit)
+    return None
+
+
+def already_read(ctx_path: str | None, rel: str, full: Path, offset, limit) -> str | None:
+    """A second Read of the same unchanged file and range in one agent run costs tokens and tells nothing new.
+
+    The run's reads are listed next to its guard context (one context file per run). A changed file (mtime/size) or
+    another line range is read again. This rule saves tokens, it is not a safety rule: any error here allows the read.
+    """
+    if not ctx_path:
+        return None
+    try:
+        st = full.stat()
+        seen_file = Path(ctx_path).with_name("reads.json")
+        seen = json.loads(seen_file.read_text()) if seen_file.is_file() else {}
+        key = f"{rel}|{offset or ''}|{limit or ''}"
+        now = [st.st_mtime_ns, st.st_size]
+        if seen.get(key) == now:
+            return (f"You already read {rel} in this step and it has not changed since: use what you read. "
+                    "To see another part, read a different range (offset/limit).")
+        seen[key] = now
+        tmp = seen_file.with_name(seen_file.name + ".tmp")
+        tmp.write_text(json.dumps(seen))
+        tmp.replace(seen_file)
+    except Exception:  # noqa: BLE001
+        return None
     return None
 
 
