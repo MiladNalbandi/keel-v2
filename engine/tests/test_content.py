@@ -119,3 +119,34 @@ def test_notice_names_keel_v1_and_its_license():
     text = (CONTENT / "NOTICE.md").read_text()
     assert "https://github.com/MiladNalbandi/keel" in text and "a9ed9e3" in text
     assert "MIT License" in text and "Copyright (c) 2026 Milad Nalbandi" in text
+
+
+STACK_FILES = sorted([*(CONTENT / "stacks").glob("*.yml"), *(CONTENT / "packs").glob("*/stack.yml")])
+
+
+@pytest.mark.parametrize("f", STACK_FILES, ids=lambda f: f"{f.parent.name}/{f.name}")
+def test_every_stack_declares_valid_tools_matching_its_static_checks(f):
+    """v0.4.1: each stack has a tools block keel can run, and static_checks names only programs a check tool runs."""
+    from keel_engine.runtime import tools
+
+    doc = yaml.safe_load(f.read_text())
+    block = doc.get("tools")
+    assert isinstance(block, dict) and block, f"{f}: no tools"
+    defs = {name: tools._keys(d) for name, d in block.items()}
+    for name, d in defs.items():
+        assert tools.problem(name, d) is None, f"{f.name}: {name}: {tools.problem(name, d)}"
+        assert d.get("description"), f"{f.name}: {name} has no description"
+        if tools.FILES_RX.search(d["run"]):
+            assert d.get("match"), f"{f.name}: {name} takes files but has no match"
+    checks = [d for d in defs.values() if (d.get("kind") or "check") == "check"]
+    assert checks, f.name
+    words = {w for d in checks for w in d["run"].split()}
+    static = str((doc.get("commands") or {}).get("static_checks") or "")
+    for part in [p.strip() for p in static.split("&&") if p.strip()]:
+        missing = [w for w in part.split() if w not in words]
+        assert not missing, f"{f.name}: static_checks `{part}` runs {missing}, which no check tool runs"
+
+
+def test_the_python_and_go_stacks_are_there():
+    names = {yaml.safe_load(f.read_text())["name"] for f in STACK_FILES}
+    assert {"kotlin-spring", "ts-react", "python", "go", "django", "react-js", "symfony"} <= names

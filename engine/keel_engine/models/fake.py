@@ -92,6 +92,8 @@ def _canned(req: AgentRequest) -> tuple[str | None, str, str, dict]:
         return None, "", "Nothing to wire: the criteria already call the real code.", {}
     if agent == "e2e-author" and phase == "smoke":
         return f"smoke/{slug(title)}.sh", "#!/usr/bin/env bash\nset -e\necho smoke ok\n", "Smoke check written.", {}
+    if agent == "implementer" and phase == "lint-fix":
+        return "src/scores/lint_fixed.py", "# lint: fixed\n", "Fixed what the static checks reported; behaviour unchanged.", {}
     if agent == "implementer" and phase == "bug-fix":
         return f"src/scores/fix_{key_of(title)}.py", 'def run():\n    return "fixed"\n', "Fixed at the root cause.", {}
     if agent == "implementer":

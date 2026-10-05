@@ -177,7 +177,9 @@ export const skillDetail: SkillDetail = { ...skills[0], body: "---\nname: web-te
 
 export const stacks: Stack[] = [
   { name: "ts-react", lane: "web", source: "built-in", detected: true, detect: "tsconfig.json, *.tsx", layers: ["unit", "component", "page"],
-    commands: [{ name: "typecheck", cmd: "npx tsc --noEmit" }], tools: [{ name: "eslint", on: "pre-commit", fail: "block" }], skills: ["web-testing"] },
+    commands: [{ name: "typecheck", cmd: "npx tsc --noEmit" }], tools: [{ name: "eslint", on: "pre-commit", fail: "block" },
+      { name: "prettier", on: "edit", fail: "fix", description: "Format the files an agent just changed" },
+      { name: "sonar", on: "manual", fail: "warn", off: true }], skills: ["web-testing"] },
   { name: "kotlin-spring", lane: "api", source: "keel pack", detected: false, detect: "build.gradle.kts", layers: ["unit", "slice"],
     commands: [{ name: "test", cmd: "./gradlew test" }], tools: [], skills: [], installable: true },
 ];

@@ -23,7 +23,7 @@ BANDS = {
     "deferred": "Deferred, not avoided: skipping moves the work; the push stays blocked until a fresh verdict for HEAD",
     "optional": "Optional: nothing downstream demands it; skipping is a real choice with a real cost",
 }
-VERDICT_ROWS = ["fast", "module", "release", "coverage", "deps", "audit", "trace", "arch", "memory"]
+VERDICT_ROWS = ["fast", "module", "lint", "release", "coverage", "deps", "audit", "trace", "arch", "memory"]
 
 
 def _result(ok, note, detail="", update=None):
@@ -184,6 +184,10 @@ def final_report(root: str, key: str, state: dict, title: str) -> str:
             exc.append(f"- unlock: `{u.get('path')}` in {u.get('phase')}: {u.get('reason') or 'no reason given'}")
     for f in state.get("flaky") or []:
         exc.append(f"- flaky: {f.get('label')}: {', '.join(f.get('tests') or [])}")
+    lint = verdicts.latest(key, "lint")
+    if lint and not lint.get("ok") and (lint.get("detail") or {}).get("available") is not False \
+            and (not (head or tree) or verdicts.fresh(lint, head, tree)):
+        exc.append(f"- static checks fail: {(lint.get('detail') or {}).get('summary') or 'see the lint verdict'}")
     if repo:
         for b in blockers.push_blockers(root, base, project=key):
             if b["gate"] == "knowledge":

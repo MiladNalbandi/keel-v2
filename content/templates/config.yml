@@ -71,12 +71,17 @@ commit:
   author_name: keelbot
   author_email: keel.dev.bot@gmail.com
 
-# Programs for this project: formatters, linters, CI probes. A tool declared here wins over
-# the stack's, and `<name>: false` turns one off.
+# Programs for this project: formatters, linters, CI probes. They merge over the matched stacks'
+# `tools:` blocks: a block here overrides the keys it names, `<name>: false` turns one off.
 #
-# `on:` is when it runs — manual (only on request), edit (the file just edited), batch (once
-# per turn), or pre-commit. `fail:` is what a nonzero exit means — fix (it repaired something,
-# carry on), block (refuse the commit), warn (say so, carry on).
+# `on:` is when it runs — manual (only on request: the lint flow, ship's static checks, a review with
+# lens lint), edit (the files an agent step just changed), batch (once per agent step), pre-commit (the
+# staged files of every keel commit), pre-push. `fail:` is what a nonzero exit means — fix (it changes
+# files: keep its changes, re-stage them), block (refuse the commit), warn (say so, carry on).
+# `match:` a regex on the repo-relative path; {FILES} / {FILE} get those paths, {BUILD} is backend.build,
+# {DIR} the tool's folder. `lane: api|web` runs it in backend.dir / frontend.dir, `dir:` in another
+# folder. `timeout:` seconds (120). `kind:` check (default) | status (a CI probe) | task (writes a file).
+# A program that is not installed is "not available", never a failure.
 #
 #tools:
 #  cs-fix:
@@ -84,6 +89,7 @@ commit:
 #    on: pre-commit
 #    match: '\.php$'
 #    fail: fix
+#  eslint: false
 #  ci:
 #    run: 'gh run list --limit 5'    # GitLab: glab ci list
 #    on: manual

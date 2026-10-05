@@ -20,7 +20,9 @@ CODE_ACTIONS = {"verify_red", "verify_green", "verify_release", "verify_coverage
                 # the feature flow (runtime/feature_actions.py)
                 "preflight", "explore_areas", "spec_sync", "spec_freeze", "spec_restart", "amend_start", "spec_amendment",
                 "spec_amend_commit", "show_diff", "security_scope", "e2e_scope", "e2e_unrun", "verify_e2e", "smoke_scope",
-                "verify_smoke", "close_flow"}
+                "verify_smoke", "close_flow",
+                # static checks (runtime/lint_actions.py)
+                "lint_scope", "lint_run", "lint_report", "verify_lint"}
 # the hunt and hunt-next flows (runtime/hunt_actions.py) and init's extra steps (runtime/init_actions.py)
 FLOW_ACTIONS = {"hunt_start", "hunt_deps", "hunt_confirm", "hunt_ingest", "hunt_verdicts", "hunt_group", "hunt_report",
                 "hunt_commit", "hunt_close", "hunt_take", "arch_detect", "arch_set", "ladder_soft", "ladder_retry",
