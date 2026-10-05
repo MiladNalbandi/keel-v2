@@ -2,13 +2,55 @@ id: change
 name: change (keel)
 keel_rules: true
 version: 1
+# Work without a spec. Triage asks one question: could a test notice a difference? No → trivial (one refactor commit).
+# Yes → small (1 to change.max_inline_acs criteria, CHG-<n>.<m>, the test-first loop, one gate at the end) unless it
+# touches the contract, a migration or auth, or needs more criteria → a feature flow with the inline criteria.
+# A commit that trips an escalation trigger asks again: escalate (feature flow, commits kept) or stay small with a
+# reason (recorded as escalation-override, shown in the PR body).
 steps:
-  - { id: triage, kind: agent, name: triage, agent: explorer, model: default, phase: triage }
-  - { id: scope_gate, kind: gate, name: scope check, back: triage, lock: true, phase: small-change }
+  - id: triage
+    kind: agent
+    name: triage
+    agent: explorer
+    model: default
+    phase: triage
+    markers: [SIZE]
+    instructions: >-
+      Triage this change with one question: could a test notice a difference? No → trivial (refactor, rename,
+      formatting, docs, a dependency bump with no effect, a UI typo): write no criteria. Yes → does it touch the
+      contract, a migration or auth, or need more than three criteria? Then it is a feature. Otherwise it is small: one
+      to three criteria. Say the size, the reason and the files you expect to touch. SIZE is trivial, small or feature.
+  - { id: size, kind: code, name: size + criteria, action: change_size, phase: triage }
+  - { id: scope_gate, kind: gate, name: scope check, back: triage, lock: true, phase: small-change, choices: [small, trivial, feature] }
+  - { id: is_feature, kind: branch, name: escalate to a feature, when: { marker: CHOICE, equals: feature, step: scope_gate }, no: is_trivial, phase: small-change }
+  - id: to_feature
+    kind: code
+    name: start the feature flow with the inline criteria
+    action: start_flow
+    flow: feature
+    then: end
+    phase: small-change
+    seed: { title: $title, acs: $acs, escalated_from: change }
+  - { id: is_trivial, kind: branch, name: trivial, when: { marker: CHOICE, equals: trivial, step: scope_gate }, no: small, phase: small-change }
+  - id: trivial
+    kind: agent
+    name: trivial change
+    agent: implementer
+    model: default
+    phase: trivial
+    instructions: >-
+      Make the change. Nothing observable may change: do not touch existing tests, the contract or migrations. If the
+      change needs an existing test edited, it is not trivial: stop and say so.
+  # keel refuses a "trivial" commit that edits an existing test: then it was not trivial, so triage again.
+  - { id: trivial_commit, kind: code, name: verify + trivial commit, action: verify_green+commit, lock: true, phase: trivial, attempts: 1, back: not_trivial, then: pr }
+  - { id: small, kind: code, name: small change, action: change_start, phase: small-change, attempts: 0, back: triage }
   - { id: red, kind: agent, name: red, agent: test-author, model: default, phase: red, per_ac: true }
   - { id: verify_red, kind: code, name: verify_red, action: verify_red+commit, phase: red, per_ac: true, lock: true }
   - { id: green, kind: agent, name: green, agent: implementer, model: default, phase: green, per_ac: true }
   - { id: verify_green, kind: code, name: verify_green + commit, action: verify_green+commit, phase: green, per_ac: true, lock: true }
   - { id: ac_gate, kind: gate, name: AC gate, back: red, lock: true, phase: gate, per_ac: true }
-  - { id: ship_review, kind: parallel, name: ship review x 2 lenses, agent: reviewer, model: default, parallel: 2, phase: ship }
-  - { id: final_review, kind: gate, name: final review, lock: true, phase: final-review }
+  - { id: pr, kind: code, name: PR body, action: pr, phase: ship }
+  - { id: pr_gate, kind: gate, name: PR, phase: ship }
+  - { id: finish, kind: code, name: done, then: end, phase: ship }
+  # Side path, reached only by a jump.
+  - { id: not_trivial, kind: code, name: not trivial; put it back and triage again, action: reset, then: triage, phase: small-change }

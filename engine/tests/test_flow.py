@@ -142,7 +142,7 @@ def test_gates_mode_end_only_stops_at_last_ac(client, repo):
 def test_fix_flow_and_init_flow(client, repo):
     tid = start(client, repo, workflow="fix", title="Average of one score is wrong")
     s, gates = run_to_done(client, tid, wait(client, tid))
-    assert s["status"] == "done" and [g for g, _ in gates] == ["gate_r", "gate_f"]
+    assert s["status"] == "done" and [g for g, _ in gates] == ["gate_r", "gate_f", "pr_gate"]
     assert any(line.startswith("fix(BUG)") for line in git_log(repo))
 
     tid = start(client, repo, workflow="init", title="Set up keel")

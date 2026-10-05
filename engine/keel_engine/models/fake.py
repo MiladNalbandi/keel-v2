@@ -11,6 +11,7 @@ agent could. The diff guard must catch it; tests use this.
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 from pathlib import Path
 
@@ -45,7 +46,16 @@ def spec_text(title: str, acs: list[dict]) -> str:
 
 
 def _plan(req: AgentRequest) -> tuple[str | None, str, str, dict]:
-    """(path to write or None, file content, final answer, structured data)."""
+    """(path to write or None, file content, final answer, structured data). A step that collects a list gets one."""
+    path, content, answer, data = _canned(req)
+    want = re.search(r"JSON list of ([\w-]+)", req.prompt or "")
+    if want and "```json" not in answer:
+        items = [{"title": f"{want.group(1)} {n}: {t}"} for n, t in enumerate(["a stale cache", "an off-by-one", "a race"], 1)]
+        answer += "\n```json\n" + json.dumps(items) + "\n```"
+    return path, content, answer, data
+
+
+def _canned(req: AgentRequest) -> tuple[str | None, str, str, dict]:
     agent, phase, title = req.agent, req.phase, req.title or "the change"
     ac = req.ac or {}
     ac_id = ac.get("id") or "BUG-1"
@@ -66,7 +76,7 @@ def _plan(req: AgentRequest) -> tuple[str | None, str, str, dict]:
     if agent == "reproducer":
         body = (f'"""{title}: reproduces the bug."""\nfrom scores.fix_{key_of(title)} import run\n\n\n'
                 f"def test_bug_{key_of(title)}():\n    assert run() == \"fixed\"\n")
-        return f"tests/test_bug_{key_of(title)}.py", body, "The test fails for the reported reason.", {}
+        return f"tests/test_bug_{key_of(title)}.py", body, "The test fails for the reported reason.\nREPRO: confirmed", {}
     if agent == "implementer" and phase == "bug-fix":
         return f"src/scores/fix_{key_of(title)}.py", 'def run():\n    return "fixed"\n', "Fixed at the root cause.", {}
     if agent == "implementer":
@@ -82,13 +92,14 @@ def _plan(req: AgentRequest) -> tuple[str | None, str, str, dict]:
         return None, "", f"AC-REVIEW: PASS — the test proves {ac_id}.", {"verdict": "pass"}
     if agent == "reviewer":
         lens = LENSES[req.index % len(LENSES)]
-        return None, "", f"REVIEW ({lens}): no findings.", {"verdict": "pass", "lens": lens}
+        return None, "", f"REVIEW ({lens}): no findings.\nBLOCKING: no", {"verdict": "pass", "lens": lens}
     if agent == "code-reviewer":
-        return None, "", "CODE-REVIEW: no findings across the branch diff.", {"verdict": "pass"}
+        return None, "", "No findings across the branch diff.\nCODE-REVIEW: pass", {"verdict": "pass"}
     if agent == "security-auditor":
         return None, "", "SECURITY: no findings.", {"verdict": "pass"}
     if agent == "investigator":
-        return None, "", "ROOT CAUSE: the counter is read before it is written (src/scores/__init__.py:1).", {}
+        return None, "", ("ROOT CAUSE: the counter is read before it is written (src/scores/__init__.py:1).\n"
+                          "ROOT-CAUSE: confirmed"), {}
     return None, "", f"{agent}: done.", {}
 
 

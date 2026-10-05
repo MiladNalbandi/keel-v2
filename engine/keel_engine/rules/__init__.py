@@ -100,6 +100,12 @@ def load_config(root: str | Path | None) -> dict:
 
 # ---------------------------------------------------------------- phases
 
+def read_only(phase: str | None) -> bool:
+    """A phase in which nothing may be edited (review)."""
+    row = MATRIX.get(phase or "")
+    return bool(row) and set(row.values()) == {"deny"}
+
+
 def can_transition(frm: str, to: str) -> bool:
     if frm == to:
         return True

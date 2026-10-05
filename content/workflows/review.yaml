@@ -1,0 +1,23 @@
+id: review
+name: review (keel)
+keel_rules: true
+version: 1
+# Read-only: no phase change, nothing is fixed or committed. Inputs (StartThread.data, the api's `options`):
+#   lens: code (default) | all | correctness | security | performance | architecture | assertions | ac <AC-ID>
+#   base: the ref to diff against (default base_branch in .keel/config.yml, else main or master)
+# An empty diff, an unknown lens or a half-built criterion stops the flow before any agent runs.
+steps:
+  - { id: scope, kind: code, name: review scope, action: review_scope, lock: true, phase: review }
+  - id: reviewers
+    kind: parallel
+    name: one reviewer per lens
+    agent: reviewer
+    model: default
+    from: review_lenses
+    phase: review
+    markers: [BLOCKING, CODE-REVIEW, AC-REVIEW]
+    instructions: >-
+      Review only the scope in your item (its diff, or the criterion's commits) and only through your lens. Report every
+      finding in your own words, blocking and non-blocking separately. Do not fix anything.
+  - { id: report, kind: code, name: report, action: report, phase: review }
+  - { id: read_report, kind: gate, name: review report, back: reviewers, phase: review }

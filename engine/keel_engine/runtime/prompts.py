@@ -143,7 +143,9 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
                      "not a step of the work: \"imports are updated\" or \"all calls use the new name\" are steps, and so "
                      "is \"behaviour stays the same\" when the existing tests already prove it. A small change usually "
                      "needs one to three criteria.")
-        lines.append("Write the spec under docs/specs/ with numbered criteria, one per line, in this form:\n"
+        where = ("Write the spec under docs/specs/ with numbered criteria" if phase == "spec"
+                 else "List the criteria in your answer (no spec file: a small change keeps them inline)")
+        lines.append(f"{where}, one per line, in this form:\n"
                      "- **AC-1** [API] <what must be true>\n"
                      "Write real criteria for what the user asked for. If the request is too unclear to write any, write no "
                      "criteria and say in one or two sentences what you need to know.")
@@ -173,6 +175,32 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
     elif feedback:
         lines.append(f"This was sent back. Reason:\n{feedback}")
     return "\n".join(lines)
+
+
+def step_asks(step, value=None) -> str:
+    """What the workflow step itself asks of its agent: its instructions, the list it collects, the markers it reads.
+    `{{data.report}}` in the instructions is that value of the flow state (value(path) reads it)."""
+    from .markers import REGISTRY
+
+    text = (step.instructions or "").strip()
+    if text and value:
+        text = re.sub(r"\{\{\s*([\w.-]+)\s*\}\}", lambda m: _shown(value(m.group(1))), text)
+    lines = [text] if text else []
+    if step.collect:
+        lines.append(f"End your answer with a ```json block holding a JSON list of {step.collect}: one object per entry, "
+                     "each with a short \"title\" (and any other fields that help the next step).")
+    # Registered markers are the agents' own verdict lines (their role says when); the step asks for the others.
+    said = [f"{m.upper()}: <one line>" for m in step.markers or [] if m.upper() not in REGISTRY]
+    if said:
+        lines.append("End your answer with " + ("this line" if len(said) == 1 else "these lines") + ", exactly in this form:\n"
+                     + "\n".join(said))
+    return "\n".join(lines)
+
+
+def _shown(v) -> str:
+    if v is None or v == "":
+        return "(nothing yet)"
+    return (v if isinstance(v, str) else json.dumps(v, indent=2, ensure_ascii=False, default=str))[:12000]
 
 
 AC_LINE = re.compile(r"\b(AC-\d+)\b\**\s*\[(API|WEB)\]\s*(.+)", re.I)

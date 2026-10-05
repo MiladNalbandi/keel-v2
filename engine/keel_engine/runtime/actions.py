@@ -6,7 +6,8 @@ image). Commits are real whenever the root is a git repository, so COMMIT_RULES 
 Checks that decide a push write a verdict to the engine DB (runtime/verdicts.py): knowledge_check -> memory,
 verify_release and a whole-suite verify_green -> release, verify_coverage -> coverage. Simulated runs write none.
 The other verdict actions (verify_fast, verify_module, verify_deps, audit, trace, arch) and the PR (pr, open_pr) live
-in runtime/verdict_actions.py; start_flow is the compiler's (it starts a thread).
+in runtime/verdict_actions.py; the review, diagnose, fix and change helpers in runtime/flow_actions.py; start_flow and
+escalate_model are the compiler's (they start a thread, change a model).
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ from ..rules import checks
 from ..tools import codegraph, git, testcmd
 from ..tools.agent_tools import command_env
 from . import blockers as push_gates
-from . import knowledge, verdict_actions, verdicts
+from . import flow_actions, knowledge, verdict_actions, verdicts
 from . import ladder as run_ladder
 
 COMMIT_EXCLUDES = [f":!{p.rstrip('/')}" for p in git.ENGINE_FILES]
@@ -43,6 +44,8 @@ class ActionResult:
     # A question for the user instead of a plain failure: {type: deps|escalate, kind, title, detail, ...}.
     # The code step turns it into an interrupt and runs the step again with the answer applied.
     ask: dict | None = None
+    # A refusal no retry can change (nothing to review, an unknown argument): the flow stops and says why.
+    stop: bool = False
 
 
 @dataclass
@@ -65,6 +68,8 @@ class ActionInput:
     data: dict = field(default_factory=dict)           # the flow's data lists (state.data)
     keys: dict = field(default_factory=dict)           # the thread's logins (open_pr reads a GitHub token), memory only
     state: dict = field(default_factory=dict)          # a copy of the flow state (the pr action reads spec, gates, unlocks)
+    step: str = ""                                     # the code step running the action (markers it sets go there)
+    request: str = ""                                  # what the user asked for, in their words
 
     @property
     def key(self) -> str:
@@ -82,6 +87,8 @@ async def run_action(action: str, a: ActionInput) -> ActionResult:
         return await verify_coverage(a)
     if action in VERDICT_ACTIONS:
         return await VERDICT_ACTIONS[action](a)
+    if action in flow_actions.ACTIONS:
+        return await asyncio.to_thread(flow_actions.ACTIONS[action], a)
     if action == "commit":
         return await asyncio.to_thread(commit, a)
     if action == "write_config":
@@ -326,8 +333,8 @@ def commit(a: ActionInput) -> ActionResult:
                                      "why": why})
 
     rule = rules.COMMIT_RULES[ctype]
-    ident = "" if rule.get("noId") else ((a.ac or {}).get("id") or ("review" if a.phase == "review-fix"
-                                                                    else "BUG" if ctype in ("fix", "red") else ""))
+    bug = ctype in ("fix", "red") or (ctype == "e2e" and a.flow == "fix")
+    ident = "" if rule.get("noId") else ((a.ac or {}).get("id") or ("review" if a.phase == "review-fix" else "BUG" if bug else ""))
     subject = (a.ac or {}).get("title") or a.title or a.flow
     if ctype == "setup":
         subject = "keel init"

@@ -56,7 +56,14 @@ class Step(BaseModel):
     # start_flow: the workflow to start, its seed (literals, or "$<state path>"), and what this flow does next.
     flow: str | None = None
     seed: dict | None = None
-    then: Literal["end", "continue"] | None = None
+    # A code step's next step: "end" (the flow ends here), "continue" (the next step), or a step id (jump there).
+    then: str | None = None
+    # gate: named exits (`choices: [fix, feature, unresolved]`); the answer is the marker CHOICE of this gate.
+    choices: list[str] | None = None
+    # Extra task text for the agent of this step (what the step wants that the agent's role does not say).
+    instructions: str | None = None
+    # code step: failed checks retried before giving up (default settings.fix_attempts); then `back` (if set) or ask.
+    attempts: int | None = None
 
     @model_validator(mode="after")
     def _for_each_runs_per_item(self):
