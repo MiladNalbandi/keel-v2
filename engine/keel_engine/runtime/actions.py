@@ -1,24 +1,26 @@
-"""Code-step actions: verify_red, verify_green, commit, write_config, ladder, memory_check, push_check, run:<cmd>.
+"""Code-step actions: verify_red, verify_green, verify_release, verify_coverage, commit, write_config, ladder,
+knowledge_check (memory_check is its old name), push_check, run:<cmd>.
 
 In fake mode the test runs are simulated with fixed outputs (the demo has no test toolchain in the
 image). Commits are real whenever the root is a git repository, so COMMIT_RULES are exercised.
+Checks that decide a push write a verdict to the engine DB (runtime/verdicts.py): knowledge_check -> memory,
+verify_release and a whole-suite verify_green -> release, verify_coverage -> coverage. Simulated runs write none.
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
 
 from .. import rules
 from ..rules import checks
-from ..tools import git, testcmd
+from ..tools import codegraph, git, testcmd
 from ..tools.agent_tools import command_env
 from . import blockers as push_gates
+from . import knowledge, verdicts
 from . import ladder as run_ladder
 
 COMMIT_EXCLUDES = [f":!{p.rstrip('/')}" for p in git.ENGINE_FILES]
@@ -50,6 +52,11 @@ class ActionInput:
     unlocks: list[dict] = field(default_factory=list)
     preexisting: dict = field(default_factory=dict)    # the user's uncommitted files at start: {path: fingerprint}
     init: dict = field(default_factory=dict)           # keel init's answers (runs_on, services, knowledge_sections)
+    project: str = ""                                  # the api's project id: verdicts are stored under it
+
+    @property
+    def key(self) -> str:
+        return self.project or self.root
 
 
 async def run_action(action: str, a: ActionInput) -> ActionResult:
@@ -57,14 +64,18 @@ async def run_action(action: str, a: ActionInput) -> ActionResult:
         return await verify_red(a)
     if action == "verify_green":
         return await verify_green(a)
+    if action == "verify_release":
+        return await verify_release(a)
+    if action == "verify_coverage":
+        return await verify_coverage(a)
     if action == "commit":
         return await asyncio.to_thread(commit, a)
     if action == "write_config":
         return await asyncio.to_thread(write_config, a)
     if action == "ladder":
         return await ladder(a)
-    if action == "memory_check":
-        return await asyncio.to_thread(memory_check, a)
+    if action in ("knowledge_check", "memory_check"):
+        return await asyncio.to_thread(knowledge_check, a)
     if action == "push_check":
         return await asyncio.to_thread(push_check, a)
     if action.startswith("run:"):
@@ -149,8 +160,47 @@ async def verify_green(a: ActionInput) -> ActionResult:
                             f"$ {cmd}\n{tail(out, 3000)}\nThe RED test for {ac_id} is missing. Rewind to its red step.")
     if code != 0:
         return ActionResult(False, f"{label} does not pass yet.", f"$ {cmd}\n{tail(out, 3000)}")
+    if not ac_id:
+        # The whole suite green on these files is the release verdict for the commit made from them.
+        await asyncio.to_thread(_release_verdict, a, True, cmd, out)
     return ActionResult(True, f"{label}: green.", f"$ {cmd}\n{tail(out, 1500)}",
                         {"acs": _with_ac_status(a.acs, ac_id, "green")} if ac_id else {})
+
+
+def _release_verdict(a: ActionInput, ok: bool, cmd: str, out: str) -> dict:
+    head, tree = verdicts.stamp(a.root)
+    return verdicts.write(a.key, "release", ok, {"command": cmd, "tree": tree, "summary": None if ok else "the test suite failed",
+                                                 "output": tail(out, 1500)}, head)
+
+
+async def verify_release(a: ActionInput) -> ActionResult:
+    """The whole test suite (the module command); its result is the release verdict, pass or fail."""
+    if a.fake:
+        return ActionResult(True, "Release suite: green (simulated, no verdict written).", "1 passed")
+    cmd, code, out = await _tests(a, whole_suite=True)
+    if cmd is None:
+        return ActionResult(False, out, out)
+    await asyncio.to_thread(_release_verdict, a, code == 0, cmd, out)
+    if code != 0:
+        return ActionResult(False, "The release suite fails.", f"$ {cmd}\n{tail(out, 3000)}")
+    return ActionResult(True, "Release suite: green; verdict recorded for this commit.", f"$ {cmd}\n{tail(out, 1500)}")
+
+
+async def verify_coverage(a: ActionInput) -> ActionResult:
+    """`commands.coverage` from .keel/config.yml; exit 0 = the coverage gate passes. Without it there is no coverage gate."""
+    cmd = (rules.load_config(a.root).get("commands") or {}).get("coverage")
+    if not cmd:
+        return ActionResult(True, "No coverage command in .keel/config.yml (commands.coverage); coverage is not checked.")
+    if a.fake:
+        return ActionResult(True, "Coverage: passed (simulated, no verdict written).")
+    code, out = await asyncio.to_thread(testcmd.run, a.root, cmd, 1800, command_env())
+    head, tree = await asyncio.to_thread(verdicts.stamp, a.root)
+    await asyncio.to_thread(verdicts.write, a.key, "coverage", code == 0,
+                            {"command": cmd, "tree": tree, "summary": None if code == 0 else f"`{cmd}` exited {code}",
+                             "output": tail(out, 1500)}, head)
+    if code != 0:
+        return ActionResult(False, f"Coverage is below what `{cmd}` accepts.", f"$ {cmd}\n{tail(out, 3000)}")
+    return ActionResult(True, "Coverage: passed; verdict recorded for this commit.", f"$ {cmd}\n{tail(out, 1500)}")
 
 
 def _refuse(a: ActionInput, note: str, detail: str, **extra) -> ActionResult:
@@ -182,7 +232,7 @@ def commit(a: ActionInput) -> ActionResult:
         return _refuse(a, f"The {ctype} commit stages what looks like a secret: {', '.join(kinds)}.",
                        "\n".join(f"  {f['file']}: {f['why']}" for f in found) +
                        "\nRemove it and read it from an environment variable. A fixture line may carry the marker keel:allow-secret.",
-                       update={"blockers": push_gates.push_blockers(a.root, a.base, found)})
+                       update={"blockers": push_gates.push_blockers(a.root, a.base, found, project=a.key)})
 
     # A new dependency outlives the branch: a human approves it (keel v1 refuses; v2 asks).
     if a.phase not in (None, "", "none"):
@@ -252,8 +302,9 @@ def commit(a: ActionInput) -> ActionResult:
         git.git(a.root, "reset", "-q")
         return ActionResult(False, "git commit failed.", (r.stderr or r.stdout)[-2000:])
     sha = git.head(a.root)
+    codegraph.sync_later(a.root)            # the code graph follows every keel commit (best effort, in the background)
     return ActionResult(True, f"{message} {sha[:7] if sha else ''}".strip(), "\n".join(staged),
-                        {"git_head": sha, "blockers": push_gates.push_blockers(a.root, a.base)})
+                        {"git_head": sha, "blockers": push_gates.push_blockers(a.root, a.base, project=a.key)})
 
 
 def commit_message(prefix: str, subject: str, limit: int = 72) -> tuple[str, str]:
@@ -324,34 +375,35 @@ async def ladder(a: ActionInput) -> ActionResult:
                         {"ladder": rungs})
 
 
-def memory_check(a: ActionInput) -> ActionResult:
-    kdir = Path(a.root) / "docs" / "knowledge"
-    files = sorted(kdir.glob("*.md")) if kdir.is_dir() else []
-    problems = [f"{p.relative_to(a.root)} is empty" for p in files if not p.read_text().strip()]
-    if not files:
-        problems.append("docs/knowledge/ has no sections")
-    verdict = {"sha": git.head(a.root) if git.is_repo(a.root) else None, "pass": not problems, "problems": problems,
-               "at": datetime.now(timezone.utc).isoformat()}
-    out = Path(a.root) / ".keel" / "memory.json"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(verdict, indent=2) + "\n")
-    if problems:
-        return ActionResult(False, "The knowledge base has problems.", "\n".join(problems))
-    return ActionResult(True, f"Knowledge base: {len(files)} sections, no problems.")
+def knowledge_check(a: ActionInput) -> ActionResult:
+    """keel v1's memory check: citations resolve, no placeholders, chosen sections exist. Writes the memory verdict."""
+    r = knowledge.check(a.root)
+    checked = [s for s in r["sections"] if not s.get("not_selected")]
+    verdicts.write(a.key, "memory", r["pass"], {
+        "problems": r["problems"], "selected": r["selected"], "content": knowledge.content_hash(a.root),
+        "sections": [{k: s[k] for k in ("name", "missing", "citations", "proofs", "unverified")} for s in checked],
+        "summary": None if r["pass"] else f"{len(r['problems'])} problem(s) in docs/knowledge/"}, git.head(a.root) if git.is_repo(a.root) else None)
+    if not r["pass"]:
+        return ActionResult(False, f"The knowledge base has {len(r['problems'])} problem(s).", "\n".join(r["problems"]))
+    cites = sum(s["citations"] for s in checked)
+    return ActionResult(True, f"Knowledge base: {len(checked)} section(s), {cites} citation(s), no problems.")
 
 
 def push_check(a: ActionInput) -> ActionResult:
     if not git.is_repo(a.root):
         return ActionResult(True, "Not a git repository.", update={"blockers": []})
-    found = push_gates.push_blockers(a.root, a.base)
+    found = push_gates.push_blockers(a.root, a.base, project=a.key)
+    warned = push_gates.push_warnings(a.root, a.base)
+    notes = [f"{b['gate']}: {b['why']} (fix: {b['fix']})" for b in found] + [f"warning, {w['gate']}: {w['why']}" for w in warned]
     dirty = git.dirty(a.root)
     if dirty:
         return ActionResult(False, f"{len(dirty)} uncommitted file(s) before push.", "\n".join(sorted(dirty)), {"blockers": found})
     if found:
-        # Verdicts are keel v1's to produce (keel verify ...); the board shows them, keel never pushes.
+        # The board shows them; keel never pushes.
         return ActionResult(True, f"Working tree clean; {len(found)} push blocker(s): " + ", ".join(b["gate"] for b in found) + ".",
-                            "\n".join(f"{b['gate']}: {b['why']} (fix: {b['fix']})" for b in found), {"blockers": found})
-    return ActionResult(True, "Working tree clean; ready to push (keel never pushes for you).", update={"blockers": []})
+                            "\n".join(notes), {"blockers": found})
+    return ActionResult(True, "Working tree clean; ready to push (keel never pushes for you)." +
+                        (f" {len(warned)} warning(s)." if warned else ""), "\n".join(notes), {"blockers": []})
 
 
 async def run_command(cmd: str, a: ActionInput) -> ActionResult:

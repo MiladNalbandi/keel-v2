@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import os
+import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 # keel's own engine files in a project: written by the engine, never staged or guarded.
@@ -70,15 +73,46 @@ def snapshot(root: str) -> dict[str, str]:
 
 def exclude_engine_files(root: str) -> None:
     """keel's own state files never show up as changes: add them to .git/info/exclude (local, not committed)."""
-    info = Path(root) / ".git" / "info"
-    if not info.is_dir():
-        return
-    f = info / "exclude"
+    exclude(root, list(ENGINE_FILES), "keel v2 engine files")
+
+
+def exclude(root: str, patterns: list[str], comment: str) -> bool:
+    """Add patterns to the repo's .git/info/exclude (local, never committed). False when root is not a repo."""
+    r = git(root, "rev-parse", "--git-path", "info/exclude")
+    if r.returncode != 0 or not r.stdout.strip():
+        return False
+    f = Path(root) / r.stdout.strip()
+    f.parent.mkdir(parents=True, exist_ok=True)
     have = f.read_text().splitlines() if f.exists() else []
-    add = [p for p in ENGINE_FILES if p not in have]
+    add = [p for p in patterns if p not in have]
     if add:
         with f.open("a") as out:
-            out.write(("\n" if have and have[-1] else "") + "# keel v2 engine files\n" + "\n".join(add) + "\n")
+            out.write(("\n" if have and have[-1] else "") + f"# {comment}\n" + "\n".join(add) + "\n")
+    return True
+
+
+def worktree_tree(root: str) -> str | None:
+    """The git tree id of the working files as `git add -A` would commit them (keel's engine files left out), without
+    touching the real index: a check that ran on uncommitted files is about the commit made from them."""
+    r = git(root, "rev-parse", "--git-path", "index")
+    if r.returncode != 0:
+        return None
+    index = Path(root) / r.stdout.strip()
+    with tempfile.TemporaryDirectory(prefix="keel-tree-") as d:
+        tmp = os.path.join(d, "index")
+        if index.is_file():
+            shutil.copyfile(index, tmp)          # keeps git's stat cache, so a big repo is not hashed again
+        env = {**os.environ, "GIT_INDEX_FILE": tmp}
+        excludes = [f":!{p.rstrip('/')}" for p in ENGINE_FILES]
+        if git(root, "add", "-A", "--", ".", *excludes, env=env).returncode != 0:
+            return None
+        out = git(root, "write-tree", env=env)
+    return out.stdout.strip() or None if out.returncode == 0 else None
+
+
+def head_tree(root: str) -> str | None:
+    r = git(root, "rev-parse", "HEAD^{tree}")
+    return r.stdout.strip() if r.returncode == 0 else None
 
 
 def tracked_in_head(root: str, rel: str) -> bool:

@@ -7,5 +7,5 @@ version: 1
 # (architecture, domain, conventions, data, integrations).
 steps:
   - { id: librarians, kind: parallel, name: librarian per section, agent: librarian, model: default, parallel: 5, phase: memory }
-  - { id: memory_check, kind: code, name: memory check, action: memory_check, lock: true, phase: memory }
+  - { id: memory_check, kind: code, name: knowledge check, action: knowledge_check, lock: true, phase: memory }
   - { id: commit, kind: code, name: commit, action: commit, lock: true, phase: memory }

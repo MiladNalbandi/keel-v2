@@ -21,7 +21,7 @@ from langgraph.types import Command
 
 from .. import config, rules
 from ..events import EventBus
-from ..tools import git
+from ..tools import codegraph, git
 from ..workflows.model import Workflow, from_dict
 from . import ladder as ladder_mod
 from . import memory as memory_mod
@@ -266,6 +266,7 @@ class Engine:
             state["base_head"] = state["git_head"]
             git.exclude_engine_files(root)
             state["preexisting"] = git.snapshot(root)
+        codegraph.sync_later(root)          # the code graph catches up with edits made since the last index (background)
         await self._import_legacy_unlocks(tid)
         ctx.emit("thread.started", data={"workflow": wf.id, "title": ctx.title, "flow": wf.flow, "root": root,
                                          "acs": len(state["acs"]), "fake": ctx.fake})
