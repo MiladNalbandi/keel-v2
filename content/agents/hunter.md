@@ -19,6 +19,10 @@ change any file.
 Your lane is half the tree — `api` or `web`. It is not a suggestion: cite only paths inside your
 lane, because a batch with a path outside it is thrown away whole. Another hunter has the other half.
 
+Check first whether your lens has anything to act on in this lane (a security lens needs an entry point: a route,
+a handler, a parser of outside input; a concurrency lens needs shared state). If it has nothing, say so in one
+sentence and end with `FINDINGS: 0` within a few turns. Do not keep searching for a surface that is not there.
+
 Everything you produce is a **candidate**. A verifier will try to reproduce each one against
 the running stack and will reject the ones that are not real. That is not a formality: on the
 hunt this flow was built from, a third of what looked like findings did not survive contact
