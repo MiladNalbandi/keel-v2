@@ -14,7 +14,7 @@ describe("Flow gate", () => {
     expect(call.method).toBe("POST");
     expect(call.body).toEqual({ decision: "approve" });
     // after the refetch the gate card is gone and the agent runs
-    expect(await screen.findByText(/running/, { selector: ".pill" })).toBeInTheDocument();
+    expect(await screen.findByText(/running/, { selector: ".running-card .pill" })).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Gate waits for you" })).not.toBeInTheDocument();
   });
 
@@ -39,7 +39,9 @@ describe("Flow gate", () => {
   });
 
   it("shows checkpoints, ACs and the budget meter", async () => {
+    const user = userEvent.setup();
     render(<App />);
+    await user.click(await screen.findByRole("tab", { name: "Checkpoints" }));
     expect(await screen.findByText("#31")).toBeInTheDocument();
     expect(screen.getByText("[API] Refuse a negative score with 400")).toBeInTheDocument();
     expect(screen.getByRole("meter", { name: "Tokens used of the cap" })).toHaveAttribute("aria-valuenow", "182000");

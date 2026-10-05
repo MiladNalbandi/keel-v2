@@ -94,6 +94,9 @@ class Step(BaseModel):
     report: Literal["verdicts"] | None = None
     choices: list[str] | dict[str, str] | None = None
     on_skip: dict | None = None
+    # Set by `include`: the include ids this step came from, outermost first (`ship`, or `ship/cover` for a step of the
+    # cover flow that ship includes). Only for showing the workflow (the web folds an include into one block).
+    included_from: str | None = None
 
     @model_validator(mode="after")
     def _for_each_runs_per_item(self):
@@ -120,9 +123,10 @@ def expand_includes(steps: list) -> list:
     """`{id: ship, kind: include, flow: ship}` becomes the steps of that workflow, in place.
 
     Included ids get the include's id as a prefix (`ship_verify`); back, no, redo, then, after_rounds and when.step that point at an
-    included step follow. With `skippable` on the include, every included step is one skippable unit (group = the
-    include's id). A skippable step that has no group keeps its own id as its group name, so a skip menu shows
-    `release`, not `ship_release`. Includes nest (ship includes cover); a cycle is an error.
+    included step follow. Each included step records where it came from: included_from = `ship` (`ship/cover` when
+    nested). With `skippable` on the include, every included step is one skippable unit (group = the include's id). A
+    skippable step that has no group keeps its own id as its group name, so a skip menu shows `release`, not
+    `ship_release`. Includes nest (ship includes cover); a cycle is an error.
     """
     if not any(isinstance(st, dict) and st.get("kind") == "include" for st in steps or []):
         return steps
@@ -168,6 +172,7 @@ def _included(inc: dict) -> list[dict]:
         src = (d.get("when") or {}).get("step") if isinstance(d.get("when"), dict) else None
         if src:
             d["when"] = {**d["when"], "step": [ren(x) for x in src] if isinstance(src, list) else ren(src)}
+        d["included_from"] = f"{iid}/{d['included_from']}" if d.get("included_from") else iid
         if inc.get("skippable"):
             d["skippable"], d["group"] = inc["skippable"], iid
         elif d.get("skippable") and not d.get("group"):

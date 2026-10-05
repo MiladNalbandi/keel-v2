@@ -276,7 +276,7 @@ describe("model pickers follow the catalog", () => {
 // ---------- engine v0.3: "already met" ACs and the "already passes" gate ----------
 
 describe("already met", () => {
-  it("shows an already-met AC like done, with its own label, in the list, the AC strip and the graph", async () => {
+  it("shows an already-met AC like done, with its own label, in the list, the AC strip and the loop", async () => {
     db.flows["ludus-engine"].thread!.acs[2].status = "already-met";
     render(<App />);
     const list = (await screen.findByText("Acceptance criteria")).closest(".panel") as HTMLElement;
@@ -285,9 +285,10 @@ describe("already met", () => {
     const chip = document.querySelector('.acchip[data-status="already-met"]')!;
     expect(chip).toHaveTextContent("AC-003 already met");
     expect(document.querySelector('.acchip[data-status="done"]')).toHaveTextContent("AC-001 done");
-    const dot = screen.getByTestId("graph-acs").querySelector('[data-ac="AC-003"]')!;
-    expect(dot).toHaveAttribute("data-status", "already-met");
-    expect(dot).toHaveTextContent("AC-003 · already met");
+    // the loop's header on the blocks shows the criteria too
+    const inLoop = screen.getByLabelText("Criteria in this loop").querySelector('[data-ac="AC-003"]')!;
+    expect(inLoop).toHaveAttribute("data-status", "already-met");
+    expect(inLoop).toHaveTextContent("AC-003 already met");
   });
 
   it("an 'already passes' gate offers 'Mark as already met' / 'Send back for a stricter test' (with a why)", async () => {

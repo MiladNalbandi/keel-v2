@@ -1,15 +1,14 @@
-// Wiki (Project): the knowledge base the librarians write, a page for every workflow (drawn with the graph
-// component), the setup runbook and decisions. The page id is in the hash: #/wiki/kb:architecture.
+// Wiki (Project): the knowledge base the librarians write, a page for every workflow (its Steps map, read only, or
+// the graph), the setup runbook and decisions. The page id is in the hash: #/wiki/kb:architecture.
 
 import { useState } from "react";
 import { api, type WikiTree } from "../api";
-import { Graph, GraphLegend } from "../components/Graph";
-import { Zoom } from "../components/Zoom";
 import { Markdown } from "../components/Markdown";
 import { RefreshStaleButton } from "../components/RefreshStale";
 import { StepInfoDrawer } from "../components/StepInfo";
 import { Async, ErrorBox, Loading, PageHead, Pill } from "../components/ui";
-import { KIND, tokensByStep } from "../components/workflow";
+import { tokensByStep } from "../components/workflow";
+import { WorkflowMap } from "../components/WorkflowMap";
 import { kfmt } from "../format";
 import { go, useApp, useLoad, useRoute } from "../state";
 
@@ -66,22 +65,10 @@ function WorkflowPage({ pid, wid }: { pid: string; wid: string }) {
               {w.steps.length} steps · {agents} agents · {gates} gates wait for you · keel rules {w.keel_rules ? "on" : "off"} · version {w.version}
               {est.data ? ` · about ${kfmt(est.data.tokens)} tokens for 3 ACs` : ""}
             </p>
-            <div className="panel" style={{ margin: "12px 0" }}><div className="panel-body">
-              <Zoom id="wiki"><Graph steps={w.steps} tokens={tokens} onSelect={setExplain} /></Zoom>
-              <GraphLegend />
-            </div></div>
-            <div className="table-wrap"><table>
-              <thead><tr><th>Step</th><th>Type</th><th>Who</th><th>Model</th><th>Tokens</th></tr></thead>
-              <tbody>{w.steps.map((s) => (
-                <tr key={s.id}>
-                  <td><button type="button" className="linkbtn" onClick={() => setExplain(s.id)}><b>{s.name}</b></button>{s.per_ac && <> <span className="tag">each AC</span></>}</td>
-                  <td className="sub">{KIND[s.kind]}</td>
-                  <td className="sub">{s.agent || (s.kind === "gate" ? "you" : "plain code")}</td>
-                  <td>{s.model ? <span className="mono sub">{s.model}</span> : "—"}</td>
-                  <td className="num mono">{tokens?.[s.id] ? kfmt(tokens[s.id]) : "0"}</td>
-                </tr>
-              ))}</tbody>
-            </table></div>
+            <div style={{ margin: "12px 0" }}>
+              <WorkflowMap id="wiki" title="Steps" steps={w.steps} tokens={tokens} onOpenStep={setExplain}
+                label={`Steps of ${w.name}: ${w.steps.length} steps. Select one to see what it does.`} />
+            </div>
             <p className="hint">This page is generated from the workflow file, so it is always the version that runs.</p>
           </>
         );

@@ -62,6 +62,8 @@ data class Step(
     val instructions: String? = null,
     val afterRounds: String? = null,
     val recommend: String? = null,
+    /** Set by the engine when it expands an include: where the step came from, outermost include first ("ship", "ship/cover"). */
+    val includedFrom: String? = null,
 ) {
     val locked: Boolean @com.fasterxml.jackson.annotation.JsonIgnore get() = lock == true
 }

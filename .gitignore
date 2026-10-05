@@ -11,3 +11,6 @@ __pycache__/
 .DS_Store
 .env
 .demo-workspace/
+
+# local screenshots of the web (docs/screens: before/after of the v0.4.1 blocks)
+docs/screens/

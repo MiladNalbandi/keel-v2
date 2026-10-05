@@ -1,0 +1,616 @@
+{
+ "id": "fix",
+ "name": "fix (keel)",
+ "keel_rules": true,
+ "version": 1,
+ "steps": [
+  {
+   "id": "intake",
+   "kind": "code",
+   "name": "bug report",
+   "phase": "bug-report",
+   "action": "bug_intake"
+  },
+  {
+   "id": "repro",
+   "kind": "agent",
+   "name": "bug-repro",
+   "agent": "reproducer",
+   "model": "default",
+   "phase": "bug-repro",
+   "markers": [
+    "REPRO"
+   ]
+  },
+  {
+   "id": "reproduced",
+   "kind": "branch",
+   "name": "reproduced",
+   "phase": "bug-repro",
+   "no": "to_diagnose",
+   "when": {
+    "marker": "REPRO",
+    "equals": "confirmed",
+    "step": "repro"
+   }
+  },
+  {
+   "id": "verify_repro",
+   "kind": "code",
+   "name": "verify red + commit",
+   "phase": "bug-repro",
+   "action": "verify_red+commit",
+   "lock": true
+  },
+  {
+   "id": "gate_r",
+   "kind": "gate",
+   "name": "gate R",
+   "phase": "gate-r",
+   "back": "repro",
+   "lock": true,
+   "choices": [
+    "investigate",
+    "stop"
+   ]
+  },
+  {
+   "id": "stop_r",
+   "kind": "branch",
+   "name": "stop at gate R",
+   "phase": "gate-r",
+   "no": "hypotheses",
+   "when": {
+    "marker": "CHOICE",
+    "equals": "stop",
+    "step": "gate_r"
+   }
+  },
+  {
+   "id": "keep_test",
+   "kind": "code",
+   "name": "stop; the reproducing test stays on the branch",
+   "phase": "gate-r",
+   "then": "end"
+  },
+  {
+   "id": "hypotheses",
+   "kind": "agent",
+   "name": "hypotheses",
+   "agent": "investigator",
+   "model": "default",
+   "phase": "bug-investigate",
+   "collect": "hypotheses"
+  },
+  {
+   "id": "investigate",
+   "kind": "parallel",
+   "name": "one investigator per hypothesis",
+   "agent": "investigator",
+   "model": "default",
+   "phase": "bug-investigate",
+   "from": "hypotheses",
+   "cap": 4,
+   "markers": [
+    "ROOT-CAUSE"
+   ]
+  },
+  {
+   "id": "findings",
+   "kind": "code",
+   "name": "collect the findings",
+   "phase": "bug-investigate",
+   "action": "report"
+  },
+  {
+   "id": "confirmed",
+   "kind": "branch",
+   "name": "a cause is confirmed",
+   "phase": "bug-investigate",
+   "no": "escalated",
+   "when": {
+    "marker": "ROOT-CAUSE",
+    "equals": "confirmed",
+    "step": "investigate",
+    "any": true
+   }
+  },
+  {
+   "id": "plan",
+   "kind": "agent",
+   "name": "fix plan",
+   "agent": "investigator",
+   "model": "default",
+   "phase": "bug-investigate",
+   "markers": [
+    "E2E"
+   ]
+  },
+  {
+   "id": "plan_report",
+   "kind": "code",
+   "name": "plan for gate F",
+   "phase": "bug-investigate",
+   "action": "report"
+  },
+  {
+   "id": "gate_f",
+   "kind": "gate",
+   "name": "gate F",
+   "phase": "gate-f",
+   "back": "plan",
+   "lock": true,
+   "choices": [
+    "fix",
+    "feature"
+   ]
+  },
+  {
+   "id": "missing_requirement",
+   "kind": "branch",
+   "name": "a missing requirement",
+   "phase": "gate-f",
+   "no": "fix",
+   "when": {
+    "marker": "CHOICE",
+    "equals": "feature",
+    "step": "gate_f"
+   }
+  },
+  {
+   "id": "hand_feature",
+   "kind": "code",
+   "name": "start the feature flow with the evidence",
+   "phase": "gate-f",
+   "action": "start_flow",
+   "flow": "feature",
+   "seed": {
+    "title": "$title",
+    "evidence": "$data.report"
+   },
+   "then": "end"
+  },
+  {
+   "id": "fix",
+   "kind": "agent",
+   "name": "bug-fix",
+   "agent": "implementer",
+   "model": "default",
+   "phase": "bug-fix"
+  },
+  {
+   "id": "verify_fix",
+   "kind": "code",
+   "name": "verify + commit",
+   "phase": "bug-fix",
+   "action": "verify_green+commit",
+   "lock": true,
+   "rounds": 1,
+   "after_rounds": "reset"
+  },
+  {
+   "id": "e2e_needed",
+   "kind": "branch",
+   "name": "regression e2e needed",
+   "phase": "bug-fix",
+   "no": "ship_plan",
+   "when": {
+    "marker": "E2E",
+    "equals": "yes",
+    "step": [
+     "intake",
+     "plan"
+    ]
+   }
+  },
+  {
+   "id": "e2e",
+   "kind": "agent",
+   "name": "regression e2e",
+   "agent": "e2e-author",
+   "model": "default",
+   "phase": "e2e",
+   "markers": [
+    "E2E-RESULT"
+   ]
+  },
+  {
+   "id": "e2e_commit",
+   "kind": "code",
+   "name": "commit e2e",
+   "phase": "e2e",
+   "action": "commit"
+  },
+  {
+   "id": "ship_plan",
+   "kind": "gate",
+   "name": "which ship steps run",
+   "phase": "ship",
+   "lock": true,
+   "skip_menu": true,
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_verify_fix",
+   "kind": "agent",
+   "name": "fix what the checks found",
+   "agent": "implementer",
+   "model": "default",
+   "phase": "review-fix",
+   "retry_only": true,
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_verify_fix_commit",
+   "kind": "code",
+   "name": "commit the fix",
+   "phase": "review-fix",
+   "action": "commit",
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_verify",
+   "kind": "code",
+   "name": "verify fast + module",
+   "phase": "ship",
+   "action": "verify_fast+verify_module",
+   "lock": true,
+   "rounds": 2,
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_lint",
+   "kind": "code",
+   "name": "static checks",
+   "phase": "ship",
+   "action": "verify_lint",
+   "soft": true,
+   "skippable": "optional",
+   "group": "lint",
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_release",
+   "kind": "code",
+   "name": "verify release",
+   "phase": "ship",
+   "action": "verify_release",
+   "rounds": 2,
+   "skippable": "deferred",
+   "group": "release",
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_cover_measure",
+   "kind": "code",
+   "name": "measure coverage",
+   "phase": "coverage-fix",
+   "action": "verify_coverage",
+   "lock": true,
+   "soft": true,
+   "skippable": "deferred",
+   "group": "cover",
+   "included_from": "ship/cover"
+  },
+  {
+   "id": "ship_cover_measured",
+   "kind": "branch",
+   "name": "the coverage command failed",
+   "phase": "coverage-fix",
+   "no": "ship_cover_needs_work",
+   "when": {
+    "data": "coverage_error"
+   },
+   "skippable": "deferred",
+   "group": "cover",
+   "included_from": "ship/cover"
+  },
+  {
+   "id": "ship_cover_measure_failed",
+   "kind": "gate",
+   "name": "coverage could not be measured",
+   "phase": "coverage-fix",
+   "when": {
+    "data": "coverage_error"
+   },
+   "skippable": "deferred",
+   "group": "cover",
+   "choices": {
+    "try_again": "ship_cover_measure",
+    "go_on": "ship_cover_report"
+   },
+   "included_from": "ship/cover"
+  },
+  {
+   "id": "ship_cover_needs_work",
+   "kind": "branch",
+   "name": "coverage fails",
+   "phase": "coverage-fix",
+   "no": "ship_cover_report",
+   "when": {
+    "marker": "RESULT",
+    "step": "ship_cover_measure",
+    "equals": "fail"
+   },
+   "skippable": "deferred",
+   "group": "cover",
+   "included_from": "ship/cover"
+  },
+  {
+   "id": "ship_cover_decide",
+   "kind": "gate",
+   "name": "decide test / delete / accept",
+   "phase": "coverage-fix",
+   "lock": true,
+   "for_each": "coverage_groups",
+   "per_item": true,
+   "skippable": "deferred",
+   "group": "cover",
+   "choices": [
+    "test",
+    "delete",
+    "accept"
+   ],
+   "on_skip": {
+    "choice": "accept",
+    "record": "coverage_accepted"
+   },
+   "included_from": "ship/cover"
+  },
+  {
+   "id": "ship_cover_write",
+   "kind": "agent",
+   "name": "cover the group: write the test, or delete the unreachable lines",
+   "agent": "test-author",
+   "model": "default",
+   "phase": "coverage-fix",
+   "per_item": true,
+   "skippable": "deferred",
+   "group": "cover",
+   "included_from": "ship/cover"
+  },
+  {
+   "id": "ship_cover_review",
+   "kind": "agent",
+   "name": "review the coverage test: assertions lens",
+   "agent": "reviewer",
+   "model": "default",
+   "phase": "coverage-fix",
+   "back": "ship_cover_write",
+   "lock": true,
+   "per_item": true,
+   "rounds": 2,
+   "skippable": "deferred",
+   "group": "cover",
+   "included_from": "ship/cover"
+  },
+  {
+   "id": "ship_cover_commit",
+   "kind": "code",
+   "name": "coverage commit",
+   "phase": "coverage-fix",
+   "action": "commit",
+   "back": "ship_cover_write",
+   "lock": true,
+   "per_item": true,
+   "skippable": "deferred",
+   "group": "cover",
+   "included_from": "ship/cover"
+  },
+  {
+   "id": "ship_cover_remeasure",
+   "kind": "code",
+   "name": "measure again",
+   "phase": "coverage-fix",
+   "action": "verify_coverage",
+   "lock": true,
+   "soft": true,
+   "skippable": "deferred",
+   "group": "cover",
+   "included_from": "ship/cover"
+  },
+  {
+   "id": "ship_cover_covered",
+   "kind": "branch",
+   "name": "coverage passes",
+   "phase": "coverage-fix",
+   "no": "ship_cover_decide",
+   "when": {
+    "marker": "RESULT",
+    "step": "ship_cover_remeasure",
+    "equals": "pass"
+   },
+   "rounds": 2,
+   "skippable": "deferred",
+   "group": "cover",
+   "included_from": "ship/cover"
+  },
+  {
+   "id": "ship_cover_report",
+   "kind": "code",
+   "name": "coverage verdict",
+   "phase": "coverage-fix",
+   "action": "coverage_report",
+   "skippable": "deferred",
+   "group": "cover",
+   "included_from": "ship/cover"
+  },
+  {
+   "id": "ship_deps",
+   "kind": "code",
+   "name": "verify deps",
+   "phase": "ship",
+   "action": "verify_deps",
+   "skippable": "deferred",
+   "group": "deps",
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_audit",
+   "kind": "code",
+   "name": "audit",
+   "phase": "ship",
+   "action": "audit",
+   "lock": true,
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_trace",
+   "kind": "code",
+   "name": "trace --strict",
+   "phase": "ship",
+   "action": "trace_strict",
+   "lock": true,
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_lenses",
+   "kind": "code",
+   "name": "review lenses",
+   "phase": "ship",
+   "action": "review_lenses",
+   "skippable": "optional",
+   "group": "reviewers",
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_review",
+   "kind": "parallel",
+   "name": "ship review, one lens each",
+   "agent": "reviewer",
+   "model": "default",
+   "phase": "ship",
+   "from": "review_lenses",
+   "rounds": 2,
+   "redo": "ship_verify",
+   "skippable": "optional",
+   "group": "reviewers",
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_spec_walk",
+   "kind": "agent",
+   "name": "walk the diff against the spec: name behaviour no criterion asks for",
+   "agent": "reviewer",
+   "model": "default",
+   "phase": "ship",
+   "rounds": 2,
+   "redo": "ship_verify",
+   "skippable": "optional",
+   "group": "spec_walk",
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_final_review",
+   "kind": "gate",
+   "name": "final review",
+   "phase": "final-review",
+   "back": "ship_verify_fix",
+   "lock": true,
+   "report": "verdicts",
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_memory",
+   "kind": "agent",
+   "name": "knowledge update",
+   "agent": "librarian",
+   "model": "default",
+   "phase": "memory",
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_memory_check",
+   "kind": "code",
+   "name": "knowledge check",
+   "phase": "memory",
+   "action": "knowledge_check",
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_memory_commit",
+   "kind": "code",
+   "name": "commit memory",
+   "phase": "memory",
+   "action": "commit",
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_pr",
+   "kind": "code",
+   "name": "PR body",
+   "phase": "close",
+   "action": "pr",
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_pr_gate",
+   "kind": "gate",
+   "name": "open the PR",
+   "phase": "close",
+   "lock": true,
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_open_pr",
+   "kind": "code",
+   "name": "open the PR (never pushes)",
+   "phase": "close",
+   "action": "open_pr",
+   "included_from": "ship"
+  },
+  {
+   "id": "finish",
+   "kind": "code",
+   "name": "done",
+   "phase": "close",
+   "then": "end"
+  },
+  {
+   "id": "escalated",
+   "kind": "branch",
+   "name": "model already escalated",
+   "phase": "bug-investigate",
+   "no": "escalate",
+   "when": {
+    "marker": "ESCALATED",
+    "equals": "yes",
+    "step": "escalate"
+   }
+  },
+  {
+   "id": "to_diagnose",
+   "kind": "code",
+   "name": "hand to diagnose",
+   "phase": "bug-investigate",
+   "action": "start_flow",
+   "flow": "diagnose",
+   "seed": {
+    "title": "$title",
+    "symptoms": [
+     "$request"
+    ],
+    "evidence": "$data.report"
+   },
+   "then": "end"
+  },
+  {
+   "id": "escalate",
+   "kind": "code",
+   "name": "escalate the investigator's model once",
+   "agent": "investigator",
+   "phase": "bug-investigate",
+   "action": "escalate_model",
+   "then": "investigate"
+  },
+  {
+   "id": "reset",
+   "kind": "code",
+   "name": "reset and reproduce again",
+   "phase": "reset",
+   "action": "reset",
+   "then": "repro"
+  }
+ ],
+ "yaml": ""
+}
