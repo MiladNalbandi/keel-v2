@@ -21,7 +21,16 @@ data class KeelProperties(
     val dashboardAutostart: Boolean = false,
     /** Let flows on real projects run with the fake model without asking (tests). The demo project always may. */
     val fakeOnRealProjects: Boolean = false,
+    /** The Python that runs keel's own MCP server (`-m keel_engine.mcp`): blank = the image's engine venv, else python3 (dev). */
+    val mcpPython: String = "",
+    /** Where `keel2 start --with-keel-v1 <path>` mounts a keel v1 checkout; its MCP server is offered only when it is there. */
+    val keelV1Optional: String = "/opt/keel-v1-optional",
 ) {
+    /** The command for keel's builtin MCP server. */
+    val mcpPythonCommand: String by lazy {
+        mcpPython.ifBlank { ENGINE_PYTHON.takeIf { Files.isExecutable(Paths.get(it)) } ?: "python3" }
+    }
+
     /** Absolute data folder; created on first use. */
     val dataDir: Path by lazy {
         val p = Paths.get(data).toAbsolutePath().normalize()
@@ -44,5 +53,9 @@ data class KeelProperties(
         if (home.isNotBlank()) return@lazy Paths.get(home).toAbsolutePath().normalize()
         val candidates = listOf("/opt/keel", "../keel", "../../keel").map { Paths.get(it).toAbsolutePath().normalize() }
         candidates.firstOrNull { Files.isDirectory(it.resolve("agents")) } ?: candidates.first()
+    }
+
+    companion object {
+        const val ENGINE_PYTHON = "/opt/engine/.venv/bin/python"
     }
 }

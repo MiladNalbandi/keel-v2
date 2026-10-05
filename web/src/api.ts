@@ -352,7 +352,7 @@ export function normalizeStack(raw: unknown): Stack {
   };
 }
 
-export type McpServer = McpServerSpec & { enabled: boolean; builtin: boolean; status: "ok" | "off" | "error"; tools: string[] };
+export type McpServer = McpServerSpec & { enabled: boolean; builtin: boolean; status: "ok" | "off" | "error"; tools: string[]; label?: string };
 export type McpAllow = Record<string, string[]>;
 
 export type CapScope = "day" | "flow" | "step" | "api_month";

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import sys
 from pathlib import Path
 
 from .. import config
@@ -14,12 +15,10 @@ log = logging.getLogger(__name__)
 LIST_TIMEOUT = 30
 
 
-def keel_server_spec() -> dict | None:
-    """keel v1's MCP server, when KEEL_HOME has it."""
-    script = config.keel_home() / "mcp" / "server.js"
-    if not script.is_file():
-        return None
-    return {"name": "keel", "command": "node", "args": [str(script)]}
+def keel_server_spec() -> dict:
+    """keel v2's own MCP server, read-only: an agent can read the flow but never approve its own gate."""
+    return {"name": "keel", "command": sys.executable, "args": ["-m", "keel_engine.mcp", "--read-only"],
+            "env": {"KEEL_API_URL": config.api_url()}}
 
 
 def _server_env(spec: dict) -> dict:
@@ -81,9 +80,11 @@ def servers_for(specs: list[dict], allow: list[str] | None) -> list[dict]:
     wanted = parse_allow(allow)
     by_name = {s["name"]: s for s in specs or []}
     if "keel" in wanted and "keel" not in by_name:
-        spec = keel_server_spec()
-        if spec:
-            by_name["keel"] = spec
+        by_name["keel"] = keel_server_spec()
+    elif "keel" in by_name:
+        # The api's seeded entry: the server finds the api through KEEL_API_URL (its env is otherwise filtered).
+        spec = by_name["keel"]
+        by_name["keel"] = {**spec, "env": {"KEEL_API_URL": config.api_url(), **(spec.get("env") or {})}}
     return [by_name[n] for n in wanted if n in by_name]
 
 

@@ -18,6 +18,7 @@ export function createDb() {
     memory: clone(fx.memory),
     caps: clone(fx.caps) as Cap[],
     stacks: clone(fx.stacks) as Stack[],
+    mcpServers: clone(fx.mcpServers),
     /** What POST /repo/update-from-base answers (tests change it). */
     update: { ok: true, merged: true, conflicts: [] as string[], output: "Merge made by the 'ort' strategy.\n 1 file changed" },
     /** When set, PUT /workflows/:wid answers 422 with these validation errors. */
@@ -183,7 +184,13 @@ export function handlers(db: Db) {
       await log(request);
       return HttpResponse.json({ id: "imported-skill", kind: "knowledge", source: "yours", stack: "any", version: "v1", tokens: 500, agents: [], when: "", enabled: true });
     }),
-    http.get("/api/mcp-servers", () => HttpResponse.json(fx.mcpServers)),
+    http.get("/api/mcp-servers", () => HttpResponse.json(db.mcpServers)),
+    http.put("/api/mcp-servers/:name", async ({ request, params }) => {
+      const b = (await log(request)) as { enabled?: boolean };
+      const s = db.mcpServers.find((x) => x.name === params.name)!;
+      if (b.enabled !== undefined) s.enabled = b.enabled;
+      return HttpResponse.json(s);
+    }),
     http.post("/api/mcp-servers/:name/test", () => HttpResponse.json({ ok: true, tools: [{ name: "keel_status" }, { name: "keel_next" }] })),
     http.get("/api/projects/:pid/mcp-allow", () => HttpResponse.json({ explorer: ["keel"] })),
     http.put("/api/projects/:pid/mcp-allow", async ({ request }) => HttpResponse.json(await log(request))),

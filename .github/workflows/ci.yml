@@ -14,6 +14,9 @@ jobs:
       - run: bash -n keel2 && bash -n install.sh && bash -n docker/keel-start
       - run: shellcheck -S error keel2 install.sh docker/keel-start
       - run: ./keel2 help | grep -q "keel2 start" && ./keel2 version
+      # keel2 mcp: the client config names this script; --with-keel-v1 refuses a folder without mcp/server.js
+      - run: ./keel2 help | grep -q "keel2 mcp" && ./keel2 mcp --print-config | grep -q "claude mcp add keel-v2 -- $PWD/keel2 mcp$"
+      - run: ./keel2 mcp --write --print-config | grep -q '"args": \["mcp", "--write"\]' && ! ./keel2 start --with-keel-v1 /tmp
   engine:
     runs-on: ubuntu-latest
     steps:
