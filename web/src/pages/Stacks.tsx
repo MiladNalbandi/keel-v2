@@ -6,6 +6,8 @@ import { api, errorParts, type Stack } from "../api";
 import { Async, Drawer, ErrorBox, PageHead, Panel, Pill } from "../components/ui";
 import { useApp, useLoad } from "../state";
 
+const FAIL_TEXT: Record<string, string> = { fix: "fix: keep its changes", block: "block: refuse the commit", warn: "warn: say so, go on" };
+
 export function StacksPage({ pid }: { pid: string }) {
   const { project, toast } = useApp();
   const stacks = useLoad(`stacks:${pid}`, () => api.stacks(pid), { live: false });
@@ -67,9 +69,17 @@ export function StacksPage({ pid }: { pid: string }) {
                       {cur.commands.length ? <div className="kv kv-col">{cur.commands.map((c) => <Fragment key={c.name}><span>{c.name}</span><b className="mono">{c.cmd}</b></Fragment>)}</div> : <span className="sub">none</span>}</div>
                     <div className="field"><span className="lab">Tools</span>
                       {cur.tools.length ? (
-                        <div className="table-wrap"><table><thead><tr><th>Tool</th><th>Runs on</th><th>If it fails</th></tr></thead>
-                          <tbody>{cur.tools.map((t) => <tr key={t.name}><td className="mono">{t.name}</td><td><span className="tag">{t.on}</span></td><td className="sub">{t.fail}</td></tr>)}</tbody></table></div>
-                      ) : <span className="sub">none</span>}</div>
+                        <div className="table-wrap"><table aria-label={`Tools of ${cur.name}`}><thead><tr><th>Tool</th><th>Runs on</th><th>If it fails</th><th>What it does</th></tr></thead>
+                          <tbody>{cur.tools.map((t) => (
+                            <tr key={t.name}>
+                              <td className="mono">{t.name}</td>
+                              <td>{t.off ? <span className="sub">turned off</span> : <span className="tag">{t.on}</span>}</td>
+                              <td className="sub">{t.off ? "—" : FAIL_TEXT[t.fail] ?? t.fail}</td>
+                              <td className="sub">{t.description ?? ""}{t.kind && t.kind !== "check" ? ` (${t.kind})` : ""}</td>
+                            </tr>
+                          ))}</tbody></table></div>
+                      ) : <span className="sub">none</span>}
+                      <span className="hint">edit: after an agent changes a file · pre-commit: before each keel commit · manual: the lint flow and ship. A program that is not installed is skipped.</span></div>
                     <div className="field"><span className="lab">Skills this stack gives agents</span>
                       <div className="row">{cur.skills.length ? cur.skills.map((k) => <a key={k} className="tag skilltag" href="#/skills" style={{ textDecoration: "none" }}>{k}</a>) : <span className="sub">ships its own testing skill</span>}</div></div>
                   </div>

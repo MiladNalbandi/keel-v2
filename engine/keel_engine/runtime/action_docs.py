@@ -147,6 +147,41 @@ DOCS: dict[str, dict] = {
     "coverage_report": {
         "summary": "Says what cover leaves behind: the latest coverage verdict and every group accepted, not covered.",
     },
+    # ---------------------------------------------------------------- static checks (lint_actions.py, tools.py)
+    "lint_scope": {
+        "summary": "Picks the files the lint run checks: the branch diff and uncommitted files, or every tracked file.",
+        "steps": [
+            "data.scope diff (default): the files changed since the base branch plus the uncommitted ones; all: git ls-files.",
+            "Your own uncommitted files (there when the flow started) are left out: a formatter never rewrites your work.",
+            "Not a git repository: the flow stops.",
+        ],
+    },
+    "lint_run": {
+        "summary": "Runs every check tool of the project's stacks and config on those files, fixers first; writes the lint "
+                   "verdict.",
+        "steps": [
+            "The tools declared on manual, edit, batch and pre-commit (kind check), fix tools first so their changes are "
+            "checked too.",
+            "A tool that is not installed is \"not available\", never a failure.",
+            "A failing block or fix tool fails the check; warn tools are listed as warnings. The findings go to "
+            "data.lint_findings for the fixing agent; the sha-stamped lint verdict is written.",
+        ],
+    },
+    "lint_report": {
+        "summary": "Writes the lint report: the verdict, one row per tool, what still fails and whether the flow went on "
+                   "anyway.",
+        "steps": ["Reads the latest lint verdict and the last run's results; the report is what the next gate shows "
+                  "(data.lint_report)."],
+    },
+    "verify_lint": {
+        "summary": "Ship's static checks: the check tools on the branch diff without fixers; writes the lint verdict.",
+        "steps": [
+            "Runs the check tools on the files changed since the base branch; fix tools are left out, so nothing in the "
+            "tree changes.",
+            "A failing block (or fix) tool fails the check; warn tools are warnings; nothing installed is \"not available\". "
+            "In ship the step is soft: the final review shows a failure as an exception.",
+        ],
+    },
     # ---------------------------------------------------------------- commit + config (runtime/actions.py)
     "commit": {
         "summary": "Makes the real git commit for this phase, after keel's checks; refusals put the staging back.",
@@ -155,6 +190,9 @@ DOCS: dict[str, dict] = {
             "Stages everything (or only the step's paths), never keel's own files (.keel/ state, .codegraph).",
             "Unstages your own edits: files that were already changed when the flow started and that no agent touched since.",
             "Nothing staged: passes, \"Nothing to commit\".",
+            "Runs the project's pre-commit tools on the staged files (runtime/tools.py), fixers first: a fix tool's "
+            "changes are staged again, a block tool's failure refuses the commit with its output, a warn tool adds a line "
+            "to the note. Skipped when a lint run already checked exactly this tree.",
             "Looks for secrets in the staged diff (keys, tokens, private keys); any hit refuses the commit.",
             "A new dependency in a manifest asks you first (approve keeps it; reject puts the manifest back and commits the "
             "rest).",

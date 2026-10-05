@@ -425,11 +425,13 @@ def commit_type_for(phase: str) -> str:
         "red": "red", "bug-repro": "red", "green": "green", "refactor": "refactor", "bug-fix": "fix",
         "review-fix": "fix", "coverage-fix": "coverage", "contract": "contract", "e2e": "e2e", "smoke": "smoke",
         "trivial": "trivial", "spec": "docs", "close": "docs", "ac": "ac", "memory": "memory", "setup": "setup",
+        "lint-fix": "lint",
     }.get(phase, "fix")
 
 
 def commit_prefix(ctype: str, ident: str = "") -> str:
-    fixed = {"coverage": "test(coverage)", "smoke": "test(smoke)", "memory": "docs(memory)", "setup": "chore(setup)"}
+    fixed = {"coverage": "test(coverage)", "smoke": "test(smoke)", "memory": "docs(memory)", "setup": "chore(setup)",
+             "lint": "chore(lint)"}
     if ctype in fixed:
         return fixed[ctype]
     word = {"red": "test", "green": "feat", "refactor": "refactor", "fix": "fix", "contract": "contract",

@@ -37,6 +37,7 @@ from ..tools import git, guard, mcp
 from ..tools.agent_tools import ToolBox
 from ..workflows.model import Loop, Step, Workflow
 from . import agent_knowledge, clarify, guard_ctx, init_gates, markers, prompts, spec_check
+from . import tools as tool_runner
 from . import memory as memory_mod
 from . import ship as ship_mod
 from .actions import ActionInput, ActionResult, revert_manifests, run_action
@@ -405,6 +406,11 @@ class Compiler:
         asks = prompts.step_asks(step, lambda path: self._seed_value("$" + path, state, item))
         if asks:
             prompt = f"{prompt}\n{asks}"
+        lint_notes = (state.get("data") or {}).get("lint_notes") or []
+        if lint_notes:
+            why = "know them while you review" if rules.read_only(phase) else "fix them when they are in your scope"
+            prompt += (f"\n\nStatic checks on the files the last step changed ({why}):\n"
+                       + "\n".join(f"- {n}" for n in lint_notes))
         note = memory_mod.resume_note(prev, resuming) if same else ""
         if note:
             prompt = f"{note}\n\n{prompt}"
@@ -671,6 +677,12 @@ class Compiler:
                                           rules.ac_lane(ac) if ac else None, state.get("unlocks") or [])
         for r in refused:
             ctx.emit("guard.refused", step=step.id, data={"tool": "diff-guard", "phase": state["phase"], **r})
+        tools_note = ""
+        if agent_results:
+            tools_note, lint_data = await self._after_edit(step, state, before, refused)
+            if lint_data is not None:
+                state = {**state, "data": lint_data}
+                upd["data"] = lint_data
 
         usage = dict(state.get("usage") or {})
         step_tokens = dict(state.get("step_tokens") or {})
@@ -691,6 +703,8 @@ class Compiler:
         upd["note"] = " · ".join(x for x in [label, *notes[:2], *lane_notes] if x)
         if refused:
             upd["note"] += f" · guard put back {len(refused)} file(s)"
+        if tools_note:
+            upd["note"] += f" · {tools_note}"
         if sections and state.get("acs"):
             upd["acs"] = [dict(a, status="done") if a["id"] in sections else dict(a) for a in state["acs"]]
 
@@ -752,6 +766,39 @@ class Compiler:
                     return upd, self.nav.jump(step.back, i)
                 return upd, fix_id(step.id)
         return upd, self.nav.after(i)
+
+    def _tool_emit(self, step_id: str):
+        """Each tool run as an event `tool.ran` with its full output (the dashboard); the agent only gets one line."""
+        def emit(r: dict):
+            self.ctx.emit("tool.ran", step=step_id, data={
+                "tool": r["name"], "on": r["on"], "fail": r["fail"], "ok": r["ok"], "available": r["available"],
+                "ms": r["ms"], "files": r["files"], "cmd": r["cmd"], "dir": r["dir"], "code": r["code"],
+                "source": r.get("source"), "output": r.get("output", "")[:STEP_FIELD_MAX]})
+        return emit
+
+    async def _after_edit(self, step: Step, state: FlowState, before, refused: list[dict]) -> tuple[str, dict | None]:
+        """After an agent step that changed files: the project's `edit` and `batch` tools on those files (runtime/tools.py).
+        A formatter's changes stay; block and warn failures go to data.lint_notes, which the next agent's prompt and
+        the next gate show. Returns (a note for the step, the new data or None when nothing ran)."""
+        ctx = self.ctx
+        if before is None or rules.read_only(state.get("phase")):
+            return "", None
+        gone = {r.get("path") for r in refused}
+        changed = await asyncio.to_thread(guard.changed_since, ctx.root, before)
+        files = [f for f in changed if f not in gone]
+        if not files:
+            return "", None
+        res = await asyncio.to_thread(tool_runner.after_edit, ctx.root, files, include_stacks=not ctx.simulate_checks,
+                                      emit=self._tool_emit(step.id))
+        if not res["ran"]:
+            return "", None
+        data = {**(state.get("data") or {}), "lint_notes": res["notes"]}
+        parts = [f"tools: {len(res['ran'])} ran"]
+        if res["changed"]:
+            parts.append(f"{len(res['changed'])} file(s) formatted")
+        if res["notes"]:
+            parts.append(f"{len(res['notes'])} finding(s): " + "; ".join(n.split(':')[0] for n in res["notes"]))
+        return ", ".join(parts), data
 
     def _item_agent(self, step: Step, item: dict) -> str:
         """The agent for one item of a fan-out: the item's own `agent` when the list was made by the flow's code
@@ -871,6 +918,7 @@ class Compiler:
                "feedback": None, "last_answer": (res.text or "")[:2000], "phase": route}
         a = self._action_input(state, None)
         a.title = f"address {review.name} findings"
+        a.emit = self._tool_emit(fix.id)
         notes = []
         for action in ROUTES[route]:
             r = await run_action(action, a)
@@ -951,6 +999,7 @@ class Compiler:
             else:
                 a = self._action_input(st, ac, item)
                 a.step = step.id
+                a.emit = self._tool_emit(step.id)
                 if action == "open_pr":
                     a.state["pr_approved"] = self._gate_approved(i, st)
                 r = await run_action(action, a)
@@ -1273,6 +1322,9 @@ class Compiler:
                 detail = f"Spec: {state['spec']}\n{detail}"
                 if step.phase in ("spec", "triage"):
                     detail += "\n\n" + spec_check.describe(spec_check.check(spec_check.read_spec(ctx.root, state["spec"]), acs))
+        lint_notes = (state.get("data") or {}).get("lint_notes") or []
+        if lint_notes and not no_criteria:
+            detail = f"{detail}\n\nStatic checks on the last changed files:\n" + "\n".join(f"- {n}" for n in lint_notes)
         question = {"step": step.id, "kind": "gate", "title": title, "detail": detail, "options": options}
         routes = isinstance(step.choices, dict) and not no_criteria
         if routes:
