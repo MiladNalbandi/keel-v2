@@ -19,7 +19,7 @@ from .models import usage as provider_usage
 from .demo import create_demo, workspace_missing
 from .events import EventBus, bus as default_bus
 from .models import catalog
-from .runtime import mapper, scan
+from .runtime import hunt, mapper, scan
 from .runtime.service import Engine, EngineError
 from .tools import mcp
 from .workflows.estimate import estimate
@@ -68,6 +68,13 @@ class Settings(BaseModel):
     usage_warn: float | None = Field(default=None, ge=0, le=1)    # warn before an agent when its plan window is this used (0.80)
     usage_pause: float | None = Field(default=None, ge=0, le=1)   # pause before an agent at this (0.95)
     provider_windows: list[dict[str, Any]] | None = None          # the api's latest plan windows: [{provider, window, used_pct, resets_at, ...}]
+    # flow options (a parent flow's start_flow seed can give the same keys)
+    fast: bool | None = None                    # init: no knowledge base unless named, re-use passed rungs; hunt: fast lenses
+    fix_attempts_per_rung: int | None = Field(default=None, ge=1, le=10)   # init: setup-doctor rounds before a rung asks
+    hunt_mode: Literal["auto", "semi"] | None = None   # hunt: semi stops after the sweep and after the provers
+    hunt_scope: str | None = None               # hunt: all | diff | <path,path>
+    hunt_lenses: list[str] | None = None        # hunt: the lenses to propose (default: hunt.lenses in .keel/config.yml)
+    hunt_run: str | None = None                 # hunt-next: the run to drain (default: the project's latest)
 
 
 class McpServerSpec(BaseModel):
@@ -156,6 +163,12 @@ class ScanBody(BaseModel):
 
 class MapBody(BaseModel):
     root: str
+
+
+class HuntClose(BaseModel):
+    id: str                                   # F-001 or G-01
+    disposition: Literal["fixed", "accepted", "wontfix"] = Field(alias="as")
+    note: str
 
 
 class ProviderUsage(BaseModel):
@@ -331,6 +344,29 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     async def get_map(pid: str):
         m = await asyncio.to_thread(mapper.load, pid)
         return m or {"missing": "No map yet. Build it to draw one."}
+
+    @app.get("/projects/{pid}/hunts")
+    async def get_hunts(pid: str):
+        """The project's bug hunts, newest first, with their counts (runtime/hunt.py)."""
+        return await asyncio.to_thread(hunt.list_view, pid)
+
+    @app.get("/projects/{pid}/hunts/{run}")
+    async def get_hunt(pid: str, run: str):
+        """One hunt: candidates (with verdicts and recipes), groups, and the rendered report and candidates pages."""
+        view = await asyncio.to_thread(hunt.run_view, pid, run)
+        if not view:
+            raise EngineError(404, f"No hunt {run} in project {pid}.")
+        return view
+
+    @app.post("/projects/{pid}/hunts/{run}/close")
+    async def post_hunt_close(pid: str, run: str, body: HuntClose):
+        """Close a finding or a group as fixed | accepted | wontfix, with a note (never deletes it)."""
+        if not await asyncio.to_thread(hunt.get_run, pid, run):
+            raise EngineError(404, f"No hunt {run} in project {pid}.")
+        ok, msg = await asyncio.to_thread(hunt.close, pid, run, body.id, body.disposition, body.note)
+        if not ok:
+            raise EngineError(400, msg)
+        return await asyncio.to_thread(hunt.run_view, pid, run)
 
     @app.post("/mcp/tools")
     async def post_mcp_tools(body: McpServerSpec):

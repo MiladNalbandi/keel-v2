@@ -8,6 +8,8 @@ verify_release and a whole-suite verify_green -> release, verify_coverage -> cov
 The other verdict actions (verify_fast, verify_module, verify_deps, audit, trace, arch) and the PR (pr, open_pr) live
 in runtime/verdict_actions.py; review_lenses and coverage_report in runtime/ship.py; the review, diagnose, fix and change
 helpers in runtime/flow_actions.py; start_flow and escalate_model are the compiler's (they start a thread, change a model).
+The hunt's backlog actions (hunt_*) are in runtime/hunt_actions.py, init's architecture and ladder-repair steps
+in runtime/init_actions.py.
 """
 
 from __future__ import annotations
@@ -71,6 +73,8 @@ class ActionInput:
     state: dict = field(default_factory=dict)          # a copy of the flow state (the pr action reads spec, gates, unlocks)
     step: str = ""                                     # the code step running the action (markers it sets go there)
     request: str = ""                                  # what the user asked for, in their words
+    settings: dict = field(default_factory=dict)       # the thread's settings (StartThread.settings: a flow's options)
+    thread_id: str = ""                                # the thread running this action (a hunt run records it)
 
     @property
     def key(self) -> str:
@@ -102,7 +106,16 @@ async def run_action(action: str, a: ActionInput) -> ActionResult:
         return await asyncio.to_thread(push_check, a)
     if action.startswith("run:"):
         return await run_command(action[4:].strip(), a)
+    more = _flow_actions()
+    if action in more:
+        return await more[action](a)
     return ActionResult(False, f"Unknown action {action}.")
+
+
+def _flow_actions() -> dict:
+    """The actions of single flows (hunt, hunt-next, init's extra steps); imported late, they import this module."""
+    from . import hunt_actions, init_actions
+    return {**hunt_actions.ACTIONS, **init_actions.ACTIONS}
 
 
 
@@ -403,7 +416,7 @@ async def ladder(a: ActionInput) -> ActionResult:
     def runner(root: str, cmd: str) -> tuple[int, str]:
         return testcmd.run(root, cmd, 900, command_env())
 
-    ok, rungs = await asyncio.to_thread(run_ladder.run, a.root, a.fake, runner)
+    ok, rungs = await asyncio.to_thread(run_ladder.run, a.root, a.fake, runner, bool(a.settings.get("fast")))
     lines = ["# Running this project", "", "Written by keel init. Every command below passed the run ladder.", ""]
     for r in rungs:
         if r["status"] == "pass" and r["n"] != 1:

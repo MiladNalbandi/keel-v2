@@ -31,10 +31,12 @@ data class Step(
     val lane: String? = null,
     // Engine workflow features the api passes through unchanged (engine/keel_engine/workflows/model.py):
     // fan-out from a state list (from, cap, batch), for_each loops (for_each, per_item), result markers and a
-    // collected list, a branch on a marker (when), and the start_flow hand-off (flow, seed, then).
+    // collected list, a branch on a marker or a data path (when; on a gate: when it pauses), named gate exits
+    // (choices: {name: step id | "end"}), and the start_flow hand-off (flow, seed, then).
     val from: String? = null,
     val cap: Int? = null,
-    val batch: Int? = null,
+    /** A number, or "$<state path>" the engine reads when the step runs (e.g. "$data.hunt.prove_concurrency"). */
+    val batch: Any? = null,
     val forEach: String? = null,
     val perItem: Boolean? = null,
     val markers: List<String>? = null,
@@ -53,7 +55,8 @@ data class Step(
     val group: String? = null,
     val skipMenu: Boolean? = null,
     val report: String? = null,
-    val choices: List<String>? = null,
+    /** A list (one choice per loop item, cover) or a map of named exits {name: step id | "end"} (hunt). */
+    val choices: Any? = null,
     val onSkip: Map<String, Any?>? = null,
     // review, diagnose, fix and change: the agent's step instructions and where a code step goes once its rounds are used up.
     val instructions: String? = null,

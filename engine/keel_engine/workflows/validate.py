@@ -17,10 +17,15 @@ CODE_ACTIONS = {"verify_red", "verify_green", "verify_release", "verify_coverage
                 # flow helpers: review scope, reports, the bug and change flows (runtime/flow_actions.py), model escalation
                 "review_scope", "report", "investigation_note", "bug_intake", "reset", "change_size", "change_start",
                 "escalate_model"}
+# the hunt and hunt-next flows (runtime/hunt_actions.py) and init's extra steps (runtime/init_actions.py)
+FLOW_ACTIONS = {"hunt_start", "hunt_deps", "hunt_confirm", "hunt_ingest", "hunt_verdicts", "hunt_group", "hunt_report",
+                "hunt_commit", "hunt_close", "hunt_take", "arch_detect", "arch_set", "ladder_soft", "ladder_retry",
+                "rung_apply"}
+END = "end"          # a branch's no, or a gate choice, may finish the flow
 
 
 def _action_ok(action: str) -> bool:
-    return action in CODE_ACTIONS or (action.startswith("run:") and len(action) > 4)
+    return action in CODE_ACTIONS or action in FLOW_ACTIONS or (action.startswith("run:") and len(action) > 4)
 
 
 def successors(wf: Workflow, i: int) -> list[int]:
@@ -30,7 +35,8 @@ def successors(wf: Workflow, i: int) -> list[int]:
     out = []
     if i + 1 < len(wf.steps):
         out.append(i + 1)
-    for target in (s.back, s.no, s.then, s.after_rounds):
+    exits = s.choices.values() if isinstance(s.choices, dict) else ()
+    for target in (s.back, s.no, s.then, s.after_rounds, *exits):
         if target in ids:
             out.append(ids[target])
     loop = wf.loop_of(i)
@@ -65,16 +71,18 @@ def validate(wf: Workflow) -> list[str]:
             for a in s.actions():
                 if not _action_ok(a):
                     errors.append(f"{where}: unknown action '{a}'.")
-        if s.kind == "gate" and s.back:
+        if s.kind in ("gate", "code") and s.back:
+            # a code step's back: where a failed check goes (with the failure as feedback) instead of a retry
             if s.back not in index:
                 errors.append(f"{where}: back target '{s.back}' does not exist.")
-            elif index[s.back] >= n:
+            elif index[s.back] >= n and s.kind == "gate":
                 errors.append(f"{where}: back must point to an earlier step, not '{s.back}'.")
         review = s.kind in ("agent", "parallel") and (s.agent or "") in REVIEWERS and not s.per_ac and not s.lanes
         if s.back and s.kind != "gate":
             if s.kind != "code" and not review:
                 errors.append(f"{where}: only gates, code steps and review steps have a back target.")
-            elif s.back not in index or index[s.back] >= n:
+            elif s.back not in index or (index[s.back] >= n and (s.kind != "code" or index[s.back] == n)):
+                # a code step may send its failure forward too (hunt: a refused close goes back to the triage gate), never to itself
                 errors.append(f"{where}: back target '{s.back}' must be an earlier step.")
         if s.redo is not None:
             if not review:
@@ -92,12 +100,18 @@ def validate(wf: Workflow) -> list[str]:
             errors.append(f"{where}: only agent and code steps are retry_only.")
         if (s.skip_menu or s.report or s.choices or s.on_skip) and s.kind != "gate":
             errors.append(f"{where}: skip_menu, report, choices and on_skip belong to a gate.")
+        if isinstance(s.choices, dict):
+            if not s.choices:
+                errors.append(f"{where}: choices needs at least one exit.")
+            for name, target in s.choices.items():
+                if target != END and target not in index:
+                    errors.append(f"{where}: choice '{name}' goes to '{target}', which does not exist.")
         if s.on_skip is not None:
             if not s.per_item:
                 errors.append(f"{where}: on_skip belongs to a gate inside a for_each loop.")
             if s.on_skip.get("choice") and s.on_skip["choice"] not in (s.choices or []):
                 errors.append(f"{where}: on_skip choice '{s.on_skip['choice']}' is not one of the choices.")
-        if s.choices is not None and (not s.choices or len(set(s.choices)) != len(s.choices)):
+        if isinstance(s.choices, list) and (not s.choices or len(set(s.choices)) != len(s.choices)):
             errors.append(f"{where}: choices must be a list of different names.")
         if s.after_rounds is not None and (s.kind != "code" or s.after_rounds not in index):
             errors.append(f"{where}: after_rounds belongs to a code step and names an existing step.")
@@ -109,7 +123,7 @@ def validate(wf: Workflow) -> list[str]:
         if s.kind == "branch":
             if not s.no:
                 errors.append(f"{where}: a branch needs a 'no' target.")
-            elif s.no not in index:
+            elif s.no not in index and s.no != END:
                 errors.append(f"{where}: no target '{s.no}' does not exist.")
         elif s.no:
             errors.append(f"{where}: only branches have a 'no' target.")
@@ -130,7 +144,10 @@ def validate(wf: Workflow) -> list[str]:
         if s.items_from and s.lanes:
             errors.append(f"{where}: 'from' and lanes do not go together.")
         for name, v in (("cap", s.cap), ("batch", s.batch)):
-            if v is not None and v < 1:
+            if isinstance(v, str):
+                if not v.startswith("$"):
+                    errors.append(f"{where}: {name} is a number or a \"$<state path>\".")
+            elif v is not None and v < 1:
                 errors.append(f"{where}: {name} must be 1 or more.")
         if s.batch is not None and s.kind != "parallel":
             errors.append(f"{where}: only a parallel step takes batch.")
@@ -139,10 +156,11 @@ def validate(wf: Workflow) -> list[str]:
         if s.collect and s.kind not in ("agent", "parallel"):
             errors.append(f"{where}: only agent steps collect a list.")
         if s.when is not None:
-            if s.kind != "branch":
-                errors.append(f"{where}: only branches have a 'when'.")
-            elif not str(s.when.get("marker") or "").strip():
-                errors.append(f"{where}: when needs a marker name (when: {{marker: REPRO, equals: confirmed}}).")
+            if s.kind not in ("branch", "gate"):
+                errors.append(f"{where}: only branches and gates have a 'when'.")
+            elif not str(s.when.get("marker") or s.when.get("data") or "").strip():
+                errors.append(f"{where}: when needs a marker name (when: {{marker: REPRO, equals: confirmed}}) "
+                              "or a data path (when: {data: hunt.mode, equals: semi}).")
             else:
                 src = s.when.get("step")
                 for name in (src if isinstance(src, list) else [src] if src else []):

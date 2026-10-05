@@ -33,14 +33,15 @@ def existing_sections(root: str) -> list[str]:
     return [s for s in SECTIONS if (k / f"{s}.md").is_file()]
 
 
-def defaults(root: str) -> dict:
+def defaults(root: str, fast: bool = False) -> dict:
+    """keel's answers when the user gives none. A fast init writes no knowledge base unless the user names sections."""
     return {"runs_on": "dev container" if (Path(root) / ".devcontainer").is_dir() else "this machine",
             "services": f"use {compose_file(root)}" if compose_file(root) else "none",
-            "knowledge_sections": list(SECTIONS)}
+            "knowledge_sections": [] if fast else list(SECTIONS)}
 
 
-def questions(root: str) -> str:
-    d = defaults(root)
+def questions(root: str, fast: bool = False) -> str:
+    d = defaults(root, fast)
     have = existing_sections(root)
     lines = ["Three questions before keel sets this project up. Approve to use the defaults (in brackets), or answer "
              "in your own words with “Use my answers”, for example: “1 dev container · 2 I run them myself · "
@@ -51,15 +52,17 @@ def questions(root: str) -> str:
         lines.append(f"2. {comp} exists. Use it for services (databases, queues)?  use it / I run them myself   [use it]")
     else:
         lines.append("2. No compose file found. Services?  none / I run them myself / generate one   [none]")
-    lines.append("3. Which knowledge sections should keel write?  (more sections = more tokens now, better agents later)   [all five]")
+    lines.append("3. Which knowledge sections should keel write?  (more sections = more tokens now, better agents later)   "
+                 + ("[none: this is a fast init; name the ones you want, conventions and data help agents most]" if fast
+                    else "[all five]"))
     for s in SECTIONS:
         lines.append(f"   - {s}: {SECTION_HELP[s]}" + ("  (exists)" if s in have else ""))
     return "\n".join(lines)
 
 
-def answers(root: str, text: str | None) -> dict:
+def answers(root: str, text: str | None, fast: bool = False) -> dict:
     """The defaults, changed by what the user wrote (free text: words are matched, not a strict format)."""
-    a = defaults(root)
+    a = defaults(root, fast)
     t = (text or "").lower()
     if not t.strip():
         return a

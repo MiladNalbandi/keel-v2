@@ -108,7 +108,7 @@ type Step = {
   redo?: string;               // review: where the flow goes on after a fix (default the review)
   skippable?: "deferred" | "optional"; group?: string;   // the skip menu may turn it off; a group is skipped as one
   skip_menu?: boolean; report?: "verdicts";             // gates: the opening skip menu; the final review's verdict table
-  choices?: string[]; on_skip?: { choice?: string; record?: string };   // per-item gate: one choice per item; other gates: named exits
+  choices?: string[] | Record<string, string>; on_skip?: { choice?: string; record?: string };   // list in a for_each loop: one choice per item; list outside a loop: named exits as markers CHOICE/WHY; map: named exits {name: step id | "end"}
   // v0.4.0 review, diagnose, fix, change (section "v0.4.0 additions: review, diagnose, fix and change"):
   instructions?: string;       // agent: extra task text; "{{data.report}}" is replaced by that state value
   after_rounds?: string;       // code: where failures go once `rounds` are used up, instead of asking
@@ -603,7 +603,7 @@ Workflows `cover` and `ship` (content/workflows; ORDER = feature, change, fix, i
 
 ## v0.4.0 additions: review, diagnose, fix and change
 
-Workflows in `content/workflows/` (ORDER: feature, change, fix, diagnose, review, init, knowledge-refresh, cover, ship).
+Workflows in `content/workflows/` (ORDER: feature, change, fix, diagnose, review, init, knowledge-refresh, cover, ship, hunt, hunt-next).
 
 - **review** (read-only, phase `review`): `review_scope` reads `data.lens` (code | all | correctness | security | performance |
   architecture | assertions | ac <ID>) and `data.base` (default base_branch, main, master) and builds `data.review_lenses`
@@ -633,3 +633,57 @@ Workflows in `content/workflows/` (ORDER: feature, change, fix, diagnose, review
   gate's detail; `last_answer` keeps 8000 chars, fan-out results 16000; markers CODE-REVIEW and AC-REVIEW (pass | findings)
   are registered; start_flow seeds may carry `evidence` (added to the child's request) and `no_gates`.
 
+
+## v0.4.0 additions: hunt, hunt-next and init
+
+### Workflow keys (engine, generic)
+- **Gate exits:** `choices: {take: take, close: close, stop: end}` (a map) on any gate: the pause has `options: ["approve"]`
+  and `choices: [names]`; `payload.choice` picks one (default the first), `"end"` finishes the flow, and the answer is
+  kept in `data["<gate id>_answer"] = {choice, why, payload}` for the step it leads to. (A list stays the per-item choice
+  gate of cover.)
+- **`when` on a gate:** the gate pauses only when it holds; otherwise it is approved by the engine and logged
+  `gate <id> approve: not asked, ...`. `when` (gates and branches) also reads `data: <path>` (`{data: hunt.mode, equals: semi}`;
+  no equals/in = "is set"). A branch's `no` may be `end`.
+- **Gate detail from the state:** `data["<gate id>_detail"]`, when a step before the gate wrote it, is the pause's detail.
+- **`batch: "$data.path"`** reads the concurrency when the step runs. A fan-out with `collect` tags each collected entry with
+  `from_item` (the id of the item whose agent gave it).
+- A code step's `back` may also point forward (hunt: a refused close goes back to the triage gate).
+- Code actions get `settings` (the thread's) and `thread_id`. StartThread.settings gains `fast`, `fix_attempts_per_rung`,
+  `hunt_mode` (auto|semi), `hunt_scope` (all|diff|paths), `hunt_lenses`, `hunt_run`; a parent's `start_flow` seed may carry
+  `mode`, `scope`, `lenses`, `fast`, `run` instead.
+
+### hunt (content/workflows/hunt.yaml, runtime/hunt.py + hunt_actions.py)
+`start` (run in the backlog) → `confirm_lenses` gate (confirm|stop; `payload.lenses` or "drop x" in the note) → `confirm`
+(one sweep item per lens×lane, brief copied in) → `deps` (security lens: the dependency audit first, always) → `sweep`
+(one `hunter` per item; JSON list + `FINDINGS: n`) → `ingest` (lane enforced by classifying every cited path, cap
+`max_candidates_per_lens` (halved when fast), severity dropped, same file ±`dedup_line_window` merged as `also`;
+`docs/hunts/<run>/candidates.md`, UNVERIFIED) → `sweep_gate` (semi only: prove|stop) → `prove` (one `prover` per candidate,
+symptom and where only, never the claim; `batch` = `hunt.prove_concurrency`) → `verdicts` (proven needs a recipe that ran
+twice, `.sh .http .sql .md .probe.ts`, a severity; a 5xx is never below `severity_floor_5xx`; refused verdicts go back to
+the provers, at most `prove_rounds` (3) rounds, then unproven / raised to the floor) → `verdicts_gate` (semi only) →
+`group` (investigator, groups that share a cause) → `report` (`docs/hunts/<run>/report.md` + `repro/`; refuses while any
+candidate has no verdict; marks `needs_e2e`) → `commit` (`docs(HUNT-<run>): bug hunt: N proven, M suspected`, only that
+folder) → `triage` gate (take → `start_flow hunt-next` | close {id, as} + note | stop).
+
+### hunt-next
+`take` (refuses while any candidate has no verdict or the report folder is uncommitted; the top open group by worst severity,
+marked dispatched) → defect: `start_flow fix`, unspecified: `start_flow feature`, seed {title, request = the lead's symptom,
+recipe = `docs/hunts/<run>/repro/<file>` + its body, symptoms (every member), needs_e2e, hunt: {run, group, lead, findings}}
+→ `close_gate` (fixed|accepted|wontfix|later; a note is required, else it asks again) → `close`.
+
+### init
+`discover → arch_detect (runtime/arch.py; low confidence and not fast → one arch-surveyor, ARCH marker) → questions →
+plan_gate → write_config → arch_set (architecture: {style, confidence, source} in .keel/config.yml) → lanes (ladder_soft ‖
+librarians) → doctor (one setup-doctor per failing rung) → ladder_retry → ... → rung_gate (only when a rung failed
+fix_attempts_per_rung times: fix | exclude → setup.ladder_exclude | accept → setup.not_checked) → rung_apply →
+knowledge_check → commit → audit_now (skip | hunt: start_flow hunt, semi, whole project) → hand_over`. `fast`: no knowledge
+sections by default, no surveyor, a rung that passed before with the same command is re-used.
+
+### Engine DB + API
+Tables `hunt_runs`, `hunt_candidates`, `hunt_groups`, `hunt_recipes` (runtime/migrate.py).
+```
+GET  /projects/{p}/hunts                → [{run, at, sha, branch, mode, fast, scope, lenses, thread_id, counts, open, report, candidates_report}]
+GET  /projects/{p}/hunts/{run}          → that + {swept, gates, stack, candidates: [... , recipe], groups, report_markdown, candidates_markdown}
+POST /projects/{p}/hunts/{run}/close  {id, as: fixed|accepted|wontfix, note}   → the run (400 without a note)
+api: GET /api/projects/{pid}/hunts, GET /api/projects/{pid}/hunts/{run}, POST /api/projects/{pid}/hunts/{run}/close (pass-through)
+```

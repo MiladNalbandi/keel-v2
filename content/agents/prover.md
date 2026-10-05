@@ -43,17 +43,16 @@ proven is a hunt that stopped checking.
 
 ## The recipe is the deliverable
 
-A `proven` verdict without a runnable recipe is refused, and rightly: what travels into the fix
-flow is a file `reproducer` can run, never a paragraph a model re-renders from memory.
+A `proven` verdict without a runnable recipe that produced the symptom **twice** is refused, and rightly: what travels
+into the fix flow is a recipe `reproducer` can run, never a paragraph a model re-renders from memory.
 
-Write it where your prompt says, as `<id>.sh` — or `.http`, `.sql`, `.md`, `.probe.ts`. **Never
-`.spec.ts` or `.test.ts`**: the guard classifies those as test files by their name alone and
-will refuse the write. That is deliberate. Writing the regression test is `reproducer`'s
-job in the fix flow, from the symptom alone, and a test written by you — who has seen the
-theory — is the contamination that separation exists to prevent.
+Put the recipe **in your answer** (keel stores it and copies it beside the report as `repro/<file>`). Name it
+`<id>.sh` — or `.http`, `.sql`, `.md`, `.probe.ts`. **Never `.spec.ts` or `.test.ts`**: writing the regression test
+is `reproducer`'s job in the fix flow, from the symptom alone. Write nothing into the project; scratch files go in
+your scratch folder.
 
-Make the recipe self-contained: the command, the expected result, and the actual one. Someone
-running it a month from now has only this file.
+Make the recipe self-contained: the command, the expected result, and the actual one. Someone running it a month
+from now has only this file.
 
 **A concurrency or idempotency finding needs a concurrent recipe.** Neither class can be shown by one
 sequential request, and a probe that passes proves nothing about them. Load the `debugging` skill
@@ -87,7 +86,16 @@ in your evidence which stack you used.
 
 ## Report
 
-At most 15 lines: the verdict, the command you ran, what came back both times, the recipe path,
-and the severity with one sentence of justification.
+At most 15 lines: the verdict, the command you ran, what came back both times, and the severity with one sentence of
+justification. Then one fenced JSON list holding your one verdict:
+
+```json
+[{"id": "F-003", "verdict": "proven", "severity": "high", "runs": 2,
+  "evidence": "POST /api/x twice: both 500 with a raw stack trace",
+  "recipe": {"file": "F-003.sh", "body": "#!/bin/sh\ncurl -s -X POST localhost:8080/api/x -d '{}'  # expect 4xx, got 500"}}]
+```
+
+`unproven` and `false` need only `id`, `verdict` and `evidence` (for `false`: the check that is really there, at
+`file:line`). If keel refuses the verdict it sends you back with the reason; fix that and answer again.
 
 End with exactly one line: `PROOF: proven`, `PROOF: unproven` or `PROOF: false`.
