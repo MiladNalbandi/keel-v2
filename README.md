@@ -58,7 +58,21 @@ Then go to **Run › Flow › Start a flow**, describe what you want, and approv
 | `keel2 stop` · `keel2 restart` | stop it · start it again the same way |
 | `keel2 doctor` | find setup problems and say how to fix them |
 | `keel2 update` | get the newest version |
+| `keel2 mcp --print-config` | how to add keel to Claude Code / Claude Desktop |
 | `keel2 help` | all commands (logs, tokens, backup, restore, uninstall …) |
+
+## Use keel from Claude Code / Claude Desktop (MCP)
+
+keel has an MCP server: your Claude can read the flow (status, timeline, next step, phase rules) while keel runs.
+
+```bash
+claude mcp add keel-v2 -- "$(command -v keel2)" mcp      # Claude Code, read-only
+keel2 mcp --print-config                                 # the same line + the Claude Desktop JSON
+```
+
+Read-only by default. With `keel2 mcp --write` (and `--write --print-config`) your Claude can also approve or send
+back a waiting gate. keel's own agents always get it read-only. keel v1 is a separate project; its MCP server can be
+added like any other: `keel2 start --with-keel-v1 <keel checkout>`, then turn on "keel v1 (optional)" in Tools.
 
 ## Problems?
 

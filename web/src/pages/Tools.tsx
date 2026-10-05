@@ -74,6 +74,15 @@ export function ToolsPage({ pid }: { pid: string }) {
       toast(`${s.name}: ${errorParts(e).message}`);
     }
   };
+  const setEnabled = async (s: McpServer, enabled: boolean) => {
+    try {
+      await api.saveMcpServer(s.name, { enabled });
+      toast(enabled ? `${s.name} is on. Test it, then pick which agents may use it.` : `${s.name} is off: no agent gets it.`);
+      void servers.reload();
+    } catch (e) {
+      toast(`${s.name}: ${errorParts(e).message}`);
+    }
+  };
   const toggle = async (agent: string, server: string, on: boolean) => {
     const cur: McpAllow = { ...(allow.data ?? {}) };
     const list = new Set(cur[agent] ?? []);
@@ -102,12 +111,14 @@ export function ToolsPage({ pid }: { pid: string }) {
                 {list.map((s) => (
                   <Fragment key={s.name}>
                     <tr className="click" tabIndex={0} onClick={() => setOpen(open === s.name ? null : s.name)} onKeyDown={(e) => e.key === "Enter" && setOpen(open === s.name ? null : s.name)} aria-expanded={open === s.name}>
-                      <td><b>{s.name}</b>{s.builtin && <> <span className="tag keel">built in</span></>}</td>
+                      <td><b>{s.name}</b>{s.builtin && <> <span className="tag keel">built in</span></>}
+                        {s.label && <div className="sub">{s.label}</div>}</td>
                       <td className="mono sub">{[s.command, ...s.args].join(" ")}</td>
-                      <td>{s.status === "ok" ? <Pill tone="ok">ok</Pill> : s.status === "error" ? <Pill tone="bad">error</Pill> : <Pill tone="idle">off</Pill>}</td>
+                      <td>{!s.enabled ? <Pill tone="idle">turned off</Pill> : s.status === "ok" ? <Pill tone="ok">ok</Pill> : s.status === "error" ? <Pill tone="bad">error</Pill> : <Pill tone="idle">off</Pill>}</td>
                       <td className="num">{s.tools.length || "—"}</td>
                       <td><div className="row" style={{ flexWrap: "nowrap", gap: 4 }}>
                         <button className="btn sm" type="button" onClick={(e) => { e.stopPropagation(); void test(s); }}>Test</button>
+                        <button className="btn sm ghost" type="button" onClick={(e) => { e.stopPropagation(); void setEnabled(s, !s.enabled); }}>{s.enabled ? "Turn off" : "Turn on"}</button>
                         {!s.builtin && <button className="btn sm ghost" type="button" aria-label={`Remove ${s.name}`} onClick={async (e) => {
                           e.stopPropagation();
                           try { await api.deleteMcpServer(s.name); toast(`${s.name} removed.`); void servers.reload(); } catch (er) { toast(errorParts(er).message); }
@@ -144,7 +155,7 @@ export function ToolsPage({ pid }: { pid: string }) {
               <tr key={a.id}><td>{a.label || a.id}</td>
                 {servers.data!.map((s) => (
                   <td key={s.name}><input type="checkbox" aria-label={`${a.id} may use ${s.name}`} checked={(allow.data![a.id] ?? []).includes(s.name)}
-                    disabled={s.status === "off"} onChange={(e) => void toggle(a.id, s.name, e.target.checked)} /></td>
+                    disabled={s.status === "off" || !s.enabled} onChange={(e) => void toggle(a.id, s.name, e.target.checked)} /></td>
                 ))}
               </tr>
             ))}</tbody>

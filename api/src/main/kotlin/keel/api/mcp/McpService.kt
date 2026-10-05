@@ -4,7 +4,7 @@ import com.fasterxml.jackson.annotation.JsonInclude
 import keel.api.common.BadRequest
 import keel.api.common.Conflict
 import keel.api.common.Json
-import keel.api.common.KeelHome
+import keel.api.common.KeelProperties
 import keel.api.common.KvStore
 import keel.api.common.NotFound
 import keel.api.engine.EngineClient
@@ -14,6 +14,9 @@ import org.springframework.boot.ApplicationArguments
 import org.springframework.boot.ApplicationRunner
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.Paths
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
 data class McpServerSpec(
@@ -35,6 +38,8 @@ data class McpServer(
     val builtin: Boolean,
     val status: String,
     val tools: List<String>,
+    /** What the server is, for the Tools page (keel's own and the optional keel v1 entry). */
+    val label: String? = null,
 ) {
     fun spec() = McpServerSpec(name, command, args, env, cwd)
 }
@@ -49,11 +54,15 @@ data class McpUpdate(
 
 data class McpTestResult(val ok: Boolean, val tools: List<Map<String, String?>>, val error: String? = null)
 
-/** MCP servers (global) and the per-project allowlist (agent → tools). The `keel` server is built in. */
+/**
+ * MCP servers (global) and the per-project allowlist (agent → tools). The `keel` server is built in: keel v2's own
+ * MCP server, read-only (an agent never approves its own gate). keel v1's server is only an optional entry, offered
+ * (off) when a keel v1 checkout is mounted at [KeelProperties.keelV1Optional] (`keel2 start --with-keel-v1 <path>`).
+ */
 @Service
 class McpService(
     private val jdbc: JdbcTemplate,
-    private val home: KeelHome,
+    private val props: KeelProperties,
     private val engine: EngineClient,
     private val kv: KvStore,
     private val projects: ProjectService,
@@ -62,12 +71,27 @@ class McpService(
     override fun run(args: ApplicationArguments?) = seed()
 
     fun seed() {
-        // The keel server always points at the current KEEL_HOME.
+        // The keel server is always keel v2's own, read-only (an older install pointed it at keel v1's server.js).
         jdbc.update(
-            "INSERT INTO mcp_servers(name, command, args_json, enabled, builtin, status) VALUES ('keel', 'node', ?, 1, 1, 'off') " +
-                "ON CONFLICT(name) DO UPDATE SET command = 'node', args_json = excluded.args_json, builtin = 1",
-            Json.write(listOf(home.mcpServer().toString())),
+            "INSERT INTO mcp_servers(name, command, args_json, enabled, builtin, status) VALUES ('keel', ?, ?, 1, 1, 'off') " +
+                "ON CONFLICT(name) DO UPDATE SET command = excluded.command, args_json = excluded.args_json, builtin = 1",
+            props.mcpPythonCommand, Json.write(KEEL_ARGS),
         )
+        seedKeelV1(Paths.get(props.keelV1Optional))
+    }
+
+    /** Offers keel v1's MCP server (off) when [dir] holds a keel v1 checkout; takes the untouched offer back when it is gone. */
+    fun seedKeelV1(dir: Path) {
+        val script = dir.resolve("mcp/server.js")
+        if (Files.isRegularFile(script)) {
+            if (kv.get<Boolean>(KEEL_V1_DISMISSED) == true) return
+            jdbc.update(
+                "INSERT INTO mcp_servers(name, command, args_json, enabled, builtin, status) VALUES (?, 'node', ?, 0, 0, 'off') ON CONFLICT(name) DO NOTHING",
+                KEEL_V1, Json.write(listOf(script.toString())),
+            )
+        } else {
+            jdbc.update("DELETE FROM mcp_servers WHERE name = ? AND enabled = 0 AND command = 'node' AND args_json = ?", KEEL_V1, Json.write(listOf(script.toString())))
+        }
     }
 
     fun list(): List<McpServer> =
@@ -75,7 +99,7 @@ class McpService(
             McpServer(
                 rs.getString(1), rs.getString(2), Json.readList(rs.getString(3)),
                 rs.getString(4)?.let { Json.readMap(it).mapValues { (_, v) -> v.toString() } }, rs.getString(5),
-                rs.getInt(6) == 1, rs.getInt(7) == 1, rs.getString(8), Json.readList(rs.getString(9)),
+                rs.getInt(6) == 1, rs.getInt(7) == 1, rs.getString(8), Json.readList(rs.getString(9)), LABELS[rs.getString(1)],
             )
         }
 
@@ -95,7 +119,7 @@ class McpService(
     fun update(name: String, body: McpUpdate): McpServer {
         val cur = get(name)
         if (cur.builtin && (body.command != null || body.args != null)) {
-            throw Conflict("The keel server's command is fixed", "You can turn it off or give it env values.")
+            throw Conflict("The keel server's command is fixed: it is keel v2's own MCP server, read-only for agents", "You can turn it off or give it env values.")
         }
         jdbc.update(
             "UPDATE mcp_servers SET command = ?, args_json = ?, env_json = ?, cwd = ?, enabled = ? WHERE name = ?",
@@ -108,6 +132,7 @@ class McpService(
     fun delete(name: String) {
         if (get(name).builtin) throw Conflict("The keel server is built in and cannot be deleted", "Turn it off instead.")
         jdbc.update("DELETE FROM mcp_servers WHERE name = ?", name)
+        if (name == KEEL_V1) kv.put(KEEL_V1_DISMISSED, true)     // removed on purpose: do not offer it again
     }
 
     /** tools/list through the engine; remembers the status and tool names. */
@@ -136,5 +161,12 @@ class McpService(
         projects.require(pid)
         kv.put("mcp-allow:$pid", value)
         return value
+    }
+
+    companion object {
+        val KEEL_ARGS = listOf("-m", "keel_engine.mcp", "--read-only")
+        const val KEEL_V1 = "keel-v1"
+        private const val KEEL_V1_DISMISSED = "mcp-keel-v1-dismissed"
+        private val LABELS = mapOf("keel" to "keel v2 (read-only)", KEEL_V1 to "keel v1 (optional)")
     }
 }

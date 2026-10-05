@@ -88,6 +88,7 @@ abstract class ApiTest {
             r.add("keel.dashboard-port") { dashboardPort }
             r.add("keel.dashboard-autostart") { false }
             r.add("keel.fake-on-real-projects") { true }
+            r.add("keel.keel-v1-optional") { dataDir.resolve("no-keel-v1").toString() }
             // Login helpers: no pseudo-terminal in tests, and stand-in CLIs that behave like the real ones.
             r.add("keel.login-pty") { false }
             r.add("keel.login-commands.codex") {
