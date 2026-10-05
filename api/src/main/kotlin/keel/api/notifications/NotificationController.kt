@@ -1,6 +1,7 @@
 package keel.api.notifications
 
 import keel.api.common.NotFound
+import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
@@ -18,16 +19,24 @@ class NotificationController(private val notifications: NotificationService) {
     fun list(@RequestParam(defaultValue = "50") limit: Int): List<Notification> = notifications.list(limit)
 
     @PostMapping("/notifications/read-all")
-    fun readAll(): Map<String, Boolean> {
-        notifications.readAll()
-        return mapOf("ok" to true)
-    }
+    fun readAll(): Map<String, Any> = mapOf("ok" to true, "count" to notifications.readAll())
 
     @PostMapping("/notifications/{id}/read")
     fun read(@PathVariable id: Long): Map<String, Boolean> {
         if (!notifications.read(id)) throw NotFound("No notification $id")
         return mapOf("ok" to true)
     }
+
+    /** v0.4.1: delete one. */
+    @DeleteMapping("/notifications/{id}")
+    fun delete(@PathVariable id: Long): Map<String, Boolean> {
+        if (!notifications.delete(id)) throw NotFound("No notification $id")
+        return mapOf("ok" to true)
+    }
+
+    /** v0.4.1: clear the whole list. */
+    @DeleteMapping("/notifications")
+    fun clear(): Map<String, Any> = mapOf("ok" to true, "count" to notifications.clear())
 
     @GetMapping("/notification-settings")
     fun settings(): NotificationSettings = notifications.settings()

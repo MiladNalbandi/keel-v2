@@ -13,6 +13,8 @@ data class Model(
 /** Settings, general or effective. A project stores only the keys it overrides. */
 data class Settings(
     val gatesMode: String = "every-ac",
+    /** v0.4.1: how much keel decides by itself (manual | important | auto | readonly); a flow may pick another at start. */
+    val runMode: String = "manual",
     val keelRules: Boolean = true,
     val fixAttempts: Int = 3,
     val coverageMin: Int = 80,
@@ -33,13 +35,15 @@ data class Settings(
     val mcp: List<String> = listOf("keel"),
 ) {
     companion object {
+        val RUN_MODES = setOf("manual", "important", "auto", "readonly")
         val KEYS = listOf(
-            "gates_mode", "keel_rules", "fix_attempts", "coverage_min", "default_model", "implementer_model",
+            "gates_mode", "run_mode", "keel_rules", "fix_attempts", "coverage_min", "default_model", "implementer_model",
             "reviewer_model", "cheaper_model", "cap_tokens", "on_cap", "usage_warn", "usage_pause", "branch_pattern", "web_lane_worktree",
             "push_pr", "notify", "env_names", "mcp",
         )
         val CHOICES = mapOf(
             "gates_mode" to setOf("every-ac", "end-of-lane", "end"),
+            "run_mode" to RUN_MODES,
             "on_cap" to setOf("pause", "cheaper", "stop"),
             "notify" to setOf("all", "needs_you", "none"),
             "push_pr" to setOf("ask", "auto", "never"),

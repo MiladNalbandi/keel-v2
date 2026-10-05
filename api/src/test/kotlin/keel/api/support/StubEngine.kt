@@ -57,6 +57,9 @@ class StubEngine private constructor(private val server: HttpServer) {
     /** Maps built per project (POST /projects/{p}/map), like the engine stores them. */
     val maps = java.util.concurrent.ConcurrentHashMap<String, Map<String, Any?>>()
 
+    /** Run modes set per thread (POST /threads/{id}/mode), shown as run_mode in the thread state. */
+    val modes = java.util.concurrent.ConcurrentHashMap<String, String>()
+
     /** Unlocks posted per thread (POST /threads/{id}/unlocks), like the engine keeps them. */
     val unlocks = java.util.concurrent.ConcurrentHashMap<String, MutableList<Map<String, Any?>>>()
 
@@ -68,6 +71,7 @@ class StubEngine private constructor(private val server: HttpServer) {
         "checkpoints" to 1, "updated_at" to "2026-10-03T00:00:00Z",
         "blockers" to listOf(mapOf("gate" to "coverage", "why" to "Coverage is 61%", "fix" to "Add tests for Score.kt")),
         "ladder" to listOf(mapOf("n" to 1, "name" to "build", "cmd" to "./gradlew build", "status" to "pass")),
+        "run_mode" to (modes[id] ?: "manual"),
     ) + overrides[id].orEmpty()
 
     private fun route(method: String, path: String, body: JsonNode?): Pair<Int, Any?> = when {
@@ -89,6 +93,12 @@ class StubEngine private constructor(private val server: HttpServer) {
         )
         path == "/threads" && method == "POST" -> 200 to mapOf("thread_id" to "t-stub-1")
         path.matches(Regex("/threads/[^/]+")) -> 200 to state(path.removePrefix("/threads/"))
+        path.endsWith("/mode") && method == "POST" -> {
+            val id = path.split('/')[2]
+            val mode = body?.get("mode")?.asText() ?: ""
+            if (mode !in setOf("manual", "important", "auto", "readonly")) 400 to mapOf("error" to "\"$mode\" is not a run mode.")
+            else { modes[id] = mode; 200 to state(id) }
+        }
         path.endsWith("/resume") -> {
             val id = path.split('/')[2]
             overrides.remove(id)

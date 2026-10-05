@@ -23,11 +23,14 @@ data class StartFlow(
     val request: String? = null,
     /** Flow inputs the workflow reads from its state data: review {lens, base}, fix {no_gates}, ... */
     val options: Map<String, Any?>? = null,
+    /** v0.4.1: manual | important | auto | readonly for this flow (default: the project's run_mode setting). */
+    val runMode: String? = null,
 )
 data class EstimateYaml(val yaml: String = "", val acs: JsonNode? = null)
 data class UnlockBody(val path: String = "", val phase: String? = null, val reason: String? = null)
 data class Resume(val decision: String = "", val why: String? = null, val payload: Map<String, Any?>? = null)
 data class Rewind(val checkpointId: String = "")
+data class ModeBody(val mode: String = "")
 
 @RestController
 @RequestMapping("/api")
@@ -38,10 +41,14 @@ class FlowController(private val flows: FlowService) {
 
     @PostMapping("/projects/{pid}/flows")
     fun start(@PathVariable pid: String, @RequestBody body: StartFlow): JsonNode =
-        flows.start(pid, body.workflowId, body.title, body.acs, FlowCap(body.capTokens, body.onCap), body.allowFake, body.allowDirty, body.request, body.options)
+        flows.start(pid, body.workflowId, body.title, body.acs, FlowCap(body.capTokens, body.onCap, body.runMode), body.allowFake, body.allowDirty, body.request, body.options)
 
     @PostMapping("/threads/{tid}/resume")
     fun resume(@PathVariable tid: String, @RequestBody body: Resume): JsonNode = flows.resume(tid, body.decision, body.why, body.payload)
+
+    /** v0.4.1: change the run mode during a run (from the next gate on). */
+    @PostMapping("/threads/{tid}/mode")
+    fun mode(@PathVariable tid: String, @RequestBody body: ModeBody): JsonNode = flows.setMode(tid, body.mode)
 
     @PostMapping("/threads/{tid}/stop")
     fun stop(@PathVariable tid: String): JsonNode = flows.stop(tid)

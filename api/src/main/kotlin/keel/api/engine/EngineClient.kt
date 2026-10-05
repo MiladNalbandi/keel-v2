@@ -78,6 +78,7 @@ class EngineClient(private val props: KeelProperties, private val mapper: Object
     fun thread(id: String): JsonNode = get("/threads/$id")
     fun resume(id: String, body: Map<String, Any?>): JsonNode = post("/threads/$id/resume", body, long = true)
     fun stop(id: String): JsonNode = post("/threads/$id/stop", null)
+    fun setMode(id: String, mode: String): JsonNode = post("/threads/$id/mode", mapOf("mode" to mode))
     fun continueThread(id: String, keys: Map<String, String>?, root: String?): JsonNode =
         post("/threads/$id/continue", mapOf("keys" to keys, "root" to root).filterValues { it != null })
     fun history(id: String): JsonNode = get("/threads/$id/history")
