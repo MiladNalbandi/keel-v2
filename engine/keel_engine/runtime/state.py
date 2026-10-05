@@ -27,6 +27,7 @@ class FlowState(TypedDict, total=False):
     feedback: str | None        # why a gate or check sent work back; goes into the next agent's prompt
     model_override: dict | None # set by on_cap=cheaper
     warned: bool
+    usage_seen: dict            # "provider:window:resets_at" -> "warn" | "ok": plan-window warnings already given or passed
     spec: str | None
     branch: str | None
     git_head: str | None

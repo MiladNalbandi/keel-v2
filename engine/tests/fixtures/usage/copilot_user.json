@@ -1,0 +1,5 @@
+{"login": "someone", "copilot_plan": "individual", "chat_enabled": true, "quota_reset_date": "2026-11-01", "quota_reset_date_utc": "2026-11-01T00:00:00.000Z",
+ "quota_snapshots": {
+  "chat": {"overage_count": 0, "overage_permitted": false, "percent_remaining": 100.0, "quota_id": "chat", "quota_remaining": 200.0, "unlimited": false, "remaining": 200, "entitlement": 200},
+  "completions": {"overage_count": 0, "overage_permitted": false, "percent_remaining": 100.0, "quota_id": "completions", "quota_remaining": 2000.0, "unlimited": false, "remaining": 2000, "entitlement": 2000},
+  "premium_interactions": {"overage_count": 0, "overage_permitted": false, "percent_remaining": 29.3, "quota_id": "premium_interactions", "quota_remaining": 88.0, "unlimited": false, "remaining": 88, "entitlement": 300}}}
