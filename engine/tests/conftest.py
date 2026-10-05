@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from keel_engine.app import create_app
 from keel_engine.demo import create_demo
 from keel_engine.events import EventBus
+from keel_engine.models import usage
 from keel_engine.workflows.templates import get_template
 
 
@@ -18,6 +19,7 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setenv("KEEL_HOME", str(tmp_path / "no-keel-home"))
     monkeypatch.delenv("KEEL_INTERNAL_TOKEN", raising=False)
     monkeypatch.delenv("KEEL_FAKE_DELAY", raising=False)
+    usage.reset()                     # plan windows live in memory: one test's must not pause the next
     return tmp_path
 
 

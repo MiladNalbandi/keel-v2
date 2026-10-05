@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from . import config, models
+from .models import usage as provider_usage
 from .demo import create_demo, workspace_missing
 from .events import EventBus, bus as default_bus
 from .models import catalog
@@ -62,6 +63,9 @@ class Settings(BaseModel):
     unlocks: list[Unlock] | None = None   # unlocks: that path bypasses the guard matrix in that phase
     sections: list[str] | None = None     # knowledge-refresh: one librarian per section
     spec_check: bool | None = None        # send a spec back once when keel's spec check finds a gap (default: real models only)
+    usage_warn: float | None = Field(default=None, ge=0, le=1)    # warn before an agent when its plan window is this used (0.80)
+    usage_pause: float | None = Field(default=None, ge=0, le=1)   # pause before an agent at this (0.95)
+    provider_windows: list[dict[str, Any]] | None = None          # the api's latest plan windows: [{provider, window, used_pct, resets_at, ...}]
 
 
 class McpServerSpec(BaseModel):
@@ -139,6 +143,11 @@ class EstimateBody(BaseModel):
     history: list[dict[str, Any]] | None = None
     models: dict[str, ModelSpec] | None = None   # optional: agent -> model, for cost and by_provider
     knowledge_tokens: dict[str, int] | None = None   # optional: agent -> tokens of the knowledge it is given
+
+
+class ProviderUsage(BaseModel):
+    provider: Literal["claude", "codex", "copilot"]
+    key: str | None = None       # the login: codex auth.json content, or the GitHub token; never logged
 
 
 class ProviderTest(BaseModel):
@@ -244,6 +253,7 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
         data["settings"] = body.settings.model_dump(exclude_none=True)
         data["mcp"] = [s.model_dump(exclude_none=True) for s in body.mcp]
         data["agents"] = {k: v.model_dump(exclude_none=True) for k, v in body.agents.items()}
+        provider_usage.absorb(data["settings"].pop("provider_windows", None))
         tid = await engine(request).start_thread(data)
         return {"thread_id": tid}
 
@@ -292,6 +302,11 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     @app.post("/providers/test")
     async def post_provider_test(body: ProviderTest):
         return await models.test_provider(body.provider, body.mode, body.model, body.key)
+
+    @app.post("/providers/usage")
+    async def post_provider_usage(body: ProviderUsage):
+        """What the provider says is used and what remains now (codex app-server, GitHub quota; claude: its last run)."""
+        return await provider_usage.read_live(body.provider, body.key)
 
     @app.post("/agents/ask")
     async def post_agents_ask(body: Ask):

@@ -182,6 +182,13 @@ type GateLabels = {
 /** Button labels per waiting kind, so the choice is clear without reading the code. */
 export function gateLabels(w: NonNullable<ThreadState["waiting"]>, acId?: string, backName?: string): GateLabels {
   const t = w.title.toLowerCase();
+  if (w.kind === "usage") {
+    return {
+      approve: "Continue anyway", reject: "Stop here", needWhy: false,
+      explain: "A plan window of this provider is nearly used up. Continue uses it anyway (the provider may refuse when it is full), wait sleeps until it resets, the cheaper model is the one in Settings.",
+      approved: "The flow goes on.", rejected: "Stopped.", special: true,
+    };
+  }
   if (w.kind === "budget") {
     return { approve: "Continue over the cap", reject: "Stop here", needWhy: false, approved: "The flow continues over its cap.", rejected: "Stopped.", special: true };
   }
@@ -275,7 +282,7 @@ function GateCard({ thread, workflow, onDone }: { thread: ThreadState; workflow:
 
   const showAc = w.kind === "gate" && !labels.special;
 
-  const decide = async (decision: "approve" | "reject") => {
+  const decide = async (decision: "approve" | "reject", extra?: Record<string, unknown>) => {
     if (decision === "reject" && labels.needWhy && !why.trim()) {
       document.getElementById("why")?.focus();
       toast("Write why first, so the agent knows what to change.");
@@ -284,7 +291,7 @@ function GateCard({ thread, workflow, onDone }: { thread: ThreadState; workflow:
     setBusy(true);
     setErr(null);
     try {
-      const answers = w.kind === "clarify" && w.questions ? { answers: answersOf(w.questions, picked, typed) } : undefined;
+      const answers = w.kind === "clarify" && w.questions ? { answers: answersOf(w.questions, picked, typed) } : extra;
       await api.resume(thread.thread_id, decision, why.trim() || undefined, answers);
       setPicked({});
       setTyped({});
@@ -312,11 +319,18 @@ function GateCard({ thread, workflow, onDone }: { thread: ThreadState; workflow:
           <textarea id="why" value={why} onChange={(e) => setWhy(e.target.value)} placeholder="e.g. also check the error message text in the test" />
         </div>
       )}
-      <div className="row">
+      {w.kind === "usage" && w.choices ? (
+        <div className="row">
+          {w.choices.includes("continue") && <button className="btn warn" type="button" id="approve" disabled={busy} onClick={() => decide("approve", { choice: "continue" })}>Continue anyway</button>}
+          {w.choices.includes("wait") && <button className="btn" type="button" disabled={busy} onClick={() => decide("approve", { choice: "wait" })}>Wait for the reset</button>}
+          {w.choices.includes("cheaper") && <button className="btn" type="button" disabled={busy} onClick={() => decide("approve", { choice: "cheaper" })}>Use the cheaper model</button>}
+          {w.choices.includes("stop") && <button className="btn" type="button" id="sendback" disabled={busy} onClick={() => decide("reject")}>Stop here</button>}
+        </div>
+      ) : <div className="row">
         {w.options.includes("approve") && <button className="btn warn" type="button" id="approve" disabled={busy} onClick={() => decide("approve")}>{labels.approve}</button>}
         {w.options.includes("reject") && <button className="btn" type="button" id="sendback" disabled={busy} onClick={() => decide("reject")}>{labels.reject}</button>}
         <span className="hint">Resumes the thread with <span className="mono">Command(resume={"{decision, why}"})</span>.</span>
-      </div>
+      </div>}
       {err && <ErrorBox error={err} />}
     </div>
   );

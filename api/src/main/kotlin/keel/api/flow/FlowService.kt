@@ -21,6 +21,7 @@ import keel.api.events.EventHub
 import keel.api.mcp.McpServerSpec
 import keel.api.mcp.McpService
 import keel.api.projects.ProjectService
+import keel.api.budget.ProviderUsageService
 import keel.api.settings.Model
 import keel.api.settings.SettingsService
 import keel.api.skills.SkillService
@@ -32,7 +33,16 @@ import org.springframework.stereotype.Service
 
 data class Ac(val id: String = "", val layer: String = "API", val title: String = "")
 
-data class ThreadSettings(val gatesMode: String, val capTokens: Int, val onCap: String, val cheaperModel: Model?)
+data class ThreadSettings(
+    val gatesMode: String,
+    val capTokens: Int,
+    val onCap: String,
+    val cheaperModel: Model?,
+    val usageWarn: Double? = null,
+    val usagePause: Double? = null,
+    /** The latest plan windows keel knows (provider_usage), for the engine's pause rule before each agent. */
+    val providerWindows: List<Map<String, Any?>>? = null,
+)
 
 /** The engine's StartThread (CONTRACT "Shared types"). */
 data class StartThread(
@@ -81,6 +91,7 @@ class FlowService(
     private val secrets: SecretService,
     private val repo: RepoService,
     private val props: KeelProperties,
+    private val providerUsage: ProviderUsageService,
 ) {
     private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
 
@@ -115,7 +126,8 @@ class FlowService(
         return StartThread(
             projectId = pid, root = project.root, workflow = wf.copy(steps = steps), title = title, acs = acs?.takeIf { it.isNotEmpty() },
             models = models,
-            settings = ThreadSettings(s.gatesMode, cap?.capTokens ?: s.capTokens, cap?.onCap ?: s.onCap, s.cheaperModel),
+            settings = ThreadSettings(s.gatesMode, cap?.capTokens ?: s.capTokens, cap?.onCap ?: s.onCap, s.cheaperModel,
+                s.usageWarn, s.usagePause, providerUsage.windowsForEngine().takeIf { it.isNotEmpty() }),
             mcp = mcp.specsFor(s.mcp), skills = skillText,
             agents = all.filter { it.enabled }.associate { it.id to AgentStart(it.knowledge) },
         )

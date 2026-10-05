@@ -58,7 +58,12 @@ export type ThreadState = {
   phase: string;
   ac: string | null;
   acs: { id: string; layer: string; title: string; status: AcStatus }[];
-  waiting?: { step: string; kind: "gate" | "budget" | "fix" | "clarify"; title: string; detail: string; options: ("approve" | "reject")[]; labels?: { approve?: string; reject?: string }; questions?: ClarifyQuestion[] };
+  waiting?: {
+    step: string; kind: "gate" | "budget" | "fix" | "clarify" | "usage"; title: string; detail: string; options: ("approve" | "reject")[];
+    labels?: { approve?: string; reject?: string }; questions?: ClarifyQuestion[];
+    /** kind "usage": a plan window is nearly used up; resume with payload.choice */
+    choices?: ("continue" | "wait" | "cheaper" | "stop")[];
+  };
   usage: { tokens_in: number; tokens_out: number; tokens_cached?: number; cost_usd: number; premium_requests: number; cap_tokens: number };
   checkpoints: number;
   error?: string;
@@ -387,7 +392,24 @@ export type Budget = {
   top: { agent: string; provider: Provider; tokens: number; cost_usd: number }[];
   recent: { title: string; estimate: number; real: number; status: string }[];
 };
-export type Limit = { id: string; name: string; unit: string; used: number; cap: number; note: string };
+export type Limit = {
+  id: string; name: string; unit: string; used: number; cap: number; note: string;
+  /** The provider's own numbers (usage dashboard); absent = only the manual cap and keel's own count. */
+  source?: string | null; window?: string | null; used_pct?: number | null; remaining?: number | null;
+  resets_at?: string | null; fetched_at?: string | null;
+};
+
+/** One window of a provider's plan (`GET /api/usage/providers`): used_pct is 0..1, null when the source does not say. */
+export type UsageWindow = {
+  window: string; label: string; used_pct?: number | null; used?: number | null; cap?: number | null;
+  remaining?: number | null; resets_at?: string | null; status?: string | null;
+};
+/** A usage card: only providers that are set up get one. */
+export type ProviderUsage = {
+  id: "claude" | "codex" | "copilot" | "api" | string; name: string; kind: "subscription" | "api";
+  source: string; fetched_at?: string | null; windows: UsageWindow[]; live: boolean; can_refresh: boolean;
+  error?: string | null; note?: string | null;
+};
 
 export type GatesMode = "every-ac" | "end-of-lane" | "end";
 export type OnCap = "pause" | "cheaper" | "stop";
@@ -402,6 +424,9 @@ export type Settings = {
   cheaper_model: Model;
   cap_tokens: number;
   on_cap: OnCap;
+  /** warn / pause before a subscription agent when its plan window is this used (0..1) */
+  usage_warn?: number;
+  usage_pause?: number;
   branch_pattern: string;
   web_lane_worktree: boolean;
   push_pr: string;
@@ -639,6 +664,8 @@ export const api = {
   saveCap: (pid: string, c: Cap) => put<Cap>(`/projects/${e(pid)}/caps/${e(c.id)}`, c),
   deleteCap: (pid: string, id: string) => del(`/projects/${e(pid)}/caps/${e(id)}`),
   limits: () => get<Limit[]>("/limits"),
+  usageProviders: () => get<ProviderUsage[]>("/usage/providers"),
+  refreshUsage: (id: string) => post<ProviderUsage>(`/usage/providers/${e(id)}/refresh`),
   saveLimits: (l: Limit[]) => put<Limit[]>("/limits", l),
   generalSettings: () => get<Settings>("/settings/general"),
   saveGeneralSettings: (s: Partial<Settings>) => put<Settings>("/settings/general", s),
