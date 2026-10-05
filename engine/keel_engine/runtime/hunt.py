@@ -767,6 +767,31 @@ def close(project: str, run_id: str | None, key: str, as_: str, note: str, sha: 
     return True, f"Closed {key} as {as_} ({len(todo)} finding(s)); {left} still open."
 
 
+def child_finished(project: str, root: str | None, data: dict, status: str, title: str, workflow_id: str) -> str | None:
+    """A fix/feature flow that hunt-next started has ended. done: close its group as fixed, with the branch and the commit
+    in the note (keel does not merge; the note says so). failed or stopped: the group is open again (no longer
+    dispatched), so the next hunt-next takes it. Returns what was done, or None for a flow no hunt started."""
+    seed = data.get("seed") if isinstance(data.get("seed"), dict) else {}
+    link = seed.get("hunt") if isinstance(seed.get("hunt"), dict) else {}
+    run_id, target = link.get("run"), link.get("group") or link.get("lead")
+    if not run_id or not target or not get_run(project, run_id):
+        return None
+    sha = git.head(root) if root and git.is_repo(root) else None
+    if status == "done":
+        branch = git.branch(root) if root and git.is_repo(root) else None
+        note = (f"{workflow_id} flow \"{title}\" finished on branch {branch or '?'} at {str(sha or '?')[:7]} "
+                f"(keel does not merge: merge it, then this is fixed in main).")
+        ok, msg = close(project, run_id, str(target), "fixed", note, sha)
+        return msg if ok else None
+    key = str(target).upper()
+    cands = candidates(project, run_id)
+    members = [c for c in cands if c.get("group") == key] if key.startswith("G-") else [c for c in cands if c["id"] == key]
+    for c in members:
+        if not c.get("close"):
+            update_candidate(project, run_id, c["id"], dispatch=None)
+    return f"{key} is open again: the {workflow_id} flow ended {status}."
+
+
 # ------------------------------------------------------------------ read API (engine GET /projects/{p}/hunts)
 
 def summary(project: str, run: dict) -> dict:

@@ -24,7 +24,7 @@ from ..events import EventBus
 from ..tools import codegraph, git
 from ..workflows.model import Workflow, from_dict
 from ..workflows.templates import get_template
-from . import ladder as ladder_mod
+from . import hunt, ladder as ladder_mod
 from . import memory as memory_mod
 from . import migrate, run_mode
 from .compiler import compile_workflow
@@ -198,6 +198,7 @@ class Engine:
             if status not in ("stopped", "failed"):
                 status = "done"
             await self._set_status(tid, status, snap.values.get("error"))
+            await self._hunt_link(ctx, snap.values, status)
             if status == "failed":
                 ctx.emit("thread.failed", data={"error": snap.values.get("error"), "status": status})
             else:
@@ -282,6 +283,16 @@ class Engine:
         ctx.emit("thread.started", data=started)
         self._launch(tid, state)
         return tid
+
+    async def _hunt_link(self, ctx, values: dict, status: str) -> None:
+        """A flow hunt-next started has ended: close its bug group (done) or open it again (failed / stopped)."""
+        try:
+            msg = await asyncio.to_thread(hunt.child_finished, ctx.project_id or ctx.root, ctx.root, values.get("data") or {},
+                                          status, ctx.title, ctx.workflow.id)
+            if msg:
+                ctx.emit("hunt.closed" if status == "done" else "hunt.reopened", data={"note": msg})
+        except Exception:                                   # the flow's own end never fails because of the backlog
+            log.exception("hunt link for %s", ctx.title)
 
     async def start_child(self, parent: str, workflow_id: str, seed: dict, link: dict) -> str:
         """start_flow: a new thread of another workflow on the parent's project, with the parent's models, settings and
@@ -459,6 +470,8 @@ class Engine:
                 pass
         await self._set_status(tid, "stopped")
         ctx = await self._context(tid)
+        snap = await (await self._graph(tid)).aget_state(self._cfg(tid))
+        await self._hunt_link(ctx, dict(snap.values or {}), "stopped")
         ctx.emit("thread.done", data={"status": "stopped"})
         return await self.state(tid)
 

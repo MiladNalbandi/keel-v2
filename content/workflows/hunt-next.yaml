@@ -5,7 +5,9 @@ version: 1
 # Drains one group from the hunt backlog (the latest hunt, or settings.run / the seed's run). Refuses while any
 # candidate has no verdict or the report is uncommitted. A defect goes to the fix flow, an unspecified behaviour to the
 # feature flow; both get the lead's recipe (never the hunter's claim), every symptom as a regression criterion and
-# needs_e2e. The close gate records fixed | accepted | wontfix with a required note.
+# needs_e2e. The flow ends at the hand-off: when that fix/feature flow finishes, keel closes the group as fixed (branch
+# and commit in the note); when it fails or is stopped, the group is open again for the next hunt-next. Accepted and
+# wontfix are closed from the hunt's triage gate or the Hunt page (POST /projects/{p}/hunts/{run}/close).
 steps:
   - { id: take, kind: code, name: take the top group, action: hunt_take, lock: true, phase: hunt-triage }
   - { id: has_work, kind: branch, name: anything open, when: { marker: FLOW, in: [fix, feature] }, no: end, phase: hunt-triage }
@@ -16,14 +18,13 @@ steps:
     action: start_flow
     flow: fix
     phase: hunt-triage
+    then: end
     seed: { title: $data.next.title, request: $data.next.request, recipe: $data.next.recipe, symptoms: $data.next.symptoms, needs_e2e: $data.next.needs_e2e, hunt: $data.next.hunt }
-  - { id: skip_feature, kind: branch, name: past the feature hand-off, when: { marker: FLOW, equals: feature }, no: close_gate, phase: hunt-triage }
   - id: to_feature
     kind: code
     name: start the feature flow
     action: start_flow
     flow: feature
     phase: hunt-triage
+    then: end
     seed: { title: $data.next.title, request: $data.next.request, recipe: $data.next.recipe, symptoms: $data.next.symptoms, needs_e2e: $data.next.needs_e2e, hunt: $data.next.hunt }
-  - { id: close_gate, kind: gate, name: close it, phase: hunt-triage, choices: { fixed: close, accepted: close, wontfix: close, later: end } }
-  - { id: close, kind: code, name: close the group, action: hunt_close, back: close_gate, lock: true, phase: hunt-triage }
