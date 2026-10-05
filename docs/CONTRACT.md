@@ -417,3 +417,42 @@ github-copilot`), else a built-in list. Effort is passed to the CLIs: claude `--
   user's; stacks from `content/stacks/*.yml` and `content/packs/<name>/stack.yml` (+ the project's `.keel/stacks`).
   Installing a pack copies `content/packs/<name>` into `<root>/.keel/stacks/<name>`.
 - `engine/tests/test_content.py` checks the front matter, the YAML, the packs' paths and the forbidden v1 words.
+
+## v0.4.0: MCP
+
+keel v2 has its own MCP server (`engine/keel_engine/mcp_server.py`, FastMCP from the `mcp` SDK), started as
+`python -m keel_engine.mcp [--read-only | --write]` on stdio. It reads the public `/api` routes over HTTP
+(`KEEL_API_URL`, default `http://127.0.0.1:8080`; the api listens only on 127.0.0.1). keel v1's MCP server is no
+longer built in.
+
+| Tool | Mode | What it returns (plain text) | api routes |
+|---|---|---|---|
+| `keel_status` | read | project, branch, flow, current step + phase, every AC with status, what is waiting (title, kind, options, clarify questions), usage (tokens vs cap, $), blockers | `GET /projects`, `GET /projects/{pid}/flow` |
+| `keel_projects` | read | one line per project: id, branch, flow, phase, criteria done, waiting yes/no | `GET /projects` |
+| `keel_timeline` | read | checkpoints and agent runs, newest first; `limit` 1-200 (20), `filter` all \| steps \| agents \| failed | `GET /threads/{id}/history`, `GET /jobs?project=` |
+| `keel_next` | read | the single next action (gate to decide, step running, flow done/failed, "no flow: start one") + push blockers | flow |
+| `keel_explain` | read | what a phase permits and refuses (edit buckets from `rules.MATRIX`, always-refused files, commit rules, shell rules), its place on each rail, next phases; `phase` defaults to the current one | flow (+ `keel_engine.rules`) |
+| `keel_approve_gate` | write | decides the gate the project's flow waits at: `decision` approve \| reject, `why?`, `answers?` (clarify: question id → label or own words) | `POST /threads/{id}/resume {decision, why?, payload?: {answers}}` |
+| `keel_resume` | write | the raw resume: `decision`, `thread_id?` (default the project's flow), `why?`, `payload?` | same |
+
+- Every tool takes an optional `project` (id or name). Without it: `KEEL_PROJECT`, else the project whose root holds
+  the server's working folder (an agent runs in its project), else the first project.
+- **Read-only vs write:** the write tools are registered only with `--write` (or `KEEL_MCP_WRITE=1` without
+  `--read-only`); `--read-only` always wins. In read-only mode `tools/list` does not show them at all.
+- **Agents** get the builtin `keel` server read-only (an agent never approves its own gate): the api seeds
+  `mcp_servers.keel` = `<keel.mcp-python> -m keel_engine.mcp --read-only` (`KEEL_MCP_PYTHON`, default
+  `/opt/engine/.venv/bin/python`, dev fallback `python3`), builtin and locked (command and args cannot change; it can be
+  turned off or given env values). The engine adds `KEEL_API_URL` to its env; without an api entry it uses
+  `[sys.executable, "-m", "keel_engine.mcp", "--read-only"]`. Settings keep `mcp: ["keel"]` as the default.
+- `McpServer` has an optional `label` ("keel v2 (read-only)", "keel v1 (optional)"). The Tools page shows it and can
+  turn any server on or off (`PUT /api/mcp-servers/{name} {enabled}`); "Add server" takes any `name + command + args + env`.
+- **keel v1, optional and external:** `keel2 start --with-keel-v1 <keel checkout> [dir]` mounts that checkout read-only
+  at `/opt/keel-v1-optional` (`KEEL_V1_OPTIONAL`), remembered in the container label `keel2.keelv1` for restarts. The
+  api then offers `keel-v1` = `node /opt/keel-v1-optional/mcp/server.js`, **off**, not builtin; turn it on in Tools
+  and allow it per agent like any other server. Without the mount the untouched entry is not offered; a deleted entry is
+  not offered again. Nothing else in keel v2 reads it.
+- **From Claude Code / Claude Desktop:** `keel2 mcp [--write]` runs
+  `docker exec -i keel-v2 /opt/engine/.venv/bin/python -m keel_engine.mcp --read-only|--write` (stdio passthrough).
+  `keel2 mcp [--write] --print-config` prints `claude mcp add keel-v2 -- <abs path>/keel2 mcp [--write]` and the
+  Claude Desktop snippet `{"mcpServers": {"keel-v2": {"command": "<abs path>/keel2", "args": ["mcp"]}}}`.
+- No `keel_dashboard` tool: the dashboard is the web UI.

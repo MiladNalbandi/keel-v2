@@ -181,7 +181,10 @@ export const stacks: Stack[] = [
 ];
 
 export const mcpServers: McpServer[] = [
-  { name: "keel", command: "node", args: ["/opt/keel/mcp/server.js"], enabled: true, builtin: true, status: "ok", tools: ["keel_status", "keel_next"] },
+  { name: "keel", command: "/opt/engine/.venv/bin/python", args: ["-m", "keel_engine.mcp", "--read-only"], enabled: true, builtin: true, status: "ok",
+    tools: ["keel_status", "keel_next"], label: "keel v2 (read-only)" },
+  { name: "keel-v1", command: "node", args: ["/opt/keel-v1-optional/mcp/server.js"], enabled: false, builtin: false, status: "off", tools: [],
+    label: "keel v1 (optional)" },
   { name: "serena", command: "uvx", args: ["serena"], enabled: false, builtin: false, status: "off", tools: [] },
 ];
 

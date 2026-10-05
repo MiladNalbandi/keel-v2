@@ -3,6 +3,8 @@
 #
 #   keel2 start [folder]        start keel for a project (default: this folder) and open the browser
 #   keel2 start --docker [dir]  same, and let the project's tests use your Docker (Testcontainers, compose)
+#   keel2 start --with-keel-v1 <keel-checkout> [dir]
+#                               also offer keel v1's MCP server (optional, off until you turn it on in Tools)
 #   keel2 stop | restart        stop keel / start it again with the same project and options (they ask first
 #                               when agents are working; --force does not ask)
 #   keel2 status                is keel running, for which project, on which port
@@ -15,6 +17,8 @@
 #   keel2 backup [file]         save keel's data (database, logins, history) to a .tgz file
 #   keel2 restore <file>        put a backup back (keel is stopped first)
 #   keel2 sql                   open keel's SQLite database
+#   keel2 mcp [--write]         keel's MCP server on stdio, for Claude Code / Claude Desktop to start (read-only;
+#                               --write adds approving gates). keel2 mcp --print-config shows how to add it
 #   keel2 uninstall [--all]     remove the container (--all: also keel's data, after you confirm)
 #   keel2 version | help
 #
@@ -163,6 +167,13 @@ check_shared() {  # Docker Desktop only shares some folders with containers by d
   warn "If keel shows an empty project: Docker Desktop › Settings › Resources › File sharing › add this folder."
 }
 
+keel_v1_path() {  # a keel v1 checkout for --with-keel-v1: absolute, and it must have mcp/server.js
+  local p; p="$(project_path "$1")"
+  [ -f "$p/mcp/server.js" ] || die "$p has no mcp/server.js, so it is not a keel v1 checkout." \
+    "Give the folder of a keel v1 clone, for example: keel2 start --with-keel-v1 ~/Projects/keel ."
+  echo "$p"
+}
+
 docker_socket() {  # the host's Docker socket path, for --docker
   # Docker Desktop (Mac, Windows) serves its socket to containers at /var/run/docker.sock, whatever DOCKER_HOST says.
   [ "$(os)" = linux ] || { echo /var/run/docker.sock; return; }
@@ -173,11 +184,15 @@ docker_socket() {  # the host's Docker socket path, for --docker
 
 # ---------------------------------------------------------------- commands
 cmd_start() {
-  local docker_mode="${KEEL_DOCKER:-0}" folder=""
+  local docker_mode="${KEEL_DOCKER:-0}" folder="" keel_v1=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --docker) docker_mode=1 ;;
       --no-docker) docker_mode=0 ;;
+      --with-keel-v1)
+        [ $# -ge 2 ] || die "--with-keel-v1 needs the folder of a keel v1 checkout" "For example: keel2 start --with-keel-v1 ~/Projects/keel ."
+        keel_v1="$(keel_v1_path "$2")"; shift ;;
+      --without-keel-v1) keel_v1="" ;;
       --force) KEEL_FORCE=1 ;;
       -*) die "Unknown option $1" "See: keel2 help" ;;
       *) folder="$1" ;;
@@ -200,8 +215,11 @@ cmd_start() {
   [ "$port" = "$WANT_PORT" ] || warn "Port $WANT_PORT is in use, so keel uses port $port."
 
   local args=(-d --name "$NAME" --restart unless-stopped -p "127.0.0.1:$port:8080" -v "$VOLUME:/data"
-              --label "keel2.project=$project" --label "keel2.docker=$docker_mode"
+              --label "keel2.project=$project" --label "keel2.docker=$docker_mode" --label "keel2.keelv1=$keel_v1"
               -e KEEL_PROJECT_NAME="$(basename "$project")")
+  # keel v1 is not part of keel v2: a checkout given with --with-keel-v1 is mounted read-only, and only its MCP
+  # server is offered (off) in Tools, like any other MCP server.
+  if [ -n "$keel_v1" ]; then args+=(-v "$keel_v1:/opt/keel-v1-optional:ro"); fi
   if [ "$docker_mode" = 1 ]; then
     # The host's Docker runs the containers tests start. The project is mounted at the SAME path as on this
     # computer, so bind mounts that tests ask the host Docker for (Testcontainers, compose) point at real folders.
@@ -244,11 +262,12 @@ cmd_stop() {
 cmd_restart() {
   need_docker
   container_exists || die "keel has not been started yet." "Start it: keel2 start /path/to/project"
-  local p d; p="$(label project)"; d="$(label docker)"
+  local p d v1; p="$(label project)"; d="$(label docker)"; v1="$(label keelv1)"
   [ -n "$p" ] || die "This container was started by an older keel2 and does not say which project it has." "Start it again: keel2 start /path/to/project"
   local port; port="$(running_port || true)"
   if [ -n "$port" ] && [ -z "${PORT:-}" ]; then WANT_PORT="$port"; fi
-  if [ "$d" = 1 ]; then cmd_start --docker "$p"; else cmd_start --no-docker "$p"; fi
+  local extra=(); if [ -n "$v1" ] && [ -f "$v1/mcp/server.js" ]; then extra=(--with-keel-v1 "$v1"); fi
+  if [ "$d" = 1 ]; then cmd_start --docker ${extra[@]+"${extra[@]}"} "$p"; else cmd_start --no-docker ${extra[@]+"${extra[@]}"} "$p"; fi
 }
 
 cmd_status() {
@@ -263,6 +282,7 @@ cmd_status() {
   info "  docker     $([ "$(label docker)" = 1 ] && echo "on (tests may start containers)" || echo off)"
   local v1=starting; curl -fs "http://localhost:$port/keel-v1/api/hello" >/dev/null 2>&1 && v1=running
   info "  keel v1    http://localhost:$port/keel-v1/ ($v1)"
+  [ -n "$(label keelv1)" ] && info "  keel v1    MCP server offered from $(label keelv1) (Tools, off until turned on)"
   info "  image      $(docker inspect -f '{{.Config.Image}}' "$NAME")"
   info "  data       volume $VOLUME"
 }
@@ -399,6 +419,45 @@ cmd_uninstall() {
   fi
 }
 
+# keel2 mcp [--write] [--print-config]
+# stdio passthrough to keel's MCP server inside the container. Nothing but MCP may reach stdout here.
+cmd_mcp() {
+  local mode=--read-only print=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --write) mode=--write ;;
+      --read-only) mode=--read-only ;;
+      --print-config) print=1 ;;
+      *) die "Unknown option $1" "usage: keel2 mcp [--write] [--print-config]" ;;
+    esac
+    shift
+  done
+  if [ "$print" = 1 ]; then print_mcp_config "$mode"; return 0; fi
+  need_docker >&2
+  container_running || die "keel is not running." "Start it first: keel2 start /path/to/project"
+  exec docker exec -i "$NAME" /opt/engine/.venv/bin/python -m keel_engine.mcp "$mode"
+}
+
+print_mcp_config() {  # print_mcp_config <--read-only|--write>
+  local self; self="$(cd "$(dirname "$0")" && pwd -P)/$(basename "$0")"
+  local write="" jargs='"mcp"' env_cli="" env_json=""
+  if [ "$1" = --write ]; then write=" --write"; jargs='"mcp", "--write"'; fi
+  if [ "$NAME" != keel-v2 ]; then env_cli=" -e KEEL_NAME=$NAME"; env_json=", \"env\": { \"KEEL_NAME\": \"$NAME\" }"; fi
+  local jself; jself="$(printf '%s' "$self" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  info "Claude Code (run once):"
+  info "  claude mcp add keel-v2$env_cli -- $self mcp$write"
+  info ""
+  info "Claude Desktop (claude_desktop_config.json):"
+  info "{"
+  info "  \"mcpServers\": {"
+  info "    \"keel-v2\": { \"command\": \"$jself\", \"args\": [$jargs]$env_json }"
+  info "  }"
+  info "}"
+  info ""
+  if [ -n "$write" ]; then info "${D}--write: the client can approve or send back gates (keel_approve_gate, keel_resume).${N}"
+  else info "${D}Read-only. Add --write (keel2 mcp --write --print-config) to let the client approve gates.${N}"; fi
+}
+
 cmd_help() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; }
 
 # ---------------------------------------------------------------- main
@@ -418,6 +477,7 @@ case "$cmd" in
   tokens)           cmd_tokens ;;
   backup)           cmd_backup "$@" ;;
   restore)          cmd_restore "$@" ;;
+  mcp)              cmd_mcp "$@" ;;
   sql)              need_docker; container_running || die "keel is not running."; exec docker exec -it "$NAME" sqlite3 -header -column /data/keel.db ;;
   uninstall)        cmd_uninstall "$@" ;;
   version|-v|--version) echo "keel2 $KEEL2_VERSION · image $IMAGE" ;;
