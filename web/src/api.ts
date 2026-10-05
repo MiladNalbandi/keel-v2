@@ -7,7 +7,8 @@ export type Provider = "fake" | "claude" | "codex" | "copilot";
 export type Mode = "subscription" | "api" | "opencode";
 export type Model = { provider: Provider; mode: Mode; model: string; effort?: string };
 
-export type StepKind = "agent" | "code" | "gate" | "branch" | "parallel";
+/** "include" only shows in a stored workflow the engine has not expanded yet (the engine replaces it with the steps). */
+export type StepKind = "agent" | "code" | "gate" | "branch" | "parallel" | "include";
 export type Lane = { name: string; sub?: string; kind: "agent" | "code" };
 export type Step = {
   id: string;
@@ -26,10 +27,39 @@ export type Step = {
   max_tokens?: number;
   on_limit?: "pause" | "cheaper" | "stop";
   tools?: string[];
+  // Engine workflow keys (engine/keel_engine/workflows/model.py) the flow map reads; the builder keeps them as they are.
+  /** A code step's next step: "end", "continue" or a step id. */
+  then?: string;
+  /** A gate's named exits {name: step id | "end"}, or a list (one per loop item / a choice a branch reads). */
+  choices?: string[] | Record<string, string>;
+  /** When the step runs (agent, code, parallel), when a gate asks, or what a branch tests. */
+  when?: Record<string, unknown>;
+  /** start_flow: the workflow it starts. */
+  flow?: string;
+  for_each?: string;
+  per_item?: boolean;
+  /** A parallel step: one agent per item of this list. */
+  from?: string;
+  cap?: number;
+  rounds?: number;
+  after_rounds?: string;
+  redo?: string;
+  retry_only?: boolean;
+  soft?: boolean;
+  skippable?: "deferred" | "optional";
+  group?: string;
+  skip_menu?: boolean;
+  report?: string;
+  markers?: string[];
+  instructions?: string;
+  /** Set by the engine's include: where the step came from, outermost include first ("ship", "ship/cover"). */
+  included_from?: string;
 };
 export type Workflow = {
   id: string;
   name: string;
+  /** keel (a template) | yours | library. */
+  source?: string;
   based_on?: string;
   keel_rules: boolean;
   version: number;

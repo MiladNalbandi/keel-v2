@@ -1,0 +1,954 @@
+{
+ "id": "feature",
+ "name": "feature (keel)",
+ "keel_rules": true,
+ "version": 2,
+ "steps": [
+  {
+   "id": "preflight",
+   "kind": "code",
+   "name": "preflight + own branch",
+   "phase": "preflight",
+   "action": "preflight"
+  },
+  {
+   "id": "spec",
+   "kind": "agent",
+   "name": "spec",
+   "agent": "explorer",
+   "model": "default",
+   "phase": "spec",
+   "tools": [
+    "mcp:keel:*"
+   ]
+  },
+  {
+   "id": "explore_areas",
+   "kind": "code",
+   "name": "areas to map",
+   "phase": "spec",
+   "action": "explore_areas",
+   "when": {
+    "state": "acs"
+   }
+  },
+  {
+   "id": "explore",
+   "kind": "parallel",
+   "name": "one explorer per area",
+   "agent": "explorer",
+   "model": "default",
+   "phase": "spec",
+   "from": "explore_areas",
+   "when": {
+    "state": "acs"
+   }
+  },
+  {
+   "id": "maps",
+   "kind": "code",
+   "name": "collect the maps",
+   "phase": "spec",
+   "action": "report",
+   "when": {
+    "state": "acs"
+   }
+  },
+  {
+   "id": "plan",
+   "kind": "agent",
+   "name": "plan under the criteria",
+   "agent": "explorer",
+   "model": "default",
+   "phase": "spec",
+   "markers": [
+    "ORDER"
+   ],
+   "when": {
+    "state": "acs"
+   }
+  },
+  {
+   "id": "spec_sync",
+   "kind": "code",
+   "name": "criteria + plan for the gate",
+   "phase": "spec",
+   "action": "spec_sync"
+  },
+  {
+   "id": "spec_gate",
+   "kind": "gate",
+   "name": "spec approval",
+   "phase": "spec",
+   "back": "spec",
+   "lock": true,
+   "choices": {
+    "approve": "freeze",
+    "edit": "spec_edit",
+    "rewrite": "spec_edit",
+    "review": "spec_review",
+    "order": "plan",
+    "reject": "spec_restart"
+   }
+  },
+  {
+   "id": "freeze",
+   "kind": "code",
+   "name": "freeze + commit the spec",
+   "phase": "spec",
+   "action": "spec_freeze",
+   "back": "spec",
+   "lock": true
+  },
+  {
+   "id": "options",
+   "kind": "gate",
+   "name": "which optional phases run",
+   "phase": "spec",
+   "skip_menu": true
+  },
+  {
+   "id": "contract",
+   "kind": "agent",
+   "name": "contract",
+   "agent": "contract-author",
+   "model": "default",
+   "phase": "contract"
+  },
+  {
+   "id": "contract_diff",
+   "kind": "code",
+   "name": "the contract delta",
+   "phase": "contract",
+   "action": "show_diff"
+  },
+  {
+   "id": "contract_gate",
+   "kind": "gate",
+   "name": "contract delta",
+   "phase": "contract",
+   "lock": true,
+   "choices": {
+    "approve": "contract_commit",
+    "change": "contract",
+    "amend": "contract_undo"
+   }
+  },
+  {
+   "id": "contract_commit",
+   "kind": "code",
+   "name": "commit contract",
+   "phase": "contract",
+   "action": "commit"
+  },
+  {
+   "id": "red",
+   "kind": "agent",
+   "name": "red",
+   "agent": "test-author",
+   "model": "default",
+   "phase": "red",
+   "per_ac": true,
+   "tools": [
+    "mcp:keel:*"
+   ],
+   "markers": [
+    "AMEND"
+   ]
+  },
+  {
+   "id": "red_amend",
+   "kind": "branch",
+   "name": "the spec needs an amendment",
+   "phase": "red",
+   "per_ac": true,
+   "no": "verify_red",
+   "when": {
+    "marker": "AMEND",
+    "step": "red"
+   }
+  },
+  {
+   "id": "red_to_amend",
+   "kind": "code",
+   "name": "to the amendment",
+   "phase": "red",
+   "action": "amend_start",
+   "per_ac": true,
+   "then": "amend"
+  },
+  {
+   "id": "verify_red",
+   "kind": "code",
+   "name": "verify_red",
+   "phase": "red",
+   "action": "verify_red+commit",
+   "per_ac": true,
+   "lock": true
+  },
+  {
+   "id": "green",
+   "kind": "agent",
+   "name": "green",
+   "agent": "implementer",
+   "model": "default",
+   "phase": "green",
+   "per_ac": true,
+   "tools": [
+    "mcp:keel:*"
+   ],
+   "markers": [
+    "AMEND"
+   ]
+  },
+  {
+   "id": "green_amend",
+   "kind": "branch",
+   "name": "the spec needs an amendment",
+   "phase": "green",
+   "per_ac": true,
+   "no": "verify_green",
+   "when": {
+    "marker": "AMEND",
+    "step": "green"
+   }
+  },
+  {
+   "id": "green_to_amend",
+   "kind": "code",
+   "name": "to the amendment",
+   "phase": "green",
+   "action": "amend_start",
+   "per_ac": true,
+   "then": "amend"
+  },
+  {
+   "id": "verify_green",
+   "kind": "code",
+   "name": "verify_green + commit",
+   "phase": "green",
+   "action": "verify_green+commit",
+   "per_ac": true,
+   "lock": true
+  },
+  {
+   "id": "ac_review",
+   "kind": "agent",
+   "name": "AC review",
+   "agent": "ac-reviewer",
+   "model": "default",
+   "phase": "gate",
+   "per_ac": true
+  },
+  {
+   "id": "ac_gate",
+   "kind": "gate",
+   "name": "AC gate",
+   "phase": "gate",
+   "per_ac": true,
+   "back": "red",
+   "lock": true
+  },
+  {
+   "id": "integration",
+   "kind": "agent",
+   "name": "integration",
+   "agent": "implementer",
+   "model": "default",
+   "phase": "integration"
+  },
+  {
+   "id": "integration_commit",
+   "kind": "code",
+   "name": "verify the suite + commit",
+   "phase": "integration",
+   "action": "verify_green+commit"
+  },
+  {
+   "id": "integration_diff",
+   "kind": "code",
+   "name": "the diff for the integration gate",
+   "phase": "integration",
+   "action": "show_diff"
+  },
+  {
+   "id": "integration_gate",
+   "kind": "gate",
+   "name": "integration",
+   "phase": "integration",
+   "back": "integration",
+   "skippable": "optional"
+  },
+  {
+   "id": "security_deps",
+   "kind": "code",
+   "name": "verify deps",
+   "phase": "security",
+   "action": "verify_deps",
+   "soft": true,
+   "skippable": "optional",
+   "group": "security"
+  },
+  {
+   "id": "security_scope",
+   "kind": "code",
+   "name": "what security reads",
+   "phase": "security",
+   "action": "security_scope",
+   "skippable": "optional",
+   "group": "security"
+  },
+  {
+   "id": "security",
+   "kind": "parallel",
+   "name": "security auditor + dependency triager",
+   "agent": "security-auditor",
+   "model": "default",
+   "phase": "security",
+   "from": "security_items",
+   "redo": "security_deps",
+   "skippable": "optional",
+   "group": "security"
+  },
+  {
+   "id": "review_fix",
+   "kind": "agent",
+   "name": "fix the full-diff review's findings",
+   "agent": "implementer",
+   "model": "default",
+   "phase": "review-fix",
+   "retry_only": true
+  },
+  {
+   "id": "review_fix_commit",
+   "kind": "code",
+   "name": "verify the suite + commit the fix",
+   "phase": "review-fix",
+   "action": "verify_green+commit"
+  },
+  {
+   "id": "code_review",
+   "kind": "agent",
+   "name": "full-diff review",
+   "agent": "code-reviewer",
+   "model": "default",
+   "phase": "gate",
+   "back": "review_fix",
+   "rounds": 2
+  },
+  {
+   "id": "e2e_scope",
+   "kind": "code",
+   "name": "e2e criteria + tool",
+   "phase": "e2e",
+   "action": "e2e_scope",
+   "skippable": "optional",
+   "group": "e2e"
+  },
+  {
+   "id": "e2e_needed",
+   "kind": "branch",
+   "name": "e2e criteria",
+   "phase": "e2e",
+   "no": "smoke_scope",
+   "when": {
+    "marker": "E2E",
+    "equals": "yes",
+    "step": "e2e_scope"
+   },
+   "skippable": "optional",
+   "group": "e2e"
+  },
+  {
+   "id": "e2e_tool",
+   "kind": "gate",
+   "name": "no e2e command",
+   "phase": "e2e",
+   "when": {
+    "marker": "TOOL",
+    "equals": "no",
+    "step": "e2e_scope"
+   },
+   "skippable": "optional",
+   "group": "e2e",
+   "choices": {
+    "write": "e2e_unrun",
+    "check": "e2e_scope"
+   }
+  },
+  {
+   "id": "e2e",
+   "kind": "agent",
+   "name": "e2e",
+   "agent": "e2e-author",
+   "model": "default",
+   "phase": "e2e",
+   "markers": [
+    "E2E-RESULT"
+   ],
+   "skippable": "optional",
+   "group": "e2e"
+  },
+  {
+   "id": "e2e_commit",
+   "kind": "code",
+   "name": "verify e2e + commit",
+   "phase": "e2e",
+   "action": "verify_e2e+commit",
+   "rounds": 2,
+   "skippable": "optional",
+   "group": "e2e"
+  },
+  {
+   "id": "e2e_gate",
+   "kind": "gate",
+   "name": "e2e",
+   "phase": "e2e",
+   "back": "e2e",
+   "skippable": "optional",
+   "group": "e2e"
+  },
+  {
+   "id": "smoke_scope",
+   "kind": "code",
+   "name": "smoke checks",
+   "phase": "smoke",
+   "action": "smoke_scope",
+   "skippable": "optional",
+   "group": "smoke"
+  },
+  {
+   "id": "smoke_needed",
+   "kind": "branch",
+   "name": "smoke checks",
+   "phase": "smoke",
+   "no": "ship_plan",
+   "when": {
+    "marker": "SMOKE",
+    "equals": "yes",
+    "step": "smoke_scope"
+   },
+   "skippable": "optional",
+   "group": "smoke"
+  },
+  {
+   "id": "smoke",
+   "kind": "agent",
+   "name": "smoke",
+   "agent": "e2e-author",
+   "model": "default",
+   "phase": "smoke",
+   "skippable": "optional",
+   "group": "smoke"
+  },
+  {
+   "id": "smoke_commit",
+   "kind": "code",
+   "name": "run smoke + commit",
+   "phase": "smoke",
+   "action": "verify_smoke+commit",
+   "rounds": 2,
+   "skippable": "optional",
+   "group": "smoke"
+  },
+  {
+   "id": "smoke_gate",
+   "kind": "gate",
+   "name": "smoke",
+   "phase": "smoke",
+   "back": "smoke",
+   "skippable": "optional",
+   "group": "smoke"
+  },
+  {
+   "id": "ship_plan",
+   "kind": "gate",
+   "name": "which ship steps run",
+   "phase": "ship",
+   "lock": true,
+   "skip_menu": true,
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_verify_fix",
+   "kind": "agent",
+   "name": "fix what the checks found",
+   "agent": "implementer",
+   "model": "default",
+   "phase": "review-fix",
+   "retry_only": true,
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_verify_fix_commit",
+   "kind": "code",
+   "name": "commit the fix",
+   "phase": "review-fix",
+   "action": "commit",
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_verify",
+   "kind": "code",
+   "name": "verify fast + module",
+   "phase": "ship",
+   "action": "verify_fast+verify_module",
+   "lock": true,
+   "rounds": 2,
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_lint",
+   "kind": "code",
+   "name": "static checks",
+   "phase": "ship",
+   "action": "verify_lint",
+   "soft": true,
+   "skippable": "optional",
+   "group": "lint",
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_release",
+   "kind": "code",
+   "name": "verify release",
+   "phase": "ship",
+   "action": "verify_release",
+   "rounds": 2,
+   "skippable": "deferred",
+   "group": "release",
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_cover_measure",
+   "kind": "code",
+   "name": "measure coverage",
+   "phase": "coverage-fix",
+   "action": "verify_coverage",
+   "lock": true,
+   "soft": true,
+   "skippable": "deferred",
+   "group": "cover",
+   "included_from": "ship/cover"
+  },
+  {
+   "id": "ship_cover_measured",
+   "kind": "branch",
+   "name": "the coverage command failed",
+   "phase": "coverage-fix",
+   "no": "ship_cover_needs_work",
+   "when": {
+    "data": "coverage_error"
+   },
+   "skippable": "deferred",
+   "group": "cover",
+   "included_from": "ship/cover"
+  },
+  {
+   "id": "ship_cover_measure_failed",
+   "kind": "gate",
+   "name": "coverage could not be measured",
+   "phase": "coverage-fix",
+   "when": {
+    "data": "coverage_error"
+   },
+   "skippable": "deferred",
+   "group": "cover",
+   "choices": {
+    "try_again": "ship_cover_measure",
+    "go_on": "ship_cover_report"
+   },
+   "included_from": "ship/cover"
+  },
+  {
+   "id": "ship_cover_needs_work",
+   "kind": "branch",
+   "name": "coverage fails",
+   "phase": "coverage-fix",
+   "no": "ship_cover_report",
+   "when": {
+    "marker": "RESULT",
+    "step": "ship_cover_measure",
+    "equals": "fail"
+   },
+   "skippable": "deferred",
+   "group": "cover",
+   "included_from": "ship/cover"
+  },
+  {
+   "id": "ship_cover_decide",
+   "kind": "gate",
+   "name": "decide test / delete / accept",
+   "phase": "coverage-fix",
+   "lock": true,
+   "for_each": "coverage_groups",
+   "per_item": true,
+   "skippable": "deferred",
+   "group": "cover",
+   "choices": [
+    "test",
+    "delete",
+    "accept"
+   ],
+   "on_skip": {
+    "choice": "accept",
+    "record": "coverage_accepted"
+   },
+   "included_from": "ship/cover"
+  },
+  {
+   "id": "ship_cover_write",
+   "kind": "agent",
+   "name": "cover the group: write the test, or delete the unreachable lines",
+   "agent": "test-author",
+   "model": "default",
+   "phase": "coverage-fix",
+   "per_item": true,
+   "skippable": "deferred",
+   "group": "cover",
+   "included_from": "ship/cover"
+  },
+  {
+   "id": "ship_cover_review",
+   "kind": "agent",
+   "name": "review the coverage test: assertions lens",
+   "agent": "reviewer",
+   "model": "default",
+   "phase": "coverage-fix",
+   "back": "ship_cover_write",
+   "lock": true,
+   "per_item": true,
+   "rounds": 2,
+   "skippable": "deferred",
+   "group": "cover",
+   "included_from": "ship/cover"
+  },
+  {
+   "id": "ship_cover_commit",
+   "kind": "code",
+   "name": "coverage commit",
+   "phase": "coverage-fix",
+   "action": "commit",
+   "back": "ship_cover_write",
+   "lock": true,
+   "per_item": true,
+   "skippable": "deferred",
+   "group": "cover",
+   "included_from": "ship/cover"
+  },
+  {
+   "id": "ship_cover_remeasure",
+   "kind": "code",
+   "name": "measure again",
+   "phase": "coverage-fix",
+   "action": "verify_coverage",
+   "lock": true,
+   "soft": true,
+   "skippable": "deferred",
+   "group": "cover",
+   "included_from": "ship/cover"
+  },
+  {
+   "id": "ship_cover_covered",
+   "kind": "branch",
+   "name": "coverage passes",
+   "phase": "coverage-fix",
+   "no": "ship_cover_decide",
+   "when": {
+    "marker": "RESULT",
+    "step": "ship_cover_remeasure",
+    "equals": "pass"
+   },
+   "rounds": 2,
+   "skippable": "deferred",
+   "group": "cover",
+   "included_from": "ship/cover"
+  },
+  {
+   "id": "ship_cover_report",
+   "kind": "code",
+   "name": "coverage verdict",
+   "phase": "coverage-fix",
+   "action": "coverage_report",
+   "skippable": "deferred",
+   "group": "cover",
+   "included_from": "ship/cover"
+  },
+  {
+   "id": "ship_deps",
+   "kind": "code",
+   "name": "verify deps",
+   "phase": "ship",
+   "action": "verify_deps",
+   "skippable": "deferred",
+   "group": "deps",
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_audit",
+   "kind": "code",
+   "name": "audit",
+   "phase": "ship",
+   "action": "audit",
+   "lock": true,
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_trace",
+   "kind": "code",
+   "name": "trace --strict",
+   "phase": "ship",
+   "action": "trace_strict",
+   "lock": true,
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_lenses",
+   "kind": "code",
+   "name": "review lenses",
+   "phase": "ship",
+   "action": "review_lenses",
+   "skippable": "optional",
+   "group": "reviewers",
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_review",
+   "kind": "parallel",
+   "name": "ship review, one lens each",
+   "agent": "reviewer",
+   "model": "default",
+   "phase": "ship",
+   "from": "review_lenses",
+   "rounds": 2,
+   "redo": "ship_verify",
+   "skippable": "optional",
+   "group": "reviewers",
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_spec_walk",
+   "kind": "agent",
+   "name": "walk the diff against the spec: name behaviour no criterion asks for",
+   "agent": "reviewer",
+   "model": "default",
+   "phase": "ship",
+   "rounds": 2,
+   "redo": "ship_verify",
+   "skippable": "optional",
+   "group": "spec_walk",
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_final_review",
+   "kind": "gate",
+   "name": "final review",
+   "phase": "final-review",
+   "back": "ship_verify_fix",
+   "lock": true,
+   "report": "verdicts",
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_memory",
+   "kind": "agent",
+   "name": "knowledge update",
+   "agent": "librarian",
+   "model": "default",
+   "phase": "memory",
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_memory_check",
+   "kind": "code",
+   "name": "knowledge check",
+   "phase": "memory",
+   "action": "knowledge_check",
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_memory_commit",
+   "kind": "code",
+   "name": "commit memory",
+   "phase": "memory",
+   "action": "commit",
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_pr",
+   "kind": "code",
+   "name": "PR body",
+   "phase": "close",
+   "action": "pr",
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_pr_gate",
+   "kind": "gate",
+   "name": "open the PR",
+   "phase": "close",
+   "lock": true,
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_open_pr",
+   "kind": "code",
+   "name": "open the PR (never pushes)",
+   "phase": "close",
+   "action": "open_pr",
+   "included_from": "ship"
+  },
+  {
+   "id": "adr",
+   "kind": "agent",
+   "name": "ADR",
+   "agent": "explorer",
+   "model": "default",
+   "phase": "close"
+  },
+  {
+   "id": "adr_commit",
+   "kind": "code",
+   "name": "commit the ADR",
+   "phase": "close",
+   "action": "commit"
+  },
+  {
+   "id": "close",
+   "kind": "code",
+   "name": "close",
+   "phase": "close",
+   "action": "close_flow",
+   "then": "end"
+  },
+  {
+   "id": "spec_edit",
+   "kind": "agent",
+   "name": "edit the spec",
+   "agent": "explorer",
+   "model": "default",
+   "phase": "spec"
+  },
+  {
+   "id": "spec_edit_sync",
+   "kind": "code",
+   "name": "criteria + plan for the gate",
+   "phase": "spec",
+   "action": "spec_sync",
+   "then": "spec_gate"
+  },
+  {
+   "id": "spec_review",
+   "kind": "agent",
+   "name": "review the spec before approving",
+   "agent": "reviewer",
+   "model": "default",
+   "phase": "review"
+  },
+  {
+   "id": "spec_review_sync",
+   "kind": "code",
+   "name": "criteria + plan + the review for the gate",
+   "phase": "spec",
+   "action": "spec_sync",
+   "then": "spec_gate"
+  },
+  {
+   "id": "spec_restart",
+   "kind": "code",
+   "name": "the interview starts again",
+   "phase": "spec",
+   "action": "spec_restart",
+   "then": "spec"
+  },
+  {
+   "id": "contract_undo",
+   "kind": "code",
+   "name": "put the contract draft back",
+   "phase": "contract",
+   "action": "reset+amend_start",
+   "then": "amend"
+  },
+  {
+   "id": "amend",
+   "kind": "agent",
+   "name": "spec amendment",
+   "agent": "explorer",
+   "model": "default",
+   "phase": "spec",
+   "markers": [
+    "REOPEN",
+    "CONTRACT"
+   ]
+  },
+  {
+   "id": "amend_show",
+   "kind": "code",
+   "name": "the amendment for the gate",
+   "phase": "spec",
+   "action": "spec_amendment",
+   "back": "amend"
+  },
+  {
+   "id": "amend_gate",
+   "kind": "gate",
+   "name": "spec amendment",
+   "phase": "spec",
+   "lock": true,
+   "choices": {
+    "approve": "amend_commit",
+    "context": "amend",
+    "change": "amend",
+    "rebuild": "rebuild"
+   }
+  },
+  {
+   "id": "amend_commit",
+   "kind": "code",
+   "name": "commit the amendment",
+   "phase": "spec",
+   "action": "spec_amend_commit"
+  },
+  {
+   "id": "amend_contract",
+   "kind": "branch",
+   "name": "the contract moves",
+   "phase": "spec",
+   "no": "red",
+   "when": {
+    "marker": "CONTRACT",
+    "equals": "yes",
+    "step": "amend_commit"
+   }
+  },
+  {
+   "id": "amend_to_contract",
+   "kind": "code",
+   "name": "back to the contract",
+   "phase": "contract",
+   "then": "contract"
+  },
+  {
+   "id": "rebuild",
+   "kind": "code",
+   "name": "start the spec again in a new feature flow",
+   "phase": "spec",
+   "action": "start_flow",
+   "flow": "feature",
+   "seed": {
+    "title": "$title",
+    "evidence": "$data.amend.reason"
+   },
+   "then": "end"
+  },
+  {
+   "id": "e2e_unrun",
+   "kind": "code",
+   "name": "e2e specs without a tool",
+   "phase": "e2e",
+   "action": "e2e_unrun",
+   "then": "e2e"
+  }
+ ],
+ "yaml": ""
+}

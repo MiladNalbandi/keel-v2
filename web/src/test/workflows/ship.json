@@ -1,0 +1,324 @@
+{
+ "id": "ship",
+ "name": "ship (keel)",
+ "keel_rules": true,
+ "version": 1,
+ "steps": [
+  {
+   "id": "plan",
+   "kind": "gate",
+   "name": "which ship steps run",
+   "phase": "ship",
+   "lock": true,
+   "skip_menu": true
+  },
+  {
+   "id": "verify_fix",
+   "kind": "agent",
+   "name": "fix what the checks found",
+   "agent": "implementer",
+   "model": "default",
+   "phase": "review-fix",
+   "retry_only": true
+  },
+  {
+   "id": "verify_fix_commit",
+   "kind": "code",
+   "name": "commit the fix",
+   "phase": "review-fix",
+   "action": "commit"
+  },
+  {
+   "id": "verify",
+   "kind": "code",
+   "name": "verify fast + module",
+   "phase": "ship",
+   "action": "verify_fast+verify_module",
+   "lock": true,
+   "rounds": 2
+  },
+  {
+   "id": "lint",
+   "kind": "code",
+   "name": "static checks",
+   "phase": "ship",
+   "action": "verify_lint",
+   "soft": true,
+   "skippable": "optional"
+  },
+  {
+   "id": "release",
+   "kind": "code",
+   "name": "verify release",
+   "phase": "ship",
+   "action": "verify_release",
+   "rounds": 2,
+   "skippable": "deferred"
+  },
+  {
+   "id": "cover_measure",
+   "kind": "code",
+   "name": "measure coverage",
+   "phase": "coverage-fix",
+   "action": "verify_coverage",
+   "lock": true,
+   "soft": true,
+   "skippable": "deferred",
+   "group": "cover",
+   "included_from": "cover"
+  },
+  {
+   "id": "cover_measured",
+   "kind": "branch",
+   "name": "the coverage command failed",
+   "phase": "coverage-fix",
+   "no": "cover_needs_work",
+   "when": {
+    "data": "coverage_error"
+   },
+   "skippable": "deferred",
+   "group": "cover",
+   "included_from": "cover"
+  },
+  {
+   "id": "cover_measure_failed",
+   "kind": "gate",
+   "name": "coverage could not be measured",
+   "phase": "coverage-fix",
+   "when": {
+    "data": "coverage_error"
+   },
+   "skippable": "deferred",
+   "group": "cover",
+   "choices": {
+    "try_again": "cover_measure",
+    "go_on": "cover_report"
+   },
+   "included_from": "cover"
+  },
+  {
+   "id": "cover_needs_work",
+   "kind": "branch",
+   "name": "coverage fails",
+   "phase": "coverage-fix",
+   "no": "cover_report",
+   "when": {
+    "marker": "RESULT",
+    "step": "cover_measure",
+    "equals": "fail"
+   },
+   "skippable": "deferred",
+   "group": "cover",
+   "included_from": "cover"
+  },
+  {
+   "id": "cover_decide",
+   "kind": "gate",
+   "name": "decide test / delete / accept",
+   "phase": "coverage-fix",
+   "lock": true,
+   "for_each": "coverage_groups",
+   "per_item": true,
+   "skippable": "deferred",
+   "group": "cover",
+   "choices": [
+    "test",
+    "delete",
+    "accept"
+   ],
+   "on_skip": {
+    "choice": "accept",
+    "record": "coverage_accepted"
+   },
+   "included_from": "cover"
+  },
+  {
+   "id": "cover_write",
+   "kind": "agent",
+   "name": "cover the group: write the test, or delete the unreachable lines",
+   "agent": "test-author",
+   "model": "default",
+   "phase": "coverage-fix",
+   "per_item": true,
+   "skippable": "deferred",
+   "group": "cover",
+   "included_from": "cover"
+  },
+  {
+   "id": "cover_review",
+   "kind": "agent",
+   "name": "review the coverage test: assertions lens",
+   "agent": "reviewer",
+   "model": "default",
+   "phase": "coverage-fix",
+   "back": "cover_write",
+   "lock": true,
+   "per_item": true,
+   "rounds": 2,
+   "skippable": "deferred",
+   "group": "cover",
+   "included_from": "cover"
+  },
+  {
+   "id": "cover_commit",
+   "kind": "code",
+   "name": "coverage commit",
+   "phase": "coverage-fix",
+   "action": "commit",
+   "back": "cover_write",
+   "lock": true,
+   "per_item": true,
+   "skippable": "deferred",
+   "group": "cover",
+   "included_from": "cover"
+  },
+  {
+   "id": "cover_remeasure",
+   "kind": "code",
+   "name": "measure again",
+   "phase": "coverage-fix",
+   "action": "verify_coverage",
+   "lock": true,
+   "soft": true,
+   "skippable": "deferred",
+   "group": "cover",
+   "included_from": "cover"
+  },
+  {
+   "id": "cover_covered",
+   "kind": "branch",
+   "name": "coverage passes",
+   "phase": "coverage-fix",
+   "no": "cover_decide",
+   "when": {
+    "marker": "RESULT",
+    "step": "cover_remeasure",
+    "equals": "pass"
+   },
+   "rounds": 2,
+   "skippable": "deferred",
+   "group": "cover",
+   "included_from": "cover"
+  },
+  {
+   "id": "cover_report",
+   "kind": "code",
+   "name": "coverage verdict",
+   "phase": "coverage-fix",
+   "action": "coverage_report",
+   "skippable": "deferred",
+   "group": "cover",
+   "included_from": "cover"
+  },
+  {
+   "id": "deps",
+   "kind": "code",
+   "name": "verify deps",
+   "phase": "ship",
+   "action": "verify_deps",
+   "skippable": "deferred"
+  },
+  {
+   "id": "audit",
+   "kind": "code",
+   "name": "audit",
+   "phase": "ship",
+   "action": "audit",
+   "lock": true
+  },
+  {
+   "id": "trace",
+   "kind": "code",
+   "name": "trace --strict",
+   "phase": "ship",
+   "action": "trace_strict",
+   "lock": true
+  },
+  {
+   "id": "lenses",
+   "kind": "code",
+   "name": "review lenses",
+   "phase": "ship",
+   "action": "review_lenses",
+   "skippable": "optional",
+   "group": "reviewers"
+  },
+  {
+   "id": "review",
+   "kind": "parallel",
+   "name": "ship review, one lens each",
+   "agent": "reviewer",
+   "model": "default",
+   "phase": "ship",
+   "from": "review_lenses",
+   "rounds": 2,
+   "redo": "verify",
+   "skippable": "optional",
+   "group": "reviewers"
+  },
+  {
+   "id": "spec_walk",
+   "kind": "agent",
+   "name": "walk the diff against the spec: name behaviour no criterion asks for",
+   "agent": "reviewer",
+   "model": "default",
+   "phase": "ship",
+   "rounds": 2,
+   "redo": "verify",
+   "skippable": "optional"
+  },
+  {
+   "id": "final_review",
+   "kind": "gate",
+   "name": "final review",
+   "phase": "final-review",
+   "back": "verify_fix",
+   "lock": true,
+   "report": "verdicts"
+  },
+  {
+   "id": "memory",
+   "kind": "agent",
+   "name": "knowledge update",
+   "agent": "librarian",
+   "model": "default",
+   "phase": "memory"
+  },
+  {
+   "id": "memory_check",
+   "kind": "code",
+   "name": "knowledge check",
+   "phase": "memory",
+   "action": "knowledge_check"
+  },
+  {
+   "id": "memory_commit",
+   "kind": "code",
+   "name": "commit memory",
+   "phase": "memory",
+   "action": "commit"
+  },
+  {
+   "id": "pr",
+   "kind": "code",
+   "name": "PR body",
+   "phase": "close",
+   "action": "pr"
+  },
+  {
+   "id": "pr_gate",
+   "kind": "gate",
+   "name": "open the PR",
+   "phase": "close",
+   "lock": true
+  },
+  {
+   "id": "open_pr",
+   "kind": "code",
+   "name": "open the PR (never pushes)",
+   "phase": "close",
+   "action": "open_pr"
+  }
+ ],
+ "yaml": ""
+}
