@@ -61,8 +61,8 @@ export type ThreadState = {
   waiting?: {
     step: string; kind: "gate" | "budget" | "fix" | "clarify" | "usage"; title: string; detail: string; options: ("approve" | "reject")[];
     labels?: { approve?: string; reject?: string }; questions?: ClarifyQuestion[];
-    /** kind "usage": a plan window is nearly used up; resume with payload.choice */
-    choices?: ("continue" | "wait" | "cheaper" | "stop")[];
+    /** kind "usage": continue | wait | cheaper | stop; kind "gate": the gate's named exits. Resume with payload.choice */
+    choices?: string[];
   };
   usage: { tokens_in: number; tokens_out: number; tokens_cached?: number; cost_usd: number; premium_requests: number; cap_tokens: number };
   checkpoints: number;

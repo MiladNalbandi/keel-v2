@@ -3,7 +3,7 @@ name: fix (keel)
 keel_rules: true
 version: 1
 # The bug flow: reproduce with a failing test, Gate R, investigate in parallel, Gate F (the plan unlocks production code),
-# fix, an optional regression e2e, the PR. Inputs (StartThread.data / a start_flow seed): no_gates (or gates.bug_gates:
+# fix, an optional regression e2e, then ship (its steps are included, ids ship_*). Inputs (StartThread.data / a start_flow seed): no_gates (or gates.bug_gates:
 # false in .keel/config.yml) waives both gates and says so in the PR body; recipe and symptoms (diagnose, hunt) go to
 # the reproducer; needs_e2e makes the regression e2e mandatory.
 steps:
@@ -84,8 +84,8 @@ steps:
 
       {{data.report}}
   # Fails twice: no third try in the same context. Reset (keel's uncommitted changes go back) and reproduce again.
-  - { id: verify_fix, kind: code, name: verify + commit, action: verify_green+commit, lock: true, phase: bug-fix, attempts: 1, back: reset }
-  - { id: e2e_needed, kind: branch, name: regression e2e needed, when: { marker: E2E, equals: "yes", step: [intake, plan] }, no: pr, phase: bug-fix }
+  - { id: verify_fix, kind: code, name: verify + commit, action: verify_green+commit, lock: true, phase: bug-fix, rounds: 1, after_rounds: reset }
+  - { id: e2e_needed, kind: branch, name: regression e2e needed, when: { marker: E2E, equals: "yes", step: [intake, plan] }, no: ship_plan, phase: bug-fix }
   - id: e2e
     kind: agent
     name: regression e2e
@@ -97,9 +97,8 @@ steps:
       Write one end-to-end test for the journey that used to break, run it, and keep it only if it adds cover the
       reproducing test does not.
   - { id: e2e_commit, kind: code, name: commit e2e, action: commit, phase: e2e }
-  - { id: pr, kind: code, name: PR body, action: pr, phase: ship }
-  - { id: pr_gate, kind: gate, name: PR, phase: ship }
-  - { id: finish, kind: code, name: done, then: end, phase: ship }
+  - { id: ship, kind: include, name: ship, flow: ship }
+  - { id: finish, kind: code, name: done, then: end, phase: close }
   # Side paths, reached only by a jump.
   - { id: escalated, kind: branch, name: model already escalated, when: { marker: ESCALATED, equals: "yes", step: escalate }, no: escalate, phase: bug-investigate }
   - id: to_diagnose

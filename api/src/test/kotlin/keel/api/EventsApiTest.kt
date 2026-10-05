@@ -38,6 +38,26 @@ class EventsApiTest : ApiTest() {
     }
 
     @Test
+    fun `the ship and cover keys and the include step survive the api's workflow model`() {
+        val doc = WorkflowDoc.parse("""
+            name: tail
+            steps:
+              - { id: plan, kind: gate, name: which steps, skip_menu: true }
+              - { id: fix, kind: agent, name: fix, agent: implementer, retry_only: true }
+              - { id: verify, kind: code, name: verify, action: verify_fast, rounds: 2, back: fix }
+              - { id: cov, kind: code, name: measure, action: verify_coverage, soft: true, skippable: deferred, group: coverage }
+              - { id: decide, kind: gate, name: decide, for_each: coverage_groups, choices: [test, accept], on_skip: { choice: accept, record: coverage_accepted } }
+              - { id: review, kind: agent, name: review, agent: reviewer, redo: verify }
+              - { id: final, kind: gate, name: final, report: verdicts }
+              - { id: ship, kind: include, name: ship, flow: ship }
+        """.trimIndent())
+        val yaml = doc.toYaml()
+        listOf("skip_menu: true", "retry_only: true", "rounds: 2", "back: fix", "soft: true", "skippable: deferred", "group: coverage",
+               "- accept", "choice: accept", "record: coverage_accepted", "redo: verify", "report: verdicts", "kind: include", "flow: ship")
+            .forEach { assertThat(yaml).contains(it) }
+    }
+
+    @Test
     fun `events need the internal token`() {
         post("/internal/events", emptyList<Any>()).andExpect(status().isForbidden)
         post("/internal/events", emptyList<Any>(), mapOf("X-Keel-Token" to "wrong")).andExpect(status().isForbidden)

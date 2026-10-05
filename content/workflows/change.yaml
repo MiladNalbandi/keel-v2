@@ -42,15 +42,14 @@ steps:
       Make the change. Nothing observable may change: do not touch existing tests, the contract or migrations. If the
       change needs an existing test edited, it is not trivial: stop and say so.
   # keel refuses a "trivial" commit that edits an existing test: then it was not trivial, so triage again.
-  - { id: trivial_commit, kind: code, name: verify + trivial commit, action: verify_green+commit, lock: true, phase: trivial, attempts: 1, back: not_trivial, then: pr }
-  - { id: small, kind: code, name: small change, action: change_start, phase: small-change, attempts: 0, back: triage }
+  - { id: trivial_commit, kind: code, name: verify + trivial commit, action: verify_green+commit, lock: true, phase: trivial, rounds: 1, after_rounds: not_trivial, then: ship_plan }
+  - { id: small, kind: code, name: small change, action: change_start, phase: small-change, rounds: 1, back: triage }
   - { id: red, kind: agent, name: red, agent: test-author, model: default, phase: red, per_ac: true }
   - { id: verify_red, kind: code, name: verify_red, action: verify_red+commit, phase: red, per_ac: true, lock: true }
   - { id: green, kind: agent, name: green, agent: implementer, model: default, phase: green, per_ac: true }
   - { id: verify_green, kind: code, name: verify_green + commit, action: verify_green+commit, phase: green, per_ac: true, lock: true }
   - { id: ac_gate, kind: gate, name: AC gate, back: red, lock: true, phase: gate, per_ac: true }
-  - { id: pr, kind: code, name: PR body, action: pr, phase: ship }
-  - { id: pr_gate, kind: gate, name: PR, phase: ship }
-  - { id: finish, kind: code, name: done, then: end, phase: ship }
+  - { id: ship, kind: include, name: ship, flow: ship }
+  - { id: finish, kind: code, name: done, then: end, phase: close }
   # Side path, reached only by a jump.
   - { id: not_trivial, kind: code, name: not trivial; put it back and triage again, action: reset, then: triage, phase: small-change }

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from conftest import decide, start, wait
 from test_flows_base import answers, values, wf
+from test_flows_cover_ship import script, ship_plan, skip_all_but_reviews
 from test_v02 import commit_all, configure, git, log, write
 from keel_engine.runtime import actions as actions_mod
 from keel_engine.runtime.compiler import stronger
@@ -24,6 +25,18 @@ def on_branch(repo, name="feat/ranks"):
 
 def request_of(client, tid) -> str:
     return json.loads(client.portal.call(client.app.state.engine._row, tid)["body"])["request"]
+
+
+def through_ship(client, tid, s):
+    """The included ship steps (actions scripted green, reviews skipped): its plan, final review and PR gates.
+    Returns the final state and the PR body shown at the PR gate."""
+    assert s["waiting"]["step"] == "ship_plan", s
+    s = decide(client, tid, "approve", payload={"skip": {"reviewers": "covered by the flow", **skip_all_but_reviews()}})
+    assert s["waiting"]["step"] == "ship_final_review", s
+    s = decide(client, tid)
+    assert s["waiting"]["step"] == "ship_pr_gate", s
+    body = s["waiting"]["detail"]
+    return decide(client, tid), body
 
 
 def child(client, s, workflow):
@@ -160,19 +173,18 @@ def test_diagnose_records_unresolved_with_every_hypothesis(client, repo, monkeyp
 
 # ------------------------------------------------------------------ fix
 
-def test_fix_happy_path_commits_test_then_fix_and_ends_at_the_pr(client, repo, monkeypatch):
+def test_fix_happy_path_commits_test_then_fix_and_ships(client, repo, monkeypatch):
     seen = answers(monkeypatch, {})
+    script(monkeypatch, ship_plan())
     tid = start(client, repo, workflow="fix", title="Average of one score is wrong")
     s = wait(client, tid)
     assert s["waiting"]["step"] == "gate_r" and s["waiting"]["choices"] == ["investigate", "stop"]
     s = decide(client, tid)
     assert s["waiting"]["step"] == "gate_f" and "ROOT-CAUSE: 3 confirmed" in s["waiting"]["detail"]
     assert len([r for r in seen if r.agent == "investigator" and r.item]) == 3
-    s = decide(client, tid)
-    assert s["waiting"]["step"] == "pr_gate" and "# Average of one score is wrong" in s["waiting"]["detail"]
-    s = decide(client, tid)
-    assert s["status"] == "done"
-    subjects = log(repo)
+    s, body = through_ship(client, tid, decide(client, tid))
+    assert s["status"] == "done" and "# Average of one score is wrong" in body
+    subjects = [x for x in log(repo) if "(BUG)" in x]
     assert subjects[0].startswith("fix(BUG)") and subjects[1].startswith("test(BUG)")
     assert not any(r.agent == "e2e-author" for r in seen)
     fix = next(r for r in seen if r.agent == "implementer")
@@ -261,19 +273,21 @@ def test_fix_that_fails_twice_resets_and_reproduces_again(client, repo, monkeypa
     assert not (Path(repo) / "src/scores/fix_average_is_wrong.py").exists()      # the failed fix was put back
     s = decide(client, tid)
     s = decide(client, tid)
-    assert s["waiting"]["step"] == "pr_gate"
+    assert s["waiting"]["step"] == "ship_plan"
 
 
 def test_fix_no_gates_waives_both_gates_and_says_so(client, repo, monkeypatch):
     answers(monkeypatch, {})
+    script(monkeypatch, ship_plan())
     tid = start(client, repo, workflow="fix", title="Average is wrong", data={"no_gates": True})
     s = wait(client, tid)
-    assert s["waiting"]["step"] == "pr_gate"
-    assert "bug gates waived (no_gates option)" in s["waiting"]["detail"]
     assert any(x.startswith("gate gate_r approve: waived") for x in s["gate_log"])
+    s, body = through_ship(client, tid, s)
+    assert s["status"] == "done" and "bug gates waived (no_gates option)" in body
     configure(repo, "version: 4\ngates: {bug_gates: false}\n")
-    s = wait(client, start(client, repo, workflow="fix", title="Other bug"))
-    assert s["waiting"]["step"] == "pr_gate" and "gates.bug_gates: false" in s["waiting"]["detail"]
+    tid = start(client, repo, workflow="fix", title="Other bug")
+    _s, body = through_ship(client, tid, wait(client, tid))
+    assert "gates.bug_gates: false" in body
 
 
 def test_fix_from_a_hunt_seed_writes_the_regression_e2e(client, repo, monkeypatch):
@@ -286,7 +300,7 @@ def test_fix_from_a_hunt_seed_writes_the_regression_e2e(client, repo, monkeypatc
     assert "POST 1001 scores" in [r for r in seen if r.agent == "reproducer"][0].prompt
     decide(client, kid)
     s = decide(client, kid)
-    assert s["waiting"]["step"] == "pr_gate"
+    assert s["waiting"]["step"] == "ship_plan"
     assert any(r.agent == "e2e-author" for r in seen) and log(repo)[0].startswith("e2e(BUG)")
 
 
@@ -303,28 +317,26 @@ def test_fix_plan_can_ask_for_the_e2e(client, repo, monkeypatch):
 
 def test_change_small_runs_the_loop_with_one_gate_at_the_end(client, repo, monkeypatch):
     answers(monkeypatch, {})
+    script(monkeypatch, ship_plan())
     tid = start(client, repo, workflow="change", title="Tweak ranks")
     s = wait(client, tid)
     assert s["waiting"]["step"] == "scope_gate" and s["waiting"]["choices"] == ["small", "trivial", "feature"]
     assert s["waiting"]["detail"].startswith("Proposed: small") and "CHG-1.1 [API]" in s["waiting"]["detail"]
     s = decide(client, tid)
     assert s["waiting"]["step"] == "ac_gate" and s["ac"] == "CHG-1.2"        # one gate, after the last criterion
-    s = decide(client, tid)
-    assert s["waiting"]["step"] == "pr_gate" and "no gate here (gate mode is end)" in s["waiting"]["detail"]
-    s = decide(client, tid)
-    assert s["status"] == "done"
-    assert [x.split(":")[0] for x in log(repo)[:4]] == ["feat(CHG-1.2)", "test(CHG-1.2)", "feat(CHG-1.1)", "test(CHG-1.1)"]
+    s, body = through_ship(client, tid, decide(client, tid))
+    assert s["status"] == "done" and "no gate here (gate mode is end)" in body
+    assert [x.split(":")[0] for x in log(repo) if "CHG-" in x] == ["feat(CHG-1.2)", "test(CHG-1.2)", "feat(CHG-1.1)", "test(CHG-1.1)"]
 
 
 def test_change_trivial_is_one_refactor_commit(client, repo, monkeypatch):
     seen = answers(monkeypatch, {"explorer": lambda r: "A rename; no test could notice.\nSIZE: trivial"})
+    script(monkeypatch, ship_plan())
     tid = start(client, repo, workflow="change", title="Rename the helper")
     s = wait(client, tid)
     assert s["waiting"]["detail"].startswith("Proposed: trivial")
-    s = decide(client, tid, "approve", payload={"choice": "trivial"})
-    assert s["waiting"]["step"] == "pr_gate"
-    s = decide(client, tid)
-    assert s["status"] == "done" and log(repo)[0] == "refactor: Rename the helper"
+    s, _body = through_ship(client, tid, decide(client, tid, "approve", payload={"choice": "trivial"}))
+    assert s["status"] == "done" and "refactor: Rename the helper" in log(repo)
     assert not any(r.agent == "test-author" for r in seen)
 
 
@@ -357,14 +369,16 @@ def test_change_choosing_feature_hands_the_inline_criteria_over(client, repo, mo
 
 
 def test_change_too_many_criteria_recommends_feature_and_an_override_is_recorded(client, repo, monkeypatch):
+    answers(monkeypatch, {})
+    script(monkeypatch, ship_plan())
     acs = [{"id": f"AC-{n}", "layer": "API", "title": f"rule {n} holds"} for n in range(1, 5)]
     tid = start(client, repo, workflow="change", title="Tweak ranks", acs=acs)
     s = wait(client, tid)
     assert s["waiting"]["detail"].startswith("Proposed: feature") and "4 criteria (limit 3" in s["waiting"]["detail"]
     s = decide(client, tid, "approve", payload={"choice": "small"}, why="four tiny rules, one file")
     assert "escalation-override: four tiny rules, one file" in s["gate_log"]
-    s = decide(client, tid)
-    assert s["waiting"]["step"] == "pr_gate" and "escalation-override: four tiny rules, one file" in s["waiting"]["detail"]
+    _s, body = through_ship(client, tid, decide(client, tid))
+    assert "escalation-override: four tiny rules, one file" in body
 
 
 def test_change_small_without_criteria_goes_back_to_triage(client, repo, monkeypatch):
@@ -384,10 +398,10 @@ def test_validation_of_the_new_keys():
               {"id": "c", "kind": "code", "name": "c", "action": "commit", "then": "nowhere", "back": "zz"},
               {"id": "d", "kind": "code", "name": "d"},
               {"id": "b", "kind": "branch", "name": "b", "when": {"marker": "X", "step": ["a", "q"]}, "no": "a"},
-              {"id": "e", "kind": "agent", "name": "e", "agent": "explorer", "attempts": 2}])
+              {"id": "e", "kind": "agent", "name": "e", "agent": "explorer", "after_rounds": "a"}])
     text = "\n".join(validate(bad))
-    for needle in ["only gates have choices", "different names", "then target 'nowhere'", "back target 'zz'",
-                   "needs an action (or a 'then')", "when.step 'q'", "attempts belongs to a code step"]:
+    for needle in ["choices and on_skip belong to a gate", "different names", "then target 'nowhere'", "back target 'zz'",
+                   "needs an action (or a 'then')", "when.step 'q'", "after_rounds belongs to a code step"]:
         assert needle in text, needle
 
 
