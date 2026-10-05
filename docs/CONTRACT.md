@@ -100,7 +100,16 @@ type Step = {
   collect?: string;            // the JSON list in the agent's answer (```json) becomes state.data[collect]
   when?: { marker: string; equals?: string; in?: string[]; step?: string };   // branch on a marker instead of run:/agent
   flow?: string; seed?: Record<string, unknown>; then?: "end" | "continue";    // start_flow: workflow id, seed ("$state.path" reads state)
+  // v0.4.0 cover + ship (section "v0.4.0 additions: cover, ship and include"):
+  soft?: boolean;              // code: a failing check goes on; markers[<id>].RESULT = pass | fail
+  retry_only?: boolean;        // agent/code: runs only when work was sent back to it (a failed check, a gate's send-back)
+  rounds?: number;             // code: fix attempts before asking; branch: the loop it closes runs at most N times; review: fix rounds
+  redo?: string;               // review: where the flow goes on after a fix (default the review)
+  skippable?: "deferred" | "optional"; group?: string;   // the skip menu may turn it off; a group is skipped as one
+  skip_menu?: boolean; report?: "verdicts";             // gates: the opening skip menu; the final review's verdict table
+  choices?: string[]; on_skip?: { choice?: string; record?: string };   // per-item gate: one choice per item
 };
+// kind "include" (+ flow): replaced by the steps of that workflow when the engine loads it (ids prefixed "<id>_").
 type Workflow = { id: string; name: string; based_on?: string; keel_rules: boolean; version: number; steps: Step[]; yaml: string };
 
 // Workflow YAML (what users edit, export, import)
@@ -546,3 +555,44 @@ POST /api/projects/{pid}/index/rebuild   → IndexStatus (a scan with rebuild: t
 - `index.done` becomes a notification: "Index ready: N files, N symbols" or "Index failed: <reason>".
 - `GET /api/projects/{pid}/map` reads the engine's map (an old `.keel/map.json` only while the engine has none);
   `POST …/map/rebuild` asks the engine to build it.
+
+## v0.4.0 additions: cover, ship and include
+
+Workflows `cover` and `ship` (content/workflows; ORDER = feature, change, fix, init, knowledge-refresh, cover, ship).
+
+- **cover** (phase coverage-fix): `measure` (verify_coverage, soft) → branch on RESULT → `decide` (for_each
+  coverage_groups; choices test | delete | accept; accept needs a reason, lands in `data.coverage_accepted`, which the PR
+  body and the final review print) → `write` (test-author; the item carries `decision`) → `review` (reviewer, assertions
+  lens; BLOCKING: yes goes back to `write` by itself, 2 rounds, then keel asks: send back once more or go on, dismissed) →
+  `commit` (coverage commit: refuses added production lines and `.keel/config.yml`) → `remeasure` (soft) → `covered`
+  (branch, rounds 2: one more round, then go on with a reason or stop) → `report` (coverage_report: verdict + accepted).
+  Every measure writes the sha-stamped coverage verdict; accepted groups stay skipped in later rounds
+  (`data.coverage_accepted`), and a round that leaves the same groups open says so (`data.coverage_fingerprint`).
+- **ship**: `plan` (skip_menu) → `verify_fix` (implementer, review-fix, retry_only) → `verify_fix_commit` → `verify`
+  (verify_fast+verify_module, rounds 2) → `release` (deferred) → `cover_*` (the cover steps, one deferred unit `cover`) →
+  `deps` (deferred; stands down when no manifest changed) → `audit` → `trace` (trace_strict) → `lenses` + `review`
+  (optional unit `reviewers`: one reviewer per lens from review_lenses, rounds 2, redo verify) → `spec_walk` (optional:
+  behaviour no criterion asks for) → `final_review` (report: verdicts; reject → verify_fix with the user's words) →
+  `memory` → `memory_check` → `memory_commit` → `pr` → `pr_gate` → `open_pr` (never pushes).
+- **Skip menu** (`skip_menu: true` gate): lists the steps after it as always runs / deferred / optional. Answer:
+  approve, payload `{skip: {<unit>: "<reason>"}, lenses?: ["correctness", ...]}`; a skip without a reason or of an
+  unknown unit asks again. Skips go to `data.ship_skipped` `[{step, band, reason}]` (PR body "Ship steps skipped",
+  final review "Exceptions"), lenses to `data.lenses_chosen`. A unit is a step id or a `group`.
+- **Review findings** (reviewer, code-reviewer, security-auditor steps): with `back`, findings go to that step as
+  feedback without a question for `rounds` (default 2) rounds. Without it the question is as before, plus: payload
+  `route` = review-fix (implementer, verify_green + fix commit; default) | coverage-fix (test-author, verify_green +
+  coverage commit) | red (test-author, red commit); after the fix the flow goes on from `redo`; past `rounds` the
+  question says the limit is reached. "Go on anyway" keeps them in `data.dismissed_findings` (shown at the final review).
+- **Choice gate** (`choices` on a per-item gate): options `["approve"]`, the question carries `choices`; payload
+  `{choice}` (plain approve = the first); stored on the item (`decision`, `reason`) and as `markers[<id>].CHOICE`.
+- **Final report** (`report: verdicts`): exceptions first (skipped steps, accepted coverage, dismissed findings,
+  skipped gates, unlocks, flaky tests, push blockers), then fast/module/release/coverage/deps/audit/trace/arch/memory
+  for HEAD (stale verdicts marked), review rounds, the trace table, the spec, the diffstat.
+- **Include**: `{ id: ship, kind: include, name: ship, flow: ship }` is replaced by the steps of `ship` wherever a
+  workflow is validated (YAML, StartThread JSON, templates). Ids become `ship_<id>`; back/no/redo/when.step follow. With
+  `skippable` on the include, all its steps are one unit (group = the include id). Nested includes work, cycles are
+  errors. feature/fix/change end with the ship steps by adding that one line (the api accepts `kind: include`).
+- Code actions `review_lenses` (data.review_lenses from data.lenses_chosen, review.lenses or correctness/security/
+  performance + architecture when architecture.style or rules are set) and `coverage_report`; state `rounds`
+  ({branch id: send-backs}); a code step's `back` names where its failures go.
+

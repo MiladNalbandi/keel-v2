@@ -6,7 +6,8 @@ image). Commits are real whenever the root is a git repository, so COMMIT_RULES 
 Checks that decide a push write a verdict to the engine DB (runtime/verdicts.py): knowledge_check -> memory,
 verify_release and a whole-suite verify_green -> release, verify_coverage -> coverage. Simulated runs write none.
 The other verdict actions (verify_fast, verify_module, verify_deps, audit, trace, arch) and the PR (pr, open_pr) live
-in runtime/verdict_actions.py; start_flow is the compiler's (it starts a thread).
+in runtime/verdict_actions.py; review_lenses and coverage_report in runtime/ship.py; start_flow is the compiler's (it starts a
+thread).
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ from ..rules import checks
 from ..tools import codegraph, git, testcmd
 from ..tools.agent_tools import command_env
 from . import blockers as push_gates
-from . import knowledge, verdict_actions, verdicts
+from . import knowledge, ship, verdict_actions, verdicts
 from . import ladder as run_ladder
 
 COMMIT_EXCLUDES = [f":!{p.rstrip('/')}" for p in git.ENGINE_FILES]
@@ -31,6 +32,7 @@ VERDICT_ACTIONS = {
     "verify_deps": verdict_actions.verify_deps, "audit": verdict_actions.audit, "trace": verdict_actions.trace,
     "trace_strict": lambda a: verdict_actions.trace(a, strict=True), "arch": verdict_actions.arch,
     "pr": verdict_actions.pr, "open_pr": verdict_actions.open_pr,
+    "review_lenses": ship.review_lenses, "coverage_report": ship.coverage_report,
 }
 
 

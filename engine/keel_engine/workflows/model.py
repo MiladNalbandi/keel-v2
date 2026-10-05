@@ -57,6 +57,27 @@ class Step(BaseModel):
     flow: str | None = None
     seed: dict | None = None
     then: Literal["end", "continue"] | None = None
+    # A code step whose failing check does not stop the flow: it records markers[<id>].RESULT = pass | fail (and keeps
+    # what the check found, like coverage groups) for a branch to read.
+    soft: bool | None = None
+    # Runs only when work was sent back to it (a failed check after it, or a gate's send-back): skipped otherwise.
+    retry_only: bool | None = None
+    # How many rounds before keel asks: a code step's fix attempts (instead of settings.fix_attempts), a branch's
+    # send-backs to its `no` target (the loop it closes runs at most `rounds` times), a review step's fix rounds.
+    rounds: int | None = None
+    # A review step: after a fix round, the flow goes on from this step (default: the review step itself).
+    redo: str | None = None
+    # The opening skip menu (a gate with skip_menu) may turn this step off: deferred = its push gate still waits,
+    # optional = nothing downstream needs it. Steps with the same `group` are skipped together (an include's steps).
+    skippable: Literal["deferred", "optional"] | None = None
+    group: str | None = None
+    # Gates: skip_menu asks which skippable steps run (every skip with a reason, in data.ship_skipped); report: verdicts
+    # shows the verdict table; choices = one of these per item (payload.choice), on_skip = {choice, record}: that
+    # choice (or payload skip) ends the item as skipped, needs a reason and is appended to data[record].
+    skip_menu: bool | None = None
+    report: Literal["verdicts"] | None = None
+    choices: list[str] | None = None
+    on_skip: dict | None = None
 
     @model_validator(mode="after")
     def _for_each_runs_per_item(self):
@@ -74,6 +95,68 @@ class Step(BaseModel):
         return [a.strip() for a in (self.action or "").split("+") if a.strip()]
 
 
+# ------------------------------------------------------------------ include
+
+_EXPANDING: list[str] = []      # the includes being expanded right now (a cycle check)
+
+
+def expand_includes(steps: list) -> list:
+    """`{id: ship, kind: include, flow: ship}` becomes the steps of that workflow, in place.
+
+    Included ids get the include's id as a prefix (`ship_verify`); back, no, redo and when.step that point at an
+    included step follow. With `skippable` on the include, every included step is one skippable unit (group = the
+    include's id). A skippable step that has no group keeps its own id as its group name, so a skip menu shows
+    `release`, not `ship_release`. Includes nest (ship includes cover); a cycle is an error.
+    """
+    if not any(isinstance(st, dict) and st.get("kind") == "include" for st in steps or []):
+        return steps
+    out: list = []
+    for st in steps:
+        if isinstance(st, dict) and st.get("kind") == "include":
+            out += _included(st)
+        else:
+            out.append(st)
+    return out
+
+
+def _included(inc: dict) -> list[dict]:
+    from .templates import get_template      # templates import this module
+
+    name = str(inc.get("flow") or "").strip()
+    iid = str(inc.get("id") or name).strip()
+    if not name:
+        raise ValueError(f"Step '{iid}': an include needs the workflow to include (flow: ship).")
+    if name in _EXPANDING:
+        raise ValueError(f"Step '{iid}': include cycle {' -> '.join(_EXPANDING + [name])}.")
+    _EXPANDING.append(name)
+    try:
+        tpl = get_template(name)
+    finally:
+        _EXPANDING.pop()
+    if not tpl:
+        raise ValueError(f"Step '{iid}': there is no workflow {name} to include.")
+    ids = {s.id for s in tpl.steps}
+
+    def ren(x):
+        return f"{iid}_{x}" if x in ids else x
+
+    out = []
+    for s in tpl.steps:
+        d = s.model_dump(exclude_none=True, by_alias=True)
+        d["id"] = ren(s.id)
+        for k in ("back", "no", "redo"):
+            if d.get(k):
+                d[k] = ren(d[k])
+        if isinstance(d.get("when"), dict) and d["when"].get("step"):
+            d["when"] = {**d["when"], "step": ren(d["when"]["step"])}
+        if inc.get("skippable"):
+            d["skippable"], d["group"] = inc["skippable"], iid
+        elif d.get("skippable") and not d.get("group"):
+            d["group"] = s.id
+        out.append(d)
+    return out
+
+
 class Budget(BaseModel):
     max_tokens: int | None = None
     on_limit: OnLimit | None = None
@@ -89,6 +172,13 @@ class Workflow(BaseModel):
     budget: Budget | None = None
     steps: list[Step] = Field(default_factory=list)
     yaml: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _includes(cls, data):
+        if isinstance(data, dict) and isinstance(data.get("steps"), list):
+            data = {**data, "steps": expand_includes(data["steps"])}
+        return data
 
     @property
     def flow(self) -> str:

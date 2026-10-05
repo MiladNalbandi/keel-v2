@@ -1,0 +1,33 @@
+id: ship
+name: ship (keel)
+keel_rules: true
+version: 1
+# Ported from keel v1 ship. The opening gate asks which skippable steps run (deferred: the push gate still waits for a fresh
+# verdict; optional: a real choice). Every skip needs a reason (data.ship_skipped: final review + PR body).
+# Fixes leave the ship phase: verify / release failures go to the implementer in review-fix (2 rounds, then keel asks),
+# coverage runs the cover steps (coverage-fix), a review finding is fixed in review-fix, coverage-fix or red (payload
+# route), and the flow goes on from verify again. keel never pushes: open_pr only opens a PR for a pushed branch, after
+# the PR gate is approved and with a GitHub token.
+# Other flows end with these steps: `- { id: ship, kind: include, name: ship, flow: ship }`.
+steps:
+  - { id: plan, kind: gate, name: which ship steps run, phase: ship, skip_menu: true, lock: true }
+  - { id: verify_fix, kind: agent, name: fix what the checks found, agent: implementer, model: default, phase: review-fix, retry_only: true }
+  - { id: verify_fix_commit, kind: code, name: commit the fix, action: commit, phase: review-fix }
+  - { id: verify, kind: code, name: verify fast + module, action: verify_fast+verify_module, phase: ship, rounds: 2, lock: true }
+  - { id: release, kind: code, name: verify release, action: verify_release, phase: ship, rounds: 2, skippable: deferred }
+  - { id: cover, kind: include, name: coverage, flow: cover, skippable: deferred }
+  - { id: deps, kind: code, name: verify deps, action: verify_deps, phase: ship, skippable: deferred }
+  - { id: audit, kind: code, name: audit, action: audit, phase: ship, lock: true }
+  - { id: trace, kind: code, name: trace --strict, action: trace_strict, phase: ship, lock: true }
+  - { id: lenses, kind: code, name: review lenses, action: review_lenses, phase: ship, skippable: optional, group: reviewers }
+  - { id: review, kind: parallel, name: "ship review, one lens each", agent: reviewer, model: default, from: review_lenses, phase: ship,
+      rounds: 2, redo: verify, skippable: optional, group: reviewers }
+  - { id: spec_walk, kind: agent, name: "walk the diff against the spec: name behaviour no criterion asks for", agent: reviewer, model: default,
+      phase: ship, rounds: 2, redo: verify, skippable: optional }
+  - { id: final_review, kind: gate, name: final review, phase: final-review, report: verdicts, back: verify_fix, lock: true }
+  - { id: memory, kind: agent, name: knowledge update, agent: librarian, model: default, phase: memory }
+  - { id: memory_check, kind: code, name: knowledge check, action: knowledge_check, phase: memory }
+  - { id: memory_commit, kind: code, name: commit memory, action: commit, phase: memory }
+  - { id: pr, kind: code, name: PR body, action: pr, phase: close }
+  - { id: pr_gate, kind: gate, name: open the PR, phase: close, lock: true }
+  - { id: open_pr, kind: code, name: open the PR (never pushes), action: open_pr, phase: close }
