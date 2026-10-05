@@ -227,7 +227,8 @@ class Engine:
 
     @staticmethod
     def _has_ladder(ctx: ThreadContext) -> bool:
-        return any("ladder" in s.actions() or any(l.sub == "ladder" for l in s.lanes or []) for s in ctx.workflow.steps)
+        names = {"ladder", "ladder_soft"}
+        return any(names & set(s.actions()) or any(l.sub in names for l in s.lanes or []) for s in ctx.workflow.steps)
 
     @staticmethod
     def _waiting(snap) -> dict | None:

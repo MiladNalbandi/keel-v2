@@ -148,7 +148,8 @@ def test_fix_flow_and_init_flow(client, repo):
     tid = start(client, repo, workflow="init", title="Set up keel")
     s, gates = run_to_done(client, tid, wait(client, tid))
     assert s["status"] == "done", s
-    assert [g for g, _ in gates] == ["questions", "plan_gate", "hand_over"]
+    # audit_now: its first choice (skip) hands over; the rung gate is not asked when the ladder is green
+    assert [g for g, _ in gates] == ["questions", "plan_gate", "audit_now", "hand_over"]
     assert (Path(repo) / ".keel/config.yml").is_file()
     # The defaults (approved questions): all five knowledge sections, one librarian each.
     assert {p.name for p in (Path(repo) / "docs/knowledge").glob("*.md")} == \

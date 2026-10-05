@@ -1,0 +1,27 @@
+id: hunt
+name: hunt (keel)
+keel_rules: true
+version: 1
+# A read-only bug hunt. Options (StartThread.settings, or a parent flow's seed): mode auto|semi (default semi),
+# scope all|diff|<path,path>, lenses [a, b] (default: hunt.lenses in .keel/config.yml), fast (the fast lenses, half the
+# cap, scope diff). Nothing here changes code: the output is docs/hunts/<run>/ and the backlog in the engine DB
+# (GET /projects/{p}/hunts). Semi mode also stops after the sweep and after the provers.
+steps:
+  - { id: start, kind: code, name: start the hunt, action: hunt_start, lock: true, phase: hunt-scope }
+  - { id: confirm_lenses, kind: gate, name: confirm the lenses, lock: true, phase: hunt-scope, choices: { confirm: confirm, stop: end } }
+  - { id: confirm, kind: code, name: lens set, action: hunt_confirm, lock: true, phase: hunt-scope }
+  - { id: deps, kind: code, name: dependency audit (security lens), action: hunt_deps, phase: hunt-sweep }
+  - { id: sweep, kind: parallel, name: one hunter per lens and lane, agent: hunter, model: default, from: sweep_items, collect: candidates, markers: [FINDINGS], phase: hunt-sweep }
+  - { id: ingest, kind: code, name: ingest candidates, action: hunt_ingest, lock: true, phase: hunt-sweep }
+  - { id: sweep_gate, kind: gate, name: candidates (semi), phase: hunt-sweep, when: { data: hunt.mode, equals: semi }, choices: { prove: prove, stop: end } }
+  - { id: prove, kind: parallel, name: one prover per candidate, agent: prover, model: default, from: prove_items, batch: $data.hunt.prove_concurrency, collect: verdicts, markers: [PROOF], phase: hunt-prove }
+  - { id: verdicts, kind: code, name: record verdicts, action: hunt_verdicts, lock: true, phase: hunt-prove }
+  - { id: all_proved, kind: branch, name: every candidate has a verdict, when: { marker: LEFT, equals: none }, no: prove, phase: hunt-prove }
+  - { id: verdicts_gate, kind: gate, name: verdicts (semi), phase: hunt-prove, when: { data: hunt.mode, equals: semi }, choices: { report: group, stop: end } }
+  - { id: group, kind: parallel, name: group shared causes, agent: investigator, model: default, from: group_items, cap: 1, collect: groups, phase: hunt-report }
+  - { id: grouped, kind: code, name: record groups, action: hunt_group, phase: hunt-report }
+  - { id: report, kind: code, name: render the report, action: hunt_report, lock: true, phase: hunt-report }
+  - { id: commit, kind: code, name: commit the report, action: hunt_commit, lock: true, phase: hunt-report }
+  - { id: close, kind: code, name: close a finding, action: hunt_close, back: triage, phase: hunt-triage }
+  - { id: triage, kind: gate, name: triage, phase: hunt-triage, choices: { take: take, close: close, stop: end } }
+  - { id: take, kind: code, name: take the top group, action: start_flow, flow: hunt-next, seed: { title: Next finding from the hunt, run: $data.hunt.run }, then: end, phase: hunt-triage }

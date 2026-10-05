@@ -2,19 +2,33 @@ id: init
 name: init (keel)
 keel_rules: true
 version: 1
+# Options (StartThread.settings): fast (no knowledge base unless the user names sections, a rung that passed before
+# with the same command is re-used, no arch-surveyor), fix_attempts_per_rung (setup-doctor rounds before a failing
+# rung asks: fix it / exclude it / accept it as not checked; default setup.fix_attempts_per_rung or 3).
 steps:
   - { id: discover, kind: agent, name: discover, agent: explorer, model: default, phase: setup }
+  - { id: arch_detect, kind: code, name: detect the architecture, action: arch_detect, phase: setup }
+  - { id: arch_survey, kind: parallel, name: arch-surveyor (low confidence only), agent: arch-surveyor, model: default, from: arch_items, cap: 1, markers: [ARCH], phase: setup }
   - { id: questions, kind: gate, name: questions, back: discover, phase: setup }
   - { id: plan_gate, kind: gate, name: setup plan, back: discover, lock: true, phase: setup }
   - { id: write_config, kind: code, name: write config, action: write_config, lock: true, phase: setup }
+  - { id: arch_set, kind: code, name: record the architecture, action: arch_set, phase: setup }
   - id: lanes
     kind: parallel
     name: ladder + knowledge
     parallel: 3
     phase: setup
     lanes:
-      - { name: ladder, kind: code, sub: ladder }
+      - { name: ladder, kind: code, sub: ladder_soft }
       - { name: knowledge, kind: agent, sub: librarian }
+  - { id: doctor, kind: parallel, name: setup-doctor per failing rung, agent: setup-doctor, model: default, from: failed_rungs, markers: [DIAGNOSIS], phase: setup }
+  - { id: ladder_retry, kind: code, name: run the ladder again, action: ladder_retry, phase: setup }
+  - { id: ladder_ok, kind: branch, name: green or a rung to decide, when: { marker: LADDER, in: [green, stuck] }, no: doctor, phase: setup }
+  - { id: rung_gate, kind: gate, name: a rung keeps failing, phase: setup, when: { data: rung_question }, choices: { fix: rung_apply, exclude: rung_apply, accept: rung_apply } }
+  - { id: rung_apply, kind: code, name: apply the rung decision, action: rung_apply, phase: setup }
+  - { id: ladder_done, kind: branch, name: ladder green, when: { marker: LADDER, equals: green }, no: doctor, phase: setup }
   - { id: memory_check, kind: code, name: knowledge check, action: knowledge_check, phase: setup }
   - { id: commit, kind: code, name: commit, action: commit, lock: true, phase: setup }
+  - { id: audit_now, kind: gate, name: audit now, phase: setup, choices: { skip: hand_over, hunt: start_hunt } }
+  - { id: start_hunt, kind: code, name: start a bug hunt, action: start_flow, flow: hunt, seed: { title: Bug hunt after init, mode: semi, scope: all }, then: end, phase: setup }
   - { id: hand_over, kind: gate, name: hand over, phase: setup }
