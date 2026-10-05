@@ -5,6 +5,7 @@ import {
   api, ENGINE_EVENT_TYPES, errorParts,
   type EngineEvent, type Health, type JobStep, type Notification as Note, type NotificationSettings, type Project,
 } from "./api";
+import { inboxApi } from "./inboxApi";
 import { desktopPop, NOTIFY_DEFAULTS, playSound, shouldAlert, unlockAudio, withDefaults } from "./notify";
 import { hashFor, parseHash, routeFromLink, type Route, type ScreenId } from "./routes";
 
@@ -55,6 +56,9 @@ interface Ctx {
   unread: number;
   markRead: (id: string) => void;
   markAllRead: () => void;
+  /** v0.4.1: delete one notification, or clear the whole list. */
+  deleteNote: (id: string) => void;
+  clearNotes: () => void;
   nset: NotificationSettings;
   saveNset: (s: NotificationSettings) => void;
   /** Push a notification as if it came from the server (used by "Send a test notification"). */
@@ -210,6 +214,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setNotes((ns) => ns.map((x) => ({ ...x, read: true })));
     api.readAll().catch(() => undefined);
   }, []);
+  const deleteNote = useCallback((id: string) => {
+    setNotes((ns) => ns.filter((x) => x.id !== id));
+    notesRef.current = notesRef.current.filter((x) => x.id !== id);
+    inboxApi.deleteNote(id).catch(() => undefined);
+  }, []);
+  const clearNotes = useCallback(() => {
+    setNotes([]);
+    notesRef.current = [];
+    inboxApi.clearNotes().catch((e) => toast(`Not cleared: ${errorParts(e).message}`));
+  }, [toast]);
   const saveNset = useCallback(
     (s: NotificationSettings) => {
       setNset(s);
@@ -271,6 +285,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       void reloadProjects();
       bump();
     };
+    // v0.4.1: a gate was decided somewhere (Flow page, Inbox, MCP, the run mode): its notifications are done.
+    const onDone = (e: MessageEvent) => {
+      try {
+        const d = JSON.parse(e.data) as { ids?: (string | number)[]; read?: boolean };
+        const ids = new Set((d.ids ?? []).map(String));
+        if (ids.size) setNotes((ns) => ns.map((x) => (ids.has(String(x.id)) ? { ...x, done: true, read: d.read === false ? x.read : true } : x)));
+      } catch {
+        /* ignore */
+      }
+    };
 
     const connect = () => {
       if (closed) return;
@@ -280,6 +304,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ENGINE_EVENT_TYPES.forEach((t) => es!.addEventListener(t, onEngine as EventListener));
       es.addEventListener("notification", onNote as EventListener);
       es.addEventListener("project.changed", onChanged);
+      es.addEventListener("notification.done", onDone as EventListener);
       es.onmessage = onEngine;
       es.onopen = () => {
         attempt = 0;
@@ -344,10 +369,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const value = useMemo<Ctx>(
     () => ({
       health, projects, projectsError, projectsLoaded, project, pid, setProjectId, reloadProjects, tick, live, recent,
-      liveSteps, notes, unread, markRead, markAllRead, nset, saveNset, notifyLocal: arrive, openNote, popups, dismissPopup, alert, showMascot, setShowMascot, toast,
+      liveSteps, notes, unread, markRead, markAllRead, deleteNote, clearNotes, nset, saveNset, notifyLocal: arrive, openNote, popups, dismissPopup, alert, showMascot, setShowMascot, toast,
     }),
     [health, projects, projectsError, projectsLoaded, project, pid, setProjectId, reloadProjects, tick, live, recent,
-      liveSteps, notes, unread, markRead, markAllRead, nset, saveNset, arrive, openNote, popups, dismissPopup, alert, showMascot, setShowMascot, toast],
+      liveSteps, notes, unread, markRead, markAllRead, deleteNote, clearNotes, nset, saveNset, arrive, openNote, popups, dismissPopup, alert, showMascot, setShowMascot, toast],
   );
 
   return (

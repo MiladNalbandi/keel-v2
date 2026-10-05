@@ -14,7 +14,7 @@ export function PageHead({ title, sub, actions }: { title: ReactNode; sub?: Reac
   return (
     <div className="top">
       <div>
-        <div className="crumb">{page === "projects" ? "All projects" : `${project?.name ?? "no project"} › ${g ? g.label : ""}`}</div>
+        <div className="crumb">{page === "projects" ? "All projects" : page === "inbox" ? "All projects › Run" : `${project?.name ?? "no project"} › ${g ? g.label : ""}`}</div>
         <h1>{title}</h1>
         {sub && <p>{sub}</p>}
       </div>

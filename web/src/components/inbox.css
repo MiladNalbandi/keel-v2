@@ -1,0 +1,43 @@
+/* v0.4.1: the Inbox page, the run mode picker and switch, and the notification drawer's clean-up controls.
+   Kept apart from styles.css; it uses the same tokens (light and dark come from :root). */
+
+.inbox-filters { margin-bottom: 14px; gap: 12px; }
+.inbox-filters select { border: 1px solid var(--border); background: var(--panel); border-radius: 7px; padding: 5px 8px; max-width: 100%; }
+.inbox-list { display: grid; gap: 12px; }
+.inbox-item { background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--warn); border-radius: 10px;
+  padding: 12px 14px; display: grid; gap: 8px; min-width: 0; }
+.inbox-item.k-fix, .inbox-item.k-budget, .inbox-item.k-usage { border-left-color: var(--bad); }
+.inbox-item.k-clarify { border-left-color: var(--accent); }
+.inbox-meta { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; min-width: 0; }
+.inbox-meta .sub { overflow-wrap: anywhere; }
+.inbox-since { margin-left: auto; }
+.inbox-title { font-size: 15px; margin: 0; overflow-wrap: anywhere; }
+.inbox-detail { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12.5px/1.5 var(--f-mono); color: var(--dim);
+  background: var(--panel-2); border-radius: 7px; padding: 8px 10px; max-height: 14em; overflow: auto; }
+.inbox-item .field textarea { min-height: 54px; font-family: var(--f-body); font-size: 13px; }
+.inbox-actions { gap: 6px; }
+.inbox-open { margin-left: auto; }
+.inbox-empty { display: grid; gap: 4px; padding: 40px 0; }
+@media (max-width: 520px) {
+  .inbox-since { margin-left: 0; width: 100%; }
+  .inbox-open { margin-left: 0; }
+  .inbox-actions .btn { flex: 1 1 auto; }
+}
+
+.runmode-pick { border: 0; padding: 0; margin: 0; min-width: 0; }
+.runmode-pick legend { padding: 0; margin-bottom: 6px; }
+.runmode-pick .radio span { overflow-wrap: anywhere; }
+.runmode-switch { display: grid; gap: 4px; min-width: 0; }
+.runmode-switch .lab { font-size: 12px; font-weight: 600; color: var(--dim); text-transform: uppercase; letter-spacing: .05em; }
+.runmode-switch select { border: 1px solid var(--border); background: var(--panel); border-radius: 7px; padding: 5px 8px; width: auto; max-width: 100%; }
+.runmode-switch.compact { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.hint.bad { color: var(--bad); }
+
+/* notification drawer: one row per note with its own small actions */
+.note-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px; align-items: start; }
+.note-row .note { min-width: 0; }
+.note-row .note-acts { display: flex; flex-direction: column; gap: 4px; }
+.note.done { opacity: .72; }
+.note .note-done { color: var(--ok); font-weight: 600; font-size: 11.5px; }
+.note-foot { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 4px; }
+.note-list { display: grid; gap: 8px; }

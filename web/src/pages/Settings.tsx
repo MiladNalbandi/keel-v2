@@ -16,11 +16,14 @@ type Kind =
   | { t: "tokens" }
   | { t: "text"; suggest?: string[] }
   | { t: "list" };
-type Row = { key: Key; label: string; kind: Kind };
+type Row = { key: Key; label: string; kind: Kind; /** shown when the api has no value yet (an older api) */ def?: unknown };
 
 export const SECTIONS: [string, Row[]][] = [
   ["Flow and gates", [
     { key: "gates_mode", label: "Gate mode", kind: { t: "select", opts: [["every-ac", "every AC"], ["end-of-lane", "end of lane"], ["end", "end of flow"]] } },
+    { key: "run_mode", label: "Run mode (new flows)", def: "manual", kind: { t: "select", opts: [
+      ["manual", "manual: stop at every gate"], ["important", "important only: clean AC gates go on"],
+      ["auto", "auto: keel decides what it can"], ["readonly", "read-only: no edits, no commits"]] } },
     { key: "keel_rules", label: "keel rules", kind: { t: "bool" } },
     { key: "fix_attempts", label: "Fix attempts per ladder rung", kind: { t: "select", opts: [["1", "1"], ["3", "3"], ["5", "5"]] } },
     { key: "coverage_min", label: "Coverage needed before push", kind: { t: "select", opts: [["0", "off"], ["70", "70%"], ["80", "80%"], ["90", "90%"]] } },
@@ -171,19 +174,19 @@ export function SettingsPage({ pid }: { pid: string }) {
                     const p = proj.data!;
                     const ov = (p.overrides as Record<string, unknown>)[row.key];
                     const has = ov !== undefined && ov !== null;
-                    const value = has ? ov : p.general[row.key];
+                    const value = (has ? ov : p.general[row.key]) ?? row.def;
                     return (
                       <SettingRow key={row.key} row={row} wide={wide}
                         value={<Control row={row} value={value} onSave={(v) => saveProject(row.key, v, row.label, row)} />}
                         source={has
                           ? <><span className="tag star">this project</span><button className="btn sm ghost" type="button" aria-label={`Use general for ${row.label}`} onClick={() => saveProject(row.key, p.general[row.key], row.label, row)}>Use general</button></>
-                          : <span className="sub">from General: {show(row, p.general[row.key])}</span>} />
+                          : <span className="sub">from General: {show(row, p.general[row.key] ?? row.def)}</span>} />
                     );
                   }
                   const g = general.data!;
                   return (
                     <SettingRow key={row.key} row={row} wide={wide}
-                      value={<Control row={row} value={g[row.key]} onSave={(v) => saveGeneral(row.key, v, row.label, row)} />} source={null} />
+                      value={<Control row={row} value={g[row.key] ?? row.def} onSave={(v) => saveGeneral(row.key, v, row.label, row)} />} source={null} />
                   );
                 })}
               </div>

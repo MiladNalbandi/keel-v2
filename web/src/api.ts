@@ -60,6 +60,8 @@ export type ThreadState = {
   acs: { id: string; layer: string; title: string; status: AcStatus }[];
   waiting?: {
     step: string; kind: "gate" | "budget" | "fix" | "clarify" | "usage"; title: string; detail: string; options: ("approve" | "reject")[];
+    /** v0.3.1: the question's id (the inbox sends it back so a stale page cannot answer the next question) */
+    id?: string;
     labels?: { approve?: string; reject?: string }; questions?: ClarifyQuestion[];
     /** kind "usage": continue | wait | cheaper | stop; kind "gate": the gate's named exits. Resume with payload.choice */
     choices?: string[];
@@ -72,7 +74,11 @@ export type ThreadState = {
   blockers?: Blocker[];
   /** v0.2: the init flow's setup ladder. */
   ladder?: LadderRung[];
+  /** v0.4.1: how much keel decides by itself in this flow (changeable during a run). */
+  run_mode?: RunMode;
 };
+/** v0.4.1 run modes (engine runtime/run_mode.py). */
+export type RunMode = "manual" | "important" | "auto" | "readonly";
 /** v0.4.1: what one step really does (engine POST /steps/explain via POST /api/projects/{pid}/workflows/explain-step). */
 export type StepRoute = { label: string; to: string | null; to_name: string; text?: string };
 export type BucketRule = { bucket: string; what: string; may: "edit" | "new-only" | "delete-only" | "read-only" | "no-access"; label: string; note?: string };
@@ -469,6 +475,8 @@ export type GatesMode = "every-ac" | "end-of-lane" | "end";
 export type OnCap = "pause" | "cheaper" | "stop";
 export type Settings = {
   gates_mode: GatesMode;
+  /** v0.4.1: the run mode a new flow starts with */
+  run_mode?: RunMode;
   keel_rules: boolean;
   fix_attempts: number;
   coverage_min: number;
@@ -515,6 +523,10 @@ export type Notification = {
   link: string;
   at: string;
   read: boolean;
+  /** v0.4.1: a gate's notification knows its thread and step; done = that gate was decided (anywhere). */
+  thread_id?: string | null;
+  step?: string | null;
+  done?: boolean;
 };
 export type NotificationSettings = {
   sound: boolean;
@@ -627,7 +639,7 @@ export const api = {
     post<DoctorApplied>(`/projects/${e(pid)}/doctor/workspace/apply`, { plan }),
   startFlow: (pid: string, body: {
     workflow_id: string; title: string; acs?: { id: string; layer: "API" | "WEB"; title: string }[]; cap_tokens?: number; on_cap?: OnCap;
-    allow_fake?: boolean; allow_dirty?: boolean; request?: string; options?: Record<string, unknown>;
+    allow_fake?: boolean; allow_dirty?: boolean; request?: string; options?: Record<string, unknown>; run_mode?: RunMode;
   }) =>
     post<ThreadState>(`/projects/${e(pid)}/flows`, body),
   resume: (tid: string, decision: "approve" | "reject", why?: string, payload?: Record<string, unknown>) =>
