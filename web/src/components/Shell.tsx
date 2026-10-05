@@ -5,6 +5,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { GROUPS, groupOf, hashFor, type ScreenId } from "../routes";
 import { go, useApp, useRoute } from "../state";
 import { Mascot } from "./Mascot";
+import { UsageStrip } from "./UsageStrip";
 import { NotificationDrawer, Popups } from "./Notifications";
 
 const THEME_KEY = "keel2.theme";
@@ -137,6 +138,7 @@ export function Shell({ children }: { children: ReactNode }) {
           <b>keel</b><span>v2 studio</span>
         </div>
         <ProjectBox onBell={() => setNotesOpen(true)} />
+        <UsageStrip compact />
         <Nav />
         <div className="side-mini">
           <LiveDot />

@@ -24,6 +24,7 @@ export function createDb() {
     update: { ok: true, merged: true, conflicts: [] as string[], output: "Merge made by the 'ort' strategy.\n 1 file changed" },
     /** When set, PUT /workflows/:wid answers 422 with these validation errors. */
     yamlErrors: null as string[] | null,
+    usage: fx.usage(),
     calls: [] as { method: string; path: string; body: unknown }[],
   };
 }
@@ -223,6 +224,15 @@ export function handlers(db: Db) {
       return new HttpResponse(null, { status: 204 });
     }),
     http.get("/api/limits", () => HttpResponse.json(fx.limits)),
+    http.get("/api/usage/providers", () => HttpResponse.json(db.usage)),
+    http.post("/api/usage/providers/:id/refresh", async ({ request, params }) => {
+      await log(request);
+      const card = db.usage.find((u) => u.id === params.id);
+      if (!card) return HttpResponse.json({ error: `${params.id} is not set up` }, { status: 400 });
+      const fresh = { ...card, fetched_at: new Date().toISOString(), windows: card.windows.map((w) => ({ ...w, used_pct: 0.7 })) };
+      db.usage = db.usage.map((u) => (u.id === card.id ? fresh : u));
+      return HttpResponse.json(fresh);
+    }),
     http.put("/api/limits", async ({ request }) => HttpResponse.json(await log(request))),
     http.get("/api/settings/general", () => HttpResponse.json(db.general)),
     http.put("/api/settings/general", async ({ request }) => {

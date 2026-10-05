@@ -1,5 +1,6 @@
 package keel.api.events
 
+import keel.api.budget.ProviderUsageStore
 import keel.api.common.Json
 import keel.api.common.Time
 import keel.api.notifications.NotificationService
@@ -26,6 +27,7 @@ class EventService(
     private val jdbc: JdbcTemplate,
     private val notifications: NotificationService,
     private val hub: EventHub,
+    private val usage: ProviderUsageStore,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -65,11 +67,11 @@ class EventService(
             "agent.started" -> {
                 val id = e.callId ?: "${e.threadId}:${e.step}:$at"
                 jdbc.update(
-                    """INSERT INTO agent_calls(id, project_id, thread_id, agent, provider, model, step, phase, ac, status, started_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?)
-                       ON CONFLICT(id) DO UPDATE SET status = 'running'""",
+                    """INSERT INTO agent_calls(id, project_id, thread_id, agent, provider, model, step, phase, ac, status, started_at, mode)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?)
+                       ON CONFLICT(id) DO UPDATE SET status = 'running', mode = COALESCE(excluded.mode, agent_calls.mode)""",
                     id, e.projectId, e.threadId, d.str("agent"), d.str("provider"), d.str("model"), e.step,
-                    d.str("phase"), d.str("ac"), at,
+                    d.str("phase"), d.str("ac"), at, modeOf(d.str("provider"), d.str("mode")),
                 )
                 upsertThread(e, "running", at)
                 jdbc.update("UPDATE threads SET phase = COALESCE(?, phase), ac = COALESCE(?, ac) WHERE id = ?", d.str("phase"), d.str("ac"), e.threadId)
@@ -108,6 +110,12 @@ class EventService(
                 }
             }
 
+            "provider.usage" -> {
+                val provider = d.str("provider") ?: return
+                @Suppress("UNCHECKED_CAST")
+                val windows = (d["windows"] as? List<*>).orEmpty().filterIsInstance<Map<String, Any?>>()
+                usage.store(provider, windows, d.str("source") ?: "last run", d.str("at") ?: at)
+            }
             "gate.waiting" -> {
                 upsertThread(e, "waiting", at)
                 notifications.create("review", e.projectId, d.str("title") ?: "A gate waits for you", d.str("detail") ?: "", link)
@@ -133,6 +141,15 @@ class EventService(
                 notifications.create("failed", e.projectId, "The flow failed", d.str("error")?.take(200) ?: "A step failed.", link)
             }
         }
+    }
+
+    /** How a job runs: the engine's "subscription" and "opencode" are both the plan; only "api" bills a key. */
+    private fun modeOf(provider: String?, mode: String?): String? = when {
+        provider == "fake" -> "fake"
+        provider == null -> null
+        mode == "api" -> "api"
+        mode == null -> null
+        else -> "subscription"
     }
 
     private fun budgetText(d: Map<String, Any?>): String {

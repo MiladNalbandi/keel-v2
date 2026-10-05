@@ -23,6 +23,7 @@ from ..tools.agent_tools import unified_diff
 from .base import AgentRequest, AgentResult, Emit, ModelError
 from .. import hook
 from ..runtime import guard_ctx, prompts
+from . import usage as provider_usage
 from .cli import result_usage, claude_login_env, codex_login_env, copilot_login_env, find, run_cli, safe_env
 
 # keel's PreToolUse hook (keel_engine.hook) exits 2 with "[keel guard] <reason>" on stderr; Claude Code returns
@@ -246,6 +247,7 @@ class ClaudeStream:
         self.emit, self.root, self.tools, self.result = emit, root, {}, {}
         self.inputs: dict = {}
         self.refusals: list[dict] = []
+        self.windows: list[dict] = []      # the plan's usage windows from rate_limit_event lines (models/usage.py)
         self.steps = Steps(emit, root)
 
     def line(self, raw: str):
@@ -257,6 +259,11 @@ class ClaudeStream:
         if t == "result":
             self.steps.flush()
             self.result = ev
+        elif t == "rate_limit_event":
+            got = provider_usage.claude_windows(ev.get("rate_limit_info"))
+            if got:
+                self.windows = list({**{w["window"]: w for w in self.windows}, **{w["window"]: w for w in got}}.values())
+                provider_usage.record("claude", got, "last run")
         elif t == "assistant":
             for b in ev.get("message", {}).get("content", []):
                 if b.get("type") == "text" and b.get("text", "").strip():
@@ -364,8 +371,11 @@ class ClaudeCLIRunner:
         tout = int(usage.get("output_tokens", 0))
         text = res.get("result", "")
         emit("answer", cap(text))
+        data: dict = {"refusals": stream.refusals} if stream.refusals else {}
+        if stream.windows:
+            data["usage_windows"] = stream.windows
         return AgentResult(text=text, tokens_in=tin, tokens_out=tout, tokens_cached=cached, cost_usd=float(res.get("total_cost_usd") or 0.0),
-                           data={"refusals": stream.refusals} if stream.refusals else {})
+                           data=data)
 
 
 def file_diff(root: str, rel: str, added: bool = False) -> str:
