@@ -101,7 +101,8 @@ def push_blockers(root: str, base: str | None = None, secrets: list[dict] | None
              "run the whole test suite on this commit (the flow's verify_release step)",
              "make the whole test suite pass, then run verify_release again",
              "no release verdict for this commit", "the test suite failed")
-    if (cfg.get("coverage") or {}).get("enabled") is not False and (cfg.get("commands") or {}).get("coverage"):
+    if (cfg.get("coverage") or {}).get("enabled") is not False and ((cfg.get("commands") or {}).get("coverage")
+                                                                   or ((cfg.get("coverage") or {}).get("reports"))):
         _verdict(out, "coverage", verdicts.latest(key, "coverage"), head, tree,
                  "run the coverage command on this commit (the flow's verify_coverage step)",
                  "add tests until commands.coverage passes", "no coverage verdict for this commit", "below the threshold")

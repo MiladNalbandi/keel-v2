@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import hashlib
+import json
 import logging
 import tempfile
 import time
@@ -34,8 +35,8 @@ from ..models.base import AgentRequest, AgentResult
 from .findings import REVIEWERS, blocking, unique
 from ..tools import git, guard, mcp
 from ..tools.agent_tools import ToolBox
-from ..workflows.model import Step, Workflow
-from . import agent_knowledge, clarify, guard_ctx, init_gates, prompts, spec_check
+from ..workflows.model import Loop, Step, Workflow
+from . import agent_knowledge, clarify, guard_ctx, init_gates, markers, prompts, spec_check
 from . import memory as memory_mod
 from .actions import ActionInput, ActionResult, revert_manifests, run_action
 from .state import FlowState, ThreadContext, merge_unlocks, normalize_unlocks
@@ -48,6 +49,7 @@ OPTIONS = ["approve", "reject"]
 RESUMABLE = {"claude", "codex"}      # CLIs whose sessions keel can continue (claude --resume, codex exec resume)
 ALREADY_MET = "already-met"
 DONE = ("done", ALREADY_MET)        # AC statuses the per-AC loop is finished with
+ITEM_DONE = ("done", "skipped", "failed")   # item statuses a for_each loop is finished with (todo is the rest)
 STEP_FIELD_MAX = 24_000          # per string field of an agent.step (runners already cap at 20 KB plus a note)
 
 
@@ -82,42 +84,59 @@ class LaneFailed(Exception):
 
 
 class Nav:
-    """Where to go next, given the step list and the per-AC loop."""
+    """Where to go next, given the step list and its loops (the per-AC loop and the for_each loops).
+
+    A loop is entered through its begin node, which picks the next unfinished entry (AC or item) or leaves the loop;
+    its last step goes to its end node, which marks the entry done and goes round to the begin node.
+    """
 
     def __init__(self, wf: Workflow):
         self.steps = wf.steps
         self.index = {s.id: i for i, s in enumerate(wf.steps)}
-        loop = [i for i, s in enumerate(wf.steps) if s.per_ac]
-        self.first, self.last = (loop[0], loop[-1]) if loop else (None, None)
+        self.loops = wf.loops()
+        ac = next((lp for lp in self.loops if lp.per_ac), None)
+        self.first, self.last = (ac.first, ac.last) if ac else (None, None)
+
+    def loop_of(self, i: int) -> Loop | None:
+        return next((lp for lp in self.loops if lp.first <= i <= lp.last), None)
+
+    @staticmethod
+    def begin(lp: Loop) -> str:
+        return AC_BEGIN if lp.per_ac else f"__each_{lp.id}"
+
+    @staticmethod
+    def end(lp: Loop) -> str:
+        return AC_END if lp.per_ac else f"__each_{lp.id}_end"
 
     def enter(self, j: int) -> str:
         if j >= len(self.steps):
             return FINISH
-        if self.first is not None and j == self.first:
-            return AC_BEGIN
-        return self.steps[j].id
+        lp = next((lp for lp in self.loops if lp.first == j), None)
+        return self.begin(lp) if lp else self.steps[j].id
 
     def after(self, i: int) -> str:
-        if self.last is not None and i == self.last:
-            return AC_END
+        lp = self.loop_of(i)
+        if lp and i == lp.last:
+            return self.end(lp)
         return self.enter(i + 1)
 
-    def after_loop(self) -> str:
-        return self.enter(self.last + 1) if self.last is not None else FINISH
+    def after_loop(self, lp: Loop | None = None) -> str:
+        lp = lp or next((x for x in self.loops if x.per_ac), None)
+        return self.enter(lp.last + 1) if lp else FINISH
 
     def jump(self, sid: str, from_i: int) -> str:
         j = self.index[sid]
-        inside_now = self.steps[from_i].per_ac
-        if self.steps[j].per_ac and not inside_now:
-            return AC_BEGIN
-        return self.enter(j) if not self.steps[j].per_ac else self.steps[j].id
+        target, here = self.loop_of(j), self.loop_of(from_i)
+        if target and (not here or here.id != target.id):
+            return self.begin(target)
+        return self.steps[j].id if target else self.enter(j)
 
     def retry_target(self, i: int) -> str | None:
-        """The agent step a failed check sends work back to."""
-        here = self.steps[i]
+        """The agent step a failed check sends work back to (never across a loop's edge)."""
+        here = (self.loop_of(i) or Loop(id="", key="", first=-1, last=-1)).id
         for k in range(i - 1, -1, -1):
             s = self.steps[k]
-            if bool(s.per_ac) != bool(here.per_ac):
+            if (self.loop_of(k) or Loop(id="", key="", first=-1, last=-1)).id != here:
                 break
             if s.kind in ("agent", "parallel"):
                 return s.id
@@ -134,6 +153,24 @@ def _ac(state: FlowState) -> dict | None:
 
 def _set_ac(acs: list[dict], ac_id: str | None, status: str) -> list[dict]:
     return [dict(a, status=status) if a["id"] == ac_id else dict(a) for a in acs]
+
+
+def get_list(state: FlowState, key: str) -> list[dict]:
+    """A list of items in the state: state.data[key] (collected by a step, or a seed), else the state's own key (acs).
+    Entries that are not dicts are left out; every entry has an id."""
+    data = state.get("data") or {}
+    raw = data[key] if key in data else state.get(key)
+    if not isinstance(raw, list):
+        return []
+    return [dict(x, id=str(x.get("id") or f"{key}-{n + 1}")) for n, x in enumerate(raw) if isinstance(x, dict)]
+
+
+def put_list(state: FlowState, key: str, items: list[dict]) -> dict:
+    """The state update that stores a list where get_list reads it."""
+    data = state.get("data") or {}
+    if key not in data and key in FlowState.__annotations__:
+        return {key: items}
+    return {"data": {**data, key: items}}
 
 
 class Compiler:
@@ -154,8 +191,9 @@ class Compiler:
                 fix = Step(id=fix_id(step.id), kind="agent", name=f"{step.name}: fix findings", agent="implementer",
                            model=step.model, phase="review-fix")
                 g.add_node(fix.id, self._wrap(i, fix, self.findings_step))
-        g.add_node(AC_BEGIN, self.ac_begin)
-        g.add_node(AC_END, self.ac_end)
+        for lp in self.nav.loops:
+            g.add_node(self.nav.begin(lp), self._loop_begin(lp))
+            g.add_node(self.nav.end(lp), self._loop_end(lp))
         g.add_node(FINISH, self.finish)
         g.add_edge(START, self.nav.enter(0))
         return g.compile(checkpointer=checkpointer)
@@ -174,17 +212,22 @@ class Compiler:
             prev = state.get("phase") or "none"
             phase = step.phase or prev
             ac = state.get("ac") if step.per_ac else None
-            ctx.emit("step.started", step=step.id, data={
-                "name": step.name, "kind": step.kind, "phase": phase, "ac": ac, "from": prev, "flow": self.wf.flow,
-                "phase_changed": prev != phase, "transition_ok": rules.can_transition(prev, phase)})
+            item = state.get("item") if step.per_item else None
+            started = {"name": step.name, "kind": step.kind, "phase": phase, "ac": ac, "from": prev, "flow": self.wf.flow,
+                       "phase_changed": prev != phase, "transition_ok": rules.can_transition(prev, phase)}
+            if item:
+                started["item"] = item
+            ctx.emit("step.started", step=step.id, data=started)
             update, goto = await fn(i, step, {**state, "phase": phase})
             if len(merged) != len(have):
                 update.setdefault("unlocks", merged)
             update.setdefault("phase", phase)
             update.setdefault("current", step.id)
             failed = update.get("status") in ("stopped", "failed")
-            ctx.emit("step.finished", step=step.id, data={"name": step.name, "kind": step.kind, "phase": phase, "ac": ac,
-                                                         "ok": not failed, "note": update.get("note")})
+            finished = {"name": step.name, "kind": step.kind, "phase": phase, "ac": ac, "ok": not failed, "note": update.get("note")}
+            if item:
+                finished["item"] = item
+            ctx.emit("step.finished", step=step.id, data=finished)
             return Command(update=update, goto=END if failed else goto)
 
         node.__name__ = f"step_{step.id}"
@@ -192,20 +235,44 @@ class Compiler:
 
     # ------------------------------------------------------------ loop + end
 
-    async def ac_begin(self, state: FlowState):
-        if state.get("status") in ("stopped", "failed"):
-            return Command(goto=END)
-        nxt = next((a for a in state.get("acs") or [] if a.get("status") not in DONE), None)
-        if not nxt:
-            return Command(update={"ac": None}, goto=self.nav.after_loop())
-        return Command(update={"ac": nxt["id"], "retries": {}}, goto=self.wf.steps[self.nav.first].id)
+    def _loop_begin(self, lp: Loop):
+        """The loop's entry: the next AC (or item) that is not finished, else on past the loop."""
+        cursor, finished = ("ac", DONE) if lp.per_ac else ("item", ITEM_DONE)
 
-    async def ac_end(self, state: FlowState):
-        acs = state.get("acs") or []
-        cur = next((a for a in acs if a["id"] == state.get("ac")), None)
-        if cur and cur.get("status") != ALREADY_MET:
-            acs = _set_ac(acs, state["ac"], "done")
-        return Command(update={"acs": acs}, goto=AC_BEGIN)
+        async def begin(state: FlowState):
+            if state.get("status") in ("stopped", "failed"):
+                return Command(goto=END)
+            nxt = next((a for a in get_list(state, lp.key) if a.get("status") not in finished), None)
+            if not nxt:
+                return Command(update={cursor: None}, goto=self.nav.after_loop(lp))
+            return Command(update={cursor: nxt["id"], "retries": {}}, goto=self.wf.steps[lp.first].id)
+
+        begin.__name__ = f"loop_begin_{lp.id}"
+        return begin
+
+    def _loop_end(self, lp: Loop):
+        """The loop's last step is through: the entry is done (unless it is already met, skipped or failed)."""
+        cursor = "ac" if lp.per_ac else "item"
+        keep = (ALREADY_MET,) if lp.per_ac else ("skipped", "failed")
+
+        async def end(state: FlowState):
+            items = get_list(state, lp.key)
+            cur = next((a for a in items if a["id"] == state.get(cursor)), None)
+            if cur and cur.get("status") not in keep:
+                items = _set_ac(items, state[cursor], "done")
+            return Command(update=put_list(state, lp.key, items), goto=self.nav.begin(lp))
+
+        end.__name__ = f"loop_end_{lp.id}"
+        return end
+
+    def _item(self, state: FlowState, step: Step) -> dict | None:
+        """The current item of the for_each loop this step is in."""
+        if not step.per_item:
+            return None
+        lp = self.nav.loop_of(self.nav.index[step.id]) if step.id in self.nav.index else None
+        if not lp:
+            return None
+        return next((x for x in get_list(state, lp.key) if x["id"] == state.get("item")), None)
 
     async def finish(self, state: FlowState):
         return Command(update={"status": "done", "ac": None, "note": "done"}, goto=END)
@@ -242,7 +309,8 @@ class Compiler:
                 "why": f"{u['path']} in {u['phase']}" + (f": {answer.get('why')}" if answer.get("why") else "")})
         return answer, {"unlocks": merged}
 
-    async def _run_agent(self, state: FlowState, step: Step, agent: str, index: int, section: str | None = None) -> tuple[AgentResult, dict, ToolBox]:
+    async def _run_agent(self, state: FlowState, step: Step, agent: str, index: int, section: str | None = None,
+                         item: dict | None = None) -> tuple[AgentResult, dict, ToolBox]:
         ctx = self.ctx
         phase = state["phase"]
         ac = _ac(state) if step.per_ac else None
@@ -269,12 +337,12 @@ class Compiler:
                           unlocks=state.get("unlocks") or [], agent=agent, knowledge=know)
         ctx.emit("agent.started", step=step.id, call_id=call_id, data={
             "agent": agent, "provider": model["provider"], "model": model.get("model"), "mode": model.get("mode"),
-            "phase": phase, "ac": (ac or {}).get("id"), "index": index})
+            "phase": phase, "ac": (ac or {}).get("id"), "index": index, **({"item": item["id"]} if item else {})})
         counter = {"n": 0}
 
         # Agent memory: the same step again (restart, try again, send-back) continues this agent's own session.
         mem = ctx.memory
-        key = memory_mod.attempt_key(step.id, ac, agent, index, section)
+        key = memory_mod.attempt_key(step.id, ac or item, agent, index, section)
         prev = await mem.get(key) if mem and know["memory"] else None
         same = bool(prev and prev["provider"] == model["provider"] and prev["root"] == ctx.root)
         can_resume = model.get("mode") != "api" and model["provider"] in RESUMABLE
@@ -296,7 +364,7 @@ class Compiler:
         prompt = prompts.task_prompt(agent=agent, phase=phase, step_name=step.name, title=ctx.title, root=ctx.root, ac=ac,
                                      acs=state.get("acs") or [], feedback=state.get("feedback"), index=index, spec=state.get("spec"),
                                      section=section, unlocks=state.get("unlocks") or [], request=ctx.request,
-                                     knowledge=know, graph=agent_knowledge.has_codegraph(mcp_specs, tools_allow))
+                                     knowledge=know, graph=agent_knowledge.has_codegraph(mcp_specs, tools_allow), item=item)
         note = memory_mod.resume_note(prev, resuming) if same else ""
         if note:
             prompt = f"{note}\n\n{prompt}"
@@ -309,7 +377,7 @@ class Compiler:
                                tools_allow=tools_allow, key=models.key_for(model["provider"], ctx.keys), workdir=tmp,
                                keys=dict(ctx.keys), section=section, session=session, resume=resuming,
                                on_session=(lambda sid: mem.set_session(key, sid)) if mem else None, thread=ctx.thread_id,
-                               knowledge=know)
+                               knowledge=know, item=item)
             # The guard context keel's hook reads on every tool call (CLI agents). It sits in this run's scratch folder,
             # outside the project; an unlock granted while the agent runs rewrites it (ThreadContext.add_unlocks).
             gfile = guard_ctx.GuardFile(Path(tmp) / guard_ctx.FILE, **guard_ctx.context_for(req))
@@ -481,6 +549,18 @@ class Compiler:
             calls = [(step.agent or "librarian", k) for k in range(len(sections))]
         section_of = {n: sections[k] for n, (_a, k) in enumerate(calls)} if sections else \
             (dict(lane_sections) if step.lanes else {})
+        # Dynamic fan-out: one call per item of a state list (at most `cap`); a for_each step gives its item to each call.
+        loop_item = self._item(state, step)
+        item_of: dict[int, dict] = {}
+        if step.items_from:
+            items = get_list(state, step.items_from)[: step.cap or None]
+            if not items:
+                note = f"{step.name}: no items in {step.items_from}; no agent ran"
+                return {**upd, "note": note, "data": {**(state.get("data") or {}), f"{step.id}_results": []}}, self.nav.after(i)
+            calls = [(step.agent or "", k) for k in range(len(items))]
+            item_of = dict(enumerate(items))
+        elif loop_item:
+            item_of = {n: loop_item for n in range(len(calls))}
 
         before = await asyncio.to_thread(guard.snapshot, ctx.root)
         ac = _ac(state) if step.per_ac else None
@@ -492,13 +572,19 @@ class Compiler:
             return r
 
         done = ctx.done_calls
-        attempt = f"{step.id}|{(ac or {}).get('id', '')}"
+        attempt = f"{step.id}|{(ac or loop_item or {}).get('id', '')}"
+        # `batch: N`: at most N agents of this step run at the same time; the step is still one node.
+        gate = asyncio.Semaphore(step.batch) if step.batch else None
 
         async def one(n: int, a: str, k: int):
             key = f"{attempt}|{a}|{k}"
             if key in done:
                 return done[key]
-            r = await self._run_agent(state, step, a, k, section_of.get(n))
+            if gate:
+                async with gate:
+                    r = await self._run_agent(state, step, a, k, section_of.get(n), item_of.get(n))
+            else:
+                r = await self._run_agent(state, step, a, k, section_of.get(n), item_of.get(n))
             if len(calls) > 1:
                 done[key] = r
             return r
@@ -575,6 +661,10 @@ class Compiler:
                 ctx.emit("guard.refused", step=step.id, data=data)
         if agent_results:
             upd["last_answer"] = (agent_results[-1][0].text or "")[:2000]
+        upd.update(self._outputs(step, state, [r[0] for r in agent_results], item_of))
+        said = ((upd.get("markers") or {}).get(step.id) or {}) if step.markers else {}
+        if said:
+            upd["note"] += " · " + ", ".join(f"{k}: {v}" for k, v in said.items())
         if state["phase"] in ("spec", "triage") and not state.get("acs"):
             acs, spec = self._acs_from(agent_results)
             if acs:
@@ -604,6 +694,34 @@ class Compiler:
                 upd["note"] += f" · {len(found)} blocking finding(s)"
                 return upd, fix_id(step.id)
         return upd, self.nav.after(i)
+
+    def _outputs(self, step: Step, state: FlowState, results: list[AgentResult], item_of: dict[int, dict]) -> dict:
+        """What a step's answers put into the state: per-item results (fan-out), markers, a collected list."""
+        upd: dict = {}
+        data = dict(state.get("data") or {})
+        found = [markers.parse(r.text, step.markers) if step.markers else {} for r in results]
+        if step.items_from:
+            data[f"{step.id}_results"] = [{"item": item_of[n]["id"], "text": (r.text or "")[:4000], "markers": found[n]}
+                                          for n, r in enumerate(results)]
+        if step.markers:
+            mine: dict = {}
+            for f in found:
+                mine.update(f)
+            mk = dict(state.get("markers") or {})
+            mk[step.id] = mine
+            mk["*"] = {**(mk.get("*") or {}), **mine}
+            upd["markers"] = mk
+        if step.collect:
+            got: list[dict] = []
+            for r in results:
+                got += markers.collect(r.text, step.collect)
+            ids = [x["id"] for x in got]
+            if len(set(ids)) != len(ids):
+                got = [dict(x, id=f"{step.collect}-{n + 1}") for n, x in enumerate(got)]
+            data[step.collect] = got
+        if data != (state.get("data") or {}):
+            upd["data"] = data
+        return upd
 
     def _reviews(self, step: Step) -> bool:
         """A review step whose blocking findings must be fixed or accepted before the flow goes on."""
@@ -667,7 +785,7 @@ class Compiler:
         Sections come from settings.sections, else from the thread's acs (the api starts the flow with
         one AC per stale section: {id: <section>, layer: "API", title: <section>}).
         """
-        if step.kind != "parallel" or step.lanes or (step.agent or "") != "librarian":
+        if step.kind != "parallel" or step.lanes or step.items_from or (step.agent or "") != "librarian":
             return []
         secs = [str(x) for x in self.ctx.settings.get("sections") or [] if str(x).strip()]
         if not secs and (self.wf.flow == "knowledge-refresh" or all(a["id"] in KNOWN_SECTIONS for a in state.get("acs") or [{"id": "-"}])):
@@ -705,21 +823,29 @@ class Compiler:
         # No criteria yet, but the spec file is known: a send-back changes that file instead of starting over.
         return [], seen
 
-    def _action_input(self, state: FlowState, ac: dict | None) -> ActionInput:
+    def _action_input(self, state: FlowState, ac: dict | None, item: dict | None = None) -> ActionInput:
         return ActionInput(root=self.ctx.root, project=self.ctx.project_id, phase=state["phase"], title=self.ctx.title, ac=ac, init=dict(state.get("init") or {}),
                            acs=copy.deepcopy(state.get("acs") or []), fake=self.ctx.simulate_checks, flow=self.wf.flow,
                            deps=list(state.get("deps") or []), gates_log=list((state.get("gates") or {}).get("log") or []),
                            base=state.get("base_head"), unlocks=list(state.get("unlocks") or []),
-                           preexisting=dict(state.get("preexisting") or {}))
+                           preexisting=dict(state.get("preexisting") or {}), item=item, data=dict(state.get("data") or {}),
+                           keys=dict(self.ctx.keys), state=dict(state))
 
     async def code_step(self, i: int, step: Step, state: FlowState):
         ac = _ac(state) if step.per_ac else None
+        item = self._item(state, step)
         st = dict(state)
         upd: dict = {}
         notes = []
         actions = step.actions()
         for n, action in enumerate(actions):
-            r = await run_action(action, self._action_input(st, ac))
+            if action == "start_flow":
+                r = await self._start_flow(step, st, item)
+            else:
+                a = self._action_input(st, ac, item)
+                if action == "open_pr":
+                    a.state["pr_approved"] = self._gate_approved(i, st)
+                r = await run_action(action, a)
             if r.ask and r.ask.get("type") == "already-met" and ac:
                 return await self._already_met(i, step, st, ac, r, upd, actions[n + 1:])
             if r.ask:
@@ -728,15 +854,65 @@ class Compiler:
                 for k in ("blockers", "ladder"):
                     if k in r.update:
                         upd[k] = r.update[k]
-                return self._check_failed(i, step, st, ac, r, upd)
+                return self._check_failed(i, step, st, ac or item, r, upd)
             st.update(r.update)
             upd.update(r.update)
             notes.append(r.note)
-        key = f"{step.id}:{(ac or {}).get('id')}"
+        key = f"{step.id}:{(ac or item or {}).get('id')}"
         retries = dict(state.get("retries") or {})
         retries.pop(key, None)
         upd.update(note="; ".join(notes), retries=retries, stall={"fingerprint": None, "count": 0, "step": 0}, last_failure=None)
+        if step.then == "end":
+            # The work goes on in the flow start_flow started; this one ends here.
+            return {**upd, "status": "done", "ac": None, "item": None}, END
         return upd, self.nav.after(i)
+
+    def _gate_approved(self, i: int, state: FlowState) -> bool:
+        """Was the nearest gate before step i approved (its last line in the gate log)?"""
+        gate = next((s for s in reversed(self.wf.steps[:i]) if s.kind == "gate"), None)
+        if not gate:
+            return False
+        mine = [line for line in (state.get("gates") or {}).get("log") or [] if line.startswith(f"gate {gate.id} ")]
+        return bool(mine) and mine[-1].startswith(f"gate {gate.id} approve")
+
+    def _seed_value(self, value, state: FlowState, item: dict | None):
+        """A seed value: "$a.b.c" reads that path from the state (item = the loop's item), anything else is literal."""
+        if isinstance(value, dict):
+            return {k: self._seed_value(v, state, item) for k, v in value.items()}
+        if isinstance(value, list):
+            return [self._seed_value(v, state, item) for v in value]
+        if not (isinstance(value, str) and value.startswith("$")):
+            return value
+        cur = {**state, "item": item, "request": self.ctx.request}
+        for part in value[1:].split("."):
+            if isinstance(cur, dict):
+                cur = cur.get(part)
+            elif isinstance(cur, list) and part.isdigit() and int(part) < len(cur):
+                cur = cur[int(part)]
+            else:
+                return None
+        return cur
+
+    async def _start_flow(self, step: Step, state: FlowState, item: dict | None) -> ActionResult:
+        """Hand-off: start another workflow's thread on this project with a seed; both threads record the link."""
+        ctx = self.ctx
+        if not ctx.spawn:
+            return ActionResult(False, "This engine cannot start another flow from here.")
+        seed = {"title": (item or {}).get("title") or ctx.title, "request": ctx.request}
+        seed.update({k: self._seed_value(v, state, item) for k, v in (step.seed or {}).items()})
+        link = {"thread_id": ctx.thread_id, "workflow": self.wf.id, "step": step.id}
+        key = f"start_flow|{step.id}|{(item or {}).get('id', '')}"
+        try:
+            # A node that runs again (try again after a later failure in the same step) must not start a second child.
+            child = ctx.done_calls.get(key) or await ctx.spawn(step.flow, seed, link)
+        except Exception as exc:
+            return ActionResult(False, f"Could not start the {step.flow} flow: {getattr(exc, 'error', None) or exc}")
+        ctx.done_calls[key] = child
+        children = list(state.get("children") or []) + [{"thread_id": child, "workflow": step.flow, "step": step.id,
+                                                        "title": str(seed.get("title") or "")[:200]}]
+        ctx.emit("flow.started", step=step.id, data={"child": child, "workflow": step.flow, "title": seed.get("title"),
+                                                     "then": step.then or "continue"})
+        return ActionResult(True, f"started the {step.flow} flow ({child[:8]}): {seed.get('title')}", update={"children": children})
 
     async def _already_met(self, i: int, step: Step, state: FlowState, ac: dict, r: ActionResult, upd: dict, rest: list[str]):
         """verify_red found the AC's own test already passing (keel v1 "already-met"). No retries: ask right away.
@@ -835,11 +1011,18 @@ class Compiler:
         if target and count <= attempts:
             retries[key] = count
             return {**base, "retries": retries}, target
+        lp = self.nav.loop_of(i)
+        in_items = bool(lp and not lp.per_ac and ac)
+        reject = "reject to mark this item failed and go on with the next one" if in_items else "reject to stop the flow"
         answer, extra = self._ask(state, {"step": step.id, "kind": "fix", "title": f"{step.name} keeps failing",
-                                          "detail": f"{r.note}\n\n{r.detail[-1500:]}\n\nApprove to try again, reject to stop the flow.",
+                                          "detail": f"{r.note}\n\n{r.detail[-1500:]}\n\nApprove to try again, {reject}.",
                                           "options": OPTIONS})
         base.update(extra)
         if (answer or {}).get("decision") != "approve":
+            if in_items:
+                items = _set_ac(get_list(state, lp.key), ac["id"], "failed")
+                return {**base, **put_list(state, lp.key, items), "retries": {**retries, key: 0}, "feedback": None,
+                        "note": f"{ac['id']} failed: {r.note}"[:300]}, self.nav.end(lp)
             return {**base, "status": "failed", "error": r.note}, END
         retries[key] = 0
         why = (answer or {}).get("why")
@@ -850,6 +1033,7 @@ class Compiler:
     async def gate_step(self, i: int, step: Step, state: FlowState):
         ctx = self.ctx
         ac = _ac(state) if step.per_ac else None
+        item = self._item(state, step)
         acs = state.get("acs") or []
         gates = copy.deepcopy(state.get("gates") or {"mode": "every-ac", "log": [], "skipped": {}})
         if ac:
@@ -860,7 +1044,7 @@ class Compiler:
         if self.wf.flow == "init" and step.id == "questions":
             return self._init_questions(step, state, gates), self.nav.after(i)
         options = OPTIONS
-        title = step.name + (f" · {ac['id']}" if ac else "")
+        title = step.name + (f" · {ac['id']}" if ac else f" · {item['id']}" if item else "")
         no_criteria = not ac and step.phase in ("spec", "triage") and not acs
         asked = (state.get("clarify") or {}).get("questions") if no_criteria else None
         if asked:
@@ -876,6 +1060,13 @@ class Compiler:
             detail = init_gates.plan(ctx.root, state.get("init") or init_gates.defaults(ctx.root))
         elif ac:
             detail = f"{ac['id']} [{ac.get('layer', 'API')}] {ac.get('title', '')}\nLast step: {state.get('note', '')}"
+        elif item:
+            about = item.get("title") or item.get("summary") or json.dumps({k: v for k, v in item.items() if k not in ("id", "status")},
+                                                                          ensure_ascii=False, default=str)[:600]
+            detail = f"{item['id']}: {about}\nLast step: {state.get('note', '')}\n\nApprove with payload skip: true to skip this item."
+        elif i and "pr" in self.wf.steps[i - 1].actions() and state.get("pr_body"):
+            # The PR body the pr step built: approve to go on (an open_pr step after this gate may open it).
+            detail = state["pr_body"]
         else:
             detail = "\n".join(f"{a['id']} [{a.get('layer', 'API')}] {a.get('title', '')}" for a in acs) or (state.get("note") or "")
             if state.get("spec"):
@@ -887,8 +1078,11 @@ class Compiler:
         why = (answer.get("why") or "").strip()
         payload = answer.get("payload") or {}
         subject = f"ac {ac['id']}" if ac else f"gate {step.id}"
-        gates["log"].append(f"{subject} {decision}" + (f": {why}" if why else ""))
-        ctx.emit("gate.decided", step=step.id, data={"gate": step.name, "decision": decision, "why": why, "ac": (ac or {}).get("id")})
+        gates["log"].append(f"{subject} {decision}" + (f" ({item['id']})" if item else "") + (f": {why}" if why else ""))
+        decided = {"gate": step.name, "decision": decision, "why": why, "ac": (ac or {}).get("id")}
+        if item:
+            decided["item"] = item["id"]
+        ctx.emit("gate.decided", step=step.id, data=decided)
         upd: dict = {"gates": gates, **extra}
         if payload.get("acs"):
             acs = [{"id": a["id"], "layer": a.get("layer", "API"), "title": a.get("title", ""), "status": a.get("status", "todo")}
@@ -898,6 +1092,11 @@ class Compiler:
             if ac:
                 upd["acs"] = _set_ac(acs, ac["id"], "done")
             upd["note"] = f"{step.name} approved" + (f": {why}" if why else "")
+            if item and payload.get("skip"):
+                lp = self.nav.loop_of(i)
+                upd.update(put_list(state, lp.key, _set_ac(get_list(state, lp.key), item["id"], "skipped")))
+                upd["note"] = f"{item['id']} skipped" + (f": {why}" if why else "")
+                return upd, self.nav.end(lp)
             return upd, self.nav.after(i)
         if ac:
             upd["acs"] = _set_ac(acs, ac["id"], "todo")
@@ -940,7 +1139,14 @@ class Compiler:
     async def branch_step(self, i: int, step: Step, state: FlowState):
         yes = True
         note = "yes"
-        if step.action and step.action.startswith("run:"):
+        if step.when:
+            # A marker an earlier agent ended with: when.step names that step, else the latest value from any step.
+            name = str(step.when["marker"]).upper()
+            src = step.when.get("step")
+            value = ((state.get("markers") or {}).get(src or "*") or {}).get(name)
+            yes = markers.matches(value, step.when)
+            note = f"{name}: {value or 'not given'}"
+        elif step.action and step.action.startswith("run:"):
             r = await run_action(step.action, self._action_input(state, _ac(state)))
             yes, note = r.ok, r.note
         elif step.agent:

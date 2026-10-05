@@ -1,7 +1,9 @@
 """How many tokens a workflow will likely use.
 
 Per agent call: tokens = median(in + out) from this project's history, or the agent's default.
-A step runs (ACs if per_ac) x (parallel copies) x (1 + retry rate) times. The range is 0.7x to 1.6x.
+A step runs (ACs if per_ac, items if per_item) x (parallel copies) x (1 + retry rate) times. The range is 0.7x to 1.6x.
+A list keel only knows at run time (a fan-out `from:` a state list, a `for_each` loop) counts as ITEMS entries, or the
+step's cap when that is smaller.
 
 Knowledge (plan 5c): an agent with no history also reads the knowledge sections it is given, so their size/4 is added
 to its input per call; history already contains what agents read.
@@ -18,6 +20,7 @@ from ..models import catalog
 from .model import Step, Workflow
 
 PROVIDERS = ["fake", "claude", "codex", "copilot"]
+ITEMS = 3          # assumed length of a list that only exists at run time (hypotheses, lenses, coverage groups)
 
 
 def _model_for(step: Step, agent: str, models: dict) -> tuple[str, str, str]:
@@ -46,6 +49,8 @@ def _agent_calls(step: Step) -> list[str]:
                 if lane.kind == "agent":
                     out += [lane.sub or step.agent or ""] * max(1, step.parallel or 1)
             return out
+        if step.items_from:
+            return [step.agent or ""] * min(step.cap or ITEMS, ITEMS)
         return [step.agent or ""] * max(1, step.parallel or 1)
     return []
 
@@ -73,7 +78,7 @@ def estimate(wf: Workflow, acs: int, history: list[dict] | None = None, models: 
             else:
                 k_in, k_out, retry = catalog.AGENT_DEFAULTS.get(agent, catalog.FALLBACK_AGENT)
                 tin, tout = k_in * 1000, k_out * 1000
-            times = (max(acs, 0) if step.per_ac else 1) * (1 + retry)
+            times = (max(acs, 0) if step.per_ac else ITEMS if step.per_item else 1) * (1 + retry)
             if not hist and (knowledge_tokens or {}).get(agent):
                 tin += knowledge_tokens[agent]
                 knowledge += knowledge_tokens[agent] * times

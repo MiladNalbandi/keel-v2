@@ -15,7 +15,7 @@ import json
 from ..tools import git
 from . import db
 
-KINDS = ("memory", "release", "coverage", "deps", "security")
+KINDS = ("memory", "release", "coverage", "deps", "security", "fast", "module", "audit", "trace", "arch")
 
 
 def write(project: str, kind: str, ok: bool, detail: dict | None = None, commit: str | None = None) -> dict:
