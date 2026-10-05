@@ -15,6 +15,8 @@ import keel.api.settings.SettingsService
 import keel.api.skills.SkillService
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
+import java.nio.file.Files
+import java.nio.file.Paths
 
 data class Agent(
     val id: String,
@@ -30,6 +32,12 @@ data class Agent(
     val overridden: List<String>,
     /** Which lane this agent works in: "follow" (the workflow decides), "api" or "web". */
     val lane: String = "follow",
+    /** The project knowledge it uses (default from its front matter, then the project's override). */
+    val knowledge: Knowledge = Knowledge.FALLBACK,
+    /** Rough tokens of its allowed sections that exist in the project (file size / 4). */
+    val knowledgeTokens: Int = 0,
+    /** The project's docs/knowledge sections that exist, with their rough token cost. */
+    val knowledgeFiles: Map<String, Int> = emptyMap(),
 )
 
 /** Project override (PUT /api/projects/{pid}/agents/{aid}); null = keep the default. */
@@ -40,6 +48,7 @@ data class AgentOverride(
     val prompt: String? = null,
     val enabled: Boolean? = null,
     val lane: String? = null,
+    val knowledge: KnowledgePatch? = null,
 )
 
 data class CustomAgent(
@@ -80,8 +89,20 @@ class AgentService(
     private fun customs(pid: String): List<CustomAgent> =
         jdbc.query("SELECT json FROM custom_agents WHERE project_id = ? ORDER BY id", { rs, _ -> Json.read<CustomAgent>(rs.getString(1)) }, pid)
 
+    /** The docs/knowledge sections that exist in the project → file size / 4. */
+    fun knowledgeFiles(root: String): Map<String, Int> {
+        val dir = Paths.get(root).resolve("docs").resolve("knowledge")
+        return Knowledge.SECTIONS.mapNotNull { sec ->
+            val f = dir.resolve("$sec.md")
+            if (Files.isRegularFile(f)) sec to (Files.size(f) / 4).toInt() else null
+        }.toMap()
+    }
+
+    private fun withKnowledge(a: Agent, k: Knowledge, files: Map<String, Int>) =
+        a.copy(knowledge = k, knowledgeTokens = k.sections.sumOf { files[it] ?: 0 }, knowledgeFiles = files)
+
     fun list(pid: String): List<Agent> {
-        projects.require(pid)
+        val files = knowledgeFiles(projects.require(pid).root)
         val s = settings.effective(pid)
         val ov = overrides(pid)
         val assigned = skills.assignedByAgent(pid)
@@ -92,7 +113,7 @@ class AgentService(
                 model = o.model ?: baseModel(d.id, s), tools = o.tools ?: d.tools,
                 skills = o.skills ?: assigned[d.id].orEmpty(), prompt = o.prompt ?: d.prompt,
                 enabled = o.enabled ?: true, overridden = overriddenKeys(o), lane = o.lane ?: "follow",
-            )
+            ).let { withKnowledge(it, d.knowledge.with(o.knowledge), files) }
         }
         val custom = customs(pid).map { c ->
             val id = c.id!!
@@ -102,7 +123,7 @@ class AgentService(
                 model = o.model ?: c.model ?: s.defaultModel, tools = o.tools ?: c.tools,
                 skills = o.skills ?: (c.skills + assigned[id].orEmpty()).distinct(), prompt = o.prompt ?: c.prompt,
                 enabled = o.enabled ?: c.enabled, overridden = overriddenKeys(o), lane = o.lane ?: "follow",
-            )
+            ).let { withKnowledge(it, Knowledge.FALLBACK.with(o.knowledge), files) }
         }
         return defaults + custom
     }
@@ -110,6 +131,7 @@ class AgentService(
     private fun overriddenKeys(o: AgentOverride) = listOfNotNull(
         "model".takeIf { o.model != null }, "tools".takeIf { o.tools != null }, "skills".takeIf { o.skills != null },
         "prompt".takeIf { o.prompt != null }, "enabled".takeIf { o.enabled != null }, "lane".takeIf { o.lane != null },
+        "knowledge".takeIf { o.knowledge != null },
     )
 
     fun get(pid: String, aid: String): Agent = list(pid).firstOrNull { it.id == aid } ?: throw NotFound("No agent called \"$aid\"")
@@ -117,11 +139,12 @@ class AgentService(
     /** Merges the given fields into the project's override. Sending a field as JSON null clears it. */
     fun override(pid: String, aid: String, patch: Map<String, Any?>): Agent {
         get(pid, aid)
-        val allowed = setOf("model", "tools", "skills", "prompt", "enabled", "lane")
+        val allowed = setOf("model", "tools", "skills", "prompt", "enabled", "lane", "knowledge")
         val unknown = patch.keys - allowed
         if (unknown.isNotEmpty()) throw BadRequest("Unknown field: ${unknown.joinToString()}", "You can change: ${allowed.joinToString()}")
         val lane = patch["lane"]
         if (lane != null && lane.toString() !in LANES) throw BadRequest("lane cannot be \"$lane\"", "Pick one of: ${LANES.joinToString()}")
+        patch["knowledge"]?.let { checkKnowledge(it) }
         val prev = jdbc.query("SELECT json FROM agent_overrides WHERE project_id = ? AND agent_id = ?", { rs, _ -> rs.getString(1) }, pid, aid)
             .firstOrNull()?.let { Json.readMap(it) } ?: emptyMap()
         val next = prev.toMutableMap()
@@ -163,7 +186,18 @@ class AgentService(
         return engine.providerTest(body)
     }
 
+    private fun checkKnowledge(v: Any) {
+        val m = v as? Map<*, *> ?: throw BadRequest("knowledge must be an object", "Send { sections, code_graph, memory, strict }.")
+        val unknown = m.keys.map { it.toString() } - KNOWLEDGE_KEYS
+        if (unknown.isNotEmpty()) throw BadRequest("Unknown knowledge field: ${unknown.joinToString()}", "You can change: ${KNOWLEDGE_KEYS.joinToString()}")
+        val sections = m["sections"] ?: return
+        val list = sections as? List<*> ?: throw BadRequest("knowledge.sections must be a list", "For example [\"architecture\", \"conventions\"].")
+        val bad = list.map { it.toString() }.filter { it !in Knowledge.SECTIONS }
+        if (bad.isNotEmpty()) throw BadRequest("Unknown knowledge section: ${bad.joinToString()}", "Pick from: ${Knowledge.SECTIONS.joinToString()}")
+    }
+
     companion object {
         val LANES = setOf("follow", "api", "web")
+        val KNOWLEDGE_KEYS = setOf("sections", "code_graph", "memory", "strict")
     }
 }

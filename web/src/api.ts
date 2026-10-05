@@ -281,8 +281,17 @@ export type Agent = {
   overridden: string[];
   /** v0.2: which lane the agent works in. "follow" = the AC's layer decides. */
   lane?: AgentLane;
+  /** v0.4: the project knowledge it uses (default from its file, then this project's change). */
+  knowledge?: AgentKnowledge;
+  /** Rough tokens of its ticked sections that exist in the project (file size / 4). */
+  knowledge_tokens?: number;
+  /** The project's docs/knowledge sections that exist → rough tokens. */
+  knowledge_files?: Record<string, number>;
 };
 export type AgentLane = "follow" | "api" | "web";
+export const KNOWLEDGE_SECTIONS = ["architecture", "domain", "conventions", "data", "integrations", "journeys"] as const;
+export type KnowledgeSection = (typeof KNOWLEDGE_SECTIONS)[number];
+export type AgentKnowledge = { sections: KnowledgeSection[]; code_graph: boolean; memory: boolean; strict: boolean };
 export type CustomAgent = {
   id: string;
   label: string;
@@ -600,7 +609,8 @@ export const api = {
 
   // agents, skills, stacks, tools
   agents: (pid: string) => get<Agent[]>(`/projects/${e(pid)}/agents`),
-  saveAgent: (pid: string, aid: string, body: Partial<Pick<Agent, "model" | "tools" | "skills" | "prompt" | "enabled" | "lane">>) =>
+  saveAgent: (pid: string, aid: string,
+    body: Partial<Pick<Agent, "model" | "tools" | "skills" | "prompt" | "enabled" | "lane">> & { knowledge?: AgentKnowledge | null }) =>
     put<Agent>(`/projects/${e(pid)}/agents/${e(aid)}`, body),
   newAgent: (pid: string, a: CustomAgent) => post<Agent>(`/projects/${e(pid)}/agents`, a),
   deleteAgent: (pid: string, aid: string) => del(`/projects/${e(pid)}/agents/${e(aid)}`),

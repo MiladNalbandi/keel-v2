@@ -42,6 +42,7 @@ class AgentRequest:
     on_session: Any = None           # callback(session_id) when the CLI reports its session id (codex)
     guard_ctx: str = ""              # the guard context file keel's hook reads (runtime/guard_ctx.py); "" = the runner writes one
     thread: str = ""                 # the thread this call belongs to
+    knowledge: dict | None = None    # {sections, code_graph, memory, strict} (runtime/agent_knowledge.py)
 
 
 @dataclass

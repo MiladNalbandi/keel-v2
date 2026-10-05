@@ -6,6 +6,11 @@ model: opus
 effort: medium
 maxTurns: 30
 disallowedTools: Edit
+knowledge:
+  sections: []
+  code_graph: true
+  memory: true
+  strict: false
 ---
 
 You write **one section** of `docs/knowledge/`, named in your prompt. You write that file and

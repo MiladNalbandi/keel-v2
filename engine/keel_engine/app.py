@@ -73,6 +73,21 @@ class McpServerSpec(BaseModel):
     cwd: str | None = None
 
 
+KnowledgeSection = Literal["architecture", "domain", "conventions", "data", "integrations", "journeys"]
+
+
+class AgentKnowledge(BaseModel):
+    """What one agent uses (runtime/agent_knowledge.py); a missing field keeps the agent's default."""
+    sections: list[KnowledgeSection] | None = None
+    code_graph: bool | None = None
+    memory: bool | None = None
+    strict: bool | None = None
+
+
+class AgentSettings(BaseModel):
+    knowledge: AgentKnowledge | None = None
+
+
 class StartThread(BaseModel):
     project_id: str
     root: str
@@ -83,6 +98,7 @@ class StartThread(BaseModel):
     settings: Settings = Field(default_factory=Settings)
     mcp: list[McpServerSpec] = Field(default_factory=list)
     skills: dict[str, str] = Field(default_factory=dict)
+    agents: dict[str, AgentSettings] = Field(default_factory=dict)   # per agent: {knowledge}
     keys: dict[str, str] | None = None   # optional: provider -> key, kept in memory only
     request: str | None = None           # what the user asked for, in their words (every agent gets it)
 
@@ -123,6 +139,7 @@ class EstimateBody(BaseModel):
     acs: int = 3
     history: list[dict[str, Any]] | None = None
     models: dict[str, ModelSpec] | None = None   # optional: agent -> model, for cost and by_provider
+    knowledge_tokens: dict[str, int] | None = None   # optional: agent -> tokens of the knowledge it is given
 
 
 class ScanBody(BaseModel):
@@ -220,7 +237,7 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
         if r.get("workflow") is None:
             return _err(400, "The workflow does not parse.", "; ".join(r["errors"]), r["errors"])
         m = {k: v.model_dump() for k, v in (body.models or {}).items()}
-        return estimate(r["workflow"], body.acs, body.history, m)
+        return estimate(r["workflow"], body.acs, body.history, m, body.knowledge_tokens)
 
     @app.post("/threads")
     async def post_thread(body: StartThread, request: Request):
@@ -237,6 +254,7 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
         data["models"] = {k: v.model_dump(exclude_none=True) for k, v in body.models.items()}
         data["settings"] = body.settings.model_dump(exclude_none=True)
         data["mcp"] = [s.model_dump(exclude_none=True) for s in body.mcp]
+        data["agents"] = {k: v.model_dump(exclude_none=True) for k, v in body.agents.items()}
         tid = await engine(request).start_thread(data)
         return {"thread_id": tid}
 

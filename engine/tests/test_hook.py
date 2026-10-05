@@ -113,6 +113,51 @@ def test_lane_and_project_config_are_honoured(capsys, tmp_path, root):
     assert judge(capsys, call("mcp__github__create_issue", title="x"), ctx_file(tmp_path, root, "red"))[0] == 0
 
 
+# ------------------------------------------------------------------ per-agent knowledge, strict mode (plan 5c)
+
+def test_strict_knowledge_refuses_a_section_the_agent_was_not_given(capsys, tmp_path, root):
+    (root / "docs/knowledge").mkdir(parents=True)
+    for sec in ("domain", "data"):
+        (root / f"docs/knowledge/{sec}.md").write_text(f"# {sec}\n")
+    strict = ctx_file(tmp_path, root, "red", knowledge_allowed=["domain", "conventions"], knowledge_strict=True)
+    code, err = judge(capsys, call("Read", file_path="docs/knowledge/data.md"), strict)
+    assert code == 2 and "knowledge section data is not given to test-author (strict)" in err
+    assert judge(capsys, call("Read", file_path=str(root / "docs/knowledge/data.md")), strict)[0] == 2
+    code, err = judge(capsys, call("Bash", command="cat docs/knowledge/data.md | head"), strict)
+    assert code == 2 and "knowledge section data" in err
+    assert judge(capsys, call("Read", file_path="docs/knowledge/domain.md"), strict)[0] == 0
+    assert judge(capsys, call("Read", file_path="docs/knowledge/index.md"), strict)[0] == 0
+    # not strict (the default): the agent is told, not forced
+    told = ctx_file(tmp_path, root, "red", knowledge_allowed=["domain"], knowledge_strict=False)
+    assert judge(capsys, call("Read", file_path="docs/knowledge/data.md"), told)[0] == 0
+    # a context without the knowledge fields (an older engine) allows the read
+    assert judge(capsys, call("Read", file_path="docs/knowledge/data.md"), ctx_file(tmp_path, root, "red"))[0] == 0
+
+
+def test_strict_knowledge_in_the_toolbox(root):
+    (root / "docs/knowledge").mkdir(parents=True)
+    (root / "docs/knowledge/data.md").write_text("# data\n")
+    (root / "docs/knowledge/domain.md").write_text("# domain\n")
+    refused = []
+    tb = ToolBox(str(root), "red", agent="test-author", knowledge={"sections": ["domain"], "strict": True},
+                 on_refuse=lambda tool, path, reason: refused.append(reason))
+    assert tb.read_file("docs/knowledge/data.md") == "REFUSED: knowledge section data is not given to test-author (strict)"
+    assert tb.read_file("docs/knowledge/domain.md") == "# domain\n"
+    assert refused == ["knowledge section data is not given to test-author (strict)"]
+    loose = ToolBox(str(root), "red", agent="test-author", knowledge={"sections": ["domain"], "strict": False})
+    assert loose.read_file("docs/knowledge/data.md") == "# data\n"
+
+
+def test_the_guard_context_carries_the_agents_knowledge(tmp_path, root):
+    req = AgentRequest(agent="test-author", system="", prompt="", root=str(root), phase="red", model={"provider": "fake"},
+                       toolbox=ToolBox(str(root), "red"), knowledge={"sections": ["domain"], "code_graph": True,
+                                                                    "memory": True, "strict": True})
+    ctx = guard_ctx.context_for(req)
+    assert ctx["knowledge_allowed"] == ["domain"] and ctx["knowledge_strict"] is True
+    req.knowledge = None
+    assert guard_ctx.context_for(req)["knowledge_allowed"] is None
+
+
 # ------------------------------------------------------------------ fail closed
 
 @pytest.mark.parametrize("make", ["unset", "missing", "garbage", "no-phase", "no-root"])
@@ -242,7 +287,8 @@ async def test_claude_runner_writes_context_and_settings_outside_the_project(tmp
     assert env[guard_ctx.ENV] == str(work / "guard.json")
     ctx = json.loads((work / "guard.json").read_text())
     assert ctx == {"root": str(root.resolve()), "phase": "green", "ac": {"id": "AC-2", "layer": "API"}, "lane": "api",
-                   "unlocks": [{"path": TEST, "phase": "green"}], "agent": "implementer", "thread": "t9"}
+                   "unlocks": [{"path": TEST, "phase": "green"}], "agent": "implementer", "thread": "t9",
+                   "knowledge_allowed": None, "knowledge_strict": False}
     assert stat.S_IMODE(os.stat(work / "guard.json").st_mode) == 0o600
     settings = json.loads((work / "keel-guard.json").read_text())
     assert settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"].startswith(f'"{sys.executable}" -I -m keel_engine.hook pre-tool')

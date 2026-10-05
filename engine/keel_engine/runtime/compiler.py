@@ -33,7 +33,7 @@ from .findings import REVIEWERS, blocking, unique
 from ..tools import git, guard, mcp
 from ..tools.agent_tools import ToolBox
 from ..workflows.model import Step, Workflow
-from . import clarify, guard_ctx, init_gates, prompts, spec_check
+from . import agent_knowledge, clarify, guard_ctx, init_gates, prompts, spec_check
 from . import memory as memory_mod
 from .actions import ActionInput, ActionResult, revert_manifests, run_action
 from .state import FlowState, ThreadContext, merge_unlocks, normalize_unlocks
@@ -247,6 +247,9 @@ class Compiler:
         model = self._model(state, step, agent)
         call_id = uuid.uuid4().hex
         cfg = rules.load_config(ctx.root)
+        # What this agent may use: its knowledge sections, the code graph, its memory (agent_knowledge.py).
+        know = agent_knowledge.for_agent(agent, ctx.agents)
+        mcp_specs, tools_allow = agent_knowledge.filter_mcp(ctx.mcp, step.tools or [], know)
 
         def on_refuse(tool: str, path: str, reason: str, command: str | None = None):
             data = {"tool": tool, "path": path or "", "reason": reason, "agent": agent, "phase": phase}
@@ -256,7 +259,7 @@ class Compiler:
 
         toolbox = ToolBox(ctx.root, phase, cfg=cfg, lane=rules.ac_lane(ac) if ac else None,
                           ac=(ac or {}).get("id"), ac_layer=(ac or {}).get("layer", "API"), on_refuse=on_refuse,
-                          unlocks=state.get("unlocks") or [])
+                          unlocks=state.get("unlocks") or [], agent=agent, knowledge=know)
         ctx.emit("agent.started", step=step.id, call_id=call_id, data={
             "agent": agent, "provider": model["provider"], "model": model.get("model"), "mode": model.get("mode"),
             "phase": phase, "ac": (ac or {}).get("id"), "index": index})
@@ -265,7 +268,7 @@ class Compiler:
         # Agent memory: the same step again (restart, try again, send-back) continues this agent's own session.
         mem = ctx.memory
         key = memory_mod.attempt_key(step.id, ac, agent, index, section)
-        prev = await mem.get(key) if mem else None
+        prev = await mem.get(key) if mem and know["memory"] else None
         same = bool(prev and prev["provider"] == model["provider"] and prev["root"] == ctx.root)
         can_resume = model.get("mode") != "api" and model["provider"] in RESUMABLE
         resuming = bool(same and can_resume and prev.get("session"))
@@ -285,7 +288,8 @@ class Compiler:
 
         prompt = prompts.task_prompt(agent=agent, phase=phase, step_name=step.name, title=ctx.title, root=ctx.root, ac=ac,
                                      acs=state.get("acs") or [], feedback=state.get("feedback"), index=index, spec=state.get("spec"),
-                                     section=section, unlocks=state.get("unlocks") or [], request=ctx.request)
+                                     section=section, unlocks=state.get("unlocks") or [], request=ctx.request,
+                                     knowledge=know, graph=agent_knowledge.has_codegraph(mcp_specs, tools_allow))
         note = memory_mod.resume_note(prev, resuming) if same else ""
         if note:
             prompt = f"{note}\n\n{prompt}"
@@ -294,10 +298,11 @@ class Compiler:
         with tempfile.TemporaryDirectory(prefix="keel-agent-") as tmp:
             req = AgentRequest(agent=agent, system=prompts.system_prompt(agent, ctx.skills), prompt=prompt, root=ctx.root,
                                phase=phase, model=model, toolbox=toolbox, ac=ac, acs=state.get("acs") or [], title=ctx.title,
-                               step_name=step.name, index=index, feedback=state.get("feedback"), mcp_specs=ctx.mcp,
-                               tools_allow=step.tools or [], key=models.key_for(model["provider"], ctx.keys), workdir=tmp,
+                               step_name=step.name, index=index, feedback=state.get("feedback"), mcp_specs=mcp_specs,
+                               tools_allow=tools_allow, key=models.key_for(model["provider"], ctx.keys), workdir=tmp,
                                keys=dict(ctx.keys), section=section, session=session, resume=resuming,
-                               on_session=(lambda sid: mem.set_session(key, sid)) if mem else None, thread=ctx.thread_id)
+                               on_session=(lambda sid: mem.set_session(key, sid)) if mem else None, thread=ctx.thread_id,
+                               knowledge=know)
             # The guard context keel's hook reads on every tool call (CLI agents). It sits in this run's scratch folder,
             # outside the project; an unlock granted while the agent runs rewrites it (ThreadContext.add_unlocks).
             gfile = guard_ctx.GuardFile(Path(tmp) / guard_ctx.FILE, **guard_ctx.context_for(req))

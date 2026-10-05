@@ -6,6 +6,11 @@ model: opus
 effort: high
 maxTurns: 30
 disallowedTools: Write, Edit
+knowledge:
+  sections: [data, integrations]
+  code_graph: false
+  memory: true
+  strict: false
 ---
 
 You audit a branch for security problems. You may not change any file.

@@ -3,6 +3,9 @@
 Per agent call: tokens = median(in + out) from this project's history, or the agent's default.
 A step runs (ACs if per_ac) x (parallel copies) x (1 + retry rate) times. The range is 0.7x to 1.6x.
 
+Knowledge (plan 5c): an agent with no history also reads the knowledge sections it is given, so their size/4 is added
+to its input per call; history already contains what agents read.
+
 Prices follow each agent's model: API mode pays per token (catalog price table); subscription and
 opencode modes are paid by the plan, so they cost $0 per token (Copilot still counts premium requests).
 """
@@ -47,14 +50,15 @@ def _agent_calls(step: Step) -> list[str]:
     return []
 
 
-def estimate(wf: Workflow, acs: int, history: list[dict] | None = None, models: dict | None = None) -> dict:
+def estimate(wf: Workflow, acs: int, history: list[dict] | None = None, models: dict | None = None,
+             knowledge_tokens: dict[str, int] | None = None) -> dict:
     models = {k: (v if isinstance(v, dict) else v.model_dump()) for k, v in (models or {}).items()}
     by_agent: dict[str, list[dict]] = {}
     for h in history or []:
         by_agent.setdefault(h.get("agent", ""), []).append(h)
     table = catalog.prices()
 
-    total, cost, premium = 0.0, 0.0, 0.0
+    total, cost, premium, knowledge = 0.0, 0.0, 0.0, 0.0
     by_provider = {p: 0 for p in PROVIDERS}
     cost_by_provider = {p: 0.0 for p in PROVIDERS}
     per_step = []
@@ -70,6 +74,9 @@ def estimate(wf: Workflow, acs: int, history: list[dict] | None = None, models: 
                 k_in, k_out, retry = catalog.AGENT_DEFAULTS.get(agent, catalog.FALLBACK_AGENT)
                 tin, tout = k_in * 1000, k_out * 1000
             times = (max(acs, 0) if step.per_ac else 1) * (1 + retry)
+            if not hist and (knowledge_tokens or {}).get(agent):
+                tin += knowledge_tokens[agent]
+                knowledge += knowledge_tokens[agent] * times
             provider, model, mode = _model_for(step, agent, models)
             p = catalog.price(provider, model, table)
             tokens = (tin + tout) * times
@@ -92,4 +99,5 @@ def estimate(wf: Workflow, acs: int, history: list[dict] | None = None, models: 
         "by_provider": by_provider,
         "cost_by_provider": {k: round(v, 4) for k, v in cost_by_provider.items()},
         "per_step": per_step,
+        "knowledge_tokens": int(round(knowledge)),
     }

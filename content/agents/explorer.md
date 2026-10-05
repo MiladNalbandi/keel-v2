@@ -6,6 +6,11 @@ model: opus
 effort: low
 maxTurns: 20
 disallowedTools: Write, Edit
+knowledge:
+  sections: [architecture, domain, conventions, data, integrations, journeys]
+  code_graph: true
+  memory: true
+  strict: false
 ---
 
 You map one area of the codebase for the area named in the prompt. Read only.

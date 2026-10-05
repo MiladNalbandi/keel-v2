@@ -6,6 +6,11 @@ model: haiku
 effort: low
 maxTurns: 10
 disallowedTools: Write, Edit, Bash
+knowledge:
+  sections: [architecture]
+  code_graph: true
+  memory: true
+  strict: false
 ---
 
 Answer only the question you were given. Use Grep to find the right region, then read in chunks of 300 lines with offset and limit.
