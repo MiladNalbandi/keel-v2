@@ -249,7 +249,12 @@ class Compiler:
         cfg = rules.load_config(ctx.root)
         # What this agent may use: its knowledge sections, the code graph, its memory (agent_knowledge.py).
         know = agent_knowledge.for_agent(agent, ctx.agents)
-        mcp_specs, tools_allow = agent_knowledge.filter_mcp(ctx.mcp, step.tools or [], know)
+        # The code graph joins the MCP servers once the project's index is ready (scan.py); filter_mcp keeps it only
+        # for agents with code_graph on.
+        graph = await asyncio.to_thread(mcp.codegraph_server_spec, ctx.root)
+        specs = list(ctx.mcp) + ([graph] if graph and not any(s.get("name") == graph["name"] for s in ctx.mcp) else [])
+        allow = list(step.tools or []) + ([f"mcp:{graph['name']}:*"] if graph else [])
+        mcp_specs, tools_allow = agent_knowledge.filter_mcp(specs, allow, know)
 
         def on_refuse(tool: str, path: str, reason: str, command: str | None = None):
             data = {"tool": tool, "path": path or "", "reason": reason, "agent": agent, "phase": phase}
