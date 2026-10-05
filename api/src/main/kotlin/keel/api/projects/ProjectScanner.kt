@@ -16,6 +16,7 @@ import java.nio.file.Paths
  *  1. KEEL_WORKSPACE — itself if it is a git repo, else each child git repo;
  *  2. ~/.keel/projects.json (keel v1's registry), roots that exist;
  *  3. nothing found and nothing registered → $KEEL_DATA/demo when it exists (the engine sets it up).
+ * Each project found is then scanned by the engine (its code graph index catches up with the code).
  */
 @Component
 @Order(10)
@@ -50,10 +51,10 @@ class ProjectScanner(
         val wsName = System.getenv("KEEL_PROJECT_NAME")?.takeIf { it.isNotBlank() }
         val wsPath = props.workspace.takeIf { it.isNotBlank() }?.let { Paths.get(it).toAbsolutePath().normalize() }
         val ids = found.distinct().mapNotNull { root ->
-            runCatching { if (root == wsPath && wsName != null) projects.registerWorkspace(root.toString(), wsName).id else projects.register(root.toString()).id }
+            runCatching { if (root == wsPath && wsName != null) projects.registerWorkspace(root.toString(), wsName, scan = false) else projects.register(root.toString(), scan = false) }
                 .onFailure { log.warn("could not register {}: {}", root, it.message) }
                 .getOrNull()
-        }
+        }.map { row -> projects.triggerScan(row); row.id }
         if (ids.isNotEmpty()) log.info("projects: {}", ids.joinToString())
         return ids
     }
