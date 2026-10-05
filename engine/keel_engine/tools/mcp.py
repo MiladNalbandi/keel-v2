@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 from .. import config
+from . import codegraph
 
 log = logging.getLogger(__name__)
 
@@ -19,6 +20,22 @@ def keel_server_spec() -> dict:
     """keel v2's own MCP server, read-only: an agent can read the flow but never approve its own gate."""
     return {"name": "keel", "command": sys.executable, "args": ["-m", "keel_engine.mcp", "--read-only"],
             "env": {"KEEL_API_URL": config.api_url()}}
+
+
+def codegraph_server_spec(root: str) -> dict | None:
+    """The code graph's MCP server (`codegraph serve --mcp`, cwd = the project) when keel indexed this folder and the
+    index is ready; None otherwise (agents then find their way with grep)."""
+    from ..runtime import scan
+
+    if not root or not codegraph.binary() or not codegraph.has_index(root):
+        return None
+    try:
+        if not scan.ready(root):
+            return None
+    except Exception as exc:  # the engine DB is busy or gone: no graph this time, never a failed step
+        log.info("code graph readiness unknown for %s: %s", root, exc)
+        return None
+    return codegraph.server_spec(root)
 
 
 def _server_env(spec: dict) -> dict:

@@ -131,7 +131,10 @@ class RepoApiTest : ApiTest() {
         get("/api/projects/$pid/wiki/page?id=adr:../../etc").andExpect(status().isBadRequest)
 
         assertThat(get("/api/projects/$pid/map").json()["missing"].asText()).contains("No map yet")
-        // the fixture KEEL_HOME has no bin/keel
-        assertThat(post("/api/projects/$pid/map/rebuild").json()["missing"].asText()).contains("not installed")
+        // the engine builds the map (no keel v1 binary involved) and keeps it
+        val built = post("/api/projects/$pid/map/rebuild").andExpect(status().isOk).json()
+        assertThat(built["levels"]["er"]).isNotNull()
+        assertThat(engine.lastBody("/projects/$pid/map")!!["root"].asText()).endsWith("repo-knowledge")
+        assertThat(get("/api/projects/$pid/map").json()["sha"].asText()).isEqualTo("abc1234")
     }
 }

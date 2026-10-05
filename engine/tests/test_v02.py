@@ -14,7 +14,7 @@ from keel_engine.models.base import AgentRequest
 from keel_engine.models.cli import safe_env
 from keel_engine.models.cli_runners import ClaudeCLIRunner, CopilotCLIRunner, OpenCodeRunner
 from keel_engine.rules import checks
-from keel_engine.runtime import blockers, ladder
+from keel_engine.runtime import blockers, ladder, verdicts
 from keel_engine.runtime.actions import ActionInput, commit
 from keel_engine.tools.agent_tools import ToolBox
 from keel_engine.workflows.model import from_dict
@@ -83,15 +83,21 @@ def run_to_end(client, tid, s, decision="approve"):
 
 # ------------------------------------------------------------------ 1. blockers
 
-def test_push_blockers_from_verdict_files(repo):
+def test_push_blockers_from_verdicts(repo):
     assert blockers.push_blockers(str(repo)) == []          # not configured: workflow gates do not apply
     configure(repo)
-    gates = {b["gate"] for b in blockers.push_blockers(str(repo))}
-    assert gates == {"release", "coverage"}
-    write(repo, ".keel/release.json", json.dumps({"sha": head(repo), "pass": True}))
-    write(repo, ".keel/coverage.json", json.dumps({"sha": "0" * 40, "pass": True}))
+    assert {b["gate"] for b in blockers.push_blockers(str(repo))} == {"release"}   # no coverage command: no coverage gate
+    configure(repo, "version: 4\ncommands: {coverage: 'true'}\n")
+    assert {b["gate"] for b in blockers.push_blockers(str(repo))} == {"release", "coverage"}
+    verdicts.write(str(repo), "release", True, {}, head(repo))
+    verdicts.write(str(repo), "coverage", True, {}, "0" * 40)
     b = blockers.push_blockers(str(repo))
-    assert [x["gate"] for x in b] == ["coverage"] and "not" in b[0]["why"] and b[0]["fix"] == "keel verify coverage"
+    assert [x["gate"] for x in b] == ["coverage"] and "not" in b[0]["why"] and "verify_coverage" in b[0]["fix"]
+    assert not any("keel " in x["fix"] for x in b)           # v2 words, not keel v1 commands
+    verdicts.write(str(repo), "coverage", True, {"tree": git(repo, "rev-parse", "HEAD^{tree}").stdout.strip()}, "0" * 40)
+    assert blockers.push_blockers(str(repo)) == []           # same files as HEAD: still current
+    verdicts.write("other-project", "release", False, {}, head(repo))
+    assert blockers.push_blockers(str(repo)) == []           # verdicts are per project
     write(repo, "docs/knowledge/architecture.md", "# A\n")
     assert "knowledge" in {x["gate"] for x in blockers.push_blockers(str(repo))}
 
@@ -103,8 +109,13 @@ def test_push_blockers_deps_and_secrets(repo):
     write(repo, "requirements.txt", "httpx==0.27\n")
     commit_all(repo, "feat: oops")
     b = {x["gate"]: x for x in blockers.push_blockers(str(repo), base)}
-    assert set(b) == {"release", "deps", "secrets"}
+    assert set(b) == {"release", "secrets"}                 # deps and security cannot run in 0.4.0: warnings only
     assert "src/scores/keys.py" in b["secrets"]["why"] and "AWS" in b["secrets"]["why"]
+    w = {x["gate"]: x for x in blockers.push_warnings(str(repo), base)}
+    assert set(w) == {"deps", "security"} and "not run" in w["deps"]["why"]
+    configure(repo, "version: 4\ncoverage: {enabled: false}\nsecurity: {required: [deps]}\n")
+    b = {x["gate"] for x in blockers.push_blockers(str(repo), base)}
+    assert b == {"release", "secrets", "deps"} and {x["gate"] for x in blockers.push_warnings(str(repo), base)} == {"security"}
 
 
 def test_push_check_and_commit_fill_blockers(client, repo):
@@ -113,13 +124,13 @@ def test_push_check_and_commit_fill_blockers(client, repo):
     tid = start(client, repo, workflow=flow)
     s = wait(client, tid)
     assert s["status"] == "done", s
-    assert {b["gate"] for b in s["blockers"]} == {"release", "coverage"}
+    assert {b["gate"] for b in s["blockers"]} == {"release"}
     assert all(set(b) == {"gate", "why", "fix"} for b in s["blockers"])
 
     tid = start(client, repo, workflow="fix", title="Average is wrong")
     s = run_to_end(client, tid, wait(client, tid))
     assert s["status"] == "done"
-    assert {b["gate"] for b in s["blockers"]} == {"release", "coverage"}   # refreshed after the fix commit
+    assert {b["gate"] for b in s["blockers"]} == {"release"}   # refreshed after the fix commit (simulated runs write no verdict)
 
 
 # ------------------------------------------------------------------ 2. ladder
@@ -499,7 +510,9 @@ def test_knowledge_refresh_with_sections(client, repo):
     assert files == {"architecture.md", "data.md"}
     assert len(client.bus.of(tid, "agent.started")) == 2
     assert log(repo)[0] == "docs(memory): Refresh knowledge"
-    assert json.loads((Path(repo) / ".keel/memory.json").read_text())["pass"] is True
+    v = verdicts.latest("demo", "memory")
+    assert v["ok"] is True and v["commit"] and v["detail"]["selected"] == ["architecture", "data"]
+    assert not (Path(repo) / ".keel/memory.json").exists()
 
 
 def test_knowledge_refresh_default_all_sections(client, repo):

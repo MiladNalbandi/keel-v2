@@ -168,6 +168,17 @@ export type JobStep = {
 };
 export type JobDetail = Job & { steps: JobStep[] };
 
+/** The engine's code graph index of a project (engine runtime/scan.py). */
+export type IndexStatus = {
+  project: string;
+  status: "idle" | "indexing" | "ready" | "failed";
+  files: number;
+  symbols: number;
+  indexed_at?: string | null;
+  error?: string | null;
+  available?: boolean;
+};
+
 export type RepoInfo = {
   branch: string;
   base: string;
@@ -599,6 +610,8 @@ export const api = {
   file: (pid: string, path: string) => get<RepoFile>(`/projects/${e(pid)}/repo/file${q({ path })}`),
   commits: (pid: string, limit = 30) => get<Commit[]>(`/projects/${e(pid)}/repo/commits${q({ limit })}`),
   updateFromBase: (pid: string) => post<UpdateFromBase>(`/projects/${e(pid)}/repo/update-from-base`),
+  index: (pid: string) => get<IndexStatus>(`/projects/${e(pid)}/index`),
+  rebuildIndex: (pid: string) => post<IndexStatus>(`/projects/${e(pid)}/index/rebuild`),
   fileHistory: (pid: string, path: string) => get<Commit[]>(`/projects/${e(pid)}/repo/history${q({ path })}`),
   unlock: (pid: string, path: string, phase?: string) =>
     post<{ unlocks: Unlock[] }>(`/projects/${e(pid)}/unlock`, phase ? { path, phase } : { path }),

@@ -32,7 +32,7 @@ from ..models import catalog
 from ..models import usage as provider_usage
 from ..models.base import AgentRequest, AgentResult
 from .findings import REVIEWERS, blocking, unique
-from ..tools import git, guard
+from ..tools import git, guard, mcp
 from ..tools.agent_tools import ToolBox
 from ..workflows.model import Step, Workflow
 from . import agent_knowledge, clarify, guard_ctx, init_gates, prompts, spec_check
@@ -251,7 +251,12 @@ class Compiler:
         cfg = rules.load_config(ctx.root)
         # What this agent may use: its knowledge sections, the code graph, its memory (agent_knowledge.py).
         know = agent_knowledge.for_agent(agent, ctx.agents)
-        mcp_specs, tools_allow = agent_knowledge.filter_mcp(ctx.mcp, step.tools or [], know)
+        # The code graph joins the MCP servers once the project's index is ready (scan.py); filter_mcp keeps it only
+        # for agents with code_graph on.
+        graph = await asyncio.to_thread(mcp.codegraph_server_spec, ctx.root)
+        specs = list(ctx.mcp) + ([graph] if graph and not any(s.get("name") == graph["name"] for s in ctx.mcp) else [])
+        allow = list(step.tools or []) + ([f"mcp:{graph['name']}:*"] if graph else [])
+        mcp_specs, tools_allow = agent_knowledge.filter_mcp(specs, allow, know)
 
         def on_refuse(tool: str, path: str, reason: str, command: str | None = None):
             data = {"tool": tool, "path": path or "", "reason": reason, "agent": agent, "phase": phase}
@@ -701,7 +706,7 @@ class Compiler:
         return [], seen
 
     def _action_input(self, state: FlowState, ac: dict | None) -> ActionInput:
-        return ActionInput(root=self.ctx.root, phase=state["phase"], title=self.ctx.title, ac=ac, init=dict(state.get("init") or {}),
+        return ActionInput(root=self.ctx.root, project=self.ctx.project_id, phase=state["phase"], title=self.ctx.title, ac=ac, init=dict(state.get("init") or {}),
                            acs=copy.deepcopy(state.get("acs") or []), fake=self.ctx.simulate_checks, flow=self.wf.flow,
                            deps=list(state.get("deps") or []), gates_log=list((state.get("gates") or {}).get("log") or []),
                            base=state.get("base_head"), unlocks=list(state.get("unlocks") or []),

@@ -3,11 +3,11 @@ package keel.api.knowledge
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import keel.api.common.BadRequest
-import keel.api.common.KeelHome
 import keel.api.common.NotFound
-import keel.api.common.Proc
 import keel.api.common.Time
 import keel.api.common.Yaml
+import keel.api.engine.EngineClient
+import keel.api.engine.EngineDown
 import keel.api.projects.ProjectService
 import keel.api.repo.ClassifyConfig
 import keel.api.repo.RepoService
@@ -36,7 +36,7 @@ class KnowledgeService(
     private val projects: ProjectService,
     private val repo: RepoService,
     private val workflows: WorkflowService,
-    private val home: KeelHome,
+    private val engine: EngineClient,
     private val mapper: ObjectMapper,
 ) {
     // ---- keel docs ------------------------------------------------------------------------
@@ -273,25 +273,27 @@ class KnowledgeService(
 
     // ---- map ------------------------------------------------------------------------------
 
+    /**
+     * The map the engine built (engine runtime/mapper.py, stored in its DB). A project that has none there yet still
+     * shows the map keel v1 left in .keel/map.json, when there is one.
+     */
     fun map(pid: String): JsonNode {
         val root = projects.root(pid)
-        val f = root.resolve(".keel/map.json")
-        if (!Files.isRegularFile(f)) return missing("No map yet. Rebuild it to draw one.")
-        return runCatching { mapper.readTree(f.toFile()) }.getOrElse { missing("The map file is broken: ${it.message}") }
+        val built = try {
+            engine.map(pid)
+        } catch (e: EngineDown) {
+            missing("The engine is not running, so the map cannot be read.")
+        }
+        if (!built.has("missing")) return built
+        val old = root.resolve(".keel/map.json")
+        if (!Files.isRegularFile(old)) return built
+        return runCatching { mapper.readTree(old.toFile()) }.getOrElse { built }
     }
 
+    /** Builds the map for HEAD in the engine: folders, tables from the SQL migrations, endpoints from the API contract. */
     fun rebuildMap(pid: String): JsonNode {
         val root = projects.root(pid)
-        val bin = home.bin()
-        if (!Files.isRegularFile(bin)) return missing("keel is not installed at ${home.path}. Set KEEL_HOME.")
-        val cmd = if (Files.isExecutable(bin)) listOf(bin.toString(), "map", "build") else listOf("node", bin.toString(), "map", "build")
-        val r = Proc.run(cmd, root, 180)
-        val f = root.resolve(".keel/map.json")
-        if (!r.ok && !Files.isRegularFile(f)) {
-            val why = if (r.timedOut) "keel map took too long." else (r.err.ifBlank { r.out }).lines().filter { it.isNotBlank() }.takeLast(5).joinToString("\n")
-            return missing("keel map failed: $why")
-        }
-        return map(pid)
+        return engine.buildMap(pid, root.toString())
     }
 
     private fun missing(reason: String): JsonNode = mapper.createObjectNode().put("missing", reason)
