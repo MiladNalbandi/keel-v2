@@ -288,6 +288,16 @@ def test_pr_body_content(proj):
         assert want in body, want
 
 
+def test_pr_body_without_a_spec_says_what_was_asked_and_lists_the_commits(proj):
+    # Real run (lab ship): "No spec (change flow)." and the librarian's last answer as the summary.
+    write(proj, "src/a.py", "a\n")
+    commit(proj, "feat: coupon")
+    st = {"acs": [], "gates": {}, "data": {}, "last_answer": "Updated docs/knowledge/architecture.md"}
+    body = run("pr", ai(proj, state=st, request="Ship the coupon branch.")).update["pr_body"]
+    assert "No spec" not in body and "architecture.md" not in body
+    assert "Ship the coupon branch." in body and "- feat: coupon" in body
+
+
 def test_open_pr_never_pushes(proj, monkeypatch):
     monkeypatch.delenv("GH_TOKEN", raising=False)
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)

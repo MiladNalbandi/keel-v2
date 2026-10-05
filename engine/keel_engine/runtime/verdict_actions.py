@@ -679,7 +679,7 @@ def _arch_action(a):
 
 # ------------------------------------------------------------------ PR
 
-def pr_body(root: str, project: str, state: dict, title: str, base: str | None) -> str:
+def pr_body(root: str, project: str, state: dict, title: str, base: str | None, request: str = "") -> str:
     """keel v1 ops.prBody: spec extract, trace table, coverage verdict, skipped gates and ship steps, unlocks,
     accepted coverage lines, flaky tests."""
     spec = state.get("spec")
@@ -693,11 +693,15 @@ def pr_body(root: str, project: str, state: dict, title: str, base: str | None) 
     skipped = [f"- {k}: {v}" for k, v in (gates.get("skipped") or {}).items()]
     skipped += [f"- {line}" for line in gates.get("log") or []
                 if "no gate here" in line or "accepted:" in line or line.startswith("escalation-override")]
-    out = [f"# {title}", "", f"Spec: `{spec}`" if spec else "No spec (change flow).", ""]
+    out = [f"# {title}", ""] + ([f"Spec: `{spec}`", ""] if spec else [])
     if extract:
         out += ["<details><summary>Spec extract</summary>", "", "```markdown", extract, "```", "</details>", ""]
-    if state.get("last_answer") and not extract:
-        out += ["## Summary", "", str(state["last_answer"]).strip()[:1500], ""]
+    if not extract:
+        # What was asked and what the branch did (the last agent's answer is about its own step, not the branch).
+        commits = git.git(root, "log", "--reverse", "--format=- %s", f"{base}..HEAD").stdout.strip() \
+            if base and git.is_repo(root) else ""
+        out += ["## Summary", ""] + ([request.strip()[:1500], ""] if request.strip() else []) \
+            + (["Commits:", commits[:3000], ""] if commits else [])
     if rows:
         out += ["## Acceptance criteria", "", trace_table(rows), ""]
     out += ["## Coverage", ""]
@@ -737,7 +741,7 @@ async def pr(a):
 def _pr(a):
     cfg = rules.load_config(a.root)
     base = base_ref(a.root, cfg, a.base) if git.is_repo(a.root) else None
-    body = pr_body(a.root, a.key, a.state, a.title, base)
+    body = pr_body(a.root, a.key, a.state, a.title, base, getattr(a, "request", "") or "")
     return _result(True, f"PR body ready ({len(body.splitlines())} lines); it is shown at the next gate.", body, {"pr_body": body})
 
 
