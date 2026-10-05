@@ -31,3 +31,13 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## CodeGraph
+
+The keel v2 image installs **CodeGraph** (`@colbymchenry/codegraph`, version 1.6.2,
+https://github.com/colbymchenry/codegraph) unchanged. keel runs it to index a project's symbols, calls and imports
+(`codegraph init`, `sync`, `index`, `status`) and gives agents its MCP server (`codegraph serve --mcp`). Its anonymous
+telemetry is turned off in the image (`CODEGRAPH_TELEMETRY=0`, `DO_NOT_TRACK=1`).
+
+CodeGraph is licensed under the MIT License (Copyright (c) Colby McHenry); the full text ships with the package
+(`npm view @colbymchenry/codegraph license`).

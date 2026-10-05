@@ -2,7 +2,7 @@
 // the files keel wrote, and what agents remember (memory facts you can add, edit and forget).
 
 import { Fragment, useState } from "react";
-import { api, errorParts, type Commit, type Fact, type FactKind, type Memory, type RepoFile, type RepoInfo, type TreeNode, type UpdateFromBase } from "../api";
+import { api, errorParts, type Commit, type Fact, type FactKind, type IndexStatus, type Memory, type RepoFile, type RepoInfo, type TreeNode, type UpdateFromBase } from "../api";
 import { RefreshStaleButton } from "../components/RefreshStale";
 import { WorkspaceDoctor } from "../components/WorkspaceDoctor";
 import { Async, Confirm, Drawer, ErrorBox, PageHead, Panel, Pill, Tabs, type PillTone } from "../components/ui";
@@ -19,7 +19,7 @@ export function RepoPage({ pid }: { pid: string }) {
   const update = result && <UpdateResult result={result} base={repo.data?.base ?? "base"} onClose={() => setResult(null)} />;
   return (
     <>
-      <PageHead title="Repo" sub={<>{project?.name} · <span className="mono">{project?.root}</span></>} />
+      <PageHead title="Repo" sub={<>{project?.name} · <span className="mono">{project?.root}</span></>} actions={<IndexBadge pid={pid} />} />
       <Async r={repo} what="Reading the repo">
         {(r) => (
           <div className="branchbar">
@@ -41,6 +41,51 @@ export function RepoPage({ pid }: { pid: string }) {
       {tab === "memory" && <MemoryTab pid={pid} />}
     </>
   );
+}
+
+/** "Index: ready · 412 files · 3,100 symbols · 5 min ago" and Rebuild: the code graph agents query instead of grep. */
+export function IndexBadge({ pid }: { pid: string }) {
+  const { toast } = useApp();
+  const idx = useLoad(`index:${pid}`, () => api.index(pid));
+  const [busy, setBusy] = useState(false);
+  const i = idx.data;
+  const rebuild = async () => {
+    setBusy(true);
+    try {
+      idx.setData(await api.rebuildIndex(pid));
+    } catch (e) {
+      toast(errorParts(e).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (!i) return null;
+  const text = indexText(i);
+  return (
+    <span className="row" style={{ gap: 8 }} aria-label="Code graph index">
+      <span className={`tag ${i.status === "failed" ? "star" : ""}`} title={i.error ?? "The code graph agents use before grep"}>{text}</span>
+      <button className="btn sm" type="button" onClick={rebuild} disabled={busy || i.status === "indexing"}>
+        {busy ? "Starting…" : "Rebuild"}
+      </button>
+    </span>
+  );
+}
+
+function ago(iso: string): string {
+  const min = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60_000));
+  if (Number.isNaN(min)) return "";
+  if (min < 1) return "just now";
+  if (min < 60) return `${min} min ago`;
+  if (min < 48 * 60) return `${Math.round(min / 60)} h ago`;
+  return `${Math.round(min / 1440)} days ago`;
+}
+
+function indexText(i: IndexStatus): string {
+  if (i.status === "indexing") return "Index: indexing…";
+  if (i.status === "failed") return `Index: failed: ${i.error ?? "unknown reason"}`;
+  if (i.status === "idle") return "Index: not built yet";
+  const when = i.indexed_at ? ` · ${ago(i.indexed_at)}` : "";
+  return `Index: ready · ${plural(i.files, "file")} · ${plural(i.symbols, "symbol")}${when}`;
 }
 
 function UpdateFromBaseButton({ pid, r, onResult }: {
