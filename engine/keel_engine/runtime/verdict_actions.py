@@ -29,6 +29,7 @@ from .. import rules
 from ..rules import checks
 from ..tools import git, testcmd
 from ..tools.agent_tools import command_env
+from . import run_mode as run_modes
 from . import verdicts
 
 GAP = 8               # uncovered lines closer than this belong to one group (one test can cover them)
@@ -679,9 +680,9 @@ def _arch_action(a):
 
 # ------------------------------------------------------------------ PR
 
-def pr_body(root: str, project: str, state: dict, title: str, base: str | None, request: str = "") -> str:
+def pr_body(root: str, project: str, state: dict, title: str, base: str | None, request: str = "", run_mode: str = "") -> str:
     """keel v1 ops.prBody: spec extract, trace table, coverage verdict, skipped gates and ship steps, unlocks,
-    accepted coverage lines, flaky tests."""
+    accepted coverage lines, flaky tests; v0.4.1: the gates the run mode approved by itself."""
     spec = state.get("spec")
     extract = ""
     if spec and (Path(root) / spec).is_file():
@@ -693,6 +694,7 @@ def pr_body(root: str, project: str, state: dict, title: str, base: str | None, 
     skipped = [f"- {k}: {v}" for k, v in (gates.get("skipped") or {}).items()]
     skipped += [f"- {line}" for line in gates.get("log") or []
                 if "no gate here" in line or "accepted:" in line or line.startswith("escalation-override")]
+    auto = [f"- {line}" for line in gates.get("log") or [] if run_modes.is_auto_line(line)]
     out = [f"# {title}", ""] + ([f"Spec: `{spec}`", ""] if spec else [])
     if extract:
         out += ["<details><summary>Spec extract</summary>", "", "```markdown", extract, "```", "</details>", ""]
@@ -720,6 +722,9 @@ def pr_body(root: str, project: str, state: dict, title: str, base: str | None, 
                                                      for x in accepted if isinstance(x, dict)] + [""]
     if skipped:
         out += ["## Skipped gates", ""] + skipped + [""]
+    if auto or run_mode in ("important", "auto"):
+        out += ["## Auto-approved gates", ""] + ([f"Run mode: {run_mode}.", ""] if run_mode else []) \
+            + (auto or ["None so far."]) + [""]
     ship_skipped = data.get("ship_skipped") or []
     if ship_skipped:
         out += ["## Ship steps skipped", ""] + [f"- {s.get('step')}: {s.get('reason') or 'no reason given'}" for s in ship_skipped
@@ -759,7 +764,8 @@ async def pr(a):
 def _pr(a):
     cfg = rules.load_config(a.root)
     base = base_ref(a.root, cfg, a.base) if git.is_repo(a.root) else None
-    body = pr_body(a.root, a.key, a.state, a.title, base, getattr(a, "request", "") or "")
+    body = pr_body(a.root, a.key, a.state, a.title, base, getattr(a, "request", "") or "",
+                   run_modes.normalize((a.settings or {}).get("run_mode")))
     return _result(True, f"PR body ready ({len(body.splitlines())} lines); it is shown at the next gate.", body, {"pr_body": body})
 
 
@@ -783,6 +789,9 @@ def _open_pr(a):
         return _result(False, "No PR body yet: run the pr step first.")
     if not a.state.get("pr_approved"):
         return _result(True, f"The PR gate was not approved; no PR opened. {copy}", body)
+    if run_modes.normalize((a.settings or {}).get("run_mode")) == "auto" or a.state.get("pr_auto"):
+        # Run mode auto never opens a PR: a person reads the body and opens it (keel never pushes either).
+        return _result(True, f"Run mode auto: keel opens no PR by itself. {copy}", body)
     token = github_token(a.keys)
     if not token:
         return _result(True, f"No GitHub token for the engine (Connections › GitHub); no PR opened. {copy}", body)

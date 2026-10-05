@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Callable
 
 from .. import rules
+from ..runtime import run_mode
 from . import testcmd
 
 MAX_READ = 60_000
@@ -34,7 +35,7 @@ class ToolBox:
     def __init__(self, root: str, phase: str, *, cfg: dict | None = None, lane: str | None = None,
                  ac: str | None = None, ac_layer: str = "API",
                  on_refuse: Callable[[str, str, str], None] | None = None, unlocks: list[dict] | None = None,
-                 agent: str = "", knowledge: dict | None = None):
+                 agent: str = "", knowledge: dict | None = None, readonly: bool = False):
         self.root = str(Path(root).resolve())
         self.phase = phase
         self.cfg = cfg or rules.load_config(self.root)
@@ -47,6 +48,7 @@ class ToolBox:
         self.agent = agent
         self.knowledge = knowledge   # {sections, strict, ...}: with strict on, other docs/knowledge sections are refused
         self._reads: dict[str, tuple[int, int]] = {}   # what this run read (file|range → mtime, size)
+        self.readonly = readonly     # run mode readonly: no write, no shell command that changes files or git
 
     def add_unlocks(self, new: list[dict]):
         """An unlock granted while this agent runs (the engine calls this for every running agent of the thread)."""
@@ -102,6 +104,8 @@ class ToolBox:
         if not r:
             return self._refuse("write_file", path, f"{path} is outside the project.")
         full, rel = r
+        if self.readonly:
+            return self._refuse("write_file", rel, run_mode.READONLY_EDIT)
         v = rules.check_edit(self.phase, rel, self.cfg, exists=full.exists(), lane=self.lane, unlocks=self.unlocks)
         if not v.ok:
             return self._refuse("write_file", rel, v.reason)
@@ -113,6 +117,9 @@ class ToolBox:
         return f"Wrote {rel} ({len(content)} bytes)."
 
     def run_command(self, command: str, timeout: int = 300) -> str:
+        why = run_mode.readonly_bash(command) if self.readonly else None
+        if why:
+            return self._refuse("run_command", "", why, command=command)
         v = rules.check_bash(self.phase, command, self.cfg,
                              exists=lambda rel: (Path(self.root) / rel).exists(), unlocks=self.unlocks)
         if not v.ok:

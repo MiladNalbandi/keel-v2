@@ -16,7 +16,7 @@ import asyncio
 
 from .. import rules
 from ..tools import git
-from . import blockers, verdict_actions, verdicts
+from . import blockers, run_mode, verdict_actions, verdicts
 
 DEFAULT_LENSES = ["correctness", "security", "performance"]
 BANDS = {
@@ -177,6 +177,8 @@ def final_report(root: str, key: str, state: dict, title: str) -> str:
     for line in gates.get("log") or []:
         if "no gate here" in line or "accepted:" in line or " go on after " in line:
             exc.append(f"- gate: {line}")
+        elif run_mode.is_auto_line(line):
+            exc.append(f"- gate auto-approved: {line}")
     for k, v in (gates.get("skipped") or {}).items():
         exc.append(f"- gate skipped: {k}: {v}")
     for u in state.get("unlocks") or []:

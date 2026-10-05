@@ -139,7 +139,8 @@ def status(api: KeelApi, project: str | None = None) -> str:
     if not thread:
         return f"{head}\nflow      none. Start one in the dashboard (Flow › Start a flow)."
     out = [head, f"flow      {_flow_name(thread, workflow)} · \"{thread.get('title', '')}\" · {thread.get('status')} · thread {thread.get('thread_id')}",
-           f"step      {thread.get('current') or '-'} · phase {thread.get('phase') or 'none'}" + (f" · {thread['ac']}" if thread.get("ac") else "")]
+           f"step      {thread.get('current') or '-'} · phase {thread.get('phase') or 'none'}" + (f" · {thread['ac']}" if thread.get("ac") else "")
+           + (f" · run mode {thread['run_mode']}" if thread.get("run_mode") not in (None, "", "manual") else "")]
     acs = thread.get("acs") or []
     if acs:
         done = sum(1 for a in acs if a.get("status") in ("done", "already-met"))

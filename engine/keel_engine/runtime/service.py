@@ -26,7 +26,7 @@ from ..workflows.model import Workflow, from_dict
 from ..workflows.templates import get_template
 from . import ladder as ladder_mod
 from . import memory as memory_mod
-from . import migrate
+from . import migrate, run_mode
 from .compiler import compile_workflow
 from .state import ThreadContext, initial_state, merge_unlocks, normalize_unlocks
 
@@ -209,6 +209,8 @@ class Engine:
             log.exception("thread %s failed", tid)
             await self._set_status(tid, "failed", f"{type(exc).__name__}: {exc}"[:1000])
             ctx.emit("thread.failed", data={"error": f"{type(exc).__name__}: {exc}"[:1000]})
+        finally:
+            ctx.resume_qid = None        # the answer it carried was used (or the run ended without it)
 
     @staticmethod
     def _at_pause(ctx: ThreadContext, snap) -> dict:
@@ -341,6 +343,7 @@ class Engine:
             "checkpoints": n, "updated_at": row["updated_at"],
             "blockers": list(v.get("blockers") or []),
             "unlocks": [{"path": u.get("path"), "phase": u.get("phase")} for u in merge_unlocks(list(v.get("unlocks") or []), ctx_now.api_unlocks)],
+            "run_mode": run_mode.normalize((ctx_now.settings or {}).get("run_mode")),
         }
         ctx = await self._context(tid)
         rungs = v.get("ladder")
@@ -353,6 +356,8 @@ class Engine:
         if waiting and status == "waiting":
             out["waiting"] = {"step": waiting.get("step"), "kind": waiting.get("kind", "gate"), "title": waiting.get("title", ""),
                               "detail": waiting.get("detail", ""), "options": waiting.get("options") or ["approve", "reject"]}
+            if waiting.get("id"):
+                out["waiting"]["id"] = waiting["id"]
             if waiting.get("labels"):
                 out["waiting"]["labels"] = dict(waiting["labels"])
             if waiting.get("questions"):
@@ -421,7 +426,26 @@ class Engine:
         await self._set_status(tid, "running")
         await self._import_legacy_unlocks(tid)
         asked = self._waiting(snap).get("id")
+        # The user answers this question: a run mode changed while it waited does not answer it instead (Compiler._ask).
+        (await self._context(tid)).resume_qid = asked
         self._launch(tid, Command(resume={"decision": decision, "why": why or "", "payload": payload or {}, "asked": asked}))
+        return await self.state(tid)
+
+    async def set_mode(self, tid: str, mode: str) -> dict:
+        """Changes the thread's run mode (runtime/run_mode.py) during a run: stored with the thread's settings, used from
+        the next pause on. A question that waits now keeps waiting for the user."""
+        row = await self._row(tid)
+        if mode not in run_mode.MODES:
+            raise EngineError(400, f'"{mode}" is not a run mode.', "Pick one of: " + ", ".join(run_mode.MODES))
+        body = json.loads(row["body"])
+        before = run_mode.normalize((body.get("settings") or {}).get("run_mode"))
+        body["settings"] = {**(body.get("settings") or {}), "run_mode": mode}
+        await self.conn.execute("update keel_threads set body = ?, updated_at = ? where thread_id = ?", (json.dumps(body), _now(), tid))
+        await self.conn.commit()
+        ctx = await self._context(tid)
+        ctx.settings = {**(ctx.settings or {}), "run_mode": mode}
+        if before != mode:
+            ctx.emit("thread.mode", data={"mode": mode, "from": before})
         return await self.state(tid)
 
     async def stop(self, tid: str) -> dict:
@@ -513,6 +537,7 @@ class Engine:
         graph = await self._graph(tid)
         ctx = await self._context(tid)
         ctx.done_calls.clear()
+        ctx.auto_seen.clear()
         await ctx.memory.clear()          # a rewind goes back on purpose: agents start fresh from there
         target = None
         async for snap in graph.aget_state_history(self._cfg(tid)):

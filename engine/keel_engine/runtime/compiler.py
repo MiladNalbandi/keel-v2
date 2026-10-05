@@ -36,7 +36,7 @@ from .findings import REVIEWERS, blocking, unique
 from ..tools import git, guard, mcp
 from ..tools.agent_tools import ToolBox
 from ..workflows.model import Loop, Step, Workflow
-from . import agent_knowledge, clarify, guard_ctx, init_gates, markers, prompts, spec_check
+from . import agent_knowledge, clarify, guard_ctx, init_gates, markers, prompts, run_mode, spec_check
 from . import tools as tool_runner
 from . import memory as memory_mod
 from . import ship as ship_mod
@@ -329,12 +329,18 @@ class Compiler:
             m = self.ctx.models["default"]
         return models.effective(m)
 
-    def _ask(self, state: FlowState, question: dict) -> tuple[dict, dict]:
+    def _ask(self, state: FlowState, question: dict, gate: str | None = None, review: str | None = None) -> tuple[dict, dict]:
         """interrupt() for any pause, plus what every answer may carry: payload.unlock {path, phase}.
+
+        The thread's run mode may answer first (runtime/run_mode.py): `gate` names the kind of pause when the caller knows
+        it (else it is classified from the question), `review` is the AC review's answer for an AC gate. An automatic
+        answer is {decision: approve, why: "auto-approved (mode <m>)", auto: true}; the caller logs it like any answer.
 
         Returns (answer, state update). An unlock is added to state.unlocks and logged as a gate event.
         """
-        answer = ask_once(question)
+        answer = self._auto_answer(state, question, gate, review)
+        if answer is None:
+            answer = ask_once(question)
         payload = answer.get("payload") or {}
         new = normalize_unlocks(payload.get("unlock"), state.get("phase") or "none", "user")
         if not new:
@@ -346,6 +352,40 @@ class Compiler:
                 "gate": "unlock", "decision": "approve", "unlock": {"path": u["path"], "phase": u["phase"]},
                 "why": f"{u['path']} in {u['phase']}" + (f": {answer.get('why')}" if answer.get("why") else "")})
         return answer, {"unlocks": merged}
+
+    def _mode(self) -> str:
+        return run_mode.normalize((self.ctx.settings or {}).get("run_mode"))
+
+    def _readonly(self) -> bool:
+        return self._mode() == "readonly"
+
+    def _auto_answer(self, state: FlowState, question: dict, gate: str | None, review: str | None) -> dict | None:
+        """The run mode's answer to this pause, or None to ask. A question the user is answering right now (it waited
+        before the mode changed: the resume carries its id) is always theirs. keel approves the very same question by
+        itself at most run_mode.MAX_REPEATS times in a run; then it asks."""
+        mode = self._mode()
+        if mode in ("manual", "readonly"):
+            return None
+        qid = question_id(question)
+        if getattr(self.ctx, "resume_qid", None) == qid:
+            self.ctx.resume_qid = None
+            return None
+        kind = gate or run_mode.classify(question)
+        seen = self.ctx.auto_seen.get(qid, 0)
+        answer = run_mode.decide(mode, kind, question, dict(state), review=review, repeats=seen)
+        if answer:
+            self.ctx.auto_seen[qid] = seen + 1
+        return answer
+
+    def _gate_kind(self, i: int, step: Step, state: FlowState, question: dict, ac: dict | None) -> tuple[str, str | None]:
+        """A gate step's kind for the run mode, and the AC review's answer when an AC gate follows a review step."""
+        prev = self.wf.steps[i - 1] if i else None
+        kind = run_mode.classify(question, step, flow=self.wf.flow, prev_actions=prev.actions() if prev else (), per_ac=bool(ac))
+        review = None
+        if kind == "ac" and prev and prev.per_ac and prev.kind in ("agent", "parallel") and \
+                (prev.agent or "") in ("ac-reviewer", "reviewer", "code-reviewer"):
+            review = state.get("last_answer") or ""
+        return kind, review
 
     async def _run_agent(self, state: FlowState, step: Step, agent: str, index: int, section: str | None = None,
                          item: dict | None = None) -> tuple[AgentResult, dict, ToolBox]:
@@ -372,7 +412,7 @@ class Compiler:
 
         toolbox = ToolBox(ctx.root, phase, cfg=cfg, lane=rules.ac_lane(ac) if ac else None,
                           ac=(ac or {}).get("id"), ac_layer=(ac or {}).get("layer", "API"), on_refuse=on_refuse,
-                          unlocks=state.get("unlocks") or [], agent=agent, knowledge=know)
+                          unlocks=state.get("unlocks") or [], agent=agent, knowledge=know, readonly=self._readonly())
         ctx.emit("agent.started", step=step.id, call_id=call_id, data={
             "agent": agent, "provider": model["provider"], "model": model.get("model"), "mode": model.get("mode"),
             "phase": phase, "ac": (ac or {}).get("id"), "index": index, **({"item": item["id"]} if item else {})})
@@ -674,7 +714,7 @@ class Compiler:
                 upd.update(o.update)
 
         refused = await asyncio.to_thread(guard.guard_diff, ctx.root, state["phase"], before, None,
-                                          rules.ac_lane(ac) if ac else None, state.get("unlocks") or [])
+                                          rules.ac_lane(ac) if ac else None, state.get("unlocks") or [], self._readonly())
         for r in refused:
             ctx.emit("guard.refused", step=step.id, data={"tool": "diff-guard", "phase": state["phase"], **r})
         tools_note = ""
@@ -781,7 +821,7 @@ class Compiler:
         A formatter's changes stay; block and warn failures go to data.lint_notes, which the next agent's prompt and
         the next gate show. Returns (a note for the step, the new data or None when nothing ran)."""
         ctx = self.ctx
-        if before is None or rules.read_only(state.get("phase")):
+        if before is None or rules.read_only(state.get("phase")) or self._readonly():
             return "", None
         gone = {r.get("path") for r in refused}
         changed = await asyncio.to_thread(guard.changed_since, ctx.root, before)
@@ -878,7 +918,8 @@ class Compiler:
             "step": fix.id, "kind": "gate", "title": f"{review.name}: {len(found)} blocking finding(s){again}" + (f" · {item['id']}" if item else ""),
             "detail": f"{listed}\n\n{fix_txt}\nGo on anyway: say why; the findings are kept as dismissed and shown "
                       f"at the final review.{past}",
-            "options": OPTIONS, "labels": {"approve": "Send back" if review.back else "Fix them", "reject": "Go on anyway"}})
+            "options": OPTIONS, "labels": {"approve": "Send back" if review.back else "Fix them", "reject": "Go on anyway"}},
+            gate="findings" if done_rounds < (review.rounds or 2) else "rounds")
         gates = copy.deepcopy(state.get("gates") or {"mode": "every-ac", "log": [], "skipped": {}})
         why = (answer.get("why") or "").strip()
         if answer.get("decision") != "approve":
@@ -892,7 +933,9 @@ class Compiler:
             return {**extra, "gates": gates, "findings": [], "data": data,
                     "note": f"{len(found)} finding(s) accepted: {why}"[:300]}, self.nav.after(i)
         ctx.emit("gate.decided", step=fix.id, data={"gate": f"{review.name} findings", "decision": "approve", "why": why})
-        feedback = f"Fix these blocking findings from {review.name}:\n{listed}" + (f"\n\nFrom the user: {why}" if why else "")
+        if answer.get("auto"):
+            gates["log"].append(f"{review.name} findings sent to fix: {why}")
+        feedback = f"Fix these blocking findings from {review.name}:\n{listed}" + (f"\n\nFrom the user: {why}" if why and not answer.get("auto") else "")
         rounds[key] = done_rounds + 1
         if review.back:
             return {**extra, "gates": gates, "review_rounds": rounds, "findings": [], "feedback": feedback,
@@ -905,7 +948,8 @@ class Compiler:
         state = {**state, **extra, "phase": route, "feedback": feedback}
         before = await asyncio.to_thread(guard.snapshot, ctx.root)
         res, model, _tb = await self._run_agent(state, fix, agent, 0)
-        refused = await asyncio.to_thread(guard.guard_diff, ctx.root, route, before, None, None, state.get("unlocks") or [])
+        refused = await asyncio.to_thread(guard.guard_diff, ctx.root, route, before, None, None, state.get("unlocks") or [],
+                                          self._readonly())
         for r in refused:
             ctx.emit("guard.refused", step=fix.id, data={"tool": "diff-guard", "phase": route, **r})
         usage = dict(state.get("usage") or {})
@@ -1002,6 +1046,7 @@ class Compiler:
                 a.emit = self._tool_emit(step.id)
                 if action == "open_pr":
                     a.state["pr_approved"] = self._gate_approved(i, st)
+                    a.state["pr_auto"] = run_mode.is_auto_line(self._gate_line(i, st))
                 r = await run_action(action, a)
             if r.ask and r.ask.get("type") == "already-met" and ac:
                 return await self._already_met(i, step, st, ac, r, upd, actions[n + 1:])
@@ -1068,10 +1113,16 @@ class Compiler:
     def _gate_approved(self, i: int, state: FlowState) -> bool:
         """Was the nearest gate before step i approved (its last line in the gate log)?"""
         gate = next((s for s in reversed(self.wf.steps[:i]) if s.kind == "gate"), None)
+        last = self._gate_line(i, state)
+        return bool(gate and last.startswith(f"gate {gate.id} approve"))
+
+    def _gate_line(self, i: int, state: FlowState) -> str:
+        """The last gate-log line of the nearest gate before step i ("" when it has none)."""
+        gate = next((s for s in reversed(self.wf.steps[:i]) if s.kind == "gate"), None)
         if not gate:
-            return False
+            return ""
         mine = [line for line in (state.get("gates") or {}).get("log") or [] if line.startswith(f"gate {gate.id} ")]
-        return bool(mine) and mine[-1].startswith(f"gate {gate.id} approve")
+        return mine[-1] if mine else ""
 
     def _seed_value(self, value, state: FlowState, item: dict | None):
         """A seed value: "$a.b.c" reads that path from the state (item = the loop's item), anything else is literal."""
@@ -1123,7 +1174,7 @@ class Compiler:
         """
         q = r.ask
         answer, extra = self._ask(state, {"step": step.id, "kind": q["kind"], "title": q["title"], "detail": q["detail"],
-                                          "options": OPTIONS})
+                                          "options": OPTIONS}, gate="already-met")
         upd = {**upd, **extra}
         state = {**state, **extra}
         decision = answer.get("decision", "reject")
@@ -1165,12 +1216,28 @@ class Compiler:
         question's answer to another.
         """
         q = r.ask
-        answer, extra = self._ask(state, {"step": step.id, "kind": q["kind"], "title": q["title"], "detail": q["detail"],
-                                          "options": OPTIONS})
+        kind = {"deps": "dependency", "escalate": "escalate", "secrets": "secrets", "readonly": "readonly"}.get(q["type"], "failure")
+        question = {"step": step.id, "kind": q["kind"], "title": q["title"], "detail": q["detail"], "options": OPTIONS}
+        if q.get("labels"):
+            question["labels"] = dict(q["labels"])
+        answer, extra = self._ask(state, question, gate=kind)
         upd = {**upd, **extra}
         decision = answer.get("decision", "reject")
         why = (answer.get("why") or "").strip()
         gates = copy.deepcopy(state.get("gates") or {"mode": "every-ac", "log": [], "skipped": {}})
+        if q["type"] in ("secrets", "readonly"):
+            # A secret in the staged diff (every mode stops for it), or a read-only run's commit: the user decides.
+            self.ctx.emit("gate.decided", step=step.id, data={"gate": q["title"], "decision": decision, "why": why})
+            gates["log"].append(f"{q['type']} {decision}" + (f": {why}" if why else ""))
+            if decision != "approve":
+                return {**upd, "gates": gates, "status": "stopped", "error": r.note, "note": f"stopped: {r.note}"[:300]}, END
+            if q["type"] == "readonly":
+                # Approve = try the commit again (after the run mode was changed; still read-only, it asks again).
+                return {**upd, "gates": gates, "note": "the commit runs again"}, step.id
+            feedback = f"{r.note}\n{r.detail[-2000:]}".strip() + (f"\n\nFrom the user: {why}" if why else "")
+            target = self.nav.jump(step.back, i) if step.back else self.nav.retry_target(i)
+            return {**upd, "gates": gates, "feedback": feedback, "last_failure": r.note[:300],
+                    "note": f"{r.note} · sent back to remove it"[:300]}, target or step.id
         if q["type"] == "deps":
             if decision == "approve":
                 deps = list(state.get("deps") or []) + [d for d in q["deps"] if d not in (state.get("deps") or [])]
@@ -1185,7 +1252,7 @@ class Compiler:
         # escalate
         self.ctx.emit("gate.decided", step=step.id, data={"gate": q["title"], "decision": decision, "why": why})
         if decision == "approve":
-            gates["log"].append(f"escalation: {q['why']}")
+            gates["log"].append(f"escalation: {q['why']}" + (f" ({why})" if answer.get("auto") else ""))
             # keel v1 `keel escalate`: the inline criteria become the feature flow's, finished ones stay finished, and
             # every commit stays on the branch.
             r2 = await self.start_flow("feature", {"acs": "$acs", "escalated_from": self.wf.id, "why": q["why"]}, step, state, None) \
@@ -1333,7 +1400,8 @@ class Compiler:
             # A list outside a loop: named exits as markers CHOICE and WHY (branches route on them); reject sends back.
             question.update(choices=list(step.choices), detail=detail + "\n\nApprove with one of: " + ", ".join(step.choices)
                             + f" (default {_default_choice(state, step)}). Send back to {step.back or 'the step before'} with a note.")
-        answer, extra = self._ask(state, question)
+        kind, review = self._gate_kind(i, step, state, question, ac)
+        answer, extra = self._ask(state, question, gate=kind, review=review)
         decision = answer.get("decision", "reject") if not no_criteria else "reject"
         why = (answer.get("why") or "").strip()
         payload = answer.get("payload") or {}
@@ -1419,7 +1487,7 @@ class Compiler:
         gates["log"].append(f"gate {step.id} {choice}" + (f" ({item['id']})" if item else "") + (f": {why}" if why else ""))
         self.ctx.emit("gate.decided", step=step.id, data={"gate": step.name, "decision": "approve", "choice": choice, "why": why})
         data = {**(state.get("data") or {}), f"{step.id}_answer": {"choice": choice, "why": why, "payload": payload}}
-        upd = {"gates": gates, **extra, "data": data, "feedback": why or None,
+        upd = {"gates": gates, **extra, "data": data, "feedback": (None if answer.get("auto") else why) or None,
                "note": f"{step.name}: {choice}" + (f": {why}" if why else "")}
         return upd, self.nav.jump(step.choices[choice], i)
 
@@ -1431,7 +1499,7 @@ class Compiler:
         title, extra_all = step.name, {}
         while True:
             answer, extra = self._ask(state, {"step": step.id, "kind": "gate", "title": title, "detail": detail,
-                                              "options": ["approve"], "labels": {"approve": "Run these steps"}})
+                                              "options": ["approve"], "labels": {"approve": "Run these steps"}}, gate="skip-menu")
             extra_all.update(extra)
             state = {**state, **extra}
             skips, lenses, problem = ship_mod.parse_skips(answer.get("payload") or {}, units)
@@ -1468,7 +1536,7 @@ class Compiler:
         title, extra_all = f"{step.name} · {item['id']}", {}
         while True:
             answer, extra = self._ask(state, {"step": step.id, "kind": "gate", "title": title, "detail": detail,
-                                              "options": ["approve"], "choices": list(step.choices)})
+                                              "options": ["approve"], "choices": list(step.choices)}, gate="choice")
             extra_all.update(extra)
             state = {**state, **extra}
             payload = answer.get("payload") or {}
@@ -1520,8 +1588,9 @@ class Compiler:
             "labels": {"approve": "Send my answers"}})
         payload = answer.get("payload") or {}
         round_no = int(state.get("clarify_rounds") or 0) + 1
-        text = clarify.answers_text(asked, payload.get("answers"), (answer.get("why") or ""), round_no)
-        gates["log"].append(f"gate {step.id} answered the explorer's {n} question(s)")
+        auto = answer.get("why") if answer.get("auto") else ""
+        text = clarify.answers_text(asked, payload.get("answers"), "" if auto else (answer.get("why") or ""), round_no)
+        gates["log"].append(f"gate {step.id} answered the explorer's {n} question(s)" + (f": {auto}, the recommended options" if auto else ""))
         self.ctx.emit("gate.decided", step=step.id, data={"gate": step.name, "decision": "approve", "why": text[:600],
                                                           "clarify": True})
         upd = {"gates": gates, **extra, "feedback": text, "clarify": {}, "clarify_rounds": round_no,
@@ -1533,11 +1602,11 @@ class Compiler:
         """keel init's three questions: approve = the defaults, "Use my answers" = the user's words. Both go on."""
         answer, extra = self._ask(state, {
             "step": step.id, "kind": "gate", "title": "three questions", "detail": init_gates.questions(self.ctx.root, fast=bool(self.ctx.settings.get("fast"))),
-            "options": OPTIONS, "labels": {"approve": "Use the defaults", "reject": "Use my answers"}})
+            "options": OPTIONS, "labels": {"approve": "Use the defaults", "reject": "Use my answers"}}, gate="gate")
         why = (answer.get("why") or "").strip()
         mine = answer.get("decision") == "reject" and why
         init = init_gates.answers(self.ctx.root, why if mine else None, fast=bool(self.ctx.settings.get("fast")))
-        gates["log"].append(f"gate questions: {'answered: ' + why if mine else 'defaults'}")
+        gates["log"].append(f"gate questions: {'answered: ' + why if mine else 'defaults'}" + (f" ({why})" if answer.get("auto") else ""))
         self.ctx.emit("gate.decided", step=step.id, data={"gate": step.name, "decision": "approve", "why": why if mine else "defaults"})
         return {"gates": gates, **extra, "init": init,
                 "note": "answers: " + ", ".join(f"{k} {v}" for k, v in init.items() if k != "said")[:300]}
@@ -1589,7 +1658,7 @@ class Compiler:
             "step": step.id, "kind": "gate", "title": f"{step.name}: still no after {step.rounds} round(s)",
             "detail": f"{note}\n\nThe loop ran {step.rounds} time(s), its limit. Approve to go on anyway (say why; it is kept in "
                       f"the gate log and shown at the final review). Reject to stop the flow here.",
-            "options": OPTIONS, "labels": {"approve": "Go on anyway", "reject": "Stop"}})
+            "options": OPTIONS, "labels": {"approve": "Go on anyway", "reject": "Stop"}}, gate="rounds")
         why = (answer.get("why") or "").strip()
         gates = copy.deepcopy(state.get("gates") or {"mode": "every-ac", "log": [], "skipped": {}})
         decision = answer.get("decision", "reject")

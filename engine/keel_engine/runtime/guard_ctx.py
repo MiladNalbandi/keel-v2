@@ -1,7 +1,9 @@
 """The guard context: what keel's PreToolUse hook (keel_engine.hook) needs to judge one tool call.
 
     {root, phase, ac: {id, layer} | null, lane, unlocks: [{path, phase, by?, reason?, at?}], agent, thread,
-     knowledge_allowed: [section] | null, knowledge_strict: bool}
+     knowledge_allowed: [section] | null, knowledge_strict: bool, readonly: bool}
+
+readonly: the run mode is readonly (runtime/run_mode.py): every edit, write, commit and changing shell command is refused.
 
 knowledge_*: the agent's knowledge setting (runtime/agent_knowledge.py); with strict on, reading a docs/knowledge
 section the agent was not given is refused.
@@ -95,7 +97,8 @@ def context_for(req) -> dict:
             "ac": {"id": ac.get("id"), "layer": ac.get("layer", "API")} if ac else None,
             "lane": getattr(tb, "lane", None), "unlocks": list(getattr(tb, "unlocks", None) or []),
             "agent": req.agent, "thread": getattr(req, "thread", "") or "",
-            "knowledge_allowed": list(k["sections"]) if k else None, "knowledge_strict": bool(k and k.get("strict"))}
+            "knowledge_allowed": list(k["sections"]) if k else None, "knowledge_strict": bool(k and k.get("strict")),
+            "readonly": bool(getattr(tb, "readonly", False))}
 
 
 def ensure(req, folder: str | None = None) -> str:
