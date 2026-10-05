@@ -83,7 +83,21 @@ def settings(root: str) -> dict:
     out = {**DEFAULTS, **{k: v for k, v in own.items() if v is not None}}
     out["lens_lanes"] = {**DEFAULTS["lens_lanes"], **(own.get("lens_lanes") or {})}
     out["severity_rubric"] = {**DEFAULTS["severity_rubric"], **(own.get("severity_rubric") or {})}
+    # A lane with no files in the repo (no web code, say) gets no hunter: it would only search until it runs out of turns.
+    present = lanes_present(root)
+    if present:
+        out["lens_lanes"] = {lens: [ln for ln in lanes if ln == "both" or ln in present] or lanes
+                             for lens, lanes in out["lens_lanes"].items()}
     return out
+
+
+def lanes_present(root: str) -> set[str]:
+    """The lanes (api, web) that have at least one tracked file; empty when it cannot tell."""
+    r = git.git(root, "ls-files")
+    if r.returncode != 0:
+        return set()
+    cfg = rules.load_config(root)
+    return {lane for f in r.stdout.splitlines() if (lane := rules.LANE_OF.get(rules.classify(cfg, f)))}
 
 
 def rank(severity: str | None) -> int:
