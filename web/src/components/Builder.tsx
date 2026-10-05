@@ -1,14 +1,12 @@
-// The diagram-first workflow builder: click a step to edit it, + on an arrow inserts, × removes (with Undo),
-// a padlock marks a keel rule — removing it asks to turn keel rules off first.
+// The workflow builder's edit state and operations: add a block (after a block, or dropped from the palette into a
+// loop or not), move (by one, or dragged to a place), remove with Undo; a padlock marks a keel rule — removing it asks
+// to turn keel rules off first. The page (pages/Workflows.tsx) draws the blocks and the graph with these.
 
 import { useState } from "react";
 import type { StepKind, Workflow } from "../api";
-import { insertStep, removeStep, undoRemove, type Removed } from "./builderOps";
-import { Graph, GraphLegend } from "./Graph";
-import { Zoom } from "./Zoom";
-import { KIND } from "./workflow";
+import { insertStep, moveStep, moveStepTo, removeStep, undoRemove, type LoopCtx, type Removed } from "./builderOps";
 
-export type BuilderState = { insertAt: number | null; removed: Removed | null; lockAsk: string | null };
+export type BuilderState = { insertAt: number | null; insertLoop?: LoopCtx; removed: Removed | null; lockAsk: string | null };
 export const emptyBuilderState: BuilderState = { insertAt: null, removed: null, lockAsk: null };
 
 export function useBuilder(w: Workflow, onChange: (w: Workflow) => void, onSelect: (id: string | null) => void) {
@@ -25,17 +23,27 @@ export function useBuilder(w: Workflow, onChange: (w: Workflow) => void, onSelec
     const next = r.w.steps[r.removed.index] ?? r.w.steps[r.removed.index - 1];
     onSelect(next?.id ?? null);
   };
+  const addAt = (at: number, kind: StepKind, loop?: LoopCtx) => {
+    const r = insertStep(w, at, kind, loop);
+    onChange(r.w);
+    onSelect(r.id);
+    setSt(emptyBuilderState);
+  };
   return {
     st,
-    insertAt: (i: number) => setSt({ insertAt: i, removed: null, lockAsk: null }),
-    add: (kind: StepKind) => {
-      const at = st.insertAt ?? w.steps.length - 1;
-      const r = insertStep(w, at, kind);
-      onChange(r.w);
-      onSelect(r.id);
-      setSt(emptyBuilderState);
-    },
+    insertAt: (i: number, loop?: LoopCtx) => setSt({ insertAt: i, insertLoop: loop, removed: null, lockAsk: null }),
+    add: (kind: StepKind) => addAt(st.insertAt ?? w.steps.length - 1, kind, st.insertLoop),
+    addAt,
     remove,
+    move: (id: string, d: -1 | 1) => {
+      onChange(moveStep(w, id, d));
+      setSt((s) => ({ ...s, insertAt: null }));
+    },
+    moveTo: (id: string, after: number, loop?: LoopCtx) => {
+      onChange(moveStepTo(w, id, after, loop));
+      onSelect(id);
+      setSt((s) => ({ ...s, insertAt: null }));
+    },
     undo: () => {
       if (!st.removed) return;
       onChange(undoRemove(w, st.removed));
@@ -53,48 +61,4 @@ export function useBuilder(w: Workflow, onChange: (w: Workflow) => void, onSelec
   };
 }
 
-export function Builder({ w, sel, onSelect, b, tokens, customAgents }: {
-  w: Workflow; sel: string | null; onSelect: (id: string | null) => void; b: ReturnType<typeof useBuilder>;
-  tokens?: Record<string, number>; customAgents?: Set<string>;
-}) {
-  const { st } = b;
-  const lockStep = st.lockAsk ? w.steps.find((x) => x.id === st.lockAsk) : null;
-  const insertName = st.insertAt !== null ? (w.steps[st.insertAt]?.name ?? "start") : "";
-  return (
-    <div className="panel">
-      <div className="panel-head">
-        <h2>Diagram</h2>
-        <span className="hint">click a step to edit · <b>+</b> on an arrow inserts · <b>×</b> removes · padlock = keel rule</span>
-      </div>
-      <div className="panel-body grid" style={{ gap: 10 }}>
-        {st.insertAt !== null && (
-          <div className="wbar" role="group" aria-label="Insert a step">
-            <span>Insert after <b>{insertName}</b>:</span>
-            {(["agent", "code", "gate", "branch", "parallel"] as StepKind[]).map((k) => (
-              <button key={k} className="btn sm" type="button" onClick={() => b.add(k)}>{KIND[k].replace("◆ ", "")}</button>
-            ))}
-            <button className="btn sm ghost" type="button" onClick={b.cancel}>Cancel</button>
-          </div>
-        )}
-        {lockStep && (
-          <div className="wbar warn" role="alert">
-            <span><b>{lockStep.name}</b> is a keel rule: {lockStep.kind === "gate" ? "a person must approve here" : "it proves the tests are real"}. To remove it, turn keel rules off for this workflow.</span>
-            <button className="btn sm warn" type="button" onClick={b.rulesOffAndRemove}>Turn rules off and remove</button>
-            <button className="btn sm ghost" type="button" onClick={b.cancel}>Keep it</button>
-          </div>
-        )}
-        {st.removed && (
-          <div className="wbar ok" role="status">
-            <span>Removed <b>{st.removed.step.name}</b>. Arrows were reconnected.</span>
-            <button className="btn sm" type="button" onClick={b.undo}>Undo</button>
-          </div>
-        )}
-        <Zoom id="builder">
-          <Graph steps={w.steps} edit per={6} selected={sel} insertAt={st.insertAt} keel={w.keel_rules} tokens={tokens} customAgents={customAgents}
-            onSelect={(id) => { onSelect(id); b.closeInsert(); }} onInsert={b.insertAt} onRemove={(id) => b.remove(id)} />
-        </Zoom>
-        <GraphLegend />
-      </div>
-    </div>
-  );
-}
+export type BuilderApi = ReturnType<typeof useBuilder>;
