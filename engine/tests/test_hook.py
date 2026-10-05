@@ -27,7 +27,9 @@ TEST = "apps/api/src/test/kotlin/app/ScoreTest.kt"
 
 
 def ctx_file(tmp_path, root, phase="red", **kw) -> str:
-    return guard_ctx.write_context(tmp_path / "ctx" / "guard.json", root=str(root), phase=phase, ac=None,
+    # one folder per context, like one per agent run (the run's list of reads lives next to its context)
+    import uuid as _uuid
+    return guard_ctx.write_context(tmp_path / "ctx" / _uuid.uuid4().hex / "guard.json", root=str(root), phase=phase, ac=None,
                                    lane=kw.pop("lane", None), unlocks=kw.pop("unlocks", []), agent="test-author", thread="t1", **kw)
 
 
@@ -419,3 +421,34 @@ async def test_migrations_are_idempotent(tmp_path):
         async with conn.execute("select name from sqlite_master where type = 'table'") as cur:
             names = {r[0] for r in await cur.fetchall()}
     assert {"thread_unlocks", "legacy_unlock_imports"} <= names
+
+
+def test_a_second_read_of_an_unchanged_file_is_refused_but_a_changed_file_or_other_range_is_not(tmp_path):
+    """Found in a real run: an explorer read a large JSON schema three times in one step (each read re-sent every turn)."""
+    import json as _json
+    from keel_engine import hook
+    root = tmp_path / "p"; root.mkdir()
+    f = root / "schema.json"; f.write_text('{"a": 1}\n' * 50)
+    ctx = tmp_path / "run" / "guard.json"; ctx.parent.mkdir()
+    ctx.write_text(_json.dumps({"root": str(root), "phase": "spec", "agent": "explorer"}))
+
+    def read(**ti):
+        return hook.pre_tool(_json.dumps({"tool_name": "Read", "tool_input": {"file_path": str(f), **ti}, "cwd": str(root)}), str(ctx))
+
+    assert read() == 0
+    assert read() == 2, "the same unchanged file again"
+    assert read(offset=10, limit=5) == 0, "another range is fine"
+    f.write_text('{"a": 2}\n')
+    assert read() == 0, "the file changed since"
+    other = tmp_path / "run2" / "guard.json"; other.parent.mkdir(); other.write_text(ctx.read_text())
+    assert hook.pre_tool(_json.dumps({"tool_name": "Read", "tool_input": {"file_path": str(f)}, "cwd": str(root)}), str(other)) == 0, \
+        "a new run starts with an empty list"
+
+
+def test_toolbox_tells_the_agent_it_read_the_file_already(tmp_path):
+    from keel_engine.tools.agent_tools import ToolBox
+    (tmp_path / "a.md").write_text("hello\n")
+    tb = ToolBox(str(tmp_path), "spec")
+    assert tb.read_file("a.md") == "hello\n"
+    assert tb.read_file("a.md").startswith("NOTE: you already read a.md")
+    assert tb.read_file("a.md", offset=1, limit=1) == "hello\n"

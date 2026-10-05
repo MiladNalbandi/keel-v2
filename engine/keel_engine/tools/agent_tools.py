@@ -46,6 +46,7 @@ class ToolBox:
         self.unlocks = list(unlocks or [])
         self.agent = agent
         self.knowledge = knowledge   # {sections, strict, ...}: with strict on, other docs/knowledge sections are refused
+        self._reads: dict[str, tuple[int, int]] = {}   # what this run read (file|range → mtime, size)
 
     def add_unlocks(self, new: list[dict]):
         """An unlock granted while this agent runs (the engine calls this for every running agent of the thread)."""
@@ -83,6 +84,12 @@ class ToolBox:
             return self._refuse("read_file", rel, v.reason)
         if not full.is_file():
             return f"ERROR: {rel} does not exist."
+        st = full.stat()
+        key, now = f"{rel}|{offset or ''}|{limit or ''}", (st.st_mtime_ns, st.st_size)
+        if self._reads.get(key) == now:   # same rule as the Claude hook (hook.already_read): saves tokens
+            return (f"NOTE: you already read {rel} in this step and it has not changed since: use what you read. "
+                    "To see another part, read a different range (offset/limit).")
+        self._reads[key] = now
         text = full.read_text(errors="replace")
         if offset or limit:
             lines = text.splitlines(keepends=True)
