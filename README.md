@@ -48,8 +48,24 @@ Then go to **Run › Flow › Start a flow**, describe what you want, and approv
   commits files you changed yourself.
 - Every step, file change, command and token is visible: **Live agents**, **Jobs**, **Budget**.
 - When something needs you, keel plays a sound, shows a pop-up and its mascot jumps.
-- [keel v1](https://github.com/MiladNalbandi/keel) is inside: its rules, agents and dashboard (`/keel-v1/`) work on
-  the same project.
+- keel v2 has its own guard, rules, agents, skills and MCP server. [keel v1](https://github.com/MiladNalbandi/keel) is a
+  separate project (in 0.4.0 the image still carries a copy for its old dashboard at `/keel-v1/`; it goes in 0.4.1).
+
+## Flows
+
+| Flow | What it does |
+|---|---|
+| **feature** | spec (with questions) → plan → contract → per criterion: failing test, code, review ◆ → security, full review, e2e, smoke → ship |
+| **change** | small change without a spec: trivial (one commit) or 1–3 criteria; too big → hands over to feature |
+| **fix** | reproduce the bug as a failing test ◆ → find the cause (parallel investigators) ◆ → fix → regression test → ship |
+| **diagnose** | a bug you cannot reproduce yet: 3–4 guesses, one investigator each → hand to fix or feature, or write a note |
+| **review** | read-only review of the branch, one reviewer per lens; the report word for word |
+| **cover** | measure coverage of the changed lines → per gap: test / delete / accept with a reason |
+| **ship** | verify, release tests, coverage, deps, audit, trace, lens reviewers, final review ◆, memory, PR body ◆ (never pushes) |
+| **hunt** · **hunt-next** | read-only bug hunt: hunters per lens, provers reproduce each candidate twice, a report; the top bug goes to fix |
+| **init** · **knowledge-refresh** | set a project up (architecture, setup checks, knowledge) · refresh `docs/knowledge/` |
+
+◆ = keel stops and waits for you. Each flow was run for real with Claude Haiku before this release.
 
 ## Everyday commands
 
@@ -116,7 +132,7 @@ work. Docker access is as strong as root on your computer.
 |---|---|
 | `/workspace` | your project (one git repo, or a folder of repos); its real path with `--docker` |
 | `/data` | keel's database, flow checkpoints, encrypted logins |
-| `/opt/keel` | keel v1 |
+| `/opt/keel` | keel v1's old dashboard (removed in 0.4.1) |
 
 ### Without the script
 
