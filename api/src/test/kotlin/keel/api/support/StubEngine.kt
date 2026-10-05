@@ -25,6 +25,8 @@ class StubEngine private constructor(private val server: HttpServer) {
             mapOf("id" to "red", "kind" to "agent", "name" to "red", "agent" to "test-author", "per_ac" to true, "phase" to "red"),
             mapOf("id" to "vred", "kind" to "code", "name" to "verify_red", "action" to "verify_red", "per_ac" to true, "lock" to true, "phase" to "red"),
             mapOf("id" to "green", "kind" to "agent", "name" to "green", "agent" to "implementer", "per_ac" to true, "phase" to "green"),
+            mapOf("id" to "ship_verify", "kind" to "code", "name" to "verify fast + module", "action" to "verify_fast", "phase" to "ship",
+                "included_from" to "ship"),
         ),
         "yaml" to "",
     )

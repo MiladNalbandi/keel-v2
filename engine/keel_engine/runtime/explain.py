@@ -389,7 +389,12 @@ def when_text(when: dict) -> str:
 
 
 def included_from(wf: Workflow, step: Step) -> dict | None:
-    """The workflow an included step came from (`ship_verify` ← ship), when its id carries an include's prefix."""
+    """The workflow an included step came from (`ship_verify` ← ship): the step's own included_from (set when the
+    include was expanded, outermost include first), else a guess from an include's prefix on its id."""
+    if step.included_from:
+        name = step.included_from.split("/")[0]
+        inner = step.id[len(name) + 1:] if step.id.startswith(name + "_") else step.id
+        return {"flow": name, "step": inner, "text": f"Included from the {name} workflow (its step {inner}); edit it there."}
     names = {t.id for t in templates()}
     for name in sorted(names, key=len, reverse=True):
         if step.id.startswith(name + "_") and name != wf.id:

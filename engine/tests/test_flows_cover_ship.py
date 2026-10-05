@@ -73,6 +73,11 @@ def test_cover_and_ship_templates_validate_and_ship_includes_cover():
     # references inside the included steps follow the prefix; the include's skippable makes them one unit
     assert sh.step("cover_needs_work").no == "cover_report" and sh.step("cover_covered").when["step"] == "cover_remeasure"
     assert sh.step("cover_review").back == "cover_write" and {sh.step(f"cover_{s.id}").group for s in cover.steps} == {"cover"}
+    # each included step says where it came from (the web folds an include into one block); ship's own steps do not
+    assert {sh.step(f"cover_{s.id}").included_from for s in cover.steps} == {"cover"} and sh.step("verify").included_from is None
+    feature = get_template("feature")
+    assert feature.step("ship_verify").included_from == "ship" and feature.step("ship_cover_decide").included_from == "ship/cover"
+    assert feature.step("red").included_from is None
     assert [(u["name"], u["band"]) for u in ship.skip_units(sh.steps, 0)] == [
         ("lint", "optional"), ("release", "deferred"), ("cover", "deferred"), ("deps", "deferred"), ("reviewers", "optional"),
         ("spec_walk", "optional")]
