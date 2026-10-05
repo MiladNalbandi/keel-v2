@@ -3,7 +3,9 @@
 AI agents write **tested** code for your project, one small step at a time, and you approve the important steps.
 Everything runs in one Docker container.
 
-![How keel v2 works: install, start, log in, describe, approve, done](docs/keel-v2.gif)
+![A real keel v2 dashboard: the project list, a feature flow running live, an agent reading code, and a person approving a criterion at its gate](docs/keel-v2.gif)
+
+<sub>Recorded from a real keel v2 run (Claude Haiku on a small cart library), not drawn.</sub>
 
 ## Start in 3 steps
 
@@ -140,7 +142,7 @@ How the parts talk: [docs/CONTRACT.md](docs/CONTRACT.md).
 ```bash
 docker build -t keel-v2 .                                # everything is installed in the image
 docker build --build-arg KEEL_REF=v0.67.0 -t keel-v2 .   # pin keel v1
-uv run --with pillow docs/gif/make_gif.py                # redraw the GIF above
+npx -y -p playwright@1 node docs/gif/record.js           # record the GIF above from a running keel
 ```
 
 A version tag (`v*`) builds amd64 + arm64 images and pushes them to `ghcr.io/miladnalbandi/keel-v2` (and to Docker
