@@ -58,6 +58,9 @@ GET  /threads/{id}/unlocks                    → Unlock[]          { path, phas
 POST /threads/{id}/unlocks { path, phase?, reason? } → Unlock[]   phase defaults to the thread's phase now
 POST /mcp/tools            McpServerSpec      → { ok, tools: {name, description}[], error? }   (tools/list)
 POST /providers/test       { provider, mode, model, key? } → { ok, text?, ms, error? }        ("Reply with exactly: OK")
+POST /providers/usage      { provider: "claude"|"codex"|"copilot", key? } → { ok, provider, source, at, windows: UsageWindow[], plan?, error? }
+                           // codex: `codex app-server` account/rateLimits/read; copilot: GitHub copilot_internal/user (unofficial);
+                           // claude: the windows of its last run (rate_limit_event). UsageWindow = { window, label, used_pct 0..1, resets_at unix s, status?, used?, cap?, remaining? }
 GET  /providers/models                        → { [provider]: {id, label}[] }
 ```
 
@@ -127,11 +130,12 @@ type McpServerSpec = { name: string; command: string; args: string[]; env?: Reco
 
 type EngineEvent = {
   type: "thread.started" | "step.started" | "step.finished" | "agent.started" | "agent.step" | "agent.finished"
-      | "gate.waiting" | "gate.decided" | "budget.warn" | "budget.stop" | "guard.refused" | "thread.done" | "thread.failed";
+      | "gate.waiting" | "gate.decided" | "budget.warn" | "budget.stop" | "guard.refused" | "thread.done" | "thread.failed"
+      | "provider.usage";                      // data: { provider, windows: UsageWindow[], source, at } after a run that reported its plan windows
   thread_id: string; project_id: string; step?: string; at: string;
   call_id?: string;                            // agent.* events: one id per agent call
   data: Record<string, unknown>;
-  // agent.started  data: { agent, provider, model, phase, ac }
+  // agent.started  data: { agent, provider, model, mode, phase, ac }
   // agent.step     data: { n, kind: "text"|"thinking"|"tool"|"write"|"edit"|"result"|"answer"|"guard"|"error", text, tool?, server?, path?, diff?, ms?, ok? }
   // agent.finished data: { status: "done"|"failed"|"stopped", tokens_in, tokens_out, cost_usd, premium_requests, result? }
   // gate.waiting   data: { kind, title, detail }
@@ -219,7 +223,10 @@ type McpServer = McpServerSpec & { enabled, builtin, status: "ok"|"off"|"error",
 # control
 GET    /api/projects/{pid}/budget                     → { month: { tokens, cost_usd, premium_requests, flows }, days: { day, claude, codex, copilot, fake }[], caps: Cap[], top: { agent, provider, tokens, cost_usd }[], recent: { title, estimate, real, status }[] }
 GET    /api/limits                                    → Limit[]      PUT /api/limits  Limit[]
-type Limit = { id, name, unit, used, cap, note }       // account windows: editable; "used" from jobs
+type Limit = { id, name, unit, used, cap, note, source?, window?, used_pct?, remaining?, resets_at?, fetched_at? }   // manual cap + the provider's numbers when known
+GET    /api/usage/providers                           → ProviderUsage[]   // only providers that are set up; codex/copilot cached 60 s
+POST   /api/usage/providers/{id}/refresh              → ProviderUsage     // codex/copilot: read now; claude: one tiny Haiku call
+type ProviderUsage = { id, name, kind: "subscription"|"api", source, fetched_at?, windows: { window, label, used_pct?, used?, cap?, remaining?, resets_at?, status? }[], live, can_refresh, error?, note? }
 GET    /api/settings/general                          → Settings
 PUT    /api/settings/general        Partial<Settings>
 GET    /api/projects/{pid}/settings                   → { general: Settings, overrides: Partial<Settings>, effective: Settings }
