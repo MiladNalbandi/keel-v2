@@ -6,6 +6,7 @@ import { api, errorParts, type Connections, type LoginView, type Mode, type Mode
 import { defaultModel, ModelPicker, modeLabel, useCatalog } from "../components/ModelPicker";
 import { Async, Drawer, PageHead, Panel, Prov } from "../components/ui";
 import { useApp, useLoad } from "../state";
+import { UsageLine } from "../components/UsageStrip";
 
 const SECRET: Record<string, string> = { claude: "ANTHROPIC_API_KEY", codex: "OPENAI_API_KEY", copilot: "GITHUB_TOKEN" };
 // How to get each CLI login; it is stored encrypted in keel's database and handed to the CLI inside the container.
@@ -300,6 +301,7 @@ function Provider({ p, onChanged }: { p: Connections["providers"][number]; onCha
             <span className="hint">Sets the default, implementer and reviewer model, running on the mode chosen above.</span>
           </div>
         )}
+        {p.id !== "fake" && <UsageLine provider={p.id} />}
         <div className="row">
           <button className="btn sm" type="button" onClick={runTest}>Test</button>
           {HELP[p.id] && <button className="btn sm" type="button" onClick={() => setHelper(true)}>{p.login_set ? "Log in again" : "Set up login"}</button>}
