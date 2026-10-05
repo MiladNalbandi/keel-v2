@@ -48,6 +48,12 @@ class StubEngine private constructor(private val server: HttpServer) {
     /** Extra ThreadState fields per thread id (for example a "fix" wait), merged over the default. */
     val overrides = java.util.concurrent.ConcurrentHashMap<String, Map<String, Any?>>()
 
+    /** The index status per project (GET /projects/{p}/index); POST /projects/{p}/scan sets it to "indexing". */
+    val index = java.util.concurrent.ConcurrentHashMap<String, Map<String, Any?>>()
+
+    /** Maps built per project (POST /projects/{p}/map), like the engine stores them. */
+    val maps = java.util.concurrent.ConcurrentHashMap<String, Map<String, Any?>>()
+
     /** Unlocks posted per thread (POST /threads/{id}/unlocks), like the engine keeps them. */
     val unlocks = java.util.concurrent.ConcurrentHashMap<String, MutableList<Map<String, Any?>>>()
 
@@ -98,6 +104,24 @@ class StubEngine private constructor(private val server: HttpServer) {
         path.endsWith("/stop") -> 200 to state(path.split('/')[2], "stopped")
         path.endsWith("/history") -> 200 to listOf(mapOf("id" to "c1", "n" to 1, "step" to "spec", "at" to "2026-10-03T00:00:00Z", "note" to "start"))
         path == "/providers/test" -> 200 to (providerTestAnswer ?: mapOf("ok" to true, "text" to "OK", "ms" to 3))
+        path.matches(Regex("/projects/[^/]+/scan")) -> {
+            val pid = path.split('/')[2]
+            index[pid] = mapOf("project" to pid, "root" to body?.get("root")?.asText(), "status" to "indexing", "files" to 0, "symbols" to 0,
+                "rebuild" to (body?.get("rebuild")?.asBoolean() ?: false))
+            200 to index[pid]
+        }
+        path.matches(Regex("/projects/[^/]+/index")) -> {
+            val pid = path.split('/')[2]
+            200 to (index[pid] ?: mapOf("project" to pid, "status" to "idle", "files" to 0, "symbols" to 0))
+        }
+        path.matches(Regex("/projects/[^/]+/map")) && method == "POST" -> {
+            val pid = path.split('/')[2]
+            maps[pid] = mapOf("sha" to "abc1234", "at" to "2026-10-05T00:00:00Z", "counts" to mapOf("tables" to 1),
+                "levels" to mapOf("er" to mapOf("nodes" to emptyList<Any>(), "edges" to emptyList<Any>(), "width" to 100, "height" to 100)),
+                "root" to body?.get("root")?.asText())
+            200 to maps[pid]
+        }
+        path.matches(Regex("/projects/[^/]+/map")) -> 200 to (maps[path.split('/')[2]] ?: mapOf("missing" to "No map yet. Build it to draw one."))
         path == "/mcp/tools" -> 200 to mapOf("ok" to true, "tools" to listOf(mapOf("name" to "keel_next", "description" to "next step")))
         else -> 404 to mapOf("error" to "no route $path")
     }
