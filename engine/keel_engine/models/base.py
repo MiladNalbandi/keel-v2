@@ -37,6 +37,7 @@ class AgentRequest:
     timeout: int = 1800
     keys: dict[str, str] = field(default_factory=dict)   # StartThread.keys (e.g. claude_oauth, copilot), never logged
     section: str | None = None       # knowledge-refresh: the knowledge section this librarian writes
+    item: dict | None = None         # a fan-out or for_each step: the one item this agent works on
     session: str | None = None       # the CLI session id to use (claude --session-id) or continue (resume=True)
     resume: bool = False             # continue `session` (claude --resume, codex exec resume) instead of a new one
     on_session: Any = None           # callback(session_id) when the CLI reports its session id (codex)

@@ -89,6 +89,17 @@ type Step = {
   lock?: boolean;              // keel rule: cannot be removed while keel_rules is on
   max_tokens?: number; on_limit?: "pause" | "cheaper" | "stop";
   tools?: string[];            // MCP tools allowed, e.g. "mcp:keel:keel_next"
+  // also actions: verify_fast | verify_module | verify_release | verify_coverage | verify_deps | audit | trace | trace_strict
+  //   | arch | pr | open_pr (verdict actions write the engine `verdicts` table) | start_flow (hand-off, below)
+  from?: string;               // parallel: one agent per item of the state list state.data[from] (or acs); results in data["<id>_results"]
+  cap?: number;                // at most this many items
+  batch?: number;              // at most this many agents of the step at a time
+  for_each?: string;           // first step of a loop over state.data[for_each] (dicts with an id); item status todo|done|skipped|failed
+  per_item?: boolean;          // inside that loop (follows the for_each step directly)
+  markers?: string[];          // NAME: value lines read from the agent's answer into state.markers[<id>] (REPRO, ROOT-CAUSE, ...)
+  collect?: string;            // the JSON list in the agent's answer (```json) becomes state.data[collect]
+  when?: { marker: string; equals?: string; in?: string[]; step?: string };   // branch on a marker instead of run:/agent
+  flow?: string; seed?: Record<string, unknown>; then?: "end" | "continue";    // start_flow: workflow id, seed ("$state.path" reads state)
 };
 type Workflow = { id: string; name: string; based_on?: string; keel_rules: boolean; version: number; steps: Step[]; yaml: string };
 

@@ -7,7 +7,10 @@ from .model import Workflow, WorkflowError, load_yaml
 from .templates import get_template
 
 CODE_ACTIONS = {"verify_red", "verify_green", "verify_release", "verify_coverage", "commit", "push_check", "write_config",
-                "ladder", "knowledge_check", "memory_check"}
+                "ladder", "knowledge_check", "memory_check",
+                # verdict actions (runtime/verdict_actions.py), the PR body, and the hand-off to another workflow
+                "verify_fast", "verify_module", "verify_deps", "audit", "trace", "trace_strict", "arch", "pr", "open_pr",
+                "start_flow"}
 
 
 def _action_ok(action: str) -> bool:
@@ -24,9 +27,9 @@ def successors(wf: Workflow, i: int) -> list[int]:
     for target in (s.back, s.no):
         if target in ids:
             out.append(ids[target])
-    if s.per_ac:  # the loop goes round to its first step
-        first = next(n for n, x in enumerate(wf.steps) if x.per_ac)
-        out.append(first)
+    loop = wf.loop_of(i)
+    if loop:  # the loop goes round to its first step
+        out.append(loop.first)
     return out
 
 
@@ -82,14 +85,44 @@ def validate(wf: Workflow) -> list[str]:
                     errors.append(f"{where}: lane '{lane.name}' needs an agent.")
         if s.max_tokens is not None and s.max_tokens < 0:
             errors.append(f"{where}: max_tokens cannot be negative.")
+        if s.items_from and s.kind != "parallel":
+            errors.append(f"{where}: only a parallel step takes 'from' (one agent per item).")
+        if s.items_from and s.lanes:
+            errors.append(f"{where}: 'from' and lanes do not go together.")
+        for name, v in (("cap", s.cap), ("batch", s.batch)):
+            if v is not None and v < 1:
+                errors.append(f"{where}: {name} must be 1 or more.")
+        if s.batch is not None and s.kind != "parallel":
+            errors.append(f"{where}: only a parallel step takes batch.")
+        if s.per_ac and (s.per_item or s.for_each):
+            errors.append(f"{where}: a step runs per AC or per item, not both.")
+        if s.collect and s.kind not in ("agent", "parallel"):
+            errors.append(f"{where}: only agent steps collect a list.")
+        if s.when is not None:
+            if s.kind != "branch":
+                errors.append(f"{where}: only branches have a 'when'.")
+            elif not str(s.when.get("marker") or "").strip():
+                errors.append(f"{where}: when needs a marker name (when: {{marker: REPRO, equals: confirmed}}).")
+            elif s.when.get("step") and s.when["step"] not in index:
+                errors.append(f"{where}: when.step '{s.when['step']}' does not exist.")
+        if "start_flow" in s.actions():
+            if not s.flow:
+                errors.append(f"{where}: start_flow needs the workflow to start (flow: fix).")
+        elif s.flow or s.seed or s.then:
+            errors.append(f"{where}: flow, seed and then belong to a start_flow step.")
 
-    loop = [n for n, s in enumerate(wf.steps) if s.per_ac]
-    if loop and loop != list(range(loop[0], loop[-1] + 1)):
+    acs = [n for n, s in enumerate(wf.steps) if s.per_ac]
+    if acs and acs != list(range(acs[0], acs[-1] + 1)):
         errors.append("The 'for each AC' steps must sit together, one after another.")
-    if loop:
-        for s in wf.steps:
-            if s.per_ac and s.back in index and index[s.back] > loop[-1]:
-                errors.append(f"Step '{s.id}': back target '{s.back}' is after the AC loop.")
+    loops = wf.loops()
+    for n, s in enumerate(wf.steps):
+        if s.per_item and not s.for_each and not any(lp.first <= n <= lp.last for lp in loops if not lp.per_ac):
+            errors.append(f"Step '{s.id}': a per_item step must follow a for_each step (or another per_item step) directly.")
+    for lp in loops:
+        what = "the AC loop" if lp.per_ac else f"the '{wf.steps[lp.first].id}' loop"
+        for s in wf.steps[lp.first:lp.last + 1]:
+            if s.back in index and index[s.back] > lp.last:
+                errors.append(f"Step '{s.id}': back target '{s.back}' is after {what}.")
 
     # Every gate must be reachable from the first step.
     if not errors:

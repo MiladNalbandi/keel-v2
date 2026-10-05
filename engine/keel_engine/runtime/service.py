@@ -23,6 +23,7 @@ from .. import config, rules
 from ..events import EventBus
 from ..tools import codegraph, git
 from ..workflows.model import Workflow, from_dict
+from ..workflows.templates import get_template
 from . import ladder as ladder_mod
 from . import memory as memory_mod
 from . import migrate
@@ -150,6 +151,7 @@ class Engine:
                             request=(body.get("request") or "").strip(), models=body.get("models") or {}, settings=body.get("settings") or {}, mcp=body.get("mcp") or [],
                             skills=body.get("skills") or {}, agents=body.get("agents") or {}, keys=self.keys.get(tid, {}), bus=self.bus,
                             memory=memory_mod.AgentMemory(self.conn, tid))
+        ctx.spawn = lambda workflow_id, seed, link, tid=tid: self.start_child(tid, workflow_id, seed, link)
         async with self.conn.execute("select path, phase, by, reason, at from thread_unlocks where thread_id = ? order by rowid",
                                      (tid,)) as cur:
             ctx.api_unlocks = [{k: v for k, v in zip(("path", "phase", "by", "reason", "at"), r) if v} for r in await cur.fetchall()]
@@ -260,6 +262,8 @@ class Engine:
             self.keys[tid] = dict(body["keys"])
         ctx = await self._context(tid)
         state = initial_state(ctx, body.get("acs"))
+        state["data"] = dict(body.get("data") or {})
+        state["parent"] = body.get("parent")
         if git.is_repo(root):
             state["branch"] = git.branch(root)
             state["git_head"] = git.head(root)
@@ -268,10 +272,42 @@ class Engine:
             state["preexisting"] = git.snapshot(root)
         codegraph.sync_later(root)          # the code graph catches up with edits made since the last index (background)
         await self._import_legacy_unlocks(tid)
-        ctx.emit("thread.started", data={"workflow": wf.id, "title": ctx.title, "flow": wf.flow, "root": root,
-                                         "acs": len(state["acs"]), "fake": ctx.fake})
+        started = {"workflow": wf.id, "workflow_id": wf.id, "title": ctx.title, "flow": wf.flow, "root": root,
+                   "acs": len(state["acs"]), "fake": ctx.fake}
+        if body.get("parent"):
+            started["parent"] = body["parent"]
+        ctx.emit("thread.started", data=started)
         self._launch(tid, state)
         return tid
+
+    async def start_child(self, parent: str, workflow_id: str, seed: dict, link: dict) -> str:
+        """start_flow: a new thread of another workflow on the parent's project, with the parent's models, settings and
+        logins, and a seed (title, request, recipe, symptoms, inline acs, needs_e2e). It starts the way POST /threads
+        does, so the api learns about it from thread.started (data.parent links it back)."""
+        row = await self._row(parent)
+        body = json.loads(row["body"])
+        wf = get_template(workflow_id)
+        if not wf and (body.get("workflow") or {}).get("id") == workflow_id:
+            wf = from_dict(body["workflow"], body["workflow"].get("yaml") or None)
+        if not wf:
+            raise EngineError(404, f"No workflow {workflow_id} to start.", "start_flow takes a keel workflow id (fix, feature, ...).")
+        request = str(seed.get("request") or "").strip()
+        for label, k in (("Symptoms", "symptoms"), ("Reproduction recipe", "recipe")):
+            v = seed.get(k)
+            if v:
+                text = "\n".join(f"- {x}" for x in v) if isinstance(v, list) else str(v)
+                request += f"\n\n{label}:\n{text}"
+        if seed.get("needs_e2e"):
+            request += "\n\nA regression end-to-end test is required for this bug."
+        acs = []
+        for n, a in enumerate(seed.get("acs") or []):
+            a = a if isinstance(a, dict) else {"title": str(a)}
+            acs.append({"id": str(a.get("id") or f"AC-{n + 1}"), "layer": a.get("layer") or "API", "title": str(a.get("title") or "")})
+        child = {k: body[k] for k in ("project_id", "models", "settings", "mcp", "skills", "agents") if k in body}
+        child.update(root=row["root"], workflow=wf, title=str(seed.get("title") or row["title"])[:200], acs=acs or None,
+                     request=request.strip()[:8000], parent=link, keys=self.keys.get(parent),
+                     data={"seed": seed, **{k: seed[k] for k in ("recipe", "symptoms", "needs_e2e") if k in seed}})
+        return await self.start_thread(child)
 
     async def state(self, tid: str) -> dict:
         row = await self._row(tid)
@@ -322,6 +358,12 @@ class Engine:
             if waiting.get("choices"):
                 out["waiting"]["choices"] = list(waiting["choices"])
         out["gate_log"] = list(((v.get("gates") or {}).get("log") or [])[-50:])
+        if v.get("parent"):
+            out["parent"] = v["parent"]
+        if v.get("children"):
+            out["children"] = list(v["children"])
+        if v.get("item"):
+            out["item"] = v["item"]
         err = row["error"] or v.get("error")
         if err and status in ("failed", "stopped"):
             out["error"] = err
@@ -458,6 +500,8 @@ class Engine:
             note = v.get("note") or ""
             if v.get("ac") and s and s.per_ac:
                 note = f"{v['ac']} · {note}"
+            elif v.get("item") and s and s.per_item:
+                note = f"{v['item']} · {note}"
             out.append({"id": snap.config["configurable"]["checkpoint_id"], "n": n, "step": step,
                         "at": snap.created_at, "note": note[:300]})
         return out

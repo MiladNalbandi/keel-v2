@@ -105,6 +105,8 @@ class StartThread(BaseModel):
     agents: dict[str, AgentSettings] = Field(default_factory=dict)   # per agent: {knowledge}
     keys: dict[str, str] | None = None   # optional: provider -> key, kept in memory only
     request: str | None = None           # what the user asked for, in their words (every agent gets it)
+    data: dict[str, Any] | None = None   # lists a workflow reads with from: / for_each: (state.data), e.g. a seed
+    parent: dict[str, Any] | None = None # the thread that started this one (start_flow sets it)
 
 
 class Ask(BaseModel):

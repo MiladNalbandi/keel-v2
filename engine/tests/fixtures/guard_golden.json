@@ -35,7 +35,8 @@
     "hunt-sweep",
     "hunt-prove",
     "hunt-report",
-    "hunt-triage"
+    "hunt-triage",
+    "review"
   ],
   "TRANSITIONS": {
     "none": [
@@ -44,7 +45,12 @@
       "triage",
       "bug-report",
       "spec",
-      "hunt-scope"
+      "hunt-scope",
+      "bug-investigate",
+      "coverage-fix",
+      "ship",
+      "memory",
+      "review"
     ],
     "setup": [
       "none",
@@ -243,6 +249,9 @@
     "hunt-triage": [
       "hunt-report",
       "none"
+    ],
+    "review": [
+      "none"
     ]
   },
   "LADDER": [
@@ -296,6 +305,29 @@
       "hunt-prove",
       "hunt-report",
       "hunt-triage"
+    ],
+    "review": [
+      "review"
+    ],
+    "diagnose": [
+      "bug-investigate"
+    ],
+    "cover": [
+      "coverage-fix"
+    ],
+    "ship": [
+      "ship",
+      "coverage-fix",
+      "review-fix",
+      "final-review",
+      "memory",
+      "close"
+    ],
+    "init": [
+      "setup"
+    ],
+    "knowledge-refresh": [
+      "memory"
     ]
   },
   "MATRIX": {
@@ -480,6 +512,9 @@
     "hunt-triage": {
       "other": "allow",
       "*": "deny"
+    },
+    "review": {
+      "*": "deny"
     }
   },
   "COMMIT_RULES": {
@@ -636,7 +671,13 @@
     "feature": "spec",
     "change": "triage",
     "fix": "bug-report",
-    "hunt": "hunt-scope"
+    "hunt": "hunt-scope",
+    "review": "review",
+    "diagnose": "bug-investigate",
+    "cover": "coverage-fix",
+    "ship": "ship",
+    "init": "setup",
+    "knowledge-refresh": "memory"
   },
   "classify": {
     "api/src/main/kotlin/app/A.kt": "api-main",
