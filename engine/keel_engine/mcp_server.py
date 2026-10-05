@@ -203,7 +203,7 @@ def next_action(api: KeelApi, project: str | None = None) -> str:
     p = _project(api, project)
     thread, workflow = _flow(api, p["id"])
     if not thread:
-        return "no flow: start one in the dashboard (Flow › Start a flow: feature, change, fix or hunt)."
+        return "no flow: start one in the dashboard (Flow › Start a flow: feature, change, fix, diagnose, review, cover, ship, hunt, lint, init …)."
     st, w = thread.get("status"), thread.get("waiting")
     ac = f" for {thread['ac']}" if thread.get("ac") else ""
     if st == "waiting" and w:
