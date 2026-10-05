@@ -11,6 +11,9 @@ version: 1
 # ship includes these steps (kind: include, flow: cover).
 steps:
   - { id: measure, kind: code, name: measure coverage, action: verify_coverage, phase: coverage-fix, soft: true, lock: true }
+  - { id: measured, kind: branch, name: the coverage command failed, when: { data: coverage_error }, no: needs_work, phase: coverage-fix }
+  - { id: measure_failed, kind: gate, name: coverage could not be measured, phase: coverage-fix, when: { data: coverage_error },
+      choices: { try_again: measure, go_on: report } }
   - { id: needs_work, kind: branch, name: coverage fails, when: { marker: RESULT, step: measure, equals: fail }, no: report, phase: coverage-fix }
   - { id: decide, kind: gate, name: decide test / delete / accept, for_each: coverage_groups, phase: coverage-fix, lock: true,
       choices: [test, delete, accept], on_skip: { choice: accept, record: coverage_accepted } }

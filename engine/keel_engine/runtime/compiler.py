@@ -1238,6 +1238,9 @@ class Compiler:
             detail = await asyncio.to_thread(ship_mod.final_report, ctx.root, ctx.project_id or ctx.root, dict(state), ctx.title)
         elif self.wf.flow == "init" and step.id == "plan_gate":
             detail = init_gates.plan(ctx.root, state.get("init") or init_gates.defaults(ctx.root, bool(ctx.settings.get("fast"))))
+        elif step.when and step.when.get("data") and isinstance(self._seed_value(f"$data.{step.when['data']}", state, None), str):
+            # A gate that pauses on a data value shows it (cover: why coverage could not be measured).
+            detail = self._seed_value(f"$data.{step.when['data']}", state, None)
         elif (state.get("data") or {}).get(f"{step.id}_detail"):
             # A step before this gate wrote what it should show (the hunt's lens list, its report summary).
             detail = str(state["data"][f"{step.id}_detail"])

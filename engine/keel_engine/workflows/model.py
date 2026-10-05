@@ -162,6 +162,8 @@ def _included(inc: dict) -> list[dict]:
         for k in ("back", "no", "redo", "then", "after_rounds"):
             if d.get(k):
                 d[k] = ren(d[k])
+        if isinstance(d.get("choices"), dict):
+            d["choices"] = {k: ren(v) for k, v in d["choices"].items()}
         src = (d.get("when") or {}).get("step") if isinstance(d.get("when"), dict) else None
         if src:
             d["when"] = {**d["when"], "step": [ren(x) for x in src] if isinstance(src, list) else ren(src)}
