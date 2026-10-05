@@ -1,0 +1,120 @@
+# Stack pack: Kotlin + Spring Boot backend.
+# A new stack is one file like this plus one testing skill; the flow skills never change.
+name: kotlin-spring
+lane: api
+# Which `skills/architecture/references/<style>-<suffix>.md` file this stack reads.
+arch_ref_suffix: kotlin
+
+# How to recognise this stack in a repo, cheapest signal first.
+detect:
+  files: [gradlew, build.gradle.kts, build.gradle, pom.xml]
+  extensions: ['.kt', '.java']
+
+# Test layers, lowest first. The AC loop picks the lowest layer that can express the AC.
+layers:
+  - id: unit
+    what: pure rules, no framework
+    where: src/test/kotlin/**/domain
+  - id: web-slice
+    what: validation, status codes, auth rules
+    where: src/test/kotlin/**/web
+  - id: body
+    what: request and response bodies validated against the contract
+    where: src/test/kotlin/**/contract
+  - id: data-slice
+    what: queries, constraints, migrations
+    where: src/test/kotlin/**/persistence
+  - id: integration
+    what: cross-layer flows and transactions
+    where: src/integrationTest/kotlin
+
+# Command defaults for this stack. `{AC}`, `{PKG}` and `{PATHS}` are substituted.
+commands:
+  api_compile: '{BUILD} -q compileKotlin compileTestKotlin'
+  api_test_ac: "{BUILD} -q test --tests '*{AC}*'"
+  # `test` alone excludes the `integrationTest` source set declared above, so every
+  # @SpringBootTest could sit unrun while the module suite reported green. Gradle skips a task
+  # it does not have, so this is safe on a project without that source set.
+  api_test_module: '{BUILD} -q test integrationTest'
+  api_test_pkg: "{BUILD} -q test --tests '{PKG}.*'"
+  coverage_api: '{BUILD} -q koverXmlReport'
+  static_checks: '{BUILD} -q detekt ktlintCheck'
+  migrate: '{BUILD} -q flywayMigrate'
+
+# The same programs `static_checks` runs as one string, addressable one at a time.
+tools:
+  detekt:
+    run: '{BUILD} -q detekt'
+    on: manual
+    fail: block
+    timeout: 300
+    description: 'Kotlin static analysis'
+  sonar:
+    run: '{BUILD} -q sonar'
+    on: manual
+    fail: warn
+    kind: status
+    timeout: 900
+    description: 'SonarQube scan — needs SONAR_TOKEN and a reachable server'
+
+coverage_report: build/reports/kover/report.xml
+
+# What a new kotlin-spring project is scaffolded with. Paths in `from:` are relative to this
+# pack's own directory; `{BACKEND}`, `{FRONTEND}` and `{CONTRACT}` in `to:` come from the
+# project's config, so a pack never has to know this project's layout.
+starter:
+  - from: ../templates/starter/settings.gradle.kts
+    to: settings.gradle.kts
+  - from: ../templates/starter/api-build.gradle.kts
+    to: '{BACKEND}/build.gradle.kts'
+  - from: ../templates/starter/HealthTest.kt
+    to: '{BACKEND}/src/test/kotlin/app/HealthTest.kt'
+
+# What this stack needs inside a dev container. Merged with every other matched pack's
+# block, so the keys are identical across packs and a generator can combine them without
+# knowing which stack it is looking at.
+#
+# `primary: true` means this pack supplies the Dockerfile's FROM. When two packs match, the
+# primary's image is the base and the others contribute `toolchain_install` lines — the
+# devcontainer *features* mechanism cannot help here, because our container is defined by
+# compose rather than built by the devcontainer spec.
+devcontainer:
+  primary: true
+  image: mcr.microsoft.com/devcontainers/java:21
+  # Adds this toolchain to someone else's base image; one `run:` becomes one Dockerfile RUN,
+  # as root. `run:` maps rather than bare strings, so a value containing a colon survives.
+  toolchain_install:
+    - run: apt-get update && apt-get install -y --no-install-recommends openjdk-21-jdk-headless && rm -rf /var/lib/apt/lists/*
+  # Named volumes and where they mount. Split into parts rather than a "name:path" string
+  # because keel's YAML reader treats a quoted list item containing a colon as a map — and
+  # the generator needs the halves separately anyway, to declare the volume and mount it.
+  volumes:
+    - name: gradle-cache
+      at: /root/.gradle
+  ports:
+    - host: 8080
+      container: 8080
+  env:
+    SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/app
+
+# Which skill teaches tests for this stack, and which architecture references apply.
+skills:
+  testing: kotlin-spring-testing
+  implementation: kotlin-spring-implementation
+  architecture: architecture
+architecture_styles: [hexagonal, ddd, layered, mvc]
+
+# Import boundaries worth enforcing per style, merged into boundaries.rules.
+boundary_defaults:
+  hexagonal:
+    - name: domain-framework-free
+      from: '{DIR}/**/domain/**'
+      deny_imports: ['org.springframework.**', 'jakarta.persistence.**', 'javax.persistence.**']
+  ddd:
+    - name: domain-framework-free
+      from: '{DIR}/**/domain/**'
+      deny_imports: ['org.springframework.**', 'jakarta.persistence.**']
+  layered:
+    - name: no-controller-in-repository
+      from: '{DIR}/**/repository/**'
+      deny_imports: ['**.controller.**']

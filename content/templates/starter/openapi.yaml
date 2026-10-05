@@ -1,0 +1,22 @@
+openapi: 3.0.3
+info:
+  title: app
+  version: 1.0.0
+paths:
+  /api/ping:
+    get:
+      operationId: ping
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pong'
+components:
+  schemas:
+    Pong:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string }

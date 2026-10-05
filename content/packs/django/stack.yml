@@ -1,0 +1,104 @@
+# Stack pack: Django (Python) backend.
+# A new stack is one file like this plus one testing skill; the flow skills never change.
+name: django
+lane: api
+# Which `skills/architecture/references/<style>-<suffix>.md` file this stack reads.
+arch_ref_suffix: python
+
+# How to recognise this stack in a repo, cheapest signal first. `manage.py` is the one file every
+# Django project has and nothing else does; the rest catch a project that keeps it elsewhere.
+detect:
+  files: [manage.py, pyproject.toml, requirements.txt]
+  package_deps: [django]
+  extensions: ['.py']
+
+# Test layers, lowest first. The AC loop picks the lowest layer that can express the AC.
+layers:
+  - id: unit
+    what: pure Python, no database — domain rules and pure functions
+    where: tests/unit
+  - id: model
+    what: model methods, managers and constraints — django.test.TestCase
+    where: tests/models
+  - id: view
+    what: routes, status codes, permissions — the test Client
+    where: tests/views
+  - id: body
+    what: request and response bodies validated against the contract
+    where: tests/contract
+  - id: integration
+    what: the ORM against a real (test) database, transactions and migrations
+    where: tests/integration
+
+# Command defaults for this stack. `{AC}`, `{PKG}` and `{PATHS}` are substituted. Python has no
+# compile step, so a byte-compile of the tree stands in for one: it is the cheapest command that
+# proves every module at least parses, the same role `compileKotlin` plays elsewhere.
+commands:
+  api_compile: 'python -m compileall -q .'
+  api_test_ac: 'python -m pytest -q -k "{AC}"'
+  api_test_module: 'python -m pytest -q'
+  api_test_pkg: 'python -m pytest -q {PKG}'
+  coverage_api: 'python -m pytest -q --cov --cov-report=xml:coverage.xml'
+  static_checks: 'python -m ruff check . && python -m mypy .'
+  migrate: 'python manage.py migrate --no-input'
+
+coverage_report: coverage.xml
+
+# Programs keel runs for this stack.
+tools:
+  # Django migrations are Python declaring models — they never mention SQL at all, so reading them
+  # would mean reimplementing the ORM. `sqlmigrate` asks Django itself what SQL a migration makes,
+  # which is the one answer that cannot drift from what Django will actually do.
+  #
+  # `--no-color` because the map parses this, and `sed` strips the BEGIN/COMMIT wrapper sqlmigrate
+  # adds per migration so the file reads as one schema rather than a stack of transactions.
+  # Commit the result: the map then works on a clean checkout with no Python and no database.
+  schema-dump:
+    run: >-
+      mkdir -p docs && : > docs/schema.sql &&
+      python manage.py showmigrations --plan --no-color
+      | sed -n 's/^\[.\]  *\([^ ]*\)\.\([^ ]*\)$/\1 \2/p'
+      | while read -r app mig; do python manage.py sqlmigrate --no-color "$app" "$mig" >> docs/schema.sql 2>/dev/null || true; done
+    on: manual
+    fail: block
+    timeout: 300
+    description: 'Write docs/schema.sql so the map can draw the database'
+  cs-fix:
+    run: 'python -m ruff format {FILES}'
+    on: pre-commit
+    match: '\.py$'
+    # ruff format rewrites the file and exits 0. Blocking on it would refuse a commit it repaired.
+    fail: fix
+    timeout: 60
+    description: 'Format the staged Python'
+  mypy:
+    run: 'python -m mypy .'
+    on: manual
+    fail: block
+    timeout: 300
+    description: 'Type-check the project'
+  sonar:
+    run: 'sonar-scanner'
+    on: manual
+    fail: warn
+    kind: status
+    timeout: 900
+    description: 'SonarQube scan — needs SONAR_TOKEN and a reachable server'
+
+# Django's migrations are not SQL, so the map reads this snapshot instead. The
+# schema-dump tool writes it.
+schema_snapshot: docs/schema.sql
+
+# Which files declare a dependency for this stack — read by keel's manifest-diff check, the same way `build.gradle.kts` and `composer.json` already are.
+dependency_files: [pyproject.toml, requirements.txt, requirements.in]
+
+# What this stack needs inside a dev container. Same keys as every other pack's block — see
+# stacks/kotlin-spring.yml's comment for why.
+devcontainer:
+  primary: true
+  image: mcr.microsoft.com/devcontainers/python:3.12
+  toolchain_install:
+    - run: pip install --no-cache-dir -r requirements.txt || pip install --no-cache-dir -e .
+  ports:
+    - host: 8000
+      container: 8000

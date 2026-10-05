@@ -1,0 +1,30 @@
+# Dev-container mode: your services plus a container that holds the toolchain.
+# Generated at setup (dev container) from the matched stacks, so the image,
+# volumes, ports and environment come from whichever stacks this repo actually has.
+#
+# Your own compose file is included unchanged — keel never edits it.
+include:
+  - {{COMPOSE}}
+
+services:
+  dev:
+    {{DEV_IMAGE_OR_BUILD}}
+    working_dir: /workspace
+    volumes:
+      - .:/workspace:cached
+      # Testcontainers starts sibling containers, so it needs the host's Docker socket.
+      # Without this, "Docker is running" is true and container-backed tests still fail.
+      - /var/run/docker.sock:/var/run/docker.sock
+{{DEV_VOLUMES}}
+    environment:
+      # Testcontainers must reach the daemon by a name that resolves inside the container.
+      TESTCONTAINERS_HOST_OVERRIDE: host.docker.internal
+{{DEV_ENV}}
+{{DEV_DEPENDS_ON}}
+    ports:
+{{DEV_PORTS}}
+    # The container stays up; you open a shell into it, or your editor attaches.
+    command: sleep infinity
+
+volumes:
+{{DEV_NAMED_VOLUMES}}

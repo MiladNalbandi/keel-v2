@@ -1,0 +1,76 @@
+# Stack pack: plain JavaScript + React frontend (no TypeScript).
+name: react-js
+lane: web
+# Which `skills/architecture/references/<style>-<suffix>.md` file this stack reads. Same
+# directory conventions as TypeScript React, so it shares the -web reference files rather
+# than needing its own — the split between the two packs is the language, not the layout.
+arch_ref_suffix: web
+
+# `react` in package.json says this is React; `exclude_files: [tsconfig.json]` is what keeps
+# this pack from also matching a TypeScript React project (exclude_files is checked first).
+detect:
+  package_deps: [react]
+  exclude_files: [tsconfig.json]
+
+layers:
+  - id: component
+    what: rendering, form validation, error and empty states
+    where: src/**/*.test.jsx
+  - id: hook
+    what: state transitions and data fetching, with MSW
+    where: src/**/*.test.js
+
+commands:
+  web_test_ac: 'npx vitest run -t {AC}'
+  web_test_module: 'npx vitest run'
+  web_test_paths: 'npx vitest run {PATHS}'
+  coverage_web: 'npx vitest run --coverage'
+  static_checks: 'npx eslint .'
+  # Deliberately no `web_typecheck` — there is nothing to typecheck. the contract check
+  # already treats an unset-but-optional command as `skipped:` rather than `MISSING:`, which
+  # is the correct outcome for a stack that genuinely has no equivalent step.
+
+coverage_report: coverage/lcov.info
+
+dependency_files: [package.json]
+
+# Same keys as ts-react's block; `primary: false` for the same reason — it only contributes
+# `toolchain_install` when matched alongside a primary (backend) pack.
+devcontainer:
+  primary: false
+  image: mcr.microsoft.com/devcontainers/typescript-node:20
+  toolchain_install:
+    - run: curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y --no-install-recommends nodejs && rm -rf /var/lib/apt/lists/*
+  volumes:
+    - name: npm-cache
+      at: /root/.npm
+  ports:
+    - host: 5173
+      container: 5173
+  env:
+    VITE_HOST: 0.0.0.0
+
+# See symfony.yml for why both skills: and skill_files: are declared.
+skills:
+  testing: react-testing
+  implementation: react-implementation
+  architecture: architecture
+skill_files:
+  testing: skills/react-testing/SKILL.md
+  implementation: skills/react-implementation/SKILL.md
+
+starter:
+  - from: templates/starter/vitest.config.js
+    to: '{FRONTEND}/vitest.config.js'
+architecture_styles: [feature-sliced, layered]
+
+boundary_defaults:
+  feature-sliced:
+    - name: feature-isolation
+      from: '{DIR}/src/features/*/**'
+      deny_imports: ['@/features/**']
+      allow_imports: ['@/shared/**', '@/entities/**']
+  layered:
+    - name: no-component-imports-page
+      from: '{DIR}/src/components/**'
+      deny_imports: ['@/pages/**', '@/routes/**']
