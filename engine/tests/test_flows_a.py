@@ -335,7 +335,9 @@ def test_change_trivial_is_one_refactor_commit(client, repo, monkeypatch):
     tid = start(client, repo, workflow="change", title="Rename the helper")
     s = wait(client, tid)
     assert s["waiting"]["detail"].startswith("Proposed: trivial")
-    s, _body = through_ship(client, tid, decide(client, tid, "approve", payload={"choice": "trivial"}))
+    assert "(default trivial)" in s["waiting"]["detail"]
+    # a plain approve takes the triage's recommendation (real run: a rename became three criteria with the first choice)
+    s, _body = through_ship(client, tid, decide(client, tid, "approve"))
     assert s["status"] == "done" and "refactor: Rename the helper" in log(repo)
     assert not any(r.agent == "test-author" for r in seen)
 

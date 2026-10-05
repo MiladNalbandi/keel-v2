@@ -113,6 +113,8 @@ def validate(wf: Workflow) -> list[str]:
                 errors.append(f"{where}: on_skip choice '{s.on_skip['choice']}' is not one of the choices.")
         if isinstance(s.choices, list) and (not s.choices or len(set(s.choices)) != len(s.choices)):
             errors.append(f"{where}: choices must be a list of different names.")
+        if s.recommend is not None and (s.kind != "gate" or not isinstance(s.choices, list)):
+            errors.append(f"{where}: recommend belongs to a gate with a list of choices.")
         if s.after_rounds is not None and (s.kind != "code" or s.after_rounds not in index):
             errors.append(f"{where}: after_rounds belongs to a code step and names an existing step.")
         if s.then and s.then not in ("end", "continue"):

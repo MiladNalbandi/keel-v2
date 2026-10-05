@@ -61,6 +61,7 @@ data class Step(
     // review, diagnose, fix and change: the agent's step instructions and where a code step goes once its rounds are used up.
     val instructions: String? = null,
     val afterRounds: String? = null,
+    val recommend: String? = null,
 ) {
     val locked: Boolean @com.fasterxml.jackson.annotation.JsonIgnore get() = lock == true
 }

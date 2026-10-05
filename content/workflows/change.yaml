@@ -21,7 +21,7 @@ steps:
       contract, a migration or auth, or need more than three criteria? Then it is a feature. Otherwise it is small: one
       to three criteria. Say the size, the reason and the files you expect to touch. SIZE is trivial, small or feature.
   - { id: size, kind: code, name: size + criteria, action: change_size, phase: triage }
-  - { id: scope_gate, kind: gate, name: scope check, back: triage, lock: true, phase: small-change, choices: [small, trivial, feature] }
+  - { id: scope_gate, kind: gate, name: scope check, back: triage, lock: true, phase: small-change, choices: [small, trivial, feature], recommend: SIZE }
   - { id: is_feature, kind: branch, name: escalate to a feature, when: { marker: CHOICE, equals: feature, step: scope_gate }, no: is_trivial, phase: small-change }
   - id: to_feature
     kind: code
