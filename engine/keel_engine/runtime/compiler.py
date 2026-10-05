@@ -38,6 +38,7 @@ from ..tools.agent_tools import ToolBox
 from ..workflows.model import Loop, Step, Workflow
 from . import agent_knowledge, clarify, guard_ctx, init_gates, markers, prompts, spec_check
 from . import memory as memory_mod
+from . import ship as ship_mod
 from .actions import ActionInput, ActionResult, revert_manifests, run_action
 from .state import FlowState, ThreadContext, merge_unlocks, normalize_unlocks
 
@@ -51,6 +52,8 @@ RESUMABLE = {"claude", "codex"}      # CLIs whose sessions keel can continue (cl
 ALREADY_MET = "already-met"
 DONE = ("done", ALREADY_MET)        # AC statuses the per-AC loop is finished with
 ITEM_DONE = ("done", "skipped", "failed")   # item statuses a for_each loop is finished with (todo is the rest)
+# Where a review fix goes (findings_step, payload.route) and the actions that follow the fixing agent.
+ROUTES = {"review-fix": ("verify_green", "commit"), "coverage-fix": ("verify_green", "commit"), "red": ("commit",)}
 STEP_FIELD_MAX = 24_000          # per string field of an agent.step (runners already cap at 20 KB plus a note)
 
 
@@ -216,6 +219,15 @@ class Compiler:
             phase = step.phase or prev
             ac = state.get("ac") if step.per_ac else None
             item = state.get("item") if step.per_item else None
+            skipped = self._skipped(i, step, state)
+            if skipped:
+                why, goto = skipped
+                ctx.emit("step.started", step=step.id, data={"name": step.name, "kind": step.kind, "phase": prev, "ac": ac,
+                                                             "from": prev, "flow": self.wf.flow, "skipped": True})
+                ctx.emit("step.finished", step=step.id, data={"name": step.name, "kind": step.kind, "phase": prev, "ac": ac,
+                                                              "ok": True, "note": why, "skipped": True})
+                return Command(update={"note": why, "current": step.id,
+                                       **({"unlocks": merged} if len(merged) != len(have) else {})}, goto=goto)
             started = {"name": step.name, "kind": step.kind, "phase": phase, "ac": ac, "from": prev, "flow": self.wf.flow,
                        "phase_changed": prev != phase, "transition_ok": rules.can_transition(prev, phase)}
             if item:
@@ -235,6 +247,21 @@ class Compiler:
 
         node.__name__ = f"step_{step.id}"
         return node
+
+    def _skipped(self, i: int, step: Step, state: FlowState) -> tuple[str, str] | None:
+        """(why, where to) when this step does not run: turned off at the opening skip menu (the whole unit of steps
+        that share its group is passed over), or a retry_only step that nothing sent work back to."""
+        unit = ship_mod.unit_of(step)
+        if step.skippable:
+            skip = next((s for s in (state.get("data") or {}).get("ship_skipped") or [] if s.get("step") == unit), None)
+            if skip:
+                j = i
+                while j + 1 < len(self.wf.steps) and self.wf.steps[j + 1].skippable and ship_mod.unit_of(self.wf.steps[j + 1]) == unit:
+                    j += 1
+                return f"{unit} skipped: {skip.get('reason') or 'no reason given'}", self.nav.after(j)
+        if step.retry_only and not (state.get("last_failure") or state.get("feedback")):
+            return f"{step.name}: nothing was sent back; not needed", self.nav.after(i)
+        return None
 
     # ------------------------------------------------------------ loop + end
 
@@ -693,13 +720,33 @@ class Compiler:
             if spec:
                 upd["spec"] = spec
         if self._reviews(step):
-            found = unique([{"lens": f"{step.name} #{n + 1}" if len(agent_results) > 1 else step.name, "text": t}
+            def lens(n: int) -> str:
+                if step.items_from and n in item_of:
+                    return f"{step.name}: {item_of[n].get('title') or item_of[n]['id']}"
+                return f"{step.name} #{n + 1}" if len(agent_results) > 1 else step.name
+            found = unique([{"lens": lens(n), "text": t}
                             for n, (res, _m, _tb) in enumerate(agent_results) for t in blocking(res.text)])
             upd["findings"] = found
             if found:
                 upd["note"] += f" · {len(found)} blocking finding(s)"
+                key = self._rounds_key(step, loop_item)
+                done_rounds = int((state.get("review_rounds") or {}).get(key, 0))
+                if step.back and done_rounds < (step.rounds or 2):
+                    # Findings go straight back to the step that wrote the work (cover: the test author), no question,
+                    # until the rounds are used up; then the fix node asks.
+                    rounds = {**(state.get("review_rounds") or {}), key: done_rounds + 1}
+                    listed = "\n".join(f"- [{f['lens']}] {f['text']}" for f in found)
+                    upd.update(review_rounds=rounds, findings=[],
+                               feedback=f"Fix these blocking findings from {step.name} (round {done_rounds + 1}):\n{listed}")
+                    upd["note"] += f" · sent back to {step.back} (round {done_rounds + 1})"
+                    return upd, self.nav.jump(step.back, i)
                 return upd, fix_id(step.id)
         return upd, self.nav.after(i)
+
+    @staticmethod
+    def _rounds_key(step: Step, item: dict | None) -> str:
+        """Fix rounds count per review step, and per item inside a for_each loop."""
+        return f"{step.id}:{item['id']}" if item and step.per_item else step.id
 
     def _outputs(self, step: Step, state: FlowState, results: list[AgentResult], item_of: dict[int, dict]) -> dict:
         """What a step's answers put into the state: per-item results (fan-out), markers, a collected list."""
@@ -736,56 +783,85 @@ class Compiler:
         return step.kind in ("agent", "parallel") and not step.per_ac and not step.lanes and (step.agent or "") in REVIEWERS
 
     async def findings_step(self, i: int, fix: Step, state: FlowState):
-        """After a review with blocking findings: ask; fix (implementer in review-fix, tests, commit) and review again,
-        or go on with the user's reason. Nothing runs before the question, so answering it never re-runs anything."""
+        """After a review with blocking findings: ask; fix and review again, or go on with the user's reason (the
+        findings are kept as dismissed). Nothing runs before the question, so answering it never re-runs anything.
+
+        The fix is routed by payload.route: review-fix (default: implementer, tests, fix commit), coverage-fix
+        (test-author, tests, coverage commit) or red (test-author, red commit). After it the flow goes on from the
+        review's `redo` step (default the review itself). A review with `back` sends its findings to that step by
+        itself; this question only comes once its `rounds` are used up, and approving sends them back once more.
+        """
         ctx = self.ctx
         review = self.wf.steps[i]
+        item = self._item(state, review)
         found = list(state.get("findings") or [])
         rounds = dict(state.get("review_rounds") or {})
+        key = self._rounds_key(review, item)
+        done_rounds = rounds.get(key, 0)
         listed = "\n".join(f"- [{f['lens']}] {f['text']}" for f in found)
-        again = f" (fix round {rounds[review.id] + 1})" if rounds.get(review.id) else ""
+        again = f" (fix round {done_rounds + 1})" if done_rounds else ""
+        limit = review.rounds or (2 if review.back else None)
+        past = f"\n\n{done_rounds} fix round(s) done, the limit is {limit}: the check and the change disagree, and " \
+               f"repeating may not settle it. Deciding is yours." if limit and done_rounds >= limit else ""
+        fix_txt = (f"Send back: {review.back} gets these findings once more, then {review.name} runs again." if review.back else
+                   f"Fix them: the implementer fixes these findings (payload route: review-fix, coverage-fix or red picks "
+                   f"who and how), the tests run, the fix is committed, and the flow goes on from "
+                   f"{review.redo or review.name}.")
         answer, extra = self._ask(state, {
-            "step": fix.id, "kind": "gate", "title": f"{review.name}: {len(found)} blocking finding(s){again}",
-            "detail": f"{listed}\n\nFix them: the implementer fixes these findings, the tests run, the fix is committed, "
-                      f"and {review.name} runs again.\nGo on anyway: say why; the findings are kept in the gate log.",
-            "options": OPTIONS, "labels": {"approve": "Fix them", "reject": "Go on anyway"}})
+            "step": fix.id, "kind": "gate", "title": f"{review.name}: {len(found)} blocking finding(s){again}" + (f" · {item['id']}" if item else ""),
+            "detail": f"{listed}\n\n{fix_txt}\nGo on anyway: say why; the findings are kept as dismissed and shown "
+                      f"at the final review.{past}",
+            "options": OPTIONS, "labels": {"approve": "Send back" if review.back else "Fix them", "reject": "Go on anyway"}})
         gates = copy.deepcopy(state.get("gates") or {"mode": "every-ac", "log": [], "skipped": {}})
         why = (answer.get("why") or "").strip()
         if answer.get("decision") != "approve":
             gates["log"].append(f"{review.name} findings accepted: {why}")
             ctx.emit("gate.decided", step=fix.id, data={"gate": f"{review.name} findings", "decision": "reject", "why": why,
                                                         "findings": [f["text"] for f in found]})
-            return {**extra, "gates": gates, "findings": [], "note": f"{len(found)} finding(s) accepted: {why}"[:300]}, self.nav.after(i)
+            data = dict(state.get("data") or {})
+            data["dismissed_findings"] = list(data.get("dismissed_findings") or []) + [{
+                "step": review.id, "name": review.name, "item": (item or {}).get("id"), "findings": [f["text"] for f in found],
+                "why": why}]
+            return {**extra, "gates": gates, "findings": [], "data": data,
+                    "note": f"{len(found)} finding(s) accepted: {why}"[:300]}, self.nav.after(i)
         ctx.emit("gate.decided", step=fix.id, data={"gate": f"{review.name} findings", "decision": "approve", "why": why})
-        state = {**state, **extra, "feedback": f"Fix these blocking findings from {review.name}:\n{listed}"
-                                               + (f"\n\nFrom the user: {why}" if why else "")}
+        feedback = f"Fix these blocking findings from {review.name}:\n{listed}" + (f"\n\nFrom the user: {why}" if why else "")
+        rounds[key] = done_rounds + 1
+        if review.back:
+            return {**extra, "gates": gates, "review_rounds": rounds, "findings": [], "feedback": feedback,
+                    "note": f"sent back to {review.back} (round {rounds[key]})"}, self.nav.jump(review.back, i)
+        route = str((answer.get("payload") or {}).get("route") or "review-fix")
+        if route not in ROUTES:
+            route = "review-fix"
+        agent = "implementer" if route == "review-fix" else "test-author"
+        fix = fix.model_copy(update={"phase": route, "agent": agent})
+        state = {**state, **extra, "phase": route, "feedback": feedback}
         before = await asyncio.to_thread(guard.snapshot, ctx.root)
-        res, model, _tb = await self._run_agent(state, fix, "implementer", 0)
-        refused = await asyncio.to_thread(guard.guard_diff, ctx.root, "review-fix", before, None, None, state.get("unlocks") or [])
+        res, model, _tb = await self._run_agent(state, fix, agent, 0)
+        refused = await asyncio.to_thread(guard.guard_diff, ctx.root, route, before, None, None, state.get("unlocks") or [])
         for r in refused:
-            ctx.emit("guard.refused", step=fix.id, data={"tool": "diff-guard", "phase": "review-fix", **r})
+            ctx.emit("guard.refused", step=fix.id, data={"tool": "diff-guard", "phase": route, **r})
         usage = dict(state.get("usage") or {})
         for k in ("tokens_in", "tokens_out", "tokens_cached", "premium_requests"):
             usage[k] = usage.get(k, 0) + getattr(res, k)
         usage["cost_usd"] = round(usage.get("cost_usd", 0.0) + res.cost_usd, 6)
         step_tokens = dict(state.get("step_tokens") or {})
         step_tokens[review.id] = step_tokens.get(review.id, 0) + res.tokens_in + res.tokens_out + res.tokens_cached // 10
-        rounds[review.id] = rounds.get(review.id, 0) + 1
         upd = {**extra, "gates": gates, "usage": usage, "step_tokens": step_tokens, "review_rounds": rounds, "findings": [],
-               "feedback": None, "last_answer": (res.text or "")[:2000]}
-        a = self._action_input({**state, "phase": "review-fix"}, None)
+               "feedback": None, "last_answer": (res.text or "")[:2000], "phase": route}
+        a = self._action_input(state, None)
         a.title = f"address {review.name} findings"
         notes = []
-        for action in ("verify_green", "commit"):
+        for action in ROUTES[route]:
             r = await run_action(action, a)
             notes.append(r.note)
             upd.update(r.update)
             if not r.ok:
                 # Tests broke or the commit was refused: back to the question with what went wrong.
                 found = found + [{"lens": "keel", "text": f"after the fix: {r.note}"}]
-                return {**upd, "findings": found, "note": f"fix round {rounds[review.id]}: {r.note}"[:300]}, fix.id
-        upd["note"] = " · ".join([f"implementer · {model['provider']} {model.get('model', '')}", *notes])[:300]
-        return upd, self.nav.jump(review.id, i)
+                return {**upd, "findings": found, "note": f"fix round {rounds[key]}: {r.note}"[:300]}, fix.id
+        upd["note"] = " · ".join([f"{agent} ({route}) · {model['provider']} {model.get('model', '')}", *notes])[:300]
+        return upd, self.nav.jump(review.redo or review.id, i)
 
     def _sections(self, step: Step, state: FlowState) -> list[str]:
         """knowledge-refresh: one librarian per section, for a parallel librarian step.
@@ -859,6 +935,12 @@ class Compiler:
                 return await self._already_met(i, step, st, ac, r, upd, actions[n + 1:])
             if r.ask:
                 return await self._answer_check(i, step, st, r, upd)
+            if not r.ok and step.soft:
+                # A soft check records what it found and goes on; a branch reads markers[<id>].RESULT.
+                st.update(r.update)
+                upd.update(r.update)
+                notes.append(r.note)
+                break
             if not r.ok:
                 for k in ("blockers", "ladder"):
                     if k in r.update:
@@ -867,6 +949,14 @@ class Compiler:
             st.update(r.update)
             upd.update(r.update)
             notes.append(r.note)
+        else:
+            r = None
+        if step.soft:
+            result = "fail" if r is not None else "pass"
+            mk = dict(state.get("markers") or {})
+            mk[step.id] = {"RESULT": result}
+            mk["*"] = {**(mk.get("*") or {}), "RESULT": result}
+            upd["markers"] = mk
         key = f"{step.id}:{(ac or item or {}).get('id')}"
         retries = dict(state.get("retries") or {})
         retries.pop(key, None)
@@ -1014,12 +1104,10 @@ class Compiler:
         if stall["count"] >= limit:
             stall["step"] = min(stall.get("step", 0) + 1, len(rules.LADDER))
             feedback += "\n\nStall ladder: " + rules.LADDER[stall["step"] - 1]
-        target = self.nav.retry_target(i)
-        attempts = int(self.ctx.settings.get("fix_attempts") or 3)
+        # A code step's `back` names where its failures go; else the agent step before it. `rounds` caps the attempts.
+        target = self.nav.jump(step.back, i) if step.back else self.nav.retry_target(i)
+        attempts = step.rounds if step.rounds is not None else int(self.ctx.settings.get("fix_attempts") or 3)
         base = {**upd, "stall": stall, "last_failure": r.note[:300], "feedback": feedback, "note": r.note}
-        if step.kind == "code" and step.back:
-            # A code step with `back`: a failed check goes back there (a gate asks again, with this as its note).
-            return {**base, "retries": retries}, self.nav.jump(step.back, i)
         if target and count <= attempts:
             retries[key] = count
             return {**base, "retries": retries}, target
@@ -1063,6 +1151,10 @@ class Compiler:
                 return {"gates": gates, "note": f"{step.name}: {why}"[:300]}, self.nav.after(i)
         if self.wf.flow == "init" and step.id == "questions":
             return self._init_questions(step, state, gates), self.nav.after(i)
+        if step.skip_menu:
+            return self._skip_menu(i, step, state, gates)
+        if isinstance(step.choices, list) and item:
+            return self._choice_gate(i, step, state, gates, item)
         options = OPTIONS
         title = step.name + (f" · {ac['id']}" if ac else f" · {item['id']}" if item else "")
         no_criteria = not ac and step.phase in ("spec", "triage") and not acs
@@ -1076,6 +1168,8 @@ class Compiler:
             said = (state.get("last_answer") or state.get("note") or "").strip()
             detail = ("The spec step wrote no acceptance criteria, so there is nothing to approve yet. "
                       "Send it back and say what to build.\n\nWhat the agent said:\n" + said[:1200])
+        elif step.report == "verdicts":
+            detail = await asyncio.to_thread(ship_mod.final_report, ctx.root, ctx.project_id or ctx.root, dict(state), ctx.title)
         elif self.wf.flow == "init" and step.id == "plan_gate":
             detail = init_gates.plan(ctx.root, state.get("init") or init_gates.defaults(ctx.root, bool(ctx.settings.get("fast"))))
         elif (state.get("data") or {}).get(f"{step.id}_detail"):
@@ -1097,13 +1191,14 @@ class Compiler:
                 if step.phase in ("spec", "triage"):
                     detail += "\n\n" + spec_check.describe(spec_check.check(spec_check.read_spec(ctx.root, state["spec"]), acs))
         question = {"step": step.id, "kind": "gate", "title": title, "detail": detail, "options": options}
-        if step.choices and not no_criteria:
+        routes = isinstance(step.choices, dict) and not no_criteria
+        if routes:
             question.update(options=["approve"], choices=list(step.choices))
         answer, extra = self._ask(state, question)
         decision = answer.get("decision", "reject") if not no_criteria else "reject"
         why = (answer.get("why") or "").strip()
         payload = answer.get("payload") or {}
-        if step.choices and not no_criteria:
+        if routes:
             return self._choice(i, step, state, gates, extra, answer, item)
         subject = f"ac {ac['id']}" if ac else f"gate {step.id}"
         gates["log"].append(f"{subject} {decision}" + (f" ({item['id']})" if item else "") + (f": {why}" if why else ""))
@@ -1122,7 +1217,7 @@ class Compiler:
             upd["note"] = f"{step.name} approved" + (f": {why}" if why else "")
             if item and payload.get("skip"):
                 lp = self.nav.loop_of(i)
-                upd.update(put_list(state, lp.key, _set_ac(get_list(state, lp.key), item["id"], "skipped")))
+                upd.update(self._end_item(state, lp, item, "skipped", None, why, (step.on_skip or {}).get("record")))
                 upd["note"] = f"{item['id']} skipped" + (f": {why}" if why else "")
                 return upd, self.nav.end(lp)
             return upd, self.nav.after(i)
@@ -1159,6 +1254,94 @@ class Compiler:
         upd = {"gates": gates, **extra, "data": data, "feedback": why or None,
                "note": f"{step.name}: {choice}" + (f": {why}" if why else "")}
         return upd, self.nav.jump(step.choices[choice], i)
+
+    def _skip_menu(self, i: int, step: Step, state: FlowState, gates: dict):
+        """keel v1 ship's opening question: which skippable steps after this gate run this time. Every skip needs a
+        reason; skips land in data.ship_skipped (the PR body and the final review show them) and the gate log."""
+        units = ship_mod.skip_units(self.wf.steps, i)
+        detail = ship_mod.skip_menu_detail(self.wf.steps, i)
+        title, extra_all = step.name, {}
+        while True:
+            answer, extra = self._ask(state, {"step": step.id, "kind": "gate", "title": title, "detail": detail,
+                                              "options": ["approve"], "labels": {"approve": "Run these steps"}})
+            extra_all.update(extra)
+            state = {**state, **extra}
+            skips, lenses, problem = ship_mod.parse_skips(answer.get("payload") or {}, units)
+            if not problem:
+                break
+            title = f"{step.name}: {problem}"
+        why = (answer.get("why") or "").strip()
+        data = dict(state.get("data") or {})
+        names = {s["step"] for s in skips}
+        data["ship_skipped"] = [x for x in data.get("ship_skipped") or [] if x.get("step") not in names] + skips
+        if lenses:
+            data["lenses_chosen"] = lenses
+        gates["log"].append(f"gate {step.id} approve" + (f": {why}" if why else ""))
+        for sk in skips:
+            gates["log"].append(f"gate {step.id} skip {sk['step']} ({sk['band']}): {sk['reason']}")
+        self.ctx.emit("gate.decided", step=step.id, data={"gate": step.name, "decision": "approve", "why": why,
+                                                          "skipped": skips, **({"lenses": lenses} if lenses else {})})
+        note = ("skipped: " + ", ".join(f"{s['step']} ({s['reason']})" for s in skips)) if skips else "every step runs"
+        return {**extra_all, "gates": gates, "data": data, "note": note[:300]}, self.nav.after(i)
+
+    def _choice_gate(self, i: int, step: Step, state: FlowState, gates: dict, item: dict):
+        """One choice per item of a for_each loop (cover: test, delete or accept). The choice is stored on the item
+        (decision, reason) and as markers[<id>].CHOICE; on_skip's choice ends the item as skipped, needs a reason and is
+        appended to data[on_skip.record]."""
+        lp = self.nav.loop_of(i)
+        on_skip = step.on_skip or {}
+        skip_choice = on_skip.get("choice")
+        about = item.get("title") or json.dumps({k: v for k, v in item.items() if k not in ("id", "status")}, ensure_ascii=False,
+                                                default=str)[:600]
+        detail = (f"{item['id']}: {about}\nLast step: {state.get('note', '')}\n\nChoose one: {' | '.join(step.choices)} "
+                  f"(approve with payload {{\"choice\": \"<one>\"}}; plain approve = {step.choices[0]})."
+                  + (f" {skip_choice} needs a reason (why): it is recorded and shown at the final review and in the PR body."
+                     if skip_choice else ""))
+        title, extra_all = f"{step.name} · {item['id']}", {}
+        while True:
+            answer, extra = self._ask(state, {"step": step.id, "kind": "gate", "title": title, "detail": detail,
+                                              "options": ["approve"], "choices": list(step.choices)})
+            extra_all.update(extra)
+            state = {**state, **extra}
+            payload = answer.get("payload") or {}
+            choice = str(payload.get("choice") or (skip_choice if payload.get("skip") and skip_choice else step.choices[0]))
+            why = (answer.get("why") or str(payload.get("reason") or "")).strip()
+            problem = (f"{choice} is not one of {', '.join(step.choices)}" if choice not in step.choices else
+                       f"{choice} needs a reason" if choice == skip_choice and not why else None)
+            if not problem:
+                break
+            title = f"{step.name} · {item['id']}: {problem}"
+        gates["log"].append(f"gate {step.id} {choice} ({item['id']})" + (f": {why}" if why else ""))
+        self.ctx.emit("gate.decided", step=step.id, data={"gate": step.name, "decision": "approve", "choice": choice,
+                                                          "why": why, "item": item["id"]})
+        mk = dict(state.get("markers") or {})
+        mk[step.id] = {"CHOICE": choice}
+        mk["*"] = {**(mk.get("*") or {}), "CHOICE": choice}
+        upd = {**extra_all, "gates": gates, "markers": mk}
+        if choice == skip_choice:
+            upd.update(self._end_item(state, lp, item, "skipped", choice, why, on_skip.get("record")))
+            upd["note"] = f"{item['id']}: {choice}: {why}"[:300]
+            return upd, self.nav.end(lp)
+        items = [dict(x, decision=choice, reason=why or None) if x["id"] == item["id"] else x for x in get_list(state, lp.key)]
+        upd.update(put_list(state, lp.key, items))
+        upd["note"] = f"{item['id']}: {choice}" + (f": {why}" if why else "")
+        return upd, self.nav.after(i)
+
+    @staticmethod
+    def _end_item(state: FlowState, lp: Loop, item: dict, status: str, decision: str | None, why: str,
+                  record: str | None) -> dict:
+        """The state update that ends a loop item (skipped) and, with `record`, keeps it in data[record] with its reason."""
+        items = [dict(x, status=status, **({"decision": decision} if decision else {}), reason=why or None)
+                 if x["id"] == item["id"] else x for x in get_list(state, lp.key)]
+        upd = put_list(state, lp.key, items)
+        if record:
+            data = dict(upd.get("data") or state.get("data") or {})
+            rec = {k: item[k] for k in ("id", "key", "file", "lines", "title", "app", "critical") if k in item}
+            rec.update(decision=decision or status, reason=why or None)
+            ident = rec.get("key") or rec["id"]
+            data[record] = [x for x in data.get(record) or [] if (x.get("key") or x.get("id")) != ident] + [rec]
+            upd = {**upd, "data": data}
+        return upd
 
     def _clarify_gate(self, i: int, step: Step, state: FlowState, gates: dict, asked: list[dict]):
         """The explorer's questions as a pause with buttons. Answers (clicked or typed) go back to the explorer."""
@@ -1205,8 +1388,38 @@ class Compiler:
             res, _m, _tb = await self._run_agent(state, step, step.agent, 0)
             yes = not res.text.strip().lower().startswith("no")
             note = res.text.strip()[:160]
+        if step.rounds:
+            return self._branch_rounds(i, step, state, yes, note)
         target = self.nav.after(i) if yes else self.nav.jump(step.no, i)
         return {"note": f"{step.name}: {'yes' if yes else 'no'} ({note})"}, target
+
+    def _branch_rounds(self, i: int, step: Step, state: FlowState, yes: bool, note: str):
+        """A branch with `rounds` closes a loop: "no" sends the flow back at most rounds - 1 times. After that keel asks:
+        approve = go on anyway (said why, kept in the gate log), reject = stop the flow. "yes" starts the count again."""
+        rounds = dict(state.get("rounds") or {})
+        done = int(rounds.get(step.id, 0))
+        if yes:
+            rounds.pop(step.id, None)
+            return {"rounds": rounds, "note": f"{step.name}: yes ({note})"}, self.nav.after(i)
+        if done + 1 < step.rounds:
+            rounds[step.id] = done + 1
+            return {"rounds": rounds, "note": f"{step.name}: no ({note}); round {done + 2} of {step.rounds}"}, self.nav.jump(step.no, i)
+        answer, extra = self._ask(state, {
+            "step": step.id, "kind": "gate", "title": f"{step.name}: still no after {step.rounds} round(s)",
+            "detail": f"{note}\n\nThe loop ran {step.rounds} time(s), its limit. Approve to go on anyway (say why; it is kept in "
+                      f"the gate log and shown at the final review). Reject to stop the flow here.",
+            "options": OPTIONS, "labels": {"approve": "Go on anyway", "reject": "Stop"}})
+        why = (answer.get("why") or "").strip()
+        gates = copy.deepcopy(state.get("gates") or {"mode": "every-ac", "log": [], "skipped": {}})
+        decision = answer.get("decision", "reject")
+        self.ctx.emit("gate.decided", step=step.id, data={"gate": step.name, "decision": decision, "why": why})
+        rounds.pop(step.id, None)
+        if decision != "approve":
+            gates["log"].append(f"gate {step.id} stop after {step.rounds} round(s)" + (f": {why}" if why else ""))
+            return {**extra, "gates": gates, "rounds": rounds, "status": "stopped",
+                    "note": f"stopped: {step.name} still no after {step.rounds} round(s)"}, END
+        gates["log"].append(f"gate {step.id} go on after {step.rounds} round(s): {why or 'no reason given'}")
+        return {**extra, "gates": gates, "rounds": rounds, "note": f"{step.name}: went on after {step.rounds} round(s)"}, self.nav.after(i)
 
 
 def compile_workflow(ctx: ThreadContext, checkpointer):
