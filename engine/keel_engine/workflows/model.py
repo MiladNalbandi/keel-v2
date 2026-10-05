@@ -6,7 +6,7 @@ import re
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 StepKind = Literal["agent", "code", "gate", "branch", "parallel"]
 OnLimit = Literal["pause", "cheaper", "stop"]
@@ -20,7 +20,8 @@ class Lane(BaseModel):
 
 
 class Step(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    # `from` is a Python keyword: the field is items_from, written `from:` in YAML and JSON.
+    model_config = ConfigDict(extra="forbid", validate_by_name=True, validate_by_alias=True, serialize_by_alias=True)
     id: str
     kind: StepKind
     name: str
@@ -37,6 +38,36 @@ class Step(BaseModel):
     max_tokens: int | None = None
     on_limit: OnLimit | None = None
     tools: list[str] | None = None
+    # Dynamic fan-out: one agent call per item of a list in the thread's state (state.data[<key>], or acs), at most
+    # `cap` of them, `batch` at a time. Results land in state.data["<step id>_results"].
+    items_from: str | None = Field(default=None, alias="from")
+    cap: int | None = None
+    batch: int | None = None
+    # A loop over a list of dicts with an `id` (like per_ac over acs): `for_each` on the loop's first step names the
+    # list; every `per_item` step that follows it runs once per item.
+    for_each: str | None = None
+    per_item: bool | None = None
+    # Result markers read from the agent's final text (`REPRO: confirmed`) into state.markers[<step id>].
+    markers: list[str] | None = None
+    # An agent step whose final text holds a JSON list: it is stored as state.data[<collect>] (for `from`/`for_each`).
+    collect: str | None = None
+    # branch: `when: {marker: REPRO, equals: confirmed, step: <id, optional>}` instead of a run: command or an agent.
+    when: dict | None = None
+    # start_flow: the workflow to start, its seed (literals, or "$<state path>"), and what this flow does next.
+    flow: str | None = None
+    seed: dict | None = None
+    then: Literal["end", "continue"] | None = None
+
+    @model_validator(mode="after")
+    def _for_each_runs_per_item(self):
+        if self.for_each:
+            self.per_item = True       # the loop's first step is one of its steps
+        return self
+
+    @property
+    def looped(self) -> bool:
+        """Runs once per AC or per item."""
+        return bool(self.per_ac or self.per_item)
 
     def actions(self) -> list[str]:
         """`verify_green+commit` runs two actions in order."""
@@ -67,6 +98,39 @@ class Workflow(BaseModel):
 
     def step(self, sid: str) -> Step | None:
         return next((s for s in self.steps if s.id == sid), None)
+
+    def loops(self) -> list[Loop]:
+        """The loops in step order: the per-AC steps (over acs), and each run of per_item steps that starts at a
+        `for_each` step (over that list). A loop's steps sit together; validate.py says so when they do not."""
+        out: list[Loop] = []
+        acs = [i for i, s in enumerate(self.steps) if s.per_ac]
+        if acs:
+            out.append(Loop(id="ac", key="acs", first=acs[0], last=acs[-1]))
+        cur: Loop | None = None
+        for i, s in enumerate(self.steps):
+            if s.for_each:
+                cur = Loop(id=s.id, key=s.for_each, first=i, last=i)
+                out.append(cur)
+            elif s.per_item and cur and cur.last == i - 1:
+                cur.last = i
+            else:
+                cur = None
+        return sorted(out, key=lambda lp: lp.first)
+
+    def loop_of(self, i: int) -> Loop | None:
+        return next((lp for lp in self.loops() if lp.first <= i <= lp.last), None)
+
+
+class Loop(BaseModel):
+    """Steps first..last run once per entry of state[key] (acs) or state.data[key] (a for_each list)."""
+    id: str            # "ac" for the per-AC loop, else the id of the for_each step
+    key: str
+    first: int
+    last: int
+
+    @property
+    def per_ac(self) -> bool:
+        return self.id == "ac"
 
 
 class WorkflowError(ValueError):
@@ -111,6 +175,9 @@ def from_dict(data: dict, text: str | None = None) -> Workflow:
         raise WorkflowError("The workflow needs a name.")
     data.setdefault("id", slug(data["name"]))
     data.setdefault("steps", [])
+    # YAML 1.1 reads an unquoted `no:` key (a branch's target) as false.
+    data["steps"] = [{("no" if k is False else k): v for k, v in st.items()} if isinstance(st, dict) else st
+                     for st in data["steps"] or []]
     try:
         wf = Workflow.model_validate({k: v for k, v in data.items() if k != "yaml"})
     except Exception as exc:  # pydantic ValidationError, kept readable

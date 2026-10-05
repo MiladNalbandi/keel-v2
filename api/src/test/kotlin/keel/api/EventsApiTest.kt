@@ -1,6 +1,7 @@
 package keel.api
 
 import keel.api.support.ApiTest
+import keel.api.workflows.WorkflowDoc
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
@@ -12,6 +13,29 @@ class EventsApiTest : ApiTest() {
 
     private fun send(events: List<Map<String, Any?>>) =
         post("/internal/events", events, mapOf("X-Keel-Token" to TOKEN))
+
+    @Test
+    fun `a thread the engine started by itself (start_flow) keeps its workflow id`(@org.springframework.beans.factory.annotation.Autowired jdbc: org.springframework.jdbc.core.JdbcTemplate) {
+        val (pid, _) = newProject("events-child")
+        send(listOf(ev("thread.started", pid, "t-child", data = mapOf("workflow" to "fix", "title" to "Fix the rank", "parent" to mapOf("thread_id" to "t-parent")))))
+            .andExpect(status().isOk)
+        assertThat(jdbc.queryForObject("SELECT workflow_id FROM threads WHERE id = 't-child'", String::class.java)).isEqualTo("fix")
+    }
+
+    @Test
+    fun `the engine's fan-out, loop, marker and hand-off keys survive the api's workflow model`() {
+        val doc = WorkflowDoc.parse("""
+            name: hand-off
+            steps:
+              - { id: hyp, kind: parallel, name: investigators, agent: investigator, from: hypotheses, cap: 4, batch: 2, markers: [ROOT-CAUSE] }
+              - { id: each, kind: agent, name: per group, agent: implementer, for_each: coverage_groups, per_item: true, collect: notes }
+              - { id: repro, kind: branch, name: reproduced, when: { marker: REPRO, equals: confirmed }, no: hand }
+              - { id: hand, kind: code, name: hand to fix, action: start_flow, flow: fix, seed: { title: "${'$'}title" }, then: end }
+        """.trimIndent())
+        val yaml = doc.toYaml()
+        listOf("from: hypotheses", "cap: 4", "batch: 2", "for_each: coverage_groups", "per_item: true", "marker: REPRO",
+               "equals: confirmed", "flow: fix", "title: \$title", "then: end", "- ROOT-CAUSE").forEach { assertThat(yaml).contains(it) }
+    }
 
     @Test
     fun `events need the internal token`() {
