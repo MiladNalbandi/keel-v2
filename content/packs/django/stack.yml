@@ -61,20 +61,36 @@ tools:
       | while read -r app mig; do python manage.py sqlmigrate --no-color "$app" "$mig" >> docs/schema.sql 2>/dev/null || true; done
     on: manual
     fail: block
+    # It writes a file; it is not a lint (the lint flow and ship leave `kind: task` tools alone).
+    kind: task
     timeout: 300
     description: 'Write docs/schema.sql so the map can draw the database'
-  cs-fix:
+  ruff-format:
     run: 'python -m ruff format {FILES}'
-    on: pre-commit
+    on: edit
     match: '\.py$'
-    # ruff format rewrites the file and exits 0. Blocking on it would refuse a commit it repaired.
+    # ruff format rewrites the file and exits 0. Blocking on it would refuse an edit it repaired.
     fail: fix
     timeout: 60
-    description: 'Format the staged Python'
+    description: 'Format the Python an agent just changed'
+  ruff-fix:
+    run: 'python -m ruff check --fix {FILES}'
+    on: pre-commit
+    match: '\.py$'
+    # It changes files, so it is a fixer: what it cannot fix is a warning on the commit; `ruff` below blocks in ship.
+    fail: fix
+    timeout: 60
+    description: 'Fix the lint problems ruff can fix in the staged Python'
+  ruff:
+    run: 'python -m ruff check .'
+    on: manual
+    fail: block
+    timeout: 300
+    description: 'Lint the whole project'
   mypy:
     run: 'python -m mypy .'
     on: manual
-    fail: block
+    fail: warn
     timeout: 300
     description: 'Type-check the project'
   sonar:

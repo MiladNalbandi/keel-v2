@@ -43,6 +43,8 @@ PHASE_MEANING = {
     "integration": "Wire the real parts together once every criterion is green. Production code only, tests frozen.",
     "e2e": "Write the end-to-end tests. Only the e2e folder changes.",
     "smoke": "Write the smoke checks. Only the smoke folder changes.",
+    "lint-fix": "Fix what the static checks found, without changing behaviour or adding suppressions. Code and tests "
+                "may change; migrations, the contract and specs may not.",
     "coverage-fix": "Raise coverage: add tests; production code may only lose unreachable lines.",
     "trivial": "A change no test could notice: code may change, tests only as new files.",
     "small-change": "A small change being prepared. No code changes.",
@@ -80,7 +82,7 @@ COMMIT_TYPE_WORDS = {
     "red": "the failing test", "green": "the code that makes it pass", "fix": "a fix", "coverage": "added tests",
     "contract": "the contract", "e2e": "end-to-end tests", "smoke": "smoke checks", "trivial": "a trivial change",
     "docs": "the spec or docs", "ac": "one criterion", "memory": "the knowledge base", "setup": "keel init's files",
-    "refactor": "a refactor",
+    "refactor": "a refactor", "lint": "static-check fixes",
 }
 
 CRITERION = "«the current criterion»"

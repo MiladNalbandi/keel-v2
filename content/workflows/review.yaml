@@ -3,7 +3,8 @@ name: review (keel)
 keel_rules: true
 version: 1
 # Read-only: no phase change, nothing is fixed or committed. Inputs (StartThread.data, the api's `options`):
-#   lens: code (default) | all | correctness | security | performance | architecture | assertions | ac <AC-ID>
+#   lens: code (default) | all | correctness | security | performance | architecture | assertions | lint | ac <AC-ID>
+#   lint: true  adds the static checks to any lens (lens lint = only them: the stacks' check tools on the diff, no agent)
 #   base: the ref to diff against (default base_branch in .keel/config.yml, else main or master)
 # An empty diff, an unknown lens or a half-built criterion stops the flow before any agent runs.
 steps:

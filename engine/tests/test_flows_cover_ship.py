@@ -74,7 +74,8 @@ def test_cover_and_ship_templates_validate_and_ship_includes_cover():
     assert sh.step("cover_needs_work").no == "cover_report" and sh.step("cover_covered").when["step"] == "cover_remeasure"
     assert sh.step("cover_review").back == "cover_write" and {sh.step(f"cover_{s.id}").group for s in cover.steps} == {"cover"}
     assert [(u["name"], u["band"]) for u in ship.skip_units(sh.steps, 0)] == [
-        ("release", "deferred"), ("cover", "deferred"), ("deps", "deferred"), ("reviewers", "optional"), ("spec_walk", "optional")]
+        ("lint", "optional"), ("release", "deferred"), ("cover", "deferred"), ("deps", "deferred"), ("reviewers", "optional"),
+        ("spec_walk", "optional")]
 
 
 def test_include_prefixes_ids_and_rejects_cycles_and_unknown_flows(monkeypatch):

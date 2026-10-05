@@ -24,9 +24,41 @@ commands:
   web_test_module: 'npx vitest run'
   web_test_paths: 'npx vitest run {PATHS}'
   coverage_web: 'npx vitest run --coverage'
-  static_checks: 'npx eslint .'
+  static_checks: 'npx --no-install eslint . && npx --no-install tsc --noEmit'
 
 coverage_report: coverage/lcov.info
+
+# Programs keel runs for this stack, in frontend.dir (runtime/tools.py). `npx --no-install` never downloads: a project
+# without the package gets "not available", not a surprise install. A tool that changes files is a fixer (fail: fix).
+tools:
+  eslint-fix:
+    run: 'npx --no-install eslint --fix {FILES}'
+    on: edit
+    match: '\.(ts|tsx|js|jsx)$'
+    # It fixes what it can; what it cannot is one line to the next agent.
+    fail: fix
+    timeout: 120
+    description: 'Fix the lint problems eslint can fix in the files an agent just changed'
+  prettier:
+    run: 'npx --no-install prettier --write {FILES}'
+    on: edit
+    match: '\.(ts|tsx|js|jsx|css|scss|json)$'
+    fail: fix
+    timeout: 60
+    description: 'Format the files an agent just changed'
+  tsc:
+    run: 'npx --no-install tsc --noEmit'
+    on: pre-commit
+    match: '\.(ts|tsx)$'
+    fail: block
+    timeout: 300
+    description: 'Refuse a commit that does not type-check'
+  eslint:
+    run: 'npx --no-install eslint .'
+    on: manual
+    fail: block
+    timeout: 300
+    description: 'Lint the whole frontend'
 
 # See kotlin-spring.yml's starter block for how `from:` and `to:` are resolved.
 starter:

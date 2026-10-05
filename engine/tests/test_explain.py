@@ -166,3 +166,12 @@ def test_a_real_thread_fills_the_prompt_and_shows_the_last_runs(client, repo):
     assert gate["last_runs"]["now"] == "waiting for you here" and gate["last_runs"]["count"] == 0
     spec_gate = client.post("/steps/explain", json={"step_id": "spec_gate", "thread_id": tid}).json()
     assert spec_gate["last_runs"]["runs"][0]["decided"] == ["gate spec_gate approve"]
+
+
+def test_the_lint_flow_explains_its_phase_and_its_actions(client):
+    fix = explain(client, "fix", workflow="lint")
+    assert fix["phase"] == "lint-fix" and "static checks" in fix["phase_meaning"]
+    assert bucket(fix, "migration")["may"] == "read-only" and bucket(fix, "api-main")["may"] == "edit"
+    assert fix["rules"]["commit"]["prefix"] == "chore(lint)"
+    run = explain(client, "run", workflow="lint")
+    assert run["code"]["actions"][0]["name"] == "lint_run" and "fixers first" in run["code"]["actions"][0]["summary"]

@@ -713,6 +713,7 @@ def pr_body(root: str, project: str, state: dict, title: str, base: str | None, 
         d = cov.get("detail") or {}
         out.append(f"Pass — {d.get('summary') or 'coverage met'}" if cov.get("ok") else f"FAIL — {'; '.join(d.get('problems') or []) or d.get('summary')}")
     out.append("")
+    out += lint_section(project)
     accepted = data.get("coverage_accepted") or []
     if accepted:
         out += ["## Uncovered lines accepted", ""] + [f"- `{x.get('key') or x.get('id')}`: {x.get('reason') or 'no reason given'}"
@@ -732,6 +733,23 @@ def pr_body(root: str, project: str, state: dict, title: str, base: str | None, 
         out += ["## Flaky tests seen", ""] + [f"- {f.get('label')}: {', '.join(f.get('tests') or [])}" for f in flaky] + [""]
     out += ["---", "_Prepared by keel._"]
     return "\n".join(out)
+
+
+def lint_section(project: str) -> list[str]:
+    """The PR body's static checks: the lint verdict, one line per tool."""
+    v = verdicts.latest(project, "lint")
+    out = ["## Static checks", ""]
+    if not v:
+        return out + ["Not run.", ""]
+    d = v.get("detail") or {}
+    if d.get("available") is False:
+        return out + [f"Not available: {d.get('reason') or 'no tool could run'}.", ""]
+    out.append(f"Pass — {d.get('summary')}" if v.get("ok") else f"FAIL — {d.get('summary')}")
+    for name, t in sorted((d.get("tools") or {}).items()):
+        res = "not available" if not t.get("available", True) else ("pass" if t.get("ok") else
+                                                                    "warning" if t.get("fail") == "warn" else "fail")
+        out.append(f"- {name} ({t.get('on')}, {t.get('fail')}): {res}")
+    return out + [""]
 
 
 async def pr(a):

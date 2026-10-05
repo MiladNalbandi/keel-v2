@@ -1,0 +1,68 @@
+# Stack pack: plain Python (a library, a CLI, a FastAPI or Flask service) — Django has its own pack.
+name: python
+lane: api
+arch_ref_suffix: python
+
+# pyproject.toml / setup.py say Python; `exclude_files: [manage.py]` leaves a Django project to the django pack.
+detect:
+  files: [pyproject.toml, setup.py, setup.cfg]
+  exclude_files: [manage.py]
+
+layers:
+  - id: unit
+    what: pure functions and classes, no I/O
+    where: tests/unit
+  - id: integration
+    what: the database, the HTTP layer or the file system, for real
+    where: tests/integration
+
+# `{AC}`, `{AC_KEY}` and `{PATHS}` are substituted. A byte-compile stands in for a compile step.
+commands:
+  api_compile: 'python -m compileall -q .'
+  api_test_ac: 'python -m pytest -q -k "{AC_KEY}"'
+  api_test_module: 'python -m pytest -q'
+  coverage_api: 'python -m pytest -q --cov --cov-report=xml:coverage.xml'
+  static_checks: 'python -m ruff check . && python -m mypy .'
+
+coverage_report: coverage.xml
+dependency_files: [pyproject.toml, requirements.txt, requirements.in, setup.py]
+
+# Programs keel runs for this stack, in backend.dir (runtime/tools.py). A tool that changes files is a fixer.
+tools:
+  ruff-format:
+    run: 'python -m ruff format {FILES}'
+    on: edit
+    match: '\.py$'
+    fail: fix
+    timeout: 60
+    description: 'Format the Python an agent just changed'
+  ruff-fix:
+    run: 'python -m ruff check --fix {FILES}'
+    on: pre-commit
+    match: '\.py$'
+    fail: fix
+    timeout: 60
+    description: 'Fix the lint problems ruff can fix in the staged Python'
+  ruff:
+    run: 'python -m ruff check .'
+    on: manual
+    fail: block
+    timeout: 300
+    description: 'Lint the whole project'
+  mypy:
+    run: 'python -m mypy .'
+    on: manual
+    fail: warn
+    timeout: 300
+    description: 'Type-check the project'
+
+devcontainer:
+  primary: true
+  image: mcr.microsoft.com/devcontainers/python:3.12
+  toolchain_install:
+    - run: pip install --no-cache-dir -e . || pip install --no-cache-dir -r requirements.txt
+  ports: []
+
+skills:
+  architecture: architecture
+architecture_styles: [hexagonal, layered]

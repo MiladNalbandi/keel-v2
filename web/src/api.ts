@@ -376,11 +376,13 @@ export type Stack = {
   detect: string;
   layers: string[];
   commands: { name: string; cmd: string }[];
-  tools: { name: string; on: string; fail: string }[];
+  /** v0.4.1: what keel runs for this stack (formatters, linters); `off` = turned off with `<name>: false`. */
+  tools: StackTool[];
   skills: string[];
   /** v0.2: a keel pack that `keel packs add` can install into this project. */
   installable?: boolean;
 };
+export type StackTool = { name: string; on: string; fail: string; description?: string; kind?: string; match?: string; off?: boolean };
 /** keel v1's stack files describe `detect` and `layers` as objects and `skills` as a map; older data is plain text/lists.
  *  Both become what the Stacks page shows, so a new shape can never crash the page. */
 export function normalizeStack(raw: unknown): Stack {
@@ -405,8 +407,15 @@ export function normalizeStack(raw: unknown): Stack {
   return {
     name: String(r.name ?? ""), lane: text(r.lane), source: text(r.source), detected: !!r.detected, detect, layers,
     commands: list(r.commands).map((c) => ({ name: text((c as Record<string, unknown>)?.name), cmd: text((c as Record<string, unknown>)?.cmd) })),
-    tools: list(r.tools).map((t) => ({ name: text((t as Record<string, unknown>)?.name), on: text((t as Record<string, unknown>)?.on),
-      fail: text((t as Record<string, unknown>)?.fail) })),
+    tools: list(r.tools).map((t) => {
+      const o = (t ?? {}) as Record<string, unknown>;
+      const tool: StackTool = { name: text(o.name), on: text(o.on), fail: text(o.fail) };
+      if (o.description) tool.description = text(o.description);
+      if (o.kind) tool.kind = text(o.kind);
+      if (o.match) tool.match = text(o.match);
+      if (o.off) tool.off = true;
+      return tool;
+    }),
     skills, installable: !!r.installable,
   };
 }
@@ -618,7 +627,7 @@ export const api = {
     post<DoctorApplied>(`/projects/${e(pid)}/doctor/workspace/apply`, { plan }),
   startFlow: (pid: string, body: {
     workflow_id: string; title: string; acs?: { id: string; layer: "API" | "WEB"; title: string }[]; cap_tokens?: number; on_cap?: OnCap;
-    allow_fake?: boolean; allow_dirty?: boolean; request?: string;
+    allow_fake?: boolean; allow_dirty?: boolean; request?: string; options?: Record<string, unknown>;
   }) =>
     post<ThreadState>(`/projects/${e(pid)}/flows`, body),
   resume: (tid: string, decision: "approve" | "reject", why?: string, payload?: Record<string, unknown>) =>

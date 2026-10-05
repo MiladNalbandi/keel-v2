@@ -726,6 +726,68 @@ text, never asked for) are registered; a reviewer answer ending `CODE-REVIEW|SEC
 section counts its list items as findings; commit takes `paths` (only those are staged) and names integration commits
 `fix(integration)`; StartThread acs may carry `status`. Actions in `runtime/feature_actions.py`.
 
+
+## v0.4.1: lint and static checks
+
+Stack packs (`content/stacks/*.yml`, `content/packs/<name>/stack.yml`, `<root>/.keel/stacks`) and `.keel/config.yml` declare
+`tools:`; the engine runs them (`runtime/stacks.py` detects the stacks like the api's StackService, `runtime/tools.py` runs
+the tools, `runtime/lint_actions.py` holds the actions).
+
+```yaml
+tools:
+  <name>:
+    run: 'npx --no-install eslint --fix {FILES}'   # {FILES} {FILE}: quoted paths keel produced, relative to the tool's folder
+                                                   # {BUILD}: backend.build (a ./wrapper at the root is found from a subfolder); {DIR}
+    on: manual | edit | batch | pre-commit | pre-push   # default manual
+    fail: fix | block | warn                       # default warn. fix = it changes files (keep, re-stage); block = refuse; warn = note
+    match: '\.(ts|tsx)$'                          # regex on the repo-relative path; no match among the files = the tool does not run
+    timeout: 120                                   # seconds
+    kind: check | status | task                    # default check; only checks are lint (status = CI probe, task = writes a file)
+    lane: api | web                                # folder: backend.dir / frontend.dir (default: the stack's lane); "." or missing = root
+    dir: ''                                        # an explicit folder instead
+    description: '...'
+  <name>: false                                    # turns a stack's tool off
+```
+- **Merge**: matched keel stacks → matched keel packs → the project's `.keel/stacks` → `.keel/config.yml`; a later block overrides
+  only the keys it names. A malformed tool (bad `on`/`fail`/`kind`/`lane`/`timeout`/`match`, no `run`, `{FILES}` with
+  `on: manual`) is listed as a problem and never run. PyYAML's `on: → true` key is read as `on`.
+- **Running** never raises. Exit 127, or "command not found" / npx "could not determine executable" / "No module named" /
+  gradle "Task … not found" in a short output = **not available** (never a failure). A file-scoped tool gets at most 200 paths
+  per command line. Every run emits `tool.ran` `{tool, on, fail, ok, available, ms, files, cmd, dir, code, source, output}`
+  (full output, 24 KB) for the dashboard; agents get one line per tool.
+- **Simulated checks** (every model fake, or settings.simulate_checks): only the tools of `.keel/config.yml` run.
+- **Edit hook** (every workflow): after an agent step in a phase that may edit, the files it changed (not the ones the guard put
+  back) get the `edit` and `batch` tools. A fixer's changes stay; failures become `data.lint_notes` (one line per tool), shown
+  in the step note, in the next agent's prompt and in the next gate's detail.
+- **Commit hook** (`commit` action): the `pre-commit` tools on the staged files, fixers first: fix → `git add` the staged files
+  again; block → the commit is refused ("Static checks refused the commit: <tools>", trimmed output), and the code step's
+  retry hands it to the agent before it; warn (and a fixer's nonzero exit) → a line in the commit note. Skipped when
+  `data.lint_tree` (written by `lint_run`) equals the working tree.
+- **Verdict** `lint` (verdicts.KINDS): `{scope, files, tools: {name: {ok, available, fail, on, ms, files, head}}, summary,
+  warnings, problems}`, sha-stamped; passes unless a block or fix tool failed; ok false + available false when nothing could run.
+- **Phase `lint-fix`** (keel_rules.json, the api copy and the golden fixture): MATRIX allows api-main, web-src, api-test, web-test,
+  e2e, smoke, other; denies migration, contract, specs. Commit type `lint` → `chore(lint): <title>` (no id). FLOW_START
+  `lint: lint-fix`, RAILS `lint: [lint-fix, close]`, TRANSITIONS `none → lint-fix`, `lint-fix → ship | close | none`.
+- **lint workflow** (`content/workflows/lint.yaml`, ORDER ends with `lint`; data `scope: diff | all`): `scope` (lint_scope: the
+  branch diff and uncommitted files, or `git ls-files` with `scope: all`; the user's own uncommitted files are left out) → `run`
+  (lint_run, soft: every check tool on manual/edit/batch/pre-commit, fixers first; verdict; `data.lint_findings`) → `findings`
+  (branch on RESULT; no → commit) → `fix` (implementer, lint-fix, instructions carry the findings: no behaviour change, no
+  suppressions) → `rerun` → `clean` (branch, `rounds: 2`; still failing → "Go on anyway" / "Stop") → `commit` (chore(lint)) →
+  `report` (lint_report: verdict, per-tool table, still failing, went on) → `read_report` gate (send back = run again).
+- **ship**: `lint` after `verify` (`verify_lint`, soft, `skippable: optional`): the check tools on the branch diff **without**
+  fixers. The final review's verdict table has a `lint` row and an exception "static checks fail: …" when the fresh verdict
+  fails; the PR body has a "Static checks" section (one line per tool).
+- **review**: `lens: lint` runs the same check-only set on the diff (no agent) and the report starts with "Static checks";
+  `lint: true` adds that section to any other lens.
+- **Stacks**: kotlin-spring (ktlint-format pre-commit fix, ktlint pre-commit block, detekt manual block, sonar status),
+  ts-react (eslint-fix + prettier on edit fix, tsc pre-commit block, eslint manual block), react-js (the same without tsc),
+  django and the new python stack (ruff-format on edit fix, ruff-fix pre-commit fix, ruff manual block, mypy manual warn),
+  symfony (cs-fix pre-commit fix, phpstan + cs-check manual block), new go stack (gofmt on edit fix, go-vet pre-commit block,
+  golangci-lint manual block). `schema-dump` tools are `kind: task`. `static_checks` names only programs a check tool runs
+  (test_content).
+- **Api**: `Stack.tools[]` = `{name, on, fail, description?, kind?, match?, off}`; the Stacks page shows them. Start a flow lists
+  the lint flow (engine templates) and sends `options: {scope}`.
+
 ## v0.4.1: explain a step
 
 "What does this step really do": the graph's nodes (Flow, both layouts; Wiki; the Wiki step table) open a drawer, and the

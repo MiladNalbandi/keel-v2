@@ -58,6 +58,12 @@ tools:
     fail: block
     timeout: 300
     description: 'Static analysis over the whole project'
+  cs-check:
+    run: 'vendor/bin/php-cs-fixer fix --dry-run --diff'
+    on: manual
+    fail: block
+    timeout: 300
+    description: 'Report the PHP that does not follow the project standard, changing nothing'
   # Doctrine migrations are PHP wrapping $this->addSql(...), which keel does not read — it reads
   # SQL. This dumps the schema Doctrine's own metadata describes, into a file the map parses with
   # the same parser it uses for real migrations. --dump-sql prints and applies nothing.
@@ -68,6 +74,7 @@ tools:
     run: 'mkdir -p docs && bin/console doctrine:schema:create --dump-sql > docs/schema.sql'
     on: manual
     fail: block
+    kind: task
     timeout: 120
     description: 'Write docs/schema.sql so the map can draw the database'
   sonar:
