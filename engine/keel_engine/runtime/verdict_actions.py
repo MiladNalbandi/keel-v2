@@ -462,7 +462,7 @@ def coverage_from_reports(a) -> tuple[dict, object]:
     # The stall fingerprint is the set of groups still open: a round that does not move it says so.
     fp = "|".join(sorted(g["key"] for g in still))
     stalled = bool(still) and fp == a.data.get("coverage_fingerprint")
-    upd = {"data": {**a.data, "coverage_groups": m["groups"], "coverage_fingerprint": fp}}
+    upd = {"data": {**a.data, "coverage_groups": m["groups"], "coverage_fingerprint": fp, "coverage_error": None}}
     open_groups = "\n".join(f"  {'! ' if g['critical'] else '  '}{g['title']}" for g in still[:20])
     stall = " The same lines are still uncovered as in the last round: change the approach, do not just try again." if stalled else ""
     if not m["ok"]:

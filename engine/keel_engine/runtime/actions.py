@@ -250,7 +250,9 @@ async def verify_coverage(a: ActionInput) -> ActionResult:
             if code != 0:
                 await asyncio.to_thread(verdict_actions.record_verdict, a.key, "coverage", False,
                                         {"command": cmd, "summary": f"`{cmd}` exited {code}", "output": tail(out, 1500)}, None, a.root)
-                return ActionResult(False, f"The coverage command `{cmd}` failed.", f"$ {cmd}\n{tail(out, 3000)}")
+                err = f"`{cmd}` exited {code}, so there is no report to read.\n\n$ {cmd}\n{tail(out, 2000)}"
+                return ActionResult(False, f"The coverage command `{cmd}` failed.", f"$ {cmd}\n{tail(out, 3000)}",
+                                    {"data": {**a.data, "coverage_groups": [], "coverage_error": err}})
         _m, r = await asyncio.to_thread(verdict_actions.coverage_from_reports, a)
         return r
     if not cmd:

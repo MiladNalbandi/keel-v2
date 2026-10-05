@@ -80,7 +80,7 @@ def test_cover_and_ship_templates_validate_and_ship_includes_cover():
 def test_include_prefixes_ids_and_rejects_cycles_and_unknown_flows(monkeypatch):
     w = wf([{"id": "fix", "kind": "agent", "name": "fix", "agent": "implementer"},
             {"id": "tail", "kind": "include", "name": "cover tail", "flow": "cover"}])
-    assert [s.id for s in w.steps][:3] == ["fix", "tail_measure", "tail_needs_work"]
+    assert [s.id for s in w.steps][:3] == ["fix", "tail_measure", "tail_measured"]
     assert w.step("tail_covered").no == "tail_decide" and validate(w) == []
     with pytest.raises(WorkflowError, match="no workflow nope to include"):
         wf([{"id": "x", "kind": "include", "name": "x", "flow": "nope"}])
@@ -183,6 +183,21 @@ def test_cover_every_decision_review_round_and_the_round_limit(client, repo, mon
     assert "gate decide accept (src/b.py:10-10): a shutdown hook" in log and any("go on after 2 round(s)" in x for x in log)
     assert any("findings accepted" in x for x in log)
     assert "1 group(s) accepted" in finished(client, tid, "report")[-1]["note"]
+
+
+def test_cover_says_so_when_the_coverage_command_fails(client, repo, monkeypatch):
+    # Real run: the coverage command failed (no report), and cover said "still no after 2 round(s)" with no round run.
+    def broken(a):
+        return ActionResult(False, "The coverage command `x` failed.", "",
+                            {"data": {**a.data, "coverage_groups": [], "coverage_error": "`x` exited 7, so there is no report to read."}})
+    seen = answers(monkeypatch, {})
+    fixed = lambda a: cov_pass(type(a)(**{**a.__dict__, "data": {**a.data, "coverage_error": None}}))   # a real measure clears it
+    script(monkeypatch, {"verify_coverage": [broken, fixed]})
+    tid = start(client, repo, workflow="cover")
+    s = wait(client, tid)
+    assert s["waiting"]["step"] == "measure_failed" and "exited 7" in s["waiting"]["detail"]
+    s = decide(client, tid, "approve", payload={"choice": "try_again"})
+    assert s["status"] == "done" and not seen, (s.get("waiting"), s.get("gate_log"))
 
 
 def test_cover_stops_when_the_user_says_so_at_the_round_limit(client, repo, monkeypatch):
