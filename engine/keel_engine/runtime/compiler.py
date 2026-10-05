@@ -283,6 +283,8 @@ class Compiler:
         m = None
         if state.get("model_override"):
             m = state["model_override"]
+        elif (state.get("agent_models") or {}).get(agent):
+            m = state["agent_models"][agent]
         elif step.model and step.model != "default" and step.model in self.ctx.models:
             m = self.ctx.models[step.model]
         elif agent in self.ctx.models:
@@ -365,6 +367,9 @@ class Compiler:
                                      acs=state.get("acs") or [], feedback=state.get("feedback"), index=index, spec=state.get("spec"),
                                      section=section, unlocks=state.get("unlocks") or [], request=ctx.request,
                                      knowledge=know, graph=agent_knowledge.has_codegraph(mcp_specs, tools_allow), item=item)
+        asks = prompts.step_asks(step, lambda path: self._seed_value("$" + path, state, item))
+        if asks:
+            prompt = f"{prompt}\n{asks}"
         note = memory_mod.resume_note(prev, resuming) if same else ""
         if note:
             prompt = f"{note}\n\n{prompt}"
@@ -557,7 +562,7 @@ class Compiler:
             if not items:
                 note = f"{step.name}: no items in {step.items_from}; no agent ran"
                 return {**upd, "note": note, "data": {**(state.get("data") or {}), f"{step.id}_results": []}}, self.nav.after(i)
-            calls = [(step.agent or "", k) for k in range(len(items))]
+            calls = [(self._item_agent(step, it), k) for k, it in enumerate(items)]
             item_of = dict(enumerate(items))
         elif loop_item:
             item_of = {n: loop_item for n in range(len(calls))}
@@ -660,7 +665,7 @@ class Compiler:
                     data["command"] = r["command"]
                 ctx.emit("guard.refused", step=step.id, data=data)
         if agent_results:
-            upd["last_answer"] = (agent_results[-1][0].text or "")[:2000]
+            upd["last_answer"] = (agent_results[-1][0].text or "")[:8000]
         upd.update(self._outputs(step, state, [r[0] for r in agent_results], item_of))
         said = ((upd.get("markers") or {}).get(step.id) or {}) if step.markers else {}
         if said:
@@ -695,14 +700,22 @@ class Compiler:
                 return upd, fix_id(step.id)
         return upd, self.nav.after(i)
 
+    def _item_agent(self, step: Step, item: dict) -> str:
+        """The agent for one item of a fan-out: the item's own `agent` when the list was made by the flow's code
+        (review_scope: reviewer, code-reviewer or ac-reviewer), never when an agent's answer made the list."""
+        own = item.get("agent")
+        if own and not any(s.collect == step.items_from for s in self.wf.steps):
+            return str(own)
+        return step.agent or ""
+
     def _outputs(self, step: Step, state: FlowState, results: list[AgentResult], item_of: dict[int, dict]) -> dict:
         """What a step's answers put into the state: per-item results (fan-out), markers, a collected list."""
         upd: dict = {}
         data = dict(state.get("data") or {})
         found = [markers.parse(r.text, step.markers) if step.markers else {} for r in results]
         if step.items_from:
-            data[f"{step.id}_results"] = [{"item": item_of[n]["id"], "text": (r.text or "")[:4000], "markers": found[n]}
-                                          for n, r in enumerate(results)]
+            data[f"{step.id}_results"] = [{"item": item_of[n]["id"], "title": item_of[n].get("title") or item_of[n]["id"],
+                                           "text": (r.text or "")[:16000], "markers": found[n]} for n, r in enumerate(results)]
         if step.markers:
             mine: dict = {}
             for f in found:
@@ -725,6 +738,8 @@ class Compiler:
 
     def _reviews(self, step: Step) -> bool:
         """A review step whose blocking findings must be fixed or accepted before the flow goes on."""
+        if rules.read_only(step.phase):
+            return False      # a read-only flow (review) reports its findings; nothing is fixed
         return step.kind in ("agent", "parallel") and not step.per_ac and not step.lanes and (step.agent or "") in REVIEWERS
 
     async def findings_step(self, i: int, fix: Step, state: FlowState):
@@ -829,7 +844,7 @@ class Compiler:
                            deps=list(state.get("deps") or []), gates_log=list((state.get("gates") or {}).get("log") or []),
                            base=state.get("base_head"), unlocks=list(state.get("unlocks") or []),
                            preexisting=dict(state.get("preexisting") or {}), item=item, data=dict(state.get("data") or {}),
-                           keys=dict(self.ctx.keys), state=dict(state))
+                           keys=dict(self.ctx.keys), state=dict(state), request=self.ctx.request)
 
     async def code_step(self, i: int, step: Step, state: FlowState):
         ac = _ac(state) if step.per_ac else None
@@ -841,8 +856,11 @@ class Compiler:
         for n, action in enumerate(actions):
             if action == "start_flow":
                 r = await self._start_flow(step, st, item)
+            elif action == "escalate_model":
+                r = self._escalate_model(step, st)
             else:
                 a = self._action_input(st, ac, item)
+                a.step = step.id
                 if action == "open_pr":
                     a.state["pr_approved"] = self._gate_approved(i, st)
                 r = await run_action(action, a)
@@ -850,6 +868,9 @@ class Compiler:
                 return await self._already_met(i, step, st, ac, r, upd, actions[n + 1:])
             if r.ask:
                 return await self._answer_check(i, step, st, r, upd)
+            if r.stop:
+                # A refusal no retry can change (an empty diff to review): the flow ends here and says why.
+                return {**upd, "status": "stopped", "error": r.note, "note": r.note}, END
             if not r.ok:
                 for k in ("blockers", "ladder"):
                     if k in r.update:
@@ -862,10 +883,28 @@ class Compiler:
         retries = dict(state.get("retries") or {})
         retries.pop(key, None)
         upd.update(note="; ".join(notes), retries=retries, stall={"fingerprint": None, "count": 0, "step": 0}, last_failure=None)
+        upd.setdefault("show", None)        # what the next gate shows: only an action of this step sets it
         if step.then == "end":
-            # The work goes on in the flow start_flow started; this one ends here.
+            # The work goes on in the flow start_flow started (or there is nothing more to do); this one ends here.
             return {**upd, "status": "done", "ac": None, "item": None}, END
+        if step.then and step.then != "continue":
+            return upd, self.nav.jump(step.then, i)
         return upd, self.nav.after(i)
+
+    def _escalate_model(self, step: Step, state: FlowState) -> ActionResult:
+        """keel v1 "escalate the model once": the step's agent (default investigator) runs on a stronger model from here
+        on (settings.stronger_model, else Opus for Claude, else high effort). Marker ESCALATED: yes."""
+        agent = step.agent or "investigator"
+        cur = self._model(state, step, agent)
+        strong = self.ctx.settings.get("stronger_model") or stronger(cur)
+        mk = dict(state.get("markers") or {})
+        mk[step.id] = {"ESCALATED": "yes"}
+        mk["*"] = {**(mk.get("*") or {}), "ESCALATED": "yes"}
+        upd = {"markers": mk, "agent_models": {**(state.get("agent_models") or {}), agent: strong}}
+        same = strong == cur
+        label = f"{strong.get('provider')} {strong.get('model', '')}{' ' + strong['effort'] if strong.get('effort') else ''}"
+        return ActionResult(True, f"{agent}: no stronger model to escalate to; it tries again on {label}" if same
+                            else f"{agent} escalated to {label}", update=upd)
 
     def _gate_approved(self, i: int, state: FlowState) -> bool:
         """Was the nearest gate before step i approved (its last line in the gate log)?"""
@@ -894,25 +933,28 @@ class Compiler:
         return cur
 
     async def _start_flow(self, step: Step, state: FlowState, item: dict | None) -> ActionResult:
+        return await self.start_flow(step.flow, step.seed or {}, step, state, item)
+
+    async def start_flow(self, flow: str, raw_seed: dict, step: Step, state: FlowState, item: dict | None) -> ActionResult:
         """Hand-off: start another workflow's thread on this project with a seed; both threads record the link."""
         ctx = self.ctx
         if not ctx.spawn:
             return ActionResult(False, "This engine cannot start another flow from here.")
         seed = {"title": (item or {}).get("title") or ctx.title, "request": ctx.request}
-        seed.update({k: self._seed_value(v, state, item) for k, v in (step.seed or {}).items()})
+        seed.update({k: self._seed_value(v, state, item) for k, v in raw_seed.items()})
         link = {"thread_id": ctx.thread_id, "workflow": self.wf.id, "step": step.id}
         key = f"start_flow|{step.id}|{(item or {}).get('id', '')}"
         try:
             # A node that runs again (try again after a later failure in the same step) must not start a second child.
-            child = ctx.done_calls.get(key) or await ctx.spawn(step.flow, seed, link)
+            child = ctx.done_calls.get(key) or await ctx.spawn(flow, seed, link)
         except Exception as exc:
-            return ActionResult(False, f"Could not start the {step.flow} flow: {getattr(exc, 'error', None) or exc}")
+            return ActionResult(False, f"Could not start the {flow} flow: {getattr(exc, 'error', None) or exc}")
         ctx.done_calls[key] = child
-        children = list(state.get("children") or []) + [{"thread_id": child, "workflow": step.flow, "step": step.id,
+        children = list(state.get("children") or []) + [{"thread_id": child, "workflow": flow, "step": step.id,
                                                         "title": str(seed.get("title") or "")[:200]}]
-        ctx.emit("flow.started", step=step.id, data={"child": child, "workflow": step.flow, "title": seed.get("title"),
+        ctx.emit("flow.started", step=step.id, data={"child": child, "workflow": flow, "title": seed.get("title"),
                                                      "then": step.then or "continue"})
-        return ActionResult(True, f"started the {step.flow} flow ({child[:8]}): {seed.get('title')}", update={"children": children})
+        return ActionResult(True, f"started the {flow} flow ({child[:8]}): {seed.get('title')}", update={"children": children})
 
     async def _already_met(self, i: int, step: Step, state: FlowState, ac: dict, r: ActionResult, upd: dict, rest: list[str]):
         """verify_red found the AC's own test already passing (keel v1 "already-met"). No retries: ask right away.
@@ -985,8 +1027,15 @@ class Compiler:
         self.ctx.emit("gate.decided", step=step.id, data={"gate": q["title"], "decision": decision, "why": why})
         if decision == "approve":
             gates["log"].append(f"escalation: {q['why']}")
-            return {**upd, "gates": gates, "status": "stopped", "error": f"Escalated to a feature flow: {q['why']}.",
-                    "note": "escalated: start a feature flow for this work"}, END
+            # keel v1 `keel escalate`: the inline criteria become the feature flow's, finished ones stay finished, and
+            # every commit stays on the branch.
+            r2 = await self.start_flow("feature", {"acs": "$acs", "escalated_from": self.wf.id, "why": q["why"]}, step, state, None) \
+                if self.ctx.spawn else None
+            if not r2 or not r2.ok:
+                return {**upd, "gates": gates, "status": "stopped", "error": f"Escalated to a feature flow: {q['why']}.",
+                        "note": "escalated: start a feature flow for this work"}, END
+            return {**upd, **r2.update, "gates": gates, "status": "done", "ac": None,
+                    "note": f"escalated: {r2.note}"[:300]}, END
         gates["log"].append(f"escalation-override: {why or q['why']}")
         return {**upd, "gates": gates, "note": f"stays a small change: {why}"}, step.id
 
@@ -1006,11 +1055,15 @@ class Compiler:
             stall["step"] = min(stall.get("step", 0) + 1, len(rules.LADDER))
             feedback += "\n\nStall ladder: " + rules.LADDER[stall["step"] - 1]
         target = self.nav.retry_target(i)
-        attempts = int(self.ctx.settings.get("fix_attempts") or 3)
+        attempts = step.attempts if step.attempts is not None else int(self.ctx.settings.get("fix_attempts") or 3)
         base = {**upd, "stall": stall, "last_failure": r.note[:300], "feedback": feedback, "note": r.note}
         if target and count <= attempts:
             retries[key] = count
             return {**base, "retries": retries}, target
+        if step.back:
+            # keel v1 "fails twice: reset and reproduce again": a fresh start instead of another try in the same place.
+            return {**base, "retries": {**retries, key: 0}, "note": f"{r.note} · back to {step.back}"[:300]}, \
+                self.nav.jump(step.back, i)
         lp = self.nav.loop_of(i)
         in_items = bool(lp and not lp.per_ac and ac)
         reject = "reject to mark this item failed and go on with the next one" if in_items else "reject to stop the flow"
@@ -1043,6 +1096,15 @@ class Compiler:
                 return {"gates": gates, "acs": _set_ac(acs, ac["id"], "done"), "note": f"no gate: {due['why']}"}, self.nav.after(i)
         if self.wf.flow == "init" and step.id == "questions":
             return self._init_questions(step, state, gates), self.nav.after(i)
+        waived = (gates.get("skipped") or {}).get(step.phase or "") if not ac and not item else None
+        if waived:
+            # keel v1 --no-gates: the gate records an automatic approval (it shows in the PR body's skipped gates).
+            gates["log"].append(f"gate {step.id} approve: waived ({waived})")
+            self.ctx.emit("gate.decided", step=step.id, data={"gate": step.name, "decision": "approve", "why": f"waived: {waived}"})
+            upd = {"gates": gates, "note": f"{step.name}: waived ({waived})"}
+            if step.choices:
+                upd["markers"] = self._choice_markers(state, step, step.choices[0], "waived")
+            return upd, self.nav.after(i)
         options = OPTIONS
         title = step.name + (f" · {ac['id']}" if ac else f" · {item['id']}" if item else "")
         no_criteria = not ac and step.phase in ("spec", "triage") and not acs
@@ -1064,6 +1126,9 @@ class Compiler:
             about = item.get("title") or item.get("summary") or json.dumps({k: v for k, v in item.items() if k not in ("id", "status")},
                                                                           ensure_ascii=False, default=str)[:600]
             detail = f"{item['id']}: {about}\nLast step: {state.get('note', '')}\n\nApprove with payload skip: true to skip this item."
+        elif i and self.wf.steps[i - 1].kind == "code" and state.get("show"):
+            # What the code step before this gate prepared for it (a review report, a diagnosis, a size proposal).
+            detail = state["show"]
         elif i and "pr" in self.wf.steps[i - 1].actions() and state.get("pr_body"):
             # The PR body the pr step built: approve to go on (an open_pr step after this gate may open it).
             detail = state["pr_body"]
@@ -1073,15 +1138,25 @@ class Compiler:
                 detail = f"Spec: {state['spec']}\n{detail}"
                 if step.phase in ("spec", "triage"):
                     detail += "\n\n" + spec_check.describe(spec_check.check(spec_check.read_spec(ctx.root, state["spec"]), acs))
-        answer, extra = self._ask(state, {"step": step.id, "kind": "gate", "title": title, "detail": detail, "options": options})
+        question = {"step": step.id, "kind": "gate", "title": title, "detail": detail, "options": options}
+        if step.choices and not no_criteria:
+            question.update(choices=list(step.choices), detail=detail + "\n\nApprove with one of: " + ", ".join(step.choices)
+                            + f" (default {step.choices[0]}). Send back to {step.back or 'the step before'} with a note.")
+        answer, extra = self._ask(state, question)
         decision = answer.get("decision", "reject") if not no_criteria else "reject"
         why = (answer.get("why") or "").strip()
         payload = answer.get("payload") or {}
+        choice = None
+        if step.choices and decision == "approve":
+            choice = payload.get("choice") if payload.get("choice") in step.choices else step.choices[0]
         subject = f"ac {ac['id']}" if ac else f"gate {step.id}"
-        gates["log"].append(f"{subject} {decision}" + (f" ({item['id']})" if item else "") + (f": {why}" if why else ""))
+        gates["log"].append(f"{subject} {decision}" + (f" ({item['id']})" if item else "") + (f" [{choice}]" if choice else "")
+                            + (f": {why}" if why else ""))
         decided = {"gate": step.name, "decision": decision, "why": why, "ac": (ac or {}).get("id")}
         if item:
             decided["item"] = item["id"]
+        if choice:
+            decided["choice"] = choice
         ctx.emit("gate.decided", step=step.id, data=decided)
         upd: dict = {"gates": gates, **extra}
         if payload.get("acs"):
@@ -1091,7 +1166,9 @@ class Compiler:
         if decision == "approve":
             if ac:
                 upd["acs"] = _set_ac(acs, ac["id"], "done")
-            upd["note"] = f"{step.name} approved" + (f": {why}" if why else "")
+            upd["note"] = f"{step.name} approved" + (f" [{choice}]" if choice else "") + (f": {why}" if why else "")
+            if choice:
+                upd["markers"] = self._choice_markers(state, step, choice, why)
             if item and payload.get("skip"):
                 lp = self.nav.loop_of(i)
                 upd.update(put_list(state, lp.key, _set_ac(get_list(state, lp.key), item["id"], "skipped")))
@@ -1104,6 +1181,14 @@ class Compiler:
         upd["note"] = f"{step.name} sent back" + (f": {why}" if why else "")
         target = self.nav.jump(step.back, i) if step.back else self.nav.enter(max(i - 1, 0))
         return upd, target
+
+    @staticmethod
+    def _choice_markers(state: FlowState, step: Step, choice: str, why: str) -> dict:
+        """A gate's named exit as markers (CHOICE, WHY) that branches read: `when: {marker: CHOICE, step: <gate>}`."""
+        mk = dict(state.get("markers") or {})
+        mk[step.id] = {"CHOICE": choice, "WHY": why}
+        mk["*"] = {**(mk.get("*") or {}), "CHOICE": choice, "WHY": why}
+        return mk
 
     def _clarify_gate(self, i: int, step: Step, state: FlowState, gates: dict, asked: list[dict]):
         """The explorer's questions as a pause with buttons. Answers (clicked or typed) go back to the explorer."""
@@ -1142,10 +1227,9 @@ class Compiler:
         if step.when:
             # A marker an earlier agent ended with: when.step names that step, else the latest value from any step.
             name = str(step.when["marker"]).upper()
-            src = step.when.get("step")
-            value = ((state.get("markers") or {}).get(src or "*") or {}).get(name)
-            yes = markers.matches(value, step.when)
-            note = f"{name}: {value or 'not given'}"
+            values = self._marker_values(state, step.when, name)
+            yes = any(markers.matches(v, step.when) for v in values)
+            note = f"{name}: {', '.join(str(v) for v in values if v) or 'not given'}"
         elif step.action and step.action.startswith("run:"):
             r = await run_action(step.action, self._action_input(state, _ac(state)))
             yes, note = r.ok, r.note
@@ -1155,6 +1239,27 @@ class Compiler:
             note = res.text.strip()[:160]
         target = self.nav.after(i) if yes else self.nav.jump(step.no, i)
         return {"note": f"{step.name}: {'yes' if yes else 'no'} ({note})"}, target
+
+    @staticmethod
+    def _marker_values(state: FlowState, when: dict, name: str) -> list:
+        """The values a `when` looks at: the marker of when.step (one id or a list; default the latest of any step), and
+        with `any: true` each item's marker of those fan-out steps too."""
+        src = when.get("step")
+        srcs = src if isinstance(src, list) else [src or "*"]
+        mk, data = state.get("markers") or {}, state.get("data") or {}
+        values = [(mk.get(s) or {}).get(name) for s in srcs]
+        if when.get("any"):
+            values += [(r.get("markers") or {}).get(name) for s in srcs for r in data.get(f"{s}_results") or []]
+        return values
+
+
+def stronger(model: dict) -> dict:
+    """The next model up for an escalation: Opus for Claude, high effort elsewhere (the same model when there is none)."""
+    if model.get("provider") == "claude" and "opus" not in str(model.get("model") or ""):
+        return {**model, "model": "opus"}
+    if model.get("provider") in ("codex", "copilot") and model.get("effort") != "high":
+        return {**model, "effort": "high"}
+    return dict(model)
 
 
 def compile_workflow(ctx: ThreadContext, checkpointer):

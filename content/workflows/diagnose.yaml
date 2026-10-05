@@ -1,0 +1,73 @@
+id: diagnose
+name: diagnose (keel)
+keel_rules: true
+version: 1
+# For a bug nobody can make fail on demand yet. Read-only (phase bug-investigate): no production code, no tests; the only
+# commit is an investigation note when nothing is confirmed. It never ends by fixing something.
+steps:
+  - id: frame
+    kind: agent
+    name: frame the symptom
+    agent: explorer
+    model: default
+    phase: bug-investigate
+    collect: hypotheses
+    instructions: >-
+      Frame the symptom in the reporter's words: the exact error text, when it happens and when it does not, what was
+      expected, and what is already known to be irrelevant. Then list three or four distinct candidate causes (the
+      hypotheses), each one testable on its own. Do not investigate them yet.
+  - id: investigate
+    kind: parallel
+    name: one investigator per hypothesis
+    agent: investigator
+    model: default
+    from: hypotheses
+    cap: 4
+    phase: bug-investigate
+    markers: [ROOT-CAUSE]
+    instructions: >-
+      Confirm or kill only the hypothesis in your item, from evidence (code, history, logs, read-only queries). Nothing
+      may be edited. Say what you found either way.
+  - { id: findings, kind: code, name: collect the findings, action: report, phase: bug-investigate }
+  - id: rank
+    kind: agent
+    name: rank + reproduction recipe
+    agent: investigator
+    model: default
+    phase: bug-investigate
+    markers: [RECIPE, KIND]
+    instructions: >-
+      Rank what the investigators found: each hypothesis, confirmed or killed, with the evidence either way. Then write
+      a reproduction recipe: the exact conditions under which it fails (concurrency, data shape, order of runs). RECIPE
+      is that recipe on one line (or "none"); KIND is defect (a bug), unspecified (the behaviour was never specified)
+      or unknown. The investigators' answers:
+
+      {{data.report}}
+  - { id: report, kind: code, name: diagnosis report, action: report, phase: bug-investigate }
+  - id: decide
+    kind: gate
+    name: diagnosis
+    back: frame
+    lock: true
+    phase: bug-investigate
+    choices: [fix, feature, unresolved]
+  - { id: to_fix, kind: branch, name: hand to fix, when: { marker: CHOICE, equals: fix, step: decide }, no: to_feature, phase: bug-investigate }
+  - id: hand_fix
+    kind: code
+    name: start the fix flow with the recipe
+    action: start_flow
+    flow: fix
+    then: end
+    phase: bug-investigate
+    # The reproducer gets the symptom and the recipe, never the suspected cause.
+    seed: { title: $title, recipe: $markers.rank.RECIPE, symptoms: [$request] }
+  - { id: to_feature, kind: branch, name: hand to feature, when: { marker: CHOICE, equals: feature, step: decide }, no: note, phase: bug-investigate }
+  - id: hand_feature
+    kind: code
+    name: start the feature flow with the evidence
+    action: start_flow
+    flow: feature
+    then: end
+    phase: bug-investigate
+    seed: { title: $title, evidence: $data.report }
+  - { id: note, kind: code, name: record unresolved, action: investigation_note, lock: true, phase: bug-investigate }

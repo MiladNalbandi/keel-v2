@@ -4,6 +4,8 @@
     ROOT-CAUSE: confirmed | unconfirmed        (investigator)
     BLOCKING: yes | no                         (reviewers; findings.py reads the findings themselves)
     E2E-RESULT: pass | fail                    (e2e-author)
+    CODE-REVIEW: pass | findings               (code-reviewer)
+    AC-REVIEW: pass | findings                 (ac-reviewer)
     NAME: any value                            any other name a step declares in `markers: [NAME]`
 
 A registered marker keeps only its first word, lower case (`REPRO: Confirmed — the test fails` -> "confirmed");
@@ -21,6 +23,8 @@ REGISTRY: dict[str, tuple[str, ...]] = {
     "ROOT-CAUSE": ("confirmed", "unconfirmed"),
     "BLOCKING": ("yes", "no"),
     "E2E-RESULT": ("pass", "fail"),
+    "CODE-REVIEW": ("pass", "findings"),
+    "AC-REVIEW": ("pass", "findings"),
 }
 
 _FENCE = re.compile(r"```(?:json|keel-items)\s*\n(.*?)```", re.S)

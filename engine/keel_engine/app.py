@@ -59,6 +59,7 @@ class Settings(BaseModel):
     cap_tokens: int = 0
     on_cap: Literal["pause", "cheaper", "stop"] = "pause"
     cheaper_model: ModelSpec | None = None
+    stronger_model: ModelSpec | None = None   # escalate_model: the investigator's model after "unconfirmed" (default: one up)
     fix_attempts: int = 3
     simulate_checks: bool | None = None   # default: simulate test runs when every model is fake
     unlocks: list[Unlock] | None = None   # unlocks: that path bypasses the guard matrix in that phase

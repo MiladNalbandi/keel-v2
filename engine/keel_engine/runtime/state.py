@@ -54,6 +54,8 @@ class FlowState(TypedDict, total=False):
     parent: dict | None         # the flow that started this one: {thread_id, workflow, step}
     pr_body: str | None         # the PR body the pr action built
     flaky: list[dict]           # tests that failed once and passed on the rerun: [{label, tests, at}]
+    show: str | None            # what a code step prepared for the gate right after it (a report, a proposal)
+    agent_models: dict          # {agent: model} after escalate_model (a stronger model for that agent)
 
 
 @dataclass
@@ -113,15 +115,20 @@ def initial_state(ctx: ThreadContext, acs: list[dict] | None) -> FlowState:
     cap = int(s.get("cap_tokens") or (ctx.workflow.budget.max_tokens if ctx.workflow.budget and ctx.workflow.budget.max_tokens else 0) or 0)
     return FlowState(
         flow=ctx.workflow.flow, workflow_id=ctx.workflow.id, title=ctx.title, status="running", phase="none",
-        current=None, acs=[{"id": a["id"], "layer": a.get("layer", "API"), "title": a.get("title", ""), "status": "todo"} for a in acs or []],
+        current=None, acs=[{"id": a["id"], "layer": a.get("layer", "API"), "title": a.get("title", ""), "status": _start_status(a)} for a in acs or []],
         ac=None, gates={"mode": s.get("gates_mode", "every-ac"), "log": [], "skipped": {}},
         stall={"fingerprint": None, "count": 0, "step": 0},
         usage={"tokens_in": 0, "tokens_out": 0, "tokens_cached": 0, "cost_usd": 0.0, "premium_requests": 0, "cap_tokens": cap},
         retries={}, step_tokens={}, feedback=None, model_override=None, warned=False, spec=None, branch=None,
         git_head=None, last_failure=None, note="started", error=None, base_head=None, preexisting={}, last_answer="", findings=[], review_rounds={}, init={}, clarify={}, clarify_rounds=0, spec_revisions=0,
         unlocks=normalize_unlocks(s.get("unlocks"), "none", "settings"), deps=[], blockers=[], ladder=None,
-        data={}, markers={}, item=None, children=[], parent=None, pr_body=None, flaky=[],
+        data={}, markers={}, item=None, children=[], parent=None, pr_body=None, flaky=[], show=None, agent_models={},
     )
+
+
+def _start_status(ac: dict) -> str:
+    """A criterion handed over finished (an escalated change's done ACs) stays finished; anything else starts as todo."""
+    return ac["status"] if ac.get("status") in ("done", "already-met") else "todo"
 
 
 def normalize_unlocks(raw, phase: str, by: str) -> list[dict]:

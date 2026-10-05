@@ -676,7 +676,8 @@ def pr_body(root: str, project: str, state: dict, title: str, base: str | None) 
     gates = state.get("gates") or {}
     data = state.get("data") or {}
     skipped = [f"- {k}: {v}" for k, v in (gates.get("skipped") or {}).items()]
-    skipped += [f"- {line}" for line in gates.get("log") or [] if "no gate here" in line or "accepted:" in line]
+    skipped += [f"- {line}" for line in gates.get("log") or []
+                if "no gate here" in line or "accepted:" in line or line.startswith("escalation-override")]
     out = [f"# {title}", "", f"Spec: `{spec}`" if spec else "No spec (change flow).", ""]
     if extract:
         out += ["<details><summary>Spec extract</summary>", "", "```markdown", extract, "```", "</details>", ""]

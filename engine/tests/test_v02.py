@@ -339,19 +339,22 @@ def test_change_flow_escalation_override(client, repo):
     assert "auth" in s["waiting"]["detail"]
     s = decide(client, tid, "reject", why="it is a one-line helper")
     assert s["waiting"]["step"] == "ac_gate", s
-    assert any(x.startswith("feat(AC-1)") for x in log(repo))
+    assert any(x.startswith("feat(CHG-1.1)") for x in log(repo))
     s = run_to_end(client, tid, s)
     assert s["status"] == "done"          # AC-2 did not ask again: the override stands for the flow
     assert any(x.startswith("escalation-override") for x in s["gate_log"])
 
 
-def test_change_flow_escalation_approve_stops(client, repo):
+def test_change_flow_escalation_approve_hands_over_to_feature(client, repo):
     configure(repo, "change: {auth_paths: ['src/scores/**']}\n")
     tid = start(client, repo, workflow="change", title="Tweak ranks")
     wait(client, tid)
     decide(client, tid)
     s = decide(client, tid, "approve")
-    assert s["status"] == "stopped" and "feature flow" in s["error"]
+    assert s["status"] == "done" and [c["workflow"] for c in s["children"]] == ["feature"]
+    assert any(x.startswith("escalation: auth") for x in s["gate_log"])
+    child = wait(client, s["children"][0]["thread_id"])
+    assert [a["id"] for a in child["acs"]] == ["CHG-1.1", "CHG-1.2"]
 
 
 # ------------------------------------------------------------------ 5. live guard + CLI logins

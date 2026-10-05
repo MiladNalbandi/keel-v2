@@ -282,7 +282,7 @@ class Engine:
 
     async def start_child(self, parent: str, workflow_id: str, seed: dict, link: dict) -> str:
         """start_flow: a new thread of another workflow on the parent's project, with the parent's models, settings and
-        logins, and a seed (title, request, recipe, symptoms, inline acs, needs_e2e). It starts the way POST /threads
+        logins, and a seed (title, request, recipe, symptoms, evidence, inline acs with their status, needs_e2e, no_gates). It starts the way POST /threads
         does, so the api learns about it from thread.started (data.parent links it back)."""
         row = await self._row(parent)
         body = json.loads(row["body"])
@@ -292,7 +292,7 @@ class Engine:
         if not wf:
             raise EngineError(404, f"No workflow {workflow_id} to start.", "start_flow takes a keel workflow id (fix, feature, ...).")
         request = str(seed.get("request") or "").strip()
-        for label, k in (("Symptoms", "symptoms"), ("Reproduction recipe", "recipe")):
+        for label, k in (("Symptoms", "symptoms"), ("Reproduction recipe", "recipe"), ("Evidence so far", "evidence")):
             v = seed.get(k)
             if v:
                 text = "\n".join(f"- {x}" for x in v) if isinstance(v, list) else str(v)
@@ -302,11 +302,12 @@ class Engine:
         acs = []
         for n, a in enumerate(seed.get("acs") or []):
             a = a if isinstance(a, dict) else {"title": str(a)}
-            acs.append({"id": str(a.get("id") or f"AC-{n + 1}"), "layer": a.get("layer") or "API", "title": str(a.get("title") or "")})
+            acs.append({"id": str(a.get("id") or f"AC-{n + 1}"), "layer": a.get("layer") or "API", "title": str(a.get("title") or ""),
+                        **({"status": a["status"]} if a.get("status") else {})})
         child = {k: body[k] for k in ("project_id", "models", "settings", "mcp", "skills", "agents") if k in body}
         child.update(root=row["root"], workflow=wf, title=str(seed.get("title") or row["title"])[:200], acs=acs or None,
                      request=request.strip()[:8000], parent=link, keys=self.keys.get(parent),
-                     data={"seed": seed, **{k: seed[k] for k in ("recipe", "symptoms", "needs_e2e") if k in seed}})
+                     data={"seed": seed, **{k: seed[k] for k in ("recipe", "symptoms", "needs_e2e", "no_gates") if k in seed}})
         return await self.start_thread(child)
 
     async def state(self, tid: str) -> dict:

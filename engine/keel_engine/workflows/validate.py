@@ -10,7 +10,10 @@ CODE_ACTIONS = {"verify_red", "verify_green", "verify_release", "verify_coverage
                 "ladder", "knowledge_check", "memory_check",
                 # verdict actions (runtime/verdict_actions.py), the PR body, and the hand-off to another workflow
                 "verify_fast", "verify_module", "verify_deps", "audit", "trace", "trace_strict", "arch", "pr", "open_pr",
-                "start_flow"}
+                "start_flow",
+                # flow helpers: review scope, reports, the bug and change flows (runtime/flow_actions.py), model escalation
+                "review_scope", "report", "investigation_note", "bug_intake", "reset", "change_size", "change_start",
+                "escalate_model"}
 
 
 def _action_ok(action: str) -> bool:
@@ -24,7 +27,7 @@ def successors(wf: Workflow, i: int) -> list[int]:
     out = []
     if i + 1 < len(wf.steps):
         out.append(i + 1)
-    for target in (s.back, s.no):
+    for target in (s.back, s.no, s.then):
         if target in ids:
             out.append(ids[target])
     loop = wf.loop_of(i)
@@ -54,8 +57,8 @@ def validate(wf: Workflow) -> list[str]:
         if s.kind == "agent" and not s.agent:
             errors.append(f"{where}: an agent step needs an agent.")
         if s.kind == "code":
-            if not s.actions():
-                errors.append(f"{where}: a code step needs an action.")
+            if not s.actions() and not s.then:
+                errors.append(f"{where}: a code step needs an action (or a 'then').")
             for a in s.actions():
                 if not _action_ok(a):
                     errors.append(f"{where}: unknown action '{a}'.")
@@ -64,8 +67,22 @@ def validate(wf: Workflow) -> list[str]:
                 errors.append(f"{where}: back target '{s.back}' does not exist.")
             elif index[s.back] >= n:
                 errors.append(f"{where}: back must point to an earlier step, not '{s.back}'.")
-        if s.back and s.kind != "gate":
-            errors.append(f"{where}: only gates have a back target.")
+        if s.kind == "code" and s.back and s.back not in index:
+            errors.append(f"{where}: back target '{s.back}' does not exist.")
+        if s.back and s.kind not in ("gate", "code"):
+            errors.append(f"{where}: only gates and code steps have a back target.")
+        if s.choices is not None:
+            if s.kind != "gate":
+                errors.append(f"{where}: only gates have choices.")
+            elif not s.choices or len(set(s.choices)) != len(s.choices):
+                errors.append(f"{where}: choices must be a list of different names.")
+        if s.attempts is not None and (s.kind != "code" or s.attempts < 0):
+            errors.append(f"{where}: attempts belongs to a code step and cannot be negative.")
+        if s.then and s.then not in ("end", "continue"):
+            if s.kind != "code":
+                errors.append(f"{where}: only code steps have a 'then'.")
+            elif s.then not in index:
+                errors.append(f"{where}: then target '{s.then}' does not exist.")
         if s.kind == "branch":
             if not s.no:
                 errors.append(f"{where}: a branch needs a 'no' target.")
@@ -103,13 +120,16 @@ def validate(wf: Workflow) -> list[str]:
                 errors.append(f"{where}: only branches have a 'when'.")
             elif not str(s.when.get("marker") or "").strip():
                 errors.append(f"{where}: when needs a marker name (when: {{marker: REPRO, equals: confirmed}}).")
-            elif s.when.get("step") and s.when["step"] not in index:
-                errors.append(f"{where}: when.step '{s.when['step']}' does not exist.")
+            else:
+                src = s.when.get("step")
+                for name in (src if isinstance(src, list) else [src] if src else []):
+                    if name not in index:
+                        errors.append(f"{where}: when.step '{name}' does not exist.")
         if "start_flow" in s.actions():
             if not s.flow:
                 errors.append(f"{where}: start_flow needs the workflow to start (flow: fix).")
-        elif s.flow or s.seed or s.then:
-            errors.append(f"{where}: flow, seed and then belong to a start_flow step.")
+        elif s.flow or s.seed:
+            errors.append(f"{where}: flow and seed belong to a start_flow step.")
 
     acs = [n for n, s in enumerate(wf.steps) if s.per_ac]
     if acs and acs != list(range(acs[0], acs[-1] + 1)):
