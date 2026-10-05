@@ -4,6 +4,7 @@ import { useState } from "react";
 import { api, errorParts } from "../api";
 import { StartFlowDrawer } from "../components/StartFlow";
 import { Drawer, ErrorBox, Loading, PageHead } from "../components/ui";
+import { UsageStrip } from "../components/UsageStrip";
 import { go, useApp } from "../state";
 
 function AddRepoDrawer({ onClose }: { onClose: () => void }) {
@@ -58,6 +59,7 @@ export function ProjectsPage() {
           <button className="btn primary" type="button" id="startFlow" onClick={() => setDrawer("start")} disabled={!projects.length}>Start a flow</button>
         </>}
       />
+      <div style={{ marginBottom: 16 }}><UsageStrip /></div>
       {projectsError && !projects.length ? (
         <ErrorBox error={{ message: projectsError }} onRetry={() => void reloadProjects()} />
       ) : !projectsLoaded ? <Loading what="Loading projects" /> : !projects.length ? (

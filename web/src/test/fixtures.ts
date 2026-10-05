@@ -2,7 +2,7 @@
 
 import type {
   Agent, Budget, Cap, Catalog, Checkpoint, Connections, Estimate, Health, Job, JobStep, KeelDoc, KeelMap, LibraryItem, Limit, McpServer,
-  Memory, Notification, NotificationSettings, Project, ProjectSettings, RepoFile, RepoInfo, Settings, Skill, SkillDetail,
+  Memory, Notification, NotificationSettings, Project, ProjectSettings, ProviderUsage, RepoFile, RepoInfo, Settings, Skill, SkillDetail,
   Stack, ThreadState, TreeNode, WikiPage, WikiTree, Workflow,
 } from "../api";
 
@@ -229,6 +229,16 @@ export const providerModels: Catalog = {
   },
   fake: { label: "Fake", source: "builtin", efforts: [], default: { mode: "api", model: "fake" }, modes: { api: [{ id: "fake", label: "Fake model" }] } },
 };
+const inMin = (m: number) => new Date(Date.now() + m * 60_000).toISOString();
+const agoMin = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
+/** GET /api/usage/providers: Claude from its last run, Codex live. Copilot is not set up (no card). */
+export const usage = (): ProviderUsage[] => [
+  { id: "claude", name: "Claude", kind: "subscription", source: "last run", fetched_at: agoMin(12), live: false, can_refresh: true,
+    windows: [{ window: "five_hour", label: "5-hour", used_pct: 0.62, resets_at: inMin(72.5) }, { window: "seven_day", label: "weekly", used_pct: 0.31, resets_at: inMin(4000) }] },
+  { id: "codex", name: "Codex", kind: "subscription", source: "codex app-server", fetched_at: agoMin(0), live: true, can_refresh: true,
+    windows: [{ window: "five_hour", label: "5-hour", used_pct: 0.2, resets_at: inMin(100) }, { window: "seven_day", label: "weekly", used_pct: 0.08, resets_at: inMin(5000) }] },
+];
+
 export const limits: Limit[] = [{ id: "claude", name: "Claude Max", unit: "% of 5-hour window", used: 62, cap: 100, note: "resets in 1h 48m" }];
 
 export const generalSettings: Settings = {
