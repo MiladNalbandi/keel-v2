@@ -28,6 +28,8 @@ import org.springframework.web.bind.annotation.RestController
 /** A new Helper session: mode "ask" (read only) or "fix" (while the project's flow waits at a gate); the model defaults to the helper agent's. */
 data class HelperCreate(val mode: String = "ask", val model: Model? = null, val title: String = "")
 data class HelperUndo(val path: String? = null)
+/** Done: the commit's subject as the person wrote it (blank: the chat's title). */
+data class HelperDoneBody(val message: String = "")
 /** The person's answer to a permission card: once | always (this command, for the rest of the chat) | deny (with a reason). */
 data class HelperAnswer(val decision: String = "", val why: String = "")
 data class HelperPatch(val title: String? = null, val model: Model? = null)
@@ -71,10 +73,11 @@ class HelperService(
         val project = projects.require(pid)
         if (body.mode !in MODES) throw BadRequest("Unknown Helper mode ${body.mode}", "Use ask or fix.")
         val thread = if (body.mode == "fix") waitingThread(pid) else null
+        val threadId = thread?.path("thread_id")?.asText()
         return engine.post("/helper/sessions", mapOf(
             "project_id" to pid, "root" to project.root, "mode" to body.mode,
             "model" to (body.model ?: defaultModel(pid)), "title" to body.title.take(120),
-            "thread_id" to thread?.path("thread_id")?.asText(),
+            "thread_id" to threadId, "flow" to threadId?.let { fixContext(pid, it) },
         ).filterValues { it != null })
     }
 
@@ -158,10 +161,11 @@ class HelperService(
     }
 
     /** Run the checks and make keel's commit of the Helper's files, while the flow still waits at its gate. */
-    fun done(pid: String, sid: String): JsonNode {
+    fun done(pid: String, sid: String, body: HelperDoneBody = HelperDoneBody()): JsonNode {
         val s = get(pid, sid)
         if (s.path("mode").asText() != "fix") throw BadRequest("Only a Fix chat has changes to commit")
-        return engine.post("/helper/sessions/$sid/done", mapOf("flow" to fixContext(pid, s.path("thread_id").asText())), long = true)
+        return engine.post("/helper/sessions/$sid/done", mapOf("flow" to fixContext(pid, s.path("thread_id").asText()),
+            "message" to body.message.trim().take(200)), long = true)
     }
 
     fun permissions(pid: String): JsonNode {
@@ -177,7 +181,9 @@ class HelperService(
         return engine.post("/helper/permissions/${q.path("id").asText()}", mapOf("decision" to body.decision, "why" to body.why.take(500)))
     }
 
-    /** What a Fix turn and Done need from the waiting flow: its phase, criterion, unlocks, workflow and run mode. */
+    /** What a Fix turn and Done need from the waiting flow: its phase, criterion, unlocks, workflow and run mode, and
+     *  the phases of the steps before the waiting one (nearest first): at a gate whose own phase lets only notes change
+     *  (the AC gate's "gate"), the engine takes the nearest phase that lets code change (runtime/helper.py fix_phase). */
     private fun fixContext(pid: String, threadId: String): Map<String, Any?> {
         val t = waitingThread(pid, threadId)
         val base = flowContext(pid) ?: emptyMap()
@@ -190,7 +196,16 @@ class HelperService(
             "unlocks" to (unlocks?.takeIf { it.isArray } ?: unlocks?.path("unlocks")?.takeIf { it.isArray } ?: mapper.createArrayNode()),
             "workflow" to t.path("workflow_id").asText(""),
             "run_mode" to t.path("run_mode").asText("manual"),
+            "phases_before" to phasesBefore(pid, t),
         )
+    }
+
+    private fun phasesBefore(pid: String, t: JsonNode): List<String> {
+        val steps = runCatching { flows.flow(pid).workflow?.steps }.getOrNull() ?: return emptyList()
+        val at = t.path("waiting").path("step").asText("").ifBlank { t.path("current").asText("") }
+        val i = steps.indexOfFirst { it.id == at }
+        if (i <= 0) return emptyList()
+        return steps.subList(0, i).asReversed().mapNotNull { it.phase?.ifBlank { null } }.distinct()
     }
 
     /** The flow that runs or waits in the project, as the Helper's prompt shows it; null when none does. */
@@ -251,7 +266,8 @@ class HelperController(private val helper: HelperService) {
         helper.undo(pid, sid, body ?: HelperUndo())
 
     @PostMapping("/sessions/{sid}/done")
-    fun done(@PathVariable pid: String, @PathVariable sid: String): JsonNode = helper.done(pid, sid)
+    fun done(@PathVariable pid: String, @PathVariable sid: String, @RequestBody(required = false) body: HelperDoneBody?): JsonNode =
+        helper.done(pid, sid, body ?: HelperDoneBody())
 
     @GetMapping("/permissions")
     fun permissions(@PathVariable pid: String): JsonNode = helper.permissions(pid)

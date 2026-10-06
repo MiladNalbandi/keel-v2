@@ -166,9 +166,9 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   const askedAt = useMemo(() => [...recent].reverse().find((e) => e.type === "helper.permission" || e.type === "helper.permission.answered")?.at,
     [recent]);
   useEffect(() => { void perms.reload(); }, [askedAt]); // eslint-disable-line react-hooks/exhaustive-deps
-  // the flow moved (approved, sent back, finished): Fix mode follows it
-  const flowAt = useMemo(() => [...recent].reverse().find((e) => e.type.startsWith("gate.") || e.type.startsWith("thread."))?.at, [recent]);
-  useEffect(() => { if (flowAt) void flow.reload(); }, [flowAt]); // eslint-disable-line react-hooks/exhaustive-deps
+  // the flow moves (a gate waits, is answered, the flow ends): Fix follows it. Read on every live tick, also the one
+  // when the event stream comes back after the tab was hidden, but not while an answer streams its steps.
+  useEffect(() => { if (tick && !runningCall) void flow.reload(); }, [tick]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!runningCall) return;
     const t = window.setInterval(() => void sess.reload(), 5000);
@@ -191,6 +191,9 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
     void perms.reload();
     if (fix) void changes.reload();
   }, [finishedAt]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fix: a new message (an answer, a stop, Done's note), however the panel learnt of it, may come with changed files
+  useEffect(() => { if (fix && sid) void changes.reload(); }, [messages.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // keep the newest message in view
   useEffect(() => {
@@ -315,12 +318,12 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
     }
   };
 
-  const done = async () => {
+  const done = async (message: string) => {
     if (!sid) return;
     setDoneBusy(true);
     setFailed(null);
     try {
-      const res = await api.helperDone(pid, sid);
+      const res = await api.helperDone(pid, sid, message);
       if (res.ok) toast(`keel committed ${res.files.length} file${res.files.length === 1 ? "" : "s"} (${res.sha.slice(0, 7)}).`);
       else setFailed(res);
       await Promise.all([changes.reload(), sess.reload()]);
@@ -376,7 +379,8 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   const thread = flow.data?.thread ?? null;
   // Fix mode works on the flow that waited when the chat began; once that flow moved on, Done cannot commit here
   const moved = fix && !!s?.thread_id && !(thread?.thread_id === s.thread_id && thread.status === "waiting");
-  const phase = thread?.phase && thread.phase !== "none" ? thread.phase : null;
+  // the engine picks it when the chat starts: at a gate, the phase of the work under review (the AC gate: green)
+  const phase = s?.phase && s.phase !== "none" ? s.phase : null;
   const noHook = fix && !!model && ["codex", "copilot"].includes(model.provider);
 
   return (
@@ -426,8 +430,8 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
         <div className={`hp-fixbar${moved ? " moved" : ""}`}>
           {moved
             ? <p><b>The flow moved on.</b> This chat fixed at a gate that is no longer waiting, so Done cannot commit here. Undo what you do not want, or start a new chat.</p>
-            : <p>Fixing at the gate <b>{thread?.title ?? "…"}</b>{phase ? <> · phase <b>{phase}</b></> : null}. The phase's rules apply;
-              a command that changes something waits for your OK.</p>}
+            : <p>Fixing at the gate <b>{thread?.title ?? "…"}</b>{phase ? <> · rules of the <b>{phase}</b> phase</> : null}. keel's
+              rules for the work under review apply; a command that changes something waits for your OK.</p>}
           {noHook && <p className="hp-hint">Codex and Copilot run commands in their own sandbox, so keel cannot ask you first. keel's diff guard still checks every file.</p>}
         </div>
       )}
@@ -435,7 +439,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
       <div ref={scroller} className="hp-body" role="log" aria-label="Conversation" aria-live="polite">
         {!messages.length && !runningCall && fix && (
           <div className="hp-empty">
-            <p>Tell the Helper what to change for this gate. It edits the files here, inside the rules of the {phase ?? "flow's"} phase.
+            <p>Tell the Helper what to change for this gate. It edits the files here, inside keel's rules for the work under review.
               You see every changed file below, can undo it, and Done runs the checks and lets keel commit.</p>
             <ul className="hp-starters">
               {["/gate", "Make the change the reviewer asked for, then run the tests"].map((q) => (
@@ -473,8 +477,8 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
         )}
         {asks.map((q) => <PermissionCard key={q.id} pid={pid} q={q} onAnswered={() => void perms.reload()} />)}
         {fix && !!changes.data?.length && (
-          <ChangesBox changes={changes.data} busy={doneBusy || busy}
-            onOpen={(p) => (onOpenDiff ? onOpenDiff(p) : onOpenFile(p))} onUndo={(p) => void undo(p)} onDone={() => void done()} />
+          <ChangesBox changes={changes.data} busy={doneBusy || busy} title={s?.title ?? "the chat's title"}
+            onOpen={(p) => (onOpenDiff ? onOpenDiff(p) : onOpenFile(p))} onUndo={(p) => void undo(p)} onDone={(m) => void done(m)} />
         )}
         {failed && (
           <DoneFailed res={failed} onClose={() => setFailed(null)}
@@ -505,7 +509,8 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
           </ul>
         )}
         <textarea ref={input} id="hp-input" rows={2} value={text} aria-label="Ask the Helper"
-          placeholder={busy ? "The Helper is answering…" : "Ask about this project…  (@ files, symbols · / commands)"}
+          placeholder={busy ? "The Helper is answering…"
+            : fix ? "Tell the Helper what to change…  (@ files, symbols · / commands)" : "Ask about this project…  (@ files, symbols · / commands)"}
           onChange={(e) => { setText(e.target.value); setCaret(e.target.selectionStart ?? e.target.value.length); }}
           onKeyUp={(e) => setCaret((e.target as HTMLTextAreaElement).selectionStart ?? 0)}
           onClick={(e) => setCaret((e.target as HTMLTextAreaElement).selectionStart ?? 0)}

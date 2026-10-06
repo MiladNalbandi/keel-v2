@@ -585,6 +585,8 @@ export type HelperMessage = {
 export type HelperSession = {
   id: string; project: string; root: string; mode: HelperMode; title: string; model: Model;
   status: "idle" | "running" | "failed"; error?: string | null; thread_id?: string | null; grants?: string[];
+  /** Fix: the phase whose rules the Helper works in (at a gate, the phase of the work under review, e.g. green) */
+  phase?: string | null;
   tokens_in: number; tokens_out: number; tokens_cached: number; cost_usd: number; turns: number;
   created_at: string; updated_at: string;
   messages?: HelperMessage[]; busy?: boolean;
@@ -920,7 +922,8 @@ export const api = {
   helperCommands: (pid: string) => get<HelperCommand[]>(`/projects/${e(pid)}/helper/commands`),
   helperChanges: (pid: string, sid: string) => get<HelperChange[]>(`/projects/${e(pid)}/helper/sessions/${e(sid)}/changes`),
   helperUndo: (pid: string, sid: string, path?: string) => post<HelperChange[]>(`/projects/${e(pid)}/helper/sessions/${e(sid)}/undo`, path ? { path } : {}),
-  helperDone: (pid: string, sid: string) => post<HelperDone>(`/projects/${e(pid)}/helper/sessions/${e(sid)}/done`),
+  helperDone: (pid: string, sid: string, message = "") =>
+    post<HelperDone>(`/projects/${e(pid)}/helper/sessions/${e(sid)}/done`, message.trim() ? { message: message.trim() } : {}),
   helperPermissions: (pid: string) => get<HelperQuestion[]>(`/projects/${e(pid)}/helper/permissions`),
   helperAnswer: (pid: string, qid: string, decision: "once" | "always" | "deny", why = "") =>
     post<{ id: string; decision: string }>(`/projects/${e(pid)}/helper/permissions/${e(qid)}`, { decision, why }),

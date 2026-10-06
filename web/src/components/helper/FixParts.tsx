@@ -39,14 +39,17 @@ export function PermissionCard({ pid, q, onAnswered }: { pid: string; q: HelperQ
 }
 
 /** The files the Helper changed in this chat, against what they were before its first change. */
-export function ChangesBox({ changes, busy, onOpen, onUndo, onDone }: {
+export function ChangesBox({ changes, busy, title, onOpen, onUndo, onDone }: {
   changes: HelperChange[];
   busy: boolean;
+  /** the commit's subject when the person writes none (the chat's title) */
+  title: string;
   onOpen: (path: string) => void;
   onUndo: (path?: string) => void;
-  onDone: () => void;
+  onDone: (message: string) => void;
 }) {
   const [shown, setShown] = useState<string | null>(null);
+  const [message, setMessage] = useState("");
   return (
     <section className="hp-changes" aria-label="What the Helper changed">
       <header className="hp-changes-head">
@@ -71,7 +74,9 @@ export function ChangesBox({ changes, busy, onOpen, onUndo, onDone }: {
           </li>
         ))}
       </ul>
-      <button type="button" className="btn sm primary hp-done" disabled={busy} onClick={onDone}>
+      <input className="hp-perm-why" value={message} onChange={(e) => setMessage(e.target.value)} aria-label="Commit message"
+        placeholder={`Commit message (empty: ${title})`} maxLength={200} />
+      <button type="button" className="btn sm primary hp-done" disabled={busy} onClick={() => onDone(message)}>
         {busy ? "Checking…" : "Done: run the checks and commit"}
       </button>
     </section>

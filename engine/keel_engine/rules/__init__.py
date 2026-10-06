@@ -261,6 +261,11 @@ def _hint(phase: str, bucket: str) -> str:
     return ""
 
 
+def edits_code(phase: str) -> bool:
+    """Does this phase let an agent change more than notes (a bucket besides "other" not denied)? Gate phases do not."""
+    return any(rule != "deny" for bucket, rule in MATRIX.get(phase, CLOSED).items() if bucket not in ("other", "*"))
+
+
 def unlocked(unlocks: list[dict] | None, rel: str, phase: str) -> bool:
     """keel v1: an unlock {path, phase} lets exactly that path bypass the matrix in that phase."""
     return any(_rel(u.get("path", "")) == rel and u.get("phase") == phase for u in unlocks or [])

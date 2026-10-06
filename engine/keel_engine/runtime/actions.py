@@ -79,6 +79,7 @@ class ActionInput:
     thread_id: str = ""                                # the thread running this action (a hunt run records it)
     paths: list[str] = field(default_factory=list)     # commit: stage only these paths (feature: the spec alone)
     emit: object = None                                # tool runs report here (event tool.ran, full output)
+    ident: str = ""                                    # commit: the scope in "fix(<ident>):" when no criterion names it
 
     @property
     def key(self) -> str:
@@ -376,7 +377,7 @@ def commit(a: ActionInput) -> ActionResult:
     rule = rules.COMMIT_RULES[ctype]
     bug = ctype in ("fix", "red") or (ctype == "e2e" and a.flow == "fix")
     named = {"review-fix": "review", "integration": "integration"}.get(a.phase)
-    ident = "" if rule.get("noId") else ((a.ac or {}).get("id") or named or ("BUG" if bug else ""))
+    ident = "" if rule.get("noId") else ((a.ac or {}).get("id") or a.ident or named or ("BUG" if bug else ""))
     subject = (a.ac or {}).get("title") or a.title or a.flow
     if ctype == "setup":
         subject = "keel init"

@@ -96,8 +96,8 @@ class HelperApiTest : ApiTest() {
     private fun waitingFlow(pid: String, tid: String) {
         engine.nextThreadIds.add(tid)
         post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "Discount codes", "allow_fake" to true)).andExpect(status().isOk)
-        engine.overrides[tid] = mapOf("status" to "waiting", "title" to "Discount codes", "ac" to "AC-001", "phase" to "green",
-            "waiting" to mapOf("step" to "green", "kind" to "gate", "title" to "AC gate", "detail" to "tests 1/2 pass", "options" to listOf("approve", "reject")))
+        engine.overrides[tid] = mapOf("status" to "waiting", "title" to "Discount codes", "ac" to "AC-001", "phase" to "gate",
+            "waiting" to mapOf("step" to "ac_gate", "kind" to "gate", "title" to "AC gate", "detail" to "tests 1/2 pass", "options" to listOf("approve", "reject")))
     }
 
     @Test
@@ -108,11 +108,14 @@ class HelperApiTest : ApiTest() {
         val sid = post("/api/projects/$pid/helper/sessions", mapOf("mode" to "fix")).andExpect(status().isOk).json()["id"].asText()
         assertThat(engine.lastBody("/helper/sessions")!!["thread_id"].asText()).isEqualTo("t-fix-1")
         assertThat(engine.lastBody("/helper/sessions")!!["mode"].asText()).isEqualTo("fix")
+        // the AC gate's own phase lets only notes change: the engine gets the phases of the work before it, nearest first
+        assertThat(engine.lastBody("/helper/sessions")!!["flow"]["phases_before"].map { it.asText() }.take(3)).containsExactly("green", "red", "spec")
 
         post("/api/projects/$pid/helper/sessions/$sid/turn", mapOf("text" to "Make AC-001 pass")).andExpect(status().isOk)
         val flow = engine.lastBody("/helper/sessions/$sid/turn")!!["flow"]
         assertThat(flow["thread_id"].asText()).isEqualTo("t-fix-1")
-        assertThat(flow["phase"].asText()).isEqualTo("green")
+        assertThat(flow["phase"].asText()).isEqualTo("gate")
+        assertThat(flow["phases_before"][0].asText()).isEqualTo("green")
         assertThat(flow["ac"]["id"].asText()).isEqualTo("AC-001")
         assertThat(flow["workflow"].asText()).isEqualTo("feature")
         assertThat(flow["run_mode"].asText()).isEqualTo("manual")
@@ -121,9 +124,10 @@ class HelperApiTest : ApiTest() {
         assertThat(get("/api/projects/$pid/helper/sessions/$sid/changes").json()[0]["path"].asText()).isEqualTo("src/a.kt")
         post("/api/projects/$pid/helper/sessions/$sid/undo", mapOf("path" to "src/a.kt")).andExpect(status().isOk)
         assertThat(engine.lastBody("/helper/sessions/$sid/undo")!!["path"].asText()).isEqualTo("src/a.kt")
-        val done = post("/api/projects/$pid/helper/sessions/$sid/done").andExpect(status().isOk).json()
+        val done = post("/api/projects/$pid/helper/sessions/$sid/done", mapOf("message" to " Limit is 100 ")).andExpect(status().isOk).json()
+        assertThat(engine.lastBody("/helper/sessions/$sid/done")!!["message"].asText()).isEqualTo("Limit is 100")
         assertThat(done["sha"].asText()).isEqualTo("abc1234")
-        assertThat(engine.lastBody("/helper/sessions/$sid/done")!!["flow"]["phase"].asText()).isEqualTo("green")
+        assertThat(engine.lastBody("/helper/sessions/$sid/done")!!["flow"]["phases_before"][0].asText()).isEqualTo("green")
 
         // the flow moves on: the Fix chat can no longer edit or commit
         engine.overrides["t-fix-1"] = mapOf("status" to "running")

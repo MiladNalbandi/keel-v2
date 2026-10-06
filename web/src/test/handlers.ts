@@ -283,7 +283,7 @@ export function handlers(db: Db) {
         return HttpResponse.json({ error: "No flow of this project waits at a gate.", hint: "Fix mode works while a flow waits." }, { status: 409 });
       }
       const sess: HelperSession = { id: `h_${db.helper.next++}`, project: String(params.pid), root: "/workspace", mode: b?.mode ?? "ask",
-        thread_id: b?.mode === "fix" ? waiting!.thread_id : null, title: b?.title || "New chat",
+        thread_id: b?.mode === "fix" ? waiting!.thread_id : null, phase: b?.mode === "fix" ? "green" : null, title: b?.title || "New chat",
         model: { provider: "claude", mode: "subscription", model: "sonnet" }, status: "idle", tokens_in: 0, tokens_out: 0, tokens_cached: 0, cost_usd: 0,
         turns: 0, created_at: now, updated_at: now, messages: [], busy: false };
       db.helper.sessions.unshift(sess);

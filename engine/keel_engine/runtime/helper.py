@@ -58,7 +58,7 @@ MODE_TEXT = {
 DIFF_MAX = 40_000
 
 FIELDS = ("id", "project", "root", "mode", "title", "model_json", "engine_session", "status", "error", "thread_id",
-          "tokens_in", "tokens_out", "tokens_cached", "cost_usd", "turns", "created_at", "updated_at", "grants_json")
+          "tokens_in", "tokens_out", "tokens_cached", "cost_usd", "turns", "created_at", "updated_at", "grants_json", "phase")
 
 
 class HelperError(Exception):
@@ -77,8 +77,20 @@ def _session(row) -> dict:
     return s
 
 
+def fix_phase(flow: dict | None) -> str:
+    """The phase a Fix chat works in. At a gate the flow's own phase often lets only notes change (phase "gate" at the
+    AC gate), yet a fix there is the work under review: so the Helper takes the phase of the nearest earlier step whose
+    rules let code change (at the AC gate "green"; the api sends `phases_before`, nearest first), else the flow's own."""
+    f = flow or {}
+    phase = str(f.get("phase") or "none")
+    for ph in [phase, *(f.get("phases_before") or [])]:
+        if ph and rules.edits_code(str(ph)):
+            return str(ph)
+    return phase
+
+
 def create(project: str, root: str, mode: str = "ask", model: dict | None = None, title: str = "",
-           thread_id: str | None = None) -> dict:
+           thread_id: str | None = None, flow: dict | None = None) -> dict:
     if mode not in MODES:
         raise HelperError(400, f"Unknown Helper mode {mode!r}.", f"Use one of: {', '.join(MODES)}.")
     if not Path(root).is_dir():
@@ -90,7 +102,8 @@ def create(project: str, root: str, mode: str = "ask", model: dict | None = None
     with db.connect() as conn:
         conn.execute(f"insert into helper_sessions ({', '.join(FIELDS)}) values ({', '.join('?' * len(FIELDS))})",
                      (sid, project, str(Path(root).resolve()), mode, title.strip()[:120] or "New chat",
-                      json.dumps(models.effective(model)), None, "idle", None, thread_id, 0, 0, 0, 0.0, 0, now, now, "[]"))
+                      json.dumps(models.effective(model)), None, "idle", None, thread_id, 0, 0, 0, 0.0, 0, now, now, "[]",
+                      fix_phase(flow) if mode == "fix" else None))
     return get(sid)
 
 
@@ -117,7 +130,7 @@ def get(sid: str, messages: bool = True) -> dict:
 
 def update(sid: str, **fields) -> dict:
     allowed = {k: v for k, v in fields.items() if k in ("title", "model_json", "engine_session", "status", "error",
-                                                       "tokens_in", "tokens_out", "tokens_cached", "cost_usd", "turns")}
+                                                       "tokens_in", "tokens_out", "tokens_cached", "cost_usd", "turns", "phase")}
     if allowed:
         sets = ", ".join(f"{k} = ?" for k in allowed)
         with db.connect() as conn:
@@ -247,7 +260,7 @@ def undo(sid: str, path: str | None = None) -> list[dict]:
     return changes(sid)
 
 
-def done(sid: str, flow: dict, emit=None) -> dict:
+def done(sid: str, flow: dict, emit=None, message: str = "") -> dict:
     """Run the checks, then keel's commit of only the files the Helper changed (runtime/actions.py `commit`: the phase's
     commit rules, secrets, new dependencies, pre-commit tools). The flow's timeline gets a helper.commit event."""
     from . import actions          # late: actions imports most of the runtime
@@ -267,7 +280,9 @@ def done(sid: str, flow: dict, emit=None) -> dict:
         if code != 0:
             return {"ok": False, "step": "checks", "command": cmd, "error": "The checks failed, so keel did not commit.",
                     "output": out[-6000:]}
-    a = actions.ActionInput(root=root, phase=flow.get("phase") or "none", title=f"helper: {s['title']}"[:80], ac=None,
+    # "fix(AC-2): <what the person wrote>" at a criterion's gate, else "fix(helper): ..."; the chat's title by default
+    subject = " ".join((message or s["title"]).split())[:120]
+    a = actions.ActionInput(root=root, phase=fix_phase(flow), title=subject, ac=None, ident=(ac or {}).get("id") or "helper",
                             acs=list(flow.get("acs") or []), fake=False, flow=str(flow.get("workflow") or "helper"),
                             unlocks=list(flow.get("unlocks") or []), deps=list(flow.get("deps") or []), project=s["project"],
                             paths=files, settings={"run_mode": flow.get("run_mode") or "manual"}, thread_id=s["thread_id"] or "")
@@ -337,7 +352,7 @@ def _transcript(hist: list[tuple[str, str]]) -> str:
 
 def build_prompt(*, mode: str, root: str, question: str, know: dict, graph: bool, flow: dict | None,
                  mentions: list[dict] | None, selection: dict | None, open_file: str | None, transcript: str) -> str:
-    parts = [MODE_TEXT[mode].format(phase=(flow or {}).get("phase") or "none"), f"The project folder: {root}"]
+    parts = [MODE_TEXT[mode].format(phase=fix_phase(flow)), f"The project folder: {root}"]
     block = agent_knowledge.prompt_block(root, know, graph)
     if block:
         parts.append(block)
@@ -500,7 +515,9 @@ class HelperRunner:
         if mode == "fix":
             # the flow's phase, criterion and unlocks decide what may change; commands that change something are asked
             ac = flow.get("ac") or None
-            phase, unlocks = flow.get("phase") or "none", list(flow.get("unlocks") or [])
+            phase, unlocks = fix_phase(flow), list(flow.get("unlocks") or [])
+            if phase != s.get("phase"):
+                update(sid, phase=phase)
             key = secrets.token_urlsafe(24)
             self.ask_keys[sid] = key
             toolbox = ToolBox(root, phase, cfg=cfg, lane=rules.ac_lane(ac) if ac else None, ac=(ac or {}).get("id"),

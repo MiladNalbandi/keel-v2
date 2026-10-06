@@ -142,6 +142,7 @@ class HelperCreate(BaseModel):
     model: ModelSpec | None = None
     title: str = ""
     thread_id: str | None = None
+    flow: dict | None = None        # fix: the waiting flow's context (phase, phases_before ...) for the chat's phase
 
 
 class HelperCommands(BaseModel):
@@ -168,6 +169,7 @@ class HelperUndo(BaseModel):
 
 class HelperDone(BaseModel):
     flow: dict[str, Any] = Field(default_factory=dict)   # the waiting flow: phase, acs, ac, unlocks, workflow, run_mode
+    message: str = ""                                    # the commit's subject, as the person wrote it (else the chat's title)
 
 
 class HelperPatch(BaseModel):
@@ -499,7 +501,7 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     @app.post("/helper/sessions")
     async def post_helper_session(body: HelperCreate):
         return await asyncio.to_thread(helper_call, helper.create, body.project_id, project_root(body.root), body.mode,
-                                       body.model.model_dump() if body.model else None, body.title, body.thread_id)
+                                       body.model.model_dump() if body.model else None, body.title, body.thread_id, body.flow)
 
     @app.get("/helper/sessions")
     async def get_helper_sessions(project: str):
@@ -571,7 +573,7 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
             raise EngineError(409, "The Helper is still working in this chat.", "Wait for it, or stop it, then press Done.")
         bus_ = request.app.state.bus
         return await asyncio.to_thread(helper_call, helper.done, sid, body.flow,
-                                       lambda t, tid, pid, data: bus_.emit(t, tid, pid, step="helper", data=data))
+                                       lambda t, tid, pid, data: bus_.emit(t, tid, pid, step="helper", data=data), body.message)
 
     @app.post("/helper/commands")
     async def post_helper_commands(body: HelperCommands):

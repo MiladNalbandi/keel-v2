@@ -14,7 +14,7 @@ class WorkflowApiTest : ApiTest() {
         val list = get("/api/projects/$pid/workflows").andExpect(status().isOk).json()
         val feature = list.first { it["id"].asText() == "feature" }
         assertThat(feature["source"].asText()).isEqualTo("keel")
-        assertThat(feature["steps"].size()).isEqualTo(6)
+        assertThat(feature["steps"].size()).isEqualTo(7)
         // an included step keeps where it came from (the web folds an include into one block); others have no such key
         assertThat(feature["steps"].first { it["id"].asText() == "ship_verify" }["included_from"].asText()).isEqualTo("ship")
         assertThat(feature["steps"].first { it["id"].asText() == "red" }.has("included_from")).isFalse()
@@ -81,8 +81,8 @@ class WorkflowApiTest : ApiTest() {
         assertThat(iw["steps"]).isEqualTo(wf["steps"])
 
         val review = imported["review"]
-        assertThat(review["steps"].asInt()).isEqualTo(6)   // included_from survives the round trip (steps are equal above)
-        assertThat(review["gates"].asInt()).isEqualTo(1)
+        assertThat(review["steps"].asInt()).isEqualTo(7)   // included_from survives the round trip (steps are equal above)
+        assertThat(review["gates"].asInt()).isEqualTo(2)
         assertThat(review["agents"].map { it.asText() }).containsExactly("explorer", "test-author", "implementer")
         assertThat(review["edits_files"].asBoolean()).isTrue()
         assertThat(review["valid"].asBoolean()).isTrue()

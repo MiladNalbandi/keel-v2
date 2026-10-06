@@ -196,11 +196,13 @@ def test_done_runs_the_checks_and_makes_keels_commit_of_only_the_helpers_files(c
     (Path(repo) / "NOTES.md").write_text("the person's own unsaved notes\n")      # never part of the Helper's commit
     s = fix_session(client, repo)
     ask(client, s["id"], "Add the helper.", flow=FLOW)
-    r = client.post(f"/helper/sessions/{s['id']}/done", json={"flow": FLOW}).json()
+    r = client.post(f"/helper/sessions/{s['id']}/done", json={"flow": FLOW, "message": "Ranks use  the new helper"}).json()
     assert r["ok"] is True, r
     assert r["files"] == ["src/scores/helper_fix.py"] and r["sha"]
     log = _sp.run(["git", "log", "-1", "--format=%s", "--name-only"], cwd=repo, capture_output=True, text=True).stdout
-    assert "helper: Add the helper." in log and "src/scores/helper_fix.py" in log and "NOTES.md" not in log
+    # the gate's criterion names it, in the commit type of the phase the chat works in (green: feat)
+    assert log.startswith("feat(AC-1): Ranks use the new helper\n"), log
+    assert "src/scores/helper_fix.py" in log and "NOTES.md" not in log
     assert client.get(f"/helper/sessions/{s['id']}/changes").json() == []
     ev = [e for e in client.bus.recent if e["type"] == "helper.commit"][-1]
     assert ev["thread_id"] == "t-gate" and ev["data"]["sha"] == r["sha"] and ev["data"]["session"] == s["id"]
@@ -269,3 +271,34 @@ def test_permission_rules():
     assert permissions.needs_ask("npm install x") and permissions.needs_ask("echo hi > out.txt")
     assert permissions.granted("npm test -- --watch=false", ["npm test *"])
     assert permissions.granted("git status", ["git status"]) and not permissions.granted("git push", ["git status"])
+
+
+def test_at_a_gate_fix_works_in_the_phase_of_the_work_under_review(client, repo):
+    from keel_engine import rules
+    assert not rules.edits_code("gate") and rules.edits_code("green") and rules.edits_code("spec")
+    assert helper.fix_phase({"phase": "gate", "phases_before": ["gate", "green", "red"]}) == "green"
+    assert helper.fix_phase({"phase": "spec", "phases_before": ["spec"]}) == "spec"
+    assert helper.fix_phase({"phase": "gate"}) == "gate"            # nothing earlier lets code change: the gate's own
+    gate = {**FLOW, "phase": "gate", "phases_before": ["gate", "green", "red"]}
+    s = new_session(client, repo, mode="fix", thread_id="t-gate", flow=gate)
+    assert s["phase"] == "green"
+    _, s = ask(client, s["id"], "Fix it at the AC gate.", flow=gate)
+    assert (Path(repo) / "src" / "scores" / "helper_fix.py").exists()     # green lets source change; "gate" would not
+
+
+async def test_an_older_helper_table_gets_its_new_columns(tmp_path):
+    import aiosqlite
+    from keel_engine.runtime import migrate
+    async with aiosqlite.connect(tmp_path / "m.db") as conn:
+        # the table as the first Helper build made it: no grants_json, no phase
+        await conn.execute("""create table helper_sessions (
+          id text primary key, project text not null, root text not null, mode text not null, title text not null,
+          model_json text not null, engine_session text, status text not null, error text, thread_id text,
+          tokens_in integer not null default 0, tokens_out integer not null default 0, tokens_cached integer not null default 0,
+          cost_usd real not null default 0, turns integer not null default 0, created_at text not null, updated_at text not null)""")
+        await conn.execute("insert into helper_sessions (id, project, root, mode, title, model_json, status, created_at, updated_at) "
+                           "values ('h_old', 'p', '/w', 'ask', 't', '{}', 'idle', 'x', 'x')")
+        await migrate.migrate(conn)
+        await migrate.migrate(conn)
+        async with conn.execute("select grants_json, phase from helper_sessions where id = 'h_old'") as cur:
+            assert await cur.fetchone() == ("[]", None)

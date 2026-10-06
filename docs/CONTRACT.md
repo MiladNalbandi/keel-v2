@@ -1308,8 +1308,13 @@ HelperMention = {kind: file|symbol|ac, value, file?, line?}      HelperSelection
 
 While a flow waits at a gate, a **Fix** chat lets the Helper change files, inside the same rules as the flow:
 
-- **Guard**: the ToolBox and the hook use the waiting flow's phase, criterion (lane and layer) and unlocks, so a file the
-  phase freezes stays frozen. The diff guard checks the files after every turn, as for a flow step.
+- **Guard**: the ToolBox and the hook use the waiting flow's criterion (lane and layer), unlocks and a phase, so a file
+  that phase freezes stays frozen. The diff guard checks the files after every turn, as for a flow step.
+- **Which phase**: a gate's own phase often lets only notes change (the AC gate's `gate`), yet a fix there is the work
+  under review. So the chat works in the nearest phase, from the flow's own back through the steps before the waiting
+  one (the api sends `phases_before`, nearest first), whose rules let code change: at the AC gate `green`, at the spec
+  gate `spec` (`helper.fix_phase`, `rules.edits_code`). The session stores it as `phase`; Done commits with that
+  phase's commit type. A file outside it can still be unlocked for the flow (Repo page).
 - **Permission cards**: a shell command that changes something (`run_mode.readonly_bash` says it is not read-only)
   waits for the person. The PreToolUse hook (claude) and keel's ToolBox (API-key models) call
   `POST /helper/permissions/ask` on the engine with the turn's own ask key (it can only ask; it cannot answer), and wait
@@ -1322,7 +1327,8 @@ While a flow waits at a gate, a **Fix** chat lets the Helper change files, insid
   file (or all) back.
 - **Done**: runs the module's test command (`testcmd.command_for`), then keel's commit of only those files
   (`actions.commit`: the phase's commit rules, secrets, new dependencies, pre-commit tools), leaves a `note` message and
-  emits `helper.commit` on the flow's thread. A failure says which step failed (`changes`, `checks`, `commit`) with the
+  emits `helper.commit` on the flow's thread. The commit reads `<type>(<the gate's criterion, else helper>): <message>`,
+  the type from the chat's phase (at the AC gate `feat(AC-2): …`). A failure says which step failed (`changes`, `checks`, `commit`) with the
   output; the panel can hand it back to the Helper.
 - Fix needs a waiting flow that does not run read-only (409 otherwise), and Done refuses once that flow moved on.
 
@@ -1330,10 +1336,11 @@ While a flow waits at a gate, a **Fix** chat lets the Helper change files, insid
 POST   /api/projects/{pid}/helper/sessions                {mode: "fix", model?, title?} → HelperSession (thread_id = the waiting flow)
 GET    /api/projects/{pid}/helper/sessions/{sid}/changes  → HelperChange[]
 POST   /api/projects/{pid}/helper/sessions/{sid}/undo     {path?} → HelperChange[]   (no path: every file)
-POST   /api/projects/{pid}/helper/sessions/{sid}/done     → HelperDone
+POST   /api/projects/{pid}/helper/sessions/{sid}/done     {message?} → HelperDone   (message: the commit's subject; else the chat's title)
 GET    /api/projects/{pid}/helper/permissions             → HelperQuestion[]   (the commands that wait now)
 POST   /api/projects/{pid}/helper/permissions/{qid}       {decision: once|always|deny, why?} → {id, decision}
 
+HelperSession  += {phase (fix: the phase it works in), grants (fix: the "Always" commands)}
 HelperChange   = {path, status: added|modified|deleted, added, removed, diff}
 HelperDone     = {ok: true, sha, message, files, checks} | {ok: false, step: changes|checks|commit, error, command?, output?}
 HelperQuestion = {id, session, project, thread_id, kind, command, path, title, at}

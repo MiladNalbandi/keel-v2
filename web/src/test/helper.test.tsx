@@ -5,6 +5,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { App } from "../App";
+import { eventLine } from "../components/events";
 import { fileLink, replaceTyping, starters, typingAt, usageText } from "../components/helper/model";
 import { db, FakeEventSource } from "./setup";
 
@@ -51,6 +52,10 @@ describe("Helper: the panel's helpers", () => {
     expect(usageText(1500, 0)).toBe("1.5k tokens");
     expect(usageText(2_400_000, 1.234)).toBe("2.4M tokens · $1.23");
     expect(starters({ flowWaits: true, openFile: "a.kt" })[0]).toBe("/gate");
+    const ev = (type: string, data: Record<string, unknown>) => eventLine({ type, data, thread_id: "t", project_id: "p", at: "" } as never).text;
+    expect(ev("helper.commit", { message: "feat(AC-2): limit is 100 94baef0" })).toBe("the Helper's change committed: feat(AC-2): limit is 100 94baef0");
+    expect(ev("helper.permission", { command: "mkdir -p notes" })).toBe("the Helper asks to run: mkdir -p notes");
+    expect(ev("helper.permission.answered", { decision: "deny", why: "no" })).toBe(`the Helper's command refused — "no"`);
   });
 });
 
@@ -186,10 +191,13 @@ describe("Helper Fix mode at a gate", () => {
     const fixBtn = within(p).getByRole("button", { name: "Fix" });
     await waitFor(() => expect(fixBtn).toBeEnabled());                       // the fixture's flow waits at the AC gate
     await user.click(fixBtn);
-    expect(within(p).getByText("Fix · ac-gate")).toBeInTheDocument();
-    expect(within(p).getByText(/Fixing at the gate/)).toHaveTextContent("Fixing at the gate Scores for players · phase ac-gate.");
+    expect(within(p).getByText("Fix", { selector: ".hp-mode" })).toBeInTheDocument();
+    expect(within(p).getByText(/Fixing at the gate/)).toHaveTextContent(/^Fixing at the gate Scores for players\. keel's rules/);
     await user.type(within(p).getByRole("textbox", { name: "Ask the Helper" }), "Raise the limit to 100{Enter}");
     await waitFor(() => expect(turns()).toHaveLength(1));
+    // the engine picked the phase of the work under review (the AC gate's own phase lets only notes change)
+    expect(await within(p).findByText("Fix · green")).toBeInTheDocument();
+    expect(within(p).getByText(/Fixing at the gate/)).toHaveTextContent(/^Fixing at the gate Scores for players · rules of the green phase\./);
     expect(db.calls.find((c) => c.method === "POST" && c.path.endsWith("/helper/sessions"))?.body).toMatchObject({ mode: "fix" });
     expect(db.helper.sessions[0]).toMatchObject({ mode: "fix", thread_id: "th_7f3a" });
     return { user, p, sid: db.helper.sessions[0].id };
@@ -224,10 +232,24 @@ describe("Helper Fix mode at a gate", () => {
     await waitFor(() => expect(within(box).queryByText("api/Limits.kt")).toBeNull());
     expect(db.calls.find((c) => c.path.endsWith("/undo"))?.body).toEqual({ path: "api/Limits.kt" });
 
+    await user.type(within(box).getByRole("textbox", { name: "Commit message" }), "Limit is 100");
     await user.click(within(box).getByRole("button", { name: "Done: run the checks and commit" }));
     expect(await screen.findByText("keel committed 1 file (c0ffee1).")).toBeInTheDocument();
+    expect(db.calls.find((c) => c.path.endsWith("/done"))?.body).toEqual({ message: "Limit is 100" });
     expect(await within(p).findByText("keel committed the Helper's change: helper: fix")).toBeInTheDocument();
     await waitFor(() => expect(within(p).queryByRole("region", { name: "What the Helper changed" })).toBeNull());
+  });
+
+  it("a missed helper.finished still shows the files the answer changed", async () => {
+    const { p, sid } = await startFix();
+    db.helper.changes[sid] = [{ path: "notes/scope.md", status: "added", added: 3, removed: 0, diff: "--- /dev/null\n+++ b/notes/scope.md\n@@ -0,0 +1 @@\n+a\n" }];
+    const sess = db.helper.sessions[0];
+    sess.messages = [...(sess.messages ?? []), { n: 2, role: "helper", text: "Wrote it.", call_id: "c-x", data: { status: "done" }, at: "" }];
+    sess.status = "idle";
+    sess.busy = false;
+    act(() => FakeEventSource.emit("project.changed", { id: "ludus-engine" }));        // a tick, but no helper.finished
+    const box = await within(p).findByRole("region", { name: "What the Helper changed" });
+    expect(within(box).getByText("notes/scope.md")).toBeInTheDocument();
   });
 
   it("a failed Done shows why, and hands the checks' output back to the Helper", async () => {
@@ -259,5 +281,9 @@ describe("Helper Fix mode at a gate", () => {
     expect(within(p).getByRole("button", { name: "Fix" })).toBeDisabled();
     expect(within(p).getByRole("button", { name: "Ask" })).toHaveAttribute("aria-pressed", "true");
     expect(within(p).getByText("Ask · read only")).toBeInTheDocument();
+    // the flow reaches a gate; the page hears of it on the next live tick (also when the stream comes back)
+    db.flows["ludus-engine"].thread!.status = "waiting";
+    act(() => FakeEventSource.emit("project.changed", { id: "ludus-engine" }));
+    await waitFor(() => expect(within(p).getByRole("button", { name: "Fix" })).toBeEnabled());
   });
 });

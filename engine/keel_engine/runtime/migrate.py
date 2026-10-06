@@ -70,7 +70,7 @@ MIGRATIONS = [
       model_json text not null, engine_session text, status text not null, error text, thread_id text,
       tokens_in integer not null default 0, tokens_out integer not null default 0, tokens_cached integer not null default 0,
       cost_usd real not null default 0, turns integer not null default 0, created_at text not null, updated_at text not null,
-      grants_json text not null default '[]'
+      grants_json text not null default '[]', phase text
     )""",
     """create index if not exists helper_sessions_project on helper_sessions (project, updated_at)""",
     # Fix mode: each file the Helper changed, as it was before its first change (Undo puts it back; Done commits)
@@ -85,9 +85,21 @@ MIGRATIONS = [
 ]
 
 
+# columns added to a table after it first shipped: (table, column, declaration); `create table if not exists` keeps an
+# older table as it was, so these are added when missing
+COLUMNS = [
+    ("helper_sessions", "grants_json", "text not null default '[]'"),
+    ("helper_sessions", "phase", "text"),
+]
+
+
 async def migrate(conn) -> None:
     for sql in MIGRATIONS:
         await conn.execute(sql)
+    for table, column, decl in COLUMNS:
+        cur = await conn.execute(f"pragma table_info({table})")
+        if column not in {row[1] for row in await cur.fetchall()}:
+            await conn.execute(f"alter table {table} add column {column} {decl}")
     await conn.commit()
 
 
