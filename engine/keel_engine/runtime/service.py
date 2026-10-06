@@ -71,7 +71,9 @@ class Engine:
     async def open(self, resume_running: bool = True):
         d = self.data_dir or config.data_dir()
         d.mkdir(parents=True, exist_ok=True)
-        self.conn = await aiosqlite.connect(str(d / "checkpoints.db"), timeout=db.BUSY_MS / 1000)
+        # Autocommit: a write commits inside its own statement, so this connection never holds the write lock while it
+        # waits for the event loop (a sync writer on the loop then waited for that lock: "database is locked" on CI).
+        self.conn = await aiosqlite.connect(str(d / "checkpoints.db"), timeout=db.BUSY_MS / 1000, isolation_level=None)
         await self.conn.execute("pragma journal_mode=wal")
         await self.conn.execute(f"pragma busy_timeout = {db.BUSY_MS}")
         self.saver = AsyncSqliteSaver(self.conn)
