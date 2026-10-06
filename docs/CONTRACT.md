@@ -227,6 +227,11 @@ GET    /api/projects/{pid}/repo/diff?path=&against=head|base&sha=
                                                       → { path, against, ref, diff (unified), binary, truncated }   (head: work tree vs HEAD; base: work tree vs the merge-base
                                                          with main/master; sha: that commit's change; an untracked file diffs against nothing)
 GET    /api/projects/{pid}/repo/commit?sha=           → { sha, message, body, author, at, keel, files: { path, status: "A"|"M"|"D"|"R", from? }[] }
+# web (pages/Repo.tsx + pages/repo/): an activity bar (Explorer, Search, Source control, keel), editor tabs (single click = preview
+# tab replaced by the next one, double click = pinned), a status bar. Deep links: #/repo/<path> opens a file, #/repo/<path>:<line>
+# opens it at that line and highlights it (the Map links a table to its migration this way); the URL follows the active tab.
+# Keys: Ctrl/⌘+P quick open (":12" = line), +Shift+F search, +Shift+E explorer, +Shift+G source control, +F find in file,
+# +G go to line, Alt+Z word wrap. Text files up to 2 MB are shown; long files render only the rows on screen.
 GET    /api/projects/{pid}/keel-docs                  → { path, what, by, updated, status: "ok"|"live"|"check" }[]
 GET    /api/projects/{pid}/memory                     → { facts: Fact[], knowledge: { id, status: "written"|"stale"|"missing", words, cites }[] }
 POST   /api/projects/{pid}/memory  { title, text, kind }      PUT /api/projects/{pid}/memory/{fid}   DELETE /api/projects/{pid}/memory/{fid}

@@ -61,7 +61,7 @@ function tabTitle(t: EditorTab): string {
   return nameOf(t.path);
 }
 
-export function RepoIde({ pid, repo }: { pid: string; repo: RepoInfo | null }) {
+export function RepoIde({ pid, repo, version = 0 }: { pid: string; repo: RepoInfo | null; version?: number }) {
   const { project } = useApp();
   const route = useRoute();
   const narrow = useNarrow(720);
@@ -127,7 +127,10 @@ export function RepoIde({ pid, repo }: { pid: string; repo: RepoInfo | null }) {
     const follow = () => {
       const r = parseHash(location.hash);
       const link = r.page === "repo" ? parseDeepLink(r.arg) : null;
-      if (link) open({ path: link.path, view: "code" }, { line: link.line });
+      if (link) {
+        open({ path: link.path, view: "code" }, { line: link.line });
+        setReveal((n) => n + 1);
+      }
     };
     follow();
     window.addEventListener("hashchange", follow);
@@ -211,7 +214,9 @@ export function RepoIde({ pid, repo }: { pid: string; repo: RepoInfo | null }) {
   const tabsRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const c = crumbsRef.current;
-    if (c) c.scrollLeft = c.scrollWidth;
+    if (!c) return;
+    c.scrollLeft = c.scrollWidth;
+    c.dataset.cut = c.scrollLeft > 0 ? "1" : "";
   });
   useEffect(() => {
     const strip = tabsRef.current;
@@ -251,7 +256,7 @@ export function RepoIde({ pid, repo }: { pid: string; repo: RepoInfo | null }) {
   const sideView = (
     <>
       <div hidden={activity !== "explorer"} className="sv-host">
-        <Explorer pid={pid} title={project?.name ?? pid} root={project?.root} changes={changes.data ?? []} active={activeFile} reveal={reveal} focusFilter={filterFocus}
+        <Explorer pid={pid} title={project?.name ?? pid} root={project?.root} changes={changes.data ?? []} active={activeFile} reveal={reveal} focusFilter={filterFocus} version={version}
           onOpen={(p, pin) => openFile(p, pin)} />
       </div>
       <div hidden={activity !== "search"} className="sv-host">
@@ -309,7 +314,7 @@ export function RepoIde({ pid, repo }: { pid: string; repo: RepoInfo | null }) {
     body = (
       <div className="ed-big">
         <Notice title={`Too big to show: ${bytes(metaData.size)}.`}>keel shows text files up to {bytes(TEXT_MAX)}. Here are its first lines; search finds text anywhere in it.</Notice>
-        <CodeView text={metaData.head} path={metaData.path} wrap={false} target={null} cmd={null} onCursor={setCursor} onLink={() => undefined} scrollKey={`${active.id}:head`} />
+        <CodeView key={`${active.id}:head`} text={metaData.head} path={metaData.path} wrap={false} target={null} cmd={null} onCursor={setCursor} onLink={() => undefined} scrollKey={`${active.id}:head`} />
       </div>
     );
   } else if (!text) {
@@ -320,7 +325,7 @@ export function RepoIde({ pid, repo }: { pid: string; repo: RepoInfo | null }) {
     body = <MarkdownPane text={text.text} />;
   } else {
     body = (
-      <CodeView text={text.text} path={metaData.path} wrap={wrap} target={targets[active.id] ?? null} cmd={cmd}
+      <CodeView key={active.id} text={text.text} path={metaData.path} wrap={wrap} target={targets[active.id] ?? null} cmd={cmd}
         onCursor={setCursor} onLink={(n) => setLinks((x) => ({ ...x, [active.id]: n }))} scrollKey={active.id} />
     );
   }

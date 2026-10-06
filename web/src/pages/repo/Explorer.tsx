@@ -3,7 +3,7 @@
 // lazy loading (a folder's subtree is fetched when it opens). Long lists render only the rows on screen.
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { api, errorParts, type Change, type TreeNode } from "../../api";
+import { api, ApiError, errorParts, type Change, type TreeNode } from "../../api";
 import { ErrorBox } from "../../components/ui";
 import { Chevron, FileIcon, FolderIcon, Icon } from "./icons";
 import { ancestors, changedFolders, decoOf, depthOf, indexTree, parentOf, visibleRows, type Row } from "./model";
@@ -22,6 +22,8 @@ type Props = {
   active: string | null;
   reveal: number;
   focusFilter: number;
+  /** Bumped when the files changed under us (a merge): read the tree again. */
+  version?: number;
   onOpen: (path: string, pin: boolean) => void;
 };
 
@@ -33,7 +35,7 @@ function load(key: string): Set<string> {
   }
 }
 
-export function Explorer({ pid, title, root, changes, active, reveal, focusFilter, onOpen }: Props) {
+export function Explorer({ pid, title, root, changes, active, reveal, focusFilter, version = 0, onOpen }: Props) {
   const [nodes, setNodes] = useState<TreeNode[] | null>(null);
   const [err, setErr] = useState<{ message: string; hint?: string } | null>(null);
   /** Folder → how many levels below it are loaded ("" = the root). */
@@ -66,7 +68,14 @@ export function Explorer({ pid, title, root, changes, active, reveal, focusFilte
         return [...(have ?? []), ...more.filter((n) => !seen.has(n.path))];
       });
     } catch (e) {
-      setErr(errorParts(e));
+      // a folder that is gone (open last time, deleted since) just closes
+      if (e instanceof ApiError && e.status === 404) {
+        setExpanded((x) => {
+          const n = new Set(x);
+          n.delete(dir);
+          return n;
+        });
+      } else setErr(errorParts(e));
     } finally {
       setPending((p) => {
         const n = new Set(p);
@@ -76,27 +85,26 @@ export function Explorer({ pid, title, root, changes, active, reveal, focusFilte
     }
   }, [pid]);
 
+  const expandedRef = useRef(expanded);
+  expandedRef.current = expanded;
+
+  /** The first levels, then every open folder again (open last time in this browser tab, or revealed meanwhile). */
   const refresh = useCallback(async () => {
     setErr(null);
     try {
       const first = await api.tree(pid, FIRST);
       loaded.current = new Map([["", first.length >= 5000 ? 1 : FIRST]]);
       setNodes(first);
+      const open = [...expandedRef.current].sort((a, b) => depthOf(a) - depthOf(b));
+      for (const d of open) if (!isLoaded(d)) void fetchDir(d);
     } catch (e) {
       setErr(errorParts(e));
     }
-  }, [pid]);
+  }, [pid, isLoaded, fetchDir]);
 
   useEffect(() => {
     void refresh();
-  }, [refresh]);
-
-  // folders that were open last time (this browser tab) load their children again
-  useEffect(() => {
-    if (!nodes) return;
-    for (const d of expanded) if (!isLoaded(d) && !pending.has(d) && nodes.some((n) => n.path === d)) void fetchDir(d);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nodes === null]);
+  }, [refresh, version]);
 
   useEffect(() => {
     try {
@@ -142,6 +150,9 @@ export function Explorer({ pid, title, root, changes, active, reveal, focusFilte
   useEffect(() => {
     if (focusFilter) filterRef.current?.focus();
   }, [focusFilter]);
+
+  // the open file is the selected row again when another tab becomes active
+  useEffect(() => setFocus(null), [active]);
 
   const sel = focus ?? active;
   const selIndex = rows.findIndex((r) => r.node.path === sel);

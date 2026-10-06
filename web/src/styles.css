@@ -348,18 +348,6 @@ button.skilltag:hover { border-color: var(--accent); color: var(--accent); }
 .graph .ghost { fill: var(--panel); stroke: var(--rail); stroke-width: 1.4; }
 
 /* repo + settings */
-.branchbar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding: 10px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
-.br-ic { font-size: 18px; color: var(--accent); }
-.tree { display: grid; font-family: var(--f-mono); font-size: 12.5px; }
-.trow { display: flex; align-items: center; gap: 6px; text-align: left; background: transparent; border: 0; border-radius: 6px; padding-block: 4px; padding-right: 8px; cursor: default; color: var(--fg); min-width: 0; }
-.trow.file { cursor: pointer; }
-.trow.file:hover { background: var(--panel-2); }
-.trow.sel { background: var(--accent-soft); }
-.trow.dir .tn { font-weight: 600; }
-.trow .tn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ti { color: var(--faint); width: 10px; display: inline-block; }
-.fm { font: 700 11px var(--f-mono); width: 16px; height: 16px; border-radius: 4px; display: inline-grid; place-items: center; }
-.fm.a { background: var(--ok-soft); color: var(--ok); } .fm.m { background: var(--warn-soft); color: var(--warn); }
 .mem { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; display: grid; gap: 4px; background: var(--bg); }
 .setgrid { align-items: start; }
 .setrow { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,190px); gap: 4px 12px; align-items: center; padding: 9px 0; border-bottom: 1px dashed var(--border); }

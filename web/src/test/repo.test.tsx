@@ -132,6 +132,43 @@ describe("Repo IDE", () => {
     expect(screen.getByText("Pick a file in the Explorer, or find one by name.")).toBeInTheDocument();
   });
 
+  it("the explorer moves with the arrow keys, opens folders with →, files with Space (preview) or Enter (pinned), and filters", async () => {
+    const user = userEvent.setup();
+    at("#/repo");
+    render(<App />);
+    const tree = await screen.findByRole("tree", { name: "Files" });
+    const item = (name: string | RegExp) => within(tree).getByRole("treeitem", { name });
+    (await within(tree).findByRole("treeitem", { name: /^\.keel/ })).focus();
+    await user.keyboard("{ArrowDown}");
+    expect(item(/^api/)).toHaveFocus();
+    await user.keyboard("{ArrowRight}");
+    expect(item(/^api/)).toHaveAttribute("aria-expanded", "true");
+    await user.keyboard("{ArrowRight}");
+    expect(item("Open api/ScoreController.kt")).toHaveFocus();
+    await user.keyboard(" ");
+    await screen.findByRole("region", { name: "Code of api/ScoreController.kt" });
+    expect(tabs()[0]).toHaveClass("preview");
+    item("Open api/ScoreController.kt").focus();
+    await user.keyboard("{ArrowDown}{Enter}");
+    await screen.findByRole("region", { name: "Code of api/ScoreRepository.kt" });
+    // Enter opens it pinned, next to the preview tab
+    expect(tabs()).toHaveLength(2);
+    expect(tabs()[1]).not.toHaveClass("preview");
+    // the frozen file shows its lock; ← goes to the folder, again ← closes it
+    expect(within(item("Open api/ScoreRepository.kt")).getByTitle("Frozen in this phase: agents cannot edit it")).toBeInTheDocument();
+    item("Open api/ScoreRepository.kt").focus();
+    await user.keyboard("{ArrowLeft}");
+    expect(item(/^api/)).toHaveFocus();
+    await user.keyboard("{ArrowLeft}");
+    expect(item(/^api/)).toHaveAttribute("aria-expanded", "false");
+    // filter as you type: matching files and the folders on their way
+    await user.type(screen.getByRole("searchbox", { name: "Filter files" }), "repo");
+    expect(within(tree).getAllByRole("treeitem").map((t) => t.dataset.path)).toEqual(["api", "api/ScoreRepository.kt"]);
+    // git decorations: M on the changed file, a dot on its folder
+    await user.clear(screen.getByRole("searchbox", { name: "Filter files" }));
+    expect(within(item(/^\.keel/)).getByLabelText("Has changes")).toBeInTheDocument();
+  });
+
   it("a deep link with a line opens the file there and highlights the line; the URL keeps it", async () => {
     at("#/repo/api/ScoreController.kt:9");
     render(<App />);

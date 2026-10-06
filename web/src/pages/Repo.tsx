@@ -13,18 +13,24 @@ export function RepoPage({ pid }: { pid: string }) {
   const { project } = useApp();
   const repo = useLoad(`repo:${pid}`, () => api.repo(pid));
   const [result, setResult] = useState<UpdateFromBase | { error: { message: string; hint?: string } } | null>(null);
+  /** Bumped after a merge brought new files: the explorer reads the tree again. */
+  const [version, setVersion] = useState(0);
   return (
     <div className="repo-page">
       <PageHead title="Repo" sub={<>Read, search and check the code of {project?.name ?? pid}. Read-only: keel never edits files here.</>}
         actions={<>
           <IndexBadge pid={pid} />
           {repo.data && repo.data.base && repo.data.branch && repo.data.base !== repo.data.branch && (
-            <UpdateFromBaseButton pid={pid} r={repo.data} onResult={(x) => { setResult(x); void repo.reload(); }} />
+            <UpdateFromBaseButton pid={pid} r={repo.data} onResult={(x) => {
+              setResult(x);
+              void repo.reload();
+              if ("merged" in x && x.merged) setVersion((v) => v + 1);
+            }} />
           )}
         </>} />
       {repo.error && <div style={{ marginBottom: 12 }}><ErrorBox error={repo.error} onRetry={() => void repo.reload()} /></div>}
       {result && <UpdateResult result={result} base={repo.data?.base ?? "base"} onClose={() => setResult(null)} />}
-      <RepoIde pid={pid} repo={repo.data} />
+      <RepoIde pid={pid} repo={repo.data} version={version} />
     </div>
   );
 }
