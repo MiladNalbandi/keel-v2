@@ -382,6 +382,9 @@ class TasksApiTest : ApiTest() {
         val unsaved = post("/api/projects/$pid/jira/test", mapOf("token" to "typo-token-777")).json()
         assertThat(unsaved["ok"].asBoolean()).isFalse()
         assertThat(unsaved.toString()).doesNotContain("typo-token-777")
+        val elsewhere = post("/api/projects/$pid/jira/test", mapOf("base_url" to "https://elsewhere.example.com")).json()
+        assertThat(elsewhere["ok"].asBoolean()).isFalse()
+        assertThat(elsewhere["hint"].asText()).contains("another Jira URL")
 
         val d = get("/api/projects/$pid/jira/discover?key=ABC-1").andExpect(status().isOk).json()
         assertThat(d["statuses"].map { it["name"].asText() }).containsExactly("To Do", "In Progress", "In Review", "Testing in PP", "Ready for Production", "Done")
