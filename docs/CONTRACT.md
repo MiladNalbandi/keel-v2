@@ -979,3 +979,142 @@ FlowLimits = { cap_tokens, on_cap, cap_usd?, on_cap_usd?, step_cap_tokens?, step
 `GET /api/connections` runs its `--version` checks (and `docker version`) **in parallel** on a pool of 8
 (`connections/MachineTools.kt`), each still at most 5 s and cached for a minute, so the answer takes about the slowest
 single check instead of their sum (8 checks of 1 s: about 1.4 s instead of 8 s).
+
+
+## v0.5.0: tasks and Jira
+
+A task is a piece of work for one project: **local** (made in keel) or **jira** (synced from a Jira ticket, or made in
+keel with a Jira key). A task starts a flow only when the user presses **Start** (no automatic pick-up); keel then walks
+it To do → In progress → In review → Testing (PP) → Ready for production → Done and waits for the user at PP and
+release (keel never deploys and never pushes). The work can still start as a plain flow on the Flow page.
+
+### Data (Flyway V7)
+```
+tasks(id, project_id, title, description, type bug|story|task, status todo|in_progress|in_review|testing_pp|ready_prod|done|cancelled|blocked,
+      source local|jira, external_key, external_url, external_status, assignee, priority, thread_id, workflow_id, pr_url,
+      reviewers json [{login, on: github|jira, state: wanted|requested|approved|changes_requested|commented|set}], blocked_reason,
+      created_at, updated_at)                                   unique (project_id, external_key)
+task_events(id, task_id, at, kind, from_status, to_status, note, actor user|keel|jira)
+task_inbox(id, task_id, project_id, kind task|jira-manual, stage pp|prod|<Jira status>|reviewers, title, detail, created_at, done_at)
+jira_connections(project_id, json JiraSettings, me_json, last_sync_at, last_sync_error, updated_at)
+```
+The Jira token is a secret (`SecretService`, AES-GCM) named `jira.<project id>`; it is never returned, logged or put in
+an error. Event kinds: created, updated, start, start_refused, flow, pr, reviewers, review, approved, confirm, send_back,
+status, blocked, note, jira (keel moved the ticket), jira_status (changed in Jira), jira_update, jira_error, jira_manual,
+github, github_error.
+
+### Api
+```
+GET    /api/projects/{pid}/tasks?source=local|jira    → { tasks: Task[], sync: { connected, kind, last_sync_at, last_sync_error, me, poll_minutes } }
+POST   /api/projects/{pid}/tasks  { title, description?, type?, external_key?, external_url?, assignee?, priority?, reviewers?: string[] } → Task
+POST   /api/projects/{pid}/tasks/sync               → SyncResult { ok, jira, total, created, updated, moved, at, error?, hint?, reviews_checked, reviews_moved }
+GET    /api/tasks/{id}                              → Task & { events: TaskEvent[] }      (oldest first)
+PUT    /api/tasks/{id}   { title?, description?, type?, external_key?, external_url?, assignee?, priority?, reviewers? } → Task
+DELETE /api/tasks/{id}                              → { ok }   (the Jira ticket stays)
+POST   /api/tasks/{id}/start   { workflow_id?, run_mode?, allow_dirty?, allow_fake? } → Task
+POST   /api/tasks/{id}/confirm { stage: pp|prod, note? }       → Task
+POST   /api/tasks/{id}/status  { to, note? }                   → Task   (back to in_progress from review/PP/ready = send back: note needed)
+POST   /api/tasks/{id}/pr      { url }                          → Task   (the user pastes the PR link)
+POST   /api/inbox/tasks/{item_id}/act { action: confirm|send_back|done, note? } → Task
+GET    /api/projects/{pid}/jira                     → JiraView { connected, settings, token_set, token_hint, default_jql, jql, last_sync_at, last_sync_error, me, mcp_server }
+PUT    /api/projects/{pid}/jira  JiraSettings + { token? }   → JiraView   (null keeps a value, "" clears it; a blank token keeps the saved one)
+DELETE /api/projects/{pid}/jira                     → { ok }   (also the token and the jira-<pid> MCP server)
+POST   /api/projects/{pid}/jira/test  [unsaved JiraSettings + token]  → { ok, user?, error?, hint?, kind? }   (GET /rest/api/2/myself)
+GET    /api/projects/{pid}/jira/discover?key=       → { statuses, transitions (of that ticket), fields (reviewer candidates), suggested, keel_statuses }
+GET    /api/projects/{pid}/mcp-catalog              → CatalogEntry[]   { id, name, about, url, license, command, ready, why, server, added }
+POST   /api/projects/{pid}/mcp-catalog/jira         → McpServer       (added turned off)
+type Task = { id, project_id, title, description, type, status, source, external_key, external_url, external_status, assignee, priority,
+              thread_id, workflow_id, pr_url, reviewers, blocked_reason, created_at, updated_at,
+              flow: { thread_id, workflow_id, status, phase, current, title } | null, waiting: TaskItem[] }
+type JiraSettings = { kind: cloud|server, base_url, email (cloud), project_key, board_id, jql, status_map: {keel status: Jira status|transition|"-"},
+                      reviewer_field, jira_reviewers: string[], github_reviewers: string[], poll_minutes (0 = only Sync now) }
+```
+- **Start**: the workflow is `workflow_id`, else by type: bug → `fix`, story → `feature`, task → `change`. The flow's title is
+  `KEY: title`; its request is title + description + "Jira ticket: KEY (url)". A refused start (a used-up cap, uncommitted
+  files, the fake model, an unknown workflow) keeps the status and records `start_refused` with the api's error and hint;
+  the error is returned as it was (409 / 404). A task whose flow runs or waits cannot start another (409).
+- **Inbox**: `InboxItem` gains `task: { id, item_id, key, url, title, status, stage, pr_url, actions: [{id, label, needs_note}] }`
+  for the kinds `task` (Confirm PP testing, Ship to production: confirm | send_back) and `jira-manual` (done). Their `id` is
+  `task-item-<n>`, `thread_id` the task's flow (or ""). `GET /api/inbox/count` and `Project.waiting` count open task items. Opening
+  one also creates a `review` notification linked to `/tasks/<id>`; every task change publishes `project.changed`.
+
+### The lifecycle (`api/.../tasks/TaskMachine.kt`, no IO; `TaskService.fire` applies it)
+
+| Trigger | From | To | Jira (when the task has a key) | Inbox |
+|---|---|---|---|---|
+| Start (user) | todo, in_progress, blocked | in_progress | move to the in_progress status; comment "keel started the <flow> flow… <link>" | — |
+| PR opened (engine `step.finished` note "PR opened: <url>", or `pr_url` in the thread state at `thread.done`) or pasted (user) | todo, in_progress, blocked | in_review | move; comment "Pull request: <url>"; set the reviewer field | — (GitHub reviewers asked with a token) |
+| Flow done without a PR | in_progress | in_progress | — | — (history: "paste its link") |
+| Flow failed / stopped (`thread.failed`, `thread.done {status: stopped}`) | in_progress | blocked (reason) | move only when `blocked` is mapped; comment | — |
+| Hand-off (`thread.started` with `data.parent` = the task's thread) | any | same; the task follows the new thread | — | — |
+| PR approved (review poll: an APPROVED, no CHANGES_REQUESTED as latest per reviewer) | in_review | testing_pp | move; comment "approved by …" | task/pp "Confirm PP testing for KEY" |
+| Changes requested | in_review | in_review | — | — (history) |
+| Confirm pp (user) | testing_pp | ready_prod | move; comment "Testing in PP passed." | task/prod "Ship KEY to production" |
+| Confirm prod (user) | ready_prod | done | move; comment "Shipped to production." | — |
+| Send back (user, note) | in_review, testing_pp, ready_prod | in_progress | move; comment "Sent back from …" | open task items close |
+| Move by hand (user) | any (≠ to) | to | move (cancelled/blocked only when mapped); comment = the note; cancelled stops the flow | the item of the new status |
+| Changed in Jira (sync, actor jira) | any | the mapped status, else unchanged | nothing (never moved back) | the item of the new status |
+
+- Leaving a status closes the task's open `task` items. A Jira target is the mapping's value, else the usual name (To Do,
+  In Progress, In Review, Testing in PP, Ready for Production, Done); `-` = do not move. `transitionTo` reads the ticket's
+  status (already there → nothing), then `GET /transitions` and picks the one whose target status, else whose name, matches.
+- **No connection, or Jira refused / unreachable** for a task with a key: an Inbox item `jira-manual` "Move KEY to <status>
+  in Jira (keel could not: <why>)" (an older one is replaced; a later successful move closes it); **Done** records
+  `jira_manual` (actor user) and sets `external_status`. The reviewer field the same way ("Set the reviewers of KEY…").
+  A failed comment is only a `jira_error` event. Local tasks without a key go through the same states with no Jira step.
+- **GitHub reviewers**: the task's own logins, else the connection's `github_reviewers` (`org/team` → `team_reviewers`);
+  `POST /repos/{o}/{r}/pulls/{n}/requested_reviewers` with the stored token (`GITHUB_TOKEN`, else `GH_TOKEN`, else the
+  environment). No token: a `github` event says so and nobody is asked. The review poll reads `GET …/pulls/{n}/reviews`.
+  GitHub Enterprise PR URLs use `https://<host>/api/v3`; `keel.tasks.github-api` (`KEEL_GITHUB_API`) overrides.
+- **Sync** (Sync now, and every `poll_minutes` per connection; the PR reviews every second scheduler tick): issues from the
+  board (`/rest/agile/1.0/board/{id}/issue?jql=`) when `board_id` is set, else the search; JQL = `jql`, else
+  `assignee = currentUser() AND statusCategory != Done ORDER BY priority DESC` (prefixed `project = KEY AND` when a project
+  key is set and no board). Upsert by key (type: Bug → bug, Story/Epic → story, else task; description as text); open tasks
+  whose key left the query are read again with `key in (…)`. A status that differs from `external_status` is a `jira_status`
+  event; the task moves when the mapping (or a usual name, or the done category) says where. Errors go to `last_sync_error`.
+  A sync never writes to Jira.
+- Engine events reach the lifecycle through `EventService` → `EngineEventStored` (Spring event) → `TaskEngineEvents`, which
+  checks with one indexed query that a task follows the thread and runs the rest on one background worker
+  (`keel.tasks.inline-effects` runs it on the event thread in tests). Links in comments use `KEEL_PUBLIC_URL`
+  (`keel.tasks.public-url`, default `http://127.0.0.1:8080`) + `/#/tasks/<id>`.
+
+### Jira Cloud vs Server / Data Center (`api/.../jira/JiraClient.kt`, Spring `RestClient`, no SDK)
+
+| | Cloud (`https://<site>.atlassian.net`) | Server / Data Center |
+|---|---|---|
+| Auth | Basic base64(email:API token) | Bearer personal access token |
+| Test | `GET /rest/api/2/myself` (accountId) | the same (name) |
+| Search | `GET /rest/api/3/search/jql` (nextPageToken; description in ADF → plain text); 404 → falls back to `/rest/api/2/search` | `GET /rest/api/2/search` (startAt/total) |
+| Board | `GET /rest/agile/1.0/board/{id}/issue` | the same |
+| Transitions | `GET`/`POST /rest/api/2/issue/{key}/transitions` | the same |
+| Comment | `POST /rest/api/2/issue/{key}/comment {body: text}` — **v2 plain text on both** (Cloud's v3 would need ADF) | the same |
+| Reviewer field | `PUT /rest/api/2/issue/{key}`; users as `{accountId}` (an email is looked up with `/rest/api/2/user/search?query=`) | users as `{name}` |
+| Discovery | `GET /rest/api/2/project/{key}/statuses` (or `/rest/api/2/status`), `GET /rest/api/2/field` | the same |
+
+Errors: 401 "Jira refused the login (401)." with a hint per kind; 403 (and the CAPTCHA case from `X-Seraph-LoginReason`),
+404 (what was not found), 400/409/422 with Jira's own `errorMessages`/`errors`, 429, 5xx, and network failures in words
+(connection refused, unknown host, timeout, TLS). Every message is cleaned of the token and the Basic credentials. Redirects
+are not followed.
+
+### The optional Jira MCP server
+Tools › Catalog offers **Jira (mcp-atlassian)** (github.com/sooperset/mcp-atlassian, MIT) for a project with a Jira
+connection: `POST /api/projects/{pid}/mcp-catalog/jira` adds `jira-<pid>` = `uvx mcp-atlassian`, **turned off**, env
+`JIRA_URL`, `JIRA_USERNAME` + `JIRA_API_TOKEN` (Cloud) or `JIRA_PERSONAL_TOKEN` (Server), `READ_ONLY_MODE=true`,
+`JIRA_PROJECTS_FILTER=<key>`. MCP env values `secret:<name>` are resolved by `McpService` only when a flow or a test starts
+the server, so `GET /api/mcp-servers` never shows the token. To use it: turn it on, add it to Settings › MCP servers,
+allow it per agent. Saving the connection refreshes its env; deleting the connection deletes it. keel itself never needs it.
+
+### Engine
+`ThreadState` gains `pr_url` (from `data.pr_url`, which `open_pr` sets when it opened the PR).
+
+### Web
+- **Run › Tasks** (`pages/Tasks.tsx`, `tasksApi.ts`): the board (To do, In progress, In review, Testing (PP), Ready, Done; Blocked
+  when a task is blocked; cancelled under Done), cards (key or "local", type, assignee, flow status, PR, reviewers, "needs
+  you"), Mine / All, source and text filters, Sync now and the last sync (or "Connect Jira"), New task, and the task drawer
+  (status, Jira link and status, flow with Open flow, PR, reviewers, its Inbox items with their buttons, Start flow with the
+  workflow by type and the run mode, PR link, Mark approved, Confirm PP, Ship, Send back with a reason, Cancel, Reopen,
+  Delete, the history). `#/tasks/<id>` opens a task (and switches to its project).
+- **Inbox**: task items with their buttons and "Open task ▸". **Connections › Jira** (`components/JiraCard.tsx`): a card per
+  project (Cloud / Server, URL, email, token, project key, board, poll, JQL, Test, Connect/Save/Remove; when connected: the
+  status mapping found from Jira with a select per keel status, the reviewer field, Jira and GitHub reviewers).
+  **Tools › Catalog**: the optional Jira MCP server.
