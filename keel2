@@ -275,13 +275,16 @@ cmd_status() {
   if ! container_exists; then info "keel is ${B}not running${N}. Start it: keel2 start /path/to/project"; return 0; fi
   if ! container_running; then info "keel is ${B}stopped${N} (container $NAME exists). Start it again: keel2 restart"; return 0; fi
   local port; port="$(running_port)"
-  local health=starting; curl -fs "$(api "$port")/health" >/dev/null 2>&1 && health=ready
+  local health=starting body version=""
+  if body="$(curl -fs "$(api "$port")/health" 2>/dev/null)"; then
+    health=ready
+    version="$(printf '%s' "$body" | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')"
+  fi
   info "keel is ${B}running${N} ($health)"
   info "  dashboard  http://localhost:$port"
+  [ -n "$version" ] && info "  version    keel v2 $version"
   info "  project    $(label project)"
   info "  docker     $([ "$(label docker)" = 1 ] && echo "on (tests may start containers)" || echo off)"
-  local v1=starting; curl -fs "http://localhost:$port/keel-v1/api/hello" >/dev/null 2>&1 && v1=running
-  info "  keel v1    http://localhost:$port/keel-v1/ ($v1)"
   [ -n "$(label keelv1)" ] && info "  keel v1    MCP server offered from $(label keelv1) (Tools, off until turned on)"
   info "  image      $(docker inspect -f '{{.Config.Image}}' "$NAME")"
   info "  data       volume $VOLUME"
@@ -330,6 +333,8 @@ cmd_doctor() {
 
 cmd_update() {
   need_docker
+  # keel v2 does not use keel v1 any more: the old setting does nothing now
+  [ -n "${KEEL_HOME:-}" ] && warn "KEEL_HOME is set but ignored since 0.4.1: keel v2 does not use keel v1 (see: keel2 help, --with-keel-v1)."
   info "Getting the newest image ($IMAGE)…"
   docker pull "$IMAGE" || die "Could not download $IMAGE." "Check your internet connection."
   if container_exists && [ -n "$(label project)" ]; then cmd_restart; else ok "updated. Start keel with: keel2 start /path/to/project"; fi
