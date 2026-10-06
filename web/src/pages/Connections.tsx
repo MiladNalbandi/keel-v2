@@ -1,10 +1,12 @@
 // Connections (Control): which accounts the agents use — mode per provider, API keys (stored encrypted,
-// never shown again), a test call per provider, and what is installed on this machine.
+// never shown again), a test call per provider, and what is installed on this machine. Each provider's card shows at
+// once with its own "Checking…" and fills in when the check answers; a card that misses a login says so first.
 
 import { useEffect, useRef, useState } from "react";
 import { api, errorParts, type Connections, type LoginView, type Mode, type Model } from "../api";
 import { defaultModel, ModelPicker, modeLabel, useCatalog } from "../components/ModelPicker";
-import { Async, Drawer, PageHead, Panel, Prov } from "../components/ui";
+import { EmptyState, Section, Spinner } from "../components/page";
+import { Drawer, ErrorBox, PageHead, Panel, Pill, Prov, type PillTone } from "../components/ui";
 import { useApp, useLoad } from "../state";
 import { UsageLine } from "../components/UsageStrip";
 
@@ -197,7 +199,21 @@ function LoginHelper({ p, onClose, onSaved }: { p: Connections["providers"][numb
   );
 }
 
-function Provider({ p, onChanged }: { p: Connections["providers"][number]; onChanged: () => void }) {
+type Conn = Connections["providers"][number];
+type State = { tone: PillTone; text: string; need?: "login" | "key" | "cli" };
+const CLI: Record<string, string> = { claude: "claude CLI", codex: "codex CLI", copilot: "Copilot CLI" };
+
+/** Can this provider's agents run now, and if not, what is missing (a login, a key, the CLI)? */
+export function connState(p: Conn): State {
+  if (p.id === "fake") return { tone: "ok", text: "Ready, no network" };
+  const m = p.modes.find((x) => x.id === p.selected);
+  if (p.selected === "api") return p.key_set ? { tone: "ok", text: "API key saved" } : { tone: "warn", text: "No API key", need: "key" };
+  if (m && !m.ready) return { tone: "bad", text: `${p.selected === "opencode" ? "OpenCode" : CLI[p.id] ?? "CLI"} not installed`, need: "cli" };
+  if (p.login_secret && !p.login_set) return { tone: "warn", text: "No login saved", need: "login" };
+  return { tone: "ok", text: p.login_set ? "Ready, logged in" : "Ready" };
+}
+
+function Provider({ p, onChanged }: { p: Conn; onChanged: () => void }) {
   const { toast } = useApp();
   const [key, setKey] = useState("");
   const [hint, setHint] = useState(p.key_hint ?? "");
@@ -210,6 +226,7 @@ function Provider({ p, onChanged }: { p: Connections["providers"][number]; onCha
   const [allModel, setAllModel] = useState<Model | null>(null);
   const forAll: Model = allModel && allModel.mode === mode ? allModel : defaultModel(catalog, p.id, mode);
   const secret = SECRET[p.id];
+  const state = connState({ ...p, selected: mode, key_set: keySet });
   const pick = async (m: Mode) => {
     const old = mode;
     setMode(m);
@@ -254,88 +271,128 @@ function Provider({ p, onChanged }: { p: Connections["providers"][number]; onCha
       setTest({ ok: false, text: er.hint ? `${er.message} ${er.hint}` : er.message });
     }
   };
+  const focusKey = () => document.getElementById(`key-${p.id}`)?.focus();
+  const head = `conn-${p.id}`;
   return (
-    <div className="conn">
+    <article className={`panel cn-card${state.need ? " is-need" : ""}`} aria-labelledby={head} data-testid={`conn-${p.id}`}>
       {helper && <LoginHelper p={p} onClose={() => setHelper(false)} onSaved={onChanged} />}
-      <div><h3><Prov p={p.id} /></h3><span className="sub">{USE[p.id] ?? p.label}</span></div>
-      <div className="modes">
-        {p.modes.map((m) => (
-          <label key={m.id} className="radio">
-            <input type="radio" name={`mode-${p.id}`} value={m.id} checked={mode === m.id} onChange={() => void pick(m.id)} />
-            <span><b>{m.label}</b> — {m.detail} {m.ready ? <span className="amber" style={{ color: "var(--ok)" }}>✓</span> : <span className="hint">not ready</span>}</span>
-          </label>
-        ))}
-        {p.login_secret && LOGIN_HELP[p.id] && (
-          <SecretField id={`login-${p.id}`} name={p.login_secret} label={LOGIN_HELP[p.id].label} how={LOGIN_HELP[p.id].how}
-            set={!!p.login_set} hint={p.login_hint} multiline={LOGIN_HELP[p.id].multiline} />
-        )}
-        {secret && (
-          <div className="field">
-            <label htmlFor={`key-${p.id}`}>{secret}</label>
-            <div className="row">
-              <input type="password" id={`key-${p.id}`} value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off"
-                placeholder={keySet ? `${hint || "••••"} (saved)` : "paste the key"} style={{ flex: "1 1 220px" }}
-                onKeyDown={(e) => e.key === "Enter" && void saveKey()} />
-              <button className="btn sm" type="button" onClick={saveKey} disabled={!key.trim()}>Save</button>
-              {keySet && <button className="btn sm ghost" type="button" onClick={async () => {
-                try {
-                  await api.deleteSecret(secret);
-                  setKeySet(false);
-                  setHint("");
-                  toast("Key removed.");
-                } catch (e) {
-                  toast(errorParts(e).message);
-                }
-              }}>Remove</button>}
-            </div>
-            <span className="hint">Stored encrypted; only the last characters are shown. Subscription mode removes it from the CLI's environment.</span>
-          </div>
-        )}
-        {p.id !== "fake" && (
-          <div className="field">
-            <span className="lab">Model for all agents</span>
-            <div className="row">
-              <ModelPicker id={`all-${p.id}`} value={forAll} onChange={setAllModel} provider={false} mode={false} />
-              <button className="btn sm primary" type="button" onClick={useForAll}>Use for all agents</button>
-            </div>
-            <span className="hint">Sets the default, implementer and reviewer model, running on the mode chosen above.</span>
-          </div>
-        )}
-        {p.id !== "fake" && <UsageLine provider={p.id} />}
-        <div className="row">
+      <header className="cn-head">
+        <div className="cn-id">
+          <h2 id={head}><Prov p={p.id} /></h2>
+          <span className="sub">{USE[p.id] ?? p.label}</span>
+        </div>
+        <div className="cn-state">
+          <Pill tone={state.tone}>{state.text}</Pill>
+          {test && <span className="hint cn-test" role="status">{test.ok === true ? <b className="okc">Test OK</b> : test.ok === false ? <b className="badc">Test failed</b> : null} {test.text}</span>}
+        </div>
+        <div className="cn-actions">
+          {HELP[p.id] && (
+            <button className={`btn sm${state.need === "login" ? " primary" : ""}`} type="button" onClick={() => setHelper(true)}>{p.login_set ? "Log in again" : "Set up login"}</button>
+          )}
+          {state.need === "key" && secret && <button className="btn sm primary" type="button" onClick={focusKey}>Add the key</button>}
           <button className="btn sm" type="button" onClick={runTest}>Test</button>
-          {HELP[p.id] && <button className="btn sm" type="button" onClick={() => setHelper(true)}>{p.login_set ? "Log in again" : "Set up login"}</button>}
-          {test && <span className="hint" role="status">{test.ok === true ? <b style={{ color: "var(--ok)" }}>OK</b> : test.ok === false ? <b style={{ color: "var(--bad)" }}>Failed</b> : null} {test.text}</span>}
+        </div>
+      </header>
+      {state.need === "login" && <p className="cn-need">keel has no {HELP[p.id]?.name ?? p.label} login yet, so its agents cannot use your subscription. <b>Set up login</b> signs in from here, or paste a token.</p>}
+      {state.need === "cli" && <p className="cn-need">The {p.modes.find((x) => x.id === mode)?.label ?? "CLI"} is not installed in keel's image. Pick another way below, or build the image with INSTALL_CLIS=1.</p>}
+      <div className="cn-body">
+        <fieldset className="cn-modes">
+          <legend className="lab">How agents reach {HELP[p.id]?.name ?? p.label}</legend>
+          {p.modes.map((m) => (
+            <label key={m.id} className="radio">
+              <input type="radio" name={`mode-${p.id}`} value={m.id} checked={mode === m.id} onChange={() => void pick(m.id)} />
+              <span className="cn-mode"><b>{m.label}</b><span className="sub">{m.detail}</span>{m.ready ? <span className="okc cn-ready">ready</span> : <span className="hint">not ready</span>}</span>
+            </label>
+          ))}
+        </fieldset>
+        <div className="cn-side">
+          {p.login_secret && LOGIN_HELP[p.id] && (
+            <SecretField id={`login-${p.id}`} name={p.login_secret} label={LOGIN_HELP[p.id].label} how={LOGIN_HELP[p.id].how}
+              set={!!p.login_set} hint={p.login_hint} multiline={LOGIN_HELP[p.id].multiline} />
+          )}
+          {secret && (
+            <div className="field">
+              <label htmlFor={`key-${p.id}`}>{secret}</label>
+              <div className="row">
+                <input type="password" id={`key-${p.id}`} value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off"
+                  placeholder={keySet ? `${hint || "••••"} (saved)` : "paste the key"} style={{ flex: "1 1 200px" }}
+                  onKeyDown={(e) => e.key === "Enter" && void saveKey()} />
+                <button className="btn sm" type="button" onClick={saveKey} disabled={!key.trim()}>Save</button>
+                {keySet && <button className="btn sm ghost" type="button" onClick={async () => {
+                  try {
+                    await api.deleteSecret(secret);
+                    setKeySet(false);
+                    setHint("");
+                    toast("Key removed.");
+                  } catch (e) {
+                    toast(errorParts(e).message);
+                  }
+                }}>Remove</button>}
+              </div>
+              <span className="hint">For the API key way. Stored encrypted; only the last characters are shown. Subscription mode removes it from the CLI's environment.</span>
+            </div>
+          )}
+          {p.id !== "fake" && (
+            <div className="field">
+              <span className="lab">Model for all agents</span>
+              <div className="row">
+                <ModelPicker id={`all-${p.id}`} value={forAll} onChange={setAllModel} provider={false} mode={false} />
+                <button className="btn sm" type="button" onClick={useForAll}>Use for all agents</button>
+              </div>
+              <span className="hint">Sets the default, implementer and reviewer model, on the way chosen here.</span>
+            </div>
+          )}
+          {p.id !== "fake" && <UsageLine provider={p.id} />}
         </div>
       </div>
-    </div>
+    </article>
+  );
+}
+
+/** Known providers in the order the page shows them; a card shows at once and fills in when the check answers. */
+const ORDER = ["claude", "codex", "copilot", "fake"];
+const order = (a: Conn, b: Conn) => (ORDER.indexOf(a.id) + 1 || 99) - (ORDER.indexOf(b.id) + 1 || 99);
+
+function CheckingCard({ id }: { id: string }) {
+  return (
+    <article className="panel cn-card is-loading" aria-busy="true" data-testid={`conn-${id}`}>
+      <header className="cn-head">
+        <div className="cn-id"><h2><Prov p={id} /></h2><span className="sub">{USE[id]}</span></div>
+        <div className="cn-state"><Spinner>Checking</Spinner></div>
+      </header>
+      <div className="cn-body"><span className="pg-skel" aria-hidden="true" /><span className="pg-skel" style={{ width: "70%" }} aria-hidden="true" /></div>
+    </article>
   );
 }
 
 export function ConnectionsPage(_: { pid: string }) {
   const conns = useLoad("connections", () => api.connections(), { live: false });
+  const c = conns.data;
+  const providers = c ? [...c.providers].sort(order) : null;
+  const missing = providers?.filter((p) => connState(p).need).length ?? 0;
   return (
     <>
-      <PageHead title="Connections" sub="Which accounts the agents use. Keys are encrypted and never shown again in full." />
-      <Async r={conns} what="Checking connections">
-        {(c) => (
-          <>
-            <div className="panel">
-              {c.providers.map((p) => <Provider key={p.id} p={p} onChanged={() => void conns.reload()} />)}
-              {!c.providers.length && <div className="panel-body empty">No provider known.</div>}
-            </div>
-            <Panel title="This machine" body="checks" style={{ marginTop: 16 }}>
-              {c.machine.map((m) => (
-                <span key={m.name} className="check">
-                  <span className={m.ok ? "ok" : "no"}>{m.ok ? "✓" : "!"}</span>{m.name}
-                  {m.version && <> <span className="mono sub">{m.version}</span></>}
-                  {!m.ok && !m.version && <> <span className="mono sub">not installed</span></>}
-                </span>
-              ))}
-            </Panel>
-          </>
-        )}
-      </Async>
+      <PageHead title="Connections" sub="Which accounts the agents use, and what is installed. Keys are encrypted and never shown again in full." />
+      {conns.error && <div style={{ marginBottom: 16 }}><ErrorBox error={conns.error} onRetry={() => void conns.reload()} /></div>}
+      <Section title="Providers" sub={!providers ? "Checking each provider: which CLIs are installed and which logins and keys are saved."
+        : missing ? `${missing} provider${missing === 1 ? " needs" : "s need"} a login or a key before its agents can run.` : "Every provider is ready."}>
+        <div className="cn-list">
+          {providers ? providers.map((p) => <Provider key={p.id} p={p} onChanged={() => void conns.reload()} />)
+            : !conns.error && ORDER.map((id) => <CheckingCard key={id} id={id} />)}
+          {providers && !providers.length && <div className="panel"><EmptyState title="No provider known">The keel api lists none. Update keel and reload.</EmptyState></div>}
+        </div>
+      </Section>
+      <Section title="This machine" sub="Programs keel and its agents find in the container.">
+        <Panel body="checks">
+          {c ? c.machine.map((m) => (
+            <span key={m.name} className="check">
+              <span className={m.ok ? "ok" : "no"}>{m.ok ? "✓" : "!"}</span>{m.name}
+              {m.version && <> <span className="mono sub">{m.version}</span></>}
+              {!m.ok && !m.version && <> <span className="mono sub">not installed</span></>}
+            </span>
+          )) : !conns.error ? <Spinner>Checking what is installed</Spinner> : <span className="sub">Not checked.</span>}
+        </Panel>
+      </Section>
     </>
   );
 }

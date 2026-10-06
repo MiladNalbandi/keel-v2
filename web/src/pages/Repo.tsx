@@ -1,12 +1,13 @@
 // Repo (Project): branch bar, files tree with A/M/keel/frozen marks and a file detail, commits and worktrees,
 // the files keel wrote, and what agents remember (memory facts you can add, edit and forget).
 
-import { Fragment, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 import { api, errorParts, type Commit, type Fact, type FactKind, type IndexStatus, type Memory, type RepoFile, type RepoInfo, type TreeNode, type UpdateFromBase } from "../api";
 import { RefreshStaleButton } from "../components/RefreshStale";
 import { WorkspaceDoctor } from "../components/WorkspaceDoctor";
+import { EmptyState, Skeleton, useNarrow } from "../components/page";
 import { Async, Confirm, Drawer, ErrorBox, PageHead, Panel, Pill, Tabs, type PillTone } from "../components/ui";
-import { clock, plural } from "../format";
+import { clock, kfmt, plural } from "../format";
 import { useApp, useLoad } from "../state";
 
 type Tab = "files" | "branch" | "docs" | "memory";
@@ -19,7 +20,7 @@ export function RepoPage({ pid }: { pid: string }) {
   const update = result && <UpdateResult result={result} base={repo.data?.base ?? "base"} onClose={() => setResult(null)} />;
   return (
     <>
-      <PageHead title="Repo" sub={<>{project?.name} · <span className="mono">{project?.root}</span></>} actions={<IndexBadge pid={pid} />} />
+      <PageHead title="Repo" sub={<>The files, branch, commits and memory of {project?.name ?? pid}, at <span className="mono pg-wrap">{project?.root}</span>.</>} actions={<IndexBadge pid={pid} />} />
       <Async r={repo} what="Reading the repo">
         {(r) => (
           <div className="branchbar">
@@ -32,11 +33,11 @@ export function RepoPage({ pid }: { pid: string }) {
         )}
       </Async>
       {update}
-      <div className="row" style={{ margin: "12px 0" }}>
+      <div className="rp-tabs">
         <Tabs value={tab} onChange={setTab} label="Repo" options={[["files", "Files"], ["branch", "Branch & commits"], ["docs", "keel docs"], ["memory", "Memory"]]} />
       </div>
       {tab === "files" && <FilesTab pid={pid} />}
-      {tab === "branch" && repo.data && <BranchTab pid={pid} r={repo.data} />}
+      {tab === "branch" && (repo.data ? <BranchTab pid={pid} r={repo.data} /> : !repo.error && <div className="panel"><Skeleton lines={4} label="Reading the branch" /></div>)}
       {tab === "docs" && <DocsTab pid={pid} />}
       {tab === "memory" && <MemoryTab pid={pid} />}
     </>
@@ -63,7 +64,7 @@ export function IndexBadge({ pid }: { pid: string }) {
   const text = indexText(i);
   return (
     <span className="row" style={{ gap: 8 }} aria-label="Code graph index">
-      <span className={`tag ${i.status === "failed" ? "star" : ""}`} title={i.error ?? "The code graph agents use before grep"}>{text}</span>
+      <span className={`tag rp-index ${i.status === "failed" ? "star" : ""}`} title={i.error ?? "The code graph agents use before grep"}>{text}</span>
       <button className="btn sm" type="button" onClick={rebuild} disabled={busy || i.status === "indexing"}>
         {busy ? "Starting…" : "Rebuild"}
       </button>
@@ -171,6 +172,12 @@ function FilesTab({ pid }: { pid: string }) {
   const [path, setPath] = useState<string | null>(null);
   const file = useLoad(path ? `file:${pid}:${path}` : null, () => api.file(pid, path!));
   const [doctor, setDoctor] = useState(false);
+  const narrow = useNarrow(900);
+  const detail = useRef<HTMLDivElement>(null);
+  const pick = (p: string) => {
+    setPath(p);
+    if (narrow) window.setTimeout(() => detail.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+  };
   const dirty = (tree.data ?? []).filter((n) => n.mark).length;
   return (
     <>
@@ -188,11 +195,11 @@ function FilesTab({ pid }: { pid: string }) {
       </div>}>
         <Async r={tree} what="Reading files">
           {(nodes) => nodes.length ? (
-            <div className="tree">{nodes.map((n) => <TreeRow key={n.path} n={n} sel={n.path === path} onPick={setPath} />)}</div>
-          ) : <div className="empty">The repo is empty.</div>}
+            <div className="tree">{nodes.map((n) => <TreeRow key={n.path} n={n} sel={n.path === path} onPick={pick} />)}</div>
+          ) : <EmptyState compact title="The repo is empty">Commit a first file, then come back to see the structure.</EmptyState>}
         </Async>
       </Panel>
-      <Panel title={path ?? "File"} body="grid">
+      <div ref={detail} className="rp-detail"><Panel title={path ? <h3 className="pg-wrap rp-path">{path}</h3> : "File"} body="grid">
         {!path ? <p className="sub" style={{ margin: 0 }}>Pick a file to see its status, which AC changed it, and whether agents may edit it now.</p> : (
           <Async r={file} what="Opening">
             {(f) => (
@@ -211,7 +218,7 @@ function FilesTab({ pid }: { pid: string }) {
             )}
           </Async>
         )}
-      </Panel>
+      </Panel></div>
     </div>
     </>
   );
@@ -275,10 +282,10 @@ function FileActions({ pid, f }: { pid: string; f: RepoFile }) {
       {histOpen && (
         <Panel title={`History of ${f.path.split("/").pop()}`} body={false} className="inner">
           {histErr ? <div className="panel-body"><ErrorBox error={histErr} /></div> : !hist ? <div className="empty loading">Reading history…</div> : (
-            <div className="table-wrap"><table aria-label="File history">
+            <div className="table-wrap rt-wrap"><table aria-label="File history" className="rt">
               <thead><tr><th>Commit</th><th>Message</th><th>By</th><th>When</th></tr></thead>
               <tbody>
-                {hist.map((c) => <tr key={c.sha}><td className="mono sub">{c.sha.slice(0, 7)}</td><td>{commitTag(c.message)}</td><td className="sub">{c.author}</td><td className="mono sub">{clock(c.at, false)}</td></tr>)}
+                {hist.map((c) => <tr key={c.sha}><td className="mono sub">{c.sha.slice(0, 7)}</td><td className="rt-full">{commitTag(c.message)}</td><td className="sub">{c.author}</td><td className="mono sub rt-end">{clock(c.at, false)}</td></tr>)}
                 {!hist.length && <tr><td colSpan={4} className="empty">No commit touched this file yet.</td></tr>}
               </tbody>
             </table></div>
@@ -303,15 +310,14 @@ function BranchTab({ pid, r }: { pid: string; r: RepoInfo }) {
       <Panel title={`Commits on ${r.branch}`} extra={<span className="hint">keel commits: test(AC) holds only tests, feat(AC) only code</span>} body={false}>
         <Async r={commits} what="Reading commits">
           {(list) => (
-            <div className="table-wrap"><table>
+            list.length ? <div className="table-wrap rt-wrap"><table className="rt" aria-label={`Commits on ${r.branch}`}>
               <thead><tr><th>Commit</th><th>Message</th><th>By</th><th>When</th></tr></thead>
               <tbody>
                 {list.map((c) => (
-                  <tr key={c.sha}><td className="mono sub">{c.sha.slice(0, 7)}</td><td>{commitTag(c.message)}</td><td className="sub">{c.author}</td><td className="mono sub">{clock(c.at, false)}</td></tr>
+                  <tr key={c.sha}><td className="mono sub">{c.sha.slice(0, 7)}</td><td className="rt-full">{commitTag(c.message)}</td><td className="sub">{c.author}</td><td className="mono sub rt-end">{clock(c.at, false)}</td></tr>
                 ))}
-                {!list.length && <tr><td colSpan={4} className="empty">No commits on this branch yet.</td></tr>}
               </tbody>
-            </table></div>
+            </table></div> : <EmptyState compact title="No commits on this branch yet">A flow's commits show here, one per step: test(AC) for tests, feat(AC) for code.</EmptyState>
           )}
         </Async>
       </Panel>
@@ -343,16 +349,15 @@ function DocsTab({ pid }: { pid: string }) {
       <Panel title={`Files keel wrote in ${project?.name ?? pid}`} extra={<span className="hint">every change is a commit you can review</span>} body={false}>
         <Async r={docs} what="Reading keel files">
           {(list) => (
-            <div className="table-wrap"><table>
-              <thead><tr><th>File</th><th>What</th><th>Written by</th><th>Updated</th><th></th></tr></thead>
+            list.length ? <div className="table-wrap rt-wrap"><table className="rt" aria-label="Files keel wrote">
+              <thead><tr><th>File</th><th>What</th><th>Written by</th><th>Updated</th><th><span className="sr-only">State</span></th></tr></thead>
               <tbody>
                 {list.map((d) => (
-                  <tr key={d.path}><td className="mono">{d.path}</td><td>{d.what}</td><td className="sub">{d.by}</td><td className="sub">{d.updated}</td>
-                    <td><Pill tone={DOC_PILL[d.status]?.[0] ?? "idle"}>{DOC_PILL[d.status]?.[1] ?? d.status}</Pill></td></tr>
+                  <tr key={d.path}><td className="mono rt-main pg-wrap">{d.path}</td><td className="rt-full">{d.what}</td><td className="sub" data-label="by">{d.by}</td><td className="sub">{d.updated}</td>
+                    <td className="rt-end"><Pill tone={DOC_PILL[d.status]?.[0] ?? "idle"}>{DOC_PILL[d.status]?.[1] ?? d.status}</Pill></td></tr>
                 ))}
-                {!list.length && <tr><td colSpan={5} className="empty">keel has not written any file here yet.</td></tr>}
               </tbody>
-            </table></div>
+            </table></div> : <EmptyState compact title="keel has not written a file here yet">The init flow writes the knowledge base and keel's config; each change is a commit you can review.</EmptyState>
           )}
         </Async>
       </Panel>
@@ -419,11 +424,12 @@ function MemoryTab({ pid }: { pid: string }) {
     <Async r={mem} what="Reading memory">
       {(m) => {
         const chars = m.facts.reduce((a, f) => a + f.text.length + f.title.length, 0);
+        const kbTokens = (m.knowledge.reduce((a, k) => a + k.words, 0) / Math.max(1, m.knowledge.length)) * 1.3;
         return (
           <div className="grid g2">
-            <Panel title={`What agents remember about ${project?.name ?? pid}`} extra={<button className="btn sm" type="button" onClick={() => setEdit("new")}>Add</button>} body="grid">
+            <Panel title={`What agents remember about ${project?.name ?? pid}`} extra={m.facts.length ? <button className="btn sm" type="button" onClick={() => setEdit("new")}>Add</button> : undefined} body="grid">
               <div className="grid" style={{ gap: 8 }}>
-                {!m.facts.length && <span className="sub">Nothing yet. Agents and you add facts here as the project goes.</span>}
+                {!m.facts.length && <EmptyState compact title="Nothing remembered yet" action={<button className="btn sm" type="button" onClick={() => setEdit("new")}>Add a fact</button>}>Agents and you add facts here as the project goes: a rule you prefer, a flaky test, a file a phase may change.</EmptyState>}
                 {m.facts.map((f) => (
                   <div key={f.id} className="mem">
                     <div className="row" style={{ justifyContent: "space-between" }}><b>{f.title}</b><span className={`tag ${KIND_TAG[f.kind] ?? ""}`}>{f.kind}</span></div>
@@ -445,7 +451,7 @@ function MemoryTab({ pid }: { pid: string }) {
                   <div style={{ marginBottom: 8 }}><RefreshStaleButton pid={pid} sections={m.knowledge.filter((k) => k.status === "stale").map((k) => k.id)} /></div>
                 )}
                 <div className="grid" style={{ gap: 6 }}>
-                  {!m.knowledge.length && <span className="sub">No knowledge base yet. The init flow writes it.</span>}
+                  {!m.knowledge.length && <EmptyState compact title="No knowledge base yet">The init flow writes it: architecture, domain, conventions, data, integrations and journeys.</EmptyState>}
                   {m.knowledge.map((k) => (
                     <Fragment key={k.id}>
                       <div className="row" style={{ justifyContent: "space-between" }}>
@@ -457,8 +463,8 @@ function MemoryTab({ pid }: { pid: string }) {
                 </div>
               </Panel>
               <Panel title="Cost of memory" body="kv">
-                <span>Facts sent with each agent step</span><b className="num">≈ {Math.round(chars / 4)} tokens</b>
-                <span>Knowledge section (one, when asked)</span><b className="num">≈ {Math.round((m.knowledge.reduce((a, k) => a + k.words, 0) / Math.max(1, m.knowledge.length)) * 1.3 / 100) / 10}k tokens</b>
+                <span>Facts sent with each agent step</span><b className="num">{chars ? `≈ ${kfmt(chars / 4)} tokens` : "none yet"}</b>
+                <span>Knowledge section (one, when asked)</span><b className="num">{kbTokens ? `≈ ${kfmt(kbTokens)} tokens` : "none written yet"}</b>
                 <span>How facts are chosen</span><b>by phase and agent</b>
               </Panel>
             </div>
