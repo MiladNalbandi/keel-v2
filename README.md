@@ -49,7 +49,7 @@ Then go to **Run › Flow › Start a flow**, describe what you want, and approv
 - Every step, file change, command and token is visible: **Live agents**, **Jobs**, **Budget**.
 - When something needs you, keel plays a sound, shows a pop-up and its mascot jumps.
 - keel v2 has its own guard, rules, agents, skills and MCP server. [keel v1](https://github.com/MiladNalbandi/keel) is a
-  separate project (in 0.4.0 the image still carries a copy for its old dashboard at `/keel-v1/`; it goes in 0.4.1).
+  separate project and is not in the image.
 
 ## Flows
 
@@ -147,7 +147,8 @@ work. Docker access is as strong as root on your computer.
 |---|---|
 | `/workspace` | your project (one git repo, or a folder of repos); its real path with `--docker` |
 | `/data` | keel's database, flow checkpoints, encrypted logins |
-| `/opt/keel` | keel v1's old dashboard (removed in 0.4.1) |
+| `/opt/keel-v2/content` | keel v2's agents, skills, stacks, packs and templates |
+| `/opt/keel-v1-optional` | only with `--with-keel-v1`: that keel v1 checkout, read-only, for its MCP server |
 
 ### Without the script
 
@@ -171,9 +172,10 @@ docker run -d --name keel-v2 -p 127.0.0.1:8080:8080 \
 How the parts talk: [docs/CONTRACT.md](docs/CONTRACT.md).
 
 ```bash
-docker build -t keel-v2 .                                # everything is installed in the image
-docker build --build-arg KEEL_REF=v0.67.0 -t keel-v2 .   # pin keel v1
-npx -y -p playwright@1 node docs/gif/record.js           # record the GIF above from a running keel
+docker build -t keel-v2 .                                 # everything is installed in the image
+docker build --build-arg INSTALL_CLIS=0 -t keel-v2:slim . # without the agent CLIs
+npx -y -p playwright@1 node docs/gif/record.js            # record the GIF above from a running keel
+scripts/no-v1.sh                                          # lists anything that still depends on keel v1 (CI: 0)
 ```
 
 A version tag (`v*`) builds amd64 + arm64 images and pushes them to `ghcr.io/miladnalbandi/keel-v2` (and to Docker
