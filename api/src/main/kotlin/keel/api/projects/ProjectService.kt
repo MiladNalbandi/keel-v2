@@ -134,7 +134,9 @@ class ProjectService(private val jdbc: JdbcTemplate, private val mapper: ObjectM
         val flow = if (active) thread!![0] else null
         val phase = (if (active) thread!![2] else null) ?: "none"
         val acs = acCounts(if (active) threadState else null)
-        val waiting = jdbc.queryForObject("SELECT COUNT(*) FROM threads WHERE project_id = ? AND status = 'waiting'", Int::class.java, row.id) ?: 0
+        val waiting = (jdbc.queryForObject("SELECT COUNT(*) FROM threads WHERE project_id = ? AND status = 'waiting'", Int::class.java, row.id) ?: 0) +
+            // v0.5.0: task items in the Inbox (confirm PP, ship, move a Jira ticket by hand)
+            (jdbc.queryForObject("SELECT COUNT(*) FROM task_inbox WHERE project_id = ? AND done_at IS NULL", Int::class.java, row.id) ?: 0)
         val running = jdbc.queryForObject("SELECT COUNT(*) FROM agent_calls WHERE project_id = ? AND status = 'running'", Int::class.java, row.id) ?: 0
         return Project(row.id, row.name, row.root, branch(root), flow, phase, acs, waiting, running)
     }

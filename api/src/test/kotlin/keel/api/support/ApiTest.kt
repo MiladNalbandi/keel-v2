@@ -69,6 +69,7 @@ abstract class ApiTest {
     companion object {
         val dataDir: Path = Files.createTempDirectory("keel-data")
         val engine: StubEngine = StubEngine.start()
+        val github: StubGitHub = StubGitHub.start()
         val contentDir: Path = Paths.get(ApiTest::class.java.getResource("/content-fixture")!!.toURI())
         const val TOKEN = "test-token"
 
@@ -83,6 +84,12 @@ abstract class ApiTest {
             r.add("keel.secret") { "" }
             r.add("keel.fake-on-real-projects") { true }
             r.add("keel.keel-v1-optional") { dataDir.resolve("no-keel-v1").toString() }
+            // v0.5.0 tasks: effects on the event thread, no background polls, GitHub = the stub, no token from the environment
+            r.add("keel.tasks.inline-effects") { true }
+            r.add("keel.tasks.scheduler") { false }
+            r.add("keel.tasks.github-api") { github.url }
+            r.add("keel.tasks.github-from-env") { false }
+            r.add("keel.tasks.public-url") { "http://keel.test" }
             // Login helpers: no pseudo-terminal in tests, and stand-in CLIs that behave like the real ones.
             r.add("keel.login-pty") { false }
             r.add("keel.login-commands.codex") {
