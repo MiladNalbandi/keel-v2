@@ -62,6 +62,9 @@ class StubEngine private constructor(private val server: HttpServer) {
     /** Run modes set per thread (POST /threads/{id}/mode), shown as run_mode in the thread state. */
     val modes = java.util.concurrent.ConcurrentHashMap<String, String>()
 
+    /** Thread ids the next POST /threads answer, in order (empty: "t-stub-1"). */
+    val nextThreadIds = java.util.concurrent.ConcurrentLinkedQueue<String>()
+
     /** Unlocks posted per thread (POST /threads/{id}/unlocks), like the engine keeps them. */
     val unlocks = java.util.concurrent.ConcurrentHashMap<String, MutableList<Map<String, Any?>>>()
 
@@ -93,7 +96,7 @@ class StubEngine private constructor(private val server: HttpServer) {
             "tokens" to 1000, "low" to 800, "high" to 1500, "cost_usd" to 0.0, "premium_requests" to 0,
             "by_provider" to mapOf("fake" to 1000), "per_step" to emptyList<Any>(),
         )
-        path == "/threads" && method == "POST" -> 200 to mapOf("thread_id" to "t-stub-1")
+        path == "/threads" && method == "POST" -> 200 to mapOf("thread_id" to (nextThreadIds.poll() ?: "t-stub-1"))
         path.matches(Regex("/threads/[^/]+")) -> 200 to state(path.removePrefix("/threads/"))
         path.endsWith("/mode") && method == "POST" -> {
             val id = path.split('/')[2]

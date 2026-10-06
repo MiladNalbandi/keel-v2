@@ -33,6 +33,9 @@ keel:
   scan-on-start: true
   mcp-python: ${KEEL_MCP_PYTHON:}
   keel-v1-optional: ${KEEL_V1_OPTIONAL:/opt/keel-v1-optional}
+  tasks:
+    public-url: ${KEEL_PUBLIC_URL:}
+    github-api: ${KEEL_GITHUB_API:}
 
 logging:
   level:

@@ -7,6 +7,7 @@ import keel.api.common.Json
 import keel.api.common.KeelProperties
 import keel.api.common.KvStore
 import keel.api.common.NotFound
+import keel.api.connections.SecretService
 import keel.api.engine.EngineClient
 import keel.api.engine.EngineDown
 import keel.api.projects.ProjectService
@@ -66,6 +67,7 @@ class McpService(
     private val engine: EngineClient,
     private val kv: KvStore,
     private val projects: ProjectService,
+    private val secrets: SecretService,
 ) : ApplicationRunner {
 
     override fun run(args: ApplicationArguments?) = seed()
@@ -99,7 +101,7 @@ class McpService(
             McpServer(
                 rs.getString(1), rs.getString(2), Json.readList(rs.getString(3)),
                 rs.getString(4)?.let { Json.readMap(it).mapValues { (_, v) -> v.toString() } }, rs.getString(5),
-                rs.getInt(6) == 1, rs.getInt(7) == 1, rs.getString(8), Json.readList(rs.getString(9)), LABELS[rs.getString(1)],
+                rs.getInt(6) == 1, rs.getInt(7) == 1, rs.getString(8), Json.readList(rs.getString(9)), labelOf(rs.getString(1), rs.getString(2)),
             )
         }
 
@@ -138,7 +140,7 @@ class McpService(
     /** tools/list through the engine; remembers the status and tool names. */
     fun test(name: String): McpTestResult {
         val server = get(name)
-        val res = try { engine.mcpTools(server.spec()) } catch (e: EngineDown) { throw e }
+        val res = try { engine.mcpTools(resolved(server.spec())) } catch (e: EngineDown) { throw e }
         val ok = res.get("ok")?.asBoolean() == true
         val tools = res.get("tools")?.map { mapOf("name" to it.get("name")?.asText(), "description" to it.get("description")?.asText()) } ?: emptyList()
         val error = res.get("error")?.takeIf { !it.isNull }?.asText()
@@ -150,7 +152,20 @@ class McpService(
     }
 
     /** Enabled servers whose name is in [names] — what a flow may use. */
-    fun specsFor(names: List<String>): List<McpServerSpec> = list().filter { it.enabled && it.name in names }.map { it.spec() }
+    fun specsFor(names: List<String>): List<McpServerSpec> = list().filter { it.enabled && it.name in names }.map { resolved(it.spec()) }
+
+    /**
+     * v0.5.0: an env value `secret:<name>` names a secret (Connections, AES-GCM); it is read only here, when a flow or a
+     * test starts the server, so GET /api/mcp-servers never shows it (the Jira catalog entry keeps its token this way).
+     */
+    private fun resolved(spec: McpServerSpec): McpServerSpec {
+        val env = spec.env ?: return spec
+        if (env.values.none { it.startsWith(SECRET_REF) }) return spec
+        return spec.copy(env = env.mapValues { (_, v) -> if (v.startsWith(SECRET_REF)) secrets.get(v.removePrefix(SECRET_REF)).orEmpty() else v })
+    }
+
+    private fun labelOf(name: String, command: String): String? =
+        LABELS[name] ?: if (name.startsWith("jira-") && command == "uvx") "Jira (mcp-atlassian, optional)" else null
 
     fun allow(pid: String): Map<String, List<String>> {
         projects.require(pid)
@@ -166,6 +181,7 @@ class McpService(
     companion object {
         val KEEL_ARGS = listOf("-m", "keel_engine.mcp", "--read-only")
         const val KEEL_V1 = "keel-v1"
+        const val SECRET_REF = "secret:"
         private const val KEEL_V1_DISMISSED = "mcp-keel-v1-dismissed"
         private val LABELS = mapOf("keel" to "keel v2 (read-only)", KEEL_V1 to "keel v1 (optional)")
     }
