@@ -1,19 +1,31 @@
 // Repo (Project): branch bar, files tree with A/M/keel/frozen marks and a file detail, commits and worktrees,
 // the files keel wrote, and what agents remember (memory facts you can add, edit and forget).
 
-import { Fragment, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { api, errorParts, type Commit, type Fact, type FactKind, type IndexStatus, type Memory, type RepoFile, type RepoInfo, type TreeNode, type UpdateFromBase } from "../api";
 import { RefreshStaleButton } from "../components/RefreshStale";
 import { WorkspaceDoctor } from "../components/WorkspaceDoctor";
 import { EmptyState, Skeleton, useNarrow } from "../components/page";
 import { Async, Confirm, Drawer, ErrorBox, PageHead, Panel, Pill, Tabs, type PillTone } from "../components/ui";
 import { clock, kfmt, plural } from "../format";
-import { useApp, useLoad } from "../state";
+import { useApp, useLoad, useRoute } from "../state";
 
 type Tab = "files" | "branch" | "docs" | "memory";
 
+const commitText = (c: RepoFile["last_commit"]) =>
+  !c ? "—" : typeof c === "string" ? c : `${c.sha.slice(0, 7)} ${c.message ?? ""}`.trim();
+
+/** "#/repo/db/migration/V1__a.sql:12" (the Map's links) -> the file to open and the line to show. */
+export function fileArg(arg: string | undefined): { path: string; line: number | null } | null {
+  if (!arg) return null;
+  const m = /^(.*?)(?::(\d+))?$/.exec(arg);
+  return m && m[1] ? { path: m[1], line: m[2] ? Number(m[2]) : null } : null;
+}
+
 export function RepoPage({ pid }: { pid: string }) {
   const { project } = useApp();
+  const { arg } = useRoute();
+  const open = fileArg(arg);
   const [tab, setTab] = useState<Tab>("files");
   const repo = useLoad(`repo:${pid}`, () => api.repo(pid));
   const [result, setResult] = useState<UpdateFromBase | { error: { message: string; hint?: string } } | null>(null);
@@ -36,7 +48,7 @@ export function RepoPage({ pid }: { pid: string }) {
       <div className="rp-tabs">
         <Tabs value={tab} onChange={setTab} label="Repo" options={[["files", "Files"], ["branch", "Branch & commits"], ["docs", "keel docs"], ["memory", "Memory"]]} />
       </div>
-      {tab === "files" && <FilesTab pid={pid} />}
+      {tab === "files" && <FilesTab pid={pid} open={open} />}
       {tab === "branch" && (repo.data ? <BranchTab pid={pid} r={repo.data} /> : !repo.error && <div className="panel"><Skeleton lines={4} label="Reading the branch" /></div>)}
       {tab === "docs" && <DocsTab pid={pid} />}
       {tab === "memory" && <MemoryTab pid={pid} />}
@@ -167,9 +179,13 @@ function TreeRow({ n, sel, onPick }: { n: TreeNode; sel: boolean; onPick: (p: st
   );
 }
 
-function FilesTab({ pid }: { pid: string }) {
+function FilesTab({ pid, open }: { pid: string; open: { path: string; line: number | null } | null }) {
   const tree = useLoad(`tree:${pid}`, () => api.tree(pid, 4));
-  const [path, setPath] = useState<string | null>(null);
+  const [path, setPath] = useState<string | null>(open?.path ?? null);
+  useEffect(() => {
+    if (open?.path) setPath(open.path);
+  }, [open?.path, open?.line]);
+  const line = open && open.path === path ? open.line : null;
   const file = useLoad(path ? `file:${pid}:${path}` : null, () => api.file(pid, path!));
   const [doctor, setDoctor] = useState(false);
   const narrow = useNarrow(900);
@@ -210,9 +226,9 @@ function FilesTab({ pid }: { pid: string }) {
                   <span>In this phase</span><b>{f.frozen ? "frozen — agents cannot edit it" : "editable by the phase's agent"}</b>
                   <span>Written by</span><b>{f.keel ? "keel" : "people and agents"}</b>
                   <span>Size</span><b className="num">{f.size.toLocaleString()} bytes</b>
-                  <span>Last commit</span><b className="mono">{f.last_commit || "—"}</b>
+                  <span>Last commit</span><b className="mono">{commitText(f.last_commit)}</b>
                 </div>
-                <pre className="head" aria-label="First lines of the file">{f.head || "(empty)"}</pre>
+                {line ? <HeadAt text={f.head} line={line} /> : <pre className="head" aria-label="First lines of the file">{f.head || "(empty)"}</pre>}
                 <FileActions key={f.path} pid={pid} f={f} />
               </div>
             )}
@@ -473,5 +489,27 @@ function MemoryTab({ pid }: { pid: string }) {
         );
       }}
     </Async>
+  );
+}
+
+/** The file's first lines with one line marked (a link from the Map: "defined at line 12"). */
+function HeadAt({ text, line }: { text: string; line: number }) {
+  const lines = (text || "").split("\n");
+  const mark = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    const el = mark.current, box = el?.parentElement;
+    if (el && box) box.scrollTop = Math.max(0, el.offsetTop - box.clientHeight / 3);
+  }, [line, text]);
+  return (
+    <>
+      <pre className="head numbered" aria-label={`First lines of the file, line ${line} marked`}>
+        {lines.map((l, i) => (
+          <span key={i} ref={i + 1 === line ? mark : undefined} className={i + 1 === line ? "at" : undefined}>
+            <i aria-hidden="true">{i + 1}</i>{l || " "}{"\n"}
+          </span>
+        ))}
+      </pre>
+      {line > lines.length && <p className="sub" style={{ margin: 0 }}>Line {line} is past the first {lines.length} lines shown here; open the file in your editor.</p>}
+    </>
   );
 }

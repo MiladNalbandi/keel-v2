@@ -276,3 +276,8 @@ a.chip.skilltag:hover { border-color: var(--accent); color: var(--accent); }
 .tl-cat-id .sub { overflow-wrap: anywhere; }
 @media (max-width: 600px) { .tl-cat-item { grid-template-columns: minmax(0, 1fr); } }
 .tl-catwrap { margin-bottom: 30px; }
+
+/* Repo: a file opened at a line (from the Map) */
+pre.head.numbered span { display: block; padding-right: 6px; }
+pre.head.numbered i { display: inline-block; width: 3.2em; margin-right: 10px; color: var(--faint); font-style: normal; text-align: right; user-select: none; }
+pre.head.numbered span.at { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
