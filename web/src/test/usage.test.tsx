@@ -58,3 +58,13 @@ describe("Usage dashboard", () => {
     expect(agoText("2026-10-05T09:00:00Z", now)).toBe("3h ago");
   });
 });
+
+describe("usageLine without a percentage", () => {
+  it("says the window's status instead of '?'", async () => {
+    // Real e2e: Claude's subscription reported only status allowed, and the card said "5h ? · resets in 37 min".
+    const { usageLine } = await import("../components/UsageStrip");
+    const soon = new Date(Date.now() + 37 * 60_000).toISOString();
+    const u = { id: "claude", name: "Claude", kind: "subscription", windows: [{ window: "five_hour", label: "5-hour", used_pct: null, status: "allowed", resets_at: soon }] };
+    expect(usageLine(u as never)).toMatch(/^5h ok · resets in 3[67] min/);
+  });
+});

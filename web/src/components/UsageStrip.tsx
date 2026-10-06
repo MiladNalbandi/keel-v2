@@ -47,7 +47,9 @@ export function usageLine(u: ProviderUsage, now = Date.now()): string {
   const parts = live.map((w) => {
     if (w.window === "month" && w.cap != null && w.used != null) return `${Math.round(w.used)} / ${Math.round(w.cap)} premium`;
     const p = pct(w);
-    return `${SHORT[w.window] ?? w.label} ${p == null ? "?" : `${p}%`}`;
+    // Claude's subscription often reports only a status (allowed / rejected), no percentage: say that, not "?".
+    const said = w.status === "allowed" ? "ok" : w.status === "rejected" ? "full" : w.status ? w.status.replace(/_/g, " ") : "no % yet";
+    return `${SHORT[w.window] ?? w.label} ${p == null ? said : `${p}%`}`;
   });
   const first = live[0];
   const reset = first.window === "month" && first.resets_at
