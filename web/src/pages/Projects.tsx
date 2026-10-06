@@ -1,11 +1,16 @@
-// All projects: every repo keel knows; a ◆ means a flow waits for you.
+// All projects, the home: every repo keel knows, each on one row with what it does now — its flow and phase, what
+// waits for you (Answer opens its Inbox items), the agents that work, its branch and last activity — and the quick
+// actions (Answer, Watch live, Open flow, Start a flow).
 
-import { useState } from "react";
-import { api, errorParts } from "../api";
+import { useMemo, useState } from "react";
+import { api, errorParts, type Job, type Project } from "../api";
+import { EmptyState } from "../components/EmptyState";
 import { StartFlowDrawer } from "../components/StartFlow";
-import { Drawer, ErrorBox, Loading, PageHead } from "../components/ui";
-import { UsageStrip } from "../components/UsageStrip";
-import { go, useApp } from "../state";
+import { agoText } from "../components/UsageStrip";
+import { Drawer, ErrorBox, Loading, PageHead, Pill } from "../components/ui";
+import { plural } from "../format";
+import { hashFor } from "../routes";
+import { go, useApp, useLoad } from "../state";
 
 function AddRepoDrawer({ onClose }: { onClose: () => void }) {
   const { reloadProjects, setProjectId, toast } = useApp();
@@ -46,57 +51,118 @@ function AddRepoDrawer({ onClose }: { onClose: () => void }) {
   );
 }
 
+type Activity = { at: string; running: boolean };
+
+/** The newest agent call per project (the job list is newest first; a running call counts as now). */
+export function lastActivity(jobs: Job[] | null): Record<string, Activity> {
+  const m: Record<string, Activity> = {};
+  (jobs ?? []).forEach((j) => {
+    const running = j.status === "running";
+    const at = running ? new Date().toISOString() : j.ended_at ?? j.started_at;
+    const cur = m[j.project_id];
+    if (!cur || (!cur.running && (running || Date.parse(at) > Date.parse(cur.at)))) m[j.project_id] = { at, running };
+  });
+  return m;
+}
+
+function ProjectRow({ p, shown, act, onStart }: { p: Project; shown: boolean; act?: Activity; onStart: () => void }) {
+  const { setProjectId } = useApp();
+  const open = (page: "flow" | "live") => {
+    setProjectId(p.id);
+    go(page);
+  };
+  const state = p.waiting ? "wait" : p.running ? "run" : p.flow ? "idle" : "none";
+  const idle = !p.waiting && !p.running;
+  return (
+    <li className={`proj s-${state}${shown ? " shown" : ""}`} data-testid="project-row" aria-labelledby={`proj-${p.id}`} onClick={() => open("flow")}>
+      <div className="proj-id">
+        <h2 className="proj-name" id={`proj-${p.id}`}>
+          <button type="button" className="linkbtn" onClick={(e) => { e.stopPropagation(); open("flow"); }} title={`Open ${p.name}`}>{p.name}</button>
+          {shown && <span className="tag" title="The project the other screens show now">current</span>}
+        </h2>
+        <span className="sub mono proj-root" title={p.root}>{p.root}</span>
+      </div>
+      <div className="proj-flow">
+        {p.flow ? (
+          <span className="proj-now">
+            <span className="tag keel">{p.flow}</span>
+            <span><span className="sub">at</span> <b className="mono">{p.phase || "—"}</b></span>
+            {p.acs?.[1] ? <span className="sub num">ACs {p.acs[0]} / {p.acs[1]}</span> : null}
+          </span>
+        ) : <span className="sub">No flow yet</span>}
+        <span className="proj-facts sub">
+          <span className="mono proj-branch" title={`branch ${p.branch}`}>⎇ {p.branch || "—"}</span>
+          {act && <span>{act.running ? "working now" : `last activity ${agoText(act.at)}`}</span>}
+        </span>
+      </div>
+      <div className="proj-status">
+        {p.waiting > 0 && <Pill tone="warn">{p.waiting} waiting for you</Pill>}
+        {p.running > 0 && <Pill tone="run">{plural(p.running, "agent")} working</Pill>}
+        {idle && <Pill tone="idle">{p.flow ? "idle" : "no flow"}</Pill>}
+      </div>
+      <div className="proj-acts" onClick={(e) => e.stopPropagation()}>
+        {p.waiting > 0 && (
+          <a className="btn sm warn" href={hashFor("inbox", p.id)} aria-label={`Answer what waits in ${p.name}`}>Answer</a>
+        )}
+        {p.running > 0 && (
+          <button className="btn sm" type="button" onClick={() => open("live")} aria-label={`Watch the agents of ${p.name}`}>Watch live</button>
+        )}
+        {p.flow && (
+          <button className={`btn sm${idle ? "" : " ghost"}`} type="button" onClick={() => open("flow")} aria-label={`Open the flow of ${p.name}`}>Open flow</button>
+        )}
+        {idle && (
+          <button className={`btn sm${p.flow ? " ghost" : " primary"}`} type="button" onClick={onStart} aria-label={`Start a flow in ${p.name}`}>Start a flow</button>
+        )}
+      </div>
+    </li>
+  );
+}
+
 export function ProjectsPage() {
-  const { projects, projectsLoaded, projectsError, pid, setProjectId, reloadProjects } = useApp();
-  const [drawer, setDrawer] = useState<"add" | "start" | null>(null);
+  const { projects, projectsLoaded, projectsError, pid, reloadProjects } = useApp();
+  const [drawer, setDrawer] = useState<{ kind: "add" } | { kind: "start"; project?: string } | null>(null);
+  // the last agent call of every project, for "last activity" (it refetches on every live event)
+  const jobs = useLoad("projects:activity", () => api.jobs({ limit: 100 }));
+  const acts = useMemo(() => lastActivity(jobs.data), [jobs.data]);
+  const waitingAll = projects.reduce((a, p) => a + (p.waiting || 0), 0);
+  const waitingIn = projects.filter((p) => p.waiting > 0).length;
+  const runningAll = projects.reduce((a, p) => a + (p.running || 0), 0);
   return (
     <>
       <PageHead
         title="Projects"
-        sub="Every repo keel knows on this machine. Each flow is a LangGraph thread; a ◆ means it waits for you."
+        sub="Every repo keel knows on this machine. Answer what waits for you, watch what runs, or start a flow."
         actions={<>
-          <button className="btn" type="button" onClick={() => setDrawer("add")}>Add repo</button>
-          <button className="btn primary" type="button" id="startFlow" onClick={() => setDrawer("start")} disabled={!projects.length}>Start a flow</button>
+          <button className="btn" type="button" onClick={() => setDrawer({ kind: "add" })}>Add repo</button>
+          <button className="btn primary" type="button" id="startFlow" onClick={() => setDrawer({ kind: "start" })} disabled={!projects.length}>Start a flow</button>
         </>}
       />
-      <div style={{ marginBottom: 16 }}><UsageStrip /></div>
       {projectsError && !projects.length ? (
         <ErrorBox error={{ message: projectsError }} onRetry={() => void reloadProjects()} />
       ) : !projectsLoaded ? <Loading what="Loading projects" /> : !projects.length ? (
-        <div className="panel"><div className="panel-body empty grid" style={{ gap: 10, justifyItems: "center" }}>
-          <b>No project yet</b>
-          <span className="sub">Mount a repo at /workspace when you start the container, or add a folder here.</span>
-          <button className="btn primary" type="button" onClick={() => setDrawer("add")}>Add repo</button>
-        </div></div>
+        <div className="panel"><EmptyState title="No project yet"
+          action={<button className="btn primary" type="button" onClick={() => setDrawer({ kind: "add" })}>Add repo</button>}>
+          Mount a repo at /workspace when you start the container, or add a folder here.
+        </EmptyState></div>
       ) : (
-        <div className="panel">
-          <div className="table-wrap">
-            <table>
-              <thead><tr><th>Project</th><th>Flow</th><th>Now at</th><th>ACs</th><th>Waiting</th><th>Agents</th><th>Branch</th></tr></thead>
-              <tbody>
-                {projects.map((p) => (
-                  <tr key={p.id} className={`click ${p.id === pid ? "rowsel" : ""}`} tabIndex={0}
-                    onClick={() => { setProjectId(p.id); go("flow"); }}
-                    onKeyDown={(e) => { if (e.key === "Enter") { setProjectId(p.id); go("flow"); } }}>
-                    <td><b>{p.name}</b><div className="sub mono">{p.root}</div></td>
-                    <td>{p.flow ? <span className="tag keel">{p.flow}</span> : <span className="sub">no flow</span>}</td>
-                    <td className="mono">{p.phase || "—"}</td>
-                    <td className="num">{p.acs?.[1] ? `${p.acs[0]} / ${p.acs[1]}` : "—"}</td>
-                    <td>{p.waiting ? <span className="pill p-warn">◆ {p.waiting} gate</span> : <span className="sub">—</span>}</td>
-                    <td>{p.running ? <span className="pill p-run">{p.running} running</span> : <span className="pill p-idle">idle</span>}</td>
-                    <td className="mono sub">{p.branch}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <>
+          <div className="home-sum" aria-label="Across all projects">
+            {waitingAll > 0 ? (
+              <span className="home-wait"><b className="amber">◆ {waitingAll} waiting for you</b> <span className="sub">in {plural(waitingIn, "project")}</span></span>
+            ) : <span className="sub">Nothing waits for you.</span>}
+            <span className="sub">{runningAll ? `${plural(runningAll, "agent")} working` : "No agent is working"}</span>
+            {waitingAll > 0 && <a className="btn sm" href={hashFor("inbox")}>Open the inbox</a>}
           </div>
-        </div>
+          {projectsError && <div className="errbox" role="alert" style={{ marginBottom: 12 }}><b>{projectsError}</b></div>}
+          <ul className="proj-list" aria-label="Projects">
+            {projects.map((p) => (
+              <ProjectRow key={p.id} p={p} shown={p.id === pid} act={acts[p.id]} onStart={() => setDrawer({ kind: "start", project: p.id })} />
+            ))}
+          </ul>
+        </>
       )}
-      <p className="hint" style={{ marginTop: 12 }}>
-        Source: the api's project list and the flows keel runs in each project.
-      </p>
-      {drawer === "add" && <AddRepoDrawer onClose={() => setDrawer(null)} />}
-      {drawer === "start" && <StartFlowDrawer onClose={() => setDrawer(null)} />}
+      {drawer?.kind === "add" && <AddRepoDrawer onClose={() => setDrawer(null)} />}
+      {drawer?.kind === "start" && <StartFlowDrawer projectId={drawer.project} onClose={() => setDrawer(null)} />}
     </>
   );
 }

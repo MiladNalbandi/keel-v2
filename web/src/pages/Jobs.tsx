@@ -1,11 +1,14 @@
-// Jobs (Run): every agent call — what runs now, and everything before. One row per call, with its steps.
+// Jobs (Run): every agent call. What runs now sits on top (only while something runs); the history is always there
+// below it — agent, flow step, model, tokens, time and status, one row per call — and a row opens its steps in place.
 
 import { useEffect, useRef, useState } from "react";
 import { api, errorParts, type Job } from "../api";
+import { EmptyState } from "../components/EmptyState";
+import { StartFlowDrawer } from "../components/StartFlow";
 import { mergeSteps } from "../components/StepFeed";
 import { FilesTouched, Outcome, StepView, useJumpToStep } from "../components/StepView";
-import { Async, ErrorBox, GoButton, PageHead, Panel, Prov, Since, StatusPill, Tabs } from "../components/ui";
-import { clock, kfmt, since, usd } from "../format";
+import { ErrorBox, GoButton, Loading, PageHead, Panel, Pill, Prov, Since, StatusPill } from "../components/ui";
+import { clock, kfmt, plural, since, usd } from "../format";
 import { go, useApp, useLoad, useRoute } from "../state";
 import { useJobSteps } from "./Live";
 
@@ -19,10 +22,13 @@ function JobSteps({ id, onClose }: { id: string; onClose: () => void }) {
   const jump = useJumpToStep(anchor);
   const running = job.data?.status === "running" || live.running;
   return (
-    <div ref={box} style={{ marginTop: 16 }}>
+    <div ref={box} className="job-steps">
       <Panel title={<h2>{job.data ? `${job.data.agent} · ${job.data.phase || job.data.step}` : id} · step feed</h2>}
-        extra={<button className="btn sm ghost" type="button" id="closeJob" onClick={onClose}>Close</button>} body="feed">
-        {job.error ? <ErrorBox error={job.error} onRetry={() => void job.reload()} /> : !job.data ? <div className="empty loading">Loading…</div>
+        extra={<div className="row">
+          {job.data && <GoButton to="live" arg={id} className="btn sm">{running ? "Watch live" : "Open in Live agents"}</GoButton>}
+          <button className="btn sm ghost" type="button" id="closeJob" onClick={onClose}>Close</button>
+        </div>} body="feed">
+        {job.error ? <ErrorBox error={job.error} onRetry={() => void job.reload()} /> : !job.data ? <Loading what="Loading the steps" />
           : !steps.length ? <div className="empty">No steps recorded.</div> : (
             <>
               <FilesTouched steps={steps} onJump={jump} />
@@ -38,7 +44,7 @@ function JobSteps({ id, onClose }: { id: string; onClose: () => void }) {
 function RunningCard({ j }: { j: Job }) {
   const { projects, toast } = useApp();
   return (
-    <div className="panel"><div className="panel-body grid" style={{ gap: 6 }}>
+    <div className="panel run-card"><div className="panel-body grid" style={{ gap: 6 }}>
       <div className="row" style={{ justifyContent: "space-between" }}><b>{j.agent}</b><span className="pill p-run num"><Since from={j.started_at} /></span></div>
       <span className="sub">{projects.find((p) => p.id === j.project_id)?.name ?? j.project_id} · node <span className="mono">{j.phase || j.step}</span>{j.ac ? ` · ${j.ac}` : ""}</span>
       <span><Prov p={j.provider} m={j.model} /></span>
@@ -59,76 +65,141 @@ function RunningCard({ j }: { j: Job }) {
   );
 }
 
+const same = (a: string, b: string) => a.replace(/[-_]/g, "") === b.replace(/[-_]/g, "");
+/** "green · AC-002", "explore", "verify · verify_green". */
+const whereText = (j: Job) =>
+  [j.phase || j.step, j.phase && j.step && !same(j.step, j.phase) ? j.step : null, j.ac].filter(Boolean).join(" · ");
+
+function JobRow({ j, sel, pname, showProject, showCost }: { j: Job; sel: boolean; pname: string; showProject: boolean; showCost: boolean }) {
+  const toggle = () => go("jobs", sel ? undefined : j.id);
+  const cached = j.tokens_cached ? ` (+${kfmt(j.tokens_cached)} cached)` : "";
+  return (
+    <tr className={`click jrow ${sel ? "rowsel" : ""}`} tabIndex={0} aria-expanded={sel} onClick={toggle}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } }}>
+      <td className="j-when mono sub" title={j.started_at}>{clock(j.started_at, false)}</td>
+      {showProject && <td className="j-proj">{pname}</td>}
+      <td className="j-agent"><b>{j.agent}</b></td>
+      <td className="j-where mono">{whereText(j)}</td>
+      <td className="j-model"><Prov p={j.provider} m={j.model} /></td>
+      <td className="j-tok num mono" title={`new input ${j.tokens_in} / output ${j.tokens_out}${cached}`}>
+        {kfmt(j.tokens_in)} / {kfmt(j.tokens_out)}{j.tokens_cached ? <span className="sub"> +{kfmt(j.tokens_cached)}</span> : null}
+      </td>
+      <td className="j-time num">{j.status === "running" ? <Since from={j.started_at} /> : since(j.started_at, j.ended_at)}</td>
+      {showCost && <td className="j-cost num">{j.cost_usd ? usd(j.cost_usd) : "—"}</td>}
+      <td className="j-status"><StatusPill status={j.status} /></td>
+    </tr>
+  );
+}
+
 export function JobsPage({ pid }: { pid: string }) {
   const { projects } = useApp();
   const { arg } = useRoute();
-  const [tab, setTab] = useState<"now" | "hist">("now");
   const [fProject, setFProject] = useState(pid);
   const [fProvider, setFProvider] = useState("");
   const [fStatus, setFStatus] = useState("");
+  const [start, setStart] = useState(false);
   const running = useLoad(`jobs-now:${pid}`, () => api.jobs({ project: pid, status: "running" }));
   const histKey = `jobs-hist:${fProject}:${fProvider}:${fStatus}`;
-  const hist = useLoad(tab === "hist" ? histKey : null, () => api.jobs({ project: fProject || undefined, provider: fProvider || undefined, status: fStatus || undefined }));
+  const hist = useLoad(histKey, () => api.jobs({ project: fProject || undefined, provider: fProvider || undefined, status: fStatus || undefined }));
   useEffect(() => {
     const t = window.setInterval(() => void running.reload(), 5000);
     return () => window.clearInterval(t);
   }, [running.reload]);
-  const pname = (id: string) => projects.find((p) => p.id === id)?.name ?? id;
+  // a call that ends leaves "Running now": show it in the history too
   const n = running.data?.length ?? 0;
+  const prevN = useRef(n);
+  useEffect(() => {
+    if (n < prevN.current) void hist.reload();
+    prevN.current = n;
+  }, [n, hist.reload]);
+  const pname = (id: string) => projects.find((p) => p.id === id)?.name ?? id;
+  const filtered = fProject !== pid || !!fProvider || !!fStatus;
+  const clear = () => {
+    setFProject(pid);
+    setFProvider("");
+    setFStatus("");
+  };
+  const list = hist.data ?? [];
+  const showProject = !fProject;
+  const showCost = list.some((j) => j.cost_usd > 0);
+  const cols = 7 + (showProject ? 1 : 0) + (showCost ? 1 : 0);
+  const open = arg && list.some((j) => j.id === arg) ? arg : null;
   return (
     <>
-      <PageHead title="Jobs" sub="Every agent call: what runs now, and everything before. One row per call, with its steps."
-        actions={<Tabs value={tab} onChange={setTab} label="Jobs" options={[["now", `Running now (${n})`], ["hist", "History"]]} />} />
-      {tab === "now" ? (
-        <Async r={running} what="Loading jobs">
-          {(list) => list.length ? (
-            <div className="grid g2" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))" }}>
-              {list.map((j) => <RunningCard key={j.id} j={j} />)}
-            </div>
-          ) : <div className="empty">Nothing is running.</div>}
-        </Async>
-      ) : (
-        <>
-          <div className="row" style={{ marginBottom: 10 }}>
-            <select aria-label="Project" value={fProject} onChange={(e) => setFProject(e.target.value)}>
+      <PageHead title="Jobs" sub="Every agent call: what runs now, and everything before. Open a row to see its steps."
+        actions={running.data ? (n ? <Pill tone="run">{n} running now</Pill> : <Pill tone="idle">nothing running</Pill>) : undefined} />
+      {running.error && <div style={{ marginBottom: 16 }}><ErrorBox error={running.error} onRetry={() => void running.reload()} /></div>}
+      {n > 0 && (
+        <section className="jobs-sec" aria-labelledby="jobs-now-h">
+          <h2 className="sec-h" id="jobs-now-h">Running now <span className="sub num">{n}</span></h2>
+          <div className="run-cards">
+            {running.data!.map((j) => <RunningCard key={j.id} j={j} />)}
+          </div>
+        </section>
+      )}
+      {arg && !open && hist.data && <JobSteps key={arg} id={arg} onClose={() => go("jobs")} />}
+      <section className="jobs-sec" aria-labelledby="jobs-hist-h">
+        <div className="sec-bar">
+          <h2 className="sec-h" id="jobs-hist-h">History {hist.data && <span className="sub num">{plural(list.length, "call")}</span>}</h2>
+          <div className="row jobs-filters" role="group" aria-label="Filters">
+            <select aria-label="Filter by project" value={fProject} onChange={(e) => setFProject(e.target.value)}>
               <option value="">All projects</option>
               {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
-            <select aria-label="Provider" value={fProvider} onChange={(e) => setFProvider(e.target.value)}>
+            <select aria-label="Filter by provider" value={fProvider} onChange={(e) => setFProvider(e.target.value)}>
               <option value="">All providers</option>
               <option value="claude">Claude</option><option value="codex">GPT / Codex</option><option value="copilot">Copilot</option><option value="fake">Fake model</option>
             </select>
-            <select aria-label="Status" value={fStatus} onChange={(e) => setFStatus(e.target.value)}>
+            <select aria-label="Filter by status" value={fStatus} onChange={(e) => setFStatus(e.target.value)}>
               <option value="">Any status</option><option value="running">running</option><option value="done">done</option><option value="failed">failed</option>
             </select>
+            {filtered && <button className="btn sm ghost" type="button" onClick={clear}>Clear filters</button>}
           </div>
-          <Async r={hist} what="Loading history">
-            {(list) => (
-              <div className="panel"><div className="table-wrap"><table>
-                <thead><tr><th>When</th><th>Project</th><th>Agent</th><th>Model</th><th>Node</th><th>Time</th><th>Tokens in / out</th><th>Cost</th><th>Status</th></tr></thead>
+        </div>
+        {hist.error && !hist.data ? <ErrorBox error={hist.error} onRetry={() => void hist.reload()} />
+          : !hist.data ? <div className="panel"><Loading what="Loading the history" /></div>
+            : !list.length ? (
+              <div className="panel">
+                {filtered ? (
+                  <EmptyState title="No call matches these filters" action={<button className="btn sm" type="button" onClick={clear}>Clear filters</button>}>
+                    Try another project, provider or status.
+                  </EmptyState>
+                ) : (
+                  <EmptyState title={fProject ? "No agent has run in this project yet" : "No agent has run yet"}
+                    action={<button className="btn primary" type="button" onClick={() => setStart(true)}>Start a flow</button>}>
+                    Start a flow. Every agent call then shows up here with its steps, tokens and time.
+                  </EmptyState>
+                )}
+              </div>
+            ) : (
+              <div className="panel"><div className="table-wrap"><table className="jobs-t" aria-label="Agent calls">
+                <thead><tr>
+                  <th>When</th>{showProject && <th>Project</th>}<th>Agent</th><th>Flow step</th><th>Model</th>
+                  <th title="new input / output (+ cached context re-sent)">Tokens in / out</th><th>Time</th>{showCost && <th>Cost</th>}<th>Status</th>
+                </tr></thead>
                 <tbody>
                   {list.map((j) => (
-                    <tr key={j.id} className={`click ${arg === j.id ? "rowsel" : ""}`} tabIndex={0} onClick={() => go("jobs", j.id)} onKeyDown={(e) => e.key === "Enter" && go("jobs", j.id)}>
-                      <td className="mono sub">{clock(j.started_at, false)}</td>
-                      <td>{pname(j.project_id)}</td>
-                      <td><b>{j.agent}</b></td>
-                      <td><Prov p={j.provider} m={j.model} /></td>
-                      <td className="mono">{j.phase || j.step}</td>
-                      <td className="num">{since(j.started_at, j.ended_at)}</td>
-                      <td className="num mono" title="new input / output (cached context re-sent)">{kfmt(j.tokens_in)} / {kfmt(j.tokens_out)}{j.tokens_cached ? <span className="sub"> (+{kfmt(j.tokens_cached)} cached)</span> : null}</td>
-                      <td className="num">{j.cost_usd ? usd(j.cost_usd) : "—"}</td>
-                      <td><StatusPill status={j.status} /></td>
-                    </tr>
+                    <JobRowWithSteps key={j.id} j={j} open={open === j.id} cols={cols} pname={pname(j.project_id)} showProject={showProject} showCost={showCost} />
                   ))}
-                  {!list.length && <tr><td colSpan={9} className="empty">No job matches.</td></tr>}
                 </tbody>
               </table></div></div>
             )}
-          </Async>
-          <p className="hint">Cost shows only for API-key and Claude CLI calls; subscription CLIs report tokens without a price.</p>
-        </>
+        {showCost && <p className="hint">Cost shows only for API-key and Claude CLI calls; subscription CLIs report tokens without a price.</p>}
+      </section>
+      {start && <StartFlowDrawer onClose={() => setStart(false)} />}
+    </>
+  );
+}
+
+function JobRowWithSteps({ j, open, cols, pname, showProject, showCost }: {
+  j: Job; open: boolean; cols: number; pname: string; showProject: boolean; showCost: boolean;
+}) {
+  return (
+    <>
+      <JobRow j={j} sel={open} pname={pname} showProject={showProject} showCost={showCost} />
+      {open && (
+        <tr className="job-open"><td colSpan={cols}><JobSteps key={j.id} id={j.id} onClose={() => go("jobs")} /></td></tr>
       )}
-      {arg && <JobSteps key={arg} id={arg} onClose={() => go("jobs")} />}
     </>
   );
 }

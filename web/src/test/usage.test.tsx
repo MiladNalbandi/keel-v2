@@ -9,8 +9,8 @@ import { db } from "./setup";
 const main = () => within(document.getElementById("main")!);
 
 describe("Usage dashboard", () => {
-  it("All projects shows a card per set-up provider with its windows, source and age", async () => {
-    location.hash = "#/projects";
+  it("the Budget page shows a card per set-up provider with its windows, source and age", async () => {
+    location.hash = "#/budget";
     render(<App />);
     const claude = await main().findByTestId("usage-claude");
     expect(claude).toHaveTextContent("5h 62% · week 31% · resets in 1h 12m");
@@ -21,16 +21,22 @@ describe("Usage dashboard", () => {
     expect(within(claude).getByLabelText("Claude 62% used")).toBeInTheDocument();
   });
 
-  it("the sidebar has the compact strip", async () => {
-    location.hash = "#/flow";
+  it("the sidebar has the compact strip (source and age in the tooltip); All projects does not repeat it", async () => {
+    location.hash = "#/projects";
     render(<App />);
     const side = document.querySelector(".side") as HTMLElement;
-    expect(await within(side).findByTestId("usage-claude")).toHaveTextContent("5h 62%");
+    const claude = await within(side).findByTestId("usage-claude");
+    expect(claude).toHaveTextContent("Claude62%");
+    expect(claude).toHaveTextContent("5h 62% · week 31%");
+    expect(claude).toHaveAttribute("title", expect.stringContaining("as of last run, 12 min ago"));
+    expect(within(claude).getByLabelText("Claude 62% used")).toBeInTheDocument();
+    await main().findByRole("list", { name: "Projects" });
+    expect(main().queryByTestId("usage-claude")).toBeNull();
   });
 
   it("refresh asks the api again and shows the new numbers", async () => {
     const user = userEvent.setup();
-    location.hash = "#/projects";
+    location.hash = "#/budget";
     render(<App />);
     const codex = await main().findByTestId("usage-codex");
     await user.click(within(codex).getByRole("button", { name: "Refresh Codex" }));

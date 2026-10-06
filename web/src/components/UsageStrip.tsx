@@ -1,6 +1,6 @@
 // The usage dashboard: for each provider that is set up, what its plan says is used and what remains.
 // Every number says where it came from and how old it is ("as of last run, 12 min ago"). The full strip sits on
-// the All-projects page and the Budget page; a compact one sits in the sidebar header; Connections cards show the line.
+// the Budget page; a compact one sits in the sidebar (source and age in its tooltip); Connections cards show the line.
 
 import { useEffect, useState, type ReactNode } from "react";
 import { api, errorParts, type ProviderUsage, type UsageWindow } from "../api";
@@ -87,6 +87,21 @@ export function UsageCard({ u, compact, onRefreshed }: { u: ProviderUsage; compa
     }
   };
   const label = u.id === "claude" ? "Refresh (one tiny Haiku call)" : `Refresh ${u.name}`;
+  if (compact) {
+    // the sidebar: two short lines per provider; the source and age are in the tooltip
+    const line = usageLine(u);
+    return (
+      <div className="ucard compact" data-testid={`usage-${u.id}`} title={`${u.name}: ${line} (${sourceText(u)})`}>
+        <span className="prov"><i className={`c-${u.id === "api" ? "fake" : u.id}`} /><b>{u.name}</b></span>
+        {top != null && <span className="ucard-pct num">{top}%</span>}
+        {u.can_refresh && (
+          <button className="btn sm ghost" type="button" onClick={refresh} disabled={busy} aria-label={label} title={label}>{busy ? "…" : "↻"}</button>
+        )}
+        <span className="ucard-line">{line}</span>
+        {top != null && <div className={`meter m-${tone(top)}`} aria-label={`${u.name} ${top}% used`}><i style={{ width: `${Math.min(100, top)}%` }} /></div>}
+      </div>
+    );
+  }
   return (
     <div className={`ucard${compact ? " compact" : ""}`} data-testid={`usage-${u.id}`}>
       <div className="ucard-h">
@@ -97,8 +112,7 @@ export function UsageCard({ u, compact, onRefreshed }: { u: ProviderUsage; compa
       </div>
       <span className="ucard-line">{usageLine(u)}</span>
       {top != null && <div className={`meter m-${tone(top)}`} aria-label={`${u.name} ${top}% used`}><i style={{ width: `${Math.min(100, top)}%` }} /></div>}
-      {!compact && <span className="hint">{sourceText(u)}{u.error ? ` · ${u.error}` : ""}</span>}
-      {compact && <span className="hint">{sourceText(u)}</span>}
+      <span className="hint">{sourceText(u)}{u.error ? ` · ${u.error}` : ""}</span>
     </div>
   );
 }
