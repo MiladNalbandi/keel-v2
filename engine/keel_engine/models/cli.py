@@ -15,6 +15,7 @@ from pathlib import Path
 import re
 import shutil
 import signal
+import sys
 from typing import Callable
 
 from .base import ModelError
@@ -88,9 +89,20 @@ def find(tool: str) -> str:
     return path
 
 
+def project_env(env: dict) -> dict:
+    """The environment a project's own commands and an agent's shell see: without keel's internal Python. keel's venv
+    was first on PATH (so `python -m pytest` ran keel's Python, which has no pytest) and UV_PROJECT_ENVIRONMENT pointed
+    at it (a project's `uv sync` would have installed into keel). keel's own children use sys.executable directly."""
+    out = {k: v for k, v in env.items() if k not in ("VIRTUAL_ENV", "PYTHONHOME") and not k.startswith("UV_")}
+    own = {os.path.join(sys.prefix, "bin"), os.path.join(os.environ.get("VIRTUAL_ENV") or sys.prefix, "bin")}
+    if sys.prefix != getattr(sys, "base_prefix", sys.prefix) and out.get("PATH"):
+        out["PATH"] = os.pathsep.join(p for p in out["PATH"].split(os.pathsep) if p and p.rstrip("/") not in own)
+    return out
+
+
 def safe_env(extra: dict | None = None) -> dict:
-    env = {k: v for k, v in os.environ.items()
-           if (k in SAFE_ENV_VARS or k.startswith(SAFE_ENV_PREFIXES)) and k not in SECRET_VARS}
+    env = project_env({k: v for k, v in os.environ.items()
+                       if (k in SAFE_ENV_VARS or k.startswith(SAFE_ENV_PREFIXES)) and k not in SECRET_VARS})
     env.update(extra or {})
     return env
 

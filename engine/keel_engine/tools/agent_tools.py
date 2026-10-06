@@ -22,7 +22,8 @@ SECRET_HINTS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL")
 
 
 def command_env() -> dict:
-    return {k: v for k, v in os.environ.items() if not any(h in k.upper() for h in SECRET_HINTS)}
+    from ..models.cli import project_env
+    return project_env({k: v for k, v in os.environ.items() if not any(h in k.upper() for h in SECRET_HINTS)})
 
 
 def unified_diff(rel: str, old: str, new: str) -> str:
