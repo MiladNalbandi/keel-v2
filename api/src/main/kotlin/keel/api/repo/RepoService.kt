@@ -1,12 +1,15 @@
 package keel.api.repo
 
 import com.fasterxml.jackson.annotation.JsonInclude
+import keel.api.common.ApiException
 import keel.api.common.BadRequest
 import keel.api.common.Forbidden
 import keel.api.common.NotFound
 import keel.api.common.Proc
 import keel.api.common.ProcResult
+import keel.api.common.Yaml
 import keel.api.projects.ProjectService
+import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Service
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -36,8 +39,13 @@ data class TreeNode(
     val ac: String? = null,
 )
 
-data class Commit(val sha: String, val message: String, val author: String, val at: String)
+/** `keel`: written by keel's own commit step (author keelbot or the configured keel author). */
+data class Commit(val sha: String, val message: String, val author: String, val at: String, val keel: Boolean = false)
 
+/**
+ * One file. `ac` is the newest acceptance criterion named by a commit on this branch that touched it; `phase`,
+ * `bucket` and `verdict` say which keel rule applies to it now (verdict `deny` = frozen).
+ */
 data class FileView(
     val path: String,
     val size: Long,
@@ -47,7 +55,30 @@ data class FileView(
     val ac: String?,
     val head: String,
     val lastCommit: Commit?,
+    val binary: Boolean = false,
+    val modified: Long = 0,
+    val phase: String = "none",
+    val bucket: String = "other",
+    val verdict: String = "allow",
 )
+
+/** One changed path from `git status`: what is staged (index), what is not (work tree), or untracked. */
+@JsonInclude(JsonInclude.Include.NON_NULL)
+data class Change(
+    val path: String,
+    val from: String? = null,
+    val staged: String? = null,
+    val unstaged: String? = null,
+    val untracked: Boolean = false,
+    val conflict: Boolean = false,
+)
+
+@JsonInclude(JsonInclude.Include.NON_NULL)
+data class CommitFile(val path: String, val status: String, val from: String? = null)
+data class CommitView(val sha: String, val message: String, val body: String, val author: String, val at: String, val keel: Boolean, val files: List<CommitFile>)
+
+/** A unified diff of one file. `ref` is what it is compared with, in words. */
+data class FileDiff(val path: String, val against: String, val ref: String, val diff: String, val binary: Boolean, val truncated: Boolean)
 
 data class MergeResult(val ok: Boolean, val merged: Boolean, val conflicts: List<String>, val output: String)
 
@@ -140,9 +171,13 @@ class RepoService(private val projects: ProjectService, private val rules: KeelR
             (cfg.contractFile.isNotEmpty() && rel == cfg.contractFile) ||
             Regex("(^|/)openapi\\.(ya?ml|json)$").containsMatchIn(rel)
 
-    fun tree(pid: String, depth: Int): List<TreeNode> {
+    /** The tree from the root, or (lazy loading) from `dir`, `depth` levels down. Depth 1 = the root's children. */
+    fun tree(pid: String, depth: Int, dir: String? = null): List<TreeNode> {
         val root = projects.root(pid)
-        val maxDepth = depth.coerceIn(1, 8)
+        val start = if (dir.isNullOrBlank()) root else safePath(root, dir)
+        if (!Files.isDirectory(start)) throw NotFound("No folder at $dir")
+        val startDepth = if (start == root) 0 else root.relativize(start).nameCount
+        val maxDepth = startDepth + depth.coerceIn(1, 8)
         val cfg = ClassifyConfig.load(root)
         val phase = projects.activePhase(pid)
         val marks = marks(root)
@@ -167,7 +202,7 @@ class RepoService(private val projects: ProjectService, private val rules: KeelR
                 if (isDir && d < maxDepth && !Files.isSymbolicLink(child) && !nested) walk(child, d + 1)
             }
         }
-        walk(root, 1)
+        walk(start, startDepth + 1)
         return out
     }
 
@@ -200,27 +235,185 @@ class RepoService(private val projects: ProjectService, private val rules: KeelR
         val relNorm = root.relativize(target).toString().replace('\\', '/')
         val cfg = ClassifyConfig.load(root)
         val bytes = Files.newInputStream(target).use { it.readNBytes(256 * 1024) }
-        val head = if (bytes.take(8000).any { it == 0.toByte() }) {
+        val binary = isBinary(bytes)
+        val head = if (binary) {
             "(binary file)"
         } else {
             String(bytes, StandardCharsets.UTF_8).lineSequence().take(HEAD_LINES).joinToString("\n")
         }
+        val phase = projects.activePhase(pid)
+        val bucket = KeelRules.classify(cfg, relNorm)
+        val verdict = rules.verdict(phase, bucket)
         return FileView(
             path = relNorm, size = Files.size(target), mark = marks(root)[relNorm],
-            frozen = rules.frozen(projects.activePhase(pid), cfg, relNorm), keel = isKeel(relNorm, cfg), ac = null,
+            frozen = verdict == "deny", keel = isKeel(relNorm, cfg), ac = acFor(root, relNorm),
             head = head, lastCommit = commits(root, 1, relNorm).firstOrNull(),
+            binary = binary, modified = Files.getLastModifiedTime(target).toMillis(),
+            phase = phase, bucket = bucket, verdict = verdict,
         )
     }
 
-    fun commits(pid: String, limit: Int): List<Commit> = commits(projects.root(pid), limit, null)
+    /** The newest AC id (AC-001) in the subjects of this branch's commits that touched the file, or null. */
+    private fun acFor(root: Path, rel: String): String? {
+        val branch = projects.branch(root)
+        val base = base(root)
+        val range = if (base != null && branch != null && base != branch) "$base..HEAD" else "HEAD"
+        val out = gitOut(root, "log", "-n", "50", "--format=%s", range, "--", rel) ?: return null
+        return out.lineSequence().mapNotNull { AC_ID.find(it)?.value }.firstOrNull()
+    }
 
-    fun commits(root: Path, limit: Int, path: String?): List<Commit> {
-        val args = mutableListOf("log", "-n", limit.coerceIn(1, 500).toString(), "--format=%H\u001f%s\u001f%an\u001f%aI")
+    /**
+     * The whole file as bytes, for the editor and for images. Refused above [RAW_MAX]. The caller serves it with
+     * a sandbox CSP so an SVG or HTML file can never run as a page of keel.
+     */
+    fun raw(pid: String, rel: String): Pair<String, ByteArray> {
+        val root = projects.root(pid)
+        val target = safePath(root, rel)
+        if (!Files.isRegularFile(target)) throw NotFound("No file at $rel")
+        val size = Files.size(target)
+        if (size > RAW_MAX) {
+            throw ApiException(HttpStatus.valueOf(413), "The file is too big to show (${size / (1024 * 1024)} MB)", "keel shows files up to ${RAW_MAX / (1024 * 1024)} MB.")
+        }
+        return root.relativize(target).toString().replace('\\', '/') to Files.readAllBytes(target)
+    }
+
+    /** `git status --porcelain -z`: staged, unstaged and untracked paths (a path can be staged and changed again). */
+    fun changes(pid: String): List<Change> {
+        val root = projects.root(pid)
+        val r = git(root, "-c", "core.quotePath=false", "status", "--porcelain=v1", "-z", "--untracked-files=all")
+        if (!r.ok) return emptyList()
+        val parts = r.out.split('\u0000')
+        val list = mutableListOf<Change>()
+        var i = 0
+        while (i < parts.size) {
+            val e = parts[i]
+            i++
+            if (e.length < 4) continue
+            val x = e[0]
+            val y = e[1]
+            val path = e.substring(3)
+            var from: String? = null
+            if (x == 'R' || x == 'C') { from = parts.getOrNull(i); i++ }
+            val xy = "$x$y"
+            list += when {
+                xy == "??" -> Change(path, untracked = true)
+                xy == "!!" -> continue
+                x == 'U' || y == 'U' || xy == "AA" || xy == "DD" -> Change(path, from, conflict = true)
+                else -> Change(path, from, staged = x.takeIf { it != ' ' }?.toString(), unstaged = y.takeIf { it != ' ' }?.toString())
+            }
+        }
+        return list.sortedBy { it.path }
+    }
+
+    /**
+     * The diff of one file: `against` head (work tree vs HEAD, staged and not), base (work tree vs the merge-base
+     * with main/master: everything this branch changed), or the change one commit (`sha`) made.
+     */
+    fun diff(pid: String, rel: String, against: String, sha: String?): FileDiff {
+        val root = projects.root(pid)
+        val target = safePath(root, rel)
+        val relNorm = root.relativize(target).toString().replace('\\', '/')
+        val common = arrayOf("-c", "core.quotePath=false")
+        val opts = arrayOf("--no-color", "--no-ext-diff", "-M")
+        val untracked = git(root, "ls-files", "--error-unmatch", "--", relNorm).ok.not() && Files.isRegularFile(target)
+        val (ref, r) = when {
+            sha != null -> {
+                val s = checkSha(sha)
+                "commit ${s.take(7)}" to git(root, *common, "show", "--format=", *opts, s, "--", relNorm, timeout = 20)
+            }
+            untracked -> "nothing (a new file)" to git(root, *common, "diff", "--no-index", *opts, "--", "/dev/null", relNorm, timeout = 20)
+            against == "base" -> {
+                val branch = projects.branch(root)
+                val base = base(root) ?: throw BadRequest("No base branch found", "keel looks for main or master.")
+                val mb = gitOut(root, "merge-base", base, "HEAD") ?: throw BadRequest("This branch has no common commit with $base")
+                val name = if (branch == base) "HEAD" else base
+                "$name (${mb.take(7)})" to git(root, *common, "diff", *opts, mb, "--", relNorm, timeout = 20)
+            }
+            against == "head" -> {
+                if (!git(root, "rev-parse", "--verify", "--quiet", "HEAD").ok) throw BadRequest("The repo has no commit yet")
+                "HEAD" to git(root, *common, "diff", *opts, "HEAD", "--", relNorm, timeout = 20)
+            }
+            else -> throw BadRequest("against is head or base")
+        }
+        // git diff --no-index exits 1 when the files differ
+        if (!r.ok && !(untracked && r.code == 1 && !r.timedOut)) {
+            throw BadRequest("git could not diff $relNorm", r.err.trim().take(300).ifBlank { null })
+        }
+        val truncated = r.out.length > DIFF_MAX
+        val text = if (truncated) r.out.take(DIFF_MAX).substringBeforeLast('\n') else r.out
+        val binary = Regex("^Binary files .* differ$", RegexOption.MULTILINE).containsMatchIn(text.take(4000))
+        return FileDiff(relNorm, if (sha != null) "commit" else against, ref, text, binary, truncated)
+    }
+
+    /** One commit: subject, body, author and the files it changed (`git diff-tree`, renames detected). */
+    fun commit(pid: String, sha: String): CommitView {
+        val root = projects.root(pid)
+        val s = checkSha(sha)
+        val head = git(root, "show", "-s", "--format=%H%x1f%s%x1f%an%x1f%aI%x1f%ae%x1f%b", s)
+        if (!head.ok) throw NotFound("No commit $sha")
+        val p = head.out.trimEnd().split('\u001f')
+        val authors = keelAuthors(root)
+        val files = git(root, "-c", "core.quotePath=false", "diff-tree", "--no-commit-id", "-r", "-M", "--root", "--name-status", "-z", s)
+            .takeIf { it.ok }?.out?.split('\u0000').orEmpty()
+        val list = mutableListOf<CommitFile>()
+        var i = 0
+        while (i < files.size && list.size < 1000) {
+            val st = files[i]
+            if (st.isBlank()) { i++; continue }
+            val code = st.take(1)
+            if (code == "R" || code == "C") {
+                list += CommitFile(files.getOrElse(i + 2) { "" }, code, files.getOrNull(i + 1))
+                i += 3
+            } else {
+                list += CommitFile(files.getOrElse(i + 1) { "" }, code)
+                i += 2
+            }
+        }
+        return CommitView(
+            sha = p[0], message = p.getOrElse(1) { "" }, body = p.getOrElse(5) { "" }.trim(), author = p.getOrElse(2) { "" },
+            at = p.getOrElse(3) { "" }, keel = isKeelAuthor(p.getOrElse(2) { "" }, p.getOrElse(4) { "" }, authors), files = list,
+        )
+    }
+
+    private fun checkSha(sha: String): String {
+        if (!Regex("^[0-9a-fA-F]{4,64}$").matches(sha)) throw BadRequest("That is not a commit id")
+        return sha
+    }
+
+    /** The name and e-mail keel commits with: keelbot, or `.keel/config.yml` commit.author_name / author_email. */
+    private fun keelAuthors(root: Path): Set<String> {
+        val f = root.resolve(".keel/config.yml")
+        val cfg = if (Files.isRegularFile(f)) Yaml.readMap(runCatching { Files.readString(f) }.getOrDefault("")) else null
+        val c = cfg?.get("commit") as? Map<*, *>
+        return setOfNotNull("keelbot", "keel.dev.bot@gmail.com", c?.get("author_name")?.toString(), c?.get("author_email")?.toString())
+    }
+
+    private fun isKeelAuthor(name: String, email: String, authors: Set<String>) = name in authors || email in authors
+
+    /** `range` branch = only the commits this branch has that the base does not (`base..HEAD`). */
+    fun commits(pid: String, limit: Int, range: String? = null): List<Commit> {
+        val root = projects.root(pid)
+        if (range == "branch") {
+            val branch = projects.branch(root)
+            val base = base(root)
+            if (base != null && branch != null && base != branch) return commits(root, limit, null, "$base..HEAD")
+        }
+        return commits(root, limit, null)
+    }
+
+    fun commits(root: Path, limit: Int, path: String?, rev: String? = null): List<Commit> {
+        val args = mutableListOf("log", "-n", limit.coerceIn(1, 500).toString(), "--format=%H\u001f%s\u001f%an\u001f%aI\u001f%ae")
+        if (rev != null) args += rev
         if (path != null) args += listOf("--", path)
         val out = git(root, *args.toTypedArray()).takeIf { it.ok }?.out ?: return emptyList()
+        return parseLog(root, out)
+    }
+
+    private fun parseLog(root: Path, out: String): List<Commit> {
+        val authors = keelAuthors(root)
         return out.lines().filter { it.isNotBlank() }.map {
             val p = it.split('\u001f')
-            Commit(p[0], p.getOrElse(1) { "" }, p.getOrElse(2) { "" }, p.getOrElse(3) { "" })
+            Commit(p[0], p.getOrElse(1) { "" }, p.getOrElse(2) { "" }, p.getOrElse(3) { "" }, isKeelAuthor(p.getOrElse(2) { "" }, p.getOrElse(4) { "" }, authors))
         }
     }
 
@@ -229,12 +422,9 @@ class RepoService(private val projects: ProjectService, private val rules: KeelR
         val root = projects.root(pid)
         val target = safePath(root, rel)
         val relNorm = root.relativize(target).toString().replace('\\', '/')
-        val out = git(root, "log", "--follow", "-n", "30", "--format=%H\u001f%s\u001f%an\u001f%aI", "--", relNorm).takeIf { it.ok }?.out
+        val out = git(root, "log", "--follow", "-n", "30", "--format=%H\u001f%s\u001f%an\u001f%aI\u001f%ae", "--", relNorm).takeIf { it.ok }?.out
             ?: return emptyList()
-        return out.lines().filter { it.isNotBlank() }.map {
-            val p = it.split('\u001f')
-            Commit(p[0], p.getOrElse(1) { "" }, p.getOrElse(2) { "" }, p.getOrElse(3) { "" })
-        }
+        return parseLog(root, out)
     }
 
     /**
@@ -274,6 +464,13 @@ class RepoService(private val projects: ProjectService, private val rules: KeelR
     companion object {
         const val HEAD_LINES = 120
         const val MAX_NODES = 5000
+        /** The editor's limit: bigger files say "too big to show". */
+        const val RAW_MAX = 10L * 1024 * 1024
+        const val DIFF_MAX = 2 * 1024 * 1024
+        val AC_ID = Regex("\\bAC-\\d+\\b")
+
+        /** A NUL byte in the first 8000 bytes: git's own test for binary. */
+        fun isBinary(bytes: ByteArray): Boolean = bytes.take(8000).any { it == 0.toByte() }
         val SKIP_DIRS = setOf(".git", "node_modules", "build", ".venv", ".gradle", "dist", "target", "__pycache__", ".idea", ".pytest_cache")
         val KEEL_DIRS = listOf("docs/specs", "docs/knowledge", "docs/adr")
 
