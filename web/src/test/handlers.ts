@@ -1,7 +1,7 @@
 // MSW handlers for every /api route the web uses, backed by a small in-memory db (reset per test).
 
 import { http, HttpResponse } from "msw";
-import type { Cap, IndexStatus, Settings, Stack, ThreadState, Workflow } from "../api";
+import type { Cap, CapLeft, CapsLeft, IndexStatus, OnCap, Settings, Stack, ThreadState, Workflow } from "../api";
 import * as fx from "./fixtures";
 
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v));
@@ -17,6 +17,8 @@ export function createDb() {
     nset: clone(fx.notificationSettings),
     memory: clone(fx.memory),
     caps: clone(fx.caps) as Cap[],
+    /** What counts against the caps now: this project's use today, and its API-key use this month (GET /caps/left). */
+    capUse: { day: { tokens: 0, usd: 0 }, month: { tokens: 0, usd: 3.5 } },
     stacks: clone(fx.stacks) as Stack[],
     mcpServers: clone(fx.mcpServers),
     agents: clone(fx.agents),
@@ -218,6 +220,7 @@ export function handlers(db: Db) {
 
     http.get("/api/projects/:pid/budget", () => HttpResponse.json(fx.budget)),
     http.get("/api/projects/:pid/caps", () => HttpResponse.json(db.caps)),
+    http.get("/api/projects/:pid/caps/left", ({ params }) => HttpResponse.json(capsLeft(db, params.pid as string))),
     http.post("/api/projects/:pid/caps", async ({ request }) => {
       const b = (await log(request)) as unknown as Cap;
       const c = { ...b, id: `c${db.caps.length + 10}` };
@@ -271,4 +274,35 @@ export function handlers(db: Db) {
     http.get("/api/notification-settings", () => HttpResponse.json(db.nset)),
     http.put("/api/notification-settings", async ({ request }) => { const b = await log(request); Object.assign(db.nset, b); return HttpResponse.json(db.nset); }),
   ];
+}
+
+/** A small copy of the api's CapPlanner: what each cap leaves now and what a flow started now gets. */
+function capsLeft(db: Db, pid: string): CapsLeft {
+  const caps: CapLeft[] = db.caps.map((c) => {
+    if (c.scope === "flow" || c.scope === "step") {
+      return { ...c, used: 0, left: c.limit, window: c.scope, checked: !(c.scope === "step" && c.unit === "usd"), note: "" };
+    }
+    const use = c.scope === "day" ? db.capUse.day : db.capUse.month;
+    const used = c.unit === "usd" ? use.usd : use.tokens;
+    return { ...c, used, left: Math.max(0, c.limit - used), window: c.scope === "day" ? "day" : "month", resets_at: "2026-11-01T00:00:00Z", checked: true, note: "" };
+  });
+  const s = { ...db.general, ...(db.overrides[pid] ?? {}) };
+  const out = caps.find((c) => c.checked && c.resets_at && c.left <= 0 && c.action !== "cheaper");
+  if (out) {
+    return { caps, next_flow: { cap_tokens: s.cap_tokens, on_cap: s.on_cap, cheaper: false, notes: [],
+      refused: { cap_id: out.id, error: `The cap "${out.scope}" is used up.`, hint: "It resets on the 1st (2026-11-01, 00:00 UTC)." } } };
+  }
+  const live = caps.filter((c) => c.checked && !(c.resets_at && c.left <= 0));
+  const pick = (list: { left: number; action: OnCap; from: string }[]) => list.sort((a, b) => a.left - b.left)[0];
+  const tok = pick([{ left: s.cap_tokens, action: s.on_cap, from: "settings" }, ...live.filter((c) => c.unit === "tokens" && c.scope !== "step").map((c) => ({ left: c.left, action: c.action, from: c.id }))]);
+  const usd = pick(live.filter((c) => c.unit === "usd" && c.scope !== "step").map((c) => ({ left: c.left, action: c.action, from: c.id })));
+  const step = pick(live.filter((c) => c.unit === "tokens" && c.scope === "step").map((c) => ({ left: c.left, action: c.action, from: c.id })));
+  return {
+    caps,
+    next_flow: {
+      cap_tokens: tok.left, on_cap: tok.action, tokens_from: tok.from, cap_usd: usd?.left ?? null, on_cap_usd: usd?.action ?? null, usd_from: usd?.from ?? null,
+      step_cap_tokens: step?.left ?? null, step_on_cap: step?.action ?? null, step_from: step?.from ?? null,
+      cheaper: caps.some((c) => c.checked && c.resets_at && c.left <= 0 && c.action === "cheaper"), notes: [], refused: null,
+    },
+  };
 }

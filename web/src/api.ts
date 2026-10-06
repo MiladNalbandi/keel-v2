@@ -96,8 +96,10 @@ export type ThreadState = {
     /** kind "usage": continue | wait | cheaper | stop; kind "gate": the gate's named exits. Resume with payload.choice */
     choices?: string[];
   };
-  usage: { tokens_in: number; tokens_out: number; tokens_cached?: number; cost_usd: number; premium_requests: number; cap_tokens: number };
+  usage: { tokens_in: number; tokens_out: number; tokens_cached?: number; cost_usd: number; premium_requests: number; cap_tokens: number; cap_usd?: number };
   checkpoints: number;
+  /** v0.4.2, only in the answer to POST /flows: what the project's caps changed for this flow */
+  cap_note?: string;
   error?: string;
   updated_at: string;
   /** v0.2: what still blocks shipping (computed by push_check, refreshed after every commit). */
@@ -464,6 +466,31 @@ export type McpAllow = Record<string, string[]>;
 
 export type CapScope = "day" | "flow" | "step" | "api_month";
 export type Cap = { id: string; scope: CapScope; limit: number; unit: "tokens" | "usd"; action: "pause" | "cheaper" | "stop" };
+/** v0.4.2 `GET /api/projects/{pid}/caps/left`: what each cap leaves for a flow that starts now. */
+export type CapLeft = {
+  id: string; scope: CapScope; unit: Cap["unit"]; action: Cap["action"]; limit: number;
+  /** this project's use today (day) or this month's API-key use (api_month); 0 for flow and step */
+  used: number;
+  left: number;
+  window: "day" | "month" | "flow" | "step";
+  /** ISO, UTC: the next midnight (day) or the 1st of next month (api_month) */
+  resets_at?: string | null;
+  /** false: keel cannot check it (dollars per step), it limits nothing */
+  checked: boolean;
+  note: string;
+};
+/** The limits a flow that starts now gets: the smallest cap left binds. */
+export type FlowLimits = {
+  cap_tokens: number; on_cap: OnCap; cap_usd?: number | null; on_cap_usd?: OnCap | null;
+  step_cap_tokens?: number | null; step_on_cap?: OnCap | null;
+  /** a used-up cap says cheaper: every agent starts on the cheaper model */
+  cheaper: boolean;
+  /** "settings" | "flow" | a cap id */
+  tokens_from?: string | null; usd_from?: string | null; step_from?: string | null;
+  notes: string[];
+  refused?: { cap_id: string; error: string; hint: string } | null;
+};
+export type CapsLeft = { caps: CapLeft[]; next_flow: FlowLimits };
 /** v0.3 model catalog (`GET /api/providers/models`): per provider, the models of each mode and the effort choices. */
 export type CatalogModel = { id: string; label: string; efforts?: string[] };
 export type CatalogSource = "cli" | "cache" | "builtin";
@@ -762,6 +789,7 @@ export const api = {
   // control
   budget: (pid: string) => get<Budget>(`/projects/${e(pid)}/budget`),
   caps: (pid: string) => get<Cap[]>(`/projects/${e(pid)}/caps`),
+  capsLeft: (pid: string) => get<CapsLeft>(`/projects/${e(pid)}/caps/left`),
   addCap: (pid: string, c: Omit<Cap, "id"> & { id?: string }) => post<Cap>(`/projects/${e(pid)}/caps`, c),
   saveCap: (pid: string, c: Cap) => put<Cap>(`/projects/${e(pid)}/caps/${e(c.id)}`, c),
   deleteCap: (pid: string, id: string) => del(`/projects/${e(pid)}/caps/${e(id)}`),

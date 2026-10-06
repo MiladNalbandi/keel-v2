@@ -137,7 +137,8 @@ type StartThread = {
   workflow: Workflow; title: string;
   acs?: { id: string; layer: "API"|"WEB"; title: string; status?: string }[];   // optional; otherwise the spec step writes them (done/already-met stay finished)
   models: Record<string, Model>;               // agent id → model ("default" key = fallback)
-  settings: { gates_mode: "every-ac"|"end-of-lane"|"end"; cap_tokens: number; on_cap: "pause"|"cheaper"|"stop"; cheaper_model?: Model };
+  settings: { gates_mode: "every-ac"|"end-of-lane"|"end"; cap_tokens: number; on_cap: "pause"|"cheaper"|"stop"; cheaper_model?: Model;
+              cap_usd?: number; on_cap_usd?: "pause"|"cheaper"|"stop"; step_cap_tokens?: number; step_on_cap?: "pause"|"cheaper"|"stop" };   // v0.4.2 project caps (below)
   mcp: McpServerSpec[];                        // servers this flow may use; per-agent allowlist inside Step.tools
   skills: Record<string, string>;              // agent id → concatenated SKILL.md text to add to its prompt
   agents?: Record<string, { knowledge: Knowledge }>;   // v0.4: what each agent uses (missing → its front matter default)
@@ -150,7 +151,7 @@ type ThreadState = {
   ac: string | null;
   acs: { id: string; layer: string; title: string; status: "todo"|"red"|"green"|"done" }[];
   waiting?: { step: string; kind: "gate"|"budget"|"fix"; title: string; detail: string; options: ("approve"|"reject")[] };
-  usage: { tokens_in: number; tokens_out: number; cost_usd: number; premium_requests: number; cap_tokens: number };
+  usage: { tokens_in: number; tokens_out: number; cost_usd: number; premium_requests: number; cap_tokens: number; cap_usd: number };  // cap_usd 0 = none (v0.4.2)
   checkpoints: number; error?: string; updated_at: string;
 };
 type Checkpoint = { id: string; n: number; step: string; at: string; note: string };
@@ -328,9 +329,10 @@ POST /api/projects/{pid}/stacks/{name}/install              → Stack          (
 POST /api/projects/{pid}/wiki/refresh  { sections?: string[] } → ThreadState (starts the knowledge-refresh workflow for stale sections)
 GET  /api/projects/{pid}/caps        → Cap[]     POST /api/projects/{pid}/caps  Cap    PUT /api/projects/{pid}/caps/{id}  Cap    DELETE /api/projects/{pid}/caps/{id}
 type Cap = { id, scope: "day"|"flow"|"step"|"api_month", limit: number, unit: "tokens"|"usd", action: "pause"|"cheaper"|"stop" }
+GET  /api/projects/{pid}/caps/left   → { caps: CapLeft[], next_flow: FlowLimits }      (v0.4.2: what each cap leaves now; see "v0.4.2: project caps")
 POST /api/projects/{pid}/skills/import { url } | { body }   → Skill   (a SKILL.md from a URL or pasted text; http/https, 256 KB)
 GET  /api/providers/models                                  → engine /providers/models
-POST /api/projects/{pid}/flows       + { cap_tokens?, on_cap? }          (per-flow cap; overrides settings for that thread)
+POST /api/projects/{pid}/flows       + { cap_tokens?, on_cap? }          (per-flow cap instead of Settings' for that thread; v0.4.2: the project's caps still apply, the smallest left binds)
 POST /api/projects/{pid}/flows       + { options? }                       (v0.4: flow inputs → StartThread.data, e.g. review {lens, base}, fix {no_gates})
 GET  /api/projects/{pid}/estimate    + POST variant { yaml, acs }         (estimate unsaved workflow YAML)
 Agent                                + lane: "follow"|"api"|"web"          (PUT accepts it; passed to the engine as Step metadata)
@@ -896,4 +898,79 @@ engine `gate.decided` event (the run mode, a waived gate); `thread.done` / `thre
   mode onChange? compact?/>`, mounted in the Flow page's summary bar next to Stop), `RunModeNote` (gate card and inbox item:
   the mode, gates keel approved by itself, why this one waits). Settings › Flow and gates › Run mode (new flows).
 - Notifications drawer: mark one read, delete one, mark all read, clear all (confirm); decided gates show "✓ decided".
+
+
+## v0.4.2: project caps
+
+Every cap of a project (Budget › Limits that stop a flow) is real now: **a flow starts with the smallest cap left, and
+keel checks it before every agent step** (the engine's `_budget`, as for the Settings cap). Code: api
+`budget/CapPlanner.kt` (what is left, the start limits), `flow/FlowService.buildStart`; engine `runtime/compiler.py`
+`_budget` + `_step_cap`, `app.py` `Settings`.
+
+### At flow start (api)
+For each cap the api computes what is **left now**, then the binding (smallest left) one of each kind becomes the flow's limit:
+
+| scope | unit | left now | sent to the engine as |
+|---|---|---|---|
+| `flow` | tokens / usd | the limit (each flow gets all of it) | `cap_tokens` / `cap_usd` |
+| `day` | tokens / usd | limit − this project's use since 00:00 **UTC** today (`agent_calls.started_at`) | `cap_tokens` / `cap_usd` |
+| `api_month` | tokens / usd | limit − this project's **API-key** use since the 1st (UTC) (`agent_calls.mode = 'api'`) | `cap_tokens` / `cap_usd` |
+| `step` | tokens | the limit | `step_cap_tokens` (every step; a step's own smaller `max_tokens` still wins) |
+| `step` | usd | — | **not checked** (keel counts tokens per step, not dollars); the Budget row says so |
+
+- Tokens everywhere = `tokens_in + tokens_out + tokens_cached / 10` (as `budget_tokens` and the Budget page). Dollars =
+  the cost runs report (`cost_usd`).
+- `cap_tokens = min(Settings cap_tokens or the request's cap_tokens, every tokens cap left)`; `on_cap` = the action of
+  the one that binds (ties: stop before pause before cheaper). `cap_usd` / `on_cap_usd` likewise among the dollar caps
+  (none → no dollar cap). `step_cap_tokens` / `step_on_cap` = the smallest step tokens cap.
+- **A used-up cap** (day or api_month, left ≤ 0):
+  - action `pause` or `stop` → `409 { error, hint }`, nothing starts:
+    `error`: `The cap "All flows, per day: 200k tokens" is used up: 212k tokens used today.`
+    (month: `… is used up: $25.40 spent on API keys this month.`)
+    `hint`: `It resets at 00:00 UTC tomorrow (2026-10-07). Raise or delete the cap in Budget › Limits that stop a flow, or start the flow after the reset.`
+    (month: `It resets on the 1st (2026-11-01, 00:00 UTC). …`)
+  - action `cheaper` → the flow starts with **every agent on the cheaper model** (`StartThread.models`, `default` included),
+    and that cap does not limit it further. Never the fake model for a flow with real models: then it is a 409 that
+    says `no real cheaper model is set` (hint: Settings › Cheaper model).
+- `POST /api/projects/{pid}/flows` answers the ThreadState **+ `cap_note?: string`** when a cap changed the flow
+  ("This flow gets 150k tokens, then pause and ask: what is left today of …", "… is used up …: every agent starts on the
+  cheaper model."). The cheaper model's login/key is sent with the start, resume and rewind keys.
+- A flow gets what is left when it **starts**; two flows started together can each use it.
+
+```
+GET /api/projects/{pid}/caps/left → {
+  caps: CapLeft[],          // CapLeft = Cap + { used, left, window: "day"|"month"|"flow"|"step", resets_at?: ISO (UTC), checked: bool, note }
+  next_flow: FlowLimits     // what a flow started now gets (Settings' cap, no request cap)
+}
+FlowLimits = { cap_tokens, on_cap, cap_usd?, on_cap_usd?, step_cap_tokens?, step_on_cap?, cheaper: bool,
+               tokens_from?, usd_from?, step_from?: "settings"|"flow"|<cap id>, notes: string[],
+               refused?: { cap_id, error, hint } }
+```
+`/budget.caps` names a step dollar cap "… (not checked: keel cannot count dollars per step)".
+
+### Engine
+- `StartThread.settings` accepts `cap_usd ≥ 0`, `on_cap_usd`, `step_cap_tokens ≥ 0`, `step_on_cap` (before 0.4.2 an
+  unknown field was dropped silently; a bad value is now a 422). `usage.cap_usd` starts at `settings.cap_usd` (0 = none).
+- Before each agent step `_budget` checks, in this order: the step's limit (`_step_cap`: its own `max_tokens`, or
+  `step_cap_tokens` when that is smaller or the step has none; action = the step's `on_limit` when its own limit binds,
+  else `step_on_cap`, else `on_cap`), the token cap (`on_cap`), then the dollar cap: **over when `usage.cost_usd ≥
+  usage.cap_usd`** (action `on_cap_usd`, else `on_cap`). A warning (`budget.warn`) at 80 % of the token or dollar cap.
+- Actions as before: `cheaper` switches to `_real_cheaper` (never the fake model for a real flow; none → pause and ask),
+  `stop` stops, `pause` asks (`waiting.kind: "budget"`, title "Token cap reached" or "Cost cap reached"); approving
+  raises the cap that was hit (`payload.cap_tokens` / `payload.cap_usd`, default: used + the old cap).
+- `budget.warn` / `budget.stop` data: `{ used, cap, step_used, step_cap, cost_usd, cap_usd, limit: "step"|"token"|"cost", action?, model? }`.
+- **Which runs count toward a dollar cap**: every run's reported `cost_usd` — API-key runs (billed; from the provider's
+  usage or the model catalog), **and subscription CLI runs that report a cost** (the Claude Code CLI reports
+  `total_cost_usd` at API prices although the plan pays it; Codex and Copilot subscription runs report none). Fake runs
+  cost 0. So a dollar cap can pause a subscription flow early; use a tokens cap for subscription work. Only `api_month`
+  counts API-key runs alone, and only for what was used **before** the flow started.
+
+### Web
+- Budget › Limits that stop a flow: "A flow starts with the smallest cap left; keel checks it before every agent step."
+  The caps table has **Left now** ("450k left today · 550k used today", "$96.50 left this month", "all of it, every
+  flow", "used up · resets tomorrow, 00:00 UTC", "not checked: …") and a line under it with what a flow started now
+  gets, or why it cannot start (`next_flow`). The cap drawer explains each scope, and warns that dollars per step are
+  not checked.
+- Start a flow: a hint "This project's caps apply too (Budget): the smallest one left wins, now at most …"; a refused
+  start shows the api's `error` and `hint` in the drawer (it stays open); after a start the toast adds `cap_note`.
 

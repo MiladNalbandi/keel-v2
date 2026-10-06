@@ -557,39 +557,63 @@ class Compiler:
         return upd
 
     def _budget(self, state: FlowState, step: Step) -> dict:
+        """Before an agent step: the flow's token cap (usage.cap_tokens), its dollar cap (usage.cap_usd, against the
+        reported usage.cost_usd) and the step's token limit (its own max_tokens, or settings.step_cap_tokens when that
+        is smaller or the step has none). Over one: switch to the cheaper model, stop, or pause and ask."""
         ctx = self.ctx
         usage = dict(state.get("usage") or {})
         cap = int(usage.get("cap_tokens") or 0)
         used = budget_tokens(usage)
+        cap_usd = float(usage.get("cap_usd") or 0)
+        cost = float(usage.get("cost_usd") or 0)
+        step_cap, own_cap = _step_cap(step, ctx.settings)
         step_used = int((state.get("step_tokens") or {}).get(step.id, 0))
-        over_step = bool(step.max_tokens) and step_used >= step.max_tokens
+        over_step = bool(step_cap) and step_used >= step_cap
         over_cap = bool(cap) and used >= cap
-        if not (over_step or over_cap):
-            if cap and used >= 0.8 * cap and not state.get("warned"):
-                ctx.emit("budget.warn", step=step.id, data={"used": used, "cap": cap, "pct": round(used * 100 / cap)})
-                return {"warned": True}
+        over_usd = cap_usd > 0 and cost >= cap_usd
+        if not (over_step or over_cap or over_usd):
+            if not state.get("warned"):
+                if cap and used >= 0.8 * cap:
+                    ctx.emit("budget.warn", step=step.id, data={"used": used, "cap": cap, "pct": round(used * 100 / cap)})
+                    return {"warned": True}
+                if cap_usd and cost >= 0.8 * cap_usd:
+                    ctx.emit("budget.warn", step=step.id, data={"cost_usd": round(cost, 4), "cap_usd": cap_usd,
+                                                                "pct": round(cost * 100 / cap_usd)})
+                    return {"warned": True}
             return {}
         wf_on = self.wf.budget.on_limit if self.wf.budget else None
-        on = (step.on_limit if over_step else None) or ctx.settings.get("on_cap") or wf_on or "pause"
+        on_cap = ctx.settings.get("on_cap")
+        if over_step:       # the step's own limit says what it does; the project's per-step cap has step_on_cap
+            on = (step.on_limit if own_cap else ctx.settings.get("step_on_cap")) or on_cap or wf_on or "pause"
+        elif over_cap:
+            on = on_cap or wf_on or "pause"
+        else:
+            on = ctx.settings.get("on_cap_usd") or on_cap or wf_on or "pause"
+        what = "token" if (over_step or over_cap) else "cost"
         cheaper = _real_cheaper(ctx)          # None (never the fake model for a real flow): pause and ask below
-        info = {"used": used, "cap": cap, "step_used": step_used, "step_cap": step.max_tokens}
+        info = {"used": used, "cap": cap, "step_used": step_used, "step_cap": step_cap or None,
+                "cost_usd": round(cost, 4), "cap_usd": cap_usd or None, "limit": "step" if over_step else what}
         if on == "cheaper" and cheaper and state.get("model_override") != cheaper:
             ctx.emit("budget.warn", step=step.id, data={**info, "action": "cheaper", "model": cheaper})
-            return {"model_override": cheaper, "warned": True, "note": "token cap reached; switched to the cheaper model"}
+            return {"model_override": cheaper, "warned": True, "note": f"{what} cap reached; switched to the cheaper model"}
         if on == "stop":
             ctx.emit("budget.stop", step=step.id, data=info)
-            return {"status": "stopped", "note": "token cap reached; flow stopped"}
-        limit_txt = f"{step_used:,} of {step.max_tokens:,} tokens for this step" if over_step else f"{used:,} of {cap:,} tokens"
-        answer, extra = self._ask(state, {"step": step.id, "kind": "budget", "title": "Token cap reached",
+            return {"status": "stopped", "note": f"{what} cap reached; flow stopped"}
+        limit_txt = (f"{step_used:,} of {step_cap:,} tokens for this step" if over_step
+                     else f"{used:,} of {cap:,} tokens" if over_cap else f"${cost:,.2f} of ${cap_usd:,.2f}")
+        answer, extra = self._ask(state, {"step": step.id, "kind": "budget", "title": "Token cap reached" if what == "token" else "Cost cap reached",
                                           "detail": f"This flow has used {limit_txt}. Approve to continue past the cap, reject to stop.",
                                           "options": OPTIONS})
         if (answer or {}).get("decision") != "approve":
             ctx.emit("budget.stop", step=step.id, data={**info, "why": (answer or {}).get("why")})
-            return {**extra, "status": "stopped", "note": "stopped at the token cap"}
+            return {**extra, "status": "stopped", "note": f"stopped at the {what} cap"}
         payload = (answer or {}).get("payload") or {}
         upd: dict = {"warned": False, **extra}
         if over_cap:
             usage["cap_tokens"] = int(payload.get("cap_tokens") or (used + max(cap, 1)))
+            upd["usage"] = usage
+        if over_usd:
+            usage["cap_usd"] = round(float(payload.get("cap_usd") or (cost + max(cap_usd, 0.01))), 4)
             upd["usage"] = usage
         if over_step:
             st = dict(state.get("step_tokens") or {})
@@ -1672,6 +1696,16 @@ class Compiler:
                     "note": f"stopped: {step.name} still no after {step.rounds} round(s)"}, END
         gates["log"].append(f"gate {step.id} go on after {step.rounds} round(s): {why or 'no reason given'}")
         return {**extra, "gates": gates, "rounds": rounds, "note": f"{step.name}: went on after {step.rounds} round(s)"}, self.nav.after(i)
+
+
+def _step_cap(step: Step, settings: dict) -> tuple[int, bool]:
+    """A step's token limit and whether it is the step's own: the project's per-step cap (settings.step_cap_tokens)
+    applies to every step, but a step's own max_tokens wins when it is smaller. (0, False) = no limit."""
+    own = int(step.max_tokens or 0)
+    default = int(settings.get("step_cap_tokens") or 0)
+    if own and (not default or own <= default):
+        return own, True
+    return default, False
 
 
 def _real_cheaper(ctx):

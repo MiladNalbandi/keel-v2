@@ -356,7 +356,7 @@ class Engine:
             "status": status, "current": now.get("current"), "phase": now.get("phase") or "none", "ac": v.get("ac"),
             "acs": [{"id": a["id"], "layer": a.get("layer", "API"), "title": a.get("title", ""), "status": a.get("status", "todo")}
                     for a in v.get("acs") or []],
-            "usage": {**{"tokens_in": 0, "tokens_out": 0, "tokens_cached": 0, "cost_usd": 0.0, "premium_requests": 0, "cap_tokens": 0}, **(v.get("usage") or {})},
+            "usage": {**{"tokens_in": 0, "tokens_out": 0, "tokens_cached": 0, "cost_usd": 0.0, "premium_requests": 0, "cap_tokens": 0, "cap_usd": 0.0}, **(v.get("usage") or {})},
             "checkpoints": n, "updated_at": row["updated_at"],
             "blockers": list(v.get("blockers") or []),
             "unlocks": [{"path": u.get("path"), "phase": u.get("phase")} for u in merge_unlocks(list(v.get("unlocks") or []), ctx_now.api_unlocks)],
