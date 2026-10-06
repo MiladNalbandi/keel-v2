@@ -6,6 +6,8 @@ import "./styles.css";
 import "./styles/run.css";
 // The Project, Build and Control pages (Repo … Connections) refine styles.css the same way.
 import "./styles/pages.css";
+// The Repo page's small IDE (activity bar, side bar, editor tabs, status bar).
+import "./styles/repo.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
