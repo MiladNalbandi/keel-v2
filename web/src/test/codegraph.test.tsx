@@ -70,7 +70,8 @@ describe("Graph page", () => {
     const links = [...document.querySelectorAll(".side .nav a")].map((a) => a.textContent?.trim());
     expect(links.indexOf("Graph")).toBe(links.indexOf("Map") + 1);
     expect(await main().findByRole("heading", { name: "Graph" })).toBeInTheDocument();
-    expect(main().getByText(/6 classes, functions and files in 5 packages and folders, 9 uses/)).toBeInTheDocument();
+    // the summary needs the graph, which comes after the heading
+    expect(await main().findByText(/6 classes, functions and files in 5 packages and folders, 9 uses/)).toBeInTheDocument();
     await waitFor(() => expect(box("p:app")).not.toBeNull());
     expect(box("p:web")).not.toBeNull();
     expect(box("p:app.port")).not.toBeNull();                                      // depth 2 fits: five boxes or fewer

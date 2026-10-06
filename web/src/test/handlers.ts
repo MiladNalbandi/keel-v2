@@ -69,7 +69,7 @@ export function handlers(db: Db) {
     http.post("/api/projects/:pid/flows", async ({ request, params }) => {
       const b = await log(request);
       const w = db.workflows.find((x) => x.id === b.workflow_id)!;
-      const t: ThreadState = { ...clone(fx.thread), status: "running", waiting: undefined, current: w.steps[0].id, project_id: params.pid as string, workflow_id: w.id, title: String(b.title) };
+      const t: ThreadState = { ...clone(fx.thread), status: "running", waiting: undefined, current: w.steps[0]?.id ?? null, project_id: params.pid as string, workflow_id: w.id, title: String(b.title) };
       db.flows[params.pid as string] = { thread: t, workflow: w };
       return HttpResponse.json(t);
     }),
