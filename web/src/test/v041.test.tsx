@@ -44,9 +44,33 @@ describe("tools", () => {
     await waitFor(() => expect(within(dlg).getByRole("option", { name: "lint (keel)" })).toBeInTheDocument());
     await user.selectOptions(within(dlg).getByLabelText("Workflow"), "lint");
     await user.selectOptions(within(dlg).getByLabelText("What to check"), "all");
-    await user.type(within(dlg).getByLabelText("What to build"), "Tidy the code");
+    await user.type(within(dlg).getByLabelText("Title (optional)"), "Tidy the code");
     await user.click(within(dlg).getByRole("button", { name: "Start flow" }));
     await waitFor(() => expect(calls("POST", "/api/projects/ludus-engine/flows")[0]?.body).toMatchObject(
       { workflow_id: "lint", title: "Tidy the code", options: { scope: "all" } }));
   });
+
+  it("a flow that builds nothing starts without a title; a feature says inline why it does not start", async () => {
+    // Real e2e: "Start flow" for a review did nothing visible (only a toast asked for "what to build").
+    const user = userEvent.setup();
+    location.hash = "#/projects";
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Start a flow" }));
+    const dlg = await screen.findByRole("dialog", { name: "Start a flow" });
+    await user.click(within(dlg).getByRole("button", { name: "Start flow" }));
+    expect(await within(dlg).findByRole("alert")).toHaveTextContent("what to build");
+    expect(within(dlg).getByLabelText("What to build")).toHaveAttribute("aria-invalid", "true");
+    expect(calls("POST", "/api/projects/ludus-engine/flows")).toHaveLength(0);
+  });
 });
+
+describe("plan use in Start a flow", () => {
+  it("never divides by a missing cap", async () => {
+    const { claudeUse } = await import("../components/StartFlow");
+    const base = { id: "c", name: "Claude subscription", unit: "tokens", note: "" };
+    expect(claudeUse({ ...base, used: 3766409, cap: 0 })).toBe("3.77M tokens · no cap set");
+    expect(claudeUse({ ...base, used: 3766409, cap: 0, used_pct: 0.62 })).toBe("62% used — may pause");
+    expect(claudeUse({ ...base, used: 100, cap: 1000 })).toBe("10% used");
+  });
+});
+
