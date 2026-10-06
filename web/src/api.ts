@@ -657,7 +657,7 @@ export type LoginView = { id: string; provider: string; status: "starting" | "wa
   url?: string | null; code?: string | null; message: string; hint?: string | null };
 
 // ---- workspace Doctor ----
-export type DoctorAction = "commit" | "stash" | "ignore" | "keep";
+export type DoctorAction = "commit" | "stash" | "exclude" | "ignore" | "keep";
 export type DirtyFile = { path: string; status: string; size: number; kind: "tooling" | "docs" | "code" | "local" | "secret"; secret: boolean; tracked: boolean };
 export type PlanItem = { id: string; title: string; why: string; action: DoctorAction; files: string[]; message?: string | null; patterns?: string[] | null };
 export type Diagnosis = { by: string; summary: string; files: DirtyFile[]; plan: PlanItem[]; note?: string | null; tokens_in: number; tokens_out: number };

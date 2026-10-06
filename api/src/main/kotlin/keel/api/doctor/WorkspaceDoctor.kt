@@ -17,7 +17,7 @@ import java.nio.file.Path
 
 data class DirtyFile(val path: String, val status: String, val size: Long, val kind: String, val secret: Boolean, val tracked: Boolean)
 
-/** One proposed step. action: commit | stash | ignore | keep. */
+/** One proposed step. action: commit | stash | exclude (.git/info/exclude, this computer only) | ignore (.gitignore) | keep. */
 data class PlanItem(
     val id: String,
     val title: String,
@@ -111,11 +111,11 @@ class WorkspaceDoctor(
         val root = projects.root(pid)
         if (body.plan.isEmpty()) throw BadRequest("The plan is empty")
         val dirtyNow = dirty(root).associateBy { it.path }
-        // Doing it in this order keeps every step independent: ignore first (it changes .gitignore), stash last.
-        val order = listOf("ignore", "commit", "stash", "keep")
+        // Doing it in this order keeps every step independent: exclude/ignore first (they hide files), stash last.
+        val order = listOf("exclude", "ignore", "commit", "stash", "keep")
         val items = body.plan.sortedBy { order.indexOf(it.action).takeIf { i -> i >= 0 } ?: 9 }
         items.forEach { item ->
-            if (item.action !in order) throw BadRequest("Unknown action \"${item.action}\"", "Use commit, stash, ignore or keep.")
+            if (item.action !in order) throw BadRequest("Unknown action \"${item.action}\"", "Use commit, stash, exclude, ignore or keep.")
             val unknown = item.files.filter { it !in dirtyNow }
             if (unknown.isNotEmpty()) throw BadRequest("These files have no uncommitted changes: ${unknown.joinToString()}", "Ask the Doctor again.")
             if (item.action == "commit") {
@@ -123,9 +123,9 @@ class WorkspaceDoctor(
                 if (secret.isNotEmpty()) throw Conflict("These look like secrets and are never committed: ${secret.joinToString()}", "Ignore or stash them instead.")
                 if (item.message.isNullOrBlank()) throw BadRequest("A commit needs a message")
             }
-            if (item.action == "ignore") {
+            if (item.action == "ignore" || item.action == "exclude") {
                 val tracked = item.files.filter { dirtyNow.getValue(it).tracked }
-                if (tracked.isNotEmpty()) throw Conflict("Already tracked by git, so .gitignore cannot hide them: ${tracked.joinToString()}", "Stash or commit them instead.")
+                if (tracked.isNotEmpty()) throw Conflict("Already tracked by git, so an ignore rule cannot hide them: ${tracked.joinToString()}", "Stash or commit them instead.")
             }
         }
         // Start from an empty index so a commit holds exactly its files (the work stays in the tree).
@@ -134,6 +134,22 @@ class WorkspaceDoctor(
         var gitignoreChanged = false
         for (item in items) {
             val r = when (item.action) {
+                "exclude" -> {
+                    // Hidden on this computer only: .git/info/exclude is never committed, the project's .gitignore stays.
+                    val patterns = (item.patterns?.filter { it.isNotBlank() }?.takeIf { it.isNotEmpty() } ?: item.files).map { it.trim() }
+                    val where = repo.git(root, "rev-parse", "--git-path", "info/exclude").out.trim().ifBlank { ".git/info/exclude" }
+                    val f = root.resolve(where)
+                    Files.createDirectories(f.parent)
+                    val have = if (Files.exists(f)) Files.readAllLines(f).map { it.trim() }.toSet() else emptySet()
+                    val add = patterns.filter { it !in have }
+                    if (add.isNotEmpty()) {
+                        val prefix = if (Files.exists(f) && Files.readString(f).let { it.isNotEmpty() && !it.endsWith("\n") }) "\n" else ""
+                        Files.writeString(f, prefix + "# hidden on this computer by the keel Doctor\n" + add.joinToString("\n") + "\n",
+                            java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND)
+                    }
+                    ApplyResult("exclude", item.files, true, if (add.isEmpty()) "already hidden on this computer"
+                        else "hidden on this computer (.git/info/exclude): ${add.joinToString()}")
+                }
                 "ignore" -> {
                     val patterns = (item.patterns?.filter { it.isNotBlank() }?.takeIf { it.isNotEmpty() } ?: item.files).map { it.trim() }
                     val f = root.resolve(".gitignore")
@@ -186,8 +202,9 @@ class WorkspaceDoctor(
         }
         by["local"]?.let { fs ->
             val untracked = fs.filter { !it.tracked }
-            if (untracked.isNotEmpty()) plan += PlanItem("local", "Build output and editor files", "Made by tools on this computer; nobody else needs them.",
-                "ignore", untracked.map { it.path }, patterns = untracked.map { localPattern(it.path) }.distinct())
+            if (untracked.isNotEmpty()) plan += PlanItem("local", "Build output, editor and tool folders",
+                "Made by tools on this computer; nobody else needs them. Hidden here only (.git/info/exclude): the project's .gitignore stays as it is.",
+                "exclude", untracked.map { it.path }, patterns = untracked.map { localPattern(it.path) }.distinct())
             val tracked = fs.filter { it.tracked }
             if (tracked.isNotEmpty()) plan += PlanItem("local-tracked", "Changed tool files", "Already in git; stash them for now.", "stash", tracked.map { it.path })
         }
@@ -220,16 +237,16 @@ class WorkspaceDoctor(
         val used = mutableSetOf<String>()
         val items = node.path("plan").mapIndexedNotNull { i, n ->
             val action = n.path("action").asText()
-            if (action !in setOf("commit", "stash", "ignore", "keep")) return@mapIndexedNotNull null
+            if (action !in setOf("commit", "stash", "exclude", "ignore", "keep")) return@mapIndexedNotNull null
             var fs = n.path("files").mapNotNull { it.asText().takeIf { p -> p in byPath && p !in used } }
             if (action == "commit") fs = fs.filter { !byPath.getValue(it).secret }
-            if (action == "ignore") fs = fs.filter { !byPath.getValue(it).tracked }
+            if (action == "ignore" || action == "exclude") fs = fs.filter { !byPath.getValue(it).tracked }
             if (fs.isEmpty()) return@mapIndexedNotNull null
             used += fs
             PlanItem("m$i", n.path("title").asText("Group ${i + 1}").take(80), n.path("why").asText("").take(300), action, fs,
                 message = n.path("message").asText("").takeIf { action == "commit" && it.isNotBlank() }?.take(120)
                     ?: if (action == "commit") "chore: ${fs.first()}" else null,
-                patterns = n.path("patterns").mapNotNull { it.asText().takeIf { p -> p.isNotBlank() } }.takeIf { action == "ignore" && it.isNotEmpty() })
+                patterns = n.path("patterns").mapNotNull { it.asText().takeIf { p -> p.isNotBlank() } }.takeIf { (action == "ignore" || action == "exclude") && it.isNotEmpty() })
         }.toMutableList()
         // Anything the model left out (and every secret it put in a commit) goes through the rules.
         val left = files.filter { it.path !in used }
@@ -263,7 +280,9 @@ class WorkspaceDoctor(
             You are the keel Doctor. A developer wants to start an automated coding flow, but their git working tree has
             uncommitted changes. Group the files and propose what to do with each group so the tree becomes clean without
             losing any work: commit (shareable setup, docs, finished changes; give a conventional commit message), stash
-            (unfinished code), ignore (local or generated files that should never be in git; only untracked files), or keep.
+            (unfinished code), exclude (this computer's tool, editor and build folders such as .serena/ or .idea/: hidden only here via
+            .git/info/exclude; only untracked files), ignore (generated files nobody should ever commit: added to the project's .gitignore;
+            only untracked files), or keep.
             Never propose committing secrets. Write short, plain sentences for someone whose English is basic.
         """.trimIndent()
 
@@ -272,8 +291,8 @@ class WorkspaceDoctor(
         fun isEngineFile(p: String) = ENGINE_FILES.any { p == it || p.startsWith(it) }
 
         private val SECRET = Regex("""(^|/)(\.env(\..*)?|.*\.(pem|key|p12|pfx|jks|keystore)|id_(rsa|ed25519|ecdsa)(\.pub)?|.*credentials.*|.*secret.*|\.npmrc|\.pypirc|\.netrc)$""", RegexOption.IGNORE_CASE)
-        private val LOCAL = Regex("""(^|/)(build|dist|out|target|node_modules|\.gradle|\.kotlin|__pycache__|\.pytest_cache|\.venv|\.idea|coverage|\.next|\.cache|\.serena/cache)(/|$)|(\.log|\.iml|\.DS_Store|\.swp|\.class|\.pyc)$""")
-        private val TOOLING = Regex("""^(\.gitignore|\.gitattributes|\.editorconfig|\.keel/[^/]+\.ya?ml|\.keel/stacks/.*|\.devcontainer/.*|\.serena/.*|\.vscode/(settings|extensions)\.json|\.github/.*|\.claude/settings\.json|\.mcp\.json|\.tool-versions|\.nvmrc|\.python-version|compose\.ya?ml|docker-compose\.ya?ml|Dockerfile.*)$""")
+        private val LOCAL = Regex("""(^|/)(build|dist|out|target|node_modules|\.gradle|\.kotlin|__pycache__|\.pytest_cache|\.venv|\.idea|coverage|\.next|\.cache|\.serena)(/|$)|(\.log|\.iml|\.DS_Store|\.swp|\.class|\.pyc)$""")
+        private val TOOLING = Regex("""^(\.gitignore|\.gitattributes|\.editorconfig|\.keel/[^/]+\.ya?ml|\.keel/stacks/.*|\.devcontainer/.*|\.vscode/(settings|extensions)\.json|\.github/.*|\.claude/settings\.json|\.mcp\.json|\.tool-versions|\.nvmrc|\.python-version|compose\.ya?ml|docker-compose\.ya?ml|Dockerfile.*)$""")
         private val DOCS = Regex("""(^docs/.*|\.(md|mdx|rst|adoc|txt)$)""", RegexOption.IGNORE_CASE)
 
         fun isSecret(p: String) = SECRET.containsMatchIn(p) && !p.endsWith(".example") && !p.endsWith(".sample")
@@ -286,7 +305,7 @@ class WorkspaceDoctor(
         }
 
         private fun localPattern(p: String): String {
-            val m = Regex("""(^|/)(build|dist|out|target|node_modules|\.gradle|\.kotlin|__pycache__|\.pytest_cache|\.venv|\.idea|coverage|\.next|\.cache|\.serena/cache)(/|$)""").find(p)
+            val m = Regex("""(^|/)(build|dist|out|target|node_modules|\.gradle|\.kotlin|__pycache__|\.pytest_cache|\.venv|\.idea|coverage|\.next|\.cache|\.serena)(/|$)""").find(p)
             if (m != null) return p.substring(0, m.range.last + 1).trimEnd('/') + "/"
             val ext = Regex("""(\.log|\.iml|\.DS_Store|\.swp|\.class|\.pyc)$""").find(p)?.value
             return if (ext != null) "*$ext" else p

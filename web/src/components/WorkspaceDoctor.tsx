@@ -8,7 +8,8 @@ import { ErrorBox } from "./ui";
 const ACTIONS: [DoctorAction, string][] = [
   ["commit", "Commit"],
   ["stash", "Stash (keep it safe, bring back later)"],
-  ["ignore", "Add to .gitignore"],
+  ["exclude", "Hide on this computer only (.git/info/exclude)"],
+  ["ignore", "Add to the project's .gitignore"],
   ["keep", "Leave it"],
 ];
 const KIND: Record<string, string> = { tooling: "setup", docs: "docs", code: "code", local: "local", secret: "secret" };
@@ -74,7 +75,7 @@ export function WorkspaceDoctor({ pid, onClean }: { pid: string; onClean?: () =>
                 <b>{x.title}</b>
                 <select aria-label={`What to do with ${x.title}`} value={x.action} onChange={(e) => change(x.id, { action: e.target.value as DoctorAction })}>
                   {ACTIONS.filter(([a]) => !(a === "commit" && x.files.some((f) => d?.files.find((df) => df.path === f)?.secret))
-                    && !(a === "ignore" && x.files.some((f) => d?.files.find((df) => df.path === f)?.tracked)))
+                    && !((a === "ignore" || a === "exclude") && x.files.some((f) => d?.files.find((df) => df.path === f)?.tracked)))
                     .map(([a, l]) => <option key={a} value={a}>{l}</option>)}
                 </select>
               </div>
@@ -89,7 +90,7 @@ export function WorkspaceDoctor({ pid, onClean }: { pid: string; onClean?: () =>
                 <input type="text" aria-label={`Commit message for ${x.title}`} value={x.message ?? ""} onChange={(e) => change(x.id, { message: e.target.value })}
                   placeholder="commit message" />
               )}
-              {x.action === "ignore" && x.patterns && <span className="hint">.gitignore: <span className="mono">{x.patterns.join("  ")}</span></span>}
+              {(x.action === "ignore" || x.action === "exclude") && x.patterns && <span className="hint">{x.action === "exclude" ? ".git/info/exclude" : ".gitignore"}: <span className="mono">{x.patterns.join("  ")}</span></span>}
             </div>
           ))}
           {plan.length > 0 && (
@@ -97,7 +98,7 @@ export function WorkspaceDoctor({ pid, onClean }: { pid: string; onClean?: () =>
               <button className="btn primary" type="button" onClick={apply} disabled={busy === "apply" || plan.some((x) => x.action === "commit" && !x.message?.trim())}>
                 {busy === "apply" ? "Working…" : "Apply this plan"}
               </button>
-              <span className="hint">Plain git: commit, stash, .gitignore. Nothing is deleted.</span>
+              <span className="hint">Plain git: commit, stash, .git/info/exclude or .gitignore. Nothing is deleted.</span>
             </div>
           )}
         </>

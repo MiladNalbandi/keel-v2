@@ -95,6 +95,31 @@ describe("Tasks board", () => {
   });
 });
 
+describe("Task drawer: uncommitted files", () => {
+  it("offers the workspace Doctor when the start is refused for uncommitted files", async () => {
+    // Real report: the task drawer only showed "This project has uncommitted changes (10 files)…" with no way to fix it.
+    server.use(
+      http.post("/api/tasks/:id/start", () => HttpResponse.json(
+        { error: "This project has uncommitted changes (2 files): .serena/project.yml, docs/x.md", hint: "Commit or stash them first." }, { status: 409 })),
+      http.post("/api/projects/:pid/doctor/workspace", () => HttpResponse.json({
+        by: "rules", summary: "2 files", files: [], note: null,
+        plan: [{ id: "local", title: "Build output, editor and tool folders", why: "Made by tools on this computer.", action: "exclude",
+          files: [".serena/project.yml"], patterns: [".serena/"] }],
+      })),
+    );
+    const user = userEvent.setup();
+    await openTasks();
+    await user.click(await screen.findByRole("button", { name: "ABC-1: Rank players weekly" }));
+    const d = await screen.findByRole("dialog", { name: "ABC-1 · Rank players weekly" });
+    const start = within(d).getByRole("region", { name: "Start a flow" });
+    await waitFor(() => expect(within(start).getByLabelText("Workflow")).toHaveValue("feature"));
+    await user.click(within(start).getByRole("button", { name: "Start flow" }));
+    await user.click(await within(start).findByRole("button", { name: "Ask the Doctor what to do with these files" }));
+    expect(await within(start).findByText("Build output, editor and tool folders")).toBeInTheDocument();
+    expect(within(start).getAllByText(".git/info/exclude", { exact: false }).length).toBeGreaterThan(0);
+  });
+});
+
 describe("Task drawer", () => {
   it("starts a flow with the workflow its type picks, takes the PR link, and walks it through PP to done", async () => {
     const user = userEvent.setup();

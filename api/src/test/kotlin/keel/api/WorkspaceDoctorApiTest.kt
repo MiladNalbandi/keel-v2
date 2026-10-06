@@ -41,12 +41,14 @@ class WorkspaceDoctorApiTest : ApiTest() {
         assertThat(d["by"].asText()).isEqualTo("rules")
         val plan = d["plan"].associate { it["id"].asText() to (it["action"].asText() to it["files"].map { f -> f.asText() }) }
         assertThat(plan["tooling"]!!.first).isEqualTo("commit")
-        assertThat(plan["tooling"]!!.second).contains(".gitignore", ".keel/config.yml", ".devcontainer/devcontainer.json", ".serena/project.yml")
+        assertThat(plan["tooling"]!!.second).contains(".gitignore", ".keel/config.yml", ".devcontainer/devcontainer.json")
+        assertThat(plan["tooling"]!!.second).doesNotContain(".serena/project.yml")        // a tool's own folder, not team setup
         assertThat(plan["docs"]).isEqualTo("commit" to listOf("docs/knowledge/journeys.md"))
         assertThat(plan["code"]).isEqualTo("stash" to listOf("src/App.kt"))
         assertThat(plan["secret"]).isEqualTo("ignore" to listOf(".env"))
-        assertThat(plan["local"]!!.first).isEqualTo("ignore")
-        assertThat(d["plan"].first { it["id"].asText() == "local" }["patterns"].map { it.asText() }).containsExactly("build/")
+        // Build output and tool folders are hidden on this computer only (.git/info/exclude), not in the project's .gitignore.
+        assertThat(plan["local"]!!.first).isEqualTo("exclude")
+        assertThat(d["plan"].first { it["id"].asText() == "local" }["patterns"].map { it.asText() }).containsExactlyInAnyOrder("build/", ".serena/")
     }
 
     @Test
@@ -60,9 +62,10 @@ class WorkspaceDoctorApiTest : ApiTest() {
         assertThat(res["results"].all { it["ok"].asBoolean() }).isTrue()
         val log = sh(root, "log", "--format=%s")
         assertThat(log).contains("chore: project tooling", "docs: journeys")
-        assertThat(sh(root, "show", "HEAD:.gitignore")).contains(".env", "build/")              // the new ignore lines are committed
+        assertThat(sh(root, "show", "HEAD:.gitignore")).contains(".env").doesNotContain("build/")   // only the secret goes to .gitignore
+        assertThat(Files.readString(root.resolve(".git/info/exclude"))).contains("build/", ".serena/")   // tool folders: this computer only
         assertThat(sh(root, "log", "--all", "--name-only", "--format=")).doesNotContain(".env\n")
-        assertThat(Files.readString(root.resolve(".gitignore"))).contains(".env", "build/")
+        assertThat(Files.readString(root.resolve(".gitignore"))).contains(".env")
         assertThat(Files.readString(root.resolve(".env"))).contains("super-secret-value")      // still on disk
         assertThat(sh(root, "stash", "list")).contains("keel doctor")
         sh(root, "stash", "pop")
