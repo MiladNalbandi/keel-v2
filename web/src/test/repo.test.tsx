@@ -178,7 +178,7 @@ describe("Repo IDE", () => {
     expect(row(9)!.textContent).toContain("a score is never negative");
     expect(location.hash).toBe("#/repo/api/ScoreController.kt:9");
     // the status bar: the line, which AC changed the file, and what the phase allows
-    const bar = document.querySelector<HTMLElement>(".sb")!;
+    const bar = document.querySelector<HTMLElement>(".ide-sb")!;
     expect(within(bar).getByText("Ln 9, Col 1")).toBeInTheDocument();
     expect(within(bar).getByText("AC-002")).toBeInTheDocument();
     expect(within(bar).getByRole("button", { name: "ac-gate: editable" })).toBeInTheDocument();

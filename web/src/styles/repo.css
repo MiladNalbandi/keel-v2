@@ -57,6 +57,7 @@ body.ide-dragging { cursor: col-resize; user-select: none; }
 .ex-row { display: flex; align-items: center; gap: 5px; height: 22px; padding-right: 10px; cursor: pointer; white-space: nowrap; color: var(--fg); border: 1px solid transparent; }
 .ex-row:hover { background: var(--ide-hover); }
 .ex-row.sel { background: var(--ide-sel); }
+.ex-row.ex-open:not(.sel) { background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .ex-row:focus-visible { outline: none; border-color: var(--accent); }
 .ex-row.ex-loading { color: var(--faint); cursor: default; font-size: 12px; }
 .ex-tw { width: 14px; flex: none; display: grid; place-items: center; color: var(--dim); }
@@ -191,10 +192,10 @@ mark.sr-m { background: color-mix(in srgb, var(--warn) 30%, transparent); color:
 .seg button span { font-family: var(--f-body); }
 .ed-body { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
 .ed-note { padding: 16px 18px; color: var(--dim); }
-.ed-note.big { display: grid; gap: 4px; padding: 22px; }
-.ed-note.big b { color: var(--fg); font-size: 14px; }
+.ed-note.ed-notice { display: grid; gap: 4px; padding: 22px; }
+.ed-note.ed-notice b { color: var(--fg); font-size: 14px; }
 .ed-big { display: flex; flex-direction: column; min-height: 0; flex: 1; }
-.ed-big .ed-note.big { border-bottom: 1px solid var(--ide-line); padding: 12px 16px; }
+.ed-big .ed-note.ed-notice { border-bottom: 1px solid var(--ide-line); padding: 12px 16px; }
 .ed-doc { overflow: auto; flex: 1; min-height: 0; padding: 16px; display: grid; gap: 12px; align-content: start; }
 .ed-empty { flex: 1; display: grid; place-content: center; justify-items: center; gap: 12px; padding: 24px; color: var(--dim); text-align: center; }
 .ed-empty p { margin: 0; }
@@ -262,7 +263,7 @@ mark.fd.hit { background: color-mix(in srgb, var(--accent) 30%, transparent); ou
 .md-pane .md { max-width: 80ch; }
 
 /* ---------- status bar: the accent strip along the bottom, like VS Code ---------- */
-.sb { grid-area: sb; display: flex; align-items: center; gap: 2px; min-width: 0; padding: 0 6px; background: var(--accent); color: var(--on-accent); font-size: 12px; overflow: hidden; white-space: nowrap; }
+.ide-sb { grid-area: sb; display: flex; align-items: center; gap: 2px; min-width: 0; padding: 0 6px; background: var(--accent); color: var(--on-accent); font-size: 12px; overflow: hidden; white-space: nowrap; }
 .sb-i { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 7px; border: 0; background: none; color: inherit; font: inherit; cursor: default; flex: none; }
 button.sb-i { cursor: pointer; }
 button.sb-i:hover { background: color-mix(in srgb, var(--on-accent) 14%, transparent); }

@@ -238,7 +238,7 @@ export function Explorer({ pid, title, root, changes, active, reveal, focusFilte
       <div key={n.path}>
         <div role="treeitem" aria-level={r.depth + 1} aria-selected={isSel} aria-expanded={dir ? r.open : undefined}
           aria-label={dir ? undefined : `Open ${n.path}`} data-path={n.path} tabIndex={isSel || (selIndex < 0 && i === 0) ? 0 : -1}
-          className={`ex-row${isSel ? " sel" : ""}${n.path === active ? " act" : ""}${tone ? ` t-${tone}` : ""}`}
+          className={`ex-row${isSel ? " sel" : ""}${n.path === active ? " ex-open" : ""}${tone ? ` t-${tone}` : ""}`}
           style={{ paddingLeft: 6 + r.depth * 12 }}
           title={deco ? `${n.path} · ${deco.title}` : n.path}
           onClick={() => {
