@@ -226,10 +226,9 @@ describe("Flow v0.2", () => {
     expect(await screen.findByRole("button", { name: "Stop flow" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /keel v1/ })).not.toBeInTheDocument();
     expect(screen.queryByText(/state\.json/)).not.toBeInTheDocument();
-    const foot = document.querySelector(".side-foot") as HTMLElement;
-    expect(within(foot).getByText("keel v2")).toBeInTheDocument();
-    expect(within(foot).getByText("0.4.1")).toBeInTheDocument();
-    expect(foot).not.toHaveTextContent("0.67");
+    const side = document.querySelector(".side") as HTMLElement;
+    expect(await within(side).findByTitle("keel v2 version")).toHaveTextContent("v0.4.1");
+    expect(side).not.toHaveTextContent("0.67");
   });
 
   it("the Map page has no Open in keel v1 either", async () => {
