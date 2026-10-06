@@ -8,6 +8,7 @@ import { GROUPS, hashFor, type ScreenId } from "../routes";
 import { go, useApp, useRoute } from "../state";
 import { Mascot } from "./Mascot";
 import { BudgetBar } from "./BudgetBar";
+import { NavIcon } from "./NavIcons";
 import { NotificationDrawer, Popups } from "./Notifications";
 
 const THEME_KEY = "keel2.theme";
@@ -148,6 +149,32 @@ function NavLinks({ onPick, hints }: { onPick?: () => void; hints?: boolean }) {
         </div>
       ))}
     </>
+  );
+}
+
+/** The folded menu: one icon per screen, grouped like the menu, with the same counts; ☰ opens the full menu again. */
+function RailLinks() {
+  const { page } = useRoute();
+  const { project, projects } = useApp();
+  const running = project?.running ?? 0;
+  const waitingAll = projects.reduce((a, p) => a + (p.waiting || 0), 0);
+  const count = (id: ScreenId) =>
+    id === "inbox" && waitingAll > 0 ? <span className="rail-count" aria-hidden="true">{waitingAll > 9 ? "9+" : waitingAll}</span>
+      : (id === "jobs" || id === "live") && running > 0 ? <span className="rail-count run" aria-hidden="true">{running}</span> : null;
+  const link = (id: ScreenId, label: string) => (
+    <a key={id} href={hashFor(id)} className="rail-link" aria-current={page === id ? "page" : undefined} title={label}
+      aria-label={id === "inbox" && waitingAll ? `${label}, ${waitingAll} waiting` : label}>
+      <NavIcon id={id} />
+      {count(id)}
+    </a>
+  );
+  return (
+    <nav className="rail-nav" aria-label="Screens (icons)">
+      {link("projects", "All projects")}
+      {GROUPS.map((g) => (
+        <div key={g.id} className="rail-group" title={g.label}>{g.pages.map(([id, label]) => link(id, label))}</div>
+      ))}
+    </nav>
   );
 }
 
@@ -299,13 +326,20 @@ export function Shell({ children }: { children: ReactNode }) {
   return (
     <div className={`app${navHidden ? " nav-hidden" : ""}`}>
       {navHidden && (
-        <div className="side-rail" aria-label="Menu (hidden)">
+        <div className="side-rail">
           <button className="rail-btn" type="button" onClick={() => setNavHidden(false)} aria-label="Show the menu" title="Show the menu (⌘\)">
             <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
               <path fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" d="M4 7h16M4 12h16M4 17h16" />
             </svg>
           </button>
-          <Bell onClick={() => setNotesOpen(true)} />
+          <RailLinks />
+          <div className="rail-foot">
+            <Bell onClick={() => setNotesOpen(true)} />
+            <button className="rail-btn" type="button" onClick={theme.toggle}
+              aria-label={theme.dark ? "Switch to the light theme" : "Switch to the dark theme"} title={theme.dark ? "Switch to the light theme" : "Switch to the dark theme"}>
+              <ThemeIcon dark={theme.dark} />
+            </button>
+          </div>
         </div>
       )}
       <aside className="side">

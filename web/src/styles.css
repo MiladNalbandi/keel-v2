@@ -1035,11 +1035,24 @@ button.sx-x:hover { box-shadow: 0 0 0 2px var(--ink); }
 .hide-nav:hover { color: var(--fg); background: var(--panel-2); }
 .side-rail { display: none; }
 @media (min-width: 901px) {
-  .app.nav-hidden { grid-template-columns: 40px minmax(0,1fr); }
+  .app.nav-hidden { grid-template-columns: 52px minmax(0,1fr); }
   .app.nav-hidden > .side { display: none; }
-  .side-rail { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 12px 0; border-right: 1px solid var(--border);
-    position: sticky; top: 0; height: 100vh; }
-  .rail-btn { border: 0; background: none; color: var(--dim); cursor: pointer; padding: 6px; border-radius: 7px; display: inline-flex; }
+  .side-rail { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 0; border-right: 1px solid var(--border);
+    position: sticky; top: 0; height: 100vh; background: var(--bg); }
+  .rail-btn { border: 0; background: none; color: var(--dim); cursor: pointer; padding: 7px; border-radius: 9px; display: inline-flex; }
   .rail-btn:hover { color: var(--fg); background: var(--panel-2); }
+  .rail-nav { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; display: flex; flex-direction: column; align-items: center; gap: 2px;
+    padding: 4px 0; width: 100%; }
+  .rail-group { display: flex; flex-direction: column; align-items: center; gap: 2px; padding-top: 6px; margin-top: 4px; border-top: 1px solid var(--border);
+    width: 32px; }
+  .rail-link { position: relative; display: inline-flex; padding: 8px; border-radius: 10px; color: var(--dim); }
+  .rail-link:hover { color: var(--fg); background: var(--panel-2); }
+  .rail-link[aria-current="page"] { color: var(--accent); background: var(--accent-soft); }
+  .rail-link[aria-current="page"]::before { content: ""; position: absolute; left: -10px; top: 8px; bottom: 8px; width: 3px; border-radius: 2px;
+    background: var(--accent); }
+  .rail-count { position: absolute; top: 1px; right: 0; min-width: 15px; height: 15px; padding: 0 4px; border-radius: 8px; background: var(--warn);
+    color: #fff; font: 700 9.5px/15px var(--f-body); text-align: center; }
+  .rail-count.run { background: var(--run); }
+  .rail-foot { display: flex; flex-direction: column; align-items: center; gap: 6px; padding-top: 6px; border-top: 1px solid var(--border); width: 32px; }
 }
 @media (max-width: 900px) { .hide-nav { display: none; } }
