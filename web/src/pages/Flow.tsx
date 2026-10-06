@@ -124,13 +124,13 @@ function FlowBar({ thread, workflow, estimate, started, onStart, onJump, extra }
           <span>phase <b>{phaseTitle(thread.phase)}</b></span>
           <Pill tone={tone}>{label}</Pill>
           <span>branch <span className="mono">{project?.branch ?? "—"}</span></span>
-          <span className="sub">thread <span className="mono">{thread.thread_id}</span></span>
+          <span className="sub fl-tid">thread <span className="mono">{thread.thread_id}</span></span>
         </div>
       </div>
       <div className="fl-stats">
         <div className="fl-stat fl-stat-tok">
           <span className="fl-stat-l">tokens</span>
-          <span className="fl-stat-v"><b>{kfmt(used)}</b> <span className="sub">of {kfmt(u.cap_tokens || cap)} cap{estimate !== null ? ` · ≈ ${kfmt(estimate)} expected` : ""}</span></span>
+          <span className="fl-stat-v"><b>{kfmt(used)}</b> <span className="sub">of {kfmt(u.cap_tokens || cap)} cap<span className="fl-est">{estimate !== null ? ` · ≈ ${kfmt(estimate)} expected` : ""}</span></span></span>
           <span className="sx-bar fl-meter" aria-hidden="true"><i style={{ width: `${Math.min(100, (used / cap) * 100)}%`, background: used > cap * 0.8 ? "var(--warn)" : undefined }} />
             {estimate !== null && <em style={{ left: `${Math.min(100, (estimate / cap) * 100)}%` }} />}</span>
         </div>
@@ -139,7 +139,8 @@ function FlowBar({ thread, workflow, estimate, started, onStart, onJump, extra }
       </div>
       <div className="actions">
         {extra}
-        {onJump && live && <button className="btn" type="button" onClick={onJump}>Jump to current</button>}
+        {onJump && live && <button className="btn" type="button" onClick={onJump} aria-label="Jump to current">
+          <span className="fl-long">Jump to current</span><span className="fl-short" aria-hidden="true">Jump</span></button>}
         {live && <RunModeSwitch compact pid={thread.project_id} threadId={thread.thread_id} mode={thread.run_mode} />}
         {live ? (
           <button className="btn" type="button" disabled={busy} onClick={async () => {
