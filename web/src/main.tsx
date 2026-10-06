@@ -10,6 +10,7 @@ import "./styles/pages.css";
 import "./styles/diagram.css";
 // The Repo page's small IDE (activity bar, side bar, editor tabs, status bar).
 import "./styles/repo.css";
+import "./styles/graph.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

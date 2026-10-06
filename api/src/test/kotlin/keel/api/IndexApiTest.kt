@@ -59,4 +59,18 @@ class IndexApiTest : ApiTest() {
         post("/api/projects/$pid/map/rebuild").andExpect(status().isOk)
         assertThat(get("/api/projects/$pid/map").json()["sha"].asText()).isEqualTo("abc1234")
     }
+
+    @Test
+    fun `the code graph routes proxy the engine with the search text and the symbol`() {
+        val (pid, _) = newProject("graph-routes")
+        val o = get("/api/projects/$pid/graph").andExpect(status().isOk).json()
+        assertThat(o["groups"][0]["label"].asText()).isEqualTo("app")
+        val r = get("/api/projects/$pid/graph/search?q=Sv c").andExpect(status().isOk).json()
+        assertThat(r["results"][0]["q"].asText()).isEqualTo("Sv c")                    // sent on as JSON, not in a URL
+        val n = get("/api/projects/$pid/graph/node?id=class:svc&depth=5").andExpect(status().isOk).json()
+        assertThat(n["focus"]["id"].asText()).isEqualTo("class:svc")
+        assertThat(n["depth"].asInt()).isEqualTo(2)                                       // one or two steps only
+        get("/api/projects/$pid/graph/node").andExpect(status().isBadRequest)
+        get("/api/projects/nope/graph").andExpect(status().isNotFound)
+    }
 }

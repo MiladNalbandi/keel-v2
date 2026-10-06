@@ -96,6 +96,11 @@ class EngineClient(private val props: KeelProperties, private val mapper: Object
     fun map(pid: String): JsonNode = get("/projects/$pid/map")
     fun buildMap(pid: String, root: String): JsonNode = post("/projects/$pid/map", mapOf("root" to root), long = true)
 
+    // ---- the code graph for people (engine runtime/codegraph_view.py) ----------------------
+    fun graph(pid: String): JsonNode = get("/projects/$pid/graph")
+    fun graphSearch(pid: String, q: String): JsonNode = post("/projects/$pid/graph/search", mapOf("q" to q))
+    fun graphNode(pid: String, id: String, depth: Int): JsonNode = post("/projects/$pid/graph/node", mapOf("id" to id, "depth" to depth))
+
     // ---- bug hunt backlog (engine runtime/hunt.py) ------------------------------------------
     fun hunts(pid: String): JsonNode = get("/projects/$pid/hunts")
     fun hunt(pid: String, run: String): JsonNode = get("/projects/$pid/hunts/$run")

@@ -44,6 +44,16 @@ class KnowledgeController(private val knowledge: KnowledgeService) {
     @PostMapping("/map/rebuild")
     fun rebuild(@PathVariable pid: String): JsonNode = knowledge.rebuildMap(pid)
 
+    @GetMapping("/graph")
+    fun graph(@PathVariable pid: String): JsonNode = knowledge.graph(pid)
+
+    @GetMapping("/graph/search")
+    fun graphSearch(@PathVariable pid: String, @RequestParam(defaultValue = "") q: String): JsonNode = knowledge.graphSearch(pid, q)
+
+    @GetMapping("/graph/node")
+    fun graphNode(@PathVariable pid: String, @RequestParam(defaultValue = "") id: String, @RequestParam(defaultValue = "1") depth: Int): JsonNode =
+        knowledge.graphNode(pid, id, depth)
+
     @GetMapping("/wiki")
     fun wiki(@PathVariable pid: String): Wiki = knowledge.wiki(pid)
 

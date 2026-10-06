@@ -11,7 +11,7 @@ describe("navigation and project switching", () => {
     await screen.findByRole("option", { name: "ludus-engine" });
     const n = within(nav());
     for (const g of ["Run", "Project", "Build", "Control"]) expect(n.getAllByText(g).length).toBeGreaterThan(0);
-    for (const l of ["Flow", "Live agents", "Jobs", "Repo", "Map", "Wiki", "Workflows", "Agents", "Skill hub", "Stacks", "Tools (MCP)", "Budget", "Settings", "Connections"]) {
+    for (const l of ["Flow", "Live agents", "Jobs", "Repo", "Map", "Graph", "Wiki", "Workflows", "Agents", "Skill hub", "Stacks", "Tools (MCP)", "Budget", "Settings", "Connections"]) {
       expect(n.getByRole("link", { name: new RegExp(`^${l.replace(/[()]/g, "\\$&")}`) })).toBeInTheDocument();
     }
     expect(screen.getByRole("link", { name: /All projects/ })).toHaveTextContent("◆ 1");

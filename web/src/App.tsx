@@ -10,6 +10,7 @@ import { FlowPage } from "./pages/Flow";
 import { InboxPage } from "./pages/Inbox";
 import { JobsPage } from "./pages/Jobs";
 import { LivePage } from "./pages/Live";
+import { GraphPage } from "./pages/Graph";
 import { MapPage } from "./pages/Map";
 import { ProjectsPage } from "./pages/Projects";
 import { RepoPage } from "./pages/Repo";
@@ -32,6 +33,7 @@ const PAGES: Record<Exclude<ScreenId, "projects" | "inbox">, (p: { pid: string }
   jobs: JobsPage,
   repo: RepoPage,
   map: MapPage,
+  graph: GraphPage,
   wiki: WikiPage,
   workflows: WorkflowsPage,
   agents: AgentsPage,

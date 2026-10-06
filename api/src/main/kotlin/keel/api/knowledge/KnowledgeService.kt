@@ -285,6 +285,27 @@ class KnowledgeService(
 
     private fun missing(reason: String): JsonNode = mapper.createObjectNode().put("missing", reason)
 
+    // ---- the code graph (the Graph page): the engine reads the project's CodeGraph index ---------
+
+    fun graph(pid: String): JsonNode = graphCall(pid) { engine.graph(pid) }
+
+    fun graphSearch(pid: String, q: String): JsonNode = graphCall(pid) { engine.graphSearch(pid, q.take(200)) }
+
+    fun graphNode(pid: String, id: String, depth: Int): JsonNode {
+        if (id.isBlank()) throw BadRequest("id is missing", "Pick a symbol from the search or the graph.")
+        return graphCall(pid) { engine.graphNode(pid, id, depth.coerceIn(1, 2)) }
+    }
+
+    private fun graphCall(pid: String, call: () -> JsonNode): JsonNode {
+        projects.require(pid)
+        return try {
+            call()
+        } catch (e: EngineDown) {
+            mapper.createObjectNode().put("available", false).put("status", "engine")
+                .put("reason", "The engine is not running, so the code graph cannot be read.")
+        }
+    }
+
     companion object {
         val SECTIONS = listOf("architecture", "domain", "conventions", "data", "integrations", "journeys")
         val FACT_KINDS = setOf("fact", "rule", "flaky", "unlock")

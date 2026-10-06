@@ -44,6 +44,47 @@ export const IconDefs = () => (
       <ellipse cx="8" cy="3.8" rx="5.5" ry="2" fill="none" stroke="currentColor" strokeWidth="1.3" />
       <path d="M2.5 3.8v8.4c0 1.1 2.5 2 5.5 2s5.5-.9 5.5-2V3.8M2.5 8c0 1.1 2.5 2 5.5 2s5.5-.9 5.5-2" fill="none" stroke="currentColor" strokeWidth="1.3" />
     </symbol>
+    {/* the code graph's symbols, JetBrains-style: a letter in a circle */}
+    <symbol id="erd-i-class" viewBox="0 0 16 16">
+      <circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" strokeWidth="1.3" />
+      <text x="8" y="11.1" textAnchor="middle" fontSize="8.6" fontWeight="700" fill="currentColor" fontFamily="system-ui, sans-serif">C</text>
+    </symbol>
+    <symbol id="erd-i-iface" viewBox="0 0 16 16">
+      <circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" strokeWidth="1.3" />
+      <text x="8" y="11.1" textAnchor="middle" fontSize="8.6" fontWeight="700" fill="currentColor" fontFamily="system-ui, sans-serif">I</text>
+    </symbol>
+    <symbol id="erd-i-fn" viewBox="0 0 16 16">
+      <circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" strokeWidth="1.3" />
+      <text x="8" y="11.1" textAnchor="middle" fontSize="8.6" fontWeight="700" fill="currentColor" fontFamily="system-ui, sans-serif">f</text>
+    </symbol>
+    <symbol id="erd-i-enum" viewBox="0 0 16 16">
+      <circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" strokeWidth="1.3" />
+      <text x="8" y="11.1" textAnchor="middle" fontSize="8.6" fontWeight="700" fill="currentColor" fontFamily="system-ui, sans-serif">E</text>
+    </symbol>
+    <symbol id="erd-i-type" viewBox="0 0 16 16">
+      <circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" strokeWidth="1.3" />
+      <text x="8" y="11.1" textAnchor="middle" fontSize="8.6" fontWeight="700" fill="currentColor" fontFamily="system-ui, sans-serif">T</text>
+    </symbol>
+    <symbol id="erd-i-const" viewBox="0 0 16 16">
+      <circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" strokeWidth="1.3" />
+      <text x="8" y="11.1" textAnchor="middle" fontSize="8.6" fontWeight="700" fill="currentColor" fontFamily="system-ui, sans-serif">K</text>
+    </symbol>
+    <symbol id="erd-i-method" viewBox="0 0 16 16">
+      <circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" strokeWidth="1.3" />
+      <text x="8" y="11.1" textAnchor="middle" fontSize="8.6" fontWeight="700" fill="currentColor" fontFamily="system-ui, sans-serif">m</text>
+    </symbol>
+    <symbol id="erd-i-field" viewBox="0 0 16 16">
+      <circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" strokeWidth="1.3" />
+      <text x="8" y="11.1" textAnchor="middle" fontSize="8.6" fontWeight="700" fill="currentColor" fontFamily="system-ui, sans-serif">v</text>
+    </symbol>
+    <symbol id="erd-i-route" viewBox="0 0 16 16">
+      <circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" strokeWidth="1.3" />
+      <text x="8" y="11.1" textAnchor="middle" fontSize="8.6" fontWeight="700" fill="currentColor" fontFamily="system-ui, sans-serif">R</text>
+    </symbol>
+    <symbol id="erd-i-file" viewBox="0 0 16 16">
+      <path d="M4 1.8h5.2L12.5 5v9.2H4Z" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+      <path d="M9 1.8V5.3h3.4" fill="none" stroke="currentColor" strokeWidth="1.2" />
+    </symbol>
     <symbol id="erd-i-code" viewBox="0 0 16 16">
       <rect x="1.5" y="2.5" width="13" height="11" rx="1.6" fill="none" stroke="currentColor" strokeWidth="1.3" />
       <path d="M5.2 6.3 3.6 8l1.6 1.7M10.8 6.3 12.4 8l-1.6 1.7M8.8 5.6 7.2 10.4" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />

@@ -18,15 +18,19 @@ export type GRow = { t: string; method?: string; tip?: string };
 export type GBox = {
   id: string; kind: "app" | "api" | "data" | "ext"; icon: string; title: string; sub?: string; rows: GRow[];
   drill?: "modules" | "er"; table?: string; cite?: { rel: string; line: number } | null; band?: string;
+  /** another diagram's way in (the Graph page): the header's right text, e.g. "classes ›"; Enter or a double click opens */
+  open?: string;
 };
-export type GEdge = { id: string; from: string; to: string; label?: string };
+/** weight: how many uses the line stands for (drawn thicker); tip: its tooltip */
+export type GEdge = { id: string; from: string; to: string; label?: string; weight?: number; tip?: string };
 type Band = { id: string; label: string; sub: string };
 
 const cut = (s: string, n: number) => (s.length <= n ? s : s.slice(0, Math.max(1, n - 1)) + "…");
 
 function size(b: GBox): { w: number; h: number } {
   const rowLen = Math.max(0, ...b.rows.map((r) => r.t.length + (r.method ? 7 : 0)));
-  const w = Math.round(Math.min(MAX_W, Math.max(MIN_W, 48 + b.title.length * TITLE_CH + (b.drill ? (b.table ? 16 : 70) : 0), 24 + rowLen * CH, 24 + (b.sub?.length ?? 0) * 6.6)));
+  const extra = b.drill ? (b.table ? 16 : 70) : b.open ? 14 + b.open.length * 6.6 : 0;
+  const w = Math.round(Math.min(MAX_W, Math.max(MIN_W, 48 + b.title.length * TITLE_CH + extra, 24 + rowLen * CH, 24 + (b.sub?.length ?? 0) * 6.6)));
   return { w, h: HEAD + (b.sub ? SUB : 0) + b.rows.length * ROW + PAD + (b.rows.length || b.sub ? 2 : 0) };
 }
 
@@ -149,14 +153,15 @@ const Box = memo(function Box({ b, x, y, w, h, sel, match, active }: { b: GBox; 
   return (
     <g className={`gbox k-${b.kind} ${sel ? "sel" : ""} ${match ? "match" : ""}`} transform={`translate(${x} ${y})`} data-tid={b.id}
       role="button" tabIndex={active ? 0 : -1} aria-pressed={sel}
-      aria-label={`${b.title}${b.sub ? ", " + b.sub : ""}${b.drill ? `, opens the ${b.drill === "er" ? "database diagram" : "modules"}` : ""}`}>
+      aria-label={`${b.title}${b.sub ? ", " + b.sub : ""}${b.drill ? `, opens the ${b.drill === "er" ? "database diagram" : "modules"}` : b.open ? ", opens it" : ""}`}>
       <rect className="erd-shadow" x={1.5} y={2.5} width={w} height={h} rx={6} />
       <rect className="erd-frame" width={w} height={h} rx={6} />
       <path className="erd-head" d={`M0 6a6 6 0 0 1 6-6H${w - 6}a6 6 0 0 1 6 6V${HEAD}H0Z`} />
       <path className="erd-sep" d={`M0 ${HEAD}H${w}`} />
       <use href={`#erd-i-${b.icon}`} className="g-ic" x={9} y={7} width={16} height={16} />
-      <text className="erd-title" x={30} y={19.5}>{cut(b.title, Math.floor((w - 44 - (b.drill ? (b.table ? 14 : 64) : 0)) / TITLE_CH))}</text>
+      <text className="erd-title" x={30} y={19.5}>{cut(b.title, Math.floor((w - 44 - (b.drill ? (b.table ? 14 : 64) : b.open ? 10 + b.open.length * 6.6 : 0)) / TITLE_CH))}</text>
       {b.drill && <text className="g-drill" x={w - 10} y={19.5} textAnchor="end">{b.table ? "›" : b.drill === "er" ? "diagram ›" : "modules ›"}</text>}
+      {!b.drill && b.open && <text className="g-drill" x={w - 10} y={19.5} textAnchor="end">{b.open}</text>}
       {b.sub && <text className="g-sub" x={10} y={HEAD + 13}>{cut(b.sub, Math.floor((w - 20) / 6.6))}</text>}
       {b.rows.map((r, i) => {
         y0 += ROW;
@@ -174,9 +179,11 @@ const Box = memo(function Box({ b, x, y, w, h, sel, match, active }: { b: GBox; 
 
 // ------------------------------------------------------------------ the component
 
-export function BoxDiagram({ pid, level, name, boxes, edges = [], bands, onDrill }: {
+export function BoxDiagram({ pid, level, name, boxes, edges = [], bands, onDrill, label }: {
   pid: string; level: string; name: string; boxes: GBox[]; edges?: GEdge[]; bands?: Band[];
   onDrill: (b: GBox) => void;
+  /** the canvas's name for screen readers; "System map of …" / "Modules map of …" by default */
+  label?: string;
 }) {
   const uid = useId().replace(/:/g, "");
   const key = `keel2.map.${pid}.${level}.pos`;
@@ -273,7 +280,7 @@ export function BoxDiagram({ pid, level, name, boxes, edges = [], bands, onDrill
   const onDouble = (e: React.MouseEvent<SVGGElement>) => {
     const g = (e.target as Element).closest("[data-tid]") as SVGGElement | null;
     const b = g ? byId.get(g.dataset.tid!) : undefined;
-    if (b?.drill) onDrill(b);
+    if (b?.drill || b?.open) onDrill(b);
   };
   const onKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if ((e.target as HTMLElement).closest?.("input")) return;
@@ -295,7 +302,7 @@ export function BoxDiagram({ pid, level, name, boxes, edges = [], bands, onDrill
       if (best) select(best, true);
     } else if (k === "Enter" && sel) {
       const b = byId.get(sel);
-      if (b?.drill) onDrill(b);
+      if (b?.drill || b?.open) onDrill(b);
     } else if (k === "Escape") { setSel(null); setQuery(""); }
     else if (k === "+" || k === "=") canvas.current?.zoomBy(1.25);
     else if (k === "-") canvas.current?.zoomBy(0.8);
@@ -336,7 +343,8 @@ export function BoxDiagram({ pid, level, name, boxes, edges = [], bands, onDrill
         const mid = pts[Math.floor((pts.length - 1) / 2)], mid2 = pts[Math.floor((pts.length - 1) / 2) + 1] ?? mid;
         return (
           <g key={e.id} className="erd-edge gedge">
-            <path className="erd-line" d={pathD(pts)} />
+            {e.tip && <title>{e.tip}</title>}
+            <path className="erd-line" d={pathD(pts)} style={e.weight ? { strokeWidth: Math.min(4.5, 1.1 + Math.log2(e.weight) * 0.7) } : undefined} />
             <path className="erd-mark arrow" d={mark.d} />
             {e.label && <text className="gedge-lbl" x={(mid[0] + mid2[0]) / 2} y={(mid[1] + mid2[1]) / 2 - 6} textAnchor="middle">{e.label}</text>}
           </g>
@@ -395,7 +403,7 @@ export function BoxDiagram({ pid, level, name, boxes, edges = [], bands, onDrill
         </div>
       </div>
       <div className="dg-body">
-        <Canvas ref={canvas} world={world} label={`${level === "system" ? "System" : "Modules"} map of ${name}: ${boxes.length} boxes`}
+        <Canvas ref={canvas} world={world} label={label ?? `${level === "system" ? "System" : "Modules"} map of ${name}: ${boxes.length} boxes`}
           describedBy={`${uid}-help`} onView={onView} onBackground={() => setSel(null)} onKeyDown={onKey} grabbing={!!drag} minimap={minimap}
           start={boxes[0] ? rect(boxes[0].id) : null}>
           {sceneEl}
@@ -407,6 +415,7 @@ export function BoxDiagram({ pid, level, name, boxes, edges = [], bands, onDrill
             <span className="dg-selinfo">{selected.title}</span>
             {selected.sub && <span>{selected.sub}</span>}
             {selected.drill && <button type="button" className="dg-link" onClick={() => onDrill(selected)}>{selected.drill === "er" ? "Open in the database diagram" : "Open the modules"}</button>}
+            {!selected.drill && selected.open && <button type="button" className="dg-link" onClick={() => onDrill(selected)}>Open {selected.title}</button>}
             {selected.cite && <a className="dg-link" href={fileHref(selected.cite)}>{selected.cite.rel}:{selected.cite.line}</a>}
           </>
         ) : <span>{boxes.length} boxes{edges.length ? `, ${edges.length} lines` : ""}</span>}

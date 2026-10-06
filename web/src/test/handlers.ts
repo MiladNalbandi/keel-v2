@@ -1,7 +1,7 @@
 // MSW handlers for every /api route the web uses, backed by a small in-memory db (reset per test).
 
 import { http, HttpResponse } from "msw";
-import type { Cap, CapLeft, CapsLeft, IndexStatus, OnCap, Settings, Stack, ThreadState, Workflow } from "../api";
+import type { Cap, CapLeft, CapsLeft, GraphFocus, GraphOverview, IndexStatus, OnCap, Settings, Stack, ThreadState, Workflow } from "../api";
 import * as fx from "./fixtures";
 import { createTaskDb, taskHandlers } from "./taskHandlers";
 
@@ -34,6 +34,9 @@ export function createDb() {
     usage: fx.usage(),
     /** GET /budget/now without its caps (they come from `caps` and `capUse`, as GET /caps/left). */
     budgetNow: fx.budgetNow(),
+    /** GET /graph and GET /graph/node answers (tests change them). */
+    graph: fx.graphOverview() as GraphOverview,
+    graphFocus: fx.graphFocus() as GraphFocus,
     calls: [] as { method: string; path: string; body: unknown }[],
     /** v0.5.0: tasks, Jira connections, the MCP catalog */
     tk: createTaskDb(),
@@ -267,6 +270,19 @@ export function handlers(db: Db) {
     http.put("/api/projects/:pid/mcp-allow", async ({ request }) => HttpResponse.json(await log(request))),
 
     http.get("/api/projects/:pid/budget", () => HttpResponse.json(fx.budget)),
+    http.get("/api/projects/:pid/graph", () => HttpResponse.json(db.graph)),
+    http.get("/api/projects/:pid/graph/search", ({ request }) => {
+      const q = (new URL(request.url).searchParams.get("q") ?? "").toLowerCase();
+      const all = [
+        { id: "method:save", name: "ScoreService.save", kind: "method", file: "app/ScoreService.java", line: 8, unit: "class:svc", group: "package:com.x.app" },
+        { id: "class:score", name: "Score", kind: "class", file: "domain/Score.java", line: 3, unit: "class:score", group: "package:com.x.domain" },
+      ];
+      return HttpResponse.json({ available: true, results: all.filter((h) => h.name.toLowerCase().includes(q)) });
+    }),
+    http.get("/api/projects/:pid/graph/node", async ({ request }) => {
+      await log(request);
+      return HttpResponse.json(db.graphFocus);
+    }),
     http.get("/api/projects/:pid/budget/now", async ({ request, params }) => {
       await log(request);
       return HttpResponse.json({ ...db.budgetNow, caps: capsLeft(db, params.pid as string).caps.filter((c) => c.checked && (c.window === "day" || c.window === "month")) });

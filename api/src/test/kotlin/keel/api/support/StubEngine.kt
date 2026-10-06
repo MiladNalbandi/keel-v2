@@ -142,6 +142,13 @@ class StubEngine private constructor(private val server: HttpServer) {
             200 to maps[pid]
         }
         path.matches(Regex("/projects/[^/]+/map")) -> 200 to (maps[path.split('/')[2]] ?: mapOf("missing" to "No map yet. Build it to draw one."))
+        path.matches(Regex("/projects/[^/]+/graph")) -> 200 to mapOf("available" to true, "counts" to mapOf("units" to 2),
+            "groups" to listOf(mapOf("id" to "package:com.x.app", "kind" to "package", "name" to "com.x.app", "label" to "app", "path" to listOf("app"))),
+            "units" to listOf(mapOf("id" to "class:svc", "name" to "Svc", "kind" to "class", "group" to "package:com.x.app")), "links" to emptyList<Any>())
+        path.matches(Regex("/projects/[^/]+/graph/search")) -> 200 to mapOf("available" to true,
+            "results" to listOf(mapOf("id" to "class:svc", "name" to "Svc", "q" to body?.get("q")?.asText())))
+        path.matches(Regex("/projects/[^/]+/graph/node")) -> 200 to mapOf("available" to true, "level" to "unit",
+            "focus" to mapOf("id" to body?.get("id")?.asText(), "name" to "Svc"), "depth" to body?.get("depth")?.asInt(), "nodes" to emptyList<Any>(), "edges" to emptyList<Any>())
         path.matches(Regex("/projects/[^/]+/hunts")) -> 200 to listOf(mapOf("run" to "2026-10-05-01", "mode" to "semi", "open" to 1,
             "counts" to mapOf("candidate" to 0, "proven" to 1, "unproven" to 0, "false" to 0)))
         path.matches(Regex("/projects/[^/]+/hunts/[^/]+/close")) -> {

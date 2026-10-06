@@ -1,7 +1,7 @@
 // Example api data for tests (MSW). Shapes follow docs/CONTRACT.md; values follow docs/mockup.html.
 
 import type {
-  Agent, Budget, BudgetNow, Cap, Catalog, Checkpoint, Connections, Estimate, Health, Job, JobStep, KeelDoc, KeelMap, LibraryItem, Limit, McpServer,
+  Agent, Budget, BudgetNow, Cap, Catalog, GraphFocus, GraphOverview, Checkpoint, Connections, Estimate, Health, Job, JobStep, KeelDoc, KeelMap, LibraryItem, Limit, McpServer,
   Memory, Notification, NotificationSettings, Project, ProjectSettings, ProviderUsage, RepoFile, RepoInfo, Settings, Skill, SkillDetail,
   Stack, StepExplanation, ThreadState, TreeNode, WikiPage, WikiTree, Workflow,
 } from "../api";
@@ -355,3 +355,54 @@ export function explanation(step: string, thread: boolean): StepExplanation {
       commit: { sha: "3e53b6aa9caa", subject: "test(AC-1): main case" }, answer: "RED: tests/test_ac_1.py asserts AC-1.", tokens: { in: 24000, out: 3000, step: 27000 } }] } } : {}),
   };
 }
+
+/** The code graph of a small layered app (engine runtime/codegraph_view.py shapes): web uses app, app uses domain. */
+export const graphOverview = (): GraphOverview => ({
+  available: true, status: "ready", indexed_at: new Date(now - 5 * 60_000).toISOString(),
+  counts: { files: 6, symbols: 40, units: 6, links: 5, uses: 9 },
+  groups: [
+    { id: "package:com.x.web", kind: "package", name: "com.x.web", label: "web", path: ["web"] },
+    { id: "package:com.x.app", kind: "package", name: "com.x.app", label: "app", path: ["app"] },
+    { id: "package:com.x.app.port", kind: "package", name: "com.x.app.port", label: "app.port", path: ["app", "port"] },
+    { id: "package:com.x.domain", kind: "package", name: "com.x.domain", label: "domain", path: ["domain"] },
+    { id: "folder:src/test", kind: "folder", name: "src/test", label: "src/test", path: ["src", "test"] },
+  ],
+  units: [
+    { id: "class:ctl", name: "ScoreController", kind: "class", group: "package:com.x.web", file: "web/ScoreController.java", line: 4, members: 2 },
+    { id: "class:svc", name: "ScoreService", kind: "class", group: "package:com.x.app", file: "app/ScoreService.java", line: 3, members: 3 },
+    { id: "iface:port", name: "ScorePort", kind: "interface", group: "package:com.x.app.port", file: "app/port/ScorePort.java", line: 2, members: 1 },
+    { id: "class:score", name: "Score", kind: "class", group: "package:com.x.domain", file: "domain/Score.java", line: 3, members: 4 },
+    { id: "class:rank", name: "Rank", kind: "class", group: "package:com.x.domain", file: "domain/Rank.java", line: 3, members: 1 },
+    { id: "class:svctest", name: "ScoreServiceTest", kind: "class", group: "folder:src/test", file: "src/test/ScoreServiceTest.java", line: 5, members: 2 },
+  ],
+  links: [
+    { from: "class:ctl", to: "class:svc", n: 3, k: { calls: 2, instantiates: 1 } },
+    { from: "class:svc", to: "iface:port", n: 1, k: { calls: 1 } },
+    { from: "class:svc", to: "class:score", n: 4, k: { calls: 3, references: 1 } },
+    { from: "class:score", to: "class:rank", n: 1, k: { calls: 1 } },
+    { from: "class:svctest", to: "class:svc", n: 6, k: { calls: 6 } },
+  ],
+});
+export const graphFocus = (): GraphFocus => ({
+  available: true, level: "unit", depth: 1,
+  focus: {
+    id: "class:svc", name: "ScoreService", kind: "class", qualified: "com.x.app::ScoreService", signature: null, docstring: "Keeps the scores.",
+    file: "app/ScoreService.java", line: 3, end_line: 40, group: "package:com.x.app", unit: null,
+    members: [
+      { id: "method:save", name: "save", kind: "method", line: 8, in: 3, out: 2 },
+      { id: "method:top", name: "top", kind: "method", line: 20, in: 0, out: 1 },
+      { id: "field:port", name: "port", kind: "field", line: 5, in: 0, out: 1 },
+    ],
+  },
+  nodes: [
+    { id: "class:ctl", name: "ScoreController", kind: "class", unit: "class:ctl", group: "package:com.x.web", file: "web/ScoreController.java", line: 4, col: -1 },
+    { id: "class:score", name: "Score", kind: "class", unit: "class:score", group: "package:com.x.domain", file: "domain/Score.java", line: 3, col: 1 },
+    { id: "iface:port", name: "ScorePort", kind: "interface", unit: "iface:port", group: "package:com.x.app.port", file: "app/port/ScorePort.java", line: 2, col: 1 },
+  ],
+  edges: [
+    { from: "class:ctl", to: "class:svc", n: 3, k: { calls: 2, instantiates: 1 }, sites: [{ file: "web/ScoreController.java", line: 12 }] },
+    { from: "class:svc", to: "class:score", n: 4, k: { calls: 3, references: 1 }, sites: [{ file: "app/ScoreService.java", line: 9 }] },
+    { from: "class:svc", to: "iface:port", n: 1, k: { calls: 1 }, sites: [{ file: "app/ScoreService.java", line: 10 }] },
+  ],
+  more: { "-1": 0, "1": 0 }, impact: 2, impact_capped: false,
+});

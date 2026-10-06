@@ -19,7 +19,7 @@ from .models import usage as provider_usage
 from .demo import create_demo, workspace_missing
 from .events import EventBus, bus as default_bus
 from .models import catalog
-from .runtime import hunt, mapper, scan
+from .runtime import codegraph_view, hunt, mapper, scan
 from .runtime.explain import ExplainError, explain_step
 from .runtime.service import Engine, EngineError
 from .tools import mcp
@@ -186,6 +186,15 @@ class ScanBody(BaseModel):
 
 class MapBody(BaseModel):
     root: str
+
+
+class GraphSearch(BaseModel):
+    q: str = ""
+
+
+class GraphNode(BaseModel):
+    id: str
+    depth: int = 1                        # 1: who uses it and what it uses; 2: one more step on both sides
 
 
 class HuntClose(BaseModel):
@@ -382,6 +391,20 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     async def get_map(pid: str):
         m = await asyncio.to_thread(mapper.load, pid)
         return m or {"missing": "No map yet. Build it to draw one."}
+
+    @app.get("/projects/{pid}/graph")
+    async def get_graph(pid: str):
+        """The code graph for people: groups (packages or folders), units and the uses between them (codegraph_view.py)."""
+        return await asyncio.to_thread(codegraph_view.overview, pid)
+
+    @app.post("/projects/{pid}/graph/search")
+    async def post_graph_search(pid: str, body: GraphSearch):
+        return await asyncio.to_thread(codegraph_view.search, pid, body.q)
+
+    @app.post("/projects/{pid}/graph/node")
+    async def post_graph_node(pid: str, body: GraphNode):
+        """One symbol: who uses it (left), what it uses (right), its members and how much depends on it."""
+        return await asyncio.to_thread(codegraph_view.focus, pid, body.id, body.depth)
 
     @app.get("/projects/{pid}/hunts")
     async def get_hunts(pid: str):
