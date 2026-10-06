@@ -1,0 +1,25 @@
+/* v0.8.0 the Quality page (pages/Quality.tsx): scores by flow and model, runs and their cases, the run form */
+.q-table { display: grid; gap: 0; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.q-row { display: grid; grid-template-columns: minmax(80px, 1fr) minmax(120px, 1.4fr) 70px minmax(90px, 1fr) 130px; gap: 10px; align-items: center;
+  padding: 8px 12px; border-top: 1px solid var(--border); font-size: 13.5px; min-width: 0; }
+.q-row > * { min-width: 0; overflow-wrap: anywhere; }
+.q-row:first-child { border-top: 0; }
+.q-head { background: var(--panel-2); font: 600 11.5px var(--f-mono); letter-spacing: .04em; text-transform: uppercase; color: var(--dim); }
+.q-row.drop { background: var(--bad-soft); }
+.q-cases .q-row { grid-template-columns: minmax(140px, 1.6fr) minmax(130px, 1.3fr) minmax(120px, 1.4fr) 60px minmax(120px, 1.2fr); }
+.q-sub { color: var(--dim); font-size: 12.5px; }
+.q-up { color: var(--ok); font-weight: 600; }
+.q-down { color: var(--bad); font-weight: 600; }
+.q-spark { color: var(--accent); display: block; }
+.q-scores { margin: 0 0 10px; padding-left: 18px; display: grid; gap: 4px; font-size: 13.5px; }
+.q-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-bottom: 10px; }
+.q-field { display: grid; gap: 6px; align-content: start; border: 0; padding: 0; margin: 0; min-width: 0; }
+.q-field legend, .q-field > label:not(.q-check) { font-weight: 600; font-size: 13px; margin-bottom: 2px; }
+.q-check { display: flex; gap: 6px; align-items: baseline; font-size: 13.5px; }
+.q-night { margin-left: 12px; }
+.q-at { width: 70px; font: inherit; padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--fg); }
+.q-drop { margin-bottom: 14px; }
+@media (max-width: 720px) {
+  .q-row, .q-cases .q-row { grid-template-columns: 1fr 1fr; }
+  .q-head { display: none; }
+}

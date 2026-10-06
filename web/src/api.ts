@@ -215,6 +215,24 @@ export type FlowBoard = { flows: BoardFlow[]; overlaps: { file: string; flows: s
   order: string[] };
 export type FlowWhere = "folder" | "worktree" | "auto";
 
+/** v0.8.0 quality runs: an eval set (content/evals) and its cases. */
+export type EvalSet = { name: string; description: string; project: string; problems: string[];
+  cases: { id: string; title: string; workflow: string; request: string; cap_tokens?: number | null }[] };
+/** outcome: end (the PR gate or done) | stuck (at another gate) | cap (its token cap stopped it) | failed | timeout | refused | stopped */
+export type QualityCase = { id: string; n: number; eval_set: string; case_id: string; title: string; workflow_id: string; model: Model;
+  status: "queued" | "running" | "done" | "stopped"; outcome?: string | null; reached?: string | null; project_id?: string | null;
+  thread_id?: string | null; score?: number | null; tokens?: number | null; cost_usd?: number | null; ms?: number | null;
+  sendbacks?: number | null; estimate?: number | null; progress?: number | null; started_at?: string | null; ended_at?: string | null };
+export type QualityScore = { workflow_id: string; model: Model; score: number; cases: number; reached_end: number; tokens: number; ms: number };
+export type QualityRun = { id: string; status: "queued" | "running" | "done" | "stopped" | "failed"; trigger: "manual" | "nightly" | string;
+  flows: string[]; models: Model[]; sets: string[]; created_at: string; started_at?: string | null; ended_at?: string | null;
+  error?: string | null; scores: QualityScore[]; cases: QualityCase[] };
+/** A flow × model over the runs, oldest first; drop: its last score fell 15 points or more since the one before. */
+export type QualityLine = { workflow_id: string; model: Model; points: { run_id: string; at: string; score: number }[];
+  last?: number | null; previous?: number | null; drop: boolean };
+export type QualitySchedule = { enabled: boolean; at: string; flows: string[]; models: Model[]; last_run_date?: string | null };
+export type QualityView = { sets: EvalSet[]; active: QualityRun | null; runs: QualityRun[]; lines: QualityLine[]; schedule: QualitySchedule };
+
 export type JobStatus = "running" | "done" | "failed" | "stopped" | "guard" | string;
 export type Job = {
   id: string;
@@ -823,6 +841,10 @@ export const api = {
   flow: (pid: string) => get<FlowView>(`/projects/${e(pid)}/flow`),
   flowOf: (pid: string, tid: string) => get<FlowView>(`/projects/${e(pid)}/flows/${e(tid)}`),
   flowBoard: (pid: string) => get<FlowBoard>(`/projects/${e(pid)}/flows`),
+  quality: () => get<QualityView>("/quality"),
+  qualityStart: (body: { flows: string[]; models: Model[]; sets?: string[] }) => post<QualityRun>("/quality/runs", body),
+  qualityStop: (id: string) => post<QualityRun>(`/quality/runs/${e(id)}/stop`),
+  qualitySchedule: (body: QualitySchedule) => put<QualitySchedule>("/quality/schedule", body),
   removeWorktree: (tid: string) => post<{ ok: boolean; worktree: string }>(`/threads/${e(tid)}/worktree/remove`),
   startLogin: (provider: string) => post<LoginView>("/logins", { provider }),
   login: (id: string) => get<LoginView>(`/logins/${e(id)}`),

@@ -137,7 +137,7 @@ class FlowService(
     private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
 
     /** Builds StartThread from the workflow + effective settings + agent models + MCP + skills. */
-    fun buildStart(pid: String, workflowId: String, title: String, acs: List<Ac>?, cap: FlowCap? = null): StartThread {
+    fun buildStart(pid: String, workflowId: String, title: String, acs: List<Ac>?, cap: FlowCap? = null, model: Model? = null): StartThread {
         val project = projects.require(pid)
         val wf = workflows.get(workflowId)
         val s = settings.effective(pid)
@@ -149,6 +149,8 @@ class FlowService(
 
         val models = linkedMapOf("default" to s.defaultModel)
         all.filter { it.enabled }.forEach { models[it.id] = it.model }
+        // v0.8.0: a quality run measures one model: every agent of this flow uses it
+        if (model != null) models.keys.toList().forEach { models[it] = model }
 
         // Every cap of the project: the smallest one left binds. A used-up cap refuses the start (pause, stop) or starts
         // every agent on the cheaper model (cheaper) — never the fake model for a flow that runs real models.
@@ -185,10 +187,10 @@ class FlowService(
 
     fun start(pid: String, workflowId: String, title: String, acs: List<Ac>?, cap: FlowCap? = null,
               allowFake: Boolean = false, allowDirty: Boolean = false, request: String? = null,
-              options: Map<String, Any?>? = null, where: String? = null): JsonNode {
+              options: Map<String, Any?>? = null, where: String? = null, model: Model? = null): JsonNode {
         if (title.isBlank()) throw BadRequest("Give the flow a title", "One short line: what should this flow build or fix?")
         cap?.check()
-        var start = buildStart(pid, workflowId, title, acs, cap)
+        var start = buildStart(pid, workflowId, title, acs, cap, model)
         val root = Paths.get(start.root)
         refuseFake(start, root, allowFake)
         // the project folder, or (v0.7.x) a worktree of its own next to the flow that runs or waits there

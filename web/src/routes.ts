@@ -2,7 +2,7 @@
 
 export type ScreenId =
   | "projects" | "inbox" | "flow" | "tasks" | "live" | "jobs" | "repo" | "map" | "graph" | "wiki"
-  | "workflows" | "agents" | "skills" | "stacks" | "tools" | "budget" | "settings" | "connections";
+  | "workflows" | "agents" | "skills" | "stacks" | "tools" | "quality" | "budget" | "settings" | "connections";
 
 export type Group = { id: string; label: string; hint: string; pages: [ScreenId, string][] };
 
@@ -11,7 +11,7 @@ export const GROUPS: Group[] = [
   { id: "know", label: "Project", hint: "what this project is", pages: [["repo", "Repo"], ["map", "Map"], ["graph", "Graph"], ["wiki", "Wiki"]] },
   {
     id: "build", label: "Build", hint: "how agents work",
-    pages: [["workflows", "Workflows"], ["agents", "Agents"], ["skills", "Skill hub"], ["stacks", "Stacks"], ["tools", "Tools (MCP)"]],
+    pages: [["workflows", "Workflows"], ["agents", "Agents"], ["skills", "Skill hub"], ["stacks", "Stacks"], ["tools", "Tools (MCP)"], ["quality", "Quality"]],
   },
   { id: "control", label: "Control", hint: "cost, limits, accounts", pages: [["budget", "Budget"], ["settings", "Settings"], ["connections", "Connections"]] },
 ];

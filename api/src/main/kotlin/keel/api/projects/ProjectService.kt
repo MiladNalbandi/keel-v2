@@ -64,7 +64,7 @@ class ProjectService(private val jdbc: JdbcTemplate, private val mapper: ObjectM
      * listed; it comes back when its folder is mounted again.
      */
     fun rows(): List<ProjectRow> =
-        jdbc.query("SELECT id, name, root FROM projects WHERE root NOT LIKE '%$PARKED%' ORDER BY name") { rs, _ -> ProjectRow(rs.getString(1), rs.getString(2), rs.getString(3)) }
+        jdbc.query("SELECT id, name, root FROM projects WHERE root NOT LIKE '%$PARKED%' AND hidden = 0 ORDER BY name") { rs, _ -> ProjectRow(rs.getString(1), rs.getString(2), rs.getString(3)) }
             .filter { java.nio.file.Files.isDirectory(Paths.get(it.root)) }
 
     /**
@@ -108,6 +108,19 @@ class ProjectService(private val jdbc: JdbcTemplate, private val mapper: ObjectM
         jdbc.update("INSERT INTO projects(id, name, root, created_at) VALUES (?, ?, ?, ?)", id, display, root.toString(), Time.now())
         return ProjectRow(id, display, root.toString()).also { if (scan) triggerScan(it) }
     }
+
+    /** v0.8.0: a quality run's eval project: it runs flows like any project, but no list, Inbox or notification shows it. */
+    fun registerHidden(root: Path, name: String): ProjectRow {
+        val base = Slug.of(name)
+        var id = base
+        var n = 2
+        while (find(id) != null) id = "$base-${n++}"
+        jdbc.update("INSERT INTO projects(id, name, root, created_at, hidden) VALUES (?, ?, ?, ?, 1)", id, name, root.toAbsolutePath().normalize().toString(), Time.now())
+        return ProjectRow(id, name, root.toAbsolutePath().normalize().toString())
+    }
+
+    fun hidden(pid: String): Boolean =
+        (jdbc.queryForObject("SELECT COALESCE(MAX(hidden), 0) FROM projects WHERE id = ?", Int::class.java, pid) ?: 0) == 1
 
     /** The phase of the project's running or waiting flow; "none" when no flow is active. */
     fun activePhase(pid: String): String = jdbc.query(

@@ -51,6 +51,7 @@ keel2 start ~/path/to/your/project
 | **Tasks** | your tasks or Jira tickets; **Start** runs a flow for one |
 | **Repo · Map · Graph** | the code, the database diagram, and what uses what |
 | **Helper** (in Repo, ⌘I) | ask about the code, fix things while a flow waits at a gate, or try an idea on its own branch |
+| **Quality** | how well each flow works with each model, run on small test projects; a drop shows in red |
 | **Budget** | tokens and cost (a small bar shows it on top of every page) |
 
 ## Flows

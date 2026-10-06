@@ -78,6 +78,10 @@ class StubEngine private constructor(private val server: HttpServer) {
 
     /** The Helper's commands waiting for the person (GET /helper/permissions); a test adds them. */
     val helperQuestions = CopyOnWriteArrayList<Map<String, Any?>>()
+    /** What GET /evals answers (tests change it). */
+    @Volatile var evalSets: List<Map<String, Any?>> = listOf(mapOf("name" to "tiny", "description" to "a tiny eval", "project" to "project",
+        "problems" to emptyList<Any>(), "cases" to listOf(mapOf("id" to "one", "title" to "Rank players", "workflow" to "feature",
+            "request" to "Show each player's rank.", "acs" to emptyList<Any>(), "cap_tokens" to 50_000))))
     /** What GET /helper/sessions/{sid}/handover (and POST .../release) answer for a side session; tests set it. */
     @Volatile var helperHandover: Map<String, Any?> = mapOf("branch" to "keel/helper/abc", "base" to "0000000", "commits" to emptyList<Any>(),
         "uncommitted" to emptyList<Any>(), "asked" to listOf("Add a price helper"), "answer" to "Added it.", "title" to "Add a price helper")
@@ -157,6 +161,17 @@ class StubEngine private constructor(private val server: HttpServer) {
                 }
                 else -> 200 to sess
             }
+        }
+        // v0.8.0: the eval sets, and a case's project made for real (a git repo with one commit on main)
+        path == "/evals" -> 200 to evalSets
+        path == "/evals/prepare" -> {
+            val dest = java.nio.file.Paths.get(body!!["dest"].asText())
+            java.nio.file.Files.createDirectories(dest)
+            java.nio.file.Files.writeString(dest.resolve("README.md"), "# eval\n")
+            git(dest, "init", "-q", "-b", "main")
+            git(dest, "add", "-A")
+            git(dest, "commit", "-qm", "chore: eval project")
+            200 to mapOf("path" to dest.toString(), "set" to body["name"].asText(), "cases" to emptyList<Any>())
         }
         // v0.7.x: a flow's worktree, made for real in the test project (the board reads its git)
         path == "/worktrees" && method == "POST" -> {

@@ -1432,3 +1432,45 @@ Project  += {flows}   (flows that run or wait, folder and worktrees)
   **Remove the worktree** for a finished one); **Start another flow** next to Stop; the Start drawer's **Where it
   runs** (the folder option is off while a flow runs there); the Inbox puts each flow's items under its own heading
   when several flows of one project wait.
+
+
+## v0.8.0: quality runs
+
+keel runs its flows on small eval projects with the models you pick and scores every run, so a change to a prompt,
+an agent, a skill or a model shows up as a drop before it ships.
+
+- **Eval sets**: `content/evals/<name>/eval.yml` (name, description, `project`: a folder there or `demo`, cases:
+  `id`, `title`, `workflow` (default change), `request`, optional `acs`, `cap_tokens` (default: twice the flow's estimate)). keel ships
+  `shop-js` (JavaScript, `node --test`) and `scores-py` (the demo, pytest). A broken set is listed with its problems
+  and never run. Engine: `GET /evals`, `POST /evals/prepare {name, dest}` (a fresh git repo with the project on main;
+  only under `$KEEL_DATA/evals`).
+- **A run** = every case of the chosen sets × the chosen flows × the chosen models (1-4), one case at a time. Each
+  case: a fresh copy of its project as a **hidden project** (`projects.hidden`, V9: no list, Inbox or notification
+  shows it), its flow in run mode **auto** (it approves what it can and never opens a PR) with the chosen model for
+  every agent (`FlowService.start(model = …)`) and the case's cap (on_cap stop). It ends at the PR gate or done (the
+  end), at another gate (stuck: something only a person answers), at its token cap (cap), failed, refused (it did not
+  start), or after 30 minutes (timeout); keel stops what still runs, then deletes the copy (the results stay).
+- **Score** 0-100 = the result (end 60; stuck, cap, timeout or stopped 40 × how far it got; failed 20 × how far it got)
+  + send-backs (20, 5 less for each "reject" in its gate log) + tokens (20 within the estimate, 0 at twice the
+  estimate or more, a line in between; 10 without an estimate). A flow × model's score in a run is its cases' mean.
+- **Drop**: a flow × model whose score fell 15 points or more since the run before.
+- **Nightly**: once a day at or after the time (UTC) when no run is on, with the schedule's flows and models.
+- A run that keel's restart cut off is marked stopped ("keel restarted").
+
+```
+GET  /api/quality                     → {sets: EvalSet[], active: QualityRun|null, runs: QualityRun[] (last 20), lines: QualityLine[], schedule}
+POST /api/quality/runs                {flows: [workflow], models: [Model], sets?: [name]} → QualityRun   (409 while one is on)
+GET  /api/quality/runs/{id}           → QualityRun
+POST /api/quality/runs/{id}/stop      → QualityRun   (it stops after the case that runs now)
+PUT  /api/quality/schedule            {enabled, at: "HH:MM" UTC, flows, models} → QualitySchedule
+
+QualityRun   = {id, status: queued|running|done|stopped|failed, trigger: manual|nightly, flows, models, sets, created_at,
+                started_at, ended_at, error, scores: QualityScore[], cases: QualityCase[]}
+QualityCase  = {id, n, eval_set, case_id, title, workflow_id, model, status, outcome, reached, project_id, thread_id, score,
+                tokens, cost_usd, ms, sendbacks, estimate, progress, started_at, ended_at}
+QualityScore = {workflow_id, model, score, cases, reached_end, tokens, ms}
+QualityLine  = {workflow_id, model, points: [{run_id, at, score}] (oldest first, last 12), last, previous, drop}
+```
+- Web: **Build › Quality**: the scores by flow and model (score, change, trend line, a red "dropped"), a banner for a
+  drop, the run now with its cases (Stop the run), **Run the eval cases** (flows, eval sets, one or two models, Run
+  now, Every night at … UTC), and the last runs with their cases.

@@ -4,6 +4,7 @@ The [README](../README.md) is the short version. This page has the details.
 
 - [Flows in detail](#flows-in-detail)
 - [The Helper](#the-helper)
+- [Quality](#quality)
 - [Inbox and run modes](#inbox-and-run-modes)
 - [Tasks and Jira](#tasks-and-jira)
 - [Logins](#logins)
@@ -79,6 +80,15 @@ words. The Helper reads the code, the knowledge pages, the map and the code grap
 - **Costs**: each answer shows its tokens and time; the budget bar counts them. Claude and Codex continue their own
   session, so a follow-up question is cheap (the context stays cached).
 - The model is the `helper` agent's (Agents page); change it for one chat in the panel.
+
+## Quality
+
+**Build › Quality** shows how well keel's flows work with each model. keel runs small eval projects (in
+`content/evals/`) through the flows you pick, in run mode **auto**, one case at a time, and scores each run from 0 to
+100: did it reach the end, how often was something sent back, and did it stay within the token estimate. Pick one or
+two models and press **Run now**, or turn on **Every night at …**. When a score falls by 15 points or more since the
+run before, the page shows it in red: check the last change to a prompt, an agent, a skill or a model. The runs' tokens
+count in the budget.
 
 ## Inbox and run modes
 

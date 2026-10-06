@@ -7,6 +7,7 @@ import logging
 import os
 import secrets
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import FastAPI, Request
@@ -19,7 +20,7 @@ from .models import usage as provider_usage
 from .demo import create_demo, workspace_missing
 from .events import EventBus, bus as default_bus
 from .models import catalog
-from .runtime import codegraph_view, helper, hunt, mapper, scan
+from .runtime import codegraph_view, evals, helper, hunt, mapper, scan
 from .runtime.explain import ExplainError, explain_step
 from .runtime.service import Engine, EngineError
 from .tools import mcp, worktrees
@@ -170,6 +171,11 @@ class HelperUndo(BaseModel):
 class HelperDone(BaseModel):
     flow: dict[str, Any] = Field(default_factory=dict)   # the waiting flow: phase, acs, ac, unlocks, workflow, run_mode
     message: str = ""                                    # the commit's subject, as the person wrote it (else the chat's title)
+
+
+class EvalPrepare(BaseModel):
+    name: str
+    dest: str                           # a new folder under $KEEL_DATA/evals
 
 
 class WorktreeAdd(BaseModel):
@@ -540,6 +546,22 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
         await request.app.state.helper.stop(sid)
         await asyncio.to_thread(helper_call, helper.delete, sid)
         return {"ok": True}
+
+    # v0.8.0 quality runs: the eval sets (content/evals) and a fresh copy of a set's project for one case
+    @app.get("/evals")
+    async def get_evals():
+        return await asyncio.to_thread(evals.load_all)
+
+    @app.post("/evals/prepare")
+    async def post_eval_prepare(body: EvalPrepare):
+        home = (config.data_dir() / "evals").resolve()
+        dest = Path(body.dest).resolve()
+        if not dest.is_relative_to(home) or dest == home:
+            raise EngineError(400, "An eval project is made under keel's data folder only.", f"Use a new folder under {home}.")
+        try:
+            return await asyncio.to_thread(evals.prepare, body.name, str(dest))
+        except evals.EvalError as exc:
+            raise EngineError(exc.status, str(exc), exc.hint) from exc
 
     # a flow next to other flows works in its own worktree (the api makes it at the start, removes it when it ends)
     @app.post("/worktrees")

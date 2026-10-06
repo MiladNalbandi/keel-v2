@@ -1,0 +1,11 @@
+name: scores-py
+description: keel's demo project, a tiny Python score table (scores), tested with pytest.
+project: demo
+cases:
+  - id: median
+    title: The median of the scores
+    workflow: change
+    request: >-
+      Add median(scores) to src/scores/__init__.py, next to average(). It returns the middle value of the sorted
+      scores (the mean of the two middle values for an even count) and refuses an empty list with ValueError, like
+      average(). Add tests for it in tests/test_scores.py.

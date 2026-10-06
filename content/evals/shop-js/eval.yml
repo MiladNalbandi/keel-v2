@@ -1,0 +1,16 @@
+name: shop-js
+description: A tiny JavaScript shop (cart, checkout, money in cents), tested with node --test.
+project: project
+cases:
+  - id: euro-format
+    title: Euro prices
+    workflow: change
+    request: >-
+      Add formatEuro(cents) to src/domain/money.js, next to format(). It returns a string like "€12.50" for 1250
+      and "€0.00" for 0. Add a test for it in test/money.test.js.
+  - id: quantity-below-one
+    title: Refuse a quantity below one
+    workflow: change
+    request: >-
+      Cart.add in src/domain/cart.js must refuse a quantity below 1 (0 or negative) with an error, before it looks
+      at the stock. Add a test for it in test/cart.test.js.

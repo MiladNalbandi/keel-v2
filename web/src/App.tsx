@@ -23,10 +23,11 @@ import { WikiPage } from "./pages/Wiki";
 import { WorkflowsPage } from "./pages/Workflows";
 import type { ScreenId } from "./routes";
 import { PageBoundary } from "./components/PageBoundary";
+import { QualityPage } from "./pages/Quality";
 import { AppProvider, useApp, useRoute } from "./state";
 
 /** Screens that need a chosen project. */
-const PAGES: Record<Exclude<ScreenId, "projects" | "inbox">, (p: { pid: string }) => ReactElement> = {
+const PAGES: Record<Exclude<ScreenId, "projects" | "inbox" | "quality">, (p: { pid: string }) => ReactElement> = {
   flow: FlowPage,
   tasks: TasksPage,
   live: LivePage,
@@ -58,6 +59,8 @@ function Router() {
   if (page === "projects") return <ProjectsPage />;
   // The inbox spans every project: it needs no chosen one.
   if (page === "inbox") return <PageBoundary resetKey="inbox"><InboxPage /></PageBoundary>;
+  // v0.8.0: quality runs are keel's own, not one project's
+  if (page === "quality") return <PageBoundary resetKey="quality"><QualityPage /></PageBoundary>;
   // Connections and General settings work without a project, but every other screen needs one.
   if (!pid) {
     if (!projectsLoaded) return <div className="empty loading" role="status">Loading…</div>;
