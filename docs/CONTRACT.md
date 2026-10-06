@@ -577,6 +577,11 @@ IndexStatus = { project, root?, status: idle|indexing|ready|failed, files, symbo
   (prisma, supabase, golang-migrate), db/schema.sql, db/structure.sql. Flyway versions sort as versions (V2 < V4.1 <
   V10), R__ last; `*.down.sql`, Flyway undo `U*__` and dbmate/goose down sections are skipped; test folders count only
   when nothing else is found. The SQL reader: runtime/sqlschema.py.
+- Web (v0.5.1): the Map draws every level on one canvas (web/src/components/er): pan, zoom, minimap, find, drag
+  (positions per project and level in `keel2.er.<pid>.pos.<mode>` / `keel2.map.<pid>.<level>.pos`), Reset layout,
+  SVG/PNG export. The database level is laid out in the browser (a layered layout with orthogonal routes from the
+  foreign-key row to the key row) and has a Structure panel; a map without `schema` (built before 0.5.1) is drawn from
+  `levels.er`. `#/repo/<path>:<line>` opens that file in the Repo page with the line marked.
 - Engine DB tables: `verdicts(project, kind, ok, detail_json, "commit", at)`, `project_map`, `project_index`.
 - Code actions: `knowledge_check` (old name `memory_check`) writes the `memory` verdict; `verify_release` and a
   whole-suite `verify_green` write `release`; `verify_coverage` runs `commands.coverage` and writes `coverage`.
