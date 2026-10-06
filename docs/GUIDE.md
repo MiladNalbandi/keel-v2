@@ -67,6 +67,10 @@ words. The Helper reads the code, the knowledge pages, the map and the code grap
   rules of the flow's phase. A command that changes something waits for your OK in the panel or the Inbox (**Allow
   once**, **Always**, **Deny**). The panel lists every changed file with its diff and **Undo**. **Done** runs the tests
   and lets keel commit only those files; if the tests fail, one click hands the failure back to the Helper.
+- **Side sessions** (any time): switch to **Side** to try an idea in the Helper's own copy of the project (a git
+  worktree on its own branch). Nothing touches your project folder or a running flow. **Keep** runs the tests and
+  commits on that branch. Then **Make a task**, **Start a flow on the branch** (a change flow writes the tests for it),
+  or **Throw away**.
 - **Costs**: each answer shows its tokens and time; the budget bar counts them. Claude and Codex continue their own
   session, so a follow-up question is cheap (the context stays cached).
 - The model is the `helper` agent's (Agents page); change it for one chat in the panel.

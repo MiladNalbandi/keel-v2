@@ -7,14 +7,19 @@ import keel.api.common.BadRequest
 import keel.api.common.Conflict
 import keel.api.common.NotFound
 import keel.api.connections.SecretService
+import keel.api.doctor.WorkspaceDoctor
 import keel.api.engine.EngineClient
 import keel.api.flow.AgentStart
 import keel.api.flow.FlowService
 import keel.api.mcp.McpService
 import keel.api.projects.ProjectService
+import keel.api.repo.RepoService
 import keel.api.settings.Model
 import keel.api.settings.SettingsService
 import keel.api.skills.SkillService
+import keel.api.tasks.NewTask
+import keel.api.tasks.TaskService
+import keel.api.tasks.TaskView
 import org.springframework.stereotype.Service
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
@@ -24,12 +29,18 @@ import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
+import java.nio.file.Paths
 
-/** A new Helper session: mode "ask" (read only) or "fix" (while the project's flow waits at a gate); the model defaults to the helper agent's. */
+/** A new Helper session: mode "ask" (read only), "fix" (while the project's flow waits at a gate) or "side" (its own
+ *  worktree and branch); the model defaults to the helper agent's. */
 data class HelperCreate(val mode: String = "ask", val model: Model? = null, val title: String = "")
 data class HelperUndo(val path: String? = null)
 /** Done: the commit's subject as the person wrote it (blank: the chat's title). */
 data class HelperDoneBody(val message: String = "")
+/** Hand a side session over: as a task (its description says what was done and on which branch) ... */
+data class HelperTaskBody(val title: String = "", val type: String = "task")
+/** ... or as a flow on its branch (a change flow by default: it writes the tests for what the branch does). */
+data class HelperFlowBody(val title: String = "", val workflowId: String = "change")
 /** The person's answer to a permission card: once | always (this command, for the rest of the chat) | deny (with a reason). */
 data class HelperAnswer(val decision: String = "", val why: String = "")
 data class HelperPatch(val title: String? = null, val model: Model? = null)
@@ -62,6 +73,8 @@ class HelperService(
     private val mcp: McpService,
     private val skills: SkillService,
     private val flows: FlowService,
+    private val tasks: TaskService,
+    private val repo: RepoService,
     private val mapper: ObjectMapper,
 ) {
     private fun helperAgent(pid: String) = agents.list(pid).firstOrNull { it.id == AGENT }
@@ -71,7 +84,7 @@ class HelperService(
 
     fun create(pid: String, body: HelperCreate): JsonNode {
         val project = projects.require(pid)
-        if (body.mode !in MODES) throw BadRequest("Unknown Helper mode ${body.mode}", "Use ask or fix.")
+        if (body.mode !in MODES) throw BadRequest("Unknown Helper mode ${body.mode}", "Use ask, fix or side.")
         val thread = if (body.mode == "fix") waitingThread(pid) else null
         val threadId = thread?.path("thread_id")?.asText()
         return engine.post("/helper/sessions", mapOf(
@@ -163,9 +176,12 @@ class HelperService(
     /** Run the checks and make keel's commit of the Helper's files, while the flow still waits at its gate. */
     fun done(pid: String, sid: String, body: HelperDoneBody = HelperDoneBody()): JsonNode {
         val s = get(pid, sid)
-        if (s.path("mode").asText() != "fix") throw BadRequest("Only a Fix chat has changes to commit")
-        return engine.post("/helper/sessions/$sid/done", mapOf("flow" to fixContext(pid, s.path("thread_id").asText()),
-            "message" to body.message.trim().take(200)), long = true)
+        val flow = when (s.path("mode").asText()) {
+            "fix" -> fixContext(pid, s.path("thread_id").asText())
+            "side" -> emptyMap()            // Keep: the checks, then keel's commit on the side session's own branch
+            else -> throw BadRequest("Only a Fix chat or a side session has changes to commit")
+        }
+        return engine.post("/helper/sessions/$sid/done", mapOf("flow" to flow, "message" to body.message.trim().take(200)), long = true)
     }
 
     fun permissions(pid: String): JsonNode {
@@ -180,6 +196,73 @@ class HelperService(
             ?: throw NotFound("That question was answered already, or its command ended")
         return engine.post("/helper/permissions/${q.path("id").asText()}", mapOf("decision" to body.decision, "why" to body.why.take(500)))
     }
+
+    // ---- side sessions: hand over as a task, or as a change flow on the branch ---------------------------
+
+    fun handover(pid: String, sid: String): JsonNode {
+        get(pid, sid)
+        return engine.get("/helper/sessions/$sid/handover")
+    }
+
+    /** A task whose description says what the side session did and where the work is (its branch stays). */
+    fun toTask(pid: String, sid: String, body: HelperTaskBody): TaskView {
+        val h = handover(pid, sid)
+        val title = body.title.trim().ifBlank { h.path("title").asText() }.take(300)
+        return tasks.create(pid, NewTask(title = title, description = handoverText(h), type = body.type))
+    }
+
+    /**
+     * A flow on the side session's branch: its worktree goes, the project folder checks the branch out, and the flow
+     * (a change flow by default) writes the tests for what the branch does; a test that passes at once is "already met".
+     * Only while no flow runs or waits in the project folder, which must be clean, and with everything kept.
+     */
+    fun toFlow(pid: String, sid: String, body: HelperFlowBody): JsonNode {
+        val root = Paths.get(projects.require(pid).root)
+        val h = handover(pid, sid)
+        val status = runCatching { flows.flow(pid).thread }.getOrNull()?.path("status")?.asText()
+        if (status == "running" || status == "waiting")
+            throw Conflict("A flow already runs in this project's folder", "Finish or stop it first, or hand the side session over as a task.")
+        val open = h.path("uncommitted").map { it.asText() }
+        if (open.isNotEmpty())
+            throw Conflict("${open.size} file(s) are not kept yet: ${open.take(5).joinToString()}", "Keep them (the checks run, keel commits on the branch) or undo them first.")
+        if (h.path("commits").isEmpty) throw Conflict("Nothing is kept on the branch yet", "Keep the Helper's change first.")
+        val dirty = repo.git(root, "status", "--porcelain", "--untracked-files=all").out.lines().filter { it.length > 3 }
+            .map { it.substring(3).trim() }.filterNot { WorkspaceDoctor.isEngineFile(it) }
+        if (dirty.isNotEmpty())
+            throw Conflict("The project folder has uncommitted changes: ${dirty.take(5).joinToString()}", "Commit or stash them first: the folder checks out the side branch.")
+        engine.post("/helper/sessions/$sid/release", emptyMap<String, Any>())
+        val branch = h.path("branch").asText()
+        val r = repo.git(root, "checkout", "-q", branch)
+        if (!r.ok) throw Conflict("Could not check out $branch", r.err.ifBlank { r.out }.take(300))
+        val title = body.title.trim().ifBlank { h.path("title").asText() }.take(200)
+        return flows.start(pid, body.workflowId.ifBlank { "change" }, title, null, request = handoverText(h))
+    }
+
+    private fun handoverText(h: JsonNode): String = buildString {
+        appendLine("Made in a keel Helper side session on branch `${h.path("branch").asText()}` (from ${h.path("base").asText().take(7)}).")
+        val commits = h.path("commits")
+        if (!commits.isEmpty) {
+            appendLine()
+            appendLine("Commits on the branch:")
+            commits.forEach { appendLine("- ${it.path("sha").asText().take(7)} ${it.path("subject").asText()}") }
+        }
+        val open = h.path("uncommitted")
+        if (!open.isEmpty) {
+            appendLine()
+            appendLine("Not kept yet (in the worktree only): ${open.joinToString { it.asText() }}")
+        }
+        val asked = h.path("asked").map { it.asText().lines().first().take(200) }
+        if (asked.isNotEmpty()) {
+            appendLine()
+            appendLine("What the person asked:")
+            asked.forEach { appendLine("- $it") }
+        }
+        h.path("answer").asText("").takeIf { it.isNotBlank() }?.let {
+            appendLine()
+            appendLine("The Helper's last answer:")
+            appendLine(it.take(3000))
+        }
+    }.trim()
 
     /** What a Fix turn and Done need from the waiting flow: its phase, criterion, unlocks, workflow and run mode, and
      *  the phases of the steps before the waiting one (nearest first): at a gate whose own phase lets only notes change
@@ -227,7 +310,7 @@ class HelperService(
 
     companion object {
         const val AGENT = "helper"
-        val MODES = setOf("ask", "fix")
+        val MODES = setOf("ask", "fix", "side")
     }
 }
 
@@ -268,6 +351,17 @@ class HelperController(private val helper: HelperService) {
     @PostMapping("/sessions/{sid}/done")
     fun done(@PathVariable pid: String, @PathVariable sid: String, @RequestBody(required = false) body: HelperDoneBody?): JsonNode =
         helper.done(pid, sid, body ?: HelperDoneBody())
+
+    @GetMapping("/sessions/{sid}/handover")
+    fun handover(@PathVariable pid: String, @PathVariable sid: String): JsonNode = helper.handover(pid, sid)
+
+    @PostMapping("/sessions/{sid}/task")
+    fun toTask(@PathVariable pid: String, @PathVariable sid: String, @RequestBody(required = false) body: HelperTaskBody?): TaskView =
+        helper.toTask(pid, sid, body ?: HelperTaskBody())
+
+    @PostMapping("/sessions/{sid}/flow")
+    fun toFlow(@PathVariable pid: String, @PathVariable sid: String, @RequestBody(required = false) body: HelperFlowBody?): JsonNode =
+        helper.toFlow(pid, sid, body ?: HelperFlowBody())
 
     @GetMapping("/permissions")
     fun permissions(@PathVariable pid: String): JsonNode = helper.permissions(pid)

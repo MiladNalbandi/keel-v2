@@ -290,7 +290,7 @@ async def test_claude_runner_writes_context_and_settings_outside_the_project(tmp
     ctx = json.loads((work / "guard.json").read_text())
     assert ctx == {"root": str(root.resolve()), "phase": "green", "ac": {"id": "AC-2", "layer": "API"}, "lane": "api",
                    "unlocks": [{"path": TEST, "phase": "green"}], "agent": "implementer", "thread": "t9",
-                   "knowledge_allowed": None, "knowledge_strict": False, "readonly": False, "ask": None}
+                   "knowledge_allowed": None, "knowledge_strict": False, "readonly": False, "ask": None, "confine": False}
     assert stat.S_IMODE(os.stat(work / "guard.json").st_mode) == 0o600
     settings = json.loads((work / "keel-guard.json").read_text())
     assert settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"].startswith(f'"{sys.executable}" -I -m keel_engine.hook pre-tool')

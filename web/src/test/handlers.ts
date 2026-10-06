@@ -38,7 +38,9 @@ export function createDb() {
     /** keel's Helper: sessions as the engine keeps them (tests add the answers and send the helper.* events) */
     helper: { sessions: [] as HelperSession[], next: 1,
       /** Fix mode: each chat's changed files, the commands that wait for an OK, and what Done answers (null: it commits) */
-      changes: {} as Record<string, HelperChange[]>, questions: [] as HelperQuestion[], done: null as HelperDone | null },
+      changes: {} as Record<string, HelperChange[]>, questions: [] as HelperQuestion[], done: null as HelperDone | null,
+      /** side sessions: the commits Keep made on each one's branch */
+      kept: {} as Record<string, { sha: string; subject: string }[]> },
     graph: fx.graphOverview() as GraphOverview,
     graphFocus: fx.graphFocus() as GraphFocus,
     calls: [] as { method: string; path: string; body: unknown }[],
@@ -276,14 +278,16 @@ export function handlers(db: Db) {
     http.get("/api/projects/:pid/budget", () => HttpResponse.json(fx.budget)),
     http.get("/api/projects/:pid/helper/sessions", () => HttpResponse.json(db.helper.sessions.map(({ messages: _m, ...x }) => x))),
     http.post("/api/projects/:pid/helper/sessions", async ({ request, params }) => {
-      const b = (await log(request)) as { mode?: "ask" | "fix"; title?: string } | null;
+      const b = (await log(request)) as { mode?: "ask" | "fix" | "side"; title?: string } | null;
       const now = new Date().toISOString();
       const waiting = db.flows[String(params.pid)]?.thread;
       if (b?.mode === "fix" && waiting?.status !== "waiting") {
         return HttpResponse.json({ error: "No flow of this project waits at a gate.", hint: "Fix mode works while a flow waits." }, { status: 409 });
       }
-      const sess: HelperSession = { id: `h_${db.helper.next++}`, project: String(params.pid), root: "/workspace", mode: b?.mode ?? "ask",
+      const n = db.helper.next++;
+      const sess: HelperSession = { id: `h_${n}`, project: String(params.pid), root: "/workspace", mode: b?.mode ?? "ask",
         thread_id: b?.mode === "fix" ? waiting!.thread_id : null, phase: b?.mode === "fix" ? "green" : null, title: b?.title || "New chat",
+        ...(b?.mode === "side" ? { worktree: `/workspace/.keel/worktrees/helper-${n}`, branch: `keel/helper/${n}`, base_sha: "abc1234" } : {}),
         model: { provider: "claude", mode: "subscription", model: "sonnet" }, status: "idle", tokens_in: 0, tokens_out: 0, tokens_cached: 0, cost_usd: 0,
         turns: 0, created_at: now, updated_at: now, messages: [], busy: false };
       db.helper.sessions.unshift(sess);
@@ -333,11 +337,28 @@ export function handlers(db: Db) {
       const res: HelperDone = db.helper.done ?? { ok: true, sha: "c0ffee1234", message: "helper: fix", files, checks: "pytest -q" };
       if (res.ok) {
         db.helper.changes[sid] = [];
+        db.helper.kept[sid] = [...(db.helper.kept[sid] ?? []), { sha: res.sha, subject: `fix(helper): ${res.message}` }];
         const sess = db.helper.sessions.find((x) => x.id === sid)!;
         sess.messages = [...(sess.messages ?? []), { n: (sess.messages?.length ?? 0) + 1, role: "note", text: "keel committed the Helper's change: helper: fix",
           data: { status: "committed", sha: res.sha, files }, at: new Date().toISOString() }];
       }
       return HttpResponse.json(res);
+    }),
+    http.get("/api/projects/:pid/helper/sessions/:sid/handover", ({ params }) => {
+      const sess = db.helper.sessions.find((x) => x.id === params.sid)!;
+      return HttpResponse.json({ session: sess.id, title: sess.title, branch: sess.branch, base: sess.base_sha, worktree: sess.worktree,
+        commits: db.helper.kept[sess.id] ?? [], uncommitted: (db.helper.changes[sess.id] ?? []).map((c) => c.path), asked: [], answer: "" });
+    }),
+    http.post("/api/projects/:pid/helper/sessions/:sid/task", async ({ request, params }) => {
+      await log(request);
+      const sess = db.helper.sessions.find((x) => x.id === params.sid)!;
+      return HttpResponse.json({ id: "task_9", title: sess.title });
+    }),
+    http.post("/api/projects/:pid/helper/sessions/:sid/flow", async ({ request, params }) => {
+      await log(request);
+      const sess = db.helper.sessions.find((x) => x.id === params.sid)!;
+      sess.worktree = null;
+      return HttpResponse.json({ ...db.flows[String(params.pid)]?.thread, status: "running" });
     }),
     http.get("/api/projects/:pid/helper/permissions", ({ params }) => HttpResponse.json(db.helper.questions.filter((q) => q.project === params.pid))),
     http.post("/api/projects/:pid/helper/permissions/:qid", async ({ request, params }) => {

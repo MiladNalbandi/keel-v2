@@ -310,3 +310,100 @@ async def test_an_older_helper_table_gets_its_new_columns(tmp_path):
         await migrate.migrate(conn)
         async with conn.execute("select grants_json, phase from helper_sessions where id = 'h_old'") as cur:
             assert await cur.fetchone() == ("[]", None)
+
+
+# ------------------------------------------------------------------ side sessions (their own worktree and branch)
+
+def _git(repo, *args):
+    return _sp.run(["git", *args], cwd=repo, capture_output=True, text=True).stdout
+
+
+def side_session(client, repo):
+    s = new_session(client, repo, mode="side")
+    assert s["mode"] == "side" and s["branch"].startswith("keel/helper/") and s["base_sha"] == _git(repo, "rev-parse", "HEAD").strip()
+    assert Path(s["worktree"]).is_dir() and Path(s["worktree"]).is_relative_to(Path(repo).resolve() / ".keel" / "worktrees")
+    return s
+
+
+def test_a_side_session_works_in_its_own_worktree_and_never_touches_the_main_folder(client, repo):
+    head = _git(repo, "rev-parse", "HEAD").strip()
+    s = side_session(client, repo)
+    _, s2 = ask(client, s["id"], "Add a small helper.")
+    wt = Path(s["worktree"])
+    assert (wt / "src" / "scores" / "helper_fix.py").exists()
+    assert not (Path(repo) / "src" / "scores" / "helper_fix.py").exists()
+    assert _git(repo, "status", "--porcelain", "--untracked-files=all").strip() == ""      # the worktree is excluded
+    ch = client.get(f"/helper/sessions/{s['id']}/changes").json()
+    assert [(c["path"], c["status"]) for c in ch] == [("src/scores/helper_fix.py", "added")]
+    # Keep: the checks, then keel's commit on the side branch; the main folder's branch does not move
+    r = client.post(f"/helper/sessions/{s['id']}/done", json={"flow": {}, "message": "a helper for ranks"}).json()
+    assert r["ok"] is True, r
+    assert _git(wt, "log", "-1", "--format=%s").strip() == "fix(helper): a helper for ranks"
+    assert _git(repo, "rev-parse", "HEAD").strip() == head
+    assert client.get(f"/helper/sessions/{s['id']}/changes").json() == []
+    assert "on branch keel/helper/" in client.get(f"/helper/sessions/{s['id']}").json()["messages"][-1]["text"]
+    h = client.get(f"/helper/sessions/{s['id']}/handover").json()
+    assert [c["subject"] for c in h["commits"]] == ["fix(helper): a helper for ranks"] and h["uncommitted"] == []
+
+
+def test_the_hook_keeps_a_side_session_inside_its_worktree(repo, tmp_path):
+    from keel_engine import hook
+    wt = tmp_path / "wt"
+    wt.mkdir()
+    ctx = {"root": str(wt), "phase": "none", "unlocks": [], "confine": True}
+    assert "outside" in hook.decide("Write", {"file_path": str(Path(repo) / "src" / "x.py")}, ctx)
+    assert hook.decide("Write", {"file_path": str(wt / "src" / "x.py")}, ctx) is None
+    assert hook.decide("Write", {"file_path": str(Path(repo) / "src" / "x.py")}, {**ctx, "confine": False}) is None
+
+
+def test_undo_hand_over_and_throw_away(client, repo):
+    s = side_session(client, repo)
+    ask(client, s["id"], "Add it.")
+    assert client.post(f"/helper/sessions/{s['id']}/undo", json={"path": "src/scores/helper_fix.py"}).json() == []
+    ask(client, s["id"], "Add it again.")
+    # not kept yet: no hand-over
+    r = client.post(f"/helper/sessions/{s['id']}/release")
+    assert r.status_code == 409 and "not kept yet" in r.json()["error"]
+    assert client.post(f"/helper/sessions/{s['id']}/done", json={"flow": {}}).json()["ok"] is True
+    h = client.post(f"/helper/sessions/{s['id']}/release").json()
+    assert len(h["commits"]) == 1 and not Path(s["worktree"]).exists()
+    assert _git(repo, "branch", "--list", s["branch"]).strip()                        # the branch stays for a flow
+    assert client.post(f"/helper/sessions/{s['id']}/turn", json={"text": "more"}).status_code == 409
+    # throw away: the worktree and its branch go
+    t = side_session(client, repo)
+    assert client.delete(f"/helper/sessions/{t['id']}").status_code == 200
+    assert not Path(t["worktree"]).exists() and not _git(repo, "branch", "--list", t["branch"]).strip()
+
+
+def test_a_side_session_needs_git(client, tmp_path):
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    r = client.post("/helper/sessions", json={"project_id": "demo", "root": str(plain), "mode": "side", "model": FAKE})
+    assert r.status_code == 409 and "not a git repository" in r.json()["error"]
+
+
+def test_a_side_session_and_a_flow_never_touch_each_others_files(client, repo):
+    from conftest import start, to_loop, wait
+    tid = start(client, repo)
+    s = side_session(client, repo)
+    ask(client, s["id"], "Add a small helper.")                       # while the flow waits at its spec gate
+    st = to_loop(client, tid, wait(client, tid))                       # the flow goes on into its criteria loop
+    assert st["status"] in ("waiting", "running", "done"), st
+    wt = Path(s["worktree"])
+    # the flow wrote and committed in the main folder only; the side session's file is in its worktree only
+    assert not (Path(repo) / "src" / "scores" / "helper_fix.py").exists()
+    assert "helper_fix.py" not in _git(repo, "log", "--name-only", "--format=")
+    assert [c["path"] for c in client.get(f"/helper/sessions/{s['id']}/changes").json()] == ["src/scores/helper_fix.py"]
+    assert not any(".keel/worktrees" in line for line in _git(repo, "status", "--porcelain", "--untracked-files=all").splitlines())
+    # the files the flow created since the worktree began are not in the worktree
+    flow_files = set(_git(repo, "log", "--name-only", "--format=", f"{s['base_sha']}..HEAD").split())
+    created = [f for f in flow_files if _sp.run(["git", "cat-file", "-e", f"{s['base_sha']}:{f}"], cwd=repo).returncode != 0]
+    assert created and not any((wt / f).exists() for f in created)
+
+
+def test_a_chat_title_is_cut_at_a_word():
+    assert helper.short_title("Where is a score saved?") == "Where is a score saved?"
+    long = "Add formatUsd(cents) next to formatEuro in src/domain/money.js (returns $12.50 for 1250) and a test"
+    t = helper.short_title(long)
+    assert t == "Add formatUsd(cents) next to formatEuro in src/domain/money.js (returns $12.50…" and len(t) <= 80
+    assert helper.short_title("x" * 120) == "x" * 79 + "…"

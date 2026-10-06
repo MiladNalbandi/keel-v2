@@ -1,8 +1,9 @@
-// The Helper's Fix mode (a flow waits at a gate): the command that waits for the person's OK, the files the Helper
-// changed in this chat (Diff, Undo, Undo all), and Done, where keel runs the checks and commits only those files.
+// The Helper's Fix mode (a flow waits at a gate) and side sessions (their own worktree): the command that waits for the
+// person's OK, the files the Helper changed in this chat (Diff, Undo, Undo all), Done / Keep, where keel runs the checks
+// and commits only those files, and a side session's hand-overs (a task, a flow on its branch, throw away).
 
 import { useState } from "react";
-import { api, errorParts, type HelperChange, type HelperDone, type HelperQuestion } from "../../api";
+import { api, errorParts, type HelperChange, type HelperDone, type HelperHandover, type HelperQuestion, type HelperSession } from "../../api";
 import { DiffView, FoldedText } from "../Code";
 
 /** "May the Helper run this?" Allow once, Always (this command, for the rest of the chat), or Deny with a reason. */
@@ -39,12 +40,14 @@ export function PermissionCard({ pid, q, onAnswered }: { pid: string; q: HelperQ
 }
 
 /** The files the Helper changed in this chat, against what they were before its first change. */
-export function ChangesBox({ changes, busy, title, onOpen, onUndo, onDone }: {
+export function ChangesBox({ changes, busy, title, doneLabel = "Done: run the checks and commit", onOpen, onUndo, onDone }: {
   changes: HelperChange[];
   busy: boolean;
   /** the commit's subject when the person writes none (the chat's title) */
   title: string;
-  onOpen: (path: string) => void;
+  doneLabel?: string;
+  /** open the file in the editor; without it (a side session's file is not in the project folder) the name shows the diff */
+  onOpen?: (path: string) => void;
   onUndo: (path?: string) => void;
   onDone: (message: string) => void;
 }) {
@@ -60,7 +63,8 @@ export function ChangesBox({ changes, busy, title, onOpen, onUndo, onDone }: {
         {changes.map((c) => (
           <li key={c.path}>
             <div className="hp-file">
-              <button type="button" className="hp-file-name" title={`Open ${c.path} in the editor (its changes)`} onClick={() => onOpen(c.path)}>
+              <button type="button" className="hp-file-name" title={onOpen ? `Open ${c.path} in the editor (its changes)` : `Show the changes in ${c.path}`}
+                onClick={() => (onOpen ? onOpen(c.path) : setShown(shown === c.path ? null : c.path))}>
                 {c.path}
               </button>
               {c.status !== "modified" && <span className="hp-sub">{c.status}</span>}
@@ -77,9 +81,51 @@ export function ChangesBox({ changes, busy, title, onOpen, onUndo, onDone }: {
       <input className="hp-perm-why" value={message} onChange={(e) => setMessage(e.target.value)} aria-label="Commit message"
         placeholder={`Commit message (empty: ${title})`} maxLength={200} />
       <button type="button" className="btn sm primary hp-done" disabled={busy} onClick={() => onDone(message)}>
-        {busy ? "Checking…" : "Done: run the checks and commit"}
+        {busy ? "Checking…" : doneLabel}
       </button>
     </section>
+  );
+}
+
+/** A side session: where it works, what is kept on its branch, and how it ends (a task, a flow on the branch, thrown away). */
+export function SideBar({ s, handover, busy, onTask, onFlow, onThrow }: {
+  s: HelperSession | null;
+  handover: HelperHandover | null;
+  busy: boolean;
+  onTask: () => void;
+  onFlow: () => void;
+  onThrow: () => void;
+}) {
+  if (!s) {
+    return (
+      <div className="hp-fixbar side">
+        <p>A side session works in its own copy of the project: a git worktree on a new branch. Nothing it does touches the
+          project folder or a flow running there.</p>
+      </div>
+    );
+  }
+  if (!s.worktree) {
+    return (
+      <div className="hp-fixbar side">
+        <p><b>Handed over.</b> Branch <code>{s.branch}</code> stays; its worktree is gone. Start a new chat to go on.</p>
+      </div>
+    );
+  }
+  const kept = handover?.commits ?? [];
+  return (
+    <div className="hp-fixbar side">
+      <p>Side session on branch <b className="mono">{s.branch}</b>, in its own copy of the project. The project folder and
+        any flow in it are untouched.</p>
+      {kept.length > 0 && (
+        <p className="hp-hint">Kept on the branch: {kept.length} commit{kept.length === 1 ? "" : "s"} · last <code>{kept[kept.length - 1].sha.slice(0, 7)}</code> {kept[kept.length - 1].subject}</p>
+      )}
+      <div className="hp-perm-btns">
+        <button type="button" className="btn sm" disabled={busy} onClick={onTask} title="A task that says what was done and names the branch">Make a task</button>
+        <button type="button" className="btn sm" disabled={busy || !kept.length} onClick={onFlow}
+          title={kept.length ? "A change flow on this branch: it writes the tests for what the branch does" : "Keep a change first"}>Start a flow on the branch</button>
+        <button type="button" className="btn sm ghost" disabled={busy} onClick={onThrow}>Throw away</button>
+      </div>
+    </div>
   );
 }
 

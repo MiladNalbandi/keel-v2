@@ -70,7 +70,7 @@ MIGRATIONS = [
       model_json text not null, engine_session text, status text not null, error text, thread_id text,
       tokens_in integer not null default 0, tokens_out integer not null default 0, tokens_cached integer not null default 0,
       cost_usd real not null default 0, turns integer not null default 0, created_at text not null, updated_at text not null,
-      grants_json text not null default '[]', phase text
+      grants_json text not null default '[]', phase text, worktree text, branch text, base_sha text
     )""",
     """create index if not exists helper_sessions_project on helper_sessions (project, updated_at)""",
     # Fix mode: each file the Helper changed, as it was before its first change (Undo puts it back; Done commits)
@@ -90,6 +90,9 @@ MIGRATIONS = [
 COLUMNS = [
     ("helper_sessions", "grants_json", "text not null default '[]'"),
     ("helper_sessions", "phase", "text"),
+    ("helper_sessions", "worktree", "text"),
+    ("helper_sessions", "branch", "text"),
+    ("helper_sessions", "base_sha", "text"),
 ]
 
 

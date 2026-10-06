@@ -71,6 +71,9 @@ class StubEngine private constructor(private val server: HttpServer) {
 
     /** The Helper's commands waiting for the person (GET /helper/permissions); a test adds them. */
     val helperQuestions = CopyOnWriteArrayList<Map<String, Any?>>()
+    /** What GET /helper/sessions/{sid}/handover (and POST .../release) answer for a side session; tests set it. */
+    @Volatile var helperHandover: Map<String, Any?> = mapOf("branch" to "keel/helper/abc", "base" to "0000000", "commits" to emptyList<Any>(),
+        "uncommitted" to emptyList<Any>(), "asked" to listOf("Add a price helper"), "answer" to "Added it.", "title" to "Add a price helper")
 
     /** Unlocks posted per thread (POST /threads/{id}/unlocks), like the engine keeps them. */
     val unlocks = java.util.concurrent.ConcurrentHashMap<String, MutableList<Map<String, Any?>>>()
@@ -124,6 +127,7 @@ class StubEngine private constructor(private val server: HttpServer) {
         path.matches(Regex("/helper/sessions/[^/]+/changes")) -> 200 to listOf(mapOf("path" to "src/a.kt", "status" to "modified",
             "added" to 2, "removed" to 1, "diff" to "@@ -1 +1,2 @@"))
         path.matches(Regex("/helper/sessions/[^/]+/undo")) -> 200 to emptyList<Any>()
+        path.matches(Regex("/helper/sessions/[^/]+/(handover|release)")) -> 200 to helperHandover
         path.matches(Regex("/helper/sessions/[^/]+/done")) -> 200 to mapOf("ok" to true, "sha" to "abc1234", "message" to "green: helper: x",
             "files" to listOf("src/a.kt"))
         path == "/helper/commands" -> 200 to listOf(mapOf("name" to "explain", "description" to "Explain", "plugin" to "core", "source" to "keel"))

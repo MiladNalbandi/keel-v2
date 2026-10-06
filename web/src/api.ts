@@ -562,7 +562,10 @@ export type FlowSpend = {
   thread_id: string; title: string; status: ThreadStatus; tokens: number; cost_usd: number; cap_tokens: number | null; cap_usd: number | null;
 };
 /** v0.6.0 keel's Helper (`/api/projects/{pid}/helper/...`): chat sessions in the Repo page, run by keel's own harness. */
-export type HelperMode = "ask" | "fix";
+export type HelperMode = "ask" | "fix" | "side";
+/** A side session's hand-over: its branch, the commits kept on it, what is not kept yet, and its last answer. */
+export type HelperHandover = { session: string; title: string; branch: string; base: string; worktree: string;
+  commits: { sha: string; subject: string }[]; uncommitted: string[]; asked: string[]; answer: string };
 /** Fix mode: a file the Helper changed in this chat, against what it was before its first change. */
 export type HelperChange = { path: string; status: "added" | "modified" | "deleted"; added: number; removed: number; diff: string };
 /** A Fix chat's command that waits for the person's OK (a card in the panel and the Inbox). */
@@ -587,6 +590,8 @@ export type HelperSession = {
   status: "idle" | "running" | "failed"; error?: string | null; thread_id?: string | null; grants?: string[];
   /** Fix: the phase whose rules the Helper works in (at a gate, the phase of the work under review, e.g. green) */
   phase?: string | null;
+  /** Side: its own worktree (null once handed over) on branch keel/helper/<id>, from base_sha */
+  worktree?: string | null; branch?: string | null; base_sha?: string | null;
   tokens_in: number; tokens_out: number; tokens_cached: number; cost_usd: number; turns: number;
   created_at: string; updated_at: string;
   messages?: HelperMessage[]; busy?: boolean;
@@ -924,6 +929,11 @@ export const api = {
   helperUndo: (pid: string, sid: string, path?: string) => post<HelperChange[]>(`/projects/${e(pid)}/helper/sessions/${e(sid)}/undo`, path ? { path } : {}),
   helperDone: (pid: string, sid: string, message = "") =>
     post<HelperDone>(`/projects/${e(pid)}/helper/sessions/${e(sid)}/done`, message.trim() ? { message: message.trim() } : {}),
+  helperHandover: (pid: string, sid: string) => get<HelperHandover>(`/projects/${e(pid)}/helper/sessions/${e(sid)}/handover`),
+  helperToTask: (pid: string, sid: string, body: { title?: string; type?: string } = {}) =>
+    post<{ id: string; title: string }>(`/projects/${e(pid)}/helper/sessions/${e(sid)}/task`, body),
+  helperToFlow: (pid: string, sid: string, body: { title?: string; workflow_id?: string } = {}) =>
+    post<ThreadState>(`/projects/${e(pid)}/helper/sessions/${e(sid)}/flow`, body),
   helperPermissions: (pid: string) => get<HelperQuestion[]>(`/projects/${e(pid)}/helper/permissions`),
   helperAnswer: (pid: string, qid: string, decision: "once" | "always" | "deny", why = "") =>
     post<{ id: string; decision: string }>(`/projects/${e(pid)}/helper/permissions/${e(qid)}`, { decision, why }),

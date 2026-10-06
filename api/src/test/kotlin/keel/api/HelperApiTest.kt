@@ -169,4 +169,38 @@ class HelperApiTest : ApiTest() {
         post("/internal/events", listOf(ev("helper.permission.answered", mapOf("id" to "p_2", "decision" to "deny"))), mapOf("X-Keel-Token" to TOKEN))
         assertThat(get("/api/notifications").json().first { it["title"].asText() == "The Helper asks to run a command" }["done"].asBoolean()).isTrue()
     }
+
+    @Test
+    fun `a side session keeps on its own branch and is handed over as a task or as a flow on that branch`() {
+        val (pid, root) = newProject("helper-side")
+        val sid = post("/api/projects/$pid/helper/sessions", mapOf("mode" to "side")).andExpect(status().isOk).json()["id"].asText()
+        assertThat(engine.lastBody("/helper/sessions")!!["mode"].asText()).isEqualTo("side")
+        // Keep needs no waiting flow: the engine gets no flow and commits on the side branch
+        post("/api/projects/$pid/helper/sessions/$sid/done", mapOf("message" to "price helper")).andExpect(status().isOk)
+        assertThat(engine.lastBody("/helper/sessions/$sid/done")!!["flow"].size()).isEqualTo(0)
+
+        val sha = git(root, "rev-parse", "HEAD").trim()
+        git(root, "branch", "keel/helper/abc")
+        engine.helperHandover = engine.helperHandover + mapOf("base" to sha,
+            "commits" to listOf(mapOf("sha" to "1234567abc", "subject" to "fix(helper): price helper")))
+        val task = post("/api/projects/$pid/helper/sessions/$sid/task", mapOf("type" to "story")).andExpect(status().isOk).json()
+        assertThat(task["title"].asText()).isEqualTo("Add a price helper")
+        assertThat(task["description"].asText()).contains("branch `keel/helper/abc`").contains("1234567 fix(helper): price helper")
+            .contains("- Add a price helper").contains("Added it.")
+
+        // a flow: not while something is not kept, not with a dirty folder; then the folder checks the branch out
+        engine.helperHandover = engine.helperHandover + mapOf("uncommitted" to listOf("src/a.js"))
+        post("/api/projects/$pid/helper/sessions/$sid/flow", mapOf("workflow_id" to "feature")).andExpect(status().isConflict)
+        engine.helperHandover = engine.helperHandover + mapOf("uncommitted" to emptyList<Any>())
+        java.nio.file.Files.writeString(root.resolve("mine.txt"), "my own work")
+        post("/api/projects/$pid/helper/sessions/$sid/flow", mapOf("workflow_id" to "feature")).andExpect(status().isConflict)
+        java.nio.file.Files.delete(root.resolve("mine.txt"))
+        engine.nextThreadIds.add("t-side-1")
+        post("/api/projects/$pid/helper/sessions/$sid/flow", mapOf("workflow_id" to "feature")).andExpect(status().isOk)
+        assertThat(engine.calls.any { it.path == "/helper/sessions/$sid/release" }).isTrue()
+        assertThat(git(root, "rev-parse", "--abbrev-ref", "HEAD").trim()).isEqualTo("keel/helper/abc")
+        assertThat(engine.lastBody("/threads")!!["request"].asText()).contains("branch `keel/helper/abc`")
+        // and not twice: a flow now runs in the folder
+        post("/api/projects/$pid/helper/sessions/$sid/flow", mapOf("workflow_id" to "feature")).andExpect(status().isConflict)
+    }
 }

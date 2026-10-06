@@ -107,6 +107,8 @@ def decide(tool: str, ti: dict, ctx: dict) -> str | None:
         if readonly:
             return run_mode.READONLY_EDIT
         rel, full = _locate(root, path)
+        if ctx.get("confine") and Path(rel).is_absolute():
+            return f"{full} is outside {root}: this side session changes only its own copy of the project (its worktree)."
         v = rules.check_edit(phase, rel, cfg, exists=full.exists(), lane=lane, unlocks=unlocks)
         return None if v.ok else v.reason
 

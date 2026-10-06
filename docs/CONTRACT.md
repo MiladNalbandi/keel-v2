@@ -1354,3 +1354,43 @@ engine only:   POST /helper/permissions/ask {session, key, kind, command, path} 
   and phase (and a warning once the flow moved on), the permission cards, **Changed files** (Diff, Undo, Undo all, the
   file name opens the editor's Changes view) and **Done: run the checks and commit**. The Inbox shows the same
   permission card (Allow once, Always for this command, Deny with a reason).
+
+
+## v0.7.0: Helper side sessions (their own worktree)
+
+A **Side** chat works in its own copy of the project: a git worktree at `<project>/.keel/worktrees/helper-<id>` on a new
+branch `keel/helper/<id>` from the project folder's HEAD (`engine/keel_engine/tools/worktrees.py`). It runs at any time,
+also while a flow runs in the project folder, and neither touches the other's files:
+
+- The worktree is excluded from the project's git status (`.git/info/exclude`), and the Repo page does not walk into it.
+- Edits: only keel's always-on rules (secrets, `.git`, existing migrations); nothing outside the worktree (the ToolBox
+  and, with `confine` in the guard context, the hook refuse it); the diff guard checks every turn. Commands that change
+  something wait for the person, as in Fix mode.
+- **Changes** are what is not kept yet (the worktree against the last commit on its branch); Undo puts a file back.
+- **Keep** (`done` without a flow): the checks run in the worktree, then keel commits on the side branch
+  (`fix(helper): <message>`); the project folder's branch does not move.
+- Hand over:
+  - **Make a task**: a task whose description says what was asked, the commits on the branch, and the last answer.
+  - **Start a flow on the branch**: only with everything kept, no flow running or waiting in the project folder, and a
+    clean folder. The worktree goes (`release`; the branch stays), the folder checks the branch out, and a `change`
+    flow starts there (its preflight stays on a non-base branch): it writes the tests for what the branch does, and a
+    test that passes at once is "already met".
+  - **Throw away** (delete the chat): the worktree and its branch go.
+- Dependencies are not installed in a new worktree (node_modules, a virtualenv): the Helper can run the install
+  command (it asks first).
+
+```
+POST   /api/projects/{pid}/helper/sessions                {mode: "side"} → HelperSession (worktree, branch, base_sha)
+POST   /api/projects/{pid}/helper/sessions/{sid}/done     {message?} → HelperDone   (Keep: commits on the side branch)
+GET    /api/projects/{pid}/helper/sessions/{sid}/handover → HelperHandover
+POST   /api/projects/{pid}/helper/sessions/{sid}/task     {title?, type?} → TaskView
+POST   /api/projects/{pid}/helper/sessions/{sid}/flow     {title?, workflow_id? = "change"} → ThreadState   (409 when it cannot)
+DELETE /api/projects/{pid}/helper/sessions/{sid}          → {ok}   (a side session: its worktree and branch go)
+
+HelperSession  += {worktree (null once handed over), branch, base_sha}
+HelperHandover = {session, title, branch, base, worktree, commits: [{sha, subject}], uncommitted: [path], asked: [text], answer}
+engine only:   POST /helper/sessions/{sid}/release → HelperHandover   (the worktree goes, the branch stays; 409 with unkept files)
+```
+- Web: the panel's **Ask | Fix | Side** switch; a Side chat shows its branch, what is kept on it, **Make a task**,
+  **Start a flow on the branch** (after a confirm) and **Throw away**; its Changed files box has **Keep** instead of
+  Done, and a file name shows its diff (the file is not in the project folder).

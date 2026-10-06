@@ -37,7 +37,7 @@ class ToolBox:
                  ac: str | None = None, ac_layer: str = "API",
                  on_refuse: Callable[[str, str, str], None] | None = None, unlocks: list[dict] | None = None,
                  agent: str = "", knowledge: dict | None = None, readonly: bool = False,
-                 ask: dict | None = None, asker: Callable[[str], tuple[bool, str]] | None = None):
+                 ask: dict | None = None, asker: Callable[[str], tuple[bool, str]] | None = None, confine: bool = False):
         self.root = str(Path(root).resolve())
         self.phase = phase
         self.cfg = cfg or rules.load_config(self.root)
@@ -55,6 +55,8 @@ class ToolBox:
         # ToolBox's own commands (API-key models); both wait for the person's OK (runtime/permissions.py)
         self.ask = ask
         self.asker = asker
+        # the Helper's side session: the hook also refuses a write outside the root (its worktree); this ToolBox always does
+        self.confine = confine
 
     def add_unlocks(self, new: list[dict]):
         """An unlock granted while this agent runs (the engine calls this for every running agent of the thread)."""

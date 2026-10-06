@@ -102,7 +102,8 @@ def context_for(req) -> dict:
             "lane": getattr(tb, "lane", None), "unlocks": list(getattr(tb, "unlocks", None) or []),
             "agent": req.agent, "thread": getattr(req, "thread", "") or "",
             "knowledge_allowed": list(k["sections"]) if k else None, "knowledge_strict": bool(k and k.get("strict")),
-            "readonly": bool(getattr(tb, "readonly", False)), "ask": getattr(tb, "ask", None)}
+            "readonly": bool(getattr(tb, "readonly", False)), "ask": getattr(tb, "ask", None),
+            "confine": bool(getattr(tb, "confine", False))}
 
 
 def ensure(req, folder: str | None = None) -> str:

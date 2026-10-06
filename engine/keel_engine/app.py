@@ -138,7 +138,7 @@ class Ask(BaseModel):
 class HelperCreate(BaseModel):
     project_id: str
     root: str
-    mode: Literal["ask", "fix"] = "ask"
+    mode: Literal["ask", "fix", "side"] = "ask"
     model: ModelSpec | None = None
     title: str = ""
     thread_id: str | None = None
@@ -527,6 +527,18 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
         await request.app.state.helper.stop(sid)
         await asyncio.to_thread(helper_call, helper.delete, sid)
         return {"ok": True}
+
+    @app.get("/helper/sessions/{sid}/handover")
+    async def get_helper_handover(sid: str):
+        """A side session's branch, the commits kept on it, what is not kept yet, and its last answer."""
+        return await asyncio.to_thread(helper_call, helper.handover, sid)
+
+    @app.post("/helper/sessions/{sid}/release")
+    async def post_helper_release(sid: str, request: Request):
+        """A side session's worktree goes; its branch and commits stay for a change flow (the api checks it out)."""
+        if request.app.state.helper.busy(sid):
+            raise EngineError(409, "The Helper is still working in this chat.", "Wait for it, or stop it, then hand it over.")
+        return await asyncio.to_thread(helper_call, helper.release, sid)
 
     @app.post("/helper/sessions/{sid}/turn")
     async def post_helper_turn(sid: str, body: HelperTurn, request: Request):

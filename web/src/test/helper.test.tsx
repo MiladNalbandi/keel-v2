@@ -3,7 +3,7 @@
 
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { App } from "../App";
 import { eventLine } from "../components/events";
 import { fileLink, replaceTyping, starters, typingAt, usageText } from "../components/helper/model";
@@ -287,3 +287,62 @@ describe("Helper Fix mode at a gate", () => {
     await waitFor(() => expect(within(p).getByRole("button", { name: "Fix" })).toBeEnabled());
   });
 });
+
+describe("Helper side sessions (their own worktree and branch)", () => {
+  it("works on its own branch, keeps a change there, and hands it over as a task and as a flow on the branch", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    db.flows["ludus-engine"].thread!.status = "done";                      // no flow waits: Side needs none
+    location.hash = "#/repo";
+    localStorage.setItem("keel2.repo.helper", "true");
+    render(<App />);
+    const p = await panel();
+    await user.click(within(p).getByRole("button", { name: "Side" }));
+    expect(within(p).getByText(/A side session works in its own copy of the project/)).toBeInTheDocument();
+    await user.type(within(p).getByRole("textbox", { name: "Ask the Helper" }), "Try a price helper{Enter}");
+    await waitFor(() => expect(turns()).toHaveLength(1));
+    expect(db.calls.find((c) => c.method === "POST" && c.path.endsWith("/helper/sessions"))?.body).toMatchObject({ mode: "side" });
+    const sid = db.helper.sessions[0].id;
+    expect(await within(p).findByText("Side · 1")).toBeInTheDocument();
+    expect(within(p).getByText("keel/helper/1")).toBeInTheDocument();
+
+    db.helper.changes[sid] = [{ path: "src/price.js", status: "added", added: 4, removed: 0, diff: "--- /dev/null\n+++ b/src/price.js\n@@ -0,0 +1 @@\n+x\n" }];
+    answer("Added `src/price.js:1`.");
+    const box = await within(p).findByRole("region", { name: "What the Helper changed" });
+    // the file is in the worktree, not the project folder: its name shows the diff instead of opening the editor
+    await user.click(within(box).getByRole("button", { name: "src/price.js" }));
+    expect(within(box).getByRole("table", { name: "Changes in src/price.js" })).toBeInTheDocument();
+    expect(within(p).getByRole("button", { name: "Start a flow on the branch" })).toBeDisabled();       // nothing kept yet
+    await user.click(within(box).getByRole("button", { name: "Keep: run the checks and commit on the branch" }));
+    expect(await screen.findByText("Kept on keel/helper/1: keel committed 1 file (c0ffee1).")).toBeInTheDocument();
+    expect(await within(p).findByText(/Kept on the branch: 1 commit/)).toBeInTheDocument();
+
+    await user.click(within(p).getByRole("button", { name: "Make a task" }));
+    expect(await screen.findByText("Task created: Try a price helper. It names the branch keel/helper/1.")).toBeInTheDocument();
+    expect(db.calls.some((c) => c.path.endsWith(`/helper/sessions/${sid}/task`))).toBe(true);
+
+    await user.click(within(p).getByRole("button", { name: "Start a flow on the branch" }));
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("checks out keel/helper/1 in the project folder"));
+    await waitFor(() => expect(db.calls.some((c) => c.path.endsWith(`/helper/sessions/${sid}/flow`))).toBe(true));
+    await waitFor(() => expect(location.hash).toBe("#/flow"));
+    confirm.mockRestore();
+  });
+
+  it("throws a side session away after a confirm", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    location.hash = "#/repo";
+    localStorage.setItem("keel2.repo.helper", "true");
+    render(<App />);
+    const p = await panel();
+    await user.click(within(p).getByRole("button", { name: "Side" }));
+    await user.type(within(p).getByRole("textbox", { name: "Ask the Helper" }), "Try it{Enter}");
+    await waitFor(() => expect(turns()).toHaveLength(1));
+    answer("Tried.");
+    await user.click(await within(p).findByRole("button", { name: "Throw away" }));
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("keel/helper/1 are deleted"));
+    await waitFor(() => expect(db.helper.sessions).toHaveLength(0));
+    confirm.mockRestore();
+  });
+});
+

@@ -9,6 +9,9 @@ the hook reads on every tool call, and the diff guard as the backstop for engine
             fix   while the project's flow waits at a gate: edits under the flow's phase rules and unlocks; a command
                   that changes something waits for the person's OK (runtime/permissions.py); keel remembers each file
                   as it was before the Helper's first change (Undo), and Done runs the checks and makes keel's commit
+            side  any time, in its own copy of the project (a git worktree on branch keel/helper/<id>, tools/worktrees.py):
+                  free edits there and nowhere else, commands asked as in Fix; Keep runs the checks and commits on that
+                  branch; the person hands it over (a task, a change flow on the branch) or throws it away
 
 How a session continues: claude and codex continue their own CLI session (cheap: their context stays cached); the
 API-key runner gets the earlier messages; the other CLIs get the conversation so far in the prompt.
@@ -34,13 +37,13 @@ from pathlib import Path
 from .. import config, models, rules
 from ..models import catalog
 from ..models.base import AgentRequest, AgentResult
-from ..tools import git, guard, mcp, testcmd
+from ..tools import git, guard, mcp, testcmd, worktrees
 from ..tools.agent_tools import ToolBox, command_env
 from . import agent_knowledge, db, guard_ctx, permissions, plugins, prompts
 
 log = logging.getLogger(__name__)
 
-MODES = ("ask", "fix")
+MODES = ("ask", "fix", "side")
 AGENT = "helper"
 RESUMABLE = {"claude", "codex"}          # CLIs that continue their own session (runtime/compiler.py RESUMABLE)
 TRANSCRIPT_CHARS = 6000                  # the conversation so far, for the engines that cannot continue a session
@@ -54,11 +57,18 @@ MODE_TEXT = {
             "({phase}) does not allow. Reading, searching and running the tests need no OK; any other command that changes "
             "something waits for the person's OK. Never commit: when the person presses Done, keel runs the checks and "
             "commits your change. End with one short line per file you changed."),
+    "side": ("Mode: Side session. You work in your own copy of the project: a git worktree on branch {branch}, not the "
+             "main folder. Edit freely there, but only there (keel refuses a file outside it); nothing you do touches the "
+             "main folder or a flow running in it. Reading, searching and running the tests need no OK; any other command "
+             "that changes something waits for the person's OK. Never commit: the person keeps your work (keel runs the "
+             "checks and commits it on the branch), hands it over as a task or a flow, or throws it away. End with one "
+             "short line per file you changed."),
 }
 DIFF_MAX = 40_000
 
 FIELDS = ("id", "project", "root", "mode", "title", "model_json", "engine_session", "status", "error", "thread_id",
-          "tokens_in", "tokens_out", "tokens_cached", "cost_usd", "turns", "created_at", "updated_at", "grants_json", "phase")
+          "tokens_in", "tokens_out", "tokens_cached", "cost_usd", "turns", "created_at", "updated_at", "grants_json", "phase",
+          "worktree", "branch", "base_sha")
 
 
 class HelperError(Exception):
@@ -98,12 +108,19 @@ def create(project: str, root: str, mode: str = "ask", model: dict | None = None
     if mode == "fix" and not thread_id:
         raise HelperError(400, "Fix mode needs the flow that waits.", "Open it while a flow of this project waits at a gate.")
     sid = "h_" + uuid.uuid4().hex[:16]
+    wt: dict = {}
+    if mode == "side":
+        short = sid[2:10]
+        try:
+            wt = worktrees.add(str(Path(root).resolve()), f"helper-{short}", f"keel/helper/{short}")
+        except worktrees.WorktreeError as exc:
+            raise HelperError(409, str(exc), exc.hint) from exc
     now = db.now()
     with db.connect() as conn:
         conn.execute(f"insert into helper_sessions ({', '.join(FIELDS)}) values ({', '.join('?' * len(FIELDS))})",
                      (sid, project, str(Path(root).resolve()), mode, title.strip()[:120] or "New chat",
                       json.dumps(models.effective(model)), None, "idle", None, thread_id, 0, 0, 0, 0.0, 0, now, now, "[]",
-                      fix_phase(flow) if mode == "fix" else None))
+                      fix_phase(flow) if mode == "fix" else None, wt.get("path"), wt.get("branch"), wt.get("base")))
     return get(sid)
 
 
@@ -159,7 +176,10 @@ def add_grant(sid: str, command: str) -> list[str]:
 
 
 def delete(sid: str) -> None:
-    get(sid, messages=False)
+    """A side session's worktree and branch go too (throw away)."""
+    s = get(sid, messages=False)
+    if s.get("worktree"):
+        worktrees.remove(s["root"], s["worktree"], s.get("branch"))
     with db.connect() as conn:
         conn.execute("delete from helper_files where session_id = ?", (sid,))
         conn.execute("delete from helper_messages where session_id = ?", (sid,))
@@ -173,6 +193,20 @@ def add_message(sid: str, role: str, text: str, call_id: str | None = None, data
                      (sid, n, role, text, call_id, json.dumps(data or {}), db.now()))
         conn.execute("update helper_sessions set updated_at = ? where id = ?", (db.now(), sid))
     return n
+
+
+def short_title(text: str, limit: int = 80) -> str:
+    """A chat's title from its first message: the first line, cut at a word with "…" when it is long."""
+    line = " ".join(text.strip().splitlines()[0].split()) if text.strip() else "New chat"
+    if len(line) <= limit:
+        return line
+    cut = line[:limit - 1]
+    return (cut.rsplit(" ", 1)[0] if " " in cut[limit // 2:] else cut).rstrip(" ,.;:-") + "…"
+
+
+def workdir(s: dict) -> str:
+    """Where a session's agent works: a side session's worktree, else the project folder."""
+    return s.get("worktree") or s["root"]
 
 
 def history(sid: str, before_n: int | None = None) -> list[tuple[str, str]]:
@@ -218,8 +252,11 @@ def _text(b: bytes | None) -> str:
 
 
 def changes(sid: str) -> list[dict]:
-    """The files the Helper changed in this session, against what they were before: path, status, +/- lines, diff."""
+    """The files the Helper changed in this session, against what they were before: path, status, +/- lines, diff.
+    A side session: what is not kept yet (its worktree against the last commit on its branch)."""
     s = get(sid, messages=False)
+    if s["mode"] == "side":
+        return worktrees.changes(s["worktree"], "HEAD") if s.get("worktree") else []
     root = s["root"]
     with db.connect() as conn:
         rows = conn.execute("select path, existed, content from helper_files where session_id = ? order by path", (sid,)).fetchall()
@@ -243,6 +280,15 @@ def changes(sid: str) -> list[dict]:
 def undo(sid: str, path: str | None = None) -> list[dict]:
     """Put one file (or every file) back as it was before the Helper changed it."""
     s = get(sid, messages=False)
+    if s["mode"] == "side":
+        if not s.get("worktree"):
+            raise HelperError(409, "This side session was handed over; its worktree is gone.")
+        if path and not any(c["path"] == path for c in changes(sid)):
+            raise HelperError(404, f"The Helper did not change {path} in this chat.")
+        try:
+            return worktrees.undo(s["worktree"], "HEAD", path)
+        except worktrees.WorktreeError as exc:
+            raise HelperError(400, str(exc), exc.hint) from exc
     root = Path(s["root"])
     with db.connect() as conn:
         q = "select path, existed, content from helper_files where session_id = ?" + (" and path = ?" if path else "")
@@ -266,9 +312,11 @@ def done(sid: str, flow: dict, emit=None, message: str = "") -> dict:
     from . import actions          # late: actions imports most of the runtime
 
     s = get(sid, messages=False)
-    if s["mode"] != "fix":
-        raise HelperError(400, "Only a Fix chat has changes to commit.")
-    root = s["root"]
+    if s["mode"] not in ("fix", "side"):
+        raise HelperError(400, "Only a Fix chat or a side session has changes to commit.")
+    if s["mode"] == "side" and not s.get("worktree"):
+        raise HelperError(409, "This side session was handed over; its worktree is gone.")
+    root = workdir(s)
     files = [c["path"] for c in changes(sid)]
     if not files:
         return {"ok": False, "step": "changes", "error": "Nothing to commit: the Helper changed no file in this chat."}
@@ -292,13 +340,44 @@ def done(sid: str, flow: dict, emit=None, message: str = "") -> dict:
     sha = git.head(root)
     with db.connect() as conn:
         conn.execute("delete from helper_files where session_id = ?", (sid,))
-    note = f"keel committed the Helper's change: {res.note}" + (f" (checks: {cmd})" if cmd else " (no test command found)")
+    where = f" on branch {s['branch']}" if s["mode"] == "side" else ""
+    note = f"keel committed the Helper's change{where}: {res.note}" + (f" (checks: {cmd})" if cmd else " (no test command found)")
     subject = git.git(root, "log", "-1", "--format=%s").stdout.strip()
     add_message(sid, "note", note, data={"status": "committed", "sha": sha, "files": files, "subject": subject})
     if emit:
         emit("helper.commit", s["thread_id"] or sid, s["project"], {"session": sid, "sha": sha, "message": res.note,
                                                                     "files": files, "checks": cmd})
     return {"ok": True, "sha": sha, "message": res.note, "files": files, "checks": cmd}
+
+
+def handover(sid: str) -> dict:
+    """What a side session hands over (a task or a change flow): its branch, the commits kept on it, what is not kept
+    yet, and its last answer."""
+    s = get(sid)
+    if s["mode"] != "side":
+        raise HelperError(400, "Only a side session can be handed over.")
+    if not s.get("worktree"):
+        raise HelperError(409, "This side session was handed over already.")
+    answers = [m["text"] for m in s["messages"] if m["role"] == "helper"]
+    asked = [m["text"] for m in s["messages"] if m["role"] == "user"]
+    return {"session": sid, "title": s["title"], "branch": s["branch"], "base": s["base_sha"], "worktree": s["worktree"],
+            "commits": worktrees.commits(s["worktree"], s["base_sha"]), "uncommitted": [c["path"] for c in changes(sid)],
+            "asked": asked[:20], "answer": answers[-1] if answers else ""}
+
+
+def release(sid: str) -> dict:
+    """Hand a side session's branch over: its worktree goes, the branch and its commits stay (a change flow takes it)."""
+    h = handover(sid)
+    if h["uncommitted"]:
+        raise HelperError(409, f"{len(h['uncommitted'])} file(s) are not kept yet: {', '.join(h['uncommitted'][:5])}.",
+                          "Keep them (the checks run, keel commits on the branch) or undo them first.")
+    s = get(sid, messages=False)
+    worktrees.remove(s["root"], s["worktree"], None)
+    with db.connect() as conn:
+        conn.execute("update helper_sessions set worktree = null, updated_at = ? where id = ?", (db.now(), sid))
+    add_message(sid, "note", f"Handed over: branch {h['branch']} with {len(h['commits'])} commit(s); its worktree is gone.",
+                data={"status": "handed", "branch": h["branch"]})
+    return h
 
 
 def commits_for(thread_id: str) -> list[dict]:
@@ -368,8 +447,10 @@ def _transcript(hist: list[tuple[str, str]]) -> str:
 
 
 def build_prompt(*, mode: str, root: str, question: str, know: dict, graph: bool, flow: dict | None,
-                 mentions: list[dict] | None, selection: dict | None, open_file: str | None, transcript: str) -> str:
-    parts = [MODE_TEXT[mode].format(phase=fix_phase(flow)), f"The project folder: {root}"]
+                 mentions: list[dict] | None, selection: dict | None, open_file: str | None, transcript: str,
+                 branch: str = "") -> str:
+    where = f"Your folder (the worktree): {root}" if mode == "side" else f"The project folder: {root}"
+    parts = [MODE_TEXT[mode].format(phase=fix_phase(flow), branch=branch or "?"), where]
     block = agent_knowledge.prompt_block(root, know, graph)
     if block:
         parts.append(block)
@@ -479,13 +560,15 @@ class HelperRunner:
             raise HelperError(400, "The message is empty.")
         if self.busy(sid):
             raise HelperError(409, "The Helper is still answering in this session.", "Wait for the answer, or stop it.")
+        if s["mode"] == "side" and not s.get("worktree"):
+            raise HelperError(409, "This side session was handed over; its worktree is gone.", "Start a new chat.")
         if body.get("model"):
             s = set_model(sid, body["model"])
         question, command = plugins.expand(s["root"], text)
         n = add_message(sid, "user", text, data={k: v for k, v in {"command": command, "mentions": body.get("mentions"),
                                                                     "selection": body.get("selection")}.items() if v})
         if s["title"] == "New chat" and s["turns"] == 0:
-            update(sid, title=text.splitlines()[0][:80])
+            update(sid, title=short_title(text))
         call_id = uuid.uuid4().hex
         update(sid, status="running", error=None)
         self.tasks[sid] = asyncio.create_task(self._run(sid, n, question, body, call_id))
@@ -508,7 +591,8 @@ class HelperRunner:
 
     async def _run(self, sid: str, n: int, question: str, body: dict, call_id: str):
         s = get(sid, messages=False)
-        project, root, mode = s["project"], s["root"], s["mode"]
+        project, mode = s["project"], s["mode"]
+        root = workdir(s)               # a side session works in its worktree, never the project folder
         model = models.effective(s["model"])
         provider = model["provider"]
         keys = dict(body.get("keys") or {})
@@ -542,6 +626,14 @@ class HelperRunner:
                               knowledge=know, readonly=flow.get("run_mode") == "readonly",
                               ask={"url": f"http://127.0.0.1:{config.port()}", "key": key, "session": sid},
                               asker=lambda command: self.ask_blocking(sid, key, command))
+        elif mode == "side":
+            # no flow's phase: only keel's always-on rules (secrets, .git, old migrations), and nothing outside the worktree
+            phase, unlocks, ac = "none", [], None
+            key = secrets.token_urlsafe(24)
+            self.ask_keys[sid] = key
+            toolbox = ToolBox(root, "none", cfg=cfg, on_refuse=on_refuse, agent=AGENT, knowledge=know, confine=True,
+                              ask={"url": f"http://127.0.0.1:{config.port()}", "key": key, "session": sid},
+                              asker=lambda command: self.ask_blocking(sid, key, command))
         else:
             phase, unlocks, ac = "none", [], None
             toolbox = ToolBox(root, "none", cfg=cfg, on_refuse=on_refuse, agent=AGENT, knowledge=know, readonly=True)
@@ -564,13 +656,13 @@ class HelperRunner:
         # everything that awaits sits in the try: a stop can come at any moment and is recorded the same way
         try:
             before = await asyncio.to_thread(guard.snapshot, root)
-            graph = await asyncio.to_thread(mcp.codegraph_server_spec, root)
+            graph = await asyncio.to_thread(mcp.codegraph_server_spec, s["root"])     # the project's index (same paths)
             sent = list(body.get("mcp") or [])
             specs = sent + ([graph] if graph and not any(x.get("name") == graph["name"] for x in sent) else [])
             allow = list(body.get("tools_allow") or []) + ([f"mcp:{graph['name']}:*"] if graph else [])
             mcp_specs, tools_allow = agent_knowledge.filter_mcp(specs, allow, know)
             transcript = "" if (resume or model.get("mode") == "api" or provider == "fake") else _transcript(hist)
-            prompt = build_prompt(mode=mode, root=root, question=question, know=know,
+            prompt = build_prompt(mode=mode, root=root, question=question, know=know, branch=s.get("branch") or "",
                                   graph=agent_knowledge.has_codegraph(mcp_specs, tools_allow), flow=body.get("flow"),
                                   mentions=body.get("mentions"), selection=body.get("selection"), open_file=body.get("open_file"),
                                   transcript=transcript)
@@ -598,6 +690,9 @@ class HelperRunner:
         if mode == "ask":
             for r in guard.guard_diff(root, "none", before, cfg, None, None, True):
                 emit("guard", f"Put back {r['path']}: the Helper's Ask mode changes nothing.", path=r["path"], ok=False)
+        elif mode == "side":
+            for r in guard.guard_diff(root, "none", before, cfg, None, None, False):
+                emit("guard", f"Put back {r['path']}: {r['reason']}", path=r["path"], ok=False)
         else:
             for r in guard.guard_diff(root, phase, before, cfg, rules.ac_lane(ac) if ac else None, unlocks,
                                       flow.get("run_mode") == "readonly"):

@@ -1,6 +1,7 @@
 // keel's Helper in the Repo page: a chat with an agent that reads this project and answers with file:line links,
 // inside keel's rules. Ask mode changes nothing; Fix mode (while a flow waits at a gate) changes files inside the
-// phase's rules, asks before a command that changes something, and commits through keel's Done. Sessions are the
+// phase's rules, asks before a command that changes something, and commits through keel's Done; a side session works
+// in its own worktree and branch, and ends as a task, a flow on that branch, or thrown away. Sessions are the
 // engine's; each answer is one agent call, so its steps stream live (helper.step events) and its tokens count in the
 // budget bar. ⌘I opens it from the Repo page.
 
@@ -11,12 +12,12 @@ import {
 } from "../../api";
 import { modelLabel, provLabel } from "../../format";
 import { rankFiles } from "../../pages/repo/model";
-import { useApp, useLoad } from "../../state";
+import { go, useApp, useLoad } from "../../state";
 import { Markdown } from "../Markdown";
 import { ModelPicker } from "../ModelPicker";
 import { mergeSteps } from "../StepFeed";
 import { StepView } from "../StepView";
-import { ChangesBox, DoneFailed, fixRequest, PermissionCard } from "./FixParts";
+import { ChangesBox, DoneFailed, fixRequest, PermissionCard, SideBar } from "./FixParts";
 import { fileLink, messageTokens, replaceTyping, sessionTokens, starters, typingAt, usageText, type Typing } from "./model";
 
 type Props = {
@@ -144,7 +145,11 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   const messages = s?.messages ?? [];
   const mode: HelperMode = s?.mode ?? newMode;
   const fix = mode === "fix";
-  const changes = useLoad(sid && fix ? `helper:${pid}:${sid}:changes` : null, () => api.helperChanges(pid, sid!), { live: false });
+  const side = mode === "side";
+  const edits = fix || side;                 // a chat that changes files: its changes, Undo, Done / Keep
+  const handed = side && !!s && !s.worktree;  // a side session handed over: its worktree is gone
+  const changes = useLoad(sid && edits && !handed ? `helper:${pid}:${sid}:changes` : null, () => api.helperChanges(pid, sid!), { live: false });
+  const handover = useLoad(sid && side && !handed ? `helper:${pid}:${sid}:handover` : null, () => api.helperHandover(pid, sid!), { live: false });
   // commands that wait for the person's OK (this project's; the cards show this chat's)
   const perms = useLoad(`helper:${pid}:perms`, () => api.helperPermissions(pid), { live: false });
   const asks = (perms.data ?? []).filter((q) => q.session === sid);
@@ -160,7 +165,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   // the tab was hidden) and every 5 s, so a missed helper.finished never leaves the panel "working".
   useEffect(() => {
     if (runningCall) void sess.reload();
-    if (runningCall && fix) void changes.reload();
+    if (runningCall && edits) void changes.reload();
   }, [tick]); // eslint-disable-line react-hooks/exhaustive-deps
   // a question came or went (here, in the Inbox, or another tab): read the cards again
   const askedAt = useMemo(() => [...recent].reverse().find((e) => e.type === "helper.permission" || e.type === "helper.permission.answered")?.at,
@@ -189,11 +194,16 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
     void sess.reload();
     void list.reload();
     void perms.reload();
-    if (fix) void changes.reload();
+    if (edits) void changes.reload();
   }, [finishedAt]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fix: a new message (an answer, a stop, Done's note), however the panel learnt of it, may come with changed files
-  useEffect(() => { if (fix && sid) void changes.reload(); }, [messages.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Fix and side: a new message (an answer, a stop, Done's note), however the panel learnt of it, may come with changed
+  // files, and a side session's kept commits
+  useEffect(() => {
+    if (!edits || !sid || handed) return;
+    void changes.reload();
+    if (side) void handover.reload();
+  }, [messages.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // keep the newest message in view
   useEffect(() => {
@@ -261,7 +271,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
 
   const send = async (raw?: string) => {
     const body = (raw ?? text).trim();
-    if (!body || sending || runningCall) return;
+    if (!body || sending || runningCall || handed) return;
     setSending(true);
     try {
       const id = await ensureSession();
@@ -302,7 +312,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
     input.current?.focus();
   };
 
-  // Ask and Fix are different chats: switching starts a new one (the old one stays in the list)
+  // Ask, Fix and side sessions are different chats: switching starts a new one (the old one stays in the list)
   const switchMode = (m: HelperMode) => {
     if (m === mode) return;
     if (s || sid) newChat(m);
@@ -324,15 +334,47 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
     setFailed(null);
     try {
       const res = await api.helperDone(pid, sid, message);
-      if (res.ok) toast(`keel committed ${res.files.length} file${res.files.length === 1 ? "" : "s"} (${res.sha.slice(0, 7)}).`);
+      const n = res.ok ? `${res.files.length} file${res.files.length === 1 ? "" : "s"}` : "";
+      if (res.ok) toast(side ? `Kept on ${s?.branch}: keel committed ${n} (${res.sha.slice(0, 7)}).` : `keel committed ${n} (${res.sha.slice(0, 7)}).`);
       else setFailed(res);
-      await Promise.all([changes.reload(), sess.reload()]);
+      await Promise.all([changes.reload(), sess.reload(), side ? handover.reload() : null]);
     } catch (e) {
       const p = errorParts(e);
       toast(p.hint ? `${p.message} ${p.hint}` : p.message);
     } finally {
       setDoneBusy(false);
     }
+  };
+
+  // a side session ends as a task (its branch stays), as a flow on its branch, or thrown away
+  const toTask = async () => {
+    if (!sid) return;
+    try {
+      const t = await api.helperToTask(pid, sid);
+      toast(`Task created: ${t.title}. It names the branch ${s?.branch}.`);
+    } catch (e) {
+      const p = errorParts(e);
+      toast(p.hint ? `${p.message} ${p.hint}` : p.message);
+    }
+  };
+
+  const toFlow = async () => {
+    if (!sid || !s?.branch) return;
+    if (!window.confirm(`keel removes this side session's worktree, checks out ${s.branch} in the project folder and starts a change flow on it. Go on?`)) return;
+    try {
+      await api.helperToFlow(pid, sid);
+      toast(`A change flow started on ${s.branch}.`);
+      await sess.reload();
+      go("flow");
+    } catch (e) {
+      const p = errorParts(e);
+      toast(p.hint ? `${p.message} ${p.hint}` : p.message);
+    }
+  };
+
+  const throwAway = async () => {
+    if (!window.confirm(`Throw this side session away? Its worktree and the branch ${s?.branch ?? ""} are deleted, with anything kept on it.`)) return;
+    await remove();
   };
 
   const remove = async () => {
@@ -389,16 +431,20 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
         <div className="hp-title">
           <b>Helper</b>
           <div className="hp-modes" role="group" aria-label="Mode">
-            <button type="button" aria-pressed={!fix} onClick={() => switchMode("ask")}
+            <button type="button" aria-pressed={mode === "ask"} onClick={() => switchMode("ask")}
               title="Ask: the Helper reads and answers; it changes no file">Ask</button>
             <button type="button" aria-pressed={fix} disabled={!fix && !fixable} onClick={() => switchMode("fix")}
               title={fix || fixable ? "Fix: the Helper changes files at this gate, inside the phase's rules"
                 : readonlyRun ? "This flow runs read-only: change its run mode on the Flow page to let the Helper edit"
                   : "Fix works while a flow waits at a gate"}>Fix</button>
+            <button type="button" aria-pressed={side} onClick={() => switchMode("side")}
+              title="Side session: the Helper changes files in its own copy of the project (a git worktree on its own branch)">Side</button>
           </div>
           {fix
             ? <span className="hp-mode fix" title="Fix mode: keel's rules of this phase apply">Fix{phase ? ` · ${phase}` : ""}</span>
-            : <span className="hp-mode" title="Ask mode: the Helper reads and answers; it changes no file">Ask · read only</span>}
+            : side
+              ? <span className="hp-mode side" title={s?.branch ? `Branch ${s.branch}` : "Its own worktree and branch"}>Side{s?.branch ? ` · ${s.branch.split("/").pop()}` : ""}</span>
+              : <span className="hp-mode" title="Ask mode: the Helper reads and answers; it changes no file">Ask · read only</span>}
         </div>
         <div className="hp-tools">
           <button type="button" className="hp-tb" onClick={() => setShowModel((v) => !v)} aria-expanded={showModel}
@@ -436,7 +482,24 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
         </div>
       )}
 
+      {side && (
+        <SideBar s={s} handover={handover.data} busy={busy || doneBusy} onTask={() => void toTask()} onFlow={() => void toFlow()}
+          onThrow={() => void throwAway()} />
+      )}
+
       <div ref={scroller} className="hp-body" role="log" aria-label="Conversation" aria-live="polite">
+        {!messages.length && !runningCall && side && (
+          <div className="hp-empty">
+            <p>Try an idea without touching the project folder. The Helper edits its own copy, you see every changed file
+              below, and Keep runs the checks and commits on the side branch. Then make it a task, start a flow on the
+              branch, or throw it away.</p>
+            <ul className="hp-starters">
+              {["Sketch the change in as few files as you can, then run the tests", "/plan"].map((q) => (
+                <li key={q}><button type="button" onClick={() => void send(q)} disabled={busy}>{q}</button></li>
+              ))}
+            </ul>
+          </div>
+        )}
         {!messages.length && !runningCall && fix && (
           <div className="hp-empty">
             <p>Tell the Helper what to change for this gate. It edits the files here, inside keel's rules for the work under review.
@@ -448,7 +511,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
             </ul>
           </div>
         )}
-        {!messages.length && !runningCall && !fix && (
+        {!messages.length && !runningCall && mode === "ask" && (
           <div className="hp-empty">
             <p>Ask about this project. The Helper reads the code, the knowledge pages, the map and the code graph, and links
               every answer to the lines. It changes nothing in Ask mode.</p>
@@ -476,9 +539,10 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
           </div>
         )}
         {asks.map((q) => <PermissionCard key={q.id} pid={pid} q={q} onAnswered={() => void perms.reload()} />)}
-        {fix && !!changes.data?.length && (
+        {edits && !!changes.data?.length && (
           <ChangesBox changes={changes.data} busy={doneBusy || busy} title={s?.title ?? "the chat's title"}
-            onOpen={(p) => (onOpenDiff ? onOpenDiff(p) : onOpenFile(p))} onUndo={(p) => void undo(p)} onDone={(m) => void done(m)} />
+            doneLabel={side ? "Keep: run the checks and commit on the branch" : undefined}
+            onOpen={side ? undefined : (p) => (onOpenDiff ? onOpenDiff(p) : onOpenFile(p))} onUndo={(p) => void undo(p)} onDone={(m) => void done(m)} />
         )}
         {failed && (
           <DoneFailed res={failed} onClose={() => setFailed(null)}
@@ -508,9 +572,10 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
             ))}
           </ul>
         )}
-        <textarea ref={input} id="hp-input" rows={2} value={text} aria-label="Ask the Helper"
-          placeholder={busy ? "The Helper is answering…"
-            : fix ? "Tell the Helper what to change…  (@ files, symbols · / commands)" : "Ask about this project…  (@ files, symbols · / commands)"}
+        <textarea ref={input} id="hp-input" rows={2} value={text} aria-label="Ask the Helper" disabled={handed}
+          placeholder={handed ? "This side session was handed over: start a new chat" : busy ? "The Helper is answering…"
+            : fix ? "Tell the Helper what to change…  (@ files, symbols · / commands)"
+              : side ? "Tell the Helper what to try…  (@ files, symbols · / commands)" : "Ask about this project…  (@ files, symbols · / commands)"}
           onChange={(e) => { setText(e.target.value); setCaret(e.target.selectionStart ?? e.target.value.length); }}
           onKeyUp={(e) => setCaret((e.target as HTMLTextAreaElement).selectionStart ?? 0)}
           onClick={(e) => setCaret((e.target as HTMLTextAreaElement).selectionStart ?? 0)}
