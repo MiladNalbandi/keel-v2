@@ -170,7 +170,9 @@ export function routeAround(a: Rect, ay: number, b: Rect, by: number, obstacles:
   const q2: Pt = [p2[0] + (sb === "r" ? STUB + M : -STUB - M), by];
   // the stubs leave the box outwards: right = direction 0, left = 1; arriving at q2 we move towards the box
   const sDir = sa === "r" ? 0 : 1, tDir = sb === "r" ? 1 : 0;
-  const all = [...obstacles, a, b];
+  // a box dropped on top of another: the one under a line's end cannot be avoided, so it is not an obstacle
+  const holds = (o: Rect, q: Pt) => q[0] > o.x - M && q[0] < o.x + o.w + M && q[1] > o.y - M && q[1] < o.y + o.h + M;
+  const all = [...obstacles.filter((o) => !holds(o, q1) && !holds(o, q2)), a, b];
   const span = (pad: number): Rect => {
     const x0 = Math.min(a.x, b.x) - pad, y0 = Math.min(a.y, b.y) - pad;
     return { x: x0, y: y0, w: Math.max(a.x + a.w, b.x + b.w) + pad - x0, h: Math.max(a.y + a.h, b.y + b.h) + pad - y0 };

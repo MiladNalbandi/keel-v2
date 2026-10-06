@@ -3,6 +3,7 @@
 
 import type { Cite, DbRelation, DbTable } from "../../api";
 import { hashFor } from "../../routes";
+import { shortType } from "./geometry";
 import { Ic } from "./icons";
 import { indexedColumns, schemaLabel, type Neighbours } from "./model";
 
@@ -100,7 +101,7 @@ export function Structure({ t, rel, names, onPick, onClose, onFocusColumn }: {
                       </div>
                     )}
                   </td>
-                  <td className="st-type mono" title={c.nullable ? "nullable" : "not null"}>{c.type || (view ? "" : "?")}{c.nullable && c.type ? <span className="erd-q-html">?</span> : null}</td>
+                  <td className="st-type mono" title={`${c.type}${c.nullable ? ", nullable" : ", not null"}`}>{shortType(c.type) || (view ? "" : "?")}{c.nullable && c.type ? <span className="erd-q-html">?</span> : null}</td>
                   <td className="st-line"><CiteLink c={c.cite} label={c.cite ? `:${c.cite.line}` : undefined} /></td>
                 </tr>
               ))}
