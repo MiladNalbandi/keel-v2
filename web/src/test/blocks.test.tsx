@@ -354,6 +354,25 @@ describe("Flow page (live blocks)", () => {
     await waitFor(() => expect(within(document.querySelector('[data-block="s5"]') as HTMLElement).getByTitle(/37k tokens used so far/)).toBeInTheDocument());
   });
 
+  it("Go to it shows the answer card under the waiting block and focuses its first button", async () => {
+    // Real bug: in a narrow window the side panel sits under the canvas; "Go to it" scrolled only inside the
+    // canvas box (off screen), so nothing seemed to happen.
+    const user = userEvent.setup();
+    const seen: Element[] = [];
+    const had = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function (this: Element) { seen.push(this); };
+    try {
+      render(<App />);
+      await screen.findByRole("region", { name: "Gate waits for you" });
+      await user.click(await screen.findByRole("button", { name: "Go to it" }));
+      const card = screen.getByRole("region", { name: "Gate waits for you" });
+      await waitFor(() => expect(seen).toContain(card));
+      expect(document.activeElement && card.contains(document.activeElement)).toBe(true);
+    } finally {
+      Element.prototype.scrollIntoView = had;
+    }
+  });
+
   it("a click on a block shows what it does in the side panel (with the workflow and the thread)", async () => {
     const user = userEvent.setup();
     render(<App />);

@@ -191,6 +191,10 @@ export const Blocks = memo(forwardRef<BlocksHandle, BlocksProps>(function Blocks
       const r = main.getBoundingClientRect(), b = box.getBoundingClientRect();
       const top = box.scrollTop + r.top - b.top - (want.block === "center" ? (box.clientHeight - r.height) / 2 : 12);
       box.scrollTo?.({ top: Math.max(0, top), behavior: reducedMotion() ? "auto" : "smooth" });
+      // The canvas box itself may be off screen (a narrow window puts the side panel, and its "Go to it", under it):
+      // scrolling only inside the box then looked like nothing happened.
+      const bb = box.getBoundingClientRect();
+      if (bb.top < 0 || bb.top > window.innerHeight - 80) box.scrollIntoView?.({ block: "start", behavior: reducedMotion() ? "auto" : "smooth" });
     } else {
       main.scrollIntoView?.({ block: want.block, behavior: reducedMotion() ? "auto" : "smooth" });
     }

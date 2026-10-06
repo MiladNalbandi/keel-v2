@@ -273,7 +273,18 @@ function ThreadView({ pid, thread, workflow, reload, onStart }: {
   const wide = useWide();
   const canvas = useRef<BlocksHandle>(null);
   const cur = (thread.waiting?.step ?? thread.current ?? "").replace(/__fix$/, "");
-  const jump = () => canvas.current?.reveal(cur, true);
+  // "Go to it" / "Jump to current": open the folds around the block, then show the answer card under it (when the flow
+  // waits) and put the focus on its first button, so you can answer right away.
+  const jump = () => {
+    canvas.current?.reveal(cur, true);
+    if (thread.status !== "waiting") return;
+    window.setTimeout(() => {
+      const card = document.querySelector<HTMLElement>('.fl [aria-label="Gate waits for you"]');
+      if (!card) return;
+      card.scrollIntoView?.({ block: "center", behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+      (card.querySelector<HTMLElement>("button") ?? card.querySelector<HTMLElement>("textarea, input"))?.focus({ preventScroll: true });
+    }, 120);
+  };
   const open = (id: string) => { setSel(id); setSide("step"); };
   const waiting = thread.status === "waiting" && thread.waiting ? <GateCard thread={thread} workflow={workflow} onDone={reload} /> : null;
   return (
