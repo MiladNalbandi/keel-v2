@@ -277,6 +277,7 @@ type McpServer = McpServerSpec & { enabled, builtin, status: "ok"|"off"|"error",
 # control
 GET    /api/projects/{pid}/budget                     → { month: { tokens, cost_usd, premium_requests, flows }, days: { day, claude, codex, copilot, fake }[], caps: Cap[], top: { agent, provider, tokens, cost_usd }[], recent: { title, estimate, real, status }[] }
 GET    /api/projects/{pid}/budget/now                 → BudgetNow (v0.5.2, the budget bar; see "v0.5.2: the budget bar")
+GET    /api/projects/{pid}/graph                      → GraphOverview (v0.5.3, the code graph; see "v0.5.3: the Graph page")
 GET    /api/limits                                    → Limit[]      PUT /api/limits  Limit[]
 type Limit = { id, name, unit, used, cap, note, source?, window?, used_pct?, remaining?, resets_at?, fetched_at? }   // manual cap + the provider's numbers when known
 GET    /api/usage/providers                           → ProviderUsage[]   // only providers that are set up; codex/copilot cached 60 s
@@ -1196,3 +1197,53 @@ FlowSpend = { thread_id, title, status, tokens, cost_usd, cap_tokens: number|nul
 - It reloads on live events (at most once every 5 s) and once a minute. On a desktop it sticks to the top (41px, the CSS
   variable `--bar-h`, which sticky page parts add to their `top`); on a phone it sits under the header and scrolls away.
 - The sidebar no longer has the compact provider cards: the bar shows the same windows.
+
+## v0.5.3: the Graph page
+
+**Project › Graph** (`web/src/pages/Graph.tsx`, `components/graph/*`) draws the code graph keel keeps for agents (the
+CodeGraph index, `engine/keel_engine/tools/codegraph.py`). The engine reads it read only and rolls it up
+(`engine/keel_engine/runtime/codegraph_view.py`):
+
+- a **unit** is a top-level class, interface, enum, function, type or constant; methods, fields and nested classes
+  count for the unit that holds them, code at the top of a file for the file
+- a **group** is the unit's Java/Kotlin package (the file's package line, without what every package shares), else
+  its folder; `path` is the segments the web folds by depth
+- a **use** is a call, a creation (instantiates), implements, extends or a reference; imports are left out
+
+```
+GET /api/projects/{pid}/graph → GraphOverview
+  { available: true, status, indexed_at, counts: { files, symbols, units, links, uses },
+    groups: { id, kind: "package"|"folder", name, label, path: string[] }[],
+    units:  { id, name, kind, group, file, line, members }[],
+    links:  { from, to, n, k: { calls?, instantiates?, implements?, extends?, references? } }[] }   // from uses to
+  | { available: false, status: "indexing"|"missing"|"failed"|"engine", reason }
+
+GET /api/projects/{pid}/graph/search?q=… → { available, results: { id, name, kind, file, line, unit, group }[] }
+    up to 30; exact names first, units before members; a member's name is Class.member
+
+GET /api/projects/{pid}/graph/node?id=…&depth=1|2 → GraphFocus
+  { available: true, level: "unit"|"member", depth,
+    focus: { id, name, kind, qualified, signature, docstring, file, line, end_line, group,
+             unit: { id, name, kind } | null, members: { id, name, kind, line, in, out }[] },
+    nodes: { id, name, kind, unit, group, file, line, col }[],     // col -2/-1 use it, 1/2 it uses
+    edges: { from, to, n, k, sites: { file, line }[] }[],          // from uses to; a cycle keeps its box on one side
+    more: { "-1": n, "1": n, ... },                                // boxes left out (24 per column at most)
+    impact, impact_capped }                                        // what reaches it through uses, any number of steps
+  | { available: true, missing } | { available: false, ... }
+```
+- The API sends `q` and `id` on to the engine as JSON (`POST /projects/{pid}/graph/search|node`); `depth` is 1 or 2;
+  no `id` is a 400; the engine down answers `available: false, status: "engine"`.
+- The engine caches the rolled-up graph per index file and reads it again when the file (or its WAL) changes.
+- A unit's neighbours are units (its members' uses count for it); a member's are symbols. Doc comments come as plain
+  text (no comment marks, HTML tags or `{@link x}` braces).
+
+### Web
+- `#/graph` packages (folded to a depth that fits, at most 24 boxes, unless chosen; tests hidden unless asked; both
+  remembered per project), `#/graph/in:<p:|f:><label>` one package's units with a grey box per package they touch,
+  `#/graph/<symbol id>` one symbol in the middle (1 or 2 steps) with a panel: kind, file (into the Repo page), impact,
+  doc, Used by / Uses with the first place of each use, members.
+- Lines run from what is used to the user in the layout, so users sit left and what they use right, and every arrow
+  points at what is used; a line is thicker for more uses. Line style by kind: calls solid, creates dashed,
+  implements / extends dotted, refers to faint.
+- The box diagram (`components/er/BoxDiagram.tsx`) takes `open` (a box's way in), `weight` and `tip` on a line, and a
+  canvas `label`; the Map draws as before.
