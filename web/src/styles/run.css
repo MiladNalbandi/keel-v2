@@ -1,0 +1,101 @@
+/* v0.4.2 UX: the app shell (sidebar, phone bar, menu). Loaded after styles.css (see main.tsx), so these rules
+   refine it; same tokens, light and dark. */
+
+/* ---------- shell: the rail on wide screens ---------- */
+.app > aside.side { gap: 10px; padding: 12px 10px 10px; overflow: hidden; height: 100vh; height: 100dvh; top: 0; }
+.side-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.side-head .brand { flex: 1 1 auto; min-width: 0; padding: 0 4px; }
+.side-head .brand-v { display: none; }
+.side-head .brand .ver { font-size: 11px; border: 0; padding: 0; color: var(--faint); align-self: flex-end; margin-bottom: 1px; }
+.side-tools { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+.side-tools .bell { width: 30px; height: 28px; }
+.menu-btn { display: none; place-items: center; width: 36px; height: 34px; flex: none; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); color: var(--fg); cursor: pointer; }
+.menu-btn:hover { border-color: var(--faint); }
+.side-head .projbox { flex: 1 1 100%; padding: 6px; gap: 5px; }
+.side-head .projbox select { padding: 5px 8px; }
+.projbox .pb-sub { display: flex; align-items: baseline; gap: 6px; min-width: 0; padding: 0 2px; font-size: 12px; }
+.projbox .pb-line { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; }
+.projbox .pb-sub b { flex: none; }
+
+/* plan usage: two short lines per provider, one box */
+.side .ustrip.compact { gap: 0; border: 1px solid var(--border); border-radius: 9px; background: var(--panel); overflow: hidden; }
+.ucard.compact { position: relative; display: grid; grid-template-columns: minmax(0,1fr) auto auto; align-items: center; gap: 0 6px;
+  padding: 5px 8px 7px; border: 0; border-radius: 0; background: transparent; font-size: 12px; }
+.ucard.compact + .ucard.compact { border-top: 1px solid var(--border); }
+.ucard.compact .prov b { font-weight: 600; }
+.ucard-pct { font-size: 12px; font-weight: 600; color: var(--dim); }
+.ucard.compact .btn.sm { padding: 0 6px; min-height: 20px; line-height: 18px; }
+.ucard.compact .ucard-line { grid-column: 1 / -1; font-size: 11px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; overflow-wrap: normal; }
+.ucard.compact .meter { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; border-radius: 0; background: transparent; }
+.ucard.compact .meter i { border-radius: 0; }
+
+/* the nav scrolls on its own; the head and foot stay */
+.app > aside.side > .nav { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; gap: 8px; margin: 0 -4px; padding: 2px 4px; }
+.nav a { padding: 3px 10px; min-height: 26px; line-height: 20px; }
+.app > aside.side > .nav[data-more-below] { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 26px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 26px), transparent); }
+.nav .nav-l { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav .nav-home { font-weight: 600; color: var(--fg); }
+.nav .nav-home .count { background: transparent; color: var(--warn); padding: 0; }
+.nav .nav-h { padding: 0 10px; line-height: 16px; }
+.app .nav-sec { gap: 1px; }
+.side-foot { margin-top: 0; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 4px 0; border-top: 1px solid var(--border); }
+.side-foot .ver { font-size: 11px; }
+.side-foot .row { display: contents; }
+.side-foot #theme { margin-left: auto; padding: 3px 7px; display: inline-grid; place-items: center; }
+/* short laptop screens: one line per provider (the full line stays in the tooltip) */
+@media (min-width: 901px) and (max-height: 860px) {
+  .ucard.compact .ucard-line { display: none; }
+  .ucard.compact { padding: 4px 8px 6px; }
+}
+
+/* ---------- shell: phones (≤ 900px) ---------- */
+@media (max-width: 900px) {
+  .app > aside.side { position: sticky; top: 0; height: auto; overflow: visible; gap: 6px; padding: calc(8px + env(safe-area-inset-top, 0px)) 12px 0;
+    background: var(--bg); border-right: 0; border-bottom: 1px solid var(--border); z-index: 10; }
+  .side-head { flex-wrap: nowrap; gap: 8px; }
+  .menu-btn { display: inline-grid; order: -1; }
+  .side-head .brand { display: none; }
+  .side-head .projbox { order: 0; flex: 1 1 auto; min-width: 0; padding: 0; border: 0; background: none; display: block; }
+  .side-head .projbox select { height: 34px; }
+  .side-head .projbox .pb-sub { display: none; }
+  .side-tools { order: 1; }
+  .side-tools .bell { width: 34px; height: 34px; }
+  .app > aside.side > .ustrip.compact, .app > aside.side > .side-foot { display: none; }
+  /* every screen in one row that scrolls sideways; the groups are split by a thin line */
+  .app > aside.side > .nav { flex-direction: row; align-items: stretch; gap: 0; overflow-x: auto; overflow-y: hidden; margin: 0 -12px; padding: 0 12px 6px; scrollbar-width: none; }
+  .app > aside.side > .nav::-webkit-scrollbar { display: none; }
+  .app > aside.side > .nav[data-more-below] { -webkit-mask-image: none; mask-image: none; }
+  .app > aside.side > .nav[data-more-right] { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); }
+  .app > aside.side > .nav[data-more-left] { -webkit-mask-image: linear-gradient(to right, transparent, #000 28px); mask-image: linear-gradient(to right, transparent, #000 28px); }
+  .app > aside.side > .nav[data-more-left][data-more-right] { -webkit-mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent);
+    mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent); }
+  .app .side .nav-sec, .app .side .nav-sec.cur { display: flex; flex-direction: row; overflow: visible; gap: 2px; margin-left: 6px; padding-left: 6px; border-left: 1px solid var(--border); }
+  .app .side .nav-h { display: none; }
+  .app .side .nav a { white-space: nowrap; padding: 5px 10px; min-height: 32px; flex: none; }
+  .app .side .nav .nav-home { font-weight: 500; color: var(--dim); }
+  .app .side .nav .nav-home[aria-current="page"] { color: var(--fg); }
+  .nav .count { margin-left: 6px; }
+}
+
+/* the phone menu */
+.menu-sheet { position: fixed; top: 0; left: 0; bottom: 0; width: min(330px, 88vw); z-index: 21; display: flex; flex-direction: column; gap: 14px;
+  background: var(--panel); border-right: 1px solid var(--border); box-shadow: var(--shadow); padding: calc(12px + env(safe-area-inset-top, 0px)) 14px calc(14px + env(safe-area-inset-bottom, 0px));
+  overflow-y: auto; overscroll-behavior: contain; animation: ms-in .18s ease-out; }
+@keyframes ms-in { from { transform: translateX(-12px); opacity: 0; } to { transform: none; opacity: 1; } }
+.ms-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.ms-head .brand { padding: 0; }
+.ms-proj { display: grid; gap: 2px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg); min-width: 0; }
+.ms-proj .mono { overflow-wrap: anywhere; }
+.ms-nav { display: grid; gap: 12px; }
+.ms-nav .nav-sec { display: grid; gap: 1px; }
+.ms-nav .nav-h { display: flex; flex-direction: row; align-items: baseline; gap: 8px; padding: 0 10px 2px; }
+.ms-nav .nav-h span { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--faint); font-weight: 700; }
+.ms-nav .nav-h small { font-size: 11px; color: var(--faint); }
+.ms-nav .nav-sec.cur .nav-h span { color: var(--accent); }
+.ms-nav a { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border-radius: 7px; color: var(--dim); text-decoration: none; font-weight: 500; }
+.ms-nav a:hover { background: var(--panel-2); color: var(--fg); }
+.ms-nav a[aria-current="page"] { background: var(--accent-soft); color: var(--fg); }
+.ms-nav .count { font-size: 11px; min-width: 20px; text-align: center; border-radius: 999px; padding: 0 6px; background: var(--warn-soft); color: var(--warn); font-weight: 600; }
+.ms-nav .count.run { background: var(--run-soft); color: var(--run); }
+.ms-nav .nav-home { color: var(--fg); font-weight: 600; }
+.ms-foot { margin-top: auto; display: grid; gap: 10px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 12px; color: var(--dim); }
