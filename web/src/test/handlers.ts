@@ -32,6 +32,8 @@ export function createDb() {
     /** When set, PUT /workflows/:wid answers 422 with these validation errors. */
     yamlErrors: null as string[] | null,
     usage: fx.usage(),
+    /** GET /budget/now without its caps (they come from `caps` and `capUse`, as GET /caps/left). */
+    budgetNow: fx.budgetNow(),
     calls: [] as { method: string; path: string; body: unknown }[],
     /** v0.5.0: tasks, Jira connections, the MCP catalog */
     tk: createTaskDb(),
@@ -265,6 +267,10 @@ export function handlers(db: Db) {
     http.put("/api/projects/:pid/mcp-allow", async ({ request }) => HttpResponse.json(await log(request))),
 
     http.get("/api/projects/:pid/budget", () => HttpResponse.json(fx.budget)),
+    http.get("/api/projects/:pid/budget/now", async ({ request, params }) => {
+      await log(request);
+      return HttpResponse.json({ ...db.budgetNow, caps: capsLeft(db, params.pid as string).caps.filter((c) => c.checked && (c.window === "day" || c.window === "month")) });
+    }),
     http.get("/api/projects/:pid/caps", () => HttpResponse.json(db.caps)),
     http.get("/api/projects/:pid/caps/left", ({ params }) => HttpResponse.json(capsLeft(db, params.pid as string))),
     http.post("/api/projects/:pid/caps", async ({ request }) => {

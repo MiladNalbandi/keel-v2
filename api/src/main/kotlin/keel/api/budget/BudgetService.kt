@@ -1,5 +1,6 @@
 package keel.api.budget
 
+import com.fasterxml.jackson.databind.ObjectMapper
 import keel.api.common.BadRequest
 import keel.api.common.KvStore
 import keel.api.projects.ProjectService
@@ -31,6 +32,21 @@ data class TopAgent(val agent: String, val provider: String?, val tokens: Long, 
 data class RecentFlow(val title: String, val estimate: Long?, val real: Long, val status: String)
 data class Budget(val month: Month, val days: List<Day>, val caps: List<BudgetCap>, val top: List<TopAgent>, val recent: List<RecentFlow>)
 
+/** Tokens (cached input counts a tenth) and dollars at API prices. */
+data class Spend(val tokens: Long, val costUsd: Double)
+/** A running or waiting flow and what it used against its own caps (null = no cap). */
+data class FlowSpend(
+    val threadId: String,
+    val title: String,
+    val status: String,
+    val tokens: Long,
+    val costUsd: Double,
+    val capTokens: Long?,
+    val capUsd: Double?,
+)
+/** The budget bar on every page: database only, so the web can ask often. `caps` = the day and month caps with what is left. */
+data class BudgetNow(val today: Spend, val month: Spend, val flows: List<FlowSpend>, val caps: List<CapLeft>)
+
 data class Limit(
     val id: String = "",
     val name: String = "",
@@ -55,6 +71,8 @@ class BudgetService(
     private val kv: KvStore,
     private val capService: CapService,
     private val usage: ProviderUsageStore,
+    private val planner: CapPlanner,
+    private val mapper: ObjectMapper,
 ) {
     private fun monthStart(): String = LocalDate.now(ZoneOffset.UTC).withDayOfMonth(1).atStartOfDay().toInstant(ZoneOffset.UTC).toString()
 
@@ -101,6 +119,34 @@ class BudgetService(
         return Budget(Month(month.first, month.second, month.third, flows), days, caps, top, recent)
     }
 
+    fun now(pid: String): BudgetNow {
+        projects.require(pid)
+        fun spend(since: String) = jdbc.queryForObject(
+            "SELECT COALESCE(SUM($TOKENS), 0), COALESCE(SUM(cost_usd), 0) FROM agent_calls WHERE project_id = ? AND started_at >= ?",
+            { rs, _ -> Spend(rs.getLong(1), rs.getDouble(2)) }, pid, since,
+        )!!
+        val today = LocalDate.now(ZoneOffset.UTC).atStartOfDay().toInstant(ZoneOffset.UTC).toString()
+        val flows = jdbc.query(
+            """SELECT t.id, t.title, t.status, t.state_json,
+                      COALESCE((SELECT SUM($TOKENS) FROM agent_calls c WHERE c.thread_id = t.id), 0),
+                      COALESCE((SELECT SUM(cost_usd) FROM agent_calls c WHERE c.thread_id = t.id), 0)
+               FROM threads t WHERE t.project_id = ? AND t.status IN ('running', 'waiting') ORDER BY t.updated_at DESC LIMIT 5""",
+            { rs, _ ->
+                val usage = rs.getString(4)?.let { runCatching { mapper.readTree(it).get("usage") }.getOrNull() }
+                fun num(k: String) = usage?.get(k)?.takeIf { it.isNumber }
+                // the engine's own count when it is ahead of the finished agent calls (it is what the flow checks)
+                val counted = (num("tokens_in")?.asLong() ?: 0) + (num("tokens_out")?.asLong() ?: 0) + (num("tokens_cached")?.asLong() ?: 0) / 10
+                FlowSpend(
+                    rs.getString(1), rs.getString(2) ?: "", rs.getString(3),
+                    maxOf(rs.getLong(5), counted), maxOf(rs.getDouble(6), num("cost_usd")?.asDouble() ?: 0.0),
+                    num("cap_tokens")?.asLong()?.takeIf { it > 0 }, num("cap_usd")?.asDouble()?.takeIf { it > 0 },
+                )
+            }, pid,
+        )
+        val caps = planner.left(pid).filter { it.checked && it.window in setOf("day", "month") }
+        return BudgetNow(spend(today), spend(monthStart()), flows, caps)
+    }
+
     // ---- account limits ---------------------------------------------------------------------
 
     private fun stored(): List<Limit> = kv.get<List<Limit>>(LIMITS) ?: DEFAULT_LIMITS
@@ -139,6 +185,7 @@ class BudgetService(
 
     companion object {
         const val LIMITS = "limits"
+        private const val TOKENS = "tokens_in + tokens_out + tokens_cached / 10"
         val DEFAULT_LIMITS = listOf(
             Limit("claude", "Claude subscription", "tokens in the last 5 hours", 0.0, 0.0, "Set the cap your plan allows. 0 = not set."),
             Limit("codex", "Codex (ChatGPT)", "tokens in the last 5 hours", 0.0, 0.0, "Set the cap your plan allows. 0 = not set."),
@@ -152,6 +199,9 @@ class BudgetService(
 class BudgetController(private val budget: BudgetService) {
     @GetMapping("/api/projects/{pid}/budget")
     fun budget(@PathVariable pid: String): Budget = budget.budget(pid)
+
+    @GetMapping("/api/projects/{pid}/budget/now")
+    fun now(@PathVariable pid: String): BudgetNow = budget.now(pid)
 
     @GetMapping("/api/limits")
     fun limits(): List<Limit> = budget.limits()

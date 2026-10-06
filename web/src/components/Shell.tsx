@@ -7,7 +7,7 @@ import { createPortal } from "react-dom";
 import { GROUPS, hashFor, type ScreenId } from "../routes";
 import { go, useApp, useRoute } from "../state";
 import { Mascot } from "./Mascot";
-import { UsageStrip } from "./UsageStrip";
+import { BudgetBar } from "./BudgetBar";
 import { NotificationDrawer, Popups } from "./Notifications";
 
 const THEME_KEY = "keel2.theme";
@@ -294,8 +294,6 @@ export function Shell({ children }: { children: ReactNode }) {
           <ProjectPicker />
         </div>
         <Nav />
-        {/* under the nav: when the cards arrive (or a provider is added) the screens above do not move */}
-        <UsageStrip compact />
         <div className="side-foot">
           <div className="row"><LiveDot /><EngineStatus /></div>
           <button className="btn sm ghost theme-btn" id="theme" type="button" onClick={theme.toggle}
@@ -304,7 +302,11 @@ export function Shell({ children }: { children: ReactNode }) {
           </button>
         </div>
       </aside>
-      <main id="main">{children}</main>
+      {/* the budget bar stays on top while the page scrolls (a phone scrolls it away under its own header) */}
+      <div className="app-col">
+        <BudgetBar />
+        <main id="main">{children}</main>
+      </div>
       {menuOpen && <MenuSheet onClose={() => setMenuOpen(false)} theme={theme} />}
       {notesOpen && <NotificationDrawer onClose={() => setNotesOpen(false)} />}
       <Popups />
