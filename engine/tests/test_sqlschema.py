@@ -1,6 +1,7 @@
 """The database schema the Map draws: SQL migrations -> tables, columns, keys, indexes, views (runtime/sqlschema.py),
 and where the mapper finds the migrations (runtime/mapper.py)."""
 
+import json
 import subprocess
 from pathlib import Path
 
@@ -378,3 +379,20 @@ def test_endpoints_carry_summary_and_tags(repo):
     m = mapper.build(str(repo))
     assert m["api"]["endpoints"] == [{"method": "GET", "path": "/a", "cite": {"rel": "contracts/openapi.yaml", "line": 3},
                                       "summary": "List a", "tags": ["alpha"], "operation": "listA"}]
+
+
+def test_the_shop_fixture_the_web_draws():
+    """tests/fixtures/schema_shop: ~25 tables with many foreign keys (web/src/test/fixtures/er-shop.json is its output)."""
+    base = Path(__file__).parent / "fixtures" / "schema_shop"
+    files = sorted(base.glob("*.sql"), key=lambda f: mapper._order(f.name))
+    s = sqlschema.parse([(f"db/migration/{f.name}", f.read_text()) for f in files])
+    assert s["skipped"] == 0
+    assert len([t for t in s["tables"] if t["kind"] == "table"]) == 28 and table(s, "order_totals")["kind"] == "view"
+    assert len([r for r in s["relations"] if r["kind"] == "fk"]) == 41
+    assert ("shipment_line", ("order_id", "line_no"), "order_line", ("order_id", "line_no")) in fks(s)      # composite
+    assert ("billing.refund", ("payment_id",), "billing.payment", ("id",)) in fks(s)                         # schemas
+    assert col(table(s, "app_user"), "full_name")["nullable"]                                                 # renamed later
+    assert col(table(s, "product"), "weight_grams")["cite"]["rel"] == "db/migration/V5__support.sql"
+    assert table(s, "billing.invoice")["foreign_keys"][0]["ref_table"] == "customer_order"
+    web = Path(__file__).parents[2] / "web" / "src" / "test" / "fixtures" / "er-shop.json"
+    assert json.loads(web.read_text()) == {"tables": s["tables"], "relations": s["relations"]}
