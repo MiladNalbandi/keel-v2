@@ -3,7 +3,8 @@
 
 import { Fragment, useState } from "react";
 import { api, errorParts, type Agent, type Skill, type Stack } from "../api";
-import { Async, Drawer, ErrorBox, Loading, PageHead, Panel, Tabs } from "../components/ui";
+import { EmptyState, SearchBox, Skeleton, Toolbar } from "../components/page";
+import { Drawer, ErrorBox, Loading, PageHead, Panel, Tabs } from "../components/ui";
 import { useApp, useLoad } from "../state";
 
 type Src = "all" | "keel" | "keel pack" | "claude" | "yours";
@@ -178,56 +179,67 @@ export function SkillsPage({ pid }: { pid: string }) {
   const [creating, setCreating] = useState(false);
   const [importing, setImporting] = useState(false);
   const needle = q.trim().toLowerCase();
-  const match = (s: Skill) => (filter === "all" || s.source === filter) && (!needle || (s.id + s.kind + s.stack).toLowerCase().includes(needle));
+  const match = (s: Skill) => (filter === "all" || s.source === filter) && (!needle || (s.id + s.kind + s.stack + s.agents.join(" ")).toLowerCase().includes(needle));
+  const count = (k: Src) => (skills.data ? ` ${k === "all" ? skills.data.length : skills.data.filter((s) => s.source === k).length}` : "");
   return (
     <>
-      <PageHead title="Skill hub" sub={`Skills agents use in ${project?.name ?? pid}: keel skills for its stacks, plus skills only this project has.`}
+      <PageHead title="Skill hub" sub={`Skills the agents of ${project?.name ?? pid} load: keel's skills for its stacks, packs, Claude skills, and skills only this project has.`}
         actions={<>
           <button className="btn" type="button" onClick={() => setImporting(true)}>Import</button>
           <button className="btn primary" type="button" id="newSkill" onClick={() => setCreating(true)}>New skill</button>
         </>} />
-      <div className="row" style={{ marginBottom: 12, justifyContent: "space-between" }}>
-        <Tabs value={filter} onChange={setFilter} label="Source" options={(Object.keys(SRC_LABEL) as Src[]).map((k) => [k, SRC_LABEL[k]])} />
-        <input type="text" id="skq" className="inline-input" placeholder="Search skills" aria-label="Search skills" value={q} onChange={(e) => setQ(e.target.value)} style={{ flex: "0 1 220px" }} />
+      <Toolbar>
+        <Tabs value={filter} onChange={setFilter} label="Source" options={(Object.keys(SRC_LABEL) as Src[]).map((k) => [k, <>{SRC_LABEL[k]}<span className="sh-n">{count(k)}</span></>])} />
+        <SearchBox id="skq" value={q} onChange={setQ} label="Search skills" />
+      </Toolbar>
+      <div className="panel">
+        {skills.error ? <div className="panel-body"><ErrorBox error={skills.error} onRetry={() => void skills.reload()} /></div>
+          : !skills.data ? <Skeleton lines={6} label="Loading skills" />
+            : (() => {
+              const list = skills.data.filter(match);
+              if (!skills.data.length) {
+                return <EmptyState title="No skills yet" action={<button className="btn primary" type="button" onClick={() => setCreating(true)}>New skill</button>}>Write one for this project, or import a SKILL.md from a link.</EmptyState>;
+              }
+              if (!list.length) {
+                return <EmptyState title="No skill matches" action={<button className="btn" type="button" onClick={() => { setFilter("all"); setQ(""); }}>Show all skills</button>}>
+                  Nothing in {SRC_LABEL[filter]}{needle ? <> has “{q.trim()}” in its name, kind, stack or agents</> : " yet"}.
+                </EmptyState>;
+              }
+              return (
+                <div className="table-wrap"><table className="rt sh-table" aria-label="Skills">
+                  <thead><tr><th>Skill</th><th>Kind</th><th>Stack</th><th>Loaded by</th><th>When</th><th>Tokens</th><th><span className="sr-only">State</span></th></tr></thead>
+                  <tbody>
+                    {list.map((s) => (
+                      <tr key={s.id} className="click" onClick={() => setOpen(s.id)}>
+                        <td className="rt-main">
+                          <button type="button" className="linkbtn" onClick={(e) => { e.stopPropagation(); setOpen(s.id); }}>{s.id}</button> {s.version === "draft" && <span className="tag star">draft</span>}
+                          <div className="sub">{SRC_LABEL[s.source as Src] ?? s.source} · {s.version}</div>
+                        </td>
+                        <td><span className="chip">{s.kind}</span></td>
+                        <td className="mono sub" data-label="stack">{s.stack}</td>
+                        <td className="rt-full"><span className="chips">{s.agents.length ? s.agents.map((a) => <span key={a} className="chip">{a}</span>) : <span className="sub">nobody</span>}</span></td>
+                        <td className="sub" data-label="when">{s.when || "on demand"}</td>
+                        <td className="num mono" data-label="tokens" title="SKILL.md, always loaded">{k1(s.tokens)}</td>
+                        <td className="rt-end">{s.enabled ? <span className="pill p-ok">on</span> : <button className="btn sm" type="button" onClick={(e) => { e.stopPropagation(); setOpen(s.id); }}>Add</button>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table></div>
+              );
+            })()}
       </div>
-      <Async r={skills} what="Loading skills">
-        {(all) => {
-          const list = all.filter(match);
-          return (
-            <div className="panel"><div className="table-wrap"><table>
-              <thead><tr><th>Skill</th><th>Kind</th><th>Stack</th><th>Loaded by</th><th>When</th><th>Size</th><th></th></tr></thead>
-              <tbody>
-                {list.map((s) => (
-                  <tr key={s.id} className="click" tabIndex={0} onClick={() => setOpen(s.id)} onKeyDown={(e) => e.key === "Enter" && setOpen(s.id)}>
-                    <td><b>{s.id}</b> {s.version === "draft" && <span className="tag star">draft</span>}<div className="sub">{SRC_LABEL[s.source as Src] ?? s.source} · {s.version}</div></td>
-                    <td><span className="tag">{s.kind}</span></td>
-                    <td className="mono sub">{s.stack}</td>
-                    <td>{s.agents.length ? s.agents.map((a) => <span key={a} className="tag" style={{ marginRight: 4 }}>{a}</span>) : <span className="sub">nobody</span>}</td>
-                    <td className="sub">{s.when || "on demand"}</td>
-                    <td className="num mono">{k1(s.tokens)}</td>
-                    <td>{s.enabled ? <span className="pill p-ok">on</span> : <button className="btn sm" type="button" onClick={(e) => { e.stopPropagation(); setOpen(s.id); }}>Add</button>}</td>
-                  </tr>
-                ))}
-                {!list.length && <tr><td colSpan={7} className="empty">No skill matches.</td></tr>}
-              </tbody>
-            </table></div></div>
-          );
-        }}
-      </Async>
       <div className="grid g2" style={{ marginTop: 16 }}>
-        <Panel title="Flow skills became the graph" body="grid">
-          <div className="grid" style={{ gap: 8 }}>
-            <p className="sub" style={{ margin: 0 }}>In keel v1 the model reads the flow rules as text every session. In keel v2 the graph holds them, so agents never load these:</p>
-            <div className="row">{["feature", "ship", "hunt", "init", "fix", "change"].map((f) => <span key={f} className="tag">{f}</span>)}</div>
-          </div>
+        <Panel title={<h3>How a skill is loaded</h3>} body="grid">
+          <ol className="sh-steps">
+            <li>The step asks for <span className="mono">skills for (phase, layer, stack)</span>.</li>
+            <li>Only the matching skill's <b>SKILL.md</b> goes in the prompt.</li>
+            <li>A reference file is opened only when the agent asks, one at a time.</li>
+          </ol>
+          <span className="hint">Skill tokens count in the estimate and the budget like any other input.</span>
         </Panel>
-        <Panel title="How a skill is loaded" body="grid">
-          <div className="grid" style={{ gap: 6 }}>
-            <span>1. The node asks: <span className="mono">skills for (phase, layer, stack)</span></span>
-            <span>2. Only the matching skill's <b>SKILL.md</b> goes in the prompt</span>
-            <span>3. A reference file is opened only when the agent asks (one at a time)</span>
-            <span className="hint">Skill tokens count in the estimate and the budget like any other input.</span>
-          </div>
+        <Panel title={<h3>Flow skills became the graph</h3>} body="grid">
+          <p className="sub" style={{ margin: 0 }}>keel v1 read the flow rules as text every session. In keel v2 the graph holds them, so agents never load these:</p>
+          <div className="chips">{["feature", "ship", "hunt", "init", "fix", "change"].map((f) => <span key={f} className="chip">{f}</span>)}</div>
         </Panel>
       </div>
       {open && <SkillDrawer pid={pid} id={open} agents={agents.data ?? []} onClose={() => setOpen(null)} onSaved={() => void skills.reload()} />}

@@ -4,27 +4,63 @@
 import { useState } from "react";
 import { api, errorParts, KNOWLEDGE_SECTIONS, type Agent, type AgentKnowledge, type AgentLane, type CustomAgent, type McpServer, type Model } from "../api";
 import { MODES_FOR, ModelPicker, modeLabel } from "../components/ModelPicker";
-import { Async, Drawer, ErrorBox, GoButton, PageHead, Prov, Tabs } from "../components/ui";
-import { kfmt, slug } from "../format";
+import { EmptyState, SearchBox, Skeleton, Toolbar } from "../components/page";
+import { Drawer, ErrorBox, GoButton, PageHead, Tabs } from "../components/ui";
+import { kfmt, PROV, slug } from "../format";
 import { useApp, useLoad } from "../state";
 
 type Err = { message: string; hint?: string } | null;
 
 const LANES: Record<AgentLane, string> = { follow: "follow the AC (api or web)", api: "api only", web: "web only" };
 
+type ToolChip = { label: string; cls: string };
+const READS = /^(read|grep|glob|ls|read_file|search|webfetch|websearch)$/i;
+const EDITS = /^(edit|write|multiedit|notebookedit|write_file|apply_patch)$/i;
+const SHELL = /^(bash|run_command|shell)$/i;
+
+/** An agent's tools as a few chips: what it may do (read, edit, shell) and each MCP server it may call. */
+export function toolChips(tools: string[]): ToolChip[] {
+  const out: ToolChip[] = [];
+  const other: string[] = [];
+  if (tools.some((t) => READS.test(t))) out.push({ label: "read", cls: "" });
+  if (tools.some((t) => EDITS.test(t))) out.push({ label: "edit", cls: "c-edit" });
+  if (tools.some((t) => SHELL.test(t))) out.push({ label: "shell", cls: "c-shell" });
+  tools.filter((t) => t.startsWith("mcp:")).forEach((t) => out.push({ label: t.slice(4), cls: "c-mcp" }));
+  tools.filter((t) => !t.startsWith("mcp:") && !READS.test(t) && !EDITS.test(t) && !SHELL.test(t)).forEach((t) => other.push(t));
+  other.slice(0, 2).forEach((t) => out.push({ label: t, cls: "" }));
+  if (other.length > 2) out.push({ label: `+${other.length - 2}`, cls: "c-more" });
+  return out;
+}
+
 function AgentRow({ a, onOpen }: { a: Agent; onOpen: () => void }) {
+  const chips = toolChips(a.tools);
+  const m = a.model;
   return (
-    <tr className="click" tabIndex={0} onClick={onOpen} onKeyDown={(e) => e.key === "Enter" && onOpen()}>
-      <td>
-        <b>{a.label || a.id}</b>{a.custom && <> <span className="tag star">★ custom</span></>}
-        {!a.enabled && <> <span className="tag">off</span></>}
-        {a.overridden.length > 0 && <> <span className="tag star" title={`changed here: ${a.overridden.join(", ")}`}>this project</span></>}
-        <div className="sub">{a.about}</div>
+    <tr className="click ag-row" onClick={onOpen}>
+      <td className="rt-main ag-c-agent">
+        <div className="ag-name">
+          <button type="button" className="linkbtn ag-open" onClick={(e) => { e.stopPropagation(); onOpen(); }} aria-label={`Edit ${a.label || a.id}`}>{a.label || a.id}</button>
+          {a.custom && <span className="tag star">★ custom</span>}
+          {!a.enabled && <span className="tag">off</span>}
+          {a.overridden.length > 0 && <span className="tag star" title={`changed here: ${a.overridden.join(", ")}`}>this project</span>}
+        </div>
+        <div className="ag-about" title={a.about}>{a.about}</div>
       </td>
-      <td>{a.phases.length ? a.phases.map((n) => <span key={n} className="tag" style={{ marginRight: 4 }}>{n}</span>) : <span className="sub">any</span>}</td>
-      <td><Prov p={a.model?.provider} m={a.model ? `${a.model.model}${a.model.effort ? " · " + a.model.effort : ""}` : undefined} /></td>
-      <td className="sub">{a.model ? modeLabel(a.model.provider, a.model.mode) : "—"}</td>
-      <td>{a.tools.length ? a.tools.map((t) => <span key={t} className={`tag ${t.includes("keel") ? "keel" : ""}`} style={{ marginRight: 4 }}>{t.replace(/^mcp:/, "")}</span>) : <span className="sub">none</span>}</td>
+      <td className="ag-c-phase" data-label="runs in">
+        <span className="chips">{a.phases.length && !(a.phases.length === 1 && a.phases[0] === "any") ? a.phases.map((n) => <span key={n} className="chip">{n}</span>) : <span className="sub">any phase</span>}</span>
+      </td>
+      <td className="ag-c-model">
+        {m ? (
+          <span className="ag-model">
+            <span className="prov"><i className={`c-${m.provider}`} style={m.provider === "fake" ? { background: "var(--faint)" } : undefined} /><b className="mono">{m.model}</b>{m.effort && <span className="sub"> · {m.effort}</span>}</span>
+            <span className="sub">{PROV[m.provider] ?? m.provider} · {modeLabel(m.provider, m.mode)}</span>
+          </span>
+        ) : <span className="sub">default</span>}
+      </td>
+      <td className="ag-c-tools" title={a.tools.length ? a.tools.map((t) => t.replace(/^mcp:/, "MCP ")).join(" · ") : "read-only tools"}>
+        <span className="chips">{chips.length ? chips.map((c) => <span key={c.label} className={`chip ${c.cls}`}>{c.label}</span>) : <span className="sub">none</span>}</span>
+        <span className="sr-only">Tools: {a.tools.join(", ") || "none"}</span>
+      </td>
     </tr>
   );
 }
@@ -240,12 +276,15 @@ export function AgentsPage({ pid }: { pid: string }) {
   const agents = useLoad(`agents:${pid}`, () => api.agents(pid), { live: false });
   const servers = useLoad("mcp", () => api.mcpServers(), { live: false });
   const [tab, setTab] = useState<"keel" | "custom">("keel");
+  const [q, setQ] = useState("");
   const [open, setOpen] = useState<Agent | null>(null);
   const [creating, setCreating] = useState(false);
   const [testing, setTesting] = useState(false);
   const all = agents.data ?? [];
   const keel = all.filter((a) => !a.custom), custom = all.filter((a) => a.custom);
-  const list = tab === "keel" ? keel : custom;
+  const needle = q.trim().toLowerCase();
+  const list = (tab === "keel" ? keel : custom).filter((a) => !needle || [a.id, a.label, a.about, ...a.phases, a.model?.model ?? ""].join(" ").toLowerCase().includes(needle));
+  const count = (n: number) => (agents.data ? ` (${n})` : "");
   const testAll = async () => {
     setTesting(true);
     const results = await Promise.all(all.filter((a) => a.enabled).map((a) => api.testAgent(a.id, pid).then((r) => r.ok, () => false)));
@@ -255,25 +294,31 @@ export function AgentsPage({ pid }: { pid: string }) {
   };
   return (
     <>
-      <PageHead title="Agents" sub={`Agent settings for ${project?.name ?? pid}. A change here overrides the defaults for this project only.`}
+      <PageHead title="Agents" sub={`What each agent does, the model it runs on and what it may touch, for ${project?.name ?? pid}. A change here is for this project only.`}
         actions={<>
           <button className="btn" type="button" onClick={testAll} disabled={testing || !all.length}>{testing ? "Testing…" : "Test all"}</button>
           <button className="btn primary" type="button" id="newAgent" onClick={() => setCreating(true)}>New agent</button>
         </>} />
-      <div className="row" style={{ marginBottom: 12 }}>
-        <Tabs value={tab} onChange={setTab} label="Agents" options={[["keel", `keel agents (${keel.length})`], ["custom", `Custom (${custom.length})`]]} />
+      <Toolbar>
+        <Tabs value={tab} onChange={setTab} label="Agents" options={[["keel", `keel agents${count(keel.length)}`], ["custom", `Custom${count(custom.length)}`]]} />
+        <SearchBox value={q} onChange={setQ} label="Search agents" />
+      </Toolbar>
+      <div className="panel">
+        {agents.error ? <div className="panel-body"><ErrorBox error={agents.error} onRetry={() => void agents.reload()} /></div>
+          : !agents.data ? <Skeleton lines={6} label="Loading agents" />
+            : !list.length ? (
+              needle ? <EmptyState title="No agent matches" action={<button className="btn" type="button" onClick={() => setQ("")}>Clear the search</button>}>Nothing in {tab === "keel" ? "keel agents" : "Custom"} has “{q.trim()}” in its name, phases or model.</EmptyState>
+                : tab === "custom" ? <EmptyState title="No custom agent yet" action={<button className="btn primary" type="button" onClick={() => setCreating(true)}>New agent</button>}>Make one for a job keel's agents do not do, then add it to a workflow.</EmptyState>
+                  : <EmptyState title="No keel agents found">keel's content has no agents/ folder. Check that KEEL_CONTENT points at keel's content.</EmptyState>
+            ) : (
+              <div className="table-wrap"><table className="rt ag-table" aria-label={tab === "keel" ? "keel agents" : "Custom agents"}>
+                <colgroup><col className="ag-col-agent" /><col className="ag-col-phase" /><col className="ag-col-model" /><col className="ag-col-tools" /></colgroup>
+                <thead><tr><th>Agent</th><th>Runs in</th><th>Model</th><th>Tools</th></tr></thead>
+                <tbody>{list.map((a) => <AgentRow key={a.id} a={a} onOpen={() => setOpen(a)} />)}</tbody>
+              </table></div>
+            )}
       </div>
-      <Async r={agents} what="Loading agents">
-        {() => (
-          <div className="panel"><div className="table-wrap"><table>
-            <thead><tr><th>Agent</th><th>Runs in</th><th>Model</th><th>Runs on</th><th>MCP tools</th></tr></thead>
-            <tbody>
-              {list.map((a) => <AgentRow key={a.id} a={a} onOpen={() => setOpen(a)} />)}
-              {!list.length && <tr><td colSpan={5} className="empty">{tab === "custom" ? "No custom agent yet. Make one with New agent." : "No keel agents found in keel's content (agents/). Is KEEL_CONTENT right?"}</td></tr>}
-            </tbody>
-          </table></div></div>
-        )}
-      </Async>
+      <p className="hint" style={{ marginTop: 10 }}>Open an agent to change its model, the knowledge it reads, its lane and its prompt. Tool chips: <b>read</b> reads the repo, <b>edit</b> changes files, <b>shell</b> runs commands; the others are MCP servers (Tools page).</p>
       {open && <AgentDrawer pid={pid} a={open} onClose={() => setOpen(null)}
         onSaved={(n) => agents.setData((l) => (l ? l.map((x) => (x.id === n.id ? n : x)) : l))}
         onDeleted={() => agents.setData((l) => (l ? l.filter((x) => x.id !== open.id) : l))} />}

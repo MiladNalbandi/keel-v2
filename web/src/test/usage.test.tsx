@@ -42,7 +42,8 @@ describe("Usage dashboard", () => {
     db.usage = [];
     location.hash = "#/budget";
     render(<App />);
-    expect(await main().findByText("No provider is set up yet. Save a login or a key in Connections.")).toBeInTheDocument();
+    expect(await main().findByText("No provider is set up yet")).toBeInTheDocument();
+    expect(main().getByRole("link", { name: "Open Connections" })).toHaveAttribute("href", "#/connections");
     expect(document.querySelector(".ustrip")).toBeNull();
   });
 

@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { api, errorParts, type KeelMap, type MapLevel, type MapNode, type MapResponse } from "../api";
+import { EmptyState } from "../components/page";
 import { Async, PageHead, Panel, Tabs } from "../components/ui";
 import { clock } from "../format";
 import { useApp, useLoad } from "../state";
@@ -12,6 +13,14 @@ const LEVELS: [LevelId, string][] = [["system", "System"], ["flow", "Journeys"],
 const HEAD = 30, SUB = 16, ROW = 18;
 
 const isMissing = (m: MapResponse): m is { missing: string } => typeof (m as { missing?: unknown }).missing === "string";
+
+/** The api's reason without the "No map yet." the title already says; the usual one becomes what building does. */
+export function missingWhy(missing: string): string {
+  const rest = missing.replace(/^\s*no map yet[.!:]?\s*/i, "").trim();
+  return !rest || /^build it/i.test(rest)
+    ? "Build it to see the system, its modules, the user journeys and the database tables, drawn from this commit."
+    : rest;
+}
 
 function NodeBox({ n, onDrill }: { n: MapNode; onDrill?: (n: MapNode) => void }) {
   const cls = n.kind === "data" ? "m-data" : n.kind === "ext" ? "m-ext" : n.kind === "actor" ? "m-actor" : "";
@@ -44,7 +53,7 @@ function NodeBox({ n, onDrill }: { n: MapNode; onDrill?: (n: MapNode) => void })
 }
 
 function LevelSvg({ level, label, onDrill }: { level: MapLevel; label: string; onDrill?: (n: MapNode) => void }) {
-  if (!level.nodes?.length) return <div className="empty">Nothing to draw at this level.</div>;
+  if (!level.nodes?.length) return <EmptyState title="Nothing to draw here">This level has no boxes yet. Rebuild the map after the code changes.</EmptyState>;
   return (
     <div className="graph-wrap">
       <svg className="mapsvg real" viewBox={`0 0 ${level.width} ${level.height}`} role="img" aria-label={label}
@@ -139,7 +148,9 @@ function MapView({ m, onRebuild, busy }: { m: KeelMap; onRebuild: () => void; bu
       </div>
       <Panel>
         {level ? <LevelSvg level={level} label={`${LEVELS.find(([k]) => k === tab)?.[1]} map of ${name}`} onDrill={drill} /> : (
-          <div className="empty">keel could not build this level for {name}.<br /><span className="sub">{tab === "flow" ? "No journeys section in the knowledge base yet." : tab === "er" ? "No SQL migrations found." : "No source found."}</span></div>
+          <EmptyState title="Nothing to draw here" action={tab === "flow" ? <a className="btn" href="#/wiki">Open the wiki</a> : undefined}>
+            {tab === "flow" ? `The knowledge base of ${name} has no journeys section yet. The init flow writes it.` : tab === "er" ? `No SQL migrations found in ${name}.` : `keel found no source for this level in ${name}.`}
+          </EmptyState>
         )}
         {level?.overflow ? <p className="hint">{level.overflow} more not drawn.</p> : null}
       </Panel>
@@ -171,14 +182,14 @@ export function MapPage({ pid }: { pid: string }) {
       <PageHead title="Map" sub={`How ${project?.name ?? pid} is built — read from the code, migrations and API contract. Nothing connects to a running system.`} />
       <Async r={map} what="Reading the map">
         {(m) => isMissing(m) ? (
-          <div className="panel"><div className="panel-body empty grid" style={{ gap: 10, justifyItems: "center" }}>
-            <b>No map yet</b>
-            <span className="sub">{m.missing}</span>
-            <button className="btn primary" type="button" onClick={rebuild} disabled={busy}>{busy ? "Building…" : "Build the map"}</button>
-          </div></div>
+          <div className="panel">
+            <EmptyState title="No map yet" action={<button className="btn primary" type="button" onClick={rebuild} disabled={busy}>{busy ? "Building…" : "Build the map"}</button>}>
+              {missingWhy(m.missing)}
+            </EmptyState>
+          </div>
         ) : <MapView m={m} onRebuild={rebuild} busy={busy} />}
       </Async>
-      <p className="hint">Tables come from the migration files, endpoints from the API contract, modules and classes from the source. The map is pinned to a commit, so agents and you look at the same picture.</p>
+      {map.data && !isMissing(map.data) && <p className="hint">Tables come from the migration files, endpoints from the API contract, modules and classes from the source. The map is pinned to a commit, so agents and you look at the same picture.</p>}
     </>
   );
 }
