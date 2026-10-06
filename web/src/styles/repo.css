@@ -173,6 +173,7 @@ mark.sr-m { background: color-mix(in srgb, var(--warn) 30%, transparent); color:
 .ed-bar { display: flex; align-items: center; gap: 8px; padding: 0 8px 0 14px; min-height: 30px; border-bottom: 1px solid var(--ide-line); flex-wrap: wrap; }
 .crumbs { display: flex; align-items: center; min-width: 0; flex: 1 1 200px; overflow-x: auto; scrollbar-width: none; white-space: nowrap; font-size: 12.5px; color: var(--dim); }
 .crumbs::-webkit-scrollbar { display: none; }
+.crumbs[data-cut="1"] { -webkit-mask-image: linear-gradient(to right, transparent, #000 28px); mask-image: linear-gradient(to right, transparent, #000 28px); }
 .crumb-i { display: inline-flex; align-items: center; flex: none; }
 .crumb-sep { margin: 0 4px; color: var(--faint); }
 .crumb-b { border: 0; background: none; padding: 0 2px; color: var(--dim); cursor: pointer; border-radius: 3px; }

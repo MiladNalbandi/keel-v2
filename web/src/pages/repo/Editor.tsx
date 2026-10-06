@@ -70,7 +70,11 @@ type CodeProps = {
   scrollKey: string;
 };
 
+/** Per tab: where it was scrolled, and the last jump it made (so coming back to a tab keeps its place). */
 const scrolls = new Map<string, number>();
+const jumped = new Map<string, number>();
+/** The last Ctrl/⌘+F or +G handled (a tab that mounts later must not open it again). */
+let handledCmd = 0;
 
 export function CodeView({ text, path, wrap, target, cmd, onCursor, onLink, scrollKey }: CodeProps) {
   const lines = useMemo(() => {
@@ -141,7 +145,7 @@ export function CodeView({ text, path, wrap, target, cmd, onCursor, onLink, scro
     const el = box.current;
     if (!el) return;
     const saved = scrolls.get(scrollKey);
-    if (saved && !target) el.scrollTop = saved;
+    if (saved !== undefined && (!target || jumped.get(scrollKey) === target.n)) el.scrollTop = saved;
     measure();
     return () => {
       scrolls.set(scrollKey, el.scrollTop);
@@ -161,8 +165,10 @@ export function CodeView({ text, path, wrap, target, cmd, onCursor, onLink, scro
   useEffect(() => {
     if (!target) return;
     const line = Math.min(Math.max(1, target.line), lines.length);
-    setCursor({ line, col: target.col ?? 1 });
     setFlash({ ...target, line });
+    if (jumped.get(scrollKey) === target.n) return;
+    jumped.set(scrollKey, target.n);
+    setCursor({ line, col: target.col ?? 1 });
     onCursor({ line, col: target.col ?? 1 });
     window.setTimeout(() => scrollTo(line, true), 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -170,7 +176,8 @@ export function CodeView({ text, path, wrap, target, cmd, onCursor, onLink, scro
 
   // Ctrl/⌘+F and Ctrl/⌘+G from the IDE
   useEffect(() => {
-    if (!cmd) return;
+    if (!cmd || cmd.n <= handledCmd) return;
+    handledCmd = cmd.n;
     if (cmd.kind === "find") {
       const sel = window.getSelection?.()?.toString() ?? "";
       if (sel && !sel.includes("\n") && sel.length < 200) setQ(sel);
