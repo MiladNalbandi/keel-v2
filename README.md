@@ -1,196 +1,88 @@
 # keel v2
 
-AI agents write **tested** code for your project, one small step at a time, and you approve the important steps.
+AI agents write **tested** code for your project. You approve the important steps.
 Everything runs in one Docker container.
 
-![A real keel v2 dashboard: the project list, a feature flow running live, an agent reading code, and a person approving a criterion at its gate](docs/keel-v2.gif)
+![keel v2: a flow running live, an agent at work, and a person approving a step](docs/keel-v2.gif)
 
-<sub>Recorded from a real keel v2 run (Claude Haiku on a small cart library), not drawn.</sub>
+## Start
 
-## Start in 3 steps
+You need [Docker](https://docs.docker.com/get-started/get-docker/).
 
-You need [Docker](https://docs.docker.com/get-started/get-docker/) (Docker Desktop on a Mac or Windows/WSL 2).
-
-**1. Install** (once)
+**1. Install keel** (once)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/MiladNalbandi/keel-v2/main/install.sh | bash
 ```
 
-**2. Start keel for your project** (a git folder)
+**2. Start it for your project** (a git folder). Your browser opens http://localhost:8080.
 
 ```bash
 keel2 start ~/path/to/your/project
 ```
 
-The browser opens http://localhost:8080.
+**3. Log in:** **Connections › Set up login**, then pick Claude, Codex or GitHub Copilot.
 
-**3. Log in.** Go to **Control › Connections › Set up login** and pick Claude, Codex/GPT or GitHub Copilot (or paste
-an API key).
-
-Then go to **Run › Flow › Start a flow**, describe what you want, and approve at the ◆ gates.
+**4. Start work:** **Flow › Start a flow**. Write what you want. Approve when keel asks you (◆).
 
 ## How it works
 
 ```
  you: "show each player's rank"
-   │
-   ▼
- spec ─◆─ red ─ green ─◆─ … (one loop per criterion) … ─ review ─◆─ done
-        │     │       │                                          │
-        │     │       └ you approve each criterion               └ you approve the end
-        │     └ an agent writes the smallest code that passes; keel commits it
-        └ you approve the criteria; an agent writes a failing test, keel checks it fails, then commits it
+         │
+         ▼
+  1. spec     an agent writes what to build              ◆ you approve
+  2. test     an agent writes a test that fails
+  3. code     an agent writes code until the test passes ◆ you approve
+  4. review   agents check the whole change              ◆ you approve
+         │
+         ▼
+ done: tested commits on a new branch. keel never pushes.
 ```
 
-- The flow is a [LangGraph](https://github.com/langchain-ai/langgraph) graph; the agents are LangChain or CLI agents.
-- keel runs the tests and makes the commits itself, on its own branch (`feat/…`). It never pushes, and it never
-  commits files you changed yourself.
-- Every step, file change, command and token is visible: **Live agents**, **Jobs**, **Budget**.
-- When something needs you, keel plays a sound, shows a pop-up and its mascot jumps.
-- keel v2 has its own guard, rules, agents, skills and MCP server. [keel v1](https://github.com/MiladNalbandi/keel) is a
-  separate project and is not in the image.
+## What you see
+
+| Page | What it shows |
+|---|---|
+| **Flow** | the running flow, step by step |
+| **Inbox** | everything that waits for you |
+| **Tasks** | your tasks or Jira tickets; **Start** runs a flow for one |
+| **Repo · Map · Graph** | the code, the database diagram, and what uses what |
+| **Budget** | tokens and cost (a small bar shows it on top of every page) |
 
 ## Flows
 
-| Flow | What it does |
+| Flow | Use it to |
 |---|---|
-| **feature** | spec (with questions) → plan → contract → per criterion: failing test, code, review ◆ → security, full review, e2e, smoke → ship |
-| **change** | small change without a spec: trivial (one commit) or 1–3 criteria; too big → hands over to feature |
-| **fix** | reproduce the bug as a failing test ◆ → find the cause (parallel investigators) ◆ → fix → regression test → ship |
-| **diagnose** | a bug you cannot reproduce yet: 3–4 guesses, one investigator each → hand to fix or feature, or write a note |
-| **review** | read-only review of the branch, one reviewer per lens; the report word for word |
-| **lint** | run the project's formatters and linters (from its stacks and `.keel/config.yml`) on the branch or the whole project → fix the findings without changing behaviour (2 rounds) → `chore(lint)` commit → report ◆ |
-| **cover** | measure coverage of the changed lines → per gap: test / delete / accept with a reason |
-| **ship** | verify, static checks, release tests, coverage, deps, audit, trace, lens reviewers, final review ◆, memory, PR body ◆ (never pushes) |
-| **hunt** · **hunt-next** | read-only bug hunt: hunters per lens, provers reproduce each candidate twice, a report; the top bug goes to fix |
-| **init** · **knowledge-refresh** | set a project up (architecture, setup checks, knowledge) · refresh `docs/knowledge/` |
+| **feature** | build something new |
+| **change** | make a small change |
+| **fix** | fix a bug (first a test that shows it) |
+| **diagnose** | find a bug you cannot repeat yet |
+| **review** | review your branch (it changes nothing) |
+| **lint** | fix formatting and lint problems |
+| **cover** | add tests for the changed lines |
+| **ship** | final checks and the pull request text |
+| **hunt** | look for bugs |
+| **init** | set up a project for keel |
 
-◆ = keel stops and waits for you. Each flow was run for real with Claude Haiku before this release.
-
-**Inbox and run modes.** **Run › Inbox** lists everything that waits for you in every project (gates, the explorer's
-questions, a check that keeps failing, a budget pause, a new dependency); answer it there or open its flow. Each flow
-has a run mode, picked in *Start a flow* (default in Settings) and changeable on the Flow page while it runs:
-
-| Run mode | keel decides by itself |
-|---|---|
-| **manual** (default) | nothing: it stops at every gate |
-| **important** | a criterion's AC gate, when its checks pass and its AC review is clean |
-| **auto** | every gate it can decide (plain approve, the default choice, the recommended answers); each is logged and listed in the final review and the PR body; it never opens a PR |
-| **readonly** | nothing; agents cannot edit, write or commit anything |
-
-In every mode keel still stops for the token cap, a new dependency, a secret in a commit, a check that keeps failing,
-and anything only you can answer. It never pushes.
-
-**Tasks and Jira.** **Run › Tasks** is a board of your work: your own tasks, or the tickets of a Jira board or query
-(Connections › Jira, per project: Jira Cloud with email + API token, or Server / Data Center with a personal access
-token). Press **Start** on a task and keel runs a flow for it (bug → fix, story → feature, task → change), moves the
-Jira ticket to In progress, then to In review when the PR opens (and asks the reviewers on GitHub and in Jira), to
-Testing (PP) when the PR is approved, and asks you in the Inbox to confirm PP testing and the release. When keel cannot
-reach Jira, the Inbox asks you to move the real ticket by hand. Without Jira, tasks stay in keel with their history.
-Details: `docs/CONTRACT.md`, "v0.5.0: tasks and Jira".
-
-## Everyday commands
+## Commands
 
 | Command | What it does |
 |---|---|
-| `keel2 start [folder]` | start keel for a project |
-| `keel2 status` | is it running, where, for which project |
-| `keel2 stop` · `keel2 restart` | stop it · start it again the same way |
-| `keel2 doctor` | find setup problems and say how to fix them |
+| `keel2 start [folder]` | start keel |
+| `keel2 stop` | stop keel |
+| `keel2 status` | is keel running? |
 | `keel2 update` | get the newest version |
-| `keel2 mcp --print-config` | how to add keel to Claude Code / Claude Desktop |
-| `keel2 help` | all commands (logs, tokens, backup, restore, uninstall …) |
+| `keel2 doctor` | find problems and say how to fix them |
+| `keel2 help` | all commands |
 
-## Use keel from Claude Code / Claude Desktop (MCP)
+**Something wrong?** Run `keel2 doctor`. It tells you what to do.
 
-keel has an MCP server: your Claude can read the flow (status, timeline, next step, phase rules) while keel runs.
+## More
 
-```bash
-claude mcp add keel-v2 -- "$(command -v keel2)" mcp      # Claude Code, read-only
-keel2 mcp --print-config                                 # the same line + the Claude Desktop JSON
-```
-
-Read-only by default. With `keel2 mcp --write` (and `--write --print-config`) your Claude can also approve or send
-back a waiting gate. keel's own agents always get it read-only. keel v1 is a separate project; its MCP server can be
-added like any other: `keel2 start --with-keel-v1 <keel checkout>`, then turn on "keel v1 (optional)" in Tools.
-
-## Problems?
-
-Run `keel2 doctor` first. The most common ones:
-
-| You see | Do this |
-|---|---|
-| "Docker is not running" | start Docker Desktop (keel2 starts it on a Mac) |
-| "not a git repository" | say yes when keel2 offers `git init` |
-| port 8080 is busy | nothing: keel2 uses the next free port and tells you |
-| an agent "is not logged in" | Control › Connections › Set up login |
-| your tests start containers | `keel2 start --docker <folder>` (gives keel your Docker; only for projects you trust) |
-
-<details>
-<summary><b>More: logins, Docker mode, folders, without the script</b></summary>
-
-### Logins
-
-The image has claude, codex, copilot and opencode installed. Nothing from your computer is copied in. Each login is
-saved encrypted in keel's own database (the `keel-data` volume), so it survives restarts and updates.
-
-| Tool | Log in from the dashboard | Or paste |
-|---|---|---|
-| Claude (subscription) | sign in on claude.com, paste the code it shows | `claude setup-token` on your computer |
-| Codex (ChatGPT) | open the device link, type the code | `~/.codex/auth.json` |
-| GitHub Copilot | open github.com/login/device, type the code | a token with "Copilot Requests" |
-
-From the terminal: `keel2 token <claude|codex|copilot>`, and `keel2 tokens` to list them.
-
-### Docker mode
-
-The image has JDK 21, Node 20, Python 3.12 and the Docker CLI (compose, buildx). `keel2 start --docker` mounts your
-Docker socket and the project at the **same path** as on your computer, so Testcontainers and compose bind mounts
-work. Docker access is as strong as root on your computer.
-
-### Folders in the container
-
-| Folder | What |
-|---|---|
-| `/workspace` | your project (one git repo, or a folder of repos); its real path with `--docker` |
-| `/data` | keel's database, flow checkpoints, encrypted logins |
-| `/opt/keel-v2/content` | keel v2's agents, skills, stacks, packs and templates |
-| `/opt/keel-v1-optional` | only with `--with-keel-v1`: that keel v1 checkout, read-only, for its MCP server |
-
-### Without the script
-
-```bash
-docker run -d --name keel-v2 -p 127.0.0.1:8080:8080 \
-  -v /path/to/your/project:/workspace -v keel-data:/data \
-  ghcr.io/miladnalbandi/keel-v2
-```
-
-</details>
-
-<details>
-<summary><b>Develop keel v2</b></summary>
-
-| Part | Tech | Run | Tests |
-|---|---|---|---|
-| `engine/` | Python 3.12, FastAPI, LangGraph, LangChain, MCP | `uv run keel-engine` (:8090) | `uv run pytest` |
-| `api/` | Kotlin, Spring Boot 3, SQLite, Flyway | `./gradlew bootRun` (:8080) | `./gradlew test` |
-| `web/` | React, TypeScript, Vite | `npm run dev` (:5173) | `npm test` |
-
-How the parts talk: [docs/CONTRACT.md](docs/CONTRACT.md).
-
-```bash
-docker build -t keel-v2 .                                 # everything is installed in the image
-docker build --build-arg INSTALL_CLIS=0 -t keel-v2:slim . # without the agent CLIs
-npx -y -p playwright@1 node docs/gif/record.js            # record the GIF above from a running keel
-scripts/no-v1.sh                                          # lists anything that still depends on keel v1 (CI: 0)
-```
-
-A version tag (`v*`) builds amd64 + arm64 images and pushes them to `ghcr.io/miladnalbandi/keel-v2` (and to Docker
-Hub when the `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` secrets are set).
-
-</details>
+- [Guide](docs/GUIDE.md): run modes, Tasks and Jira, logins, Docker mode, MCP, and how to build keel yourself
+- [How the parts talk](docs/CONTRACT.md)
 
 ## License
 
-MIT, see [LICENSE](LICENSE). keel v1 is MIT as well.
+MIT, see [LICENSE](LICENSE).
