@@ -476,7 +476,7 @@ async def ladder(a: ActionInput) -> ActionResult:
     lines = ["# Running this project", "", "Written by keel init. Every command below passed the run ladder.", ""]
     for r in rungs:
         if r["status"] == "pass" and r["n"] != 1:
-            lines += [f"## {r['n']}. {r['name']}", "", "```", r["cmd"], "```", ""]
+            lines += [f"## {r['n']}. {r['name']}", "", *tool_runner.fenced(r["cmd"]), ""]
     f = Path(a.root) / "docs" / "RUNNING.md"
     f.parent.mkdir(parents=True, exist_ok=True)
     f.write_text("\n".join(lines))

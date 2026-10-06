@@ -4,7 +4,11 @@
 .ide.help-open { grid-template-columns: 48px var(--side-w, 280px) 4px minmax(0, 1fr) var(--help-w, 380px);
   grid-template-areas: "act side split main help" "sb sb sb sb sb"; }
 .ide.help-open.side-closed { grid-template-columns: 48px 0 0 minmax(0, 1fr) var(--help-w, 380px); }
-.ide-help { grid-area: help; min-width: 0; min-height: 0; display: flex; border-left: 1px solid var(--ide-line); background: var(--ide-side); }
+.ide-help { grid-area: help; position: relative; min-width: 0; min-height: 0; display: flex; border-left: 1px solid var(--ide-line); background: var(--ide-side); }
+/* drag the Helper's left edge to make it wider (Ide.tsx dragHelper) */
+.ide-help-split { position: absolute; left: -4px; top: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 6; }
+.ide-help-split:hover, .ide-help-split:focus-visible { background: color-mix(in srgb, var(--accent) 35%, transparent); outline: none; }
+.sb-focus { margin-left: auto; }
 .act.act-help { margin-top: auto; }
 
 .hp { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
@@ -112,3 +116,15 @@
 .hp-mode.side { color: var(--run); background: var(--run-soft); }
 .hp-fixbar.side { background: color-mix(in srgb, var(--run) 8%, var(--ide-side)); }
 .hp-fixbar code, .hp-fixbar .mono { font: 500 11.5px var(--f-mono); overflow-wrap: anywhere; }
+
+/* the Helper on a page of its own (#/helper, pages/Helper.tsx): one wide, readable chat column */
+.helper-page { height: calc(100dvh - var(--hp-top, 150px) - 14px); min-height: 420px; display: flex;
+  border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--panel); }
+.hp.page { --hp-col: 920px; }
+.hp.page .hp-head, .hp.page .hp-sessions, .hp.page .hp-fixbar, .hp.page .hp-model { padding-inline: max(16px, calc((100% - var(--hp-col)) / 2)); }
+.hp.page .hp-body { padding-inline: max(16px, calc((100% - var(--hp-col)) / 2)); gap: 18px; }
+.hp.page .hp-compose { padding-inline: max(14px, calc((100% - var(--hp-col)) / 2)); }
+.hp.page .hp-answer, .hp.page .hp-text { font-size: 14.5px; }
+.hp.page .hp-compose textarea { min-height: 70px; font-size: 14px; }
+.hp.page .hp-sessions select { max-width: 420px; }
+main:has(> .helper-page) { padding-bottom: 14px; }

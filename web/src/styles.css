@@ -1024,3 +1024,8 @@ button.sx-x:hover { box-shadow: 0 0 0 2px var(--ink); }
   .est-sec { grid-template-columns: minmax(0,1fr) 60px 64px; }
   .est-sec .sx-bar { width: 60px; }
 }
+
+/* <details><summary> in Markdown (components/Markdown.tsx): keel's PR bodies fold the spec extract like GitHub */
+.md-details { border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; margin: 6px 0 10px; background: var(--panel); }
+.md-details > summary { cursor: pointer; font-weight: 600; font-size: 13.5px; }
+.md-details[open] > summary { margin-bottom: 6px; }

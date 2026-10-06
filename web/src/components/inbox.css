@@ -47,3 +47,8 @@
 /* v0.7.x: several flows of one project wait at once: one heading per flow */
 .inbox-group { display: grid; gap: inherit; }
 .inbox-group-h { margin: 6px 0 0; font-size: 13px; font-weight: 600; color: var(--dim); display: flex; gap: 8px; align-items: baseline; }
+
+/* the gate's text rendered as Markdown (PR body, final review): normal text, not a code dump */
+.inbox-detail.md { white-space: normal; font: 13px/1.55 var(--f-body); color: var(--fg); }
+.inbox-detail.md h1, .inbox-detail.md h2, .inbox-detail.md h3 { font-size: 14px; margin: 10px 0 4px; }
+.inbox-detail.md p { margin: 0 0 6px; }

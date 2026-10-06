@@ -9,6 +9,7 @@ import { api, errorParts } from "../api";
 import { answersOf, ClarifyForm, type ClarifyAnswers } from "../components/ClarifyForm";
 import { RunModeNote } from "../components/RunMode";
 import { EmptyState } from "../components/EmptyState";
+import { GateDetail } from "./Flow";
 import { ErrorBox, Loading, PageHead, Pill, Since } from "../components/ui";
 import { inboxApi, type InboxAnswer, type InboxItem, type InboxTask } from "../inboxApi";
 import { go, useApp, useLoad, useRoute } from "../state";
@@ -31,7 +32,8 @@ function Detail({ text, id }: { text: string; id: string }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="inbox-detail-wrap">
-      <pre id={id} className={`inbox-detail${long ? (open ? " open" : " folded") : ""}`}>{text}</pre>
+      {/* a gate's text is Markdown (a PR body, a final review), with `$ command` output folded, as on the Flow page */}
+      <div id={id} className={`inbox-detail md${long ? (open ? " open" : " folded") : ""}`}><GateDetail text={text} /></div>
       {long && (
         <button className="btn sm ghost inbox-more" type="button" aria-expanded={open} aria-controls={id} onClick={() => setOpen((o) => !o)}>
           {open ? "Show less" : "Show more"}

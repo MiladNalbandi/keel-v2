@@ -33,6 +33,8 @@ type Props = {
   onClose: () => void;
   /** grows each time the Repo page wants the input focused (⌘I) */
   focusKey?: number;
+  /** panel: a column next to the code (Repo page); page: the Helper alone, one wide chat column (#/helper) */
+  layout?: "panel" | "page";
 };
 
 const sidKey = (pid: string) => `keel2.helper.${pid}.session`;
@@ -110,7 +112,7 @@ function UserMessage({ m }: { m: HelperMessage }) {
   );
 }
 
-export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpenFile, onOpenDiff, onClose, focusKey = 0 }: Props) {
+export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpenFile, onOpenDiff, onClose, focusKey = 0, layout = "panel" }: Props) {
   const { recent, liveSteps, toast, tick } = useApp();
   const [sid, setSidState] = useState<string | null>(() => read(sidKey(pid)));
   const setSid = useCallback((v: string | null) => { setSidState(v); write(sidKey(pid), v); }, [pid]);
@@ -426,7 +428,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   const noHook = fix && !!model && ["codex", "copilot"].includes(model.provider);
 
   return (
-    <aside className="hp" aria-label="Helper">
+    <aside className={`hp${layout === "page" ? " page" : ""}`} aria-label="Helper">
       <header className="hp-head">
         <div className="hp-title">
           <b>Helper</b>
@@ -452,7 +454,14 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
             {model ? `${provLabel(model.provider)} ${modelLabel(model)}` : "Model"}
           </button>
           <button type="button" className="hp-tb" onClick={() => newChat()} title="Start a new chat" aria-label="New chat">New</button>
-          <button type="button" className="hp-tb hp-x" onClick={onClose} title="Close the Helper (⌘I)" aria-label="Close the Helper">×</button>
+          {layout === "panel"
+            ? <>
+              <button type="button" className="hp-tb" onClick={() => go("helper")} title="Only the Helper, on a page of its own"
+                aria-label="Open the Helper full screen">⤢</button>
+              <button type="button" className="hp-tb hp-x" onClick={onClose} title="Close the Helper (⌘I)" aria-label="Close the Helper">×</button>
+            </>
+            : <button type="button" className="hp-tb" onClick={onClose} title="The Repo page, with the code and the Helper side by side"
+              aria-label="Back to the code">Back to the code</button>}
         </div>
       </header>
       {showModel && (

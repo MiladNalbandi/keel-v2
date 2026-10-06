@@ -424,3 +424,14 @@ def test_a_flow_worktree_starts_from_the_base_branch_and_goes_with_or_without_it
     assert not Path(w["path"]).exists() and _git(repo, "branch", "--list", "feat/ranks").strip()     # the branch stays
     bad = client.post("/worktrees/remove", json={"root": str(repo), "name": "../../etc"})
     assert bad.status_code >= 400
+
+
+def test_a_spec_extract_with_its_own_code_block_stays_inside_the_pr_bodys_fold(repo):
+    from keel_engine.runtime import tools, verdict_actions
+    assert tools.fenced("a\n```\nb\n```", "markdown") == ["````markdown", "a\n```\nb\n```", "````"]
+    assert tools.fenced("plain") == ["```", "plain", "```"]
+    spec = Path(repo) / "docs" / "specs" / "euro.md"
+    spec.parent.mkdir(parents=True, exist_ok=True)
+    spec.write_text("# Euro\n\n## Request path\n```\ntest -> formatEuro(cents)\n```\n")
+    body = verdict_actions.pr_body(str(repo), "demo", {"spec": "docs/specs/euro.md"}, "Euro", None)
+    assert "````markdown" in body and body.index("</details>") > body.index("formatEuro") and body.count("````") == 2

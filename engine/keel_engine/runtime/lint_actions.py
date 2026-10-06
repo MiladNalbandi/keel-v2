@@ -65,8 +65,8 @@ def findings_text(results: list[dict]) -> str:
     """What the fixing agent reads: each failing tool's command and the head of its output."""
     out = []
     for r in tools.failing(results):
-        out += [f"### {r['name']} ({r['fail']}) — exit {r['code']}", f"$ {r['cmd']}  (in {r['dir']})", "```",
-                tools.head_lines(r["output"], 40), "```", ""]
+        out += [f"### {r['name']} ({r['fail']}) — exit {r['code']}", f"$ {r['cmd']}  (in {r['dir']})",
+                *tools.fenced(tools.head_lines(r["output"], 40)), ""]
     return "\n".join(out)[:FINDINGS_MAX]
 
 

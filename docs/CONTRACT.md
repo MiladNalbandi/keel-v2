@@ -1302,6 +1302,14 @@ HelperMention = {kind: file|symbol|ac, value, file?, line?}      HelperSelection
   `helper.finished` (a hidden tab pauses the event stream) never leaves it "working".
 - The editor's toolbar has **Ask** (the selected lines, or the file); ⌘I opens the Helper with the selection, and closes it
   when nothing is selected.
+- More room (v0.8.x): the Helper's column has a drag edge (300 px up to all but 360 px of the IDE, remembered as
+  `keel2.repo.helper.w`); **Focus** hides the Repo page head (`keel2.repo.focus`, the status bar brings it back);
+  `#/helper` (menu: Project › Helper, **Helper only**, ⤢ in the panel) shows the Helper alone in one wide column
+  (`HelperPanel layout="page"`), and its `file:line` links open `#/repo/<path>:<line>`.
+- Markdown (web `components/Markdown.tsx`): a fence closes only on a plain fence of the same kind at least as long,
+  and `<details><summary>` is a fold-out with Markdown inside. Gate texts render as Markdown on the Flow page and in
+  the Inbox. The engine wraps text it did not write in a fence longer than any inside it (`runtime/tools.fenced`), so
+  a spec extract with its own code block no longer turns the rest of a PR body into code.
 
 
 ## v0.6.x: the Helper's Fix mode (fix at a gate)

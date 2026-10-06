@@ -1,7 +1,9 @@
 // A small, safe Markdown renderer for wiki pages and agent output (no HTML passthrough): headings,
 // paragraphs, lists, fenced code (highlighted, folded when long), block quotes, tables, rules, and inline
-// code / bold / italic / links. `file:line` in backticks shows as a citation chip. With `breaks`, a single
-// newline inside a paragraph stays a line break (agents write like that).
+// code / bold / italic / links, and GitHub's <details><summary> fold-outs (as in keel's PR bodies). A fence closes
+// only on a plain fence of the same kind at least as long (a ``` block inside a ```` block stays text).
+// `file:line` in backticks shows as a citation chip. With `breaks`, a single newline inside a paragraph stays a
+// line break (agents write like that).
 
 import { Fragment, type ReactNode } from "react";
 import { CodeBlock, FOLD } from "./Code";
@@ -41,6 +43,16 @@ function joined(lines: string[], breaks: boolean, key: number): ReactNode[] {
   return lines.flatMap((l, j) => (j ? [<br key={`br${j}`} />, ...inline(l, key + j)] : inline(l, key)));
 }
 
+const DETAILS = /^\s*<details>\s*(?:<summary>(.*?)<\/summary>)?\s*$/i;
+const SUMMARY = /^\s*<summary>(.*?)<\/summary>\s*$/i;
+const END_DETAILS = /^\s*<\/details>\s*$/i;
+
+/** Does this line close a fence opened with `open` (``` or ~~~, n long)? Same char, at least as long, nothing after. */
+const closes = (line: string, open: string) => {
+  const t = line.trim();
+  return t.length >= open.length && t === open[0].repeat(t.length);
+};
+
 export function Markdown({ text, breaks = false, fold = FOLD }: { text: string; breaks?: boolean; fold?: number }) {
   const lines = (text ?? "").replace(/\r\n?/g, "\n").split("\n");
   const blocks: ReactNode[] = [];
@@ -49,12 +61,41 @@ export function Markdown({ text, breaks = false, fold = FOLD }: { text: string; 
   while (i < lines.length) {
     const line = lines[i];
     if (!line.trim()) { i++; continue; }
+    const det = line.match(DETAILS);
+    if (det) {
+      // <details><summary>…</summary> … </details>: a fold-out with Markdown inside (nested ones count)
+      let summary = det[1] ?? "";
+      const body: string[] = [];
+      let depth = 1;
+      i++;
+      if (!summary && i < lines.length && SUMMARY.test(lines[i])) summary = lines[i++].match(SUMMARY)![1];
+      let fenceOpen: string | null = null;
+      while (i < lines.length) {
+        const l = lines[i];
+        const f = l.match(/^\s*(```+|~~~+)/);
+        if (fenceOpen) { if (closes(l, fenceOpen)) fenceOpen = null; }
+        else if (f) fenceOpen = f[1];
+        else if (DETAILS.test(l)) depth++;
+        else if (END_DETAILS.test(l) && --depth === 0) break;
+        body.push(l);
+        i++;
+      }
+      i++;
+      blocks.push(
+        <details key={key++} className="md-details">
+          <summary>{inline(summary.replace(/<[^>]+>/g, "") || "Details", key)}</summary>
+          <Markdown text={body.join("\n")} breaks={breaks} fold={fold} />
+        </details>,
+      );
+      continue;
+    }
+    if (END_DETAILS.test(line) || SUMMARY.test(line)) { i++; continue; }
     const fence = line.match(/^\s*(```+|~~~+)\s*([\w+#.-]*)/);
     if (fence) {
       const body: string[] = [];
       const close = fence[1];
       i++;
-      while (i < lines.length && !lines[i].trimStart().startsWith(close)) body.push(lines[i++]);
+      while (i < lines.length && !closes(lines[i], close)) body.push(lines[i++]);
       i++;
       blocks.push(<CodeBlock key={key++} className="md-code" text={body.join("\n")} lang={fence[2]} gutter={body.length > 3} fold={fold} />);
       continue;
@@ -103,7 +144,7 @@ export function Markdown({ text, breaks = false, fold = FOLD }: { text: string; 
       continue;
     }
     const para: string[] = [];
-    while (i < lines.length && lines[i].trim() && !/^(#{1,6}\s|\s*```|\s*~~~|\s*>|\s*([-*+]|\d+[.)])\s)/.test(lines[i]) && !lines[i].trim().startsWith("|")) {
+    while (i < lines.length && lines[i].trim() && !/^(#{1,6}\s|\s*```|\s*~~~|\s*>|\s*([-*+]|\d+[.)])\s|\s*<\/?details>)/i.test(lines[i]) && !lines[i].trim().startsWith("|")) {
       para.push(lines[i++].trim());
     }
     if (!para.length) { para.push(lines[i++]); }

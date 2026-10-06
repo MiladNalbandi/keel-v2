@@ -243,6 +243,14 @@ def _head(text: str, n: int = HEAD_LINES) -> str:
     return "\n".join(lines[:n]) + more
 
 
+def fenced(text: str, lang: str = "") -> list[str]:
+    """Markdown lines that show `text` as a code block: the fence is longer than any run of backticks in it, so a
+    ``` block inside (a spec's drawing, a tool's own Markdown) cannot close it early and turn the rest into code."""
+    longest = max((len(m) for m in re.findall(r"`+", text or "")), default=0)
+    fence = "`" * max(3, longest + 1)
+    return [fence + lang, text, fence]
+
+
 def head_lines(text: str, n: int) -> str:
     """The first n non-empty lines (linters print the findings first, the totals last)."""
     return _head(text, n)

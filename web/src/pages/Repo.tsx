@@ -2,11 +2,11 @@
 // search, source control, and keel's own pages (the IDE is in ./repo/). The head keeps the code graph index and
 // "Update from <base>", the one action here that changes the repo (a git merge that stops on a conflict).
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, errorParts, type IndexStatus, type RepoInfo, type UpdateFromBase } from "../api";
 import { ErrorBox, PageHead } from "../components/ui";
 import { plural } from "../format";
-import { useApp, useLoad } from "../state";
+import { go, useApp, useLoad } from "../state";
 import { RepoIde } from "./repo/Ide";
 
 export function RepoPage({ pid }: { pid: string }) {
@@ -15,9 +15,16 @@ export function RepoPage({ pid }: { pid: string }) {
   const [result, setResult] = useState<UpdateFromBase | { error: { message: string; hint?: string } } | null>(null);
   /** Bumped after a merge brought new files: the explorer reads the tree again. */
   const [version, setVersion] = useState(0);
+  // Focus: the page head (title, the index row, Update from base) goes, so the code and the Helper get the room
+  const [focus, setFocus] = useState<boolean>(() => {
+    try { return localStorage.getItem("keel2.repo.focus") === "1"; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("keel2.repo.focus", focus ? "1" : "0"); } catch { /* private window */ }
+  }, [focus]);
   return (
-    <div className="repo-page">
-      <PageHead title="Repo" sub={<>Read, search and check the code of {project?.name ?? pid}. Read-only: keel never edits files here.</>}
+    <div className={`repo-page${focus ? " focus" : ""}`}>
+      {!focus && <PageHead title="Repo" sub={<>Read, search and check the code of {project?.name ?? pid}. Read-only: keel never edits files here.</>}
         actions={<>
           <IndexBadge pid={pid} />
           {repo.data && repo.data.base && repo.data.branch && repo.data.base !== repo.data.branch && (
@@ -27,10 +34,12 @@ export function RepoPage({ pid }: { pid: string }) {
               if ("merged" in x && x.merged) setVersion((v) => v + 1);
             }} />
           )}
-        </>} />
+          <button className="btn sm" type="button" onClick={() => go("helper")} title="Only the Helper, on a page of its own">Helper only</button>
+          <button className="btn sm ghost" type="button" onClick={() => setFocus(true)} title="Hide this header: the code and the Helper get the room">Focus</button>
+        </>} />}
       {repo.error && <div style={{ marginBottom: 12 }}><ErrorBox error={repo.error} onRetry={() => void repo.reload()} /></div>}
       {result && <UpdateResult result={result} base={repo.data?.base ?? "base"} onClose={() => setResult(null)} />}
-      <RepoIde pid={pid} repo={repo.data} version={version} />
+      <RepoIde pid={pid} repo={repo.data} version={version} focus={focus} onFocus={setFocus} />
     </div>
   );
 }

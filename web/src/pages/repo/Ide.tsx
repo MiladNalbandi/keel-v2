@@ -62,7 +62,11 @@ function tabTitle(t: EditorTab): string {
   return nameOf(t.path);
 }
 
-export function RepoIde({ pid, repo, version = 0 }: { pid: string; repo: RepoInfo | null; version?: number }) {
+export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
+  pid: string; repo: RepoInfo | null; version?: number;
+  /** the page head is hidden (Focus); the status bar can bring it back */
+  focus?: boolean; onFocus?: (on: boolean) => void;
+}) {
   const { project } = useApp();
   const route = useRoute();
   const narrow = useNarrow(720);
@@ -90,6 +94,8 @@ export function RepoIde({ pid, repo, version = 0 }: { pid: string; repo: RepoInf
   // keel's Helper: a chat panel on the right (⌘I), remembered per browser; it can take the lines selected in the code
   const [helperOpen, setHelperOpen] = useState<boolean>(() => readJson(local, "keel2.repo.helper", false));
   const [helperFocus, setHelperFocus] = useState(0);
+  // the Helper's column: drag its left edge (300 px up to all but 360 px of the IDE), remembered per browser
+  const [helperW, setHelperW] = useState<number>(() => readJson(local, "keel2.repo.helper.w", 380));
   const [helperSel, setHelperSel] = useState<HelperSelection | null>(null);
 
   const changes = useLoad(`changes:${pid}`, () => api.changes(pid));
@@ -110,6 +116,7 @@ export function RepoIde({ pid, repo, version = 0 }: { pid: string; repo: RepoInf
   useEffect(() => writeJson(local, "keel2.repo.diff", mode), [mode]);
   useEffect(() => writeJson(local, "keel2.repo.wrap", wrap), [wrap]);
   useEffect(() => writeJson(local, "keel2.repo.helper", helperOpen), [helperOpen]);
+  useEffect(() => writeJson(local, "keel2.repo.helper.w", helperW), [helperW]);
   useEffect(() => {
     setCursor(null);
     setDims("");
@@ -276,6 +283,22 @@ export function RepoIde({ pid, repo, version = 0 }: { pid: string; repo: RepoInf
     window.addEventListener("pointerup", up);
   };
 
+  const maxHelper = () => Math.max(300, (root.current?.getBoundingClientRect().width || window.innerWidth || 1200) - 360);
+  const dragHelper = (e: RPointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const start = helperW;
+    const move = (ev: PointerEvent) => setHelperW(Math.round(Math.min(maxHelper(), Math.max(300, start - (ev.clientX - startX)))));
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      document.body.classList.remove("ide-dragging");
+    };
+    document.body.classList.add("ide-dragging");
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
   const change = activeFile ? byPath.get(activeFile) : undefined;
   const deco = decoOf(change);
   const remoteUrl = activeFile ? webUrl(repo?.remote, repo?.branch, activeFile, links[active!.id]) : null;
@@ -426,6 +449,7 @@ export function RepoIde({ pid, repo, version = 0 }: { pid: string; repo: RepoInf
 
   const ide = {
     "--side-w": `${width}px`,
+    "--help-w": `${helperW}px`,
   } as CSSProperties;
 
   return (
@@ -534,6 +558,15 @@ export function RepoIde({ pid, repo, version = 0 }: { pid: string; repo: RepoInf
       </section>
       {helperOpen && (
         <div className="ide-help">
+          {!phone && (
+            <div className="ide-help-split" role="separator" aria-orientation="vertical" aria-label="Resize the Helper" tabIndex={0}
+              aria-valuenow={helperW} aria-valuemin={300} onPointerDown={dragHelper} onDoubleClick={() => setHelperW(380)}
+              title="Drag to make the Helper wider (double-click: back to normal)"
+              onKeyDown={(e) => {
+                if (e.key === "ArrowLeft") setHelperW((w) => Math.min(maxHelper(), w + 32));
+                if (e.key === "ArrowRight") setHelperW((w) => Math.max(300, w - 32));
+              }} />
+          )}
           <HelperPanel pid={pid} openFile={activeFile} selection={helperSel} onClearSelection={() => setHelperSel(null)} focusKey={helperFocus}
             onOpenFile={(p, line) => open({ path: p, view: "code" }, { pin: true, line })} onOpenDiff={(p) => openFile(p, true, "diff")}
             onClose={() => setHelperOpen(false)} />
@@ -566,6 +599,12 @@ export function RepoIde({ pid, repo, version = 0 }: { pid: string; repo: RepoInf
           </>
         )}
         {project && !fileTab && <span className="sb-i sb-wide">{project.name}</span>}
+        {onFocus && (
+          <button type="button" className="sb-i sb-focus" onClick={() => onFocus(!focus)}
+            title={focus ? "Show the Repo header again" : "Hide the Repo header: more room for the code and the Helper"}>
+            {focus ? "Show the header" : "Hide the header"}
+          </button>
+        )}
       </footer>
       {qo && (
         <QuickOpen pid={pid} hasFile={codeActive} onClose={() => setQo(false)}

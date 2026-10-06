@@ -24,6 +24,7 @@ import { WorkflowsPage } from "./pages/Workflows";
 import type { ScreenId } from "./routes";
 import { PageBoundary } from "./components/PageBoundary";
 import { QualityPage } from "./pages/Quality";
+import { HelperPage } from "./pages/Helper";
 import { AppProvider, useApp, useRoute } from "./state";
 
 /** Screens that need a chosen project. */
@@ -33,6 +34,7 @@ const PAGES: Record<Exclude<ScreenId, "projects" | "inbox" | "quality">, (p: { p
   live: LivePage,
   jobs: JobsPage,
   repo: RepoPage,
+  helper: HelperPage,
   map: MapPage,
   graph: GraphPage,
   wiki: WikiPage,

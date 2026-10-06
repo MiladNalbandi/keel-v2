@@ -30,7 +30,7 @@ from ..rules import checks
 from ..tools import git, testcmd
 from ..tools.agent_tools import command_env
 from . import run_mode as run_modes
-from . import verdicts
+from . import tools, verdicts
 
 GAP = 8               # uncovered lines closer than this belong to one group (one test can cover them)
 TEST_FILE = re.compile(r"Test\.(kt|java)$|Tests\.(kt|java)$|\.(test|spec)\.(ts|tsx|js|jsx)$|(^|/)test_[^/]+\.py$|_test\.py$")
@@ -698,7 +698,7 @@ def pr_body(root: str, project: str, state: dict, title: str, base: str | None, 
     auto = [f"- {line}" for line in gates.get("log") or [] if run_modes.is_auto_line(line)]
     out = [f"# {title}", ""] + ([f"Spec: `{spec}`", ""] if spec else [])
     if extract:
-        out += ["<details><summary>Spec extract</summary>", "", "```markdown", extract, "```", "</details>", ""]
+        out += ["<details><summary>Spec extract</summary>", "", *tools.fenced(extract, "markdown"), "</details>", ""]
     if not extract:
         # What was asked and what the branch did (the last agent's answer is about its own step, not the branch).
         commits = git.git(root, "log", "--reverse", "--format=- %s", f"{base}..HEAD").stdout.strip() \
