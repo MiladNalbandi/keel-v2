@@ -3,7 +3,7 @@
 import { useState } from "react";
 import "./inbox.css";
 import type { Notification as Note, NotificationSettings } from "../api";
-import { clock } from "../format";
+import { clock, plainText } from "../format";
 import { askPermission, EVTYPES, NTONE, permission, playSound } from "../notify";
 import { useApp } from "../state";
 import { Drawer, Tabs } from "./ui";
@@ -109,7 +109,7 @@ export function NotificationDrawer({ onClose }: { onClose: () => void }) {
                 <button type="button" className={`note ${n.read ? "" : "unread"} ${n.done ? "done" : ""} t-${NTONE[n.type] ?? "run"}`}
                   onClick={() => { openNote(n); onClose(); }}>
                   <span className="row" style={{ justifyContent: "space-between" }}><b>{n.title}</b><span className="hint">{clock(n.at, false)}</span></span>
-                  <span className="sub">{pname(n.project_id)} · {n.body}</span>
+                  <span className="sub">{pname(n.project_id)} · {plainText(n.body)}</span>
                   {n.done && <span className="note-done">✓ decided</span>}
                 </button>
                 <span className="note-acts">
@@ -144,7 +144,7 @@ function PopupCard({ note, onClose }: { note: Note; onClose: () => void }) {
         <b>{note.title}</b>
         <button type="button" className="btn sm ghost" aria-label="Dismiss" onClick={onClose}>×</button>
       </div>
-      <span className="sub">{pname} · {note.body}</span>
+      <span className="sub">{pname} · {plainText(note.body)}</span>
       <div className="row">
         <button className={`btn sm ${note.type === "review" ? "warn" : ""}`} type="button" onClick={() => { openNote(note); onClose(); }}>
           {note.type === "review" ? "Review now" : "Open"}

@@ -68,3 +68,13 @@ describe("usageLine without a percentage", () => {
     expect(usageLine(u as never)).toMatch(/^5h ok · resets in 3[67] min/);
   });
 });
+
+describe("plainText", () => {
+  it("turns a review's markdown into one short plain line for a notification", async () => {
+    // Real e2e: the pop-up showed "## whole-branch code review ## Review of `git diff main...HEAD` **Spec context:**".
+    const { plainText } = await import("../format");
+    expect(plainText("## Review of `git diff main...HEAD`\n**Spec context:** the [cart](src/cart.js) --- ok")).toBe(
+      "Review of git diff main...HEAD Spec context: the cart ok");
+    expect(plainText("x".repeat(300), 10)).toBe("xxxxxxxxx…");
+  });
+});

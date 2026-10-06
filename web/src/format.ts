@@ -63,3 +63,18 @@ export function parseTokens(s: string): number {
 }
 
 export const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/** Markdown as one short plain line (notification text): no #, **, backticks or links' brackets; at most `max` chars. */
+export function plainText(md: string | null | undefined, max = 220): string {
+  const t = String(md ?? "")
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`([^`]*)`/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+    .replace(/(\*\*|__|\*|_)(\S[^*_]*?)\1/g, "$2")
+    .replace(/^\s*[-*]\s+/gm, "")
+    .replace(/-{3,}/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return t.length > max ? t.slice(0, max - 1).trimEnd() + "…" : t;
+}
