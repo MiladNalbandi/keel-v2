@@ -1029,3 +1029,17 @@ button.sx-x:hover { box-shadow: 0 0 0 2px var(--ink); }
 .md-details { border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; margin: 6px 0 10px; background: var(--panel); }
 .md-details > summary { cursor: pointer; font-weight: 600; font-size: 13.5px; }
 .md-details[open] > summary { margin-bottom: 6px; }
+
+/* a big screen can fold the menu into a thin strip (Shell: Hide the menu, ☰, ⌘\); a phone keeps its own bar */
+.hide-nav { border: 0; background: none; color: var(--dim); cursor: pointer; padding: 4px; border-radius: 6px; display: inline-flex; }
+.hide-nav:hover { color: var(--fg); background: var(--panel-2); }
+.side-rail { display: none; }
+@media (min-width: 901px) {
+  .app.nav-hidden { grid-template-columns: 40px minmax(0,1fr); }
+  .app.nav-hidden > .side { display: none; }
+  .side-rail { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 12px 0; border-right: 1px solid var(--border);
+    position: sticky; top: 0; height: 100vh; }
+  .rail-btn { border: 0; background: none; color: var(--dim); cursor: pointer; padding: 6px; border-radius: 7px; display: inline-flex; }
+  .rail-btn:hover { color: var(--fg); background: var(--panel-2); }
+}
+@media (max-width: 900px) { .hide-nav { display: none; } }

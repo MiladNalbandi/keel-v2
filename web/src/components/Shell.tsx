@@ -272,13 +272,42 @@ function MenuSheet({ onClose, theme }: { onClose: () => void; theme: ReturnType<
   );
 }
 
+const NAV_KEY = "keel2.nav.hidden";
+
 export function Shell({ children }: { children: ReactNode }) {
   const { live } = useApp();
   const [notesOpen, setNotesOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const theme = useTheme();
+  // a big screen can fold the menu into a thin strip (☰ opens it again, ⌘\ toggles); a phone keeps its own bar
+  const [navHidden, setNavHidden] = useState<boolean>(() => {
+    try { return localStorage.getItem(NAV_KEY) === "1"; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(NAV_KEY, navHidden ? "1" : "0"); } catch { /* private window */ }
+  }, [navHidden]);
+  useEffect(() => {
+    const on = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key === "\\") {
+        e.preventDefault();
+        setNavHidden((h) => !h);
+      }
+    };
+    window.addEventListener("keydown", on);
+    return () => window.removeEventListener("keydown", on);
+  }, []);
   return (
-    <div className="app">
+    <div className={`app${navHidden ? " nav-hidden" : ""}`}>
+      {navHidden && (
+        <div className="side-rail" aria-label="Menu (hidden)">
+          <button className="rail-btn" type="button" onClick={() => setNavHidden(false)} aria-label="Show the menu" title="Show the menu (⌘\)">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+              <path fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" d="M4 7h16M4 12h16M4 17h16" />
+            </svg>
+          </button>
+          <Bell onClick={() => setNotesOpen(true)} />
+        </div>
+      )}
       <aside className="side">
         <div className="side-head">
           <button className="menu-btn" type="button" onClick={() => setMenuOpen(true)} aria-label="Menu" aria-expanded={menuOpen} aria-controls="menu-sheet"
@@ -290,7 +319,13 @@ export function Shell({ children }: { children: ReactNode }) {
             {live !== "live" && <span className={`menu-dot ${live === "off" ? "bad" : "warn"}`} aria-hidden="true" />}
           </button>
           <span className="brand"><Logo /><b>keel</b><span className="brand-v">v2 studio</span><Version /></span>
-          <span className="side-tools"><Mascot /><Bell onClick={() => setNotesOpen(true)} /></span>
+          <span className="side-tools"><Mascot /><Bell onClick={() => setNotesOpen(true)} />
+            <button className="hide-nav" type="button" onClick={() => setNavHidden(true)} aria-label="Hide the menu" title="Hide the menu (⌘\)">
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                <path fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" d="M15 6l-6 6 6 6" />
+              </svg>
+            </button>
+          </span>
           <ProjectPicker />
         </div>
         <Nav />

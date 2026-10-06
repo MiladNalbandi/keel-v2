@@ -461,3 +461,15 @@ def test_toolbox_tells_the_agent_it_read_the_file_already(tmp_path):
     assert tb.read_file("a.md") == "hello\n"
     assert tb.read_file("a.md").startswith("NOTE: you already read a.md")
     assert tb.read_file("a.md", offset=1, limit=1) == "hello\n"
+
+
+def test_opencode_and_copilot_runs_leave_out_tools_a_step_never_needs(tmp_path):
+    """Like claude's --tools: tool descriptions a step never uses are not sent in every turn."""
+    from keel_engine.models import cli_runners
+    conf = cli_runners.write_opencode_plugin(tmp_path / "oc")
+    tools = json.loads((Path(conf) / "opencode.json").read_text())["tools"]
+    assert tools["webfetch"] is False and tools["task"] is False and "write" not in tools
+    conf = cli_runners.write_opencode_plugin(tmp_path / "oc2", readonly=True)
+    tools = json.loads((Path(conf) / "opencode.json").read_text())["tools"]
+    assert tools["write"] is False and tools["edit"] is False and "bash" not in tools
+    assert "--disable-builtin-mcps" in Path(cli_runners.__file__).read_text()

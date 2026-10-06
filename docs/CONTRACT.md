@@ -1494,8 +1494,14 @@ in + out + cached ÷ 10):
   Write), so a turn's fixed part fell from about 25k to 7k tokens. With the prompts' "read the places you need
   together, in one turn" (several tool calls at once), the 12 answers took 303k tokens instead of 630k (−52%), with
   the same answers.
+- The same for the other engines: Copilot runs with `--disable-builtin-mcps` (GitHub's own MCP servers are not loaded;
+  keel opens PRs itself), and each opencode run gets an `opencode.json` in its config folder that turns off the
+  built-in tools a step never needs (web fetch and search, to-do lists, sub-tasks, skills; a read-only run also write,
+  edit and patch).
 - Where to look (`runtime/graph_hints.py`, an agent's `knowledge.hints`): keel looks up the names in a question or a
   step in the code graph itself (no model, no tool call) and lists the line ranges to read first, with who uses them
   and what they call. It saved no tokens in the same measurement (153k with, 150k without) and the answers named the
   same code, so it is **off by default**; turn it on per agent in the Agents drawer (**Where to look**).
+- The menu (web `components/Shell.tsx`): on a big screen **Hide the menu** (‹ next to the bell) folds it into a thin
+  strip with ☰ and the bell; ⌘\ toggles it; remembered as `keel2.nav.hidden`. A phone keeps its own bar.
 

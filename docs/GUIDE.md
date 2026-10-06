@@ -64,7 +64,7 @@ Open the Repo page and press **⌘I** (or the Helper button at the bottom of the
 words. The Helper reads the code, the knowledge pages, the map and the code graph, and every answer links to the lines
 (`file:line` opens the editor there).
 
-- **More room**: drag the Helper's left edge to make it wider; **Focus** (Repo page header, or **Hide the header** in
+- **More room**: hide keel's menu with ‹ next to the bell (or ⌘\; ☰ brings it back); drag the Helper's left edge to make it wider; **Focus** (Repo page header, or **Hide the header** in
   the status bar) hides the Repo header; **Helper only** (or ⤢ in the panel, or **Helper** in the menu) opens the
   Helper alone on its own page, where a `file:line` link opens the Repo page at that line.
 - **Point at things**: select lines and press **Ask** (or ⌘I); type `@` for a file, a symbol or a criterion of the

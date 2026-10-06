@@ -131,3 +131,20 @@ describe("Repo page: Focus and the Helper's room", () => {
     ).toHaveAttribute("aria-current", "page");
   });
 });
+
+describe("the menu on a big screen", () => {
+  it("folds into a thin strip, comes back with ☰, and ⌘\\ toggles it", async () => {
+    const user = userEvent.setup();
+    location.hash = "#/flow";
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Hide the menu" }));
+    expect(document.querySelector(".app")).toHaveClass("nav-hidden");
+    expect(localStorage.getItem("keel2.nav.hidden")).toBe("1");
+    await user.click(screen.getByRole("button", { name: "Show the menu" }));
+    expect(document.querySelector(".app")).not.toHaveClass("nav-hidden");
+    fireEvent.keyDown(window, { key: "\\", metaKey: true });
+    expect(document.querySelector(".app")).toHaveClass("nav-hidden");
+    fireEvent.keyDown(window, { key: "\\", metaKey: true });
+    expect(document.querySelector(".app")).not.toHaveClass("nav-hidden");
+  });
+});

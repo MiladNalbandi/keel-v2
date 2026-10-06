@@ -500,7 +500,9 @@ class CopilotCLIRunner:
 
     async def run(self, req: AgentRequest, emit: Emit) -> AgentResult:
         prompt = f"{req.system}\n\n{req.prompt}" if req.system else req.prompt
-        argv = [find("copilot"), "-p", prompt, "--allow-all-tools", "--no-color"]
+        # --disable-builtin-mcps: GitHub's own MCP servers would add their tool descriptions to every turn, and keel's
+        # agents never need them (keel opens the PR itself)
+        argv = [find("copilot"), "-p", prompt, "--allow-all-tools", "--no-color", "--disable-builtin-mcps"]
         if getattr(req.toolbox, "readonly", False):
             # no hook for keel's guard here either: a read-only run may not write files or run shell commands
             argv += ["--deny-tool", "write", "--deny-tool", "shell"]
@@ -550,7 +552,7 @@ class OpenCodeRunner:
         # keel's guard: a plugin generated for this run (in the run's scratch folder, loaded through OPENCODE_CONFIG_DIR)
         # hands each guarded call to the same hook Claude Code runs.
         scratch = guard_ctx.scratch(req)
-        conf = await asyncio.to_thread(write_opencode_plugin, Path(scratch) / "opencode")
+        conf = await asyncio.to_thread(write_opencode_plugin, Path(scratch) / "opencode", bool(getattr(req.toolbox, "readonly", False)))
         state = {"text": [], "in": 0, "out": 0, "cost": 0.0}
         steps = Steps(emit, req.root)
         refusals: list[dict] = []
@@ -703,11 +705,22 @@ export const KeelGuard = async ({ directory, worktree }) => {
 V1_ADAPTER = "keel's enforcement, for OpenCode."
 
 
-def write_opencode_plugin(conf: Path) -> str:
-    """Writes keel's guard plugin into `conf/plugins/` and returns `conf` (the run's OPENCODE_CONFIG_DIR)."""
+# opencode's built-in tools a keel step never needs: off, so their descriptions are not in every turn (like claude's
+# --tools); a read-only run (the Helper's Ask) gets no tool that writes either. opencode merges this opencode.json from
+# OPENCODE_CONFIG_DIR into its config.
+OPENCODE_OFF = ["webfetch", "websearch", "codesearch", "todowrite", "todoread", "task", "skill"]
+OPENCODE_WRITES = ["write", "edit", "patch"]
+
+
+def write_opencode_plugin(conf: Path, readonly: bool = False) -> str:
+    """Writes keel's guard plugin into `conf/plugins/` and the tools keel allows into `conf/opencode.json`; returns
+    `conf` (the run's OPENCODE_CONFIG_DIR)."""
     d = Path(conf) / "plugins"
     d.mkdir(parents=True, exist_ok=True)
     (d / "keel-guard.js").write_text(OPENCODE_PLUGIN.replace("__HOOK__", json.dumps(guard_ctx.hook_argv())))
+    off = OPENCODE_OFF + (OPENCODE_WRITES if readonly else [])
+    (Path(conf) / "opencode.json").write_text(json.dumps({"$schema": "https://opencode.ai/config.json",
+                                                          "tools": {t: False for t in off}}, indent=2))
     return str(conf)
 
 
