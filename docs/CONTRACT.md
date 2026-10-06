@@ -555,6 +555,28 @@ IndexStatus = { project, root?, status: idle|indexing|ready|failed, files, symbo
   `knowledge.code_graph` on.
 - Map = keel v1's map shape (`sha, at, limits, counts, levels`; the api no longer reads a `.keel/map.json` keel v1 left, 0.4.1) with `levels.system`, `levels.modules`
   and `levels.er` (from SQL migrations); `flow` and `classes` are not built (the Map page shows its empty state).
+- v0.5.1 adds (old fields unchanged, `levels.er` no longer caps columns):
+  ```
+  schema   = { tables: Table[], relations: Relation[] }            # everything the migrations leave, no cap
+  Table    = { id ("name" | "schema.name"), name, schema?, kind: table|view|materialized view, cite: {rel, line},
+               comment?, columns: Column[], primary_key?: {name?, columns, cite}, uniques: [{name?, columns, cite}],
+               indexes: [{name?, columns, unique, method?, where?, cite}], checks: int, changes: [{rel, line, what}],
+               foreign_keys: [{name?, columns, ref_table (id) | null, ref_name, ref_columns, on_delete?, on_update?, cite,
+                               missing (the target is not in the migrations)}],
+               definition?, uses?: [table id] }                     # views
+  Column   = { name, type, nullable, default?, pk, unique, identity, generated?, comment?, cite,
+               fk?: {table, column?, missing} }
+  Relation = { id, kind: fk|uses, name?, from (table id), from_columns, to, to_columns, on_delete?, on_update?,
+               nullable, one_to_one, self, cite }                   # fk: child -> parent; uses: view -> table
+  api      = { contract?, endpoints: [{method, path, cite, summary, tags, operation?}] }
+  sources += { looked_in: string[], configured: bool, config: string, skipped_statements: int }
+  counts  += { views, relations }
+  ```
+  Migrations: `map.migrations` in `.keel/config.yml` (folders or globs) when set, else `backend.dir`/`backend.migrations`
+  (+ Flyway `db/vendor/*` beside it), else any `.sql` under db/migration(s), db/changelog, a folder named migration(s)
+  (prisma, supabase, golang-migrate), db/schema.sql, db/structure.sql. Flyway versions sort as versions (V2 < V4.1 <
+  V10), R__ last; `*.down.sql`, Flyway undo `U*__` and dbmate/goose down sections are skipped; test folders count only
+  when nothing else is found. The SQL reader: runtime/sqlschema.py.
 - Engine DB tables: `verdicts(project, kind, ok, detail_json, "commit", at)`, `project_map`, `project_index`.
 - Code actions: `knowledge_check` (old name `memory_check`) writes the `memory` verdict; `verify_release` and a
   whole-suite `verify_green` write `release`; `verify_coverage` runs `commands.coverage` and writes `coverage`.
