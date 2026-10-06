@@ -16,6 +16,7 @@ export function StartFlowDrawer({ onClose, workflowId }: { onClose: () => void; 
   const [wfs, setWfs] = useState<Workflow[] | null>(null);
   const [wid, setWid] = useState(workflowId ?? "");
   const [title, setTitle] = useState("");
+  const [titleErr, setTitleErr] = useState(false);
   const [request, setRequest] = useState("");
   const vague = (title + " " + request).trim().split(/\s+/).filter(Boolean).length < 6;
   const [acs, setAcs] = useState(3);
@@ -77,10 +78,12 @@ export function StartFlowDrawer({ onClose, workflowId }: { onClose: () => void; 
   const premium = limits.find((l) => /premium/i.test(l.name));
   const claude = limits.find((l) => /claude/i.test(l.name));
 
+  // Flows that build nothing (a review, a hunt, a lint …) need no "what to build": they get a title of their own.
+  const needsTitle = !NO_BUILD.has(wid);
   const start = async () => {
-    if (!title.trim()) {
+    if (needsTitle && !title.trim()) {
+      setTitleErr(true);
       document.getElementById("sf-what")?.focus();
-      toast("Say what to build first.");
       return;
     }
     setBusy(true);
@@ -88,7 +91,7 @@ export function StartFlowDrawer({ onClose, workflowId }: { onClose: () => void; 
     try {
       const capTokens = parseTokens(cap);
       await api.startFlow(p, {
-        workflow_id: wid, title: title.trim(),
+        workflow_id: wid, title: title.trim() || `${wid} · ${new Date().toLocaleDateString()}`,
         // the cap belongs to this flow only; project settings stay as they are
         ...(capTokens > 0 ? { cap_tokens: capTokens } : {}), on_cap: onCap,
         ...(allowFake ? { allow_fake: true } : {}), ...(allowDirty ? { allow_dirty: true } : {}),
@@ -140,8 +143,11 @@ export function StartFlowDrawer({ onClose, workflowId }: { onClose: () => void; 
         </div>
       )}
       <div className="field">
-        <label htmlFor="sf-what">What to build</label>
-        <input type="text" id="sf-what" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Players can see their rank next to the top 10" />
+        <label htmlFor="sf-what">{needsTitle ? "What to build" : "Title (optional)"}</label>
+        <input type="text" id="sf-what" value={title} aria-invalid={titleErr && needsTitle ? true : undefined} aria-describedby={titleErr && needsTitle ? "sf-what-err" : undefined}
+          onChange={(e) => { setTitle(e.target.value); setTitleErr(false); }}
+          placeholder={needsTitle ? "e.g. Players can see their rank next to the top 10" : `e.g. ${wid} of this branch`} />
+        {titleErr && needsTitle && <span id="sf-what-err" className="hint amber" role="alert">Say in a few words what to build: it names the flow and its branch.</span>}
       </div>
       <div className="field">
         <label htmlFor="sf-request">Describe it for the agents</label>
@@ -173,7 +179,7 @@ export function StartFlowDrawer({ onClose, workflowId }: { onClose: () => void; 
               <span>API cost if all on keys</span><b className="num">{usd(est.cost_usd)}</b>
               <span>Copilot premium requests</span>
               <b className="num">≈ {est.premium_requests}{premium ? ` (${Math.max(0, premium.cap - premium.used)} left)` : ""}</b>
-              {claude && <><span>{claude.name} now</span><b className="num">{Math.round((claude.used / (claude.cap || 1)) * 100)}% used{claude.used / (claude.cap || 1) > 0.6 ? " — may pause" : ""}</b></>}
+              {claude && <><span>{claude.name} now</span><b className="num">{claudeUse(claude)}</b></>}
             </div>
           </>
         )}
@@ -203,4 +209,15 @@ export function StartFlowDrawer({ onClose, workflowId }: { onClose: () => void; 
       )}
     </Drawer>
   );
+}
+
+/** Templates that build nothing, so "what to build" is optional for them. */
+const NO_BUILD = new Set(["review", "cover", "ship", "lint", "hunt", "hunt-next", "init", "knowledge-refresh"]);
+
+/** The plan's use in words: the provider's own percentage when known, else against the cap you set, else just tokens.
+ * (A missing cap once divided 3.7M tokens by 1 and showed "376640900% used".) */
+export function claudeUse(l: Limit): string {
+  const pct = l.used_pct != null ? l.used_pct * 100 : l.cap > 0 ? (l.used / l.cap) * 100 : null;
+  if (pct == null) return `${kfmt(l.used)} tokens · no cap set`;
+  return `${Math.round(pct)}% used${pct > 60 ? " — may pause" : ""}`;
 }
