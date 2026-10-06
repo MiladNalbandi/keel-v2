@@ -10,12 +10,14 @@ import { answersOf, ClarifyForm, type ClarifyAnswers } from "../components/Clari
 import { RunModeNote } from "../components/RunMode";
 import { EmptyState } from "../components/EmptyState";
 import { ErrorBox, Loading, PageHead, Pill, Since } from "../components/ui";
-import { inboxApi, type InboxAnswer, type InboxItem } from "../inboxApi";
+import { inboxApi, type InboxAnswer, type InboxItem, type InboxTask } from "../inboxApi";
 import { go, useApp, useLoad, useRoute } from "../state";
+import { tasksApi } from "../tasksApi";
 import "../components/inbox.css";
 
 const KIND_LABEL: Record<string, string> = {
   gate: "gate", clarify: "questions", fix: "needs a fix", budget: "budget", usage: "plan window", dependency: "new dependency",
+  task: "task", "jira-manual": "move in Jira",
 };
 const kindLabel = (k: string) => KIND_LABEL[k] ?? k;
 const keyOf = (it: InboxItem) => `${it.thread_id}:${it.id ?? it.step}`;
@@ -49,6 +51,63 @@ function buttonsFor(it: InboxItem): Buttons {
   if (it.kind === "fix") return { approve: l.approve ?? "Try again", reject: l.reject ?? "Stop the flow", needWhy: false, whyLabel: "Note (optional)" };
   if (it.kind === "clarify") return { approve: l.approve ?? "Send my answers", reject: "Send back", needWhy: false, whyLabel: "Anything else the explorer should know (optional)" };
   return { approve: l.approve ?? `Approve${it.ac ? " " + it.ac : ""}`, reject: l.reject ?? "Send back", needWhy: true, whyLabel: "Why (needed to send back)" };
+}
+
+/** v0.5.0: a task's item — confirm PP testing, confirm the release, or say the Jira ticket was moved by hand. */
+function TaskInboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) => Promise<void> }) {
+  const { setProjectId } = useApp();
+  const t = it.task!;
+  const [note, setNote] = useState("");
+  const [askNote, setAskNote] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<{ message: string; hint?: string } | null>(null);
+  const hid = `inbox-task-${t.item_id}`;
+  const noteId = `${hid}-note`;
+  const act = async (a: InboxTask["actions"][number]) => {
+    if (a.needs_note && !note.trim()) {
+      setAskNote(true);
+      window.setTimeout(() => document.getElementById(noteId)?.focus(), 0);
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    try {
+      await tasksApi.act(t.item_id, a.id, note.trim() || undefined);
+      await onDone(a.id === "done" ? `${t.key ?? t.title}: recorded.` : a.id === "send_back" ? `${t.key ?? t.title}: sent back.` : `${t.key ?? t.title}: confirmed.`);
+    } catch (e) {
+      setErr(errorParts(e));
+      setBusy(false);
+    }
+  };
+  const openTask = () => {
+    setProjectId(it.project_id);
+    go("tasks", t.id);
+  };
+  return (
+    <article className={`inbox-item k-${it.kind}`} aria-labelledby={hid} data-testid="inbox-item" data-key={keyOf(it)} tabIndex={-1}>
+      <div className="inbox-meta">
+        <Pill tone={it.kind === "jira-manual" ? "run" : "warn"}>{kindLabel(it.kind)}</Pill>
+        <span className="sub"><b>{it.project_name}</b> · {t.key ? <span className="mono">{t.key}</span> : "task"} · {t.title}</span>
+        {it.since && <span className="hint inbox-since">waiting <Since from={it.since} /></span>}
+      </div>
+      <h2 id={hid} className="inbox-title">{it.title}</h2>
+      {it.detail && <p className="sub" style={{ margin: 0 }}>{it.detail}</p>}
+      {(askNote || t.actions.some((a) => a.needs_note)) && (
+        <div className="field">
+          <label htmlFor={noteId}>{t.actions.some((a) => a.needs_note) ? "Note (needed to send back)" : "Note"}</label>
+          <textarea id={noteId} rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
+        </div>
+      )}
+      <div className="row inbox-actions">
+        {t.actions.map((a, n) => (
+          <button key={a.id} className={`btn sm${n === 0 ? " warn" : ""}`} type="button" disabled={busy} onClick={() => void act(a)}>{a.label}</button>
+        ))}
+        {t.url && <a className="btn sm ghost" href={t.url} target="_blank" rel="noreferrer">Open in Jira ↗</a>}
+        <button className="btn sm ghost inbox-open" type="button" onClick={openTask} aria-label={`Open task ${t.key ?? t.title} in ${it.project_name}`}>Open task ▸</button>
+      </div>
+      {err && <ErrorBox error={err} />}
+    </article>
+  );
 }
 
 function InboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) => Promise<void> }) {
@@ -181,7 +240,7 @@ export function InboxPage() {
 
   return (
     <>
-      <PageHead title="Inbox" sub="Everything that waits for you, in every project. Answer it here or open its flow." />
+      <PageHead title="Inbox" sub="Everything that waits for you, in every project: gates, questions, and tasks to confirm. Answer it here or open its flow or task." />
       <div className="row inbox-filters" role="group" aria-label="Filters">
         <label className="row" htmlFor="inbox-project"><span className="sub">In project</span>
           <select id="inbox-project" value={project} onChange={(e) => setProject(e.target.value)}>
@@ -209,7 +268,9 @@ export function InboxPage() {
             </div>
           ) : (
             <div className="inbox-list" ref={listRef}>
-              {items.map((it) => <InboxCard key={keyOf(it)} it={it} onDone={(msg) => done(msg, keyOf(it))} />)}
+              {items.map((it) => it.task
+                ? <TaskInboxCard key={keyOf(it)} it={it} onDone={(msg) => done(msg, keyOf(it))} />
+                : <InboxCard key={keyOf(it)} it={it} onDone={(msg) => done(msg, keyOf(it))} />)}
             </div>
           )}
     </>

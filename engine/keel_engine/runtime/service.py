@@ -396,6 +396,10 @@ class Engine:
             out["children"] = list(v["children"])
         if v.get("item"):
             out["item"] = v["item"]
+        pr_url = (v.get("data") or {}).get("pr_url")
+        if pr_url:
+            # The PR the open_pr step opened (v0.5.0: a task moves to review with it).
+            out["pr_url"] = pr_url
         err = row["error"] or v.get("error")
         if err and status in ("failed", "stopped"):
             out["error"] = err

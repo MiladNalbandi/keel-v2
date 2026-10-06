@@ -82,6 +82,14 @@ has a run mode, picked in *Start a flow* (default in Settings) and changeable on
 In every mode keel still stops for the token cap, a new dependency, a secret in a commit, a check that keeps failing,
 and anything only you can answer. It never pushes.
 
+**Tasks and Jira.** **Run › Tasks** is a board of your work: your own tasks, or the tickets of a Jira board or query
+(Connections › Jira, per project: Jira Cloud with email + API token, or Server / Data Center with a personal access
+token). Press **Start** on a task and keel runs a flow for it (bug → fix, story → feature, task → change), moves the
+Jira ticket to In progress, then to In review when the PR opens (and asks the reviewers on GitHub and in Jira), to
+Testing (PP) when the PR is approved, and asks you in the Inbox to confirm PP testing and the release. When keel cannot
+reach Jira, the Inbox asks you to move the real ticket by hand. Without Jira, tasks stay in keel with their history.
+Details: `docs/CONTRACT.md`, "v0.5.0: tasks and Jira".
+
 ## Everyday commands
 
 | Command | What it does |

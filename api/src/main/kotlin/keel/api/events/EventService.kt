@@ -5,6 +5,7 @@ import keel.api.common.Json
 import keel.api.common.Time
 import keel.api.notifications.NotificationService
 import org.slf4j.LoggerFactory
+import org.springframework.context.ApplicationEventPublisher
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
 
@@ -18,6 +19,9 @@ data class EngineEvent(
     val data: Map<String, Any?> = emptyMap(),
 )
 
+/** Published (in-process) after an engine event is stored, for features that follow threads (v0.5.0 tasks). */
+data class EngineEventStored(val event: EngineEvent)
+
 /**
  * Stores engine events: agent calls become jobs (agent_calls + agent_steps), thread status follows
  * the flow, some events become notifications, and every event fans out over SSE.
@@ -28,6 +32,7 @@ class EventService(
     private val notifications: NotificationService,
     private val hub: EventHub,
     private val usage: ProviderUsageStore,
+    private val publisher: ApplicationEventPublisher,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -39,6 +44,7 @@ class EventService(
             try {
                 apply(e)
                 stored++
+                publisher.publishEvent(EngineEventStored(e))
             } catch (ex: Exception) {
                 log.warn("could not store event {} for {}: {}", e.type, e.threadId, ex.message)
             }
