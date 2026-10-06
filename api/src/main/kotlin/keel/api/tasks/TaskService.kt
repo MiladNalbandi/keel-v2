@@ -1,6 +1,7 @@
 package keel.api.tasks
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import keel.api.common.ApiException
 import keel.api.common.BadRequest
 import keel.api.common.Conflict
 import keel.api.common.NotFound
@@ -158,8 +159,8 @@ class TaskService(
         val state = try {
             flows.start(t.projectId, wid, title.take(200), null, FlowCap(runMode = b.runMode?.trim()?.ifEmpty { null }),
                 allowFake = b.allowFake, allowDirty = b.allowDirty, request = request)
-        } catch (e: Conflict) {
-            // A used-up cap, uncommitted files, the fake model: the task stays where it is and its history says why.
+        } catch (e: ApiException) {
+            // A used-up cap, uncommitted files, the fake model, an unknown workflow: the task stays where it is and its history says why.
             store.event(id, "start_refused", t.status, t.status, "The $wid flow did not start: ${e.message}${e.hint?.let { " $it" } ?: ""}", "keel")
             changed(t.projectId)
             throw e
@@ -336,6 +337,8 @@ class TaskService(
                     val m = client.transitionTo(key, target)
                     store.event(t.id, "jira", null, null, if (m.moved) "Jira: moved $key from ${m.from ?: "?"} to ${m.to}." else "Jira: $key is already in ${m.to}.", "keel")
                     t = store.update(t.copy(externalStatus = m.to))
+                    // keel reached Jira this time: an older "move it by hand" is out of date
+                    store.openItems(t.id).filter { it.kind == "jira-manual" && it.stage != "reviewers" }.forEach { store.closeItem(it.id) }
                 } catch (e: JiraException) {
                     store.event(t.id, "jira_error", null, null, "Jira: could not move $key to $target. ${e.message}", "keel")
                     byHand(t, target, e.message)
