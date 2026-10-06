@@ -261,7 +261,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return;
       }
       setRecent((r) => [...r.slice(-299), ev]);
-      if (ev.type === "agent.step" && ev.call_id) {
+      if ((ev.type === "agent.step" || ev.type === "helper.step") && ev.call_id) {
         const d = ev.data as Partial<JobStep>;
         const step: JobStep = { n: Number(d.n) || 0, at: ev.at, kind: String(d.kind ?? "text"), text: String(d.text ?? ""),
           tool: d.tool, server: d.server, path: d.path, diff: d.diff, ms: d.ms, ok: d.ok };

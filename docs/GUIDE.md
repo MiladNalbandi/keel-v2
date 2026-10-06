@@ -3,6 +3,7 @@
 The [README](../README.md) is the short version. This page has the details.
 
 - [Flows in detail](#flows-in-detail)
+- [The Helper](#the-helper)
 - [Inbox and run modes](#inbox-and-run-modes)
 - [Tasks and Jira](#tasks-and-jira)
 - [Logins](#logins)
@@ -50,6 +51,21 @@ The [README](../README.md) is the short version. This page has the details.
 | **init** · **knowledge-refresh** | set a project up (architecture, setup checks, knowledge) · refresh `docs/knowledge/` |
 
 ◆ = keel stops and waits for you. The flows are YAML files in `content/workflows/`; the **Workflows** page edits them.
+
+## The Helper
+
+Open the Repo page and press **⌘I** (or the Helper button at the bottom of the left bar). Ask about the project in plain
+words. The Helper reads the code, the knowledge pages, the map and the code graph, and every answer links to the lines
+(`file:line` opens the editor there).
+
+- **Point at things**: select lines and press **Ask** (or ⌘I); type `@` for a file, a symbol or a criterion of the
+  running flow; the open file always goes along.
+- **Commands**: type `/` — `/explain`, `/where`, `/review`, `/plan`, `/gate` (what the waiting gate asks), `/test`. A
+  project can add its own in `.keel/plugins/<name>/plugin.yml` (see `content/plugins/core/plugin.yml`).
+- **Ask mode changes nothing**: no edit, no new file, no command that changes files or git, whatever the model.
+- **Costs**: each answer shows its tokens and time; the budget bar counts them. Claude and Codex continue their own
+  session, so a follow-up question is cheap (the context stays cached).
+- The model is the `helper` agent's (Agents page); change it for one chat in the panel.
 
 ## Inbox and run modes
 

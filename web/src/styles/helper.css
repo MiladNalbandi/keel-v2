@@ -1,0 +1,79 @@
+/* keel's Helper (components/helper/HelperPanel.tsx): a chat column on the right of the Repo page, in the IDE's tokens.
+   Quiet by design: the person's messages sit in a soft accent box, answers on the page, steps folded under them. */
+
+.ide.help-open { grid-template-columns: 48px var(--side-w, 280px) 4px minmax(0, 1fr) var(--help-w, 380px);
+  grid-template-areas: "act side split main help" "sb sb sb sb sb"; }
+.ide.help-open.side-closed { grid-template-columns: 48px 0 0 minmax(0, 1fr) var(--help-w, 380px); }
+.ide-help { grid-area: help; min-width: 0; min-height: 0; display: flex; border-left: 1px solid var(--ide-line); background: var(--ide-side); }
+.act.act-help { margin-top: auto; }
+
+.hp { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.hp-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 8px 6px 12px; min-height: 36px; }
+.hp-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.hp-title b { font-size: 12.5px; letter-spacing: .02em; }
+.hp-mode { font: 600 10.5px var(--f-mono); color: var(--ok); background: var(--ok-soft); border-radius: 999px; padding: 1px 7px; white-space: nowrap; }
+.hp-tools { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.hp-tb { border: 1px solid transparent; background: none; color: var(--dim); font: 500 12px var(--f-body); padding: 2px 7px; border-radius: 5px; cursor: pointer;
+  max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hp-tb:hover { color: var(--fg); background: var(--ide-hover); }
+.hp-tb:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.hp-x { font-size: 16px; line-height: 1; padding: 0 7px; }
+.hp-model { display: grid; gap: 6px; padding: 8px 12px 10px; border-block: 1px solid var(--ide-line); background: var(--ide-bg); }
+.hp-sessions { display: flex; align-items: center; gap: 6px; padding: 0 8px 8px 12px; min-width: 0; border-bottom: 1px solid var(--ide-line); }
+.hp-sessions select { flex: 1 1 auto; min-width: 0; font: inherit; font-size: 12.5px; padding: 3px 6px; border: 1px solid var(--ide-line); border-radius: 6px;
+  background: var(--ide-bg); color: var(--fg); }
+.hp-usage { flex: none; font: 500 11px var(--f-mono); color: var(--dim); }
+.hp-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+.hp-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding: 12px; display: flex; flex-direction: column; gap: 14px; }
+.hp-empty { display: grid; gap: 10px; color: var(--dim); font-size: 13px; }
+.hp-empty p { margin: 0; }
+.hp-starters { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.hp-starters button { width: 100%; text-align: left; border: 1px solid var(--ide-line); background: var(--ide-bg); color: var(--fg); border-radius: 8px; padding: 7px 10px;
+  font: inherit; font-size: 12.5px; cursor: pointer; }
+.hp-starters button:hover { border-color: var(--accent); }
+.hp-hint { margin: 0; font-size: 11.5px; color: var(--faint); }
+.hp-hint kbd { font: 600 10.5px var(--f-mono); border: 1px solid var(--ide-line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; color: var(--dim); }
+
+.hp-msg { display: grid; gap: 6px; min-width: 0; }
+.hp-user { justify-self: end; max-width: 92%; background: var(--accent-soft); border-radius: 10px 10px 2px 10px; padding: 8px 11px; }
+.hp-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; }
+.hp-note .hp-text { color: var(--dim); font-style: italic; }
+.hp-answer { font-size: 13px; line-height: 1.55; min-width: 0; overflow-wrap: anywhere; }
+.hp-answer p { margin: 0 0 8px; }
+.hp-answer p:last-child { margin-bottom: 0; }
+.hp-answer .cite[role="link"] { cursor: pointer; color: var(--accent); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
+.hp-answer .cite[role="link"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 3px; }
+.hp-meta { margin: 0; font: 500 11px var(--f-mono); color: var(--faint); }
+.hp-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.hp-chip { display: inline-flex; align-items: center; gap: 4px; font: 500 11px var(--f-mono); color: var(--dim); border: 1px solid var(--ide-line); background: var(--ide-bg);
+  border-radius: 999px; padding: 1px 8px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hp-chip.on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--ide-line)); }
+.hp-chip button { border: 0; background: none; color: inherit; cursor: pointer; padding: 0 0 0 2px; font-size: 13px; line-height: 1; }
+
+.hp-steps { display: grid; gap: 6px; border-left: 2px solid var(--ide-line); padding-left: 10px; min-width: 0; }
+.hp-steps .step { font-size: 12px; }
+.hp-steps-btn { justify-self: start; border: 0; background: none; padding: 0; color: var(--dim); font: 500 11.5px var(--f-body); cursor: pointer; text-decoration: underline;
+  text-underline-offset: 2px; }
+.hp-steps-btn:hover { color: var(--fg); }
+.hp-steps-more { margin: 0; font-size: 11.5px; color: var(--faint); }
+.hp-working { margin: 0; display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dim); }
+
+.hp-compose { position: relative; display: grid; gap: 6px; padding: 8px 10px 10px; border-top: 1px solid var(--ide-line); background: var(--ide-bg); }
+.hp-compose textarea { width: 100%; resize: none; min-height: 52px; max-height: 180px; font: inherit; font-size: 13px; line-height: 1.45; padding: 7px 9px; border: 1px solid var(--ide-line);
+  border-radius: 8px; background: var(--ide-side); color: var(--fg); field-sizing: content; }
+.hp-compose textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+.hp-send { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.hp-suggest { position: absolute; left: 10px; right: 10px; bottom: calc(100% - 4px); margin: 0; padding: 4px; list-style: none; max-height: 260px; overflow-y: auto; z-index: 5;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 9px; box-shadow: var(--shadow); }
+.hp-suggest li { display: grid; gap: 1px; padding: 5px 8px; border-radius: 6px; cursor: pointer; min-width: 0; }
+.hp-suggest li.on, .hp-suggest li:hover { background: var(--accent-soft); }
+.hp-suggest .mono { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hp-sub { font-size: 11px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* a laptop: a narrower column; a phone: the Helper takes the whole page */
+@media (max-width: 1280px) { .ide.help-open { --help-w: 330px; } }
+@media (max-width: 720px) {
+  .ide.phone.help-open .ide-help { position: absolute; inset: 0; z-index: 20; border-left: 0; }
+  .act.act-help { margin-top: 0; }
+}

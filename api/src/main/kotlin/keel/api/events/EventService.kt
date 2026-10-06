@@ -84,7 +84,18 @@ class EventService(
                 val agent = d.str("agent") ?: "An agent"
                 notifications.create("started", e.projectId, "$agent started", listOfNotNull(d.str("phase"), d.str("ac")).joinToString(" · "), "/jobs/$id")
             }
-            "agent.step" -> {
+            // keel's Helper (engine runtime/helper.py): its turns are agent calls (budget, Live agents, Jobs) but never a flow
+            "helper.started" -> {
+                val id = e.callId ?: "${e.threadId}:${e.step}:$at"
+                jdbc.update(
+                    """INSERT INTO agent_calls(id, project_id, thread_id, agent, provider, model, step, phase, ac, status, started_at, mode)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 'running', ?, ?)
+                       ON CONFLICT(id) DO UPDATE SET status = 'running', mode = COALESCE(excluded.mode, agent_calls.mode)""",
+                    id, e.projectId, e.threadId, d.str("agent") ?: "helper", d.str("provider"), d.str("model"), e.step,
+                    d.str("phase"), at, modeOf(d.str("provider"), d.str("mode")),
+                )
+            }
+            "agent.step", "helper.step" -> {
                 val id = e.callId ?: return
                 ensureCall(id, e, at)
                 val n = d.long("n") ?: ((jdbc.queryForObject("SELECT COALESCE(MAX(n), 0) FROM agent_steps WHERE call_id = ?", Long::class.java, id) ?: 0L) + 1)
@@ -100,7 +111,7 @@ class EventService(
                     jdbc.update("UPDATE agent_calls SET steps_count = steps_count + 1, mcp_calls = mcp_calls + ? WHERE id = ?", mcp, id)
                 }
             }
-            "agent.finished" -> {
+            "agent.finished", "helper.finished" -> {
                 val id = e.callId ?: return
                 ensureCall(id, e, at)
                 val status = d.str("status") ?: "done"
@@ -110,7 +121,7 @@ class EventService(
                     status, at, d.long("tokens_in") ?: 0, d.long("tokens_out") ?: 0, d.long("tokens_cached") ?: 0, d.double("cost_usd") ?: 0.0,
                     d.long("premium_requests") ?: 0, d["result"]?.let { if (it is String) it else Json.write(it) }, id,
                 )
-                if (status == "failed") {
+                if (status == "failed" && e.type == "agent.finished") {
                     val agent = jdbc.queryForObject("SELECT COALESCE(agent, 'An agent') FROM agent_calls WHERE id = ?", String::class.java, id)
                     notifications.create("failed", e.projectId, "$agent failed", d.str("result")?.take(200) ?: "The agent step did not finish.", "/jobs/$id")
                 }

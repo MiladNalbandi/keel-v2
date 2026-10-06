@@ -65,6 +65,9 @@ class StubEngine private constructor(private val server: HttpServer) {
     /** Thread ids the next POST /threads answer, in order (empty: "t-stub-1"). */
     val nextThreadIds = java.util.concurrent.ConcurrentLinkedQueue<String>()
 
+    /** Helper sessions (POST /helper/sessions), like the engine keeps them; a test can set "project" to another one. */
+    val helperSessions = java.util.concurrent.ConcurrentHashMap<String, MutableMap<String, Any?>>()
+
     /** Unlocks posted per thread (POST /threads/{id}/unlocks), like the engine keeps them. */
     val unlocks = java.util.concurrent.ConcurrentHashMap<String, MutableList<Map<String, Any?>>>()
 
@@ -96,6 +99,37 @@ class StubEngine private constructor(private val server: HttpServer) {
             "tokens" to 1000, "low" to 800, "high" to 1500, "cost_usd" to 0.0, "premium_requests" to 0,
             "by_provider" to mapOf("fake" to 1000), "per_step" to emptyList<Any>(),
         )
+        path == "/helper/sessions" && method == "POST" -> {
+            val id = "h_stub_${helperSessions.size + 1}"
+            val sess = mutableMapOf<String, Any?>("id" to id, "project" to body?.get("project_id")?.asText(), "root" to body?.get("root")?.asText(),
+                "mode" to (body?.get("mode")?.asText() ?: "ask"), "title" to (body?.get("title")?.asText()?.ifBlank { null } ?: "New chat"),
+                "model" to body?.get("model")?.let { mapper.convertValue(it, Map::class.java) }, "status" to "idle", "turns" to 0,
+                "messages" to emptyList<Any>())
+            helperSessions[id] = sess
+            200 to sess
+        }
+        path == "/helper/sessions" -> 200 to helperSessions.values.toList()
+        path == "/helper/commands" -> 200 to listOf(mapOf("name" to "explain", "description" to "Explain", "plugin" to "core", "source" to "keel"))
+        path.matches(Regex("/helper/sessions/[^/]+/turn")) -> {
+            val id = path.split('/')[3]
+            if (!helperSessions.containsKey(id)) 404 to mapOf("error" to "No Helper session $id.")
+            else 200 to mapOf("session" to id, "call_id" to "call-$id", "n" to 1, "command" to null)
+        }
+        path.matches(Regex("/helper/sessions/[^/]+/stop")) -> 200 to helperSessions[path.split('/')[3]]
+        path.matches(Regex("/helper/sessions/[^/]+")) -> {
+            val id = path.split('/')[3]
+            val sess = helperSessions[id]
+            when {
+                sess == null -> 404 to mapOf("error" to "No Helper session $id.")
+                method == "DELETE" -> { helperSessions.remove(id); 200 to mapOf("ok" to true) }
+                method == "PATCH" -> {
+                    body?.get("title")?.asText()?.let { sess["title"] = it }
+                    body?.get("model")?.let { sess["model"] = mapper.convertValue(it, Map::class.java) }
+                    200 to sess
+                }
+                else -> 200 to sess
+            }
+        }
         path == "/threads" && method == "POST" -> 200 to mapOf("thread_id" to (nextThreadIds.poll() ?: "t-stub-1"))
         path.matches(Regex("/threads/[^/]+")) -> 200 to state(path.removePrefix("/threads/"))
         path.endsWith("/mode") && method == "POST" -> {

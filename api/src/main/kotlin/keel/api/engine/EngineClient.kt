@@ -48,6 +48,17 @@ class EngineClient(private val props: KeelProperties, private val mapper: Object
             .retrieve().body(JsonNode::class.java) ?: mapper.nullNode()
     }
 
+    fun patch(path: String, body: Any?): JsonNode = call {
+        fast.patch().uri(path)
+            .contentType(MediaType.APPLICATION_JSON)
+            .body(mapper.valueToTree<JsonNode>(body ?: emptyMap<String, Any>()))
+            .retrieve().body(JsonNode::class.java) ?: mapper.nullNode()
+    }
+
+    fun delete(path: String): JsonNode = call {
+        fast.delete().uri(path).retrieve().body(JsonNode::class.java) ?: mapper.nullNode()
+    }
+
     /** True when GET /health answers within a short time. */
     fun health(): JsonNode? = try {
         client(Duration.ofSeconds(2)).get().uri("/health").retrieve().body(JsonNode::class.java)

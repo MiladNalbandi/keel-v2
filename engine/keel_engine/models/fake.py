@@ -114,6 +114,12 @@ def _canned(req: AgentRequest) -> tuple[str | None, str, str, dict]:
         return None, "", "No findings across the branch diff.\nCODE-REVIEW: pass", {"verdict": "pass"}
     if agent == "security-auditor":
         return None, "", "SECURITY: no findings.", {"verdict": "pass"}
+    if agent == "helper":
+        asked = (req.prompt or "").split("Question:", 1)[-1].strip().splitlines()[0][:120] if "Question:" in (req.prompt or "") \
+            else (req.prompt or "").strip().splitlines()[-1][:120]
+        turns = len(req.history) // 2 + 1
+        return None, "", (f"You asked: {asked}\nThe package starts in `src/scores/__init__.py:1`. This is answer {turns} "
+                          "of this session."), {}
     if agent == "investigator":
         return None, "", ("ROOT CAUSE: the counter is read before it is written (src/scores/__init__.py:1).\n"
                           "ROOT-CAUSE: confirmed"), {}

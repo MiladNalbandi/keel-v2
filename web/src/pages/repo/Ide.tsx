@@ -3,7 +3,8 @@
 // open a file at a line, and the URL follows the active tab. On a phone the side bar and the editor are two screens.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as RPointerEvent } from "react";
-import { api, type RepoInfo } from "../../api";
+import { api, type HelperSelection, type RepoInfo } from "../../api";
+import { HelperPanel } from "../../components/helper/HelperPanel";
 import { useNarrow } from "../../components/page";
 import { ErrorBox } from "../../components/ui";
 import { WorkspaceDoctor } from "../../components/WorkspaceDoctor";
@@ -86,6 +87,10 @@ export function RepoIde({ pid, repo, version = 0 }: { pid: string; repo: RepoInf
   const [wrap, setWrap] = useState<boolean>(() => readJson(local, "keel2.repo.wrap", false));
   const [dims, setDims] = useState("");
   const [copied, setCopied] = useState(false);
+  // keel's Helper: a chat panel on the right (⌘I), remembered per browser; it can take the lines selected in the code
+  const [helperOpen, setHelperOpen] = useState<boolean>(() => readJson(local, "keel2.repo.helper", false));
+  const [helperFocus, setHelperFocus] = useState(0);
+  const [helperSel, setHelperSel] = useState<HelperSelection | null>(null);
 
   const changes = useLoad(`changes:${pid}`, () => api.changes(pid));
   const byPath = useMemo(() => new Map((changes.data ?? []).map((c) => [c.path, c])), [changes.data]);
@@ -104,6 +109,7 @@ export function RepoIde({ pid, repo, version = 0 }: { pid: string; repo: RepoInf
   useEffect(() => writeJson(local, "keel2.repo.side", width), [width]);
   useEffect(() => writeJson(local, "keel2.repo.diff", mode), [mode]);
   useEffect(() => writeJson(local, "keel2.repo.wrap", wrap), [wrap]);
+  useEffect(() => writeJson(local, "keel2.repo.helper", helperOpen), [helperOpen]);
   useEffect(() => {
     setCursor(null);
     setDims("");
@@ -158,6 +164,25 @@ export function RepoIde({ pid, repo, version = 0 }: { pid: string; repo: RepoInf
 
   const codeActive = !!active && active.kind === "file" && view === "code" && showText;
 
+  /** The lines selected in the code view, as the Helper takes them; null when nothing (or not code) is selected. */
+  const codeSelection = useCallback((): HelperSelection | null => {
+    const sel = typeof window !== "undefined" ? window.getSelection() : null;
+    if (!sel || sel.isCollapsed || !activeFile || !codeActive) return null;
+    const rowOf = (n: Node | null) => (n instanceof Element ? n : n?.parentElement)?.closest<HTMLElement>(".cv-row");
+    const a = rowOf(sel.anchorNode), b = rowOf(sel.focusNode);
+    if (!a || !b || !root.current?.contains(a)) return null;
+    const lines = [Number(a.dataset.line), Number(b.dataset.line)].sort((x, y) => x - y);
+    const text = sel.toString().trim();
+    return text ? { path: activeFile, from: lines[0], to: lines[1], text: text.slice(0, 8000) } : null;
+  }, [activeFile, codeActive]);
+
+  const askHelper = useCallback(() => {
+    const picked = codeSelection();
+    if (picked) setHelperSel(picked);
+    setHelperOpen(true);
+    setHelperFocus((n) => n + 1);
+  }, [codeSelection]);
+
   // keyboard: ⌘/Ctrl+P quick open, +Shift+F search, +Shift+E explorer, +Shift+G source control, +F find, +G go to line, Alt+Z wrap
   useEffect(() => {
     const on = (e: KeyboardEvent) => {
@@ -169,6 +194,13 @@ export function RepoIde({ pid, repo, version = 0 }: { pid: string; repo: RepoInf
         return;
       }
       if (!mod || e.altKey) return;
+      if (!e.shiftKey && k === "i") {
+        e.preventDefault();
+        // ⌘I: open the Helper (with the selected lines); again with nothing selected closes it
+        if (helperOpen && !codeSelection()) setHelperOpen(false);
+        else askHelper();
+        return;
+      }
       if (!e.shiftKey && k === "p") {
         e.preventDefault();
         setQo(true);
@@ -190,7 +222,7 @@ export function RepoIde({ pid, repo, version = 0 }: { pid: string; repo: RepoInf
     };
     window.addEventListener("keydown", on);
     return () => window.removeEventListener("keydown", on);
-  }, [showSide, codeActive]);
+  }, [showSide, codeActive, helperOpen, codeSelection, askHelper]);
 
   // the IDE fills the window below the page head (measured again when the head grows, e.g. a merge result)
   useLayoutEffect(() => {
@@ -373,6 +405,12 @@ export function RepoIde({ pid, repo, version = 0 }: { pid: string; repo: RepoInf
           <Icon name="wrap" size={15} /><span>Wrap</span>
         </button>
       )}
+      {view === "code" && showText && (
+        <button type="button" className="tb" aria-label="Ask the Helper" title={`Ask the Helper about the selected lines, or this file (${MOD}I)`}
+          onMouseDown={(e) => e.preventDefault()} onClick={askHelper}>
+          <Icon name="helper" size={15} /><span>Ask</span>
+        </button>
+      )}
       <button type="button" className="tb" aria-label="Copy the path" title="Copy the path"
         onClick={() => {
           void navigator.clipboard?.writeText(active.path).then(() => {
@@ -391,7 +429,7 @@ export function RepoIde({ pid, repo, version = 0 }: { pid: string; repo: RepoInf
   } as CSSProperties;
 
   return (
-    <div ref={root} className={`ide${phone ? ` phone s-${screen}` : ""}${sideOpen ? "" : " side-closed"}`} style={ide}>
+    <div ref={root} className={`ide${phone ? ` phone s-${screen}` : ""}${sideOpen ? "" : " side-closed"}${helperOpen ? " help-open" : ""}`} style={ide}>
       <nav className="ide-act" aria-label="Repo views">
         {ACTIVITIES.map(([id, label, icon, key, short]) => {
           const n = id === "scm" ? changes.data?.length ?? 0 : 0;
@@ -408,6 +446,11 @@ export function RepoIde({ pid, repo, version = 0 }: { pid: string; repo: RepoInf
             </button>
           );
         })}
+        <button type="button" className={`act act-help${helperOpen ? " on" : ""}`} aria-pressed={helperOpen} aria-label="Helper"
+          title={`Helper: ask about this project (${MOD}I)`} onClick={() => (helperOpen ? setHelperOpen(false) : askHelper())}>
+          <Icon name="helper" size={22} />
+          {phone && <span className="act-l" aria-hidden="true">Helper</span>}
+        </button>
       </nav>
       <aside className="ide-side" aria-label={ACTIVITIES.find((a) => a[0] === activity)?.[1]}>{sideView}</aside>
       {!phone && sideOpen && (
@@ -489,6 +532,12 @@ export function RepoIde({ pid, repo, version = 0 }: { pid: string; repo: RepoInf
         )}
         <div className="ed-body">{body}</div>
       </section>
+      {helperOpen && (
+        <div className="ide-help">
+          <HelperPanel pid={pid} openFile={activeFile} selection={helperSel} onClearSelection={() => setHelperSel(null)} focusKey={helperFocus}
+            onOpenFile={(p, line) => open({ path: p, view: "code" }, { pin: true, line })} onClose={() => setHelperOpen(false)} />
+        </div>
+      )}
       <footer className="ide-sb" aria-label="Status bar">
         <button type="button" className="sb-i sb-branch" onClick={() => showSide("scm")} title={repo ? `${repo.branch}: ${repo.ahead} ahead of ${repo.base}, ${repo.behind} behind` : "Branch"}>
           <Icon name="branch" size={14} /><span>{repo?.branch ?? "…"}</span>

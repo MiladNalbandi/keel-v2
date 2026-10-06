@@ -1,7 +1,7 @@
 // MSW handlers for every /api route the web uses, backed by a small in-memory db (reset per test).
 
 import { http, HttpResponse } from "msw";
-import type { Cap, CapLeft, CapsLeft, GraphFocus, GraphOverview, IndexStatus, OnCap, Settings, Stack, ThreadState, Workflow } from "../api";
+import type { Cap, CapLeft, CapsLeft, GraphFocus, GraphOverview, HelperSession, IndexStatus, OnCap, Settings, Stack, ThreadState, Workflow } from "../api";
 import * as fx from "./fixtures";
 import { createTaskDb, taskHandlers } from "./taskHandlers";
 
@@ -35,6 +35,8 @@ export function createDb() {
     /** GET /budget/now without its caps (they come from `caps` and `capUse`, as GET /caps/left). */
     budgetNow: fx.budgetNow(),
     /** GET /graph and GET /graph/node answers (tests change them). */
+    /** keel's Helper: sessions as the engine keeps them (tests add the answers and send the helper.* events) */
+    helper: { sessions: [] as HelperSession[], next: 1 },
     graph: fx.graphOverview() as GraphOverview,
     graphFocus: fx.graphFocus() as GraphFocus,
     calls: [] as { method: string; path: string; body: unknown }[],
@@ -270,6 +272,51 @@ export function handlers(db: Db) {
     http.put("/api/projects/:pid/mcp-allow", async ({ request }) => HttpResponse.json(await log(request))),
 
     http.get("/api/projects/:pid/budget", () => HttpResponse.json(fx.budget)),
+    http.get("/api/projects/:pid/helper/sessions", () => HttpResponse.json(db.helper.sessions.map(({ messages: _m, ...x }) => x))),
+    http.post("/api/projects/:pid/helper/sessions", async ({ request, params }) => {
+      const b = (await log(request)) as { mode?: string; title?: string } | null;
+      const now = new Date().toISOString();
+      const sess: HelperSession = { id: `h_${db.helper.next++}`, project: String(params.pid), root: "/workspace", mode: "ask", title: b?.title || "New chat",
+        model: { provider: "claude", mode: "subscription", model: "sonnet" }, status: "idle", tokens_in: 0, tokens_out: 0, tokens_cached: 0, cost_usd: 0,
+        turns: 0, created_at: now, updated_at: now, messages: [], busy: false };
+      db.helper.sessions.unshift(sess);
+      return HttpResponse.json(sess);
+    }),
+    http.get("/api/projects/:pid/helper/sessions/:sid", ({ params }) => {
+      const sess = db.helper.sessions.find((x) => x.id === params.sid);
+      return sess ? HttpResponse.json(sess) : HttpResponse.json({ error: "No Helper session" }, { status: 404 });
+    }),
+    http.patch("/api/projects/:pid/helper/sessions/:sid", async ({ request, params }) => {
+      const b = (await log(request)) as { title?: string; model?: HelperSession["model"] };
+      const sess = db.helper.sessions.find((x) => x.id === params.sid)!;
+      if (b.title) sess.title = b.title;
+      if (b.model) sess.model = b.model;
+      return HttpResponse.json(sess);
+    }),
+    http.delete("/api/projects/:pid/helper/sessions/:sid", async ({ request, params }) => {
+      await log(request);
+      db.helper.sessions = db.helper.sessions.filter((x) => x.id !== params.sid);
+      return HttpResponse.json({ ok: true });
+    }),
+    http.post("/api/projects/:pid/helper/sessions/:sid/turn", async ({ request, params }) => {
+      const b = (await log(request)) as { text: string };
+      const sess = db.helper.sessions.find((x) => x.id === params.sid)!;
+      const n = (sess.messages?.length ?? 0) + 1;
+      sess.messages = [...(sess.messages ?? []), { n, role: "user", text: b.text, data: {}, at: new Date().toISOString() }];
+      sess.status = "running";
+      sess.busy = true;
+      if (sess.title === "New chat") sess.title = b.text.slice(0, 80);
+      return HttpResponse.json({ session: sess.id, call_id: `call-${sess.id}-${n}`, n, command: b.text.startsWith("/") ? b.text.slice(1).split(" ")[0] : null });
+    }),
+    http.post("/api/projects/:pid/helper/sessions/:sid/stop", async ({ request, params }) => {
+      await log(request);
+      return HttpResponse.json(db.helper.sessions.find((x) => x.id === params.sid));
+    }),
+    http.get("/api/projects/:pid/helper/commands", () => HttpResponse.json([
+      { name: "explain", description: "Explain a file, a symbol or the selected lines in plain words", plugin: "core", source: "keel" },
+      { name: "where", description: "Find where something is in the code", plugin: "core", source: "keel" },
+      { name: "deploy-notes", description: "Our release notes", plugin: "team", source: "project" },
+    ])),
     http.get("/api/projects/:pid/graph", () => HttpResponse.json(db.graph)),
     http.get("/api/projects/:pid/graph/search", ({ request }) => {
       const q = (new URL(request.url).searchParams.get("q") ?? "").toLowerCase();

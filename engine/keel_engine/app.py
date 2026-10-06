@@ -19,7 +19,7 @@ from .models import usage as provider_usage
 from .demo import create_demo, workspace_missing
 from .events import EventBus, bus as default_bus
 from .models import catalog
-from .runtime import codegraph_view, hunt, mapper, scan
+from .runtime import codegraph_view, helper, hunt, mapper, scan
 from .runtime.explain import ExplainError, explain_step
 from .runtime.service import Engine, EngineError
 from .tools import mcp
@@ -135,6 +135,40 @@ class Ask(BaseModel):
     timeout: int = Field(default=300, ge=10, le=1800)
 
 
+class HelperCreate(BaseModel):
+    project_id: str
+    root: str
+    mode: Literal["ask"] = "ask"
+    model: ModelSpec | None = None
+    title: str = ""
+    thread_id: str | None = None
+
+
+class HelperCommands(BaseModel):
+    root: str | None = None
+
+
+class HelperPatch(BaseModel):
+    title: str | None = None
+    model: ModelSpec | None = None
+
+
+class HelperTurn(BaseModel):
+    """One message to the Helper; the api adds the logins, the MCP servers and the project's flow (runtime/helper.py)."""
+    text: str = Field(min_length=1, max_length=20_000)
+    model: ModelSpec | None = None
+    keys: dict[str, str] | None = None
+    mcp: list[McpServerSpec] = Field(default_factory=list)
+    tools_allow: list[str] = Field(default_factory=list)
+    agents: dict[str, AgentSettings] = Field(default_factory=dict)
+    skills: dict[str, str] = Field(default_factory=dict)
+    flow: dict[str, Any] | None = None          # the flow that runs or waits: title, status, phase, spec, acs, waiting
+    mentions: list[dict[str, Any]] = Field(default_factory=list)   # [{kind: file|symbol|ac, value, file?, line?}]
+    selection: dict[str, Any] | None = None     # {path, from, to, text}
+    open_file: str | None = None
+    timeout: int | None = Field(default=None, ge=30, le=3600)
+
+
 class Resume(BaseModel):
     decision: Literal["approve", "reject"]
     why: str | None = None
@@ -232,6 +266,7 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
         engine = Engine(bus)
         app.state.engine = engine
         app.state.scanner = scan.Scanner(bus)
+        app.state.helper = helper.HelperRunner(bus)
         app.state.bus = bus
         app.state.demo = None
         if workspace_missing() and os.environ.get("KEEL_DEMO", "1") != "0":
@@ -244,6 +279,7 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
         try:
             yield
         finally:
+            await app.state.helper.close()
             await engine.close()
             await bus.stop()
 
@@ -428,6 +464,63 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
         if not ok:
             raise EngineError(400, msg)
         return await asyncio.to_thread(hunt.run_view, pid, run)
+
+    # ---- the Helper (runtime/helper.py) ------------------------------------------------------------------
+
+    def helper_call(fn, *a, **k):
+        try:
+            return fn(*a, **k)
+        except helper.HelperError as exc:
+            raise EngineError(exc.status, str(exc), exc.hint) from exc
+
+    @app.post("/helper/sessions")
+    async def post_helper_session(body: HelperCreate):
+        return await asyncio.to_thread(helper_call, helper.create, body.project_id, project_root(body.root), body.mode,
+                                       body.model.model_dump() if body.model else None, body.title, body.thread_id)
+
+    @app.get("/helper/sessions")
+    async def get_helper_sessions(project: str):
+        return await asyncio.to_thread(helper.list_sessions, project)
+
+    @app.get("/helper/sessions/{sid}")
+    async def get_helper_session(sid: str, request: Request):
+        s = await asyncio.to_thread(helper_call, helper.get, sid)
+        s["busy"] = request.app.state.helper.busy(sid)
+        return s
+
+    @app.patch("/helper/sessions/{sid}")
+    async def patch_helper_session(sid: str, body: HelperPatch):
+        await asyncio.to_thread(helper_call, helper.get, sid, False)
+        if body.model:
+            await asyncio.to_thread(helper.set_model, sid, body.model.model_dump())
+        if body.title is not None and body.title.strip():
+            await asyncio.to_thread(helper.update, sid, title=body.title.strip()[:120])
+        return await asyncio.to_thread(helper.get, sid)
+
+    @app.delete("/helper/sessions/{sid}")
+    async def delete_helper_session(sid: str, request: Request):
+        await request.app.state.helper.stop(sid)
+        await asyncio.to_thread(helper_call, helper.delete, sid)
+        return {"ok": True}
+
+    @app.post("/helper/sessions/{sid}/turn")
+    async def post_helper_turn(sid: str, body: HelperTurn, request: Request):
+        """Starts one answer and returns at once; its steps and its end come as helper.* events."""
+        try:
+            return await request.app.state.helper.turn(sid, body.model_dump(exclude_none=True))
+        except helper.HelperError as exc:
+            raise EngineError(exc.status, str(exc), exc.hint) from exc
+
+    @app.post("/helper/sessions/{sid}/stop")
+    async def post_helper_stop(sid: str, request: Request):
+        await asyncio.to_thread(helper_call, helper.get, sid, False)
+        return await request.app.state.helper.stop(sid)
+
+    @app.post("/helper/commands")
+    async def post_helper_commands(body: HelperCommands):
+        """The slash commands of keel's plugins and the project's own (runtime/plugins.py)."""
+        root = body.root if body.root and os.path.isdir(body.root) else None
+        return await asyncio.to_thread(helper.commands, root)
 
     @app.post("/mcp/tools")
     async def post_mcp_tools(body: McpServerSpec):

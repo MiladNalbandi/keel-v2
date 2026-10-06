@@ -448,7 +448,9 @@ def codex_line(emit: Emit, root: str, ev: dict, state: dict):
 
 class CodexCLIRunner:
     async def run(self, req: AgentRequest, emit: Emit) -> AgentResult:
-        argv = [find("codex"), "exec", "--json", "-s", "workspace-write", "--skip-git-repo-check", "-C", req.root]
+        # codex has no hook for keel's guard: a read-only run (run mode readonly, the Helper's Ask) gets its read-only sandbox
+        sandbox = "read-only" if getattr(req.toolbox, "readonly", False) else "workspace-write"
+        argv = [find("codex"), "exec", "--json", "-s", sandbox, "--skip-git-repo-check", "-C", req.root]
         if req.model.get("model"):
             argv += ["-m", req.model["model"]]
         if req.model.get("effort"):
@@ -493,6 +495,9 @@ class CopilotCLIRunner:
     async def run(self, req: AgentRequest, emit: Emit) -> AgentResult:
         prompt = f"{req.system}\n\n{req.prompt}" if req.system else req.prompt
         argv = [find("copilot"), "-p", prompt, "--allow-all-tools", "--no-color"]
+        if getattr(req.toolbox, "readonly", False):
+            # no hook for keel's guard here either: a read-only run may not write files or run shell commands
+            argv += ["--deny-tool", "write", "--deny-tool", "shell"]
         if req.model.get("model"):
             argv += ["--model", req.model["model"]]
         servers = mcp.servers_for(req.mcp_specs, req.tools_allow)

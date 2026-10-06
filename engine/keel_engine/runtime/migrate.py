@@ -12,6 +12,9 @@
     hunt_candidates         every finding of a hunt with its verdict, severity, group, dispatch and close; never deleted
     hunt_groups             findings that share one cause: the cause in a sentence and the lead finding
     hunt_recipes            a proven finding's repro recipe (the file the fix flow's reproducer gets, never the claim)
+    helper_sessions         the Helper's chat sessions (runtime/helper.py): project, mode, model, the CLI's own session
+                            id to continue, status and what they used
+    helper_messages         each session's messages in order: the person's, the Helper's answers (with the turn's call id)
 """
 
 from __future__ import annotations
@@ -59,6 +62,18 @@ MIGRATIONS = [
     """create table if not exists hunt_recipes (
       project text not null, run text not null, candidate text not null, file text not null, body text not null,
       runs integer, at text not null, primary key (project, run, candidate)
+    )""",
+    # the Helper (runtime/helper.py): one row per chat session, one per message; a turn's steps are agent steps in the api
+    """create table if not exists helper_sessions (
+      id text primary key, project text not null, root text not null, mode text not null, title text not null,
+      model_json text not null, engine_session text, status text not null, error text, thread_id text,
+      tokens_in integer not null default 0, tokens_out integer not null default 0, tokens_cached integer not null default 0,
+      cost_usd real not null default 0, turns integer not null default 0, created_at text not null, updated_at text not null
+    )""",
+    """create index if not exists helper_sessions_project on helper_sessions (project, updated_at)""",
+    """create table if not exists helper_messages (
+      session_id text not null, n integer not null, role text not null, text text not null, call_id text,
+      data_json text, at text not null, primary key (session_id, n)
     )""",
 ]
 

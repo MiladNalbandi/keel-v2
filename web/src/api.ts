@@ -164,10 +164,12 @@ export type McpServerSpec = { name: string; command: string; args: string[]; env
 
 export type EngineEventType =
   | "thread.started" | "step.started" | "step.finished" | "agent.started" | "agent.step" | "agent.finished"
-  | "gate.waiting" | "gate.decided" | "budget.warn" | "budget.stop" | "guard.refused" | "thread.done" | "thread.failed";
+  | "gate.waiting" | "gate.decided" | "budget.warn" | "budget.stop" | "guard.refused" | "thread.done" | "thread.failed"
+  | "helper.started" | "helper.step" | "helper.finished";
 export const ENGINE_EVENT_TYPES: EngineEventType[] = [
   "thread.started", "step.started", "step.finished", "agent.started", "agent.step", "agent.finished",
   "gate.waiting", "gate.decided", "budget.warn", "budget.stop", "guard.refused", "thread.done", "thread.failed",
+  "helper.started", "helper.step", "helper.finished",
 ];
 export type EngineEvent = {
   type: EngineEventType;
@@ -559,6 +561,31 @@ export type Spend = { tokens: number; cost_usd: number };
 export type FlowSpend = {
   thread_id: string; title: string; status: ThreadStatus; tokens: number; cost_usd: number; cap_tokens: number | null; cap_usd: number | null;
 };
+/** v0.6.0 keel's Helper (`/api/projects/{pid}/helper/...`): chat sessions in the Repo page, run by keel's own harness. */
+export type HelperMode = "ask";
+export type HelperMessage = {
+  n: number;
+  /** user: the person; helper: an answer; note: a turn that stopped or failed (its text says why) */
+  role: "user" | "helper" | "note";
+  text: string;
+  /** the turn's agent call: its steps come from /jobs/{call_id}/steps and live agent steps */
+  call_id?: string | null;
+  data: { status?: string; provider?: string; model?: string; tokens_in?: number; tokens_out?: number; tokens_cached?: number;
+    cost_usd?: number; ms?: number; command?: string; mentions?: HelperMention[]; selection?: HelperSelection };
+  at: string;
+};
+export type HelperSession = {
+  id: string; project: string; root: string; mode: HelperMode; title: string; model: Model;
+  status: "idle" | "running" | "failed"; error?: string | null; thread_id?: string | null;
+  tokens_in: number; tokens_out: number; tokens_cached: number; cost_usd: number; turns: number;
+  created_at: string; updated_at: string;
+  messages?: HelperMessage[]; busy?: boolean;
+};
+export type HelperMention = { kind: "file" | "symbol" | "ac" | string; value: string; file?: string; line?: number };
+export type HelperSelection = { path: string; from?: number; to?: number; text: string };
+export type HelperCommand = { name: string; description: string; plugin: string; source: "keel" | "project" | string };
+export type HelperTurnStarted = { session: string; call_id: string; n: number; command?: string | null };
+
 /** v0.5.3 the code graph (`GET /api/projects/{pid}/graph`): the CodeGraph index rolled up into units and groups. */
 export type GraphGroup = { id: string; kind: "package" | "folder"; name: string; label: string; path: string[] };
 export type GraphUnit = { id: string; name: string; kind: string; group: string; file: string; line: number; members: number };
@@ -723,6 +750,7 @@ async function request<T>(method: string, path: string, body?: unknown, opts: { 
 export const get = <T>(path: string) => request<T>("GET", path);
 export const post = <T>(path: string, body: unknown = {}) => request<T>("POST", path, body);
 export const put = <T>(path: string, body: unknown) => request<T>("PUT", path, body);
+export const patch = <T>(path: string, body: unknown) => request<T>("PATCH", path, body);
 export const del = <T = void>(path: string) => request<T>("DELETE", path);
 export const getText = (path: string) => request<string>("GET", path, undefined, { text: true });
 
@@ -871,6 +899,17 @@ export const api = {
 
   // control
   budget: (pid: string) => get<Budget>(`/projects/${e(pid)}/budget`),
+  helperSessions: (pid: string) => get<HelperSession[]>(`/projects/${e(pid)}/helper/sessions`),
+  helperCreate: (pid: string, body: { mode?: HelperMode; model?: Model; title?: string } = {}) =>
+    post<HelperSession>(`/projects/${e(pid)}/helper/sessions`, body),
+  helperSession: (pid: string, sid: string) => get<HelperSession>(`/projects/${e(pid)}/helper/sessions/${e(sid)}`),
+  helperPatch: (pid: string, sid: string, body: { title?: string; model?: Model }) =>
+    patch<HelperSession>(`/projects/${e(pid)}/helper/sessions/${e(sid)}`, body),
+  helperDelete: (pid: string, sid: string) => del<{ ok: boolean }>(`/projects/${e(pid)}/helper/sessions/${e(sid)}`),
+  helperTurn: (pid: string, sid: string, body: { text: string; model?: Model; mentions?: HelperMention[]; selection?: HelperSelection; open_file?: string }) =>
+    post<HelperTurnStarted>(`/projects/${e(pid)}/helper/sessions/${e(sid)}/turn`, body),
+  helperStop: (pid: string, sid: string) => post<HelperSession>(`/projects/${e(pid)}/helper/sessions/${e(sid)}/stop`),
+  helperCommands: (pid: string) => get<HelperCommand[]>(`/projects/${e(pid)}/helper/commands`),
   graph: (pid: string) => get<GraphOverview>(`/projects/${e(pid)}/graph`),
   graphSearch: (pid: string, q: string) => get<{ available: boolean; reason?: string; results: GraphHit[] }>(`/projects/${e(pid)}/graph/search?q=${e(q)}`),
   graphNode: (pid: string, id: string, depth = 1) => get<GraphFocus>(`/projects/${e(pid)}/graph/node?id=${e(id)}&depth=${depth}`),

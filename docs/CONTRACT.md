@@ -1247,3 +1247,58 @@ GET /api/projects/{pid}/graph/node?id=…&depth=1|2 → GraphFocus
   implements / extends dotted, refers to faint.
 - The box diagram (`components/er/BoxDiagram.tsx`) takes `open` (a box's way in), `weight` and `tip` on a line, and a
   canvas `label`; the Map draws as before.
+
+## v0.6.0: the Helper
+
+A chat in the Repo page (⌘I, or the Helper button in the activity bar) with an agent that reads the project and answers
+with `file:line` links. keel runs it with its own harness (`engine/keel_engine/runtime/helper.py`): one answer is one
+agent run on the model's runner (claude, codex, copilot / opencode, an API key, or the fake model), with keel's guarded
+tools, the MCP servers the `helper` agent may use plus the code graph, the guard context the hook reads on every tool
+call, and the diff guard as the backstop for engines without a hook.
+
+- **Modes**: `ask` (read only: the guard's readonly; codex runs in its read-only sandbox, copilot without its write and
+  shell tools; anything that still changes is put back). More modes come in later releases.
+- **Sessions continue**: claude and codex continue their own CLI session (the first turn of a claude session pins
+  `--session-id`, the next ones `--resume`); the API-key runner gets the earlier messages; other CLIs get the conversation
+  so far in the prompt (`TRANSCRIPT_CHARS`).
+- **The prompt** carries the mode, the knowledge sections the `helper` agent uses (`content/agents/helper.md`), the
+  plugins' context files, the project's running or waiting flow (title, phase, spec, criteria, the waiting gate), what
+  the person points at (`@` mentions, selected lines, the open file), and the question.
+- **Plugins** (`engine/keel_engine/runtime/plugins.py`): `content/plugins/<name>/plugin.yml` (keel's) and
+  `<project>/.keel/plugins/<name>/plugin.yml` (the project's; a command with the same name replaces keel's):
+  `commands` (`/name` sends the template; `{{args}}` is the rest of the line) and `context` (project files every prompt
+  names). A broken plugin is listed with its problems and never used.
+
+```
+GET    /api/projects/{pid}/helper/sessions                → HelperSession[] (newest first)
+POST   /api/projects/{pid}/helper/sessions                {mode?: "ask", model?: Model, title?} → HelperSession
+GET    /api/projects/{pid}/helper/sessions/{sid}          → HelperSession & {messages, busy}   (404 for another project's)
+PATCH  /api/projects/{pid}/helper/sessions/{sid}          {title?, model?} → HelperSession   (another provider starts its CLI session fresh)
+DELETE /api/projects/{pid}/helper/sessions/{sid}          → {ok}
+POST   /api/projects/{pid}/helper/sessions/{sid}/turn     {text, model?, mentions?, selection?, open_file?} → {session, call_id, n, command}
+POST   /api/projects/{pid}/helper/sessions/{sid}/stop     → HelperSession
+GET    /api/projects/{pid}/helper/commands                → {name, description, plugin, source: keel|project}[]
+
+HelperSession = {id, project, root, mode, title, model, status: idle|running|failed, error, thread_id, tokens_in, tokens_out,
+                 tokens_cached, cost_usd, turns, created_at, updated_at}
+HelperMessage = {n, role: user|helper|note, text, call_id, data: {status, provider, model, tokens_in, tokens_out, tokens_cached,
+                 cost_usd, ms, command?, mentions?, selection?}, at}
+HelperMention = {kind: file|symbol|ac, value, file?, line?}      HelperSelection = {path, from?, to?, text}
+```
+- A turn answers at once; the answer comes as events with `thread_id` = the session id and `step` "helper":
+  `helper.started` (agent, provider, model, mode, phase `helper-<mode>`), `helper.step` (an agent step), `helper.finished`
+  (status done|stopped|failed, tokens, cost, result). The api stores them as an agent call (agent `helper`, so the budget,
+  Live agents and Jobs count it) and its steps, never as a flow, and sends no "failed" notification for them.
+- The api adds to every turn: the logins of the session's model, the MCP servers and the `helper` agent's MCP allow list,
+  the `helper` agent's knowledge and skills (Agents page), and the project's running or waiting flow.
+- One answer at a time per session (409 while one runs); `stop` cancels it at any moment and leaves a `note` message.
+
+### Web
+- `components/helper/HelperPanel.tsx` in `pages/repo/Ide.tsx` (a column on the right; a phone shows it over the page):
+  the chat list, the model, what the chat used, the answers (Markdown; `file:line` chips open the editor there), each
+  answer's steps (live while it runs from `helper.step`, stored ones on demand from `/jobs/{call_id}/steps`), the open
+  file and the selected lines that go along, `/` commands and `@` mentions (criteria of the flow, code-graph symbols,
+  files), Stop. While an answer runs the panel reads the session again on every live tick and every 5 s, so a missed
+  `helper.finished` (a hidden tab pauses the event stream) never leaves it "working".
+- The editor's toolbar has **Ask** (the selected lines, or the file); ⌘I opens the Helper with the selection, and closes it
+  when nothing is selected.

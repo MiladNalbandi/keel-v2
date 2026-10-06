@@ -40,7 +40,7 @@ def _text(content) -> str:
 
 class APIRunner:
     async def run(self, req: AgentRequest, emit: Emit) -> AgentResult:
-        from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+        from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
         provider, model = req.model["provider"], req.model.get("model", "")
         llm = chat_model(provider, model, req.key, req.model.get("effort"))
@@ -49,7 +49,10 @@ class APIRunner:
         tools += mcp_tools
         by_name = {t.name: t for t in tools}
         bound = llm.bind_tools(tools) if tools else llm
-        messages = [SystemMessage(req.system), HumanMessage(req.prompt)] if req.system else [HumanMessage(req.prompt)]
+        messages = [SystemMessage(req.system)] if req.system else []
+        # a Helper session's earlier turns, so the model has the conversation (CLIs continue their own sessions)
+        messages += [HumanMessage(t) if role == "user" else AIMessage(t) for role, t in req.history if t]
+        messages.append(HumanMessage(req.prompt))
         tin = tout = 0
         text = ""
         for _ in range(MAX_TURNS):
