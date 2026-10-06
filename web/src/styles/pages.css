@@ -1,7 +1,7 @@
 /* Project, Build and Control pages (Repo, Map, Wiki, Agents, Skill hub, Stacks, Tools, Budget, Settings, Connections).
    Uses the tokens of styles.css only. Shared pieces first (components/page.tsx), then one block per page. */
 
-a.btn { text-decoration: none; display: inline-block; }
+a.btn { text-decoration: none; }
 
 /* ---------- shared: sections, toolbar, empty states, loading ---------- */
 .pg-sec { display: grid; gap: 12px; min-width: 0; }
@@ -44,8 +44,10 @@ a.btn { text-decoration: none; display: inline-block; }
 .chip.c-mcp { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
 .chip.c-more { border-style: dashed; }
 
-/* a table that becomes a list of cards on a phone: <table class="rt"> with data-label on the secondary cells */
-@media (max-width: 720px) {
+/* a table that becomes a list of cards when its box is narrow (a phone, or a half-width panel):
+   <div class="table-wrap rt-wrap"><table class="rt"> with data-label on the secondary cells */
+.rt-wrap { container-type: inline-size; }
+@container (max-width: 560px) {
   table.rt, table.rt > tbody, table.rt > tbody > tr, table.rt > tbody > tr > td { display: block; width: 100%; }
   table.rt > thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   table.rt > tbody > tr { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 12px 14px; border-bottom: 1px solid var(--border); }
@@ -70,7 +72,8 @@ a.btn { text-decoration: none; display: inline-block; }
 .bd-kpi-skel.bd-kpi-skel { display: inline-block; width: 72px; height: 24px; vertical-align: middle; }
 .chart.bd-chart { min-width: 0; }
 .bd-ax-t.bd-ax-t { fill: var(--dim); font-family: var(--f-body); }
-.bd-accts { list-style: none; margin: 0; padding: 0; }
+.grid.bd-g { grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); align-items: start; }
+.bd-accts { list-style: none; margin: 0; padding: 0; container-type: inline-size; }
 .bd-acct { display: grid; grid-template-columns: minmax(0,1fr) minmax(130px, auto); grid-template-areas: "n c" "u c"; gap: 2px 16px; align-items: center; padding: 11px 16px; border-bottom: 1px solid var(--border); }
 .bd-acct:last-child { border-bottom: 0; }
 .prov.bd-acct-n { grid-area: n; white-space: normal; font-weight: 600; }
@@ -86,9 +89,12 @@ a.btn { text-decoration: none; display: inline-block; }
 .field input.bd-lim-in.bd-lim-in { width: 130px; flex: none; }
 .field input.bd-lim-note.bd-lim-note { width: auto; flex: 1 1 160px; }
 @media (max-width: 1100px) { .bd-month .bd-kpis { grid-template-columns: repeat(2, minmax(0,1fr)); } }
-@media (max-width: 600px) {
+@container (max-width: 440px) {
   .bd-acct { grid-template-columns: minmax(0,1fr); grid-template-areas: "n" "u" "c"; gap: 4px; }
   .bd-acct-cap { justify-content: flex-start; padding-left: 14px; }
+  .bd-acct-cap .meter { flex: 1 1 120px; }
+}
+@media (max-width: 600px) {
   .bd-rules > div { grid-template-columns: minmax(0,1fr); }
   .bd-month .bd-kpis .big { font-size: 21px; }
 }
@@ -121,6 +127,7 @@ a.btn { text-decoration: none; display: inline-block; }
 }
 @media (max-width: 520px) {
   .cn-head { grid-template-columns: minmax(0,1fr); }
+  .cn-state { order: 0; }
   .cn-actions { justify-content: flex-start; }
 }
 
@@ -136,7 +143,7 @@ a.btn { text-decoration: none; display: inline-block; }
 .ag-model b.mono { font-weight: 500; overflow-wrap: anywhere; }
 .ag-model > .sub { font-size: 12px; }
 @media (max-width: 1100px) { .ag-col-agent { width: 40%; } .ag-col-phase { width: 17%; } .ag-col-model { width: 21%; } .ag-col-tools { width: 22%; } }
-@media (max-width: 720px) {
+@container (max-width: 560px) {
   .ag-table { table-layout: auto; }
   .ag-about { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
   table.rt > tbody > tr > td.ag-c-phase, table.rt > tbody > tr > td.ag-c-model { flex: 0 1 auto; }
@@ -220,8 +227,10 @@ a.btn { text-decoration: none; display: inline-block; }
 .tl-matrix td input { width: 16px; height: 16px; margin: 0; cursor: pointer; vertical-align: middle; }
 .tl-matrix td input:disabled { cursor: not-allowed; }
 @media (max-width: 1100px) { .tl-top { grid-template-columns: minmax(0,1fr); } }
-@media (max-width: 720px) {
+@container (max-width: 560px) {
   .tl-server { max-width: none; width: auto; }
+}
+@media (max-width: 720px) {
   .tl-matrix .tl-agent { min-width: 128px; white-space: normal; }
   .tl-matrix th, .tl-matrix td { min-width: 76px; padding-inline: 10px; }
 }
@@ -240,6 +249,7 @@ a.chip.skilltag:hover { border-color: var(--accent); color: var(--accent); }
 .tag.rp-index { white-space: normal; overflow-wrap: anywhere; }
 .rp-detail { min-width: 0; scroll-margin-top: 12px; }
 .panel-head h3.rp-path { text-transform: none; letter-spacing: 0; font: 600 12.5px var(--f-mono); color: var(--fg); }
+.wk-miss { font-size: 11.5px; color: var(--faint); }
 .wk-pick { display: grid; gap: 4px; margin-bottom: 12px; }
 .wk-pick select { border: 1px solid var(--border); background: var(--panel); border-radius: 8px; padding: 7px 10px; font-weight: 600; width: 100%; }
 .wk-search { margin-bottom: 8px; }

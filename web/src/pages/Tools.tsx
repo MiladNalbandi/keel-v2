@@ -121,7 +121,7 @@ export function ToolsPage({ pid }: { pid: string }) {
           {servers.error ? <ErrorBox error={servers.error} onRetry={() => void servers.reload()} /> : !servers.data ? <div className="panel"><Skeleton lines={3} label="Loading servers" /></div> : !servers.data.length ? (
             <div className="panel"><EmptyState title="No server yet" action={<button className="btn primary" type="button" onClick={() => setAdding(true)}>Add server</button>}>Add one (GitHub, a database, a browser…) and agents can call its tools.</EmptyState></div>
           ) : (
-            <div className="panel"><div className="table-wrap"><table className="rt tl-servers" aria-label="MCP servers">
+            <div className="panel"><div className="table-wrap rt-wrap"><table className="rt tl-servers" aria-label="MCP servers">
               <thead><tr><th>Server and how it starts</th><th>Status</th><th>Tools</th><th><span className="sr-only">Actions</span></th></tr></thead>
               <tbody>
                 {servers.data.map((s) => {

@@ -282,7 +282,7 @@ function FileActions({ pid, f }: { pid: string; f: RepoFile }) {
       {histOpen && (
         <Panel title={`History of ${f.path.split("/").pop()}`} body={false} className="inner">
           {histErr ? <div className="panel-body"><ErrorBox error={histErr} /></div> : !hist ? <div className="empty loading">Reading history…</div> : (
-            <div className="table-wrap"><table aria-label="File history" className="rt">
+            <div className="table-wrap rt-wrap"><table aria-label="File history" className="rt">
               <thead><tr><th>Commit</th><th>Message</th><th>By</th><th>When</th></tr></thead>
               <tbody>
                 {hist.map((c) => <tr key={c.sha}><td className="mono sub">{c.sha.slice(0, 7)}</td><td className="rt-full">{commitTag(c.message)}</td><td className="sub">{c.author}</td><td className="mono sub rt-end">{clock(c.at, false)}</td></tr>)}
@@ -310,7 +310,7 @@ function BranchTab({ pid, r }: { pid: string; r: RepoInfo }) {
       <Panel title={`Commits on ${r.branch}`} extra={<span className="hint">keel commits: test(AC) holds only tests, feat(AC) only code</span>} body={false}>
         <Async r={commits} what="Reading commits">
           {(list) => (
-            list.length ? <div className="table-wrap"><table className="rt" aria-label={`Commits on ${r.branch}`}>
+            list.length ? <div className="table-wrap rt-wrap"><table className="rt" aria-label={`Commits on ${r.branch}`}>
               <thead><tr><th>Commit</th><th>Message</th><th>By</th><th>When</th></tr></thead>
               <tbody>
                 {list.map((c) => (
@@ -349,7 +349,7 @@ function DocsTab({ pid }: { pid: string }) {
       <Panel title={`Files keel wrote in ${project?.name ?? pid}`} extra={<span className="hint">every change is a commit you can review</span>} body={false}>
         <Async r={docs} what="Reading keel files">
           {(list) => (
-            list.length ? <div className="table-wrap"><table className="rt" aria-label="Files keel wrote">
+            list.length ? <div className="table-wrap rt-wrap"><table className="rt" aria-label="Files keel wrote">
               <thead><tr><th>File</th><th>What</th><th>Written by</th><th>Updated</th><th><span className="sr-only">State</span></th></tr></thead>
               <tbody>
                 {list.map((d) => (

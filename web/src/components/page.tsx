@@ -2,7 +2,7 @@
 // (title, one line of what to do, a button), a toolbar for tabs / filters / search, and loading that only covers
 // the part that is still loading (a spinner with words, skeleton lines that keep the space).
 
-import { useEffect, useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import "../styles/pages.css";
 
 /** A part of a page: a heading, one line that says what it is, its own actions, then the content. */
@@ -76,4 +76,18 @@ export function useNarrow(px = 720) {
     return () => m.removeEventListener?.("change", on);
   }, [q]);
   return narrow;
+}
+
+/** The width of an element, kept up to date (0 until measured, and in tests). */
+export function useWidth<T extends HTMLElement>() {
+  const ref = useRef<T>(null);
+  const [w, setW] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(([e]) => setW(Math.round(e.contentRect.width)));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return [ref, w] as const;
 }
