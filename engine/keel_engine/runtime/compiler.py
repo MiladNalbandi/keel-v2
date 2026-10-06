@@ -544,10 +544,12 @@ class Compiler:
             ctx.emit("budget.stop", step=step.id, data={**info, "why": (answer or {}).get("why")})
             return {**extra, "status": "stopped", "note": f"stopped: {info['detail']}"}
         upd = {**extra, "usage_seen": {**seen, key: "ok"}}
-        cheaper = ctx.settings.get("cheaper_model")
+        cheaper = _real_cheaper(ctx)
         if choice == "cheaper" and cheaper:
             ctx.emit("budget.warn", step=step.id, data={**info, "action": "cheaper", "model": cheaper})
             return {**upd, "model_override": cheaper, "note": "plan window nearly used; switched to the cheaper model"}
+        if choice == "cheaper":
+            return {**upd, "note": "no real cheaper model is set (Settings › Cheaper model): went on with the same model"}
         if choice == "wait" and w.get("resets_at"):
             delay = min(max(0.0, w["resets_at"] - time.time()) + 30, 8 * 24 * 3600)
             ctx.emit("budget.warn", step=step.id, data={**info, "action": "wait", "seconds": int(delay)})
@@ -569,7 +571,7 @@ class Compiler:
             return {}
         wf_on = self.wf.budget.on_limit if self.wf.budget else None
         on = (step.on_limit if over_step else None) or ctx.settings.get("on_cap") or wf_on or "pause"
-        cheaper = ctx.settings.get("cheaper_model")
+        cheaper = _real_cheaper(ctx)          # None (never the fake model for a real flow): pause and ask below
         info = {"used": used, "cap": cap, "step_used": step_used, "step_cap": step.max_tokens}
         if on == "cheaper" and cheaper and state.get("model_override") != cheaper:
             ctx.emit("budget.warn", step=step.id, data={**info, "action": "cheaper", "model": cheaper})
@@ -1670,6 +1672,16 @@ class Compiler:
                     "note": f"stopped: {step.name} still no after {step.rounds} round(s)"}, END
         gates["log"].append(f"gate {step.id} go on after {step.rounds} round(s): {why or 'no reason given'}")
         return {**extra, "gates": gates, "rounds": rounds, "note": f"{step.name}: went on after {step.rounds} round(s)"}, self.nav.after(i)
+
+
+def _real_cheaper(ctx):
+    """The cheaper model for a budget switch, but never the fake model for a flow that runs real models: the fake model
+    writes example files (the settings default once was fake). None means keel pauses and asks instead."""
+    cheaper = ctx.settings.get("cheaper_model")
+    if not cheaper or cheaper.get("provider") != "fake":
+        return cheaper
+    models = [m for m in (ctx.models or {}).values() if isinstance(m, dict)]
+    return cheaper if models and all(m.get("provider") == "fake" for m in models) else None
 
 
 def _default_choice(state, step) -> str:
