@@ -4,11 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode
 import keel.api.common.BadRequest
 import keel.api.common.KvStore
 import keel.api.common.NotFound
-import keel.api.common.Proc
 import keel.api.engine.EngineClient
 import keel.api.settings.SettingsService
 import org.springframework.stereotype.Service
-import java.util.concurrent.ConcurrentHashMap
 
 data class ModeView(val id: String, val label: String, val ready: Boolean, val detail: String)
 
@@ -35,20 +33,8 @@ class ConnectionService(
     private val engine: EngineClient,
     private val settings: SettingsService,
 ) {
-    private data class Cached(val at: Long, val tool: MachineTool)
-    private val cache = ConcurrentHashMap<String, Cached>()
-
-    /** Is a program installed, and which version? Cached for a minute (some CLIs are slow to answer). */
-    private fun tool(name: String): MachineTool {
-        cache[name]?.takeIf { System.currentTimeMillis() - it.at < 60_000 }?.let { return it.tool }
-        val path = Proc.which(name)
-        val t = if (path == null) MachineTool(name, false) else {
-            val r = Proc.run(listOf(path, "--version"), null, 5)
-            MachineTool(name, true, r.out.ifBlank { r.err }.lineSequence().firstOrNull()?.trim()?.take(80)?.ifBlank { null })
-        }
-        cache[name] = Cached(System.currentTimeMillis(), t)
-        return t
-    }
+    /** Programs on this machine, checked in parallel and cached for a minute (MachineTools). */
+    private val tools = MachineTools()
 
     private fun selectedModes(): Map<String, String> = kv.get<Map<String, String>>(KEY) ?: emptyMap()
 
@@ -68,6 +54,13 @@ class ConnectionService(
 
     fun connections(): Connections {
         val sel = selectedModes()
+        // Every program at once: the answer takes about the slowest single check (up to 5 s), not their sum.
+        val machine = tools.check(MACHINE)
+        val found = MACHINE.zip(machine).toMap()
+        fun cliMode(id: String, label: String, bin: String): ModeView {
+            val t = found[bin] ?: tools.check(bin)
+            return ModeView(id, label, t.ok, if (t.ok) "${t.version ?: bin} found." else "$bin is not installed. Build the image with INSTALL_CLIS=1.")
+        }
         val providers = PROVIDERS.map { (id, label) ->
             val (keySet, hint) = keyView(id)
             val modes = when (id) {
@@ -91,26 +84,7 @@ class ConnectionService(
             val (loginName, loginSet, loginHint) = loginView(id)
             ProviderView(id, label, modes, selected, keySet, hint, loginName, loginSet, loginHint)
         }
-        val machine = listOf("node", "git", "java").map { tool(it) } + dockerTool() + listOf("claude", "codex", "copilot", "opencode").map { tool(it) }
         return Connections(providers, machine)
-    }
-
-    /** Can the project's tests use Docker? Needs the CLI and a reachable engine (keel2 --docker mounts the host's). */
-    private fun dockerTool(): MachineTool {
-        cache["docker-engine"]?.takeIf { System.currentTimeMillis() - it.at < 60_000 }?.let { return it.tool }
-        val path = Proc.which("docker")
-        val t = if (path == null) MachineTool("docker", false, "not installed") else {
-            val r = Proc.run(listOf(path, "version", "--format", "{{.Server.Version}}"), null, 5)
-            if (r.ok && r.out.isNotBlank()) MachineTool("docker", true, "engine ${r.out.trim()}")
-            else MachineTool("docker", false, "CLI only — start with ./keel2 --docker so tests can use Docker")
-        }
-        cache["docker-engine"] = Cached(System.currentTimeMillis(), t)
-        return t
-    }
-
-    private fun cliMode(id: String, label: String, bin: String): ModeView {
-        val t = tool(bin)
-        return ModeView(id, label, t.ok, if (t.ok) "${t.version ?: bin} found." else "$bin is not installed. Build the image with INSTALL_CLIS=1.")
     }
 
     fun select(provider: String, mode: String): Connections {
@@ -153,5 +127,7 @@ class ConnectionService(
         const val KEY = "connections"
         val PROVIDERS = listOf("fake" to "Fake (demo)", "claude" to "Claude", "codex" to "GPT / Codex", "copilot" to "Copilot")
         val DEFAULT_MODELS = mapOf("fake" to "fake", "claude" to "sonnet", "codex" to "gpt-5", "copilot" to "gpt-5")
+        /** What "This machine" lists, in this order. */
+        val MACHINE = listOf("node", "git", "java", MachineTools.DOCKER, "claude", "codex", "copilot", "opencode")
     }
 }
