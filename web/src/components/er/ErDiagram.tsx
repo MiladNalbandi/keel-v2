@@ -304,6 +304,9 @@ export function ErDiagram({ schema, pid, name, initial, toolbarExtra }: ErProps)
   const matchIds = useMemo(() => new Set(results.map((r) => r.t.id)), [results]);
   const [pick, setPick] = useState(0);
   const [listOpen, setListOpen] = useState(false);
+  // the list closes a moment after the field loses focus (a click on a result lands first); coming back cancels that
+  const closeList = useRef<number | undefined>(undefined);
+  const openList = () => { window.clearTimeout(closeList.current); setListOpen(true); };
   useEffect(() => setPick(0), [q]);
 
   // ---- selection
@@ -541,8 +544,8 @@ export function ErDiagram({ schema, pid, name, initial, toolbarExtra }: ErProps)
           <input ref={search} type="search" placeholder="Find a table or column" aria-label="Find a table" value={query}
             role="combobox" aria-expanded={listOpen && !!q} aria-controls={`${uid}-res`} aria-autocomplete="list"
             aria-activedescendant={listOpen && results.length ? `${uid}-r${pick}` : undefined}
-            onChange={(e) => { setQuery(e.target.value); setListOpen(true); }} onFocus={() => setListOpen(true)}
-            onBlur={() => window.setTimeout(() => setListOpen(false), 120)}
+            onChange={(e) => { setQuery(e.target.value); openList(); }} onFocus={openList}
+            onBlur={() => { closeList.current = window.setTimeout(() => setListOpen(false), 120); }}
             onKeyDown={(e) => {
               if (e.key === "ArrowDown") { e.preventDefault(); setPick((p) => Math.min(results.length - 1, p + 1)); }
               else if (e.key === "ArrowUp") { e.preventDefault(); setPick((p) => Math.max(0, p - 1)); }
