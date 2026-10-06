@@ -14,7 +14,7 @@ The single source of truth for how the three parts fit. `docs/mockup.html` is th
  │        SQLite  /data/keel.db  (Flyway)                                                     │
  │  engine (Python 3.12, FastAPI, LangGraph) 127.0.0.1:8090  (only the api talks to it)        │
  │        SQLite  /data/checkpoints.db  (langgraph-checkpoint-sqlite)                          │
- │  keel v1 at /opt/keel  (node; `keel` on PATH; MCP server /opt/keel/mcp/server.js)          │
+ │  keel v2's content at /opt/keel-v2/content (agents, skills, stacks, packs, templates)       │
  │  CLIs (optional, build arg INSTALL_CLIS=1): claude, codex, copilot, opencode                │
  └──────────────────────────────────────────────────────────────────────────────────────────┘
  /workspace  = a mounted project (a git repo) or a folder of repos   → registered at start
@@ -32,12 +32,17 @@ web `cd web && npm run dev` (port 5173, proxies `/api` to 8080).
 | `KEEL_DATA` | `/data` (dev: `./.data`) | api, engine |
 | `KEEL_WORKSPACE` | `/workspace` (dev: unset) | api — scan for projects at start |
 | `KEEL_CONTENT` | `/opt/keel-v2/content` (dev: `<repo>/content`) | api, engine — keel v2's agents/, skills/, stacks/, packs/, templates/ |
-| `KEEL_HOME` | `/opt/keel` (dev: `../keel`) | api, engine — keel v1 (mcp/, bin/keel, dashboard; going away in v0.4.0) |
+| `KEEL_V1_OPTIONAL` | `/opt/keel-v1-optional` | api — where `keel2 start --with-keel-v1` mounts a keel v1 checkout (its MCP server only) |
 | `KEEL_ENGINE_URL` | `http://127.0.0.1:8090` | api |
 | `KEEL_API_URL` | `http://127.0.0.1:8080` | engine — where it POSTs events |
 | `KEEL_INTERNAL_TOKEN` | random at start, shared by both | header `X-Keel-Token` on engine↔api calls |
 | `KEEL_FAKE` | `0` | engine — `1` forces the fake model everywhere (tests, demo) |
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GITHUB_TOKEN` | — | optional; Connections can store keys instead |
+
+Removed in 0.4.1 (keel v2 does not contain, run or proxy keel v1): `KEEL_HOME`, `KEEL_DASHBOARD_PORT`,
+`KEEL_DASHBOARD_AUTOSTART` and the image's build args `KEEL_REPO` / `KEEL_REF`. They are ignored when set;
+`keel2 update` warns about a `KEEL_HOME` left in the environment. `scripts/no-v1.sh --strict` (CI) fails on any
+line that depends on keel v1 again.
 
 ## Engine API (FastAPI, 127.0.0.1:8090) — called only by the api
 
@@ -79,7 +84,7 @@ type Step = {
   id: string; kind: StepKind; name: string;
   agent?: string;              // keel agent id (agents/*.md) or custom agent id
   model?: string;              // key into the model table, or "default"
-  phase?: string;              // keel v1 phase this step belongs to (for guards + .keel/state.json mirror): spec, red, green, gate, ...
+  phase?: string;              // the phase this step belongs to (for the guard): spec, red, green, gate, ...
   action?: string;             // code steps: "verify_red" | "verify_green" | "commit" | "push_check" | "write_config" | "ladder" | "memory_check" | "run:<cmd>"
   per_ac?: boolean;            // inside the "for each AC" loop
   parallel?: number;           // parallel copies (kind "parallel")
@@ -141,7 +146,7 @@ type ThreadState = {
   thread_id: string; project_id: string; workflow_id: string; title: string;
   status: "running" | "waiting" | "done" | "failed" | "stopped";
   current: string | null;                      // step id
-  phase: string;                               // keel v1 phase name (mirrored to .keel/state.json)
+  phase: string;                               // phase name (keel v1's names; nothing is mirrored into the project)
   ac: string | null;
   acs: { id: string; layer: string; title: string; status: "todo"|"red"|"green"|"done" }[];
   waiting?: { step: string; kind: "gate"|"budget"|"fix"; title: string; detail: string; options: ("approve"|"reject")[] };
@@ -173,7 +178,7 @@ type EngineEvent = {
 JSON, errors `{ error, hint? }`. All project routes take `{pid}` (project id = slug of the folder name).
 
 ```
-GET    /api/health                                   → { ok, engine: bool, keel: { version, home }, fake }
+GET    /api/health                                   → { ok, engine: bool, version, fake }   (version: keel v2's own, from the api's build-info; 0.4.1 dropped `keel: { version, home }`, which was keel v1's)
 GET    /api/events?project={pid}                     SSE: event: <EngineEvent.type | "notification" | "project.changed">, data: JSON
 
 # projects
@@ -181,9 +186,10 @@ GET    /api/projects                                 → Project[]
 POST   /api/projects            { root, name? }      → Project            (registers a path inside the container)
 GET    /api/projects/{pid}                           → Project
 type Project = { id, name, root, branch, flow: string|null, phase: string, acs: [done,total], waiting: number, running: number }
+                                                       (flow, phase, acs: the running or waiting flow's; none → null, "none", [0,0])
 
 # flow (Run)
-GET    /api/projects/{pid}/flow                      → { thread: ThreadState|null, workflow: Workflow|null, keel_state: object|null }
+GET    /api/projects/{pid}/flow                      → { thread: ThreadState|null, workflow: Workflow|null }   (0.4.1: no keel_state)
 POST   /api/projects/{pid}/flows  { workflow_id, title, acs? }  → ThreadState
 POST   /api/threads/{tid}/resume  { decision, why? }  → ThreadState
 POST   /api/threads/{tid}/stop                        → ThreadState
@@ -210,8 +216,8 @@ POST   /api/projects/{pid}/memory  { title, text, kind }      PUT /api/projects/
 type Fact = { id, title, text, kind: "fact"|"rule"|"flaky"|"unlock", source, at }
 
 # map + wiki (Project)
-GET    /api/projects/{pid}/map                        → keel v1 map JSON (.keel/map.json) or { missing: string }
-POST   /api/projects/{pid}/map/rebuild                → runs `keel map` in the repo, returns the new map
+GET    /api/projects/{pid}/map                        → the map the engine built (keel v1's map shape) or { missing: string }
+POST   /api/projects/{pid}/map/rebuild                → the engine builds the map for HEAD, returns it
 GET    /api/projects/{pid}/wiki                       → { sections: {id, title, items: {id, title, status?}[]}[] }   (knowledge, workflows, runbook, decisions)
 GET    /api/projects/{pid}/wiki/page?id=kb:architecture|wf:<id>|runbook|adr:<file> → { id, title, markdown, meta }
 
@@ -300,7 +306,7 @@ POST /threads              StartThread + { keys?, settings.fix_attempts?, settin
 ```
 - **ThreadState** gains `blockers: { gate: "release"|"coverage"|"deps"|"knowledge"|"secrets", why: string, fix: string }[]`
   (computed by the `push_check` step and refreshed after every commit) and `ladder?: { n, name, cmd, status: "pass"|"fail"|"fixing"|"waiting"|"skipped", detail? }[]`
-  (init flow). Both are also mirrored into `.keel/state.json` (`blockers`, `setup.rungs`).
+  (init flow). Neither is written into the project (no mirror since v0.4.0).
 - **Unlocks**: `StartThread.settings.unlocks?: { path, phase }[]` and resume `payload.unlock: { path, phase }` add to
   `state.unlocks` (keel v1 semantics: that path bypasses the guard matrix in that phase). Logged as a `gate` event.
 - **Commit checks** (keel v1 `keel commit`): staged-diff secret scan (allow line marker `keel:allow-secret`), new
@@ -315,10 +321,10 @@ POST /threads              StartThread + { keys?, settings.fix_attempts?, settin
 ```
 POST /api/projects/{pid}/repo/update-from-base             → { ok, merged: bool, conflicts: string[], output }   (git merge <base>; aborts on conflict)
 GET  /api/projects/{pid}/repo/history?path=                → { sha, message, author, at }[]      (git log --follow -n 30)
-POST /api/projects/{pid}/unlock      { path, phase? }       → { unlocks }   (writes to the active thread via resume payload, else to .keel/state.json)
+POST /api/projects/{pid}/unlock      { path, phase? }       → { unlocks }   (to the active thread: a resume payload when it waits on a fix, else the engine's /threads/{id}/unlocks)
 GET  /api/projects/{pid}/stacks                             (exists) + Stack.installable: bool
 POST /api/projects/{pid}/stacks      { name, from }         → Stack          (copies the closest keel stack YAML into <root>/.keel/stacks/<name>.yml)
-POST /api/projects/{pid}/stacks/{name}/install              → Stack          (runs `keel packs add <packs dir> --project` in the repo)
+POST /api/projects/{pid}/stacks/{name}/install              → Stack          (copies content/packs/<name> to <root>/.keel/stacks/<name>; a folder already there counts as installed. 0.4.1: no keel v1 binary)
 POST /api/projects/{pid}/wiki/refresh  { sections?: string[] } → ThreadState (starts the knowledge-refresh workflow for stale sections)
 GET  /api/projects/{pid}/caps        → Cap[]     POST /api/projects/{pid}/caps  Cap    PUT /api/projects/{pid}/caps/{id}  Cap    DELETE /api/projects/{pid}/caps/{id}
 type Cap = { id, scope: "day"|"flow"|"step"|"api_month", limit: number, unit: "tokens"|"usd", action: "pause"|"cheaper"|"stop" }
@@ -338,12 +344,11 @@ Agent (v0.4)                         + knowledge: Knowledge, knowledge_tokens: i
 GET  /api/events?project=*                                   SSE for all projects (notifications + project.changed); web uses this for the bell
 GET  /api/projects/{pid}/flow        + thread.blockers, thread.ladder (from ThreadState)
 ```
-- "Open in editor" stays out (no editor inside a container). "Open in keel v1": `GET /api/keel-dashboard` starts
-  `keel dashboard` inside the container on 7391 and returns `{ url: "/keel-v1/" }`; the api reverse-proxies `/keel-v1/**`
-  to 127.0.0.1:7391 with the Host header keel expects.
+- "Open in editor" stays out (no editor inside a container). "Open in keel v1" (keel v1's dashboard behind a proxy in
+  the image) was **removed in 0.4.1**: no `GET /api/keel-dashboard`, and the old proxy path answers 404.
 
 ### v0.2 shapes as built
-- `POST /api/projects/{pid}/unlock` → `{ unlocks, via: "thread"|"state", thread_id }`; unlocks go to a thread only while it waits with `kind:"fix"`, else into `.keel/state.json` `unlocks` (`{path, phase, reason, at}`); the engine merges on-disk unlocks into a running thread before every step.
+- `POST /api/projects/{pid}/unlock` → `{ unlocks, via: "thread"|"engine", thread_id }`; a thread that waits with `kind:"fix"` gets it as a resume payload, any other running or waiting thread through the engine (`POST /threads/{id}/unlocks`); no flow → 409. Nothing is written into the project.
 - `/budget.caps` rows are `BudgetCap = Cap & { name, source: "settings"|"yours" }` (the settings row has `id:"settings"`); the web reads `/caps` for editing.
 - `ThreadState` always has `blockers` and `unlocks`; `ladder` for init flows. `Estimate` has `cost_by_provider`.
 - Validation failures: 400/422 with `{ error, hint?, errors: string[] }`.
@@ -398,8 +403,8 @@ github-copilot`), else a built-in list. Effort is passed to the CLIs: claude `--
   project's folder now). When it differs, the engine moves the thread there. It refuses (409) to run in a folder that
   is missing or holds only `.keel/`. Threads that were running when the engine restarted are moved by the same rule
   (/workspace ⇄ the real path that `keel2 start --docker` uses), or marked failed with the reason.
-- **keel v1 sees v2 flows that wait.** While a step waits, `.keel/state.json` shows that step and its phase, with
-  `engine.status: "waiting"`. Every step writes the state when it starts.
+- ~~**keel v1 sees v2 flows that wait.**~~ Removed in v0.4.0 (no mirror): the engine writes no state file into the
+  project. Since 0.4.1 the api does not read one either (a project's flow, phase and AC counts come from its threads).
 - **Failures read well.** A Claude turn limit says "The agent used all its turns (N) before it finished." The
   usage-limit and login checks ignore JSON lines. A failed run's tokens are counted in its job (`agent.finished`
   with `status: failed` carries the tokens).
@@ -545,7 +550,7 @@ IndexStatus = { project, root?, status: idle|indexing|ready|failed, files, symbo
 - Agents get the MCP server `codegraph` (`codegraph serve --mcp --path <root> --no-watch`, `CODEGRAPH_MCP_TOOLS=
   explore,callers,callees,impact,search`) only while the project's index is `ready`, and only agents with
   `knowledge.code_graph` on.
-- Map = keel v1's `.keel/map.json` shape (`sha, at, limits, counts, levels`) with `levels.system`, `levels.modules`
+- Map = keel v1's map shape (`sha, at, limits, counts, levels`; the api no longer reads a `.keel/map.json` keel v1 left, 0.4.1) with `levels.system`, `levels.modules`
   and `levels.er` (from SQL migrations); `flow` and `classes` are not built (the Map page shows its empty state).
 - Engine DB tables: `verdicts(project, kind, ok, detail_json, "commit", at)`, `project_map`, `project_index`.
 - Code actions: `knowledge_check` (old name `memory_check`) writes the `memory` verdict; `verify_release` and a

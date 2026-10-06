@@ -12,6 +12,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: bash -n keel2 && bash -n install.sh && bash -n docker/keel-start
+      # keel v2 does not depend on keel v1 (0.4.1): any line that still does fails the build
+      - run: scripts/no-v1.sh --strict
       - run: shellcheck -S error keel2 install.sh docker/keel-start
       - run: ./keel2 help | grep -q "keel2 start" && ./keel2 version
       # keel2 mcp: the client config names this script; --with-keel-v1 refuses a folder without mcp/server.js
