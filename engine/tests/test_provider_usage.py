@@ -7,6 +7,7 @@ from pathlib import Path
 import httpx
 
 from conftest import decide, start, wait
+from test_flows_base import values
 from keel_engine.models import usage
 from keel_engine.models.cli_runners import ClaudeCLIRunner, ClaudeStream
 from test_agent_memory import _claude, _req
@@ -205,10 +206,23 @@ def test_api_mode_and_custom_thresholds():
 def test_cheaper_at_the_usage_pause_switches_the_model(client, repo, tmp_path, monkeypatch):
     monkeypatch.setenv("KEEL_FAKE", "0")
     monkeypatch.setenv("KEEL_CLAUDE_BIN", _claude(tmp_path, [RESULT]))
-    cheaper = {"provider": "fake", "mode": "api", "model": "fake"}
+    cheaper = {"provider": "claude", "mode": "subscription", "model": "haiku"}
     tid = start(client, repo, models=CLAUDE, settings=_settings(provider_windows=_windows(0.97), cheaper_model=cheaper))
     wait(client, tid)
     decide(client, tid, "approve", payload={"choice": "cheaper"})
     s = wait(client, tid)
     assert s["status"] == "waiting" and s["waiting"]["kind"] != "usage"
-    assert not (tmp_path / "argv.log").exists()          # the claude CLI was not used
+    assert "--model haiku" in (tmp_path / "argv.log").read_text()
+
+
+def test_a_real_flow_never_switches_to_the_fake_model(client, repo, tmp_path, monkeypatch):
+    # The settings default for the cheaper model once was the fake model, which writes example files.
+    monkeypatch.setenv("KEEL_FAKE", "0")
+    monkeypatch.setenv("KEEL_CLAUDE_BIN", _claude(tmp_path, [RESULT]))
+    fake = {"provider": "fake", "mode": "api", "model": "fake"}
+    tid = start(client, repo, models=CLAUDE, settings=_settings(provider_windows=_windows(0.97), cheaper_model=fake))
+    wait(client, tid)
+    s = decide(client, tid, "approve", payload={"choice": "cheaper"})
+    s = wait(client, tid)
+    assert "fake" not in json.dumps(values(client, tid).get("model_override") or {})
+    assert "--model" in (tmp_path / "argv.log").read_text()      # the real CLI kept running

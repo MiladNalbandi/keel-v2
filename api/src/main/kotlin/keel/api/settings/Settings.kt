@@ -21,7 +21,8 @@ data class Settings(
     val defaultModel: Model = Model(),
     val implementerModel: Model = Model(),
     val reviewerModel: Model = Model(),
-    val cheaperModel: Model = Model(),
+    /** Used when a cap or a plan window is near and you choose "cheaper": never the fake model by default. */
+    val cheaperModel: Model = Model("claude", "subscription", "haiku"),
     val capTokens: Int = 500_000,
     val onCap: String = "pause",
     /** Plan windows (5-hour, weekly): warn before a subscription agent at this much used, pause at usagePause. */
