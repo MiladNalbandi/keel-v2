@@ -12,6 +12,7 @@ import { CodeBlock, FoldedText } from "../components/Code";
 import { answersOf, ClarifyForm, type ClarifyAnswers } from "../components/ClarifyForm";
 import { Markdown } from "../components/Markdown";
 import { eventLine } from "../components/events";
+import { EmptyState } from "../components/EmptyState";
 import { StartFlowDrawer } from "../components/StartFlow";
 import { autoLines, RunModeNote, RunModeSwitch } from "../components/RunMode";
 import { AcChips, Blocks, BlocksLegend, StepTable, useMapView, ViewToggle, type BlocksHandle } from "../components/Blocks";
@@ -38,11 +39,12 @@ export function FlowPage({ pid }: { pid: string }) {
         {(f) => !f.thread || !f.workflow ? (
           <>
             <PageHead title={project?.name ?? pid} sub="No flow is running in this project." />
-            <div className="panel"><div className="panel-body empty grid" style={{ gap: 10, justifyItems: "center" }}>
-              <b>Nothing running here yet</b>
-              <span className="sub">Start a feature, change, fix or hunt. You will see the estimate before it starts.</span>
-              <button className="btn primary" type="button" id="startFlow2" onClick={() => setStart(true)}>Start a flow</button>
-            </div></div>
+            <div className="panel">
+              <EmptyState title="Nothing running here yet"
+                action={<button className="btn primary" type="button" id="startFlow2" onClick={() => setStart(true)}>Start a flow</button>}>
+                Start a feature, change, fix or hunt. You will see the estimate before it starts.
+              </EmptyState>
+            </div>
           </>
         ) : isInit(f.workflow) ? (
           <InitFlow pid={pid} f={f as Required<FlowView> & { thread: ThreadState; workflow: Workflow }} onStart={() => setStart(true)} reload={flow.reload} />
@@ -225,7 +227,7 @@ function FlowSidePanel({ pid, thread, workflow, job, side, setSide, selected, on
             </div>
           ) : <StatusCard pid={pid} thread={thread} workflow={workflow} job={job} onDone={onDone} />}
           {job && <JobFeed job={job} />}
-          <EventsPanel pid={pid} thread={thread} />
+          <EventsPanel pid={pid} thread={thread} history={history.error ? [] : history.data} onAll={() => setSide("checkpoints")} />
         </div>
       ) : side === "step" ? (
         selected ? <StepInfoPanel pid={pid} workflow={workflow} stepId={selected} threadId={thread.thread_id} onClose={onClose} />
@@ -604,14 +606,25 @@ function AcsPanel({ thread }: { thread: ThreadState }) {
   );
 }
 
-export function EventsPanel({ pid, thread }: { pid: string; thread: ThreadState }) {
+/** How many saved steps the Events panel shows under the live events. */
+const EARLIER = 8;
+
+/** What happened in this flow, newest first: the events of this visit, then the saved steps (checkpoints) before them,
+ * so a flow that waits still says how it got here. */
+export function EventsPanel({ pid, thread, history, onAll }: {
+  pid: string; thread: ThreadState; history?: Checkpoint[] | null; onAll?: () => void;
+}) {
   const { recent } = useApp();
   const mine = recent.filter((e: EngineEvent) => e.thread_id === thread.thread_id && e.type !== "agent.step").slice(-12).reverse();
   const [asking, setAsking] = useState<EngineEvent | null>(null);
+  // the saved steps from before the oldest live event (the history is newest first)
+  const oldest = mine.length ? Date.parse(mine[mine.length - 1].at) : Infinity;
+  const before = (history ?? []).filter((c) => !(Date.parse(c.at) >= oldest));
+  const earlier = before.slice(0, EARLIER);
   return (
-    <Panel title="Events">
-      <div className="events">
-        {!mine.length ? <span className="sub">Events show here as they happen.</span> : mine.map((e, i) => {
+    <Panel title="Events" extra={onAll && (history?.length ?? 0) > 0 ? <button className="btn sm ghost" type="button" onClick={onAll}>All checkpoints</button> : undefined}>
+      <div className="events" aria-label="What happened, newest first">
+        {mine.map((e, i) => {
           const l = eventLine(e);
           const path = e.type === "guard.refused" && typeof e.data?.path === "string" ? e.data.path : null;
           return (
@@ -623,6 +636,19 @@ export function EventsPanel({ pid, thread }: { pid: string; thread: ThreadState 
             </div>
           );
         })}
+        {mine.length > 0 && earlier.length > 0 && <span className="ev-sep sub">Earlier</span>}
+        {earlier.map((c) => (
+          <div key={c.id} className="ev-cp" data-testid="event-checkpoint">
+            <span className="t mono sub">{clock(c.at, false)}</span>
+            <span title={c.note}><b className="mono">{c.step}</b> <span className="sub">{c.note}</span></span>
+          </div>
+        ))}
+        {before.length > EARLIER && <span className="hint">{before.length - EARLIER} older steps are under Checkpoints.</span>}
+        {!mine.length && !earlier.length && (
+          history === undefined || (history !== null && !history.length)
+            ? <span className="sub">Nothing happened yet. Events show here as they happen.</span>
+            : history === null ? <span className="sub loading">Loading what happened…</span> : null
+        )}
       </div>
       {asking && <UnlockConfirm pid={pid} path={String(asking.data.path)} phase={typeof asking.data.phase === "string" ? asking.data.phase : thread.phase} onClose={() => setAsking(null)} />}
     </Panel>
@@ -674,7 +700,7 @@ const KB_PILL: Record<string, [PillTone, string]> = { written: ["ok", "written"]
 
 function InitFlow({ pid, f, onStart, reload }: { pid: string; f: { thread: ThreadState; workflow: Workflow }; onStart: () => void; reload: () => Promise<void> }) {
   const { thread, workflow } = f;
-  const { est, job, jobs, actual, visited, started } = useThreadBits(pid, thread, workflow);
+  const { history, est, job, jobs, actual, visited, started } = useThreadBits(pid, thread, workflow);
   const memory = useLoad<Memory>(`mem:${pid}`, () => api.memory(pid));
   const rungs = rungsFrom(thread);
   const passed = rungs.filter((r) => r.status === "ok").length;
@@ -731,7 +757,7 @@ function InitFlow({ pid, f, onStart, reload }: { pid: string; f: { thread: Threa
             </div>
           </Panel>
           <BudgetMeter thread={thread} estimate={est.data?.tokens ?? null} title="Budget for init" />
-          <EventsPanel pid={pid} thread={thread} />
+          <EventsPanel pid={pid} thread={thread} history={history.error ? [] : history.data} />
         </div>
       </div>
     </>

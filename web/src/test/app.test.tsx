@@ -42,7 +42,7 @@ describe("navigation and project switching", () => {
     const user = userEvent.setup();
     location.hash = "#/projects";
     render(<App />);
-    const row = (await screen.findByText("/workspace/platform")).closest("tr")!;
+    const row = (await screen.findByText("/workspace/platform")).closest<HTMLElement>('[data-testid="project-row"]')!;
     await user.click(row);
     await waitFor(() => expect(location.hash).toBe("#/flow"));
     expect(localStorage.getItem("keel2.project")).toBe("platform");

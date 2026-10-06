@@ -1,17 +1,17 @@
-/* v0.4.2 UX: the app shell (sidebar, phone bar, menu). Loaded after styles.css (see main.tsx), so these rules
-   refine it; same tokens, light and dark. */
+/* v0.4.2 UX: the app shell (sidebar, phone bar, menu) and the Run pages — Projects, Flow's side panel, Inbox, Live
+   agents, Jobs. Loaded after styles.css (see main.tsx), so these rules refine it; same tokens, light and dark. */
 
 /* ---------- shell: the rail on wide screens ---------- */
 .app > aside.side { gap: 10px; padding: 12px 10px 10px; overflow: hidden; height: 100vh; height: 100dvh; top: 0; }
-.side-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.side-head .brand { flex: 1 1 auto; min-width: 0; padding: 0 4px; }
+.side-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "brand tools" "proj proj"; align-items: center; gap: 8px; }
+.side-head .brand { grid-area: brand; min-width: 0; padding: 0 4px; gap: 8px; overflow: hidden; white-space: nowrap; }
 .side-head .brand-v { display: none; }
 .side-head .brand .ver { font-size: 11px; border: 0; padding: 0; color: var(--faint); align-self: flex-end; margin-bottom: 1px; }
-.side-tools { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+.side-tools { grid-area: tools; display: inline-flex; align-items: center; gap: 6px; }
 .side-tools .bell { width: 30px; height: 28px; }
-.menu-btn { display: none; place-items: center; width: 36px; height: 34px; flex: none; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); color: var(--fg); cursor: pointer; }
+.menu-btn { grid-area: menu; display: none; place-items: center; width: 36px; height: 34px; flex: none; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); color: var(--fg); cursor: pointer; }
 .menu-btn:hover { border-color: var(--faint); }
-.side-head .projbox { flex: 1 1 100%; padding: 6px; gap: 5px; }
+.side-head .projbox { grid-area: proj; padding: 6px; gap: 5px; }
 .side-head .projbox select { padding: 5px 8px; }
 .projbox .pb-sub { display: flex; align-items: baseline; gap: 6px; min-width: 0; padding: 0 2px; font-size: 12px; }
 .projbox .pb-line { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; }
@@ -52,13 +52,12 @@
 @media (max-width: 900px) {
   .app > aside.side { position: sticky; top: 0; height: auto; overflow: visible; gap: 6px; padding: calc(8px + env(safe-area-inset-top, 0px)) 12px 0;
     background: var(--bg); border-right: 0; border-bottom: 1px solid var(--border); z-index: 10; }
-  .side-head { flex-wrap: nowrap; gap: 8px; }
-  .menu-btn { display: inline-grid; order: -1; }
+  .side-head { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "menu proj tools"; }
+  .menu-btn { display: inline-grid; }
   .side-head .brand { display: none; }
-  .side-head .projbox { order: 0; flex: 1 1 auto; min-width: 0; padding: 0; border: 0; background: none; display: block; }
+  .side-head .projbox { min-width: 0; padding: 0; border: 0; background: none; display: block; }
   .side-head .projbox select { height: 34px; }
   .side-head .projbox .pb-sub { display: none; }
-  .side-tools { order: 1; }
   .side-tools .bell { width: 34px; height: 34px; }
   .app > aside.side > .ustrip.compact, .app > aside.side > .side-foot { display: none; }
   /* every screen in one row that scrolls sideways; the groups are split by a thin line */
@@ -99,3 +98,127 @@
 .ms-nav .count.run { background: var(--run-soft); color: var(--run); }
 .ms-nav .nav-home { color: var(--fg); font-weight: 600; }
 .ms-foot { margin-top: auto; display: grid; gap: 10px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 12px; color: var(--dim); }
+
+/* ---------- shared bits of the Run pages ---------- */
+a.btn { text-decoration: none; }
+.empty-state { display: grid; justify-items: center; gap: 6px; padding: 32px 16px; text-align: center; color: var(--dim); }
+.empty-state:focus { outline: none; }
+.empty-state:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 10px; }
+.es-title { color: var(--fg); font-size: 15px; font-weight: 600; }
+.es-line { max-width: 52ch; font-size: 13px; }
+.es-act { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 6px; }
+.sec-h { margin: 0 0 8px; font-size: 14px; font-weight: 600; letter-spacing: -.005em; display: flex; align-items: baseline; gap: 8px; }
+.sec-h .sub { font-weight: 400; }
+.sec-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin-bottom: 8px; }
+.sec-bar .sec-h { margin: 0; }
+
+/* ---------- All projects: the home ---------- */
+.home-sum { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; margin: -4px 0 14px; font-size: 13px; }
+.home-wait b { font-weight: 600; }
+/* the rows share their columns (subgrid), so name, flow, status and actions line up from row to row */
+.proj-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.5fr) auto auto; gap: 8px 18px; }
+.proj { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; gap: 6px 18px; align-items: center;
+  background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--rail); border-radius: 10px; padding: 12px 14px 12px 12px; cursor: pointer; }
+.proj:hover { border-color: var(--faint); border-left-color: var(--faint); }
+.proj.s-wait, .proj.s-wait:hover { border-left-color: var(--warn); }
+.proj.s-run, .proj.s-run:hover { border-left-color: var(--run); }
+.proj.s-idle { border-left-color: var(--ok); }
+.proj.shown { box-shadow: inset 0 0 0 1px var(--accent-soft); }
+.proj-id { display: grid; gap: 1px; min-width: 0; }
+.proj-name { margin: 0; font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.proj-name .linkbtn { font-size: 15px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.proj-name .tag { font-weight: 500; flex: none; }
+.proj-root { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; }
+.proj-flow { display: grid; gap: 3px; min-width: 0; font-size: 13px; }
+.proj-now { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.proj-facts { display: flex; flex-wrap: wrap; gap: 2px 12px; min-width: 0; }
+.proj-branch { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; }
+.proj-status { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.proj-acts { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; cursor: default; }
+.proj-acts .btn { text-decoration: none; }
+@media (max-width: 1180px) {
+  .proj-list { grid-template-columns: minmax(0, 1fr); }
+  .proj { grid-template-columns: minmax(0, 1fr) auto; }
+  .proj-flow { grid-column: 1; }
+  .proj-status { grid-column: 2; grid-row: 1; }
+  .proj-acts { grid-column: 2; grid-row: 2; align-self: end; }
+}
+@media (max-width: 600px) {
+  .proj { grid-template-columns: minmax(0, 1fr); padding: 12px; }
+  .proj-status, .proj-acts { grid-column: 1; grid-row: auto; justify-content: flex-start; }
+  .proj-status { order: -1; }
+  .proj-acts .btn { flex: 1 1 auto; text-align: center; }
+}
+
+/* ---------- Jobs ---------- */
+.jobs-sec { margin-bottom: 20px; }
+.run-cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+.run-card { border-color: var(--run); }
+.jobs-filters { gap: 6px; }
+.jobs-filters select { border: 1px solid var(--border); background: var(--panel); border-radius: 7px; padding: 4px 8px; max-width: 100%; }
+.jobs-t td { white-space: nowrap; }
+.jobs-t .j-where { white-space: normal; min-width: 120px; }
+.jobs-t .j-tok .sub { font-size: 11px; }
+.jobs-t tr.jrow:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.jobs-t tr.job-open > td { padding: 0 10px 12px; background: var(--panel-2); white-space: normal; }
+.jobs-t tr.job-open .panel { box-shadow: var(--shadow); }
+.job-steps { margin: 0 0 16px; scroll-margin: 80px; }
+.jobs-t tr.job-open .job-steps { margin: 0; }
+@media (max-width: 700px) {
+  .jobs-t thead { display: none; }
+  .jobs-t, .jobs-t tbody { display: block; }
+  .jobs-t tr.jrow { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 2px 10px; padding: 10px 12px; border-bottom: 1px solid var(--border);
+    grid-template-areas: "agent status" "where time" "model tok" "when cost" "proj proj"; }
+  .jobs-t tr.jrow td { border: 0; padding: 0; white-space: normal; min-width: 0; font-size: 12px; }
+  .jobs-t .j-agent { grid-area: agent; font-size: 14px; }
+  .jobs-t .j-status { grid-area: status; justify-self: end; }
+  .jobs-t .j-where { grid-area: where; overflow-wrap: anywhere; }
+  .jobs-t .j-time { grid-area: time; justify-self: end; color: var(--dim); }
+  .jobs-t .j-model { grid-area: model; }
+  .jobs-t .j-tok { grid-area: tok; justify-self: end; }
+  .jobs-t .j-when { grid-area: when; }
+  .jobs-t .j-cost { grid-area: cost; justify-self: end; color: var(--dim); }
+  .jobs-t .j-proj { grid-area: proj; color: var(--dim); }
+  .jobs-t tr.job-open { display: block; }
+  .jobs-t tr.job-open > td { display: block; padding: 0 0 12px; }
+  .jobs-t tr:last-child.jrow { border-bottom: 0; }
+}
+
+/* ---------- Live agents ---------- */
+.live-list { display: grid; gap: 18px; align-content: start; min-width: 0; }
+.live-sec { display: grid; gap: 8px; min-width: 0; }
+.live-sec > .sec-h, .live-sec .sec-bar { margin: 0; }
+.live-idle { margin: 0; }
+.recent-list { display: grid; gap: 4px; }
+.recent-row { display: grid; gap: 1px; width: 100%; text-align: left; cursor: pointer; padding: 8px 10px; border: 1px solid transparent; border-radius: 8px;
+  background: transparent; color: var(--fg); font-size: 13px; }
+.recent-row:hover { background: var(--panel-2); }
+.recent-row.sel { background: var(--panel); border-color: var(--accent); }
+.rr-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.rr-st { font-size: 12px; font-weight: 600; }
+.rr-where { overflow-wrap: anywhere; }
+.live-note { margin: 0; padding: 6px 10px; border-radius: 7px; background: var(--panel-2); }
+.live-wait { min-height: 120px; display: grid; place-items: center; }
+/* one column: what works now, then the feed, then the recent ones */
+@media (max-width: 900px) {
+  .live-grid > .live-list { display: contents; }
+  .live-grid > .live-list > .live-sec:first-child { order: 0; }
+  .live-grid > :not(.live-list) { order: 1; }
+  .live-grid > .live-list > .live-sec:last-child { order: 2; }
+}
+
+/* ---------- Flow side panel: Events ---------- */
+.events .ev-sep { display: block; margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--border); font-size: 12px; }
+.events .ev-cp { grid-template-columns: 50px minmax(0, 1fr); }
+.events .ev-cp .sub { overflow-wrap: anywhere; }
+.events .ev-cp > span:last-child { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* ---------- Inbox ---------- */
+.inbox-filters, .inbox-list { max-width: 940px; }
+.inbox-item:focus { outline: none; }
+.inbox-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.inbox-detail-wrap { display: grid; gap: 4px; justify-items: start; min-width: 0; }
+.inbox-detail-wrap .inbox-detail { width: 100%; box-sizing: border-box; }
+.inbox-detail.folded { max-height: 8.2em; overflow: hidden; -webkit-mask-image: linear-gradient(to bottom, #000 62%, transparent); mask-image: linear-gradient(to bottom, #000 62%, transparent); }
+.inbox-detail.open { max-height: none; }
+.inbox-more { padding-left: 4px; padding-right: 4px; }
