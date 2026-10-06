@@ -281,7 +281,8 @@ export type RepoFile = {
   keel: boolean;
   ac?: string;
   head: string;
-  last_commit: string;
+  /** The api sends the commit ({sha, message, author, at}); older fixtures a string. */
+  last_commit: string | { sha: string; message?: string; author?: string; at?: string } | null;
 };
 export type Commit = { sha: string; message: string; author: string; at: string };
 export type UpdateFromBase = { ok: boolean; merged: boolean; conflicts: string[]; output: string };
@@ -313,12 +314,40 @@ export type MapNode = {
 export type MapEdge = { from: string; to: string; kind: string; label?: string; d: string; lx?: number; ly?: number };
 export type MapBand = { id: string; label: string; x: number; y: number; w: number; h: number };
 export type MapLevel = { nodes: MapNode[]; edges: MapEdge[]; bands?: MapBand[]; width: number; height: number; overflow?: number };
+export type Cite = { rel: string; line: number };
+/** The database the SQL migrations leave behind (engine runtime/sqlschema.py). v0.5.1; older maps have only `levels.er`. */
+export type DbColumn = {
+  name: string; type: string; nullable: boolean; default?: string | null; pk: boolean; unique: boolean;
+  identity?: boolean; generated?: string | null; comment?: string | null; cite?: Cite | null;
+  fk?: { table: string; column?: string | null; missing?: boolean } | null;
+};
+export type DbKey = { name?: string | null; columns: string[]; cite?: Cite | null };
+export type DbIndex = DbKey & { unique: boolean; method?: string | null; where?: string | null };
+export type DbForeignKey = DbKey & {
+  ref_table: string | null; ref_name: string; ref_columns: string[]; on_delete?: string | null; on_update?: string | null; missing?: boolean;
+};
+export type DbTable = {
+  id: string; name: string; schema?: string | null; kind: "table" | "view" | "materialized view" | string;
+  cite?: Cite | null; comment?: string | null; columns: DbColumn[];
+  primary_key?: DbKey | null; uniques?: DbKey[]; indexes?: DbIndex[]; foreign_keys?: DbForeignKey[]; checks?: number;
+  changes?: (Cite & { what: string })[]; definition?: string | null; uses?: string[];
+};
+export type DbRelation = {
+  id: string; kind: "fk" | "uses" | string; name?: string | null; from: string; from_columns: string[]; to: string; to_columns: string[];
+  on_delete?: string | null; on_update?: string | null; nullable?: boolean; one_to_one?: boolean; self?: boolean; cite?: Cite | null;
+};
+export type DbSchema = { tables: DbTable[]; relations: DbRelation[] };
+export type ApiEndpoint = { method: string; path: string; cite?: Cite | null; summary?: string; tags?: string[]; operation?: string | null };
+
 export type KeelMap = {
   sha: string;
   at: string;
   demo?: boolean;
   limits?: string[];
   counts?: Record<string, number>;
+  sources?: { contract?: string | null; migrations?: string[]; scanned?: number; looked_in?: string[]; configured?: boolean; config?: string };
+  schema?: DbSchema;
+  api?: { contract?: string | null; endpoints: ApiEndpoint[] };
   levels: {
     system?: MapLevel;
     flow?: MapLevel & { byJourney?: Record<string, MapLevel>; source?: string };

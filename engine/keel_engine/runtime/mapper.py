@@ -1,18 +1,31 @@
 """The project map: what the code is made of, drawn for the web's Map page (keel v1 lib/map.js, the parts v2 keeps).
 
-    build(root) -> {sha, at, demo, limits, counts, sources, levels: {system, modules, er}}
+    build(root) -> {sha, at, demo, limits, counts, sources, schema, api, levels: {system, modules, er}}
 
-Levels hold laid-out boxes (x, y, w, h, rows) and edges (an SVG path `d`), so the page only draws:
+`schema` is the database the SQL migrations leave behind (runtime/sqlschema.py): every table and view with its columns
+(type, nullable, default, keys), primary key, unique constraints, indexes and foreign keys, and `relations` (one per
+foreign key, column to column, with ON DELETE / ON UPDATE; one per table a view reads). Each carries the migration
+file and line it came from. Nothing is capped: the web lays the diagram out and handles the size.
+`api` is every endpoint of the API contract (openapi.(yaml|yml|json)).
+
+Levels hold laid-out boxes (x, y, w, h, rows) and edges (an SVG path `d`), for clients that only draw:
   system   the code, the API contract and the database, as three boxes
-  modules  the top folders with their file counts, the endpoints from openapi.(yaml|yml|json), the tables
-  er       tables and columns from the SQL migrations (CREATE TABLE, ALTER TABLE ADD COLUMN / FOREIGN KEY, DROP
-           TABLE), with an edge per foreign key from the referenced key to the referencing column
+  modules  the top folders with their file counts, the endpoints, the tables
+  er       the tables of `schema` with all their columns, an edge per foreign key from the referenced key to the
+           referencing column
 Journeys and classes are not built (the page shows its empty state). Nothing connects to a running system.
 Stored in the engine DB (table project_map), one map per project.
+
+Where the migrations are: `map.migrations` in .keel/config.yml (folders or globs) when set; else `backend.dir` +
+`backend.migrations` (with Flyway's db/vendor/* next to it); else every .sql file in a migration folder (db/migration,
+db/changelog, any folder named migration(s) such as prisma/migrations or supabase/migrations) and db/schema.sql or
+db/structure.sql. Down migrations (*.down.sql, Flyway undo U*__) and the undo half of dbmate / goose files are skipped;
+test folders only count when nothing else is found.
 """
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import os
 import re
@@ -22,26 +35,22 @@ import yaml
 
 from .. import rules
 from ..tools import git
-from . import db
+from . import db, sqlschema
 
 HEAD, SUB, ROW, PAD = 30, 16, 18, 10
 CH_TITLE, CH_SUB = 7.3, 6.2
-ER_CAP, EP_CAP, MOD_CAP = 16, 14, 40
+EP_CAP, MOD_CAP = 14, 40
 SKIP = {".git", ".keel", ".codegraph", "node_modules", "build", "dist", "target", ".gradle", ".venv", "venv", "__pycache__",
         ".idea", ".next", "coverage", "out"}
 CONTAINERS = {"apps", "packages", "services", "modules", "libs", "src"}
 VERBS = ["get", "post", "put", "patch", "delete", "head", "options", "trace"]
 
-RE_CREATE = re.compile(r"create\s+table\s+(?:if\s+not\s+exists\s+)?[\"`]?(?:\w+\.)?(\w+)[\"`]?\s*\(", re.I)
-RE_ALTER_ADD = re.compile(r"alter\s+table\s+(?:if\s+exists\s+)?[\"`]?(?:\w+\.)?(\w+)[\"`]?\s+add\s+(?:column\s+)?(?:if\s+not\s+exists\s+)?"
-                          r"[\"`]?(\w+)[\"`]?\s+([^,;]+)", re.I)
-RE_ALTER_FK = re.compile(r"alter\s+table\s+(?:if\s+exists\s+)?[\"`]?(?:\w+\.)?(\w+)[\"`]?\s+add\s+(?:constraint\s+\w+\s+)?foreign\s+key\s*"
-                         r"\(\s*[\"`]?(\w+)[\"`]?\s*\)\s*references\s+[\"`]?(?:\w+\.)?(\w+)[\"`]?", re.I)
-RE_DROP = re.compile(r"drop\s+table\s+(?:if\s+exists\s+)?[\"`]?(?:\w+\.)?(\w+)[\"`]?", re.I)
-RE_REF = re.compile(r"references\s+[\"`]?(?:\w+\.)?(\w+)[\"`]?", re.I)
-NOT_ADDED = {"constraint", "primary", "foreign", "unique", "check", "index", "key"}
-NOT_A_COLUMN = re.compile(r"^(primary|foreign|unique|constraint|check|key|index|exclude|references|on\s+(delete|update))\b", re.I)
-
+MIGRATION_DIRS = {"migration", "migrations", "changelog", "changelogs"}
+TEST_DIRS = {"test", "tests", "__tests__", "testdata", "test-data", "fixtures", "spec", "specs", "it", "e2e"}
+LOOKED_IN = ["db/migration, db/migrations and db/vendor/* (Flyway)", "db/changelog (Liquibase SQL)",
+             "any folder named migration or migrations (prisma/migrations, supabase/migrations, ...)",
+             "db/schema.sql and db/structure.sql"]
+CONFIG_HINT = "map.migrations in .keel/config.yml (a folder or a glob, or a list of them)"
 
 # ------------------------------------------------------------------ sources
 
@@ -59,84 +68,103 @@ def files(root: str) -> list[str]:
 
 
 def _natural(rel: str):
-    return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", os.path.basename(rel))]
+    return [(0, int(t), "") if t.isdigit() else (1, 0, t.lower()) for t in re.split(r"(\d+)", rel)]
+
+
+def _order(rel: str):
+    """Flyway versions in version order (V2 < V4.1 < V10, across db/migration and db/vendor/*), repeatables (R__) after
+    them, then everything else by its path with numbers compared as numbers (prisma's dated folders, 0001_x.up.sql)."""
+    base = os.path.basename(rel)
+    if (m := re.match(r"^[Vv](\d+(?:[._]\d+)*)__", base)):
+        return (0, tuple(int(x) for x in re.split(r"[._]", m.group(1))), [])
+    if re.match(r"^[Rr]__", base):
+        return (2, (), _natural(base))
+    return (1, (), _natural(rel))
+
+
+def _down(rel: str) -> bool:
+    base = os.path.basename(rel).lower()
+    return base.endswith((".down.sql", "_down.sql", ".undo.sql")) or bool(re.match(r"^u\d+(?:[._]\d+)*__", base)) \
+        or "/down/" in "/" + rel.lower()
+
+
+def _migration_like(rel: str) -> bool:
+    parts = rel.lower().split("/")
+    dirs, base = parts[:-1], parts[-1]
+    if not base.endswith(".sql") or _down(rel):
+        return False
+    if any(d in MIGRATION_DIRS for d in dirs):
+        return True
+    if any(d == "db" and i + 1 < len(dirs) and dirs[i + 1] == "vendor" for i, d in enumerate(dirs)):
+        return True
+    return base in ("schema.sql", "structure.sql") and bool(dirs) and dirs[-1] in ("db", "resources", "sql")
+
+
+def _under(rel: str, entry: str) -> bool:
+    entry = entry.strip().strip("/")
+    if not entry:
+        return False
+    if any(ch in entry for ch in "*?["):
+        return fnmatch.fnmatch(rel, entry) or fnmatch.fnmatch(rel, entry.rstrip("/") + "/*")
+    return rel == entry or rel.startswith(entry + "/")
+
+
+def migration_search(root: str, all_files: list[str]) -> dict:
+    """{files, looked_in, configured}: the SQL files that build the schema, in the order they apply."""
+    cfg = rules.load_config(root)
+    sql = [f for f in all_files if f.lower().endswith(".sql") and not _down(f)]
+    conf = (cfg.get("map") or {}).get("migrations")
+    if conf:
+        entries = [conf] if isinstance(conf, str) else [str(e) for e in conf]
+        found = [f for f in sql if any(_under(f, e) for e in entries)]
+        return {"files": sorted(found, key=_order), "looked_in": entries, "configured": True}
+    be = cfg.get("backend") or {}
+    folder = "/".join(p.strip("/") for p in (be.get("dir") or "", be.get("migrations") or "") if p and p.strip("/"))
+    found = [f for f in sql if folder and f.startswith(folder + "/")]
+    if found and re.search(r"(^|/)db/migrations?$", folder):     # Flyway's vendor folders sit next to db/migration
+        vendor = folder.rsplit("/", 1)[0] + "/vendor/"
+        found += [f for f in sql if f.startswith(vendor)]
+    looked = ([folder + " (backend.dir + backend.migrations)"] if folder else []) + LOOKED_IN
+    if not found:
+        found = [f for f in sql if _migration_like(f)]
+        real = [f for f in found if not set(f.lower().split("/")[:-1]) & TEST_DIRS]
+        found = real or found
+    return {"files": sorted(set(found), key=_order), "looked_in": looked, "configured": False}
 
 
 def migration_files(root: str, all_files: list[str]) -> list[str]:
-    cfg = rules.load_config(root)
-    be = cfg.get("backend") or {}
-    conf = "/".join(p.strip("/") for p in (be.get("dir") or "", be.get("migrations") or "") if p and p.strip("/"))
-    found = [f for f in all_files if f.lower().endswith(".sql") and conf and f.startswith(conf + "/")]
-    if not found:
-        found = [f for f in all_files if f.lower().endswith(".sql") and ("/db/migration/" in "/" + f or
-                                                                          os.path.basename(os.path.dirname(f)) == "migrations")]
-    return sorted(found, key=_natural)
+    return migration_search(root, all_files)["files"]
 
 
-def _body(text: str, open_at: int) -> str:
-    depth = 0
-    for i in range(open_at, len(text)):
-        if text[i] == "(":
-            depth += 1
-        elif text[i] == ")":
-            depth -= 1
-            if depth == 0:
-                return text[open_at + 1:i]
-    return ""
-
-
-def _columns(body: str, table: str, fks: list) -> list[dict]:
-    cols: list[dict] = []
-    for raw in body.split("\n"):
-        line = raw.strip().rstrip(",")
-        if not line or line.startswith("--"):
+def read_schema(root: str, sql_files: list[str]) -> dict:
+    """The schema the migrations leave behind (sqlschema.parse), applied in the order given."""
+    texts = []
+    for rel in sql_files:
+        try:
+            texts.append((rel, (Path(root) / rel).read_text(errors="replace")))
+        except OSError:
             continue
-        if NOT_A_COLUMN.match(line):
-            pk = re.search(r"primary\s+key\s*\(([^)]*)\)", line, re.I)
-            for name in (re.sub(r"[\"`\s]", "", n) for n in (pk.group(1).split(",") if pk else [])):
-                for c in cols:
-                    c["pk"] = c["pk"] or c["name"] == name
-            fk = re.search(r"foreign\s+key\s*\(\s*[\"`]?(\w+)[\"`]?\s*\)\s*references\s+[\"`]?(?:\w+\.)?(\w+)", line, re.I)
-            if fk:
-                fks.append({"column": fk.group(1), "to": fk.group(2)})
+    return sqlschema.parse(texts)
+
+
+def legacy_tables(schema: dict) -> list[dict]:
+    """The tables in keel v1's shape ({name, columns: [{name, type, pk, fk}], fks: [{column, to}], cite}) for the levels."""
+    out = []
+    for t in schema["tables"]:
+        if t["kind"] != "table":
             continue
-        m = re.match(r"^[\"`]?(\w+)[\"`]?\s+(.+)$", line)
-        if not m:
-            continue
-        ref = RE_REF.search(m.group(2))
-        cols.append({"name": m.group(1), "type": m.group(2).split()[0], "pk": bool(re.search(r"primary\s+key", m.group(2), re.I)),
-                     "fk": ref.group(1) if ref else None})
-        if ref:
-            fks.append({"column": m.group(1), "to": ref.group(1)})
-    return cols
+        out.append({"name": t["id"], "cite": t["cite"],
+                    "columns": [{"name": c["name"], "type": c["type"], "pk": c["pk"],
+                                 "fk": (c["fk"] or {}).get("table") if c["fk"] and not c["fk"].get("missing") else None}
+                                for c in t["columns"]],
+                    "fks": [{"column": f["columns"][0], "to": f["ref_table"]} for f in t["foreign_keys"]
+                            if f["ref_table"] and f["columns"]]})
+    return out
 
 
 def tables(root: str, sql_files: list[str]) -> list[dict]:
-    """The schema the migrations leave behind, applied in file order (a later migration wins)."""
-    by: dict[str, dict] = {}
-    for rel in sql_files:
-        try:
-            text = (Path(root) / rel).read_text(errors="replace")
-        except OSError:
-            continue
-        for m in RE_CREATE.finditer(text):
-            fks: list = []
-            by[m.group(1)] = {"name": m.group(1), "columns": _columns(_body(text, m.end() - 1), m.group(1), fks), "fks": fks,
-                              "cite": {"rel": rel, "line": text.count("\n", 0, m.start()) + 1}}
-        for line in text.split("\n"):
-            if (fk := RE_ALTER_FK.search(line)) and fk.group(1) in by:
-                by[fk.group(1)]["fks"].append({"column": fk.group(2), "to": fk.group(3)})
-            elif (add := RE_ALTER_ADD.search(line)) and add.group(1) in by and add.group(2).lower() not in NOT_ADDED:
-                t = by[add.group(1)]
-                if not any(c["name"] == add.group(2) for c in t["columns"]):
-                    ref = RE_REF.search(add.group(3))
-                    t["columns"].append({"name": add.group(2), "type": add.group(3).split()[0], "pk": False,
-                                         "fk": ref.group(1) if ref else None})
-                    if ref:
-                        t["fks"].append({"column": add.group(2), "to": ref.group(1)})
-            if (gone := RE_DROP.search(line)):
-                by.pop(gone.group(1), None)
-    return [by[k] for k in sorted(by)]
+    """The schema the migrations leave behind, applied in file order (a later migration wins), in keel v1's shape."""
+    return legacy_tables(read_schema(root, sql_files))
 
 
 def contract_file(root: str, all_files: list[str]) -> str | None:
@@ -165,8 +193,11 @@ def endpoints(root: str, rel: str | None) -> list[dict]:
         m = re.search(rf"^\s*[\"']?{re.escape(str(p))}[\"']?\s*:", text, re.M)
         line = text.count("\n", 0, m.start()) + 1 if m else 1
         for verb in VERBS:
-            if isinstance(item.get(verb), dict):
-                out.append({"method": verb.upper(), "path": str(p), "cite": {"rel": rel, "line": line}})
+            op = item.get(verb)
+            if isinstance(op, dict):
+                tags = [str(t) for t in op.get("tags") or [] if isinstance(t, (str, int))] if isinstance(op.get("tags"), list) else []
+                out.append({"method": verb.upper(), "path": str(p), "cite": {"rel": rel, "line": line},
+                            "summary": str(op.get("summary") or "")[:200], "tags": tags, "operation": op.get("operationId")})
     return sorted(out, key=lambda e: (e["path"], e["method"]))
 
 
@@ -305,10 +336,10 @@ def er_level(tbls: list[dict]) -> dict:
     nodes = {}
     for name in order:
         t = by[name]
-        shown = t["columns"][:ER_CAP]
+        shown = t["columns"]
         wide = max([len(c["name"]) for c in shown] + [0])
         nodes[name] = {"id": f"tbl:{name}", "kind": "data", "title": name, "cite": t["cite"],
-                       "sub": f"{len(t['columns'])} columns" + (f", {ER_CAP} shown" if len(t["columns"]) > ER_CAP else ""),
+                       "sub": f"{len(t['columns'])} columns",
                        "rows": [{"t": f"{c['name'].ljust(wide + 2)}{c['type']}", "flag": "pk" if c["pk"] else "fk" if c["fk"] else None}
                                 for c in shown]}
     seq = [nodes[n] for n in order]
@@ -329,7 +360,7 @@ def er_level(tbls: list[dict]) -> dict:
             pi = next((i for i, c in enumerate(by[fk["to"]]["columns"]) if c["pk"]), 0)
             parent, child = nodes[fk["to"]], nodes[t["name"]]
             pairs.append({"from": parent["id"], "to": child["id"], "kind": "fk", "label": "1 : n",
-                          "ay": _row_y(parent, pi) if pi < ER_CAP else None, "by": _row_y(child, ci) if 0 <= ci < ER_CAP else None})
+                          "ay": _row_y(parent, pi), "by": _row_y(child, ci) if ci >= 0 else None})
     return _level(seq, pairs)
 
 
@@ -337,21 +368,29 @@ def er_level(tbls: list[dict]) -> dict:
 
 def build(root: str) -> dict:
     all_files = files(root)
-    sql = migration_files(root, all_files)
-    tbls = tables(root, sql)
+    search = migration_search(root, all_files)
+    schema = read_schema(root, search["files"])
+    tbls = legacy_tables(schema)
     contract = contract_file(root, all_files)
     eps = endpoints(root, contract)
     mods = modules(all_files)
     levels = {"system": system_level(mods, eps, tbls, contract, len(all_files)), "modules": modules_level(mods, eps, tbls, contract)}
     if tbls:
         levels["er"] = er_level(tbls)
+    views = sum(1 for t in schema["tables"] if t["kind"] != "table")
+    fks = sum(1 for r in schema["relations"] if r["kind"] == "fk")
     return {
         "sha": git.head(root) if git.is_repo(root) else None, "at": db.now(), "demo": False,
-        "sources": {"contract": contract, "migrations": sql, "scanned": len(all_files)},
+        "sources": {"contract": contract, "migrations": search["files"], "scanned": len(all_files),
+                    "looked_in": search["looked_in"], "configured": search["configured"], "config": CONFIG_HINT,
+                    "skipped_statements": schema["skipped"]},
         "limits": ["endpoints come from the API contract, not from the code",
                    "tables come from the SQL migrations, so an ORM-generated schema is invisible",
                    "a module is a top folder", "journeys and classes are not drawn yet"],
-        "counts": {"modules": len(mods), "files": len(all_files), "endpoints": len(eps), "tables": len(tbls)},
+        "counts": {"modules": len(mods), "files": len(all_files), "endpoints": len(eps), "tables": len(tbls), "views": views,
+                   "relations": fks},
+        "schema": {"tables": schema["tables"], "relations": schema["relations"]},
+        "api": {"contract": contract, "endpoints": eps},
         "levels": levels,
     }
 
