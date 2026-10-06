@@ -1394,3 +1394,41 @@ engine only:   POST /helper/sessions/{sid}/release → HelperHandover   (the wor
 - Web: the panel's **Ask | Fix | Side** switch; a Side chat shows its branch, what is kept on it, **Make a task**,
   **Start a flow on the branch** (after a confirm) and **Throw away**; its Changed files box has **Keep** instead of
   Done, and a file name shows its diff (the file is not in the project folder).
+
+
+## v0.7.x: several flows at once (each in its own worktree)
+
+A project can run several flows at the same time. One works in the project folder (as before); every other one works
+in a git worktree of its own at `<project>/.keel/worktrees/flow-<slug>-<id>` on its own branch (the branch pattern,
+`feat/<slug>`), made from the **base branch** (main or master), not from what the folder has checked out.
+
+- **Where a flow starts** (`where` on `POST /api/projects/{pid}/flows`): `auto` (default) = the project folder when no
+  flow runs or waits there, else a worktree; `folder` (409 while the folder is busy); `worktree`. A worktree flow skips
+  the folder's dirty check and branch switch. Tasks' Start uses `auto`, so three tasks start three flows side by side.
+- The api keeps `threads.worktree` (its folder name) and `threads.branch` (V8 migration); every resume, rewind and
+  restart sends the engine that thread's folder (`rootNow`). A flow a flow hands over to (change → feature) inherits
+  its parent's worktree (`thread.started` with `data.parent`).
+- "The project's flow" (`GET /flow`, the project's phase, the Repo page's frozen marks, unlocks, the Helper's Fix
+  mode) is the project folder's flow. Flows in worktrees are reached by id.
+- A finished flow keeps its worktree until the person removes it (its branch, commits and PR stay).
+- The engine makes and removes the worktrees (`tools/worktrees.py`): `POST /worktrees {root, name, branch, start}`,
+  `POST /worktrees/remove {root, name, branch?}` (409 for an existing branch, 400 for a name keel does not make).
+
+```
+GET    /api/projects/{pid}/flows                → FlowBoard
+GET    /api/projects/{pid}/flows/{tid}          → FlowView   (one flow of the project, wherever it runs)
+POST   /api/projects/{pid}/flows                {…, where?: auto|folder|worktree} → ThreadState
+POST   /api/threads/{tid}/worktree/remove       → {ok, worktree}   (409 while it runs or another flow works there)
+
+FlowBoard = {flows: BoardFlow[], overlaps: [{file, flows: [tid]}], conflicts: [{a, b, files}], order: [tid]}
+BoardFlow = {thread_id, title, workflow_id, status, phase, current, waiting, where: folder|worktree, worktree, branch,
+             files (changed against the base branch: committed or not), updated_at, worktree_left}
+Project  += {flows}   (flows that run or wait, folder and worktrees)
+```
+- **overlaps**: files two or more running or waiting flows change. **conflicts**: pairs of branches that do not merge
+  cleanly (`git merge-tree --write-tree`, git 2.38+), with the files. **order**: fewest conflicts first, then the
+  smaller change.
+- Web: the Flow page shows the board once a flow runs in a worktree or two flows exist (cards open `#/flow/<tid>`;
+  **Remove the worktree** for a finished one); **Start another flow** next to Stop; the Start drawer's **Where it
+  runs** (the folder option is off while a flow runs there); the Inbox puts each flow's items under its own heading
+  when several flows of one project wait.

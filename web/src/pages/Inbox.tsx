@@ -254,6 +254,26 @@ export function InboxPage() {
     () => (r.data?.items ?? []).filter((it) => (!project || it.project_id === project) && (!kind || it.kind === kind)),
     [r.data, project, kind],
   );
+  // v0.7.x: when several flows of one project wait at once, each flow's items sit under its own heading
+  const groups = useMemo(() => {
+    const flowsOf = new Map<string, Set<string>>();
+    for (const it of items) {
+      if (it.task || it.permission) continue;
+      flowsOf.set(it.project_id, (flowsOf.get(it.project_id) ?? new Set<string>()).add(it.thread_id));
+    }
+    if (![...flowsOf.values()].some((x) => x.size > 1)) return null;
+    const order: string[] = [];
+    const by = new Map<string, InboxItem[]>();
+    for (const it of items) {
+      const g = it.task || it.permission ? `other:${it.project_id}` : `${it.project_id}:${it.thread_id}`;
+      if (!by.has(g)) { by.set(g, []); order.push(g); }
+      by.get(g)!.push(it);
+    }
+    return order.map((g) => {
+      const first = by.get(g)![0];
+      return { key: g, items: by.get(g)!, title: g.startsWith("other:") ? `${first.project_name} · tasks and the Helper` : `${first.project_name} · ${first.flow}` };
+    });
+  }, [items]);
   const total = r.data?.count ?? 0;
   // a project from the link that has nothing waiting still shows in the filter
   const projectOpts = useMemo(() => {
@@ -281,6 +301,12 @@ export function InboxPage() {
     toast(msg);
     await Promise.all([r.reload(), reloadProjects()]);
   };
+
+  const card = (it: InboxItem) => it.task
+    ? <TaskInboxCard key={keyOf(it)} it={it} onDone={(msg) => done(msg, keyOf(it))} />
+    : it.permission
+      ? <PermissionInboxCard key={keyOf(it)} it={it} onDone={(msg) => done(msg, keyOf(it))} />
+      : <InboxCard key={keyOf(it)} it={it} onDone={(msg) => done(msg, keyOf(it))} />;
 
   return (
     <>
@@ -312,11 +338,14 @@ export function InboxPage() {
             </div>
           ) : (
             <div className="inbox-list" ref={listRef}>
-              {items.map((it) => it.task
-                ? <TaskInboxCard key={keyOf(it)} it={it} onDone={(msg) => done(msg, keyOf(it))} />
-                : it.permission
-                  ? <PermissionInboxCard key={keyOf(it)} it={it} onDone={(msg) => done(msg, keyOf(it))} />
-                  : <InboxCard key={keyOf(it)} it={it} onDone={(msg) => done(msg, keyOf(it))} />)}
+              {groups
+                ? groups.map((g) => (
+                  <section key={g.key} className="inbox-group" aria-label={g.title}>
+                    <h2 className="inbox-group-h">{g.title} <span className="sub">{g.items.length}</span></h2>
+                    {g.items.map(card)}
+                  </section>
+                ))
+                : items.map(card)}
             </div>
           )}
     </>

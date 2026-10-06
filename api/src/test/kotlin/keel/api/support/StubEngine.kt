@@ -17,6 +17,13 @@ class StubEngine private constructor(private val server: HttpServer) {
 
     fun lastBody(path: String): JsonNode? = calls.lastOrNull { it.path == path }?.body
 
+    private fun git(root: java.nio.file.Path, vararg args: String): Boolean {
+        val p = ProcessBuilder(listOf("git", "-c", "user.name=Test", "-c", "user.email=test@example.com", *args))
+            .directory(root.toFile()).redirectErrorStream(true).start()
+        p.inputStream.readAllBytes()
+        return p.waitFor() == 0
+    }
+
     val featureTemplate = mapOf(
         "id" to "feature", "name" to "feature (keel)", "based_on" to null, "keel_rules" to true, "version" to 1,
         "steps" to listOf(
@@ -150,6 +157,22 @@ class StubEngine private constructor(private val server: HttpServer) {
                 }
                 else -> 200 to sess
             }
+        }
+        // v0.7.x: a flow's worktree, made for real in the test project (the board reads its git)
+        path == "/worktrees" && method == "POST" -> {
+            val root = java.nio.file.Paths.get(body!!["root"].asText())
+            val name = body["name"].asText()
+            val branch = body["branch"].asText()
+            val dir = root.resolve(".keel/worktrees").resolve(name)
+            val start = body.get("start")?.takeIf { !it.isNull }?.asText() ?: "HEAD"
+            val ok = git(root, "worktree", "add", "-q", "-b", branch, dir.toString(), start)
+            if (!ok) 409 to mapOf("error" to "git could not make the worktree $name.")
+            else 200 to mapOf("path" to dir.toString(), "branch" to branch, "base" to start)
+        }
+        path == "/worktrees/remove" -> {
+            val root = java.nio.file.Paths.get(body!!["root"].asText())
+            git(root, "worktree", "remove", "--force", root.resolve(".keel/worktrees").resolve(body["name"].asText()).toString())
+            200 to mapOf("ok" to true)
         }
         path == "/threads" && method == "POST" -> 200 to mapOf("thread_id" to (nextThreadIds.poll() ?: "t-stub-1"))
         path.matches(Regex("/threads/[^/]+")) -> 200 to state(path.removePrefix("/threads/"))

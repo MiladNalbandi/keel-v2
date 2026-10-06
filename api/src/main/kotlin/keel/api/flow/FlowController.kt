@@ -25,6 +25,8 @@ data class StartFlow(
     val options: Map<String, Any?>? = null,
     /** v0.4.1: manual | important | auto | readonly for this flow (default: the project's run_mode setting). */
     val runMode: String? = null,
+    /** v0.7.x: folder | worktree | auto (default: the project folder when it is free, else a worktree of its own). */
+    val where: String? = null,
 )
 data class EstimateYaml(val yaml: String = "", val acs: JsonNode? = null)
 data class UnlockBody(val path: String = "", val phase: String? = null, val reason: String? = null)
@@ -41,7 +43,19 @@ class FlowController(private val flows: FlowService) {
 
     @PostMapping("/projects/{pid}/flows")
     fun start(@PathVariable pid: String, @RequestBody body: StartFlow): JsonNode =
-        flows.start(pid, body.workflowId, body.title, body.acs, FlowCap(body.capTokens, body.onCap, body.runMode), body.allowFake, body.allowDirty, body.request, body.options)
+        flows.start(pid, body.workflowId, body.title, body.acs, FlowCap(body.capTokens, body.onCap, body.runMode), body.allowFake, body.allowDirty,
+            body.request, body.options, body.where)
+
+    /** v0.7.x: the project's flows side by side (folder and worktrees), the files they share, conflicts, a merge order. */
+    @GetMapping("/projects/{pid}/flows")
+    fun board(@PathVariable pid: String): FlowBoard = flows.board(pid)
+
+    @GetMapping("/projects/{pid}/flows/{tid}")
+    fun flowOf(@PathVariable pid: String, @PathVariable tid: String): FlowView = flows.flowOf(pid, tid)
+
+    /** A finished flow's worktree goes; its branch stays. */
+    @PostMapping("/threads/{tid}/worktree/remove")
+    fun removeWorktree(@PathVariable tid: String): JsonNode = flows.removeWorktree(tid)
 
     @PostMapping("/threads/{tid}/resume")
     fun resume(@PathVariable tid: String, @RequestBody body: Resume): JsonNode = flows.resume(tid, body.decision, body.why, body.payload)

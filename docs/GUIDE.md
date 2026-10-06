@@ -31,6 +31,11 @@ The [README](../README.md) is the short version. This page has the details.
 - keel runs the tests and makes the commits itself, on its own branch (`feat/…`). It never pushes, and it never
   commits files you changed yourself.
 - Every step, file change, command and token is visible: **Live agents**, **Jobs**, **Budget**.
+- **Several flows at once**: while a flow runs in the project folder, the next one runs in a worktree of its own
+  (a copy of the project on its own branch, under `.keel/worktrees/`), so neither touches the other's files. Press
+  **Start** on three tasks, or **Start another flow** on the Flow page. The Flow page then shows a board: each flow,
+  the files two flows both change, the branches that will not merge cleanly, and an order to merge them in. The
+  Inbox groups their gates by flow.
 - When something needs you, keel plays a sound, shows a pop-up and its mascot jumps.
 - keel v2 has its own guard, rules, agents, skills and MCP server. [keel v1](https://github.com/MiladNalbandi/keel) is a
   separate project and is not in the image.

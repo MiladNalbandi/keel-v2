@@ -1,7 +1,7 @@
 // MSW handlers for every /api route the web uses, backed by a small in-memory db (reset per test).
 
 import { http, HttpResponse } from "msw";
-import type { Cap, CapLeft, CapsLeft, GraphFocus, GraphOverview, HelperChange, HelperDone, HelperQuestion, HelperSession, IndexStatus, OnCap, Settings, Stack, ThreadState, Workflow } from "../api";
+import type { Cap, CapLeft, CapsLeft, FlowBoard, FlowView, GraphFocus, GraphOverview, HelperChange, HelperDone, HelperQuestion, HelperSession, IndexStatus, OnCap, Settings, Stack, ThreadState, Workflow } from "../api";
 import * as fx from "./fixtures";
 import { createTaskDb, taskHandlers } from "./taskHandlers";
 
@@ -11,6 +11,9 @@ export function createDb() {
   return {
     projects: clone(fx.projects),
     flows: { "ludus-engine": { thread: clone(fx.thread), workflow: clone(fx.featureWorkflow) } } as Record<string, { thread: ThreadState | null; workflow: Workflow | null }>,
+    /** v0.7.x: each project's board (GET /flows) and the flows in worktrees by id (GET /flows/:tid) */
+    boards: {} as Record<string, FlowBoard>,
+    threadViews: {} as Record<string, FlowView>,
     workflows: [clone(fx.featureWorkflow), clone(fx.fixWorkflow), clone(fx.initWorkflow)],
     overrides: { "ludus-engine": { cap_tokens: 600000 } } as Record<string, Partial<Settings>>,
     general: clone(fx.generalSettings),
@@ -72,6 +75,19 @@ export function handlers(db: Db) {
     }),
     http.get("/api/projects/:pid/flow", ({ params }) =>
       HttpResponse.json(db.flows[params.pid as string] ?? { thread: null, workflow: null })),
+    http.get("/api/projects/:pid/flows", ({ params }) =>
+      HttpResponse.json(db.boards[params.pid as string] ?? { flows: [], overlaps: [], conflicts: [], order: [] })),
+    http.get("/api/projects/:pid/flows/:tid", ({ params }) => {
+      const here = db.flows[params.pid as string];
+      if (here?.thread?.thread_id === params.tid) return HttpResponse.json(here);
+      const v = db.threadViews[params.tid as string];
+      return v ? HttpResponse.json(v) : HttpResponse.json({ error: "No flow" }, { status: 404 });
+    }),
+    http.post("/api/threads/:tid/worktree/remove", async ({ request, params }) => {
+      await log(request);
+      for (const b of Object.values(db.boards)) b.flows = b.flows.filter((f) => f.thread_id !== params.tid);
+      return HttpResponse.json({ ok: true, worktree: `flow-${params.tid}` });
+    }),
     http.post("/api/projects/:pid/flows", async ({ request, params }) => {
       const b = await log(request);
       const w = db.workflows.find((x) => x.id === b.workflow_id)!;

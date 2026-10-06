@@ -22,7 +22,7 @@ from .models import catalog
 from .runtime import codegraph_view, helper, hunt, mapper, scan
 from .runtime.explain import ExplainError, explain_step
 from .runtime.service import Engine, EngineError
-from .tools import mcp
+from .tools import mcp, worktrees
 from .workflows.estimate import estimate
 from .workflows.model import WorkflowError, from_dict
 from .workflows.templates import templates
@@ -170,6 +170,19 @@ class HelperUndo(BaseModel):
 class HelperDone(BaseModel):
     flow: dict[str, Any] = Field(default_factory=dict)   # the waiting flow: phase, acs, ac, unlocks, workflow, run_mode
     message: str = ""                                    # the commit's subject, as the person wrote it (else the chat's title)
+
+
+class WorktreeAdd(BaseModel):
+    root: str
+    name: str
+    branch: str
+    start: str | None = None            # the commit or branch it starts from (default: the folder's HEAD)
+
+
+class WorktreeRemove(BaseModel):
+    root: str
+    name: str
+    branch: str | None = None           # also delete this branch (a flow's is kept for its PR)
 
 
 class HelperPatch(BaseModel):
@@ -526,6 +539,24 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     async def delete_helper_session(sid: str, request: Request):
         await request.app.state.helper.stop(sid)
         await asyncio.to_thread(helper_call, helper.delete, sid)
+        return {"ok": True}
+
+    # a flow next to other flows works in its own worktree (the api makes it at the start, removes it when it ends)
+    @app.post("/worktrees")
+    async def post_worktree(body: WorktreeAdd):
+        try:
+            return await asyncio.to_thread(worktrees.add, project_root(body.root), body.name, body.branch, body.start)
+        except worktrees.WorktreeError as exc:
+            raise EngineError(409, str(exc), exc.hint) from exc
+
+    @app.post("/worktrees/remove")
+    async def post_worktree_remove(body: WorktreeRemove):
+        root = project_root(body.root)
+        try:
+            path = worktrees.path_of(root, body.name)
+        except worktrees.WorktreeError as exc:
+            raise EngineError(400, str(exc), exc.hint) from exc
+        await asyncio.to_thread(worktrees.remove, root, str(path), body.branch)
         return {"ok": True}
 
     @app.get("/helper/sessions/{sid}/handover")

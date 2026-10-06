@@ -1,7 +1,7 @@
 // "Start a flow" drawer: pick the project and workflow, say what to build, and see the estimate before it starts.
 
 import { useEffect, useState } from "react";
-import { api, errorParts, type CapsLeft, type Estimate, type Limit, type OnCap, type RunMode, type Workflow } from "../api";
+import { api, errorParts, type CapsLeft, type Estimate, type FlowWhere, type Limit, type OnCap, type RunMode, type Workflow } from "../api";
 import { kfmt, parseTokens, usd } from "../format";
 import { go, useApp } from "../state";
 import { RunModePicker } from "./RunMode";
@@ -36,6 +36,10 @@ export function StartFlowDrawer({ onClose, workflowId, projectId }: { onClose: (
   const [doctor, setDoctor] = useState(false);
   const [lintScope, setLintScope] = useState<"diff" | "all">("diff");
   const isDemo = projects.find((x) => x.id === p)?.root === "/data/demo";
+  // v0.7.x: a flow already runs or waits in the project folder: this one runs next to it, in a worktree of its own
+  const folderBusy = !!projects.find((x) => x.id === p)?.flow;
+  const [where, setWhere] = useState<FlowWhere>("auto");
+  const inWorktree = where === "worktree" || (where === "auto" && folderBusy);
   const fakeRefused = !!err && /fake model/i.test(err.message);
   const dirtyRefused = !!err && /uncommitted changes/i.test(err.message);
 
@@ -104,12 +108,15 @@ export function StartFlowDrawer({ onClose, workflowId, projectId }: { onClose: (
         ...(runMode !== modeDefault ? { run_mode: runMode } : {}),
         // the lint flow reads its scope from the flow's data (docs/CONTRACT.md, v0.4.1)
         ...(wid === "lint" ? { options: { scope: lintScope } } : {}),
+        ...(where !== "auto" ? { where } : {}),
       });
       if (p !== pid) setProjectId(p);
       await reloadProjects();
-      toast(state?.cap_note ? `Flow started. ${state.cap_note}` : "Flow started as a new LangGraph thread.");
+      const there = inWorktree ? " It runs in a worktree of its own, next to the project folder's flow." : "";
+      toast(state?.cap_note ? `Flow started.${there} ${state.cap_note}` : `Flow started as a new LangGraph thread.${there}`);
       onClose();
-      go("flow");
+      if (inWorktree && state?.thread_id) go("flow", state.thread_id);
+      else go("flow");
     } catch (e) {
       setErr(errorParts(e));
     } finally {
@@ -146,6 +153,16 @@ export function StartFlowDrawer({ onClose, workflowId, projectId }: { onClose: (
           <span className="hint">keel runs the formatters and linters of this project's stacks, fixes what they find without changing behaviour (2 rounds at most) and commits it as chore(lint).</span>
         </div>
       )}
+      <div className="field">
+        <label htmlFor="sf-where">Where it runs</label>
+        <select id="sf-where" value={inWorktree ? "worktree" : "folder"} onChange={(e) => setWhere(e.target.value as FlowWhere)}>
+          <option value="folder" disabled={folderBusy}>The project folder{folderBusy ? " (a flow runs there)" : ""}</option>
+          <option value="worktree">A worktree of its own, next to other flows</option>
+        </select>
+        <span className="hint">{inWorktree
+          ? "keel makes a copy of the project on a new branch from the base branch (.keel/worktrees). The project folder and its flow are not touched; the Flow page shows both, and the files they share."
+          : "The flow works in the project folder, on its own branch."}</span>
+      </div>
       <div className="field">
         <label htmlFor="sf-what">{needsTitle ? "What to build" : "Title (optional)"}</label>
         <input type="text" id="sf-what" value={title} aria-invalid={titleErr && needsTitle ? true : undefined} aria-describedby={titleErr && needsTitle ? "sf-what-err" : undefined}

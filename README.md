@@ -46,7 +46,7 @@ keel2 start ~/path/to/your/project
 
 | Page | What it shows |
 |---|---|
-| **Flow** | the running flow, step by step |
+| **Flow** | the running flow, step by step; several flows side by side, each on its own branch |
 | **Inbox** | everything that waits for you |
 | **Tasks** | your tasks or Jira tickets; **Start** runs a flow for one |
 | **Repo · Map · Graph** | the code, the database diagram, and what uses what |

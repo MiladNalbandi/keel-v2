@@ -28,6 +28,8 @@ data class Project(
     val acs: List<Int>,
     val waiting: Int,
     val running: Int,
+    /** v0.7.x: flows that run or wait, in the project folder and in worktrees */
+    val flows: Int = 0,
 )
 
 @Service
@@ -109,7 +111,7 @@ class ProjectService(private val jdbc: JdbcTemplate, private val mapper: ObjectM
 
     /** The phase of the project's running or waiting flow; "none" when no flow is active. */
     fun activePhase(pid: String): String = jdbc.query(
-        "SELECT phase FROM threads WHERE project_id = ? AND status IN ('running','waiting') ORDER BY updated_at DESC LIMIT 1",
+        "SELECT phase FROM threads WHERE project_id = ? AND worktree IS NULL AND status IN ('running','waiting') ORDER BY updated_at DESC LIMIT 1",
         { rs, _ -> rs.getString(1) }, pid,
     ).firstOrNull()?.takeIf { it.isNotBlank() } ?: "none"
 
@@ -124,7 +126,7 @@ class ProjectService(private val jdbc: JdbcTemplate, private val mapper: ObjectM
     fun view(row: ProjectRow): Project {
         val root = Paths.get(row.root)
         val thread = jdbc.query(
-            "SELECT workflow_id, status, phase, state_json FROM threads WHERE project_id = ? ORDER BY CASE WHEN status IN ('running','waiting') THEN 0 ELSE 1 END, updated_at DESC LIMIT 1",
+            "SELECT workflow_id, status, phase, state_json FROM threads WHERE project_id = ? AND worktree IS NULL ORDER BY CASE WHEN status IN ('running','waiting') THEN 0 ELSE 1 END, updated_at DESC LIMIT 1",
             { rs, _ -> listOf(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4)) }, row.id,
         ).firstOrNull()
         val active = thread != null && thread[1] in setOf("running", "waiting")
@@ -138,7 +140,8 @@ class ProjectService(private val jdbc: JdbcTemplate, private val mapper: ObjectM
             // v0.5.0: task items in the Inbox (confirm PP, ship, move a Jira ticket by hand)
             (jdbc.queryForObject("SELECT COUNT(*) FROM task_inbox WHERE project_id = ? AND done_at IS NULL", Int::class.java, row.id) ?: 0)
         val running = jdbc.queryForObject("SELECT COUNT(*) FROM agent_calls WHERE project_id = ? AND status = 'running'", Int::class.java, row.id) ?: 0
-        return Project(row.id, row.name, row.root, branch(root), flow, phase, acs, waiting, running)
+        val flows = jdbc.queryForObject("SELECT COUNT(*) FROM threads WHERE project_id = ? AND status IN ('running','waiting')", Int::class.java, row.id) ?: 0
+        return Project(row.id, row.name, row.root, branch(root), flow, phase, acs, waiting, running, flows)
     }
 
     private fun acCounts(thread: JsonNode?): List<Int> {

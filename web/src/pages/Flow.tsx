@@ -13,6 +13,7 @@ import { answersOf, ClarifyForm, type ClarifyAnswers } from "../components/Clari
 import { Markdown } from "../components/Markdown";
 import { eventLine } from "../components/events";
 import { EmptyState } from "../components/EmptyState";
+import { FlowBoardView, showBoard } from "../components/FlowBoard";
 import { StartFlowDrawer } from "../components/StartFlow";
 import { autoLines, RunModeNote, RunModeSwitch } from "../components/RunMode";
 import { AcChips, Blocks, BlocksLegend, StepTable, useMapView, ViewToggle, type BlocksHandle } from "../components/Blocks";
@@ -25,20 +26,26 @@ import { useJobSteps } from "./Live";
 import { useWide } from "../components/useWide";
 import { Async, Confirm, ErrorBox, GoButton, Loading, PageHead, Panel, Pill, Prov, Tabs, type PillTone } from "../components/ui";
 import { acLabel, clock, kfmt, usd } from "../format";
-import { useApp, useLoad } from "../state";
+import { useApp, useLoad, useRoute } from "../state";
 
 const AC_TONE: Record<string, PillTone> = { done: "ok", green: "ok", red: "bad", todo: "idle", "already-met": "met" };
 
 export function FlowPage({ pid }: { pid: string }) {
-  const flow = useLoad(`flow:${pid}`, () => api.flow(pid));
+  // v0.7.x: #/flow/<thread> opens one flow (a flow in a worktree); #/flow is the project folder's flow
+  const { arg: tid } = useRoute();
+  const flow = useLoad(tid ? `flow:${pid}:${tid}` : `flow:${pid}`, () => (tid ? api.flowOf(pid, tid) : api.flow(pid)));
+  const board = useLoad(`flows:${pid}`, () => api.flowBoard(pid));
   const { project } = useApp();
   const [start, setStart] = useState(false);
   return (
     <>
+      {showBoard(board.data) && (
+        <FlowBoardView board={board.data!} selected={flow.data?.thread?.thread_id ?? null} onChanged={() => void board.reload()} />
+      )}
       <Async r={flow} what="Loading the flow">
         {(f) => !f.thread || !f.workflow ? (
           <>
-            <PageHead title={project?.name ?? pid} sub="No flow is running in this project." />
+            <PageHead title={project?.name ?? pid} sub={showBoard(board.data) ? "No flow is running in the project folder." : "No flow is running in this project."} />
             <div className="panel">
               <EmptyState title="Nothing running here yet"
                 action={<button className="btn primary" type="button" id="startFlow2" onClick={() => setStart(true)}>Start a flow</button>}>
@@ -155,6 +162,8 @@ function FlowBar({ thread, workflow, estimate, started, onStart, onJump, extra }
             }
           }}>Stop flow</button>
         ) : <button className="btn primary" type="button" onClick={onStart}>Start a flow</button>}
+        {live && <button className="btn ghost" type="button" onClick={onStart}
+          title="It runs next to this one, in a worktree of its own">Start another flow</button>}
       </div>
     </header>
   );

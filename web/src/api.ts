@@ -196,9 +196,24 @@ export type Project = {
   acs: [number, number];
   waiting: number;
   running: number;
+  /** v0.7.x: flows that run or wait, in the project folder and in worktrees */
+  flows?: number;
 };
 
 export type FlowView = { thread: ThreadState | null; workflow: Workflow | null };
+/** v0.7.x: one flow on the project's board: in the project folder, or in a worktree of its own next to the others. */
+export type BoardFlow = {
+  thread_id: string; title: string; workflow_id?: string | null; status: ThreadStatus; phase?: string | null; current?: string | null;
+  waiting?: { step?: string; kind?: string; title?: string } | null; where: "folder" | "worktree"; worktree?: string | null; branch?: string | null;
+  /** the files it changed against the base branch */
+  files: string[]; updated_at?: string | null;
+  /** finished, but its worktree is still there (Remove the worktree; the branch stays) */
+  worktree_left?: boolean;
+};
+/** The project's flows side by side: files two of them change, branches that conflict, and an order to merge them in. */
+export type FlowBoard = { flows: BoardFlow[]; overlaps: { file: string; flows: string[] }[]; conflicts: { a: string; b: string; files: string[] }[];
+  order: string[] };
+export type FlowWhere = "folder" | "worktree" | "auto";
 
 export type JobStatus = "running" | "done" | "failed" | "stopped" | "guard" | string;
 export type Job = {
@@ -806,6 +821,9 @@ export const api = {
 
   // flow
   flow: (pid: string) => get<FlowView>(`/projects/${e(pid)}/flow`),
+  flowOf: (pid: string, tid: string) => get<FlowView>(`/projects/${e(pid)}/flows/${e(tid)}`),
+  flowBoard: (pid: string) => get<FlowBoard>(`/projects/${e(pid)}/flows`),
+  removeWorktree: (tid: string) => post<{ ok: boolean; worktree: string }>(`/threads/${e(tid)}/worktree/remove`),
   startLogin: (provider: string) => post<LoginView>("/logins", { provider }),
   login: (id: string) => get<LoginView>(`/logins/${e(id)}`),
   loginCode: (id: string, code: string) => post<LoginView>(`/logins/${e(id)}/code`, { code }),
@@ -815,7 +833,7 @@ export const api = {
     post<DoctorApplied>(`/projects/${e(pid)}/doctor/workspace/apply`, { plan }),
   startFlow: (pid: string, body: {
     workflow_id: string; title: string; acs?: { id: string; layer: "API" | "WEB"; title: string }[]; cap_tokens?: number; on_cap?: OnCap;
-    allow_fake?: boolean; allow_dirty?: boolean; request?: string; options?: Record<string, unknown>; run_mode?: RunMode;
+    allow_fake?: boolean; allow_dirty?: boolean; request?: string; options?: Record<string, unknown>; run_mode?: RunMode; where?: FlowWhere;
   }) =>
     post<ThreadState>(`/projects/${e(pid)}/flows`, body),
   resume: (tid: string, decision: "approve" | "reject", why?: string, payload?: Record<string, unknown>) =>

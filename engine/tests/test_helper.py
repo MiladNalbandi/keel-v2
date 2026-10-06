@@ -407,3 +407,20 @@ def test_a_chat_title_is_cut_at_a_word():
     t = helper.short_title(long)
     assert t == "Add formatUsd(cents) next to formatEuro in src/domain/money.js (returns $12.50…" and len(t) <= 80
     assert helper.short_title("x" * 120) == "x" * 79 + "…"
+
+
+def test_a_flow_worktree_starts_from_the_base_branch_and_goes_with_or_without_its_branch(client, repo):
+    _git(repo, "checkout", "-q", "-b", "feat/other")
+    (Path(repo) / "other.txt").write_text("another flow's work\n")
+    _git(repo, "add", "other.txt")
+    _sp.run(["git", "-c", "user.name=t", "-c", "user.email=t@x", "commit", "-qm", "other"], cwd=repo, check=True)
+    base = _git(repo, "rev-parse", "main").strip() or _git(repo, "rev-parse", "master").strip()
+    start = "main" if _git(repo, "rev-parse", "--verify", "--quiet", "main").strip() else "master"
+    w = client.post("/worktrees", json={"root": str(repo), "name": "flow-ranks-1", "branch": "feat/ranks", "start": start}).json()
+    assert w["branch"] == "feat/ranks" and w["base"] == base and not (Path(w["path"]) / "other.txt").exists()
+    again = client.post("/worktrees", json={"root": str(repo), "name": "flow-ranks-2", "branch": "feat/ranks", "start": start})
+    assert again.status_code == 409 and "exists already" in again.json()["error"]
+    assert client.post("/worktrees/remove", json={"root": str(repo), "name": "flow-ranks-1"}).json() == {"ok": True}
+    assert not Path(w["path"]).exists() and _git(repo, "branch", "--list", "feat/ranks").strip()     # the branch stays
+    bad = client.post("/worktrees/remove", json={"root": str(repo), "name": "../../etc"})
+    assert bad.status_code >= 400

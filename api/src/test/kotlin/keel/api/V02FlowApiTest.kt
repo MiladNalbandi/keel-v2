@@ -102,6 +102,7 @@ class V02FlowApiTest : ApiTest() {
         assertThat(get("/api/projects/$pid/agents").json().first { it["id"].asText() == "explorer" }["lane"].asText()).isEqualTo("follow")
         put("/api/projects/$pid/agents/implementer", mapOf("lane" to "mobile")).andExpect(status().isBadRequest)
 
+        engine.nextThreadIds.add("t-v02-capped")
         post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "Capped", "cap_tokens" to 90000, "on_cap" to "stop"))
             .andExpect(status().isOk)
         val body = engine.lastBody("/threads")!!
@@ -116,6 +117,7 @@ class V02FlowApiTest : ApiTest() {
         post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "x", "on_cap" to "explode")).andExpect(status().isBadRequest)
         post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "x", "cap_tokens" to 0)).andExpect(status().isBadRequest)
 
+        engine.nextThreadIds.add("t-v02-plain")      // runs next to "Capped", in a worktree of its own
         post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "Plain")).andExpect(status().isOk)
         assertThat(engine.lastBody("/threads")!!["settings"]["on_cap"].asText()).isEqualTo("pause")
 

@@ -1,9 +1,9 @@
-"""keel's git worktrees: a side session of the Helper (and, later, a flow of its own) works in a copy of the project on
+"""keel's git worktrees: a side session of the Helper, or a flow next to other flows, works in a copy of the project on
 its own branch, under <root>/.keel/worktrees/<name>. The main folder's checkout, its files and a flow running there are
 never touched; the folder is excluded from the main repo's git status (.git/info/exclude), and the Repo page does not
 walk into it (it has its own .git file).
 
-    add       a new worktree on a new branch from the main folder's HEAD
+    add       a new worktree on a new branch from the main folder's HEAD (or another start, e.g. the base branch)
     remove    the worktree away (its branch too, unless it is kept for a hand-over)
     changes   every file that differs from the commit the worktree started from: committed on its branch or not
     undo      put one file (or all of them) back as it was at that commit
@@ -36,14 +36,17 @@ def path_of(root: str, name: str) -> Path:
     return Path(root) / DIR / name
 
 
-def add(root: str, name: str, branch: str) -> dict:
-    """{path, branch, base}: a worktree of `root` on a new branch from its HEAD."""
+def add(root: str, name: str, branch: str, start: str | None = None) -> dict:
+    """{path, branch, base}: a worktree of `root` on a new branch from `start` (default: its HEAD)."""
     if not git.is_repo(root):
         raise WorktreeError("This project is not a git repository, so it cannot have a worktree.",
-                            "A side session needs git: run `git init` and commit once, or use Ask.")
-    base = git.head(root)
+                            "It needs git: run `git init` and commit once.")
+    r = git.git(root, "rev-parse", "--verify", "--quiet", f"{start or 'HEAD'}^{{commit}}")
+    base = r.stdout.strip() if r.returncode == 0 else None
     if not base:
-        raise WorktreeError("This repository has no commit yet, so a worktree has nothing to start from.", "Commit once first.")
+        raise WorktreeError(f"There is no commit {start or 'HEAD'} to start the worktree from.", "Commit once first.")
+    if git.git(root, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}").returncode == 0:
+        raise WorktreeError(f"The branch {branch} exists already.", "Pick another name.")
     git.exclude(root, [f"{DIR}/"], "keel v2 worktrees (side sessions)")
     path = path_of(root, name)
     path.parent.mkdir(parents=True, exist_ok=True)

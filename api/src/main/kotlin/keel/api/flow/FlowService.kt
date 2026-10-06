@@ -99,6 +99,22 @@ fun checkRunMode(mode: String?) {
 
 data class FlowView(val thread: JsonNode?, val workflow: Workflow?)
 
+/** v0.7.x: one flow on the project's board. where = folder (the project folder) | worktree (its own, next to others). */
+data class BoardFlow(
+    val threadId: String, val title: String, val workflowId: String?, val status: String, val phase: String?,
+    val current: String?, val waiting: JsonNode?, val where: String, val worktree: String?, val branch: String?,
+    /** the files it changed against the base branch (committed on its branch or not yet) */
+    val files: List<String>, val updatedAt: String?,
+    /** a finished flow whose worktree is still there (Remove the worktree; its branch stays) */
+    val worktreeLeft: Boolean = false,
+)
+/** A file two or more flows change: their merges will meet there. */
+data class FlowOverlap(val file: String, val flows: List<String>)
+/** Two flows' branches that do not merge cleanly (git merge-tree), and where. */
+data class FlowConflict(val a: String, val b: String, val files: List<String>)
+/** The project's flows side by side, what they share, and an order to merge them in (fewest conflicts first). */
+data class FlowBoard(val flows: List<BoardFlow>, val overlaps: List<FlowOverlap>, val conflicts: List<FlowConflict>, val order: List<String>)
+
 @Service
 class FlowService(
     private val jdbc: JdbcTemplate,
@@ -169,21 +185,32 @@ class FlowService(
 
     fun start(pid: String, workflowId: String, title: String, acs: List<Ac>?, cap: FlowCap? = null,
               allowFake: Boolean = false, allowDirty: Boolean = false, request: String? = null,
-              options: Map<String, Any?>? = null): JsonNode {
+              options: Map<String, Any?>? = null, where: String? = null): JsonNode {
         if (title.isBlank()) throw BadRequest("Give the flow a title", "One short line: what should this flow build or fix?")
         cap?.check()
         var start = buildStart(pid, workflowId, title, acs, cap)
         val root = Paths.get(start.root)
         refuseFake(start, root, allowFake)
-        refuseDirty(root, allowDirty)
-        ownBranch(pid, root, title)
+        // the project folder, or (v0.7.x) a worktree of its own next to the flow that runs or waits there
+        val wt = if (inWorktree(pid, where)) worktreeFor(pid, root, title) else null
+        if (wt == null) {
+            refuseDirty(root, allowDirty)
+            ownBranch(pid, root, title)
+        } else {
+            start = start.copy(root = wt.path)
+        }
         // API keys for "api" models and CLI logins for subscription models, from the encrypted secrets table; the
         // cheaper model's too, so a cap that switches to it mid-flow can run it.
         val keys = keysFor(start.models.values + listOfNotNull(start.settings.cheaperModel))
         val withRequest = start.copy(request = request?.trim()?.takeIf { it.isNotEmpty() }?.take(8000),
             data = options?.takeIf { it.isNotEmpty() })
         val body = if (keys.isEmpty()) withRequest else withRequest.copy(keys = keys)
-        val res = engine.startThread(body)
+        val res = try {
+            engine.startThread(body)
+        } catch (e: Exception) {
+            wt?.let { removeWorktreeAt(root, it.name) }
+            throw e
+        }
         val tid = res.get("thread_id")?.asText() ?: throw ApiException(HttpStatus.BAD_GATEWAY, "The engine did not return a thread id")
         val now = Time.now()
         jdbc.update(
@@ -191,6 +218,7 @@ class FlowService(
             tid, pid, workflowId, title, now, now,
         )
         jdbc.update("UPDATE threads SET workflow_id = ?, title = ?, project_id = ? WHERE id = ?", workflowId, title, pid, tid)
+        jdbc.update("UPDATE threads SET worktree = ?, branch = ? WHERE id = ?", wt?.name, wt?.branch, tid)
         val state = runCatching { engine.thread(tid) }.getOrElse { res }
         save(tid, state)
         hub.publish(pid, "project.changed", mapOf("id" to pid))
@@ -224,6 +252,66 @@ class FlowService(
             "This project has uncommitted changes (${files.size} file${if (files.size == 1) "" else "s"}): ${files.take(5).joinToString()}${if (files.size > 5) ", …" else ""}",
             "Commit or stash them first, so keel's commits hold only what its agents wrote. Or tick \"Start anyway\": your files then stay out of keel's commits.",
         )
+    }
+
+    /** The flow that runs or waits in the project folder itself (not in a worktree), if one does. */
+    fun folderFlow(pid: String): String? = jdbc.query(
+        "SELECT id FROM threads WHERE project_id = ? AND worktree IS NULL AND status IN ('running','waiting') ORDER BY updated_at DESC LIMIT 1",
+        { rs, _ -> rs.getString(1) }, pid,
+    ).firstOrNull()
+
+    /** Where a new flow runs: auto = the project folder when it is free, else a worktree of its own next to that flow. */
+    private fun inWorktree(pid: String, where: String?): Boolean {
+        val busy = folderFlow(pid) != null
+        return when (where?.trim()?.lowercase()) {
+            null, "", "auto" -> busy
+            "worktree" -> true
+            "folder" -> if (busy) throw Conflict("A flow already runs in the project folder",
+                "Start this one in its own worktree (it runs next to the other one), or wait until that flow ends.") else false
+            else -> throw BadRequest("where must be folder, worktree or auto")
+        }
+    }
+
+    private data class FlowWorktree(val name: String, val branch: String, val path: String)
+
+    /** A worktree for a flow, on its own branch (the branch pattern) from the base branch, not from what the folder has. */
+    private fun worktreeFor(pid: String, root: Path, title: String): FlowWorktree {
+        if (!repo.git(root, "rev-parse", "--git-dir").ok)
+            throw Conflict("This project is not a git repository", "A flow next to another one needs git: its own worktree and branch.")
+        val pattern = settings.effective(pid).branchPattern.ifBlank { "feat/{slug}" }
+        val first = pattern.replace("{slug}", Slug.of(title).take(40)).replace("{user}", "keel").replace("{flow}", "flow")
+        var branch = first
+        var n = 2
+        while (repo.git(root, "rev-parse", "--verify", "--quiet", "refs/heads/$branch").ok) branch = "$first-${n++}"
+        val name = "flow-${Slug.of(title).take(30)}-${java.util.UUID.randomUUID().toString().take(6)}"
+        val res = engine.post("/worktrees", mapOf("root" to root.toString(), "name" to name, "branch" to branch, "start" to repo.base(root)))
+        return FlowWorktree(name, res.path("branch").asText(branch), res.path("path").asText())
+    }
+
+    private fun removeWorktreeAt(root: Path, name: String) {
+        runCatching { engine.post("/worktrees/remove", mapOf("root" to root.toString(), "name" to name)) }
+            .onFailure { log.warn("could not remove the worktree {}: {}", name, it.message) }
+    }
+
+    /** A finished flow's worktree goes; its branch (and so its commits and PR) stays. */
+    fun removeWorktree(tid: String): JsonNode {
+        val row = jdbc.query("SELECT project_id, worktree, status FROM threads WHERE id = ?",
+            { rs, _ -> Triple(rs.getString(1), rs.getString(2), rs.getString(3)) }, tid).firstOrNull() ?: throw NotFound("No flow $tid")
+        val (pid, name, status) = row
+        if (name.isNullOrBlank()) throw BadRequest("This flow runs in the project folder; it has no worktree")
+        if (status in setOf("running", "waiting")) throw Conflict("This flow still runs", "Stop it first, or let it finish.")
+        val users = jdbc.queryForObject("SELECT COUNT(*) FROM threads WHERE project_id = ? AND worktree = ? AND status IN ('running','waiting')",
+            Int::class.java, pid, name) ?: 0
+        if (users > 0) throw Conflict("Another flow works in this worktree", "It took over this flow's work; let it finish first.")
+        engine.post("/worktrees/remove", mapOf("root" to projects.root(pid).toString(), "name" to name))
+        hub.publish(pid, "project.changed", mapOf("id" to pid))
+        return mapper.valueToTree(mapOf("ok" to true, "worktree" to name))
+    }
+
+    /** A flow a flow handed over to (change → feature) works where its parent worked. */
+    fun inheritWorktree(child: String, parent: String) {
+        jdbc.update("UPDATE threads SET worktree = (SELECT worktree FROM threads WHERE id = ?), branch = (SELECT branch FROM threads WHERE id = ?) " +
+            "WHERE id = ? AND worktree IS NULL", parent, parent, child)
     }
 
     /** Never work on main/master: a flow gets its own branch from the branch pattern in Settings (feat/{slug}). */
@@ -285,8 +373,14 @@ class FlowService(
         return n
     }
 
-    /** The thread's project folder now: it moves when keel is started another way (keel2 start --docker). */
-    private fun rootNow(tid: String): String? = threadProject(tid)?.let { runCatching { projects.root(it).toString() }.getOrNull() }
+    /** The thread's folder now: the project folder (it moves when keel is started another way, keel2 start --docker), or
+     *  its worktree in it. */
+    private fun rootNow(tid: String): String? {
+        val (pid, wt) = jdbc.query("SELECT project_id, worktree FROM threads WHERE id = ?", { rs, _ -> rs.getString(1) to rs.getString(2) }, tid)
+            .firstOrNull() ?: return null
+        val root = runCatching { projects.root(pid) }.getOrNull() ?: return null
+        return (if (wt.isNullOrBlank()) root else root.resolve(".keel/worktrees").resolve(wt)).toString()
+    }
 
     fun resume(tid: String, decision: String, why: String?, payload: Map<String, Any?>?): JsonNode {
         if (decision !in setOf("approve", "reject")) throw BadRequest("decision must be approve or reject")
@@ -328,12 +422,26 @@ class FlowService(
         return state
     }
 
+    /** The project folder's flow: the one that runs or waits there, else the last one (flows in worktrees: flowOf, board). */
     fun flow(pid: String): FlowView {
         projects.require(pid)
         val row = jdbc.query(
-            "SELECT id, workflow_id, state_json FROM threads WHERE project_id = ? ORDER BY CASE WHEN status IN ('running','waiting') THEN 0 ELSE 1 END, updated_at DESC LIMIT 1",
+            "SELECT id, workflow_id, state_json FROM threads WHERE project_id = ? AND worktree IS NULL ORDER BY CASE WHEN status IN ('running','waiting') THEN 0 ELSE 1 END, updated_at DESC LIMIT 1",
             { rs, _ -> Triple(rs.getString(1), rs.getString(2), rs.getString(3)) }, pid,
         ).firstOrNull()
+        return view(row)
+    }
+
+    /** One flow of the project, wherever it runs. */
+    fun flowOf(pid: String, tid: String): FlowView {
+        projects.require(pid)
+        val row = jdbc.query("SELECT id, workflow_id, state_json FROM threads WHERE project_id = ? AND id = ?",
+            { rs, _ -> Triple(rs.getString(1), rs.getString(2), rs.getString(3)) }, pid, tid).firstOrNull()
+            ?: throw NotFound("No flow $tid in this project")
+        return view(row)
+    }
+
+    private fun view(row: Triple<String, String?, String?>?): FlowView {
         var thread: JsonNode? = null
         var workflow: Workflow? = null
         if (row != null) {
@@ -347,6 +455,67 @@ class FlowService(
             workflow = row.second?.let { wid -> try { workflows.get(wid) } catch (e: NotFound) { null } }
         }
         return FlowView(thread, workflow)
+    }
+
+    // ---- v0.7.x: the board of the project's flows ----------------------------------------------
+
+    private data class BoardRow(val id: String, val title: String, val workflowId: String?, val status: String, val phase: String?,
+                                val current: String?, val worktree: String?, val branch: String?, val state: String?, val updatedAt: String?)
+
+    /** The flows that run or wait, in the project folder or in worktrees, and the finished ones whose worktree is left. */
+    fun board(pid: String): FlowBoard {
+        val root = projects.root(pid)
+        val base = repo.base(root)
+        val rows = jdbc.query(
+            "SELECT id, title, workflow_id, status, phase, current, worktree, branch, state_json, updated_at FROM threads " +
+                "WHERE project_id = ? AND (status IN ('running','waiting') OR worktree IS NOT NULL) ORDER BY created_at",
+            { rs, _ -> BoardRow(rs.getString(1), rs.getString(2) ?: "", rs.getString(3), rs.getString(4) ?: "", rs.getString(5), rs.getString(6),
+                rs.getString(7), rs.getString(8), rs.getString(9), rs.getString(10)) }, pid,
+        )
+        val flows = rows.mapNotNull { r ->
+            val dir = if (r.worktree.isNullOrBlank()) root else root.resolve(".keel/worktrees").resolve(r.worktree)
+            val active = r.status in setOf("running", "waiting")
+            val left = !active && !r.worktree.isNullOrBlank() && java.nio.file.Files.isDirectory(dir)
+            if (!active && !left) return@mapNotNull null
+            val state = r.state?.let { runCatching { mapper.readTree(it) }.getOrNull() }
+            val branch = r.branch ?: repo.git(dir, "rev-parse", "--abbrev-ref", "HEAD").takeIf { it.ok }?.out?.trim()?.ifBlank { null }
+            BoardFlow(r.id, r.title, r.workflowId, r.status, r.phase, r.current, state?.get("waiting")?.takeIf { it.isObject },
+                if (r.worktree.isNullOrBlank()) "folder" else "worktree", r.worktree, branch, changedFiles(dir, base), r.updatedAt, left)
+        }
+        val active = flows.filter { !it.worktreeLeft }
+        val overlaps = active.flatMap { f -> f.files.map { it to f.threadId } }.groupBy({ it.first }, { it.second })
+            .filter { it.value.distinct().size > 1 }.map { FlowOverlap(it.key, it.value.distinct()) }.sortedBy { it.file }
+        val conflicts = mutableListOf<FlowConflict>()
+        for (i in active.indices) for (j in i + 1 until active.size) {
+            val a = active[i]
+            val b = active[j]
+            if (a.branch == null || b.branch == null || a.branch == b.branch) continue
+            val files = mergeConflicts(root, a.branch, b.branch) ?: continue
+            if (files.isNotEmpty()) conflicts += FlowConflict(a.threadId, b.threadId, files)
+        }
+        // merge the flows with the fewest conflicts first; among those, the smaller change first
+        val clashes = active.associate { f -> f.threadId to conflicts.count { it.a == f.threadId || it.b == f.threadId } }
+        val order = active.sortedWith(compareBy({ clashes[it.threadId] ?: 0 }, { it.files.size })).map { it.threadId }
+        return FlowBoard(flows, overlaps, conflicts, order)
+    }
+
+    /** What a flow changed against the base branch: committed on its branch, or not yet (a running agent's files). */
+    private fun changedFiles(dir: Path, base: String?): List<String> {
+        if (!java.nio.file.Files.isDirectory(dir)) return emptyList()
+        val committed = base?.let { b -> repo.git(dir, "diff", "--name-only", "$b...HEAD").takeIf { it.ok }?.out?.lines() }.orEmpty()
+        val open = repo.git(dir, "status", "--porcelain", "--untracked-files=all").out.lines().filter { it.length > 3 }.map { it.substring(3).trim() }
+        return (committed + open).map { it.trim() }
+            .filter { it.isNotBlank() && !WorkspaceDoctor.isEngineFile(it) && !it.startsWith(".keel/") }.distinct().sorted()
+    }
+
+    /** The files where two branches do not merge cleanly (git merge-tree, git 2.38 or newer); null when git cannot tell. */
+    private fun mergeConflicts(root: Path, a: String, b: String): List<String>? {
+        val r = repo.git(root, "merge-tree", "--write-tree", "--name-only", "--no-messages", a, b)
+        return when (r.code) {
+            0 -> emptyList()
+            1 -> r.out.lines().drop(1).map { it.trim() }.filter { it.isNotBlank() }.distinct()
+            else -> null
+        }
     }
 
     /** Engine estimate, fed with this project's job history. */
@@ -389,7 +558,7 @@ class FlowService(
         }
         val why = reason?.takeIf { it.isNotBlank() } ?: "unlocked from keel v2"
         val active = jdbc.query(
-            "SELECT id, status FROM threads WHERE project_id = ? AND status IN ('running', 'waiting') ORDER BY updated_at DESC LIMIT 1",
+            "SELECT id, status FROM threads WHERE project_id = ? AND worktree IS NULL AND status IN ('running', 'waiting') ORDER BY updated_at DESC LIMIT 1",
             { rs, _ -> rs.getString(1) to rs.getString(2) }, pid,
         ).firstOrNull() ?: throw Conflict("No flow is running in this project", "Unlocks belong to a flow: start one, then unlock the file in it.")
         val (tid, status) = active
