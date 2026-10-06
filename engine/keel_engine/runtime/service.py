@@ -59,6 +59,7 @@ class Engine:
         self.data_dir = data_dir
         self.conn: aiosqlite.Connection | None = None
         self.saver: AsyncSqliteSaver | None = None
+        self.saver_conn: aiosqlite.Connection | None = None
         self.graphs: dict[str, object] = {}
         self.ctxs: dict[str, ThreadContext] = {}
         self.tasks: dict[str, asyncio.Task] = {}
@@ -79,7 +80,13 @@ class Engine:
         if str(mode).lower() != "wal":
             log.warning("engine DB is in %s mode, not WAL: parallel writers may wait on each other", mode)
         await self.conn.execute(f"pragma busy_timeout = {db.BUSY_MS}")
-        self.saver = AsyncSqliteSaver(self.conn)
+        # LangGraph's checkpointer gets its own connection. It serialises its own reads and writes with a lock, but
+        # keel's code (memory, registry) used the same connection without that lock: a cursor one coroutine still read
+        # from turned another coroutine's checkpoint INSERT into a stale read-then-write, which SQLite refuses at once
+        # ("database is locked" on CI, no busy wait). Separate connections never share a read snapshot.
+        self.saver_conn = await aiosqlite.connect(str(d / "checkpoints.db"), timeout=db.BUSY_MS / 1000, isolation_level=None)
+        await self.saver_conn.execute(f"pragma busy_timeout = {db.BUSY_MS}")
+        self.saver = AsyncSqliteSaver(self.saver_conn)
         await self.saver.setup()
         await self.conn.execute(REGISTRY)
         await self.conn.execute(memory_mod.SCHEMA)
@@ -128,8 +135,9 @@ class Engine:
                 await t
             except BaseException:
                 pass
-        if self.conn:
-            await self.conn.close()
+        for conn in (self.saver_conn, self.conn):
+            if conn:
+                await conn.close()
 
     # ------------------------------------------------------------ registry
 
