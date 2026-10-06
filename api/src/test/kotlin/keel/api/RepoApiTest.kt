@@ -3,10 +3,19 @@ package keel.api
 import keel.api.support.ApiTest
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import java.nio.file.Files
 
 class RepoApiTest : ApiTest() {
+    @Autowired lateinit var jdbc: JdbcTemplate
+
+    /** An active (waiting) flow of the project, as the api keeps it (the engine's events write these rows). */
+    private fun activeFlow(pid: String, phase: String, acs: String) = jdbc.update(
+        "INSERT INTO threads(id, project_id, workflow_id, title, status, phase, state_json, created_at, updated_at) VALUES (?, ?, 'feature', 'x', 'waiting', ?, ?, ?, ?)",
+        "t-$pid", pid, phase, """{"acs": $acs}""", "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z",
+    )
 
     private val files = mapOf(
         "README.md" to "# demo\n",
@@ -15,7 +24,7 @@ class RepoApiTest : ApiTest() {
         "docs/specs/scores.md" to "# Scores\n\nAC-001 a\nAC-002 b\n",
         "docs/knowledge/architecture.md" to "# Architecture\n\nLayers live in `apps/api/src/main/kotlin/app/Score.kt:1` and `README.md:1`.\n",
         "docs/adr/ADR-001-graph.md" to "# The flow is a graph\n",
-        ".keel/state.json" to """{"flow":"feature","phase":"red","acs":{"AC-001":{"status":"red"},"AC-002":{"status":"done"}}}""",
+        ".keel/config.yml" to "commands: {}\n",
         ".env" to "SECRET=1\n",
         "node_modules/x/index.js" to "x\n",
     )
@@ -23,6 +32,13 @@ class RepoApiTest : ApiTest() {
     @Test
     fun `repo info, tree, file and commits on a real git repo`() {
         val (pid, root) = newProject("repo-demo", files)
+        // no flow yet: nothing is frozen and the project has no phase (keel v1's state file is not read since 0.4.1)
+        val v1State = root.resolve(".keel").resolve("state.json")
+        Files.writeString(v1State, """{"flow":"feature","phase":"red"}""")
+        assertThat(get("/api/projects/$pid").json()["phase"].asText()).isEqualTo("none")
+        assertThat(get("/api/projects/$pid/repo/file?path=apps/api/src/main/kotlin/app/Score.kt").json()["frozen"].asBoolean()).isFalse()
+        Files.delete(v1State)
+        activeFlow(pid, "red", """[{"id": "AC-001", "status": "red"}, {"id": "AC-002", "status": "done"}]""")
         git(root, "checkout", "-q", "-b", "feat/scores")
         Files.writeString(root.resolve("apps/api/src/main/kotlin/app/New.kt"), "class New\n")
         git(root, "add", "-A")
@@ -45,7 +61,7 @@ class RepoApiTest : ApiTest() {
         assertThat(byPath["README.md"]!!["mark"].asText()).isEqualTo("M")
         assertThat(byPath["untracked.txt"]!!["mark"].asText()).isEqualTo("A")
         assertThat(byPath["docs/specs/scores.md"]!!["keel"].asBoolean()).isTrue()
-        assertThat(byPath[".keel/state.json"]!!["keel"].asBoolean()).isTrue()
+        assertThat(byPath[".keel/config.yml"]!!["keel"].asBoolean()).isTrue()
         assertThat(byPath["README.md"]!!["keel"].asBoolean()).isFalse()
         // phase red: production code is frozen, tests are not
         assertThat(byPath["apps/api/src/main/kotlin/app/Score.kt"]!!["frozen"].asBoolean()).isTrue()
@@ -101,7 +117,7 @@ class RepoApiTest : ApiTest() {
         val docs = get("/api/projects/$pid/keel-docs").andExpect(status().isOk).json()
         val byPath = docs.associateBy { it["path"].asText() }
         assertThat(byPath["docs/specs/scores.md"]!!["what"].asText()).isEqualTo("Spec — 2 ACs")
-        assertThat(byPath[".keel/state.json"]!!["status"].asText()).isEqualTo("live")
+        assertThat(byPath[".keel/config.yml"]!!["what"].asText()).isEqualTo("Project config")
         assertThat(byPath.keys).contains("docs/knowledge/", "docs/adr/ADR-001-graph.md")
 
         val memory = get("/api/projects/$pid/memory").json()

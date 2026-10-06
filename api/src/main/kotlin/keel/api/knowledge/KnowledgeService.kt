@@ -61,15 +61,9 @@ class KnowledgeService(
                 mtime(root.resolve("docs/knowledge")), if (stale.isEmpty()) "ok" else "check",
             )
         }
+        // keel v2's own files only: a flow's state and events live in the engine (/data), not in the project.
         add(".keel/config.yml", "Project config", "init")
-        add(".keel/state.json", "Flow state (v1 format, mirrored from the graph)", "engine", "live")
-        root.resolve(".keel/logs/events.jsonl").takeIf { Files.exists(it) }?.let {
-            val n = runCatching { Files.lines(it).use { l -> l.count() } }.getOrDefault(0L)
-            out += KeelDoc(".keel/logs/events.jsonl", "Event log — $n events", "engine", mtime(it), "live")
-        }
-        add(".keel/coverage.json", "Coverage verdict", "verify coverage", "check")
         add(".keel/ladder.json", "Ladder results", "init", "live")
-        add(".keel/map.json", "Project map", "keel map")
         add("docs/RUNNING.md", "Runbook", "init")
         return out
     }
@@ -273,21 +267,14 @@ class KnowledgeService(
 
     // ---- map ------------------------------------------------------------------------------
 
-    /**
-     * The map the engine built (engine runtime/mapper.py, stored in its DB). A project that has none there yet still
-     * shows the map keel v1 left in .keel/map.json, when there is one.
-     */
+    /** The map the engine built (engine runtime/mapper.py, stored in its DB), or `{missing}` until it built one. */
     fun map(pid: String): JsonNode {
-        val root = projects.root(pid)
-        val built = try {
+        projects.require(pid)
+        return try {
             engine.map(pid)
         } catch (e: EngineDown) {
             missing("The engine is not running, so the map cannot be read.")
         }
-        if (!built.has("missing")) return built
-        val old = root.resolve(".keel/map.json")
-        if (!Files.isRegularFile(old)) return built
-        return runCatching { mapper.readTree(old.toFile()) }.getOrElse { built }
     }
 
     /** Builds the map for HEAD in the engine: folders, tables from the SQL migrations, endpoints from the API contract. */

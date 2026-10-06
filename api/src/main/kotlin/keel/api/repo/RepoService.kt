@@ -134,8 +134,6 @@ class RepoService(private val projects: ProjectService, private val rules: KeelR
         return map
     }
 
-    private fun phase(root: Path): String = projects.keelState(root)?.get("phase")?.asText() ?: "none"
-
     fun isKeel(rel: String, cfg: ClassifyConfig): Boolean =
         rel == ".keel" || rel.startsWith(".keel/") ||
             KEEL_DIRS.any { rel == it || rel.startsWith("$it/") } ||
@@ -146,7 +144,7 @@ class RepoService(private val projects: ProjectService, private val rules: KeelR
         val root = projects.root(pid)
         val maxDepth = depth.coerceIn(1, 8)
         val cfg = ClassifyConfig.load(root)
-        val phase = phase(root)
+        val phase = projects.activePhase(pid)
         val marks = marks(root)
         val out = mutableListOf<TreeNode>()
 
@@ -209,7 +207,7 @@ class RepoService(private val projects: ProjectService, private val rules: KeelR
         }
         return FileView(
             path = relNorm, size = Files.size(target), mark = marks(root)[relNorm],
-            frozen = rules.frozen(phase(root), cfg, relNorm), keel = isKeel(relNorm, cfg), ac = null,
+            frozen = rules.frozen(projects.activePhase(pid), cfg, relNorm), keel = isKeel(relNorm, cfg), ac = null,
             head = head, lastCommit = commits(root, 1, relNorm).firstOrNull(),
         )
     }

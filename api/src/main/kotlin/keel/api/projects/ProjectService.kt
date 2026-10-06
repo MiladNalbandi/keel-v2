@@ -107,10 +107,11 @@ class ProjectService(private val jdbc: JdbcTemplate, private val mapper: ObjectM
         return ProjectRow(id, display, root.toString()).also { if (scan) triggerScan(it) }
     }
 
-    fun keelState(root: Path): JsonNode? {
-        val f = root.resolve(".keel/state.json")
-        return if (Files.isRegularFile(f)) runCatching { mapper.readTree(f.toFile()) }.getOrNull() else null
-    }
+    /** The phase of the project's running or waiting flow; "none" when no flow is active. */
+    fun activePhase(pid: String): String = jdbc.query(
+        "SELECT phase FROM threads WHERE project_id = ? AND status IN ('running','waiting') ORDER BY updated_at DESC LIMIT 1",
+        { rs, _ -> rs.getString(1) }, pid,
+    ).firstOrNull()?.takeIf { it.isNotBlank() } ?: "none"
 
     fun branch(root: Path): String? {
         val r = Proc.run(listOf("git", "rev-parse", "--abbrev-ref", "HEAD"), root, 5)
@@ -122,7 +123,6 @@ class ProjectService(private val jdbc: JdbcTemplate, private val mapper: ObjectM
 
     fun view(row: ProjectRow): Project {
         val root = Paths.get(row.root)
-        val state = keelState(root)
         val thread = jdbc.query(
             "SELECT workflow_id, status, phase, state_json FROM threads WHERE project_id = ? ORDER BY CASE WHEN status IN ('running','waiting') THEN 0 ELSE 1 END, updated_at DESC LIMIT 1",
             { rs, _ -> listOf(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4)) }, row.id,
@@ -130,26 +130,19 @@ class ProjectService(private val jdbc: JdbcTemplate, private val mapper: ObjectM
         val active = thread != null && thread[1] in setOf("running", "waiting")
         val threadState = thread?.get(3)?.let { runCatching { mapper.readTree(it) }.getOrNull() }
 
-        val flow = if (active) thread!![0] else state?.get("flow")?.takeIf { !it.isNull }?.asText()
-        val phase = (if (active) thread!![2] else null) ?: state?.get("phase")?.asText() ?: "none"
-        val acs = acCounts(if (active) threadState else null, state)
+        // Only a running or waiting flow gives the project a flow, a phase and AC counts.
+        val flow = if (active) thread!![0] else null
+        val phase = (if (active) thread!![2] else null) ?: "none"
+        val acs = acCounts(if (active) threadState else null)
         val waiting = jdbc.queryForObject("SELECT COUNT(*) FROM threads WHERE project_id = ? AND status = 'waiting'", Int::class.java, row.id) ?: 0
         val running = jdbc.queryForObject("SELECT COUNT(*) FROM agent_calls WHERE project_id = ? AND status = 'running'", Int::class.java, row.id) ?: 0
         return Project(row.id, row.name, row.root, branch(root), flow, phase, acs, waiting, running)
     }
 
-    private fun acCounts(thread: JsonNode?, state: JsonNode?): List<Int> {
+    private fun acCounts(thread: JsonNode?): List<Int> {
         val list = thread?.get("acs")
         if (list != null && list.isArray && list.size() > 0) {
             return listOf(list.count { it.get("status")?.asText() == "done" }, list.size())
-        }
-        val map = state?.get("acs")
-        if (map != null && map.isObject && map.size() > 0) {
-            val done = map.elements().asSequence().count { ac ->
-                val st = ac.get("status")?.asText() ?: ac.get("state")?.asText()
-                st == "done" || st == "green" || st == "approved"
-            }
-            return listOf(done, map.size())
         }
         return listOf(0, 0)
     }

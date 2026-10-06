@@ -1,6 +1,5 @@
 package keel.api.projects
 
-import com.fasterxml.jackson.databind.ObjectMapper
 import keel.api.common.KeelProperties
 import org.slf4j.LoggerFactory
 import org.springframework.boot.ApplicationArguments
@@ -14,8 +13,7 @@ import java.nio.file.Paths
 /**
  * Registers projects at start:
  *  1. KEEL_WORKSPACE — itself if it is a git repo, else each child git repo;
- *  2. ~/.keel/projects.json (keel v1's registry), roots that exist;
- *  3. nothing found and nothing registered → $KEEL_DATA/demo when it exists (the engine sets it up).
+ *  2. nothing found and nothing registered → $KEEL_DATA/demo when it exists (the engine sets it up).
  * Each project found is then scanned by the engine (its code graph index catches up with the code).
  */
 @Component
@@ -23,7 +21,6 @@ import java.nio.file.Paths
 class ProjectScanner(
     private val props: KeelProperties,
     private val projects: ProjectService,
-    private val mapper: ObjectMapper,
 ) : ApplicationRunner {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -42,7 +39,6 @@ class ProjectScanner(
                 Files.list(ws).use { s -> s.filter { Files.isDirectory(it) && isRepo(it) }.sorted().forEach { found.add(it) } }
             }
         }
-        found.addAll(fromV1Registry())
         if (found.isEmpty() && projects.rows().isEmpty()) {
             val demo = props.dataDir.resolve("demo")
             if (Files.isDirectory(demo)) found.add(demo)
@@ -60,20 +56,4 @@ class ProjectScanner(
     }
 
     private fun isRepo(p: Path) = Files.exists(p.resolve(".git"))
-
-    private fun fromV1Registry(): List<Path> {
-        if (props.projectsFile.isBlank()) return emptyList()
-        val f = Paths.get(props.projectsFile)
-        if (!Files.isRegularFile(f)) return emptyList()
-        return try {
-            val node = mapper.readTree(f.toFile())
-            node.get("projects")?.mapNotNull { it.get("root")?.asText() }
-                ?.map { Paths.get(it) }
-                ?.filter { Files.isDirectory(it) }
-                ?: emptyList()
-        } catch (e: Exception) {
-            log.warn("could not read {}: {}", f, e.message)
-            emptyList()
-        }
-    }
 }

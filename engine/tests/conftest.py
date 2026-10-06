@@ -16,7 +16,6 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setenv("KEEL_FAKE", "1")
     monkeypatch.setenv("KEEL_API_URL", "off")
     monkeypatch.setenv("KEEL_DEMO", "0")
-    monkeypatch.setenv("KEEL_HOME", str(tmp_path / "no-keel-home"))
     monkeypatch.delenv("KEEL_INTERNAL_TOKEN", raising=False)
     monkeypatch.delenv("KEEL_FAKE_DELAY", raising=False)
     usage.reset()                     # plan windows live in memory: one test's must not pause the next

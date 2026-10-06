@@ -153,7 +153,11 @@ class FlowApiTest : ApiTest() {
         val h = get("/api/health").andExpect(status().isOk).json()
         assertThat(h["engine"].asBoolean()).isTrue()
         assertThat(h["fake"].asBoolean()).isTrue()
-        assertThat(h["keel"]["version"].asText()).isEqualTo("0.0.1-test")
+        // keel v2's own version (build-info), the same as the keel2 script's; nothing about keel v1 any more
+        val keel2 = java.nio.file.Files.readString(java.nio.file.Paths.get("../keel2"))
+        val expected = Regex("""(?m)^KEEL2_VERSION="([^"]+)"""").find(keel2)!!.groupValues[1]
+        assertThat(h["version"].asText()).isEqualTo(expected)
+        assertThat(h.has("keel")).isFalse()
 
         val limits = get("/api/limits").json()
         assertThat(limits.map { it["id"].asText() }).contains("claude", "copilot", "api")
@@ -166,6 +170,9 @@ class FlowApiTest : ApiTest() {
             .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header().string("Cache-Control", "no-cache"))
         get("/projects/x/flow").andExpect(status().isOk).andExpect(content().string(org.hamcrest.Matchers.containsString("web app is not built")))
         get("/assets/missing.js").andExpect(status().isNotFound)
+        // keel v1's dashboard proxy is gone (0.4.1): its old path is a 404, not the web app
+        val oldProxy = "/keel-v1"
+        listOf(oldProxy, "$oldProxy/", "$oldProxy/api/hello").forEach { get(it).andExpect(status().isNotFound) }
         val nf = get("/api/does-not-exist").andExpect(status().isNotFound).json()
         assertThat(nf["error"].asText()).isEqualTo("Not found")
         post("/api/projects", mapOf("root" to "/no/such/folder")).andExpect(status().isBadRequest)

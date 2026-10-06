@@ -47,10 +47,7 @@ class WebConfig : WebMvcConfigurer {
 
     class SpaResolver : PathResourceResolver() {
         override fun getResource(resourcePath: String, location: Resource): Resource? {
-            if (
-                resourcePath.startsWith("api/") || resourcePath == "api" || resourcePath.startsWith("internal/") ||
-                resourcePath == "keel-v1" || resourcePath.startsWith("keel-v1/")
-            ) return null
+            if (resourcePath.substringBefore('/') in NOT_WEB) return null
             val index = ClassPathResource("static/index.html")
             if (resourcePath.isEmpty() || resourcePath == "index.html") return if (index.exists()) index else null
             val found = super.getResource(resourcePath, location)
@@ -58,6 +55,15 @@ class WebConfig : WebMvcConfigurer {
             // Paths with a file extension are real asset requests: do not answer with index.html.
             if (resourcePath.substringAfterLast('/').contains('.')) return null
             return if (index.exists()) index else null
+        }
+
+        companion object {
+            /**
+             * First path parts that are never the web app, so they answer 404 instead of index.html: the api, the
+             * engine's internal calls, and "keel-v1", where 0.4.0 still proxied keel v1's dashboard (removed in
+             * 0.4.1: an old bookmark fails clearly instead of opening an empty page).
+             */
+            val NOT_WEB = setOf("api", "internal", "keel-v1")
         }
     }
 }

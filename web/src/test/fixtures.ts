@@ -9,7 +9,7 @@ import type {
 const now = Date.now();
 const ago = (s: number) => new Date(now - s * 1000).toISOString();
 
-export const health: Health = { ok: true, engine: true, keel: { version: "0.67.0", home: "/opt/keel" }, fake: true };
+export const health: Health = { ok: true, engine: true, version: "0.4.1", fake: true };
 
 export const projects: Project[] = [
   { id: "ludus-engine", name: "ludus-engine", root: "/workspace/ludus-engine", branch: "feat/scores", flow: "feature", phase: "ac-gate", acs: [1, 3], waiting: 1, running: 1 },
@@ -110,10 +110,10 @@ export const tree: TreeNode[] = [
   { path: "api", name: "api", depth: 0, kind: "dir", keel: false, frozen: false },
   { path: "api/ScoreController.kt", name: "ScoreController.kt", depth: 1, kind: "file", mark: "M", keel: false, frozen: false, ac: "AC-002" },
   { path: ".keel", name: ".keel", depth: 0, kind: "dir", keel: true, frozen: false },
-  { path: ".keel/state.json", name: "state.json", depth: 1, kind: "file", mark: "M", keel: true, frozen: false },
+  { path: ".keel/config.yml", name: "config.yml", depth: 1, kind: "file", mark: "M", keel: true, frozen: false },
 ];
 export const file: RepoFile = { path: "api/ScoreController.kt", size: 812, mark: "M", frozen: false, keel: false, ac: "AC-002", head: "package scores\n\nclass ScoreController", last_commit: "a81c3f0 feat(AC-002)" };
-export const keelDocs: KeelDoc[] = [{ path: ".keel/state.json", what: "Flow state", by: "engine", updated: "live", status: "live" }];
+export const keelDocs: KeelDoc[] = [{ path: ".keel/ladder.json", what: "Ladder results", by: "init", updated: "live", status: "live" }];
 export const memory: Memory = {
   facts: [{ id: "f1", title: "Test needs Docker", text: "ScoreRepositoryTest uses Testcontainers; start Docker first.", kind: "fact", source: "setup-doctor", at: ago(86400) }],
   knowledge: [{ id: "architecture", status: "written", words: 1180, cites: 41 }, { id: "domain", status: "stale", words: 640, cites: 23 }],

@@ -15,6 +15,7 @@ import java.nio.file.Paths
 import keel.api.common.NotFound
 import keel.api.common.Time
 import keel.api.connections.SecretService
+import keel.api.doctor.WorkspaceDoctor
 import keel.api.engine.EngineClient
 import keel.api.engine.EngineDown
 import keel.api.events.EventHub
@@ -86,7 +87,7 @@ fun checkRunMode(mode: String?) {
     }
 }
 
-data class FlowView(val thread: JsonNode?, val workflow: Workflow?, val keelState: JsonNode?)
+data class FlowView(val thread: JsonNode?, val workflow: Workflow?)
 
 @Service
 class FlowService(
@@ -195,7 +196,7 @@ class FlowService(
         val r = repo.git(root, "status", "--porcelain", "--untracked-files=all")
         if (!r.ok) return
         val files = r.out.lines().filter { it.length > 3 }.map { it.substring(3).trim() }
-            .filterNot { it.startsWith(".keel/logs/") || it == ".keel/state.json" || it.startsWith(".keel/.state.json") }
+            .filterNot { WorkspaceDoctor.isEngineFile(it) }
         if (files.isEmpty()) return
         throw Conflict(
             "This project has uncommitted changes (${files.size} file${if (files.size == 1) "" else "s"}): ${files.take(5).joinToString()}${if (files.size > 5) ", …" else ""}",
@@ -305,7 +306,7 @@ class FlowService(
     }
 
     fun flow(pid: String): FlowView {
-        val root = projects.root(pid)
+        projects.require(pid)
         val row = jdbc.query(
             "SELECT id, workflow_id, state_json FROM threads WHERE project_id = ? ORDER BY CASE WHEN status IN ('running','waiting') THEN 0 ELSE 1 END, updated_at DESC LIMIT 1",
             { rs, _ -> Triple(rs.getString(1), rs.getString(2), rs.getString(3)) }, pid,
@@ -322,7 +323,7 @@ class FlowService(
             }
             workflow = row.second?.let { wid -> try { workflows.get(wid) } catch (e: NotFound) { null } }
         }
-        return FlowView(thread, workflow, projects.keelState(root))
+        return FlowView(thread, workflow)
     }
 
     /** Engine estimate, fed with this project's job history. */

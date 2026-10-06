@@ -1,16 +1,12 @@
 package keel.api.stacks
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import keel.api.common.ApiException
 import keel.api.common.BadRequest
 import keel.api.common.Conflict
-import keel.api.common.KeelHome
 import keel.api.common.KeelProperties
 import keel.api.common.NotFound
-import keel.api.common.Proc
 import keel.api.common.Yaml
 import keel.api.projects.ProjectService
-import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Service
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -18,6 +14,7 @@ import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RestController
 import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.nio.file.Path
 
 data class StackCommand(val name: String, val cmd: String)
@@ -56,7 +53,6 @@ private data class StackDef(val doc: Map<String, Any?>, val source: String, val 
 /** keel's stacks (content/stacks/NAME.yml and content/packs/NAME/stack.yml) and which ones a project matches. */
 @Service
 class StackService(
-    private val home: KeelHome,
     private val props: KeelProperties,
     private val projects: ProjectService,
     private val mapper: ObjectMapper,
@@ -81,8 +77,8 @@ class StackService(
     }
 
     /**
-     * Packs in `<root>/.keel/stacks`, the way keel v1 finds them: a `<name>.yml`, a `<dir>/stack.yml`,
-     * or yml files in `<dir>` or `<dir>/stacks` (what `keel packs add --project` leaves). Up to 3 levels deep.
+     * Packs in `<root>/.keel/stacks`: a `<name>.yml`, a `<dir>/stack.yml` (what [install] leaves),
+     * or yml files in `<dir>` or `<dir>/stacks`. Up to 3 levels deep.
      */
     private fun projectDefs(root: Path): List<StackDef> {
         val dir = root.resolve(".keel/stacks")
@@ -92,7 +88,7 @@ class StackService(
         }.getOrDefault(emptyList()).mapNotNull { read(it, "project") }
     }
 
-    /** keel v1 order: this project's packs beat the ones keel ships. */
+    /** This project's packs beat the ones keel ships. */
     private fun defs(root: Path): List<StackDef> {
         val project = projectDefs(root).distinctBy { it.name }
         val names = project.map { it.name }.toSet()
@@ -159,21 +155,36 @@ class StackService(
         return get(pid, name)
     }
 
-    /** Runs `keel packs add <content>/packs/<name> --project` in the repo (the pack's folder lands in .keel/stacks), then returns the stack. */
+    /**
+     * Copies keel's pack folder `<content>/packs/<pack>` (stack.yml, skills, templates) to `<root>/.keel/stacks/<pack>`,
+     * then returns the stack. A folder that is already there counts as installed and is left as it is.
+     */
     fun install(pid: String, name: String): Stack {
         val root = projects.root(pid)
         val stack = get(pid, name)
         if (stack.source == "project") return stack
         if (!stack.installable) throw Conflict("\"$name\" ships with keel", "It is always there; nothing to install.")
-        if (!home.installed()) throw ApiException(HttpStatus.SERVICE_UNAVAILABLE, "keel is not installed at ${home.path}", "Set KEEL_HOME.")
-        val r = Proc.run(home.command("packs", "add", props.contentDir.resolve("packs").resolve(name).toString(), "--project"), root, 120)
-        val output = (r.out + r.err).trim()
-        // keel refuses when the pack folder is already there: that is "installed" for us.
-        if (!r.ok && !output.contains("already exists")) {
-            val why = if (r.timedOut) "keel packs add took too long." else output.lines().filter { it.isNotBlank() }.takeLast(5).joinToString("\n")
-            throw ApiException(HttpStatus.BAD_GATEWAY, "keel could not install the pack", why)
-        }
+        val pack = packs().firstOrNull { it.name == name }?.file?.parent
+            ?: throw NotFound("No keel pack called \"$name\"", "GET /stacks lists them.")
+        val target = root.resolve(".keel/stacks").resolve(pack.fileName.toString())
+        if (!Files.exists(target, LinkOption.NOFOLLOW_LINKS)) copyTree(pack, target)
         return get(pid, name)
+    }
+
+    /** Copies a folder with its files and sub-folders; links are not followed (a pack has none). */
+    private fun copyTree(from: Path, to: Path) {
+        // Copied next to .keel/stacks first (never read as a pack), then moved in with one rename, so a half-copied
+        // pack is never read as installed.
+        val tmp = to.parent.resolveSibling(".installing-${to.fileName}")
+        tmp.toFile().deleteRecursively()
+        Files.walk(from).use { w ->
+            w.filter { !Files.isSymbolicLink(it) }.forEach { src ->
+                val dest = tmp.resolve(from.relativize(src).toString())
+                if (Files.isDirectory(src)) Files.createDirectories(dest) else Files.copy(src, dest)
+            }
+        }
+        Files.createDirectories(to.parent)
+        Files.move(tmp, to)
     }
 
     private fun strings(v: Any?): List<String> = (v as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()

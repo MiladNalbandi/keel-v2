@@ -268,7 +268,7 @@ function FileActions({ pid, f }: { pid: string; f: RepoFile }) {
       {asking && (
         <Confirm
           text={<>Let agents edit <b className="mono">{f.path}</b>{phase ? <> in the <b>{phase}</b> phase</> : " in the current phase"}, for this flow only?
-            keel rules normally stop this. The unlock is logged in <span className="mono">.keel/logs/events.jsonl</span> and shows in Memory.</>}
+            keel rules normally stop this. The unlock is logged in the flow's events and shows in Memory.</>}
           yes="Yes, unlock it" busy={busy} onYes={unlock} onNo={() => setAsking(false)} />
       )}
       {unlockErr && <ErrorBox error={unlockErr} />}
@@ -356,7 +356,7 @@ function DocsTab({ pid }: { pid: string }) {
           )}
         </Async>
       </Panel>
-      <p className="hint">Knowledge sections are readable in the <a href="#/wiki">Wiki</a>. <span className="mono">.keel/</span> uses keel v1's format, so <span className="mono">keel status</span> still works in a terminal.</p>
+      <p className="hint">Knowledge sections are readable in the <a href="#/wiki">Wiki</a>. A flow's state and events live in keel's data, not in <span className="mono">.keel/</span>.</p>
     </>
   );
 }

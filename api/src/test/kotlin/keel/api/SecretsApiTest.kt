@@ -59,8 +59,8 @@ class SecretsApiTest : ApiTest() {
         assertThat(c["providers"].map { it["id"].asText() }).containsExactly("fake", "claude", "codex", "copilot")
         assertThat(c["providers"].first { it["id"].asText() == "copilot" }["modes"].map { it["id"].asText() })
             .containsExactly("subscription", "opencode", "api")
-        val keel = c["machine"].first { it["name"].asText() == "keel" }
-        assertThat(keel["version"].asText()).isEqualTo("0.0.1-test")
+        // keel v1 is not part of keel v2 (0.4.1): the machine list has no "keel" row any more
+        assertThat(c["machine"].map { it["name"].asText() }).contains("node", "git", "java", "docker").doesNotContain("keel")
         put("/api/connections/copilot", mapOf("mode" to "opencode")).andExpect(status().isOk)
         assertThat(get("/api/connections").json()["providers"].first { it["id"].asText() == "copilot" }["selected"].asText()).isEqualTo("opencode")
         put("/api/connections/copilot", mapOf("mode" to "teleport")).andExpect(status().isBadRequest)

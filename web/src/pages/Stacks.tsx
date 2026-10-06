@@ -44,7 +44,7 @@ export function StacksPage({ pid }: { pid: string }) {
       <Async r={stacks} what="Reading stacks">
         {(list) => {
           const cur = list.find((s) => s.name === sel) ?? list.find((s) => s.detected) ?? list[0];
-          return !list.length ? <div className="empty">No stack files found in keel. Is KEEL_HOME set?</div> : (
+          return !list.length ? <div className="empty">No stack files found in keel's content (stacks/ and packs/). Is KEEL_CONTENT right?</div> : (
             <div className="grid g2">
               <div className="panel"><div className="table-wrap"><table>
                 <thead><tr><th>Stack</th><th>Lane</th><th>From</th><th>Found by</th><th>In {project?.name ?? pid}</th></tr></thead>

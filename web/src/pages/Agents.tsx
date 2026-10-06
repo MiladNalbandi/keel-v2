@@ -269,7 +269,7 @@ export function AgentsPage({ pid }: { pid: string }) {
             <thead><tr><th>Agent</th><th>Runs in</th><th>Model</th><th>Runs on</th><th>MCP tools</th></tr></thead>
             <tbody>
               {list.map((a) => <AgentRow key={a.id} a={a} onOpen={() => setOpen(a)} />)}
-              {!list.length && <tr><td colSpan={5} className="empty">{tab === "custom" ? "No custom agent yet. Make one with New agent." : "No keel agents found. Is KEEL_HOME set?"}</td></tr>}
+              {!list.length && <tr><td colSpan={5} className="empty">{tab === "custom" ? "No custom agent yet. Make one with New agent." : "No keel agents found in keel's content (agents/). Is KEEL_CONTENT right?"}</td></tr>}
             </tbody>
           </table></div></div>
         )}

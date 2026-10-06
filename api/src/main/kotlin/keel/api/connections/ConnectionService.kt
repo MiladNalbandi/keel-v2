@@ -2,7 +2,6 @@ package keel.api.connections
 
 import com.fasterxml.jackson.databind.JsonNode
 import keel.api.common.BadRequest
-import keel.api.common.KeelHome
 import keel.api.common.KvStore
 import keel.api.common.NotFound
 import keel.api.common.Proc
@@ -33,7 +32,6 @@ data class Connections(val providers: List<ProviderView>, val machine: List<Mach
 class ConnectionService(
     private val secrets: SecretService,
     private val kv: KvStore,
-    private val home: KeelHome,
     private val engine: EngineClient,
     private val settings: SettingsService,
 ) {
@@ -93,7 +91,7 @@ class ConnectionService(
             val (loginName, loginSet, loginHint) = loginView(id)
             ProviderView(id, label, modes, selected, keySet, hint, loginName, loginSet, loginHint)
         }
-        val machine = listOf("node", "git", "java").map { tool(it) } + dockerTool() + keelTool() + listOf("claude", "codex", "copilot", "opencode").map { tool(it) }
+        val machine = listOf("node", "git", "java").map { tool(it) } + dockerTool() + listOf("claude", "codex", "copilot", "opencode").map { tool(it) }
         return Connections(providers, machine)
     }
 
@@ -108,11 +106,6 @@ class ConnectionService(
         }
         cache["docker-engine"] = Cached(System.currentTimeMillis(), t)
         return t
-    }
-
-    private fun keelTool(): MachineTool {
-        val v = home.version()
-        return MachineTool("keel", v != null, v)
     }
 
     private fun cliMode(id: String, label: String, bin: String): ModeView {

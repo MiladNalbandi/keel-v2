@@ -55,8 +55,8 @@ class StubApi:
             return httpx.Response(200, json={**self.thread, "status": "running", "waiting": None, "current": "red", "phase": "red"})
         routes = {
             "/api/projects": PROJECTS,
-            "/api/projects/shop/flow": {"thread": self.thread, "workflow": {"id": "feature", "name": "Feature"}, "keel_state": None},
-            "/api/projects/blog/flow": {"thread": None, "workflow": None, "keel_state": None},
+            "/api/projects/shop/flow": {"thread": self.thread, "workflow": {"id": "feature", "name": "Feature"}},
+            "/api/projects/blog/flow": {"thread": None, "workflow": None},
             "/api/threads/t-1/history": HISTORY,
             "/api/jobs": JOBS,
         }
