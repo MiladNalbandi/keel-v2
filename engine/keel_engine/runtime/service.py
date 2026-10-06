@@ -74,7 +74,10 @@ class Engine:
         # Autocommit: a write commits inside its own statement, so this connection never holds the write lock while it
         # waits for the event loop (a sync writer on the loop then waited for that lock: "database is locked" on CI).
         self.conn = await aiosqlite.connect(str(d / "checkpoints.db"), timeout=db.BUSY_MS / 1000, isolation_level=None)
-        await self.conn.execute("pragma journal_mode=wal")
+        async with self.conn.execute("pragma journal_mode=wal") as cur:
+            mode = (await cur.fetchone() or ["?"])[0]
+        if str(mode).lower() != "wal":
+            log.warning("engine DB is in %s mode, not WAL: parallel writers may wait on each other", mode)
         await self.conn.execute(f"pragma busy_timeout = {db.BUSY_MS}")
         self.saver = AsyncSqliteSaver(self.conn)
         await self.saver.setup()

@@ -27,3 +27,10 @@ def test_a_writer_waits_for_another_instead_of_failing(tmp_path, monkeypatch):
     th.join()
     with db.connect() as conn:
         assert conn.execute("select count(*) from t").fetchone()[0] == 2
+
+
+def test_the_file_is_wal_whoever_creates_it(tmp_path, monkeypatch):
+    monkeypatch.setenv("KEEL_DATA", str(tmp_path / "fresh"))
+    (tmp_path / "fresh").mkdir()
+    with db.connect() as conn:                  # a short connection creates the file before the engine opens it
+        assert conn.execute("pragma journal_mode").fetchone()[0] == "wal"

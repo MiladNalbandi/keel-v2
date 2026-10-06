@@ -36,6 +36,9 @@ def connect():
     try:
         conn.execute(f"pragma busy_timeout = {BUSY_MS}")
         if p not in _migrated:
+            # WAL (readers never block a writer) whoever opens the file first: the engine set it only on its own open,
+            # and a file a short connection had created first could stay in rollback mode ("database is locked").
+            conn.execute("pragma journal_mode=wal")
             for sql in migrate.MIGRATIONS:
                 conn.execute(sql)
             conn.commit()

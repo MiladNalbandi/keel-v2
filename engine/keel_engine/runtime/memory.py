@@ -9,9 +9,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import sqlite3
 from datetime import datetime, timezone
 
 import aiosqlite
+
+log = logging.getLogger(__name__)
 
 SCHEMA = """
 create table if not exists agent_memory (
@@ -54,12 +58,11 @@ class AgentMemory:
     async def start(self, key: str, provider: str, root: str, session: str | None, keep_trail: bool):
         trail = (await self.get(key) or {}).get("trail", []) if keep_trail else []
         self._trails[key] = list(trail)
-        await self.conn.execute(
+        await self._safe(self.conn.execute(
             "insert into agent_memory values (?,?,?,?,?,?,?,?,?) on conflict(thread_id, key) do update set "
             "provider = excluded.provider, root = excluded.root, session = excluded.session, status = excluded.status, "
             "trail = excluded.trail, updated_at = excluded.updated_at",
-            (self.thread_id, key, provider, root, session, "running", json.dumps(trail[-TRAIL_MAX:]), "", now()))
-        await self.conn.commit()
+            (self.thread_id, key, provider, root, session, "running", json.dumps(trail[-TRAIL_MAX:]), "", now())))
 
     def note(self, key: str, line: str):
         """One line of the trail (a file read, a command, a write); saved in the background, never blocks the agent."""
@@ -74,10 +77,9 @@ class AgentMemory:
 
     async def finish(self, key: str, status: str, said: str = ""):
         await self.flush()
-        await self.conn.execute(
+        await self._safe(self.conn.execute(
             "update agent_memory set status = ?, said = ?, trail = ?, updated_at = ? where thread_id = ? and key = ?",
-            (status, said[:1500], json.dumps(self._trails.get(key, [])[-TRAIL_MAX:]), now(), self.thread_id, key))
-        await self.conn.commit()
+            (status, said[:1500], json.dumps(self._trails.get(key, [])[-TRAIL_MAX:]), now(), self.thread_id, key)))
 
     async def clear(self):
         await self.flush()
@@ -103,8 +105,16 @@ class AgentMemory:
                          (json.dumps(self._trails.get(key, [])[-TRAIL_MAX:]), now(), self.thread_id, key))
 
     async def _exec(self, sql: str, args: tuple):
-        await self.conn.execute(sql, args)
-        await self.conn.commit()
+        await self._safe(self.conn.execute(sql, args))
+
+    @staticmethod
+    async def _safe(op):
+        """Memory helps an agent continue its session; a failed write (a locked DB) must never fail the agent's work.
+        The connection autocommits, so the statement is the whole write."""
+        try:
+            await op
+        except sqlite3.OperationalError as exc:
+            log.warning("agent memory not saved: %s", exc)
 
 
 def attempt_key(step_id: str, ac: dict | None, agent: str, index: int, section: str | None) -> str:
