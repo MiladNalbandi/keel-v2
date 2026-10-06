@@ -1,11 +1,15 @@
 // Live agents (Run): watch each agent while it works — what it says, which tools it calls, what code it writes,
-// and what it returns. Steps arrive over SSE (agent.step) and by polling /api/jobs/{id}/steps.
+// and what it returns. Steps arrive over SSE (agent.step) and by polling /api/jobs/{id}/steps. With nobody working,
+// the feed shows the last agent that ran and the Recent list opens any other.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, errorParts, type Job, type JobStep } from "../api";
 import { kindClass, mergeSteps } from "../components/StepFeed";
 import { FilesTouched, kindLabel, Outcome, StepView, useJumpToStep } from "../components/StepView";
-import { Async, ErrorBox, PageHead, Panel, Pill, Prov, Since, Tabs } from "../components/ui";
+import { EmptyState } from "../components/EmptyState";
+import { StartFlowDrawer } from "../components/StartFlow";
+import { agoText } from "../components/UsageStrip";
+import { ErrorBox, GoButton, Loading, PageHead, Panel, Pill, Prov, Since, Tabs } from "../components/ui";
 import { kfmt, PROV, since } from "../format";
 import { go, useApp, useLoad, useRoute } from "../state";
 
@@ -76,11 +80,12 @@ function AgentCard({ j, sel, steps }: { j: Job; sel: boolean; steps?: JobStep[] 
   );
 }
 
-function Feed({ job }: { job: Job }) {
+function Feed({ job, note }: { job: Job; note?: string }) {
   const { toast } = useApp();
   const { steps, running, error } = useJobSteps(job.id);
   const [filter, setFilter] = useState<Filter>("all");
-  const [follow, setFollow] = useState(true);
+  // a finished feed opens at its start (no jump down the page); a running one follows the newest step
+  const [follow, setFollow] = useState(job.status === "running");
   const box = useRef<HTMLDivElement>(null);
   const shown = steps.filter(FILTERS[filter]);
   const showAll = useCallback(() => {
@@ -90,8 +95,10 @@ function Feed({ job }: { job: Job }) {
   const anchor = `live-${job.id}`;
   const jump = useJumpToStep(anchor, showAll);
   const isRunning = running || job.status === "running";
+  // follow inside the feed's own scroll box: the page itself never jumps
   useEffect(() => {
-    if (follow) box.current?.lastElementChild?.scrollIntoView?.({ block: "nearest" });
+    const b = box.current;
+    if (follow && b) b.scrollTop = b.scrollHeight;
   }, [shown.length, follow]);
   const tokens = job.tokens_in + job.tokens_out + Math.floor((job.tokens_cached ?? 0) / 10);
   return (
@@ -104,6 +111,7 @@ function Feed({ job }: { job: Job }) {
       body="grid"
     >
       <div className="grid" style={{ gap: 10 }}>
+        {note && <p className="hint live-note">{note}</p>}
         <div className="row" style={{ justifyContent: "space-between" }}>
           <Tabs value={filter} onChange={setFilter} label="Show" options={[["all", "Everything"], ["code", "Code & commands"], ["msg", "Messages"]]} />
           <label className="chk"><input type="checkbox" id="follow" checked={follow} onChange={(e) => setFollow(e.target.checked)} /> Follow the newest step</label>
@@ -131,62 +139,90 @@ function Feed({ job }: { job: Job }) {
   );
 }
 
+/** One finished call in the Recent list. */
+function RecentRow({ j, sel }: { j: Job; sel: boolean }) {
+  const ok = j.status === "done";
+  return (
+    <button type="button" className={`recent-row ${sel ? "sel" : ""}`} onClick={() => go("live", j.id)} aria-pressed={sel}>
+      <span className="rr-top"><b>{j.agent}</b><span className={`rr-st ${ok ? "k-answer" : "k-guard"}`}>{ok ? "done" : j.status}</span></span>
+      <span className="sub rr-where"><span className="mono">{j.phase || j.step}</span>{j.ac ? ` · ${j.ac}` : ""} · {PROV[j.provider] ?? j.provider}</span>
+      <span className="hint num">{agoText(j.ended_at ?? j.started_at) || "—"} · took {since(j.started_at, j.ended_at)} · {kfmt(j.tokens_in + j.tokens_out)} tokens</span>
+    </button>
+  );
+}
+
 export function LivePage({ pid }: { pid: string }) {
   const { project } = useApp();
   const { arg } = useRoute();
   const running = useLoad(`live-run:${pid}`, () => api.jobs({ project: pid, status: "running" }));
   const recent = useLoad(`live-fin:${pid}`, () => api.jobs({ project: pid, limit: 12 }));
-  const [finOpen, setFinOpen] = useState(false);
+  const [start, setStart] = useState(false);
   const runningList = running.data ?? [];
   const finished = (recent.data ?? []).filter((j) => j.status !== "running");
-  const selId = arg ?? runningList[0]?.id ?? null;
+  // what the feed shows: the agent in the link, else the one that works now, else the last one that ran
+  const selId = arg ?? runningList[0]?.id ?? (running.data ? finished[0]?.id : undefined) ?? null;
   const selJob = runningList.find((j) => j.id === selId) ?? finished.find((j) => j.id === selId) ?? null;
   const detail = useLoad(selId && !selJob ? `job:${selId}` : null, () => api.job(selId!), { live: false });
   const job = selJob ?? detail.data;
   const { steps } = useJobSteps(selJob?.status === "running" ? selJob.id : null);
+  const loaded = !!running.data && !!recent.data;
+  const never = loaded && !runningList.length && !finished.length;
 
-  // keep the running list fresh even when no event arrives
+  // keep both lists fresh even when no event arrives
   useEffect(() => {
-    const t = window.setInterval(() => void running.reload(), 5000);
+    const t = window.setInterval(() => {
+      void running.reload();
+      if (runningList.length) void recent.reload();
+    }, 5000);
     return () => window.clearInterval(t);
-  }, [running.reload]);
+  }, [running.reload, recent.reload, runningList.length]);
+
+  const note = !arg && job && job.status !== "running" && running.data && !runningList.length
+    ? "No agent is working right now. This is the last one that ran." : undefined;
 
   return (
     <>
       <PageHead
         title="Live agents"
         sub={`Watch each agent while it works in ${project?.name ?? pid}: what it says, which tools it calls, what code it writes, and what it returns.`}
-        actions={runningList.length ? <Pill tone="run">{runningList.length} agent{runningList.length === 1 ? "" : "s"} working now</Pill> : undefined}
+        actions={running.data ? (runningList.length
+          ? <Pill tone="run">{runningList.length} agent{runningList.length === 1 ? "" : "s"} working now</Pill>
+          : <Pill tone="idle">no agent working</Pill>) : undefined}
       />
-      <Async r={running} what="Loading agents">
-        {() => (
-          <div className="live-grid">
-            <div className="grid" style={{ alignContent: "start", gap: 10 }}>
-              <span className="lab-s">Working now</span>
-              {!runningList.length && <span className="sub">No agent is working in this project.</span>}
-              {runningList.map((j) => <AgentCard key={j.id} j={j} sel={j.id === selId} steps={j.id === selId ? steps : undefined} />)}
-              <button type="button" className="btn ghost" aria-expanded={finOpen} onClick={() => setFinOpen((o) => !o)}>
-                {finOpen ? "▾" : "▸"} Finished ({finished.length})
-              </button>
-              {finOpen && (
-                <div className="grid" style={{ gap: 4 }}>
-                  {finished.map((f) => (
-                    <button key={f.id} type="button" className="fin linkbtn" style={{ fontWeight: 400 }} onClick={() => go("live", f.id)}>
-                      <b>{f.agent}</b>
-                      <span className="sub">{f.phase || f.step}{f.ac ? ` ${f.ac}` : ""} · {PROV[f.provider] ?? f.provider} · {since(f.started_at, f.ended_at)} · {kfmt(f.tokens_in + f.tokens_out)}</span>
-                      <span className={f.status === "done" ? "k-answer" : "k-guard"} style={{ fontSize: 12 }}>{f.status}</span>
-                    </button>
-                  ))}
-                  {!finished.length && <span className="sub">Nothing finished yet.</span>}
-                </div>
-              )}
-            </div>
-            {job ? <Feed key={job.id} job={job} /> : detail.error ? <ErrorBox error={detail.error} /> : (
-              <div className="panel"><div className="panel-body empty">{selId ? "Loading…" : "Pick an agent to watch. When an agent starts, its feed opens here."}</div></div>
-            )}
+      {never ? (
+        <div className="panel">
+          <EmptyState title="No agent has run in this project yet"
+            action={<><button className="btn primary" type="button" onClick={() => setStart(true)}>Start a flow</button><GoButton to="flow" className="btn">Open the flow</GoButton></>}>
+            Start a flow. While an agent works, you see here what it says, the tools it calls and the code it writes.
+          </EmptyState>
+        </div>
+      ) : (
+        <div className="live-grid">
+          <div className="live-list">
+            <section aria-labelledby="live-now-h" className="live-sec">
+              <h2 className="sec-h" id="live-now-h">Working now</h2>
+              {running.error ? <ErrorBox error={running.error} onRetry={() => void running.reload()} />
+                : !running.data ? <Loading what="Loading agents" />
+                  : !runningList.length ? <p className="sub live-idle">No agent is working in this project. When a flow reaches an agent step, it shows up here.</p>
+                    : runningList.map((j) => <AgentCard key={j.id} j={j} sel={j.id === selId} steps={j.id === selId ? steps : undefined} />)}
+            </section>
+            <section aria-labelledby="live-recent-h" className="live-sec">
+              <div className="sec-bar">
+                <h2 className="sec-h" id="live-recent-h">Recent</h2>
+                <GoButton to="jobs" className="btn sm ghost">All calls in Jobs</GoButton>
+              </div>
+              {recent.error ? <ErrorBox error={recent.error} onRetry={() => void recent.reload()} />
+                : !recent.data ? <Loading what="Loading recent agents" />
+                  : !finished.length ? <p className="sub">Nothing finished yet.</p>
+                    : <div className="recent-list">{finished.map((f) => <RecentRow key={f.id} j={f} sel={f.id === selId} />)}</div>}
+            </section>
           </div>
-        )}
-      </Async>
+          {job ? <Feed key={job.id} job={job} note={note} /> : detail.error ? <ErrorBox error={detail.error} /> : (
+            <div className="panel live-wait"><Loading what={selId ? "Loading the feed" : "Loading agents"} /></div>
+          )}
+        </div>
+      )}
+      {start && <StartFlowDrawer onClose={() => setStart(false)} />}
     </>
   );
 }

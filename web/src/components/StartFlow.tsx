@@ -10,9 +10,9 @@ import { WorkspaceDoctor } from "./WorkspaceDoctor";
 
 const ON_CAP: [OnCap, string][] = [["pause", "pause and ask me"], ["cheaper", "switch to cheaper models"], ["stop", "stop"]];
 
-export function StartFlowDrawer({ onClose, workflowId }: { onClose: () => void; workflowId?: string }) {
+export function StartFlowDrawer({ onClose, workflowId, projectId }: { onClose: () => void; workflowId?: string; projectId?: string }) {
   const { projects, pid, setProjectId, reloadProjects, toast } = useApp();
-  const [p, setP] = useState(pid ?? projects[0]?.id ?? "");
+  const [p, setP] = useState(projectId ?? pid ?? projects[0]?.id ?? "");
   const [wfs, setWfs] = useState<Workflow[] | null>(null);
   const [wid, setWid] = useState(workflowId ?? "");
   const [title, setTitle] = useState("");

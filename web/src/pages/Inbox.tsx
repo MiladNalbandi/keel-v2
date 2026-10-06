@@ -1,20 +1,43 @@
 // Inbox (Run): everything that waits for a person, in every project — gates, the explorer's questions, failing checks,
 // budget pauses, new dependencies. Each item can be answered here (the same resume as the Flow page) or opened on its
 // Flow page. The list follows the app's event stream (gate events send project.changed to every tab).
+// #/inbox/<project> opens it filtered to one project (the Answer link on All projects). Long details fold with
+// "Show more"; after you answer, the focus moves to the next item so the keyboard can go on.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { errorParts } from "../api";
 import { answersOf, ClarifyForm, type ClarifyAnswers } from "../components/ClarifyForm";
 import { RunModeNote } from "../components/RunMode";
+import { EmptyState } from "../components/EmptyState";
 import { ErrorBox, Loading, PageHead, Pill, Since } from "../components/ui";
 import { inboxApi, type InboxAnswer, type InboxItem } from "../inboxApi";
-import { go, useApp, useLoad } from "../state";
+import { go, useApp, useLoad, useRoute } from "../state";
 import "../components/inbox.css";
 
 const KIND_LABEL: Record<string, string> = {
   gate: "gate", clarify: "questions", fix: "needs a fix", budget: "budget", usage: "plan window", dependency: "new dependency",
 };
 const kindLabel = (k: string) => KIND_LABEL[k] ?? k;
+const keyOf = (it: InboxItem) => `${it.thread_id}:${it.id ?? it.step}`;
+
+/** Details longer than this fold behind "Show more". */
+const LONG_LINES = 6;
+const LONG_CHARS = 420;
+
+function Detail({ text, id }: { text: string; id: string }) {
+  const long = text.split("\n").length > LONG_LINES || text.length > LONG_CHARS;
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="inbox-detail-wrap">
+      <pre id={id} className={`inbox-detail${long ? (open ? " open" : " folded") : ""}`}>{text}</pre>
+      {long && (
+        <button className="btn sm ghost inbox-more" type="button" aria-expanded={open} aria-controls={id} onClick={() => setOpen((o) => !o)}>
+          {open ? "Show less" : "Show more"}
+        </button>
+      )}
+    </div>
+  );
+}
 
 type Buttons = { approve: string; reject: string; needWhy: boolean; whyLabel: string };
 
@@ -67,7 +90,7 @@ function InboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) => Pro
 
   const choices = it.choices ?? [];
   return (
-    <article className={`inbox-item k-${it.kind}`} aria-labelledby={hid} data-testid="inbox-item">
+    <article className={`inbox-item k-${it.kind}`} aria-labelledby={hid} data-testid="inbox-item" data-key={keyOf(it)} tabIndex={-1}>
       <div className="inbox-meta">
         <Pill tone={it.kind === "fix" || it.kind === "budget" || it.kind === "usage" ? "bad" : "warn"}>{kindLabel(it.kind)}</Pill>
         <span className="sub"><b>{it.project_name}</b> · {it.flow}{it.workflow_id ? <> · <span className="mono">{it.workflow_id}</span></> : null}</span>
@@ -79,7 +102,7 @@ function InboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) => Pro
         <ClarifyForm questions={it.questions} picked={picked} typed={typed}
           onPick={(id, label) => setPicked((p) => ({ ...p, [id]: label }))} onType={(id, text) => setTyped((p) => ({ ...p, [id]: text }))} />
       ) : it.detail ? (
-        <pre className="inbox-detail">{it.detail}</pre>
+        <Detail text={it.detail} id={`${hid}-detail`} />
       ) : null}
       {it.more && <span className="hint">The rest is on the Flow page.</span>}
       {(askWhy || !b.needWhy) && (
@@ -118,17 +141,40 @@ function InboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) => Pro
 }
 
 export function InboxPage() {
-  const { toast, reloadProjects } = useApp();
+  const { toast, reloadProjects, projects: known } = useApp();
+  const { arg } = useRoute();
   const r = useLoad("inbox", () => inboxApi.list());
-  const [project, setProject] = useState("");
+  const [project, setProject] = useState(arg ?? "");
+  useEffect(() => setProject(arg ?? ""), [arg]);
   const [kind, setKind] = useState("");
   const items = useMemo(
     () => (r.data?.items ?? []).filter((it) => (!project || it.project_id === project) && (!kind || it.kind === kind)),
     [r.data, project, kind],
   );
   const total = r.data?.count ?? 0;
+  // a project from the link that has nothing waiting still shows in the filter
+  const projectOpts = useMemo(() => {
+    const l = r.data?.projects ?? [];
+    return project && !l.some((p) => p.id === project) ? [...l, { id: project, name: known.find((p) => p.id === project)?.name ?? project, count: 0 }] : l;
+  }, [r.data, project, known]);
 
-  const done = async (msg: string) => {
+  // after an answer: focus the item that came after it (or before it, or the empty state)
+  const listRef = useRef<HTMLDivElement>(null);
+  const emptyRef = useRef<HTMLDivElement>(null);
+  const focusNext = useRef<{ key: string | null; index: number } | null>(null);
+  useEffect(() => {
+    const f = focusNext.current;
+    if (!f) return;
+    focusNext.current = null;
+    const els = [...(listRef.current?.querySelectorAll<HTMLElement>("[data-testid=inbox-item]") ?? [])];
+    const target = els.find((el) => el.dataset.key === f.key) ?? els[Math.min(f.index, els.length - 1)] ?? emptyRef.current;
+    target?.focus();
+  }, [items]);
+
+  const done = async (msg: string, key: string) => {
+    const i = items.findIndex((x) => keyOf(x) === key);
+    const next = items[i + 1] ?? items[i - 1] ?? null;
+    focusNext.current = { key: next ? keyOf(next) : null, index: Math.max(0, i) };
     toast(msg);
     await Promise.all([r.reload(), reloadProjects()]);
   };
@@ -140,7 +186,7 @@ export function InboxPage() {
         <label className="row" htmlFor="inbox-project"><span className="sub">In project</span>
           <select id="inbox-project" value={project} onChange={(e) => setProject(e.target.value)}>
             <option value="">All projects</option>
-            {(r.data?.projects ?? []).map((p) => <option key={p.id} value={p.id}>{p.name} ({p.count})</option>)}
+            {projectOpts.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.count})</option>)}
           </select>
         </label>
         <label className="row" htmlFor="inbox-kind"><span className="sub">Kind</span>
@@ -154,13 +200,16 @@ export function InboxPage() {
       {r.error && !r.data ? <ErrorBox error={r.error} onRetry={() => void r.reload()} />
         : !r.data ? <Loading what="Loading the inbox" />
           : !items.length ? (
-            <div className="empty inbox-empty">
-              <b>Nothing is waiting for you</b>
-              <span className="sub">{total ? "Nothing matches these filters." : "When a flow stops at a gate or needs a decision, it shows up here."}</span>
+            <div className="panel">
+              <EmptyState ref={emptyRef} className="inbox-empty" title="Nothing is waiting for you"
+                action={total ? <button className="btn sm" type="button" onClick={() => { setProject(""); setKind(""); }}>Show everything</button>
+                  : <a className="btn sm" href="#/projects">See your projects</a>}>
+                {total ? "Nothing matches these filters." : "When a flow stops at a gate or needs a decision, it shows up here."}
+              </EmptyState>
             </div>
           ) : (
-            <div className="inbox-list">
-              {items.map((it) => <InboxCard key={`${it.thread_id}:${it.id ?? it.step}`} it={it} onDone={done} />)}
+            <div className="inbox-list" ref={listRef}>
+              {items.map((it) => <InboxCard key={keyOf(it)} it={it} onDone={(msg) => done(msg, keyOf(it))} />)}
             </div>
           )}
     </>

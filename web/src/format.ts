@@ -18,9 +18,10 @@ export function kfmt(n: number | null | undefined): string {
 
 export const usd = (n: number | null | undefined) => "$" + (Number(n) || 0).toFixed(2);
 
-/** Milliseconds → "4m09s". */
+/** Milliseconds → "4m09s"; from an hour on "1h 12m" (a gate that waits since yesterday is not "1452m10s"). */
 export function dur(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000));
+  if (s >= 3600) return `${Math.floor(s / 3600)}h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m`;
   return `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s`;
 }
 
