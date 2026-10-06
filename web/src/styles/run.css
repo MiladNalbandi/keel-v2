@@ -11,6 +11,9 @@
 .side-tools .bell { width: 30px; height: 28px; }
 .menu-btn { grid-area: menu; display: none; place-items: center; width: 36px; height: 34px; flex: none; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); color: var(--fg); cursor: pointer; }
 .menu-btn:hover { border-color: var(--faint); }
+.menu-btn { position: relative; }
+.menu-dot { position: absolute; top: -3px; right: -3px; width: 9px; height: 9px; border-radius: 50%; border: 2px solid var(--bg); background: var(--warn); }
+.menu-dot.bad { background: var(--bad); }
 .side-head .projbox { grid-area: proj; padding: 6px; gap: 5px; }
 .side-head .projbox select { padding: 5px 8px; }
 .projbox .pb-sub { display: flex; align-items: baseline; gap: 6px; min-width: 0; padding: 0 2px; font-size: 12px; }
@@ -212,8 +215,9 @@ a.btn { text-decoration: none; }
 .rr-where { overflow-wrap: anywhere; }
 .live-note { margin: 0; padding: 6px 10px; border-radius: 7px; background: var(--panel-2); }
 .live-wait { min-height: 120px; display: grid; place-items: center; }
-/* one column: what works now, then the feed, then the recent ones */
+/* one column: what works now, then the feed, then the recent ones (the card's last steps would repeat the feed) */
 @media (max-width: 900px) {
+  .agent-card .agent-mini { display: none; }
   .live-grid > .live-list { display: contents; }
   .live-grid > .live-list > .live-sec:first-child { order: 0; }
   .live-grid > :not(.live-list) { order: 1; }
