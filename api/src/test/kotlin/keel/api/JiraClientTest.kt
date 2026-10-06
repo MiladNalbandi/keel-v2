@@ -182,7 +182,8 @@ class JiraClientTest {
         assertThatThrownBy { JiraClient("server", "http://127.0.0.1:$port", null, "tok-network-1234", mapper, Duration.ofSeconds(2)).myself() }
             .isInstanceOfSatisfying(JiraException::class.java) {
                 assertThat(it.kind).isEqualTo("network")
-                assertThat(it.message).startsWith("Could not reach Jira at http://127.0.0.1:$port").doesNotContain("tok-network-1234")
+                assertThat(it.message).isEqualTo("Could not reach Jira at http://127.0.0.1:$port: nothing answered (connection refused).")
+                assertThat(it.message).doesNotContain("tok-network-1234")
             }
     }
 

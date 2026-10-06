@@ -31,6 +31,12 @@ export type InboxItem = {
   auto_approved?: number;
   last_auto?: string | null;
   since?: string | null;
+  /** v0.5.0: a task's item (kind task | jira-manual) instead of a flow's pause; answered with tasksApi.act. */
+  task?: InboxTask | null;
+};
+export type InboxTask = {
+  id: string; item_id: number; key: string | null; url: string | null; title: string; status: string; stage: string | null; pr_url: string | null;
+  actions: { id: "confirm" | "send_back" | "done"; label: string; needs_note: boolean }[];
 };
 export type InboxView = { items: InboxItem[]; count: number; kinds: string[]; projects: { id: string; name: string; count: number }[] };
 export type InboxAnswer = { decision: "approve" | "reject"; why?: string; payload?: Record<string, unknown>; id?: string | null };

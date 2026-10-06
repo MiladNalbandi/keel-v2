@@ -7,6 +7,7 @@ import { EmptyState, SearchBox, Section, Skeleton, Spinner } from "../components
 import { Drawer, ErrorBox, PageHead, Panel, Pill } from "../components/ui";
 import { clock } from "../format";
 import { useApp, useLoad } from "../state";
+import { tasksApi } from "../tasksApi";
 
 function AddServerDrawer({ onClose, onAdded }: { onClose: () => void; onAdded: () => void }) {
   const { toast } = useApp();
@@ -46,6 +47,49 @@ function AddServerDrawer({ onClose, onAdded }: { onClose: () => void; onAdded: (
         <span className="hint">For secrets, save a key in Connections and refer to its name.</span></div>
       {err && <ErrorBox error={err} />}
     </Drawer>
+  );
+}
+
+/** v0.5.0: optional servers keel fills from this project's settings (Jira → mcp-atlassian). They start turned off. */
+function Catalog({ pid, onAdded }: { pid: string; onAdded: () => void }) {
+  const { toast } = useApp();
+  const c = useLoad(`catalog:${pid}`, () => tasksApi.catalog(pid), { live: false });
+  const [busy, setBusy] = useState<string | null>(null);
+  const add = async (id: string) => {
+    setBusy(id);
+    try {
+      const s = await tasksApi.addFromCatalog(pid, id);
+      toast(`${s.name} added, turned off. Turn it on, add it to Settings › MCP servers, then pick its agents.`);
+      onAdded();
+      await c.reload();
+    } catch (e) {
+      toast(errorParts(e).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <Section title="Catalog" sub="Optional servers keel sets up from this project's settings. They are added turned off.">
+      {c.error ? <ErrorBox error={c.error} onRetry={() => void c.reload()} /> : !c.data ? <div className="panel"><Skeleton lines={2} label="Loading the catalog" /></div> : (
+        <div className="panel tl-cat" data-testid="mcp-catalog">
+          {c.data.map((e) => (
+            <div key={e.id} className="tl-cat-item">
+              <div className="tl-cat-id">
+                <span className="row" style={{ gap: 6 }}><b>{e.name}</b><span className="tag">{e.license}</span>
+                  {e.added && <Pill tone="ok">added</Pill>}</span>
+                <span className="sub">{e.about}</span>
+                <span className="mono sub">{e.command} · <a href={e.url} target="_blank" rel="noreferrer">source ↗</a></span>
+                {!e.ready && e.why && <span className="hint">{e.why}</span>}
+                {e.added && <span className="hint">Added as <b className="mono">{e.server}</b>: turn it on above, add it to Settings › MCP servers, then tick the agents below.</span>}
+              </div>
+              <button className="btn sm" type="button" disabled={!e.ready || busy === e.id} onClick={() => void add(e.id)}>
+                {busy === e.id ? "Adding…" : e.added ? "Refresh from settings" : "Add (turned off)"}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </Section>
   );
 }
 
@@ -171,6 +215,7 @@ export function ToolsPage({ pid }: { pid: string }) {
           </Panel>
         </Section>
       </div>
+      <div className="tl-catwrap"><Catalog pid={pid} onAdded={() => void servers.reload()} /></div>
       <Section title="Who may use what" sub="Tick a box to give an agent that server's tools. Applies to API-key agents and to CLI agents (a config file is written per call)."
 >
         {(agents.data?.length ?? 0) > 8 && <div><SearchBox value={q} onChange={setQ} label="Find an agent" /></div>}

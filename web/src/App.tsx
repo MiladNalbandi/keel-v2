@@ -16,6 +16,7 @@ import { RepoPage } from "./pages/Repo";
 import { SettingsPage } from "./pages/Settings";
 import { SkillsPage } from "./pages/Skills";
 import { StacksPage } from "./pages/Stacks";
+import { TasksPage } from "./pages/Tasks";
 import { ToolsPage } from "./pages/Tools";
 import { WikiPage } from "./pages/Wiki";
 import { WorkflowsPage } from "./pages/Workflows";
@@ -26,6 +27,7 @@ import { AppProvider, useApp, useRoute } from "./state";
 /** Screens that need a chosen project. */
 const PAGES: Record<Exclude<ScreenId, "projects" | "inbox">, (p: { pid: string }) => ReactElement> = {
   flow: FlowPage,
+  tasks: TasksPage,
   live: LivePage,
   jobs: JobsPage,
   repo: RepoPage,

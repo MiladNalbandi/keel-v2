@@ -3,6 +3,7 @@
 import { http, HttpResponse } from "msw";
 import type { Cap, CapLeft, CapsLeft, IndexStatus, OnCap, Settings, Stack, ThreadState, Workflow } from "../api";
 import * as fx from "./fixtures";
+import { createTaskDb, taskHandlers } from "./taskHandlers";
 
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v));
 
@@ -30,6 +31,8 @@ export function createDb() {
     yamlErrors: null as string[] | null,
     usage: fx.usage(),
     calls: [] as { method: string; path: string; body: unknown }[],
+    /** v0.5.0: tasks, Jira connections, the MCP catalog */
+    tk: createTaskDb(),
   };
 }
 export type Db = ReturnType<typeof createDb>;
@@ -273,6 +276,7 @@ export function handlers(db: Db) {
     http.post("/api/notifications/:id/read", async ({ request }) => { await log(request); return new HttpResponse(null, { status: 204 }); }),
     http.get("/api/notification-settings", () => HttpResponse.json(db.nset)),
     http.put("/api/notification-settings", async ({ request }) => { const b = await log(request); Object.assign(db.nset, b); return HttpResponse.json(db.nset); }),
+    ...taskHandlers(db.tk, log),
   ];
 }
 

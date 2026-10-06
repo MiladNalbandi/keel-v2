@@ -243,13 +243,22 @@ class JiraClient(
         } catch (e: RestClientResponseException) {
             throw failure(e.statusCode, e.responseBodyAsString, e.responseHeaders?.getFirst("X-Seraph-LoginReason"), what)
         } catch (e: ResourceAccessException) {
-            throw JiraException("network", null, clean("Could not reach Jira at $base: ${e.mostSpecificCause.javaClass.simpleName}${e.mostSpecificCause.message?.let { " ($it)" } ?: ""}"),
+            throw JiraException("network", null, clean("Could not reach Jira at $base: ${netWhy(e.mostSpecificCause)}."),
                 "Check the URL and that this machine can reach it.")
         } catch (e: JiraException) {
             throw e
         } catch (e: Exception) {
             throw JiraException("network", null, clean("Jira call failed: ${e.javaClass.simpleName}"), null)
         }
+    }
+
+    /** A network failure in words: refused, unknown host, timed out, TLS. */
+    private fun netWhy(e: Throwable): String = when (e) {
+        is java.net.ConnectException, is java.nio.channels.ClosedChannelException -> "nothing answered (connection refused)"
+        is java.net.UnknownHostException -> "unknown host ${e.message.orEmpty()}".trim()
+        is java.net.http.HttpTimeoutException, is java.net.SocketTimeoutException -> "no answer in time"
+        is javax.net.ssl.SSLException -> "the TLS (https) handshake failed${e.message?.let { ": $it" } ?: ""}"
+        else -> e.javaClass.simpleName + (e.message?.let { " ($it)" } ?: "")
     }
 
     private fun failure(code: HttpStatusCode, body: String?, loginReason: String?, what: String): JiraException {
