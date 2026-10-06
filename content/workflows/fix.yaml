@@ -1,58 +1,132 @@
+# The bug flow: reproduce with a failing test, Gate R, investigate in parallel, Gate F (the plan unlocks production
+# code), fix, an optional regression e2e, then ship (its steps are included, ids ship_*).
+#
+# Inputs (StartThread.data / a start_flow seed):
+#   no_gates            waives both gates and says so in the PR body (or gates.bug_gates: false in .keel/config.yml)
+#   recipe, symptoms    from diagnose or hunt; they go to the reproducer
+#   needs_e2e           makes the regression e2e mandatory
+#
+# Every step lists its keys in the same order: id, kind, name, phase, then what the kind needs, then instructions.
+# A branch's "no" is quoted: YAML 1.1 reads a bare no: key as false.
+
 id: fix
 name: fix (keel)
-keel_rules: true
 version: 1
-# The bug flow: reproduce with a failing test, Gate R, investigate in parallel, Gate F (the plan unlocks production code),
-# fix, an optional regression e2e, then ship (its steps are included, ids ship_*). Inputs (StartThread.data / a start_flow seed): no_gates (or gates.bug_gates:
-# false in .keel/config.yml) waives both gates and says so in the PR body; recipe and symptoms (diagnose, hunt) go to
-# the reproducer; needs_e2e makes the regression e2e mandatory.
+keel_rules: true
+
 steps:
-  - { id: intake, kind: code, name: bug report, action: bug_intake, phase: bug-report }
+
+  # ---- 1. Reproduce: a failing test from the symptom alone ---------------------------------------------------------
+
+  - id: intake
+    kind: code
+    name: bug report
+    phase: bug-report
+    action: bug_intake
+
   - id: repro
     kind: agent
     name: bug-repro
+    phase: bug-repro
     agent: reproducer
     model: default
-    phase: bug-repro
     markers: [REPRO]
     instructions: >-
       Work from the symptom (and the reproduction recipe, when there is one) alone. Write the smallest failing test at
       the lowest layer that shows it. Never weaken an assertion until something goes red.
-  - { id: reproduced, kind: branch, name: reproduced, when: { marker: REPRO, equals: confirmed, step: repro }, no: to_diagnose, phase: bug-repro }
-  - { id: verify_repro, kind: code, name: verify red + commit, action: verify_red+commit, lock: true, phase: bug-repro }
-  - { id: gate_r, kind: gate, name: gate R, back: repro, lock: true, phase: gate-r, choices: [investigate, stop] }
-  - { id: stop_r, kind: branch, name: stop at gate R, when: { marker: CHOICE, equals: stop, step: gate_r }, no: hypotheses, phase: gate-r }
-  - { id: keep_test, kind: code, name: stop; the reproducing test stays on the branch, then: end, phase: gate-r }
+
+  - id: reproduced
+    kind: branch
+    name: reproduced
+    phase: bug-repro
+    when:
+      marker: REPRO
+      equals: confirmed
+      step: repro
+    "no": to_diagnose
+
+  - id: verify_repro
+    kind: code
+    name: verify red + commit
+    phase: bug-repro
+    action: verify_red+commit
+    lock: true
+
+  # ---- 2. Gate R: is this the bug? --------------------------------------------------------------------------------
+
+  - id: gate_r
+    kind: gate
+    name: gate R
+    phase: gate-r
+    choices: [investigate, stop]
+    back: repro
+    lock: true
+
+  - id: stop_r
+    kind: branch
+    name: stop at gate R
+    phase: gate-r
+    when:
+      marker: CHOICE
+      equals: stop
+      step: gate_r
+    "no": hypotheses
+
+  - id: keep_test
+    kind: code
+    name: stop; the reproducing test stays on the branch
+    phase: gate-r
+    then: end
+
+  # ---- 3. Investigate: hypotheses, one investigator each, the findings -------------------------------------------
+
   - id: hypotheses
     kind: agent
     name: hypotheses
+    phase: bug-investigate
     agent: investigator
     model: default
-    phase: bug-investigate
     collect: hypotheses
     instructions: >-
       The failing test is committed (the test(BUG) commit). List two to four distinct plausible causes, each one
       testable on its own. Do not investigate them yet.
+
   - id: investigate
     kind: parallel
     name: one investigator per hypothesis
+    phase: bug-investigate
     agent: investigator
     model: default
     from: hypotheses
     cap: 4
-    phase: bug-investigate
     markers: [ROOT-CAUSE]
     instructions: >-
       Confirm or kill only the hypothesis in your item, from evidence: the failing test, code, history, logs, read-only
       queries. Nothing may be edited. ROOT-CAUSE: confirmed means confirmed, not believed.
-  - { id: findings, kind: code, name: collect the findings, action: report, phase: bug-investigate }
-  - { id: confirmed, kind: branch, name: a cause is confirmed, when: { marker: ROOT-CAUSE, equals: confirmed, step: investigate, any: true }, no: escalated, phase: bug-investigate }
+
+  - id: findings
+    kind: code
+    name: collect the findings
+    phase: bug-investigate
+    action: report
+
+  - id: confirmed
+    kind: branch
+    name: a cause is confirmed
+    phase: bug-investigate
+    when:
+      marker: ROOT-CAUSE
+      equals: confirmed
+      step: investigate
+      any: true
+    "no": escalated
+
   - id: plan
     kind: agent
     name: fix plan
+    phase: bug-investigate
     agent: investigator
     model: default
-    phase: bug-investigate
     markers: [E2E]
     instructions: >-
       Write the fix plan for Gate F: the root cause, the evidence for it, the files to change, the approach, the risk,
@@ -61,53 +135,145 @@ steps:
       answers:
 
       {{data.report}}
-  - { id: plan_report, kind: code, name: plan for gate F, action: report, phase: bug-investigate }
-  - { id: gate_f, kind: gate, name: gate F, back: plan, lock: true, phase: gate-f, choices: [fix, feature] }
-  - { id: missing_requirement, kind: branch, name: a missing requirement, when: { marker: CHOICE, equals: feature, step: gate_f }, no: fix, phase: gate-f }
+
+  - id: plan_report
+    kind: code
+    name: plan for gate F
+    phase: bug-investigate
+    action: report
+
+  # ---- 4. Gate F: the plan unlocks production code (or it is a missing requirement) -------------------------------
+
+  - id: gate_f
+    kind: gate
+    name: gate F
+    phase: gate-f
+    choices: [fix, feature]
+    back: plan
+    lock: true
+
+  - id: missing_requirement
+    kind: branch
+    name: a missing requirement
+    phase: gate-f
+    when:
+      marker: CHOICE
+      equals: feature
+      step: gate_f
+    "no": fix
+
   - id: hand_feature
     kind: code
     name: start the feature flow with the evidence
+    phase: gate-f
     action: start_flow
     flow: feature
+    seed:
+      title: $title
+      evidence: $data.report
     then: end
-    phase: gate-f
-    seed: { title: $title, evidence: $data.report }
+
+  # ---- 5. Fix: change the cause, never the test --------------------------------------------------------------------
+
   - id: fix
     kind: agent
     name: bug-fix
+    phase: bug-fix
     agent: implementer
     model: default
-    phase: bug-fix
     instructions: >-
       Change the cause, never the test (tests are frozen in this phase). Touch only the files the approved plan names
       and explain any extra one. Put the root cause in your summary. The approved plan:
 
       {{data.report}}
+
   # Fails twice: no third try in the same context. Reset (keel's uncommitted changes go back) and reproduce again.
-  - { id: verify_fix, kind: code, name: verify + commit, action: verify_green+commit, lock: true, phase: bug-fix, rounds: 1, after_rounds: reset }
-  - { id: e2e_needed, kind: branch, name: regression e2e needed, when: { marker: E2E, equals: "yes", step: [intake, plan] }, no: ship_plan, phase: bug-fix }
+  - id: verify_fix
+    kind: code
+    name: verify + commit
+    phase: bug-fix
+    action: verify_green+commit
+    lock: true
+    rounds: 1
+    after_rounds: reset
+
+  # ---- 6. Regression e2e, when the plan (or the request) says it is needed ----------------------------------------
+
+  - id: e2e_needed
+    kind: branch
+    name: regression e2e needed
+    phase: bug-fix
+    when:
+      marker: E2E
+      equals: "yes"
+      step: [intake, plan]
+    "no": ship_plan
+
   - id: e2e
     kind: agent
     name: regression e2e
+    phase: e2e
     agent: e2e-author
     model: default
-    phase: e2e
     markers: [E2E-RESULT]
     instructions: >-
       Write one end-to-end test for the journey that used to break, run it, and keep it only if it adds cover the
       reproducing test does not.
-  - { id: e2e_commit, kind: code, name: commit e2e, action: commit, phase: e2e }
-  - { id: ship, kind: include, name: ship, flow: ship }
-  - { id: finish, kind: code, name: done, then: end, phase: close }
-  # Side paths, reached only by a jump.
-  - { id: escalated, kind: branch, name: model already escalated, when: { marker: ESCALATED, equals: "yes", step: escalate }, no: escalate, phase: bug-investigate }
+
+  - id: e2e_commit
+    kind: code
+    name: commit e2e
+    phase: e2e
+    action: commit
+
+  # ---- 7. Ship (the ship flow's steps, ids ship_*), then done ------------------------------------------------------
+
+  - id: ship
+    kind: include
+    name: ship
+    flow: ship
+
+  - id: finish
+    kind: code
+    name: done
+    phase: close
+    then: end
+
+  # ---- Side paths, reached only by a jump -------------------------------------------------------------------------
+
+  - id: escalated
+    kind: branch
+    name: model already escalated
+    phase: bug-investigate
+    when:
+      marker: ESCALATED
+      equals: "yes"
+      step: escalate
+    "no": escalate
+
   - id: to_diagnose
     kind: code
     name: hand to diagnose
+    phase: bug-investigate
     action: start_flow
     flow: diagnose
+    seed:
+      title: $title
+      symptoms: [$request]
+      evidence: $data.report
     then: end
+
+  - id: escalate
+    kind: code
+    name: escalate the investigator's model once
     phase: bug-investigate
-    seed: { title: $title, symptoms: [$request], evidence: $data.report }
-  - { id: escalate, kind: code, name: escalate the investigator's model once, action: escalate_model, agent: investigator, then: investigate, phase: bug-investigate }
-  - { id: reset, kind: code, name: reset and reproduce again, action: reset, then: repro, phase: reset }
+    action: escalate_model
+    agent: investigator
+    then: investigate
+
+  - id: reset
+    kind: code
+    name: reset and reproduce again
+    phase: reset
+    action: reset
+    then: repro
