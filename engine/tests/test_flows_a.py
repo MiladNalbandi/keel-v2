@@ -223,8 +223,10 @@ def test_fix_escalates_the_model_once_then_hands_over_to_diagnose(client, repo, 
     wait(client, tid)
     s = decide(client, tid)
     assert s["status"] == "done", s
-    inv = [r for r in seen if r.agent == "investigator" and r.item]
-    assert len(inv) == 6 and [r.model["model"] for r in inv[3:]] == ["fake-strong"] * 3
+    # the fix flow's own six come first (three, then three with the stronger model); the diagnose flow it hands over to
+    # may already have started its investigators by now (CI once counted nine), so only the first six are this flow's
+    inv = [r for r in seen if r.agent == "investigator" and r.item][:6]
+    assert len(inv) == 6 and [r.model["model"] for r in inv] == ["fake"] * 3 + ["fake-strong"] * 3
     assert values(client, tid)["agent_models"]["investigator"] == strong
     child(client, s, "diagnose")
 
