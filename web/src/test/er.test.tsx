@@ -308,8 +308,10 @@ describe("Repo page from a map link", () => {
     localStorage.setItem("keel2.project", "ludus-engine");
     location.hash = `#/repo/${encodeURIComponent("api/ScoreController.kt:3")}`;
     render(<App />);
-    const pre = await screen.findByLabelText("First lines of the file, line 3 marked");
-    expect(pre.querySelector(".at")).toHaveTextContent("class ScoreController");
-    expect(screen.getByText("a81c3f0 feat(AC-002)")).toBeInTheDocument();
+    // The Repo IDE (v0.5.1) opens the encoded map link at the line and marks it.
+    await screen.findByRole("region", { name: "Code of api/ScoreController.kt" });
+    const row = () => document.querySelector<HTMLElement>('.cv-row[data-line="3"]');
+    await waitFor(() => expect(row()).toHaveClass("tgt"));
+    expect(row()!.textContent).toContain("import org.springframework.web.bind.annotation.PostMapping");
   });
 });

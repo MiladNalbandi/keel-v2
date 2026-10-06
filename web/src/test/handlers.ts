@@ -17,6 +17,8 @@ export function createDb() {
     notifications: clone(fx.notifications),
     nset: clone(fx.notificationSettings),
     memory: clone(fx.memory),
+    /** The Repo IDE's file texts (GET /repo/raw, /files, /search). */
+    repoTexts: clone(fx.texts),
     caps: clone(fx.caps) as Cap[],
     /** What counts against the caps now: this project's use today, and its API-key use this month (GET /caps/left). */
     capUse: { day: { tokens: 0, usd: 0 }, month: { tokens: 0, usd: 3.5 } },
@@ -103,8 +105,49 @@ export function handlers(db: Db) {
       return HttpResponse.json(db.index);
     }),
     http.get("/api/projects/:pid/repo/tree", () => HttpResponse.json(fx.tree)),
-    http.get("/api/projects/:pid/repo/file", () => HttpResponse.json(fx.file)),
-    http.get("/api/projects/:pid/repo/commits", () => HttpResponse.json([{ sha: "a81c3f0aa", message: "feat(AC-002) refuse a negative score", author: "implementer", at: new Date().toISOString() }])),
+    http.get("/api/projects/:pid/repo/file", ({ request }) => {
+      const path = new URL(request.url).searchParams.get("path") ?? "";
+      const text = fx.texts[path];
+      if (path !== fx.file.path && text === undefined) return HttpResponse.json({ error: `No file at ${path}` }, { status: 404 });
+      return HttpResponse.json(path === fx.file.path ? fx.file : { ...fx.file, path, size: text.length, mark: undefined, ac: null, head: text });
+    }),
+    http.get("/api/projects/:pid/repo/raw", ({ request }) => {
+      const path = new URL(request.url).searchParams.get("path") ?? "";
+      const text = db.repoTexts[path];
+      if (text === undefined) return HttpResponse.json({ error: `No file at ${path}` }, { status: 404 });
+      return new HttpResponse(text, { headers: { "content-type": "text/plain;charset=UTF-8" } });
+    }),
+    http.get("/api/projects/:pid/repo/files", () => HttpResponse.json({ files: Object.keys(db.repoTexts).sort(), truncated: false })),
+    http.get("/api/projects/:pid/repo/changes", () => HttpResponse.json(fx.changes)),
+    http.get("/api/projects/:pid/repo/diff", async ({ request }) => {
+      await log(request);
+      return HttpResponse.json({ path: "api/ScoreController.kt", against: "head", ref: "HEAD", diff: fx.diff, binary: false, truncated: false });
+    }),
+    http.get("/api/projects/:pid/repo/commit", ({ request }) => {
+      const sha = new URL(request.url).searchParams.get("sha") ?? "";
+      return HttpResponse.json({ sha, message: "feat(AC-002) refuse a negative score", body: "", author: "keelbot", at: new Date().toISOString(), keel: true,
+        files: [{ path: "api/ScoreController.kt", status: "M" }] });
+    }),
+    http.get("/api/projects/:pid/repo/search", async ({ request }) => {
+      await log(request);
+      const u = new URL(request.url).searchParams;
+      const q = u.get("q") ?? "";
+      const cs = u.get("case") === "true";
+      const results = Object.entries(db.repoTexts).flatMap(([path, text]) => {
+        const matches = text.split("\n").flatMap((t, i) => {
+          const at = cs ? t.indexOf(q) : t.toLowerCase().indexOf(q.toLowerCase());
+          return at < 0 ? [] : [{ line: i + 1, column: at + 1, length: q.length, text: t, ranges: [[at, at + q.length]] }];
+        });
+        return matches.length ? [{ path, matches }] : [];
+      });
+      const n = results.reduce((a, r) => a + r.matches.length, 0);
+      return HttpResponse.json({ results, matches: n, files: results.length, truncated: false, timed_out: false, took_ms: 3 });
+    }),
+    http.get("/api/projects/:pid/repo/commits", () => HttpResponse.json([
+      { sha: "a81c3f0aa", message: "feat(AC-002) refuse a negative score", author: "keelbot", at: new Date().toISOString(), keel: true },
+      { sha: "4be12d9bb", message: "test(AC-002) a negative score is refused", author: "keelbot", at: new Date().toISOString(), keel: true },
+      { sha: "1c0ffee00", message: "docs: readme", author: "Mili", at: new Date().toISOString(), keel: false },
+    ])),
     http.post("/api/projects/:pid/repo/update-from-base", async ({ request }) => { await log(request); return HttpResponse.json(db.update); }),
     http.get("/api/projects/:pid/repo/history", ({ request }) => {
       const path = new URL(request.url).searchParams.get("path");

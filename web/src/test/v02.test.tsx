@@ -31,22 +31,22 @@ describe("Repo", () => {
     expect(within(alert).getByText(/nothing changed/)).toBeInTheDocument();
   });
 
-  it("file History lists the commits of that file", async () => {
+  it("file History (keel view) lists the commits of that file", async () => {
     const user = userEvent.setup();
-    at("#/repo");
+    at("#/repo/api/ScoreController.kt");
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Open api/ScoreController.kt" }));
+    await user.click(await screen.findByRole("button", { name: "keel" }));
     await user.click(await screen.findByRole("button", { name: "History" }));
-    const table = await screen.findByRole("table", { name: "File history" });
-    expect(within(table).getByText("77b1e02")).toBeInTheDocument();
-    expect(within(table).getByText(/save a score/)).toBeInTheDocument();
+    const list = await screen.findByRole("list", { name: "File history" });
+    expect(within(list).getByText(/77b1e02/)).toBeInTheDocument();
+    expect(within(list).getByText(/save a score/)).toBeInTheDocument();
   });
 
   it("Unlock for this phase asks first, says it is logged, then calls the api", async () => {
     const user = userEvent.setup();
-    at("#/repo");
+    at("#/repo/api/ScoreController.kt");
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Open api/ScoreController.kt" }));
+    await user.click(await screen.findByRole("button", { name: "keel" }));
     await user.click(await screen.findByRole("button", { name: "Unlock for this phase" }));
     const confirm = screen.getByRole("group", { name: "Confirm" });
     expect(confirm).toHaveTextContent(/logged/);
@@ -61,7 +61,8 @@ describe("Repo", () => {
     const user = userEvent.setup();
     at("#/repo");
     render(<App />);
-    await user.click(await screen.findByRole("tab", { name: "Memory" }));
+    await user.click(await screen.findByRole("button", { name: "keel" }));
+    await user.click(await screen.findByRole("button", { name: /^Memory/ }));
     await user.click(await screen.findByRole("button", { name: "Refresh stale" }));
     await waitFor(() => expect(calls("POST", "/api/projects/ludus-engine/wiki/refresh")[0]?.body).toEqual({ sections: ["domain"] }));
     expect(await screen.findByRole("link", { name: "Watch it in Flow" })).toHaveAttribute("href", "#/flow");

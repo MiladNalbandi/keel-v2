@@ -109,10 +109,54 @@ export const repo: RepoInfo = {
 export const tree: TreeNode[] = [
   { path: "api", name: "api", depth: 0, kind: "dir", keel: false, frozen: false },
   { path: "api/ScoreController.kt", name: "ScoreController.kt", depth: 1, kind: "file", mark: "M", keel: false, frozen: false, ac: "AC-002" },
+  { path: "api/ScoreRepository.kt", name: "ScoreRepository.kt", depth: 1, kind: "file", keel: false, frozen: true },
+  { path: "README.md", name: "README.md", depth: 0, kind: "file", keel: false, frozen: false },
   { path: ".keel", name: ".keel", depth: 0, kind: "dir", keel: true, frozen: false },
   { path: ".keel/config.yml", name: "config.yml", depth: 1, kind: "file", mark: "M", keel: true, frozen: false },
 ];
-export const file: RepoFile = { path: "api/ScoreController.kt", size: 812, mark: "M", frozen: false, keel: false, ac: "AC-002", head: "package scores\n\nclass ScoreController", last_commit: "a81c3f0 feat(AC-002)" };
+export const file: RepoFile = {
+  path: "api/ScoreController.kt", size: 812, mark: "M", frozen: false, keel: false, ac: "AC-002", head: "package scores\n\nclass ScoreController",
+  last_commit: { sha: "a81c3f0aa", message: "feat(AC-002) refuse a negative score", author: "keelbot", at: ago(3600), keel: true },
+  binary: false, modified: 1, phase: "ac-gate", bucket: "api-main", verdict: "allow",
+};
+/** The Repo IDE's files: their text (GET /repo/raw) — the tree, quick open and search use these paths. */
+export const texts: Record<string, string> = {
+  "api/ScoreController.kt": [
+    "package scores",
+    "",
+    "import org.springframework.web.bind.annotation.PostMapping",
+    "",
+    "/** Saves a score; refuses a negative one. */",
+    "class ScoreController(private val repo: ScoreRepository) {",
+    "    @PostMapping(\"/scores\")",
+    "    fun save(@Valid s: ScoreDto): Score {",
+    "        require(s.value >= 0) { \"a score is never negative\" }",
+    "        return repo.save(Score(s.player, s.value))",
+    "    }",
+    "",
+    "    fun top(n: Int): List<Score> = repo.top(n)",
+    "}",
+  ].join("\n") + "\n",
+  "api/ScoreRepository.kt": "package scores\n\ninterface ScoreRepository {\n    fun save(s: Score): Score\n    fun top(n: Int): List<Score>\n}\n",
+  ".keel/config.yml": "commands: {}\n",
+  "README.md": "# ludus-engine\n\nThe **score** service.\n",
+};
+export const changes = [
+  { path: "api/ScoreController.kt", unstaged: "M" },
+  { path: ".keel/config.yml", staged: "M" },
+  { path: "notes.txt", untracked: true },
+];
+export const diff = [
+  "diff --git a/api/ScoreController.kt b/api/ScoreController.kt",
+  "--- a/api/ScoreController.kt",
+  "+++ b/api/ScoreController.kt",
+  "@@ -7,4 +7,5 @@ class ScoreController(private val repo: ScoreRepository) {",
+  "     @PostMapping(\"/scores\")",
+  "-    fun save(s: ScoreDto): Score {",
+  "+    fun save(@Valid s: ScoreDto): Score {",
+  "+        require(s.value >= 0) { \"a score is never negative\" }",
+  "         return repo.save(Score(s.player, s.value))",
+].join("\n") + "\n";
 export const keelDocs: KeelDoc[] = [{ path: ".keel/ladder.json", what: "Ladder results", by: "init", updated: "live", status: "live" }];
 export const memory: Memory = {
   facts: [{ id: "f1", title: "Test needs Docker", text: "ScoreRepositoryTest uses Testcontainers; start Docker first.", kind: "fact", source: "setup-doctor", at: ago(86400) }],
