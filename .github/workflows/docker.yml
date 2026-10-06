@@ -1,7 +1,6 @@
 # Builds the image for amd64 + arm64 on a version tag (v*) and pushes it to
 #   ghcr.io/<owner>/keel-v2         always (uses the workflow's GITHUB_TOKEN)
 #   docker.io/<user>/keel-v2        when the secrets DOCKERHUB_USERNAME and DOCKERHUB_TOKEN exist
-# Optional repository variable KEEL_REF pins keel v1 (default: main).
 name: docker
 on:
   push:
@@ -57,6 +56,5 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             INSTALL_CLIS=1
-            KEEL_REF=${{ vars.KEEL_REF || 'main' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
