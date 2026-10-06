@@ -1388,7 +1388,8 @@ class Compiler:
             detail = ("The spec step wrote no acceptance criteria, so there is nothing to approve yet. "
                       "Send it back and say what to build.\n\nWhat the agent said:\n" + said[:1200])
         elif step.report == "verdicts":
-            detail = await asyncio.to_thread(ship_mod.final_report, ctx.root, ctx.project_id or ctx.root, dict(state), ctx.title)
+            detail = await asyncio.to_thread(ship_mod.final_report, ctx.root, ctx.project_id or ctx.root, dict(state), ctx.title,
+                                             ctx.thread_id)
         elif self.wf.flow == "init" and step.id == "plan_gate":
             detail = init_gates.plan(ctx.root, state.get("init") or init_gates.defaults(ctx.root, bool(ctx.settings.get("fast"))))
         elif (state.get("data") or {}).get(f"{step.id}_detail"):

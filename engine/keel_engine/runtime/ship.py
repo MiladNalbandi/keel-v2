@@ -155,7 +155,7 @@ def _mark(v: dict | None, head: str | None, tree: str | None) -> tuple[str, str]
     return res + fresh, str(d.get("summary") or "—")[:200]
 
 
-def final_report(root: str, key: str, state: dict, title: str) -> str:
+def final_report(root: str, key: str, state: dict, title: str, thread_id: str = "") -> str:
     """keel v1 ship step 7: the whole picture, the parts that make it look worse first."""
     data = state.get("data") or {}
     gates = state.get("gates") or {}
@@ -210,6 +210,7 @@ def final_report(root: str, key: str, state: dict, title: str) -> str:
     rows = data.get("trace") or (verdict_actions.trace_rows(root, state.get("acs") or [], base) if repo and state.get("acs") else [])
     if rows:
         out += ["## Acceptance criteria", "", verdict_actions.trace_table(rows), ""]
+    out += verdict_actions.helper_section(thread_id)
     if state.get("spec"):
         out += [f"Spec: `{state['spec']}`", ""]
     if repo and base:

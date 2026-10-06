@@ -680,7 +680,8 @@ def _arch_action(a):
 
 # ------------------------------------------------------------------ PR
 
-def pr_body(root: str, project: str, state: dict, title: str, base: str | None, request: str = "", run_mode: str = "") -> str:
+def pr_body(root: str, project: str, state: dict, title: str, base: str | None, request: str = "", run_mode: str = "",
+            thread_id: str = "") -> str:
     """keel v1 ops.prBody: spec extract, trace table, coverage verdict, skipped gates and ship steps, unlocks,
     accepted coverage lines, flaky tests; v0.4.1: the gates the run mode approved by itself."""
     spec = state.get("spec")
@@ -736,8 +737,23 @@ def pr_body(root: str, project: str, state: dict, title: str, base: str | None, 
     flaky = state.get("flaky") or []
     if flaky:
         out += ["## Flaky tests seen", ""] + [f"- {f.get('label')}: {', '.join(f.get('tests') or [])}" for f in flaky] + [""]
+    out += helper_section(thread_id)
     out += ["---", "_Prepared by keel._"]
     return "\n".join(out)
+
+
+def helper_section(thread_id: str) -> list[str]:
+    """The PR body's and the final review's list of the commits keel's Helper made for this flow (Fix at a gate)."""
+    from . import helper          # late: the Helper's module imports most of the runtime
+    helped = helper.commits_for(thread_id)
+    if not helped:
+        return []
+    lines = []
+    for c in helped:
+        files = c["files"]
+        more = ", …" if len(files) > 6 else ""
+        lines.append(f"- `{c['sha'][:7]}` {c['subject']}" + (f" ({', '.join(files[:6])}{more})" if files else ""))
+    return ["## Helper changes", "", "Made with keel's Helper at a gate, then checked and committed by keel:", ""] + lines + [""]
 
 
 def lint_section(project: str) -> list[str]:
@@ -765,7 +781,7 @@ def _pr(a):
     cfg = rules.load_config(a.root)
     base = base_ref(a.root, cfg, a.base) if git.is_repo(a.root) else None
     body = pr_body(a.root, a.key, a.state, a.title, base, getattr(a, "request", "") or "",
-                   run_modes.normalize((a.settings or {}).get("run_mode")))
+                   run_modes.normalize((a.settings or {}).get("run_mode")), a.thread_id)
     return _result(True, f"PR body ready ({len(body.splitlines())} lines); it is shown at the next gate.", body, {"pr_body": body})
 
 

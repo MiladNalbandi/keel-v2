@@ -1328,7 +1328,8 @@ While a flow waits at a gate, a **Fix** chat lets the Helper change files, insid
 - **Done**: runs the module's test command (`testcmd.command_for`), then keel's commit of only those files
   (`actions.commit`: the phase's commit rules, secrets, new dependencies, pre-commit tools), leaves a `note` message and
   emits `helper.commit` on the flow's thread. The commit reads `<type>(<the gate's criterion, else helper>): <message>`,
-  the type from the chat's phase (at the AC gate `feat(AC-2): …`). A failure says which step failed (`changes`, `checks`, `commit`) with the
+  the type from the chat's phase (at the AC gate `feat(AC-2): …`). The flow's PR body lists these commits under "Helper changes"
+  (`helper.commits_for`). A failure says which step failed (`changes`, `checks`, `commit`) with the
   output; the panel can hand it back to the Helper.
 - Fix needs a waiting flow that does not run read-only (409 otherwise), and Done refuses once that flow moved on.
 

@@ -207,6 +207,14 @@ def test_done_runs_the_checks_and_makes_keels_commit_of_only_the_helpers_files(c
     ev = [e for e in client.bus.recent if e["type"] == "helper.commit"][-1]
     assert ev["thread_id"] == "t-gate" and ev["data"]["sha"] == r["sha"] and ev["data"]["session"] == s["id"]
     assert client.get(f"/helper/sessions/{s['id']}").json()["messages"][-1]["data"]["status"] == "committed"
+    # the flow's PR body lists the Helper's commit
+    from keel_engine.runtime import verdict_actions
+    assert helper.commits_for("t-gate")[0]["subject"] == "feat(AC-1): Ranks use the new helper"
+    body = verdict_actions.pr_body(str(repo), "demo", {}, "Player ranks", None, thread_id="t-gate")
+    assert "## Helper changes" in body and f"`{r['sha'][:7]}` feat(AC-1): Ranks use the new helper (src/scores/helper_fix.py)" in body
+    assert "## Helper changes" not in verdict_actions.pr_body(str(repo), "demo", {}, "Player ranks", None, thread_id="t-other")
+    from keel_engine.runtime import ship
+    assert f"`{r['sha'][:7]}` feat(AC-1)" in ship.final_report(str(repo), "demo", {}, "Player ranks", "t-gate")
     nothing = client.post(f"/helper/sessions/{s['id']}/done", json={"flow": FLOW}).json()
     assert nothing["ok"] is False and nothing["step"] == "changes"
 

@@ -293,11 +293,28 @@ def done(sid: str, flow: dict, emit=None, message: str = "") -> dict:
     with db.connect() as conn:
         conn.execute("delete from helper_files where session_id = ?", (sid,))
     note = f"keel committed the Helper's change: {res.note}" + (f" (checks: {cmd})" if cmd else " (no test command found)")
-    add_message(sid, "note", note, data={"status": "committed", "sha": sha, "files": files})
+    subject = git.git(root, "log", "-1", "--format=%s").stdout.strip()
+    add_message(sid, "note", note, data={"status": "committed", "sha": sha, "files": files, "subject": subject})
     if emit:
         emit("helper.commit", s["thread_id"] or sid, s["project"], {"session": sid, "sha": sha, "message": res.note,
                                                                     "files": files, "checks": cmd})
     return {"ok": True, "sha": sha, "message": res.note, "files": files, "checks": cmd}
+
+
+def commits_for(thread_id: str) -> list[dict]:
+    """The commits Done made for a flow (its Fix chats), oldest first: for the PR body."""
+    if not thread_id:
+        return []
+    with db.connect() as conn:
+        rows = conn.execute("select m.data_json, m.text, s.id, s.root from helper_messages m join helper_sessions s on s.id = m.session_id "
+                            "where s.thread_id = ? and m.role = 'note' order by m.at", (thread_id,)).fetchall()
+    out = []
+    for dj, text, sid, root in rows:
+        d = db.loads(dj, {})
+        if d.get("status") == "committed" and d.get("sha"):
+            subject = d.get("subject") or git.git(root, "log", "-1", "--format=%s", d["sha"]).stdout.strip() or text
+            out.append({"sha": d["sha"], "subject": subject, "files": d.get("files") or [], "session": sid})
+    return out
 
 
 # ------------------------------------------------------------------ the prompt
