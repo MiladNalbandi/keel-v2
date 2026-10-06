@@ -24,11 +24,11 @@ def kb(root: Path, *sections: str) -> Path:
 
 def test_defaults_come_from_front_matter():
     # the code graph is opt-in: measured on ludus it did not save tokens (see tools/codegraph.py)
-    assert ak.default_for("explorer") == {"sections": ALL, "code_graph": False, "memory": True, "strict": False}
+    assert ak.default_for("explorer") == {"sections": ALL, "code_graph": False, "memory": True, "strict": False, "hints": False}
     assert ak.default_for("test-author")["sections"] == ["domain", "conventions"]
     assert ak.default_for("implementer")["sections"] == ["architecture", "conventions", "data"]
     assert ak.default_for("security-auditor") == {"sections": ["data", "integrations"], "code_graph": False,
-                                                  "memory": True, "strict": False}
+                                                  "memory": True, "strict": False, "hints": False}
     assert ak.default_for("librarian")["sections"] == []
     # no agent file: the builtin table, else the fallback
     assert ak.default_for("contract-author")["sections"] == ["domain", "integrations"]
@@ -39,7 +39,7 @@ def test_defaults_come_from_front_matter():
 def test_the_thread_value_merges_over_the_default():
     sent = {"test-author": {"knowledge": {"sections": ["data", "nonsense"], "strict": True}}}
     k = ak.for_agent("test-author", sent)
-    assert k == {"sections": ["data"], "code_graph": False, "memory": True, "strict": True}
+    assert k == {"sections": ["data"], "code_graph": False, "memory": True, "strict": True, "hints": False}
     assert ak.for_agent("implementer", sent) == ak.default_for("implementer")
     assert ak.for_agent("implementer", {}) == ak.default_for("implementer")
 
@@ -133,7 +133,7 @@ def test_start_thread_knowledge_reaches_the_agent(client, repo, seen):
                 mcp=[{"name": "codegraph", "command": "codegraph", "args": ["serve", "--mcp"]}])
     wait(client, tid)
     req, ctx = next((r, c) for r, c in seen if r.agent == "explorer")
-    assert req.knowledge == {"sections": ["data"], "code_graph": False, "memory": True, "strict": True}
+    assert req.knowledge == {"sections": ["data"], "code_graph": False, "memory": True, "strict": True, "hints": False}
     assert f"- {Path(repo).resolve() / 'docs/knowledge/data.md'}: tables" in req.prompt
     assert "domain.md" not in req.prompt and "architecture.md" not in req.prompt
     assert [s["name"] for s in req.mcp_specs] == []          # code graph off: its server is not handed over

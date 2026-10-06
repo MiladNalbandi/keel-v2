@@ -1,12 +1,13 @@
 """Which project knowledge each agent uses (plan 5c).
 
-    knowledge: {sections: [architecture, domain, ...], code_graph: bool, memory: bool, strict: bool}
+    knowledge: {sections: [architecture, domain, ...], code_graph: bool, memory: bool, strict: bool, hints: bool}
 
 The default is the `knowledge:` block in the agent's front matter (content/agents/<agent>.md); the API sends the
 project's value (its override merged over that default) in StartThread.agents. The task prompt lists the allowed
 sections that exist; the code graph MCP server is only handed to agents with code_graph on; memory off means a
 repeated step starts fresh; strict makes the guard refuse other sections (rules.check_knowledge), else the agent is
-only told.
+only told; hints (off by default, see FALLBACK) gives the agent keel's own "where to look" lookups in the code graph
+(runtime/graph_hints.py), which cost no tool call.
 """
 
 from __future__ import annotations
@@ -34,7 +35,9 @@ PURPOSE = {
 
 # Agents with no file in content/agents (prompts.BUILTIN_ROLES) and the fallback for any other agent.
 BUILTIN = {"contract-author": {"sections": ["domain", "integrations"], "code_graph": False}}
-FALLBACK = {"sections": ["architecture"], "code_graph": False, "memory": True, "strict": False}
+# hints is off by default: measured 2026-10-06 on ludus (Helper Ask, Haiku, 3 questions x 2 runs each way) it saved no
+# tokens (153k with, 150k without) and the answers named the same code. Turn it on per agent in the Agents drawer.
+FALLBACK = {"sections": ["architecture"], "code_graph": False, "memory": True, "strict": False, "hints": False}
 
 
 def normalize(raw: dict | None, base: dict | None = None) -> dict:
@@ -45,7 +48,8 @@ def normalize(raw: dict | None, base: dict | None = None) -> dict:
     return {"sections": [s for s in SECTIONS if s in (sections or [])],
             "code_graph": bool(raw.get("code_graph", base["code_graph"])),
             "memory": bool(raw.get("memory", base["memory"])),
-            "strict": bool(raw.get("strict", base["strict"]))}
+            "strict": bool(raw.get("strict", base["strict"])),
+            "hints": bool(raw.get("hints", base["hints"]))}
 
 
 @lru_cache(maxsize=64)

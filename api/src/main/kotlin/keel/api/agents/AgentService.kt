@@ -187,7 +187,7 @@ class AgentService(
     }
 
     private fun checkKnowledge(v: Any) {
-        val m = v as? Map<*, *> ?: throw BadRequest("knowledge must be an object", "Send { sections, code_graph, memory, strict }.")
+        val m = v as? Map<*, *> ?: throw BadRequest("knowledge must be an object", "Send { sections, code_graph, memory, strict, hints }.")
         val unknown = m.keys.map { it.toString() } - KNOWLEDGE_KEYS
         if (unknown.isNotEmpty()) throw BadRequest("Unknown knowledge field: ${unknown.joinToString()}", "You can change: ${KNOWLEDGE_KEYS.joinToString()}")
         val sections = m["sections"] ?: return
@@ -198,6 +198,6 @@ class AgentService(
 
     companion object {
         val LANES = setOf("follow", "api", "web")
-        val KNOWLEDGE_KEYS = setOf("sections", "code_graph", "memory", "strict")
+        val KNOWLEDGE_KEYS = setOf("sections", "code_graph", "memory", "strict", "hints")
     }
 }

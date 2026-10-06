@@ -26,11 +26,14 @@ data class Knowledge(
     val codeGraph: Boolean = true,
     val memory: Boolean = true,
     val strict: Boolean = false,
+    /** keel looks up the names in the agent's task in the code graph and gives it a "where to look" list (no tool call);
+     *  off by default: it saved no tokens when measured (engine runtime/agent_knowledge.py FALLBACK) */
+    val hints: Boolean = false,
 ) {
     /** This setting with the given fields of a patch on top. */
     fun with(p: KnowledgePatch?): Knowledge = if (p == null) this else Knowledge(
         sections = p.sections?.let { s -> SECTIONS.filter { it in s } } ?: sections,
-        codeGraph = p.codeGraph ?: codeGraph, memory = p.memory ?: memory, strict = p.strict ?: strict,
+        codeGraph = p.codeGraph ?: codeGraph, memory = p.memory ?: memory, strict = p.strict ?: strict, hints = p.hints ?: hints,
     )
 
     companion object {
@@ -43,7 +46,7 @@ data class Knowledge(
             val m = v as? Map<*, *> ?: return null
             fun flag(k: String, d: Boolean) = (m[k] as? Boolean) ?: m[k]?.toString()?.toBooleanStrictOrNull() ?: d
             val wanted = FrontMatter.list(m["sections"])
-            return Knowledge(SECTIONS.filter { it in wanted }, flag("code_graph", true), flag("memory", true), flag("strict", false))
+            return Knowledge(SECTIONS.filter { it in wanted }, flag("code_graph", true), flag("memory", true), flag("strict", false), flag("hints", false))
         }
     }
 }
@@ -54,6 +57,7 @@ data class KnowledgePatch(
     val codeGraph: Boolean? = null,
     val memory: Boolean? = null,
     val strict: Boolean? = null,
+    val hints: Boolean? = null,
 )
 
 /** Splits a markdown file with YAML front matter into (front matter, body). */

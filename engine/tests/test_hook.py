@@ -1,6 +1,7 @@
 """keel's own PreToolUse hook (python -m keel_engine.hook pre-tool), its context file, live unlocks and the engine's
 unlock endpoints."""
 
+import dataclasses
 import json
 import os
 import shutil
@@ -295,6 +296,14 @@ async def test_claude_runner_writes_context_and_settings_outside_the_project(tmp
     settings = json.loads((work / "keel-guard.json").read_text())
     assert settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"].startswith(f'"{sys.executable}" -I -m keel_engine.hook pre-tool')
     assert not list(root.rglob("guard.json")) and not list(root.rglob("keel-guard.json"))
+    # only keel's built-in tools are in the model's prompt (the others' descriptions cost ~17k tokens a turn)
+    argv = (out / "argv").read_text().split()
+    assert argv[argv.index("--tools") + 1] == "Read,Edit,Write,Bash,Glob,Grep"
+    # a read-only run (the Helper's Ask) has no Edit or Write at all
+    ro = dataclasses.replace(req, toolbox=ToolBox(str(root), "none", readonly=True))
+    await ClaudeCLIRunner().run(ro, lambda *a, **k: None)
+    argv = (out / "argv").read_text().split()
+    assert argv[argv.index("--tools") + 1] == "Read,Bash,Glob,Grep"
 
 
 @pytest.mark.skipif(not shutil.which("node"), reason="node is not installed")

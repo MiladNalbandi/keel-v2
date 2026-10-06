@@ -342,6 +342,10 @@ class ClaudeCLIRunner:
         if cfg_path:
             argv += ["--mcp-config", cfg_path, "--strict-mcp-config"]
             allowed += mcp_allowed
+        # --tools keeps only these built-in tools in the model's prompt (their descriptions are most of every turn's
+        # fixed tokens); --allowedTools lets them run without asking. A read-only run gets no Edit or Write at all.
+        builtin = [t for t in CLAUDE_TOOLS if not (getattr(req.toolbox, "readonly", False) and t in ("Edit", "Write"))]
+        argv += ["--tools", ",".join(builtin)]
         argv += ["--allowedTools", ",".join(allowed), "--disallowedTools", ",".join(CLAUDE_HIDDEN)]
         if req.system:
             argv += ["--system-prompt", req.system]

@@ -39,7 +39,7 @@ from ..models import catalog
 from ..models.base import AgentRequest, AgentResult
 from ..tools import git, guard, mcp, testcmd, worktrees
 from ..tools.agent_tools import ToolBox, command_env
-from . import agent_knowledge, db, guard_ctx, permissions, plugins, prompts
+from . import agent_knowledge, db, graph_hints, guard_ctx, permissions, plugins, prompts
 
 log = logging.getLogger(__name__)
 
@@ -448,12 +448,17 @@ def _transcript(hist: list[tuple[str, str]]) -> str:
 
 def build_prompt(*, mode: str, root: str, question: str, know: dict, graph: bool, flow: dict | None,
                  mentions: list[dict] | None, selection: dict | None, open_file: str | None, transcript: str,
-                 branch: str = "") -> str:
+                 branch: str = "", pid: str = "") -> str:
     where = f"Your folder (the worktree): {root}" if mode == "side" else f"The project folder: {root}"
     parts = [MODE_TEXT[mode].format(phase=fix_phase(flow), branch=branch or "?"), where]
     block = agent_knowledge.prompt_block(root, know, graph)
     if block:
         parts.append(block)
+    if pid and know.get("hints", False):
+        # keel's own lookups in the code graph: the places to read first, at no tool call (runtime/graph_hints.py)
+        hints = graph_hints.where_to_look(pid, question, mentions=mentions, open_file=open_file, selection=selection)
+        if hints:
+            parts.append(hints)
     ctx = plugins.context_files(root)
     if ctx:
         parts.append("Read these when they help: " + ", ".join(ctx))
@@ -662,7 +667,7 @@ class HelperRunner:
             allow = list(body.get("tools_allow") or []) + ([f"mcp:{graph['name']}:*"] if graph else [])
             mcp_specs, tools_allow = agent_knowledge.filter_mcp(specs, allow, know)
             transcript = "" if (resume or model.get("mode") == "api" or provider == "fake") else _transcript(hist)
-            prompt = build_prompt(mode=mode, root=root, question=question, know=know, branch=s.get("branch") or "",
+            prompt = build_prompt(mode=mode, root=root, question=question, know=know, branch=s.get("branch") or "", pid=project,
                                   graph=agent_knowledge.has_codegraph(mcp_specs, tools_allow), flow=body.get("flow"),
                                   mentions=body.get("mentions"), selection=body.get("selection"), open_file=body.get("open_file"),
                                   transcript=transcript)

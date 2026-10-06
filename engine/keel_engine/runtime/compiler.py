@@ -442,7 +442,8 @@ class Compiler:
         prompt = prompts.task_prompt(agent=agent, phase=phase, step_name=step.name, title=ctx.title, root=ctx.root, ac=ac,
                                      acs=state.get("acs") or [], feedback=state.get("feedback"), index=index, spec=state.get("spec"),
                                      section=section, unlocks=state.get("unlocks") or [], request=ctx.request,
-                                     knowledge=know, graph=agent_knowledge.has_codegraph(mcp_specs, tools_allow), item=item)
+                                     knowledge=know, graph=agent_knowledge.has_codegraph(mcp_specs, tools_allow), item=item,
+                                     pid=ctx.project_id or "")
         asks = prompts.step_asks(step, lambda path: self._seed_value("$" + path, state, item))
         if asks:
             prompt = f"{prompt}\n{asks}"

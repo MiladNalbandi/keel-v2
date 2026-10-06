@@ -51,9 +51,12 @@ class KnowledgeApiTest : ApiTest() {
         assertThat(k["sections"].map { it.asText() }).containsExactly("architecture")
         assertThat(k["strict"].asBoolean()).isTrue()
         assertThat(k["code_graph"].asBoolean()).isTrue()
+        assertThat(k["hints"].asBoolean()).isFalse()                       // keel's "where to look" lookups: off by default
         assertThat(engine.lastBody("/threads")!!["agents"]["implementer"]["knowledge"]).isNotNull()
         get("/api/projects/$pid/estimate?workflow_id=feature&acs=2").andExpect(status().isOk)
         assertThat(engine.lastBody("/workflows/estimate")!!["knowledge_tokens"]["test-author"].asInt()).isEqualTo(10)
+        put("/api/projects/$pid/agents/test-author", mapOf("knowledge" to mapOf("hints" to true))).andExpect(status().isOk)
+        assertThat(agent(pid, "test-author")["knowledge"]["hints"].asBoolean()).isTrue()
 
         val cleared = put("/api/projects/$pid/agents/test-author", mapOf("knowledge" to null)).andExpect(status().isOk).json()
         assertThat(cleared["overridden"].map { it.asText() }).doesNotContain("knowledge")

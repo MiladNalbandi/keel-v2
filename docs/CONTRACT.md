@@ -1482,3 +1482,20 @@ QualityLine  = {workflow_id, model, points: [{run_id, at, score}] (oldest first,
 - Web: **Build › Quality**: the scores by flow and model (score, change, trend line, a red "dropped"), a banner for a
   drop, the run now with its cases (Stop the run), **Run the eval cases** (flows, eval sets, one or two models, Run
   now, Every night at … UTC), and the last runs with their cases.
+
+## v0.8.x: fewer tokens per agent turn
+
+Measured on a ludus clone (Helper Ask, Claude Haiku, 3 questions × 2 runs each way, tokens as the budget counts them:
+in + out + cached ÷ 10):
+
+- Every turn of a claude agent re-sends its whole prompt. The built-in tool descriptions of the Claude CLI were about
+  17,700 tokens of it, also for tools keel never lets agents use. The runner now passes `--tools` with only keel's
+  built-in tools (`Read, Edit, Write, Bash, Glob, Grep`; a read-only run such as the Helper's Ask gets no Edit or
+  Write), so a turn's fixed part fell from about 25k to 7k tokens. With the prompts' "read the places you need
+  together, in one turn" (several tool calls at once), the 12 answers took 303k tokens instead of 630k (−52%), with
+  the same answers.
+- Where to look (`runtime/graph_hints.py`, an agent's `knowledge.hints`): keel looks up the names in a question or a
+  step in the code graph itself (no model, no tool call) and lists the line ranges to read first, with who uses them
+  and what they call. It saved no tokens in the same measurement (153k with, 150k without) and the answers named the
+  same code, so it is **off by default**; turn it on per agent in the Agents drawer (**Where to look**).
+

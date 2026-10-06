@@ -85,14 +85,16 @@ def _allowed(phase: str) -> str:
 def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str, ac: dict | None,
                 acs: list[dict], feedback: str | None, index: int = 0, spec: str | None = None,
                 section: str | None = None, unlocks: list[dict] | None = None, request: str = "",
-                knowledge: dict | None = None, graph: bool = False, item: dict | None = None) -> str:
+                knowledge: dict | None = None, graph: bool = False, item: dict | None = None, pid: str = "") -> str:
     lines = [f"Project folder: {root}", f"Flow: {title}", f"Step: {step_name} (keel phase: {phase})",
              "How this works: the keel engine runs the tests, makes the commits and moves between phases after you. "
              "Do not run keel commands, do not run git commit, reset, checkout or stash, and do not read or change "
              "anything under .keel/. Do only what this step asks, then stop with a short summary (a few lines).",
              f"Files you may change in this phase: {_allowed(phase)}. Anything else is put back automatically.",
              "Read with care for tokens: find what you need with grep -n (or the code index tools, when you have "
-             "them) and read only those lines; never read a large file whole, and never read the same file twice."]
+             "them) and read only those lines; never read a large file whole, and never read the same file twice. "
+             "When you need several files or ranges, read them together in one turn (several tool calls at once): "
+             "every turn sends the whole conversation again."]
     if request:
         lines.append("What the user asked for:\n" + request)
     from pathlib import Path as _P
@@ -101,6 +103,14 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
         block = agent_knowledge.prompt_block(root, knowledge, graph)
         if block:
             lines.append(block)
+        if pid and knowledge.get("hints", False):
+            # keel's own lookups in the code graph for this step: the places to read first, at no tool call
+            from . import graph_hints
+            query = "\n".join(x for x in (title, request, (ac or {}).get("title") or "", feedback or "",
+                                           str((item or {}).get("title") or "")) if x)
+            hints = graph_hints.where_to_look(pid, query)
+            if hints:
+                lines.append(hints)
     elif (_P(root) / "docs" / "knowledge").is_dir() and not section:
         lines.append("keel's memory of this project is in docs/knowledge/ (start with index.md if it exists, then only the "
                      "section you need). Read it before exploring the code and trust its file:line citations.")

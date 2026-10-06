@@ -135,7 +135,7 @@ export type StepExplanation = {
   agent?: {
     id: string; about: string; custom?: boolean; tools?: string | null; max_turns?: number | null;
     model: { step: string; agent_file?: string | null; effort?: string | null; rule: string; now?: Partial<Model> };
-    knowledge?: { sections: string[]; code_graph: boolean; memory: boolean; strict: boolean };
+    knowledge?: { sections: string[]; code_graph: boolean; memory: boolean; strict: boolean; hints?: boolean };
     instructions?: string | null; markers: { name: string; values: string[]; registered: boolean; text: string }[];
     collect?: { key: string; text: string } | null; mcp_tools?: string[]; role?: string;
     prompt: string; placeholders: boolean; prompt_notes?: string[]; system?: string;
@@ -458,7 +458,9 @@ export type Agent = {
 export type AgentLane = "follow" | "api" | "web";
 export const KNOWLEDGE_SECTIONS = ["architecture", "domain", "conventions", "data", "integrations", "journeys"] as const;
 export type KnowledgeSection = (typeof KNOWLEDGE_SECTIONS)[number];
-export type AgentKnowledge = { sections: KnowledgeSection[]; code_graph: boolean; memory: boolean; strict: boolean };
+export type AgentKnowledge = { sections: KnowledgeSection[]; code_graph: boolean; memory: boolean; strict: boolean;
+  /** keel's own "where to look" lookups in the code graph, in the prompt (no tool call); off by default */
+  hints?: boolean };
 export type CustomAgent = {
   id: string;
   label: string;

@@ -93,7 +93,8 @@ function KnowledgeField({ k, files, onChange, overridden, onDefaults }: {
         ))}
       </div>
       <span className="hint">About {kfmt(total)} tokens if it reads every ticked section. Sections come from docs/knowledge/ in the project.</span>
-      <label className="chk"><input type="checkbox" checked={k.code_graph} onChange={(e) => onChange({ ...k, code_graph: e.target.checked })} /> Code graph <span className="sub">look up code by symbols and calls before grep</span></label>
+      <label className="chk"><input type="checkbox" checked={!!k.hints} onChange={(e) => onChange({ ...k, hints: e.target.checked })} /> Where to look <span className="sub">keel looks up the task's names in the code graph and lists the line ranges to read first (no tool call; it saved no tokens when measured, so it is off by default)</span></label>
+      <label className="chk"><input type="checkbox" checked={k.code_graph} onChange={(e) => onChange({ ...k, code_graph: e.target.checked })} /> Code graph tools <span className="sub">the agent may search the graph itself (each answer costs tokens)</span></label>
       <label className="chk"><input type="checkbox" checked={k.memory} onChange={(e) => onChange({ ...k, memory: e.target.checked })} /> Memory <span className="sub">a repeated step continues its own earlier session</span></label>
       <label className="chk"><input type="checkbox" checked={k.strict} onChange={(e) => onChange({ ...k, strict: e.target.checked })} /> Strict <span className="sub">block reading sections that are not ticked (off: the agent is only told)</span></label>
       {overridden && <button className="btn sm ghost" type="button" onClick={onDefaults}>Use defaults</button>}
