@@ -325,3 +325,23 @@ def test_pr_gate_shows_the_body_and_open_pr_needs_its_approval(client, repo, mon
     assert s["status"] == "done"
     notes = [e["data"].get("note") or "" for e in client.bus.of(tid, "step.finished") if e.get("step") == "open"]
     assert notes and "No GitHub token" in notes[-1]
+
+
+def test_the_thread_state_carries_the_pr_the_flow_opened(client, repo, monkeypatch):
+    # v0.5.0: a task moves to review with the PR its flow opened; the api reads it from the thread state.
+    from conftest import decide, start, wait
+    from keel_engine.runtime import verdict_actions as va
+    from keel_engine.workflows.model import from_dict
+    url = "https://github.com/acme/app/pull/7"
+    monkeypatch.setattr(va, "_open_pr", lambda a: va._result(True, f"PR opened: {url}", url, {"data": {**a.data, "pr_url": url}}))
+    w = from_dict({"name": "pr", "keel_rules": False, "steps": [
+        {"id": "body", "kind": "code", "name": "PR body", "action": "pr"},
+        {"id": "pr_gate", "kind": "gate", "name": "open the PR?"},
+        {"id": "open", "kind": "code", "name": "open PR", "action": "open_pr"}]})
+    tid = start(client, repo, workflow=w)
+    s = wait(client, tid)
+    assert "pr_url" not in s
+    s = decide(client, tid, "approve")
+    assert s["status"] == "done" and s["pr_url"] == url
+    notes = [e["data"].get("note") or "" for e in client.bus.of(tid, "step.finished") if e.get("step") == "open"]
+    assert notes[-1] == f"PR opened: {url}"
