@@ -1,10 +1,13 @@
 import "@testing-library/jest-dom/vitest";
-import { cleanup } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, beforeEach, vi } from "vitest";
 import { resetProviderModels } from "../components/ModelPicker";
 import { resetAudio } from "../notify";
 import { createDb, handlers, type Db } from "./handlers";
+
+// findBy* / waitFor wait up to 3 s (the default 1 s failed on CI's slower machines: the Repo IDE's first render took 1.1 s).
+configure({ asyncUtilTimeout: 3000 });
 
 // ---- MSW: one server, a fresh db per test ----
 export let db: Db = createDb();
