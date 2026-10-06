@@ -155,9 +155,12 @@ class JiraService(
     fun test(pid: String, body: JiraSave?): JiraTestResult {
         projects.require(pid)
         val client = if (body != null && (body.baseUrl != null || body.token != null)) {
-            val s = check(merge(settings(pid) ?: JiraSettings(), body))
-            val token = body.token?.filterNot { it.isWhitespace() }?.takeIf { it.isNotEmpty() } ?: secrets.get(secretName(pid))
-                ?: return JiraTestResult(false, error = "The token is missing", hint = "Paste the token, then test.")
+            val saved = settings(pid)
+            val s = check(merge(saved ?: JiraSettings(), body))
+            // the saved token only goes to the saved site: another URL needs its own token
+            val sameSite = saved != null && saved.baseUrl == s.baseUrl
+            val token = body.token?.filterNot { it.isWhitespace() }?.takeIf { it.isNotEmpty() } ?: secrets.get(secretName(pid))?.takeIf { sameSite }
+                ?: return JiraTestResult(false, error = "The token is missing", hint = if (saved != null && !sameSite) "This is another Jira URL: paste its token, then test." else "Paste the token, then test.")
             JiraClient(s.kind, s.baseUrl, s.email, token, mapper, java.time.Duration.ofSeconds(timeoutSeconds))
         } else client(pid) ?: return JiraTestResult(false, error = "This project has no Jira connection", hint = "Fill in the form and save it first.")
         return try {
