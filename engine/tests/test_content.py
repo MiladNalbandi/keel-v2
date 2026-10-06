@@ -150,3 +150,11 @@ def test_every_stack_declares_valid_tools_matching_its_static_checks(f):
 def test_the_python_and_go_stacks_are_there():
     names = {yaml.safe_load(f.read_text())["name"] for f in STACK_FILES}
     assert {"kotlin-spring", "ts-react", "python", "go", "django", "react-js", "symfony"} <= names
+
+
+def test_engine_version_matches_the_keel2_script():
+    import re
+    from pathlib import Path
+    from keel_engine import config
+    keel2 = (Path(__file__).resolve().parents[2] / "keel2").read_text()
+    assert config.VERSION.split()[0] == re.search(r'^KEEL2_VERSION="([^"]+)"', keel2, re.M).group(1)
