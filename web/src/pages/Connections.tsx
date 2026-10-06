@@ -9,6 +9,7 @@ import { EmptyState, Section, Spinner } from "../components/page";
 import { Drawer, ErrorBox, PageHead, Panel, Pill, Prov, type PillTone } from "../components/ui";
 import { useApp, useLoad } from "../state";
 import { UsageLine } from "../components/UsageStrip";
+import { JiraSection } from "../components/JiraCard";
 
 const SECRET: Record<string, string> = { claude: "ANTHROPIC_API_KEY", codex: "OPENAI_API_KEY", copilot: "GITHUB_TOKEN" };
 // How to get each CLI login; it is stored encrypted in keel's database and handed to the CLI inside the container.
@@ -382,6 +383,7 @@ export function ConnectionsPage(_: { pid: string }) {
           {providers && !providers.length && <div className="panel"><EmptyState title="No provider known">The keel api lists none. Update keel and reload.</EmptyState></div>}
         </div>
       </Section>
+      <JiraSection />
       <Section title="This machine" sub="Programs keel and its agents find in the container.">
         <Panel body="checks">
           {c ? c.machine.map((m) => (
