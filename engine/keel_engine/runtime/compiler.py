@@ -692,7 +692,7 @@ class Compiler:
             except (asyncio.CancelledError, GraphBubbleUp):
                 raise
             except Exception as exc:
-                log.warning("step %s failed: %s", step.id, exc)
+                log.warning("step %s failed: %s", step.id, exc, exc_info=True)
                 if len(calls) > 1:
                     kept = sum(1 for key in done if key.startswith(attempt + "|"))
                     if kept:
