@@ -6,6 +6,7 @@ import { api, type WikiTree } from "../api";
 import { Markdown } from "../components/Markdown";
 import { RefreshStaleButton } from "../components/RefreshStale";
 import { StepInfoDrawer } from "../components/StepInfo";
+import { EmptyState, SearchBox, Skeleton, useNarrow } from "../components/page";
 import { Async, ErrorBox, Loading, PageHead, Pill } from "../components/ui";
 import { tokensByStep } from "../components/workflow";
 import { WorkflowMap } from "../components/WorkflowMap";
@@ -29,7 +30,7 @@ function Tree({ tree, cur, q }: { tree: WikiTree; cur: string; q: string }) {
             {items.map((i) => (
               <a key={i.id} href={`#/wiki/${encodeURIComponent(i.id)}`} aria-current={cur === i.id ? "page" : undefined}>
                 {i.title}
-                {i.status === "writing" ? <span className="adot" /> : i.status === "missing" ? <span className="sub">—</span> : i.status === "stale" ? <span className="sub amber">stale</span> : null}
+                {i.status === "writing" ? <span className="adot" /> : i.status === "missing" ? <span className="sub wk-miss">not written</span> : i.status === "stale" ? <span className="sub amber">stale</span> : null}
               </a>
             ))}
             {!items.length && <span className="sub" style={{ padding: "2px 10px" }}>none yet</span>}
@@ -102,11 +103,31 @@ function Page({ pid, id }: { pid: string; id: string }) {
   );
 }
 
+/** On a phone: the pages as one dropdown (grouped by section) instead of a long list above the page. */
+function PagePicker({ tree, cur, q }: { tree: WikiTree; cur: string; q: string }) {
+  const needle = q.trim().toLowerCase();
+  const secs = tree.sections.map((s) => ({ ...s, items: s.items.filter((i) => !needle || i.title.toLowerCase().includes(needle) || i.id.toLowerCase().includes(needle) || i.id === cur) }))
+    .filter((s) => s.items.length);
+  return (
+    <div className="wk-pick">
+      <label className="lab-s" htmlFor="wk-page">Page</label>
+      <select id="wk-page" value={cur} onChange={(e) => go("wiki", e.target.value)}>
+        {secs.map((s) => (
+          <optgroup key={s.id} label={s.title}>
+            {s.items.map((i) => <option key={i.id} value={i.id}>{i.title}{i.status === "missing" ? " (not written)" : i.status === "stale" ? " (stale)" : ""}</option>)}
+          </optgroup>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 export function WikiPage({ pid }: { pid: string }) {
   const { project } = useApp();
   const { arg } = useRoute();
   const tree = useLoad(`wiki:${pid}`, () => api.wiki(pid));
   const [q, setQ] = useState("");
+  const narrow = useNarrow(900);
   const first = tree.data?.sections.flatMap((s) => s.items)[0]?.id;
   const cur = arg ?? first ?? "";
   const stale = (tree.data?.sections ?? []).flatMap((s) => s.items).filter((i) => i.status === "stale" && i.id.startsWith("kb:")).map((i) => i.id.slice(3));
@@ -114,23 +135,24 @@ export function WikiPage({ pid }: { pid: string }) {
     <>
       <PageHead title="Wiki"
         sub={`What keel knows about ${project?.name ?? pid}: the knowledge base the librarians write, a page for every workflow, the setup runbook and decisions.`}
-        actions={<>
-          <input type="text" className="inline-input" placeholder="Search the wiki" aria-label="Search the wiki" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 200 }} />
-          <RefreshStaleButton pid={pid} sections={stale} className="btn" />
-        </>} />
-      <Async r={tree} what="Loading the wiki">
-        {(t) => !t.sections.some((s) => s.items.length) ? (
-          <div className="panel"><div className="panel-body empty">The wiki is empty. The init flow writes the knowledge base; every workflow gets a page.</div></div>
-        ) : (
+        actions={<RefreshStaleButton pid={pid} sections={stale} className="btn" />} />
+      {tree.error ? <ErrorBox error={tree.error} onRetry={() => void tree.reload()} /> : !tree.data ? <div className="panel"><Skeleton lines={6} label="Loading the wiki" /></div> : (() => {
+        const t = tree.data;
+        if (!t.sections.some((s) => s.items.length)) {
+          return <div className="panel"><EmptyState title="The wiki is empty" action={<a className="btn" href="#/flow">Open Flow</a>}>The init flow writes the knowledge base, and every workflow gets a page here. Start init from the Flow page.</EmptyState></div>;
+        }
+        return (
           <div className="wiki-grid">
-            <Tree tree={t} cur={cur} q={q} />
+            <div>
+              <div className="wk-search"><SearchBox value={q} onChange={setQ} label="Search the wiki" /></div>
+              {narrow ? <PagePicker tree={t} cur={cur} q={q} /> : <Tree tree={t} cur={cur} q={q} />}
+            </div>
             <article className="panel"><div className="panel-body">
               {!cur ? <span className="sub">Pick a page.</span> : cur.startsWith("wf:") ? <WorkflowPage key={cur} pid={pid} wid={cur.slice(3)} /> : <Page key={cur} pid={pid} id={cur} />}
             </div></article>
           </div>
-        )}
-      </Async>
+        );
+      })()}
     </>
   );
 }
-

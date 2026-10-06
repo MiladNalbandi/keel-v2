@@ -1,8 +1,10 @@
-// Tools (MCP) (Build): servers your agents can call, a test for each, who may use what, and recent calls.
+// Tools (MCP) (Build): servers your agents can call, a test for each (the result stays next to it), who may use
+// what as a compact matrix (one column per server, its state in the header), and recent calls.
 
 import { Fragment, useState } from "react";
 import { api, errorParts, type JobStep, type McpAllow, type McpServer } from "../api";
-import { Async, Drawer, ErrorBox, PageHead, Panel, Pill } from "../components/ui";
+import { EmptyState, SearchBox, Section, Skeleton, Spinner } from "../components/page";
+import { Drawer, ErrorBox, PageHead, Panel, Pill } from "../components/ui";
 import { clock } from "../format";
 import { useApp, useLoad } from "../state";
 
@@ -56,6 +58,13 @@ async function recentCalls(pid: string): Promise<Call[]> {
     .sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, 12);
 }
 
+type TestState = { busy?: boolean; ok?: boolean; text: string };
+
+function serverPill(s: McpServer) {
+  return !s.enabled ? <Pill tone="idle">turned off</Pill> : s.status === "ok" ? <Pill tone="ok">ok</Pill> : s.status === "error" ? <Pill tone="bad">error</Pill> : <Pill tone="idle">off</Pill>;
+}
+const usable = (s: McpServer) => s.enabled && s.status !== "off";
+
 export function ToolsPage({ pid }: { pid: string }) {
   const { toast } = useApp();
   const servers = useLoad("mcp", () => api.mcpServers(), { live: false });
@@ -64,14 +73,17 @@ export function ToolsPage({ pid }: { pid: string }) {
   const calls = useLoad(`calls:${pid}`, () => recentCalls(pid));
   const [open, setOpen] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [tests, setTests] = useState<Record<string, TestState>>({});
+  const [q, setQ] = useState("");
 
   const test = async (s: McpServer) => {
+    setTests((t) => ({ ...t, [s.name]: { busy: true, text: "asking for its tools…" } }));
     try {
       const r = await api.testMcpServer(s.name);
-      toast(r.ok ? `${s.name}: tools/list returned ${r.tools.length} tools` : `${s.name}: ${r.error ?? "failed"}`);
+      setTests((t) => ({ ...t, [s.name]: r.ok ? { ok: true, text: `${r.tools.length} tools` } : { ok: false, text: r.error ?? "failed" } }));
       void servers.reload();
     } catch (e) {
-      toast(`${s.name}: ${errorParts(e).message}`);
+      setTests((t) => ({ ...t, [s.name]: { ok: false, text: errorParts(e).message } }));
     }
   };
   const setEnabled = async (s: McpServer, enabled: boolean) => {
@@ -97,71 +109,108 @@ export function ToolsPage({ pid }: { pid: string }) {
       void allow.reload();
     }
   };
+  const needle = q.trim().toLowerCase();
+  const rows = (agents.data ?? []).filter((a) => !needle || `${a.id} ${a.label}`.toLowerCase().includes(needle));
 
   return (
     <>
-      <PageHead title="Tools (MCP servers)" sub="Servers your agents can call. Pick per agent which servers it may use."
+      <PageHead title="Tools (MCP servers)" sub="Programs your agents can call for extra tools, and which agent may use which."
         actions={<button className="btn primary" type="button" onClick={() => setAdding(true)}>Add server</button>} />
-      <div className="grid g2">
-        <Async r={servers} what="Loading servers">
-          {(list) => (
-            <div className="panel"><div className="table-wrap"><table>
-              <thead><tr><th>Server</th><th>How it starts</th><th>Status</th><th>Tools</th><th></th></tr></thead>
+      <div className="tl-top">
+        <Section title="Servers" sub="Test a server to see its tools. A turned-off server gives no agent anything.">
+          {servers.error ? <ErrorBox error={servers.error} onRetry={() => void servers.reload()} /> : !servers.data ? <div className="panel"><Skeleton lines={3} label="Loading servers" /></div> : !servers.data.length ? (
+            <div className="panel"><EmptyState title="No server yet" action={<button className="btn primary" type="button" onClick={() => setAdding(true)}>Add server</button>}>Add one (GitHub, a database, a browser…) and agents can call its tools.</EmptyState></div>
+          ) : (
+            <div className="panel"><div className="table-wrap rt-wrap"><table className="rt tl-servers" aria-label="MCP servers">
+              <thead><tr><th>Server and how it starts</th><th>Status</th><th>Tools</th><th><span className="sr-only">Actions</span></th></tr></thead>
               <tbody>
-                {list.map((s) => (
-                  <Fragment key={s.name}>
-                    <tr className="click" tabIndex={0} onClick={() => setOpen(open === s.name ? null : s.name)} onKeyDown={(e) => e.key === "Enter" && setOpen(open === s.name ? null : s.name)} aria-expanded={open === s.name}>
-                      <td><b>{s.name}</b>{s.builtin && <> <span className="tag keel">built in</span></>}
-                        {s.label && <div className="sub">{s.label}</div>}</td>
-                      <td className="mono sub">{[s.command, ...s.args].join(" ")}</td>
-                      <td>{!s.enabled ? <Pill tone="idle">turned off</Pill> : s.status === "ok" ? <Pill tone="ok">ok</Pill> : s.status === "error" ? <Pill tone="bad">error</Pill> : <Pill tone="idle">off</Pill>}</td>
-                      <td className="num">{s.tools.length || "—"}</td>
-                      <td><div className="row" style={{ flexWrap: "nowrap", gap: 4 }}>
-                        <button className="btn sm" type="button" onClick={(e) => { e.stopPropagation(); void test(s); }}>Test</button>
-                        <button className="btn sm ghost" type="button" onClick={(e) => { e.stopPropagation(); void setEnabled(s, !s.enabled); }}>{s.enabled ? "Turn off" : "Turn on"}</button>
-                        {!s.builtin && <button className="btn sm ghost" type="button" aria-label={`Remove ${s.name}`} onClick={async (e) => {
-                          e.stopPropagation();
-                          try { await api.deleteMcpServer(s.name); toast(`${s.name} removed.`); void servers.reload(); } catch (er) { toast(errorParts(er).message); }
-                        }}>×</button>}
-                      </div></td>
-                    </tr>
-                    {open === s.name && (
-                      <tr><td colSpan={5}><div className="row">
-                        {s.tools.length ? s.tools.map((t) => <span key={t} className={`tag ${s.name === "keel" ? "keel" : ""}`}>{t}</span>) : <span className="sub">No tools known yet. Press Test.</span>}
-                      </div></td></tr>
-                    )}
-                  </Fragment>
-                ))}
-                {!list.length && <tr><td colSpan={5} className="empty">No server yet.</td></tr>}
+                {servers.data.map((s) => {
+                  const t = tests[s.name];
+                  const cmd = [s.command, ...s.args].join(" ");
+                  return (
+                    <Fragment key={s.name}>
+                      <tr>
+                        <td className="rt-main tl-server"><b>{s.name}</b>{s.builtin && <> <span className="tag keel">built in</span></>}
+                          {s.label && <span className="sub"> {s.label}</span>}
+                          <span className="tl-cmd mono sub" title={cmd}>{cmd}</span></td>
+                        <td><span className="row" style={{ gap: 6 }}>{serverPill(s)}
+                          {t && <span className={`hint ${t.ok === true ? "okc" : t.ok === false ? "badc" : ""}`} role="status">{t.ok === true ? "Test OK: " : t.ok === false ? "Test failed: " : ""}{t.text}</span>}</span></td>
+                        <td data-label="tools">
+                          <button className="linkbtn tl-count" type="button" aria-expanded={open === s.name} onClick={() => setOpen(open === s.name ? null : s.name)}
+                            aria-label={`${s.tools.length || "No"} tools of ${s.name}`}>{s.tools.length || "—"}</button>
+                        </td>
+                        <td className="rt-end"><div className="row" style={{ flexWrap: "nowrap", gap: 4, justifyContent: "flex-end" }}>
+                          <button className="btn sm" type="button" onClick={() => void test(s)} disabled={t?.busy}>{t?.busy ? "Testing…" : "Test"}</button>
+                          <button className="btn sm ghost" type="button" onClick={() => void setEnabled(s, !s.enabled)}>{s.enabled ? "Turn off" : "Turn on"}</button>
+                          {!s.builtin && <button className="btn sm ghost" type="button" aria-label={`Remove ${s.name}`} onClick={async () => {
+                            try { await api.deleteMcpServer(s.name); toast(`${s.name} removed.`); void servers.reload(); } catch (er) { toast(errorParts(er).message); }
+                          }}>×</button>}
+                        </div></td>
+                      </tr>
+                      {open === s.name && (
+                        <tr className="tl-tools"><td colSpan={4}><div className="chips">
+                          {s.tools.length ? s.tools.map((x) => <span key={x} className={`chip ${s.name === "keel" ? "c-mcp" : ""}`}>{x}</span>) : <span className="sub">No tools known yet. Press Test.</span>}
+                        </div></td></tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table></div></div>
           )}
-        </Async>
-        <Panel title="Recent tool calls">
-          <div className="events">
-            {calls.error ? <ErrorBox error={calls.error} /> : !calls.data ? <span className="sub loading">Loading…</span> : !calls.data.length ? <span className="sub">No MCP call yet.</span> :
-              calls.data.map((c, i) => (
-                <div key={i}><span className="t mono sub">{clock(c.at, false)}</span><span className="k">{c.server}</span>
-                  <span>{c.agent} → <span className="mono">{c.tool ?? c.text}</span> <span className="sub">{c.ok === false ? "failed" : "ok"}{c.ms !== undefined ? ` · ${c.ms}ms` : ""}</span></span></div>
-              ))}
-          </div>
-        </Panel>
-      </div>
-      <Panel title="Who may use what" extra={<span className="hint">Applies to API-key agents and to CLI agents (a config file is written per call).</span>} body={false} style={{ marginTop: 16 }}>
-        {allow.error ? <div className="panel-body"><ErrorBox error={allow.error} /></div> : !servers.data || !agents.data || !allow.data ? <div className="panel-body empty loading">Loading…</div> : (
-          <div className="table-wrap"><table className="matrix">
-            <thead><tr><th>Agent</th>{servers.data.map((s) => <th key={s.name}>{s.name}</th>)}</tr></thead>
-            <tbody>{agents.data.map((a) => (
-              <tr key={a.id}><td>{a.label || a.id}</td>
-                {servers.data!.map((s) => (
-                  <td key={s.name}><input type="checkbox" aria-label={`${a.id} may use ${s.name}`} checked={(allow.data![a.id] ?? []).includes(s.name)}
-                    disabled={s.status === "off" || !s.enabled} onChange={(e) => void toggle(a.id, s.name, e.target.checked)} /></td>
+        </Section>
+        <Section title="Recent tool calls" sub="The last MCP calls agents of this project made.">
+          <Panel>
+            <div className="events tl-events">
+              {calls.error ? <ErrorBox error={calls.error} /> : !calls.data ? <Spinner>Reading the last jobs</Spinner> : !calls.data.length ? <span className="sub">No MCP call yet. They show here once an agent uses a server.</span> :
+                calls.data.map((c, i) => (
+                  <div key={i}><span className="t mono sub">{clock(c.at, false)}</span><span className="k">{c.server}</span>
+                    <span>{c.agent} → <span className="mono">{c.tool ?? c.text}</span> <span className="sub">{c.ok === false ? "failed" : "ok"}{c.ms !== undefined ? ` · ${c.ms}ms` : ""}</span></span></div>
                 ))}
-              </tr>
-            ))}</tbody>
-          </table></div>
-        )}
-      </Panel>
+            </div>
+          </Panel>
+        </Section>
+      </div>
+      <Section title="Who may use what" sub="Tick a box to give an agent that server's tools. Applies to API-key agents and to CLI agents (a config file is written per call)."
+>
+        {(agents.data?.length ?? 0) > 8 && <div><SearchBox value={q} onChange={setQ} label="Find an agent" /></div>}
+        <div className="panel tl-mpanel">
+          {allow.error ? <div className="panel-body"><ErrorBox error={allow.error} onRetry={() => void allow.reload()} /></div>
+            : agents.error ? <div className="panel-body"><ErrorBox error={agents.error} onRetry={() => void agents.reload()} /></div>
+              : !servers.data || !agents.data || !allow.data ? <Skeleton lines={5} label="Loading who may use what" />
+                : !servers.data.length ? <EmptyState compact title="No server to give">Add a server above first.</EmptyState>
+                  : (
+                    <div className="table-wrap tl-mwrap"><table className="tl-matrix" aria-label="Who may use what">
+                      <thead><tr>
+                        <th scope="col" className="tl-agent">Agent</th>
+                        {servers.data.map((s) => {
+                          const n = Object.values(allow.data!).filter((l) => l.includes(s.name)).length;
+                          return (
+                            <th key={s.name} scope="col" className={usable(s) ? "" : "is-off"}>
+                              <span className="tl-sname">{s.name}</span>
+                              <span className="tl-sstate">{!s.enabled ? "turned off" : s.status === "ok" ? <>ok · {n} of {agents.data!.length}</> : s.status === "error" ? "error" : "off"}</span>
+                            </th>
+                          );
+                        })}
+                      </tr></thead>
+                      <tbody>
+                        {rows.map((a) => (
+                          <tr key={a.id}>
+                            <th scope="row" className="tl-agent">{a.label || a.id}{a.custom && <span className="sub"> · custom</span>}</th>
+                            {servers.data!.map((s) => (
+                              <td key={s.name} className={usable(s) ? "" : "is-off"}>
+                                <input type="checkbox" aria-label={`${a.id} may use ${s.name}`} checked={(allow.data![a.id] ?? []).includes(s.name)}
+                                  disabled={!usable(s)} title={usable(s) ? undefined : `Turn ${s.name} on first`} onChange={(e) => void toggle(a.id, s.name, e.target.checked)} />
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                        {!rows.length && <tr><td colSpan={servers.data.length + 1} className="empty">No agent has “{q.trim()}” in its name.</td></tr>}
+                      </tbody>
+                    </table></div>
+                  )}
+        </div>
+      </Section>
       {adding && <AddServerDrawer onClose={() => setAdding(false)} onAdded={() => void servers.reload()} />}
     </>
   );

@@ -117,14 +117,16 @@ export function UsageCard({ u, compact, onRefreshed }: { u: ProviderUsage; compa
   );
 }
 
-/** The cards for every provider that is set up. Nothing is shown when none is (no empty box in the sidebar). */
-export function UsageStrip({ compact, empty }: { compact?: boolean; empty?: ReactNode }) {
+/** The cards for every provider that is set up. Nothing is shown when none is (no empty box in the sidebar).
+ *  `loading` is shown until the first answer (a page can hold the space); nothing by default. */
+export function UsageStrip({ compact, empty, loading }: { compact?: boolean; empty?: ReactNode; loading?: ReactNode }) {
   const usage = useLoad("usage:providers", () => api.usageProviders(), { live: false });
   useEffect(() => {
     const t = window.setInterval(() => void usage.reload(), REFRESH_MS);
     return () => window.clearInterval(t);
   }, [usage.reload]);
   const cards = usage.data ?? [];
+  if (!usage.data && !usage.error && loading) return <>{loading}</>;
   if (!cards.length) return usage.data && empty ? <>{empty}</> : null;
   const put = (n: ProviderUsage) => usage.setData((l) => (l ? l.map((x) => (x.id === n.id ? n : x)) : [n]));
   return (
