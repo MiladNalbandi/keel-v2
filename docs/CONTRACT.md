@@ -267,6 +267,7 @@ PUT    /api/projects/{pid}/settings  { [key]: value | null }    (null = use gene
 type Settings = { gates_mode, keel_rules, fix_attempts, coverage_min, default_model: Model, implementer_model: Model, reviewer_model: Model, cheaper_model: Model,
                   cap_tokens, on_cap, branch_pattern, web_lane_worktree, push_pr, notify: "all"|"needs_you"|"none", env_names: string[], mcp: string[] }
 GET    /api/connections                               → { providers: { id, label, modes: { id, label, ready: bool, detail }[], selected, key_set: bool, key_hint?: string }[], machine: { name, ok, version? }[] }
+                                                        // v0.4.2: the 8 program checks (node git java docker claude codex copilot opencode) run in parallel, 5 s each, cached 1 min
 PUT    /api/connections/{provider}  { mode }
 PUT    /api/secrets/{name}   { value }   → { hint }   (stored AES-GCM in /data; never returned)
 DELETE /api/secrets/{name}
@@ -974,3 +975,7 @@ FlowLimits = { cap_tokens, on_cap, cap_usd?, on_cap_usd?, step_cap_tokens?, step
 - Start a flow: a hint "This project's caps apply too (Budget): the smallest one left wins, now at most …"; a refused
   start shows the api's `error` and `hint` in the drawer (it stays open); after a start the toast adds `cap_note`.
 
+### Connections (api)
+`GET /api/connections` runs its `--version` checks (and `docker version`) **in parallel** on a pool of 8
+(`connections/MachineTools.kt`), each still at most 5 s and cached for a minute, so the answer takes about the slowest
+single check instead of their sum (8 checks of 1 s: about 1.4 s instead of 8 s).
