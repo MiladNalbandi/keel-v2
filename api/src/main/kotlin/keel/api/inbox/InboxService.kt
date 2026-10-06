@@ -9,6 +9,8 @@ import keel.api.common.NotFound
 import keel.api.engine.EngineClient
 import keel.api.flow.FlowService
 import keel.api.projects.ProjectService
+import keel.api.tasks.TaskItem
+import keel.api.tasks.TaskStore
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
 import java.util.concurrent.ConcurrentHashMap
@@ -42,7 +44,24 @@ data class InboxItem(
     val lastAuto: String? = null,
     /** When it started to wait (the last gate.waiting of the thread). */
     val since: String?,
+    /** v0.5.0: a task item (kind task | jira-manual) instead of a flow's pause; answered with POST /api/inbox/tasks/{item_id}/act. */
+    val task: InboxTask? = null,
 )
+
+data class InboxTask(
+    val id: String,
+    val itemId: Long,
+    val key: String?,
+    val url: String?,
+    val title: String,
+    val status: String,
+    val stage: String?,
+    val prUrl: String?,
+    val actions: List<InboxTaskAction>,
+)
+
+/** One button: confirm | send_back (a note is needed) | done. */
+data class InboxTaskAction(val id: String, val label: String, val needsNote: Boolean = false)
 
 data class InboxView(val items: List<InboxItem>, val count: Int, val kinds: List<String>, val projects: List<InboxProject>)
 data class InboxProject(val id: String, val name: String, val count: Int)
@@ -62,6 +81,7 @@ class InboxService(
     private val projects: ProjectService,
     private val flows: FlowService,
     private val mapper: ObjectMapper,
+    private val tasks: TaskStore,
 ) {
     private data class Cached(val at: Long, val state: JsonNode)
 
@@ -79,13 +99,15 @@ class InboxService(
 
     /** Cheap: the database only (for a badge). */
     fun count(): InboxCount {
-        val rows = waitingRows()
-        return InboxCount(rows.size, rows.groupingBy { it.pid }.eachCount())
+        val listed = projects.rows().map { it.id }.toSet()
+        val pids = waitingRows().map { it.pid } + tasks.openItemsAll().map { it.projectId }.filter { it in listed }
+        return InboxCount(pids.size, pids.groupingBy { it }.eachCount())
     }
 
     fun list(project: String? = null, kind: String? = null): InboxView {
         val names = projects.rows().associate { it.id to it.name }
-        val all = waitingRows().mapNotNull { item(it, names[it.pid] ?: it.pid) }.sortedBy { it.since ?: "" }
+        val taskItems = tasks.openItemsAll().filter { it.projectId in names }.mapNotNull { taskItem(it, names.getValue(it.projectId)) }
+        val all = (waitingRows().mapNotNull { item(it, names[it.pid] ?: it.pid) } + taskItems).sortedBy { it.since ?: "" }
         val items = all.filter { (project.isNullOrBlank() || it.projectId == project) && (kind.isNullOrBlank() || it.kind == kind) }
         val perProject = all.groupingBy { it.projectId }.eachCount()
         return InboxView(items, all.size, all.map { it.kind }.distinct().sorted(),
@@ -151,6 +173,22 @@ class InboxService(
             id = w.get("id")?.asText(),
             phase = state.get("phase")?.asText(), ac = state.get("ac")?.takeIf { !it.isNull }?.asText(),
             runMode = state.get("run_mode")?.asText(), autoApproved = auto.size, lastAuto = auto.lastOrNull(), since = since,
+        )
+    }
+
+    /** A task's Inbox item: confirm PP testing, ship, or move the Jira ticket by hand. */
+    private fun taskItem(it: TaskItem, projectName: String): InboxItem? {
+        val t = tasks.find(it.taskId) ?: return null
+        val actions = if (it.kind == "jira-manual") listOf(InboxTaskAction("done", "Done"))
+        else listOf(
+            InboxTaskAction("confirm", if (it.stage == "prod") "Shipped, confirm" else "PP works, confirm"),
+            InboxTaskAction("send_back", "Send back", needsNote = true),
+        )
+        return InboxItem(
+            projectId = it.projectId, projectName = projectName, threadId = t.threadId ?: "", flow = t.title, workflowId = t.workflowId,
+            step = null, kind = it.kind, title = it.title, detail = it.detail, more = false, options = emptyList(), id = "task-item-${it.id}",
+            since = it.createdAt,
+            task = InboxTask(t.id, it.id, t.externalKey, t.externalUrl, t.title, t.status, it.stage, t.prUrl, actions),
         )
     }
 
