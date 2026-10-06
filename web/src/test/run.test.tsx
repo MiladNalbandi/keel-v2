@@ -246,6 +246,16 @@ describe("shell", () => {
     expect(menu).toHaveFocus();
   });
 
+  it("the phone menu button shows a dot when the event stream is not live", async () => {
+    await at("#/flow");
+    const menu = screen.getByRole("button", { name: "Menu" });
+    await waitFor(() => expect(screen.getByTestId("live")).toHaveTextContent("Live"));
+    expect(menu.querySelector(".menu-dot")).toBeNull();
+    act(() => FakeEventSource.instances.filter((s) => !s.closed).at(-1)!.onerror?.(new Event("error")));
+    await waitFor(() => expect(menu).toHaveAttribute("title", "Menu (server events: reconnecting)"));
+    expect(menu.querySelector(".menu-dot")).not.toBeNull();
+  });
+
   it("the sidebar nav starts with All projects and marks the screen you are on", async () => {
     await at("#/settings");
     const nav = await screen.findByRole("navigation", { name: "Screens" });

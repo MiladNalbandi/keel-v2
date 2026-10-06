@@ -273,6 +273,7 @@ function MenuSheet({ onClose, theme }: { onClose: () => void; theme: ReturnType<
 }
 
 export function Shell({ children }: { children: ReactNode }) {
+  const { live } = useApp();
   const [notesOpen, setNotesOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const theme = useTheme();
@@ -280,10 +281,13 @@ export function Shell({ children }: { children: ReactNode }) {
     <div className="app">
       <aside className="side">
         <div className="side-head">
-          <button className="menu-btn" type="button" onClick={() => setMenuOpen(true)} aria-label="Menu" aria-expanded={menuOpen} aria-controls="menu-sheet">
+          <button className="menu-btn" type="button" onClick={() => setMenuOpen(true)} aria-label="Menu" aria-expanded={menuOpen} aria-controls="menu-sheet"
+            title={live === "live" ? "Menu" : `Menu (server events: ${live})`}>
             <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
               <path fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" d="M4 7h16M4 12h16M4 17h16" />
             </svg>
+            {/* the phone bar has no Live pill: a dot says when the event stream is not live */}
+            {live !== "live" && <span className={`menu-dot ${live === "off" ? "bad" : "warn"}`} aria-hidden="true" />}
           </button>
           <span className="brand"><Logo /><b>keel</b><span className="brand-v">v2 studio</span><Version /></span>
           <span className="side-tools"><Mascot /><Bell onClick={() => setNotesOpen(true)} /></span>

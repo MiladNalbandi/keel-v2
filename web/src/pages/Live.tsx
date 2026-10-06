@@ -10,7 +10,7 @@ import { EmptyState } from "../components/EmptyState";
 import { StartFlowDrawer } from "../components/StartFlow";
 import { agoText } from "../components/UsageStrip";
 import { ErrorBox, GoButton, Loading, PageHead, Panel, Pill, Prov, Since, Tabs } from "../components/ui";
-import { kfmt, PROV, since } from "../format";
+import { kfmt, plainText, PROV, since } from "../format";
 import { go, useApp, useLoad, useRoute } from "../state";
 
 type Filter = "all" | "code" | "msg";
@@ -70,9 +70,9 @@ function AgentCard({ j, sel, steps }: { j: Job; sel: boolean; steps?: JobStep[] 
       <div className="row" style={{ justifyContent: "space-between" }}><b>{j.agent}</b><span className="sub num"><Since from={j.started_at} /></span></div>
       <span className="sub">{pname} · node <span className="mono">{j.phase || j.step}</span>{j.ac ? ` · ${j.ac}` : ""} · <Prov p={j.provider} m={j.model} /></span>
       {sel && steps && (
-        <div className="grid" style={{ gap: 3 }}>
+        <div className="grid agent-mini" style={{ gap: 3 }}>
           {steps.slice(-4).map((s) => (
-            <div key={s.n} className="mini"><span className={`kind ${kindClass(s.kind)}`}>{kindLabel(s.kind)}</span><span className="sub">{(s.path || s.text || s.tool || "").split("\n")[0].slice(0, 46)}</span></div>
+            <div key={s.n} className="mini"><span className={`kind ${kindClass(s.kind)}`}>{kindLabel(s.kind)}</span><span className="sub">{s.path || plainText(s.text || s.tool || "", 60)}</span></div>
           ))}
         </div>
       )}
