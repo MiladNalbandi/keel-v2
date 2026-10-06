@@ -22,6 +22,7 @@ import keel.api.events.EventHub
 import keel.api.mcp.McpServerSpec
 import keel.api.mcp.McpService
 import keel.api.projects.ProjectService
+import keel.api.budget.CapPlanner
 import keel.api.budget.ProviderUsageService
 import keel.api.settings.Model
 import keel.api.settings.SettingsService
@@ -45,6 +46,12 @@ data class ThreadSettings(
     val usagePause: Double? = null,
     /** The latest plan windows keel knows (provider_usage), for the engine's pause rule before each agent. */
     val providerWindows: List<Map<String, Any?>>? = null,
+    /** v0.4.2 project caps (budget/CapPlanner.kt): the flow's dollar cap against its reported cost, and what it does. */
+    val capUsd: Double? = null,
+    val onCapUsd: String? = null,
+    /** Every step's token limit (a step's own smaller max_tokens still wins), and what it does. */
+    val stepCapTokens: Int? = null,
+    val stepOnCap: String? = null,
 )
 
 /** The engine's StartThread (CONTRACT "Shared types"). */
@@ -66,6 +73,9 @@ data class StartThread(
     val request: String? = null,
     /** Flow inputs (state.data): review lens and base, fix no_gates, ... */
     val data: Map<String, Any?>? = null,
+    /** What the project's caps changed for this flow, in words (returned as cap_note; never sent to the engine). */
+    @get:com.fasterxml.jackson.annotation.JsonIgnore
+    val capNote: String? = null,
 )
 
 /** One agent's entry in StartThread.agents. */
@@ -106,6 +116,7 @@ class FlowService(
     private val props: KeelProperties,
     private val providerUsage: ProviderUsageService,
     private val notifications: keel.api.notifications.NotificationService,
+    private val capPlanner: CapPlanner,
 ) {
     private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
 
@@ -122,6 +133,13 @@ class FlowService(
 
         val models = linkedMapOf("default" to s.defaultModel)
         all.filter { it.enabled }.forEach { models[it.id] = it.model }
+
+        // Every cap of the project: the smallest one left binds. A used-up cap refuses the start (pause, stop) or starts
+        // every agent on the cheaper model (cheaper) — never the fake model for a flow that runs real models.
+        val cheaperOk = s.cheaperModel.provider != "fake" || models.values.all { it.provider == "fake" }
+        val limits = capPlanner.limits(pid, cap?.capTokens, cap?.onCap, cheaperOk)
+        limits.refused?.let { throw Conflict(it.error, it.hint) }
+        if (limits.cheaper) models.keys.toList().forEach { models[it] = s.cheaperModel }
 
         val allow = mcp.allow(pid)
         val steps = wf.steps.map { st ->
@@ -140,10 +158,12 @@ class FlowService(
         return StartThread(
             projectId = pid, root = project.root, workflow = wf.copy(steps = steps), title = title, acs = acs?.takeIf { it.isNotEmpty() },
             models = models,
-            settings = ThreadSettings(s.gatesMode, cap?.runMode ?: s.runMode, cap?.capTokens ?: s.capTokens, cap?.onCap ?: s.onCap, s.cheaperModel,
-                s.usageWarn, s.usagePause, providerUsage.windowsForEngine().takeIf { it.isNotEmpty() }),
+            settings = ThreadSettings(s.gatesMode, cap?.runMode ?: s.runMode, limits.capTokens, limits.onCap, s.cheaperModel,
+                s.usageWarn, s.usagePause, providerUsage.windowsForEngine().takeIf { it.isNotEmpty() },
+                limits.capUsd, limits.onCapUsd, limits.stepCapTokens, limits.stepOnCap),
             mcp = mcp.specsFor(s.mcp), skills = skillText,
             agents = all.filter { it.enabled }.associate { it.id to AgentStart(it.knowledge) },
+            capNote = limits.notes.takeIf { it.isNotEmpty() }?.joinToString(" "),
         )
     }
 
@@ -157,8 +177,9 @@ class FlowService(
         refuseFake(start, root, allowFake)
         refuseDirty(root, allowDirty)
         ownBranch(pid, root, title)
-        // API keys for "api" models and CLI logins for subscription models, from the encrypted secrets table.
-        val keys = keysFor(start.models.values)
+        // API keys for "api" models and CLI logins for subscription models, from the encrypted secrets table; the
+        // cheaper model's too, so a cap that switches to it mid-flow can run it.
+        val keys = keysFor(start.models.values + listOfNotNull(start.settings.cheaperModel))
         val withRequest = start.copy(request = request?.trim()?.takeIf { it.isNotEmpty() }?.take(8000),
             data = options?.takeIf { it.isNotEmpty() })
         val body = if (keys.isEmpty()) withRequest else withRequest.copy(keys = keys)
@@ -173,7 +194,8 @@ class FlowService(
         val state = runCatching { engine.thread(tid) }.getOrElse { res }
         save(tid, state)
         hub.publish(pid, "project.changed", mapOf("id" to pid))
-        return state
+        val note = start.capNote
+        return if (note != null && state is com.fasterxml.jackson.databind.node.ObjectNode) state.deepCopy().put("cap_note", note) else state
     }
 
     private fun isDemo(root: Path) = root.toAbsolutePath().normalize() == props.dataDir.resolve("demo").toAbsolutePath().normalize()
@@ -241,7 +263,8 @@ class FlowService(
     /** The logins a thread's agents need right now; sent with every resume and rewind because an engine restart forgets them. */
     private fun keysForThread(tid: String): Map<String, String> {
         val pid = threadProject(tid) ?: return emptyMap()
-        val models = listOf(settings.effective(pid).defaultModel) + agents.list(pid).filter { it.enabled }.map { it.model }
+        val s = settings.effective(pid)
+        val models = listOf(s.defaultModel, s.cheaperModel) + agents.list(pid).filter { it.enabled }.map { it.model }
         return keysFor(models)
     }
 

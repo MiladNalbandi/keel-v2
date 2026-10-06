@@ -3,7 +3,7 @@
 // stop a flow (the cap and plan-window rules from Settings, plus this project's caps). Each part loads on its own.
 
 import { useEffect, useState } from "react";
-import { api, errorParts, type Budget, type Cap, type CapScope, type Limit } from "../api";
+import { api, errorParts, type Budget, type Cap, type CapLeft, type CapScope, type CapsLeft, type Limit } from "../api";
 import { EmptyState, Section, Skeleton, useWidth } from "../components/page";
 import { Drawer, ErrorBox, PageHead, Panel, Prov } from "../components/ui";
 import { UsageStrip } from "../components/UsageStrip";
@@ -142,6 +142,27 @@ export const CAP_SCOPE: Record<CapScope, string> = {
 export const CAP_ACTION: Record<Cap["action"], string> = { pause: "pause and ask me", cheaper: "switch to cheaper models", stop: "stop" };
 export const capLimit = (c: Pick<Cap, "limit" | "unit">) => (c.unit === "usd" ? usd(c.limit) : `${kfmt(c.limit)} tokens`);
 
+/** How each scope counts, for the cap drawer. */
+const CAP_HOW: Record<CapScope, string> = {
+  day: "Counts every run of this project since 00:00 UTC. A flow that starts gets what is left today.",
+  flow: "Each flow gets this much.",
+  step: "Each agent step gets this much. A workflow step's own smaller limit still wins.",
+  api_month: "Counts this project's runs on API keys since the 1st (UTC). A flow that starts gets what is left this month.",
+};
+export const HOW_CAPS = "A flow starts with the smallest cap left; keel checks it before every agent step.";
+
+/** What a cap leaves now, in words: "450k left today", "used up · resets tomorrow", "all of it, every flow". */
+export function capLeftText(l: CapLeft | undefined): { text: string; tone?: "bad" | "warn"; used?: string } {
+  if (!l) return { text: "—" };
+  if (!l.checked) return { text: "not checked: keel counts tokens per step, not dollars", tone: "warn" };
+  if (l.window === "flow" || l.window === "step") return { text: `all of it, every ${l.window}` };
+  const amount = (v: number) => (l.unit === "usd" ? usd(v) : kfmt(v));
+  const when = l.window === "day" ? "today" : "this month";
+  const used = `${amount(l.used)} used ${when}`;
+  if (l.left <= 0) return { text: `used up · resets ${l.window === "day" ? "tomorrow, 00:00 UTC" : "on the 1st"}`, tone: "bad", used };
+  return { text: `${amount(l.left)} left ${when}`, used };
+}
+
 function CapDrawer({ pid, cap, onClose, onSaved }: { pid: string; cap: Cap | null; onClose: () => void; onSaved: (c: Cap) => void }) {
   const { toast } = useApp();
   const [scope, setScope] = useState<CapScope>(cap?.scope ?? "flow");
@@ -163,7 +184,7 @@ function CapDrawer({ pid, cap, onClose, onSaved }: { pid: string; cap: Cap | nul
       const body = { scope, unit, limit: value, action };
       const out = cap ? await api.saveCap(pid, { ...body, id: cap.id }) : await api.addCap(pid, body);
       onSaved(out ?? { ...body, id: cap?.id ?? `cap-${Date.now()}` });
-      toast(cap ? "Cap saved." : "Cap added. It is checked before every agent step.");
+      toast(cap ? "Cap saved." : `Cap added. ${HOW_CAPS}`);
       onClose();
     } catch (e) {
       setErr(errorParts(e));
@@ -182,14 +203,19 @@ function CapDrawer({ pid, cap, onClose, onSaved }: { pid: string; cap: Cap | nul
           if (v === "api_month") setUnit("usd");
         }}>
           {(Object.keys(CAP_SCOPE) as CapScope[]).map((k) => <option key={k} value={k}>{CAP_SCOPE[k]}</option>)}
-        </select></div>
+        </select>
+        <span className="hint">{CAP_HOW[scope]}</span></div>
       <div className="field"><label htmlFor="cap-limit">Limit</label>
         <div className="row">
           <input type="text" id="cap-limit" value={limit} onChange={(e) => setLimit(e.target.value)} placeholder={unit === "usd" ? "100" : "500k"} style={{ width: 120 }} />
           <select aria-label="Unit" value={unit} onChange={(e) => setUnit(e.target.value as Cap["unit"])}>
             <option value="tokens">tokens</option><option value="usd">US dollars (API cost)</option>
           </select>
-        </div></div>
+        </div>
+        {unit === "usd" && (scope === "step"
+          ? <span className="hint amber" role="note">keel cannot count dollars per step: this cap would limit nothing. Pick tokens.</span>
+          : <span className="hint">Dollars are the cost runs report: API-key runs, and Claude subscription runs at API prices (the plan pays those).{scope === "api_month" ? " This month counts API-key runs only." : ""}</span>)}
+      </div>
       <div className="field"><label htmlFor="cap-action">When it is hit</label>
         <select id="cap-action" value={action} onChange={(e) => setAction(e.target.value as Cap["action"])}>
           {(Object.keys(CAP_ACTION) as Cap["action"][]).map((k) => <option key={k} value={k}>{CAP_ACTION[k]}</option>)}
@@ -199,13 +225,36 @@ function CapDrawer({ pid, cap, onClose, onSaved }: { pid: string; cap: Cap | nul
   );
 }
 
-function CapsPanel({ pid, name, onAdd, onEdit, caps }: { pid: string; name: string; caps: Loaded<Cap[]>; onAdd: () => void; onEdit: (c: Cap) => void }) {
+/** What a flow started now gets from Settings and every cap (the smallest one left binds), or why it cannot start. */
+function NextFlow({ left, caps }: { left: CapsLeft; caps: Cap[] }) {
+  const n = left.next_flow;
+  if (n.refused) return <p className="hint bd-next" data-testid="next-flow"><span className="amber">A flow cannot start now: {n.refused.error}</span> {n.refused.hint}</p>;
+  const from = (id?: string | null) => {
+    const c = caps.find((x) => x.id === id);
+    return c ? ` (${CAP_SCOPE[c.scope] ?? c.scope})` : id === "settings" ? " (Settings)" : "";
+  };
+  const parts: string[] = [];
+  if (n.cap_tokens > 0) parts.push(`${kfmt(n.cap_tokens)} tokens${from(n.tokens_from)}, then ${CAP_ACTION[n.on_cap] ?? n.on_cap}`);
+  if (n.cap_usd) parts.push(`${usd(n.cap_usd)} of reported cost${from(n.usd_from)}, then ${CAP_ACTION[n.on_cap_usd ?? n.on_cap] ?? n.on_cap_usd}`);
+  if (n.step_cap_tokens) parts.push(`at most ${kfmt(n.step_cap_tokens)} tokens per agent step, then ${CAP_ACTION[n.step_on_cap ?? n.on_cap] ?? n.step_on_cap}`);
+  return (
+    <p className="hint bd-next" data-testid="next-flow">
+      {parts.length ? <>A flow started now gets {parts.join("; ")}.</> : "A flow started now has no token or dollar cap."}
+      {n.cheaper && <> <span className="amber">Every agent starts on the cheaper model: a cap that says so is used up.</span></>}
+    </p>
+  );
+}
+
+function CapsPanel({ pid, name, onAdd, onEdit, caps, left, onChanged }: {
+  pid: string; name: string; caps: Loaded<Cap[]>; left: Loaded<CapsLeft>; onAdd: () => void; onEdit: (c: Cap) => void; onChanged: () => void;
+}) {
   const { toast } = useApp();
   const [asking, setAsking] = useState<string | null>(null);
   const remove = async (c: Cap) => {
     try {
       await api.deleteCap(pid, c.id);
       caps.setData((l) => (l ? l.filter((x) => x.id !== c.id) : l));
+      onChanged();
       toast("Cap deleted.");
     } catch (e) {
       toast(`Not deleted: ${errorParts(e).message}`);
@@ -224,11 +273,18 @@ function CapsPanel({ pid, name, onAdd, onEdit, caps }: { pid: string; name: stri
             </EmptyState>
           ) : (
             <div className="table-wrap rt-wrap"><table aria-label="Caps" className="rt">
-              <thead><tr><th>Scope</th><th>Limit</th><th>When hit</th><th><span className="sr-only">Actions</span></th></tr></thead>
+              <thead><tr><th>Scope</th><th>Limit</th><th>Left now</th><th>When hit</th><th><span className="sr-only">Actions</span></th></tr></thead>
               <tbody>
-                {caps.data.map((c) => (
+                {caps.data.map((c) => {
+                  const l = capLeftText(left.data?.caps.find((x) => x.id === c.id));
+                  return (
                   <tr key={c.id}>
-                    <td className="rt-main">{CAP_SCOPE[c.scope] ?? c.scope}</td><td className="num mono">{capLimit(c)}</td><td className="sub">{CAP_ACTION[c.action] ?? c.action}</td>
+                    <td className="rt-main">{CAP_SCOPE[c.scope] ?? c.scope}</td><td className="num mono">{capLimit(c)}</td>
+                    <td data-label="left now" data-testid={`cap-left-${c.id}`}>
+                      {!left.data && !left.error ? <span className="sub">…</span>
+                        : <><span className={l.tone ? (l.tone === "bad" ? "bd-out" : "amber") : undefined}>{l.text}</span>{l.used && <span className="hint"> · {l.used}</span>}</>}
+                    </td>
+                    <td className="sub">{CAP_ACTION[c.action] ?? c.action}</td>
                     <td className="rt-end"><div className="row" style={{ gap: 4, flexWrap: "nowrap", justifyContent: "flex-end" }}>
                       {asking === c.id ? (
                         <>
@@ -243,10 +299,12 @@ function CapsPanel({ pid, name, onAdd, onEdit, caps }: { pid: string; name: stri
                       )}
                     </div></td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table></div>
           )}
+      {left.data && caps.data && <NextFlow left={left.data} caps={caps.data} />}
     </Panel>
   );
 }
@@ -334,6 +392,7 @@ export function BudgetPage({ pid }: { pid: string }) {
   const limits = useLoad("limits", () => api.limits());
   const [editing, setEditing] = useState<{ focus?: string } | null>(null);
   const caps = useLoad(`caps:${pid}`, () => api.caps(pid), { live: false });
+  const left = useLoad(`capsLeft:${pid}`, () => api.capsLeft(pid));
   const [capEdit, setCapEdit] = useState<Cap | "new" | null>(null);
   const name = project?.name ?? pid;
   const b = budget.data;
@@ -394,16 +453,19 @@ export function BudgetPage({ pid }: { pid: string }) {
         </div>
       </Section>
 
-      <Section title="Limits that stop a flow" sub="Checked before each agent step. When one is reached, the flow pauses and asks you, switches to the cheaper model, or stops.">
+      <Section title="Limits that stop a flow" sub={`${HOW_CAPS} When one is reached, the flow pauses and asks you, switches to the cheaper model, or stops. A cap that is used up today or this month stops a new flow from starting (or starts it on the cheaper model).`}>
         <div className="grid bd-g">
           <FromSettings pid={pid} />
-          <CapsPanel pid={pid} name={name} caps={caps} onAdd={() => setCapEdit("new")} onEdit={(c) => setCapEdit(c)} />
+          <CapsPanel pid={pid} name={name} caps={caps} left={left} onAdd={() => setCapEdit("new")} onEdit={(c) => setCapEdit(c)} onChanged={() => void left.reload()} />
         </div>
       </Section>
 
       <p className="hint" style={{ marginTop: 18 }}>Where the numbers come from: the providers' own plan windows (Claude: its last run; Codex: codex app-server; Copilot: GitHub, unofficial); keel's count from LangChain usage metadata for API calls and each CLI's usage line.</p>
       {capEdit && <CapDrawer pid={pid} cap={capEdit === "new" ? null : capEdit} onClose={() => setCapEdit(null)}
-        onSaved={(c) => caps.setData((l) => (l ? (l.some((x) => x.id === c.id) ? l.map((x) => (x.id === c.id ? c : x)) : [...l, c]) : [c]))} />}
+        onSaved={(c) => {
+          caps.setData((l) => (l ? (l.some((x) => x.id === c.id) ? l.map((x) => (x.id === c.id ? c : x)) : [...l, c]) : [c]));
+          void left.reload();
+        }} />}
       {editing && limits.data && <LimitsDrawer limits={limits.data} focus={editing.focus} onClose={() => setEditing(null)} onSaved={(l) => limits.setData(l)} />}
     </>
   );

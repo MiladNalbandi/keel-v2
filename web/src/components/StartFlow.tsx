@@ -1,7 +1,7 @@
 // "Start a flow" drawer: pick the project and workflow, say what to build, and see the estimate before it starts.
 
 import { useEffect, useState } from "react";
-import { api, errorParts, type Estimate, type Limit, type OnCap, type RunMode, type Workflow } from "../api";
+import { api, errorParts, type CapsLeft, type Estimate, type Limit, type OnCap, type RunMode, type Workflow } from "../api";
 import { kfmt, parseTokens, usd } from "../format";
 import { go, useApp } from "../state";
 import { RunModePicker } from "./RunMode";
@@ -23,6 +23,7 @@ export function StartFlowDrawer({ onClose, workflowId, projectId }: { onClose: (
   const [est, setEst] = useState<Estimate | null>(null);
   const [estErr, setEstErr] = useState<{ message: string; hint?: string } | null>(null);
   const [limits, setLimits] = useState<Limit[]>([]);
+  const [capsLeft, setCapsLeft] = useState<CapsLeft | null>(null);
   const [cap, setCap] = useState("");
   const [onCap, setOnCap] = useState<OnCap>("pause");
   const [runMode, setRunMode] = useState<RunMode>("manual");
@@ -55,6 +56,9 @@ export function StartFlowDrawer({ onClose, workflowId, projectId }: { onClose: (
       setRunMode(m);
       setModeDefault(m);
     }, () => undefined);
+    // v0.4.2: the project's caps can make this flow's cap smaller (the smallest one left binds) or refuse the start
+    setCapsLeft(null);
+    api.capsLeft(p).then(setCapsLeft, () => undefined);
   }, [p]);
 
   useEffect(() => {
@@ -90,7 +94,7 @@ export function StartFlowDrawer({ onClose, workflowId, projectId }: { onClose: (
     setErr(null);
     try {
       const capTokens = parseTokens(cap);
-      await api.startFlow(p, {
+      const state = await api.startFlow(p, {
         workflow_id: wid, title: title.trim() || `${wid} · ${new Date().toLocaleDateString()}`,
         // the cap belongs to this flow only; project settings stay as they are
         ...(capTokens > 0 ? { cap_tokens: capTokens } : {}), on_cap: onCap,
@@ -103,7 +107,7 @@ export function StartFlowDrawer({ onClose, workflowId, projectId }: { onClose: (
       });
       if (p !== pid) setProjectId(p);
       await reloadProjects();
-      toast("Flow started as a new LangGraph thread.");
+      toast(state?.cap_note ? `Flow started. ${state.cap_note}` : "Flow started as a new LangGraph thread.");
       onClose();
       go("flow");
     } catch (e) {
@@ -193,6 +197,7 @@ export function StartFlowDrawer({ onClose, workflowId, projectId }: { onClose: (
           </select>
         </div>
         <span className="hint">The estimate gets exact after the spec is approved and the real number of ACs is known. This cap is for this flow only; the project default stays in Settings.</span>
+        {capsLeft && capsLeft.caps.length > 0 && <ProjectCaps left={capsLeft} />}
       </div>
       <RunModePicker value={runMode} onChange={setRunMode}
         hint={`The project default is ${modeDefault} (Settings › Run mode). You can change it on the Flow page while the flow runs.`} />
@@ -208,6 +213,24 @@ export function StartFlowDrawer({ onClose, workflowId, projectId }: { onClose: (
         <label className="chk"><input type="checkbox" checked={allowDirty} onChange={(e) => setAllowDirty(e.target.checked)} /> Start anyway — my uncommitted files stay out of keel's commits</label>
       )}
     </Drawer>
+  );
+}
+
+/** What the project's caps (Budget) do to a flow started now: the smallest cap left binds; a used-up cap refuses or goes cheaper. */
+function ProjectCaps({ left }: { left: CapsLeft }) {
+  const n = left.next_flow;
+  if (n.refused) return <span className="hint amber" data-testid="sf-caps">A cap is used up: {n.refused.error}</span>;
+  const fromCap = n.tokens_from && n.tokens_from !== "settings" && n.tokens_from !== "flow";
+  const parts = [
+    fromCap ? `at most ${kfmt(n.cap_tokens)} tokens` : null,
+    n.cap_usd ? `at most ${usd(n.cap_usd)} of reported cost` : null,
+    n.step_cap_tokens ? `${kfmt(n.step_cap_tokens)} tokens per agent step` : null,
+  ].filter(Boolean);
+  return (
+    <span className="hint" data-testid="sf-caps">
+      This project's caps apply too (Budget): the smallest one left wins{parts.length ? `, now ${parts.join(", ")}` : ""}.
+      {n.cheaper && <span className="amber"> Every agent starts on the cheaper model: a cap that says so is used up.</span>}
+    </span>
   );
 }
 

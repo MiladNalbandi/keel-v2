@@ -21,7 +21,7 @@ class FlowState(TypedDict, total=False):
     ac: str | None
     gates: dict                 # {mode, log: [str], skipped: {}}
     stall: dict                 # {fingerprint, count, step}
-    usage: dict                 # {tokens_in, tokens_out, cost_usd, premium_requests, cap_tokens}
+    usage: dict                 # {tokens_in, tokens_out, cost_usd, premium_requests, cap_tokens, cap_usd}
     retries: dict               # "<step>:<ac>" -> failed attempts
     step_tokens: dict           # step id -> tokens used
     feedback: str | None        # why a gate or check sent work back; goes into the next agent's prompt
@@ -124,7 +124,8 @@ def initial_state(ctx: ThreadContext, acs: list[dict] | None) -> FlowState:
         current=None, acs=[{"id": a["id"], "layer": a.get("layer", "API"), "title": a.get("title", ""), "status": _start_status(a)} for a in acs or []],
         ac=None, gates={"mode": s.get("gates_mode", "every-ac"), "log": [], "skipped": {}},
         stall={"fingerprint": None, "count": 0, "step": 0},
-        usage={"tokens_in": 0, "tokens_out": 0, "tokens_cached": 0, "cost_usd": 0.0, "premium_requests": 0, "cap_tokens": cap},
+        usage={"tokens_in": 0, "tokens_out": 0, "tokens_cached": 0, "cost_usd": 0.0, "premium_requests": 0, "cap_tokens": cap,
+               "cap_usd": float(s.get("cap_usd") or 0)},
         retries={}, step_tokens={}, feedback=None, model_override=None, warned=False, spec=None, branch=None,
         git_head=None, last_failure=None, note="started", error=None, base_head=None, preexisting={}, last_answer="", findings=[], review_rounds={}, init={}, clarify={}, clarify_rounds=0, spec_revisions=0,
         unlocks=normalize_unlocks(s.get("unlocks"), "none", "settings"), deps=[], blockers=[], ladder=None,
