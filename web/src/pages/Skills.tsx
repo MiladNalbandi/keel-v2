@@ -48,7 +48,7 @@ function SkillDrawer({ pid, id, agents, onClose, onSaved }: { pid: string; id: s
           <div className="field"><span className="lab">Size</span>
             <div className="kv">
               <span>SKILL.md (always loaded)</span><b className="num mono">{k1(s.tokens)} tokens</b>
-              {s.refs.map((r) => <Fragment key={r.path}><span>{r.path} (only when asked)</span><b className="num mono">{k1(r.tokens)}</b></Fragment>)}
+              {s.refs.map((r) => <Fragment key={r.path}><span>{r.path} (only when asked)</span><b className="num mono">{k1(r.tokens)} tokens</b></Fragment>)}
             </div>
           </div>
           <div className="field"><span className="lab">Load it for</span>

@@ -131,7 +131,7 @@ function MapView({ m, onRebuild, busy }: { m: KeelMap; onRebuild: () => void; bu
     <>
       <div className="mapbar">
         <span className="sub">built from <span className="mono">{m.sha?.slice(0, 7)}</span>{m.at ? ` · ${clock(m.at, false)}` : ""}</span>
-        {Object.entries(m.counts ?? {}).filter(([, v]) => v).map(([k, v]) => <span key={k} className="tag">{v} {k}</span>)}
+        {Object.entries(m.counts ?? {}).filter(([, v]) => v).map(([k, v]) => <span key={k} className="tag">{v} {v === 1 ? k.replace(/s$/, "") : k}</span>)}
         {m.demo && <span className="mapwarn">⚠ demo map</span>}
         <span style={{ marginLeft: "auto" }}><button className="btn sm" type="button" onClick={onRebuild} disabled={busy}>{busy ? "Rebuilding…" : "Rebuild"}</button></span>
       </div>
