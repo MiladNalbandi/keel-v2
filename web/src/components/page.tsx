@@ -1,9 +1,10 @@
 // Shared pieces for the project, build and control pages: a section with a one-line explanation, an empty state
 // (title, one line of what to do, a button), a toolbar for tabs / filters / search, and loading that only covers
 // the part that is still loading (a spinner with words, skeleton lines that keep the space).
+// Their styles are in styles/pages.css, loaded after styles.css from main.tsx.
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import "../styles/pages.css";
+import { EmptyState as BaseEmpty } from "./EmptyState";
 
 /** A part of a page: a heading, one line that says what it is, its own actions, then the content. */
 export function Section({ title, sub, actions, children, className = "" }: {
@@ -24,15 +25,10 @@ export function Section({ title, sub, actions, children, className = "" }: {
   );
 }
 
-/** Nothing here yet: what it is, what to do, and the button that does it. */
+/** Nothing here yet: what it is, what to do, and the button that does it (the shared EmptyState; `compact` sits
+ *  left-aligned inside a panel). */
 export function EmptyState({ title, children, action, compact }: { title: ReactNode; children?: ReactNode; action?: ReactNode; compact?: boolean }) {
-  return (
-    <div className={`pg-empty${compact ? " compact" : ""}`}>
-      <b className="pg-empty-t">{title}</b>
-      {children && <p>{children}</p>}
-      {action && <div className="pg-empty-a">{action}</div>}
-    </div>
-  );
+  return <BaseEmpty title={title} action={action} className={compact ? "es-compact" : ""}>{children}</BaseEmpty>;
 }
 
 /** Tabs, filters and search under the page head. */
