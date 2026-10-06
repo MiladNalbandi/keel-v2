@@ -154,7 +154,7 @@ export function Shell({ children }: { children: ReactNode }) {
             <span className={`pill ${health?.engine ? "p-ok" : health ? "p-bad" : "p-idle"}`}>engine</span>
             <span className="mono">{health ? (health.fake ? "fake model" : "langgraph") : "…"}</span>
           </div>
-          {health?.keel?.version && <div className="row"><span className="pill p-ok">keel</span><span className="mono">{health.keel.version}</span></div>}
+          {health?.version && <div className="row"><span className="pill p-ok">keel v2</span><span className="mono">{health.version}</span></div>}
           <button className="btn sm ghost" id="theme" type="button" onClick={toggleTheme}>Switch theme</button>
         </div>
       </aside>

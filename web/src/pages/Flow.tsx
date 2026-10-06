@@ -4,14 +4,13 @@
 // the budget, the acceptance criteria, what blocks shipping and keel's state. The init workflow adds its ladder and
 // knowledge build.
 
-import { Fragment, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   api, errorParts, type Blocker, type Checkpoint, type EngineEvent, type FlowView, type Job, type LadderRung, type Memory, type ThreadState, type Workflow,
 } from "../api";
 import { CodeBlock, FoldedText } from "../components/Code";
 import { answersOf, ClarifyForm, type ClarifyAnswers } from "../components/ClarifyForm";
 import { Markdown } from "../components/Markdown";
-import { OpenKeelV1Button } from "../components/OpenKeelV1";
 import { eventLine } from "../components/events";
 import { StartFlowDrawer } from "../components/StartFlow";
 import { autoLines, RunModeNote, RunModeSwitch } from "../components/RunMode";
@@ -48,7 +47,7 @@ export function FlowPage({ pid }: { pid: string }) {
         ) : isInit(f.workflow) ? (
           <InitFlow pid={pid} f={f as Required<FlowView> & { thread: ThreadState; workflow: Workflow }} onStart={() => setStart(true)} reload={flow.reload} />
         ) : (
-          <ThreadView pid={pid} thread={f.thread} workflow={f.workflow} keelState={f.keel_state} reload={flow.reload} onStart={() => setStart(true)} />
+          <ThreadView pid={pid} thread={f.thread} workflow={f.workflow} reload={flow.reload} onStart={() => setStart(true)} />
         )}
       </Async>
       {start && <StartFlowDrawer onClose={() => setStart(false)} />}
@@ -139,7 +138,6 @@ function FlowBar({ thread, workflow, estimate, started, onStart, onJump, extra }
       <div className="actions">
         {extra}
         {onJump && live && <button className="btn" type="button" onClick={onJump}>Jump to current</button>}
-        <OpenKeelV1Button />
         {live && <RunModeSwitch compact pid={thread.project_id} threadId={thread.thread_id} mode={thread.run_mode} />}
         {live ? (
           <button className="btn" type="button" disabled={busy} onClick={async () => {
@@ -265,8 +263,8 @@ function JobFeed({ job }: { job: Job }) {
   );
 }
 
-function ThreadView({ pid, thread, workflow, keelState, reload, onStart }: {
-  pid: string; thread: ThreadState; workflow: Workflow; keelState: Record<string, unknown> | null; reload: () => Promise<void>; onStart: () => void;
+function ThreadView({ pid, thread, workflow, reload, onStart }: {
+  pid: string; thread: ThreadState; workflow: Workflow; reload: () => Promise<void>; onStart: () => void;
 }) {
   const { history, est, job, actual, visited, started } = useThreadBits(pid, thread, workflow);
   const tokens = useMemo(() => perStep(workflow, est.data?.per_step), [workflow, est.data]);
@@ -291,7 +289,6 @@ function ThreadView({ pid, thread, workflow, keelState, reload, onStart }: {
         <BudgetMeter thread={thread} estimate={est.data?.tokens ?? null} />
         <AcsPanel thread={thread} />
         <BeforeShipPanel blockers={thread.blockers} />
-        <KeelStatePanel state={keelState} />
       </div>
     </>
   );
@@ -596,17 +593,6 @@ function AcsPanel({ thread }: { thread: ThreadState }) {
   );
 }
 
-function KeelStatePanel({ state }: { state: Record<string, unknown> | null }) {
-  if (!state) return null;
-  const keys = ["flow", "phase", "lane", "ac", "branch"].filter((k) => state[k] !== undefined && state[k] !== null && typeof state[k] !== "object");
-  if (!keys.length) return null;
-  return (
-    <Panel title="keel v1 state" extra={<span className="hint mono">.keel/state.json</span>}>
-      <div className="kv">{keys.map((k) => <Fragment key={k}><span>{k}</span><b className="mono">{String(state[k])}</b></Fragment>)}</div>
-    </Panel>
-  );
-}
-
 export function EventsPanel({ pid, thread }: { pid: string; thread: ThreadState }) {
   const { recent } = useApp();
   const mine = recent.filter((e: EngineEvent) => e.thread_id === thread.thread_id && e.type !== "agent.step").slice(-12).reverse();
@@ -652,7 +638,7 @@ function UnlockConfirm({ pid, path, phase, onClose }: { pid: string; path: strin
   return (
     <div className="grid" style={{ gap: 8, marginTop: 10 }}>
       <Confirm text={<>The guard stopped a write to <b className="mono">{path}</b>{phase ? <> in <b>{phase}</b></> : null}. Allow agents to edit this file in this phase, for this flow only?
-        The unlock is logged in <span className="mono">.keel/logs/events.jsonl</span>.</>}
+        The unlock is logged in the flow's events.</>}
         yes="Yes, allow it" busy={busy} onYes={yes} onNo={onClose} />
       {err && <ErrorBox error={err} />}
     </div>
@@ -665,31 +651,21 @@ type Rung = { label: string; cmd: string; status: "ok" | "fail" | "fix" | "todo"
 
 const LADDER_STATUS: Record<LadderRung["status"], Rung["status"]> = { pass: "ok", fail: "fail", fixing: "fix", waiting: "todo", skipped: "skip" };
 
-/** The ladder from the thread (v0.2), else from keel v1's .keel/state.json (setup.rungs). */
-export function rungsFrom(thread: ThreadState | null, state: Record<string, unknown> | null): Rung[] {
-  if (thread?.ladder?.length) {
-    return [...thread.ladder].sort((a, b) => a.n - b.n).map((r) => ({
-      label: r.name, cmd: r.cmd, status: LADDER_STATUS[r.status] ?? "todo", note: r.detail ?? "",
-    }));
-  }
-  if (!state) return [];
-  const raw = (state.ladder ?? (state.setup as Record<string, unknown> | undefined)?.rungs ?? null) as unknown;
-  const list: Record<string, unknown>[] = Array.isArray(raw) ? raw : raw && typeof raw === "object" ? Object.values(raw as object) : [];
-  return list.map((r) => {
-    const s = String(r.status ?? (r.ok === true ? "ok" : r.ok === false ? "fail" : "todo"));
-    const status: Rung["status"] = /ok|pass/.test(s) ? "ok" : /fail/.test(s) ? "fail" : /fix/.test(s) ? "fix" : /skip/.test(s) ? "skip" : "todo";
-    return { label: String(r.label ?? r.name ?? r.id ?? "rung"), cmd: String(r.cmd ?? r.command ?? ""), status, note: String(r.note ?? r.why ?? (r.attempts ? `attempt ${r.attempts}` : "")) };
-  });
+/** The setup ladder, from the thread (the engine keeps it in the flow's state). */
+export function rungsFrom(thread: ThreadState | null): Rung[] {
+  return [...(thread?.ladder ?? [])].sort((a, b) => a.n - b.n).map((r) => ({
+    label: r.name, cmd: r.cmd, status: LADDER_STATUS[r.status] ?? "todo", note: r.detail ?? "",
+  }));
 }
 
 const RUNG_PILL: Record<Rung["status"], [PillTone, string]> = { ok: ["ok", "pass"], fail: ["bad", "fail"], fix: ["warn", "fixing"], todo: ["idle", "waiting"], skip: ["idle", "skipped"] };
 const KB_PILL: Record<string, [PillTone, string]> = { written: ["ok", "written"], stale: ["warn", "stale"], missing: ["idle", "not written"], writing: ["run", "writing"] };
 
-function InitFlow({ pid, f, onStart, reload }: { pid: string; f: { thread: ThreadState; workflow: Workflow; keel_state: Record<string, unknown> | null }; onStart: () => void; reload: () => Promise<void> }) {
+function InitFlow({ pid, f, onStart, reload }: { pid: string; f: { thread: ThreadState; workflow: Workflow }; onStart: () => void; reload: () => Promise<void> }) {
   const { thread, workflow } = f;
   const { est, job, jobs, actual, visited, started } = useThreadBits(pid, thread, workflow);
   const memory = useLoad<Memory>(`mem:${pid}`, () => api.memory(pid));
-  const rungs = rungsFrom(thread, f.keel_state);
+  const rungs = rungsFrom(thread);
   const passed = rungs.filter((r) => r.status === "ok").length;
   const kb = memory.data?.knowledge ?? [];
   const writing = (jobs.data ?? []).filter((j) => j.thread_id === thread.thread_id && /librarian/.test(j.agent));

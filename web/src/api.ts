@@ -179,7 +179,8 @@ export type EngineEvent = {
 
 // ---------- api types ----------
 
-export type Health = { ok: boolean; engine: boolean; keel: { version: string; home: string }; fake: boolean };
+/** `version` is keel v2's own version. */
+export type Health = { ok: boolean; engine: boolean; version: string; fake: boolean };
 
 export type Project = {
   id: string;
@@ -193,7 +194,7 @@ export type Project = {
   running: number;
 };
 
-export type FlowView = { thread: ThreadState | null; workflow: Workflow | null; keel_state: Record<string, unknown> | null };
+export type FlowView = { thread: ThreadState | null; workflow: Workflow | null };
 
 export type JobStatus = "running" | "done" | "failed" | "stopped" | "guard" | string;
 export type Job = {
@@ -651,7 +652,6 @@ export const api = {
   health: () => get<Health>("/health"),
   /** `pid` "*" = every project (notifications + project.changed only). */
   eventsUrl: (pid: string | null, notifyAll = false) => "/api/events" + q({ project: pid ?? (notifyAll ? "*" : null), notify: notifyAll && pid ? "all" : null }),
-  keelDashboard: () => get<{ url: string }>("/keel-dashboard"),
   /** The raw answer; `normalizeCatalog` (ModelPicker) also accepts the pre-v0.3 `{provider: [{id,label}]}` shape. */
   providerModels: () => get<unknown>("/providers/models"),
 

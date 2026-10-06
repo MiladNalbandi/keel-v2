@@ -30,9 +30,9 @@ class FlowSafetyApiTest : ApiTest() {
     @Test
     fun `keel's own state files do not count as uncommitted work`() {
         val (pid, root) = newProject("own-files")
-        Files.createDirectories(root.resolve(".keel/logs"))
-        Files.writeString(root.resolve(".keel/state.json"), "{}")
-        Files.writeString(root.resolve(".keel/logs/events.jsonl"), "{}\n")
+        Files.createDirectories(root.resolve(".keel/agents"))
+        Files.writeString(root.resolve(".keel/ladder.json"), "{}")
+        Files.writeString(root.resolve(".keel/agents/explorer.md"), "# explorer\n")
         post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "x")).andExpect(status().isOk)
     }
 

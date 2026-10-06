@@ -93,7 +93,7 @@ export function ProjectsPage() {
         </div>
       )}
       <p className="hint" style={{ marginTop: 12 }}>
-        Source: the api's project list and each repo's <span className="mono">.keel/state.json</span>. keel v2 keeps writing that format, so keel v1 tools still read these projects.
+        Source: the api's project list and the flows keel runs in each project.
       </p>
       {drawer === "add" && <AddRepoDrawer onClose={() => setDrawer(null)} />}
       {drawer === "start" && <StartFlowDrawer onClose={() => setDrawer(null)} />}

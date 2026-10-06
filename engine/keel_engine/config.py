@@ -14,10 +14,6 @@ def data_dir() -> Path:
     return d
 
 
-def keel_home() -> Path:
-    return Path(os.environ.get("KEEL_HOME") or "/opt/keel")
-
-
 def api_url() -> str:
     return os.environ.get("KEEL_API_URL", "http://127.0.0.1:8080").rstrip("/")
 

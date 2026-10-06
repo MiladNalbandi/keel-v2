@@ -51,11 +51,11 @@ class IndexApiTest : ApiTest() {
     }
 
     @Test
-    fun `an old keel v1 map file is shown until the engine has built one`() {
+    fun `the map is the engine's, a map file keel v1 left in the project is not read`() {
         val (pid, root) = newProject("index-oldmap")
         Files.createDirectories(root.resolve(".keel"))
         Files.writeString(root.resolve(".keel/map.json"), """{"sha":"old1234","at":"2026-01-01T00:00:00Z","levels":{}}""")
-        assertThat(get("/api/projects/$pid/map").json()["sha"].asText()).isEqualTo("old1234")
+        assertThat(get("/api/projects/$pid/map").json()["missing"].asText()).contains("No map yet")
         post("/api/projects/$pid/map/rebuild").andExpect(status().isOk)
         assertThat(get("/api/projects/$pid/map").json()["sha"].asText()).isEqualTo("abc1234")
     }

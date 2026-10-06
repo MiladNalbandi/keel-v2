@@ -5,8 +5,6 @@ import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import java.nio.file.Files
-import java.nio.file.Path
-import java.nio.file.attribute.PosixFilePermissions
 
 /** v0.2: update from base, file history, unlocks, stacks, wiki refresh. */
 class V02RepoApiTest : ApiTest() {
@@ -158,14 +156,18 @@ class V02RepoApiTest : ApiTest() {
         post("/api/projects/$pid/stacks", mapOf("name" to "x2", "from" to "nope")).andExpect(status().isNotFound)
 
         post("/api/projects/$pid/stacks/kotlin-spring/install").andExpect(status().isConflict)
-        withFakeKeel {
-            val installed = post("/api/projects/$pid/stacks/django/install").andExpect(status().isOk).json()
-            assertThat(installed["source"].asText()).isEqualTo("project")
-            assertThat(installed["installable"].asBoolean()).isFalse()
-            assertThat(Files.readString(root.resolve(".keel-fake-args"))).contains("packs add ${contentDir.resolve("packs/django")} --project")
-            // a second install of an installed pack is fine
-            post("/api/projects/$pid/stacks/django/install").andExpect(status().isOk)
-        }
+        // keel copies the pack folder itself (no keel v1 binary since 0.4.1): stack.yml and its skills
+        val installed = post("/api/projects/$pid/stacks/django/install").andExpect(status().isOk).json()
+        assertThat(installed["source"].asText()).isEqualTo("project")
+        assertThat(installed["installable"].asBoolean()).isFalse()
+        val pack = root.resolve(".keel/stacks/django")
+        assertThat(Files.readString(pack.resolve("stack.yml"))).isEqualTo(Files.readString(contentDir.resolve("packs/django/stack.yml")))
+        assertThat(pack.resolve("skills/django-testing/SKILL.md")).exists()
+        assertThat(root.resolve(".keel/.installing-django")).doesNotExist()
+        // a second install of an installed pack is fine and leaves the project's copy alone
+        Files.writeString(pack.resolve("stack.yml"), Files.readString(pack.resolve("stack.yml")) + "# edited\n")
+        post("/api/projects/$pid/stacks/django/install").andExpect(status().isOk)
+        assertThat(Files.readString(pack.resolve("stack.yml"))).endsWith("# edited\n")
         post("/api/projects/$pid/stacks/nope/install").andExpect(status().isNotFound)
     }
 
@@ -189,36 +191,5 @@ class V02RepoApiTest : ApiTest() {
         post("/api/projects/$pid/wiki/refresh", mapOf("sections" to listOf("domain"))).andExpect(status().isOk)
         assertThat(engine.lastBody("/threads")!!["acs"].map { it["title"].asText() }).containsExactly("domain")
         post("/api/projects/$pid/wiki/refresh", mapOf("sections" to listOf("gossip"))).andExpect(status().isBadRequest)
-    }
-
-    /** Puts a shell `bin/keel` into the fixture KEEL_HOME for the block, then removes it. */
-    private fun withFakeKeel(block: () -> Unit) {
-        val bin = keelHome.resolve("bin/keel")
-        fakeKeel(keelHome, FAKE_KEEL)
-        try {
-            block()
-        } finally {
-            Files.deleteIfExists(bin)
-            Files.deleteIfExists(bin.parent)
-        }
-    }
-
-    companion object {
-        val FAKE_KEEL = """
-            #!/bin/sh
-            echo "${'$'}@" >> "${'$'}PWD/.keel-fake-args"
-            if [ "${'$'}1" = "packs" ]; then
-              dest=".keel/stacks/${'$'}(basename "${'$'}3")"
-              if [ -e "${'$'}dest" ]; then echo "${'$'}dest already exists. Remove it first" >&2; exit 1; fi
-              mkdir -p .keel/stacks && cp -R "${'$'}3" "${'$'}dest"
-            fi
-        """.trimIndent() + "\n"
-
-        fun fakeKeel(home: Path, script: String) {
-            val bin = home.resolve("bin/keel")
-            Files.createDirectories(bin.parent)
-            Files.writeString(bin, script)
-            runCatching { Files.setPosixFilePermissions(bin, PosixFilePermissions.fromString("rwxr-xr-x")) }
-        }
     }
 }

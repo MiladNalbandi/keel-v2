@@ -267,7 +267,8 @@ class WorkspaceDoctor(
             Never propose committing secrets. Write short, plain sentences for someone whose English is basic.
         """.trimIndent()
 
-        private val ENGINE_FILES = listOf(".keel/state.json", ".keel/logs/", ".keel/.state.json")
+        /** keel's own files in a project (the engine's ENGINE_FILES, engine/keel_engine/tools/git.py): never the user's work. */
+        private val ENGINE_FILES = listOf(".keel/ladder.json", ".keel/agents/")
         fun isEngineFile(p: String) = ENGINE_FILES.any { p == it || p.startsWith(it) }
 
         private val SECRET = Regex("""(^|/)(\.env(\..*)?|.*\.(pem|key|p12|pfx|jks|keystore)|id_(rsa|ed25519|ecdsa)(\.pub)?|.*credentials.*|.*secret.*|\.npmrc|\.pypirc|\.netrc)$""", RegexOption.IGNORE_CASE)

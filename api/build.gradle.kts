@@ -8,7 +8,8 @@ plugins {
 }
 
 group = "keel"
-version = "2.0.0"
+// keel v2's version: GET /api/health reports it (from build-info). Keep it equal to KEEL2_VERSION in ../keel2.
+version = "0.4.1"
 
 java {
     toolchain { languageVersion.set(JavaLanguageVersion.of(21)) }
@@ -45,6 +46,11 @@ tasks.withType<Test> {
         showStandardStreams = false
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
     }
+}
+
+springBoot {
+    // META-INF/build-info.properties, read by the health endpoint; no build time, so the task stays up to date
+    buildInfo { excludes.set(setOf("time")) }
 }
 
 tasks.named<org.springframework.boot.gradle.tasks.bundling.BootJar>("bootJar") {

@@ -9,7 +9,7 @@ const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v));
 export function createDb() {
   return {
     projects: clone(fx.projects),
-    flows: { "ludus-engine": { thread: clone(fx.thread), workflow: clone(fx.featureWorkflow), keel_state: { flow: "feature", phase: "ac-gate" } } } as Record<string, { thread: ThreadState | null; workflow: Workflow | null; keel_state: Record<string, unknown> | null }>,
+    flows: { "ludus-engine": { thread: clone(fx.thread), workflow: clone(fx.featureWorkflow) } } as Record<string, { thread: ThreadState | null; workflow: Workflow | null }>,
     workflows: [clone(fx.featureWorkflow), clone(fx.fixWorkflow), clone(fx.initWorkflow)],
     overrides: { "ludus-engine": { cap_tokens: 600000 } } as Record<string, Partial<Settings>>,
     general: clone(fx.generalSettings),
@@ -53,12 +53,12 @@ export function handlers(db: Db) {
       return HttpResponse.json(p);
     }),
     http.get("/api/projects/:pid/flow", ({ params }) =>
-      HttpResponse.json(db.flows[params.pid as string] ?? { thread: null, workflow: null, keel_state: null })),
+      HttpResponse.json(db.flows[params.pid as string] ?? { thread: null, workflow: null })),
     http.post("/api/projects/:pid/flows", async ({ request, params }) => {
       const b = await log(request);
       const w = db.workflows.find((x) => x.id === b.workflow_id)!;
       const t: ThreadState = { ...clone(fx.thread), status: "running", waiting: undefined, current: w.steps[0].id, project_id: params.pid as string, workflow_id: w.id, title: String(b.title) };
-      db.flows[params.pid as string] = { thread: t, workflow: w, keel_state: null };
+      db.flows[params.pid as string] = { thread: t, workflow: w };
       return HttpResponse.json(t);
     }),
     http.post("/api/threads/:tid/resume", async ({ request }) => {
@@ -78,7 +78,6 @@ export function handlers(db: Db) {
       const lines = String(b.yaml ?? "").split("\n").filter((l) => l.trim().startsWith("- ")).length;
       return HttpResponse.json({ ...fx.estimate, tokens: 100000 + lines * 1000 });
     }),
-    http.get("/api/keel-dashboard", () => HttpResponse.json({ url: "/keel-v1/" })),
     http.get("/api/providers/models", () => HttpResponse.json(fx.providerModels)),
 
     http.get("/api/jobs", ({ request }) => {

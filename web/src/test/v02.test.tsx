@@ -209,7 +209,7 @@ describe("Flow v0.2", () => {
   it("the init flow draws the ladder from thread.ladder", async () => {
     const t = db.flows["ludus-engine"].thread!;
     db.flows["ludus-engine"] = {
-      workflow: fx.initWorkflow, keel_state: { setup: { rungs: [{ label: "old rung", status: "ok" }] } },
+      workflow: fx.initWorkflow,
       thread: { ...t, workflow_id: "init", status: "running", waiting: undefined, current: "i3", ladder: [
         { n: 2, name: "tests run", cmd: "./gradlew test", status: "fail", detail: "Docker is not running" },
         { n: 1, name: "toolchain", cmd: "java -version", status: "pass" },
@@ -219,30 +219,24 @@ describe("Flow v0.2", () => {
     expect(await screen.findByText("1 / 2 rungs")).toBeInTheDocument();
     expect(screen.getByText("toolchain")).toBeInTheDocument();
     expect(screen.getByText("Docker is not running")).toBeInTheDocument();
-    expect(screen.queryByText("old rung")).not.toBeInTheDocument();
   });
 
-  it("the init flow falls back to keel_state.setup.rungs", async () => {
-    const t = db.flows["ludus-engine"].thread!;
-    db.flows["ludus-engine"] = {
-      workflow: fx.initWorkflow, keel_state: { setup: { rungs: [{ name: "compose up", cmd: "docker compose up -d", status: "fixing" }] } },
-      thread: { ...t, workflow_id: "init", status: "running", waiting: undefined, current: "i3", ladder: undefined },
-    };
+  it("keel v1 is not offered any more: no Open in keel v1 on the flow or the map, the sidebar shows keel v2's version", async () => {
     render(<App />);
-    expect(await screen.findByText("compose up")).toBeInTheDocument();
-    expect(screen.getByText("fixing")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Stop flow" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /keel v1/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/state\.json/)).not.toBeInTheDocument();
+    const foot = document.querySelector(".side-foot") as HTMLElement;
+    expect(within(foot).getByText("keel v2")).toBeInTheDocument();
+    expect(within(foot).getByText("0.4.1")).toBeInTheDocument();
+    expect(foot).not.toHaveTextContent("0.67");
   });
 
-  it("Open in keel v1 starts the dashboard and opens /keel-v1/ in a new tab", async () => {
-    const user = userEvent.setup();
-    const tab = { location: { href: "" }, opener: {} as unknown, close: vi.fn() };
-    const open = vi.spyOn(window, "open").mockReturnValue(tab as unknown as Window);
+  it("the Map page has no Open in keel v1 either", async () => {
+    at("#/map");
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Open in keel v1" }));
-    await waitFor(() => expect(tab.location.href).toBe("/keel-v1/"));
-    expect(open).toHaveBeenCalledWith("about:blank", "_blank");
-    expect(tab.opener).toBeNull();
-    open.mockRestore();
+    expect(await screen.findByRole("heading", { name: "Map" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /keel v1/ })).not.toBeInTheDocument();
   });
 
   it("Start a flow sends the cap with the flow, not as a project setting", async () => {
