@@ -208,9 +208,30 @@ type JobStep = { n, at, kind, text, tool?, server?, path?, diff?, ms?, ok? }
 
 # repo (Project)
 GET    /api/projects/{pid}/repo                       → { branch, base, ahead, behind, remote, worktrees: {branch,path}[], branches: {name, note}[] }
-GET    /api/projects/{pid}/repo/tree?depth=4          → TreeNode[]   { path, name, depth, kind: "dir"|"file", mark?: "A"|"M"|"D", keel: bool, frozen: bool, ac?: string }
-GET    /api/projects/{pid}/repo/file?path=            → { path, size, mark?, frozen, keel, ac?, head: string (first 120 lines), last_commit }
-GET    /api/projects/{pid}/repo/commits?limit=30      → { sha, message, author, at }[]
+GET    /api/projects/{pid}/repo/tree?depth=4&dir=     → TreeNode[]   { path, name, depth, kind: "dir"|"file", mark?: "A"|"M"|"D", keel: bool, frozen: bool, ac?: string }
+                                                        (dir: lazy loading — that folder's subtree, depth levels down; depth 1 = the root's children)
+GET    /api/projects/{pid}/repo/file?path=            → { path, size, mark?, frozen, keel, ac?, head: string (first 120 lines), last_commit: Commit,
+                                                          binary, modified (epoch ms), phase, bucket, verdict }   (ac: newest AC-nnn in this branch's commits of the file;
+                                                          bucket/verdict: the keel rule for the active phase, verdict "deny" = frozen)
+GET    /api/projects/{pid}/repo/commits?limit=30&range= → Commit[]  { sha, message, author, at, keel: bool }   (range=branch: base..HEAD; keel: keelbot / configured keel author)
+# v0.5.1 the Repo page as a small read-only IDE (nothing here writes to the project)
+GET    /api/projects/{pid}/repo/raw?path=             → the file's bytes (text/plain;charset=UTF-8, image/*, or octet-stream); 413 above 10 MB;
+                                                        CSP sandbox + nosniff, so an SVG/HTML file never runs as keel's page; .git/, secrets, outside paths refused
+GET    /api/projects/{pid}/repo/files                 → { files: string[], truncated }   (quick open: git ls-files tracked + untracked-not-ignored, no deleted/secret files; ≤ 50,000; cached 5 s)
+GET    /api/projects/{pid}/repo/search?q=&regex=&case=&word=&include=&exclude=&max=500
+                                                      → { results: { path, matches: { line, column, length, text, ranges: [start,end][] }[] }[], matches, files, truncated, timed_out, took_ms }
+                                                        (git grep --untracked -I: .gitignore respected, binary and secret files skipped; regex = PCRE when git has it, else ERE;
+                                                         include/exclude: comma-separated globs, `*.kt` anywhere, `src/` a folder; `..`/absolute → 403; bad regex → 400; max ≤ 5000; 10 s timeout)
+GET    /api/projects/{pid}/repo/changes               → { path, from?, staged?: "A"|"M"|"D"|"R"|…, unstaged?: "M"|"D", untracked?: bool, conflict?: bool }[]   (git status -z)
+GET    /api/projects/{pid}/repo/diff?path=&against=head|base&sha=
+                                                      → { path, against, ref, diff (unified), binary, truncated }   (head: work tree vs HEAD; base: work tree vs the merge-base
+                                                         with main/master; sha: that commit's change; an untracked file diffs against nothing)
+GET    /api/projects/{pid}/repo/commit?sha=           → { sha, message, body, author, at, keel, files: { path, status: "A"|"M"|"D"|"R", from? }[] }
+# web (pages/Repo.tsx + pages/repo/): an activity bar (Explorer, Search, Source control, keel), editor tabs (single click = preview
+# tab replaced by the next one, double click = pinned), a status bar. Deep links: #/repo/<path> opens a file, #/repo/<path>:<line>
+# opens it at that line and highlights it (the Map links a table to its migration this way); the URL follows the active tab.
+# Keys: Ctrl/⌘+P quick open (":12" = line), +Shift+F search, +Shift+E explorer, +Shift+G source control, +F find in file,
+# +G go to line, Alt+Z word wrap. Text files up to 2 MB are shown; long files render only the rows on screen.
 GET    /api/projects/{pid}/keel-docs                  → { path, what, by, updated, status: "ok"|"live"|"check" }[]
 GET    /api/projects/{pid}/memory                     → { facts: Fact[], knowledge: { id, status: "written"|"stale"|"missing", words, cites }[] }
 POST   /api/projects/{pid}/memory  { title, text, kind }      PUT /api/projects/{pid}/memory/{fid}   DELETE /api/projects/{pid}/memory/{fid}
@@ -322,7 +343,7 @@ POST /threads              StartThread + { keys?, settings.fix_attempts?, settin
 ### Api
 ```
 POST /api/projects/{pid}/repo/update-from-base             → { ok, merged: bool, conflicts: string[], output }   (git merge <base>; aborts on conflict)
-GET  /api/projects/{pid}/repo/history?path=                → { sha, message, author, at }[]      (git log --follow -n 30)
+GET  /api/projects/{pid}/repo/history?path=                → { sha, message, author, at, keel }[]      (git log --follow -n 30)
 POST /api/projects/{pid}/unlock      { path, phase? }       → { unlocks }   (to the active thread: a resume payload when it waits on a fix, else the engine's /threads/{id}/unlocks)
 GET  /api/projects/{pid}/stacks                             (exists) + Stack.installable: bool
 POST /api/projects/{pid}/stacks      { name, from }         → Stack          (copies the closest keel stack YAML into <root>/.keel/stacks/<name>.yml)

@@ -8,6 +8,8 @@ import "./styles/run.css";
 import "./styles/pages.css";
 // The Map's diagrams (components/er).
 import "./styles/diagram.css";
+// The Repo page's small IDE (activity bar, side bar, editor tabs, status bar).
+import "./styles/repo.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
