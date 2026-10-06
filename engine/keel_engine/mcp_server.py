@@ -151,8 +151,9 @@ def status(api: KeelApi, project: str | None = None) -> str:
     u = thread.get("usage") or {}
     total = int(u.get("tokens_in") or 0) + int(u.get("tokens_out") or 0)
     cap = f" of cap {_n(u['cap_tokens'])}" if u.get("cap_tokens") else " (no cap)"
+    cap_usd = f" of cap ${float(u['cap_usd']):.2f}" if u.get("cap_usd") else ""
     out.append(f"usage     {_n(total)} tokens{cap} · in {_n(u.get('tokens_in'))} · out {_n(u.get('tokens_out'))} · cached "
-               f"{_n(u.get('tokens_cached'))} · ${float(u.get('cost_usd') or 0):.2f} · {_n(u.get('premium_requests'))} premium requests")
+               f"{_n(u.get('tokens_cached'))} · ${float(u.get('cost_usd') or 0):.2f}{cap_usd} · {_n(u.get('premium_requests'))} premium requests")
     if thread.get("error"):
         out.append(f"error     {thread['error']}")
     for b in thread.get("blockers") or []:

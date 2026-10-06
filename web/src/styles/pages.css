@@ -246,3 +246,5 @@ a.chip.skilltag:hover { border-color: var(--accent); color: var(--accent); }
 .wk-pick select { border: 1px solid var(--border); background: var(--panel); border-radius: 8px; padding: 7px 10px; font-weight: 600; width: 100%; }
 .wk-search { margin-bottom: 8px; }
 .wk-search .pg-search { width: 100%; }
+.bd-out { color: var(--bad); font-weight: 600; }
+.hint.bd-next { margin: 0; padding: 10px 16px 12px; border-top: 1px solid var(--border); }

@@ -60,6 +60,11 @@ class Settings(BaseModel):
     gates_mode: Literal["every-ac", "end-of-lane", "end"] = "every-ac"
     cap_tokens: int = 0
     on_cap: Literal["pause", "cheaper", "stop"] = "pause"
+    # v0.4.2 project caps (the api turns every cap into these at start; an unknown field would be dropped silently):
+    cap_usd: float | None = Field(default=None, ge=0)               # the flow's usage.cost_usd may reach this (0/None = no dollar cap)
+    on_cap_usd: Literal["pause", "cheaper", "stop"] | None = None   # what the dollar cap does (default: on_cap)
+    step_cap_tokens: int | None = Field(default=None, ge=0)         # every step's token limit; a step's own smaller max_tokens wins
+    step_on_cap: Literal["pause", "cheaper", "stop"] | None = None  # what step_cap_tokens does (default: on_cap)
     cheaper_model: ModelSpec | None = None
     stronger_model: ModelSpec | None = None   # escalate_model: the investigator's model after "unconfirmed" (default: one up)
     fix_attempts: int = 3

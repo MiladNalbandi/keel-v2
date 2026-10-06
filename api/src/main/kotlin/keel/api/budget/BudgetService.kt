@@ -84,7 +84,9 @@ class BudgetService(
         val caps = listOf(
             BudgetCap("settings", "flow", s.capTokens.toDouble(), "tokens", s.onCap, "$name, per flow (settings)", "settings"),
         ) + capService.list(pid).map { c ->
-            BudgetCap(c.id, c.scope, c.limit, c.unit, c.action, "$name, ${scopeText[c.scope] ?: c.scope}", "yours")
+            // keel counts tokens per step, not dollars: such a cap is kept but limits nothing (CapPlanner says so too)
+            val unchecked = if (c.scope == "step" && c.unit == "usd") " (not checked: keel cannot count dollars per step)" else ""
+            BudgetCap(c.id, c.scope, c.limit, c.unit, c.action, "$name, ${scopeText[c.scope] ?: c.scope}$unchecked", "yours")
         }
 
         val top = jdbc.query(
