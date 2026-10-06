@@ -164,24 +164,37 @@ a.btn { text-decoration: none; }
 .jobs-t tr.job-open .panel { box-shadow: var(--shadow); }
 .job-steps { margin: 0 0 16px; scroll-margin: 80px; }
 .jobs-t tr.job-open .job-steps { margin: 0; }
-@media (max-width: 700px) {
+/* narrower than a full table: each call is two short lines (four columns), then one card per call on phones */
+@media (max-width: 1100px) {
   .jobs-t thead { display: none; }
   .jobs-t, .jobs-t tbody { display: block; }
-  .jobs-t tr.jrow { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 2px 10px; padding: 10px 12px; border-bottom: 1px solid var(--border);
-    grid-template-areas: "agent status" "where time" "model tok" "when cost" "proj proj"; }
-  .jobs-t tr.jrow td { border: 0; padding: 0; white-space: normal; min-width: 0; font-size: 12px; }
+  .jobs-t tr.jrow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 1fr) 84px; gap: 3px 16px; align-items: baseline;
+    padding: 10px 14px; border-bottom: 1px solid var(--border); grid-template-areas: "agent where tok status" "when model time cost" "proj proj proj proj"; }
+  .jobs-t tr.jrow td { border: 0; padding: 0; white-space: normal; min-width: 0; font-size: 12.5px; }
   .jobs-t .j-agent { grid-area: agent; font-size: 14px; }
   .jobs-t .j-status { grid-area: status; justify-self: end; }
   .jobs-t .j-where { grid-area: where; overflow-wrap: anywhere; }
-  .jobs-t .j-time { grid-area: time; justify-self: end; color: var(--dim); }
+  .jobs-t .j-time { grid-area: time; color: var(--dim); }
+  .jobs-t .j-time::before { content: "took "; color: var(--faint); }
   .jobs-t .j-model { grid-area: model; }
-  .jobs-t .j-tok { grid-area: tok; justify-self: end; }
+  .jobs-t .j-tok { grid-area: tok; }
+  .jobs-t .j-tok::before { content: "tokens "; color: var(--faint); font-family: var(--f-body); }
   .jobs-t .j-when { grid-area: when; }
   .jobs-t .j-cost { grid-area: cost; justify-self: end; color: var(--dim); }
   .jobs-t .j-proj { grid-area: proj; color: var(--dim); }
+  .jobs-t tr.jrow:last-child { border-bottom: 0; }
+  /* the row is the box now: its colour, not each cell's */
+  .jobs-t tr.jrow:hover, .jobs-t tr.jrow.rowsel { background: var(--panel-2); }
+  .jobs-t tr.jrow.rowsel { background: var(--accent-soft); }
+  .jobs-t tr.jrow:hover td, .jobs-t tr.jrow.rowsel td { background: none; }
   .jobs-t tr.job-open { display: block; }
-  .jobs-t tr.job-open > td { display: block; padding: 0 0 12px; }
-  .jobs-t tr:last-child.jrow { border-bottom: 0; }
+  .jobs-t tr.job-open > td { display: block; padding: 0 10px 12px; }
+}
+@media (max-width: 700px) {
+  .jobs-t tr.jrow { grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; padding: 10px 12px;
+    grid-template-areas: "agent status" "where time" "model tok" "when cost" "proj proj"; }
+  .jobs-t .j-time, .jobs-t .j-tok { justify-self: end; }
+  .jobs-t tr.job-open > td { padding: 0 0 12px; }
 }
 
 /* ---------- Live agents ---------- */
