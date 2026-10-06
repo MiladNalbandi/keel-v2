@@ -14,6 +14,7 @@ import {
   DEFAULT_FLOW, STATUS_LABEL, tasksApi, type NewTask, type Task, type TaskEvent, type TaskItem, type TaskList, type TaskStatus, type TaskType,
 } from "../tasksApi";
 import { go, useApp, useLoad, useRoute } from "../state";
+import { WorkspaceDoctor } from "../components/WorkspaceDoctor";
 
 /** The board's columns, in order; Blocked shows only when a task is blocked, cancelled tasks sit under Done. */
 const COLUMNS: TaskStatus[] = ["todo", "in_progress", "in_review", "testing_pp", "ready_prod", "done"];
@@ -185,6 +186,7 @@ function StartBox({ t, pid, onStarted }: { t: Task; pid: string; onStarted: (t: 
   const [err, setErr] = useState<{ message: string; hint?: string } | null>(null);
   const [allowDirty, setAllowDirty] = useState(false);
   const [allowFake, setAllowFake] = useState(false);
+  const [doctor, setDoctor] = useState(false);
   useEffect(() => {
     api.workflows(pid).then((l) => {
       setWfs(l);
@@ -218,6 +220,9 @@ function StartBox({ t, pid, onStarted }: { t: Task; pid: string; onStarted: (t: 
         <span className="hint">The flow gets the title{t.description ? ", the description" : ""}{t.external_key ? " and the Jira key" : ""} as its request.</span>
       </div>
       <RunModePicker value={mode} onChange={setMode} />
+      {/* Same help as Start a flow: the Doctor sorts the files (commit / stash / hide on this computer / .gitignore). */}
+      {dirty && !doctor && <button className="btn" type="button" onClick={() => setDoctor(true)}>Ask the Doctor what to do with these files</button>}
+      {doctor && <WorkspaceDoctor pid={pid} onClean={() => { setErr(null); setDoctor(false); }} />}
       {(dirty || allowDirty) && <label className="chk"><input type="checkbox" checked={allowDirty} onChange={(e) => setAllowDirty(e.target.checked)} /> Start anyway — my uncommitted files stay out of keel's commits</label>}
       {(fake || allowFake) && <label className="chk"><input type="checkbox" checked={allowFake} onChange={(e) => setAllowFake(e.target.checked)} /> Run with the fake model anyway</label>}
       {err && <ErrorBox error={err} />}
