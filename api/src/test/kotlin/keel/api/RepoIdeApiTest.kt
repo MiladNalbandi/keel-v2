@@ -165,6 +165,11 @@ class RepoIdeApiTest : ApiTest() {
         assertThat(base["diff"].asText()).contains("-class Score(val value: Int)", "+class Score(val value: Long)")
         assertThat(get("/api/projects/$pid/repo/diff?path=api/src/main/kotlin/app/Score.kt&against=head").json()["diff"].asText()).isEmpty()
         get("/api/projects/$pid/repo/diff?path=../x").andExpect(status().isForbidden)
+        // one file only, and the path is never a pathspec
+        get("/api/projects/$pid/repo/diff?path=docs").andExpect(status().isBadRequest)
+        get("/api/projects/$pid/repo/diff?path=.").andExpect(status().isBadRequest)
+        assertThat(mvc.perform(MockMvcRequestBuilders.get("/api/projects/$pid/repo/diff").param("path", ":(glob)**").param("against", "head"))
+            .andReturn().response.getContentAsString(Charsets.UTF_8)).doesNotContain("Scores v2")
         get("/api/projects/$pid/repo/diff?path=README.md&against=yesterday").andExpect(status().isBadRequest)
 
         val branch = get("/api/projects/$pid/repo/commits?range=branch").json()

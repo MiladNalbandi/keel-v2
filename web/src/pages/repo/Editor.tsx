@@ -396,7 +396,7 @@ export function MarkdownPane({ text }: { text: string }) {
 }
 
 export function Notice({ title, children }: { title: string; children?: ReactNode }) {
-  return <div className="ed-note big"><b>{title}</b>{children && <span className="sub">{children}</span>}</div>;
+  return <div className="ed-note ed-notice"><b>{title}</b>{children && <span className="sub">{children}</span>}</div>;
 }
 
 /** What the editor can show for a file: text, an image, or a notice (binary, too big). */

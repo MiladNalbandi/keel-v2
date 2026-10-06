@@ -489,7 +489,7 @@ export function RepoIde({ pid, repo, version = 0 }: { pid: string; repo: RepoInf
         )}
         <div className="ed-body">{body}</div>
       </section>
-      <footer className="sb" aria-label="Status bar">
+      <footer className="ide-sb" aria-label="Status bar">
         <button type="button" className="sb-i sb-branch" onClick={() => showSide("scm")} title={repo ? `${repo.branch}: ${repo.ahead} ahead of ${repo.base}, ${repo.behind} behind` : "Branch"}>
           <Icon name="branch" size={14} /><span>{repo?.branch ?? "…"}</span>
         </button>
@@ -507,7 +507,7 @@ export function RepoIde({ pid, repo, version = 0 }: { pid: string; repo: RepoInf
             {showText && <span className="sb-i sb-wide">UTF-8</span>}
             {showText && <span className="sb-i sb-wide">{eol}</span>}
             <span className="sb-i sb-wide">{languageName(metaData.path)}</span>
-            {deco && <span className={`sb-i sb-st t-${deco.tone}`} title={deco.title}>{deco.letter} {deco.title.split(" (")[0]}</span>}
+            {deco && <span className={`sb-i sb-file t-${deco.tone}`} title={deco.title}>{deco.letter} {deco.title.split(" (")[0]}</span>}
             {metaData.ac && <span className="sb-i" title={`Changed on this branch for ${metaData.ac}`}>{metaData.ac}</span>}
             <button type="button" className={`sb-i sb-rule${metaData.frozen ? " frozen" : ""}`} onClick={() => showSide("keel")} title={ruleText(metaData)}>
               {metaData.frozen && <Icon name="lock" size={12} />}

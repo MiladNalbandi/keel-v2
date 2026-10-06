@@ -313,9 +313,12 @@ class RepoService(private val projects: ProjectService, private val rules: KeelR
         val root = projects.root(pid)
         val target = safePath(root, rel)
         val relNorm = root.relativize(target).toString().replace('\\', '/')
-        val common = arrayOf("-c", "core.quotePath=false")
+        // one file only: a folder (or ".") would diff every file in it, secret ones too
+        if (Files.isDirectory(target) || relNorm.isEmpty()) throw BadRequest("That is a folder", "Pick a file to see its changes.")
+        // the path is a name, never a pathspec (":(glob)**" must not match every file)
+        val common = arrayOf("--literal-pathspecs", "-c", "core.quotePath=false")
         val opts = arrayOf("--no-color", "--no-ext-diff", "-M")
-        val untracked = git(root, "ls-files", "--error-unmatch", "--", relNorm).ok.not() && Files.isRegularFile(target)
+        val untracked = git(root, "--literal-pathspecs", "ls-files", "--error-unmatch", "--", relNorm).ok.not() && Files.isRegularFile(target)
         val (ref, r) = when {
             sha != null -> {
                 val s = checkSha(sha)
@@ -422,7 +425,7 @@ class RepoService(private val projects: ProjectService, private val rules: KeelR
         val root = projects.root(pid)
         val target = safePath(root, rel)
         val relNorm = root.relativize(target).toString().replace('\\', '/')
-        val out = git(root, "log", "--follow", "-n", "30", "--format=%H\u001f%s\u001f%an\u001f%aI\u001f%ae", "--", relNorm).takeIf { it.ok }?.out
+        val out = git(root, "--literal-pathspecs", "log", "--follow", "-n", "30", "--format=%H\u001f%s\u001f%an\u001f%aI\u001f%ae", "--", relNorm).takeIf { it.ok }?.out
             ?: return emptyList()
         return parseLog(root, out)
     }
