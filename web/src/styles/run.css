@@ -239,3 +239,23 @@ a.btn { text-decoration: none; }
 .inbox-detail.folded { max-height: 8.2em; overflow: hidden; -webkit-mask-image: linear-gradient(to bottom, #000 62%, transparent); mask-image: linear-gradient(to bottom, #000 62%, transparent); }
 .inbox-detail.open { max-height: none; }
 .inbox-more { padding-left: 4px; padding-right: 4px; }
+
+/* Flow page summary bar on a phone: title, then tokens · cost · time in one row, then the actions in one row (it took
+   about 330px before the blocks). */
+.fl-short { display: none; }
+@media (max-width: 600px) {
+  .fl-bar { gap: 8px; margin-bottom: 10px; }
+  .fl-bar h1 { font-size: 18px; }
+  .fl-facts { font-size: 12px; gap: 2px 10px; }
+  .fl-tid, .fl-est { display: none; }
+  .fl-stats { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: end; }
+  .fl-meter { width: 100%; }
+  .fl-stat-v b { font-size: 15px; }
+  .fl-bar .actions { display: flex; flex-wrap: nowrap; gap: 6px; align-items: center; }
+  .fl-bar .actions .btn { padding-inline: 10px; }
+  .fl-bar .actions .runmode-switch { flex: 1 1 auto; min-width: 0; }
+  .fl-bar .actions .runmode-switch select { min-width: 0; width: 100%; }
+  .fl-bar .actions .runmode-switch .lab { display: none; }
+  .fl-long { display: none; }
+  .fl-short { display: inline; }
+}
