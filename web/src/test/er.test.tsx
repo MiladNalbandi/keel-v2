@@ -132,6 +132,14 @@ describe("database diagram", () => {
     expect(screen.getByRole("link", { name: /Open migration/ })).toHaveAttribute("href", expect.stringContaining("V3__orders.sql"));
   });
 
+  it("a real browser's double click on a table (the press captured the pointer) opens its structure", () => {
+    const { container } = draw();
+    fireEvent.pointerDown(box(container, "customer_order"), { button: 0, pointerId: 1 });
+    fireEvent.pointerUp(box(container, "customer_order"), { button: 0, pointerId: 1 });
+    fireEvent.doubleClick(container.querySelector(".erd-scene")!);
+    expect(screen.getByRole("complementary", { name: "Structure of customer_order" })).toBeInTheDocument();
+  });
+
   it("keyboard: arrows walk between tables, Enter opens the structure, Esc clears", () => {
     const { container } = draw();
     const canvas = screen.getByRole("application", { name: /Database diagram of shop/ });

@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { App } from "../App";
@@ -103,6 +103,16 @@ describe("Graph page", () => {
     expect(box("x:p:web")).not.toBeNull();
     await user.dblClick(box("class:svc")!.querySelector(".erd-title")!);
     await waitFor(() => expect(route()).toEqual({ page: "graph", arg: "class:svc" }));
+  });
+
+  it("a real browser's double click: the press captured the pointer, so it reaches the scene, not the box", async () => {
+    location.hash = "#/graph";
+    render(<App />);
+    await waitFor(() => expect(box("p:app")).not.toBeNull());
+    fireEvent.pointerDown(box("p:app")!.querySelector(".erd-title")!, { button: 0, pointerId: 1 });
+    fireEvent.pointerUp(box("p:app")!, { button: 0, pointerId: 1 });
+    fireEvent.doubleClick(document.querySelector(".gscene")!);
+    await waitFor(() => expect(route()).toEqual({ page: "graph", arg: "in:p:app" }));
   });
 
   it("one symbol: who uses it, what it uses, its members, impact and links to the code", async () => {

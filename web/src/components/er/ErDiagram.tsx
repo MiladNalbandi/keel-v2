@@ -346,9 +346,13 @@ export function ErDiagram({ schema, pid, name, initial, toolbarExtra }: ErProps)
 
   // ---- pointer on the boxes: click selects, drag moves, the "+N more" footer expands
   const dragRef = useRef<{ id: string; sx: number; sy: number; ox: number; oy: number; moved: boolean; pointer: number } | null>(null);
+  // a press captures the pointer (for dragging), so the browser sends the double click to the scene, not the box:
+  // the table pressed last is the one meant
+  const pressed = useRef<string | null>(null);
   const onScenePointerDown = (e: React.PointerEvent<SVGGElement>) => {
     const t = e.target as Element;
     const g = t.closest("[data-tid]") as SVGGElement | null;
+    pressed.current = g?.dataset.tid ?? null;
     if (!g || e.button !== 0 || canvasSpace()) return;
     e.stopPropagation();
     const id = g.dataset.tid!;
@@ -396,7 +400,8 @@ export function ErDiagram({ schema, pid, name, initial, toolbarExtra }: ErProps)
   const onSceneLeave = () => { setHover(null); setHoverRel(null); };
   const onSceneDouble = (e: React.MouseEvent<SVGGElement>) => {
     const g = (e.target as Element).closest("[data-tid]") as SVGGElement | null;
-    if (g) select(g.dataset.tid!, { open: true });
+    const id = g?.dataset.tid ?? pressed.current;
+    if (id) select(id, { open: true });
   };
 
   // ---- keyboard: arrows walk between tables, Enter opens the structure, Esc clears

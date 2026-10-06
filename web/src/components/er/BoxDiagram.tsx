@@ -249,8 +249,12 @@ export function BoxDiagram({ pid, level, name, boxes, edges = [], bands, onDrill
   };
 
   const dragRef = useRef<{ id: string; sx: number; sy: number; ox: number; oy: number; moved: boolean; pointer: number } | null>(null);
+  // a press captures the pointer (for dragging), so the browser sends the double click to the scene, not the box:
+  // the box pressed last is the one meant
+  const pressed = useRef<string | null>(null);
   const onDown = (e: React.PointerEvent<SVGGElement>) => {
     const g = (e.target as Element).closest("[data-tid]") as SVGGElement | null;
+    pressed.current = g?.dataset.tid ?? null;
     if (!g || e.button !== 0 || canvas.current?.el()?.classList.contains("space")) return;
     e.stopPropagation();
     const p = pos.get(g.dataset.tid!)!;
@@ -279,7 +283,8 @@ export function BoxDiagram({ pid, level, name, boxes, edges = [], bands, onDrill
   };
   const onDouble = (e: React.MouseEvent<SVGGElement>) => {
     const g = (e.target as Element).closest("[data-tid]") as SVGGElement | null;
-    const b = g ? byId.get(g.dataset.tid!) : undefined;
+    const id = g?.dataset.tid ?? pressed.current;
+    const b = id ? byId.get(id) : undefined;
     if (b?.drill || b?.open) onDrill(b);
   };
   const onKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
