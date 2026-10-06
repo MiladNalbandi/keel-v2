@@ -30,7 +30,7 @@ function Tree({ tree, cur, q }: { tree: WikiTree; cur: string; q: string }) {
             {items.map((i) => (
               <a key={i.id} href={`#/wiki/${encodeURIComponent(i.id)}`} aria-current={cur === i.id ? "page" : undefined}>
                 {i.title}
-                {i.status === "writing" ? <span className="adot" /> : i.status === "missing" ? <span className="sub">—</span> : i.status === "stale" ? <span className="sub amber">stale</span> : null}
+                {i.status === "writing" ? <span className="adot" /> : i.status === "missing" ? <span className="sub wk-miss">not written</span> : i.status === "stale" ? <span className="sub amber">stale</span> : null}
               </a>
             ))}
             {!items.length && <span className="sub" style={{ padding: "2px 10px" }}>none yet</span>}

@@ -74,7 +74,7 @@ export function StacksPage({ pid }: { pid: string }) {
           <div className="grid g2 stk-grid">
             <div className="panel">
               <div className="panel-head"><h3>{used ? `${used} of ${list.length} used in ${name}` : `None of ${list.length} found in ${name}`}</h3></div>
-              <div className="table-wrap"><table className="rt" aria-label="Stacks">
+              <div className="table-wrap rt-wrap"><table className="rt" aria-label="Stacks">
                 <thead><tr><th>Stack</th><th>Lane</th><th>From</th><th>Found by</th><th>In {name}</th></tr></thead>
                 <tbody>
                   {list.map((x) => (
@@ -102,7 +102,7 @@ export function StacksPage({ pid }: { pid: string }) {
                       {cur.commands.length ? <div className="kv kv-col">{cur.commands.map((c) => <Fragment key={c.name}><span>{c.name}</span><b className="mono">{c.cmd}</b></Fragment>)}</div> : <span className="sub">none</span>}</div>
                     <div className="field"><span className="lab">Tools</span>
                       {cur.tools.length ? (
-                        <div className="table-wrap"><table aria-label={`Tools of ${cur.name}`} className="rt"><thead><tr><th>Tool</th><th>Runs on</th><th>If it fails</th><th>What it does</th></tr></thead>
+                        <div className="table-wrap rt-wrap"><table aria-label={`Tools of ${cur.name}`} className="rt"><thead><tr><th>Tool</th><th>Runs on</th><th>If it fails</th><th>What it does</th></tr></thead>
                           <tbody>{cur.tools.map((t) => (
                             <tr key={t.name}>
                               <td className="mono rt-main">{t.name}</td>

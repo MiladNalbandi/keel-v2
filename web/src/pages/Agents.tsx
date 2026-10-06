@@ -175,7 +175,9 @@ function AgentDrawer({ pid, a, onClose, onSaved, onDeleted }: { pid: string; a: 
       <div className="field"><span className="lab">Model</span><ModelPicker id="am" value={model} onChange={setModel} /></div>
       <div className="field"><span className="lab">Tools per phase</span>
         {(a.phases.length ? a.phases : ["any"]).map((n) => (
-          <div key={n}><span className="tag">{n}</span> <span className="sub">{a.tools.length ? a.tools.join(" · ") : "read-only tools"}</span></div>
+          <div key={n} className="row" style={{ gap: 6 }}><span className="tag">{n}</span>
+            {a.tools.length ? <span className="chips">{a.tools.map((t) => <span key={t} className={`chip ${t.startsWith("mcp:") ? "c-mcp" : EDITS.test(t) ? "c-edit" : SHELL.test(t) ? "c-shell" : ""}`}>{t.replace(/^mcp:/, "MCP ")}</span>)}</span>
+              : <span className="sub">read-only tools</span>}</div>
         ))}
         <span className="hint">The graph gives these tools. A write outside them is refused, and the diff guard reverts it after the node. Change MCP access in Tools (MCP).</span>
       </div>
@@ -311,7 +313,7 @@ export function AgentsPage({ pid }: { pid: string }) {
                 : tab === "custom" ? <EmptyState title="No custom agent yet" action={<button className="btn primary" type="button" onClick={() => setCreating(true)}>New agent</button>}>Make one for a job keel's agents do not do, then add it to a workflow.</EmptyState>
                   : <EmptyState title="No keel agents found">keel's content has no agents/ folder. Check that KEEL_CONTENT points at keel's content.</EmptyState>
             ) : (
-              <div className="table-wrap"><table className="rt ag-table" aria-label={tab === "keel" ? "keel agents" : "Custom agents"}>
+              <div className="table-wrap rt-wrap"><table className="rt ag-table" aria-label={tab === "keel" ? "keel agents" : "Custom agents"}>
                 <colgroup><col className="ag-col-agent" /><col className="ag-col-phase" /><col className="ag-col-model" /><col className="ag-col-tools" /></colgroup>
                 <thead><tr><th>Agent</th><th>Runs in</th><th>Model</th><th>Tools</th></tr></thead>
                 <tbody>{list.map((a) => <AgentRow key={a.id} a={a} onOpen={() => setOpen(a)} />)}</tbody>

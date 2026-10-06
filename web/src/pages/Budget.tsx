@@ -4,7 +4,7 @@
 
 import { useEffect, useState } from "react";
 import { api, errorParts, type Budget, type Cap, type CapScope, type Limit } from "../api";
-import { EmptyState, Section, Skeleton, useNarrow } from "../components/page";
+import { EmptyState, Section, Skeleton, useWidth } from "../components/page";
 import { Drawer, ErrorBox, PageHead, Panel, Prov } from "../components/ui";
 import { UsageStrip } from "../components/UsageStrip";
 import { kfmt, parseTokens, PROV, usd } from "../format";
@@ -31,7 +31,8 @@ function dayLabel(day: string, first: boolean) {
 
 /** Tokens per day, stacked by provider. A phone gets a narrower drawing (bigger text) instead of a sideways scroll. */
 export function UsageChart({ days }: { days: Budget["days"] }) {
-  const narrow = useNarrow(600);
+  const [box, width] = useWidth<HTMLDivElement>();
+  const narrow = width > 0 && width < 520;
   const W = narrow ? 340 : 640, H = narrow ? 190 : 200, padL = narrow ? 38 : 46, padT = 26, padB = 24;
   const every = narrow ? 4 : days.length <= 8 ? 1 : 2;
   const totals = days.map((d) => PROVS.reduce((a, p) => a + (d[p] || 0), 0));
@@ -41,7 +42,7 @@ export function UsageChart({ days }: { days: Budget["days"] }) {
   const y = (v: number) => H - padB - (v / max) * (H - padB - padT);
   const ticks = [0, max / 2, max];
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="chart bd-chart" role="img"
+    <div ref={box}><svg viewBox={`0 0 ${W} ${H}`} className="chart bd-chart" role="img"
       aria-label={`Tokens per day, last ${days.length} days, by provider. Most in one day: ${kfmt(Math.max(...totals, 0))} tokens.`}>
       <text x={0} y={12} className="ax bd-ax-t">tokens per day</text>
       {ticks.map((t) => (
@@ -66,7 +67,7 @@ export function UsageChart({ days }: { days: Budget["days"] }) {
           </g>
         );
       })}
-    </svg>
+    </svg></div>
   );
 }
 
@@ -222,7 +223,7 @@ function CapsPanel({ pid, name, onAdd, onEdit, caps }: { pid: string; name: stri
               Only the cap per flow from Settings applies. Add one for a day, a single step or API spend.
             </EmptyState>
           ) : (
-            <div className="table-wrap"><table aria-label="Caps" className="rt">
+            <div className="table-wrap rt-wrap"><table aria-label="Caps" className="rt">
               <thead><tr><th>Scope</th><th>Limit</th><th>When hit</th><th><span className="sr-only">Actions</span></th></tr></thead>
               <tbody>
                 {caps.data.map((c) => (
@@ -348,7 +349,7 @@ export function BudgetPage({ pid }: { pid: string }) {
 
       <Section title="What keel counted" sub={`Tokens and cost of the agent runs keel made: ${name} this month, and each account across all projects.`}>
         <MonthKpis b={budget} name={name} />
-        <div className="grid g2">
+        <div className="grid bd-g">
           <Panel title={<h3>Tokens per day</h3>} extra={b && <div className="legend">{PROVS.filter((p) => b.days.some((d) => d[p])).map((p) => <span key={p}><i className={`c-${p}`} style={{ border: 0, background: p === "fake" ? "var(--faint)" : undefined }} />{PROV[p]}</span>)}</div>}>
             {!b ? (budget.error ? <span className="sub">No chart: the budget did not load.</span> : <Skeleton lines={4} label="Drawing" />)
               : b.days.some((d) => PROVS.some((p) => d[p])) ? <UsageChart days={b.days} />
@@ -357,10 +358,10 @@ export function BudgetPage({ pid }: { pid: string }) {
           </Panel>
           <AccountsPanel limits={limits} onEdit={(focus) => setEditing({ focus })} />
         </div>
-        <div className="grid g2">
+        <div className="grid bd-g">
           <Panel title={<h3>Biggest users this month</h3>} body={false}>
             {!b ? (!budget.error && <Skeleton lines={3} />) : !b.top.length ? <EmptyState compact title="No agent ran this month">The agents that used the most tokens show here.</EmptyState> : (
-              <div className="table-wrap"><table className="rt" aria-label="Biggest users this month">
+              <div className="table-wrap rt-wrap"><table className="rt" aria-label="Biggest users this month">
                 <thead><tr><th>Agent</th><th>Model</th><th>Tokens</th><th>At API prices</th></tr></thead>
                 <tbody>
                   {b.top.map((t, i) => (
@@ -373,7 +374,7 @@ export function BudgetPage({ pid }: { pid: string }) {
           </Panel>
           <Panel title={<h3>Estimate vs real, last flows</h3>} body={false}>
             {!b ? (!budget.error && <Skeleton lines={3} />) : !b.recent.length ? <EmptyState compact title="No flow yet">Each flow's estimate and what it really used show here.</EmptyState> : (
-              <div className="table-wrap"><table className="rt" aria-label="Estimate vs real">
+              <div className="table-wrap rt-wrap"><table className="rt" aria-label="Estimate vs real">
                 <thead><tr><th>Flow</th><th>Estimate</th><th>Real</th><th>Diff</th><th>Status</th></tr></thead>
                 <tbody>
                   {b.recent.map((r, i) => {
@@ -394,7 +395,7 @@ export function BudgetPage({ pid }: { pid: string }) {
       </Section>
 
       <Section title="Limits that stop a flow" sub="Checked before each agent step. When one is reached, the flow pauses and asks you, switches to the cheaper model, or stops.">
-        <div className="grid g2">
+        <div className="grid bd-g">
           <FromSettings pid={pid} />
           <CapsPanel pid={pid} name={name} caps={caps} onAdd={() => setCapEdit("new")} onEdit={(c) => setCapEdit(c)} />
         </div>

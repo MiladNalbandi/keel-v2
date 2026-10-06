@@ -206,7 +206,7 @@ export function SkillsPage({ pid }: { pid: string }) {
                 </EmptyState>;
               }
               return (
-                <div className="table-wrap"><table className="rt sh-table" aria-label="Skills">
+                <div className="table-wrap rt-wrap"><table className="rt sh-table" aria-label="Skills">
                   <thead><tr><th>Skill</th><th>Kind</th><th>Stack</th><th>Loaded by</th><th>When</th><th>Tokens</th><th><span className="sr-only">State</span></th></tr></thead>
                   <tbody>
                     {list.map((s) => (
