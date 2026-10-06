@@ -7,7 +7,7 @@ import { RefreshStaleButton } from "../components/RefreshStale";
 import { WorkspaceDoctor } from "../components/WorkspaceDoctor";
 import { EmptyState, Skeleton, useNarrow } from "../components/page";
 import { Async, Confirm, Drawer, ErrorBox, PageHead, Panel, Pill, Tabs, type PillTone } from "../components/ui";
-import { clock, plural } from "../format";
+import { clock, kfmt, plural } from "../format";
 import { useApp, useLoad } from "../state";
 
 type Tab = "files" | "branch" | "docs" | "memory";
@@ -424,9 +424,10 @@ function MemoryTab({ pid }: { pid: string }) {
     <Async r={mem} what="Reading memory">
       {(m) => {
         const chars = m.facts.reduce((a, f) => a + f.text.length + f.title.length, 0);
+        const kbTokens = (m.knowledge.reduce((a, k) => a + k.words, 0) / Math.max(1, m.knowledge.length)) * 1.3;
         return (
           <div className="grid g2">
-            <Panel title={`What agents remember about ${project?.name ?? pid}`} extra={<button className="btn sm" type="button" onClick={() => setEdit("new")}>Add</button>} body="grid">
+            <Panel title={`What agents remember about ${project?.name ?? pid}`} extra={m.facts.length ? <button className="btn sm" type="button" onClick={() => setEdit("new")}>Add</button> : undefined} body="grid">
               <div className="grid" style={{ gap: 8 }}>
                 {!m.facts.length && <EmptyState compact title="Nothing remembered yet" action={<button className="btn sm" type="button" onClick={() => setEdit("new")}>Add a fact</button>}>Agents and you add facts here as the project goes: a rule you prefer, a flaky test, a file a phase may change.</EmptyState>}
                 {m.facts.map((f) => (
@@ -462,8 +463,8 @@ function MemoryTab({ pid }: { pid: string }) {
                 </div>
               </Panel>
               <Panel title="Cost of memory" body="kv">
-                <span>Facts sent with each agent step</span><b className="num">≈ {Math.round(chars / 4)} tokens</b>
-                <span>Knowledge section (one, when asked)</span><b className="num">≈ {Math.round((m.knowledge.reduce((a, k) => a + k.words, 0) / Math.max(1, m.knowledge.length)) * 1.3 / 100) / 10}k tokens</b>
+                <span>Facts sent with each agent step</span><b className="num">{chars ? `≈ ${kfmt(chars / 4)} tokens` : "none yet"}</b>
+                <span>Knowledge section (one, when asked)</span><b className="num">{kbTokens ? `≈ ${kfmt(kbTokens)} tokens` : "none written yet"}</b>
                 <span>How facts are chosen</span><b>by phase and agent</b>
               </Panel>
             </div>
