@@ -39,9 +39,12 @@ ENV LANG=C.UTF-8 \
     CODEGRAPH_NO_DAEMON=1 CODEGRAPH_TELEMETRY=0 DO_NOT_TRACK=1 CODEGRAPH_NO_UPDATE_CHECK=1
 
 # System tools, Python 3.12, Node.js (NodeSource) and the Docker CLI with compose + buildx (Docker's apt repo).
+# python3-pytest + python-is-python3: a plain Python project (and keel's demo) runs `python -m pytest` out of the box;
+# keel's own venv is kept off the PATH its projects and agents see (models/cli.py project_env).
 # The Docker daemon is the host's: `keel2 --docker` mounts its socket, so tests can use Testcontainers or compose.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        python3 python3-venv python3-pip git tini curl ca-certificates gnupg sqlite3 openssh-client make zip unzip \
+        python3 python3-venv python3-pip python3-pytest python-is-python3 git tini curl ca-certificates gnupg sqlite3 \
+        openssh-client make zip unzip \
     && curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - \
     && install -m 0755 -d /etc/apt/keyrings \
     && curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc \

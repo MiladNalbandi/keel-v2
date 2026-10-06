@@ -34,3 +34,22 @@ def test_the_file_is_wal_whoever_creates_it(tmp_path, monkeypatch):
     (tmp_path / "fresh").mkdir()
     with db.connect() as conn:                  # a short connection creates the file before the engine opens it
         assert conn.execute("pragma journal_mode").fetchone()[0] == "wal"
+
+
+def test_project_commands_do_not_see_keels_own_python(monkeypatch):
+    # Real bug: in the image keel's venv was first on PATH, so a project's `python -m pytest` ran keel's Python (no
+    # pytest), and UV_PROJECT_ENVIRONMENT pointed a project's `uv sync` at keel's own venv.
+    import os
+    import sys
+    from keel_engine.models.cli import project_env, safe_env
+    from keel_engine.tools.agent_tools import command_env
+    venv_bin = os.path.join(sys.prefix, "bin")
+    monkeypatch.setenv("PATH", os.pathsep.join([venv_bin, "/usr/local/bin", "/usr/bin"]))
+    monkeypatch.setenv("UV_PROJECT_ENVIRONMENT", "/opt/engine/.venv")
+    monkeypatch.setenv("VIRTUAL_ENV", sys.prefix)
+    for env in (command_env(), safe_env()):
+        assert "UV_PROJECT_ENVIRONMENT" not in env and "VIRTUAL_ENV" not in env
+        if sys.prefix != sys.base_prefix:                 # only a venv's own bin is removed
+            assert venv_bin not in env["PATH"].split(os.pathsep)
+        assert "/usr/bin" in env["PATH"].split(os.pathsep)
+    assert project_env({"PATH": "/usr/bin", "UV_LINK_MODE": "copy"}) == {"PATH": "/usr/bin"}
