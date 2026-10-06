@@ -260,7 +260,8 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
   };
   const { w: cw, h: ch } = size();
   const vis = { x: -view.x / view.k, y: -view.y / view.k, w: cw / view.k, h: ch / view.k };
-  const grid = 22 * view.k;
+  let grid = 22 * view.k;
+  while (grid < 14) grid *= 2;                       // zoomed far out the dots thin out instead of turning grey
 
   return (
     <div ref={box} className={`dg-canvas ${space ? "space" : ""}`} tabIndex={0}

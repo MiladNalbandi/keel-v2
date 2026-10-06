@@ -303,6 +303,7 @@ export function ErDiagram({ schema, pid, name, initial, toolbarExtra }: ErProps)
   }, [q, schema]);
   const matchIds = useMemo(() => new Set(results.map((r) => r.t.id)), [results]);
   const [pick, setPick] = useState(0);
+  const [listOpen, setListOpen] = useState(false);
   useEffect(() => setPick(0), [q]);
 
   // ---- selection
@@ -336,6 +337,7 @@ export function ErDiagram({ schema, pid, name, initial, toolbarExtra }: ErProps)
   }, [initial]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const jump = (id: string) => {
+    setListOpen(false);
     select(id, { reveal: true });
   };
 
@@ -537,16 +539,17 @@ export function ErDiagram({ schema, pid, name, initial, toolbarExtra }: ErProps)
         <div className="dg-search" role="search">
           <Ic name="search" />
           <input ref={search} type="search" placeholder="Find a table or column" aria-label="Find a table" value={query}
-            role="combobox" aria-expanded={results.length > 0} aria-controls={`${uid}-res`} aria-autocomplete="list"
-            aria-activedescendant={results.length ? `${uid}-r${pick}` : undefined}
-            onChange={(e) => setQuery(e.target.value)}
+            role="combobox" aria-expanded={listOpen && !!q} aria-controls={`${uid}-res`} aria-autocomplete="list"
+            aria-activedescendant={listOpen && results.length ? `${uid}-r${pick}` : undefined}
+            onChange={(e) => { setQuery(e.target.value); setListOpen(true); }} onFocus={() => setListOpen(true)}
+            onBlur={() => window.setTimeout(() => setListOpen(false), 120)}
             onKeyDown={(e) => {
               if (e.key === "ArrowDown") { e.preventDefault(); setPick((p) => Math.min(results.length - 1, p + 1)); }
               else if (e.key === "ArrowUp") { e.preventDefault(); setPick((p) => Math.max(0, p - 1)); }
               else if (e.key === "Enter" && results[pick]) { e.preventDefault(); jump(results[pick].t.id); }
               else if (e.key === "Escape") { setQuery(""); canvas.current?.el()?.focus(); }
             }} />
-          {q && (
+          {q && listOpen && (
             <ul className="dg-results" id={`${uid}-res`} role="listbox" aria-label="Matching tables">
               {results.length ? results.map((r, i) => (
                 <li key={r.t.id + (r.col ?? "")} id={`${uid}-r${i}`} role="option" aria-selected={i === pick}
