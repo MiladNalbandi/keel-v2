@@ -21,14 +21,25 @@ def now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
+# How long a writer waits for another one (parallel agents write verdicts, memory and checkpoints at the same time; on
+# a slow machine 5-10 s was not enough and a step failed with "database is locked").
+BUSY_MS = 30_000
+_migrated: set[str] = set()
+
+
 @contextmanager
 def connect():
-    """A connection whose tables exist (the migrations are idempotent, so a unit test needs no running engine)."""
-    conn = sqlite3.connect(str(path()), timeout=10)
+    """A connection whose tables exist (the migrations are idempotent, so a unit test needs no running engine); they
+    run once per database file and process, not on every connection."""
+    p = str(path())
+    conn = sqlite3.connect(p, timeout=BUSY_MS / 1000)
     try:
-        conn.execute("pragma busy_timeout = 10000")
-        for sql in migrate.MIGRATIONS:
-            conn.execute(sql)
+        conn.execute(f"pragma busy_timeout = {BUSY_MS}")
+        if p not in _migrated:
+            for sql in migrate.MIGRATIONS:
+                conn.execute(sql)
+            conn.commit()
+            _migrated.add(p)
         yield conn
         conn.commit()
     finally:

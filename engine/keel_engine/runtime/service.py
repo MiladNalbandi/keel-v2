@@ -26,7 +26,7 @@ from ..workflows.model import Workflow, from_dict
 from ..workflows.templates import get_template
 from . import hunt, ladder as ladder_mod
 from . import memory as memory_mod
-from . import migrate, run_mode
+from . import db, migrate, run_mode
 from .compiler import compile_workflow
 from .state import ThreadContext, initial_state, merge_unlocks, normalize_unlocks
 
@@ -71,8 +71,9 @@ class Engine:
     async def open(self, resume_running: bool = True):
         d = self.data_dir or config.data_dir()
         d.mkdir(parents=True, exist_ok=True)
-        self.conn = await aiosqlite.connect(str(d / "checkpoints.db"))
+        self.conn = await aiosqlite.connect(str(d / "checkpoints.db"), timeout=db.BUSY_MS / 1000)
         await self.conn.execute("pragma journal_mode=wal")
+        await self.conn.execute(f"pragma busy_timeout = {db.BUSY_MS}")
         self.saver = AsyncSqliteSaver(self.conn)
         await self.saver.setup()
         await self.conn.execute(REGISTRY)
