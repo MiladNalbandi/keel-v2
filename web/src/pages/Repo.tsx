@@ -1,46 +1,31 @@
-// Repo (Project): branch bar, files tree with A/M/keel/frozen marks and a file detail, commits and worktrees,
-// the files keel wrote, and what agents remember (memory facts you can add, edit and forget).
+// Repo (Project): a small, read-only VS Code for the project — files with git and keel marks, editor tabs,
+// search, source control, and keel's own pages (the IDE is in ./repo/). The head keeps the code graph index and
+// "Update from <base>", the one action here that changes the repo (a git merge that stops on a conflict).
 
-import { Fragment, useRef, useState } from "react";
-import { api, errorParts, type Commit, type Fact, type FactKind, type IndexStatus, type Memory, type RepoFile, type RepoInfo, type TreeNode, type UpdateFromBase } from "../api";
-import { RefreshStaleButton } from "../components/RefreshStale";
-import { WorkspaceDoctor } from "../components/WorkspaceDoctor";
-import { EmptyState, Skeleton, useNarrow } from "../components/page";
-import { Async, Confirm, Drawer, ErrorBox, PageHead, Panel, Pill, Tabs, type PillTone } from "../components/ui";
-import { clock, kfmt, plural } from "../format";
+import { useState } from "react";
+import { api, errorParts, type IndexStatus, type RepoInfo, type UpdateFromBase } from "../api";
+import { ErrorBox, PageHead } from "../components/ui";
+import { plural } from "../format";
 import { useApp, useLoad } from "../state";
-
-type Tab = "files" | "branch" | "docs" | "memory";
+import { RepoIde } from "./repo/Ide";
 
 export function RepoPage({ pid }: { pid: string }) {
   const { project } = useApp();
-  const [tab, setTab] = useState<Tab>("files");
   const repo = useLoad(`repo:${pid}`, () => api.repo(pid));
   const [result, setResult] = useState<UpdateFromBase | { error: { message: string; hint?: string } } | null>(null);
-  const update = result && <UpdateResult result={result} base={repo.data?.base ?? "base"} onClose={() => setResult(null)} />;
   return (
-    <>
-      <PageHead title="Repo" sub={<>The files, branch, commits and memory of {project?.name ?? pid}, at <span className="mono pg-wrap">{project?.root}</span>.</>} actions={<IndexBadge pid={pid} />} />
-      <Async r={repo} what="Reading the repo">
-        {(r) => (
-          <div className="branchbar">
-            <span className="br-ic" aria-hidden="true">⎇</span><b className="mono">{r.branch}</b>
-            <span className="sub">from <span className="mono">{r.base}</span></span>
-            <span className="tag">↑ {r.ahead} ahead</span><span className={`tag ${r.behind ? "star" : ""}`}>↓ {r.behind} behind</span>
-            <span className="sub mono">{r.remote || "no remote"}</span>
-            <UpdateFromBaseButton pid={pid} r={r} onResult={(x) => { setResult(x); void repo.reload(); }} />
-          </div>
-        )}
-      </Async>
-      {update}
-      <div className="rp-tabs">
-        <Tabs value={tab} onChange={setTab} label="Repo" options={[["files", "Files"], ["branch", "Branch & commits"], ["docs", "keel docs"], ["memory", "Memory"]]} />
-      </div>
-      {tab === "files" && <FilesTab pid={pid} />}
-      {tab === "branch" && (repo.data ? <BranchTab pid={pid} r={repo.data} /> : !repo.error && <div className="panel"><Skeleton lines={4} label="Reading the branch" /></div>)}
-      {tab === "docs" && <DocsTab pid={pid} />}
-      {tab === "memory" && <MemoryTab pid={pid} />}
-    </>
+    <div className="repo-page">
+      <PageHead title="Repo" sub={<>Read, search and check the code of {project?.name ?? pid}. Read-only: keel never edits files here.</>}
+        actions={<>
+          <IndexBadge pid={pid} />
+          {repo.data && repo.data.base && repo.data.branch && repo.data.base !== repo.data.branch && (
+            <UpdateFromBaseButton pid={pid} r={repo.data} onResult={(x) => { setResult(x); void repo.reload(); }} />
+          )}
+        </>} />
+      {repo.error && <div style={{ marginBottom: 12 }}><ErrorBox error={repo.error} onRetry={() => void repo.reload()} /></div>}
+      {result && <UpdateResult result={result} base={repo.data?.base ?? "base"} onClose={() => setResult(null)} />}
+      <RepoIde pid={pid} repo={repo.data} />
+    </div>
   );
 }
 
@@ -63,7 +48,7 @@ export function IndexBadge({ pid }: { pid: string }) {
   if (!i) return null;
   const text = indexText(i);
   return (
-    <span className="row" style={{ gap: 8 }} aria-label="Code graph index">
+    <span className="row rp-index-row" style={{ gap: 8 }} aria-label="Code graph index">
       <span className={`tag rp-index ${i.status === "failed" ? "star" : ""}`} title={i.error ?? "The code graph agents use before grep"}>{text}</span>
       <button className="btn sm" type="button" onClick={rebuild} disabled={busy || i.status === "indexing"}>
         {busy ? "Starting…" : "Rebuild"}
@@ -107,25 +92,23 @@ function UpdateFromBaseButton({ pid, r, onResult }: {
     }
   };
   return (
-    <span style={{ marginLeft: "auto" }}>
-      <button className={`btn sm ${r.behind ? "primary" : ""}`} type="button" onClick={run} disabled={busy}
-        title={`git merge ${r.base} into ${r.branch}; stops and changes nothing if files conflict`}>
-        {busy ? "Updating…" : `Update from ${r.base}`}
-      </button>
-    </span>
+    <button className={`btn sm ${r.behind ? "primary" : ""}`} type="button" onClick={run} disabled={busy}
+      title={`git merge ${r.base} into ${r.branch}; stops and changes nothing if files conflict`}>
+      {busy ? "Updating…" : `Update from ${r.base}`}
+    </button>
   );
 }
 
 function UpdateResult({ result, base, onClose }: { result: UpdateFromBase | { error: { message: string; hint?: string } }; base: string; onClose: () => void }) {
   const close = <button className="btn sm ghost" type="button" onClick={onClose}>Close</button>;
   if ("error" in result) {
-    return <div style={{ marginTop: 12 }}><ErrorBox error={result.error} /></div>;
+    return <div style={{ marginBottom: 12 }}><ErrorBox error={result.error} /></div>;
   }
   const out = result.output?.trim();
   const details = out ? <details><summary className="sub">git output</summary><pre className="outbox mono">{out}</pre></details> : null;
   if (result.conflicts?.length) {
     return (
-      <div className="errbox" role="alert" style={{ marginTop: 12 }}>
+      <div className="errbox" role="alert" style={{ marginBottom: 12 }}>
         <b>Not updated: {result.conflicts.length === 1 ? "1 file conflicts" : `${result.conflicts.length} files conflict`} with {base}.</b>
         <span className="sub">keel stopped the merge, so nothing changed. Fix these files by hand (or ask an agent), then try again.</span>
         <ul className="errlist mono">{result.conflicts.map((c) => <li key={c}>{c}</li>)}</ul>
@@ -136,7 +119,7 @@ function UpdateResult({ result, base, onClose }: { result: UpdateFromBase | { er
   }
   if (!result.ok) {
     return (
-      <div className="errbox" role="alert" style={{ marginTop: 12 }}>
+      <div className="errbox" role="alert" style={{ marginBottom: 12 }}>
         <b>The update did not work.</b>
         {details ?? <span className="sub">git gave no output.</span>}
         <div>{close}</div>
@@ -144,334 +127,10 @@ function UpdateResult({ result, base, onClose }: { result: UpdateFromBase | { er
     );
   }
   return (
-    <div className="okbox" role="status" style={{ marginTop: 12 }}>
+    <div className="okbox" role="status" style={{ marginBottom: 12 }}>
       <b>{result.merged ? `Updated: ${base} is merged into this branch.` : `Already up to date with ${base}.`}</b>
       {details}
       <div>{close}</div>
     </div>
-  );
-}
-
-function TreeRow({ n, sel, onPick }: { n: TreeNode; sel: boolean; onPick: (p: string) => void }) {
-  const file = n.kind === "file";
-  return (
-    <button type="button" className={`trow ${n.kind} ${sel ? "sel" : ""}`} style={{ paddingLeft: 10 + n.depth * 18 }}
-      onClick={file ? () => onPick(n.path) : undefined} tabIndex={file ? 0 : -1} aria-label={file ? `Open ${n.path}` : undefined}>
-      <span className="ti" aria-hidden="true">{file ? "·" : "▾"}</span>
-      <span className="tn">{n.name}{file ? "" : "/"}</span>
-      {n.mark && <b className={`fm ${n.mark.toLowerCase()}`}>{n.mark}</b>}
-      {n.ac && <span className="tag">{n.ac}</span>}
-      {n.frozen && <span className="tag star">frozen</span>}
-      {n.keel && <span className="tag keel">keel</span>}
-    </button>
-  );
-}
-
-function FilesTab({ pid }: { pid: string }) {
-  const tree = useLoad(`tree:${pid}`, () => api.tree(pid, 4));
-  const [path, setPath] = useState<string | null>(null);
-  const file = useLoad(path ? `file:${pid}:${path}` : null, () => api.file(pid, path!));
-  const [doctor, setDoctor] = useState(false);
-  const narrow = useNarrow(900);
-  const detail = useRef<HTMLDivElement>(null);
-  const pick = (p: string) => {
-    setPath(p);
-    if (narrow) window.setTimeout(() => detail.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
-  };
-  const dirty = (tree.data ?? []).filter((n) => n.mark).length;
-  return (
-    <>
-    {dirty > 0 && (
-      <div className="wbar" style={{ marginBottom: 12 }}>
-        <span>{dirty} uncommitted file{dirty === 1 ? "" : "s"}. A flow starts only on a clean tree.</span>
-        {!doctor && <button className="btn sm" type="button" onClick={() => setDoctor(true)}>Clean up with the Doctor</button>}
-      </div>
-    )}
-    {doctor && <div style={{ marginBottom: 12 }}><WorkspaceDoctor pid={pid} onClean={() => void tree.reload()} /></div>}
-    <div className="grid g2">
-      <Panel title="Project structure" extra={<div className="legend">
-        <span><b className="fm a">A</b> added</span><span><b className="fm m">M</b> changed</span>
-        <span><span className="tag keel">keel</span> written by keel</span><span><span className="tag">frozen</span> locked in this phase</span>
-      </div>}>
-        <Async r={tree} what="Reading files">
-          {(nodes) => nodes.length ? (
-            <div className="tree">{nodes.map((n) => <TreeRow key={n.path} n={n} sel={n.path === path} onPick={pick} />)}</div>
-          ) : <EmptyState compact title="The repo is empty">Commit a first file, then come back to see the structure.</EmptyState>}
-        </Async>
-      </Panel>
-      <div ref={detail} className="rp-detail"><Panel title={path ? <h3 className="pg-wrap rp-path">{path}</h3> : "File"} body="grid">
-        {!path ? <p className="sub" style={{ margin: 0 }}>Pick a file to see its status, which AC changed it, and whether agents may edit it now.</p> : (
-          <Async r={file} what="Opening">
-            {(f) => (
-              <div className="grid" style={{ gap: 8 }}>
-                <div className="kv">
-                  <span>Status</span><b>{f.mark === "A" ? "added in this branch" : f.mark === "M" ? "changed in this branch" : f.mark === "D" ? "deleted in this branch" : "unchanged"}</b>
-                  <span>Acceptance criterion</span><b>{f.ac || "—"}</b>
-                  <span>In this phase</span><b>{f.frozen ? "frozen — agents cannot edit it" : "editable by the phase's agent"}</b>
-                  <span>Written by</span><b>{f.keel ? "keel" : "people and agents"}</b>
-                  <span>Size</span><b className="num">{f.size.toLocaleString()} bytes</b>
-                  <span>Last commit</span><b className="mono">{f.last_commit || "—"}</b>
-                </div>
-                <pre className="head" aria-label="First lines of the file">{f.head || "(empty)"}</pre>
-                <FileActions key={f.path} pid={pid} f={f} />
-              </div>
-            )}
-          </Async>
-        )}
-      </Panel></div>
-    </div>
-    </>
-  );
-}
-
-function FileActions({ pid, f }: { pid: string; f: RepoFile }) {
-  const { project, toast } = useApp();
-  const [hist, setHist] = useState<Commit[] | null>(null);
-  const [histErr, setHistErr] = useState<{ message: string; hint?: string } | null>(null);
-  const [histOpen, setHistOpen] = useState(false);
-  const [asking, setAsking] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [unlockErr, setUnlockErr] = useState<{ message: string; hint?: string } | null>(null);
-  const [unlocked, setUnlocked] = useState(false);
-  const phase = project?.phase && project.phase !== "none" ? project.phase : undefined;
-
-  const showHistory = async () => {
-    if (histOpen) {
-      setHistOpen(false);
-      return;
-    }
-    setHistOpen(true);
-    if (hist) return;
-    setHistErr(null);
-    try {
-      setHist(await api.fileHistory(pid, f.path));
-    } catch (e) {
-      setHistErr(errorParts(e));
-    }
-  };
-  const unlock = async () => {
-    setBusy(true);
-    setUnlockErr(null);
-    try {
-      await api.unlock(pid, f.path, phase);
-      setUnlocked(true);
-      setAsking(false);
-      toast(`${f.path} is unlocked${phase ? ` in ${phase}` : ""}. The unlock is logged.`);
-    } catch (e) {
-      setUnlockErr(errorParts(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="grid" style={{ gap: 8 }}>
-      <div className="row">
-        <button className="btn sm" type="button" onClick={showHistory} aria-expanded={histOpen}>History</button>
-        {unlocked ? <Pill tone="ok">unlocked{phase ? ` in ${phase}` : ""}</Pill> : (
-          <button className="btn sm ghost" type="button" onClick={() => setAsking(true)} disabled={asking}>Unlock for this phase</button>
-        )}
-      </div>
-      {asking && (
-        <Confirm
-          text={<>Let agents edit <b className="mono">{f.path}</b>{phase ? <> in the <b>{phase}</b> phase</> : " in the current phase"}, for this flow only?
-            keel rules normally stop this. The unlock is logged in the flow's events and shows in Memory.</>}
-          yes="Yes, unlock it" busy={busy} onYes={unlock} onNo={() => setAsking(false)} />
-      )}
-      {unlockErr && <ErrorBox error={unlockErr} />}
-      {histOpen && (
-        <Panel title={`History of ${f.path.split("/").pop()}`} body={false} className="inner">
-          {histErr ? <div className="panel-body"><ErrorBox error={histErr} /></div> : !hist ? <div className="empty loading">Reading history…</div> : (
-            <div className="table-wrap rt-wrap"><table aria-label="File history" className="rt">
-              <thead><tr><th>Commit</th><th>Message</th><th>By</th><th>When</th></tr></thead>
-              <tbody>
-                {hist.map((c) => <tr key={c.sha}><td className="mono sub">{c.sha.slice(0, 7)}</td><td className="rt-full">{commitTag(c.message)}</td><td className="sub">{c.author}</td><td className="mono sub rt-end">{clock(c.at, false)}</td></tr>)}
-                {!hist.length && <tr><td colSpan={4} className="empty">No commit touched this file yet.</td></tr>}
-              </tbody>
-            </table></div>
-          )}
-        </Panel>
-      )}
-    </div>
-  );
-}
-
-function commitTag(msg: string) {
-  const m = msg.match(/^(\w+)(\([^)]*\))?:?/);
-  if (!m) return <>{msg}</>;
-  const kind = m[1];
-  return <><span className={`tag ${kind === "feat" ? "keel" : ""}`}>{m[1]}{m[2] ?? ""}</span>{msg.slice(m[0].length)}</>;
-}
-
-function BranchTab({ pid, r }: { pid: string; r: RepoInfo }) {
-  const commits = useLoad(`commits:${pid}`, () => api.commits(pid, 30));
-  return (
-    <div className="grid g2">
-      <Panel title={`Commits on ${r.branch}`} extra={<span className="hint">keel commits: test(AC) holds only tests, feat(AC) only code</span>} body={false}>
-        <Async r={commits} what="Reading commits">
-          {(list) => (
-            list.length ? <div className="table-wrap rt-wrap"><table className="rt" aria-label={`Commits on ${r.branch}`}>
-              <thead><tr><th>Commit</th><th>Message</th><th>By</th><th>When</th></tr></thead>
-              <tbody>
-                {list.map((c) => (
-                  <tr key={c.sha}><td className="mono sub">{c.sha.slice(0, 7)}</td><td className="rt-full">{commitTag(c.message)}</td><td className="sub">{c.author}</td><td className="mono sub rt-end">{clock(c.at, false)}</td></tr>
-                ))}
-              </tbody>
-            </table></div> : <EmptyState compact title="No commits on this branch yet">A flow's commits show here, one per step: test(AC) for tests, feat(AC) for code.</EmptyState>
-          )}
-        </Async>
-      </Panel>
-      <div className="grid" style={{ alignContent: "start" }}>
-        <Panel title="Worktrees (lanes)" body="grid">
-          <div className="grid" style={{ gap: 8 }}>
-            {r.worktrees.length ? r.worktrees.map((w) => (
-              <div key={w.path} className="grid" style={{ gap: 1 }}><b className="mono">{w.branch}</b><span className="sub mono">{w.path}</span></div>
-            )) : <span className="sub">Only the main worktree.</span>}
-          </div>
-        </Panel>
-        <Panel title="Branches" body="grid">
-          <div className="grid" style={{ gap: 6 }}>
-            {r.branches.map((b) => <div key={b.name} className="row" style={{ justifyContent: "space-between" }}><span className="mono">{b.name}</span><span className="sub">{b.note}</span></div>)}
-          </div>
-        </Panel>
-      </div>
-    </div>
-  );
-}
-
-const DOC_PILL: Record<string, [PillTone, string]> = { ok: ["ok", "ok"], live: ["run", "live"], check: ["warn", "check"] };
-
-function DocsTab({ pid }: { pid: string }) {
-  const { project } = useApp();
-  const docs = useLoad(`keeldocs:${pid}`, () => api.keelDocs(pid));
-  return (
-    <>
-      <Panel title={`Files keel wrote in ${project?.name ?? pid}`} extra={<span className="hint">every change is a commit you can review</span>} body={false}>
-        <Async r={docs} what="Reading keel files">
-          {(list) => (
-            list.length ? <div className="table-wrap rt-wrap"><table className="rt" aria-label="Files keel wrote">
-              <thead><tr><th>File</th><th>What</th><th>Written by</th><th>Updated</th><th><span className="sr-only">State</span></th></tr></thead>
-              <tbody>
-                {list.map((d) => (
-                  <tr key={d.path}><td className="mono rt-main pg-wrap">{d.path}</td><td className="rt-full">{d.what}</td><td className="sub" data-label="by">{d.by}</td><td className="sub">{d.updated}</td>
-                    <td className="rt-end"><Pill tone={DOC_PILL[d.status]?.[0] ?? "idle"}>{DOC_PILL[d.status]?.[1] ?? d.status}</Pill></td></tr>
-                ))}
-              </tbody>
-            </table></div> : <EmptyState compact title="keel has not written a file here yet">The init flow writes the knowledge base and keel's config; each change is a commit you can review.</EmptyState>
-          )}
-        </Async>
-      </Panel>
-      <p className="hint">Knowledge sections are readable in the <a href="#/wiki">Wiki</a>. A flow's state and events live in keel's data, not in <span className="mono">.keel/</span>.</p>
-    </>
-  );
-}
-
-const KIND_TAG: Record<FactKind, string> = { rule: "keel", flaky: "star", fact: "", unlock: "" };
-const KB_PILL: Record<string, [PillTone, string]> = { written: ["ok", "written"], stale: ["warn", "stale"], missing: ["idle", "not written"] };
-
-function FactDrawer({ pid, fact, onClose, onSaved }: { pid: string; fact: Fact | null; onClose: () => void; onSaved: () => void }) {
-  const { toast } = useApp();
-  const [title, setTitle] = useState(fact?.title ?? "");
-  const [text, setText] = useState(fact?.text ?? "");
-  const [kind, setKind] = useState<FactKind>(fact?.kind ?? "fact");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<{ message: string; hint?: string } | null>(null);
-  const save = async () => {
-    setBusy(true);
-    setErr(null);
-    try {
-      if (fact) await api.editFact(pid, fact.id, { title, text, kind });
-      else await api.addFact(pid, { title, text, kind });
-      toast(fact ? "Saved." : "Added. Agents see it from their next step.");
-      onSaved();
-      onClose();
-    } catch (e) {
-      setErr(errorParts(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <Drawer title={fact ? "Edit memory" : "Add to memory"} onClose={onClose}
-      footer={<><button className="btn" type="button" onClick={onClose}>Cancel</button>
-        <button className="btn primary" type="button" onClick={save} disabled={busy || !title.trim() || !text.trim()}>{busy ? "Saving…" : "Save"}</button></>}>
-      <div className="field"><label htmlFor="mf-title">Title</label><input type="text" id="mf-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Test needs Docker" /></div>
-      <div className="field"><label htmlFor="mf-text">What agents should know</label><textarea id="mf-text" value={text} onChange={(e) => setText(e.target.value)} style={{ fontFamily: "var(--f-body)", fontSize: 14 }} /></div>
-      <div className="field"><label htmlFor="mf-kind">Kind</label>
-        <select id="mf-kind" value={kind} onChange={(e) => setKind(e.target.value as FactKind)}>
-          <option value="fact">fact</option><option value="rule">rule — your preference</option><option value="flaky">flaky — a test to rerun once</option><option value="unlock">unlock — a file a phase may change</option>
-        </select>
-      </div>
-      {err && <ErrorBox error={err} />}
-    </Drawer>
-  );
-}
-
-function MemoryTab({ pid }: { pid: string }) {
-  const { project, toast } = useApp();
-  const mem = useLoad<Memory>(`mem:${pid}`, () => api.memory(pid));
-  const [edit, setEdit] = useState<Fact | null | "new">(null);
-  const forget = async (f: Fact) => {
-    try {
-      await api.forgetFact(pid, f.id);
-      mem.setData((m) => (m ? { ...m, facts: m.facts.filter((x) => x.id !== f.id) } : m));
-      toast("Forgotten. Agents will not see it again.");
-    } catch (e) {
-      toast(errorParts(e).message);
-    }
-  };
-  return (
-    <Async r={mem} what="Reading memory">
-      {(m) => {
-        const chars = m.facts.reduce((a, f) => a + f.text.length + f.title.length, 0);
-        const kbTokens = (m.knowledge.reduce((a, k) => a + k.words, 0) / Math.max(1, m.knowledge.length)) * 1.3;
-        return (
-          <div className="grid g2">
-            <Panel title={`What agents remember about ${project?.name ?? pid}`} extra={m.facts.length ? <button className="btn sm" type="button" onClick={() => setEdit("new")}>Add</button> : undefined} body="grid">
-              <div className="grid" style={{ gap: 8 }}>
-                {!m.facts.length && <EmptyState compact title="Nothing remembered yet" action={<button className="btn sm" type="button" onClick={() => setEdit("new")}>Add a fact</button>}>Agents and you add facts here as the project goes: a rule you prefer, a flaky test, a file a phase may change.</EmptyState>}
-                {m.facts.map((f) => (
-                  <div key={f.id} className="mem">
-                    <div className="row" style={{ justifyContent: "space-between" }}><b>{f.title}</b><span className={`tag ${KIND_TAG[f.kind] ?? ""}`}>{f.kind}</span></div>
-                    <span>{f.text}</span>
-                    <div className="row" style={{ justifyContent: "space-between" }}>
-                      <span className="hint">from {f.source} · {clock(f.at, false)}</span>
-                      <span className="row">
-                        <button className="btn sm ghost" type="button" onClick={() => setEdit(f)} aria-label={`Edit ${f.title}`}>Edit</button>
-                        <button className="btn sm ghost" type="button" onClick={() => forget(f)} aria-label={`Forget ${f.title}`}>Forget</button>
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </Panel>
-            <div className="grid" style={{ alignContent: "start" }}>
-              <Panel title="Knowledge base" extra={<span className="hint">checked against HEAD</span>} body="grid">
-                {m.knowledge.some((k) => k.status === "stale") && (
-                  <div style={{ marginBottom: 8 }}><RefreshStaleButton pid={pid} sections={m.knowledge.filter((k) => k.status === "stale").map((k) => k.id)} /></div>
-                )}
-                <div className="grid" style={{ gap: 6 }}>
-                  {!m.knowledge.length && <EmptyState compact title="No knowledge base yet">The init flow writes it: architecture, domain, conventions, data, integrations and journeys.</EmptyState>}
-                  {m.knowledge.map((k) => (
-                    <Fragment key={k.id}>
-                      <div className="row" style={{ justifyContent: "space-between" }}>
-                        <span><b>{k.id}</b> <span className="sub">{plural(k.words, "word")} · {plural(k.cites, "citation")}</span></span>
-                        <Pill tone={KB_PILL[k.status]?.[0] ?? "idle"}>{KB_PILL[k.status]?.[1] ?? k.status}</Pill>
-                      </div>
-                    </Fragment>
-                  ))}
-                </div>
-              </Panel>
-              <Panel title="Cost of memory" body="kv">
-                <span>Facts sent with each agent step</span><b className="num">{chars ? `≈ ${kfmt(chars / 4)} tokens` : "none yet"}</b>
-                <span>Knowledge section (one, when asked)</span><b className="num">{kbTokens ? `≈ ${kfmt(kbTokens)} tokens` : "none written yet"}</b>
-                <span>How facts are chosen</span><b>by phase and agent</b>
-              </Panel>
-            </div>
-            {edit && <FactDrawer pid={pid} fact={edit === "new" ? null : edit} onClose={() => setEdit(null)} onSaved={() => void mem.reload()} />}
-          </div>
-        );
-      }}
-    </Async>
   );
 }

@@ -279,11 +279,24 @@ export type RepoFile = {
   mark?: "A" | "M" | "D";
   frozen: boolean;
   keel: boolean;
-  ac?: string;
+  ac?: string | null;
   head: string;
-  last_commit: string;
+  last_commit?: Commit | null;
+  /** v0.5.1: a NUL byte in the first 8 KB; mtime; the keel rule that applies in the active phase. */
+  binary?: boolean;
+  modified?: number;
+  phase?: string;
+  bucket?: string;
+  verdict?: string;
 };
-export type Commit = { sha: string; message: string; author: string; at: string };
+export type Commit = { sha: string; message: string; author: string; at: string; keel?: boolean };
+/** v0.5.1 Repo IDE: git status, diffs, a commit's files, search (git grep), the quick-open file list. */
+export type Change = { path: string; from?: string; staged?: string; unstaged?: string; untracked?: boolean; conflict?: boolean };
+export type FileDiff = { path: string; against: string; ref: string; diff: string; binary: boolean; truncated: boolean };
+export type CommitView = Commit & { body: string; keel: boolean; files: { path: string; status: string; from?: string }[] };
+export type SearchMatch = { line: number; column: number; length: number; text: string; ranges: [number, number][] };
+export type SearchResult = { results: { path: string; matches: SearchMatch[] }[]; matches: number; files: number; truncated: boolean; timed_out: boolean; took_ms: number };
+export type SearchQuery = { q: string; regex?: boolean; case?: boolean; word?: boolean; include?: string; exclude?: string; max?: number };
 export type UpdateFromBase = { ok: boolean; merged: boolean; conflicts: string[]; output: string };
 export type Unlock = { path: string; phase: string };
 export type KeelDoc = { path: string; what: string; by: string; updated: string; status: "ok" | "live" | "check" };
@@ -720,9 +733,18 @@ export const api = {
 
   // repo
   repo: (pid: string) => get<RepoInfo>(`/projects/${e(pid)}/repo`),
-  tree: (pid: string, depth = 4) => get<TreeNode[]>(`/projects/${e(pid)}/repo/tree${q({ depth })}`),
+  tree: (pid: string, depth = 4, dir?: string) => get<TreeNode[]>(`/projects/${e(pid)}/repo/tree${q({ depth, dir })}`),
   file: (pid: string, path: string) => get<RepoFile>(`/projects/${e(pid)}/repo/file${q({ path })}`),
-  commits: (pid: string, limit = 30) => get<Commit[]>(`/projects/${e(pid)}/repo/commits${q({ limit })}`),
+  commits: (pid: string, limit = 30, range?: "branch") => get<Commit[]>(`/projects/${e(pid)}/repo/commits${q({ limit, range })}`),
+  rawUrl: (pid: string, path: string) => `/api/projects/${e(pid)}/repo/raw${q({ path })}`,
+  raw: (pid: string, path: string) => getText(`/projects/${e(pid)}/repo/raw${q({ path })}`),
+  repoFiles: (pid: string) => get<{ files: string[]; truncated: boolean }>(`/projects/${e(pid)}/repo/files`),
+  search: (pid: string, s: SearchQuery) =>
+    get<SearchResult>(`/projects/${e(pid)}/repo/search${q({ q: s.q, regex: s.regex ? "true" : null, case: s.case ? "true" : null, word: s.word ? "true" : null, include: s.include, exclude: s.exclude, max: s.max })}`),
+  changes: (pid: string) => get<Change[]>(`/projects/${e(pid)}/repo/changes`),
+  diff: (pid: string, path: string, against: "head" | "base", sha?: string) =>
+    get<FileDiff>(`/projects/${e(pid)}/repo/diff${q({ path, against: sha ? null : against, sha })}`),
+  commit: (pid: string, sha: string) => get<CommitView>(`/projects/${e(pid)}/repo/commit${q({ sha })}`),
   updateFromBase: (pid: string) => post<UpdateFromBase>(`/projects/${e(pid)}/repo/update-from-base`),
   index: (pid: string) => get<IndexStatus>(`/projects/${e(pid)}/index`),
   rebuildIndex: (pid: string) => post<IndexStatus>(`/projects/${e(pid)}/index/rebuild`),

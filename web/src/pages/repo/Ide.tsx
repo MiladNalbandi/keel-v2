@@ -1,0 +1,522 @@
+// The Repo page as a small, read-only VS Code: an activity bar (Explorer, Search, Source control, keel), a side
+// bar you can resize, editor tabs (preview / pinned), breadcrumbs, and a status bar. Deep links #/repo/<path>:<line>
+// open a file at a line, and the URL follows the active tab. On a phone the side bar and the editor are two screens.
+
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as RPointerEvent } from "react";
+import { api, type RepoInfo } from "../../api";
+import { useNarrow } from "../../components/page";
+import { ErrorBox } from "../../components/ui";
+import { WorkspaceDoctor } from "../../components/WorkspaceDoctor";
+import { parseHash } from "../../routes";
+import { useApp, useLoad, useRoute } from "../../state";
+import {
+  CodeView, DiffPane, ImagePane, MarkdownPane, Notice, TEXT_MAX, WRAP_MAX, canPreview, kindOf, useFileText,
+  type Cmd, type Cursor, type DiffMode, type Target,
+} from "./Editor";
+import { Explorer } from "./Explorer";
+import { FileIcon, Icon, extOf, languageName } from "./icons";
+import { DocsView, KeelView, MemoryView, ruleText } from "./KeelView";
+import {
+  bytes, closeTab, decoOf, nameOf, openTab, parseDeepLink, pinTab, repoHash, setView, tabId, webUrl,
+  type EditorTab, type OpenSpec, type Tabs, type View,
+} from "./model";
+import { QuickOpen } from "./QuickOpen";
+import { ScmView } from "./Scm";
+import { SearchView } from "./Search";
+
+type Activity = "explorer" | "search" | "scm" | "keel";
+const ACTIVITIES: [Activity, string, string, string, string][] = [
+  ["explorer", "Explorer", "files", "⇧E", "Files"],
+  ["search", "Search", "search", "⇧F", "Search"],
+  ["scm", "Source control", "branch", "⇧G", "Git"],
+  ["keel", "keel", "keel", "", "keel"],
+];
+
+const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+const MOD = isMac ? "⌘" : "Ctrl+";
+
+function readJson<T>(store: Storage | undefined, key: string, fallback: T): T {
+  try {
+    const v = store?.getItem(key);
+    return v ? (JSON.parse(v) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+function writeJson(store: Storage | undefined, key: string, value: unknown) {
+  try {
+    store?.setItem(key, JSON.stringify(value));
+  } catch {
+    /* private mode or full */
+  }
+}
+const session = typeof sessionStorage !== "undefined" ? sessionStorage : undefined;
+const local = typeof localStorage !== "undefined" ? localStorage : undefined;
+
+function tabTitle(t: EditorTab): string {
+  if (t.kind === "docs") return "Files keel wrote";
+  if (t.kind === "memory") return "Memory";
+  if (t.kind === "doctor") return "Workspace Doctor";
+  if (t.kind === "commit") return `${nameOf(t.path)} @ ${t.sha?.slice(0, 7)}`;
+  return nameOf(t.path);
+}
+
+export function RepoIde({ pid, repo }: { pid: string; repo: RepoInfo | null }) {
+  const { project } = useApp();
+  const route = useRoute();
+  const narrow = useNarrow(720);
+  const root = useRef<HTMLDivElement>(null);
+
+  const [activity, setActivity] = useState<Activity>("explorer");
+  const [sideOpen, setSideOpen] = useState(true);
+  const [width, setWidth] = useState(() => readJson(local, "keel2.repo.side", 280));
+  const tabsKey = `keel2.repo.tabs.${pid}`;
+  const [tabs, setTabs] = useState<Tabs>(() => readJson(session, tabsKey, { tabs: [], active: null }));
+  const [targets, setTargets] = useState<Record<string, Target>>({});
+  const [links, setLinks] = useState<Record<string, number>>({});
+  const [cursor, setCursor] = useState<Cursor | null>(null);
+  const [cmd, setCmd] = useState<Cmd>(null);
+  const [qo, setQo] = useState(false);
+  const [screen, setScreen] = useState<"side" | "editor">(() => (parseDeepLink(route.arg) ? "editor" : "side"));
+  const [reveal, setReveal] = useState(0);
+  const [searchFocus, setSearchFocus] = useState(0);
+  const [filterFocus, setFilterFocus] = useState(0);
+  const [against, setAgainst] = useState<"head" | "base">("head");
+  const [mode, setMode] = useState<DiffMode>(() => readJson(local, "keel2.repo.diff", "inline"));
+  const [wrap, setWrap] = useState<boolean>(() => readJson(local, "keel2.repo.wrap", false));
+  const [dims, setDims] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  const changes = useLoad(`changes:${pid}`, () => api.changes(pid));
+  const byPath = useMemo(() => new Map((changes.data ?? []).map((c) => [c.path, c])), [changes.data]);
+  const active = tabs.tabs.find((t) => t.id === tabs.active) ?? null;
+  const activeFile = active?.kind === "file" ? active.path : null;
+  const meta = useLoad(activeFile ? `file:${pid}:${activeFile}` : null, () => api.file(pid, activeFile!));
+  const metaData = meta.data && meta.data.path === activeFile ? meta.data : null;
+  const kind = metaData ? kindOf(metaData) : null;
+  const view: View = active?.view ?? "code";
+  const showText = !!metaData && (kind === "text" || (kind === "image" && extOf(metaData.path) === "svg" && view === "code"));
+  const text = useFileText(pid, metaData, showText && (view === "code" || view === "preview"));
+  const phone = narrow;
+  const diffMode: DiffMode = phone ? "inline" : mode;
+
+  useEffect(() => writeJson(session, tabsKey, { tabs: tabs.tabs.filter((t) => t.kind !== "doctor"), active: tabs.active }), [tabs, tabsKey]);
+  useEffect(() => writeJson(local, "keel2.repo.side", width), [width]);
+  useEffect(() => writeJson(local, "keel2.repo.diff", mode), [mode]);
+  useEffect(() => writeJson(local, "keel2.repo.wrap", wrap), [wrap]);
+  useEffect(() => {
+    setCursor(null);
+    setDims("");
+  }, [active?.id]);
+
+  const open = useCallback((spec: OpenSpec, o: { pin?: boolean; line?: number; col?: number; len?: number } = {}) => {
+    setTabs((t) => openTab(t, spec, o.pin));
+    const id = tabId(spec);
+    if (o.line) {
+      setTargets((x) => ({ ...x, [id]: { line: o.line!, col: o.col, len: o.len, n: Date.now() } }));
+      setLinks((x) => ({ ...x, [id]: o.line! }));
+    }
+    setScreen("editor");
+  }, []);
+
+  const openFile = useCallback((path: string, pin = false, view?: View) => open({ path, view }, { pin }), [open]);
+
+  // a deep link (#/repo/<path>:<line>) opens that file at that line — on load and on every hash change, also when
+  // it names the same file again after the URL followed other tabs
+  useEffect(() => {
+    const follow = () => {
+      const r = parseHash(location.hash);
+      const link = r.page === "repo" ? parseDeepLink(r.arg) : null;
+      if (link) open({ path: link.path, view: "code" }, { line: link.line });
+    };
+    follow();
+    window.addEventListener("hashchange", follow);
+    return () => window.removeEventListener("hashchange", follow);
+  }, [open]);
+
+  // the URL follows the active tab (replaceState: no history entry per click)
+  useEffect(() => {
+    if (route.page !== "repo") return;
+    const want = active?.kind === "file" ? repoHash(active.path, links[active.id]) : "#/repo";
+    if (location.hash !== want) {
+      try {
+        history.replaceState(history.state, "", want);
+      } catch {
+        /* sandboxed */
+      }
+    }
+  }, [active, links, route.page]);
+
+  const showSide = useCallback((a: Activity) => {
+    setActivity(a);
+    setSideOpen(true);
+    setScreen("side");
+  }, []);
+
+  const codeActive = !!active && active.kind === "file" && view === "code" && showText;
+
+  // keyboard: ⌘/Ctrl+P quick open, +Shift+F search, +Shift+E explorer, +Shift+G source control, +F find, +G go to line, Alt+Z wrap
+  useEffect(() => {
+    const on = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      const k = e.key.toLowerCase();
+      if (e.altKey && !mod && e.code === "KeyZ") {
+        e.preventDefault();
+        setWrap((w) => !w);
+        return;
+      }
+      if (!mod || e.altKey) return;
+      if (!e.shiftKey && k === "p") {
+        e.preventDefault();
+        setQo(true);
+      } else if (e.shiftKey && k === "f") {
+        e.preventDefault();
+        showSide("search");
+        setSearchFocus((n) => n + 1);
+      } else if (e.shiftKey && k === "e") {
+        e.preventDefault();
+        showSide("explorer");
+        setFilterFocus((n) => n + 1);
+      } else if (e.shiftKey && k === "g") {
+        e.preventDefault();
+        showSide("scm");
+      } else if (!e.shiftKey && (k === "f" || k === "g") && codeActive) {
+        e.preventDefault();
+        setCmd({ kind: k === "f" ? "find" : "goto", n: Date.now() });
+      }
+    };
+    window.addEventListener("keydown", on);
+    return () => window.removeEventListener("keydown", on);
+  }, [showSide, codeActive]);
+
+  // the IDE fills the window below the page head (measured again when the head grows, e.g. a merge result)
+  useLayoutEffect(() => {
+    const el = root.current;
+    if (!el) return;
+    const set = () => el.style.setProperty("--ide-top", `${Math.max(0, el.getBoundingClientRect().top + window.scrollY)}px`);
+    set();
+    window.addEventListener("resize", set);
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(set) : null;
+    if (el.parentElement) ro?.observe(el.parentElement);
+    const head = el.parentElement?.firstElementChild;
+    if (head && head !== el) ro?.observe(head);
+    return () => {
+      window.removeEventListener("resize", set);
+      ro?.disconnect();
+    };
+  }, []);
+
+  // the breadcrumbs keep the file name in view, the tab strip the active tab
+  const crumbsRef = useRef<HTMLElement>(null);
+  const tabsRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const c = crumbsRef.current;
+    if (c) c.scrollLeft = c.scrollWidth;
+  });
+  useEffect(() => {
+    const strip = tabsRef.current;
+    const on = strip?.querySelector<HTMLElement>('[aria-selected="true"]');
+    if (!strip || !on) return;
+    if (on.offsetLeft < strip.scrollLeft) strip.scrollLeft = on.offsetLeft;
+    else if (on.offsetLeft + on.offsetWidth > strip.scrollLeft + strip.clientWidth) strip.scrollLeft = on.offsetLeft + on.offsetWidth - strip.clientWidth;
+  }, [tabs.active, tabs.tabs.length, screen]);
+
+  const close = (id: string) => setTabs((t) => closeTab(t, id));
+
+  // the splitter: drag, or arrows when focused
+  const drag = (e: RPointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const start = width;
+    const move = (ev: PointerEvent) => setWidth(Math.min(640, Math.max(180, start + ev.clientX - startX)));
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      document.body.classList.remove("ide-dragging");
+    };
+    document.body.classList.add("ide-dragging");
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
+  const change = activeFile ? byPath.get(activeFile) : undefined;
+  const deco = decoOf(change);
+  const remoteUrl = activeFile ? webUrl(repo?.remote, repo?.branch, activeFile, links[active!.id]) : null;
+  const names = useMemo(() => {
+    const count = new Map<string, number>();
+    for (const t of tabs.tabs) count.set(tabTitle(t), (count.get(tabTitle(t)) ?? 0) + 1);
+    return count;
+  }, [tabs.tabs]);
+
+  const sideView = (
+    <>
+      <div hidden={activity !== "explorer"} className="sv-host">
+        <Explorer pid={pid} title={project?.name ?? pid} root={project?.root} changes={changes.data ?? []} active={activeFile} reveal={reveal} focusFilter={filterFocus}
+          onOpen={(p, pin) => openFile(p, pin)} />
+      </div>
+      <div hidden={activity !== "search"} className="sv-host">
+        <SearchView pid={pid} focus={searchFocus} onOpen={(p, line, col, len, pin) => open({ path: p, view: "code" }, { pin, line, col, len })} />
+      </div>
+      <div hidden={activity !== "scm"} className="sv-host">
+        <ScmView pid={pid} repo={repo} changes={changes.data} changesError={changes.error}
+          onOpenChange={(p, pin) => openFile(p, pin, "diff")}
+          onOpenCommitFile={(sha, p, pin) => open({ kind: "commit", path: p, sha, view: "diff" }, { pin })}
+          onDoctor={() => open({ kind: "doctor", path: "doctor" }, { pin: true })} />
+      </div>
+      <div hidden={activity !== "keel"} className="sv-host">
+        <KeelView pid={pid} file={metaData} fileError={activeFile ? meta.error : null}
+          onOpenDocs={() => open({ kind: "docs", path: "docs" }, { pin: true })}
+          onOpenMemory={() => open({ kind: "memory", path: "memory" }, { pin: true })} />
+      </div>
+    </>
+  );
+
+  // ---------- the editor body for the active tab ----------
+  let body: JSX.Element;
+  if (!active) {
+    body = (
+      <div className="ed-empty">
+        <svg viewBox="0 0 120 68" width="88" aria-hidden="true"><path fill="var(--accent)" opacity=".18" d="M4 0H116Q120 0 119.4 4C118 22 92 38 66.6 50Q64 51.5 64 54L62.2 64.5Q61.8 67 60 67Q58.2 67 57.8 64.5L56 54Q56 51.5 53.4 50C28 38 2 22 .6 4Q0 0 4 0Z" /></svg>
+        <p>Pick a file in the Explorer, or find one by name.</p>
+        <dl className="ed-keys">
+          <dt>Find a file</dt><dd><kbd>{MOD}P</kbd></dd>
+          <dt>Search every file</dt><dd><kbd>{MOD}{isMac ? "⇧" : "Shift+"}F</kbd></dd>
+          <dt>Changed files</dt><dd><kbd>{MOD}{isMac ? "⇧" : "Shift+"}G</kbd></dd>
+          <dt>Find in the open file</dt><dd><kbd>{MOD}F</kbd></dd>
+          <dt>Go to a line</dt><dd><kbd>{MOD}G</kbd></dd>
+        </dl>
+      </div>
+    );
+  } else if (active.kind === "docs") {
+    body = <DocsView pid={pid} onOpen={(p) => openFile(p, true)} />;
+  } else if (active.kind === "memory") {
+    body = <MemoryView pid={pid} />;
+  } else if (active.kind === "doctor") {
+    body = <div className="ed-doc"><WorkspaceDoctor pid={pid} onClean={() => void changes.reload()} /></div>;
+  } else if (active.kind === "commit") {
+    body = <DiffPane pid={pid} path={active.path} against="head" sha={active.sha} mode={diffMode} />;
+  } else if (view === "diff") {
+    body = <DiffPane pid={pid} path={active.path} against={against} mode={diffMode} />;
+  } else if (meta.error && !metaData) {
+    body = <div className="ed-note"><ErrorBox error={meta.error} onRetry={() => void meta.reload()} /></div>;
+  } else if (!metaData) {
+    body = <div className="ed-note"><span className="pg-spin" role="status">Opening {nameOf(active.path)}…</span></div>;
+  } else if (kind === "image" && !(extOf(metaData.path) === "svg" && view === "code")) {
+    body = <ImagePane pid={pid} path={metaData.path} size={metaData.size} onDims={setDims} />;
+  } else if (kind === "binary") {
+    body = <Notice title={`${nameOf(metaData.path)} is a binary file (${bytes(metaData.size)}).`}>keel shows text files and images only.</Notice>;
+  } else if (kind === "big") {
+    body = (
+      <div className="ed-big">
+        <Notice title={`Too big to show: ${bytes(metaData.size)}.`}>keel shows text files up to {bytes(TEXT_MAX)}. Here are its first lines; search finds text anywhere in it.</Notice>
+        <CodeView text={metaData.head} path={metaData.path} wrap={false} target={null} cmd={null} onCursor={setCursor} onLink={() => undefined} scrollKey={`${active.id}:head`} />
+      </div>
+    );
+  } else if (!text) {
+    body = <div className="ed-note"><span className="pg-spin" role="status">Opening {nameOf(active.path)}…</span></div>;
+  } else if ("error" in text) {
+    body = <div className="ed-note"><ErrorBox error={text.error} /></div>;
+  } else if (view === "preview" && canPreview(metaData.path)) {
+    body = <MarkdownPane text={text.text} />;
+  } else {
+    body = (
+      <CodeView text={text.text} path={metaData.path} wrap={wrap} target={targets[active.id] ?? null} cmd={cmd}
+        onCursor={setCursor} onLink={(n) => setLinks((x) => ({ ...x, [active.id]: n }))} scrollKey={active.id} />
+    );
+  }
+
+  const fileTab = active?.kind === "file";
+  const lines = text && "text" in text ? text.text : "";
+  const eol = lines.includes("\r\n") ? "CRLF" : "LF";
+  const lineCount = useMemo(() => (lines ? lines.split("\n").length : 0), [lines]);
+  const segs = active && (active.kind === "file" || active.kind === "commit") ? active.path.split("/") : [];
+
+  const toolbar = fileTab && active && (
+    <div className="ed-tools" role="toolbar" aria-label="Editor">
+      {canPreview(active.path) && view !== "diff" && (
+        <button type="button" className={`tb${view === "preview" ? " on" : ""}`} aria-pressed={view === "preview"} aria-label="Preview" title="Preview"
+          onClick={() => setTabs((t) => setView(t, active.id, view === "preview" ? "code" : "preview"))}>
+          <Icon name="preview" size={15} /><span>Preview</span>
+        </button>
+      )}
+      {extOf(active.path) === "svg" && view !== "diff" && (
+        <button type="button" className={`tb${view === "code" ? " on" : ""}`} aria-pressed={view === "code"} aria-label="Source" title="Show the source"
+          onClick={() => setTabs((t) => setView(t, active.id, view === "code" ? "preview" : "code"))}>
+          <Icon name="files" size={15} /><span>Source</span>
+        </button>
+      )}
+      <button type="button" className={`tb${view === "diff" ? " on" : ""}`} aria-pressed={view === "diff"} aria-label="Changes"
+        title={change ? "Show what changed" : "Compare with HEAD or the base branch"}
+        onClick={() => setTabs((t) => setView(t, active.id, view === "diff" ? "code" : "diff"))}>
+        <Icon name="diff" size={15} /><span>Changes</span>
+      </button>
+      {view === "diff" && (
+        <span className="seg" role="group" aria-label="Compare with">
+          <button type="button" aria-pressed={against === "head"} onClick={() => setAgainst("head")} title="Uncommitted changes (work tree against HEAD)">HEAD</button>
+          <button type="button" aria-pressed={against === "base"} onClick={() => setAgainst("base")} title={`Everything this branch changed since ${repo?.base ?? "the base"}`}>{repo?.base ?? "base"}</button>
+        </span>
+      )}
+      {view === "diff" && !phone && (
+        <span className="seg" role="group" aria-label="Diff layout">
+          <button type="button" aria-pressed={mode === "inline"} onClick={() => setMode("inline")} title="Inline" aria-label="Inline"><Icon name="inline" size={14} /><span>Inline</span></button>
+          <button type="button" aria-pressed={mode === "split"} onClick={() => setMode("split")} title="Side by side" aria-label="Side by side"><Icon name="split" size={14} /><span>Side by side</span></button>
+        </span>
+      )}
+      {view === "code" && showText && (
+        <button type="button" className={`tb${wrap ? " on" : ""}`} aria-pressed={wrap} aria-label="Wrap" onClick={() => setWrap(!wrap)}
+          disabled={lineCount > WRAP_MAX} title={lineCount > WRAP_MAX ? `Wrap is off for files over ${WRAP_MAX.toLocaleString()} lines` : "Word wrap (Alt+Z)"}>
+          <Icon name="wrap" size={15} /><span>Wrap</span>
+        </button>
+      )}
+      <button type="button" className="tb" aria-label="Copy the path" title="Copy the path"
+        onClick={() => {
+          void navigator.clipboard?.writeText(active.path).then(() => {
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1400);
+          }, () => undefined);
+        }}>
+        <Icon name="copy" size={15} /><span>{copied ? "Copied" : "Path"}</span>
+      </button>
+      {remoteUrl && <a className="tb" href={remoteUrl} target="_blank" rel="noreferrer" title="Open this file on the remote" aria-label="Open on the remote"><Icon name="link" size={15} /><span>Remote</span></a>}
+    </div>
+  );
+
+  const ide = {
+    "--side-w": `${width}px`,
+  } as CSSProperties;
+
+  return (
+    <div ref={root} className={`ide${phone ? ` phone s-${screen}` : ""}${sideOpen ? "" : " side-closed"}`} style={ide}>
+      <nav className="ide-act" aria-label="Repo views">
+        {ACTIVITIES.map(([id, label, icon, key, short]) => {
+          const n = id === "scm" ? changes.data?.length ?? 0 : 0;
+          return (
+            <button key={id} type="button" className={`act${activity === id && sideOpen ? " on" : ""}`} aria-pressed={activity === id && sideOpen}
+              aria-label={label} title={key ? `${label} (${MOD}${key})` : label}
+              onClick={() => {
+                if (!phone && activity === id && sideOpen) setSideOpen(false);
+                else showSide(id);
+              }}>
+              <Icon name={icon} size={22} />
+              {phone && <span className="act-l" aria-hidden="true">{short}</span>}
+              {n > 0 && <span className="act-n" aria-label={`${n} changed`}>{n > 99 ? "99+" : n}</span>}
+            </button>
+          );
+        })}
+      </nav>
+      <aside className="ide-side" aria-label={ACTIVITIES.find((a) => a[0] === activity)?.[1]}>{sideView}</aside>
+      {!phone && sideOpen && (
+        <div className="ide-split" role="separator" aria-orientation="vertical" aria-label="Resize the side bar" tabIndex={0}
+          aria-valuenow={width} aria-valuemin={180} aria-valuemax={640} onPointerDown={drag}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowLeft") setWidth((w) => Math.max(180, w - 16));
+            if (e.key === "ArrowRight") setWidth((w) => Math.min(640, w + 16));
+          }} />
+      )}
+      <section className="ide-main" aria-label="Editor">
+        <div className="ed-head">
+          {phone && (
+            <button type="button" className="ed-back" onClick={() => setScreen("side")} aria-label="Back to the files">
+              <Icon name="back" size={18} /><span>{ACTIVITIES.find((a) => a[0] === activity)?.[1]}</span>
+            </button>
+          )}
+          <div ref={tabsRef} className="ed-tabs" role="tablist" aria-label="Open files">
+            {tabs.tabs.map((t) => {
+              const title = tabTitle(t);
+              const dup = (names.get(title) ?? 0) > 1 && t.kind === "file";
+              const tdeco = t.kind === "file" ? decoOf(byPath.get(t.path)) : undefined;
+              const on = t.id === tabs.active;
+              return (
+                <div key={t.id} role="tab" aria-selected={on} tabIndex={on ? 0 : -1} title={t.kind === "file" || t.kind === "commit" ? t.path : title}
+                  className={`ed-tab${on ? " on" : ""}${t.preview ? " preview" : ""}${tdeco ? ` t-${tdeco.tone}` : ""}`}
+                  onClick={() => setTabs((x) => ({ ...x, active: t.id }))}
+                  onDoubleClick={() => setTabs((x) => pinTab(x, t.id))}
+                  onMouseDown={(e) => e.button === 1 && e.preventDefault()}
+                  onAuxClick={(e) => {
+                    if (e.button === 1) {
+                      e.preventDefault();
+                      close(t.id);
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    const i = tabs.tabs.findIndex((x) => x.id === t.id);
+                    const go = (j: number) => {
+                      const n = tabs.tabs[(j + tabs.tabs.length) % tabs.tabs.length];
+                      setTabs((x) => ({ ...x, active: n.id }));
+                      window.setTimeout(() => (e.currentTarget.parentElement?.querySelector('[aria-selected="true"]') as HTMLElement | null)?.focus(), 0);
+                    };
+                    if (e.key === "ArrowRight") go(i + 1);
+                    if (e.key === "ArrowLeft") go(i - 1);
+                    if (e.key === "Delete") close(t.id);
+                    if (e.key === "Enter") setTabs((x) => pinTab(x, t.id));
+                  }}>
+                  {t.kind === "file" || t.kind === "commit" ? <FileIcon name={nameOf(t.path)} /> : <Icon name={t.kind === "doctor" ? "refresh" : t.kind === "memory" ? "history" : "keel"} size={15} />}
+                  <span className="ed-tab-n">{title}</span>
+                  {dup && <span className="ed-tab-d">{t.path.split("/").slice(-2, -1)[0]}</span>}
+                  {t.kind === "file" && t.view === "diff" && <span className="ed-tab-v">diff</span>}
+                  {tdeco && <span className={`ed-tab-m t-${tdeco.tone}`} aria-label={tdeco.title}>{tdeco.letter}</span>}
+                  <button type="button" className="ed-tab-x" aria-label={`Close ${title}`} title="Close (middle-click)"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      close(t.id);
+                    }}><Icon name="close" size={14} /></button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        {active && (segs.length > 0 || toolbar) && (
+          <div className="ed-bar">
+            {segs.length > 0 && (
+              <nav ref={crumbsRef} className="crumbs" aria-label="Path">
+                {segs.map((s, i) => (
+                  <span key={i} className="crumb-i">
+                    {i > 0 && <span className="crumb-sep" aria-hidden="true">›</span>}
+                    {i < segs.length - 1
+                      ? <button type="button" className="crumb-b" onClick={() => { showSide("explorer"); setReveal((n) => n + 1); }} title="Reveal in the Explorer">{s}</button>
+                      : <b className="crumb-f">{active.kind === "commit" ? `${s} @ ${active.sha?.slice(0, 7)}` : s}</b>}
+                  </span>
+                ))}
+              </nav>
+            )}
+            {toolbar}
+          </div>
+        )}
+        <div className="ed-body">{body}</div>
+      </section>
+      <footer className="sb" aria-label="Status bar">
+        <button type="button" className="sb-i sb-branch" onClick={() => showSide("scm")} title={repo ? `${repo.branch}: ${repo.ahead} ahead of ${repo.base}, ${repo.behind} behind` : "Branch"}>
+          <Icon name="branch" size={14} /><span>{repo?.branch ?? "…"}</span>
+        </button>
+        {repo && repo.base !== repo.branch && <span className="sb-i" title={`${repo.ahead} commits ahead of ${repo.base}, ${repo.behind} behind`}>↑{repo.ahead} ↓{repo.behind}</span>}
+        {(changes.data?.length ?? 0) > 0 && (
+          <button type="button" className="sb-i" onClick={() => showSide("scm")} title="Uncommitted files">● {changes.data!.length} uncommitted</button>
+        )}
+        <span className="sb-sp" />
+        {fileTab && metaData && (
+          <>
+            {showText && cursor && view === "code" && (
+              <button type="button" className="sb-i" onClick={() => setCmd({ kind: "goto", n: Date.now() })} title={`Go to line (${MOD}G)`}>Ln {cursor.line}, Col {cursor.col}</button>
+            )}
+            {dims && kind === "image" && <span className="sb-i">{dims}</span>}
+            {showText && <span className="sb-i sb-wide">UTF-8</span>}
+            {showText && <span className="sb-i sb-wide">{eol}</span>}
+            <span className="sb-i sb-wide">{languageName(metaData.path)}</span>
+            {deco && <span className={`sb-i sb-st t-${deco.tone}`} title={deco.title}>{deco.letter} {deco.title.split(" (")[0]}</span>}
+            {metaData.ac && <span className="sb-i" title={`Changed on this branch for ${metaData.ac}`}>{metaData.ac}</span>}
+            <button type="button" className={`sb-i sb-rule${metaData.frozen ? " frozen" : ""}`} onClick={() => showSide("keel")} title={ruleText(metaData)}>
+              {metaData.frozen && <Icon name="lock" size={12} />}
+              <span>{metaData.phase && metaData.phase !== "none" ? `${metaData.phase}: ${metaData.frozen ? "frozen" : metaData.verdict === "allow" ? "editable" : metaData.verdict}` : "no flow"}</span>
+            </button>
+          </>
+        )}
+        {project && !fileTab && <span className="sb-i sb-wide">{project.name}</span>}
+      </footer>
+      {qo && (
+        <QuickOpen pid={pid} hasFile={codeActive} onClose={() => setQo(false)}
+          onOpen={(p, pin) => openFile(p, pin)}
+          onGoto={(line) => active && setTargets((x) => ({ ...x, [active.id]: { line, n: Date.now() } }))} />
+      )}
+    </div>
+  );
+}

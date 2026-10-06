@@ -16,6 +16,7 @@ beforeEach(() => {
   server.resetHandlers(...handlers(db));
   (globalThis as unknown as { __db: Db }).__db = db;
   localStorage.clear();
+  sessionStorage.clear();
   location.hash = "";
   FakeEventSource.instances = [];
   audioLog.length = 0;
