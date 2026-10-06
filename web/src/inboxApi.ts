@@ -18,7 +18,8 @@ export type InboxItem = {
   /** cut to ~700 characters; `more` = the Flow page shows the rest */
   detail: string;
   more: boolean;
-  options: ("approve" | "reject")[];
+  /** a flow pause: approve / reject; a Helper command (kind permission): once / always / deny */
+  options: ("approve" | "reject" | "once" | "always" | "deny")[];
   choices?: string[] | null;
   questions?: ClarifyQuestion[] | null;
   labels?: { approve?: string; reject?: string } | null;
@@ -33,6 +34,8 @@ export type InboxItem = {
   since?: string | null;
   /** v0.5.0: a task's item (kind task | jira-manual) instead of a flow's pause; answered with tasksApi.act. */
   task?: InboxTask | null;
+  /** v0.6.x: a Helper's command that waits for the person's OK (kind permission); answered with api.helperAnswer. */
+  permission?: { id: string; session: string; command: string; path?: string | null } | null;
 };
 export type InboxTask = {
   id: string; item_id: number; key: string | null; url: string | null; title: string; status: string; stage: string | null; pr_url: string | null;

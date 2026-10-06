@@ -46,7 +46,12 @@ data class InboxItem(
     val since: String?,
     /** v0.5.0: a task item (kind task | jira-manual) instead of a flow's pause; answered with POST /api/inbox/tasks/{item_id}/act. */
     val task: InboxTask? = null,
+    /** v0.6.x: a Helper's command that waits for the person's OK (kind permission); answered with
+     *  POST /api/projects/{pid}/helper/permissions/{id} (once | always | deny). */
+    val permission: InboxPermission? = null,
 )
+
+data class InboxPermission(val id: String, val session: String, val command: String, val path: String?)
 
 data class InboxTask(
     val id: String,
@@ -100,14 +105,30 @@ class InboxService(
     /** Cheap: the database only (for a badge). */
     fun count(): InboxCount {
         val listed = projects.rows().map { it.id }.toSet()
-        val pids = waitingRows().map { it.pid } + tasks.openItemsAll().map { it.projectId }.filter { it in listed }
+        val pids = waitingRows().map { it.pid } + tasks.openItemsAll().map { it.projectId }.filter { it in listed } +
+            helperQuestions().map { it.path("project").asText() }.filter { it in listed }
         return InboxCount(pids.size, pids.groupingBy { it }.eachCount())
     }
+
+    /** The Helper's commands that wait for the person (the engine keeps them in memory); none when the engine is down. */
+    private fun helperQuestions(): List<JsonNode> = runCatching { engine.get("/helper/permissions").toList() }.getOrDefault(emptyList())
+
+    private fun permissionItem(q: JsonNode, projectName: String): InboxItem = InboxItem(
+        projectId = q.path("project").asText(), projectName = projectName, threadId = q.path("session").asText(),
+        flow = q.path("title").asText("Helper"), workflowId = null, step = "permission", kind = "permission",
+        title = "The Helper asks to run a command", detail = q.path("command").asText().take(DETAIL_MAX),
+        more = q.path("command").asText().length > DETAIL_MAX, options = listOf("once", "always", "deny"), id = q.path("id").asText(),
+        since = q.path("at").asText(null),
+        permission = InboxPermission(q.path("id").asText(), q.path("session").asText(), q.path("command").asText(),
+            q.path("path").asText("").ifBlank { null }),
+    )
 
     fun list(project: String? = null, kind: String? = null): InboxView {
         val names = projects.rows().associate { it.id to it.name }
         val taskItems = tasks.openItemsAll().filter { it.projectId in names }.mapNotNull { taskItem(it, names.getValue(it.projectId)) }
-        val all = (waitingRows().mapNotNull { item(it, names[it.pid] ?: it.pid) } + taskItems).sortedBy { it.since ?: "" }
+        val askItems = helperQuestions().filter { it.path("project").asText() in names }
+            .map { permissionItem(it, names.getValue(it.path("project").asText())) }
+        val all = (waitingRows().mapNotNull { item(it, names[it.pid] ?: it.pid) } + taskItems + askItems).sortedBy { it.since ?: "" }
         val items = all.filter { (project.isNullOrBlank() || it.projectId == project) && (kind.isNullOrBlank() || it.kind == kind) }
         val perProject = all.groupingBy { it.projectId }.eachCount()
         return InboxView(items, all.size, all.map { it.kind }.distinct().sorted(),

@@ -1,11 +1,13 @@
 // keel's Helper in the Repo page: a chat with an agent that reads this project and answers with file:line links,
-// inside keel's rules (Ask mode changes nothing). Sessions are the engine's; each answer is one agent call, so its
-// steps stream live (helper.step events) and its tokens count in the budget bar. ⌘I opens it from the Repo page.
+// inside keel's rules. Ask mode changes nothing; Fix mode (while a flow waits at a gate) changes files inside the
+// phase's rules, asks before a command that changes something, and commits through keel's Done. Sessions are the
+// engine's; each answer is one agent call, so its steps stream live (helper.step events) and its tokens count in the
+// budget bar. ⌘I opens it from the Repo page.
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import {
-  api, errorParts, type GraphHit, type HelperCommand, type HelperMention, type HelperMessage, type HelperSelection,
-  type HelperSession, type JobStep, type Model,
+  api, errorParts, type GraphHit, type HelperCommand, type HelperDone, type HelperMention, type HelperMessage, type HelperMode,
+  type HelperSelection, type HelperSession, type JobStep, type Model,
 } from "../../api";
 import { modelLabel, provLabel } from "../../format";
 import { rankFiles } from "../../pages/repo/model";
@@ -14,6 +16,7 @@ import { Markdown } from "../Markdown";
 import { ModelPicker } from "../ModelPicker";
 import { mergeSteps } from "../StepFeed";
 import { StepView } from "../StepView";
+import { ChangesBox, DoneFailed, fixRequest, PermissionCard } from "./FixParts";
 import { fileLink, messageTokens, replaceTyping, sessionTokens, starters, typingAt, usageText, type Typing } from "./model";
 
 type Props = {
@@ -24,6 +27,8 @@ type Props = {
   selection?: HelperSelection | null;
   onClearSelection?: () => void;
   onOpenFile: (path: string, line?: number) => void;
+  /** Fix mode: open a changed file in the editor's Changes view */
+  onOpenDiff?: (path: string) => void;
   onClose: () => void;
   /** grows each time the Repo page wants the input focused (⌘I) */
   focusKey?: number;
@@ -104,7 +109,7 @@ function UserMessage({ m }: { m: HelperMessage }) {
   );
 }
 
-export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpenFile, onClose, focusKey = 0 }: Props) {
+export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpenFile, onOpenDiff, onClose, focusKey = 0 }: Props) {
   const { recent, liveSteps, toast, tick } = useApp();
   const [sid, setSidState] = useState<string | null>(() => read(sidKey(pid)));
   const setSid = useCallback((v: string | null) => { setSidState(v); write(sidKey(pid), v); }, [pid]);
@@ -112,6 +117,13 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   const sess = useLoad(sid ? `helper:${pid}:${sid}` : null, () => api.helperSession(pid, sid!), { live: false });
   const cmds = useLoad(`helper:${pid}:commands`, () => api.helperCommands(pid), { live: false });
   const flow = useLoad(`helper:${pid}:flow`, () => api.flow(pid), { live: false });
+  const flowWaits = flow.data?.thread?.status === "waiting";
+  // Fix needs a flow that waits at a gate and does not run read-only (the api refuses it otherwise)
+  const readonlyRun = flow.data?.thread?.run_mode === "readonly";
+  const fixable = flowWaits && !readonlyRun;
+  const [newMode, setNewMode] = useState<HelperMode>("ask");
+  const [doneBusy, setDoneBusy] = useState(false);
+  const [failed, setFailed] = useState<Extract<HelperDone, { ok: false }> | null>(null);
   const [text, setText] = useState("");
   const [caret, setCaret] = useState(0);
   const [mentions, setMentions] = useState<HelperMention[]>([]);
@@ -130,6 +142,12 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
 
   const s: HelperSession | null = sess.data ?? null;
   const messages = s?.messages ?? [];
+  const mode: HelperMode = s?.mode ?? newMode;
+  const fix = mode === "fix";
+  const changes = useLoad(sid && fix ? `helper:${pid}:${sid}:changes` : null, () => api.helperChanges(pid, sid!), { live: false });
+  // commands that wait for the person's OK (this project's; the cards show this chat's)
+  const perms = useLoad(`helper:${pid}:perms`, () => api.helperPermissions(pid), { live: false });
+  const asks = (perms.data ?? []).filter((q) => q.session === sid);
   // the running answer: the one this page started, else the one an earlier page started (helper.started event)
   const runningCall = useMemo(() => {
     if (pending) return pending.call;
@@ -142,7 +160,15 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   // the tab was hidden) and every 5 s, so a missed helper.finished never leaves the panel "working".
   useEffect(() => {
     if (runningCall) void sess.reload();
+    if (runningCall && fix) void changes.reload();
   }, [tick]); // eslint-disable-line react-hooks/exhaustive-deps
+  // a question came or went (here, in the Inbox, or another tab): read the cards again
+  const askedAt = useMemo(() => [...recent].reverse().find((e) => e.type === "helper.permission" || e.type === "helper.permission.answered")?.at,
+    [recent]);
+  useEffect(() => { void perms.reload(); }, [askedAt]); // eslint-disable-line react-hooks/exhaustive-deps
+  // the flow moved (approved, sent back, finished): Fix mode follows it
+  const flowAt = useMemo(() => [...recent].reverse().find((e) => e.type.startsWith("gate.") || e.type.startsWith("thread."))?.at, [recent]);
+  useEffect(() => { if (flowAt) void flow.reload(); }, [flowAt]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!runningCall) return;
     const t = window.setInterval(() => void sess.reload(), 5000);
@@ -162,6 +188,8 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
     setPending(null);
     void sess.reload();
     void list.reload();
+    void perms.reload();
+    if (fix) void changes.reload();
   }, [finishedAt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // keep the newest message in view
@@ -222,7 +250,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
 
   const ensureSession = async (): Promise<string> => {
     if (sid && s) return sid;
-    const created = await api.helperCreate(pid, { mode: "ask" });
+    const created = await api.helperCreate(pid, { mode });
     setSid(created.id);
     void list.reload();
     return created.id;
@@ -262,11 +290,46 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
     }
   };
 
-  const newChat = () => {
+  const newChat = (m: HelperMode = mode) => {
+    setNewMode(m === "fix" && !fixable ? "ask" : m);
     setSid(null);
     setPending(null);
+    setFailed(null);
     setText("");
     input.current?.focus();
+  };
+
+  // Ask and Fix are different chats: switching starts a new one (the old one stays in the list)
+  const switchMode = (m: HelperMode) => {
+    if (m === mode) return;
+    if (s || sid) newChat(m);
+    else setNewMode(m);
+  };
+
+  const undo = async (path?: string) => {
+    if (!sid) return;
+    try {
+      changes.setData(await api.helperUndo(pid, sid, path));
+    } catch (e) {
+      toast(`Not undone: ${errorParts(e).message}`);
+    }
+  };
+
+  const done = async () => {
+    if (!sid) return;
+    setDoneBusy(true);
+    setFailed(null);
+    try {
+      const res = await api.helperDone(pid, sid);
+      if (res.ok) toast(`keel committed ${res.files.length} file${res.files.length === 1 ? "" : "s"} (${res.sha.slice(0, 7)}).`);
+      else setFailed(res);
+      await Promise.all([changes.reload(), sess.reload()]);
+    } catch (e) {
+      const p = errorParts(e);
+      toast(p.hint ? `${p.message} ${p.hint}` : p.message);
+    } finally {
+      setDoneBusy(false);
+    }
   };
 
   const remove = async () => {
@@ -309,22 +372,36 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   };
 
   const busy = !!runningCall || sending;
-  const flowWaits = flow.data?.thread?.status === "waiting";
   const model = s?.model;
+  const thread = flow.data?.thread ?? null;
+  // Fix mode works on the flow that waited when the chat began; once that flow moved on, Done cannot commit here
+  const moved = fix && !!s?.thread_id && !(thread?.thread_id === s.thread_id && thread.status === "waiting");
+  const phase = thread?.phase && thread.phase !== "none" ? thread.phase : null;
+  const noHook = fix && !!model && ["codex", "copilot"].includes(model.provider);
 
   return (
     <aside className="hp" aria-label="Helper">
       <header className="hp-head">
         <div className="hp-title">
           <b>Helper</b>
-          <span className="hp-mode" title="Ask mode: the Helper reads and answers; it changes no file">Ask · read only</span>
+          <div className="hp-modes" role="group" aria-label="Mode">
+            <button type="button" aria-pressed={!fix} onClick={() => switchMode("ask")}
+              title="Ask: the Helper reads and answers; it changes no file">Ask</button>
+            <button type="button" aria-pressed={fix} disabled={!fix && !fixable} onClick={() => switchMode("fix")}
+              title={fix || fixable ? "Fix: the Helper changes files at this gate, inside the phase's rules"
+                : readonlyRun ? "This flow runs read-only: change its run mode on the Flow page to let the Helper edit"
+                  : "Fix works while a flow waits at a gate"}>Fix</button>
+          </div>
+          {fix
+            ? <span className="hp-mode fix" title="Fix mode: keel's rules of this phase apply">Fix{phase ? ` · ${phase}` : ""}</span>
+            : <span className="hp-mode" title="Ask mode: the Helper reads and answers; it changes no file">Ask · read only</span>}
         </div>
         <div className="hp-tools">
           <button type="button" className="hp-tb" onClick={() => setShowModel((v) => !v)} aria-expanded={showModel}
             title="The model that answers" aria-label="Model">
             {model ? `${provLabel(model.provider)} ${modelLabel(model)}` : "Model"}
           </button>
-          <button type="button" className="hp-tb" onClick={newChat} title="Start a new chat" aria-label="New chat">New</button>
+          <button type="button" className="hp-tb" onClick={() => newChat()} title="Start a new chat" aria-label="New chat">New</button>
           <button type="button" className="hp-tb hp-x" onClick={onClose} title="Close the Helper (⌘I)" aria-label="Close the Helper">×</button>
         </div>
       </header>
@@ -345,8 +422,29 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
         {s && <button type="button" className="hp-tb" onClick={() => void remove()} aria-label="Delete this chat" title="Delete this chat">Delete</button>}
       </div>
 
+      {fix && (
+        <div className={`hp-fixbar${moved ? " moved" : ""}`}>
+          {moved
+            ? <p><b>The flow moved on.</b> This chat fixed at a gate that is no longer waiting, so Done cannot commit here. Undo what you do not want, or start a new chat.</p>
+            : <p>Fixing at the gate <b>{thread?.title ?? "…"}</b>{phase ? <> · phase <b>{phase}</b></> : null}. The phase's rules apply;
+              a command that changes something waits for your OK.</p>}
+          {noHook && <p className="hp-hint">Codex and Copilot run commands in their own sandbox, so keel cannot ask you first. keel's diff guard still checks every file.</p>}
+        </div>
+      )}
+
       <div ref={scroller} className="hp-body" role="log" aria-label="Conversation" aria-live="polite">
-        {!messages.length && !runningCall && (
+        {!messages.length && !runningCall && fix && (
+          <div className="hp-empty">
+            <p>Tell the Helper what to change for this gate. It edits the files here, inside the rules of the {phase ?? "flow's"} phase.
+              You see every changed file below, can undo it, and Done runs the checks and lets keel commit.</p>
+            <ul className="hp-starters">
+              {["/gate", "Make the change the reviewer asked for, then run the tests"].map((q) => (
+                <li key={q}><button type="button" onClick={() => void send(q)} disabled={busy}>{q}</button></li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {!messages.length && !runningCall && !fix && (
           <div className="hp-empty">
             <p>Ask about this project. The Helper reads the code, the knowledge pages, the map and the code graph, and links
               every answer to the lines. It changes nothing in Ask mode.</p>
@@ -372,6 +470,15 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
           <div className="hp-msg hp-help hp-live">
             <TurnSteps callId={runningCall} live={liveSteps[runningCall] ?? []} running />
           </div>
+        )}
+        {asks.map((q) => <PermissionCard key={q.id} pid={pid} q={q} onAnswered={() => void perms.reload()} />)}
+        {fix && !!changes.data?.length && (
+          <ChangesBox changes={changes.data} busy={doneBusy || busy}
+            onOpen={(p) => (onOpenDiff ? onOpenDiff(p) : onOpenFile(p))} onUndo={(p) => void undo(p)} onDone={() => void done()} />
+        )}
+        {failed && (
+          <DoneFailed res={failed} onClose={() => setFailed(null)}
+            onAskFix={() => { const t = fixRequest(failed); setFailed(null); void send(t); }} />
         )}
       </div>
 

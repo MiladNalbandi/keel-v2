@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Callable
 
 from .. import rules
-from ..runtime import run_mode
+from ..runtime import permissions, run_mode
 from . import testcmd
 
 MAX_READ = 60_000
@@ -36,7 +36,8 @@ class ToolBox:
     def __init__(self, root: str, phase: str, *, cfg: dict | None = None, lane: str | None = None,
                  ac: str | None = None, ac_layer: str = "API",
                  on_refuse: Callable[[str, str, str], None] | None = None, unlocks: list[dict] | None = None,
-                 agent: str = "", knowledge: dict | None = None, readonly: bool = False):
+                 agent: str = "", knowledge: dict | None = None, readonly: bool = False,
+                 ask: dict | None = None, asker: Callable[[str], tuple[bool, str]] | None = None):
         self.root = str(Path(root).resolve())
         self.phase = phase
         self.cfg = cfg or rules.load_config(self.root)
@@ -50,6 +51,10 @@ class ToolBox:
         self.knowledge = knowledge   # {sections, strict, ...}: with strict on, other docs/knowledge sections are refused
         self._reads: dict[str, tuple[int, int]] = {}   # what this run read (file|range → mtime, size)
         self.readonly = readonly     # run mode readonly: no write, no shell command that changes files or git
+        # the Helper's Fix mode: `ask` goes into the guard context (CLI hooks ask the engine), `asker` asks for this
+        # ToolBox's own commands (API-key models); both wait for the person's OK (runtime/permissions.py)
+        self.ask = ask
+        self.asker = asker
 
     def add_unlocks(self, new: list[dict]):
         """An unlock granted while this agent runs (the engine calls this for every running agent of the thread)."""
@@ -126,6 +131,10 @@ class ToolBox:
         if not v.ok:
             # path is the file the command tried to write (empty for a refused command with no target).
             return self._refuse("run_command", v.path, v.reason, command=command)
+        if self.asker and permissions.needs_ask(command):
+            ok, why = self.asker(command)
+            if not ok:
+                return self._refuse("run_command", "", why, command=command)
         code, out = testcmd.run(self.root, command, timeout=timeout, env=command_env())
         return f"exit {code}\n{out[-8000:]}"
 

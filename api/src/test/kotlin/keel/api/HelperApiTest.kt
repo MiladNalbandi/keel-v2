@@ -92,4 +92,77 @@ class HelperApiTest : ApiTest() {
         assertThat(get("/api/projects/$pid/budget/now").json()["today"]["tokens"].asLong()).isEqualTo(1500)
         assertThat(get("/api/projects/$pid/flow").json()["thread"].isNull).isTrue()
     }
+
+    private fun waitingFlow(pid: String, tid: String) {
+        engine.nextThreadIds.add(tid)
+        post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "Discount codes", "allow_fake" to true)).andExpect(status().isOk)
+        engine.overrides[tid] = mapOf("status" to "waiting", "title" to "Discount codes", "ac" to "AC-001", "phase" to "green",
+            "waiting" to mapOf("step" to "green", "kind" to "gate", "title" to "AC gate", "detail" to "tests 1/2 pass", "options" to listOf("approve", "reject")))
+    }
+
+    @Test
+    fun `fix mode needs a flow that waits, and sends its phase, criterion, unlocks and run mode`() {
+        val (pid, _) = newProject("helper-fix")
+        post("/api/projects/$pid/helper/sessions", mapOf("mode" to "fix")).andExpect(status().isConflict)
+        waitingFlow(pid, "t-fix-1")
+        val sid = post("/api/projects/$pid/helper/sessions", mapOf("mode" to "fix")).andExpect(status().isOk).json()["id"].asText()
+        assertThat(engine.lastBody("/helper/sessions")!!["thread_id"].asText()).isEqualTo("t-fix-1")
+        assertThat(engine.lastBody("/helper/sessions")!!["mode"].asText()).isEqualTo("fix")
+
+        post("/api/projects/$pid/helper/sessions/$sid/turn", mapOf("text" to "Make AC-001 pass")).andExpect(status().isOk)
+        val flow = engine.lastBody("/helper/sessions/$sid/turn")!!["flow"]
+        assertThat(flow["thread_id"].asText()).isEqualTo("t-fix-1")
+        assertThat(flow["phase"].asText()).isEqualTo("green")
+        assertThat(flow["ac"]["id"].asText()).isEqualTo("AC-001")
+        assertThat(flow["workflow"].asText()).isEqualTo("feature")
+        assertThat(flow["run_mode"].asText()).isEqualTo("manual")
+        assertThat(flow["unlocks"].isArray).isTrue()
+
+        assertThat(get("/api/projects/$pid/helper/sessions/$sid/changes").json()[0]["path"].asText()).isEqualTo("src/a.kt")
+        post("/api/projects/$pid/helper/sessions/$sid/undo", mapOf("path" to "src/a.kt")).andExpect(status().isOk)
+        assertThat(engine.lastBody("/helper/sessions/$sid/undo")!!["path"].asText()).isEqualTo("src/a.kt")
+        val done = post("/api/projects/$pid/helper/sessions/$sid/done").andExpect(status().isOk).json()
+        assertThat(done["sha"].asText()).isEqualTo("abc1234")
+        assertThat(engine.lastBody("/helper/sessions/$sid/done")!!["flow"]["phase"].asText()).isEqualTo("green")
+
+        // the flow moves on: the Fix chat can no longer edit or commit
+        engine.overrides["t-fix-1"] = mapOf("status" to "running")
+        post("/api/projects/$pid/helper/sessions/$sid/turn", mapOf("text" to "more")).andExpect(status().isConflict)
+        post("/api/projects/$pid/helper/sessions/$sid/done").andExpect(status().isConflict)
+        // an Ask chat cannot press Done
+        val ask = post("/api/projects/$pid/helper/sessions").json()["id"].asText()
+        post("/api/projects/$pid/helper/sessions/$ask/done").andExpect(status().isBadRequest)
+    }
+
+    @Test
+    fun `a waiting command is a card in the Inbox, and the answer goes to the engine`() {
+        val (pid, _) = newProject("helper-ask")
+        engine.helperQuestions += mapOf("id" to "p_1", "session" to "h_x", "project" to pid, "kind" to "command",
+            "command" to "npm install left-pad", "path" to "", "title" to "Fix the totals", "at" to "2026-10-06T10:00:00Z")
+        val inbox = get("/api/inbox?project=$pid").json()
+        val item = inbox["items"].first { it["kind"].asText() == "permission" }
+        assertThat(item["detail"].asText()).isEqualTo("npm install left-pad")
+        assertThat(item["permission"]["id"].asText()).isEqualTo("p_1")
+        assertThat(item["flow"].asText()).isEqualTo("Fix the totals")
+        assertThat(get("/api/inbox/count").json()["projects"][pid].asInt()).isEqualTo(1)
+
+        post("/api/projects/$pid/helper/permissions/p_1", mapOf("decision" to "maybe")).andExpect(status().isBadRequest)
+        post("/api/projects/$pid/helper/permissions/p_9", mapOf("decision" to "once")).andExpect(status().isNotFound)
+        post("/api/projects/$pid/helper/permissions/p_1", mapOf("decision" to "deny", "why" to "not now")).andExpect(status().isOk)
+        assertThat(engine.lastBody("/helper/permissions/p_1")!!["why"].asText()).isEqualTo("not now")
+        assertThat(get("/api/inbox?project=$pid").json()["items"].none { it["kind"].asText() == "permission" }).isTrue()
+    }
+
+    @Test
+    fun `a permission question notifies the person, and its answer clears the notification`() {
+        val (pid, _) = newProject("helper-notify")
+        fun ev(type: String, data: Map<String, Any?>) = mapOf("type" to type, "thread_id" to "h_n", "project_id" to pid, "step" to "helper",
+            "at" to java.time.Instant.now().toString(), "data" to data)
+        post("/internal/events", listOf(ev("helper.permission", mapOf("id" to "p_2", "command" to "rm -rf build"))), mapOf("X-Keel-Token" to TOKEN))
+            .andExpect(status().isOk)
+        val note = get("/api/notifications").json().first { it["title"].asText() == "The Helper asks to run a command" }
+        assertThat(note["body"].asText()).isEqualTo("rm -rf build")
+        post("/internal/events", listOf(ev("helper.permission.answered", mapOf("id" to "p_2", "decision" to "deny"))), mapOf("X-Keel-Token" to TOKEN))
+        assertThat(get("/api/notifications").json().first { it["title"].asText() == "The Helper asks to run a command" }["done"].asBoolean()).isTrue()
+    }
 }

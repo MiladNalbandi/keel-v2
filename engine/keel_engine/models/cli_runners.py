@@ -22,7 +22,7 @@ from ..tools import git, mcp
 from ..tools.agent_tools import unified_diff
 from .base import AgentRequest, AgentResult, Emit, ModelError
 from .. import hook
-from ..runtime import guard_ctx, prompts
+from ..runtime import guard_ctx, permissions, prompts
 from . import usage as provider_usage
 from .cli import result_usage, claude_login_env, codex_login_env, copilot_login_env, find, run_cli, safe_env
 
@@ -349,7 +349,9 @@ class ClaudeCLIRunner:
         # MCP call against this step's phase before it runs. Always on. Its context file and the settings file live in
         # the run's scratch folder, outside the project, so the agent cannot edit them.
         scratch = guard_ctx.scratch(req)
-        argv += ["--settings", guard_ctx.claude_settings(Path(scratch) / "keel-guard.json")]
+        # a Helper Fix turn's hook may wait for the person's OK on a command (runtime/permissions.py)
+        hook_timeout = permissions.HOOK_TIMEOUT if getattr(req.toolbox, "ask", None) else 10
+        argv += ["--settings", guard_ctx.claude_settings(Path(scratch) / "keel-guard.json", hook_timeout)]
         stream = ClaudeStream(emit, req.root)
         env = safe_env({**claude_login_env(req.keys), guard_ctx.ENV: guard_ctx.ensure(req, scratch), "CLAUDE_CONFIG_DIR": claude_home()})
         try:

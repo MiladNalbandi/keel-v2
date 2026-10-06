@@ -535,7 +535,8 @@ export function RepoIde({ pid, repo, version = 0 }: { pid: string; repo: RepoInf
       {helperOpen && (
         <div className="ide-help">
           <HelperPanel pid={pid} openFile={activeFile} selection={helperSel} onClearSelection={() => setHelperSel(null)} focusKey={helperFocus}
-            onOpenFile={(p, line) => open({ path: p, view: "code" }, { pin: true, line })} onClose={() => setHelperOpen(false)} />
+            onOpenFile={(p, line) => open({ path: p, view: "code" }, { pin: true, line })} onOpenDiff={(p) => openFile(p, true, "diff")}
+            onClose={() => setHelperOpen(false)} />
         </div>
       )}
       <footer className="ide-sb" aria-label="Status bar">

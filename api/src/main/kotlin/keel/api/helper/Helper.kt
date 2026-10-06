@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import keel.api.agents.AgentService
 import keel.api.common.BadRequest
+import keel.api.common.Conflict
 import keel.api.common.NotFound
 import keel.api.connections.SecretService
 import keel.api.engine.EngineClient
@@ -24,8 +25,11 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
 
-/** A new Helper session (v0.6.0): mode "ask" for now; the model defaults to the helper agent's. */
+/** A new Helper session: mode "ask" (read only) or "fix" (while the project's flow waits at a gate); the model defaults to the helper agent's. */
 data class HelperCreate(val mode: String = "ask", val model: Model? = null, val title: String = "")
+data class HelperUndo(val path: String? = null)
+/** The person's answer to a permission card: once | always (this command, for the rest of the chat) | deny (with a reason). */
+data class HelperAnswer(val decision: String = "", val why: String = "")
 data class HelperPatch(val title: String? = null, val model: Model? = null)
 
 /** What the person points at in the Repo page: a file, a code-graph symbol or a criterion. */
@@ -65,11 +69,25 @@ class HelperService(
 
     fun create(pid: String, body: HelperCreate): JsonNode {
         val project = projects.require(pid)
-        if (body.mode != "ask") throw BadRequest("Unknown Helper mode ${body.mode}", "This keel has the Ask mode.")
+        if (body.mode !in MODES) throw BadRequest("Unknown Helper mode ${body.mode}", "Use ask or fix.")
+        val thread = if (body.mode == "fix") waitingThread(pid) else null
         return engine.post("/helper/sessions", mapOf(
             "project_id" to pid, "root" to project.root, "mode" to body.mode,
             "model" to (body.model ?: defaultModel(pid)), "title" to body.title.take(120),
-        ))
+            "thread_id" to thread?.path("thread_id")?.asText(),
+        ).filterValues { it != null })
+    }
+
+    /** Fix mode works only while the project's flow waits at a gate (and never in a read-only run). */
+    private fun waitingThread(pid: String, threadId: String? = null): JsonNode {
+        val t = runCatching { flows.flow(pid).thread }.getOrNull()
+        if (t == null || t.path("status").asText() != "waiting")
+            throw Conflict("No flow waits at a gate in this project", "Fix mode works while a flow waits for you. Use Ask, or wait for the next gate.")
+        if (threadId != null && t.path("thread_id").asText() != threadId)
+            throw Conflict("This Fix chat belongs to another flow", "Start a new Fix chat for the flow that waits now.")
+        if (t.path("run_mode").asText() == "readonly")
+            throw Conflict("This flow runs read-only", "Change its run mode on the Flow page to let the Helper edit.")
+        return t
     }
 
     fun list(pid: String): JsonNode {
@@ -105,6 +123,7 @@ class HelperService(
         if (text.isEmpty()) throw BadRequest("The message is empty", "Write a question, or pick a command with /.")
         if (text.length > 20_000) throw BadRequest("The message is too long", "Keep it under 20,000 characters; point at files with @ instead.")
         val s = get(pid, sid)
+        val fix = s.path("mode").asText() == "fix"
         val model = body.model ?: mapper.treeToValue(s.path("model"), Model::class.java)
         val eff = settings.effective(pid)
         val helper = helperAgent(pid)
@@ -116,7 +135,7 @@ class HelperService(
             "tools_allow" to (mcp.allow(pid)[AGENT] ?: emptyList()),
             "agents" to (helper?.let { mapOf(AGENT to AgentStart(it.knowledge)) } ?: emptyMap()),
             "skills" to (helper?.skills?.takeIf { it.isNotEmpty() }?.let { mapOf(AGENT to skills.textFor(pid, it)) } ?: emptyMap()),
-            "flow" to flowContext(pid),
+            "flow" to if (fix) fixContext(pid, s.path("thread_id").asText()) else flowContext(pid),
             "mentions" to body.mentions.filter { it.value.isNotBlank() }.take(30),
             "selection" to body.selection?.takeIf { it.path.isNotBlank() && it.text.isNotBlank() }?.let { it.copy(text = it.text.take(8000)) },
             "open_file" to body.openFile?.takeIf { it.isNotBlank() },
@@ -125,6 +144,54 @@ class HelperService(
     }
 
     fun commands(pid: String): JsonNode = engine.post("/helper/commands", mapOf("root" to projects.require(pid).root))
+
+    // ---- Fix mode: the Helper's changes, Undo, Done, and the permission cards -----------------------------
+
+    fun changes(pid: String, sid: String): JsonNode {
+        get(pid, sid)
+        return engine.get("/helper/sessions/$sid/changes")
+    }
+
+    fun undo(pid: String, sid: String, body: HelperUndo): JsonNode {
+        get(pid, sid)
+        return engine.post("/helper/sessions/$sid/undo", mapOf("path" to body.path?.takeIf { it.isNotBlank() }))
+    }
+
+    /** Run the checks and make keel's commit of the Helper's files, while the flow still waits at its gate. */
+    fun done(pid: String, sid: String): JsonNode {
+        val s = get(pid, sid)
+        if (s.path("mode").asText() != "fix") throw BadRequest("Only a Fix chat has changes to commit")
+        return engine.post("/helper/sessions/$sid/done", mapOf("flow" to fixContext(pid, s.path("thread_id").asText())), long = true)
+    }
+
+    fun permissions(pid: String): JsonNode {
+        projects.require(pid)
+        return engine.get("/helper/permissions?project=$pid")
+    }
+
+    fun answer(pid: String, qid: String, body: HelperAnswer): JsonNode {
+        projects.require(pid)
+        if (body.decision !in setOf("once", "always", "deny")) throw BadRequest("Answer once, always or deny")
+        val q = engine.get("/helper/permissions?project=$pid").firstOrNull { it.path("id").asText() == qid }
+            ?: throw NotFound("That question was answered already, or its command ended")
+        return engine.post("/helper/permissions/${q.path("id").asText()}", mapOf("decision" to body.decision, "why" to body.why.take(500)))
+    }
+
+    /** What a Fix turn and Done need from the waiting flow: its phase, criterion, unlocks, workflow and run mode. */
+    private fun fixContext(pid: String, threadId: String): Map<String, Any?> {
+        val t = waitingThread(pid, threadId)
+        val base = flowContext(pid) ?: emptyMap()
+        val acId = t.path("ac").asText("").ifBlank { null }
+        val ac = t.path("acs").firstOrNull { it.path("id").asText() == acId }
+        val unlocks = runCatching { engine.unlocks(threadId) }.getOrNull()
+        return base + mapOf(
+            "thread_id" to threadId,
+            "ac" to ac?.let { mapOf("id" to it.path("id").asText(), "layer" to it.path("layer").asText("API"), "title" to it.path("title").asText()) },
+            "unlocks" to (unlocks?.takeIf { it.isArray } ?: unlocks?.path("unlocks")?.takeIf { it.isArray } ?: mapper.createArrayNode()),
+            "workflow" to t.path("workflow_id").asText(""),
+            "run_mode" to t.path("run_mode").asText("manual"),
+        )
+    }
 
     /** The flow that runs or waits in the project, as the Helper's prompt shows it; null when none does. */
     private fun flowContext(pid: String): Map<String, Any?>? {
@@ -145,6 +212,7 @@ class HelperService(
 
     companion object {
         const val AGENT = "helper"
+        val MODES = setOf("ask", "fix")
     }
 }
 
@@ -174,4 +242,20 @@ class HelperController(private val helper: HelperService) {
 
     @GetMapping("/commands")
     fun commands(@PathVariable pid: String): JsonNode = helper.commands(pid)
+
+    @GetMapping("/sessions/{sid}/changes")
+    fun changes(@PathVariable pid: String, @PathVariable sid: String): JsonNode = helper.changes(pid, sid)
+
+    @PostMapping("/sessions/{sid}/undo")
+    fun undo(@PathVariable pid: String, @PathVariable sid: String, @RequestBody(required = false) body: HelperUndo?): JsonNode =
+        helper.undo(pid, sid, body ?: HelperUndo())
+
+    @PostMapping("/sessions/{sid}/done")
+    fun done(@PathVariable pid: String, @PathVariable sid: String): JsonNode = helper.done(pid, sid)
+
+    @GetMapping("/permissions")
+    fun permissions(@PathVariable pid: String): JsonNode = helper.permissions(pid)
+
+    @PostMapping("/permissions/{qid}")
+    fun answer(@PathVariable pid: String, @PathVariable qid: String, @RequestBody body: HelperAnswer): JsonNode = helper.answer(pid, qid, body)
 }

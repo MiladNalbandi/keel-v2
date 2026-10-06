@@ -165,11 +165,11 @@ export type McpServerSpec = { name: string; command: string; args: string[]; env
 export type EngineEventType =
   | "thread.started" | "step.started" | "step.finished" | "agent.started" | "agent.step" | "agent.finished"
   | "gate.waiting" | "gate.decided" | "budget.warn" | "budget.stop" | "guard.refused" | "thread.done" | "thread.failed"
-  | "helper.started" | "helper.step" | "helper.finished";
+  | "helper.started" | "helper.step" | "helper.finished" | "helper.permission" | "helper.permission.answered" | "helper.commit";
 export const ENGINE_EVENT_TYPES: EngineEventType[] = [
   "thread.started", "step.started", "step.finished", "agent.started", "agent.step", "agent.finished",
   "gate.waiting", "gate.decided", "budget.warn", "budget.stop", "guard.refused", "thread.done", "thread.failed",
-  "helper.started", "helper.step", "helper.finished",
+  "helper.started", "helper.step", "helper.finished", "helper.permission", "helper.permission.answered", "helper.commit",
 ];
 export type EngineEvent = {
   type: EngineEventType;
@@ -562,7 +562,15 @@ export type FlowSpend = {
   thread_id: string; title: string; status: ThreadStatus; tokens: number; cost_usd: number; cap_tokens: number | null; cap_usd: number | null;
 };
 /** v0.6.0 keel's Helper (`/api/projects/{pid}/helper/...`): chat sessions in the Repo page, run by keel's own harness. */
-export type HelperMode = "ask";
+export type HelperMode = "ask" | "fix";
+/** Fix mode: a file the Helper changed in this chat, against what it was before its first change. */
+export type HelperChange = { path: string; status: "added" | "modified" | "deleted"; added: number; removed: number; diff: string };
+/** A Fix chat's command that waits for the person's OK (a card in the panel and the Inbox). */
+export type HelperQuestion = { id: string; session: string; project: string; thread_id?: string | null; kind: string; command: string;
+  path?: string; title: string; at: string };
+/** Done: keel's commit of the Helper's files after the checks, or why not (no change, the checks failed, the commit refused). */
+export type HelperDone = { ok: true; sha: string; message: string; files: string[]; checks?: string | null }
+  | { ok: false; step: "changes" | "checks" | "commit"; error: string; command?: string; output?: string };
 export type HelperMessage = {
   n: number;
   /** user: the person; helper: an answer; note: a turn that stopped or failed (its text says why) */
@@ -571,12 +579,12 @@ export type HelperMessage = {
   /** the turn's agent call: its steps come from /jobs/{call_id}/steps and live agent steps */
   call_id?: string | null;
   data: { status?: string; provider?: string; model?: string; tokens_in?: number; tokens_out?: number; tokens_cached?: number;
-    cost_usd?: number; ms?: number; command?: string; mentions?: HelperMention[]; selection?: HelperSelection };
+    cost_usd?: number; ms?: number; command?: string; mentions?: HelperMention[]; selection?: HelperSelection; sha?: string; files?: string[] };
   at: string;
 };
 export type HelperSession = {
   id: string; project: string; root: string; mode: HelperMode; title: string; model: Model;
-  status: "idle" | "running" | "failed"; error?: string | null; thread_id?: string | null;
+  status: "idle" | "running" | "failed"; error?: string | null; thread_id?: string | null; grants?: string[];
   tokens_in: number; tokens_out: number; tokens_cached: number; cost_usd: number; turns: number;
   created_at: string; updated_at: string;
   messages?: HelperMessage[]; busy?: boolean;
@@ -910,6 +918,12 @@ export const api = {
     post<HelperTurnStarted>(`/projects/${e(pid)}/helper/sessions/${e(sid)}/turn`, body),
   helperStop: (pid: string, sid: string) => post<HelperSession>(`/projects/${e(pid)}/helper/sessions/${e(sid)}/stop`),
   helperCommands: (pid: string) => get<HelperCommand[]>(`/projects/${e(pid)}/helper/commands`),
+  helperChanges: (pid: string, sid: string) => get<HelperChange[]>(`/projects/${e(pid)}/helper/sessions/${e(sid)}/changes`),
+  helperUndo: (pid: string, sid: string, path?: string) => post<HelperChange[]>(`/projects/${e(pid)}/helper/sessions/${e(sid)}/undo`, path ? { path } : {}),
+  helperDone: (pid: string, sid: string) => post<HelperDone>(`/projects/${e(pid)}/helper/sessions/${e(sid)}/done`),
+  helperPermissions: (pid: string) => get<HelperQuestion[]>(`/projects/${e(pid)}/helper/permissions`),
+  helperAnswer: (pid: string, qid: string, decision: "once" | "always" | "deny", why = "") =>
+    post<{ id: string; decision: string }>(`/projects/${e(pid)}/helper/permissions/${e(qid)}`, { decision, why }),
   graph: (pid: string) => get<GraphOverview>(`/projects/${e(pid)}/graph`),
   graphSearch: (pid: string, q: string) => get<{ available: boolean; reason?: string; results: GraphHit[] }>(`/projects/${e(pid)}/graph/search?q=${e(q)}`),
   graphNode: (pid: string, id: string, depth = 1) => get<GraphFocus>(`/projects/${e(pid)}/graph/node?id=${e(id)}&depth=${depth}`),

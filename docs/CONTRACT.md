@@ -1302,3 +1302,47 @@ HelperMention = {kind: file|symbol|ac, value, file?, line?}      HelperSelection
   `helper.finished` (a hidden tab pauses the event stream) never leaves it "working".
 - The editor's toolbar has **Ask** (the selected lines, or the file); ⌘I opens the Helper with the selection, and closes it
   when nothing is selected.
+
+
+## v0.6.x: the Helper's Fix mode (fix at a gate)
+
+While a flow waits at a gate, a **Fix** chat lets the Helper change files, inside the same rules as the flow:
+
+- **Guard**: the ToolBox and the hook use the waiting flow's phase, criterion (lane and layer) and unlocks, so a file the
+  phase freezes stays frozen. The diff guard checks the files after every turn, as for a flow step.
+- **Permission cards**: a shell command that changes something (`run_mode.readonly_bash` says it is not read-only)
+  waits for the person. The PreToolUse hook (claude) and keel's ToolBox (API-key models) call
+  `POST /helper/permissions/ask` on the engine with the turn's own ask key (it can only ask; it cannot answer), and wait
+  up to 10 minutes (`permissions.ASK_TIMEOUT`; the claude hook timeout is longer). The person answers in the panel or
+  the Inbox: **Allow once**, **Always** (this command, for the rest of the chat; stored in the session's `grants`, a
+  `prefix *` grant matches the prefix) or **Deny** (with an optional reason the agent reads). No answer is a deny.
+  Codex and Copilot have no hook: their commands run in their own sandbox, and the diff guard still checks the files.
+- **Changes and Undo**: before its first change to a file the Helper's session keeps the file's earlier content
+  (`helper_files`), so the panel lists every changed file against what it was (+/- lines, diff), and Undo puts one
+  file (or all) back.
+- **Done**: runs the module's test command (`testcmd.command_for`), then keel's commit of only those files
+  (`actions.commit`: the phase's commit rules, secrets, new dependencies, pre-commit tools), leaves a `note` message and
+  emits `helper.commit` on the flow's thread. A failure says which step failed (`changes`, `checks`, `commit`) with the
+  output; the panel can hand it back to the Helper.
+- Fix needs a waiting flow that does not run read-only (409 otherwise), and Done refuses once that flow moved on.
+
+```
+POST   /api/projects/{pid}/helper/sessions                {mode: "fix", model?, title?} → HelperSession (thread_id = the waiting flow)
+GET    /api/projects/{pid}/helper/sessions/{sid}/changes  → HelperChange[]
+POST   /api/projects/{pid}/helper/sessions/{sid}/undo     {path?} → HelperChange[]   (no path: every file)
+POST   /api/projects/{pid}/helper/sessions/{sid}/done     → HelperDone
+GET    /api/projects/{pid}/helper/permissions             → HelperQuestion[]   (the commands that wait now)
+POST   /api/projects/{pid}/helper/permissions/{qid}       {decision: once|always|deny, why?} → {id, decision}
+
+HelperChange   = {path, status: added|modified|deleted, added, removed, diff}
+HelperDone     = {ok: true, sha, message, files, checks} | {ok: false, step: changes|checks|commit, error, command?, output?}
+HelperQuestion = {id, session, project, thread_id, kind, command, path, title, at}
+engine only:   POST /helper/permissions/ask {session, key, kind, command, path} → {decision: allow|deny, why}   (no token; the key)
+```
+- Events: `helper.permission` (a command waits; the api adds a notification and the Inbox lists it with kind
+  `permission` and `permission: {id, session, command, path}`), `helper.permission.answered` (the notification is
+  done), `helper.commit` (on the flow's thread: session, sha, message, files, checks).
+- Web: the panel's **Ask | Fix** switch (Fix is on while a flow waits; switching starts a new chat), a bar with the gate
+  and phase (and a warning once the flow moved on), the permission cards, **Changed files** (Diff, Undo, Undo all, the
+  file name opens the editor's Changes view) and **Done: run the checks and commit**. The Inbox shows the same
+  permission card (Allow once, Always for this command, Deny with a reason).

@@ -138,7 +138,7 @@ class Ask(BaseModel):
 class HelperCreate(BaseModel):
     project_id: str
     root: str
-    mode: Literal["ask"] = "ask"
+    mode: Literal["ask", "fix"] = "ask"
     model: ModelSpec | None = None
     title: str = ""
     thread_id: str | None = None
@@ -146,6 +146,28 @@ class HelperCreate(BaseModel):
 
 class HelperCommands(BaseModel):
     root: str | None = None
+
+
+class HelperAsk(BaseModel):
+    """keel's hook asks for the person's OK on a command (runtime/permissions.py); the key is the turn's own."""
+    session: str
+    key: str
+    kind: str = "command"
+    command: str = Field(default="", max_length=8000)
+    path: str = ""
+
+
+class HelperAnswer(BaseModel):
+    decision: Literal["once", "always", "deny"]
+    why: str = ""
+
+
+class HelperUndo(BaseModel):
+    path: str | None = None
+
+
+class HelperDone(BaseModel):
+    flow: dict[str, Any] = Field(default_factory=dict)   # the waiting flow: phase, acs, ac, unlocks, workflow, run_mode
 
 
 class HelperPatch(BaseModel):
@@ -288,7 +310,8 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     @app.middleware("http")
     async def token_check(request: Request, call_next):
         token = config.internal_token()
-        if token and request.url.path != "/health":
+        # the hook's permission question carries the turn's own ask key instead (it can only ask, never answer)
+        if token and request.url.path not in ("/health", "/helper/permissions/ask"):
             if not secrets.compare_digest(request.headers.get("X-Keel-Token", ""), token):
                 return _err(401, "Missing or wrong X-Keel-Token.")
         return await call_next(request)
@@ -515,6 +538,40 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     async def post_helper_stop(sid: str, request: Request):
         await asyncio.to_thread(helper_call, helper.get, sid, False)
         return await request.app.state.helper.stop(sid)
+
+    @app.post("/helper/permissions/ask")
+    async def post_helper_ask(body: HelperAsk, request: Request):
+        return await request.app.state.helper.ask(body.session, body.key, body.kind, body.command, body.path)
+
+    @app.get("/helper/permissions")
+    async def get_helper_permissions(request: Request, project: str | None = None):
+        return request.app.state.helper.pending(project)
+
+    @app.post("/helper/permissions/{qid}")
+    async def post_helper_answer(qid: str, body: HelperAnswer, request: Request):
+        try:
+            return request.app.state.helper.answer(qid, body.decision, body.why)
+        except helper.HelperError as exc:
+            raise EngineError(exc.status, str(exc), exc.hint) from exc
+
+    @app.get("/helper/sessions/{sid}/changes")
+    async def get_helper_changes(sid: str):
+        return await asyncio.to_thread(helper_call, helper.changes, sid)
+
+    @app.post("/helper/sessions/{sid}/undo")
+    async def post_helper_undo(sid: str, body: HelperUndo, request: Request):
+        if request.app.state.helper.busy(sid):
+            raise EngineError(409, "The Helper is still working in this chat.", "Wait for it, or stop it, then undo.")
+        return await asyncio.to_thread(helper_call, helper.undo, sid, body.path)
+
+    @app.post("/helper/sessions/{sid}/done")
+    async def post_helper_done(sid: str, body: HelperDone, request: Request):
+        """Run the checks, then keel's commit of the Helper's files; the flow's timeline gets helper.commit."""
+        if request.app.state.helper.busy(sid):
+            raise EngineError(409, "The Helper is still working in this chat.", "Wait for it, or stop it, then press Done.")
+        bus_ = request.app.state.bus
+        return await asyncio.to_thread(helper_call, helper.done, sid, body.flow,
+                                       lambda t, tid, pid, data: bus_.emit(t, tid, pid, step="helper", data=data))
 
     @app.post("/helper/commands")
     async def post_helper_commands(body: HelperCommands):

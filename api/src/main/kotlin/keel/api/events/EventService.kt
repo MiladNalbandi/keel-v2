@@ -95,6 +95,10 @@ class EventService(
                     d.str("phase"), at, modeOf(d.str("provider"), d.str("mode")),
                 )
             }
+            // a Fix chat's command waits for the person's OK (a card in the Helper panel and the Inbox)
+            "helper.permission" -> notifications.create("review", e.projectId, "The Helper asks to run a command",
+                d.str("command")?.take(300) ?: "", "/projects/${e.projectId}/repo", threadId = e.threadId, step = "permission")
+            "helper.permission.answered" -> notifications.markDone(e.threadId)
             "agent.step", "helper.step" -> {
                 val id = e.callId ?: return
                 ensureCall(id, e, at)

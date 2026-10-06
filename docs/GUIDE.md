@@ -63,6 +63,10 @@ words. The Helper reads the code, the knowledge pages, the map and the code grap
 - **Commands**: type `/` — `/explain`, `/where`, `/review`, `/plan`, `/gate` (what the waiting gate asks), `/test`. A
   project can add its own in `.keel/plugins/<name>/plugin.yml` (see `content/plugins/core/plugin.yml`).
 - **Ask mode changes nothing**: no edit, no new file, no command that changes files or git, whatever the model.
+- **Fix mode** (while a flow waits at a gate): switch to **Fix** and tell the Helper what to change. It works inside the
+  rules of the flow's phase. A command that changes something waits for your OK in the panel or the Inbox (**Allow
+  once**, **Always**, **Deny**). The panel lists every changed file with its diff and **Undo**. **Done** runs the tests
+  and lets keel commit only those files; if the tests fail, one click hands the failure back to the Helper.
 - **Costs**: each answer shows its tokens and time; the budget bar counts them. Claude and Codex continue their own
   session, so a follow-up question is cheap (the context stays cached).
 - The model is the `helper` agent's (Agents page); change it for one chat in the panel.

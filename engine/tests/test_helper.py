@@ -147,3 +147,125 @@ def test_commands_endpoint(client, repo):
 @pytest.mark.parametrize("provider,resumes", [("claude", True), ("codex", True), ("copilot", False)])
 def test_which_engines_continue_their_own_session(provider, resumes):
     assert (provider in helper.RESUMABLE) is resumes
+
+
+# ------------------------------------------------------------------ Fix mode (v0.6.x M2)
+
+import threading
+import subprocess as _sp
+
+from keel_engine import hook
+from keel_engine.runtime import permissions
+
+FLOW = {"thread_id": "t-gate", "phase": "green", "ac": {"id": "AC-1", "layer": "API", "title": "the main case works"},
+        "acs": [{"id": "AC-1", "layer": "API", "title": "the main case works", "status": "green"}], "unlocks": [],
+        "workflow": "feature", "run_mode": "manual", "status": "waits", "title": "Player ranks"}
+
+
+def fix_session(client, repo):
+    return new_session(client, repo, mode="fix", thread_id="t-gate")
+
+
+def test_fix_needs_the_waiting_flow(client, repo):
+    r = client.post("/helper/sessions", json={"project_id": "demo", "root": str(repo), "mode": "fix", "model": FAKE})
+    assert r.status_code == 400 and "flow that waits" in r.json()["error"]
+
+
+def test_fix_changes_files_the_phase_allows_and_undo_puts_them_back(client, repo):
+    s = fix_session(client, repo)
+    _, s = ask(client, s["id"], "Add the small helper the gate asks for.", flow=FLOW)
+    assert "helper_fix.py" in s["messages"][-1]["text"]
+    ch = client.get(f"/helper/sessions/{s['id']}/changes").json()
+    assert [(c["path"], c["status"], c["added"]) for c in ch] == [("src/scores/helper_fix.py", "added", 2)]
+    assert "+def helped():" in ch[0]["diff"]
+    assert client.post(f"/helper/sessions/{s['id']}/undo", json={}).json() == []
+    assert not (Path(repo) / "src" / "scores" / "helper_fix.py").exists()
+
+
+def test_fix_puts_back_what_the_phase_forbids(client, repo):
+    # fake-rogue also writes a test file behind keel's back: tests are frozen in green, so it is put back
+    s = new_session(client, repo, mode="fix", thread_id="t-gate", model={"provider": "fake", "mode": "api", "model": "fake-rogue"})
+    ask(client, s["id"], "Fix it.", flow=FLOW)
+    assert not (Path(repo) / "tests" / "test_rogue_helper.py").exists()
+    assert (Path(repo) / "src" / "scores" / "helper_fix.py").exists()          # what green allows stays
+    put_back = [e["data"]["text"] for e in client.bus.recent if e["type"] == "helper.step" and e["data"]["kind"] == "guard"]
+    assert any("test_rogue_helper.py" in t for t in put_back)
+
+
+def test_done_runs_the_checks_and_makes_keels_commit_of_only_the_helpers_files(client, repo):
+    (Path(repo) / "NOTES.md").write_text("the person's own unsaved notes\n")      # never part of the Helper's commit
+    s = fix_session(client, repo)
+    ask(client, s["id"], "Add the helper.", flow=FLOW)
+    r = client.post(f"/helper/sessions/{s['id']}/done", json={"flow": FLOW}).json()
+    assert r["ok"] is True, r
+    assert r["files"] == ["src/scores/helper_fix.py"] and r["sha"]
+    log = _sp.run(["git", "log", "-1", "--format=%s", "--name-only"], cwd=repo, capture_output=True, text=True).stdout
+    assert "helper: Add the helper." in log and "src/scores/helper_fix.py" in log and "NOTES.md" not in log
+    assert client.get(f"/helper/sessions/{s['id']}/changes").json() == []
+    ev = [e for e in client.bus.recent if e["type"] == "helper.commit"][-1]
+    assert ev["thread_id"] == "t-gate" and ev["data"]["sha"] == r["sha"] and ev["data"]["session"] == s["id"]
+    assert client.get(f"/helper/sessions/{s['id']}").json()["messages"][-1]["data"]["status"] == "committed"
+    nothing = client.post(f"/helper/sessions/{s['id']}/done", json={"flow": FLOW}).json()
+    assert nothing["ok"] is False and nothing["step"] == "changes"
+
+
+def test_done_stops_when_the_checks_fail(client, repo):
+    s = fix_session(client, repo)
+    ask(client, s["id"], "Add the helper.", flow=FLOW)
+    (Path(repo) / "src" / "scores" / "__init__.py").write_text("raise SystemExit('broken')\n")    # the suite fails now
+    r = client.post(f"/helper/sessions/{s['id']}/done", json={"flow": FLOW}).json()
+    assert r["ok"] is False and r["step"] == "checks" and r["command"]
+    assert client.get(f"/helper/sessions/{s['id']}/changes").json()                              # nothing committed
+
+
+def test_a_permission_card_waits_for_the_person(client, repo):
+    s = fix_session(client, repo)
+    runner = client.app.state.helper
+    runner.ask_keys[s["id"]] = "k1"
+    wrong = client.post("/helper/permissions/ask", json={"session": s["id"], "key": "nope", "command": "rm -rf build"}).json()
+    assert wrong["decision"] == "deny"
+    got = {}
+    t = threading.Thread(target=lambda: got.update(client.post("/helper/permissions/ask", json={
+        "session": s["id"], "key": "k1", "command": "npm install left-pad"}).json()))
+    t.start()
+    deadline = time.time() + 10
+    while not client.get("/helper/permissions", params={"project": "demo"}).json() and time.time() < deadline:
+        time.sleep(0.02)
+    q = client.get("/helper/permissions", params={"project": "demo"}).json()[0]
+    assert q["command"] == "npm install left-pad" and q["session"] == s["id"]
+    assert client.post(f"/helper/permissions/{q['id']}", json={"decision": "always"}).json()["decision"] == "always"
+    t.join(10)
+    assert got == {"decision": "allow", "why": ""}
+    again = client.post("/helper/permissions/ask", json={"session": s["id"], "key": "k1", "command": "npm install left-pad"}).json()
+    assert again == {"decision": "allow"}                                                       # "always" remembered
+    assert client.get(f"/helper/sessions/{s['id']}").json()["grants"] == ["npm install left-pad"]
+    # a deny carries the person's reason
+    t = threading.Thread(target=lambda: got.update(client.post("/helper/permissions/ask", json={
+        "session": s["id"], "key": "k1", "command": "git push"}).json()))
+    t.start()
+    while not client.get("/helper/permissions").json() and time.time() < deadline:
+        time.sleep(0.02)
+    q = client.get("/helper/permissions").json()[0]
+    client.post(f"/helper/permissions/{q['id']}", json={"decision": "deny", "why": "keel pushes, not you"})
+    t.join(10)
+    assert got == {"decision": "deny", "why": "keel pushes, not you"}
+    assert client.post(f"/helper/permissions/{q['id']}", json={"decision": "once"}).status_code == 404
+
+
+def test_the_hook_asks_only_for_commands_that_change_something(repo, monkeypatch):
+    asked = []
+    monkeypatch.setattr(permissions, "ask_engine", lambda a, kind, cmd, path="": (asked.append(cmd) or (False, "said no")))
+    ctx = {"root": str(repo), "phase": "green", "unlocks": [], "ask": {"url": "http://x", "key": "k", "session": "h_1"}}
+    assert hook.decide("Bash", {"command": "ls src && git status"}, dict(ctx)) is None
+    assert hook.decide("Bash", {"command": "python -m pytest -q"}, dict(ctx)) is None              # tests need no OK
+    assert hook.decide("Bash", {"command": "rm -rf build"}, dict(ctx)) == "said no"
+    assert asked == ["rm -rf build"]
+    no_ask = {k: v for k, v in ctx.items() if k != "ask"}
+    assert hook.decide("Bash", {"command": "rm -rf build"}, no_ask) is None                         # a flow's agent: rules alone
+
+
+def test_permission_rules():
+    assert not permissions.needs_ask("grep -rn score src")
+    assert permissions.needs_ask("npm install x") and permissions.needs_ask("echo hi > out.txt")
+    assert permissions.granted("npm test -- --watch=false", ["npm test *"])
+    assert permissions.granted("git status", ["git status"]) and not permissions.granted("git push", ["git status"])

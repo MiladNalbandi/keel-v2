@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 
 from . import rules
-from .runtime import run_mode
+from .runtime import permissions, run_mode
 from .runtime.guard_ctx import ENV
 
 MARKER = "[keel guard]"
@@ -129,7 +129,13 @@ def decide(tool: str, ti: dict, ctx: dict) -> str | None:
             return refused
         v = rules.check_bash(phase, str(ti.get("command") or ""), cfg,
                              exists=lambda rel: (Path(root) / rel).exists(), unlocks=unlocks)
-        return None if v.ok else v.reason
+        if not v.ok:
+            return v.reason
+        # the Helper's Fix mode: a command that changes something waits for the person's OK (runtime/permissions.py)
+        if ctx.get("ask") and permissions.needs_ask(str(ti.get("command") or "")):
+            ok, why = permissions.ask_engine(ctx["ask"], "command", str(ti.get("command") or ""))
+            return None if ok else why
+        return None
     if tool.startswith("mcp__"):
         if readonly and (WRITEISH.search(tool.split("__", 2)[-1]) or (re.search("serena", tool, re.I) and SERENA_EDIT.search(tool))):
             return run_mode.READONLY_MCP

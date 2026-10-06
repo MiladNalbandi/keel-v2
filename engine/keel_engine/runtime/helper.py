@@ -6,6 +6,9 @@ model), keel's guarded tools (ToolBox), the MCP servers the Helper may use plus 
 the hook reads on every tool call, and the diff guard as the backstop for engines without a hook.
 
     modes   ask   read only: no edit, no new file, no command that changes files or git (the guard's readonly)
+            fix   while the project's flow waits at a gate: edits under the flow's phase rules and unlocks; a command
+                  that changes something waits for the person's OK (runtime/permissions.py); keel remembers each file
+                  as it was before the Helper's first change (Undo), and Done runs the checks and makes keel's commit
 
 How a session continues: claude and codex continue their own CLI session (cheap: their context stays cached); the
 API-key runner gets the earlier messages; the other CLIs get the conversation so far in the prompt.
@@ -17,23 +20,27 @@ them as agent calls (agent "helper", so the budget, Live agents and Jobs count t
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
+import difflib
 import json
 import logging
+import secrets
+import subprocess
 import tempfile
 import time
 import uuid
 from pathlib import Path
 
-from .. import models, rules
+from .. import config, models, rules
 from ..models import catalog
 from ..models.base import AgentRequest, AgentResult
-from ..tools import guard, mcp
-from ..tools.agent_tools import ToolBox
-from . import agent_knowledge, db, guard_ctx, plugins, prompts
+from ..tools import git, guard, mcp, testcmd
+from ..tools.agent_tools import ToolBox, command_env
+from . import agent_knowledge, db, guard_ctx, permissions, plugins, prompts
 
 log = logging.getLogger(__name__)
 
-MODES = ("ask",)
+MODES = ("ask", "fix")
 AGENT = "helper"
 RESUMABLE = {"claude", "codex"}          # CLIs that continue their own session (runtime/compiler.py RESUMABLE)
 TRANSCRIPT_CHARS = 6000                  # the conversation so far, for the engines that cannot continue a session
@@ -42,10 +49,16 @@ TURN_TIMEOUT = 900
 STEP_FIELD_MAX = 24_000
 MODE_TEXT = {
     "ask": "Mode: Ask. Read only: you change nothing (no edits, no new files, no command that changes files or git).",
+    "fix": ("Mode: Fix at a gate. The flow waits for the person at a gate, and the person asked you to change something. "
+            "Edit only what the request needs, with the smallest change; keel's guard refuses files the flow's phase "
+            "({phase}) does not allow. Reading, searching and running the tests need no OK; any other command that changes "
+            "something waits for the person's OK. Never commit: when the person presses Done, keel runs the checks and "
+            "commits your change. End with one short line per file you changed."),
 }
+DIFF_MAX = 40_000
 
 FIELDS = ("id", "project", "root", "mode", "title", "model_json", "engine_session", "status", "error", "thread_id",
-          "tokens_in", "tokens_out", "tokens_cached", "cost_usd", "turns", "created_at", "updated_at")
+          "tokens_in", "tokens_out", "tokens_cached", "cost_usd", "turns", "created_at", "updated_at", "grants_json")
 
 
 class HelperError(Exception):
@@ -60,6 +73,7 @@ class HelperError(Exception):
 def _session(row) -> dict:
     s = dict(zip(FIELDS, row))
     s["model"] = db.loads(s.pop("model_json"), {})
+    s["grants"] = db.loads(s.pop("grants_json"), [])
     return s
 
 
@@ -69,12 +83,14 @@ def create(project: str, root: str, mode: str = "ask", model: dict | None = None
         raise HelperError(400, f"Unknown Helper mode {mode!r}.", f"Use one of: {', '.join(MODES)}.")
     if not Path(root).is_dir():
         raise HelperError(400, f"The project folder {root} does not exist.")
+    if mode == "fix" and not thread_id:
+        raise HelperError(400, "Fix mode needs the flow that waits.", "Open it while a flow of this project waits at a gate.")
     sid = "h_" + uuid.uuid4().hex[:16]
     now = db.now()
     with db.connect() as conn:
         conn.execute(f"insert into helper_sessions ({', '.join(FIELDS)}) values ({', '.join('?' * len(FIELDS))})",
                      (sid, project, str(Path(root).resolve()), mode, title.strip()[:120] or "New chat",
-                      json.dumps(models.effective(model)), None, "idle", None, thread_id, 0, 0, 0, 0.0, 0, now, now))
+                      json.dumps(models.effective(model)), None, "idle", None, thread_id, 0, 0, 0, 0.0, 0, now, now, "[]"))
     return get(sid)
 
 
@@ -118,9 +134,21 @@ def set_model(sid: str, model: dict) -> dict:
     return update(sid, model_json=json.dumps(m), **({} if same else {"engine_session": None}))
 
 
+def add_grant(sid: str, command: str) -> list[str]:
+    """"Always" for this command in this session."""
+    s = get(sid, messages=False)
+    grants = list(s["grants"])
+    if command not in grants:
+        grants.append(command)
+        with db.connect() as conn:
+            conn.execute("update helper_sessions set grants_json = ? where id = ?", (json.dumps(grants), sid))
+    return grants
+
+
 def delete(sid: str) -> None:
     get(sid, messages=False)
     with db.connect() as conn:
+        conn.execute("delete from helper_files where session_id = ?", (sid,))
         conn.execute("delete from helper_messages where session_id = ?", (sid,))
         conn.execute("delete from helper_sessions where id = ?", (sid,))
 
@@ -140,6 +168,121 @@ def history(sid: str, before_n: int | None = None) -> list[tuple[str, str]]:
     out = [("user" if m["role"] == "user" else "assistant", m["text"]) for m in msgs
            if m["role"] in ("user", "helper") and (before_n is None or m["n"] < before_n)]
     return out
+
+
+# ------------------------------------------------------------------ Fix mode: the files the Helper changed
+
+def _head_bytes(root: str, rel: str) -> bytes | None:
+    if not git.tracked_in_head(root, rel):
+        return None
+    r = subprocess.run(["git", "show", f"HEAD:{rel}"], cwd=root, capture_output=True, timeout=30)
+    return r.stdout if r.returncode == 0 else None
+
+
+def remember_originals(sid: str, root: str, before: guard.Snapshot | None) -> list[str]:
+    """After a Fix turn: each file it changed for the first time is remembered as it was before (the user's own
+    uncommitted version when there was one, else HEAD, else "did not exist"). Returns the newly remembered paths."""
+    if before is None:
+        return []
+    changed = guard.changed_since(root, before)
+    if not changed:
+        return []
+    with db.connect() as conn:
+        known = {r[0] for r in conn.execute("select path from helper_files where session_id = ?", (sid,))}
+        new = []
+        for rel in changed:
+            if rel in known:
+                continue
+            original = before.content[rel] if rel in before.content else _head_bytes(root, rel)
+            conn.execute("insert into helper_files (session_id, path, existed, content, at) values (?, ?, ?, ?, ?)",
+                         (sid, rel, 0 if original is None else 1, original, db.now()))
+            new.append(rel)
+    return new
+
+
+def _text(b: bytes | None) -> str:
+    return "" if b is None else b.decode("utf-8", errors="replace")
+
+
+def changes(sid: str) -> list[dict]:
+    """The files the Helper changed in this session, against what they were before: path, status, +/- lines, diff."""
+    s = get(sid, messages=False)
+    root = s["root"]
+    with db.connect() as conn:
+        rows = conn.execute("select path, existed, content from helper_files where session_id = ? order by path", (sid,)).fetchall()
+    out = []
+    for rel, existed, content in rows:
+        f = Path(root) / rel
+        now = f.read_bytes() if f.is_file() else None
+        before = content if existed else None
+        if now == before:
+            continue
+        status = "added" if before is None else "deleted" if now is None else "modified"
+        diff = "".join(difflib.unified_diff(_text(before).splitlines(keepends=True), _text(now).splitlines(keepends=True),
+                                            fromfile=f"a/{rel}" if before is not None else "/dev/null",
+                                            tofile=f"b/{rel}" if now is not None else "/dev/null"))
+        plus = sum(1 for ln in diff.splitlines() if ln.startswith("+") and not ln.startswith("+++"))
+        minus = sum(1 for ln in diff.splitlines() if ln.startswith("-") and not ln.startswith("---"))
+        out.append({"path": rel, "status": status, "added": plus, "removed": minus, "diff": diff[:DIFF_MAX]})
+    return out
+
+
+def undo(sid: str, path: str | None = None) -> list[dict]:
+    """Put one file (or every file) back as it was before the Helper changed it."""
+    s = get(sid, messages=False)
+    root = Path(s["root"])
+    with db.connect() as conn:
+        q = "select path, existed, content from helper_files where session_id = ?" + (" and path = ?" if path else "")
+        rows = conn.execute(q, (sid, path) if path else (sid,)).fetchall()
+        if path and not rows:
+            raise HelperError(404, f"The Helper did not change {path} in this chat.")
+        for rel, existed, content in rows:
+            f = root / rel
+            if existed:
+                f.parent.mkdir(parents=True, exist_ok=True)
+                f.write_bytes(content or b"")
+            else:
+                f.unlink(missing_ok=True)
+            conn.execute("delete from helper_files where session_id = ? and path = ?", (sid, rel))
+    return changes(sid)
+
+
+def done(sid: str, flow: dict, emit=None) -> dict:
+    """Run the checks, then keel's commit of only the files the Helper changed (runtime/actions.py `commit`: the phase's
+    commit rules, secrets, new dependencies, pre-commit tools). The flow's timeline gets a helper.commit event."""
+    from . import actions          # late: actions imports most of the runtime
+
+    s = get(sid, messages=False)
+    if s["mode"] != "fix":
+        raise HelperError(400, "Only a Fix chat has changes to commit.")
+    root = s["root"]
+    files = [c["path"] for c in changes(sid)]
+    if not files:
+        return {"ok": False, "step": "changes", "error": "Nothing to commit: the Helper changed no file in this chat."}
+    # the module's tests (the criterion's own test is one of them): the change works and nothing else broke
+    ac = flow.get("ac") or None
+    cmd = testcmd.command_for(root, None, (ac or {}).get("layer", "API")) or testcmd.command_for(root)
+    if cmd:
+        code, out = testcmd.run(root, cmd, env=command_env())
+        if code != 0:
+            return {"ok": False, "step": "checks", "command": cmd, "error": "The checks failed, so keel did not commit.",
+                    "output": out[-6000:]}
+    a = actions.ActionInput(root=root, phase=flow.get("phase") or "none", title=f"helper: {s['title']}"[:80], ac=None,
+                            acs=list(flow.get("acs") or []), fake=False, flow=str(flow.get("workflow") or "helper"),
+                            unlocks=list(flow.get("unlocks") or []), deps=list(flow.get("deps") or []), project=s["project"],
+                            paths=files, settings={"run_mode": flow.get("run_mode") or "manual"}, thread_id=s["thread_id"] or "")
+    res = actions.commit(a)
+    if not res.ok:
+        return {"ok": False, "step": "commit", "error": res.note, "output": res.detail or ""}
+    sha = git.head(root)
+    with db.connect() as conn:
+        conn.execute("delete from helper_files where session_id = ?", (sid,))
+    note = f"keel committed the Helper's change: {res.note}" + (f" (checks: {cmd})" if cmd else " (no test command found)")
+    add_message(sid, "note", note, data={"status": "committed", "sha": sha, "files": files})
+    if emit:
+        emit("helper.commit", s["thread_id"] or sid, s["project"], {"session": sid, "sha": sha, "message": res.note,
+                                                                    "files": files, "checks": cmd})
+    return {"ok": True, "sha": sha, "message": res.note, "files": files, "checks": cmd}
 
 
 # ------------------------------------------------------------------ the prompt
@@ -194,7 +337,7 @@ def _transcript(hist: list[tuple[str, str]]) -> str:
 
 def build_prompt(*, mode: str, root: str, question: str, know: dict, graph: bool, flow: dict | None,
                  mentions: list[dict] | None, selection: dict | None, open_file: str | None, transcript: str) -> str:
-    parts = [MODE_TEXT[mode], f"The project folder: {root}"]
+    parts = [MODE_TEXT[mode].format(phase=(flow or {}).get("phase") or "none"), f"The project folder: {root}"]
     block = agent_knowledge.prompt_block(root, know, graph)
     if block:
         parts.append(block)
@@ -216,6 +359,82 @@ class HelperRunner:
     def __init__(self, bus):
         self.bus = bus
         self.tasks: dict[str, asyncio.Task] = {}
+        # Fix mode: the running turn's ask key per session (it can only ask), and the questions waiting for the person
+        self.ask_keys: dict[str, str] = {}
+        self.questions: dict[str, dict] = {}
+        self.answers: dict[str, concurrent.futures.Future] = {}
+
+    # ---- permission cards (runtime/permissions.py) --------------------------------------------------------------
+
+    def _ask(self, sid: str, key: str, kind: str, command: str, path: str = "") -> tuple[str | None, dict | None]:
+        """(question id to wait for, or an answer at once)."""
+        if not key or self.ask_keys.get(sid) != key:
+            return None, {"decision": "deny", "why": "This Helper turn may not ask (it ended, or the key is wrong)."}
+        try:
+            s = get(sid, messages=False)
+        except HelperError:
+            return None, {"decision": "deny", "why": "The Helper chat is gone."}
+        if permissions.granted(command, s["grants"]):
+            return None, {"decision": "allow"}
+        qid = "p_" + uuid.uuid4().hex[:12]
+        q = {"id": qid, "session": sid, "project": s["project"], "thread_id": s["thread_id"], "kind": kind, "command": command,
+             "path": path, "title": s["title"], "at": db.now()}
+        self.questions[qid] = q
+        self.answers[qid] = concurrent.futures.Future()
+        self.bus.emit("helper.permission", sid, s["project"], step="helper", data=q)
+        return qid, None
+
+    def _settle(self, qid: str, answer: dict):
+        fut = self.answers.pop(qid, None)
+        q = self.questions.pop(qid, None)
+        if fut and not fut.done():
+            fut.set_result(answer)
+        if q:
+            self.bus.emit("helper.permission.answered", q["session"], q["project"], step="helper",
+                          data={"id": qid, "decision": answer.get("decision"), "why": answer.get("why", "")})
+
+    async def ask(self, sid: str, key: str, kind: str, command: str, path: str = "") -> dict:
+        """The hook's question (POST /helper/permissions/ask): waits for the person, at most ASK_TIMEOUT."""
+        qid, now = self._ask(sid, key, kind, command, path)
+        if now:
+            return now
+        try:
+            return await asyncio.wait_for(asyncio.wrap_future(self.answers[qid]), permissions.ASK_TIMEOUT)
+        except asyncio.TimeoutError:
+            self._settle(qid, {"decision": "deny", "why": "Nobody answered in 10 minutes, so the command did not run."})
+            return {"decision": "deny", "why": "Nobody answered in 10 minutes, so the command did not run."}
+
+    def ask_blocking(self, sid: str, key: str, command: str) -> tuple[bool, str]:
+        """The ToolBox's question (API-key models run their tools in a worker thread)."""
+        qid, now = self._ask(sid, key, "command", command)
+        ans = now
+        if qid:
+            try:
+                ans = self.answers[qid].result(timeout=permissions.ASK_TIMEOUT)
+            except concurrent.futures.TimeoutError:
+                ans = {"decision": "deny", "why": "Nobody answered in 10 minutes, so the command did not run."}
+                self._settle(qid, ans)
+        return (ans or {}).get("decision") == "allow", (ans or {}).get("why", "")
+
+    def answer(self, qid: str, decision: str, why: str = "") -> dict:
+        """The person's answer: once | always (this command, for the rest of the chat) | deny (with a reason)."""
+        q = self.questions.get(qid)
+        if not q:
+            raise HelperError(404, "That question was answered already, or its command ended.")
+        if decision not in ("once", "always", "deny"):
+            raise HelperError(400, "Answer once, always or deny.")
+        if decision == "always":
+            add_grant(q["session"], q["command"])
+        self._settle(qid, {"decision": "deny" if decision == "deny" else "allow",
+                           "why": (why or "The person said no to this command.") if decision == "deny" else ""})
+        return {"id": qid, "decision": decision}
+
+    def pending(self, project: str | None = None) -> list[dict]:
+        return [q for q in self.questions.values() if not project or q["project"] == project]
+
+    def _drop_questions(self, sid: str, why: str):
+        for qid in [k for k, q in self.questions.items() if q["session"] == sid]:
+            self._settle(qid, {"decision": "deny", "why": why})
 
     def busy(self, sid: str) -> bool:
         t = self.tasks.get(sid)
@@ -241,6 +460,7 @@ class HelperRunner:
         return {"session": sid, "call_id": call_id, "n": n, "command": command}
 
     async def stop(self, sid: str) -> dict:
+        self._drop_questions(sid, "The person stopped the Helper.")
         t = self.tasks.get(sid)
         if t and not t.done():
             t.cancel()
@@ -276,7 +496,21 @@ class HelperRunner:
 
         know = agent_knowledge.for_agent(AGENT, body.get("agents"))
         cfg = rules.load_config(root)
-        toolbox = ToolBox(root, "none", cfg=cfg, on_refuse=on_refuse, agent=AGENT, knowledge=know, readonly=mode == "ask")
+        flow = body.get("flow") or {}
+        if mode == "fix":
+            # the flow's phase, criterion and unlocks decide what may change; commands that change something are asked
+            ac = flow.get("ac") or None
+            phase, unlocks = flow.get("phase") or "none", list(flow.get("unlocks") or [])
+            key = secrets.token_urlsafe(24)
+            self.ask_keys[sid] = key
+            toolbox = ToolBox(root, phase, cfg=cfg, lane=rules.ac_lane(ac) if ac else None, ac=(ac or {}).get("id"),
+                              ac_layer=(ac or {}).get("layer", "API"), on_refuse=on_refuse, unlocks=unlocks, agent=AGENT,
+                              knowledge=know, readonly=flow.get("run_mode") == "readonly",
+                              ask={"url": f"http://127.0.0.1:{config.port()}", "key": key, "session": sid},
+                              asker=lambda command: self.ask_blocking(sid, key, command))
+        else:
+            phase, unlocks, ac = "none", [], None
+            toolbox = ToolBox(root, "none", cfg=cfg, on_refuse=on_refuse, agent=AGENT, knowledge=know, readonly=True)
         resumable = model.get("mode") != "api" and provider in RESUMABLE
         session = s["engine_session"] if resumable else None
         resume = bool(session)
@@ -308,7 +542,8 @@ class HelperRunner:
                                   transcript=transcript)
             with tempfile.TemporaryDirectory(prefix="keel-helper-") as tmp:
                 req = AgentRequest(agent=AGENT, system=prompts.system_prompt(AGENT, body.get("skills")), prompt=prompt,
-                                   root=root, phase="none", model=model, toolbox=toolbox, title=s["title"], step_name="helper",
+                                   root=root, phase=phase, model=model, toolbox=toolbox, title=s["title"], step_name="helper",
+                                   ac=ac,
                                    mcp_specs=mcp_specs, tools_allow=tools_allow, key=models.key_for(provider, keys),
                                    workdir=tmp, timeout=int(body.get("timeout") or TURN_TIMEOUT), keys=keys, session=session,
                                    resume=resume, on_session=on_session, thread=sid, knowledge=know,
@@ -323,10 +558,17 @@ class HelperRunner:
         except Exception as exc:  # the panel shows it; the session stays usable
             status, err = "failed", f"{exc}{(' ' + exc.hint) if getattr(exc, 'hint', '') else ''}"
             emit("error", err[:2000], ok=False)
-        # the backstop for engines without keel's hook: in Ask nothing may change, whatever the engine did
-        put_back = guard.guard_diff(root, "none", before, cfg, None, None, mode == "ask")
-        for r in put_back:
-            emit("guard", f"Put back {r['path']}: the Helper's Ask mode changes nothing.", path=r["path"], ok=False)
+        self.ask_keys.pop(sid, None)
+        self._drop_questions(sid, "The Helper's answer ended.")
+        # the backstop for engines without keel's hook: in Ask nothing may change; in Fix only what the phase allows
+        if mode == "ask":
+            for r in guard.guard_diff(root, "none", before, cfg, None, None, True):
+                emit("guard", f"Put back {r['path']}: the Helper's Ask mode changes nothing.", path=r["path"], ok=False)
+        else:
+            for r in guard.guard_diff(root, phase, before, cfg, rules.ac_lane(ac) if ac else None, unlocks,
+                                      flow.get("run_mode") == "readonly"):
+                emit("guard", f"Put back {r['path']}: {r['reason']}", path=r["path"], ok=False)
+            remember_originals(sid, root, before)
         used = getattr(res, "__dict__", {}) if res else {}
         tin, tout = int(used.get("tokens_in", 0)), int(used.get("tokens_out", 0))
         cached = int(used.get("tokens_cached", 0))

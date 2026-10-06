@@ -50,7 +50,7 @@ keel2 start ~/path/to/your/project
 | **Inbox** | everything that waits for you |
 | **Tasks** | your tasks or Jira tickets; **Start** runs a flow for one |
 | **Repo · Map · Graph** | the code, the database diagram, and what uses what |
-| **Helper** (in Repo, ⌘I) | ask about the code; every answer links to the lines |
+| **Helper** (in Repo, ⌘I) | ask about the code (every answer links to the lines), or fix things while a flow waits at a gate |
 | **Budget** | tokens and cost (a small bar shows it on top of every page) |
 
 ## Flows

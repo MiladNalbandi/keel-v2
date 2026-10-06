@@ -174,3 +174,90 @@ describe("Helper in the Repo page", () => {
     await waitFor(() => expect(db.helper.sessions).toHaveLength(0));
   });
 });
+
+describe("Helper Fix mode at a gate", () => {
+  const diff = "--- a/api/ScoreController.kt\n+++ b/api/ScoreController.kt\n@@ -1,2 +1,2 @@\n-val max = 10\n+val max = 100\n";
+  const startFix = async () => {
+    const user = userEvent.setup();
+    location.hash = "#/repo";
+    localStorage.setItem("keel2.repo.helper", "true");
+    render(<App />);
+    const p = await panel();
+    const fixBtn = within(p).getByRole("button", { name: "Fix" });
+    await waitFor(() => expect(fixBtn).toBeEnabled());                       // the fixture's flow waits at the AC gate
+    await user.click(fixBtn);
+    expect(within(p).getByText("Fix · ac-gate")).toBeInTheDocument();
+    expect(within(p).getByText(/Fixing at the gate/)).toHaveTextContent("Fixing at the gate Scores for players · phase ac-gate.");
+    await user.type(within(p).getByRole("textbox", { name: "Ask the Helper" }), "Raise the limit to 100{Enter}");
+    await waitFor(() => expect(turns()).toHaveLength(1));
+    expect(db.calls.find((c) => c.method === "POST" && c.path.endsWith("/helper/sessions"))?.body).toMatchObject({ mode: "fix" });
+    expect(db.helper.sessions[0]).toMatchObject({ mode: "fix", thread_id: "th_7f3a" });
+    return { user, p, sid: db.helper.sessions[0].id };
+  };
+
+  it("asks before a command that changes something, lists the changed files, undoes one, and Done lets keel commit", async () => {
+    const { user, p, sid } = await startFix();
+    // the Helper wants to run a command: a card in the panel
+    db.helper.questions = [{ id: "q_1", session: sid, project: "ludus-engine", thread_id: "th_7f3a", kind: "bash", command: "./gradlew spotlessApply",
+      title: "The Helper asks to run a command", at: new Date().toISOString() }];
+    act(() => FakeEventSource.emit("helper.permission", { type: "helper.permission", thread_id: sid, project_id: "ludus-engine", at: new Date().toISOString(), data: {} }));
+    const card = await within(p).findByRole("group", { name: "The Helper asks to run a command" });
+    expect(within(card).getByText("./gradlew spotlessApply")).toBeInTheDocument();
+    await user.type(within(card).getByRole("textbox", { name: "Why not (optional)" }), "fine");
+    await user.click(within(card).getByRole("button", { name: "Always" }));
+    await waitFor(() => expect(db.calls.some((c) => c.path.endsWith("/helper/permissions/q_1"))).toBe(true));
+    expect(db.calls.find((c) => c.path.endsWith("/helper/permissions/q_1"))?.body).toEqual({ decision: "always", why: "fine" });
+    await waitFor(() => expect(within(p).queryByRole("group", { name: "The Helper asks to run a command" })).toBeNull());
+
+    // the answer is in: the files it changed
+    db.helper.changes[sid] = [
+      { path: "api/ScoreController.kt", status: "modified", added: 1, removed: 1, diff },
+      { path: "api/Limits.kt", status: "added", added: 3, removed: 0, diff: "--- /dev/null\n+++ b/api/Limits.kt\n@@ -0,0 +1,3 @@\n+a\n+b\n+c\n" },
+    ];
+    answer("I raised the limit in `api/ScoreController.kt:1`.");
+    const box = await within(p).findByRole("region", { name: "What the Helper changed" });
+    expect(within(box).getByText("api/Limits.kt")).toBeInTheDocument();
+    expect(within(box).getByLabelText("3 lines added")).toHaveTextContent("+3");
+    await user.click(within(box).getByRole("button", { name: "Diff of api/ScoreController.kt" }));
+    expect(within(box).getByRole("table", { name: "Changes in api/ScoreController.kt" })).toHaveTextContent("val max = 100");
+    await user.click(within(box).getByRole("button", { name: "Undo api/Limits.kt" }));
+    await waitFor(() => expect(within(box).queryByText("api/Limits.kt")).toBeNull());
+    expect(db.calls.find((c) => c.path.endsWith("/undo"))?.body).toEqual({ path: "api/Limits.kt" });
+
+    await user.click(within(box).getByRole("button", { name: "Done: run the checks and commit" }));
+    expect(await screen.findByText("keel committed 1 file (c0ffee1).")).toBeInTheDocument();
+    expect(await within(p).findByText("keel committed the Helper's change: helper: fix")).toBeInTheDocument();
+    await waitFor(() => expect(within(p).queryByRole("region", { name: "What the Helper changed" })).toBeNull());
+  });
+
+  it("a failed Done shows why, and hands the checks' output back to the Helper", async () => {
+    const { user, p, sid } = await startFix();
+    db.helper.changes[sid] = [{ path: "api/ScoreController.kt", status: "modified", added: 1, removed: 1, diff }];
+    db.helper.done = { ok: false, step: "checks", command: "./gradlew test", error: "The checks failed, so keel did not commit.",
+      output: "ScoreTest > rejects 101 FAILED\nexpected 400 but was 200" };
+    answer("Done.");
+    const box = await within(p).findByRole("region", { name: "What the Helper changed" });
+    await user.click(within(box).getByRole("button", { name: "Done: run the checks and commit" }));
+    const failed = await within(p).findByRole("alert");
+    expect(failed).toHaveTextContent("Not committed. The checks failed, so keel did not commit.");
+    expect(failed).toHaveTextContent("expected 400 but was 200");
+    await user.click(within(failed).getByRole("button", { name: "Ask the Helper to fix it" }));
+    await waitFor(() => expect(turns()).toHaveLength(2));
+    const asked = (turns()[1].body as { text: string }).text;
+    expect(asked).toContain("The checks failed after your change (`./gradlew test`)");
+    expect(asked).toContain("expected 400 but was 200");
+    expect(within(p).queryByRole("alert")).toBeNull();
+  });
+
+  it("is off while no flow waits, and Ask stays read-only", async () => {
+    db.flows["ludus-engine"].thread!.status = "running";
+    location.hash = "#/repo";
+    localStorage.setItem("keel2.repo.helper", "true");
+    render(<App />);
+    const p = await panel();
+    await act(async () => { await new Promise((r) => setTimeout(r, 50)); });        // the flow is read
+    expect(within(p).getByRole("button", { name: "Fix" })).toBeDisabled();
+    expect(within(p).getByRole("button", { name: "Ask" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(p).getByText("Ask · read only")).toBeInTheDocument();
+  });
+});

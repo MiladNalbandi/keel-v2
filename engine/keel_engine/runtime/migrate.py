@@ -15,6 +15,7 @@
     helper_sessions         the Helper's chat sessions (runtime/helper.py): project, mode, model, the CLI's own session
                             id to continue, status and what they used
     helper_messages         each session's messages in order: the person's, the Helper's answers (with the turn's call id)
+    helper_files            Fix mode: each file the Helper changed, as it was before its first change (Undo, Done)
 """
 
 from __future__ import annotations
@@ -68,9 +69,15 @@ MIGRATIONS = [
       id text primary key, project text not null, root text not null, mode text not null, title text not null,
       model_json text not null, engine_session text, status text not null, error text, thread_id text,
       tokens_in integer not null default 0, tokens_out integer not null default 0, tokens_cached integer not null default 0,
-      cost_usd real not null default 0, turns integer not null default 0, created_at text not null, updated_at text not null
+      cost_usd real not null default 0, turns integer not null default 0, created_at text not null, updated_at text not null,
+      grants_json text not null default '[]'
     )""",
     """create index if not exists helper_sessions_project on helper_sessions (project, updated_at)""",
+    # Fix mode: each file the Helper changed, as it was before its first change (Undo puts it back; Done commits)
+    """create table if not exists helper_files (
+      session_id text not null, path text not null, existed integer not null, content blob, at text not null,
+      primary key (session_id, path)
+    )""",
     """create table if not exists helper_messages (
       session_id text not null, n integer not null, role text not null, text text not null, call_id text,
       data_json text, at text not null, primary key (session_id, n)

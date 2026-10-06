@@ -114,6 +114,10 @@ def _canned(req: AgentRequest) -> tuple[str | None, str, str, dict]:
         return None, "", "No findings across the branch diff.\nCODE-REVIEW: pass", {"verdict": "pass"}
     if agent == "security-auditor":
         return None, "", "SECURITY: no findings.", {"verdict": "pass"}
+    if agent == "helper" and phase not in ("none", ""):
+        # Fix mode: one real change through the guarded tools, so Undo and Done have something to work on
+        return "src/scores/helper_fix.py", 'def helped():\n    return "fixed by the Helper"\n', \
+            "Changed src/scores/helper_fix.py: a small helper the gate asked for.", {}
     if agent == "helper":
         asked = (req.prompt or "").split("Question:", 1)[-1].strip().splitlines()[0][:120] if "Question:" in (req.prompt or "") \
             else (req.prompt or "").strip().splitlines()[-1][:120]

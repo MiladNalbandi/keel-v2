@@ -5,7 +5,7 @@
 // "Show more"; after you answer, the focus moves to the next item so the keyboard can go on.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { errorParts } from "../api";
+import { api, errorParts } from "../api";
 import { answersOf, ClarifyForm, type ClarifyAnswers } from "../components/ClarifyForm";
 import { RunModeNote } from "../components/RunMode";
 import { EmptyState } from "../components/EmptyState";
@@ -17,7 +17,7 @@ import "../components/inbox.css";
 
 const KIND_LABEL: Record<string, string> = {
   gate: "gate", clarify: "questions", fix: "needs a fix", budget: "budget", usage: "plan window", dependency: "new dependency",
-  task: "task", "jira-manual": "move in Jira",
+  task: "task", "jira-manual": "move in Jira", permission: "may it run?",
 };
 const kindLabel = (k: string) => KIND_LABEL[k] ?? k;
 const keyOf = (it: InboxItem) => `${it.thread_id}:${it.id ?? it.step}`;
@@ -104,6 +104,50 @@ function TaskInboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) =>
         ))}
         {t.url && <a className="btn sm ghost" href={t.url} target="_blank" rel="noreferrer">Open in Jira ↗</a>}
         <button className="btn sm ghost inbox-open" type="button" onClick={openTask} aria-label={`Open task ${t.key ?? t.title} in ${it.project_name}`}>Open task ▸</button>
+      </div>
+      {err && <ErrorBox error={err} />}
+    </article>
+  );
+}
+
+/** A Helper's command that waits for the person's OK: Allow once, Always (this command, for the rest of that chat), Deny. */
+function PermissionInboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) => Promise<void> }) {
+  const { setProjectId } = useApp();
+  const q = it.permission!;
+  const [why, setWhy] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<{ message: string; hint?: string } | null>(null);
+  const hid = `inbox-perm-${q.id}`;
+  const answer = async (decision: "once" | "always" | "deny") => {
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.helperAnswer(it.project_id, q.id, decision, why.trim());
+      await onDone(decision === "deny" ? "Refused: the Helper will not run it." : "Allowed: the Helper runs it now.");
+    } catch (e) {
+      setErr(errorParts(e));
+      setBusy(false);
+    }
+  };
+  return (
+    <article className="inbox-item k-permission" aria-labelledby={hid} data-testid="inbox-item" data-key={keyOf(it)} tabIndex={-1}>
+      <div className="inbox-meta">
+        <Pill tone="warn">{kindLabel(it.kind)}</Pill>
+        <span className="sub"><b>{it.project_name}</b> · Helper · {it.flow}</span>
+        {it.since && <span className="hint inbox-since">waiting <Since from={it.since} /></span>}
+      </div>
+      <h2 id={hid} className="inbox-title">{it.title}</h2>
+      <pre className="code inbox-cmd">{q.command}</pre>
+      <div className="field">
+        <label htmlFor={`${hid}-why`}>Why not (optional, the Helper reads it)</label>
+        <input id={`${hid}-why`} value={why} onChange={(e) => setWhy(e.target.value)} />
+      </div>
+      <div className="row inbox-actions">
+        <button className="btn sm warn" type="button" disabled={busy} onClick={() => void answer("once")}>Allow once</button>
+        <button className="btn sm" type="button" disabled={busy} onClick={() => void answer("always")}>Always for this command</button>
+        <button className="btn sm" type="button" disabled={busy} onClick={() => void answer("deny")}>Deny</button>
+        <button className="btn sm ghost inbox-open" type="button" onClick={() => { setProjectId(it.project_id); go("repo"); }}
+          aria-label={`Open the Helper in ${it.project_name}`}>Open the Helper ▸</button>
       </div>
       {err && <ErrorBox error={err} />}
     </article>
@@ -270,7 +314,9 @@ export function InboxPage() {
             <div className="inbox-list" ref={listRef}>
               {items.map((it) => it.task
                 ? <TaskInboxCard key={keyOf(it)} it={it} onDone={(msg) => done(msg, keyOf(it))} />
-                : <InboxCard key={keyOf(it)} it={it} onDone={(msg) => done(msg, keyOf(it))} />)}
+                : it.permission
+                  ? <PermissionInboxCard key={keyOf(it)} it={it} onDone={(msg) => done(msg, keyOf(it))} />
+                  : <InboxCard key={keyOf(it)} it={it} onDone={(msg) => done(msg, keyOf(it))} />)}
             </div>
           )}
     </>
