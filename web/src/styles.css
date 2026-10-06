@@ -318,7 +318,7 @@ button.skilltag:hover { border-color: var(--accent); color: var(--accent); }
 .lane-h { display: flex; justify-content: space-between; gap: 8px; }
 .adot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--run); animation: pulse 1.4s infinite; vertical-align: middle; }
 .wiki-grid { display: grid; grid-template-columns: 230px minmax(0,1fr); gap: 16px; align-items: start; }
-.wtree { display: flex; flex-direction: column; gap: 1px; position: sticky; top: 12px; }
+.wtree { display: flex; flex-direction: column; gap: 1px; position: sticky; top: calc(var(--bar-h, 0px) + 12px); }
 .wt-h { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--faint); font-weight: 700; padding: 10px 10px 4px; display: flex; justify-content: space-between; gap: 6px; }
 .wt-h .sub { text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 11px; }
 .wtree a { padding: 5px 10px; border-radius: 6px; color: var(--dim); text-decoration: none; display: flex; justify-content: space-between; align-items: center; gap: 6px; }
@@ -654,11 +654,51 @@ details.file-card[open] > summary.file-bar::before { content: "▾"; }
 .ucard-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
 .ucard-line { min-width: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .ucard .meter { height: 6px; }
-.ustrip.compact { grid-template-columns: minmax(0, 1fr); gap: 6px; }
-.ucard.compact { padding: 6px 8px; gap: 4px; font-size: 12px; }
-.ucard.compact .hint { font-size: 11px; }
-.ucard.compact .btn.sm { padding: 0 6px; min-height: 22px; }
-@media (max-width: 900px) { .side .ustrip.compact { display: none; } }
+
+/* the budget bar on top of every page (components/BudgetBar.tsx): one 40px line that stays while the page scrolls.
+   --bar-h is its height, for the page parts that stick under it. */
+.app-col { min-width: 0; display: flex; flex-direction: column; }
+.app-col:has(> .bbar) { --bar-h: 41px; }
+.bbar { position: sticky; top: 0; z-index: 9; display: flex; align-items: center; gap: 2px; height: 41px; box-sizing: border-box; padding: 0 16px 0 18px;
+  background: var(--bg); border-bottom: 1px solid var(--border); font-size: 12.5px; overflow: hidden; }
+.bbar.bb-warn { box-shadow: inset 3px 0 0 var(--warn); }
+.bbar.bb-bad { box-shadow: inset 3px 0 0 var(--bad); background: color-mix(in srgb, var(--bad-soft) 45%, var(--bg)); }
+.bb-seg { display: inline-flex; align-items: center; gap: 6px; flex: none; min-width: 0; padding: 5px 10px; border-radius: 7px; color: var(--fg); text-decoration: none; white-space: nowrap; }
+a.bb-seg:hover { background: var(--panel-2); }
+a.bb-seg:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.bb-seg + .bb-seg { position: relative; margin-left: 9px; }
+.bb-seg + .bb-seg::before { content: ""; position: absolute; left: -6px; top: 7px; bottom: 7px; width: 1px; background: var(--border); }
+.bb-l { font-size: 10.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--faint); }
+.bb-sub { color: var(--dim); }
+.bb-wait { color: var(--faint); }
+.bb-meter { flex: none; width: 54px; height: 5px; border-radius: 3px; background: var(--panel-2); overflow: hidden; }
+.bb-meter i { display: block; height: 100%; border-radius: 3px; }
+.bbar .bb-pct { font-weight: 600; color: var(--dim); }
+.bbar .t-warn { color: var(--warn); } .bbar .t-bad { color: var(--bad); }
+.bb-flow { flex: 0 1 auto; }
+.bb-title { min-width: 0; max-width: 28ch; overflow: hidden; text-overflow: ellipsis; color: var(--dim); }
+.bb-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; }
+.bb-dot.is-run { background: var(--run); animation: pulse 1.6s ease-in-out infinite; }
+.bb-dot.is-wait { background: var(--warn); }
+.bb-more { font-size: 11px; padding: 0 6px; border-radius: 8px; background: var(--panel-2); color: var(--dim); }
+.bb-seg.bb-provs { margin-left: auto; gap: 12px; flex: 0 1 auto; overflow: hidden; }
+.bb-seg.bb-provs::before { display: none; }
+.bb-prov { display: inline-flex; align-items: center; gap: 5px; color: var(--dim); }
+.bb-prov i { flex: none; width: 7px; height: 7px; border-radius: 50%; }
+.bb-prov.t-warn, .bb-prov.t-bad { font-weight: 600; }
+/* a laptop: the flow title and the cost of today and this month give way first */
+@media (max-width: 1280px) { .bb-title { max-width: 14ch; } }
+@media (max-width: 1100px) { .bb-cost, .bb-title { display: none; } }
+/* a phone: under the sticky header, it scrolls away with the page and may take two lines */
+@media (max-width: 900px) {
+  .app-col:has(> .bbar) { --bar-h: 0px; }
+  .bbar { position: static; height: auto; flex-wrap: wrap; gap: 2px 0; padding: 6px 8px; overflow: visible; }
+  .bb-seg { padding: 4px 6px; }
+  .bb-seg + .bb-seg { margin-left: 7px; }
+  .bb-seg.bb-flow, .bb-seg.bb-provs { flex: 1 1 100%; margin-left: 0; }
+  .bb-seg.bb-flow::before { display: none; }
+  .bb-title { display: inline; max-width: 16ch; }
+}
 
 /* "What this step does" drawer (components/StepInfo.tsx) */
 .xsec { display: grid; gap: 8px; }
@@ -958,7 +998,7 @@ button.sx-x:hover { box-shadow: 0 0 0 2px var(--ink); }
 .fl-canvas { --sx-bg: var(--panel); min-width: 0; }
 .fl-canvas > .panel-body { background: var(--panel) radial-gradient(var(--blk-dots) 1px, transparent 1.2px) 0 0 / 18px 18px; border-radius: 0 0 10px 10px; }
 .fl-scroll { max-height: max(460px, calc(100vh - 220px)); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
-.fl-side { position: sticky; top: 12px; display: grid; gap: 12px; align-content: start; max-height: calc(100vh - 24px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.fl-side { position: sticky; top: calc(var(--bar-h, 0px) + 12px); display: grid; gap: 12px; align-content: start; max-height: calc(100vh - var(--bar-h, 0px) - 24px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 .fl-side > .tabs { justify-self: start; max-width: 100%; overflow-x: auto; }
 .fl-waits { gap: 8px; }
 .fl-feed { max-height: 320px; overflow-y: auto; }

@@ -1,6 +1,6 @@
 // The usage dashboard: for each provider that is set up, what its plan says is used and what remains.
 // Every number says where it came from and how old it is ("as of last run, 12 min ago"). The full strip sits on
-// the Budget page; a compact one sits in the sidebar (source and age in its tooltip); Connections cards show the line.
+// the Budget page; the budget bar on top of every page shows each provider's fullest window; Connections cards show the line.
 
 import { useEffect, useState, type ReactNode } from "react";
 import { api, errorParts, type ProviderUsage, type UsageWindow } from "../api";
@@ -70,7 +70,7 @@ function fullest(u: ProviderUsage, now = Date.now()): number | null {
   return ps.length ? Math.max(...ps) : null;
 }
 
-export function UsageCard({ u, compact, onRefreshed }: { u: ProviderUsage; compact?: boolean; onRefreshed: (u: ProviderUsage) => void }) {
+export function UsageCard({ u, onRefreshed }: { u: ProviderUsage; onRefreshed: (u: ProviderUsage) => void }) {
   const { toast } = useApp();
   const [busy, setBusy] = useState(false);
   const top = fullest(u);
@@ -87,23 +87,8 @@ export function UsageCard({ u, compact, onRefreshed }: { u: ProviderUsage; compa
     }
   };
   const label = u.id === "claude" ? "Refresh (one tiny Haiku call)" : `Refresh ${u.name}`;
-  if (compact) {
-    // the sidebar: two short lines per provider; the source and age are in the tooltip
-    const line = usageLine(u);
-    return (
-      <div className="ucard compact" data-testid={`usage-${u.id}`} title={`${u.name}: ${line} (${sourceText(u)})`}>
-        <span className="prov"><i className={`c-${u.id === "api" ? "fake" : u.id}`} /><b>{u.name}</b></span>
-        {top != null && <span className="ucard-pct num">{top}%</span>}
-        {u.can_refresh && (
-          <button className="btn sm ghost" type="button" onClick={refresh} disabled={busy} aria-label={label} title={label}>{busy ? "…" : "↻"}</button>
-        )}
-        <span className="ucard-line">{line}</span>
-        {top != null && <div className={`meter m-${tone(top)}`} aria-label={`${u.name} ${top}% used`}><i style={{ width: `${Math.min(100, top)}%` }} /></div>}
-      </div>
-    );
-  }
   return (
-    <div className={`ucard${compact ? " compact" : ""}`} data-testid={`usage-${u.id}`}>
+    <div className="ucard" data-testid={`usage-${u.id}`}>
       <div className="ucard-h">
         <span className="prov"><i className={`c-${u.id === "api" ? "fake" : u.id}`} /><b>{u.name}</b></span>
         {u.can_refresh && (
@@ -117,9 +102,9 @@ export function UsageCard({ u, compact, onRefreshed }: { u: ProviderUsage; compa
   );
 }
 
-/** The cards for every provider that is set up. Nothing is shown when none is (no empty box in the sidebar).
+/** The cards for every provider that is set up; `empty` when none is.
  *  `loading` is shown until the first answer (a page can hold the space); nothing by default. */
-export function UsageStrip({ compact, empty, loading }: { compact?: boolean; empty?: ReactNode; loading?: ReactNode }) {
+export function UsageStrip({ empty, loading }: { empty?: ReactNode; loading?: ReactNode }) {
   const usage = useLoad("usage:providers", () => api.usageProviders(), { live: false });
   useEffect(() => {
     const t = window.setInterval(() => void usage.reload(), REFRESH_MS);
@@ -130,8 +115,8 @@ export function UsageStrip({ compact, empty, loading }: { compact?: boolean; emp
   if (!cards.length) return usage.data && empty ? <>{empty}</> : null;
   const put = (n: ProviderUsage) => usage.setData((l) => (l ? l.map((x) => (x.id === n.id ? n : x)) : [n]));
   return (
-    <div className={`ustrip${compact ? " compact" : ""}`} aria-label="Provider usage">
-      {cards.map((u) => <UsageCard key={u.id} u={u} compact={compact} onRefreshed={put} />)}
+    <div className="ustrip" aria-label="Provider usage">
+      {cards.map((u) => <UsageCard key={u.id} u={u} onRefreshed={put} />)}
     </div>
   );
 }

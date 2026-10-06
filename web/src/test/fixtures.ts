@@ -1,7 +1,7 @@
 // Example api data for tests (MSW). Shapes follow docs/CONTRACT.md; values follow docs/mockup.html.
 
 import type {
-  Agent, Budget, Cap, Catalog, Checkpoint, Connections, Estimate, Health, Job, JobStep, KeelDoc, KeelMap, LibraryItem, Limit, McpServer,
+  Agent, Budget, BudgetNow, Cap, Catalog, Checkpoint, Connections, Estimate, Health, Job, JobStep, KeelDoc, KeelMap, LibraryItem, Limit, McpServer,
   Memory, Notification, NotificationSettings, Project, ProjectSettings, ProviderUsage, RepoFile, RepoInfo, Settings, Skill, SkillDetail,
   Stack, StepExplanation, ThreadState, TreeNode, WikiPage, WikiTree, Workflow,
 } from "../api";
@@ -243,6 +243,13 @@ export const budget: Budget = {
   top: [{ agent: "implementer", provider: "copilot", tokens: 1420000, cost_usd: 0 }],
   recent: [{ title: "ludus-engine · feature", estimate: 410000, real: 386000, status: "running" }],
 };
+/** The budget bar: today, this month, the waiting flow of `thread` against its cap. */
+export const budgetNow = (): BudgetNow => ({
+  today: { tokens: 120000, cost_usd: 0.42 },
+  month: { tokens: 1900000, cost_usd: 24.1 },
+  flows: [{ thread_id: "th_7f3a", title: "Scores for players", status: "waiting", tokens: 184200, cost_usd: 2.86, cap_tokens: 600000, cap_usd: null }],
+  caps: [],
+});
 export const caps: Cap[] = [
   { id: "c1", scope: "flow", limit: 600000, unit: "tokens", action: "pause" },
   { id: "c2", scope: "api_month", limit: 100, unit: "usd", action: "stop" },

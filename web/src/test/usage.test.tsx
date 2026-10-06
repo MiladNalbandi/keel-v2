@@ -1,4 +1,4 @@
-import { render, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { App } from "../App";
@@ -21,15 +21,16 @@ describe("Usage dashboard", () => {
     expect(within(claude).getByLabelText("Claude 62% used")).toBeInTheDocument();
   });
 
-  it("the sidebar has the compact strip (source and age in the tooltip); All projects does not repeat it", async () => {
+  it("the budget bar shows each provider's fullest window (source and age in the tooltip); All projects does not repeat the cards", async () => {
     location.hash = "#/projects";
     render(<App />);
-    const side = document.querySelector(".side") as HTMLElement;
-    const claude = await within(side).findByTestId("usage-claude");
-    expect(claude).toHaveTextContent("Claude62%");
-    expect(claude).toHaveTextContent("5h 62% · week 31%");
+    const bar = await screen.findByRole("region", { name: "Budget at a glance" });
+    const claude = await within(bar).findByTestId("bb-prov-claude");
+    expect(claude).toHaveTextContent("Claude 5h 62%");
+    expect(claude).toHaveAttribute("title", expect.stringContaining("5h 62% · week 31%"));
     expect(claude).toHaveAttribute("title", expect.stringContaining("as of last run, 12 min ago"));
-    expect(within(claude).getByLabelText("Claude 62% used")).toBeInTheDocument();
+    expect(within(bar).getByTestId("bb-prov-codex")).toHaveTextContent("Codex 5h 20%");
+    expect(document.querySelector(".side .ustrip")).toBeNull();
     await main().findByRole("list", { name: "Projects" });
     expect(main().queryByTestId("usage-claude")).toBeNull();
   });

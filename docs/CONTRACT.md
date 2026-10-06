@@ -276,6 +276,7 @@ type McpServer = McpServerSpec & { enabled, builtin, status: "ok"|"off"|"error",
 
 # control
 GET    /api/projects/{pid}/budget                     → { month: { tokens, cost_usd, premium_requests, flows }, days: { day, claude, codex, copilot, fake }[], caps: Cap[], top: { agent, provider, tokens, cost_usd }[], recent: { title, estimate, real, status }[] }
+GET    /api/projects/{pid}/budget/now                 → BudgetNow (v0.5.2, the budget bar; see "v0.5.2: the budget bar")
 GET    /api/limits                                    → Limit[]      PUT /api/limits  Limit[]
 type Limit = { id, name, unit, used, cap, note, source?, window?, used_pct?, remaining?, resets_at?, fetched_at? }   // manual cap + the provider's numbers when known
 GET    /api/usage/providers                           → ProviderUsage[]   // only providers that are set up; codex/copilot cached 60 s
@@ -1166,3 +1167,32 @@ allow it per agent. Saving the connection refreshes its env; deleting the connec
   project (Cloud / Server, URL, email, token, project key, board, poll, JQL, Test, Connect/Save/Remove; when connected: the
   status mapping found from Jira with a select per keel status, the reviewer field, Jira and GitHub reviewers).
   **Tools › Catalog**: the optional Jira MCP server.
+
+## v0.5.2: the budget bar
+
+A bar on top of every page (`web/src/components/BudgetBar.tsx`) shows the picked project's budget at a glance. It reads
+only the api database, so the web may ask for it often.
+
+```
+GET /api/projects/{pid}/budget/now → {
+  today: Spend,                 // this project since 00:00 UTC
+  month: Spend,                 // this project since the 1st (UTC)
+  flows: FlowSpend[],           // its running and waiting flows, newest first, at most 5
+  caps: CapLeft[]               // its day and month caps that keel checks (as in /caps/left)
+}
+Spend     = { tokens, cost_usd }   // tokens = in + out + a tenth of cached input; dollars at API prices
+FlowSpend = { thread_id, title, status, tokens, cost_usd, cap_tokens: number|null, cap_usd: number|null }
+```
+- A flow's `tokens` and `cost_usd` are the larger of its finished agent calls and the engine's own count in the stored
+  thread state (the engine's count is what the flow's cap is checked against). A cap of 0 is `null` (no cap).
+- 404 for an unknown project.
+
+### Web
+- The bar is drawn on every page from the first moment (a page that measures its own top is never pushed down): Today and
+  This month (tokens, dollars, and the fullest day or month cap with a meter), the busiest running flow against its cap
+  (`+N` when more run) and each set-up provider's fullest plan window. Each part links to Budget (the flow part to Flow);
+  the tooltips hold the details (every cap, every flow, each provider's source and age).
+- It turns amber when anything in it reaches 80% and red at 95%, the same thresholds as the provider cards.
+- It reloads on live events (at most once every 5 s) and once a minute. On a desktop it sticks to the top (41px, the CSS
+  variable `--bar-h`, which sticky page parts add to their `top`); on a phone it sits under the header and scrolls away.
+- The sidebar no longer has the compact provider cards: the bar shows the same windows.

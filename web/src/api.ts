@@ -553,6 +553,14 @@ export type Budget = {
   top: { agent: string; provider: Provider; tokens: number; cost_usd: number }[];
   recent: { title: string; estimate: number; real: number; status: string }[];
 };
+/** Tokens (cached input counts a tenth) and dollars at API prices. */
+export type Spend = { tokens: number; cost_usd: number };
+/** A running or waiting flow and what it used against its own caps (null = no cap). */
+export type FlowSpend = {
+  thread_id: string; title: string; status: ThreadStatus; tokens: number; cost_usd: number; cap_tokens: number | null; cap_usd: number | null;
+};
+/** v0.5.2 `GET /api/projects/{pid}/budget/now`, for the budget bar on every page: caps = the day and month caps. */
+export type BudgetNow = { today: Spend; month: Spend; flows: FlowSpend[]; caps: CapLeft[] };
 export type Limit = {
   id: string; name: string; unit: string; used: number; cap: number; note: string;
   /** The provider's own numbers (usage dashboard); absent = only the manual cap and keel's own count. */
@@ -838,6 +846,7 @@ export const api = {
 
   // control
   budget: (pid: string) => get<Budget>(`/projects/${e(pid)}/budget`),
+  budgetNow: (pid: string) => get<BudgetNow>(`/projects/${e(pid)}/budget/now`),
   caps: (pid: string) => get<Cap[]>(`/projects/${e(pid)}/caps`),
   capsLeft: (pid: string) => get<CapsLeft>(`/projects/${e(pid)}/caps/left`),
   addCap: (pid: string, c: Omit<Cap, "id"> & { id?: string }) => post<Cap>(`/projects/${e(pid)}/caps`, c),
