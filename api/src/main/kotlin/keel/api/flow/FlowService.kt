@@ -52,6 +52,9 @@ data class ThreadSettings(
     /** Every step's token limit (a step's own smaller max_tokens still wins), and what it does. */
     val stepCapTokens: Int? = null,
     val stepOnCap: String? = null,
+    /** Who keel's commits are by ("Name <email>", null: the project's git name) and whether KeelBot co-authors them. */
+    val commitAuthor: String? = null,
+    val commitCoauthor: Boolean? = null,
 )
 
 /** The engine's StartThread (CONTRACT "Shared types"). */
@@ -178,7 +181,8 @@ class FlowService(
             models = models,
             settings = ThreadSettings(s.gatesMode, cap?.runMode ?: s.runMode, limits.capTokens, limits.onCap, s.cheaperModel,
                 s.usageWarn, s.usagePause, providerUsage.windowsForEngine().takeIf { it.isNotEmpty() },
-                limits.capUsd, limits.onCapUsd, limits.stepCapTokens, limits.stepOnCap),
+                limits.capUsd, limits.onCapUsd, limits.stepCapTokens, limits.stepOnCap,
+                commitAuthor = s.commitAuthor.trim().ifBlank { null }, commitCoauthor = s.commitCoauthor),
             mcp = mcp.specsFor(s.mcp), skills = skillText,
             agents = all.filter { it.enabled }.associate { it.id to AgentStart(it.knowledge) },
             capNote = limits.notes.takeIf { it.isNotEmpty() }?.joinToString(" "),

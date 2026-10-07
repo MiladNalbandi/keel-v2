@@ -110,6 +110,8 @@ class CapsApiTest : ApiTest() {
         val state = startBody(pid).andExpect(status().isOk).json()
         val s = engine.lastBody("/threads")!!["settings"]
         assertThat(s["cap_tokens"].asInt()).isEqualTo(150_000)
+        assertThat(s["commit_coauthor"].asBoolean()).isTrue()          // keel's commits name KeelBot (on by default)
+        assertThat(s.path("commit_author").textValue()).isNull()         // empty: the engine takes the project's git name
         assertThat(s["on_cap"].asText()).isEqualTo("cheaper")
         assertThat(s["cap_usd"].asDouble()).isCloseTo(15.0, within(1e-9))
         assertThat(s["on_cap_usd"].asText()).isEqualTo("stop")

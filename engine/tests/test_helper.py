@@ -336,9 +336,13 @@ def test_a_side_session_works_in_its_own_worktree_and_never_touches_the_main_fol
     ch = client.get(f"/helper/sessions/{s['id']}/changes").json()
     assert [(c["path"], c["status"]) for c in ch] == [("src/scores/helper_fix.py", "added")]
     # Keep: the checks, then keel's commit on the side branch; the main folder's branch does not move
-    r = client.post(f"/helper/sessions/{s['id']}/done", json={"flow": {}, "message": "a helper for ranks"}).json()
+    r = client.post(f"/helper/sessions/{s['id']}/done", json={"flow": {}, "message": "a helper for ranks",
+                                                            "commit": {"commit_author": "Ada Lovelace <ada@example.com>"}}).json()
     assert r["ok"] is True, r
     assert _git(wt, "log", "-1", "--format=%s").strip() == "fix(helper): a helper for ranks"
+    # by the person the project's settings name, with KeelBot as the co-author (on by default)
+    assert _git(wt, "log", "-1", "--format=%an <%ae>%n%(trailers:key=Co-Authored-By,valueonly)").split() == \
+        ["Ada", "Lovelace", "<ada@example.com>", "KeelBot", "<keel.dev.bot@gmail.com>"]
     assert _git(repo, "rev-parse", "HEAD").strip() == head
     assert client.get(f"/helper/sessions/{s['id']}/changes").json() == []
     assert "on branch keel/helper/" in client.get(f"/helper/sessions/{s['id']}").json()["messages"][-1]["text"]

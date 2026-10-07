@@ -181,7 +181,11 @@ class HelperService(
             "side" -> emptyMap()            // Keep: the checks, then keel's commit on the side session's own branch
             else -> throw BadRequest("Only a Fix chat or a side session has changes to commit")
         }
-        return engine.post("/helper/sessions/$sid/done", mapOf("flow" to flow, "message" to body.message.trim().take(200)), long = true)
+        val eff = settings.effective(pid)
+        val commit = mapOf("commit_author" to eff.commitAuthor.trim().ifBlank { null }, "commit_coauthor" to eff.commitCoauthor)
+            .filterValues { it != null }
+        return engine.post("/helper/sessions/$sid/done", mapOf("flow" to flow, "message" to body.message.trim().take(200),
+            "commit" to commit), long = true)
     }
 
     fun permissions(pid: String): JsonNode {

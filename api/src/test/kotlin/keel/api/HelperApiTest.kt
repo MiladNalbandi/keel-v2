@@ -176,8 +176,13 @@ class HelperApiTest : ApiTest() {
         val sid = post("/api/projects/$pid/helper/sessions", mapOf("mode" to "side")).andExpect(status().isOk).json()["id"].asText()
         assertThat(engine.lastBody("/helper/sessions")!!["mode"].asText()).isEqualTo("side")
         // Keep needs no waiting flow: the engine gets no flow and commits on the side branch
+        put("/api/projects/$pid/settings", mapOf("commit_author" to "Ada Lovelace <ada@example.com>")).andExpect(status().isOk)
         post("/api/projects/$pid/helper/sessions/$sid/done", mapOf("message" to "price helper")).andExpect(status().isOk)
         assertThat(engine.lastBody("/helper/sessions/$sid/done")!!["flow"].size()).isEqualTo(0)
+        // keel's commit is by the person the settings name, with KeelBot as co-author (on by default)
+        val commit = engine.lastBody("/helper/sessions/$sid/done")!!["commit"]
+        assertThat(commit["commit_author"].asText()).isEqualTo("Ada Lovelace <ada@example.com>")
+        assertThat(commit["commit_coauthor"].asBoolean()).isTrue()
 
         val sha = git(root, "rev-parse", "HEAD").trim()
         git(root, "branch", "keel/helper/abc")

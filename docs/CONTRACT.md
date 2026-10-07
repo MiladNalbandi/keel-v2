@@ -213,7 +213,7 @@ GET    /api/projects/{pid}/repo/tree?depth=4&dir=     → TreeNode[]   { path, n
 GET    /api/projects/{pid}/repo/file?path=            → { path, size, mark?, frozen, keel, ac?, head: string (first 120 lines), last_commit: Commit,
                                                           binary, modified (epoch ms), phase, bucket, verdict }   (ac: newest AC-nnn in this branch's commits of the file;
                                                           bucket/verdict: the keel rule for the active phase, verdict "deny" = frozen)
-GET    /api/projects/{pid}/repo/commits?limit=30&range= → Commit[]  { sha, message, author, at, keel: bool }   (range=branch: base..HEAD; keel: keelbot / configured keel author)
+GET    /api/projects/{pid}/repo/commits?limit=30&range= → Commit[]  { sha, message, author, at, keel: bool }   (range=branch: base..HEAD; keel: by KeelBot / the configured keel author, or Co-Authored-By KeelBot)
 # v0.5.1 the Repo page as a small read-only IDE (nothing here writes to the project)
 GET    /api/projects/{pid}/repo/raw?path=             → the file's bytes (text/plain;charset=UTF-8, image/*, or octet-stream); 413 above 10 MB;
                                                         CSP sandbox + nosniff, so an SVG/HTML file never runs as keel's page; .git/, secrets, outside paths refused
@@ -1505,3 +1505,18 @@ in + out + cached ÷ 10):
 - The menu (web `components/Shell.tsx`): on a big screen **Hide the menu** (‹ next to the bell) folds it into a thin
   strip with ☰ and the bell; ⌘\ toggles it; remembered as `keel2.nav.hidden`. A phone keeps its own bar.
 
+## v0.8.x: keel's commits are by you, with KeelBot as co-author
+
+- Settings › Git (general and per project): `commit_coauthor` (bool, default `true`) and `commit_author` (string,
+  `Name <email>`, default empty; anything else is a 400 with an example). Flows get both in `StartThread.settings`
+  (`commit_author` only when set); the Helper's Done/Keep sends them as `commit: { commit_author?, commit_coauthor }`
+  to `POST /helper/sessions/{sid}/done`.
+- Who a keel commit is by (engine `runtime/actions.py` `commit_ident`, used by the commit action, the Helper's commits
+  and the hunt report): `commit_author`, else `.keel/config.yml` `commit.author_name` / `author_email` (KeelBot's own
+  address there counts as unset: older templates wrote it), else the project's git name (`git config user.name` /
+  `user.email`; the Docker image's placeholder `keel <keel@localhost>` counts as unset), else
+  `KeelBot <keel.dev.bot@gmail.com>`.
+- With `commit_coauthor` (missing = on) the message ends with `Co-Authored-By: KeelBot <keel.dev.bot@gmail.com>`,
+  except when KeelBot is the author already.
+- The Repo page counts a commit as keel's (`keel: true`) when KeelBot or the configured keel author made it, or when
+  it names KeelBot in a `Co-Authored-By` line.

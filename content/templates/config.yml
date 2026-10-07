@@ -65,11 +65,13 @@ commands:
   web_health_check: ''        # e.g. curl -fsS http://localhost:5173
   smoke: ''                   # a single smoke command for the run ladder
 
-# Every commit keel makes is authored as this identity, not as whichever human or
-# coding agent is driving the shell. Override per project if you want your own bot identity.
+# Who keel's commits are by when Settings > Commit author is empty: a bot identity of your own,
+# for example. Empty here too: the project's git name, else KeelBot. Settings > KeelBot as
+# co-author (on by default) ends every keel commit with
+# Co-Authored-By: KeelBot <keel.dev.bot@gmail.com>.
 commit:
-  author_name: keelbot
-  author_email: keel.dev.bot@gmail.com
+  author_name: ''
+  author_email: ''
 
 # Programs for this project: formatters, linters, CI probes. They merge over the matched stacks'
 # `tools:` blocks: a block here overrides the keys it names, `<name>: false` turns one off.

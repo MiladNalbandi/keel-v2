@@ -201,9 +201,10 @@ DOCS: dict[str, dict] = {
             "Extra rules: a trivial commit may not edit existing tests; a coverage commit may only delete production lines "
             "and never touch .keel/config.yml; in a change flow an escalation trigger (contract, migration, auth, size) "
             "asks whether to become a feature flow.",
-            "Commits as keelbot (commit.author_name / author_email) with the message type(scope): title, the criterion id "
-            "as the scope inside the AC loop; a subject longer than 72 characters is cut and the full title goes in the "
-            "body.",
+            "Commits as you (Settings › Commit author, else .keel/config.yml commit.author_name / author_email, else the "
+            "project's git name, else KeelBot) with the message type(scope): title, the criterion id as the scope inside "
+            "the AC loop; a subject longer than 72 characters is cut and the full title goes in the body. With Settings › "
+            "KeelBot as co-author (on by default) the message ends with Co-Authored-By: KeelBot <keel.dev.bot@gmail.com>.",
             "After the commit: the code graph syncs in the background and the push blockers are refreshed.",
         ],
     },

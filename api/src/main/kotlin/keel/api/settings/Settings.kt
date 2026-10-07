@@ -31,6 +31,10 @@ data class Settings(
     val branchPattern: String = "feat/{slug}",
     val webLaneWorktree: Boolean = true,
     val pushPr: String = "ask",
+    /** Who keel's commits are by, as "Name <email>"; empty: the project's git name, else KeelBot (engine commit_ident). */
+    val commitAuthor: String = "",
+    /** keel's commits end with "Co-Authored-By: KeelBot <keel.dev.bot@gmail.com>". */
+    val commitCoauthor: Boolean = true,
     val notify: String = "all",
     val envNames: List<String> = emptyList(),
     val mcp: List<String> = listOf("keel"),
@@ -40,8 +44,10 @@ data class Settings(
         val KEYS = listOf(
             "gates_mode", "run_mode", "keel_rules", "fix_attempts", "coverage_min", "default_model", "implementer_model",
             "reviewer_model", "cheaper_model", "cap_tokens", "on_cap", "usage_warn", "usage_pause", "branch_pattern", "web_lane_worktree",
-            "push_pr", "notify", "env_names", "mcp",
+            "push_pr", "commit_author", "commit_coauthor", "notify", "env_names", "mcp",
         )
+        /** "Name <email>", the form git and GitHub show. */
+        val AUTHOR = Regex("""^\s*[^<>]+?\s*<\s*[^<>\s]+@[^<>\s]+\s*>\s*$""")
         val CHOICES = mapOf(
             "gates_mode" to setOf("every-ac", "end-of-lane", "end"),
             "run_mode" to RUN_MODES,

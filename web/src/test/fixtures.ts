@@ -303,6 +303,7 @@ export const generalSettings: Settings = {
   reviewer_model: { provider: "codex", mode: "subscription", model: "gpt-5.6-sol" },
   cheaper_model: { provider: "claude", mode: "subscription", model: "haiku" },
   cap_tokens: 500000, on_cap: "pause", branch_pattern: "feat/{slug}", web_lane_worktree: true, push_pr: "ask", notify: "all", env_names: [], mcp: ["keel"],
+  commit_author: "", commit_coauthor: true,
 };
 export function projectSettings(overrides: Partial<Settings>): ProjectSettings {
   return { general: generalSettings, overrides, effective: { ...generalSettings, ...overrides } };

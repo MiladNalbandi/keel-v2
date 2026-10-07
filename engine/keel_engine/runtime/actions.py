@@ -16,6 +16,7 @@ in runtime/init_actions.py.
 from __future__ import annotations
 
 import asyncio
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -382,10 +383,9 @@ def commit(a: ActionInput) -> ActionResult:
     if ctype == "setup":
         subject = "keel init"
     message, body = commit_message(rules.commit_prefix(ctype, ident), subject)
-    author = cfg.get("commit", {})
     extra = ["-m", body] if body else []
-    r = git.git(a.root, "-c", f"user.name={author.get('author_name', 'keelbot')}",
-                "-c", f"user.email={author.get('author_email', 'keel.dev.bot@gmail.com')}", "commit", "-q", "-m", message, *extra)
+    ident, trailer = commit_args(a.root, a.settings, cfg)
+    r = git.git(a.root, *ident, "commit", "-q", "-m", message, *extra, *trailer)
     if r.returncode != 0:
         git.git(a.root, "reset", "-q")
         return ActionResult(False, "git commit failed.", (r.stderr or r.stdout)[-2000:])
@@ -420,6 +420,37 @@ def _pre_commit_tools(a: ActionInput, staged: list[str]):
         ([f"not installed: {', '.join(missing)}"] if missing else [])
     passed = len(pc["ran"]) - len(missing)
     return notes or [f"{passed} check(s) passed"], staged
+
+
+KEELBOT = ("KeelBot", "keel.dev.bot@gmail.com")
+COAUTHOR = f"Co-Authored-By: {KEELBOT[0]} <{KEELBOT[1]}>"
+PLACEHOLDER_EMAILS = {"keel@localhost"}       # the image's system git identity (Dockerfile): nobody's name
+_AUTHOR = re.compile(r"\s*([^<>]+?)\s*<\s*([^<>\s]+@[^<>\s]+)\s*>\s*")
+
+
+def commit_ident(root: str, settings: dict | None, cfg: dict) -> tuple[str, str]:
+    """Who a keel commit is by: the setting commit_author ("Name <email>"), else .keel/config.yml commit.author_name /
+    author_email, else the project's git name (never the image's placeholder), else KeelBot itself."""
+    m = _AUTHOR.fullmatch(str((settings or {}).get("commit_author") or ""))
+    if m:
+        return m[1], m[2]
+    c = cfg.get("commit") or {}
+    name, email = str(c.get("author_name") or "").strip(), str(c.get("author_email") or "").strip()
+    if name and email and email != KEELBOT[1]:
+        return name, email
+    name = git.git(root, "config", "user.name").stdout.strip()
+    email = git.git(root, "config", "user.email").stdout.strip()
+    if name and email and email not in PLACEHOLDER_EMAILS and email != KEELBOT[1]:
+        return name, email
+    return KEELBOT
+
+
+def commit_args(root: str, settings: dict | None, cfg: dict) -> tuple[list[str], list[str]]:
+    """A keel commit's `-c user.name -c user.email` options, and its last paragraph: the KeelBot co-author line, unless
+    the setting commit_coauthor is off (it is on by default) or KeelBot is the author already."""
+    name, email = commit_ident(root, settings, cfg)
+    coauthor = (settings or {}).get("commit_coauthor") is not False and email != KEELBOT[1]
+    return ["-c", f"user.name={name}", "-c", f"user.email={email}"], (["-m", COAUTHOR] if coauthor else [])
 
 
 def commit_message(prefix: str, subject: str, limit: int = 72) -> tuple[str, str]:

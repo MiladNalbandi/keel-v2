@@ -50,6 +50,21 @@ class SettingsApiTest : ApiTest() {
     }
 
     @Test
+    fun `keel's commits name KeelBot as co-author by default, and the author must look like Name and email`() {
+        val (pid, _) = newProject("settings-commit")
+        val g = get("/api/settings/general").json()
+        assertThat(g["commit_coauthor"].asBoolean()).isTrue()
+        assertThat(g["commit_author"].asText()).isEmpty()
+        val e = put("/api/projects/$pid/settings", mapOf("commit_author" to "just a name")).andExpect(status().isBadRequest).json()
+        assertThat(e["hint"].asText()).contains("Ada Lovelace <ada@example.com>")
+        val r = put("/api/projects/$pid/settings", mapOf("commit_author" to "Ada Lovelace <ada@example.com>", "commit_coauthor" to false))
+            .andExpect(status().isOk).json()
+        assertThat(r["effective"]["commit_author"].asText()).isEqualTo("Ada Lovelace <ada@example.com>")
+        assertThat(r["effective"]["commit_coauthor"].asBoolean()).isFalse()
+        put("/api/projects/$pid/settings", mapOf("commit_author" to "")).andExpect(status().isOk)       // empty: the git name
+    }
+
+    @Test
     fun `models can be overridden per project`() {
         val (pid, _) = newProject("settings-model")
         val model = mapOf("provider" to "claude", "mode" to "subscription", "model" to "opus")

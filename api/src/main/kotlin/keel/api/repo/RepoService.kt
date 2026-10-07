@@ -39,7 +39,7 @@ data class TreeNode(
     val ac: String? = null,
 )
 
-/** `keel`: written by keel's own commit step (author keelbot or the configured keel author). */
+/** `keel`: written by keel's own commit step (author KeelBot or the configured keel author, or co-authored by KeelBot). */
 data class Commit(val sha: String, val message: String, val author: String, val at: String, val keel: Boolean = false)
 
 /**
@@ -374,7 +374,8 @@ class RepoService(private val projects: ProjectService, private val rules: KeelR
         }
         return CommitView(
             sha = p[0], message = p.getOrElse(1) { "" }, body = p.getOrElse(5) { "" }.trim(), author = p.getOrElse(2) { "" },
-            at = p.getOrElse(3) { "" }, keel = isKeelAuthor(p.getOrElse(2) { "" }, p.getOrElse(4) { "" }, authors), files = list,
+            at = p.getOrElse(3) { "" }, keel = isKeelAuthor(p.getOrElse(2) { "" }, p.getOrElse(4) { "" }, authors) ||
+                KEELBOT_EMAIL in p.getOrElse(5) { "" }, files = list,
         )
     }
 
@@ -383,12 +384,14 @@ class RepoService(private val projects: ProjectService, private val rules: KeelR
         return sha
     }
 
-    /** The name and e-mail keel commits with: keelbot, or `.keel/config.yml` commit.author_name / author_email. */
+    /** The names and e-mails keel commits as by itself: KeelBot, or `.keel/config.yml` commit.author_name / author_email.
+     *  A commit by the person is keel's when it ends with the KeelBot co-author line. */
     private fun keelAuthors(root: Path): Set<String> {
         val f = root.resolve(".keel/config.yml")
         val cfg = if (Files.isRegularFile(f)) Yaml.readMap(runCatching { Files.readString(f) }.getOrDefault("")) else null
         val c = cfg?.get("commit") as? Map<*, *>
-        return setOfNotNull("keelbot", "keel.dev.bot@gmail.com", c?.get("author_name")?.toString(), c?.get("author_email")?.toString())
+        return setOfNotNull("keelbot", "KeelBot", KEELBOT_EMAIL, c?.get("author_name")?.toString(), c?.get("author_email")?.toString())
+            .filter { it.isNotBlank() }.toSet()
     }
 
     private fun isKeelAuthor(name: String, email: String, authors: Set<String>) = name in authors || email in authors
@@ -405,7 +408,7 @@ class RepoService(private val projects: ProjectService, private val rules: KeelR
     }
 
     fun commits(root: Path, limit: Int, path: String?, rev: String? = null): List<Commit> {
-        val args = mutableListOf("log", "-n", limit.coerceIn(1, 500).toString(), "--format=%H\u001f%s\u001f%an\u001f%aI\u001f%ae")
+        val args = mutableListOf("log", "-n", limit.coerceIn(1, 500).toString(), "--format=$LOG_FORMAT")
         if (rev != null) args += rev
         if (path != null) args += listOf("--", path)
         val out = git(root, *args.toTypedArray()).takeIf { it.ok }?.out ?: return emptyList()
@@ -416,7 +419,8 @@ class RepoService(private val projects: ProjectService, private val rules: KeelR
         val authors = keelAuthors(root)
         return out.lines().filter { it.isNotBlank() }.map {
             val p = it.split('\u001f')
-            Commit(p[0], p.getOrElse(1) { "" }, p.getOrElse(2) { "" }, p.getOrElse(3) { "" }, isKeelAuthor(p.getOrElse(2) { "" }, p.getOrElse(4) { "" }, authors))
+            Commit(p[0], p.getOrElse(1) { "" }, p.getOrElse(2) { "" }, p.getOrElse(3) { "" },
+                isKeelAuthor(p.getOrElse(2) { "" }, p.getOrElse(4) { "" }, authors) || KEELBOT_EMAIL in p.getOrElse(5) { "" })
         }
     }
 
@@ -425,7 +429,7 @@ class RepoService(private val projects: ProjectService, private val rules: KeelR
         val root = projects.root(pid)
         val target = safePath(root, rel)
         val relNorm = root.relativize(target).toString().replace('\\', '/')
-        val out = git(root, "--literal-pathspecs", "log", "--follow", "-n", "30", "--format=%H\u001f%s\u001f%an\u001f%aI\u001f%ae", "--", relNorm).takeIf { it.ok }?.out
+        val out = git(root, "--literal-pathspecs", "log", "--follow", "-n", "30", "--format=$LOG_FORMAT", "--", relNorm).takeIf { it.ok }?.out
             ?: return emptyList()
         return parseLog(root, out)
     }
@@ -465,6 +469,10 @@ class RepoService(private val projects: ProjectService, private val rules: KeelR
     fun lastCommitTime(root: Path, rel: String): Long? = gitOut(root, "log", "-1", "--format=%ct", "--", rel)?.toLongOrNull()
 
     companion object {
+        /** KeelBot's e-mail: keel's own commits are by it, or name it in their Co-Authored-By line. */
+        const val KEELBOT_EMAIL = "keel.dev.bot@gmail.com"
+        /** sha, subject, author, date, e-mail, and the Co-Authored-By names (parseLog). */
+        const val LOG_FORMAT = "%H\u001f%s\u001f%an\u001f%aI\u001f%ae\u001f%(trailers:key=Co-Authored-By,valueonly,separator=%x20)"
         const val HEAD_LINES = 120
         const val MAX_NODES = 5000
         /** The editor's limit: bigger files say "too big to show". */

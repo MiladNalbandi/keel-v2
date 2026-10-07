@@ -18,7 +18,7 @@ type Kind =
   | { t: "bool"; on?: string; off?: string }
   | { t: "model" }
   | { t: "tokens" }
-  | { t: "text"; suggest?: string[] }
+  | { t: "text"; suggest?: string[]; placeholder?: string }
   | { t: "list" };
 type Row = {
   key: Key; label: string; kind: Kind;
@@ -61,10 +61,16 @@ export const SECTIONS: Sec[] = [
     { key: "usage_pause", label: "Pause before the next agent at", def: 0.95, kind: { t: "select", opts: [["0.9", "90% used"], ["0.95", "95% used"], ["0.99", "99% used"], ["1", "100% (only when full)"]] },
       help: "Above this, keel asks: go on, wait for the reset, use the cheaper model, or stop." },
   ] },
-  { id: "git", title: "Git", sub: "Branch names and what happens at ship.", rows: [
+  { id: "git", title: "Git", sub: "Branch names, who keel's commits are by, and what happens at ship.", rows: [
     { key: "branch_pattern", label: "Branch name", kind: { t: "text", suggest: ["feat/{slug}", "{user}/{slug}", "keel/{flow}-{slug}"] },
       help: "{slug} is the flow's title, {user} is you, {flow} is the workflow." },
     { key: "web_lane_worktree", label: "Web lane in its own worktree", kind: { t: "bool", on: "yes", off: "no" }, help: "Web criteria run in a second checkout, next to the API lane." },
+    { key: "commit_coauthor", label: "KeelBot as co-author", def: true, kind: { t: "bool", on: "yes", off: "no" },
+      help: (v) => v === false
+        ? "keel's commits name only their author."
+        : "keel's commits end with Co-Authored-By: KeelBot <keel.dev.bot@gmail.com>, so GitHub shows KeelBot next to you." },
+    { key: "commit_author", label: "Commit author", def: "", kind: { t: "text", placeholder: "Ada Lovelace <ada@example.com>" },
+      help: "Who keel's commits are by, as Name <email>. Empty: the project's git name; when it has none, KeelBot." },
     { key: "push_pr", label: "Push and open PR at ship", kind: { t: "select", opts: [["ask", "ask me"], ["auto", "automatic"], ["never", "never"]] },
       help: "Ask you first, do it by itself, or never. The Auto run mode never pushes." },
   ] },
@@ -88,7 +94,7 @@ export function show(row: Row, v: unknown): string {
     case "model": { const m = v as Model; return `${PROV[m.provider] ?? m.provider} ${m.model}${m.effort ? ` (${m.effort})` : ""}`; }
     case "tokens": return `${kfmt(Number(v))} tokens`;
     case "list": return (v as string[]).length ? (v as string[]).join(", ") : "none";
-    default: return String(v);
+    default: return String(v) || "empty";
   }
 }
 
@@ -127,7 +133,7 @@ function Control({ row, value, onSave }: { row: Row; value: unknown; onSave: (v:
     case "model":
       return <ModelPicker id={id} value={value as Model} onChange={(m) => onSave(m)} />;
     case "text":
-      return <><input {...textProps} list={`${id}-l`} /><datalist id={`${id}-l`}>{k.suggest?.map((s) => <option key={s} value={s} />)}</datalist></>;
+      return <><input {...textProps} placeholder={k.placeholder} list={`${id}-l`} /><datalist id={`${id}-l`}>{k.suggest?.map((s) => <option key={s} value={s} />)}</datalist></>;
     default:
       return <input {...textProps} placeholder={k.t === "list" ? "comma separated" : undefined} />;
   }

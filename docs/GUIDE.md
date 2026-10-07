@@ -31,6 +31,9 @@ The [README](../README.md) is the short version. This page has the details.
 - The flow is a [LangGraph](https://github.com/langchain-ai/langgraph) graph; the agents are LangChain or CLI agents.
 - keel runs the tests and makes the commits itself, on its own branch (`feat/…`). It never pushes, and it never
   commits files you changed yourself.
+- keel's commits are by you, and end with `Co-Authored-By: KeelBot <keel.dev.bot@gmail.com>`, so GitHub shows both.
+  Settings › Git: **KeelBot as co-author** (on by default) and **Commit author** (`Name <email>`; empty: the
+  project's git name — in Docker there is none, so set it there, or the commits are by KeelBot alone).
 - Every step, file change, command and token is visible: **Live agents**, **Jobs**, **Budget**.
 - **Several flows at once**: while a flow runs in the project folder, the next one runs in a worktree of its own
   (a copy of the project on its own branch, under `.keel/worktrees/`), so neither touches the other's files. Press

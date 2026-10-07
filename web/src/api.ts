@@ -703,6 +703,10 @@ export type Settings = {
   branch_pattern: string;
   web_lane_worktree: boolean;
   push_pr: string;
+  /** who keel's commits are by ("Name <email>"; empty: the project's git name, else KeelBot) */
+  commit_author?: string;
+  /** keel's commits end with Co-Authored-By: KeelBot <keel.dev.bot@gmail.com> (on by default) */
+  commit_coauthor?: boolean;
   notify: "all" | "needs_you" | "none";
   env_names: string[];
   mcp: string[];

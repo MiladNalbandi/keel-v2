@@ -28,7 +28,7 @@ from ..tools import git, testcmd
 from ..tools.agent_tools import command_env
 from . import hunt
 from . import verdict_actions as va
-from .actions import ActionInput, ActionResult
+from .actions import ActionInput, ActionResult, commit_args
 
 MODES = ("auto", "semi")
 
@@ -426,10 +426,9 @@ def _commit(a: ActionInput) -> ActionResult:
                             "\n".join(f"  {f['file']}: {f['why']}" for f in found))
     c = hunt.counts(hunt.candidates(a.key, run["run"]))
     cfg = rules.load_config(a.root)
-    author = cfg.get("commit", {})
     msg = f"docs(HUNT-{run['run']}): bug hunt: {c['proven']} proven, {c['unproven']} suspected"
-    r = git.git(a.root, "-c", f"user.name={author.get('author_name', 'keelbot')}",
-                "-c", f"user.email={author.get('author_email', 'keel.dev.bot@gmail.com')}", "commit", "-q", "-m", msg, "--", folder)
+    ident, trailer = commit_args(a.root, a.settings, cfg)
+    r = git.git(a.root, *ident, "commit", "-q", "-m", msg, *trailer, "--", folder)
     if r.returncode != 0:
         git.git(a.root, "reset", "-q", "--", folder)
         return ActionResult(False, "git commit failed.", (r.stderr or r.stdout)[-2000:])

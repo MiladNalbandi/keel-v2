@@ -63,6 +63,24 @@ describe("Settings", () => {
     expect(screen.getByRole("group", { name: "Cheaper model" })).toHaveTextContent("Used only when a cap or a plan window is nearly used");
   });
 
+  it("names KeelBot as co-author of keel's commits by default; the author can be set as Name <email>", async () => {
+    const user = userEvent.setup();
+    location.hash = "#/settings";
+    render(<App />);
+    await screen.findByText("1 setting changed for ludus-engine");
+    const git = screen.getByRole("region", { name: "Git" });
+    expect(within(git).getByLabelText("KeelBot as co-author")).toHaveValue("1");
+    expect(row("KeelBot as co-author")).toHaveTextContent("Co-Authored-By: KeelBot <keel.dev.bot@gmail.com>");
+    const author = within(git).getByLabelText("Commit author");
+    expect(author).toHaveValue("");
+    expect(author).toHaveAttribute("placeholder", "Ada Lovelace <ada@example.com>");
+    await user.type(author, "Ada Lovelace <ada@example.com>{Enter}");
+    await waitFor(() => expect(db.calls.at(-1)?.body).toEqual({ commit_author: "Ada Lovelace <ada@example.com>" }));
+    await user.selectOptions(screen.getByLabelText("KeelBot as co-author"), "0");
+    await waitFor(() => expect(db.calls.at(-1)?.body).toEqual({ commit_coauthor: false }));
+    await waitFor(() => expect(row("KeelBot as co-author")).toHaveTextContent("keel's commits name only their author."));
+  });
+
   it("says when the cheaper model is the fake model (a real flow pauses instead)", async () => {
     db.overrides["ludus-engine"] = { ...db.overrides["ludus-engine"], cheaper_model: { provider: "fake", mode: "api", model: "fake" } };
     location.hash = "#/settings";

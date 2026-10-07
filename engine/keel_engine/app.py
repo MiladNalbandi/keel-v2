@@ -86,6 +86,10 @@ class Settings(BaseModel):
     # v0.4.1 run modes (runtime/run_mode.py): manual stops at every gate, important approves clean AC gates, auto approves
     # every gate keel can decide (the safety stops still stop), readonly lets no agent edit or commit
     run_mode: Literal["manual", "important", "auto", "readonly"] = "manual"
+    # who keel's commits are by and whether they name KeelBot (runtime/actions.py commit_args): "Name <email>" (default:
+    # the project's git name, else KeelBot), and the Co-Authored-By: KeelBot line (default on)
+    commit_author: str | None = None
+    commit_coauthor: bool | None = None
 
 
 class McpServerSpec(BaseModel):
@@ -171,6 +175,7 @@ class HelperUndo(BaseModel):
 class HelperDone(BaseModel):
     flow: dict[str, Any] = Field(default_factory=dict)   # the waiting flow: phase, acs, ac, unlocks, workflow, run_mode
     message: str = ""                                    # the commit's subject, as the person wrote it (else the chat's title)
+    commit: dict[str, Any] = Field(default_factory=dict)  # the project's commit_author / commit_coauthor settings
 
 
 class EvalPrepare(BaseModel):
@@ -638,7 +643,8 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
             raise EngineError(409, "The Helper is still working in this chat.", "Wait for it, or stop it, then press Done.")
         bus_ = request.app.state.bus
         return await asyncio.to_thread(helper_call, helper.done, sid, body.flow,
-                                       lambda t, tid, pid, data: bus_.emit(t, tid, pid, step="helper", data=data), body.message)
+                                       lambda t, tid, pid, data: bus_.emit(t, tid, pid, step="helper", data=data), body.message,
+                                       body.commit)
 
     @app.post("/helper/commands")
     async def post_helper_commands(body: HelperCommands):

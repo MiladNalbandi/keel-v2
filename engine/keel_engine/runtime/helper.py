@@ -306,7 +306,7 @@ def undo(sid: str, path: str | None = None) -> list[dict]:
     return changes(sid)
 
 
-def done(sid: str, flow: dict, emit=None, message: str = "") -> dict:
+def done(sid: str, flow: dict, emit=None, message: str = "", commit: dict | None = None) -> dict:
     """Run the checks, then keel's commit of only the files the Helper changed (runtime/actions.py `commit`: the phase's
     commit rules, secrets, new dependencies, pre-commit tools). The flow's timeline gets a helper.commit event."""
     from . import actions          # late: actions imports most of the runtime
@@ -333,7 +333,9 @@ def done(sid: str, flow: dict, emit=None, message: str = "") -> dict:
     a = actions.ActionInput(root=root, phase=fix_phase(flow), title=subject, ac=None, ident=(ac or {}).get("id") or "helper",
                             acs=list(flow.get("acs") or []), fake=False, flow=str(flow.get("workflow") or "helper"),
                             unlocks=list(flow.get("unlocks") or []), deps=list(flow.get("deps") or []), project=s["project"],
-                            paths=files, settings={"run_mode": flow.get("run_mode") or "manual"}, thread_id=s["thread_id"] or "")
+                            paths=files, thread_id=s["thread_id"] or "",
+                            settings={"run_mode": flow.get("run_mode") or "manual",
+                                      **{k: v for k, v in (commit or {}).items() if k in ("commit_author", "commit_coauthor")}})
     res = actions.commit(a)
     if not res.ok:
         return {"ok": False, "step": "commit", "error": res.note, "output": res.detail or ""}

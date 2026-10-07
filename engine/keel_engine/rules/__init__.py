@@ -59,7 +59,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "gates": {"mode": "every-ac", "bug_gates": True},
     "change": {"max_inline_acs": 3, "must_escalate": ["contract", "migration", "auth"], "size_limits_files": 10,
                "size_limits_lines": 300, "auth_paths": ["**/security/**", "**/auth/**"]},
-    "commit": {"author_name": "keelbot", "author_email": "keel.dev.bot@gmail.com"},
+    "commit": {"author_name": "", "author_email": ""},   # empty: runtime/actions.py commit_ident decides
     "guards": {
         "protected": ["**/.env", "**/.env.*", "!**/.env.example"],
         "generated": ["**/generated/**", "**/build/generated/**"],

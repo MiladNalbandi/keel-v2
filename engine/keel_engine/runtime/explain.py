@@ -246,7 +246,7 @@ def commit_info(phase: str, step: Step, ac: dict | None = None, title: str | Non
     if rule.get("setupOnly"):
         extra.append("may only touch .keel/, docs/RUNNING.md, docs/knowledge/, CLAUDE.md and .gitignore")
     return {"type": ctype, "about": COMMIT_TYPE_WORDS.get(ctype, ctype), "prefix": prefix, "message": f"{prefix}: {subject}",
-            "author": "keelbot", "may_contain": list(rule.get("allow") or []), "may_not_contain": list(rule.get("deny") or []),
+            "author": "you, with KeelBot as co-author (Settings › Git)", "may_contain": list(rule.get("allow") or []), "may_not_contain": list(rule.get("deny") or []),
             "extra": extra}
 
 

@@ -137,7 +137,9 @@ class RepoIdeApiTest : ApiTest() {
         val (pid, root) = newProject("ide-diff", files)
         git(root, "checkout", "-q", "-b", "feat/scores")
         Files.writeString(root.resolve("api/src/main/kotlin/app/Score.kt"), files["api/src/main/kotlin/app/Score.kt"]!!.replace("Int", "Long"))
-        gitEnv(root, emptyMap(), "-c", "user.name=keelbot", "commit", "-q", "-am", "feat(AC-002): scores are Long")
+        // keel's commit by the person, with KeelBot as co-author: still keel's in the lists and the commit view
+        gitEnv(root, emptyMap(), "-c", "user.name=Ada", "-c", "user.email=ada@example.com", "commit", "-q", "-am",
+            "feat(AC-002): scores are Long", "-m", "Co-Authored-By: KeelBot <keel.dev.bot@gmail.com>")
         Files.writeString(root.resolve("README.md"), "# Scores v2\nThe score service.\n")
         Files.writeString(root.resolve("web/src/score.ts"), "export const score = 2;\n")
         git(root, "add", "web/src/score.ts")
