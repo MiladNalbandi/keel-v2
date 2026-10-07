@@ -18,7 +18,7 @@ import { Explorer } from "./Explorer";
 import { FileIcon, Icon, extOf, languageName } from "./icons";
 import { DocsView, KeelView, MemoryView, ruleText } from "./KeelView";
 import {
-  bytes, closeTab, decoOf, nameOf, openTab, parseDeepLink, pinTab, repoHash, setView, tabId, webUrl,
+  bytes, closeTab, decoOf, nameOf, openTab, parseDeepLink, pinTab, repoHash, retargetTab, setView, tabId, webUrl,
   type EditorTab, type OpenSpec, type Tabs, type View,
 } from "./model";
 import { QuickOpen } from "./QuickOpen";
@@ -377,7 +377,9 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
   } else if (active.kind === "memory") {
     body = <MemoryView pid={pid} />;
   } else if (active.kind === "db") {
-    body = <DbTab key={active.id} pid={pid} path={active.path} />;
+    const id = active.id;
+    body = <DbTab key={id} pid={pid} path={active.path}
+      onConn={(c) => setTabs((t) => retargetTab(t, id, { kind: "db", path: dbPath(c) }))} />;
   } else if (active.kind === "doctor") {
     body = <div className="ed-doc"><WorkspaceDoctor pid={pid} onClean={() => void changes.reload()} /></div>;
   } else if (active.kind === "commit") {

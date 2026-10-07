@@ -230,5 +230,22 @@ describe("Code › Database (IntelliJ style)", () => {
       }),
     ); // prod: read only
     expect(within(consoleTab).getByText("read only")).toBeInTheDocument();
+
+    // the console moves to local: the tab follows, the text stays, the old answer goes
+    await user.selectOptions(
+      within(consoleTab).getByRole("combobox", {
+        name: "Database of this console",
+      }),
+      "local",
+    );
+    const moved = await screen.findByLabelText("Console on local");
+    expect(screen.queryByLabelText("Console on prod")).not.toBeInTheDocument();
+    expect(within(moved).getByRole("textbox", { name: "SQL" })).toHaveValue(
+      "select 1;",
+    );
+    expect(within(moved).queryByText("read only")).not.toBeInTheDocument();
+    expect(
+      within(moved).queryByRole("table", { name: /Rows from/ }),
+    ).not.toBeInTheDocument();
   });
 });

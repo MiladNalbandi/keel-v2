@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { App } from "../App";
 import type { DiffRow } from "../components/Code";
 import {
-  closeTab, findAll, findRegExp, fuzzy, markHtml, openTab, parseDeepLink, parseGoto, pinTab, rankFiles, repoHash,
+  closeTab, findAll, findRegExp, fuzzy, markHtml, openTab, parseDeepLink, parseGoto, pinTab, rankFiles, repoHash, retargetTab,
   splitHtmlLines, splitRows, visibleRows, indexTree, webUrl, type Tabs,
 } from "../pages/repo/model";
 import * as fx from "./fixtures";
@@ -47,6 +47,22 @@ describe("Repo IDE logic", () => {
     t = { ...t, active: "d.kt" };
     t = closeTab(t, "d.kt");
     expect(t.active).toBe("b.kt");
+  });
+
+  it("moves a console tab to another database in its place, or to that database's open console", () => {
+    let t: Tabs = { tabs: [], active: null };
+    t = openTab(t, { path: "a.kt" }, true);
+    t = openTab(t, { kind: "db", path: "local" }, true);
+    t = openTab(t, { path: "b.kt" }, true);
+    t = { ...t, active: "db:local" };
+    t = retargetTab(t, "db:local", { kind: "db", path: "prod" });
+    expect(t.tabs.map((x) => x.id)).toEqual(["a.kt", "db:prod", "b.kt"]);
+    expect(t.active).toBe("db:prod");
+    t = openTab(t, { kind: "db", path: "test" }, true);
+    t = retargetTab(t, "db:test", { kind: "db", path: "prod" });
+    expect(t.tabs.map((x) => x.id)).toEqual(["a.kt", "db:prod", "b.kt"]);
+    expect(t.active).toBe("db:prod");
+    expect(retargetTab(t, "db:gone", { kind: "db", path: "x" })).toBe(t);
   });
 
   it("ranks files fuzzily: the name first, letters in a row and at word starts", () => {

@@ -348,12 +348,21 @@ function TableNode({
 
 // ------------------------------------------------------------------ the editor tab: a console or a table
 
-export function DbTab({ pid, path }: { pid: string; path: string }) {
+export function DbTab({
+  pid,
+  path,
+  onConn,
+}: {
+  pid: string;
+  path: string;
+  /** The console moved to another database: its tab follows (title and place). */
+  onConn?: (conn: string) => void;
+}) {
   const { conn, table } = parseDbPath(path);
   return table ? (
     <TableTab pid={pid} conn={conn} table={table} />
   ) : (
-    <ConsoleTab pid={pid} initial={conn} />
+    <ConsoleTab pid={pid} initial={conn} onConn={onConn} />
   );
 }
 
@@ -388,7 +397,11 @@ function useRun(pid: string) {
       setBusy(false);
     }
   };
-  return { busy, result, err, run, setResult };
+  const clear = () => {
+    setResult(null);
+    setErr(null);
+  };
+  return { busy, result, err, run, setResult, clear };
 }
 
 function ChangeConfirm({
@@ -434,7 +447,15 @@ function ChangeConfirm({
   );
 }
 
-function ConsoleTab({ pid, initial }: { pid: string; initial: string }) {
+function ConsoleTab({
+  pid,
+  initial,
+  onConn,
+}: {
+  pid: string;
+  initial: string;
+  onConn?: (conn: string) => void;
+}) {
   const conns = useLoad(`db:${pid}`, () => api.dbConnections(pid), {
     live: false,
   });
@@ -462,7 +483,7 @@ function ConsoleTab({ pid, initial }: { pid: string; initial: string }) {
     writeStore(key, sql);
   }, [key, sql]);
   const box = useRef<HTMLTextAreaElement>(null);
-  const { busy, result, err, run, setResult } = useRun(pid);
+  const { busy, result, err, run, setResult, clear } = useRun(pid);
   const [last, setLast] = useState("");
   const go_ = async () => {
     const el = box.current;
@@ -486,7 +507,14 @@ function ConsoleTab({ pid, initial }: { pid: string; initial: string }) {
         <select
           aria-label="Database of this console"
           value={name}
-          onChange={(e) => setName(e.target.value)}
+          onChange={(e) => {
+            // the text goes with the console (IntelliJ: a console's data source changes, its text stays)
+            const next = e.target.value;
+            writeStore(`keel2.db.console.${pid}.${next}`, sql);
+            clear();
+            if (onConn) onConn(next);
+            else setName(next);
+          }}
         >
           {(conns.data ?? [{ name } as DbConnection]).map((c) => (
             <option key={c.name} value={c.name}>

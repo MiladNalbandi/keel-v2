@@ -421,6 +421,8 @@ async def test_claude_runner_loads_keels_own_hook_oauth_and_hook_refusal(tmp_pat
     assert "KEEL_BIN" not in env
     assert "CLAUDE_CODE_OAUTH_TOKEN=key-oauth" in env
     assert "ANTHROPIC_API_KEY" not in env and "GH_TOKEN" not in env
+    # the MCP servers are connected before the first model call (claude 2.1 -p connects them in the background)
+    assert "MCP_CONNECTION_NONBLOCKING=0" in env
     guard = [s for s in steps if s[0] == "guard"]
     assert guard and guard[0][1] == 'src/scores/x.py: editing api-main is blocked in phase "red".' and guard[0][2]["path"] == "src/scores/x.py"
     assert res.data["refusals"][0]["path"] == "src/scores/x.py"

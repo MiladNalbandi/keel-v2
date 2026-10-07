@@ -357,7 +357,10 @@ class ClaudeCLIRunner:
         hook_timeout = permissions.HOOK_TIMEOUT if getattr(req.toolbox, "ask", None) else 10
         argv += ["--settings", guard_ctx.claude_settings(Path(scratch) / "keel-guard.json", hook_timeout)]
         stream = ClaudeStream(emit, req.root)
-        env = safe_env({**claude_login_env(req.keys), guard_ctx.ENV: guard_ctx.ensure(req, scratch), "CLAUDE_CONFIG_DIR": claude_home()})
+        # MCP_CONNECTION_NONBLOCKING=0: claude -p waits for the MCP servers before the first model call (2.1 connects
+        # them in the background), so a tool keel's prompt names (db_query, git_status, ...) is there from the start.
+        env = safe_env({**claude_login_env(req.keys), guard_ctx.ENV: guard_ctx.ensure(req, scratch), "CLAUDE_CONFIG_DIR": claude_home(),
+                        "MCP_CONNECTION_NONBLOCKING": "0"})
         try:
             await run_cli("claude", argv, stdin=req.prompt, cwd=req.root, env=env, timeout=req.timeout, on_line=stream.line)
         except ModelError as exc:

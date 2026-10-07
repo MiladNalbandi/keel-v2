@@ -72,6 +72,17 @@ export function closeTab(t: Tabs, id: string): Tabs {
 
 export const setView = (t: Tabs, id: string, view: View): Tabs => ({ ...t, tabs: t.tabs.map((x) => (x.id === id ? { ...x, view } : x)) });
 
+/** Point an open tab at something else in its place (a console moved to another database); an open tab for that wins. */
+export function retargetTab(t: Tabs, id: string, spec: OpenSpec): Tabs {
+  const next = tabId(spec);
+  if (next === id || !t.tabs.some((x) => x.id === id)) return t;
+  if (t.tabs.some((x) => x.id === next)) return { tabs: t.tabs.filter((x) => x.id !== id), active: next };
+  return {
+    tabs: t.tabs.map((x) => (x.id === id ? { ...x, id: next, kind: spec.kind ?? x.kind, path: spec.path, preview: false } : x)),
+    active: t.active === id ? next : t.active,
+  };
+}
+
 // ---------- fuzzy file matching (quick open) ----------
 
 export type Fuzzy = { score: number; hits: number[] };
