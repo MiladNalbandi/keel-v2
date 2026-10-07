@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
 from datetime import datetime
 from typing import Any, Literal
 
@@ -329,6 +330,90 @@ def _resume(api: KeelApi, tid: str, decision: str, why: str | None, payload: dic
 
 # ---------------------------------------------------------------- server
 
+# ---- v0.10.0 plugins (Tools › Plugins): the Database and Git plugins' tools, through the api and keel's rules
+
+ASK_WAIT = 600          # an acting tool waits this long for the person's answer in keel's Inbox
+ASK_POLL = 3
+
+
+def _plugin_on(api: KeelApi, pid: str, name: str):
+    on = [p["name"] for p in api.get(f"/projects/{pid}/plugins") or [] if p.get("enabled")]
+    if name not in on:
+        title = {"db": "Database", "git": "Git"}[name]
+        raise ApiError(f"The {title} plugin is off for {pid}: turn it on in keel (Tools › Plugins).")
+
+
+def db_schema(api: KeelApi, project: str | None = None, connection: str | None = None, table: str | None = None) -> str:
+    from .plugins.db.tools import _schema_text
+
+    pid = _project(api, project)["id"]
+    _plugin_on(api, pid, "db")
+    return _schema_text(api.get(f"/projects/{pid}/db/schema", connection=connection), table or "")
+
+
+def db_query(api: KeelApi, sql: str, project: str | None = None, connection: str | None = None) -> str:
+    from .plugins.db.tools import query_text
+
+    pid = _project(api, project)["id"]
+    _plugin_on(api, pid, "db")
+    return query_text(api.post(f"/projects/{pid}/db/query", {"sql": sql, "connection": connection or "", "mask": True}))
+
+
+def git_status(api: KeelApi, project: str | None = None) -> str:
+    from .plugins.git.tools import status_text
+
+    pid = _project(api, project)["id"]
+    _plugin_on(api, pid, "git")
+    return status_text(api.get(f"/projects/{pid}/git/status"))
+
+
+def pr_status(api: KeelApi, project: str | None = None) -> str:
+    from .plugins.git.tools import pr_text
+
+    pid = _project(api, project)["id"]
+    _plugin_on(api, pid, "git")
+    return pr_text((api.get(f"/projects/{pid}/git/pr") or {}).get("pr"))
+
+
+def _ask_person(api: KeelApi, pid: str, title: str, command: str, sleep=time.sleep) -> tuple[bool, str]:
+    """Ask the person in keel's Inbox and wait for the answer (Claude Code cannot show keel's card)."""
+    q = api.post(f"/projects/{pid}/plugins/ask", {"title": title, "command": command})
+    deadline = time.monotonic() + ASK_WAIT
+    while time.monotonic() < deadline:
+        a = api.get(f"/plugins/asks/{q['id']}")
+        if not a.get("waiting"):
+            return a.get("decision") == "allow", a.get("why") or ""
+        sleep(ASK_POLL)
+    return False, "Nobody answered in keel's Inbox in 10 minutes."
+
+
+def db_change(api: KeelApi, sql: str, project: str | None = None, connection: str | None = None, sleep=time.sleep) -> str:
+    pid = _project(api, project)["id"]
+    _plugin_on(api, pid, "db")
+    dry = api.post(f"/projects/{pid}/db/query", {"sql": sql, "connection": connection or "", "change": True})
+    ok, why = _ask_person(api, pid, f"Claude Code: change {dry['changed']} row(s) in {dry['connection']}?", dry["sql"], sleep)
+    if not ok:
+        return f"The person said no in keel's Inbox: {why}".strip()
+    r = api.post(f"/projects/{pid}/db/query", {"sql": sql, "connection": connection or "", "change": True, "confirm": True})
+    return f"{r['changed']} row(s) changed in {r['connection']}."
+
+
+def git_act(api: KeelApi, op: str, project: str | None = None, sleep=time.sleep, **body) -> str:
+    pid = _project(api, project)["id"]
+    _plugin_on(api, pid, "git")
+    what = {"commit": f"commit: {body.get('message', '')}", "push": "push the branch",
+            "pr": f"open the pull request: {body.get('title', '')}"}[op]
+    ok, why = _ask_person(api, pid, f"Claude Code: {what.split(':')[0]}?", what, sleep)
+    if not ok:
+        return f"The person said no in keel's Inbox: {why}".strip()
+    r = api.post(f"/projects/{pid}/git/{op}", body)
+    if op == "commit":
+        return f"Committed {r['sha'][:7]} {r['subject']} ({len(r['files'])} file(s))."
+    if op == "push":
+        return f"Pushed {r['branch']} ({r['sha'][:7]})."
+    return f"{'Updated' if r.get('updated') else 'Opened'} the pull request: {r.get('url')}"
+
+
 def build_server(write: bool = False, api: KeelApi | None = None):
     from mcp.server.fastmcp import FastMCP
     from mcp.types import ToolAnnotations
@@ -374,8 +459,51 @@ def build_server(write: bool = False, api: KeelApi | None = None):
         each flow's rail. phase: e.g. spec, red, green, gate, hunt-sweep; default the project's current phase."""
         return guard(explain, api, phase, project)
 
+    @srv.tool(annotations=ro, structured_output=False)
+    def keel_db_schema(project: str | None = None, connection: str | None = None, table: str | None = None) -> str:
+        """Database plugin: the project's tables with columns, primary keys (*) and foreign keys; with `table`, one table."""
+        return guard(db_schema, api, project, connection, table)
+
+    @srv.tool(annotations=ro, structured_output=False)
+    def keel_db_query(sql: str, project: str | None = None, connection: str | None = None) -> str:
+        """Database plugin: one read-only query (SELECT, EXPLAIN, SHOW) under keel's rules: at most 200 rows and 15
+        seconds; columns named like a secret show as •••."""
+        return guard(db_query, api, sql, project, connection)
+
+    @srv.tool(annotations=ro, structured_output=False)
+    def keel_git_status(project: str | None = None) -> str:
+        """Git plugin: the project's branch, how far it is from the base branch and its remote, and what changed."""
+        return guard(git_status, api, project)
+
+    @srv.tool(annotations=ro, structured_output=False)
+    def keel_pr_status(project: str | None = None) -> str:
+        """Git plugin: the branch's pull request: state, review, CI checks and review comments."""
+        return guard(pr_status, api, project)
+
     if write:
         rw = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False)
+
+        @srv.tool(annotations=rw, structured_output=False)
+        def keel_db_change(sql: str, project: str | None = None, connection: str | None = None) -> str:
+            """Database plugin: change data (INSERT, UPDATE, DELETE) on a local or test database. keel counts the rows,
+            then waits up to 10 minutes for the person's OK in keel's Inbox."""
+            return guard(db_change, api, sql, project, connection)
+
+        @srv.tool(annotations=rw, structured_output=False)
+        def keel_git_commit(message: str, project: str | None = None) -> str:
+            """Git plugin: commit every change (keel's secret check, the author from keel's settings), after the person's
+            OK in keel's Inbox."""
+            return guard(git_act, api, "commit", project, message=message)
+
+        @srv.tool(annotations=rw, structured_output=False)
+        def keel_git_push(project: str | None = None) -> str:
+            """Git plugin: push the branch (never with force, never to main or master), after the person's OK."""
+            return guard(git_act, api, "push", project)
+
+        @srv.tool(annotations=rw, structured_output=False)
+        def keel_pr_create(title: str, body: str = "", project: str | None = None) -> str:
+            """Git plugin: open the branch's pull request (or update its title and body), after the person's OK."""
+            return guard(git_act, api, "pr", project, title=title, body=body)
 
         @srv.tool(annotations=rw, structured_output=False)
         def keel_approve_gate(decision: Literal["approve", "reject"], project: str | None = None, why: str | None = None,

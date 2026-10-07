@@ -16,6 +16,9 @@ dependencies = [
     "langchain-openai>=0.3",
     "langchain-mcp-adapters>=0.1",
     "mcp>=1.9",
+    "sqlglot>=26",
+    "psycopg[binary]>=3.2",
+    "pymysql>=1.1",
 ]
 
 [project.scripts]

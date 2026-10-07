@@ -42,6 +42,8 @@ data class Step(
     val markers: List<String>? = null,
     val collect: String? = null,
     val `when`: Map<String, Any?>? = null,
+    /** v0.10.0 a plugin step's settings (db:check's sql and expect, git:pr's title...): `with:` in the YAML. */
+    val with: Map<String, Any?>? = null,
     val flow: String? = null,
     val seed: Map<String, Any?>? = null,
     val then: String? = null,

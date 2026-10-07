@@ -27,6 +27,8 @@ export type Step = {
   max_tokens?: number;
   on_limit?: "pause" | "cheaper" | "stop";
   tools?: string[];
+  /** v0.10.0 a plugin step's settings (db:check's sql and expect, git:pr's title...): `with:` in the YAML. */
+  with?: Record<string, unknown>;
   // Engine workflow keys (engine/keel_engine/workflows/model.py) the flow map reads; the builder keeps them as they are.
   /** A code step's next step: "end", "continue" or a step id. */
   then?: string;
@@ -558,6 +560,40 @@ export function normalizeStack(raw: unknown): Stack {
 export type McpServer = McpServerSpec & { enabled: boolean; builtin: boolean; status: "ok" | "off" | "error"; tools: string[]; label?: string };
 export type McpAllow = Record<string, string[]>;
 
+/** v0.10.0 a keel plugin (Tools › Plugins): what it adds, and whether it is on for this project (scope: its own choice
+ *  or every project's). */
+export type PluginAction = { name: string; with: Record<string, "required" | "optional">; summary: string };
+export type Plugin = {
+  name: string; title: string; description: string; needs: string[]; tools: { server?: string; read?: string[] };
+  actions: PluginAction[]; shows_in: string[]; commands: { name: string; description: string }[];
+  enabled?: boolean; scope?: "project" | "all" | null;
+};
+export type DbConnection = {
+  name: string; kind: "postgres" | "mysql" | "sqlite"; env: "local" | "test" | "staging" | "prod"; shown: string; source?: string | null;
+  ok?: boolean | null; server?: string | null; tables?: number | null; error?: string | null; checked_at?: string | null;
+  /** a change of data may run here: local and test only */
+  can_change: boolean;
+};
+export type DbSuggestion = { name: string; kind: DbConnection["kind"]; url: string; shown: string; env: "local"; source: string; password: boolean };
+export type LiveTable = { name: string; columns: { name: string; type: string; nullable: boolean; pk: boolean }[]; fks: { column: string; table: string; ref: string }[] };
+export type LiveSchema = { connection: string; kind: string; tables: LiveTable[] };
+/** A query's result: a read (columns, rows) or a change (changed; done: run for real, else counted and rolled back). */
+export type DbResult = {
+  connection: string; env?: string; kind: "read" | "change"; sql: string; ms?: number;
+  columns?: string[]; rows?: unknown[][]; count?: number; truncated?: boolean; masked?: string[];
+  changed?: number; done?: boolean;
+};
+export type GitStatus = {
+  branch: string | null; base: string | null; upstream: string | null; ahead: number; behind: number; base_ahead: number; base_behind: number;
+  pushed: boolean; changes: { path: string; status: string }[];
+};
+export type GitBranch = { name: string; current: boolean; ahead: number; behind: number; date: string; subject: string };
+export type PullRequest = {
+  number: number; title: string; url: string; state: string; draft?: boolean; review?: string | null; base?: string; branch?: string;
+  checks: { name: string; state: string; url: string }[]; checks_done: number; checks_failed: number;
+  comments: { author: string; body: string; path?: string | null; line?: number | null }[];
+};
+
 export type CapScope = "day" | "flow" | "step" | "api_month";
 export type Cap = { id: string; scope: CapScope; limit: number; unit: "tokens" | "usd"; action: "pause" | "cheaper" | "stop" };
 /** v0.4.2 `GET /api/projects/{pid}/caps/left`: what each cap leaves for a flow that starts now. */
@@ -1025,6 +1061,32 @@ export const api = {
   setMode: (provider: string, mode: Mode) => put<void>(`/connections/${e(provider)}`, { mode }),
   setSecret: (name: string, value: string) => put<{ hint: string }>(`/secrets/${e(name)}`, { value }),
   deleteSecret: (name: string) => del(`/secrets/${e(name)}`),
+  // v0.10.0 plugins: Database and Git
+  plugins: (pid: string) => get<Plugin[]>(`/projects/${e(pid)}/plugins`),
+  setPlugin: (pid: string, name: string, enabled: boolean, scope: "project" | "all" = "project") =>
+    put<Plugin[]>(`/projects/${e(pid)}/plugins/${e(name)}`, { enabled, scope }),
+  github: () => get<{ set: boolean; hint: string | null; from: "keel" | "env" | null }>("/github"),
+  dbConnections: (pid: string) => get<DbConnection[]>(`/projects/${e(pid)}/db/connections`),
+  dbSuggest: (pid: string) => get<DbSuggestion[]>(`/projects/${e(pid)}/db/suggest`),
+  dbAdd: (pid: string, body: { name: string; url: string; env: string; source?: string }) =>
+    post<{ connection: DbConnection; test: { ok: boolean; error?: string; hint?: string } }>(`/projects/${e(pid)}/db/connections`, body),
+  dbUpdate: (pid: string, name: string, body: { url?: string; env?: string }) =>
+    put<DbConnection>(`/projects/${e(pid)}/db/connections/${e(name)}`, body),
+  dbDelete: (pid: string, name: string) => del(`/projects/${e(pid)}/db/connections/${e(name)}`),
+  dbTest: (pid: string, name: string) =>
+    post<{ connection: DbConnection; test: { ok: boolean; error?: string; hint?: string } }>(`/projects/${e(pid)}/db/connections/${e(name)}/test`),
+  dbSchema: (pid: string, connection?: string) => get<LiveSchema>(`/projects/${e(pid)}/db/schema${q({ connection })}`),
+  dbQuery: (pid: string, body: { connection?: string; sql: string; change?: boolean; confirm?: boolean }) =>
+    post<DbResult>(`/projects/${e(pid)}/db/query`, body),
+  gitStatus: (pid: string) => get<GitStatus>(`/projects/${e(pid)}/git/status`),
+  gitBranches: (pid: string) => get<GitBranch[]>(`/projects/${e(pid)}/git/branches`),
+  gitPr: (pid: string) => get<{ pr: PullRequest | null }>(`/projects/${e(pid)}/git/pr`),
+  gitSwitch: (pid: string, branch: string, create = false) => post<{ branch: string }>(`/projects/${e(pid)}/git/switch`, { branch, create }),
+  gitCommit: (pid: string, message: string) => post<{ sha: string; subject: string; files: string[] }>(`/projects/${e(pid)}/git/commit`, { message }),
+  gitSync: (pid: string) => post<{ merged: boolean; from: string; branch: string }>(`/projects/${e(pid)}/git/sync`),
+  gitPush: (pid: string) => post<{ branch: string; sha: string }>(`/projects/${e(pid)}/git/push`),
+  gitOpenPr: (pid: string, body: { title: string; body: string; draft?: boolean }) =>
+    post<{ url?: string; number?: number; updated: boolean }>(`/projects/${e(pid)}/git/pr`, body),
   testConnection: (provider: string) => post<TestResult>(`/connections/${e(provider)}/test`),
 
   // notifications

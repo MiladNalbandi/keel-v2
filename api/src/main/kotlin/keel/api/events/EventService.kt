@@ -96,9 +96,13 @@ class EventService(
                 )
             }
             // a Fix chat's command waits for the person's OK (a card in KeelBot's panel and the Inbox)
-            "helper.permission" -> notifications.create("review", e.projectId, "KeelBot asks to run a command",
+            "helper.permission" -> if (e.threadId == "mcp") {
+                // keel2 mcp --write: Claude Code waits for the answer in the Inbox
+                notifications.create("review", e.projectId, d.str("title") ?: "Claude Code asks", d.str("command")?.take(300) ?: "",
+                    "/inbox", threadId = d.str("id"), step = "permission")
+            } else notifications.create("review", e.projectId, "KeelBot asks to run a command",
                 d.str("command")?.take(300) ?: "", "/projects/${e.projectId}/repo", threadId = e.threadId, step = "permission")
-            "helper.permission.answered" -> notifications.markDone(e.threadId)
+            "helper.permission.answered" -> notifications.markDone((if (e.threadId == "mcp") d.str("id") else e.threadId) ?: "")
             "agent.step", "helper.step" -> {
                 val id = e.callId ?: return
                 ensureCall(id, e, at)

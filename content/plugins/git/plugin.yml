@@ -1,0 +1,42 @@
+# The Git plugin (engine keel_engine/plugins/git). Installed per project on Tools › Plugins. KeelBot and flow agents
+# read git and the pull request through its tools; a commit, push, pull request or branch switch is a button the
+# person presses (keel-git). Never: force push, rewriting pushed history, pushing to main or master.
+name: git
+title: Git
+installable: true
+description: Branches, commits, pushes and pull requests for KeelBot and workflows, with keel's rules.
+needs: [github]
+tools:
+  server: keel-git
+  read: [git_status, git_diff, git_log, git_show, git_blame, git_branches, pr_status]
+actions: [git:branch, git:sync, git:push, git:pr, git:pr-checks, git:cleanup]
+shows_in: [connections, code, workflows, keelbot, inbox]
+
+commands:
+  - name: commit
+    description: Write a commit message for the changes and give the Commit button
+    prompt: |
+      Look at what changed (git_status, then git_diff) and write a commit message for it: a short first line in the
+      style of this project's history (git_log), then a few lines on why, if that helps. {{args}}
+      Give it as a keel-git block with op commit, so I can read it and press Commit.
+
+  - name: pr
+    description: Draft the pull request for this branch and give the Open button
+    prompt: |
+      Draft the pull request for this branch: look at its commits against the base branch (git_log, git_diff) and at
+      pr_status. Write a title and a body (what changed, why, how it was tested). {{args}}
+      Give it as a keel-git block with op pr. If the branch is not pushed yet, give a push block first.
+
+  - name: sync
+    description: Say what bringing the base branch in would do, and give the button
+    prompt: |
+      Compare this branch with its base branch (git_branches, git_log). Say how far behind it is and which files
+      both sides changed, so I know if a merge will conflict. {{args}} Then give a keel-git block with op sync.
+
+  - name: branch
+    description: Suggest a branch name for a piece of work and give the Switch button
+    prompt: |
+      Suggest a branch name for: {{args}}. Follow the names this project already uses (git_branches). Give it as a
+      keel-git block with op switch and create true.
+
+context: []

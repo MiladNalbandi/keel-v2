@@ -1551,3 +1551,67 @@ GET  /api/projects/{pid}/runs?workflow=&limit=20  → RunRow[] { thread_id, titl
 - The Flow page (Run): a tab for each flow that runs or waits (when more than one, or when another one is open), and
   **History** (the newest 20, all or one workflow's; **Open** shows any flow with all its details).
 
+## v0.10.0: plugins: Database and Git
+
+A plugin is keel's own add-on (`content/plugins/<name>/plugin.yml`, code in `engine/keel_engine/plugins/<name>`). A
+project turns one on in **Tools › Plugins** (or every project does); keel then changes where people already work. The
+plugin file v2 adds, for keel's own plugins only (a project's `.keel/plugins` stay text only):
+
+```
+installable: true          off until a project turns it on (keel's core plugin is always on)
+needs: [database]          what the person sets up (Connections)
+tools: {server: keel-db, read: [db_connections, db_schema, db_query]}   the MCP server keel runs; read tools only
+actions: [db:query, db:check, db:change, db:migrate]                   workflow code steps; settings in `with:`
+shows_in: [connections, map, workflows, keelbot, inbox]
+```
+
+- **Calls carry the plugins.** `StartThread.settings` gets `plugins: [db, git]`, `push_pr`, `branch_pattern`; the keys
+  (memory only, never in the saved settings) get `db:<connection>` → `{name, kind, url, env}` as JSON and `github` → the
+  token. A KeelBot turn gets `plugins` and the same keys; `/helper/commands` gets `plugins` (their `/commands`).
+- **Read tools for models.** For one agent call or KeelBot turn the engine opens a key (`plugins.open_call`, memory only)
+  and starts `python -m keel_engine.plugins.server db|git` (stdio MCP) with `KEEL_PLUGIN_URL` and `KEEL_PLUGIN_KEY`
+  only; each tool call comes back as `POST /plugins/call {key, tool, args}` → `{text}`. KeelBot gets the tools of every
+  plugin that is on; a flow agent only when it is ticked on Tools › "Who may use what" (`keel-db`, `keel-git`). The
+  allow list now also takes a bare server name (the Tools page saves those; before, the engine dropped them).
+- **Database rules** (`plugins/db/core.py`): sqlglot reads the SQL: `read` (SELECT, EXPLAIN without ANALYZE, SHOW,
+  DESCRIBE, PRAGMA) runs in a read-only transaction, 200 rows, 15 s; `change` (INSERT, UPDATE, DELETE, MERGE) only on
+  a `local` or `test` connection, first run and rolled back to count the rows, then for real with `confirm`; `schema`
+  (CREATE, ALTER, DROP TABLE) and `never` (DROP DATABASE, TRUNCATE, GRANT, more than one statement, a read that also
+  writes, server functions like pg_terminate_backend) are refused. Columns named like a secret show as `•••` to models.
+  In Docker, `localhost` in an address means the person's computer (host.docker.internal).
+- **Git rules** (`plugins/git/core.py`): never force, never push to the base branch, main or master; commit = every
+  change but keel's files, the secret check, the author and KeelBot line from Settings; a merge of the base that
+  conflicts is undone at once; cleanup deletes only merged local branches.
+- **Buttons, not actions.** KeelBot never changes data or git: `keel-query {sql, connection?}` and
+  `keel-git {op: commit|push|pr|switch|sync, ...}` blocks become cards the person presses (web
+  `components/helper/Actions.tsx`).
+- **Workflow steps** (`with:` on a code step; `workflows/validate.py` checks required and unknown keys):
+  `db:query` (rows to data.<step>), `db:check` (`expect: none | some | <n>`, soft + a branch on RESULT), `db:change`
+  (asks: "Change data in local?", once per fingerprint, unless run mode auto on a local database), `db:migrate`
+  (`commands.migrate`); `git:branch`, `git:sync`, `git:push`, `git:pr`, `git:pr-checks`, `git:cleanup` (push and PR
+  follow `push_pr`: never skips, ask needs the gate before approved or asks, auto goes on; run mode auto never pushes).
+
+```
+GET  /api/plugins                                   → the catalog (engine GET /plugins: tools, actions with their `with`)
+GET  /api/projects/{pid}/plugins                    → catalog + enabled, scope (project | all | null)
+PUT  /api/projects/{pid}/plugins/{name}  { enabled, scope: project | all }
+GET  /api/github                                    → { set, hint, from }   (token: PUT /api/secrets/GITHUB_REPO_TOKEN)
+GET|POST /api/projects/{pid}/db/connections         { name, url, env: local|test|staging|prod, source? } → { connection, test }
+PUT|DELETE /api/projects/{pid}/db/connections/{name} · POST …/{name}/test
+GET  /api/projects/{pid}/db/suggest                 → what compose, .env.example, Spring's config and SQLite files name
+GET  /api/projects/{pid}/db/schema?connection=
+POST /api/projects/{pid}/db/query  { connection?, sql, change?, confirm?, mask? } → DbResult (read or change)
+GET  /api/projects/{pid}/git/status | branches | log | pr
+POST /api/projects/{pid}/git/switch {branch, create} | commit {message} | sync | push | pr {title, body, draft} | cleanup
+POST /api/projects/{pid}/plugins/ask { title, command } → { id } · GET /api/plugins/asks/{id} → waiting | decision
+```
+
+- V11: `project_plugins (project_id | '*', plugin, enabled)` and `db_connections` (the address with its password is the
+  secret `db.<id>`; the row keeps it with the password as •••, and the last test).
+- **keel2 mcp** (Claude Code, Claude Desktop): `keel_db_schema`, `keel_db_query`, `keel_git_status`, `keel_pr_status`;
+  with `--write` also `keel_db_change`, `keel_git_commit`, `keel_git_push`, `keel_pr_create`, which ask the person in
+  keel's Inbox first (engine `POST /plugins/ask`, session `mcp`) and wait up to 10 minutes.
+- Pages (no new ones): Tools › Plugins, Connections › Databases and GitHub, Map › Database › Query, Code › Source
+  control › Git (branch, push, switch, commit, the PR's checks and comments, "Ask KeelBot to address the comments"),
+  Workflows (a code step lists the plugins' blocks and edits `with:`), Inbox (Claude Code's questions).
+

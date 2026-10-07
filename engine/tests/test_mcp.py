@@ -11,8 +11,9 @@ from mcp.shared.memory import create_connected_server_and_client_session
 from keel_engine import mcp_server
 from keel_engine.tools import mcp as mcp_tools
 
-READ_TOOLS = {"keel_status", "keel_projects", "keel_timeline", "keel_next", "keel_explain"}
-WRITE_TOOLS = {"keel_approve_gate", "keel_resume"}
+READ_TOOLS = {"keel_status", "keel_projects", "keel_timeline", "keel_next", "keel_explain",
+              "keel_db_schema", "keel_db_query", "keel_git_status", "keel_pr_status"}           # v0.10.0 plugins
+WRITE_TOOLS = {"keel_approve_gate", "keel_resume", "keel_db_change", "keel_git_commit", "keel_git_push", "keel_pr_create"}
 
 PROJECTS = [
     {"id": "shop", "name": "shop", "root": "/workspace/shop", "branch": "feat/scores", "flow": "feature", "phase": "spec",
@@ -234,3 +235,59 @@ def test_agents_get_the_read_only_builtin():
     [out] = mcp_tools.servers_for([seeded], ["mcp:keel:keel_next"])
     assert out["args"][-1] == "--read-only" and "KEEL_API_URL" in out["env"]
     assert mcp_tools.servers_for([], ["mcp:keel"])[0]["args"][-1] == "--read-only"
+
+
+# ---- v0.10.0 the plugins' tools: through the api, with keel's rules; acting ones wait for the person's Inbox answer
+
+class PluginApi(StubApi):
+    def __init__(self, on=("db", "git"), answer="allow"):
+        super().__init__()
+        self.on, self.answer, self.polls = on, answer, 0
+
+    def __call__(self, req: httpx.Request) -> httpx.Response:
+        path, body = req.url.path, (json.loads(req.content) if req.content else {})
+        if path == "/api/projects/shop/plugins":
+            return httpx.Response(200, json=[{"name": n, "enabled": n in self.on} for n in ("db", "git")])
+        if path == "/api/projects/shop/db/query":
+            self.posts.append((path, body))
+            if body.get("change"):
+                return httpx.Response(200, json={"connection": "local", "sql": body["sql"], "changed": 2, "done": bool(body.get("confirm"))})
+            return httpx.Response(200, json={"connection": "local", "columns": ["name", "api_key"], "rows": [["Ada", "•••"]],
+                                             "count": 1, "truncated": False, "masked": ["api_key"], "ms": 3})
+        if path == "/api/projects/shop/plugins/ask":
+            self.posts.append((path, body))
+            return httpx.Response(200, json={"id": "p_000000000001"})
+        if path == "/api/plugins/asks/p_000000000001":
+            self.polls += 1
+            done = self.polls > 1
+            return httpx.Response(200, json={"id": "p_000000000001", "waiting": True} if not done else
+                                  {"id": "p_000000000001", "decision": self.answer, "why": "" if self.answer == "allow" else "not now"})
+        if path == "/api/projects/shop/git/push":
+            self.posts.append((path, body))
+            return httpx.Response(200, json={"branch": "feat/scores", "sha": "abc1234def"})
+        return super().__call__(req)
+
+
+def test_plugin_tools_read_through_the_api_and_say_when_a_plugin_is_off(monkeypatch):
+    s = PluginApi(on=("db",))
+    api = mcp_server.KeelApi("http://keel.test", transport=httpx.MockTransport(s))
+    text = mcp_server.db_query(api, "select name, api_key from players", "shop")
+    assert text.startswith("1 row from local") and "| Ada | ••• |" in text
+    assert s.posts[-1][1] == {"sql": "select name, api_key from players", "connection": "", "mask": True}
+    with pytest.raises(mcp_server.ApiError, match="The Git plugin is off for shop"):
+        mcp_server.git_status(api, "shop")
+
+
+def test_an_acting_tool_waits_for_the_persons_inbox_answer(monkeypatch):
+    s = PluginApi()
+    api = mcp_server.KeelApi("http://keel.test", transport=httpx.MockTransport(s))
+    out = mcp_server.db_change(api, "update scores set value = 0", "shop", sleep=lambda _s: None)
+    assert out == "2 row(s) changed in local."
+    asked = next(b for p, b in s.posts if p.endswith("/plugins/ask"))
+    assert asked == {"title": "Claude Code: change 2 row(s) in local?", "command": "update scores set value = 0"}
+    assert [b.get("confirm") for p, b in s.posts if p.endswith("/db/query")] == [None, True]
+    no = PluginApi(answer="deny")
+    api = mcp_server.KeelApi("http://keel.test", transport=httpx.MockTransport(no))
+    assert mcp_server.git_act(api, "push", "shop", sleep=lambda _s: None) == "The person said no in keel's Inbox: not now"
+    assert not any(p.endswith("/git/push") for p, _ in no.posts)
+

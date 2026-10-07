@@ -115,7 +115,7 @@ class SecretService(private val jdbc: JdbcTemplate, private val props: KeelPrope
         val KEY_NAMES = mapOf("claude" to "ANTHROPIC_API_KEY", "codex" to "OPENAI_API_KEY", "copilot" to "GITHUB_TOKEN")
         val LOGIN_NAMES = mapOf("claude" to "CLAUDE_CODE_OAUTH_TOKEN", "codex" to "CODEX_AUTH_JSON", "copilot" to "GH_TOKEN")
         /** Secret names whose value is a single token (whitespace is removed); CODEX_AUTH_JSON is a JSON file. */
-        val TOKEN_NAMES = setOf("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GITHUB_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "GH_TOKEN")
+        val TOKEN_NAMES = setOf("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GITHUB_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "GH_TOKEN", "GITHUB_REPO_TOKEN")
         private val ENGINE_LOGIN_KEY = mapOf("claude" to "claude_oauth", "codex" to "codex_auth", "copilot" to "copilot")
     }
 }

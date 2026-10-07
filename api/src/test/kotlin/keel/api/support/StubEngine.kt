@@ -104,6 +104,27 @@ class StubEngine private constructor(private val server: HttpServer) {
         path == "/health" -> 200 to mapOf("ok" to true, "version" to "stub", "fake" to true)
         path == "/agents/ask" -> 200 to (askAnswer ?: mapOf("ok" to true, "fake" to true, "text" to ""))
         path == "/templates" -> 200 to listOf(featureTemplate, knowledgeTemplate)
+        // v0.10.0 plugins: the catalog, and the engine's database and git calls (echoed so tests see what went out)
+        path == "/plugins" -> 200 to listOf(
+            mapOf("name" to "db", "title" to "Database", "installable" to true, "tools" to mapOf("server" to "keel-db", "read" to listOf("db_query")),
+                "actions" to listOf(mapOf("name" to "db:check", "with" to mapOf("sql" to "required"), "summary" to "a data check"))),
+            mapOf("name" to "git", "title" to "Git", "installable" to true, "tools" to mapOf("server" to "keel-git", "read" to listOf("git_status")),
+                "actions" to listOf(mapOf("name" to "git:push", "with" to emptyMap<String, Any>(), "summary" to "push"))))
+        path == "/plugins/db/test" -> 200 to (if (body?.path("connection")?.path("url")?.asText()?.contains("wrong") == true)
+            mapOf("ok" to false, "error" to "keel could not reach local: password authentication failed", "hint" to "Check the password.")
+            else mapOf("ok" to true, "server" to "PostgreSQL 16.4", "tables" to 23))
+        path == "/plugins/db/suggest" -> 200 to listOf(
+            mapOf("name" to "db", "kind" to "postgres", "url" to "postgres://app:app@localhost:15432/scores", "env" to "local", // keel:allow-secret
+                "source" to "docker-compose.yml (service db)", "shown" to "postgres://app:•••@localhost:15432/scores"))
+        path == "/plugins/db/schema" -> 200 to mapOf("connection" to body?.path("connection")?.path("name")?.asText(), "kind" to "postgres",
+            "tables" to listOf(mapOf("name" to "scores", "columns" to emptyList<Any>(), "fks" to emptyList<Any>())))
+        path == "/plugins/db/query" -> 200 to mapOf("connection" to body?.path("connection")?.path("name")?.asText(),
+            "kind" to if (body?.path("change")?.asBoolean() == true) "change" else "read", "sql" to body?.path("sql")?.asText(),
+            "columns" to listOf("n"), "rows" to listOf(listOf(1)), "count" to 1, "changed" to 2, "done" to (body?.path("confirm")?.asBoolean() == true))
+        path.startsWith("/plugins/git/") -> 200 to mapOf("op" to path.removePrefix("/plugins/git/"), "branch" to "feat/x", "sha" to "abc1234def",
+            "subject" to "s", "files" to listOf("a"))
+        path == "/plugins/ask" -> 200 to mapOf("id" to "p_000000000001", "session" to "mcp", "title" to body?.path("title")?.asText())
+        path.startsWith("/plugins/ask/") -> 200 to mapOf("id" to path.substringAfterLast("/"), "decision" to "allow", "why" to "")
         path == "/providers/models" -> 200 to mapOf(
             "fake" to listOf(mapOf("id" to "fake", "label" to "Fake model")),
             "claude" to listOf(mapOf("id" to "claude-sonnet", "label" to "Sonnet")),

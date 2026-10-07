@@ -39,6 +39,7 @@ from ..models import catalog
 from ..models.base import AgentRequest, AgentResult
 from ..tools import git, guard, mcp, testcmd, worktrees
 from ..tools.agent_tools import ToolBox, command_env
+from .. import plugins as keel_plugins
 from . import agent_knowledge, db, graph_hints, guard_ctx, keelbot, permissions, plugins, prompts
 
 log = logging.getLogger(__name__)
@@ -65,6 +66,7 @@ MODE_TEXT = {
              "short line per file you changed."),
 }
 DIFF_MAX = 40_000
+MCP_SESSION = "mcp"         # questions from keel2 mcp --write (Claude Code), with no KeelBot chat behind them
 
 FIELDS = ("id", "project", "root", "mode", "title", "model_json", "engine_session", "status", "error", "thread_id",
           "tokens_in", "tokens_out", "tokens_cached", "cost_usd", "turns", "created_at", "updated_at", "grants_json", "phase",
@@ -461,7 +463,7 @@ def build_prompt(*, mode: str, root: str, question: str, know: dict, graph: bool
         hints = graph_hints.where_to_look(pid, question, mentions=mentions, open_file=open_file, selection=selection)
         if hints:
             parts.append(hints)
-    ctx = plugins.context_files(root)
+    ctx = plugins.context_files(root, (keel or {}).get("plugins"))
     if ctx:
         parts.append("Read these when they help: " + ", ".join(ctx))
     for extra in (_flow_block(flow), keelbot.keel_block(keel, question), transcript,
@@ -484,6 +486,7 @@ class HelperRunner:
         self.ask_keys: dict[str, str] = {}
         self.questions: dict[str, dict] = {}
         self.answers: dict[str, concurrent.futures.Future] = {}
+        self.decided: dict[str, dict] = {}      # keel2 mcp's answered questions, until it reads them
 
     # ---- permission cards (runtime/permissions.py) --------------------------------------------------------------
 
@@ -508,6 +511,10 @@ class HelperRunner:
     def _settle(self, qid: str, answer: dict):
         fut = self.answers.pop(qid, None)
         q = self.questions.pop(qid, None)
+        if q and q["session"] == MCP_SESSION:
+            self.decided[qid] = answer          # keel2 mcp polls for it (asked)
+            while len(self.decided) > 200:
+                self.decided.pop(next(iter(self.decided)))
         if fut and not fut.done():
             fut.set_result(answer)
         if q:
@@ -544,11 +551,31 @@ class HelperRunner:
             raise HelperError(404, "That question was answered already, or its command ended.")
         if decision not in ("once", "always", "deny"):
             raise HelperError(400, "Answer once, always or deny.")
-        if decision == "always":
+        if decision == "always" and q["session"] != MCP_SESSION:
             add_grant(q["session"], q["command"])
         self._settle(qid, {"decision": "deny" if decision == "deny" else "allow",
                            "why": (why or "The person said no to this command.") if decision == "deny" else ""})
         return {"id": qid, "decision": decision}
+
+    # ---- v0.10.0: keel2 mcp --write (Claude Code): an acting plugin tool asks the person in the Inbox, then polls
+
+    def ask_person(self, project: str, title: str, command: str) -> dict:
+        """A question with no KeelBot chat behind it: the Inbox shows it like KeelBot's commands."""
+        qid = "p_" + uuid.uuid4().hex[:12]
+        q = {"id": qid, "session": MCP_SESSION, "project": project, "thread_id": None, "kind": "plugin", "command": command,
+             "path": "", "title": title, "at": db.now()}
+        self.questions[qid] = q
+        self.answers[qid] = concurrent.futures.Future()
+        self.bus.emit("helper.permission", MCP_SESSION, project, step="helper", data=q)
+        return q
+
+    def asked(self, qid: str) -> dict:
+        """{waiting: true} until the person answers, then {decision: allow | deny, why} once."""
+        if qid in self.questions:
+            return {"id": qid, "waiting": True}
+        if qid in self.decided:
+            return {"id": qid, **self.decided.pop(qid)}
+        raise HelperError(404, "keel knows no such question.")
 
     def pending(self, project: str | None = None) -> list[dict]:
         return [q for q in self.questions.values() if not project or q["project"] == project]
@@ -572,7 +599,7 @@ class HelperRunner:
             raise HelperError(409, "This side session was handed over; its worktree is gone.", "Start a new chat.")
         if body.get("model"):
             s = set_model(sid, body["model"])
-        question, command = plugins.expand(s["root"], text)
+        question, command = plugins.expand(s["root"], text, body.get("plugins"))
         n = add_message(sid, "user", text, data={k: v for k, v in {"command": command, "mentions": body.get("mentions"),
                                                                     "selection": body.get("selection")}.items() if v})
         if s["title"] == "New chat" and s["turns"] == 0:
@@ -654,6 +681,7 @@ class HelperRunner:
         res: AgentResult | None = None
         status, err = "done", None
         before = None
+        plugin_key = None
         t0 = time.monotonic()
         ev("helper.started", {"agent": AGENT, "provider": provider, "model": model.get("model"), "mode": model.get("mode"),
                               "phase": f"helper-{mode}", "session": sid, "n": n})
@@ -668,12 +696,18 @@ class HelperRunner:
             sent = list(body.get("mcp") or [])
             specs = sent + ([graph] if graph and not any(x.get("name") == graph["name"] for x in sent) else [])
             allow = list(body.get("tools_allow") or []) + ([f"mcp:{graph['name']}:*"] if graph else [])
+            # the project's plugins (Tools › Plugins): their read tools, through one key for this turn (keel_engine/plugins)
+            on = keel_plugins.enabled({"plugins": body.get("plugins")})
+            if on:
+                plugin_key = keel_plugins.open_call(project=project, root=root, keys=keys, plugins=on, who="keelbot")
+                specs += keel_plugins.server_specs(on, plugin_key)
+                allow += keel_plugins.allow_entries(on)
             mcp_specs, tools_allow = agent_knowledge.filter_mcp(specs, allow, know)
             transcript = "" if (resume or model.get("mode") == "api" or provider == "fake") else _transcript(hist)
             prompt = build_prompt(mode=mode, root=root, question=question, know=know, branch=s.get("branch") or "", pid=project,
                                   graph=agent_knowledge.has_codegraph(mcp_specs, tools_allow), flow=body.get("flow"),
                                   mentions=body.get("mentions"), selection=body.get("selection"), open_file=body.get("open_file"),
-                                  transcript=transcript, keel=body.get("keel"))
+                                  transcript=transcript, keel={**(body.get("keel") or {}), "plugins": on})
             with tempfile.TemporaryDirectory(prefix="keel-helper-") as tmp:
                 req = AgentRequest(agent=AGENT, system=prompts.system_prompt(AGENT, body.get("skills")), prompt=prompt,
                                    root=root, phase=phase, model=model, toolbox=toolbox, title=s["title"], step_name="helper",
@@ -693,6 +727,7 @@ class HelperRunner:
             status, err = "failed", f"{exc}{(' ' + exc.hint) if getattr(exc, 'hint', '') else ''}"
             emit("error", err[:2000], ok=False)
         self.ask_keys.pop(sid, None)
+        keel_plugins.close_call(plugin_key)
         self._drop_questions(sid, "KeelBot's answer ended.")
         # the backstop for engines without keel's hook: in Ask nothing may change; in Fix only what the phase allows
         if mode == "ask":
@@ -728,6 +763,6 @@ class HelperRunner:
         self.tasks.pop(sid, None)
 
 
-def commands(root: str | None) -> list[dict]:
-    """The slash commands the panel offers (runtime/plugins.py)."""
-    return [{k: c[k] for k in ("name", "description", "plugin", "source")} for c in plugins.commands(root)]
+def commands(root: str | None, enabled: list[str] | None = None) -> list[dict]:
+    """The slash commands the panel offers (runtime/plugins.py): keel's, the project's plugins' and the project's own."""
+    return [{k: c[k] for k in ("name", "description", "plugin", "source")} for c in plugins.commands(root, enabled)]

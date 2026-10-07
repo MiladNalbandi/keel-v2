@@ -120,12 +120,15 @@ function PermissionInboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: stri
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<{ message: string; hint?: string } | null>(null);
   const hid = `inbox-perm-${q.id}`;
+  // v0.10.0: Claude Code's acting tool (keel2 mcp --write) asks here too, with no KeelBot chat behind it
+  const mcp = q.session === "mcp";
+  const who = mcp ? "Claude Code" : "KeelBot";
   const answer = async (decision: "once" | "always" | "deny") => {
     setBusy(true);
     setErr(null);
     try {
       await api.helperAnswer(it.project_id, q.id, decision, why.trim());
-      await onDone(decision === "deny" ? "Refused: KeelBot will not run it." : "Allowed: KeelBot runs it now.");
+      await onDone(decision === "deny" ? `Refused: ${who} will not run it.` : `Allowed: ${who} runs it now.`);
     } catch (e) {
       setErr(errorParts(e));
       setBusy(false);
@@ -135,21 +138,21 @@ function PermissionInboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: stri
     <article className="inbox-item k-permission" aria-labelledby={hid} data-testid="inbox-item" data-key={keyOf(it)} tabIndex={-1}>
       <div className="inbox-meta">
         <Pill tone="warn">{kindLabel(it.kind)}</Pill>
-        <span className="sub"><b>{it.project_name}</b> · KeelBot · {it.flow}</span>
+        <span className="sub"><b>{it.project_name}</b> · {who}{mcp ? " (keel MCP)" : ` · ${it.flow}`}</span>
         {it.since && <span className="hint inbox-since">waiting <Since from={it.since} /></span>}
       </div>
       <h2 id={hid} className="inbox-title">{it.title}</h2>
       <pre className="code inbox-cmd">{q.command}</pre>
       <div className="field">
-        <label htmlFor={`${hid}-why`}>Why not (optional, KeelBot reads it)</label>
+        <label htmlFor={`${hid}-why`}>Why not (optional, {who} reads it)</label>
         <input id={`${hid}-why`} value={why} onChange={(e) => setWhy(e.target.value)} />
       </div>
       <div className="row inbox-actions">
-        <button className="btn sm warn" type="button" disabled={busy} onClick={() => void answer("once")}>Allow once</button>
-        <button className="btn sm" type="button" disabled={busy} onClick={() => void answer("always")}>Always for this command</button>
+        <button className="btn sm warn" type="button" disabled={busy} onClick={() => void answer("once")}>{mcp ? "Allow" : "Allow once"}</button>
+        {!mcp && <button className="btn sm" type="button" disabled={busy} onClick={() => void answer("always")}>Always for this command</button>}
         <button className="btn sm" type="button" disabled={busy} onClick={() => void answer("deny")}>Deny</button>
-        <button className="btn sm ghost inbox-open" type="button" onClick={() => { setProjectId(it.project_id); go("repo"); }}
-          aria-label={`Open KeelBot in ${it.project_name}`}>Open KeelBot ▸</button>
+        {!mcp && <button className="btn sm ghost inbox-open" type="button" onClick={() => { setProjectId(it.project_id); go("repo"); }}
+          aria-label={`Open KeelBot in ${it.project_name}`}>Open KeelBot ▸</button>}
       </div>
       {err && <ErrorBox error={err} />}
     </article>

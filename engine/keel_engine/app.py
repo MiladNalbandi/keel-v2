@@ -90,6 +90,10 @@ class Settings(BaseModel):
     # the project's git name, else KeelBot), and the Co-Authored-By: KeelBot line (default on)
     commit_author: str | None = None
     commit_coauthor: bool | None = None
+    # v0.10.0 plugins (Tools › Plugins): the ones on for the project; git:push / git:pr follow push_pr; git:branch the pattern
+    plugins: list[str] | None = None
+    push_pr: Literal["ask", "auto", "never"] | None = None
+    branch_pattern: str | None = None
 
 
 class McpServerSpec(BaseModel):
@@ -152,6 +156,46 @@ class HelperCreate(BaseModel):
 
 class HelperCommands(BaseModel):
     root: str | None = None
+    plugins: list[str] = Field(default_factory=list)    # the project's plugins add their commands (/sql, /commit ...)
+
+
+class PluginCall(BaseModel):
+    """A tool call from a plugin's MCP server (plugins/server.py): the agent call's key, the tool, its arguments."""
+    key: str
+    tool: str
+    args: dict[str, Any] = Field(default_factory=dict)
+
+
+class PluginAsk(BaseModel):
+    project: str
+    title: str
+    command: str
+
+
+class PluginDb(BaseModel):
+    """The person's own database call (Map › Query, KeelBot's button, Connections › Databases): the api sends the
+    connection with its password, memory only."""
+    root: str = ""
+    connection: dict[str, Any] = Field(default_factory=dict)
+    sql: str = ""
+    change: bool = False        # the person may change data (only on a local or test database)
+    confirm: bool = False       # run a change for real (else keel counts its rows and rolls back)
+    mask: bool = False          # a model reads the rows (keel2 mcp): columns named like a secret show as •••
+
+
+class PluginGit(BaseModel):
+    """The person's own git call (Code › Git, KeelBot's button)."""
+    root: str
+    keys: dict[str, str] = Field(default_factory=dict)        # github: the token
+    settings: dict[str, Any] = Field(default_factory=dict)    # commit_author, commit_coauthor
+    branch: str = ""
+    create: bool = False
+    message: str = ""
+    title: str = ""
+    body: str = ""
+    draft: bool = False
+    path: str = ""
+    sha: str = ""
 
 
 class HelperAsk(BaseModel):
@@ -212,6 +256,7 @@ class HelperTurn(BaseModel):
     skills: dict[str, str] = Field(default_factory=dict)
     flow: dict[str, Any] | None = None          # the flow that runs or waits: title, status, phase, spec, acs, waiting
     keel: dict[str, Any] | None = None          # KeelBot's view of keel: {workflows, flows} (runtime/keelbot.py)
+    plugins: list[str] = Field(default_factory=list)   # the plugins on for the project: KeelBot gets their read tools
     mentions: list[dict[str, Any]] = Field(default_factory=list)   # [{kind: file|symbol|ac, value, file?, line?}]
     selection: dict[str, Any] | None = None     # {path, from, to, text}
     open_file: str | None = None
@@ -338,7 +383,7 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     async def token_check(request: Request, call_next):
         token = config.internal_token()
         # the hook's permission question carries the turn's own ask key instead (it can only ask, never answer)
-        if token and request.url.path not in ("/health", "/helper/permissions/ask"):
+        if token and request.url.path not in ("/health", "/helper/permissions/ask", "/plugins/call"):
             if not secrets.compare_digest(request.headers.get("X-Keel-Token", ""), token):
                 return _err(401, "Missing or wrong X-Keel-Token.")
         return await call_next(request)
@@ -651,7 +696,96 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     async def post_helper_commands(body: HelperCommands):
         """The slash commands of keel's plugins and the project's own (runtime/plugins.py)."""
         root = body.root if body.root and os.path.isdir(body.root) else None
-        return await asyncio.to_thread(helper.commands, root)
+        return await asyncio.to_thread(helper.commands, root, body.plugins)
+
+    # ---- v0.10.0 plugins: Database and Git (keel_engine/plugins) ------------------------------------------------
+
+    def plugin_call(fn, *a, **k):
+        from .plugins import PluginError
+        from .plugins.db.core import DbError
+        from .plugins.git.core import GitError
+
+        try:
+            return fn(*a, **k)
+        except (PluginError, DbError, GitError) as exc:
+            raise EngineError(exc.status, str(exc), exc.hint) from exc
+
+    @app.get("/plugins")
+    async def get_plugins():
+        """keel's installable plugins with what each adds, and what each step action takes in `with:`."""
+        from .plugins.db.actions import PARAMS as DB
+        from .plugins.git.actions import PARAMS as GIT
+        from .runtime import plugins as manifests
+        from .runtime.action_docs import describe
+
+        params = {**DB, **GIT}
+        out = []
+        for p in manifests.catalog():
+            acts = [{"name": a, "with": params.get(a, {}), "summary": describe(a)["summary"]} for a in p["actions"]]
+            out.append({**p, "actions": acts})
+        return out
+
+    @app.post("/plugins/ask")
+    async def post_plugin_ask(body: PluginAsk, request: Request):
+        """keel2 mcp --write: an acting tool (change data, commit, push, open a PR) asks the person in the Inbox."""
+        return request.app.state.helper.ask_person(body.project, body.title[:200], body.command[:4000])
+
+    @app.get("/plugins/ask/{qid}")
+    async def get_plugin_ask(qid: str, request: Request):
+        try:
+            return request.app.state.helper.asked(qid)
+        except helper.HelperError as exc:
+            raise EngineError(exc.status, str(exc), exc.hint) from exc
+
+    @app.post("/plugins/call")
+    async def post_plugin_call(body: PluginCall):
+        from . import plugins
+
+        return {"text": await asyncio.to_thread(plugin_call, plugins.call, body.key, body.tool, body.args)}
+
+    @app.post("/plugins/db/{op}")
+    async def post_plugin_db(op: str, body: PluginDb):
+        from .plugins.db import core as db
+
+        root = body.root if body.root and os.path.isdir(body.root) else ""
+        if op == "suggest":
+            return await asyncio.to_thread(db.suggest, root)
+        conn = plugin_call(db.conn_of, body.connection)
+        if op == "test":
+            return await asyncio.to_thread(db.test, conn, root)
+        if op == "schema":
+            return await asyncio.to_thread(plugin_call, db.schema, conn, root)
+        if op == "query":
+            return await asyncio.to_thread(plugin_call, db.query, conn, body.sql, root=root, allow_change=body.change,
+                                           confirm=body.confirm, mask=body.mask)
+        if op == "classify":
+            kind, why = db.classify(body.sql, conn.kind)
+            return {"kind": kind, "why": why}
+        raise EngineError(404, f"Unknown database call {op}.")
+
+    @app.post("/plugins/git/{op}")
+    async def post_plugin_git(op: str, body: PluginGit):
+        from .plugins import github_token
+        from .plugins.git import core as g
+
+        if not os.path.isdir(body.root):
+            raise EngineError(404, "The project folder is gone.")
+        token = github_token(body.keys)
+        calls = {
+            "status": lambda: g.status(body.root),
+            "branches": lambda: g.branches(body.root),
+            "log": lambda: g.log(body.root, 30),
+            "switch": lambda: g.switch(body.root, body.branch, body.create),
+            "commit": lambda: g.commit(body.root, body.message, body.settings),
+            "sync": lambda: g.sync(body.root, token),
+            "push": lambda: g.push(body.root, token),
+            "pr": lambda: g.pr(body.root, token, body.title, body.body, body.draft),
+            "pr_status": lambda: {"pr": g.pr_status(body.root, token)},
+            "cleanup": lambda: g.cleanup(body.root),
+        }
+        if op not in calls:
+            raise EngineError(404, f"Unknown git call {op}.")
+        return await asyncio.to_thread(plugin_call, calls[op])
 
     @app.post("/mcp/tools")
     async def post_mcp_tools(body: McpServerSpec):

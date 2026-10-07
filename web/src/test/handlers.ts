@@ -1,7 +1,7 @@
 // MSW handlers for every /api route the web uses, backed by a small in-memory db (reset per test).
 
 import { http, HttpResponse } from "msw";
-import type { Cap, CapLeft, CapsLeft, FlowBoard, FlowView, GraphFocus, GraphOverview, HelperChange, HelperDone, HelperQuestion, HelperSession, IndexStatus, OnCap, RunRow, Settings, Stack, ThreadState, Workflow, WorkflowCheck } from "../api";
+import type { Cap, CapLeft, CapsLeft, FlowBoard, FlowView, GraphFocus, GraphOverview, DbConnection, DbResult, GitStatus, HelperChange, HelperDone, HelperQuestion, HelperSession, IndexStatus, OnCap, Plugin, PullRequest, RunRow, Settings, Stack, ThreadState, Workflow, WorkflowCheck } from "../api";
 import * as fx from "./fixtures";
 import { createTaskDb, taskHandlers } from "./taskHandlers";
 
@@ -50,6 +50,14 @@ export function createDb() {
     /** v0.9.0: each project's flows, newest first (GET /runs), and what POST /workflows/import saves (null: the fix workflow) */
     runs: {} as Record<string, RunRow[]>,
     importAs: null as Workflow | null,
+    /** v0.10.0 plugins: which are on, the database connections and query answers, git's state */
+    plugins: { db: false, git: false } as Record<string, boolean>,
+    dbConns: [] as DbConnection[],
+    dbAnswer: null as DbResult | null,
+    gitStatus: { branch: "feat/euro", base: "main", upstream: "origin/feat/euro", ahead: 2, behind: 0, base_ahead: 2, base_behind: 1, pushed: true,
+      changes: [] } as GitStatus,
+    pr: null as PullRequest | null,
+    github: { set: false, hint: null as string | null, from: null as "keel" | "env" | null },
     /** v0.5.0: tasks, Jira connections, the MCP catalog */
     tk: createTaskDb(),
   };
@@ -57,6 +65,18 @@ export function createDb() {
 export type Db = ReturnType<typeof createDb>;
 
 export function handlers(db: Db) {
+  const pluginList = (): Plugin[] => [
+    { name: "db", title: "Database", description: "Look at the project's database, run safe queries, and check data in workflows.", needs: ["database"],
+      tools: { server: "keel-db", read: ["db_connections", "db_schema", "db_query"] },
+      actions: [{ name: "db:check", with: { sql: "required", expect: "optional", connection: "optional" }, summary: "a data check" },
+        { name: "db:query", with: { sql: "required", connection: "optional" }, summary: "a read" }],
+      shows_in: ["connections", "map", "workflows", "keelbot", "inbox"], commands: [{ name: "sql", description: "Ask a data question" }],
+      enabled: db.plugins.db, scope: db.plugins.db ? "project" : null },
+    { name: "git", title: "Git", description: "Branches, commits, pushes and pull requests.", needs: ["github"],
+      tools: { server: "keel-git", read: ["git_status", "pr_status"] }, actions: [{ name: "git:push", with: {}, summary: "push" }],
+      shows_in: ["connections", "code", "workflows", "keelbot", "inbox"], commands: [{ name: "commit", description: "Write a commit message" }],
+      enabled: db.plugins.git, scope: db.plugins.git ? "project" : null },
+  ];
   const log = async (req: Request) => {
     let body: unknown = null;
     try {
@@ -265,6 +285,56 @@ export function handlers(db: Db) {
       const f = folder.trim() || null;
       db.workflows = db.workflows.map((w) => (w.id === params.wid ? { ...w, folder: f } : w));
       return HttpResponse.json({ folder: f });
+    }),
+    // v0.10.0 plugins
+    http.get("/api/projects/:pid/plugins", () => HttpResponse.json(pluginList())),
+    http.put("/api/projects/:pid/plugins/:name", async ({ request, params }) => {
+      const b = (await log(request)) as { enabled: boolean };
+      db.plugins[String(params.name)] = b.enabled;
+      return HttpResponse.json(pluginList());
+    }),
+    http.get("/api/github", () => HttpResponse.json(db.github)),
+    http.put("/api/secrets/:name", async ({ request, params }) => {
+      if (params.name !== "GITHUB_REPO_TOKEN") return undefined;   // the providers' keys: the handler further down
+      await log(request);
+      db.github = { set: true, hint: "…789", from: "keel" };
+      return HttpResponse.json({ hint: "…789" });
+    }),
+    http.get("/api/projects/:pid/db/connections", () => HttpResponse.json(db.dbConns)),
+    http.get("/api/projects/:pid/db/suggest", () => HttpResponse.json([{ name: "db", kind: "postgres", url: "postgres://app:app@localhost:15432/scores", // keel:allow-secret
+      shown: "postgres://app:•••@localhost:15432/scores", env: "local", source: "docker-compose.yml (service db)", password: true }])),
+    http.post("/api/projects/:pid/db/connections", async ({ request }) => {
+      const b = (await log(request)) as { name: string; url: string; env: DbConnection["env"]; source?: string };
+      const c: DbConnection = { name: b.name, kind: "postgres", env: b.env, shown: b.url.replace(/:[^:@/]+@/, ":•••@"), source: b.source ?? null,
+        ok: true, server: "PostgreSQL 16.4", tables: 23, error: null, checked_at: new Date().toISOString(), can_change: ["local", "test"].includes(b.env) };
+      db.dbConns.push(c);
+      return HttpResponse.json({ connection: c, test: { ok: true, server: "PostgreSQL 16.4", tables: 23 } });
+    }),
+    http.get("/api/projects/:pid/db/schema", () => HttpResponse.json({ connection: "local", kind: "postgres", tables: [
+      { name: "players", columns: [{ name: "id", type: "integer", nullable: false, pk: true }, { name: "name", type: "text", nullable: true, pk: false }], fks: [] },
+      { name: "scores", columns: [{ name: "id", type: "integer", nullable: false, pk: true }], fks: [{ column: "player_id", table: "players", ref: "id" }] }] })),
+    http.post("/api/projects/:pid/db/query", async ({ request }) => {
+      const b = (await log(request)) as { sql: string; change?: boolean; confirm?: boolean; connection?: string };
+      if (/^\s*(update|insert|delete)/i.test(b.sql)) {
+        return HttpResponse.json({ connection: b.connection || "local", env: "local", kind: "change", sql: b.sql, changed: 3, done: !!b.confirm });
+      }
+      return HttpResponse.json(db.dbAnswer ?? { connection: b.connection || "local", kind: "read", sql: b.sql, columns: ["id", "name"],
+        rows: [[1, "Ada"], [2, null]], count: 2, truncated: false, masked: [], ms: 4 });
+    }),
+    http.get("/api/projects/:pid/git/status", () => HttpResponse.json(db.gitStatus)),
+    http.get("/api/projects/:pid/git/branches", () => HttpResponse.json([
+      { name: "feat/euro", current: true, ahead: 2, behind: 1, date: "2026-10-07T09:00:00Z", subject: "feat: euro" },
+      { name: "main", current: false, ahead: 0, behind: 0, date: "2026-10-06T09:00:00Z", subject: "Version 0.9.0" }])),
+    http.get("/api/projects/:pid/git/pr", () => HttpResponse.json({ pr: db.pr })),
+    http.post("/api/projects/:pid/git/:op", async ({ request, params }) => {
+      const b = (await log(request)) as Record<string, unknown>;
+      const op = String(params.op);
+      if (op === "commit") return HttpResponse.json({ sha: "abc1234def", subject: String(b.message).split("\n")[0], files: ["src/a.ts"] });
+      if (op === "push") return HttpResponse.json({ branch: "feat/euro", sha: "abc1234def" });
+      if (op === "sync") return HttpResponse.json({ merged: true, from: "origin/main", branch: "feat/euro" });
+      if (op === "switch") return HttpResponse.json({ branch: b.branch });
+      if (op === "pr") return HttpResponse.json({ url: "https://github.com/o/r/pull/7", updated: false });
+      return HttpResponse.json({});
     }),
     http.get("/api/projects/:pid/runs", ({ request, params }) => {
       const u = new URL(request.url);

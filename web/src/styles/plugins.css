@@ -1,0 +1,70 @@
+/* v0.10.0 the Database and Git plugins: Tools › Plugins cards, Connections › Databases and GitHub, Map › Query,
+   Code › Git. Colours come from the app's tokens (styles.css), so both themes follow. */
+
+/* Tools › Plugins */
+.pl-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: 12px; }
+.pl-card { display: grid; gap: 8px; align-content: start; min-width: 0; padding: 14px 16px; border: 1px solid var(--border);
+  border-radius: 12px; background: var(--panel); }
+.pl-card.on { border-color: color-mix(in srgb, var(--ok) 45%, var(--border)); }
+.pl-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pl-head b { font-size: 15px; }
+.pl-about { margin: 0; color: var(--dim); font-size: 13px; }
+.pl-adds { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 10px; margin: 0; font-size: 12.5px; }
+.pl-adds dt { color: var(--dim); }
+.pl-adds dd { margin: 0; overflow-wrap: anywhere; }
+
+/* Connections › Databases, GitHub */
+.db-list { display: grid; gap: 10px; }
+.db-card { display: grid; gap: 6px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); min-width: 0; }
+.db-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.db-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--faint); flex: none; }
+.db-dot.ok { background: var(--ok); } .db-dot.bad { background: var(--bad); }
+.db-shown { overflow-wrap: anywhere; }
+.db-err { margin: 0; color: var(--bad); font-size: 12.5px; overflow-wrap: anywhere; }
+.db-sugg { display: grid; gap: 6px; padding: 10px 12px; border: 1px dashed var(--border); border-radius: 10px; }
+.db-sugg-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.db-sugg-row .mono { overflow-wrap: anywhere; }
+.db-form { display: grid; grid-template-columns: minmax(0, 140px) minmax(0, 1fr) minmax(0, 130px); gap: 10px; align-items: end;
+  padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
+.db-form label { display: grid; gap: 4px; font-size: 12px; color: var(--dim); min-width: 0; }
+.db-form .db-note, .db-form .row, .db-form .errbox { grid-column: 1 / -1; margin: 0; }
+@media (max-width: 640px) { .db-form { grid-template-columns: minmax(0, 1fr); } }
+.gh-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.gh-row input { flex: 1 1 220px; min-width: 0; }
+.btn.danger { background: var(--bad); color: var(--on-accent, #fff); border-color: transparent; }
+
+/* Map › Query */
+.qp { margin-top: 14px; }
+.qp-body { display: grid; grid-template-columns: minmax(0, 200px) minmax(0, 1fr); gap: 14px; }
+@media (max-width: 760px) { .qp-body { grid-template-columns: minmax(0, 1fr); } }
+.qp-tables { display: grid; gap: 6px; align-content: start; min-width: 0; }
+.qp-tables ul { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow: auto; display: grid; gap: 1px; }
+.qp-table-btn { width: 100%; text-align: left; border: 0; background: none; color: var(--fg); font: 500 12.5px var(--f-mono);
+  padding: 4px 8px; border-radius: 6px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qp-table-btn:hover, .qp-table-btn:focus-visible { background: var(--accent-soft); color: var(--accent); outline: none; }
+.qp-main { display: grid; gap: 10px; align-content: start; min-width: 0; }
+.qp-sql { width: 100%; font-size: 12.5px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2);
+  color: var(--fg); resize: vertical; }
+.qp-confirm { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border-radius: 10px;
+  background: var(--warn-soft); border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent); }
+.qp-done { margin: 0; color: var(--ok); font-weight: 600; }
+.qp-result { display: grid; gap: 6px; min-width: 0; }
+.qp-result p { margin: 0; }
+.qp-table { max-height: 420px; overflow: auto; }
+.qp-table td, .qp-table th { font: 12px var(--f-mono); white-space: nowrap; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+.qp-null { color: var(--faint); }
+
+/* Code › Source control › Git */
+.gp { display: grid; gap: 8px; padding: 8px 12px 10px; border-bottom: 1px solid var(--ide-line, var(--border)); min-width: 0; }
+.gp .row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.gp-commit { display: grid; gap: 6px; }
+.gp-commit textarea { width: 100%; resize: vertical; font: inherit; font-size: 12.5px; }
+.gp-pr { display: grid; gap: 6px; padding: 8px 10px; border: 1px solid var(--ide-line, var(--border)); border-radius: 8px; min-width: 0; }
+.gp-checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; font-size: 12px; }
+.gp-checks li { display: flex; align-items: center; gap: 6px; }
+.gp-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--run); flex: none; }
+.gp-dot.ok { background: var(--ok); } .gp-dot.bad { background: var(--bad); }
+.gp-comment { margin: 0; overflow-wrap: anywhere; }
+
+/* KeelBot's query and git buttons */
+.kb-msg { width: 100%; resize: vertical; font: inherit; font-size: 12.5px; }

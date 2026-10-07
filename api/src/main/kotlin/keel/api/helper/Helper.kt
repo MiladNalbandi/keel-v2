@@ -75,6 +75,7 @@ class HelperService(
     private val skills: SkillService,
     private val flows: FlowService,
     private val workflows: WorkflowService,
+    private val plugins: keel.api.plugins.PluginService,
     private val tasks: TaskService,
     private val repo: RepoService,
     private val mapper: ObjectMapper,
@@ -148,7 +149,8 @@ class HelperService(
         val payload = linkedMapOf<String, Any?>(
             "text" to text,
             "model" to body.model,
-            "keys" to secrets.engineKeys(model.provider, model.mode).takeIf { it.isNotEmpty() },
+            "keys" to (secrets.engineKeys(model.provider, model.mode) + plugins.keysFor(pid)).takeIf { it.isNotEmpty() },
+            "plugins" to plugins.enabled(pid),
             "mcp" to mcp.specsFor(eff.mcp),
             "tools_allow" to (mcp.allow(pid)[AGENT] ?: emptyList()),
             "agents" to (helper?.let { mapOf(AGENT to AgentStart(it.knowledge)) } ?: emptyMap()),
@@ -162,7 +164,8 @@ class HelperService(
         return engine.post("/helper/sessions/$sid/turn", payload)
     }
 
-    fun commands(pid: String): JsonNode = engine.post("/helper/commands", mapOf("root" to projects.require(pid).root))
+    fun commands(pid: String): JsonNode =
+        engine.post("/helper/commands", mapOf("root" to projects.require(pid).root, "plugins" to plugins.enabled(pid)))
 
     // ---- Fix mode: KeelBot's changes, Undo, Done, and the permission cards -----------------------------
 

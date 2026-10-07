@@ -10,6 +10,8 @@ import { Drawer, ErrorBox, PageHead, Panel, Pill, Prov, type PillTone } from "..
 import { useApp, useLoad } from "../state";
 import { UsageLine } from "../components/UsageStrip";
 import { JiraSection } from "../components/JiraCard";
+import { DatabasesSection } from "../components/plugins/Databases";
+import { GitHubSection } from "../components/plugins/GitHubToken";
 
 const SECRET: Record<string, string> = { claude: "ANTHROPIC_API_KEY", codex: "OPENAI_API_KEY", copilot: "GITHUB_TOKEN" };
 // How to get each CLI login; it is stored encrypted in keel's database and handed to the CLI inside the container.
@@ -366,7 +368,7 @@ function CheckingCard({ id }: { id: string }) {
   );
 }
 
-export function ConnectionsPage(_: { pid: string }) {
+export function ConnectionsPage({ pid }: { pid: string }) {
   const conns = useLoad("connections", () => api.connections(), { live: false });
   const c = conns.data;
   const providers = c ? [...c.providers].sort(order) : null;
@@ -384,6 +386,8 @@ export function ConnectionsPage(_: { pid: string }) {
         </div>
       </Section>
       <JiraSection />
+      <GitHubSection />
+      <DatabasesSection pid={pid} />
       <Section title="This machine" sub="Programs keel and its agents find in the container.">
         <Panel body="checks">
           {c ? c.machine.map((m) => (

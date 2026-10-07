@@ -4,6 +4,7 @@
 
 import { useState, type ReactNode } from "react";
 import { api, errorParts, type Change, type CommitView, type RepoInfo } from "../../api";
+import { GitPanel } from "../../components/plugins/GitPanel";
 import { ErrorBox } from "../../components/ui";
 import { clock } from "../../format";
 import { useLoad } from "../../state";
@@ -89,6 +90,8 @@ export function ScmView({ pid, repo, changes, changesError, onOpenChange, onOpen
   const branch = repo?.branch;
   const onBase = !!repo && repo.base === repo.branch;
   const commits = useLoad(`commits:${pid}:${onBase ? "all" : "branch"}`, () => api.commits(pid, 50, onBase ? undefined : "branch"));
+  const plugins = useLoad(`plugins:${pid}`, () => api.plugins(pid), { live: false });
+  const gitOn = !!plugins.data?.find((x) => x.name === "git")?.enabled;
   const list = changes ?? [];
   const staged = list.filter((c) => c.staged && !c.conflict);
   const unstaged = list.filter((c) => c.unstaged && !c.conflict);
@@ -105,7 +108,8 @@ export function ScmView({ pid, repo, changes, changesError, onOpenChange, onOpen
         <b className="mono">{branch ?? "—"}</b>
         {repo && !onBase && <span className="sub">from <span className="mono">{repo.base}</span> · ↑{repo.ahead} ↓{repo.behind}</span>}
       </div>
-      <p className="scm-ro">Read-only: keel never stages, commits or changes files from this page.</p>
+      {gitOn ? <GitPanel pid={pid} dirty={list.length} onChanged={() => void commits.reload()} />
+        : <p className="scm-ro">Read-only: keel never stages, commits or changes files from this page. The Git plugin (Tools) adds commit, push and pull requests.</p>}
       {changesError && <div className="sv-pad"><ErrorBox error={changesError} /></div>}
       {dirty > 0 && (
         <div className="scm-dirty">

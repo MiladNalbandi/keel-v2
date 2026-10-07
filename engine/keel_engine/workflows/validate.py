@@ -30,8 +30,33 @@ FLOW_ACTIONS = {"hunt_start", "hunt_deps", "hunt_confirm", "hunt_ingest", "hunt_
 END = "end"          # a branch's no, or a gate choice, may finish the flow
 
 
+def _plugin_params() -> dict[str, dict]:
+    """The plugins' step actions (plugins/db, plugins/git) with what each needs in `with:`."""
+    from ..plugins.db.actions import PARAMS as DB
+    from ..plugins.git.actions import PARAMS as GIT
+
+    return {**DB, **GIT}
+
+
 def _action_ok(action: str) -> bool:
-    return action in CODE_ACTIONS or action in FLOW_ACTIONS or (action.startswith("run:") and len(action) > 4)
+    return (action in CODE_ACTIONS or action in FLOW_ACTIONS or action in _plugin_params()
+            or (action.startswith("run:") and len(action) > 4))
+
+
+def _with_errors(where: str, s) -> list[str]:
+    """A plugin step's `with:`: the settings it needs are there, and it has none it does not know."""
+    plugin = [a for a in s.actions() if a in _plugin_params()]
+    if not plugin:
+        return [f"{where}: only a plugin step (db:..., git:...) takes `with`."] if s.params else []
+    errs, known = [], {}
+    for a in plugin:
+        known.update(_plugin_params()[a])
+    for a in plugin:
+        for key, need in _plugin_params()[a].items():
+            if need == "required" and not str((s.params or {}).get(key) or "").strip():
+                errs.append(f"{where}: {a} needs `with: {{{key}: ...}}`.")
+    errs += [f"{where}: {', '.join(plugin)} does not know `with: {k}`." for k in (s.params or {}) if k not in known]
+    return errs
 
 
 def successors(wf: Workflow, i: int) -> list[int]:
@@ -77,6 +102,9 @@ def validate(wf: Workflow) -> list[str]:
             for a in s.actions():
                 if not _action_ok(a):
                     errors.append(f"{where}: unknown action '{a}'.")
+            errors += _with_errors(where, s)
+        elif s.params:
+            errors.append(f"{where}: only a code step takes `with`.")
         if s.kind in ("gate", "code") and s.back:
             # a code step's back: where a failed check goes (with the failure as feedback) instead of a retry
             if s.back not in index:

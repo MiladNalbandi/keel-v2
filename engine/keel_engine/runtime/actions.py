@@ -81,6 +81,7 @@ class ActionInput:
     paths: list[str] = field(default_factory=list)     # commit: stage only these paths (feature: the spec alone)
     emit: object = None                                # tool runs report here (event tool.ran, full output)
     ident: str = ""                                    # commit: the scope in "fix(<ident>):" when no criterion names it
+    params: dict = field(default_factory=dict)         # a plugin step's `with:` (plugins/db, plugins/git)
 
     @property
     def key(self) -> str:
@@ -114,6 +115,10 @@ async def run_action(action: str, a: ActionInput) -> ActionResult:
         return await asyncio.to_thread(push_check, a)
     if action.startswith("run:"):
         return await run_command(action[4:].strip(), a)
+    if action.startswith(("db:", "git:")):
+        from .. import plugins
+
+        return await plugins.run_action(action, a)
     more = _flow_actions()
     if action in more:
         return await more[action](a)

@@ -1,17 +1,20 @@
-// v0.9.0 KeelBot's buttons. An answer may end with action blocks (engine runtime/keelbot.py): ```keel-start {json}```
+// v0.9.0 KeelBot's buttons (v0.10.0: keel-query and keel-git from the Database and Git plugins: QueryCard, GitCard).
+// An answer may end with action blocks (engine runtime/keelbot.py): ```keel-start {json}```
 // becomes a card that starts a flow when the person presses Start; ```keel-workflow <yaml>``` becomes a card that keel
 // checks (POST …/workflows/check) and the person saves (POST …/workflows/import, into a folder if they like). Nothing
 // starts or is saved without a press.
 
 import { useEffect, useState } from "react";
-import { api, errorParts, type Workflow, type WorkflowCheck } from "../../api";
+import { api, errorParts, type DbResult, type Workflow, type WorkflowCheck } from "../../api";
 import { go, useLoad } from "../../state";
 import { CodeBlock } from "../Code";
+import { Markdown } from "../Markdown";
+import { ResultTable } from "../plugins/QueryPanel";
 
 export type Segment =
-  { kind: "text"; text: string } | { kind: "start" | "workflow"; body: string };
+  { kind: "text"; text: string } | { kind: "start" | "workflow" | "query" | "git"; body: string };
 
-const ACTION = /^\s*(`{3,}|~{3,})\s*keel-(start|workflow)\s*$/;
+const ACTION = /^\s*(`{3,}|~{3,})\s*keel-(start|workflow|query|git)\s*$/;
 const FENCE = /^\s*(`{3,}|~{3,})/;
 const closes = (line: string, open: string) => {
   const t = line.trim();
@@ -37,7 +40,7 @@ export function splitActions(text: string): Segment[] {
       i++;
       flush();
       out.push({
-        kind: a[2] === "start" ? "start" : "workflow",
+        kind: a[2] as "start" | "workflow" | "query" | "git",
         body: body.join("\n"),
       });
       continue;
@@ -348,6 +351,125 @@ export function WorkflowCard({
             </button>
           </div>
         </>
+      )}
+    </section>
+  );
+}
+
+function parseJson<T>(body: string): T | null {
+  try {
+    const v = JSON.parse(body);
+    return v && typeof v === "object" ? (v as T) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A query KeelBot gives as a button (Database plugin): Run reads at once; a change is counted first (a run keel rolls
+ *  back), then Run it changes the data, on a local or test database only. */
+export function QueryCard({ pid, body }: { pid: string; body: string }) {
+  const spec = parseJson<{ sql?: string; connection?: string }>(body);
+  const [busy, setBusy] = useState(false);
+  const [r, setR] = useState<DbResult | null>(null);
+  const [err, setErr] = useState<{ message: string; hint?: string } | null>(null);
+  if (!spec?.sql) return <p className="kb-card bad" role="note">KeelBot's query could not be read. Ask it to give it again.</p>;
+  const run = async (confirm = false) => {
+    setBusy(true);
+    setErr(null);
+    try {
+      setR(await api.dbQuery(pid, { connection: spec.connection ?? "", sql: spec.sql!, change: true, confirm }));
+    } catch (e) {
+      setErr(errorParts(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="kb-card" aria-label={`Query on ${spec.connection || "the local database"}`}>
+      <div className="kb-card-h"><span className="kb-tag">Query</span><b>{spec.connection || "local"}</b></div>
+      <CodeBlock text={spec.sql} lang="sql" gutter={false} />
+      {err && <p className="kb-err" role="alert"><b>{err.message}</b>{err.hint && <span className="sub"> {err.hint}</span>}</p>}
+      {r?.kind === "change" && !r.done && (
+        <div className="row" role="group" aria-label="Change data">
+          <span>This changes <b>{r.changed} row{r.changed === 1 ? "" : "s"}</b> in {r.connection}.</span>
+          <button type="button" className="btn sm primary" disabled={busy} onClick={() => void run(true)}>Run it ({r.changed} rows)</button>
+          <button type="button" className="btn sm ghost" onClick={() => setR(null)}>Cancel</button>
+        </div>
+      )}
+      {r?.kind === "change" && r.done && <p className="kb-done" role="status">{r.changed} row{r.changed === 1 ? "" : "s"} changed in {r.connection}.</p>}
+      {r?.kind === "read" && <ResultTable r={r} />}
+      {!r && (
+        <div className="row">
+          <button type="button" className="btn sm primary" disabled={busy} onClick={() => void run()}>{busy ? "Running…" : "Run"}</button>
+          <span className="sub">A change of data is counted first; then you decide.</span>
+        </div>
+      )}
+    </section>
+  );
+}
+
+type GitOp = { op?: string; message?: string; title?: string; body?: string; draft?: boolean; branch?: string; create?: boolean };
+
+/** A git step KeelBot gives as a button (Git plugin): commit, push, open the pull request, switch branch, sync. */
+export function GitCard({ pid, body }: { pid: string; body: string }) {
+  const spec = parseJson<GitOp>(body);
+  const [message, setMessage] = useState(spec?.message ?? "");
+  const [title, setTitle] = useState(spec?.title ?? "");
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState<string | null>(null);
+  const [err, setErr] = useState<{ message: string; hint?: string } | null>(null);
+  const op = spec?.op ?? "";
+  const label: Record<string, string> = {
+    commit: "Commit", push: "Push", pr: "Open the pull request", switch: spec?.create ? "Create and switch" : "Switch",
+    sync: "Update from the base branch",
+  };
+  if (!spec || !label[op]) return <p className="kb-card bad" role="note">KeelBot's git button could not be read. Ask it to give it again.</p>;
+  const go = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      if (op === "commit") {
+        const r = await api.gitCommit(pid, message);
+        setDone(`Committed ${r.sha.slice(0, 7)} ${r.subject} (${r.files.length} file${r.files.length === 1 ? "" : "s"}).`);
+      } else if (op === "push") {
+        const r = await api.gitPush(pid);
+        setDone(`Pushed ${r.branch} (${r.sha.slice(0, 7)}).`);
+      } else if (op === "pr") {
+        const r = await api.gitOpenPr(pid, { title, body: spec.body ?? "", draft: !!spec.draft });
+        setDone(`${r.updated ? "Updated" : "Opened"} the pull request${r.url ? `: ${r.url}` : "."}`);
+      } else if (op === "switch") {
+        const r = await api.gitSwitch(pid, spec.branch ?? "", !!spec.create);
+        setDone(`On ${r.branch} now.`);
+      } else {
+        const r = await api.gitSync(pid);
+        setDone(r.merged ? `Merged ${r.from} into ${r.branch}.` : `${r.branch} already has ${r.from}.`);
+      }
+    } catch (e) {
+      setErr(errorParts(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="kb-card" aria-label={`Git: ${label[op]}`}>
+      <div className="kb-card-h"><span className="kb-tag">Git</span><b>{label[op]}{op === "switch" ? ` ${spec.branch ?? ""}` : ""}</b></div>
+      {op === "commit" && !done && (
+        <textarea className="inline-input kb-msg" rows={3} aria-label="Commit message" value={message} onChange={(e) => setMessage(e.target.value)} />
+      )}
+      {op === "pr" && !done && (
+        <>
+          <label className="kb-field"><span>Title</span>
+            <input className="inline-input" aria-label="Pull request title" value={title} onChange={(e) => setTitle(e.target.value)} /></label>
+          {spec.body && <details className="kb-yaml"><summary>Show the body</summary><Markdown text={spec.body} /></details>}
+        </>
+      )}
+      {err && <p className="kb-err" role="alert"><b>{err.message}</b>{err.hint && <span className="sub"> {err.hint}</span>}</p>}
+      {done ? <p className="kb-done" role="status">{done}</p> : (
+        <div className="row">
+          <button type="button" className="btn sm primary" disabled={busy || (op === "commit" && !message.trim()) || (op === "pr" && !title.trim())}
+            onClick={() => void go()}>{busy ? "Working…" : label[op]}</button>
+          <span className="sub">keel never force-pushes or pushes to main.</span>
+        </div>
       )}
     </section>
   );

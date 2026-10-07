@@ -41,6 +41,8 @@ class Step(BaseModel):
     # Dynamic fan-out: one agent call per item of a list in the thread's state (state.data[<key>], or acs), at most
     # `cap` of them, `batch` at a time. Results land in state.data["<step id>_results"].
     items_from: str | None = Field(default=None, alias="from")
+    # a plugin step's settings (db:check's sql and expect, git:pr's title...), written `with:` in YAML and JSON
+    params: dict | None = Field(default=None, alias="with")
     cap: int | None = None
     # an int, or "$<state path>" read when the step runs (e.g. "$data.hunt.prove_concurrency")
     batch: int | str | None = None

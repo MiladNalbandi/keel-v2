@@ -55,8 +55,9 @@ def test_mcp_tools_lists_a_stdio_server(client, tmp_path):
 
 
 def test_mcp_allowlist_parsing():
-    assert mcp.parse_allow(["mcp:keel:keel_next", "mcp:serena:*", "mcp:x", "other"]) == \
-        {"keel": {"keel_next"}, "serena": None, "x": None}
+    # a bare server name is all its tools (Tools › "Who may use what" saves those); a built-in tool name is not a server
+    assert mcp.parse_allow(["mcp:keel:keel_next", "mcp:serena:*", "mcp:x", "other", "Read"]) == \
+        {"keel": {"keel_next"}, "serena": None, "x": None, "other": None}
 
 
 def test_subscription_env_has_no_keys(monkeypatch):

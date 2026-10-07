@@ -29,6 +29,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
 from .. import models, rules
+from .. import plugins as keel_plugins
 from ..models import catalog
 from ..models import usage as provider_usage
 from ..models.base import AgentRequest, AgentResult
@@ -402,6 +403,13 @@ class Compiler:
         graph = await asyncio.to_thread(mcp.codegraph_server_spec, ctx.root)
         specs = list(ctx.mcp) + ([graph] if graph and not any(s.get("name") == graph["name"] for s in ctx.mcp) else [])
         allow = list(step.tools or []) + ([f"mcp:{graph['name']}:*"] if graph else [])
+        # a plugin's read tools (keel-db, keel-git) when the plugin is on and this agent may use them (Tools page)
+        wanted = mcp.parse_allow(allow)
+        mine = [n for n in keel_plugins.enabled(ctx.settings) if keel_plugins.SERVERS[n] in wanted]
+        plugin_key = keel_plugins.open_call(project=ctx.project_id, root=ctx.root, keys=ctx.keys, plugins=mine,
+                                            who=f"agent:{agent}") if mine else None
+        if plugin_key:
+            specs += keel_plugins.server_specs(mine, plugin_key)
         mcp_specs, tools_allow = agent_knowledge.filter_mcp(specs, allow, know)
 
         def on_refuse(tool: str, path: str, reason: str, command: str | None = None):
@@ -492,6 +500,7 @@ class Compiler:
             finally:
                 for g in live:
                     ctx.guards.remove(g)
+                keel_plugins.close_call(plugin_key)
                 self._usage_event(step, model["provider"], t0)
         if mem:
             await mem.finish(key, "done", res.text or "")
@@ -1071,6 +1080,9 @@ class Compiler:
                 a = self._action_input(st, ac, item)
                 a.step = step.id
                 a.emit = self._tool_emit(step.id)
+                a.params = dict(step.params or {})
+                if action.startswith(("db:", "git:")):
+                    a.state["gate_approved"] = self._gate_approved(i, st)
                 if action == "open_pr":
                     a.state["pr_approved"] = self._gate_approved(i, st)
                     a.state["pr_auto"] = run_mode.is_auto_line(self._gate_line(i, st))
@@ -1243,7 +1255,8 @@ class Compiler:
         question's answer to another.
         """
         q = r.ask
-        kind = {"deps": "dependency", "escalate": "escalate", "secrets": "secrets", "readonly": "readonly"}.get(q["type"], "failure")
+        kind = {"deps": "dependency", "escalate": "escalate", "secrets": "secrets", "readonly": "readonly",
+                "plugin": "plugin"}.get(q["type"], "failure")
         question = {"step": step.id, "kind": q["kind"], "title": q["title"], "detail": q["detail"], "options": OPTIONS}
         if q.get("labels"):
             question["labels"] = dict(q["labels"])
@@ -1265,6 +1278,14 @@ class Compiler:
             target = self.nav.jump(step.back, i) if step.back else self.nav.retry_target(i)
             return {**upd, "gates": gates, "feedback": feedback, "last_failure": r.note[:300],
                     "note": f"{r.note} · sent back to remove it"[:300]}, target or step.id
+        if q["type"] == "plugin":
+            # a plugin step asked first (db:change, git:push, git:pr): approve runs the step again with the answer
+            self.ctx.emit("gate.decided", step=step.id, data={"gate": q["title"], "decision": decision, "why": why})
+            gates["log"].append(f"plugin {step.id} {decision}" + (f": {why}" if why else ""))
+            if decision != "approve":
+                return {**upd, "gates": gates, "status": "stopped", "error": r.note, "note": f"stopped: {q['title']}"[:300]}, END
+            ok = {**(state.get("plugin_ok") or {}), step.id: q.get("fingerprint")}
+            return {**upd, "gates": gates, "plugin_ok": ok, "note": f"approved: {q['title']}"[:300]}, step.id
         if q["type"] == "deps":
             if decision == "approve":
                 deps = list(state.get("deps") or []) + [d for d in q["deps"] if d not in (state.get("deps") or [])]

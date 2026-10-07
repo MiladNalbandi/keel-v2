@@ -246,6 +246,62 @@ DOCS: dict[str, dict] = {
             "Runs it (15 minutes at most); the last 3000 characters of the output are kept.",
         ],
     },
+    # ---------------------------------------------------------------- plugins (Tools › Plugins; settings in `with:`)
+    "db:query": {
+        "summary": "Database plugin: runs one read query; its rows go into the flow's data under the step's id.",
+        "steps": [
+            "with: sql (one SELECT, EXPLAIN or SHOW) and connection (default: the project's local database).",
+            "Runs in a read-only transaction: at most 200 rows and 15 seconds; columns named like a secret show as •••.",
+            "Fails when the plugin is off for the project, the connection is missing, or the SQL is not a read.",
+        ],
+    },
+    "db:check": {
+        "summary": "Database plugin: a data check; runs a read query and passes when the rows match what you expect.",
+        "steps": [
+            "with: sql, expect (none: no row may come back, the default; some; or a number) and connection.",
+            "A failed check shows the query and the first 20 rows; with soft: true a branch reads RESULT pass or fail.",
+        ],
+    },
+    "db:change": {
+        "summary": "Database plugin: changes data (INSERT, UPDATE, DELETE), only on a local or test database.",
+        "steps": [
+            "keel runs it once in a transaction it rolls back, to count the rows.",
+            "Then it asks you (Run it, or stop the flow), unless the run mode is auto and the database is local.",
+            "Schema changes are refused: they belong in the project's migrations (db:migrate).",
+        ],
+    },
+    "db:migrate": {
+        "summary": "Database plugin: runs the project's migration command (commands.migrate in .keel/config.yml).",
+        "steps": ["The command goes through keel's shell guard first; a nonzero exit fails the step."],
+    },
+    "git:branch": {
+        "summary": "Git plugin: switches to the flow's branch, creating it when it does not exist.",
+        "steps": ["with: name, or pattern (default the branch_pattern setting; {slug} is the flow's title)."],
+    },
+    "git:sync": {
+        "summary": "Git plugin: merges the base branch (the remote's when there is one) into the current branch.",
+        "steps": ["Needs a clean tree. A conflict is undone at once and fails the step with the files."],
+    },
+    "git:push": {
+        "summary": "Git plugin: pushes the branch, never with force and never to main, master or the base branch.",
+        "steps": [
+            "Follows Settings › Push and open PR at ship: never skips it, ask needs the gate before it approved (or asks "
+            "you here), automatic goes on. The Auto run mode never pushes.",
+            "A GitHub remote gets the token from Connections › GitHub.",
+        ],
+    },
+    "git:pr": {
+        "summary": "Git plugin: opens the pull request with keel's PR body, or updates its title and body.",
+        "steps": ["with: title (default the flow's title) and draft. The branch must be pushed. Same rules as git:push."],
+    },
+    "git:pr-checks": {
+        "summary": "Git plugin: waits for the pull request's CI checks; a failed check fails the step.",
+        "steps": ["with: minutes (default 30). Polls every 30 seconds."],
+    },
+    "git:cleanup": {
+        "summary": "Git plugin: deletes local branches already merged into the base, and prunes old worktrees.",
+        "steps": ["git branch -d refuses anything that is not merged, so no work is lost."],
+    },
     # ---------------------------------------------------------------- compiler
     "start_flow": {
         "summary": "Starts another workflow's thread on this project with a seed; both threads keep the link.",
@@ -464,8 +520,10 @@ def dispatch_names() -> list[str]:
                                                       for n in re.findall(r'"([\w:]+)"', grp)]
     if 'startswith("run:")' in src:
         own.append("run:")
+    from .. import plugins
+
     names = [*own, *actions.VERDICT_ACTIONS, *flow_actions.ACTIONS, *feature_actions.ACTIONS, *actions._flow_actions(),
-             *COMPILER_ACTIONS]
+             *COMPILER_ACTIONS, *plugins.action_names()]
     return list(dict.fromkeys(names))
 
 

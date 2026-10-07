@@ -234,7 +234,7 @@ function Editor({ pid, wid, agents, rail, row, folders, onFolder, onSaved }: {
     else b.addAt(at, kind);
   };
   const inspector = step && (
-    <Inspector w={w} s={step} agents={agents} onChange={(patch) => setDraft(updateStep(w, step.id, patch))}
+    <Inspector w={w} s={step} agents={agents} pid={pid} onChange={(patch) => setDraft(updateStep(w, step.id, patch))}
       onMove={(d) => b.move(step.id, d)} onRemove={() => b.remove(step.id)} onPick={pick} onClose={wide ? () => setSel(null) : undefined} />
   );
   const estimate = (
@@ -483,9 +483,55 @@ function useDraftEstimate(pid: string, yaml: string | null, acs: number) {
 const ON_LIMIT: [OnCap, string][] = [["pause", "pause and ask me"], ["cheaper", "switch to a cheaper model"], ["stop", "stop the step"]];
 
 /** The selected block's editor: every field the blocks show, its connections by name, and where to move it. */
-function Inspector({ w, s, agents, onChange, onMove, onRemove, onPick, onClose }: {
+/** Actions a code step can run without a plugin (more are in keel's templates; any `run:<command>` works). */
+const CORE_ACTIONS = ["run:", "commit", "verify_red", "verify_green", "verify_lint", "lint_run", "verify_coverage", "verify_deps", "audit",
+  "push_check", "report", "show_diff"];
+
+/** A code step: what it runs (keel's actions and the project's plugins' blocks), a plugin block's `with:` settings, and
+ *  whether a failure stops the flow or goes on (soft: a branch after it reads RESULT). */
+function CodeStepFields({ s, pid, onChange }: { s: Step; pid: string; onChange: (p: Partial<Step>) => void }) {
+  const plugins = useLoad(pid ? `plugins:${pid}` : null, () => api.plugins(pid), { live: false });
+  const pactions = (plugins.data ?? []).filter((p) => p.enabled).flatMap((p) => p.actions.map((a) => ({ ...a, plugin: p.title })));
+  const mine = s.action ? pactions.find((a) => a.name === s.action) : undefined;
+  const offPlugin = !!s.action && /^(db|git):/.test(s.action) && !mine;
+  const params = (s.with ?? {}) as Record<string, unknown>;
+  const setParam = (k: string, v: string) => {
+    const next = { ...params, [k]: v || undefined };
+    Object.keys(next).forEach((key) => next[key] === undefined && delete next[key]);
+    onChange({ with: Object.keys(next).length ? next : undefined });
+  };
+  return (
+    <>
+      <div className="field"><label htmlFor="wact">What it runs</label>
+        <input type="text" id="wact" list="wact-list" value={s.action ?? ""} placeholder="verify_red | commit | run:<cmd> | db:check"
+          onChange={(e) => onChange({ action: e.target.value || undefined, ...(/^(db|git):/.test(e.target.value) ? {} : { with: undefined }) })} />
+        <datalist id="wact-list">
+          {CORE_ACTIONS.map((a) => <option key={a} value={a} />)}
+          {pactions.map((a) => <option key={a.name} value={a.name}>{`${a.plugin}: ${a.summary}`}</option>)}
+        </datalist>
+        <span className="hint">{mine ? `${mine.plugin} plugin: ${mine.summary}` : offPlugin
+          ? "This block belongs to a plugin that is off for this project: turn it on in Tools › Plugins."
+          : "Runs plain code. Costs no tokens."}</span>
+      </div>
+      {mine && Object.entries(mine.with).map(([k, need]) => (
+        <div className="field" key={k}><label htmlFor={`wwith-${k}`}>{k}{need === "required" ? "" : " (optional)"}</label>
+          {k === "sql" ? (
+            <textarea id={`wwith-${k}`} className="mono" rows={3} value={String(params[k] ?? "")} onChange={(e) => setParam(k, e.target.value)}
+              placeholder="SELECT … (one read; a change only in db:change)" />
+          ) : (
+            <input type="text" id={`wwith-${k}`} value={String(params[k] ?? "")} onChange={(e) => setParam(k, e.target.value)}
+              placeholder={k === "expect" ? "none | some | 3" : k === "connection" ? "local" : ""} />
+          )}
+        </div>
+      ))}
+      <label className="chk"><input type="checkbox" id="wsoft" checked={!!s.soft} onChange={(e) => onChange({ soft: e.target.checked || undefined })} /> a failure goes on (a branch after it reads pass or fail)</label>
+    </>
+  );
+}
+
+function Inspector({ w, s, agents, onChange, onMove, onRemove, onPick, onClose, pid = "" }: {
   w: Workflow; s: Step; agents: Agent[]; onChange: (p: Partial<Step>) => void; onMove: (d: -1 | 1) => void; onRemove: () => void;
-  onPick?: (id: string) => void; onClose?: () => void;
+  onPick?: (id: string) => void; onClose?: () => void; pid?: string;
 }) {
   const i = w.steps.indexOf(s);
   const prev = w.steps[i - 1], next = w.steps[i + 1];
@@ -602,10 +648,7 @@ function Inspector({ w, s, agents, onChange, onMove, onRemove, onPick, onClose }
             </div>
           </>
         ) : s.kind === "code" ? (
-          <div className="field"><label htmlFor="wact">What it runs</label>
-            <input type="text" id="wact" value={s.action ?? ""} onChange={(e) => onChange({ action: e.target.value || undefined })} placeholder="verify_red | verify_green | commit | run:<cmd>" />
-            <span className="hint">Runs plain code. Costs no tokens.</span>
-          </div>
+          <CodeStepFields s={s} pid={pid} onChange={onChange} />
         ) : (
           <p className="hint" style={{ margin: 0 }}>{s.kind === "gate" ? "Waits for you (LangGraph interrupt). Costs no tokens." : s.kind === "include" ? `Runs the steps of the ${s.flow ?? "?"} flow here.` : "Decides yes or no with plain code. Costs no tokens."}</p>
         )}

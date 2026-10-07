@@ -116,7 +116,9 @@ class InboxService(
     private fun permissionItem(q: JsonNode, projectName: String): InboxItem = InboxItem(
         projectId = q.path("project").asText(), projectName = projectName, threadId = q.path("session").asText(),
         flow = q.path("title").asText("KeelBot"), workflowId = null, step = "permission", kind = "permission",
-        title = "KeelBot asks to run a command", detail = q.path("command").asText().take(DETAIL_MAX),
+        // v0.10.0: Claude Code's acting tool (keel2 mcp --write) asks with its own title ("Claude Code: push the branch?")
+        title = if (q.path("session").asText() == "mcp") q.path("title").asText("Claude Code asks") else "KeelBot asks to run a command",
+        detail = q.path("command").asText().take(DETAIL_MAX),
         more = q.path("command").asText().length > DETAIL_MAX, options = listOf("once", "always", "deny"), id = q.path("id").asText(),
         since = q.path("at").asText(null),
         permission = InboxPermission(q.path("id").asText(), q.path("session").asText(), q.path("command").asText(),

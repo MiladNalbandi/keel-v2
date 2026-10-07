@@ -45,6 +45,7 @@ class FlowState(TypedDict, total=False):
     preexisting: dict           # {path: fingerprint} of the user's uncommitted files at start; never committed unless an agent changed them
     unlocks: list[dict]         # [{path, phase, by?, reason?, at?}]: that path bypasses the guard matrix in that phase
     deps: list[str]             # dependencies the user approved at a commit
+    plugin_ok: dict             # step id -> what the person approved there (a plugin step's question: db:change, git:push)
     blockers: list[dict]        # [{gate, why, fix}] push blockers, refreshed by push_check and every commit
     ladder: list[dict] | None   # init: [{n, name, cmd, status, detail?}]
     data: dict                  # lists and results steps make: a `collect` list, "<step>_results" of a fan-out, a seed

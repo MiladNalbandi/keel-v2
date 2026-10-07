@@ -103,6 +103,29 @@ starts or is saved until you press one.
   session, so a follow-up question is cheap (the context stays cached).
 - The model is the `helper` agent's (Agents page); change it for one chat in the panel.
 
+## Plugins: Database and Git
+
+Turn them on in **Tools › Plugins** (for this project, or for every project). Nothing new to learn: they add to the
+pages you use.
+
+- **Database**: add the project's database in **Connections › Databases** (keel suggests what docker compose,
+  `.env.example` or Spring's config name; the password is saved encrypted). Then:
+  - ask KeelBot data questions ("which players have no score?") — it reads the schema, runs one read-only query and
+    shows the rows; `/sql` does it directly;
+  - **Map › Database (ER) › Query**: click a table for its first rows, or write SQL;
+  - workflows get `db:query`, `db:check` (a data check: `expect: none`), `db:change` and `db:migrate` blocks — a
+    workflow of code steps only checks your data with no model and no tokens.
+  A change of data (INSERT, UPDATE, DELETE) runs only on a **local** or **test** database: keel counts the rows first,
+  then you press **Run it**. Staging and prod are read only for everyone. Schema changes belong in your migrations.
+- **Git**: add a token in **Connections › GitHub**. Then **Code › Source control** shows the branch against its
+  remote and main, **Push**, **Update from main**, **Switch branch**, **New branch**, a commit box, and the pull
+  request with its CI checks and review comments (**Ask KeelBot to address the comments**). KeelBot reads git and the
+  PR (`/commit`, `/pr`, `/sync`, `/branch` draft the next step) and gives buttons; workflows get `git:sync`,
+  `git:push`, `git:pr`, `git:pr-checks` (wait for CI), `git:branch` and `git:cleanup`. keel never force-pushes and never
+  pushes to main.
+- **Claude Code**: `keel2 mcp` adds the read tools (`keel_db_query`, `keel_git_status` …); `keel2 mcp --write` also
+  the acting ones, and each waits for your **Allow** in keel's Inbox.
+
 ## Quality
 
 **Build › Quality** shows how well keel's flows work with each model. keel runs small eval projects (in

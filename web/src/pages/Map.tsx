@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api, errorParts, type KeelMap, type MapLevel, type MapNode, type MapResponse } from "../api";
 import { BoxDiagram, moduleBoxes, systemBoxes, type GBox } from "../components/er/BoxDiagram";
 import { ErDiagram } from "../components/er/ErDiagram";
+import { QueryPanel } from "../components/plugins/QueryPanel";
 import { schemaOf } from "../components/er/model";
 import { EmptyState } from "../components/page";
 import { Async, PageHead, Panel, Tabs } from "../components/ui";
@@ -153,8 +154,9 @@ function MapView({ m, onRebuild, busy, pid }: { m: KeelMap; onRebuild: () => voi
         <ErDiagram key={`${pid}:${m.at}:${focus?.n ?? 0}`} schema={schema} pid={pid} name={name} initial={focus?.table ?? null} />
         <ErLegend />
         {!m.schema && <p className="hint">This map was built by an older keel: rebuild it for column types, nullability, indexes, views and the migration line of every column.</p>}
+        <QueryPanel pid={pid} />
       </>
-    ) : <ErEmpty m={m} name={name} onRebuild={onRebuild} busy={busy} />;
+    ) : <><ErEmpty m={m} name={name} onRebuild={onRebuild} busy={busy} /><QueryPanel pid={pid} /></>;
   } else if (tab === "system") {
     body = system?.boxes.length
       ? <BoxDiagram key={`sys:${m.at}`} pid={pid} level="system" name={name} boxes={system.boxes} edges={system.edges} onDrill={drill} />

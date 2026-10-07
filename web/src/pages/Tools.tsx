@@ -2,11 +2,12 @@
 // what as a compact matrix (one column per server, its state in the header), and recent calls.
 
 import { Fragment, useState } from "react";
-import { api, errorParts, type JobStep, type McpAllow, type McpServer } from "../api";
+import { api, errorParts, type JobStep, type McpAllow, type McpServer, type Plugin } from "../api";
 import { EmptyState, SearchBox, Section, Skeleton, Spinner } from "../components/page";
 import { Drawer, ErrorBox, PageHead, Panel, Pill } from "../components/ui";
 import { clock } from "../format";
-import { useApp, useLoad } from "../state";
+import { PluginCards } from "../components/plugins/PluginCards";
+import { useApp, useLoad, type Loaded } from "../state";
 import { tasksApi } from "../tasksApi";
 
 function AddServerDrawer({ onClose, onAdded }: { onClose: () => void; onAdded: () => void }) {
@@ -109,9 +110,21 @@ function serverPill(s: McpServer) {
 }
 const usable = (s: McpServer) => s.enabled && s.status !== "off";
 
+/** The MCP servers plus one row per plugin that is on (its read tools; on and ok, never removable). */
+function withPlugins(servers: Loaded<McpServer[]>, plugins: Plugin[] | null): Loaded<McpServer[]> {
+  const extra = (plugins ?? []).filter((p) => p.enabled && p.tools?.server).map((p): McpServer => ({
+    name: p.tools.server!, command: "keel", args: [], enabled: true, builtin: true, status: "ok", tools: p.tools.read ?? [],
+    label: `${p.title} plugin`,
+  }));
+  return servers.data ? { ...servers, data: [...servers.data, ...extra] } : servers;
+}
+
 export function ToolsPage({ pid }: { pid: string }) {
   const { toast } = useApp();
-  const servers = useLoad("mcp", () => api.mcpServers(), { live: false });
+  const mcpServers = useLoad("mcp", () => api.mcpServers(), { live: false });
+  const plugins = useLoad(`plugins:${pid}`, () => api.plugins(pid), { live: false });
+  // a plugin that is on brings its read tools as a server agents can be given (keel-db, keel-git)
+  const servers = withPlugins(mcpServers, plugins.data);
   const allow = useLoad(`allow:${pid}`, () => api.mcpAllow(pid), { live: false });
   const agents = useLoad(`agents:${pid}`, () => api.agents(pid), { live: false });
   const calls = useLoad(`calls:${pid}`, () => recentCalls(pid));
@@ -158,17 +171,22 @@ export function ToolsPage({ pid }: { pid: string }) {
 
   return (
     <>
-      <PageHead title="Tools (MCP servers)" sub="Programs your agents can call for extra tools, and which agent may use which."
+      <PageHead title="Tools (MCP servers)" sub="Plugins keel adds, programs your agents can call for extra tools, and which agent may use which."
         actions={<button className="btn primary" type="button" onClick={() => setAdding(true)}>Add server</button>} />
+      <Section title="Plugins" sub="keel's own add-ons. Install one and keel changes where you already work: KeelBot, Workflows, Connections and the Map or Code page.">
+        {plugins.error ? <ErrorBox error={plugins.error} onRetry={() => void plugins.reload()} />
+          : !plugins.data ? <div className="panel"><Skeleton lines={2} label="Loading plugins" /></div>
+            : <PluginCards pid={pid} plugins={plugins} />}
+      </Section>
       <div className="tl-top">
         <Section title="Servers" sub="Test a server to see its tools. A turned-off server gives no agent anything.">
-          {servers.error ? <ErrorBox error={servers.error} onRetry={() => void servers.reload()} /> : !servers.data ? <div className="panel"><Skeleton lines={3} label="Loading servers" /></div> : !servers.data.length ? (
+          {mcpServers.error ? <ErrorBox error={mcpServers.error} onRetry={() => void mcpServers.reload()} /> : !mcpServers.data ? <div className="panel"><Skeleton lines={3} label="Loading servers" /></div> : !mcpServers.data.length ? (
             <div className="panel"><EmptyState title="No server yet" action={<button className="btn primary" type="button" onClick={() => setAdding(true)}>Add server</button>}>Add one (GitHub, a database, a browser…) and agents can call its tools.</EmptyState></div>
           ) : (
             <div className="panel"><div className="table-wrap rt-wrap"><table className="rt tl-servers" aria-label="MCP servers">
               <thead><tr><th>Server and how it starts</th><th>Status</th><th>Tools</th><th><span className="sr-only">Actions</span></th></tr></thead>
               <tbody>
-                {servers.data.map((s) => {
+                {mcpServers.data.map((s) => {
                   const t = tests[s.name];
                   const cmd = [s.command, ...s.args].join(" ");
                   return (
@@ -187,7 +205,7 @@ export function ToolsPage({ pid }: { pid: string }) {
                           <button className="btn sm" type="button" onClick={() => void test(s)} disabled={t?.busy}>{t?.busy ? "Testing…" : "Test"}</button>
                           <button className="btn sm ghost" type="button" onClick={() => void setEnabled(s, !s.enabled)}>{s.enabled ? "Turn off" : "Turn on"}</button>
                           {!s.builtin && <button className="btn sm ghost" type="button" aria-label={`Remove ${s.name}`} onClick={async () => {
-                            try { await api.deleteMcpServer(s.name); toast(`${s.name} removed.`); void servers.reload(); } catch (er) { toast(errorParts(er).message); }
+                            try { await api.deleteMcpServer(s.name); toast(`${s.name} removed.`); void mcpServers.reload(); } catch (er) { toast(errorParts(er).message); }
                           }}>×</button>}
                         </div></td>
                       </tr>
@@ -215,7 +233,7 @@ export function ToolsPage({ pid }: { pid: string }) {
           </Panel>
         </Section>
       </div>
-      <div className="tl-catwrap"><Catalog pid={pid} onAdded={() => void servers.reload()} /></div>
+      <div className="tl-catwrap"><Catalog pid={pid} onAdded={() => void mcpServers.reload()} /></div>
       <Section title="Who may use what" sub="Tick a box to give an agent that server's tools. Applies to API-key agents and to CLI agents (a config file is written per call)."
 >
         {(agents.data?.length ?? 0) > 8 && <div><SearchBox value={q} onChange={setQ} label="Find an agent" /></div>}

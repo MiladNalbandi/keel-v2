@@ -183,6 +183,19 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
     return text ? { path: activeFile, from: lines[0], to: lines[1], text: text.slice(0, 8000) } : null;
   }, [activeFile, codeActive]);
 
+  // a part of the page hands text to KeelBot (Code › Git: address the comments, draft the PR): open it with the text
+  const [prefill, setPrefill] = useState<{ text: string; n: number } | null>(null);
+  useEffect(() => {
+    const on = (e: Event) => {
+      const text = String((e as CustomEvent).detail ?? "");
+      if (!text) return;
+      setHelperOpen(true);
+      setPrefill((p) => ({ text, n: (p?.n ?? 0) + 1 }));
+    };
+    window.addEventListener("keel:ask-keelbot", on);
+    return () => window.removeEventListener("keel:ask-keelbot", on);
+  }, []);
+
   const askHelper = useCallback(() => {
     const picked = codeSelection();
     if (picked) setHelperSel(picked);
@@ -567,7 +580,7 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
                 if (e.key === "ArrowRight") setHelperW((w) => Math.max(300, w - 32));
               }} />
           )}
-          <HelperPanel pid={pid} openFile={activeFile} selection={helperSel} onClearSelection={() => setHelperSel(null)} focusKey={helperFocus}
+          <HelperPanel pid={pid} openFile={activeFile} selection={helperSel} onClearSelection={() => setHelperSel(null)} focusKey={helperFocus} prefill={prefill}
             onOpenFile={(p, line) => open({ path: p, view: "code" }, { pin: true, line })} onOpenDiff={(p) => openFile(p, true, "diff")}
             onClose={() => setHelperOpen(false)} />
         </div>

@@ -14,7 +14,7 @@ import { modelLabel, provLabel } from "../../format";
 import { rankFiles } from "../../pages/repo/model";
 import { go, useApp, useLoad } from "../../state";
 import { Markdown } from "../Markdown";
-import { splitActions, StartCard, WorkflowCard } from "./Actions";
+import { GitCard, QueryCard, splitActions, StartCard, WorkflowCard } from "./Actions";
 import { ModelPicker } from "../ModelPicker";
 import { mergeSteps } from "../StepFeed";
 import { StepView } from "../StepView";
@@ -34,6 +34,8 @@ type Props = {
   onClose: () => void;
   /** grows each time the Code page wants the input focused (⌘I) */
   focusKey?: number;
+  /** text another part of the page hands over (Code › Git: "Ask KeelBot to address the comments"); n changes each time */
+  prefill?: { text: string; n: number } | null;
   /** panel: a column next to the code (Code page); page: KeelBot alone, one wide chat column (#/helper) */
   layout?: "panel" | "page";
 };
@@ -95,7 +97,9 @@ function Answer({ text, onOpen, pid, onAsk }: { text: string; onOpen: (path: str
       onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && go(e.target)) e.preventDefault(); }}>
       {splitActions(text).map((seg, i) => seg.kind === "text" ? <Markdown key={i} text={seg.text} breaks />
         : seg.kind === "start" ? <StartCard key={i} pid={pid} body={seg.body} />
-          : <WorkflowCard key={i} pid={pid} body={seg.body} onAsk={onAsk} />)}
+          : seg.kind === "query" ? <QueryCard key={i} pid={pid} body={seg.body} />
+            : seg.kind === "git" ? <GitCard key={i} pid={pid} body={seg.body} />
+              : <WorkflowCard key={i} pid={pid} body={seg.body} onAsk={onAsk} />)}
     </div>
   );
 }
@@ -115,7 +119,7 @@ function UserMessage({ m }: { m: HelperMessage }) {
   );
 }
 
-export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpenFile, onOpenDiff, onClose, focusKey = 0, layout = "panel" }: Props) {
+export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpenFile, onOpenDiff, onClose, focusKey = 0, layout = "panel", prefill }: Props) {
   const { recent, liveSteps, toast, tick } = useApp();
   const [sid, setSidState] = useState<string | null>(() => read(sidKey(pid)));
   const setSid = useCallback((v: string | null) => { setSidState(v); write(sidKey(pid), v); }, [pid]);
@@ -145,6 +149,12 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   // a session that is gone (deleted, another keel) is forgotten
   useEffect(() => { if (sess.error && sid) setSid(null); }, [sess.error, sid, setSid]);
   useEffect(() => { input.current?.focus(); }, [focusKey, sid]);
+  useEffect(() => {
+    if (prefill?.text) {
+      setText(prefill.text);
+      input.current?.focus();
+    }
+  }, [prefill?.n]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const s: HelperSession | null = sess.data ?? null;
   const messages = s?.messages ?? [];

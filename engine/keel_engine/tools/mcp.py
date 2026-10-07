@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from . import codegraph
 log = logging.getLogger(__name__)
 
 LIST_TIMEOUT = 30
+SERVER_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,40}$")     # the api's rule for a server's name (McpService)
 
 
 def keel_server_spec() -> dict:
@@ -76,11 +78,14 @@ def _first_error(exc: BaseException) -> str:
 
 
 def parse_allow(allow: list[str] | None) -> dict[str, set[str] | None]:
-    """["mcp:keel:keel_next", "mcp:serena:*", "mcp:x"] -> {"keel": {"keel_next"}, "serena": None, "x": None}.
-    None means every tool of that server."""
+    """["mcp:keel:keel_next", "mcp:serena:*", "mcp:x", "jira"] -> {"keel": {"keel_next"}, "serena": None, "x": None,
+    "jira": None}. None means every tool of that server."""
     out: dict[str, set[str] | None] = {}
     for item in allow or []:
         parts = item.split(":")
+        if len(parts) == 1 and SERVER_NAME.match(parts[0]):
+            out[parts[0]] = None          # a bare server name (Tools › "Who may use what" saves these): all its tools
+            continue
         if len(parts) < 2 or parts[0] != "mcp":
             continue
         server = parts[1]

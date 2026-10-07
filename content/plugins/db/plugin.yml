@@ -1,0 +1,30 @@
+# The Database plugin (engine keel_engine/plugins/db). Installed per project on Tools › Plugins. KeelBot and flow agents
+# read the project's database through its tools; a change of data is a button the person presses (keel-query), and
+# a workflow changes data only in a db:change step that asks first.
+#
+#   installable   off until a project turns it on (keel's core plugin is always on)
+#   needs         what the person sets up: Connections › Databases
+#   tools         the MCP server keel runs for KeelBot and agents (read tools only), and keel2 mcp's tools
+#   actions       workflow code steps (their settings go in the step's `with:`)
+#   shows_in      the pages it adds to
+name: db
+title: Database
+installable: true
+description: Look at the project's database, run safe queries, and check data in workflows.
+needs: [database]
+tools:
+  server: keel-db
+  read: [db_connections, db_schema, db_query]
+actions: [db:query, db:check, db:change, db:migrate]
+shows_in: [connections, map, workflows, keelbot, inbox]
+
+commands:
+  - name: sql
+    description: Ask a data question; KeelBot writes and runs a read-only query
+    prompt: |
+      Answer this from the project's database: {{args}}
+      Look at the schema first (db_schema), then run one read-only query (db_query). Show the SQL and the rows, and
+      say in one or two sentences what they mean. If the answer needs a change to the data, do not try to run it:
+      give it as a keel-query block, so I can check how many rows it changes and run it myself.
+
+context: []

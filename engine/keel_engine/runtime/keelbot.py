@@ -92,6 +92,33 @@ USEFUL_ACTIONS = ["run:", "commit", "verify_green", "verify_red", "verify_lint",
                   "verify_coverage", "coverage_report", "verify_deps", "audit", "show_diff", "push_check", "report",
                   "review_scope", "review_lenses", "start_flow"]
 
+DB_PLUGIN = """The Database plugin is on. Your tools db_connections, db_schema and db_query only read. For a data question, \
+look at the schema first, then run one query, and show the rows. You never change data yourself: a change (INSERT, \
+UPDATE, DELETE) is a button the person presses. keel counts the rows it would change first, and runs it only on a \
+local or test database:
+```keel-query
+{"sql": "UPDATE scores SET value = 0 WHERE value IS NULL", "connection": "local"}
+```
+Use the connection names db_connections gives. A schema change is never a button: it belongs in a migration."""
+
+GIT_PLUGIN = """The Git plugin is on. Your tools git_status, git_diff, git_log, git_show, git_blame, git_branches and \
+pr_status only read. A commit, push, pull request, branch switch or merge of the base branch is a button the person \
+presses, one per block:
+```keel-git
+{"op": "commit", "message": "fix(prices): round half up\\n\\nThe reviewer asked for it on src/money.ts:14."}
+```
+ops: commit {message}, push {}, pr {title, body, draft?}, switch {branch, create?}, sync {} (merge the base branch \
+in). keel never force-pushes and never pushes to main or master."""
+
+PLUGIN_ACTIONS = {
+    "db": ["db:query    {sql, connection?}: a read; its rows go to data.<step id>",
+           "db:check    {sql, expect: none | some | <n>, connection?}: a data check (soft: true + a branch on RESULT)",
+           "db:change   {sql, connection?}: a change of data on a local or test database; keel asks the person first",
+           "db:migrate  {}: the project's migration command (commands.migrate in .keel/config.yml)"],
+    "git": ["git:branch  {name? | pattern?}", "git:sync  {}: merge the base branch in", "git:push  {}",
+            "git:pr  {title?, draft?}", "git:pr-checks  {minutes?}: wait for CI", "git:cleanup  {}"],
+}
+
 
 def _workflow_line(w: dict) -> str:
     wid = str(w.get("id") or "")
@@ -145,13 +172,19 @@ def _agents() -> list[str]:
     return out
 
 
-def format_block() -> str:
+def format_block(plugins: list[str] | None = None) -> str:
     from ..rules import PHASES
     from .action_docs import DOCS
 
     acts = [f"{a} {DOCS[a]['summary']}" if a in DOCS else a for a in USEFUL_ACTIONS]
     parts = [FORMAT, "Phases: " + ", ".join(p for p in PHASES if p != "none") + ".",
              "Actions for code steps (more are in keel's templates):\n" + "\n".join(f"- {a}" for a in acts)]
+    mine = [line for p in plugins or [] for line in PLUGIN_ACTIONS.get(p, [])]
+    if mine:
+        parts.append("The project's plugins add these code steps; their settings go in the step's `with:`, for example\n"
+                     "  - { id: orphans, kind: code, name: no score without a player, action: db:check, soft: true,\n"
+                     "      with: { sql: \"SELECT s.id FROM scores s LEFT JOIN players p ON p.id = s.player_id WHERE p.id IS NULL\", "
+                     "expect: none } }\n" + "\n".join(f"- {a}" for a in mine))
     agents = _agents()
     if agents:
         parts.append("Agents for agent steps:\n" + "\n".join(f"- {a}" for a in agents))
@@ -174,6 +207,11 @@ def keel_block(keel: dict | None, question: str) -> str:
     elif wfs:
         parts.append("No flow has run in this project yet.")
     parts.append(ACTIONS)
+    on = list(keel.get("plugins") or [])
+    if "db" in on:
+        parts.append(DB_PLUGIN)
+    if "git" in on:
+        parts.append(GIT_PLUGIN)
     if ABOUT_WORKFLOW.search(question or "") and WRITE_WORDS.search(question or ""):
-        parts.append(format_block())
+        parts.append(format_block(on))
     return "\n\n".join(parts)

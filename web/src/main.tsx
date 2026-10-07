@@ -12,6 +12,7 @@ import "./styles/diagram.css";
 import "./styles/repo.css";
 import "./styles/graph.css";
 import "./styles/helper.css";
+import "./styles/plugins.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

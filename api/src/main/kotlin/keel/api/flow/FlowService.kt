@@ -55,6 +55,10 @@ data class ThreadSettings(
     /** Who keel's commits are by ("Name <email>", null: the project's git name) and whether KeelBot co-authors them. */
     val commitAuthor: String? = null,
     val commitCoauthor: Boolean? = null,
+    /** v0.10.0: the plugins on for the project (db, git); git:push and git:pr follow pushPr; git:branch the pattern. */
+    val plugins: List<String>? = null,
+    val pushPr: String? = null,
+    val branchPattern: String? = null,
 )
 
 /** The engine's StartThread (CONTRACT "Shared types"). */
@@ -142,6 +146,7 @@ class FlowService(
     private val providerUsage: ProviderUsageService,
     private val notifications: keel.api.notifications.NotificationService,
     private val capPlanner: CapPlanner,
+    private val plugins: keel.api.plugins.PluginService,
 ) {
     private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
 
@@ -188,7 +193,8 @@ class FlowService(
             settings = ThreadSettings(s.gatesMode, cap?.runMode ?: s.runMode, limits.capTokens, limits.onCap, s.cheaperModel,
                 s.usageWarn, s.usagePause, providerUsage.windowsForEngine().takeIf { it.isNotEmpty() },
                 limits.capUsd, limits.onCapUsd, limits.stepCapTokens, limits.stepOnCap,
-                commitAuthor = s.commitAuthor.trim().ifBlank { null }, commitCoauthor = s.commitCoauthor),
+                commitAuthor = s.commitAuthor.trim().ifBlank { null }, commitCoauthor = s.commitCoauthor,
+                plugins = plugins.enabled(pid).takeIf { it.isNotEmpty() }, pushPr = s.pushPr, branchPattern = s.branchPattern),
             mcp = mcp.specsFor(s.mcp), skills = skillText,
             agents = all.filter { it.enabled }.associate { it.id to AgentStart(it.knowledge) },
             capNote = limits.notes.takeIf { it.isNotEmpty() }?.joinToString(" "),
@@ -213,7 +219,7 @@ class FlowService(
         }
         // API keys for "api" models and CLI logins for subscription models, from the encrypted secrets table; the
         // cheaper model's too, so a cap that switches to it mid-flow can run it.
-        val keys = keysFor(start.models.values + listOfNotNull(start.settings.cheaperModel))
+        val keys = keysFor(start.models.values + listOfNotNull(start.settings.cheaperModel)) + plugins.keysFor(pid)
         val withRequest = start.copy(request = request?.trim()?.takeIf { it.isNotEmpty() }?.take(8000),
             data = options?.takeIf { it.isNotEmpty() })
         val body = if (keys.isEmpty()) withRequest else withRequest.copy(keys = keys)
@@ -365,7 +371,7 @@ class FlowService(
         val pid = threadProject(tid) ?: return emptyMap()
         val s = settings.effective(pid)
         val models = listOf(s.defaultModel, s.cheaperModel) + agents.list(pid).filter { it.enabled }.map { it.model }
-        return keysFor(models)
+        return keysFor(models) + plugins.keysFor(pid)
     }
 
     /**
