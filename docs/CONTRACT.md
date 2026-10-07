@@ -1651,8 +1651,18 @@ engine POST /plugins/ci/runs | run | rerun  { root, keys, branch?, limit?, run? 
 **Database tool on the Code page** (IntelliJ style; the Database plugin): a **Database** activity next to Source
 control. The side bar is a tree of every connection (kind, local / test / staging / prod, connected or not) ▸ its tables
 ▸ their columns (primary keys, types, foreign keys `→ table.column`), with a filter. A connection opens a **console**
-tab (`kind: db`, path `<connection>`): the connection can be switched; ⌘↵ runs the statement under the cursor or the
+tab (`kind: db`, path `<connection>`): the connection can be switched (the text goes with it, the tab follows); ⌘↵ runs the statement under the cursor or the
 selection; the text and a history of 20 statements are kept per connection in the browser. A table opens a **table**
 tab (path `<connection>::<table>`): its first 100 rows with a WHERE filter, and its structure. A change of data in a
 console is counted first and runs after Run it, on a local or test database only (the same rules as everywhere).
 
+## v0.11.1: plugin tools fixes
+
+- **Claude's MCP servers are ready at the first call.** Claude Code 2.1 connects MCP servers in the background in
+  `-p` mode, so a tool called right away failed with "No such tool available". keel runs `claude` with
+  `MCP_CONNECTION_NONBLOCKING=0`: the servers are connected before the first model call.
+- **The guard and keel's plugin servers.** The read tools of `keel-db`, `keel-git` and `keel-ci` (`hook.py`
+  `PLUGIN_READ_TOOLS`: exactly the tools `plugins/server.py` registers) pass in every phase and in read-only runs.
+  Before, `ci_runs` was refused because its name has "run". Any other MCP tool is judged as before.
+- **Code › Database console**: switching a console to another connection keeps its SQL text, clears the old result,
+  and its tab follows (`console · prod`).

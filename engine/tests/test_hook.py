@@ -85,6 +85,13 @@ def root(tmp_path):
     ("green", "mcp__serena__replace_symbol_body", {"relative_path": PROD, "body": "x"}, True),
     ("green", "mcp__serena__write_memory", {"memory_name": "m"}, False),
     ("red", "mcp__serena__find_symbol", {"name_path": "Score"}, True),
+    # keel's own plugin servers only read: their tools pass in every phase, whatever their names say
+    ("red", "mcp__keel-ci__ci_runs", {}, True),
+    ("red", "mcp__keel-db__db_query", {"sql": "select 1"}, True),
+    ("green", "mcp__keel-git__git_status", {}, True),
+    # ...but only those exact tools of those servers: the same name elsewhere, or another tool there, is judged as before
+    ("red", "mcp__other__ci_runs", {}, False),
+    ("red", "mcp__keel-ci__ci_rerun", {}, False),
 ])
 def test_decision_per_tool_and_phase(capsys, tmp_path, root, phase, tool, ti, allowed):
     code, err = judge(capsys, call(tool, **ti), ctx_file(tmp_path, root, phase))
@@ -92,6 +99,21 @@ def test_decision_per_tool_and_phase(capsys, tmp_path, root, phase, tool, ti, al
         assert code == 0 and err == ""
     else:
         assert code == 2 and err.startswith(hook.MARKER + " ") and len(err) > len(hook.MARKER) + 5
+
+
+def test_plugin_read_tools_pass_in_a_read_only_run_and_a_write_ish_tool_does_not(capsys, tmp_path, root):
+    ctx = ctx_file(tmp_path, root, "none", readonly=True)
+    assert judge(capsys, call("mcp__keel-ci__ci_runs", limit=5), ctx) == (0, "")
+    code, err = judge(capsys, call("mcp__runner__run_job"), ctx)
+    assert code == 2 and "read-only" in err
+
+
+async def test_the_guards_plugin_read_tools_are_exactly_the_plugin_servers_tools():
+    from keel_engine import plugins
+    from keel_engine.plugins import server
+
+    have = {name: {t.name for t in await server.build(p).list_tools()} for p, name in plugins.SERVERS.items()}
+    assert have == hook.PLUGIN_READ_TOOLS
 
 
 def test_absolute_paths_are_judged_relative_to_the_project(capsys, tmp_path, root):
