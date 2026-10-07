@@ -1,6 +1,7 @@
 // Source control (read-only): the uncommitted files grouped as staged / changed / untracked (a click opens the
 // diff), the workspace Doctor when the tree is dirty, and this branch's commits against the base with each
-// commit's files (keel's own commits marked). Worktrees and branches are at the end.
+// commit's files (keel's own commits marked). Worktrees and branches are at the end; with the Git plugin a branch opens
+// as a tab (Branch.tsx): its commits, the files it changed, and Switch.
 
 import { useState, type ReactNode } from "react";
 import { api, errorParts, type Change, type CommitView, type RepoInfo } from "../../api";
@@ -19,6 +20,8 @@ type Props = {
   onOpenChange: (path: string, pin: boolean) => void;
   onOpenCommitFile: (sha: string, path: string, pin: boolean) => void;
   onDoctor: () => void;
+  /** with the Git plugin: open a branch's tab (a single click a preview tab, a double click a pinned one) */
+  onOpenBranch?: (name: string, pin: boolean) => void;
 };
 
 function Group({ title, count, children, start = true }: { title: string; count?: number; children: ReactNode; start?: boolean }) {
@@ -49,7 +52,7 @@ function ChangeRow({ c, as, onOpen }: { c: Change; as: "staged" | "unstaged" | "
   );
 }
 
-function CommitRow({ pid, c, onOpen }: { pid: string; c: { sha: string; message: string; author: string; at: string; keel?: boolean }; onOpen: (sha: string, path: string, pin: boolean) => void }) {
+export function CommitRow({ pid, c, onOpen }: { pid: string; c: { sha: string; message: string; author: string; at: string; keel?: boolean }; onOpen: (sha: string, path: string, pin: boolean) => void }) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<CommitView | null>(null);
   const [err, setErr] = useState<{ message: string; hint?: string } | null>(null);
@@ -86,7 +89,7 @@ function CommitRow({ pid, c, onOpen }: { pid: string; c: { sha: string; message:
   );
 }
 
-export function ScmView({ pid, repo, changes, changesError, onOpenChange, onOpenCommitFile, onDoctor }: Props) {
+export function ScmView({ pid, repo, changes, changesError, onOpenChange, onOpenCommitFile, onDoctor, onOpenBranch }: Props) {
   const branch = repo?.branch;
   const onBase = !!repo && repo.base === repo.branch;
   const commits = useLoad(`commits:${pid}:${onBase ? "all" : "branch"}`, () => api.commits(pid, 50, onBase ? undefined : "branch"));
@@ -134,8 +137,16 @@ export function ScmView({ pid, repo, changes, changesError, onOpenChange, onOpen
           </Group>
         )}
         {repo && repo.branches.length > 0 && (
-          <Group title="Branches" count={repo.branches.length} start={false}>
-            {repo.branches.map((b) => <div key={b.name} className="scm-wt"><b className="mono">{b.name}</b><span className="sub">{b.note}</span></div>)}
+          <Group key={gitOn ? "git" : "ro"} title="Branches" count={repo.branches.length} start={gitOn}>
+            {repo.branches.map((b) => gitOn && onOpenBranch
+              ? (
+                <button key={b.name} type="button" className="scm-row scm-br" onClick={() => onOpenBranch(b.name, false)} onDoubleClick={() => onOpenBranch(b.name, true)}
+                  title={`${b.name}: its commits and changes against ${repo.base ?? "the base"}, and Switch`} aria-label={`Open the branch ${b.name}`}>
+                  <Icon name="branch" size={14} />
+                  <span className="scm-cm"><b className="mono scm-msg">{b.name}</b><span className="scm-meta">{b.note}</span></span>
+                </button>
+              )
+              : <div key={b.name} className="scm-wt"><b className="mono">{b.name}</b><span className="sub">{b.note}</span></div>)}
           </Group>
         )}
       </div>

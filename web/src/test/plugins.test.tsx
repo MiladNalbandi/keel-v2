@@ -112,6 +112,47 @@ describe("Code › Git", () => {
   });
 });
 
+describe("Code › Source control › a branch", () => {
+  it("opens a branch as a tab with its changed files, a file's diff, its commits, and switches to another", async () => {
+    const user = userEvent.setup();
+    location.hash = "#/repo";
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Source control" }));
+    // without the Git plugin a branch is only a line
+    await user.click(await screen.findByRole("button", { name: /^Branches/ }));
+    expect(await screen.findByText("this flow")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open the branch feat/scores" })).not.toBeInTheDocument();
+  });
+
+  it("with the Git plugin: a click on a branch shows what it changed and lets the person switch", async () => {
+    const user = userEvent.setup();
+    db.plugins.git = true;
+    location.hash = "#/repo";
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Source control" }));
+    await user.click(await screen.findByRole("button", { name: "Open the branch feat/scores" }));
+    const tab = await screen.findByRole("region", { name: "Branch feat/scores" });
+    expect(within(tab).getByText("current")).toBeInTheDocument();
+    expect(within(tab).queryByRole("button", { name: /Switch to/ })).not.toBeInTheDocument();
+    const files = within(tab).getByRole("region", { name: "Changed files" });
+    expect(within(files).getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual([
+      "Show the changes of api/ScoreController.kt on feat/scores", "Show the changes of api/Euro.kt on feat/scores"]);
+    // the first file's diff shows at once, against base...branch; another file on a click
+    expect(await within(tab).findByText("main…feat/scores")).toBeInTheDocument();
+    await user.click(within(files).getByRole("button", { name: "Show the changes of api/Euro.kt on feat/scores" }));
+    expect(within(files).getByRole("button", { name: "Show the changes of api/Euro.kt on feat/scores" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(tab).getByRole("region", { name: "Commits" })).toHaveTextContent("feat(AC-002): refuse a negative score");
+
+    // main: the base, and Switch
+    await user.click(screen.getByRole("button", { name: "Open the branch main" }));
+    const main = await screen.findByRole("region", { name: "Branch main" });
+    expect(main).toHaveTextContent("the base branch");
+    await user.click(within(main).getByRole("button", { name: "Switch to main" }));
+    await waitFor(() => expect(calls("POST", "/api/projects/ludus-engine/git/switch").at(-1)?.body).toEqual({ branch: "main", create: false }));
+    expect(await screen.findByText("On main now.")).toBeInTheDocument();
+  });
+});
+
 describe("KeelBot's query and git buttons", () => {
   it("reads the plugin blocks among the others", () => {
     const segs = splitActions('Here:\n```keel-query\n{"sql": "select 1"}\n```\n```keel-git\n{"op": "push"}\n```');

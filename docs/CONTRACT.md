@@ -1666,3 +1666,24 @@ console is counted first and runs after Run it, on a local or test database only
   Before, `ci_runs` was refused because its name has "run". Any other MCP tool is judged as before.
 - **Code › Database console**: switching a console to another connection keeps its SQL text, clears the old result,
   and its tab follows (`console · prod`).
+
+## v0.12.0: a branch in the Code page (Git plugin)
+
+Code › Source control › **Branches**: with the Git plugin on, a click opens a branch as an editor tab (`kind:
+branch`, path = the branch name; a single click a preview tab, a double click a pinned one). The tab shows the files the
+branch changed since it left the base (`base...branch`, so the base's own new commits do not show; a click shows the
+file's diff), its commits that the base does not have (each opens its files, like the commits list), how far it is ahead
+and behind, **Switch to <branch>** (the Git plugin's switch) and **Ask KeelBot to review it**. Without the plugin a branch
+stays a line.
+
+```
+GET /api/projects/{pid}/git/branch?name=feat/test   → BranchView { name, base, current, ahead, behind,
+                                                       commits: Commit[] (base..branch, ≤100), files: [{path, status, from?}]
+                                                       (≤1000), truncated }       (409 without the Git plugin;
+                                                       a name is a local branch: 400 for an option or a range, 404 unknown)
+GET /api/projects/{pid}/repo/diff?path=…&branch=feat/test   → FileDiff { against: "branch", ref: "main…feat/test" }
+```
+
+- The Git plugin's switch, commit, sync and cleanup send `project.changed`: the Code page reads the branch, the tree and
+  the changes again.
+

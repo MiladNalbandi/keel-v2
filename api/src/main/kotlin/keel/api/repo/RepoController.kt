@@ -60,7 +60,8 @@ class RepoController(private val repo: RepoService, private val search: RepoSear
         @RequestParam path: String,
         @RequestParam(defaultValue = "head") against: String,
         @RequestParam(required = false) sha: String?,
-    ): FileDiff = repo.diff(pid, path, against, sha)
+        @RequestParam(required = false) branch: String?,
+    ): FileDiff = repo.diff(pid, path, against, sha, branch)
 
     @GetMapping("/commit")
     fun commit(@PathVariable pid: String, @RequestParam sha: String): CommitView = repo.commit(pid, sha)

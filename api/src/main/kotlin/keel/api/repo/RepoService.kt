@@ -77,6 +77,22 @@ data class Change(
 data class CommitFile(val path: String, val status: String, val from: String? = null)
 data class CommitView(val sha: String, val message: String, val body: String, val author: String, val at: String, val keel: Boolean, val files: List<CommitFile>)
 
+/**
+ * One local branch against the base (Code › Source control › a branch, with the Git plugin): the commits it has that the
+ * base does not, and the files it changed since it left the base (`base...branch`, so the base's own new commits do not
+ * show). `current` = the project folder is on it.
+ */
+data class BranchView(
+    val name: String,
+    val base: String?,
+    val current: Boolean,
+    val ahead: Int,
+    val behind: Int,
+    val commits: List<Commit>,
+    val files: List<CommitFile>,
+    val truncated: Boolean = false,
+)
+
 /** A unified diff of one file. `ref` is what it is compared with, in words. */
 data class FileDiff(val path: String, val against: String, val ref: String, val diff: String, val binary: Boolean, val truncated: Boolean)
 
@@ -307,9 +323,10 @@ class RepoService(private val projects: ProjectService, private val rules: KeelR
 
     /**
      * The diff of one file: `against` head (work tree vs HEAD, staged and not), base (work tree vs the merge-base
-     * with main/master: everything this branch changed), or the change one commit (`sha`) made.
+     * with main/master: everything this branch changed), the change one commit (`sha`) made, or what another local
+     * `branch` changed since it left the base (`base...branch`; the work tree plays no part).
      */
-    fun diff(pid: String, rel: String, against: String, sha: String?): FileDiff {
+    fun diff(pid: String, rel: String, against: String, sha: String?, branch: String? = null): FileDiff {
         val root = projects.root(pid)
         val target = safePath(root, rel)
         val relNorm = root.relativize(target).toString().replace('\\', '/')
@@ -323,6 +340,11 @@ class RepoService(private val projects: ProjectService, private val rules: KeelR
             sha != null -> {
                 val s = checkSha(sha)
                 "commit ${s.take(7)}" to git(root, *common, "show", "--format=", *opts, s, "--", relNorm, timeout = 20)
+            }
+            branch != null -> {
+                val b = localBranch(root, branch)
+                val base = base(root) ?: throw BadRequest("No base branch found", "keel looks for main or master.")
+                "$base…$b" to git(root, *common, "diff", *opts, "refs/heads/$base...refs/heads/$b", "--", relNorm, timeout = 20)
             }
             untracked -> "nothing (a new file)" to git(root, *common, "diff", "--no-index", *opts, "--", "/dev/null", relNorm, timeout = 20)
             against == "base" -> {
@@ -345,7 +367,7 @@ class RepoService(private val projects: ProjectService, private val rules: KeelR
         val truncated = r.out.length > DIFF_MAX
         val text = if (truncated) r.out.take(DIFF_MAX).substringBeforeLast('\n') else r.out
         val binary = Regex("^Binary files .* differ$", RegexOption.MULTILINE).containsMatchIn(text.take(4000))
-        return FileDiff(relNorm, if (sha != null) "commit" else against, ref, text, binary, truncated)
+        return FileDiff(relNorm, if (sha != null) "commit" else if (branch != null) "branch" else against, ref, text, binary, truncated)
     }
 
     /** One commit: subject, body, author and the files it changed (`git diff-tree`, renames detected). */
@@ -356,11 +378,20 @@ class RepoService(private val projects: ProjectService, private val rules: KeelR
         if (!head.ok) throw NotFound("No commit $sha")
         val p = head.out.trimEnd().split('\u001f')
         val authors = keelAuthors(root)
-        val files = git(root, "-c", "core.quotePath=false", "diff-tree", "--no-commit-id", "-r", "-M", "--root", "--name-status", "-z", s)
-            .takeIf { it.ok }?.out?.split('\u0000').orEmpty()
+        val list = nameStatus(git(root, "-c", "core.quotePath=false", "diff-tree", "--no-commit-id", "-r", "-M", "--root", "--name-status", "-z", s), 1000)
+        return CommitView(
+            sha = p[0], message = p.getOrElse(1) { "" }, body = p.getOrElse(5) { "" }.trim(), author = p.getOrElse(2) { "" },
+            at = p.getOrElse(3) { "" }, keel = isKeelAuthor(p.getOrElse(2) { "" }, p.getOrElse(4) { "" }, authors) ||
+                KEELBOT_EMAIL in p.getOrElse(5) { "" }, files = list,
+        )
+    }
+
+    /** `--name-status -z` output (diff-tree or diff): status letter, path, and the old path of a rename or copy. */
+    private fun nameStatus(r: ProcResult, max: Int): List<CommitFile> {
+        val files = r.takeIf { it.ok }?.out?.split('\u0000').orEmpty()
         val list = mutableListOf<CommitFile>()
         var i = 0
-        while (i < files.size && list.size < 1000) {
+        while (i < files.size && list.size < max) {
             val st = files[i]
             if (st.isBlank()) { i++; continue }
             val code = st.take(1)
@@ -372,11 +403,34 @@ class RepoService(private val projects: ProjectService, private val rules: KeelR
                 i += 2
             }
         }
-        return CommitView(
-            sha = p[0], message = p.getOrElse(1) { "" }, body = p.getOrElse(5) { "" }.trim(), author = p.getOrElse(2) { "" },
-            at = p.getOrElse(3) { "" }, keel = isKeelAuthor(p.getOrElse(2) { "" }, p.getOrElse(4) { "" }, authors) ||
-                KEELBOT_EMAIL in p.getOrElse(5) { "" }, files = list,
-        )
+        return list
+    }
+
+    /** A local branch by its name, or why not: never an option, a range or another ref (`refs/heads/<name>` must exist). */
+    private fun localBranch(root: Path, name: String): String {
+        if (name.isBlank() || name.startsWith("-") || name.contains("..") || name.any { it.isISOControl() || it == ' ' }) {
+            throw BadRequest("That is not a branch name")
+        }
+        if (!git(root, "show-ref", "--verify", "--quiet", "refs/heads/$name").ok) throw NotFound("No branch $name")
+        return name
+    }
+
+    /** One local branch against the base: its own commits (newest first, at most 100) and the files it changed. */
+    fun branch(pid: String, name: String): BranchView {
+        val root = projects.root(pid)
+        val b = localBranch(root, name)
+        val current = projects.branch(root) == b
+        val base = base(root)
+        if (base == null || base == b) return BranchView(b, base, current, 0, 0, commits(root, 30, null, "refs/heads/$b"), emptyList())
+        var ahead = 0
+        var behind = 0
+        gitOut(root, "rev-list", "--left-right", "--count", "refs/heads/$base...refs/heads/$b")?.split(Regex("\\s+"))?.let {
+            behind = it.getOrNull(0)?.toIntOrNull() ?: 0
+            ahead = it.getOrNull(1)?.toIntOrNull() ?: 0
+        }
+        val files = nameStatus(git(root, "-c", "core.quotePath=false", "diff", "--name-status", "-M", "-z", "refs/heads/$base...refs/heads/$b"), 1001)
+        return BranchView(b, base, current, ahead, behind, commits(root, 100, null, "refs/heads/$base..refs/heads/$b"),
+            files.take(1000), files.size > 1000)
     }
 
     private fun checkSha(sha: String): String {

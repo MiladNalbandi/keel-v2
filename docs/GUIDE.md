@@ -123,6 +123,9 @@ pages you use.
   PR (`/commit`, `/pr`, `/sync`, `/branch` draft the next step) and gives buttons; workflows get `git:sync`,
   `git:push`, `git:pr`, `git:pr-checks` (wait for CI), `git:branch` and `git:cleanup`. keel never force-pushes and never
   pushes to main.
+  Under **Branches**, click a branch (for example `feat/test`) to open it as a tab: the files it changed since it left
+  main (click one for its diff), its commits that main does not have, **Switch to feat/test**, and **Ask KeelBot to
+  review it**. Switching keeps your uncommitted work; git stops when a change would be lost.
 - **Database tool (Code page)**: with the Database plugin on, the Code page gets a **Database** activity, like the
   database window of an IntelliJ IDE: every connection as a tree of tables and columns (keys, types, foreign keys).
   Click a table for its data (and its structure); press the console icon on a connection for a query console

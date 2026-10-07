@@ -347,6 +347,11 @@ export type Commit = { sha: string; message: string; author: string; at: string;
 export type Change = { path: string; from?: string; staged?: string; unstaged?: string; untracked?: boolean; conflict?: boolean };
 export type FileDiff = { path: string; against: string; ref: string; diff: string; binary: boolean; truncated: boolean };
 export type CommitView = Commit & { body: string; keel: boolean; files: { path: string; status: string; from?: string }[] };
+/** v0.12.0 one local branch against the base (Git plugin): its own commits and the files it changed since it left the base. */
+export type BranchView = {
+  name: string; base: string | null; current: boolean; ahead: number; behind: number;
+  commits: Commit[]; files: { path: string; status: string; from?: string }[]; truncated?: boolean;
+};
 export type SearchMatch = { line: number; column: number; length: number; text: string; ranges: [number, number][] };
 export type SearchResult = { results: { path: string; matches: SearchMatch[] }[]; matches: number; files: number; truncated: boolean; timed_out: boolean; took_ms: number };
 export type SearchQuery = { q: string; regex?: boolean; case?: boolean; word?: boolean; include?: string; exclude?: string; max?: number };
@@ -953,8 +958,8 @@ export const api = {
   search: (pid: string, s: SearchQuery) =>
     get<SearchResult>(`/projects/${e(pid)}/repo/search${q({ q: s.q, regex: s.regex ? "true" : null, case: s.case ? "true" : null, word: s.word ? "true" : null, include: s.include, exclude: s.exclude, max: s.max })}`),
   changes: (pid: string) => get<Change[]>(`/projects/${e(pid)}/repo/changes`),
-  diff: (pid: string, path: string, against: "head" | "base", sha?: string) =>
-    get<FileDiff>(`/projects/${e(pid)}/repo/diff${q({ path, against: sha ? null : against, sha })}`),
+  diff: (pid: string, path: string, against: "head" | "base", sha?: string, branch?: string) =>
+    get<FileDiff>(`/projects/${e(pid)}/repo/diff${q({ path, against: sha || branch ? null : against, sha, branch })}`),
   commit: (pid: string, sha: string) => get<CommitView>(`/projects/${e(pid)}/repo/commit${q({ sha })}`),
   updateFromBase: (pid: string) => post<UpdateFromBase>(`/projects/${e(pid)}/repo/update-from-base`),
   index: (pid: string) => get<IndexStatus>(`/projects/${e(pid)}/index`),
@@ -1096,6 +1101,7 @@ export const api = {
   gitBranches: (pid: string) => get<GitBranch[]>(`/projects/${e(pid)}/git/branches`),
   gitPr: (pid: string) => get<{ pr: PullRequest | null }>(`/projects/${e(pid)}/git/pr`),
   gitSwitch: (pid: string, branch: string, create = false) => post<{ branch: string }>(`/projects/${e(pid)}/git/switch`, { branch, create }),
+  gitBranch: (pid: string, name: string) => get<BranchView>(`/projects/${e(pid)}/git/branch${q({ name })}`),
   gitCommit: (pid: string, message: string) => post<{ sha: string; subject: string; files: string[] }>(`/projects/${e(pid)}/git/commit`, { message }),
   gitSync: (pid: string) => post<{ merged: boolean; from: string; branch: string }>(`/projects/${e(pid)}/git/sync`),
   gitPush: (pid: string) => post<{ branch: string; sha: string }>(`/projects/${e(pid)}/git/push`),

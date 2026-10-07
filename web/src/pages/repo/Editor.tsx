@@ -336,8 +336,12 @@ function cell(r: DiffRow | undefined, lang: string | null) {
   return highlight(r.text, lang) ?? escapeHtml(r.text);
 }
 
-export function DiffPane({ pid, path, against, sha, mode }: { pid: string; path: string; against: "head" | "base"; sha?: string; mode: DiffMode }) {
-  const d = useLoad(`diff:${pid}:${path}:${sha ?? against}`, () => api.diff(pid, path, against, sha));
+export function DiffPane({ pid, path, against, sha, branch, mode }: {
+  pid: string; path: string; against: "head" | "base"; sha?: string;
+  /** another local branch: what it changed in this file since it left the base */
+  branch?: string; mode: DiffMode;
+}) {
+  const d = useLoad(`diff:${pid}:${path}:${sha ?? (branch ? `branch:${branch}` : against)}`, () => api.diff(pid, path, against, sha, branch));
   const parsed = useMemo(() => (d.data ? parseDiff(d.data.diff) : null), [d.data]);
   const lang = languageOf(path);
   if (d.error) return <div className="ed-note"><ErrorBox error={d.error} /></div>;

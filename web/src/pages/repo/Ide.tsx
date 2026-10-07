@@ -21,6 +21,7 @@ import {
   bytes, closeTab, decoOf, nameOf, openTab, parseDeepLink, pinTab, repoHash, retargetTab, setView, tabId, webUrl,
   type EditorTab, type OpenSpec, type Tabs, type View,
 } from "./model";
+import { BranchTab } from "./Branch";
 import { QuickOpen } from "./QuickOpen";
 import { ScmView } from "./Scm";
 import { SearchView } from "./Search";
@@ -61,6 +62,7 @@ function tabTitle(t: EditorTab): string {
   if (t.kind === "memory") return "Memory";
   if (t.kind === "doctor") return "Workspace Doctor";
   if (t.kind === "db") return dbTabTitle(t.path);
+  if (t.kind === "branch") return t.path;
   if (t.kind === "commit") return `${nameOf(t.path)} @ ${t.sha?.slice(0, 7)}`;
   return nameOf(t.path);
 }
@@ -340,7 +342,8 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
         <ScmView pid={pid} repo={repo} changes={changes.data} changesError={changes.error}
           onOpenChange={(p, pin) => openFile(p, pin, "diff")}
           onOpenCommitFile={(sha, p, pin) => open({ kind: "commit", path: p, sha, view: "diff" }, { pin })}
-          onDoctor={() => open({ kind: "doctor", path: "doctor" }, { pin: true })} />
+          onDoctor={() => open({ kind: "doctor", path: "doctor" }, { pin: true })}
+          onOpenBranch={(name, pin) => open({ kind: "branch", path: name }, { pin })} />
       </div>
       {dbOn && (
         <div hidden={activity !== "db"} className="sv-host">
@@ -382,6 +385,9 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
       onConn={(c) => setTabs((t) => retargetTab(t, id, { kind: "db", path: dbPath(c) }))} />;
   } else if (active.kind === "doctor") {
     body = <div className="ed-doc"><WorkspaceDoctor pid={pid} onClean={() => void changes.reload()} /></div>;
+  } else if (active.kind === "branch") {
+    body = <BranchTab key={active.id} pid={pid} name={active.path} mode={diffMode}
+      onOpenCommitFile={(sha, p, pin) => open({ kind: "commit", path: p, sha, view: "diff" }, { pin })} />;
   } else if (active.kind === "commit") {
     body = <DiffPane pid={pid} path={active.path} against="head" sha={active.sha} mode={diffMode} />;
   } else if (view === "diff") {
@@ -551,7 +557,7 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
                     if (e.key === "Delete") close(t.id);
                     if (e.key === "Enter") setTabs((x) => pinTab(x, t.id));
                   }}>
-                  {t.kind === "file" || t.kind === "commit" ? <FileIcon name={nameOf(t.path)} /> : <Icon name={t.kind === "doctor" ? "refresh" : t.kind === "memory" ? "history" : "keel"} size={15} />}
+                  {t.kind === "file" || t.kind === "commit" ? <FileIcon name={nameOf(t.path)} /> : <Icon name={t.kind === "branch" ? "branch" : t.kind === "doctor" ? "refresh" : t.kind === "memory" ? "history" : "keel"} size={15} />}
                   <span className="ed-tab-n">{title}</span>
                   {dup && <span className="ed-tab-d">{t.path.split("/").slice(-2, -1)[0]}</span>}
                   {t.kind === "file" && t.view === "diff" && <span className="ed-tab-v">diff</span>}

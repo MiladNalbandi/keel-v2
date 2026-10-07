@@ -177,7 +177,9 @@ export function handlers(db: Db) {
     http.get("/api/projects/:pid/repo/changes", () => HttpResponse.json(fx.changes)),
     http.get("/api/projects/:pid/repo/diff", async ({ request }) => {
       await log(request);
-      return HttpResponse.json({ path: "api/ScoreController.kt", against: "head", ref: "HEAD", diff: fx.diff, binary: false, truncated: false });
+      const branch = new URL(request.url).searchParams.get("branch");
+      return HttpResponse.json({ path: "api/ScoreController.kt", against: branch ? "branch" : "head", ref: branch ? `main…${branch}` : "HEAD",
+        diff: fx.diff, binary: false, truncated: false });
     }),
     http.get("/api/projects/:pid/repo/commit", ({ request }) => {
       const sha = new URL(request.url).searchParams.get("sha") ?? "";
@@ -345,6 +347,15 @@ export function handlers(db: Db) {
       { name: "feat/euro", current: true, ahead: 2, behind: 1, date: "2026-10-07T09:00:00Z", subject: "feat: euro" },
       { name: "main", current: false, ahead: 0, behind: 0, date: "2026-10-06T09:00:00Z", subject: "Version 0.9.0" }])),
     http.get("/api/projects/:pid/git/pr", () => HttpResponse.json({ pr: db.pr })),
+    /** v0.12.0 one branch against the base (the repo fixture is on feat/scores) */
+    http.get("/api/projects/:pid/git/branch", ({ request }) => {
+      const name = new URL(request.url).searchParams.get("name") ?? "";
+      const base = name === fx.repo.base;
+      return HttpResponse.json({ name, base: fx.repo.base, current: name === fx.repo.branch, ahead: base ? 0 : 1, behind: 0,
+        commits: [{ sha: "b1b2c3d4e5f6", message: base ? "Version 0.9.0" : "feat(AC-002): refuse a negative score", author: "Ada",
+          at: new Date().toISOString(), keel: !base }],
+        files: base ? [] : [{ path: "api/ScoreController.kt", status: "M" }, { path: "api/Euro.kt", status: "A" }] });
+    }),
     http.post("/api/projects/:pid/git/:op", async ({ request, params }) => {
       const b = (await log(request)) as Record<string, unknown>;
       const op = String(params.op);

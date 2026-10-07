@@ -117,6 +117,45 @@ class PluginsApiTest : ApiTest() {
     }
 
     @Test
+    fun `a branch shows its own commits and files against the base, and a file's diff, with the Git plugin on`() {
+        val (pid, root) = newProject("plug-branch", mapOf("README.md" to "# demo\n", "Score.kt" to "class Score(val v: Int)\n"))
+        git(root, "checkout", "-q", "-b", "feat/test")
+        java.nio.file.Files.writeString(root.resolve("Score.kt"), "class Score(val v: Long)\n")
+        java.nio.file.Files.writeString(root.resolve("new.txt"), "hello\n")
+        git(root, "add", "-A")
+        git(root, "commit", "-q", "-m", "feat: scores are Long")
+        git(root, "checkout", "-q", "main")
+        java.nio.file.Files.writeString(root.resolve("README.md"), "# demo 2\n")
+        git(root, "commit", "-q", "-am", "docs: readme")      // on main only: not part of the branch's changes
+
+        get("/api/projects/$pid/git/branch?name=feat/test").andExpect(status().isConflict)   // the plugin is off
+        put("/api/projects/$pid/plugins/git", mapOf("enabled" to true)).andExpect(status().isOk)
+        val b = get("/api/projects/$pid/git/branch?name=feat/test").andExpect(status().isOk).json()
+        assertThat(b["base"].asText()).isEqualTo("main")
+        assertThat(b["current"].asBoolean()).isFalse()
+        assertThat(b["ahead"].asInt() to b["behind"].asInt()).isEqualTo(1 to 1)
+        assertThat(b["commits"].map { it["message"].asText() }).containsExactly("feat: scores are Long")
+        assertThat(b["files"].map { it["path"].asText() + " " + it["status"].asText() }).containsExactly("Score.kt M", "new.txt A")
+
+        val d = get("/api/projects/$pid/repo/diff?path=Score.kt&branch=feat/test").andExpect(status().isOk).json()
+        assertThat(d["against"].asText()).isEqualTo("branch")
+        assertThat(d["ref"].asText()).isEqualTo("main…feat/test")
+        assertThat(d["diff"].asText()).contains("-class Score(val v: Int)", "+class Score(val v: Long)")
+        // a file only the branch has, and a file the branch did not touch
+        assertThat(get("/api/projects/$pid/repo/diff?path=new.txt&branch=feat/test").json()["diff"].asText()).contains("+hello")
+        assertThat(get("/api/projects/$pid/repo/diff?path=README.md&branch=feat/test").json()["diff"].asText()).isEmpty()
+
+        val main = get("/api/projects/$pid/git/branch?name=main").json()
+        assertThat(main["current"].asBoolean()).isTrue()
+        assertThat(main["files"].size()).isZero()
+        // a name is a local branch, never an option, a range or another ref
+        get("/api/projects/$pid/git/branch?name=nope").andExpect(status().isNotFound)
+        get("/api/projects/$pid/git/branch?name=-p").andExpect(status().isBadRequest)
+        get("/api/projects/$pid/git/branch?name=main..feat/test").andExpect(status().isBadRequest)
+        get("/api/projects/$pid/repo/diff?path=Score.kt&branch=HEAD~1").andExpect(status().isNotFound)
+    }
+
+    @Test
     fun `claude code's acting tool asks the person through the engine`() {
         val (pid, _) = newProject("plug-ask")
         val q = post("/api/projects/$pid/plugins/ask", mapOf("title" to "Claude Code: push?", "command" to "push the branch")).andExpect(status().isOk).json()
