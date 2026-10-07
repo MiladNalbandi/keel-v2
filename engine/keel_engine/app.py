@@ -183,6 +183,15 @@ class PluginDb(BaseModel):
     mask: bool = False          # a model reads the rows (keel2 mcp): columns named like a secret show as •••
 
 
+class PluginCi(BaseModel):
+    """The CI/CD plugin's calls (Run › Jobs › Pipelines, the api's watcher)."""
+    root: str
+    keys: dict[str, str] = Field(default_factory=dict)        # github: the token
+    branch: str = ""
+    limit: int = Field(default=20, ge=1, le=50)
+    run: int = 0
+
+
 class PluginGit(BaseModel):
     """The person's own git call (Code › Git, KeelBot's button)."""
     root: str
@@ -409,7 +418,11 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
 
     @app.get("/templates")
     async def get_templates():
-        return [t.model_dump() for t in templates()]
+        # keel's templates, then the plugins' own workflows ("plugin": the plugin that brings it; the api lists one only
+        # for the projects that turned that plugin on)
+        from .runtime import plugins as manifests
+
+        return [t.model_dump() for t in templates()] + manifests.plugin_workflows()
 
     @app.post("/workflows/validate")
     async def post_validate(body: YamlBody):
@@ -702,23 +715,23 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
 
     def plugin_call(fn, *a, **k):
         from .plugins import PluginError
+        from .plugins.ci.core import CiError
         from .plugins.db.core import DbError
         from .plugins.git.core import GitError
 
         try:
             return fn(*a, **k)
-        except (PluginError, DbError, GitError) as exc:
+        except (PluginError, DbError, GitError, CiError) as exc:
             raise EngineError(exc.status, str(exc), exc.hint) from exc
 
     @app.get("/plugins")
     async def get_plugins():
         """keel's installable plugins with what each adds, and what each step action takes in `with:`."""
-        from .plugins.db.actions import PARAMS as DB
-        from .plugins.git.actions import PARAMS as GIT
+        from .plugins import action_params
         from .runtime import plugins as manifests
         from .runtime.action_docs import describe
 
-        params = {**DB, **GIT}
+        params = action_params()
         out = []
         for p in manifests.catalog():
             acts = [{"name": a, "with": params.get(a, {}), "summary": describe(a)["summary"]} for a in p["actions"]]
@@ -762,6 +775,23 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
             kind, why = db.classify(body.sql, conn.kind)
             return {"kind": kind, "why": why}
         raise EngineError(404, f"Unknown database call {op}.")
+
+    @app.post("/plugins/ci/{op}")
+    async def post_plugin_ci(op: str, body: PluginCi):
+        from .plugins import github_token
+        from .plugins.ci import core as ci
+
+        if not os.path.isdir(body.root):
+            raise EngineError(404, "The project folder is gone.")
+        token = github_token(body.keys)
+        calls = {
+            "runs": lambda: ci.runs(body.root, token, body.branch or None, body.limit),
+            "run": lambda: ci.run(body.root, token, body.run),
+            "rerun": lambda: ci.rerun(body.root, token, body.run),
+        }
+        if op not in calls:
+            raise EngineError(404, f"Unknown CI call {op}.")
+        return await asyncio.to_thread(plugin_call, calls[op])
 
     @app.post("/plugins/git/{op}")
     async def post_plugin_git(op: str, body: PluginGit):

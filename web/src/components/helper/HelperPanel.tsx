@@ -14,7 +14,8 @@ import { modelLabel, provLabel } from "../../format";
 import { rankFiles } from "../../pages/repo/model";
 import { go, useApp, useLoad } from "../../state";
 import { Markdown } from "../Markdown";
-import { GitCard, QueryCard, splitActions, StartCard, WorkflowCard } from "./Actions";
+import { PREFILL_KEY } from "../plugins/GitPanel";
+import { CiCard, GitCard, QueryCard, splitActions, StartCard, WorkflowCard } from "./Actions";
 import { ModelPicker } from "../ModelPicker";
 import { mergeSteps } from "../StepFeed";
 import { StepView } from "../StepView";
@@ -99,6 +100,7 @@ function Answer({ text, onOpen, pid, onAsk }: { text: string; onOpen: (path: str
         : seg.kind === "start" ? <StartCard key={i} pid={pid} body={seg.body} />
           : seg.kind === "query" ? <QueryCard key={i} pid={pid} body={seg.body} />
             : seg.kind === "git" ? <GitCard key={i} pid={pid} body={seg.body} />
+              : seg.kind === "ci" ? <CiCard key={i} pid={pid} body={seg.body} />
               : <WorkflowCard key={i} pid={pid} body={seg.body} onAsk={onAsk} />)}
     </div>
   );
@@ -155,6 +157,17 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
       input.current?.focus();
     }
   }, [prefill?.n]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    // text another page handed over (Run › Jobs › Pipelines: "Ask KeelBot why"): once, into the input
+    try {
+      const handed = sessionStorage.getItem(PREFILL_KEY);
+      if (handed) {
+        sessionStorage.removeItem(PREFILL_KEY);
+        setText(handed);
+        input.current?.focus();
+      }
+    } catch { /* storage blocked: nothing was handed over */ }
+  }, []);
 
   const s: HelperSession | null = sess.data ?? null;
   const messages = s?.messages ?? [];

@@ -33,6 +33,7 @@ class WorkflowService(
     private val projects: ProjectService,
     private val agents: AgentCatalog,
     private val mapper: ObjectMapper,
+    private val plugins: keel.api.plugins.PluginService,
 ) {
     // ---- templates (engine) ---------------------------------------------------------------
 
@@ -47,7 +48,8 @@ class WorkflowService(
         val name = node.get("name")?.asText() ?: id
         val yaml = node.get("yaml")?.asText()?.takeIf { it.isNotBlank() }
             ?: WorkflowDoc(name = name, basedOn = node.get("based_on")?.asText(), keelRules = keelRules, steps = steps).toYaml()
-        return Workflow(id, name, node.get("based_on")?.takeIf { !it.isNull }?.asText(), keelRules, node.get("version")?.asInt(1) ?: 1, steps, yaml, "keel")
+        return Workflow(id, name, node.get("based_on")?.takeIf { !it.isNull }?.asText(), keelRules, node.get("version")?.asInt(1) ?: 1, steps, yaml, "keel",
+            plugin = node.get("plugin")?.takeIf { !it.isNull }?.asText())
     }
 
     // ---- stored workflows -----------------------------------------------------------------
@@ -64,7 +66,9 @@ class WorkflowService(
 
     fun list(pid: String): List<Workflow> {
         projects.require(pid)
-        val all = templatesOrEmpty() + rows("project_id = ? OR project_id IS NULL", pid).map(::toWorkflow)
+        val on = plugins.enabled(pid).toSet()
+        val all = templatesOrEmpty().filter { it.plugin == null || it.plugin in on } +
+            rows("project_id = ? OR project_id IS NULL", pid).map(::toWorkflow)
         val folders = jdbc.query("SELECT workflow_id, folder FROM workflow_folders WHERE project_id = ?",
             { rs, _ -> rs.getString(1) to rs.getString(2) }, pid).toMap()
         val runs = mutableMapOf<String, Int>()

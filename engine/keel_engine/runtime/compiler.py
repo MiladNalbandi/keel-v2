@@ -1081,7 +1081,7 @@ class Compiler:
                 a.step = step.id
                 a.emit = self._tool_emit(step.id)
                 a.params = dict(step.params or {})
-                if action.startswith(("db:", "git:")):
+                if action.startswith(("db:", "git:", "ci:")):
                     a.state["gate_approved"] = self._gate_approved(i, st)
                 if action == "open_pr":
                     a.state["pr_approved"] = self._gate_approved(i, st)

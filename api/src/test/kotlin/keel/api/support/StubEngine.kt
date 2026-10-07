@@ -56,6 +56,16 @@ class StubEngine private constructor(private val server: HttpServer) {
     val usageAnswers = java.util.concurrent.ConcurrentHashMap<String, Map<String, Any?>>()
 
     /** What POST /agents/ask answers (the Doctor's model call); null = "fake" (rules only). */
+    /** v0.11.0 the CI/CD plugin's runs (newest first); a test adds a failed one with ciRun. */
+    val ciRuns = java.util.concurrent.CopyOnWriteArrayList<Map<String, Any?>>()
+    fun ciRun(id: Long, branch: String, failed: Boolean) = ciRuns.add(0, mapOf("id" to id, "workflow" to "ci", "title" to "feat: x",
+        "branch" to branch, "sha" to "abc1234def", "event" to "push", "status" to "completed",
+        "conclusion" to if (failed) "failure" else "success", "url" to "https://github.com/o/r/actions/runs/$id",
+        "created_at" to java.time.Instant.now().toString(), "updated_at" to java.time.Instant.now().toString(), "failed" to failed))
+    val ciFixTemplate = mapOf(
+        "id" to "ci-fix", "name" to "ci fix (keel)", "based_on" to null, "keel_rules" to false, "version" to 1, "plugin" to "ci",
+        "steps" to listOf(mapOf("id" to "failure", "kind" to "code", "name" to "read why CI failed", "action" to "ci:logs")))
+
     @Volatile var askAnswer: Map<String, Any?>? = null
 
     /** Extra ThreadState fields per thread id (for example a "fix" wait), merged over the default. */
@@ -103,13 +113,20 @@ class StubEngine private constructor(private val server: HttpServer) {
     private fun route(method: String, path: String, body: JsonNode?): Pair<Int, Any?> = when {
         path == "/health" -> 200 to mapOf("ok" to true, "version" to "stub", "fake" to true)
         path == "/agents/ask" -> 200 to (askAnswer ?: mapOf("ok" to true, "fake" to true, "text" to ""))
-        path == "/templates" -> 200 to listOf(featureTemplate, knowledgeTemplate)
+        path == "/templates" -> 200 to listOf(featureTemplate, knowledgeTemplate, ciFixTemplate)
+        path == "/plugins/ci/runs" -> 200 to ciRuns.filter { body?.path("branch")?.asText().isNullOrBlank() || it["branch"] == body?.path("branch")?.asText() }
+        path == "/plugins/ci/run" -> 200 to (ciRuns.firstOrNull { it["id"] == body?.path("run")?.asLong() }?.plus(mapOf("jobs" to emptyList<Any>(), "log" to "FAIL"))
+            ?: mapOf("error" to "no run"))
+        path == "/plugins/ci/rerun" -> 200 to mapOf("id" to body?.path("run")?.asLong(), "rerun" to true)
         // v0.10.0 plugins: the catalog, and the engine's database and git calls (echoed so tests see what went out)
         path == "/plugins" -> 200 to listOf(
             mapOf("name" to "db", "title" to "Database", "installable" to true, "tools" to mapOf("server" to "keel-db", "read" to listOf("db_query")),
                 "actions" to listOf(mapOf("name" to "db:check", "with" to mapOf("sql" to "required"), "summary" to "a data check"))),
             mapOf("name" to "git", "title" to "Git", "installable" to true, "tools" to mapOf("server" to "keel-git", "read" to listOf("git_status")),
-                "actions" to listOf(mapOf("name" to "git:push", "with" to emptyMap<String, Any>(), "summary" to "push"))))
+                "actions" to listOf(mapOf("name" to "git:push", "with" to emptyMap<String, Any>(), "summary" to "push"))),
+            mapOf("name" to "ci", "title" to "CI/CD", "installable" to true, "tools" to mapOf("server" to "keel-ci", "read" to listOf("ci_runs")),
+                "actions" to listOf(mapOf("name" to "ci:wait", "with" to emptyMap<String, Any>(), "summary" to "wait for CI")),
+                "workflows" to listOf("ci-fix")))
         path == "/plugins/db/test" -> 200 to (if (body?.path("connection")?.path("url")?.asText()?.contains("wrong") == true)
             mapOf("ok" to false, "error" to "keel could not reach local: password authentication failed", "hint" to "Check the password.")
             else mapOf("ok" to true, "server" to "PostgreSQL 16.4", "tables" to 23))

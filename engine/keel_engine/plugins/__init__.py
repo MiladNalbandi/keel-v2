@@ -11,7 +11,7 @@ the plugin's secrets in the call's keys (memory only): `db:<connection>` → {"n
                                 without writing any of them to disk
     server_specs(names, key)    the MCP servers (plugins/server.py) for that call: read tools only
     call(key, tool, args)       one tool call from such a server
-    run_action(action, a)       a workflow code step db:* or git:*
+    run_action(action, a)       a workflow code step db:*, git:* or ci:*
 """
 
 from __future__ import annotations
@@ -23,8 +23,9 @@ import time
 
 from .. import config
 
-NAMES = ("db", "git")
-SERVERS = {"db": "keel-db", "git": "keel-git"}
+NAMES = ("db", "git", "ci")
+SERVERS = {"db": "keel-db", "git": "keel-git", "ci": "keel-ci"}
+TITLES = {"db": "Database", "git": "Git", "ci": "CI/CD"}
 CALL_TTL = 4 * 3600
 _calls: dict[str, dict] = {}
 
@@ -102,13 +103,17 @@ def call(key: str, tool: str, args: dict) -> str:
     c = _calls.get(key or "")
     if not c or c["until"] < time.time():
         raise PluginError(401, "This tool call has no valid key: the agent call it belonged to has ended.")
-    plugin = "db" if tool.startswith("db_") else "git" if tool.startswith(("git_", "pr_")) else ""
+    plugin = "db" if tool.startswith("db_") else "git" if tool.startswith(("git_", "pr_")) else "ci" if tool.startswith("ci_") else ""
     if plugin not in c["plugins"]:
         raise PluginError(403, f"The {plugin or '?'} plugin is off for this project.", "Turn it on in Tools › Plugins.")
     if plugin == "db":
         from .db import tools as db_tools
 
         return db_tools.call(c, tool, args or {})
+    if plugin == "ci":
+        from .ci import tools as ci_tools
+
+        return ci_tools.call(c, tool, args or {})
     from .git import tools as git_tools
 
     return git_tools.call(c, tool, args or {})
@@ -116,11 +121,21 @@ def call(key: str, tool: str, args: dict) -> str:
 
 # ------------------------------------------------------------------ workflow steps
 
-def action_names() -> list[str]:
+def _modules():
+    from .ci import actions as ci_actions
     from .db import actions as db_actions
     from .git import actions as git_actions
 
-    return [*db_actions.ACTIONS, *git_actions.ACTIONS]
+    return {"db": db_actions, "git": git_actions, "ci": ci_actions}
+
+
+def action_names() -> list[str]:
+    return [name for m in _modules().values() for name in m.ACTIONS]
+
+
+def action_params() -> dict[str, dict]:
+    """Every plugin step action with what it takes in `with:`."""
+    return {k: v for m in _modules().values() for k, v in m.PARAMS.items()}
 
 
 async def run_action(action: str, a):
@@ -129,17 +144,10 @@ async def run_action(action: str, a):
 
     plugin = action.split(":", 1)[0]
     if not on(a.settings, plugin):
-        title = {"db": "Database", "git": "Git"}.get(plugin, plugin)
-        return ActionResult(False, f"The {title} plugin is off for this project, so {action} cannot run.",
+        return ActionResult(False, f"The {TITLES.get(plugin, plugin)} plugin is off for this project, so {action} cannot run.",
                             "Turn it on in Tools › Plugins, then retry the step.")
-    if plugin == "db":
-        from .db import actions as db_actions
-
-        fn = db_actions.ACTIONS.get(action)
-    else:
-        from .git import actions as git_actions
-
-        fn = git_actions.ACTIONS.get(action)
+    mod = _modules().get(plugin)
+    fn = mod.ACTIONS.get(action) if mod else None
     if not fn:
         return ActionResult(False, f"Unknown action {action}.")
     return await fn(a)

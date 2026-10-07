@@ -11,6 +11,7 @@
     needs: [database]          what the person sets up (Connections)
     tools: {server: keel-db, read: [db_schema, ...]}    the MCP server keel runs for KeelBot and agents (plugins/)
     actions: [db:query, ...]   workflow code steps it adds
+    workflows: [ci-fix]        its own workflows (workflows/<id>.yaml next to plugin.yml); listed only where it is on
     shows_in: [map, ...]       the pages it adds to
     commands:                  /name in KeelBot sends the template instead; {{args}} is the rest of the line
       - {name: sql, description: ..., prompt: "..."}
@@ -43,7 +44,8 @@ def _dirs(root: str | None) -> list[tuple[str, Path]]:
 
 def _one(source: str, file: Path) -> dict:
     p = {"name": file.parent.name, "title": "", "description": "", "source": source, "path": str(file), "commands": [],
-         "context": [], "installable": False, "needs": [], "tools": {}, "actions": [], "shows_in": [], "problems": []}
+         "context": [], "installable": False, "needs": [], "tools": {}, "actions": [], "shows_in": [], "workflows": [],
+         "problems": []}
     try:
         raw = yaml.safe_load(file.read_text()) or {}
     except (OSError, yaml.YAMLError) as exc:
@@ -64,6 +66,7 @@ def _one(source: str, file: Path) -> dict:
             p["tools"] = {"server": str(tools["server"]), "read": [str(x) for x in tools.get("read") or []]}
         p["actions"] = [str(x) for x in raw.get("actions") or []]
         p["shows_in"] = [str(x) for x in raw.get("shows_in") or []]
+        p["workflows"] = [str(x) for x in raw.get("workflows") or []]
     for c in raw.get("commands") or []:
         if not isinstance(c, dict):
             p["problems"].append("a command must be a mapping with name and prompt")
@@ -103,6 +106,20 @@ def catalog() -> list[dict]:
     d = config.content_dir() / "plugins"
     found = [_one("keel", f) for f in sorted(d.glob("*/plugin.yml"))] if d.is_dir() else []
     return [{k: v for k, v in p.items() if k not in ("path", "source")} for p in found if p["installable"]]
+
+
+def plugin_workflows() -> list[dict]:
+    """keel's plugins' own workflows (content/plugins/<name>/workflows/<id>.yaml), each with "plugin": its plugin."""
+    from ..workflows.model import load_yaml
+
+    out = []
+    for p in catalog():
+        for wid in p.get("workflows") or []:
+            f = config.content_dir() / "plugins" / p["name"] / "workflows" / f"{wid}.yaml"
+            if f.is_file():
+                text = f.read_text()
+                out.append({**load_yaml(text).model_dump(by_alias=True), "yaml": text, "plugin": p["name"]})
+    return out
 
 
 def commands(root: str | None, enabled: list[str] | None = None) -> list[dict]:

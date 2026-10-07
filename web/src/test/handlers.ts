@@ -1,7 +1,7 @@
 // MSW handlers for every /api route the web uses, backed by a small in-memory db (reset per test).
 
 import { http, HttpResponse } from "msw";
-import type { Cap, CapLeft, CapsLeft, FlowBoard, FlowView, GraphFocus, GraphOverview, DbConnection, DbResult, GitStatus, HelperChange, HelperDone, HelperQuestion, HelperSession, IndexStatus, OnCap, Plugin, PullRequest, RunRow, Settings, Stack, ThreadState, Workflow, WorkflowCheck } from "../api";
+import type { Cap, CapLeft, CapsLeft, FlowBoard, FlowView, GraphFocus, GraphOverview, CiRun, DbConnection, DbResult, GitStatus, HelperChange, HelperDone, HelperQuestion, HelperSession, IndexStatus, OnCap, Plugin, PullRequest, RunRow, Settings, Stack, ThreadState, Workflow, WorkflowCheck } from "../api";
 import * as fx from "./fixtures";
 import { createTaskDb, taskHandlers } from "./taskHandlers";
 
@@ -58,6 +58,8 @@ export function createDb() {
       changes: [] } as GitStatus,
     pr: null as PullRequest | null,
     github: { set: false, hint: null as string | null, from: null as "keel" | "env" | null },
+    /** v0.11.0 CI/CD plugin: the pipeline runs (newest first) */
+    ciRuns: [] as CiRun[],
     /** v0.5.0: tasks, Jira connections, the MCP catalog */
     tk: createTaskDb(),
   };
@@ -76,6 +78,10 @@ export function handlers(db: Db) {
       tools: { server: "keel-git", read: ["git_status", "pr_status"] }, actions: [{ name: "git:push", with: {}, summary: "push" }],
       shows_in: ["connections", "code", "workflows", "keelbot", "inbox"], commands: [{ name: "commit", description: "Write a commit message" }],
       enabled: db.plugins.git, scope: db.plugins.git ? "project" : null },
+    { name: "ci", title: "CI/CD", description: "Watch the project's pipelines, see why one failed, and fix it with a flow.", needs: ["github"],
+      tools: { server: "keel-ci", read: ["ci_runs", "ci_failure"] }, actions: [{ name: "ci:wait", with: { minutes: "optional" }, summary: "wait for CI" }],
+      shows_in: ["jobs", "workflows", "keelbot", "settings"], commands: [{ name: "ci", description: "Why did CI fail" }],
+      enabled: db.plugins.ci ?? false, scope: db.plugins.ci ? "project" : null },
   ];
   const log = async (req: Request) => {
     let body: unknown = null;
@@ -321,6 +327,19 @@ export function handlers(db: Db) {
       return HttpResponse.json(db.dbAnswer ?? { connection: b.connection || "local", kind: "read", sql: b.sql, columns: ["id", "name"],
         rows: [[1, "Ada"], [2, null]], count: 2, truncated: false, masked: [], ms: 4 });
     }),
+    http.get("/api/projects/:pid/ci/runs", () => HttpResponse.json(db.ciRuns)),
+    http.get("/api/projects/:pid/ci/runs/:id", ({ params }) => {
+      const r = db.ciRuns.find((x) => x.id === Number(params.id));
+      return r ? HttpResponse.json({ ...r, jobs: [{ id: 1, name: "test", status: "completed", conclusion: r.conclusion, url: "u",
+        failed_steps: r.failed ? ["run the tests"] : [] }], log: r.failed ? "test · run the tests | FAIL test_total - assert 3 == 4" : "" })
+        : HttpResponse.json({ error: "No run" }, { status: 404 });
+    }),
+    http.post("/api/projects/:pid/ci/runs/:id/rerun", async ({ request, params }) => { await log(request); return HttpResponse.json({ id: Number(params.id), rerun: true }); }),
+    http.post("/api/projects/:pid/ci/fix", async ({ request }) => {
+      await log(request);
+      return HttpResponse.json({ ...clone(fx.thread), thread_id: "t-ci-fix", title: "Fix CI: ci on feat/euro", status: "running" });
+    }),
+    http.post("/api/projects/:pid/ci/check", async ({ request }) => { await log(request); return HttpResponse.json({ told: [] }); }),
     http.get("/api/projects/:pid/git/status", () => HttpResponse.json(db.gitStatus)),
     http.get("/api/projects/:pid/git/branches", () => HttpResponse.json([
       { name: "feat/euro", current: true, ahead: 2, behind: 1, date: "2026-10-07T09:00:00Z", subject: "feat: euro" },

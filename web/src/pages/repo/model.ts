@@ -25,13 +25,14 @@ export function repoHash(path: string, line?: number): string {
 
 // ---------- editor tabs ----------
 
-export type TabKind = "file" | "commit" | "docs" | "memory" | "doctor";
+export type TabKind = "file" | "commit" | "docs" | "memory" | "doctor" | "db";
 export type View = "code" | "diff" | "preview";
 export type EditorTab = { id: string; kind: TabKind; path: string; sha?: string; preview: boolean; view: View };
 export type Tabs = { tabs: EditorTab[]; active: string | null };
 export type OpenSpec = { kind?: TabKind; path: string; sha?: string; view?: View };
 
-export const tabId = (s: OpenSpec) => (s.kind && s.kind !== "file" ? (s.kind === "commit" ? `commit:${s.sha}:${s.path}` : `keel:${s.kind}`) : s.path);
+export const tabId = (s: OpenSpec) => (s.kind && s.kind !== "file"
+  ? (s.kind === "commit" ? `commit:${s.sha}:${s.path}` : s.kind === "db" ? `db:${s.path}` : `keel:${s.kind}`) : s.path);
 
 /**
  * Open a tab like VS Code: a single click opens a preview tab (italic) that the next single click replaces;

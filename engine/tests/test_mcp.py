@@ -12,8 +12,10 @@ from keel_engine import mcp_server
 from keel_engine.tools import mcp as mcp_tools
 
 READ_TOOLS = {"keel_status", "keel_projects", "keel_timeline", "keel_next", "keel_explain",
-              "keel_db_schema", "keel_db_query", "keel_git_status", "keel_pr_status"}           # v0.10.0 plugins
-WRITE_TOOLS = {"keel_approve_gate", "keel_resume", "keel_db_change", "keel_git_commit", "keel_git_push", "keel_pr_create"}
+              "keel_db_schema", "keel_db_query", "keel_git_status", "keel_pr_status",           # v0.10.0 plugins
+              "keel_ci_runs", "keel_ci_failure"}
+WRITE_TOOLS = {"keel_approve_gate", "keel_resume", "keel_db_change", "keel_git_commit", "keel_git_push", "keel_pr_create",
+               "keel_ci_rerun"}
 
 PROJECTS = [
     {"id": "shop", "name": "shop", "root": "/workspace/shop", "branch": "feat/scores", "flow": "feature", "phase": "spec",

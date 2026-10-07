@@ -1,0 +1,27 @@
+id: ci-fix
+name: ci fix (keel)
+keel_rules: false
+version: 1
+# The CI/CD plugin's flow: read why the pipeline failed on this branch, fix it, commit, push (the Git plugin, following
+# Settings › Push and open PR at ship) and wait for CI again. Starts from Run › Jobs › Pipelines (Fix it), KeelBot's
+# button, or by itself when Settings › When CI fails says so.
+steps:
+  - { id: failure, kind: code, name: read why CI failed, action: "ci:logs", phase: review-fix }
+  - id: fix
+    kind: agent
+    name: fix what made CI fail
+    agent: implementer
+    model: default
+    phase: review-fix
+    instructions: >-
+      The CI pipeline failed on this branch. Find the cause in the failure below and fix it with the smallest change:
+      the code, a test, or the build or CI config. Run the failing check locally when you can. Never weaken, skip or
+      delete a test to make it pass, and change nothing the fix does not need. What CI said:
+
+      {{data.ci_failure}}
+  - { id: commit, kind: code, name: "commit: fix(ci)", action: commit, phase: review-fix }
+  - { id: push, kind: code, name: push the fix, action: "git:push", phase: review-fix }
+  - { id: wait, kind: code, name: wait for CI, action: "ci:wait", soft: true, phase: review-fix }
+  - { id: red, kind: branch, name: CI still fails, when: { marker: RESULT, step: wait, equals: fail }, no: result, phase: review-fix }
+  - { id: still_red, kind: gate, name: "CI still fails: send it back to fix again, or stop", back: failure, phase: review-fix }
+  - { id: result, kind: gate, name: the fix and its CI run, phase: review-fix }

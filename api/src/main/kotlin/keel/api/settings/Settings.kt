@@ -35,6 +35,8 @@ data class Settings(
     val commitAuthor: String = "",
     /** keel's commits end with "Co-Authored-By: KeelBot <keel.dev.bot@gmail.com>". */
     val commitCoauthor: Boolean = true,
+    /** v0.11.0 CI/CD plugin: when a pipeline fails, notify (default), fix (start the ci-fix flow) or quiet. */
+    val ciOnFailure: String = "notify",
     val notify: String = "all",
     val envNames: List<String> = emptyList(),
     val mcp: List<String> = listOf("keel"),
@@ -44,7 +46,7 @@ data class Settings(
         val KEYS = listOf(
             "gates_mode", "run_mode", "keel_rules", "fix_attempts", "coverage_min", "default_model", "implementer_model",
             "reviewer_model", "cheaper_model", "cap_tokens", "on_cap", "usage_warn", "usage_pause", "branch_pattern", "web_lane_worktree",
-            "push_pr", "commit_author", "commit_coauthor", "notify", "env_names", "mcp",
+            "push_pr", "commit_author", "commit_coauthor", "ci_on_failure", "notify", "env_names", "mcp",
         )
         /** "Name <email>", the form git and GitHub show. */
         val AUTHOR = Regex("""^\s*[^<>]+?\s*<\s*[^<>\s]+@[^<>\s]+\s*>\s*$""")
@@ -54,6 +56,7 @@ data class Settings(
             "on_cap" to setOf("pause", "cheaper", "stop"),
             "notify" to setOf("all", "needs_you", "none"),
             "push_pr" to setOf("ask", "auto", "never"),
+            "ci_on_failure" to setOf("notify", "fix", "quiet"),
         )
     }
 }

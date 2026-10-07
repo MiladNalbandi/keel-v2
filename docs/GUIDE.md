@@ -103,7 +103,7 @@ starts or is saved until you press one.
   session, so a follow-up question is cheap (the context stays cached).
 - The model is the `helper` agent's (Agents page); change it for one chat in the panel.
 
-## Plugins: Database and Git
+## Plugins: Database, Git and CI/CD
 
 Turn them on in **Tools › Plugins** (for this project, or for every project). Nothing new to learn: they add to the
 pages you use.
@@ -123,8 +123,16 @@ pages you use.
   PR (`/commit`, `/pr`, `/sync`, `/branch` draft the next step) and gives buttons; workflows get `git:sync`,
   `git:push`, `git:pr`, `git:pr-checks` (wait for CI), `git:branch` and `git:cleanup`. keel never force-pushes and never
   pushes to main.
-- **Claude Code**: `keel2 mcp` adds the read tools (`keel_db_query`, `keel_git_status` …); `keel2 mcp --write` also
-  the acting ones, and each waits for your **Allow** in keel's Inbox.
+- **Database tool (Code page)**: with the Database plugin on, the Code page gets a **Database** activity, like the
+  database window of an IntelliJ IDE: every connection as a tree of tables and columns (keys, types, foreign keys).
+  Click a table for its data (and its structure); press the console icon on a connection for a query console
+  (⌘↵ runs the statement under the cursor). Several connections side by side: a local, a test and a read-only prod.
+- **CI/CD**: keel watches the pipelines on GitHub Actions (with the GitHub token) and tells you when one fails.
+  **Run › Jobs › Pipelines** shows the runs; open a failed one for its failed jobs and the end of the log, then
+  **Fix it** (the ci-fix flow: read the failure, fix, commit, push, wait for CI), **Run the failed jobs again**, or
+  **Ask KeelBot why** (`/ci`). **Settings › When CI fails**: tell me, start the fix flow by itself, or nothing.
+- **Claude Code**: `keel2 mcp` adds the read tools (`keel_db_query`, `keel_git_status`, `keel_ci_failure` …);
+  `keel2 mcp --write` also the acting ones, and each waits for your **Allow** in keel's Inbox.
 
 ## Quality
 

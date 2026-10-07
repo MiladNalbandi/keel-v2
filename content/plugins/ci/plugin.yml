@@ -1,0 +1,24 @@
+# The CI/CD plugin (engine keel_engine/plugins/ci). Installed per project on Tools › Plugins. keel watches the project's
+# pipelines on GitHub Actions (the token of Connections › GitHub): a failed run is a notification, Run › Jobs ›
+# Pipelines shows the runs and why one failed, and the ci-fix flow fixes it (it pushes with the Git plugin).
+name: ci
+title: CI/CD
+installable: true
+description: Watch the project's pipelines, see why one failed, and fix it with a flow.
+needs: [github]
+tools:
+  server: keel-ci
+  read: [ci_runs, ci_failure]
+actions: [ci:status, ci:wait, ci:logs, ci:rerun]
+workflows: [ci-fix]
+shows_in: [jobs, workflows, keelbot, settings]
+
+commands:
+  - name: ci
+    description: Why did CI fail on this branch, and what would fix it
+    prompt: |
+      Look at the pipelines of this branch (ci_runs) and, if one failed, at why (ci_failure). Say in plain words what
+      failed and the cause, with file:line where the log points at code. {{args}} Then say what the fix is. If the
+      failure is flaky (a timeout, the network), give a keel-ci block with op rerun; else give one with op fix.
+
+context: []

@@ -24,12 +24,14 @@ import {
 import { QuickOpen } from "./QuickOpen";
 import { ScmView } from "./Scm";
 import { SearchView } from "./Search";
+import { DbExplorer, DbTab, dbPath, dbTabTitle } from "../../components/plugins/DbTool";
 
-type Activity = "explorer" | "search" | "scm" | "keel";
+type Activity = "explorer" | "search" | "scm" | "db" | "keel";
 const ACTIVITIES: [Activity, string, string, string, string][] = [
   ["explorer", "Explorer", "files", "⇧E", "Files"],
   ["search", "Search", "search", "⇧F", "Search"],
   ["scm", "Source control", "branch", "⇧G", "Git"],
+  ["db", "Database", "database", "", "DB"],
   ["keel", "keel", "keel", "", "keel"],
 ];
 
@@ -58,6 +60,7 @@ function tabTitle(t: EditorTab): string {
   if (t.kind === "docs") return "Files keel wrote";
   if (t.kind === "memory") return "Memory";
   if (t.kind === "doctor") return "Workspace Doctor";
+  if (t.kind === "db") return dbTabTitle(t.path);
   if (t.kind === "commit") return `${nameOf(t.path)} @ ${t.sha?.slice(0, 7)}`;
   return nameOf(t.path);
 }
@@ -195,6 +198,9 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
     window.addEventListener("keel:ask-keelbot", on);
     return () => window.removeEventListener("keel:ask-keelbot", on);
   }, []);
+
+  const plugins = useLoad(`plugins:${pid}`, () => api.plugins(pid), { live: false });
+  const dbOn = !!plugins.data?.find((x) => x.name === "db")?.enabled;
 
   const askHelper = useCallback(() => {
     const picked = codeSelection();
@@ -336,6 +342,12 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
           onOpenCommitFile={(sha, p, pin) => open({ kind: "commit", path: p, sha, view: "diff" }, { pin })}
           onDoctor={() => open({ kind: "doctor", path: "doctor" }, { pin: true })} />
       </div>
+      {dbOn && (
+        <div hidden={activity !== "db"} className="sv-host">
+          <DbExplorer pid={pid} onConsole={(c) => open({ kind: "db", path: dbPath(c) }, { pin: true })}
+            onTable={(c, t, pin) => open({ kind: "db", path: dbPath(c, t) }, { pin })} />
+        </div>
+      )}
       <div hidden={activity !== "keel"} className="sv-host">
         <KeelView pid={pid} file={metaData} fileError={activeFile ? meta.error : null}
           onOpenDocs={() => open({ kind: "docs", path: "docs" }, { pin: true })}
@@ -364,6 +376,8 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
     body = <DocsView pid={pid} onOpen={(p) => openFile(p, true)} />;
   } else if (active.kind === "memory") {
     body = <MemoryView pid={pid} />;
+  } else if (active.kind === "db") {
+    body = <DbTab key={active.id} pid={pid} path={active.path} />;
   } else if (active.kind === "doctor") {
     body = <div className="ed-doc"><WorkspaceDoctor pid={pid} onClean={() => void changes.reload()} /></div>;
   } else if (active.kind === "commit") {
@@ -468,7 +482,7 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
   return (
     <div ref={root} className={`ide${phone ? ` phone s-${screen}` : ""}${sideOpen ? "" : " side-closed"}${helperOpen ? " help-open" : ""}`} style={ide}>
       <nav className="ide-act" aria-label="Repo views">
-        {ACTIVITIES.map(([id, label, icon, key, short]) => {
+        {ACTIVITIES.filter(([id]) => id !== "db" || dbOn).map(([id, label, icon, key, short]) => {
           const n = id === "scm" ? changes.data?.length ?? 0 : 0;
           return (
             <button key={id} type="button" className={`act${activity === id && sideOpen ? " on" : ""}`} aria-pressed={activity === id && sideOpen}

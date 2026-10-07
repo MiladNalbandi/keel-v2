@@ -128,6 +128,8 @@ data class Workflow(
     val folder: String? = null,
     val runs: Int? = null,
     val lastRun: LastRun? = null,
+    /** v0.11.0: a plugin's own workflow (ci-fix: ci); listed only for the projects that turned that plugin on. */
+    val plugin: String? = null,
 )
 
 /** A workflow's newest flow in the project (the Workflows page and KeelBot show it). */

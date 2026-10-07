@@ -1615,3 +1615,44 @@ POST /api/projects/{pid}/plugins/ask { title, command } → { id } · GET /api/p
   control › Git (branch, push, switch, commit, the PR's checks and comments, "Ask KeelBot to address the comments"),
   Workflows (a code step lists the plugins' blocks and edits `with:`), Inbox (Claude Code's questions).
 
+## v0.11.0: the CI/CD plugin, and the Database tool on the Code page
+
+**CI/CD plugin** (`content/plugins/ci`, `engine/keel_engine/plugins/ci`): the project's pipelines on GitHub Actions
+through `gh` and the token of Connections › GitHub.
+
+- A plugin may bring its own workflows (`workflows: [ci-fix]` → `content/plugins/ci/workflows/ci-fix.yaml`). The
+  engine's `GET /templates` lists them after keel's with `"plugin": "ci"`; the api lists one only for the projects that
+  turned that plugin on (`Workflow.plugin`).
+- **ci-fix**: `ci:logs` (the failure into `data.ci_failure`) → the implementer fixes it (phase review-fix: code, tests
+  and config) → commit (`fix(ci): …`) → `git:push` (needs the Git plugin; follows `push_pr`) → `ci:wait` (soft) → a
+  gate when CI still fails (back to the failure), else the result gate.
+- Steps: `ci:status {branch?}`, `ci:wait {minutes?}`, `ci:logs {run?}`, `ci:rerun {run?}`. Read tools for models
+  (MCP `keel-ci`): `ci_runs`, `ci_failure`. KeelBot gives `keel-ci {op: fix | rerun, run?}` buttons; `/ci` asks it why
+  CI failed.
+- **The watcher** (api, every 2 minutes, `keel.ci.tick-ms`): for each project with the plugin on and a GitHub token, a
+  failed run that finished in the last two hours and is not in V12 `ci_seen` is told once (notification `failed`,
+  link `/jobs/pipelines`). Settings `ci_on_failure`: `notify` (default) | `fix` (start ci-fix; only in the project
+  folder, free and on the run's branch; otherwise the notification says why not) | `quiet`.
+
+```
+GET  /api/projects/{pid}/ci/runs?branch=          → CiRun[] { id, workflow, title, branch, sha, event, status, conclusion,
+                                                     url, attempt, created_at, updated_at, failed }   (newest first)
+GET  /api/projects/{pid}/ci/runs/{id}             → CiRun + jobs [{id, name, status, conclusion, url, failed_steps}], log
+POST /api/projects/{pid}/ci/runs/{id}/rerun       → { id, rerun }          (gh run rerun --failed)
+POST /api/projects/{pid}/ci/fix  { run? }         → the ci-fix thread      (409: no Git plugin, another branch, folder busy)
+POST /api/projects/{pid}/ci/check                 → { told: [run ids] }    (the watcher's look, now)
+engine POST /plugins/ci/runs | run | rerun  { root, keys, branch?, limit?, run? }
+```
+
+- Pages: Run › Jobs › **Pipelines** (when the plugin is on; runs, a failed run's jobs, steps and log, Fix it, Run the
+  failed jobs again, Ask KeelBot why), Code › Source control › Git (**Why did CI fail?** on a PR with a failed check),
+  Settings › Git › **When CI fails**. keel2 mcp: `keel_ci_runs`, `keel_ci_failure`; `--write` `keel_ci_rerun` (asks).
+
+**Database tool on the Code page** (IntelliJ style; the Database plugin): a **Database** activity next to Source
+control. The side bar is a tree of every connection (kind, local / test / staging / prod, connected or not) ▸ its tables
+▸ their columns (primary keys, types, foreign keys `→ table.column`), with a filter. A connection opens a **console**
+tab (`kind: db`, path `<connection>`): the connection can be switched; ⌘↵ runs the statement under the cursor or the
+selection; the text and a history of 20 statements are kept per connection in the browser. A table opens a **table**
+tab (path `<connection>::<table>`): its first 100 rows with a WHERE filter, and its structure. A change of data in a
+console is counted first and runs after Run it, on a local or test database only (the same rules as everywhere).
+

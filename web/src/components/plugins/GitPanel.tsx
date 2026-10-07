@@ -9,8 +9,16 @@ import { Pill } from "../ui";
 
 /** Hand text to KeelBot's input (the Code page opens its panel; the person reads it and sends it). */
 export function askKeelBot(text: string) {
+  try {
+    sessionStorage.setItem(PREFILL_KEY, text);
+  } catch {
+    /* the Code page's panel still gets the event */
+  }
   window.dispatchEvent(new CustomEvent("keel:ask-keelbot", { detail: text }));
 }
+
+/** KeelBot's own page (#/keelbot) reads this once when it opens: text another page handed over. */
+export const PREFILL_KEY = "keel2.keelbot.prefill";
 
 const FAILED = new Set([
   "failure",
@@ -295,6 +303,15 @@ export function GitPanel({
                 onClick={() => askKeelBot(addressComments(p))}
               >
                 Ask KeelBot to address the comments
+              </button>
+            )}
+            {p.checks_failed > 0 && (
+              <button
+                type="button"
+                className="btn sm"
+                onClick={() => askKeelBot("/ci")}
+              >
+                Why did CI fail?
               </button>
             )}
           </div>

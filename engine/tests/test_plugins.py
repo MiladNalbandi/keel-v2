@@ -55,7 +55,7 @@ def keys(*conns, github=None):
 
 def test_the_catalog_lists_both_plugins_with_their_tools_steps_and_settings(client):
     cat = {p["name"]: p for p in client.get("/plugins").json()}
-    assert set(cat) == {"db", "git"}
+    assert set(cat) == {"db", "git", "ci"}
     assert cat["db"]["title"] == "Database" and cat["db"]["tools"] == {"server": "keel-db", "read": ["db_connections", "db_schema", "db_query"]}
     check = next(a for a in cat["db"]["actions"] if a["name"] == "db:check")
     assert check["with"] == {"sql": "required", "expect": "optional", "connection": "optional"} and "data check" in check["summary"]
@@ -213,7 +213,7 @@ def test_validation_knows_the_plugin_steps_and_their_settings():
     assert errs({"id": "a", "kind": "code", "name": "a", "action": "git:push", "with": {"force": True}}) == \
         ["Step 'a': git:push does not know `with: force`."]
     assert errs({"id": "a", "kind": "code", "name": "a", "action": "commit", "with": {"x": 1}}) == \
-        ["Step 'a': only a plugin step (db:..., git:...) takes `with`."]
+        ["Step 'a': only a plugin step (db:..., git:..., ci:...) takes `with`."]
     assert errs({"id": "a", "kind": "code", "name": "a", "action": "db:drop"}) == ["Step 'a': unknown action 'db:drop'."]
 
 

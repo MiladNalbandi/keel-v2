@@ -102,7 +102,9 @@ def test_estimate_cost_by_provider_and_premium():
 
 def test_api_validate_and_estimate(client):
     tpls = client.get("/templates").json()
-    assert [t["id"] for t in tpls] == ["feature", "change", "fix", "diagnose", "review", "init", "knowledge-refresh", "cover", "ship", "hunt", "hunt-next", "lint"]
+    assert [t["id"] for t in tpls] == ["feature", "change", "fix", "diagnose", "review", "init", "knowledge-refresh", "cover", "ship", "hunt", "hunt-next", "lint",
+                                       "ci-fix"]
+    assert tpls[-1]["plugin"] == "ci" and "plugin" not in tpls[0]       # a plugin's own workflow says whose it is
     good = tpls[0]["yaml"]
     r = client.post("/workflows/validate", json={"yaml": good}).json()
     assert r["ok"] and r["errors"] == [] and r["workflow"]["id"] == "feature"

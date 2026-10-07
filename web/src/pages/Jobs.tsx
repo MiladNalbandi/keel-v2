@@ -7,7 +7,8 @@ import { EmptyState } from "../components/EmptyState";
 import { StartFlowDrawer } from "../components/StartFlow";
 import { mergeSteps } from "../components/StepFeed";
 import { FilesTouched, Outcome, StepView, useJumpToStep } from "../components/StepView";
-import { ErrorBox, GoButton, Loading, PageHead, Panel, Pill, Prov, Since, StatusPill } from "../components/ui";
+import { PipelinesView } from "../components/plugins/Pipelines";
+import { ErrorBox, GoButton, Loading, PageHead, Panel, Pill, Prov, Since, StatusPill, Tabs } from "../components/ui";
 import { clock, kfmt, plural, since, usd } from "../format";
 import { go, useApp, useLoad, useRoute } from "../state";
 import { useJobSteps } from "./Live";
@@ -124,10 +125,26 @@ export function JobsPage({ pid }: { pid: string }) {
   const showCost = list.some((j) => j.cost_usd > 0);
   const cols = 7 + (showProject ? 1 : 0) + (showCost ? 1 : 0);
   const open = arg && list.some((j) => j.id === arg) ? arg : null;
+  const plugins = useLoad(`plugins:${pid}`, () => api.plugins(pid), { live: false });
+  const ciOn = !!plugins.data?.find((p) => p.name === "ci")?.enabled;
+  const tabs = ciOn ? (
+    <Tabs value={arg === "pipelines" ? "pipelines" : "calls"} label="Jobs view" onChange={(t) => go("jobs", t === "pipelines" ? "pipelines" : undefined)}
+      options={[["calls", "Agent calls"], ["pipelines", "Pipelines"]]} />
+  ) : null;
+  if (ciOn && arg === "pipelines") {
+    return (
+      <>
+        <PageHead title="Jobs" sub="Agent calls, and the project's CI pipelines (CI/CD plugin)." />
+        <div style={{ marginBottom: 12 }}>{tabs}</div>
+        <PipelinesView pid={pid} />
+      </>
+    );
+  }
   return (
     <>
       <PageHead title="Jobs" sub="Every agent call: what runs now, and everything before. Open a row to see its steps."
         actions={running.data ? (n ? <Pill tone="run">{n} running now</Pill> : <Pill tone="idle">nothing running</Pill>) : undefined} />
+      {tabs && <div style={{ marginBottom: 12 }}>{tabs}</div>}
       {running.error && <div style={{ marginBottom: 16 }}><ErrorBox error={running.error} onRetry={() => void running.reload()} /></div>}
       {n > 0 && (
         <section className="jobs-sec" aria-labelledby="jobs-now-h">

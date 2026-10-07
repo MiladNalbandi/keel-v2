@@ -31,11 +31,10 @@ END = "end"          # a branch's no, or a gate choice, may finish the flow
 
 
 def _plugin_params() -> dict[str, dict]:
-    """The plugins' step actions (plugins/db, plugins/git) with what each needs in `with:`."""
-    from ..plugins.db.actions import PARAMS as DB
-    from ..plugins.git.actions import PARAMS as GIT
+    """The plugins' step actions (plugins/db, git, ci) with what each needs in `with:`."""
+    from ..plugins import action_params
 
-    return {**DB, **GIT}
+    return action_params()
 
 
 def _action_ok(action: str) -> bool:
@@ -47,7 +46,7 @@ def _with_errors(where: str, s) -> list[str]:
     """A plugin step's `with:`: the settings it needs are there, and it has none it does not know."""
     plugin = [a for a in s.actions() if a in _plugin_params()]
     if not plugin:
-        return [f"{where}: only a plugin step (db:..., git:...) takes `with`."] if s.params else []
+        return [f"{where}: only a plugin step (db:..., git:..., ci:...) takes `with`."] if s.params else []
     errs, known = [], {}
     for a in plugin:
         known.update(_plugin_params()[a])

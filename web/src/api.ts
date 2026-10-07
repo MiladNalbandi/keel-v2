@@ -588,6 +588,13 @@ export type GitStatus = {
   pushed: boolean; changes: { path: string; status: string }[];
 };
 export type GitBranch = { name: string; current: boolean; ahead: number; behind: number; date: string; subject: string };
+/** v0.11.0 CI/CD plugin: a pipeline run on GitHub Actions; a run's detail adds its jobs and the failed steps' log. */
+export type CiRun = {
+  id: number; workflow: string; title: string; branch: string; sha: string; event: string; status: string;
+  conclusion: string | null; url: string; attempt?: number; created_at: string; updated_at: string; failed: boolean;
+  jobs?: { id: number; name: string; status: string; conclusion: string | null; url: string; failed_steps: string[] }[];
+  log?: string;
+};
 export type PullRequest = {
   number: number; title: string; url: string; state: string; draft?: boolean; review?: string | null; base?: string; branch?: string;
   checks: { name: string; state: string; url: string }[]; checks_done: number; checks_failed: number;
@@ -759,6 +766,8 @@ export type Settings = {
   commit_author?: string;
   /** keel's commits end with Co-Authored-By: KeelBot <keel.dev.bot@gmail.com> (on by default) */
   commit_coauthor?: boolean;
+  /** v0.11.0 CI/CD plugin: when a pipeline fails: notify | fix (start the ci-fix flow) | quiet */
+  ci_on_failure?: "notify" | "fix" | "quiet";
   notify: "all" | "needs_you" | "none";
   env_names: string[];
   mcp: string[];
@@ -1078,6 +1087,11 @@ export const api = {
   dbSchema: (pid: string, connection?: string) => get<LiveSchema>(`/projects/${e(pid)}/db/schema${q({ connection })}`),
   dbQuery: (pid: string, body: { connection?: string; sql: string; change?: boolean; confirm?: boolean }) =>
     post<DbResult>(`/projects/${e(pid)}/db/query`, body),
+  ciRuns: (pid: string, branch?: string) => get<CiRun[]>(`/projects/${e(pid)}/ci/runs${q({ branch })}`),
+  ciRun: (pid: string, id: number) => get<CiRun>(`/projects/${e(pid)}/ci/runs/${id}`),
+  ciRerun: (pid: string, id: number) => post<{ id: number; rerun: boolean }>(`/projects/${e(pid)}/ci/runs/${id}/rerun`),
+  ciFix: (pid: string, run?: number) => post<ThreadState>(`/projects/${e(pid)}/ci/fix`, run ? { run } : {}),
+  ciCheck: (pid: string) => post<{ told: number[] }>(`/projects/${e(pid)}/ci/check`),
   gitStatus: (pid: string) => get<GitStatus>(`/projects/${e(pid)}/git/status`),
   gitBranches: (pid: string) => get<GitBranch[]>(`/projects/${e(pid)}/git/branches`),
   gitPr: (pid: string) => get<{ pr: PullRequest | null }>(`/projects/${e(pid)}/git/pr`),

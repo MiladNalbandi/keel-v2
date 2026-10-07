@@ -302,6 +302,22 @@ DOCS: dict[str, dict] = {
         "summary": "Git plugin: deletes local branches already merged into the base, and prunes old worktrees.",
         "steps": ["git branch -d refuses anything that is not merged, so no work is lost."],
     },
+    "ci:status": {
+        "summary": "CI/CD plugin: the newest pipeline runs of this commit (or a branch); passes when all are done and green.",
+        "steps": ["with: branch (default: the runs of HEAD). A run that is still going fails the step (soft: a branch reads it)."],
+    },
+    "ci:wait": {
+        "summary": "CI/CD plugin: waits for the pipelines of this commit after a push; a failed run fails the step.",
+        "steps": ["with: minutes (default 30). The failed run's jobs, steps and log go to data.ci_failure."],
+    },
+    "ci:logs": {
+        "summary": "CI/CD plugin: reads why the newest failed pipeline of this branch failed, into data.ci_failure.",
+        "steps": ["with: run (a run id; default the newest failed run of the branch). No failed run fails the step."],
+    },
+    "ci:rerun": {
+        "summary": "CI/CD plugin: runs the failed jobs of a pipeline again (for a flaky failure).",
+        "steps": ["with: run (default the newest failed run of the branch)."],
+    },
     # ---------------------------------------------------------------- compiler
     "start_flow": {
         "summary": "Starts another workflow's thread on this project with a seed; both threads keep the link.",

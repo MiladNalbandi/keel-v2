@@ -68,3 +68,57 @@
 
 /* KeelBot's query and git buttons */
 .kb-msg { width: 100%; resize: vertical; font: inherit; font-size: 12.5px; }
+
+/* Run › Jobs › Pipelines (CI/CD plugin) */
+.ci { display: grid; gap: 10px; min-width: 0; }
+.ci-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ci-table tr.on td { background: var(--accent-soft); }
+.ci-table td { vertical-align: middle; }
+.ci-detail > td { background: var(--panel-2); }
+.ci-run { display: grid; gap: 10px; min-width: 0; padding: 4px 2px; }
+.ci-jobs { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }
+.ci-jobs li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ci-log { margin: 0; max-height: 320px; overflow: auto; padding: 10px 12px; border-radius: 8px; background: var(--panel);
+  border: 1px solid var(--border); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ci-run .row { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* Code › Database (IntelliJ-style tool window): connections ▸ tables ▸ columns, and console / table tabs */
+.db-sv { display: flex; flex-direction: column; min-height: 0; height: 100%; }
+.db-find { width: 100%; }
+.db-tree, .db-tree ul { list-style: none; margin: 0; padding: 0; }
+.db-tree { overflow: auto; flex: 1 1 auto; padding-bottom: 12px; font-size: 12.5px; }
+.db-tree ul { padding-left: 14px; }
+.db-row { display: flex; align-items: center; gap: 5px; min-width: 0; padding: 2px 8px 2px 6px; color: var(--fg); }
+.db-row:hover { background: var(--ide-hover, var(--panel-2)); }
+.db-twist { border: 0; background: none; color: var(--dim); width: 14px; padding: 0; cursor: pointer; font-size: 10px; flex: none; }
+.db-name { border: 0; background: none; color: inherit; font: inherit; padding: 0; cursor: pointer; text-align: left;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.db-conn .db-name { font-weight: 600; }
+.db-env { font-size: 10.5px; padding: 0 6px; border-radius: 999px; flex: none; }
+.db-env.rw { background: var(--run-soft); color: var(--run); }
+.db-env.ro { background: var(--warn-soft); color: var(--warn); }
+.db-act { margin-left: auto; border: 0; background: none; color: var(--dim); padding: 2px; border-radius: 4px; cursor: pointer;
+  display: inline-flex; opacity: 0; }
+.db-row:hover .db-act, .db-act:focus-visible { opacity: 1; }
+.db-act:hover { color: var(--accent); }
+.db-meta { padding-left: 26px; font-size: 11.5px; }
+.db-count { margin-left: auto; font-size: 11px; }
+.db-col { font-family: var(--f-mono); font-size: 12px; }
+.db-key { color: var(--dim); display: inline-flex; flex: none; }
+.db-pk { font-weight: 600; }
+.db-col .db-key:has(+ .db-pk) { color: var(--warn); }
+.db-type { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.db-fk { font-size: 11px; color: var(--accent); white-space: nowrap; }
+.db-err-row { color: var(--bad); white-space: normal; }
+.db-console { display: grid; grid-template-rows: auto auto 1fr; height: 100%; min-height: 0; min-width: 0; }
+.db-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 10px; border-bottom: 1px solid var(--ide-line, var(--border)); }
+.db-bar .btn { display: inline-flex; align-items: center; gap: 5px; }
+.db-views { display: inline-flex; margin-left: auto; border: 1px solid var(--ide-line, var(--border)); border-radius: 7px; overflow: hidden; }
+.db-views button { border: 0; background: none; color: var(--dim); font: inherit; font-size: 12px; padding: 3px 10px; cursor: pointer; }
+.db-views button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.db-sql { width: 100%; min-height: 140px; max-height: 45vh; resize: vertical; border: 0; border-bottom: 1px solid var(--ide-line, var(--border));
+  background: var(--ide-bg, var(--panel)); color: var(--fg); padding: 10px 12px; font-size: 13px; line-height: 1.55; tab-size: 2; outline: none; }
+.db-out { overflow: auto; padding: 10px 12px; min-height: 0; display: grid; gap: 8px; align-content: start; }
+.db-where { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--ide-line, var(--border)); }
+.db-where input { flex: 1 1 auto; min-width: 0; }
+.qp-table th { text-transform: none; letter-spacing: 0; }

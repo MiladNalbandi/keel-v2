@@ -115,7 +115,7 @@ async def run_action(action: str, a: ActionInput) -> ActionResult:
         return await asyncio.to_thread(push_check, a)
     if action.startswith("run:"):
         return await run_command(action[4:].strip(), a)
-    if action.startswith(("db:", "git:")):
+    if action.startswith(("db:", "git:", "ci:")):
         from .. import plugins
 
         return await plugins.run_action(action, a)
@@ -382,7 +382,7 @@ def commit(a: ActionInput) -> ActionResult:
 
     rule = rules.COMMIT_RULES[ctype]
     bug = ctype in ("fix", "red") or (ctype == "e2e" and a.flow == "fix")
-    named = {"review-fix": "review", "integration": "integration"}.get(a.phase)
+    named = "ci" if a.flow == "ci-fix" else {"review-fix": "review", "integration": "integration"}.get(a.phase)
     ident = "" if rule.get("noId") else ((a.ac or {}).get("id") or a.ident or named or ("BUG" if bug else ""))
     subject = (a.ac or {}).get("title") or a.title or a.flow
     if ctype == "setup":

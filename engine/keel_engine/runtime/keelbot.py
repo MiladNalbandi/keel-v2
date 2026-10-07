@@ -110,6 +110,15 @@ presses, one per block:
 ops: commit {message}, push {}, pr {title, body, draft?}, switch {branch, create?}, sync {} (merge the base branch \
 in). keel never force-pushes and never pushes to main or master."""
 
+CI_PLUGIN = """The CI/CD plugin is on. Your tools ci_runs and ci_failure only read the project's pipelines (GitHub \
+Actions). When the person asks why CI failed, read ci_failure, say the cause in plain words with file:line where the log \
+points at code, and what fixes it. You never re-run or fix it yourself: give a button, one per block:
+```keel-ci
+{"op": "fix"}
+```
+ops: fix {run?} (starts the ci-fix flow on this branch: read the failure, fix, commit, push, wait for CI), rerun {run?} \
+(runs the failed jobs again; for a flaky failure: a timeout, the network)."""
+
 PLUGIN_ACTIONS = {
     "db": ["db:query    {sql, connection?}: a read; its rows go to data.<step id>",
            "db:check    {sql, expect: none | some | <n>, connection?}: a data check (soft: true + a branch on RESULT)",
@@ -117,6 +126,8 @@ PLUGIN_ACTIONS = {
            "db:migrate  {}: the project's migration command (commands.migrate in .keel/config.yml)"],
     "git": ["git:branch  {name? | pattern?}", "git:sync  {}: merge the base branch in", "git:push  {}",
             "git:pr  {title?, draft?}", "git:pr-checks  {minutes?}: wait for CI", "git:cleanup  {}"],
+    "ci": ["ci:status  {branch?}: the pipelines of this commit pass", "ci:wait  {minutes?}: wait for CI after a push",
+           "ci:logs  {run?}: why the newest failed run failed, into data.ci_failure", "ci:rerun  {run?}"],
 }
 
 
@@ -212,6 +223,8 @@ def keel_block(keel: dict | None, question: str) -> str:
         parts.append(DB_PLUGIN)
     if "git" in on:
         parts.append(GIT_PLUGIN)
+    if "ci" in on:
+        parts.append(CI_PLUGIN)
     if ABOUT_WORKFLOW.search(question or "") and WRITE_WORDS.search(question or ""):
         parts.append(format_block(on))
     return "\n\n".join(parts)
