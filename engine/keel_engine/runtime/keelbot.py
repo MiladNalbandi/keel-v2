@@ -71,10 +71,12 @@ steps:                    # run one after another, top to bottom
   - { id: <id>, kind: gate, name: <what the person checks>, back: <an earlier step to go back to on reject> }
   - { id: <id>, kind: branch, name: <the question>, when: { marker: RESULT, step: <step id>, equals: pass }, no: <step id> }
 A workflow does not need agents: a few code steps (`run: <shell command>`) and a gate automate a task without any \
-model. Use only the steps the task needs. `phase` decides which files a step may change (leave it out for steps that \
+model. Use only the steps the task needs. A `run:` command must be this project's own: look it up first (the \
+`commands` in .keel/config.yml, package.json scripts, pyproject.toml, the Gradle or Maven build, a Makefile); never \
+copy the example's commands. `phase` decides which files a step may change (leave it out for steps that \
 change nothing). A `run:` command goes through keel's shell guard: no git commit or push (use the commit action), no \
 dependency install.
-Example, code steps only:
+Example, code steps only (for a project whose tests run with npm):
 ```keel-workflow
 id: check-before-push
 name: check before push

@@ -22,9 +22,12 @@ function readOpen(): boolean {
 export function FlowRuns({
   pid,
   selected,
+  loading = false,
 }: {
   pid: string;
   selected: string | null;
+  /** the open flow is still loading: no tab back to "the" running flow yet */
+  loading?: boolean;
 }) {
   const runs = useLoad(`runs:${pid}`, () => api.runs(pid, undefined, 50));
   const [open, setOpen] = useState(readOpen);
@@ -48,7 +51,7 @@ export function FlowRuns({
   };
   return (
     <section className="fr" aria-label="This project's flows">
-      {(now.length > 1 || (now.length === 1 && now[0].thread_id !== selected)) && (
+      {(now.length > 1 || (!loading && now.length === 1 && now[0].thread_id !== selected)) && (
         <div className="fr-tabs" role="tablist" aria-label="Flows that run now">
           {now.map((r) => (
             <button

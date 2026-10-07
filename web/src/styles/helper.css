@@ -120,7 +120,9 @@
 /* the Helper on a page of its own (#/helper, pages/Helper.tsx): one wide, readable chat column */
 .helper-page { height: calc(100dvh - var(--hp-top, 150px) - 14px); min-height: 420px; display: flex;
   border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--panel); }
-.hp.page { --hp-col: 920px; }
+/* KeelBot alone (#/keelbot) sits outside the Code page's .ide: the same colours, so its cards keep their borders */
+.hp.page { --hp-col: 920px; --ide-bg: var(--panel); --ide-side: var(--bg); --ide-line: var(--border);
+  --ide-hover: color-mix(in srgb, var(--fg) 6%, transparent); }
 .hp.page .hp-head, .hp.page .hp-sessions, .hp.page .hp-fixbar, .hp.page .hp-model { padding-inline: max(16px, calc((100% - var(--hp-col)) / 2)); }
 .hp.page .hp-body { padding-inline: max(16px, calc((100% - var(--hp-col)) / 2)); gap: 18px; }
 .hp.page .hp-compose { padding-inline: max(14px, calc((100% - var(--hp-col)) / 2)); }

@@ -40,7 +40,7 @@ export function FlowPage({ pid }: { pid: string }) {
   const [start, setStart] = useState(false);
   return (
     <>
-      <FlowRuns pid={pid} selected={flow.data?.thread?.thread_id ?? null} />
+      <FlowRuns pid={pid} selected={flow.data?.thread?.thread_id ?? null} loading={!flow.data} />
       {showBoard(board.data) && (
         <FlowBoardView board={board.data!} selected={flow.data?.thread?.thread_id ?? null} onChanged={() => void board.reload()} />
       )}
