@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-VERSION = "0.11.0"   # keel v2 release; a test keeps it equal to KEEL2_VERSION in keel2
+VERSION = "0.11.1"   # keel v2 release; a test keeps it equal to KEEL2_VERSION in keel2
 
 
 def data_dir() -> Path:
