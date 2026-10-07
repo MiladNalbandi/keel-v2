@@ -1,7 +1,7 @@
 // MSW handlers for every /api route the web uses, backed by a small in-memory db (reset per test).
 
 import { http, HttpResponse } from "msw";
-import type { Cap, CapLeft, CapsLeft, FlowBoard, FlowView, GraphFocus, GraphOverview, HelperChange, HelperDone, HelperQuestion, HelperSession, IndexStatus, OnCap, Settings, Stack, ThreadState, Workflow } from "../api";
+import type { Cap, CapLeft, CapsLeft, FlowBoard, FlowView, GraphFocus, GraphOverview, HelperChange, HelperDone, HelperQuestion, HelperSession, IndexStatus, OnCap, RunRow, Settings, Stack, ThreadState, Workflow, WorkflowCheck } from "../api";
 import * as fx from "./fixtures";
 import { createTaskDb, taskHandlers } from "./taskHandlers";
 
@@ -38,7 +38,7 @@ export function createDb() {
     /** GET /budget/now without its caps (they come from `caps` and `capUse`, as GET /caps/left). */
     budgetNow: fx.budgetNow(),
     /** GET /graph and GET /graph/node answers (tests change them). */
-    /** keel's Helper: sessions as the engine keeps them (tests add the answers and send the helper.* events) */
+    /** KeelBot: sessions as the engine keeps them (tests add the answers and send the helper.* events) */
     helper: { sessions: [] as HelperSession[], next: 1,
       /** Fix mode: each chat's changed files, the commands that wait for an OK, and what Done answers (null: it commits) */
       changes: {} as Record<string, HelperChange[]>, questions: [] as HelperQuestion[], done: null as HelperDone | null,
@@ -47,6 +47,9 @@ export function createDb() {
     graph: fx.graphOverview() as GraphOverview,
     graphFocus: fx.graphFocus() as GraphFocus,
     calls: [] as { method: string; path: string; body: unknown }[],
+    /** v0.9.0: each project's flows, newest first (GET /runs), and what POST /workflows/import saves (null: the fix workflow) */
+    runs: {} as Record<string, RunRow[]>,
+    importAs: null as Workflow | null,
     /** v0.5.0: tasks, Jira connections, the MCP catalog */
     tk: createTaskDb(),
   };
@@ -239,8 +242,34 @@ export function handlers(db: Db) {
       return HttpResponse.json(fx.explanation(String(b.step_id), Boolean(b.thread_id)));
     }),
     http.post("/api/projects/:pid/workflows/import", async ({ request }) => {
-      await log(request);
-      return HttpResponse.json({ workflow: fx.fixWorkflow, review: { agents: ["reproducer"], mcp: [], gates: 1, est_tokens: 60000, edits_files: true } });
+      const b = (await log(request)) as { folder?: string };
+      const w = { ...(db.importAs ?? fx.fixWorkflow), folder: b.folder ?? null };
+      if (db.importAs) db.workflows.push(w);
+      return HttpResponse.json({ workflow: w, review: { agents: ["reproducer"], mcp: [], gates: 1, est_tokens: 60000, edits_files: true } });
+    }),
+    // v0.9.0: keel's check of a workflow KeelBot wrote; the folders of the Workflows page; a project's flows
+    http.post("/api/projects/:pid/workflows/check", async ({ request }) => {
+      const { yaml } = (await log(request)) as { yaml: string };
+      const lines = yaml.split("\n");
+      const check: WorkflowCheck = {
+        name: yaml.match(/^name:\s*(.+)$/m)?.[1] ?? "", steps: lines.filter((l) => /^\s*- \{?\s*id:/.test(l)).length,
+        gates: lines.filter((l) => /kind: gate/.test(l)).length, keel_rules: /keel_rules: true/.test(yaml),
+        agents: [...yaml.matchAll(/agent: ([\w-]+)/g)].map((m) => m[1]), mcp: [], tools: [],
+        commands: [...yaml.matchAll(/action: "run: ([^"]+)"/g)].map((m) => m[1]), edits_files: false,
+        valid: !yaml.includes("INVALID"), errors: yaml.includes("INVALID") ? ["Step 'look': INVALID is not a step kind."] : [], warnings: [],
+      };
+      return HttpResponse.json(check);
+    }),
+    http.put("/api/projects/:pid/workflows/:wid/folder", async ({ request, params }) => {
+      const { folder } = (await log(request)) as { folder: string };
+      const f = folder.trim() || null;
+      db.workflows = db.workflows.map((w) => (w.id === params.wid ? { ...w, folder: f } : w));
+      return HttpResponse.json({ folder: f });
+    }),
+    http.get("/api/projects/:pid/runs", ({ request, params }) => {
+      const u = new URL(request.url);
+      const wf = u.searchParams.get("workflow");
+      return HttpResponse.json((db.runs[params.pid as string] ?? []).filter((r) => !wf || r.workflow_id === wf).slice(0, Number(u.searchParams.get("limit") ?? 20)));
     }),
     http.get("/api/library", () => HttpResponse.json(fx.library)),
     http.post("/api/projects/:pid/library/:id/install", async ({ request }) => { await log(request); return HttpResponse.json(fx.fixWorkflow); }),
@@ -311,7 +340,7 @@ export function handlers(db: Db) {
     }),
     http.get("/api/projects/:pid/helper/sessions/:sid", ({ params }) => {
       const sess = db.helper.sessions.find((x) => x.id === params.sid);
-      return sess ? HttpResponse.json(sess) : HttpResponse.json({ error: "No Helper session" }, { status: 404 });
+      return sess ? HttpResponse.json(sess) : HttpResponse.json({ error: "No KeelBot session" }, { status: 404 });
     }),
     http.patch("/api/projects/:pid/helper/sessions/:sid", async ({ request, params }) => {
       const b = (await log(request)) as { title?: string; model?: HelperSession["model"] };
@@ -355,7 +384,7 @@ export function handlers(db: Db) {
         db.helper.changes[sid] = [];
         db.helper.kept[sid] = [...(db.helper.kept[sid] ?? []), { sha: res.sha, subject: `fix(helper): ${res.message}` }];
         const sess = db.helper.sessions.find((x) => x.id === sid)!;
-        sess.messages = [...(sess.messages ?? []), { n: (sess.messages?.length ?? 0) + 1, role: "note", text: "keel committed the Helper's change: helper: fix",
+        sess.messages = [...(sess.messages ?? []), { n: (sess.messages?.length ?? 0) + 1, role: "note", text: "keel committed KeelBot's change: helper: fix",
           data: { status: "committed", sha: res.sha, files }, at: new Date().toISOString() }];
       }
       return HttpResponse.json(res);

@@ -84,7 +84,7 @@ class EventService(
                 val agent = d.str("agent") ?: "An agent"
                 notifications.create("started", e.projectId, "$agent started", listOfNotNull(d.str("phase"), d.str("ac")).joinToString(" · "), "/jobs/$id")
             }
-            // keel's Helper (engine runtime/helper.py): its turns are agent calls (budget, Live agents, Jobs) but never a flow
+            // KeelBot (engine runtime/helper.py): its turns are agent calls (budget, Live agents, Jobs) but never a flow
             "helper.started" -> {
                 val id = e.callId ?: "${e.threadId}:${e.step}:$at"
                 jdbc.update(
@@ -95,8 +95,8 @@ class EventService(
                     d.str("phase"), at, modeOf(d.str("provider"), d.str("mode")),
                 )
             }
-            // a Fix chat's command waits for the person's OK (a card in the Helper panel and the Inbox)
-            "helper.permission" -> notifications.create("review", e.projectId, "The Helper asks to run a command",
+            // a Fix chat's command waits for the person's OK (a card in KeelBot's panel and the Inbox)
+            "helper.permission" -> notifications.create("review", e.projectId, "KeelBot asks to run a command",
                 d.str("command")?.take(300) ?: "", "/projects/${e.projectId}/repo", threadId = e.threadId, step = "permission")
             "helper.permission.answered" -> notifications.markDone(e.threadId)
             "agent.step", "helper.step" -> {

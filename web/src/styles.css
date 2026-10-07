@@ -937,6 +937,10 @@ button.sx-x:hover { box-shadow: 0 0 0 2px var(--ink); }
 .wf-top { display: grid; gap: 8px; padding: 12px 14px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; }
 .wf-top.is-dirty { border-color: color-mix(in srgb, var(--warn) 55%, var(--border)); }
 .wf-top-row { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; justify-content: space-between; }
+/* v0.9.0: the workflow's folder on this page, and its runs (the newest opens on the Flow page) */
+.wf-folder { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dim); }
+.wf-folder input { width: 150px; }
+.wf-last { white-space: nowrap; }
 .wf-title { display: grid; gap: 2px; min-width: 0; }
 .wf-title h2 { margin: 0; font-size: 18px; letter-spacing: -.01em; overflow-wrap: anywhere; }
 .wf-sub { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; color: var(--dim); font-size: 12.5px; }
@@ -1056,3 +1060,20 @@ button.sx-x:hover { box-shadow: 0 0 0 2px var(--ink); }
   .rail-foot { display: flex; flex-direction: column; align-items: center; gap: 6px; padding-top: 6px; border-top: 1px solid var(--border); width: 32px; }
 }
 @media (max-width: 900px) { .hide-nav { display: none; } }
+
+/* v0.9.0 the Flow page's flows (components/FlowRuns.tsx): tabs for the flows that run now, and the history */
+.fr { display: grid; gap: 8px; margin-bottom: 12px; min-width: 0; }
+.fr-tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+.fr-tab { display: inline-flex; align-items: center; gap: 7px; flex: none; max-width: 280px; padding: 6px 11px; border: 1px solid var(--border);
+  border-radius: 999px; background: var(--panel); color: var(--fg); font: inherit; font-size: 13px; cursor: pointer; }
+.fr-tab:hover { border-color: var(--accent); }
+.fr-tab.on { border-color: var(--accent); background: var(--accent-soft); }
+.fr-tab-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.fr-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--faint); }
+.fr-dot.running { background: var(--run); } .fr-dot.waiting { background: var(--warn); }
+.fr-more { justify-self: start; border: 0; background: none; padding: 2px 0; color: var(--fg); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.fr-hist { display: grid; gap: 8px; min-width: 0; }
+.fr-filter { display: inline-flex; align-items: center; gap: 6px; }
+.fr-table tr.on td { background: var(--accent-soft); }
+.fr-table td { vertical-align: middle; }
+

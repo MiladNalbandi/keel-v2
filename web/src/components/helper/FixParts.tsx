@@ -1,12 +1,12 @@
-// The Helper's Fix mode (a flow waits at a gate) and side sessions (their own worktree): the command that waits for the
-// person's OK, the files the Helper changed in this chat (Diff, Undo, Undo all), Done / Keep, where keel runs the checks
+// KeelBot's Fix mode (a flow waits at a gate) and side sessions (their own worktree): the command that waits for the
+// person's OK, the files KeelBot changed in this chat (Diff, Undo, Undo all), Done / Keep, where keel runs the checks
 // and commits only those files, and a side session's hand-overs (a task, a flow on its branch, throw away).
 
 import { useState } from "react";
 import { api, errorParts, type HelperChange, type HelperDone, type HelperHandover, type HelperQuestion, type HelperSession } from "../../api";
 import { DiffView, FoldedText } from "../Code";
 
-/** "May the Helper run this?" Allow once, Always (this command, for the rest of the chat), or Deny with a reason. */
+/** "May KeelBot run this?" Allow once, Always (this command, for the rest of the chat), or Deny with a reason. */
 export function PermissionCard({ pid, q, onAnswered }: { pid: string; q: HelperQuestion; onAnswered: () => void }) {
   const [why, setWhy] = useState("");
   const [busy, setBusy] = useState(false);
@@ -23,11 +23,11 @@ export function PermissionCard({ pid, q, onAnswered }: { pid: string; q: HelperQ
     }
   };
   return (
-    <div className="hp-perm" role="group" aria-label="The Helper asks to run a command">
-      <p className="hp-perm-q"><b>May the Helper run this?</b> It changes something, so keel asks you first.</p>
+    <div className="hp-perm" role="group" aria-label="KeelBot asks to run a command">
+      <p className="hp-perm-q"><b>May KeelBot run this?</b> It changes something, so keel asks you first.</p>
       <pre className="hp-perm-cmd">{q.command}</pre>
       <input className="hp-perm-why" value={why} onChange={(e) => setWhy(e.target.value)} aria-label="Why not (optional)"
-        placeholder="Why not (optional, the Helper reads it)" />
+        placeholder="Why not (optional, KeelBot reads it)" />
       <div className="hp-perm-btns">
         <button type="button" className="btn sm warn" disabled={busy} onClick={() => void answer("once")}>Allow once</button>
         <button type="button" className="btn sm" disabled={busy} onClick={() => void answer("always")}
@@ -39,7 +39,7 @@ export function PermissionCard({ pid, q, onAnswered }: { pid: string; q: HelperQ
   );
 }
 
-/** The files the Helper changed in this chat, against what they were before its first change. */
+/** The files KeelBot changed in this chat, against what they were before its first change. */
 export function ChangesBox({ changes, busy, title, doneLabel = "Done: run the checks and commit", onOpen, onUndo, onDone }: {
   changes: HelperChange[];
   busy: boolean;
@@ -54,7 +54,7 @@ export function ChangesBox({ changes, busy, title, doneLabel = "Done: run the ch
   const [shown, setShown] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   return (
-    <section className="hp-changes" aria-label="What the Helper changed">
+    <section className="hp-changes" aria-label="What KeelBot changed">
       <header className="hp-changes-head">
         <b>Changed files</b><span className="hp-sub">{changes.length}</span>
         <button type="button" className="hp-tb" disabled={busy} onClick={() => onUndo()}>Undo all</button>
@@ -129,7 +129,7 @@ export function SideBar({ s, handover, busy, onTask, onFlow, onThrow }: {
   );
 }
 
-/** Done did not commit: why, the checks' output, and a way to hand the failure back to the Helper. */
+/** Done did not commit: why, the checks' output, and a way to hand the failure back to KeelBot. */
 export function DoneFailed({ res, onAskFix, onClose }: { res: Extract<HelperDone, { ok: false }>; onAskFix: () => void; onClose: () => void }) {
   return (
     <div className="hp-failed" role="alert">
@@ -137,14 +137,14 @@ export function DoneFailed({ res, onAskFix, onClose }: { res: Extract<HelperDone
       {res.command && <p className="hp-sub">Checks: <code>{res.command}</code></p>}
       {res.output && <FoldedText text={res.output} fold={20} className="hp-out" />}
       <div className="hp-perm-btns">
-        {res.step !== "changes" && <button type="button" className="btn sm primary" onClick={onAskFix}>Ask the Helper to fix it</button>}
+        {res.step !== "changes" && <button type="button" className="btn sm primary" onClick={onAskFix}>Ask KeelBot to fix it</button>}
         <button type="button" className="btn sm ghost" onClick={onClose}>Close</button>
       </div>
     </div>
   );
 }
 
-/** What the Helper reads when the person hands a failed Done back to it. */
+/** What KeelBot reads when the person hands a failed Done back to it. */
 export function fixRequest(res: Extract<HelperDone, { ok: false }>): string {
   const tail = (res.output ?? "").split("\n").slice(-60).join("\n").trim();
   const head = res.step === "checks"

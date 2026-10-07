@@ -8,7 +8,7 @@ import "./styles/run.css";
 import "./styles/pages.css";
 // The Map's diagrams (components/er).
 import "./styles/diagram.css";
-// The Repo page's small IDE (activity bar, side bar, editor tabs, status bar).
+// The Code page's small IDE (activity bar, side bar, editor tabs, status bar).
 import "./styles/repo.css";
 import "./styles/graph.css";
 import "./styles/helper.css";

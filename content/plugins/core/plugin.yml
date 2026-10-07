@@ -1,8 +1,8 @@
 # keel's own Helper commands. A plugin is a folder with this file: keel's in content/plugins/, a project's own in
 # <project>/.keel/plugins/<name>/plugin.yml (a project command with the same name replaces keel's).
 #
-#   commands   /name in the Helper: the prompt template is sent instead; {{args}} is the rest of the line
-#   context    project files the Helper is pointed at in every prompt (for example docs/ARCHITECTURE.md)
+#   commands   /name in KeelBot: the prompt template is sent instead; {{args}} is the rest of the line
+#   context    project files KeelBot is pointed at in every prompt (for example docs/ARCHITECTURE.md)
 name: core
 description: keel's own Helper commands.
 

@@ -11,6 +11,7 @@ import keel.api.doctor.WorkspaceDoctor
 import keel.api.engine.EngineClient
 import keel.api.flow.AgentStart
 import keel.api.flow.FlowService
+import keel.api.workflows.WorkflowService
 import keel.api.mcp.McpService
 import keel.api.projects.ProjectService
 import keel.api.repo.RepoService
@@ -49,7 +50,7 @@ data class HelperPatch(val title: String? = null, val model: Model? = null)
 data class HelperMention(val kind: String = "", val value: String = "", val file: String? = null, val line: Int? = null)
 data class HelperSelection(val path: String = "", val from: Int? = null, val to: Int? = null, val text: String = "")
 
-/** One message to the Helper; the api adds the logins, the MCP servers, the agent's settings and the project's flow. */
+/** One message to KeelBot; the api adds the logins, the MCP servers, the agent's settings and the project's flow. */
 data class HelperTurn(
     val text: String = "",
     val model: Model? = null,
@@ -59,7 +60,7 @@ data class HelperTurn(
 )
 
 /**
- * keel's Helper: chat sessions in the Repo page. The engine runs them (engine runtime/helper.py) with keel's own
+ * KeelBot: chat sessions in the Repo page. The engine runs them (engine runtime/helper.py) with keel's own
  * harness; the api owns who may call, what the engine gets (logins, MCP, knowledge, the flow) and the records (the
  * helper.* events become agent calls in EventService, so the budget, Live agents and Jobs count them).
  */
@@ -73,18 +74,19 @@ class HelperService(
     private val mcp: McpService,
     private val skills: SkillService,
     private val flows: FlowService,
+    private val workflows: WorkflowService,
     private val tasks: TaskService,
     private val repo: RepoService,
     private val mapper: ObjectMapper,
 ) {
     private fun helperAgent(pid: String) = agents.list(pid).firstOrNull { it.id == AGENT }
 
-    /** The Helper's model: the helper agent's (Agents page), else the project's default model. */
+    /** KeelBot's model: the helper agent's (Agents page), else the project's default model. */
     fun defaultModel(pid: String): Model = helperAgent(pid)?.model ?: settings.effective(pid).defaultModel
 
     fun create(pid: String, body: HelperCreate): JsonNode {
         val project = projects.require(pid)
-        if (body.mode !in MODES) throw BadRequest("Unknown Helper mode ${body.mode}", "Use ask, fix or side.")
+        if (body.mode !in MODES) throw BadRequest("Unknown KeelBot mode ${body.mode}", "Use ask, fix or side.")
         val thread = if (body.mode == "fix") waitingThread(pid) else null
         val threadId = thread?.path("thread_id")?.asText()
         return engine.post("/helper/sessions", mapOf(
@@ -102,7 +104,7 @@ class HelperService(
         if (threadId != null && t.path("thread_id").asText() != threadId)
             throw Conflict("This Fix chat belongs to another flow", "Start a new Fix chat for the flow that waits now.")
         if (t.path("run_mode").asText() == "readonly")
-            throw Conflict("This flow runs read-only", "Change its run mode on the Flow page to let the Helper edit.")
+            throw Conflict("This flow runs read-only", "Change its run mode on the Flow page to let KeelBot edit.")
         return t
     }
 
@@ -115,7 +117,7 @@ class HelperService(
     fun get(pid: String, sid: String): JsonNode {
         projects.require(pid)
         val s = engine.get("/helper/sessions/$sid")
-        if (s.path("project").asText() != pid) throw NotFound("No Helper session $sid in project $pid")
+        if (s.path("project").asText() != pid) throw NotFound("No KeelBot session $sid in project $pid")
         return s
     }
 
@@ -152,6 +154,7 @@ class HelperService(
             "agents" to (helper?.let { mapOf(AGENT to AgentStart(it.knowledge)) } ?: emptyMap()),
             "skills" to (helper?.skills?.takeIf { it.isNotEmpty() }?.let { mapOf(AGENT to skills.textFor(pid, it)) } ?: emptyMap()),
             "flow" to if (fix) fixContext(pid, s.path("thread_id").asText()) else flowContext(pid),
+            "keel" to keelContext(pid),
             "mentions" to body.mentions.filter { it.value.isNotBlank() }.take(30),
             "selection" to body.selection?.takeIf { it.path.isNotBlank() && it.text.isNotBlank() }?.let { it.copy(text = it.text.take(8000)) },
             "open_file" to body.openFile?.takeIf { it.isNotBlank() },
@@ -161,7 +164,7 @@ class HelperService(
 
     fun commands(pid: String): JsonNode = engine.post("/helper/commands", mapOf("root" to projects.require(pid).root))
 
-    // ---- Fix mode: the Helper's changes, Undo, Done, and the permission cards -----------------------------
+    // ---- Fix mode: KeelBot's changes, Undo, Done, and the permission cards -----------------------------
 
     fun changes(pid: String, sid: String): JsonNode {
         get(pid, sid)
@@ -173,7 +176,7 @@ class HelperService(
         return engine.post("/helper/sessions/$sid/undo", mapOf("path" to body.path?.takeIf { it.isNotBlank() }))
     }
 
-    /** Run the checks and make keel's commit of the Helper's files, while the flow still waits at its gate. */
+    /** Run the checks and make keel's commit of KeelBot's files, while the flow still waits at its gate. */
     fun done(pid: String, sid: String, body: HelperDoneBody = HelperDoneBody()): JsonNode {
         val s = get(pid, sid)
         val flow = when (s.path("mode").asText()) {
@@ -229,7 +232,7 @@ class HelperService(
         val open = h.path("uncommitted").map { it.asText() }
         if (open.isNotEmpty())
             throw Conflict("${open.size} file(s) are not kept yet: ${open.take(5).joinToString()}", "Keep them (the checks run, keel commits on the branch) or undo them first.")
-        if (h.path("commits").isEmpty) throw Conflict("Nothing is kept on the branch yet", "Keep the Helper's change first.")
+        if (h.path("commits").isEmpty) throw Conflict("Nothing is kept on the branch yet", "Keep KeelBot's change first.")
         val dirty = repo.git(root, "status", "--porcelain", "--untracked-files=all").out.lines().filter { it.length > 3 }
             .map { it.substring(3).trim() }.filterNot { WorkspaceDoctor.isEngineFile(it) }
         if (dirty.isNotEmpty())
@@ -243,7 +246,7 @@ class HelperService(
     }
 
     private fun handoverText(h: JsonNode): String = buildString {
-        appendLine("Made in a keel Helper side session on branch `${h.path("branch").asText()}` (from ${h.path("base").asText().take(7)}).")
+        appendLine("Made in a KeelBot side session on branch `${h.path("branch").asText()}` (from ${h.path("base").asText().take(7)}).")
         val commits = h.path("commits")
         if (!commits.isEmpty) {
             appendLine()
@@ -263,7 +266,7 @@ class HelperService(
         }
         h.path("answer").asText("").takeIf { it.isNotBlank() }?.let {
             appendLine()
-            appendLine("The Helper's last answer:")
+            appendLine("KeelBot's last answer:")
             appendLine(it.take(3000))
         }
     }.trim()
@@ -295,7 +298,7 @@ class HelperService(
         return steps.subList(0, i).asReversed().mapNotNull { it.phase?.ifBlank { null } }.distinct()
     }
 
-    /** The flow that runs or waits in the project, as the Helper's prompt shows it; null when none does. */
+    /** The flow that runs or waits in the project, as KeelBot's prompt shows it; null when none does. */
     private fun flowContext(pid: String): Map<String, Any?>? {
         val t = runCatching { flows.flow(pid).thread }.getOrNull() ?: return null
         val status = t.path("status").asText()
@@ -309,6 +312,25 @@ class HelperService(
             "acs" to t.path("acs").map { a -> mapOf("id" to a.path("id").asText(), "layer" to a.path("layer").asText(),
                 "title" to a.path("title").asText(), "status" to a.path("status").asText()) },
             "waiting" to waiting?.let { mapOf("title" to it.path("title").asText(), "detail" to it.path("detail").asText("").take(3000)) },
+        )
+    }
+
+    /** v0.9.0, KeelBot's view of keel (engine runtime/keelbot.py): the workflows it can suggest, and the project's flows. */
+    private fun keelContext(pid: String): Map<String, Any?> {
+        val wfs = runCatching { workflows.list(pid) }.getOrDefault(emptyList())
+        val runs = runCatching { flows.runs(pid, null, 8) }.getOrDefault(emptyList())
+        return mapOf(
+            "workflows" to wfs.map { w ->
+                mapOf("id" to w.id, "name" to w.name, "source" to w.source, "based_on" to w.basedOn, "folder" to w.folder,
+                    "last_run" to w.lastRun?.let { mapOf("title" to it.title, "status" to it.status) },
+                    "steps" to w.steps.map { st -> mapOf("id" to st.id, "kind" to st.kind, "name" to st.name, "agent" to st.agent) })
+            },
+            "flows" to runs.map { r ->
+                mapOf("thread_id" to r.threadId, "title" to r.title, "workflow" to r.workflowId, "status" to r.status,
+                    "phase" to r.phase, "step" to r.current, "waiting" to r.waiting?.let { mapOf("title" to it) },
+                    "acs_done" to r.acsDone, "acs_total" to r.acsTotal, "tokens" to r.tokens, "where" to r.where,
+                    "branch" to r.branch, "error" to r.error, "updated_at" to r.updatedAt)
+            },
         )
     }
 

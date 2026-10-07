@@ -133,7 +133,7 @@ def decide(tool: str, ti: dict, ctx: dict) -> str | None:
                              exists=lambda rel: (Path(root) / rel).exists(), unlocks=unlocks)
         if not v.ok:
             return v.reason
-        # the Helper's Fix mode: a command that changes something waits for the person's OK (runtime/permissions.py)
+        # KeelBot's Fix mode: a command that changes something waits for the person's OK (runtime/permissions.py)
         if ctx.get("ask") and permissions.needs_ask(str(ti.get("command") or "")):
             ok, why = permissions.ask_engine(ctx["ask"], "command", str(ti.get("command") or ""))
             return None if ok else why

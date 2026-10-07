@@ -1,4 +1,4 @@
-// The Helper panel's pure helpers: file:line links in answers, what the person is typing (@ or /), and the words for
+// KeelBot panel's pure helpers: file:line links in answers, what the person is typing (@ or /), and the words for
 // a session. Kept apart from the component so tests can check them directly.
 
 import type { HelperMessage, HelperSession } from "../../api";
@@ -41,7 +41,7 @@ export const sessionTokens = (s: Pick<HelperSession, "tokens_in" | "tokens_out" 
 export const messageTokens = (m: HelperMessage) =>
   (m.data.tokens_in ?? 0) + (m.data.tokens_out ?? 0) + Math.floor((m.data.tokens_cached ?? 0) / 10);
 
-/** Questions that show what the Helper is for, from the project's own state. */
+/** Questions that show what KeelBot is for, from the project's own state. */
 export function starters(opts: { flowWaits: boolean; openFile?: string | null }): string[] {
   const out = ["Where does this project start, and how is it organised?", "/where the main entry point"];
   if (opts.openFile) out.unshift(`/explain ${opts.openFile}`);

@@ -454,7 +454,7 @@ def codex_line(emit: Emit, root: str, ev: dict, state: dict):
 
 class CodexCLIRunner:
     async def run(self, req: AgentRequest, emit: Emit) -> AgentResult:
-        # codex has no hook for keel's guard: a read-only run (run mode readonly, the Helper's Ask) gets its read-only sandbox
+        # codex has no hook for keel's guard: a read-only run (run mode readonly, KeelBot's Ask) gets its read-only sandbox
         sandbox = "read-only" if getattr(req.toolbox, "readonly", False) else "workspace-write"
         argv = [find("codex"), "exec", "--json", "-s", sandbox, "--skip-git-repo-check", "-C", req.root]
         if req.model.get("model"):
@@ -706,7 +706,7 @@ V1_ADAPTER = "keel's enforcement, for OpenCode."
 
 
 # opencode's built-in tools a keel step never needs: off, so their descriptions are not in every turn (like claude's
-# --tools); a read-only run (the Helper's Ask) gets no tool that writes either. opencode merges this opencode.json from
+# --tools); a read-only run (KeelBot's Ask) gets no tool that writes either. opencode merges this opencode.json from
 # OPENCODE_CONFIG_DIR into its config.
 OPENCODE_OFF = ["webfetch", "websearch", "codesearch", "todowrite", "todoread", "task", "skill"]
 OPENCODE_WRITES = ["write", "edit", "patch"]

@@ -50,6 +50,11 @@ class FlowController(private val flows: FlowService) {
     @GetMapping("/projects/{pid}/flows")
     fun board(@PathVariable pid: String): FlowBoard = flows.board(pid)
 
+    /** v0.9.0: the project's flows, newest first, or one workflow's (its run history). */
+    @GetMapping("/projects/{pid}/runs")
+    fun runs(@PathVariable pid: String, @RequestParam(required = false) workflow: String?,
+             @RequestParam(required = false, defaultValue = "20") limit: Int): List<RunRow> = flows.runs(pid, workflow, limit)
+
     @GetMapping("/projects/{pid}/flows/{tid}")
     fun flowOf(@PathVariable pid: String, @PathVariable tid: String): FlowView = flows.flowOf(pid, tid)
 

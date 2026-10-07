@@ -46,11 +46,12 @@ keel2 start ~/path/to/your/project
 
 | Page | What it shows |
 |---|---|
-| **Flow** | the running flow, step by step; several flows side by side, each on its own branch |
+| **Flow** | the running flow, step by step; several flows side by side (a tab each), each on its own branch; the history of every flow |
 | **Inbox** | everything that waits for you |
 | **Tasks** | your tasks or Jira tickets; **Start** runs a flow for one |
-| **Repo · Map · Graph** | the code, the database diagram, and what uses what |
-| **Helper** (in Repo, ⌘I) | ask about the code, fix things while a flow waits at a gate, or try an idea on its own branch |
+| **Code · Map · Graph** | the code, the database diagram, and what uses what |
+| **KeelBot** (in Code, ⌘I) | ask about the code; which workflow fits a piece of work (and start it); ask about a running flow; write a workflow of your own; fix things while a flow waits at a gate, or try an idea on its own branch |
+| **Workflows** | the workflows as blocks, in folders, with how often each ran |
 | **Quality** | how well each flow works with each model, run on small test projects; a drop shows in red |
 | **Budget** | tokens and cost (a small bar shows it on top of every page) |
 

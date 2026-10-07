@@ -128,7 +128,7 @@ describe("database diagram", () => {
     await userEvent.setup().click(within(refs).getAllByRole("button").find((b) => b.textContent!.includes("coupon"))!);
     expect(screen.getByRole("complementary", { name: "Structure of coupon" })).toBeInTheDocument();
     expect(box(container, "coupon")).toHaveAttribute("aria-pressed", "true");
-    // Open migration links to the Repo page at the line that creates the table
+    // Open migration links to the Code page at the line that creates the table
     expect(screen.getByRole("link", { name: /Open migration/ })).toHaveAttribute("href", expect.stringContaining("V3__orders.sql"));
   });
 
@@ -311,7 +311,7 @@ describe("Map page", () => {
   });
 });
 
-describe("Repo page from a map link", () => {
+describe("Code page from a map link", () => {
   it("opens the file at the line a table or column cites", async () => {
     localStorage.setItem("keel2.project", "ludus-engine");
     location.hash = `#/repo/${encodeURIComponent("api/ScoreController.kt:3")}`;

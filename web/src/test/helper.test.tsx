@@ -1,4 +1,4 @@
-// v0.6.0 keel's Helper in the Repo page: open it (button, ⌘I), ask, watch the steps live, follow its file:line links,
+// v0.6.0 KeelBot in the Code page: open it (button, ⌘I), ask, watch the steps live, follow its file:line links,
 // commands with /, mentions with @, the selected lines, stop, the model — and the panel's pure helpers.
 
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -9,7 +9,7 @@ import { eventLine } from "../components/events";
 import { fileLink, replaceTyping, starters, typingAt, usageText } from "../components/helper/model";
 import { db, FakeEventSource } from "./setup";
 
-const panel = () => screen.findByRole("complementary", { name: "Helper" });
+const panel = () => screen.findByRole("complementary", { name: "KeelBot" });
 const turns = () => db.calls.filter((c) => c.method === "POST" && /\/helper\/sessions\/[^/]+\/turn$/.test(c.path));
 
 /** The engine answers: the session gets the answer, then the turn's step and its end arrive as live events. */
@@ -53,25 +53,25 @@ describe("Helper: the panel's helpers", () => {
     expect(usageText(2_400_000, 1.234)).toBe("2.4M tokens · $1.23");
     expect(starters({ flowWaits: true, openFile: "a.kt" })[0]).toBe("/gate");
     const ev = (type: string, data: Record<string, unknown>) => eventLine({ type, data, thread_id: "t", project_id: "p", at: "" } as never).text;
-    expect(ev("helper.commit", { message: "feat(AC-2): limit is 100 94baef0" })).toBe("the Helper's change committed: feat(AC-2): limit is 100 94baef0");
-    expect(ev("helper.permission", { command: "mkdir -p notes" })).toBe("the Helper asks to run: mkdir -p notes");
-    expect(ev("helper.permission.answered", { decision: "deny", why: "no" })).toBe(`the Helper's command refused — "no"`);
+    expect(ev("helper.commit", { message: "feat(AC-2): limit is 100 94baef0" })).toBe("KeelBot's change committed: feat(AC-2): limit is 100 94baef0");
+    expect(ev("helper.permission", { command: "mkdir -p notes" })).toBe("KeelBot asks to run: mkdir -p notes");
+    expect(ev("helper.permission.answered", { decision: "deny", why: "no" })).toBe(`KeelBot's command refused — "no"`);
   });
 });
 
-describe("Helper in the Repo page", () => {
+describe("Helper in the Code page", () => {
   it("opens from the activity bar, says it is read-only and offers questions to start with", async () => {
     const user = userEvent.setup();
     location.hash = "#/repo";
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Helper" }));
+    await user.click(await screen.findByRole("button", { name: "KeelBot" }));
     const p = await panel();
     expect(within(p).getByText("Ask · read only")).toBeInTheDocument();
     expect(within(p).getByText(/It changes nothing in Ask mode/)).toBeInTheDocument();
     expect(within(p).getByRole("button", { name: "Where does this project start, and how is it organised?" })).toBeInTheDocument();
     expect(localStorage.getItem("keel2.repo.helper")).toBe("true");
-    await user.click(within(p).getByRole("button", { name: "Close the Helper" }));
-    expect(screen.queryByRole("complementary", { name: "Helper" })).toBeNull();
+    await user.click(within(p).getByRole("button", { name: "Close KeelBot" }));
+    expect(screen.queryByRole("complementary", { name: "KeelBot" })).toBeNull();
   });
 
   it("asks with the open file, shows the steps live, then the answer whose file:line opens the editor there", async () => {
@@ -81,7 +81,7 @@ describe("Helper in the Repo page", () => {
     await screen.findByRole("region", { name: "Code of api/ScoreController.kt" });
     fireEvent.keyDown(window, { key: "i", metaKey: true });
     const p = await panel();
-    await user.type(within(p).getByRole("textbox", { name: "Ask the Helper" }), "Where is a score saved?{Enter}");
+    await user.type(within(p).getByRole("textbox", { name: "Ask KeelBot" }), "Where is a score saved?{Enter}");
     await waitFor(() => expect(turns()).toHaveLength(1));
     expect(db.calls.some((c) => c.method === "POST" && c.path.endsWith("/helper/sessions"))).toBe(true);
     expect(turns()[0].body).toMatchObject({ text: "Where is a score saved?", open_file: "api/ScoreController.kt" });
@@ -100,7 +100,7 @@ describe("Helper in the Repo page", () => {
     localStorage.setItem("keel2.repo.helper", "true");
     render(<App />);
     const p = await panel();
-    await user.type(within(p).getByRole("textbox", { name: "Ask the Helper" }), "Quick one{Enter}");
+    await user.type(within(p).getByRole("textbox", { name: "Ask KeelBot" }), "Quick one{Enter}");
     await waitFor(() => expect(turns()).toHaveLength(1));
     expect(await within(p).findByRole("button", { name: "Stop" })).toBeInTheDocument();
     // the engine answered, but its helper.finished event never reached this page
@@ -118,7 +118,7 @@ describe("Helper in the Repo page", () => {
     location.hash = "#/repo";
     localStorage.setItem("keel2.repo.helper", "true");
     render(<App />);
-    const box = within(await panel()).getByRole("textbox", { name: "Ask the Helper" });
+    const box = within(await panel()).getByRole("textbox", { name: "Ask KeelBot" });
     await user.type(box, "/de");
     const cmds = await screen.findByRole("listbox", { name: "Commands" });
     expect(within(cmds).getByRole("option", { name: /\/deploy-notes.*Our release notes \(this project\)/ })).toBeInTheDocument();
@@ -147,11 +147,11 @@ describe("Helper in the Repo page", () => {
     range.setEnd(r5.firstChild ?? r5, 1);
     window.getSelection()!.removeAllRanges();
     window.getSelection()!.addRange(range);
-    await user.click(screen.getByRole("button", { name: "Ask the Helper" }));
+    await user.click(screen.getByRole("button", { name: "Ask KeelBot" }));
     const p = await panel();
     expect(within(p).getByText("api/ScoreController.kt:3-5")).toBeInTheDocument();
     // the first Enter picks the command in the list, the second sends it
-    await user.type(within(p).getByRole("textbox", { name: "Ask the Helper" }), "/explain{Enter}{Enter}");
+    await user.type(within(p).getByRole("textbox", { name: "Ask KeelBot" }), "/explain{Enter}{Enter}");
     await waitFor(() => expect(turns()).toHaveLength(1));
     expect(turns()[0].body).toMatchObject({ text: "/explain", selection: { path: "api/ScoreController.kt", from: 3, to: 5 } });
     expect(within(p).queryByText("api/ScoreController.kt:3-5", { selector: ".hp-compose *" })).toBeNull();   // sent, so cleared
@@ -165,7 +165,7 @@ describe("Helper in the Repo page", () => {
     localStorage.setItem("keel2.repo.helper", "true");
     render(<App />);
     const p = await panel();
-    await user.type(within(p).getByRole("textbox", { name: "Ask the Helper" }), "First question{Enter}");
+    await user.type(within(p).getByRole("textbox", { name: "Ask KeelBot" }), "First question{Enter}");
     await waitFor(() => expect(turns()).toHaveLength(1));
     answer("First answer.");
     await within(p).findByText("First answer.");
@@ -193,7 +193,7 @@ describe("Helper Fix mode at a gate", () => {
     await user.click(fixBtn);
     expect(within(p).getByText("Fix", { selector: ".hp-mode" })).toBeInTheDocument();
     expect(within(p).getByText(/Fixing at the gate/)).toHaveTextContent(/^Fixing at the gate Scores for players\. keel's rules/);
-    await user.type(within(p).getByRole("textbox", { name: "Ask the Helper" }), "Raise the limit to 100{Enter}");
+    await user.type(within(p).getByRole("textbox", { name: "Ask KeelBot" }), "Raise the limit to 100{Enter}");
     await waitFor(() => expect(turns()).toHaveLength(1));
     // the engine picked the phase of the work under review (the AC gate's own phase lets only notes change)
     expect(await within(p).findByText("Fix · green")).toBeInTheDocument();
@@ -205,17 +205,17 @@ describe("Helper Fix mode at a gate", () => {
 
   it("asks before a command that changes something, lists the changed files, undoes one, and Done lets keel commit", async () => {
     const { user, p, sid } = await startFix();
-    // the Helper wants to run a command: a card in the panel
+    // KeelBot wants to run a command: a card in the panel
     db.helper.questions = [{ id: "q_1", session: sid, project: "ludus-engine", thread_id: "th_7f3a", kind: "bash", command: "./gradlew spotlessApply",
-      title: "The Helper asks to run a command", at: new Date().toISOString() }];
+      title: "KeelBot asks to run a command", at: new Date().toISOString() }];
     act(() => FakeEventSource.emit("helper.permission", { type: "helper.permission", thread_id: sid, project_id: "ludus-engine", at: new Date().toISOString(), data: {} }));
-    const card = await within(p).findByRole("group", { name: "The Helper asks to run a command" });
+    const card = await within(p).findByRole("group", { name: "KeelBot asks to run a command" });
     expect(within(card).getByText("./gradlew spotlessApply")).toBeInTheDocument();
     await user.type(within(card).getByRole("textbox", { name: "Why not (optional)" }), "fine");
     await user.click(within(card).getByRole("button", { name: "Always" }));
     await waitFor(() => expect(db.calls.some((c) => c.path.endsWith("/helper/permissions/q_1"))).toBe(true));
     expect(db.calls.find((c) => c.path.endsWith("/helper/permissions/q_1"))?.body).toEqual({ decision: "always", why: "fine" });
-    await waitFor(() => expect(within(p).queryByRole("group", { name: "The Helper asks to run a command" })).toBeNull());
+    await waitFor(() => expect(within(p).queryByRole("group", { name: "KeelBot asks to run a command" })).toBeNull());
 
     // the answer is in: the files it changed
     db.helper.changes[sid] = [
@@ -223,7 +223,7 @@ describe("Helper Fix mode at a gate", () => {
       { path: "api/Limits.kt", status: "added", added: 3, removed: 0, diff: "--- /dev/null\n+++ b/api/Limits.kt\n@@ -0,0 +1,3 @@\n+a\n+b\n+c\n" },
     ];
     answer("I raised the limit in `api/ScoreController.kt:1`.");
-    const box = await within(p).findByRole("region", { name: "What the Helper changed" });
+    const box = await within(p).findByRole("region", { name: "What KeelBot changed" });
     expect(within(box).getByText("api/Limits.kt")).toBeInTheDocument();
     expect(within(box).getByLabelText("3 lines added")).toHaveTextContent("+3");
     await user.click(within(box).getByRole("button", { name: "Diff of api/ScoreController.kt" }));
@@ -236,8 +236,8 @@ describe("Helper Fix mode at a gate", () => {
     await user.click(within(box).getByRole("button", { name: "Done: run the checks and commit" }));
     expect(await screen.findByText("keel committed 1 file (c0ffee1).")).toBeInTheDocument();
     expect(db.calls.find((c) => c.path.endsWith("/done"))?.body).toEqual({ message: "Limit is 100" });
-    expect(await within(p).findByText("keel committed the Helper's change: helper: fix")).toBeInTheDocument();
-    await waitFor(() => expect(within(p).queryByRole("region", { name: "What the Helper changed" })).toBeNull());
+    expect(await within(p).findByText("keel committed KeelBot's change: helper: fix")).toBeInTheDocument();
+    await waitFor(() => expect(within(p).queryByRole("region", { name: "What KeelBot changed" })).toBeNull());
   });
 
   it("a missed helper.finished still shows the files the answer changed", async () => {
@@ -248,22 +248,22 @@ describe("Helper Fix mode at a gate", () => {
     sess.status = "idle";
     sess.busy = false;
     act(() => FakeEventSource.emit("project.changed", { id: "ludus-engine" }));        // a tick, but no helper.finished
-    const box = await within(p).findByRole("region", { name: "What the Helper changed" });
+    const box = await within(p).findByRole("region", { name: "What KeelBot changed" });
     expect(within(box).getByText("notes/scope.md")).toBeInTheDocument();
   });
 
-  it("a failed Done shows why, and hands the checks' output back to the Helper", async () => {
+  it("a failed Done shows why, and hands the checks' output back to KeelBot", async () => {
     const { user, p, sid } = await startFix();
     db.helper.changes[sid] = [{ path: "api/ScoreController.kt", status: "modified", added: 1, removed: 1, diff }];
     db.helper.done = { ok: false, step: "checks", command: "./gradlew test", error: "The checks failed, so keel did not commit.",
       output: "ScoreTest > rejects 101 FAILED\nexpected 400 but was 200" };
     answer("Done.");
-    const box = await within(p).findByRole("region", { name: "What the Helper changed" });
+    const box = await within(p).findByRole("region", { name: "What KeelBot changed" });
     await user.click(within(box).getByRole("button", { name: "Done: run the checks and commit" }));
     const failed = await within(p).findByRole("alert");
     expect(failed).toHaveTextContent("Not committed. The checks failed, so keel did not commit.");
     expect(failed).toHaveTextContent("expected 400 but was 200");
-    await user.click(within(failed).getByRole("button", { name: "Ask the Helper to fix it" }));
+    await user.click(within(failed).getByRole("button", { name: "Ask KeelBot to fix it" }));
     await waitFor(() => expect(turns()).toHaveLength(2));
     const asked = (turns()[1].body as { text: string }).text;
     expect(asked).toContain("The checks failed after your change (`./gradlew test`)");
@@ -299,7 +299,7 @@ describe("Helper side sessions (their own worktree and branch)", () => {
     const p = await panel();
     await user.click(within(p).getByRole("button", { name: "Side" }));
     expect(within(p).getByText(/A side session works in its own copy of the project/)).toBeInTheDocument();
-    await user.type(within(p).getByRole("textbox", { name: "Ask the Helper" }), "Try a price helper{Enter}");
+    await user.type(within(p).getByRole("textbox", { name: "Ask KeelBot" }), "Try a price helper{Enter}");
     await waitFor(() => expect(turns()).toHaveLength(1));
     expect(db.calls.find((c) => c.method === "POST" && c.path.endsWith("/helper/sessions"))?.body).toMatchObject({ mode: "side" });
     const sid = db.helper.sessions[0].id;
@@ -308,7 +308,7 @@ describe("Helper side sessions (their own worktree and branch)", () => {
 
     db.helper.changes[sid] = [{ path: "src/price.js", status: "added", added: 4, removed: 0, diff: "--- /dev/null\n+++ b/src/price.js\n@@ -0,0 +1 @@\n+x\n" }];
     answer("Added `src/price.js:1`.");
-    const box = await within(p).findByRole("region", { name: "What the Helper changed" });
+    const box = await within(p).findByRole("region", { name: "What KeelBot changed" });
     // the file is in the worktree, not the project folder: its name shows the diff instead of opening the editor
     await user.click(within(box).getByRole("button", { name: "src/price.js" }));
     expect(within(box).getByRole("table", { name: "Changes in src/price.js" })).toBeInTheDocument();
@@ -336,7 +336,7 @@ describe("Helper side sessions (their own worktree and branch)", () => {
     render(<App />);
     const p = await panel();
     await user.click(within(p).getByRole("button", { name: "Side" }));
-    await user.type(within(p).getByRole("textbox", { name: "Ask the Helper" }), "Try it{Enter}");
+    await user.type(within(p).getByRole("textbox", { name: "Ask KeelBot" }), "Try it{Enter}");
     await waitFor(() => expect(turns()).toHaveLength(1));
     answer("Tried.");
     await user.click(await within(p).findByRole("button", { name: "Throw away" }));

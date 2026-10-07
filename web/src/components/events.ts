@@ -20,9 +20,9 @@ export function eventLine(ev: EngineEvent): { k: string; text: string } {
     case "budget.warn": return { k: "budget", text: str(d.text) || "flow is near its cap" };
     case "budget.stop": return { k: "budget", text: str(d.text) || "cap reached — flow paused" };
     case "guard.refused": return { k: "guard", text: `refused: ${str(d.text) || str(d.path) || "a write the phase does not allow"}` };
-    case "helper.permission": return { k: "gate", text: `the Helper asks to run: ${str(d.command).slice(0, 120)}` };
-    case "helper.permission.answered": return { k: "gate", text: `the Helper's command ${str(d.decision) === "deny" ? "refused" : "allowed"}${d.why ? ` — "${str(d.why)}"` : ""}` };
-    case "helper.commit": return { k: "commit", text: `the Helper's change committed: ${str(d.message)}` };
+    case "helper.permission": return { k: "gate", text: `KeelBot asks to run: ${str(d.command).slice(0, 120)}` };
+    case "helper.permission.answered": return { k: "gate", text: `KeelBot's command ${str(d.decision) === "deny" ? "refused" : "allowed"}${d.why ? ` — "${str(d.why)}"` : ""}` };
+    case "helper.commit": return { k: "commit", text: `KeelBot's change committed: ${str(d.message)}` };
     case "thread.done": return { k: "flow", text: "flow done" };
     case "thread.failed": return { k: "flow", text: `flow failed${d.error ? ": " + str(d.error) : ""}` };
     default: return { k: "event", text: ev.type };

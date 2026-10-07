@@ -12,10 +12,10 @@
     hunt_candidates         every finding of a hunt with its verdict, severity, group, dispatch and close; never deleted
     hunt_groups             findings that share one cause: the cause in a sentence and the lead finding
     hunt_recipes            a proven finding's repro recipe (the file the fix flow's reproducer gets, never the claim)
-    helper_sessions         the Helper's chat sessions (runtime/helper.py): project, mode, model, the CLI's own session
+    helper_sessions         KeelBot's chat sessions (runtime/helper.py): project, mode, model, the CLI's own session
                             id to continue, status and what they used
-    helper_messages         each session's messages in order: the person's, the Helper's answers (with the turn's call id)
-    helper_files            Fix mode: each file the Helper changed, as it was before its first change (Undo, Done)
+    helper_messages         each session's messages in order: the person's, KeelBot's answers (with the turn's call id)
+    helper_files            Fix mode: each file KeelBot changed, as it was before its first change (Undo, Done)
 """
 
 from __future__ import annotations
@@ -64,7 +64,7 @@ MIGRATIONS = [
       project text not null, run text not null, candidate text not null, file text not null, body text not null,
       runs integer, at text not null, primary key (project, run, candidate)
     )""",
-    # the Helper (runtime/helper.py): one row per chat session, one per message; a turn's steps are agent steps in the api
+    # KeelBot (runtime/helper.py): one row per chat session, one per message; a turn's steps are agent steps in the api
     """create table if not exists helper_sessions (
       id text primary key, project text not null, root text not null, mode text not null, title text not null,
       model_json text not null, engine_session text, status text not null, error text, thread_id text,
@@ -73,7 +73,7 @@ MIGRATIONS = [
       grants_json text not null default '[]', phase text, worktree text, branch text, base_sha text
     )""",
     """create index if not exists helper_sessions_project on helper_sessions (project, updated_at)""",
-    # Fix mode: each file the Helper changed, as it was before its first change (Undo puts it back; Done commits)
+    # Fix mode: each file KeelBot changed, as it was before its first change (Undo puts it back; Done commits)
     """create table if not exists helper_files (
       session_id text not null, path text not null, existed integer not null, content blob, at text not null,
       primary key (session_id, path)

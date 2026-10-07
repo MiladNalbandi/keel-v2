@@ -1,5 +1,5 @@
 // The Structure tool window of the database diagram: the selected table's columns, keys, relations both ways,
-// indexes and where the migrations define it (each a link to the file in the Repo page).
+// indexes and where the migrations define it (each a link to the file in the Code page).
 
 import type { Cite, DbRelation, DbTable } from "../../api";
 import { hashFor } from "../../routes";
@@ -13,7 +13,7 @@ const base = (rel: string) => rel.split("/").pop() ?? rel;
 function CiteLink({ c, label }: { c: Cite | null | undefined; label?: string }) {
   if (!c) return null;
   return (
-    <a className="st-cite mono" href={fileHref(c)} title={`Open ${c.rel} at line ${c.line} in the Repo page`}>
+    <a className="st-cite mono" href={fileHref(c)} title={`Open ${c.rel} at line ${c.line} in the Code page`}>
       {label ?? `${base(c.rel)}:${c.line}`}
     </a>
   );

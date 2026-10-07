@@ -3,7 +3,7 @@
 The [README](../README.md) is the short version. This page has the details.
 
 - [Flows in detail](#flows-in-detail)
-- [The Helper](#the-helper)
+- [KeelBot](#keelbot)
 - [Quality](#quality)
 - [Inbox and run modes](#inbox-and-run-modes)
 - [Tasks and Jira](#tasks-and-jira)
@@ -39,7 +39,9 @@ The [README](../README.md) is the short version. This page has the details.
   (a copy of the project on its own branch, under `.keel/worktrees/`), so neither touches the other's files. Press
   **Start** on three tasks, or **Start another flow** on the Flow page. The Flow page then shows a board: each flow,
   the files two flows both change, the branches that will not merge cleanly, and an order to merge them in. The
-  Inbox groups their gates by flow.
+  Inbox groups their gates by flow. On top of the Flow page, a tab for each flow that runs or waits switches between
+  them, and **History** lists every flow of the project (all, or one workflow's); **Open** shows any of them with all
+  its details.
 - When something needs you, keel plays a sound, shows a pop-up and its mascot jumps.
 - keel v2 has its own guard, rules, agents, skills and MCP server. [keel v1](https://github.com/MiladNalbandi/keel) is a
   separate project and is not in the image.
@@ -60,26 +62,40 @@ The [README](../README.md) is the short version. This page has the details.
 | **init** · **knowledge-refresh** | set a project up (architecture, setup checks, knowledge) · refresh `docs/knowledge/` |
 
 ◆ = keel stops and waits for you. The flows are YAML files in `content/workflows/`; the **Workflows** page edits them.
+A workflow can sit in a **Folder** (type a name above the blocks; the list groups by folder), and the page shows how
+often it ran and opens its last run. A workflow does not need agents: a few code steps (`run: npm test`) and a gate
+automate a task without any model. KeelBot writes one for you when you ask.
 
-## The Helper
+## KeelBot
 
-Open the Repo page and press **⌘I** (or the Helper button at the bottom of the left bar). Ask about the project in plain
-words. The Helper reads the code, the knowledge pages, the map and the code graph, and every answer links to the lines
-(`file:line` opens the editor there).
+Open the Code page and press **⌘I** (or the KeelBot button at the bottom of the left bar), or open **KeelBot** in the
+menu. Ask about the project in plain words. KeelBot reads the code, the knowledge pages, the map and the code graph,
+and every answer links to the lines (`file:line` opens the editor there).
 
-- **More room**: hide keel's menu with ‹ next to the bell (or ⌘\; ☰ brings it back); drag the Helper's left edge to make it wider; **Focus** (Repo page header, or **Hide the header** in
-  the status bar) hides the Repo header; **Helper only** (or ⤢ in the panel, or **Helper** in the menu) opens the
-  Helper alone on its own page, where a `file:line` link opens the Repo page at that line.
+KeelBot also knows keel itself: the workflows this project can run and its flows. It gives you buttons; nothing
+starts or is saved until you press one.
+
+- **Which workflow?** Ask "how do I add a weekly report page?": KeelBot names the workflow that fits and why, and
+  gives a **Start the flow** button with a title (you can change it) and the request every agent gets.
+- **About a running flow**: "why does Euro prices wait?", "how far is the fix?", "what did it cost?".
+- **A workflow of your own**: "make a workflow that runs the linters and the tests, then stops for a look". KeelBot
+  writes it with only the steps the task needs (code steps only when no model is needed); keel checks it on the spot
+  and shows what it runs. **Save the workflow** (into a folder if you like), or **Ask KeelBot to fix it** when the
+  check finds a problem.
+
+- **More room**: hide keel's menu with ‹ next to the bell (or ⌘\; ☰ brings it back); drag KeelBot's left edge to make it wider; **Focus** (Code page header, or **Hide the header** in
+  the status bar) hides the Code header; **KeelBot only** (or ⤢ in the panel, or **KeelBot** in the menu) opens the
+  KeelBot alone on its own page, where a `file:line` link opens the Code page at that line.
 - **Point at things**: select lines and press **Ask** (or ⌘I); type `@` for a file, a symbol or a criterion of the
   running flow; the open file always goes along.
 - **Commands**: type `/` — `/explain`, `/where`, `/review`, `/plan`, `/gate` (what the waiting gate asks), `/test`. A
   project can add its own in `.keel/plugins/<name>/plugin.yml` (see `content/plugins/core/plugin.yml`).
 - **Ask mode changes nothing**: no edit, no new file, no command that changes files or git, whatever the model.
-- **Fix mode** (while a flow waits at a gate): switch to **Fix** and tell the Helper what to change. It works inside the
+- **Fix mode** (while a flow waits at a gate): switch to **Fix** and tell KeelBot what to change. It works inside the
   rules of the flow's phase. A command that changes something waits for your OK in the panel or the Inbox (**Allow
   once**, **Always**, **Deny**). The panel lists every changed file with its diff and **Undo**. **Done** runs the tests
-  and lets keel commit only those files; if the tests fail, one click hands the failure back to the Helper.
-- **Side sessions** (any time): switch to **Side** to try an idea in the Helper's own copy of the project (a git
+  and lets keel commit only those files; if the tests fail, one click hands the failure back to KeelBot.
+- **Side sessions** (any time): switch to **Side** to try an idea in KeelBot's own copy of the project (a git
   worktree on its own branch). Nothing touches your project folder or a running flow. **Keep** runs the tests and
   commits on that branch. Then **Make a task**, **Start a flow on the branch** (a change flow writes the tests for it),
   or **Throw away**.

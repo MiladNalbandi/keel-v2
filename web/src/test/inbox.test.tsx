@@ -135,11 +135,11 @@ describe("inbox", () => {
   });
 });
 
-describe("the Helper's commands in the Inbox", () => {
-  it("a command that waits for an OK is a card: Deny with a reason answers the Helper", async () => {
+describe("KeelBot's commands in the Inbox", () => {
+  it("a command that waits for an OK is a card: Deny with a reason answers KeelBot", async () => {
     const user = userEvent.setup();
     const state = inboxServer([{ project_id: "ludus-engine", project_name: "ludus-engine", thread_id: "h_9", flow: "Raise the limit", workflow_id: null,
-      step: "permission", kind: "permission", title: "The Helper asks to run a command", detail: "rm -rf build", more: false,
+      step: "permission", kind: "permission", title: "KeelBot asks to run a command", detail: "rm -rf build", more: false,
       options: ["once", "always", "deny"], id: "q_7", since: ago(20),
       permission: { id: "q_7", session: "h_9", command: "rm -rf build", path: null } }]);
     server.use(http.post("/api/projects/:pid/helper/permissions/:qid", async ({ request, params }) => {
@@ -151,12 +151,12 @@ describe("the Helper's commands in the Inbox", () => {
     const card = (await screen.findAllByTestId("inbox-item"))[0];
     expect(within(card).getByText("may it run?")).toBeInTheDocument();
     expect(within(card).getByText("rm -rf build")).toBeInTheDocument();
-    expect(within(card).getByText(/Helper · Raise the limit/)).toBeInTheDocument();
+    expect(within(card).getByText(/KeelBot · Raise the limit/)).toBeInTheDocument();
     await user.type(within(card).getByLabelText(/Why not/), "keep the build folder");
     await user.click(within(card).getByRole("button", { name: "Deny" }));
     await waitFor(() => expect(calls("POST", "/api/projects/ludus-engine/helper/permissions/q_7")[0]?.body)
       .toEqual({ decision: "deny", why: "keep the build folder" }));
-    expect(await screen.findByText("Refused: the Helper will not run it.")).toBeInTheDocument();
+    expect(await screen.findByText("Refused: KeelBot will not run it.")).toBeInTheDocument();
   });
 });
 

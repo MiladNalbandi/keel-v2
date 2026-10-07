@@ -1,13 +1,13 @@
-"""Helper plugins: folders with a plugin.yml that add slash commands and context to keel's Helper.
+"""Helper plugins: folders with a plugin.yml that add slash commands and context to KeelBot.
 
     content/plugins/<name>/plugin.yml           keel's own (always on)
     <project>/.keel/plugins/<name>/plugin.yml   the project's own (a command with the same name replaces keel's)
 
     name: core
     description: ...
-    commands:                 /name in the Helper sends the template instead; {{args}} is the rest of the line
+    commands:                 /name in KeelBot sends the template instead; {{args}} is the rest of the line
       - {name: explain, description: ..., prompt: "Explain {{args}} ..."}
-    context: [docs/ARCHITECTURE.md]     project files the Helper is pointed at in every prompt
+    context: [docs/ARCHITECTURE.md]     project files KeelBot is pointed at in every prompt
 
 Text only for now (commands and context), so a project's plugins are safe to load. A plugin that is broken is listed
 with its problem and never used.

@@ -111,6 +111,12 @@ data class BoardFlow(
     /** a finished flow whose worktree is still there (Remove the worktree; its branch stays) */
     val worktreeLeft: Boolean = false,
 )
+/** v0.9.0: one flow of the project's history (the Flow page's list, the Workflows page, KeelBot). */
+data class RunRow(
+    val threadId: String, val title: String, val workflowId: String?, val status: String, val phase: String?,
+    val current: String?, val waiting: String?, val acsDone: Int, val acsTotal: Int, val tokens: Long,
+    val where: String, val branch: String?, val error: String?, val createdAt: String, val updatedAt: String,
+)
 /** A file two or more flows change: their merges will meet there. */
 data class FlowOverlap(val file: String, val flows: List<String>)
 /** Two flows' branches that do not merge cleanly (git merge-tree), and where. */
@@ -461,6 +467,27 @@ class FlowService(
             workflow = row.second?.let { wid -> try { workflows.get(wid) } catch (e: NotFound) { null } }
         }
         return FlowView(thread, workflow)
+    }
+
+    /** v0.9.0: the project's flows, newest first (one workflow's with [workflow]); tokens as the budget counts them. */
+    fun runs(pid: String, workflow: String? = null, limit: Int = 20): List<RunRow> {
+        projects.require(pid)
+        val wf = workflow?.takeIf { it.isNotBlank() }
+        val sql = "SELECT t.id, t.title, t.workflow_id, t.status, t.phase, t.current, t.state_json, t.worktree, t.branch, t.error, " +
+            "t.created_at, t.updated_at, (SELECT COALESCE(SUM(c.tokens_in + c.tokens_out + c.tokens_cached / 10), 0) " +
+            "FROM agent_calls c WHERE c.thread_id = t.id) FROM threads t WHERE t.project_id = ?" +
+            (if (wf != null) " AND t.workflow_id = ?" else "") + " ORDER BY t.updated_at DESC LIMIT ?"
+        val args = listOfNotNull(pid, wf, limit.coerceIn(1, 100)).toTypedArray()
+        return jdbc.query(sql, { rs, _ ->
+            val state = rs.getString(7)?.let { runCatching { mapper.readTree(it) }.getOrNull() }
+            val acs = state?.path("acs")?.takeIf { it.isArray }?.toList().orEmpty()
+            val waiting = state?.path("waiting")?.path("title")?.asText("")?.ifBlank { null }
+            RunRow(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4), rs.getString(5), rs.getString(6),
+                waiting.takeIf { rs.getString(4) == "waiting" },
+                acs.count { it.path("status").asText() in setOf("done", "already-met", "accepted") }, acs.size, rs.getLong(13),
+                if (rs.getString(8) != null) "worktree" else "folder", rs.getString(9), rs.getString(10)?.take(300),
+                rs.getString(11), rs.getString(12))
+        }, *args)
     }
 
     // ---- v0.7.x: the board of the project's flows ----------------------------------------------

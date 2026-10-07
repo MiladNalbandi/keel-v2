@@ -14,7 +14,9 @@ import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 
 data class CreateWorkflow(val name: String = "", val from: String = "blank", val keelRules: Boolean? = null)
-data class ImportWorkflow(val yaml: String? = null, val url: String? = null)
+data class ImportWorkflow(val yaml: String? = null, val url: String? = null, val folder: String? = null)
+data class CheckWorkflow(val yaml: String = "")
+data class WorkflowFolder(val folder: String? = null)
 data class ImportResult(val workflow: Workflow, val review: InstallReview)
 data class InstallScope(val scope: String = "project")
 
@@ -51,8 +53,18 @@ class WorkflowController(private val workflows: WorkflowService) {
     @PostMapping("/projects/{pid}/workflows/import")
     fun import(@PathVariable pid: String, @RequestBody body: ImportWorkflow): ImportResult {
         val (wf, review) = workflows.import(pid, body.yaml, body.url)
-        return ImportResult(wf, review)
+        val placed = body.folder?.takeIf { it.isNotBlank() }?.let { workflows.setFolder(pid, wf.id, it); wf.copy(folder = it.trim()) }
+        return ImportResult(placed ?: wf, review)
     }
+
+    /** v0.9.0: what a workflow YAML would be (steps, gates, agents, commands) and whether keel can run it; nothing is saved. */
+    @PostMapping("/projects/{pid}/workflows/check")
+    fun check(@PathVariable pid: String, @RequestBody body: CheckWorkflow): InstallReview = workflows.check(pid, body.yaml)
+
+    /** v0.9.0: put a workflow in a folder of this project's Workflows page (empty: no folder). */
+    @PutMapping("/projects/{pid}/workflows/{wid}/folder")
+    fun folder(@PathVariable pid: String, @PathVariable wid: String, @RequestBody body: WorkflowFolder): Map<String, String?> =
+        mapOf("folder" to workflows.setFolder(pid, wid, body.folder))
 
     @GetMapping("/library")
     fun library(@RequestParam(required = false) project: String?): List<LibraryItem> = workflows.library(project)

@@ -15,7 +15,7 @@ export function RepoPage({ pid }: { pid: string }) {
   const [result, setResult] = useState<UpdateFromBase | { error: { message: string; hint?: string } } | null>(null);
   /** Bumped after a merge brought new files: the explorer reads the tree again. */
   const [version, setVersion] = useState(0);
-  // Focus: the page head (title, the index row, Update from base) goes, so the code and the Helper get the room
+  // Focus: the page head (title, the index row, Update from base) goes, so the code and KeelBot get the room
   const [focus, setFocus] = useState<boolean>(() => {
     try { return localStorage.getItem("keel2.repo.focus") === "1"; } catch { return false; }
   });
@@ -24,7 +24,7 @@ export function RepoPage({ pid }: { pid: string }) {
   }, [focus]);
   return (
     <div className={`repo-page${focus ? " focus" : ""}`}>
-      {!focus && <PageHead title="Repo" sub={<>Read, search and check the code of {project?.name ?? pid}. Read-only: keel never edits files here.</>}
+      {!focus && <PageHead title="Code" sub={<>Read, search and check the code of {project?.name ?? pid}. Read-only: keel never edits files here.</>}
         actions={<>
           <IndexBadge pid={pid} />
           {repo.data && repo.data.base && repo.data.branch && repo.data.base !== repo.data.branch && (
@@ -34,8 +34,8 @@ export function RepoPage({ pid }: { pid: string }) {
               if ("merged" in x && x.merged) setVersion((v) => v + 1);
             }} />
           )}
-          <button className="btn sm" type="button" onClick={() => go("helper")} title="Only the Helper, on a page of its own">Helper only</button>
-          <button className="btn sm ghost" type="button" onClick={() => setFocus(true)} title="Hide this header: the code and the Helper get the room">Focus</button>
+          <button className="btn sm" type="button" onClick={() => go("helper")} title="Only KeelBot, on a page of its own">KeelBot only</button>
+          <button className="btn sm ghost" type="button" onClick={() => setFocus(true)} title="Hide this header: the code and KeelBot get the room">Focus</button>
         </>} />}
       {repo.error && <div style={{ marginBottom: 12 }}><ErrorBox error={repo.error} onRetry={() => void repo.reload()} /></div>}
       {result && <UpdateResult result={result} base={repo.data?.base ?? "base"} onClose={() => setResult(null)} />}

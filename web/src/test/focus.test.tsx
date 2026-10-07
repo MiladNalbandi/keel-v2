@@ -1,4 +1,4 @@
-// The Repo page's Focus (no header), the Helper's width, the Helper on a page of its own, and Markdown that keeps
+// The Code page's Focus (no header), KeelBot's width, KeelBot on a page of its own, and Markdown that keeps
 // a PR body readable (a <details> fold-out with a code block of its own inside, then the tables).
 
 import {
@@ -34,7 +34,7 @@ describe("Markdown of a PR body", () => {
       "|---|---|",
       "| CHG-1.1 | done |",
       "",
-      "## Helper changes",
+      "## KeelBot changes",
       "",
       "- `94baef0` feat(helper): say that formatEuro takes whole cents",
     ].join("\n");
@@ -49,7 +49,7 @@ describe("Markdown of a PR body", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("table")).toHaveTextContent("CHG-1.1");
     expect(
-      screen.getByRole("heading", { name: "Helper changes" }),
+      screen.getByRole("heading", { name: "KeelBot changes" }),
     ).toBeInTheDocument();
     expect(container.querySelectorAll(".md-code")).toHaveLength(1); // nothing after </details> is code
   });
@@ -67,30 +67,30 @@ describe("Markdown of a PR body", () => {
   });
 });
 
-describe("Repo page: Focus and the Helper's room", () => {
+describe("Code page: Focus and KeelBot's room", () => {
   it("hides the header and brings it back from the status bar", async () => {
     const user = userEvent.setup();
     location.hash = "#/repo";
     render(<App />);
     expect(
-      await screen.findByRole("heading", { name: "Repo" }),
+      await screen.findByRole("heading", { name: "Code" }),
     ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Focus" }));
-    expect(screen.queryByRole("heading", { name: "Repo" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Code" })).toBeNull();
     expect(localStorage.getItem("keel2.repo.focus")).toBe("1");
     await user.click(screen.getByRole("button", { name: "Show the header" }));
     expect(
-      await screen.findByRole("heading", { name: "Repo" }),
+      await screen.findByRole("heading", { name: "Code" }),
     ).toBeInTheDocument();
   });
 
-  it("makes the Helper wider by its edge, and opens it alone on its page", async () => {
+  it("makes KeelBot wider by its edge, and opens it alone on its page", async () => {
     const user = userEvent.setup();
     location.hash = "#/repo";
     localStorage.setItem("keel2.repo.helper", "true");
     render(<App />);
     const edge = await screen.findByRole("separator", {
-      name: "Resize the Helper",
+      name: "Resize KeelBot",
     });
     fireEvent.keyDown(edge, { key: "ArrowLeft" });
     fireEvent.keyDown(edge, { key: "ArrowLeft" });
@@ -103,30 +103,30 @@ describe("Repo page: Focus and the Helper's room", () => {
         .style.getPropertyValue("--help-w"),
     ).toBe("444px");
     await user.click(
-      screen.getByRole("button", { name: "Open the Helper full screen" }),
+      screen.getByRole("button", { name: "Open KeelBot full screen" }),
     );
     await waitFor(() => expect(location.hash).toBe("#/helper"));
-    const page = await screen.findByRole("complementary", { name: "Helper" });
+    const page = await screen.findByRole("complementary", { name: "KeelBot" });
     expect(page).toHaveClass("page");
-    expect(screen.queryByRole("region", { name: "Editor" })).toBeNull(); // only the Helper
+    expect(screen.queryByRole("region", { name: "Editor" })).toBeNull(); // only KeelBot
     await user.click(
       within(page).getByRole("button", { name: "Back to the code" }),
     );
     await waitFor(() => expect(location.hash).toBe("#/repo"));
   });
 
-  it("has a Helper only button on the Repo page and a Helper entry in the menu", async () => {
+  it("has a KeelBot only button on the Code page and a KeelBot entry in the menu", async () => {
     const user = userEvent.setup();
     location.hash = "#/repo";
     render(<App />);
     await user.click(
-      await screen.findByRole("button", { name: "Helper only" }),
+      await screen.findByRole("button", { name: "KeelBot only" }),
     );
     await waitFor(() => expect(location.hash).toBe("#/helper"));
     expect(
       within(screen.getByRole("navigation", { name: "Screens" })).getByRole(
         "link",
-        { name: "Helper" },
+        { name: "KeelBot" },
       ),
     ).toHaveAttribute("aria-current", "page");
   });

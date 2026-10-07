@@ -65,6 +65,22 @@ export type Workflow = {
   version: number;
   steps: Step[];
   yaml: string;
+  /** v0.9.0, in a project's list: its folder on the Workflows page, how often it ran here, and its newest run. */
+  folder?: string | null;
+  runs?: number;
+  last_run?: { thread_id: string; title: string; status: string; at: string } | null;
+};
+
+/** v0.9.0: one flow of a project's history (GET /api/projects/{pid}/runs). */
+export type RunRow = {
+  thread_id: string; title: string; workflow_id: string | null; status: string; phase: string | null; current: string | null;
+  waiting: string | null; acs_done: number; acs_total: number; tokens: number; where: "folder" | "worktree"; branch: string | null;
+  error: string | null; created_at: string; updated_at: string;
+};
+/** v0.9.0: keel's check of a workflow YAML that is not saved yet (KeelBot's new workflow). */
+export type WorkflowCheck = {
+  name: string; steps: number; gates: number; keel_rules: boolean; agents: string[]; mcp: string[]; tools: string[];
+  commands: string[]; edits_files: boolean; valid: boolean; errors: string[]; warnings: string[];
 };
 
 /** v0.3: "already-met" = an earlier criterion's code already covers it (shown like done, own label). */
@@ -596,17 +612,17 @@ export type Spend = { tokens: number; cost_usd: number };
 export type FlowSpend = {
   thread_id: string; title: string; status: ThreadStatus; tokens: number; cost_usd: number; cap_tokens: number | null; cap_usd: number | null;
 };
-/** v0.6.0 keel's Helper (`/api/projects/{pid}/helper/...`): chat sessions in the Repo page, run by keel's own harness. */
+/** v0.6.0 KeelBot (`/api/projects/{pid}/helper/...`): chat sessions in the Code page, run by keel's own harness. */
 export type HelperMode = "ask" | "fix" | "side";
 /** A side session's hand-over: its branch, the commits kept on it, what is not kept yet, and its last answer. */
 export type HelperHandover = { session: string; title: string; branch: string; base: string; worktree: string;
   commits: { sha: string; subject: string }[]; uncommitted: string[]; asked: string[]; answer: string };
-/** Fix mode: a file the Helper changed in this chat, against what it was before its first change. */
+/** Fix mode: a file KeelBot changed in this chat, against what it was before its first change. */
 export type HelperChange = { path: string; status: "added" | "modified" | "deleted"; added: number; removed: number; diff: string };
 /** A Fix chat's command that waits for the person's OK (a card in the panel and the Inbox). */
 export type HelperQuestion = { id: string; session: string; project: string; thread_id?: string | null; kind: string; command: string;
   path?: string; title: string; at: string };
-/** Done: keel's commit of the Helper's files after the checks, or why not (no change, the checks failed, the commit refused). */
+/** Done: keel's commit of KeelBot's files after the checks, or why not (no change, the checks failed, the commit refused). */
 export type HelperDone = { ok: true; sha: string; message: string; files: string[]; checks?: string | null }
   | { ok: false; step: "changes" | "checks" | "commit"; error: string; command?: string; output?: string };
 export type HelperMessage = {
@@ -623,7 +639,7 @@ export type HelperMessage = {
 export type HelperSession = {
   id: string; project: string; root: string; mode: HelperMode; title: string; model: Model;
   status: "idle" | "running" | "failed"; error?: string | null; thread_id?: string | null; grants?: string[];
-  /** Fix: the phase whose rules the Helper works in (at a gate, the phase of the work under review, e.g. green) */
+  /** Fix: the phase whose rules KeelBot works in (at a gate, the phase of the work under review, e.g. green) */
   phase?: string | null;
   /** Side: its own worktree (null once handed over) on branch keel/helper/<id>, from base_sha */
   worktree?: string | null; branch?: string | null; base_sha?: string | null;
@@ -925,8 +941,12 @@ export const api = {
   deleteWorkflow: (wid: string) => del(`/workflows/${e(wid)}`),
   exportUrl: (wid: string) => `/api/workflows/${e(wid)}/export`,
   exportWorkflow: (wid: string) => getText(`/workflows/${e(wid)}/export`),
-  importWorkflow: (pid: string, body: { yaml: string } | { url: string }) =>
+  importWorkflow: (pid: string, body: { yaml: string; folder?: string } | { url: string }) =>
     post<{ workflow: Workflow; review: InstallReview }>(`/projects/${e(pid)}/workflows/import`, body),
+  checkWorkflow: (pid: string, yaml: string) => post<WorkflowCheck>(`/projects/${e(pid)}/workflows/check`, { yaml }),
+  setWorkflowFolder: (pid: string, wid: string, folder: string) =>
+    put<{ folder: string | null }>(`/projects/${e(pid)}/workflows/${e(wid)}/folder`, { folder }),
+  runs: (pid: string, workflow?: string, limit = 20) => get<RunRow[]>(`/projects/${e(pid)}/runs${q({ workflow, limit })}`),
   library: () => get<LibraryItem[]>("/library"),
   install: (pid: string, id: string, scope: "project" | "all") =>
     post<Workflow>(`/projects/${e(pid)}/library/${e(id)}/install`, { scope }),

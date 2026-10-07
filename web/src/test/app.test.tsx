@@ -11,7 +11,7 @@ describe("navigation and project switching", () => {
     await screen.findByRole("option", { name: "ludus-engine" });
     const n = within(nav());
     for (const g of ["Run", "Project", "Build", "Control"]) expect(n.getAllByText(g).length).toBeGreaterThan(0);
-    for (const l of ["Flow", "Live agents", "Jobs", "Repo", "Map", "Graph", "Wiki", "Workflows", "Agents", "Skill hub", "Stacks", "Tools (MCP)", "Budget", "Settings", "Connections"]) {
+    for (const l of ["Flow", "Live agents", "Jobs", "Code", "Map", "Graph", "Wiki", "Workflows", "Agents", "Skill hub", "Stacks", "Tools (MCP)", "Budget", "Settings", "Connections"]) {
       expect(n.getByRole("link", { name: new RegExp(`^${l.replace(/[()]/g, "\\$&")}`) })).toBeInTheDocument();
     }
     expect(screen.getByRole("link", { name: /All projects/ })).toHaveTextContent("◆ 1");
@@ -22,9 +22,9 @@ describe("navigation and project switching", () => {
     expect(await screen.findByText(/AC gate — AC-002/)).toBeInTheDocument();
     expect(screen.getByText("ludus-engine › Run")).toBeInTheDocument();
     await act(async () => { location.hash = "#/repo"; window.dispatchEvent(new HashChangeEvent("hashchange")); });
-    expect(await screen.findByRole("heading", { name: "Repo" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Code" })).toBeInTheDocument();
     expect(screen.getByText("ludus-engine › Project")).toBeInTheDocument();
-    expect(within(nav()).getByRole("link", { name: "Repo" })).toHaveAttribute("aria-current", "page");
+    expect(within(nav()).getByRole("link", { name: "Code" })).toHaveAttribute("aria-current", "page");
   });
 
   it("switches project from the picker, remembers it, and refetches the screen", async () => {

@@ -1,6 +1,6 @@
 ---
 name: helper
-description: keel's Helper in the Repo page, read-only in Ask mode.
+description: KeelBot in the Repo page, read-only in Ask mode.
 tools: Read, Grep, Glob, Bash
 model: sonnet
 knowledge:

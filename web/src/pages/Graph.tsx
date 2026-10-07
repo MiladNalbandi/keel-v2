@@ -109,7 +109,7 @@ function FocusPanel({ data, o, depth, selected }: { data: Focus; o: Overview | n
               <a href={`#/graph/${encodeURIComponent(n.id)}`} title={`Put ${n.name} in the middle`}><Glyph kind={n.kind} />{n.name}</a>
               <span className="gp-n" title={e ? usesText(e.k) : ""}>{e?.n ?? ""}×</span>
               {e?.sites[0] && <a className="gp-site mono" href={fileHref({ rel: e.sites[0].file, line: e.sites[0].line })}
-                title="Open this use in the Repo page">{e.sites[0].file.split("/").pop()}:{e.sites[0].line}</a>}
+                title="Open this use in the Code page">{e.sites[0].file.split("/").pop()}:{e.sites[0].line}</a>}
             </li>
           ))}
         </ul>
@@ -126,7 +126,7 @@ function FocusPanel({ data, o, depth, selected }: { data: Focus; o: Overview | n
       </div>
       <dl className="gp-facts">
         <dt>In</dt><dd>{f.unit ? <a href={`#/graph/${encodeURIComponent(f.unit.id)}`}>{f.unit.name}</a> : null}{f.unit ? " · " : ""}{gl(f.group)}</dd>
-        <dt>File</dt><dd><a className="mono" href={fileHref({ rel: f.file, line: f.line })} title="Open in the Repo page">{f.file}:{f.line}</a></dd>
+        <dt>File</dt><dd><a className="mono" href={fileHref({ rel: f.file, line: f.line })} title="Open in the Code page">{f.file}:{f.line}</a></dd>
         <dt>Impact</dt><dd><b>{data.impact}{data.impact_capped ? "+" : ""}</b> {data.level === "unit" ? (data.impact === 1 ? "unit depends" : "units depend") : (data.impact === 1 ? "symbol depends" : "symbols depend")} on it, directly or through others</dd>
       </dl>
       {f.signature && <pre className="gp-sig mono">{f.signature}</pre>}

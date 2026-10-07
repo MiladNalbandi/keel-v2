@@ -14,6 +14,7 @@ import { Markdown } from "../components/Markdown";
 import { eventLine } from "../components/events";
 import { EmptyState } from "../components/EmptyState";
 import { FlowBoardView, showBoard } from "../components/FlowBoard";
+import { FlowRuns } from "../components/FlowRuns";
 import { StartFlowDrawer } from "../components/StartFlow";
 import { autoLines, RunModeNote, RunModeSwitch } from "../components/RunMode";
 import { AcChips, Blocks, BlocksLegend, StepTable, useMapView, ViewToggle, type BlocksHandle } from "../components/Blocks";
@@ -39,6 +40,7 @@ export function FlowPage({ pid }: { pid: string }) {
   const [start, setStart] = useState(false);
   return (
     <>
+      <FlowRuns pid={pid} selected={flow.data?.thread?.thread_id ?? null} />
       {showBoard(board.data) && (
         <FlowBoardView board={board.data!} selected={flow.data?.thread?.thread_id ?? null} onChanged={() => void board.reload()} />
       )}

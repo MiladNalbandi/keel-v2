@@ -73,8 +73,10 @@ export function WorkflowsPage({ pid }: { pid: string }) {
               </div></div></div>
             </Wf>
           ) : (
-            <Editor key={wid} pid={pid} wid={wid} agents={agents.data ?? []} rail={rail}
-              onSaved={(w) => list.setData((l) => (l ? l.map((x) => (x.id === w.id ? w : x)) : l))} />
+            <Editor key={wid} pid={pid} wid={wid} agents={agents.data ?? []} rail={rail} row={wfs.find((w) => w.id === wid)}
+              folders={[...new Set(wfs.map((w) => w.folder).filter((f): f is string => !!f))].sort()}
+              onFolder={(f) => list.setData((l) => (l ? l.map((x) => (x.id === wid ? { ...x, folder: f } : x)) : l))}
+              onSaved={(w) => list.setData((l) => (l ? l.map((x) => (x.id === w.id ? { ...x, ...w, folder: x.folder, runs: x.runs, last_run: x.last_run } : x)) : l))} />
           )}
         </Async>
       )}
@@ -93,9 +95,11 @@ function Rail({ wfs, current, library, pid, onPick, onNew, onImport, onLibrary }
   const [q, setQ] = useState("");
   const needle = q.trim().toLowerCase();
   const hit = (w: Workflow) => !needle || w.name.toLowerCase().includes(needle) || w.id.toLowerCase().includes(needle);
+  const folders = [...new Set(wfs.map((w) => w.folder).filter((f): f is string => !!f))].sort((a, b) => a.localeCompare(b));
   const groups: [string, Workflow[]][] = [
-    ["This project", wfs.filter((w) => !isTemplate(w) && hit(w))],
-    ["keel templates", wfs.filter((w) => isTemplate(w) && hit(w))],
+    ...folders.map((f): [string, Workflow[]] => [`📁 ${f}`, wfs.filter((w) => w.folder === f && hit(w))]),
+    ["This project", wfs.filter((w) => !w.folder && !isTemplate(w) && hit(w))],
+    ["keel templates", wfs.filter((w) => !w.folder && isTemplate(w) && hit(w))],
   ];
   return (
     <nav className="wf-rail" aria-label="Workflows">
@@ -117,7 +121,8 @@ function Rail({ wfs, current, library, pid, onPick, onNew, onImport, onLibrary }
             {items.length ? items.map((w) => (
               <button key={w.id} type="button" className="wf-item" aria-current={w.id === current ? "page" : undefined} onClick={() => onPick(w.id)}>
                 <span className="wf-item-n">{w.name}</span>
-                <span className="wf-item-m">{w.steps.length} steps · v{w.version}{w.keel_rules ? "" : " · rules off"}</span>
+                <span className="wf-item-m">{w.steps.length} steps · v{w.version}{w.keel_rules ? "" : " · rules off"}
+                  {w.runs ? ` · ${w.runs} run${w.runs === 1 ? "" : "s"}` : ""}</span>
               </button>
             )) : <span className="sub wf-none">{needle ? "no match" : title === "This project" ? `none yet in ${pid}: start from a template` : "none"}</span>}
           </div>
@@ -127,8 +132,39 @@ function Rail({ wfs, current, library, pid, onPick, onNew, onImport, onLibrary }
   );
 }
 
-function Editor({ pid, wid, agents, rail, onSaved }: {
-  pid: string; wid: string; agents: Agent[]; rail: ReactNode; onSaved: (w: Workflow) => void;
+/** The folder this workflow sits in on this project's Workflows page: pick one, type a new name, or empty for none. */
+function FolderPicker({ pid, wid, folder, folders, onFolder }: {
+  pid: string; wid: string; folder: string | null; folders: string[]; onFolder: (folder: string | null) => void;
+}) {
+  const { toast } = useApp();
+  const [text, setText] = useState(folder ?? "");
+  useEffect(() => setText(folder ?? ""), [folder]);
+  const commit = async () => {
+    const next = text.trim().replace(/\s+/g, " ");
+    if (next === (folder ?? "")) return;
+    try {
+      const r = await api.setWorkflowFolder(pid, wid, next);
+      onFolder(r.folder ?? null);
+      toast(r.folder ? `In the folder ${r.folder}.` : "Taken out of its folder.");
+    } catch (e) {
+      const p = errorParts(e);
+      toast(p.hint ? `${p.message} ${p.hint}` : p.message);
+      setText(folder ?? "");
+    }
+  };
+  return (
+    <label className="wf-folder">
+      <span>Folder</span>
+      <input className="inline-input" list="wf-folders" value={text} placeholder="none" aria-label="Folder of this workflow"
+        onChange={(e) => setText(e.target.value)} onBlur={() => void commit()} onKeyDown={(e) => e.key === "Enter" && void commit()} />
+      <datalist id="wf-folders">{folders.map((f) => <option key={f} value={f} />)}</datalist>
+    </label>
+  );
+}
+
+function Editor({ pid, wid, agents, rail, row, folders, onFolder, onSaved }: {
+  pid: string; wid: string; agents: Agent[]; rail: ReactNode; row?: Workflow; folders: string[];
+  onFolder: (folder: string | null) => void; onSaved: (w: Workflow) => void;
 }) {
   const { toast } = useApp();
   const loaded = useLoad(`wf:${wid}`, () => api.workflow(wid), { live: false });
@@ -233,6 +269,12 @@ function Editor({ pid, wid, agents, rail, onSaved }: {
           </div>
           <div className="wf-top-row">
             <Tabs value={view} onChange={setViewKept} label="Workflow view" options={[["blocks", "Blocks"], ["table", "Table"], ["graph", "Graph"], ["yaml", "YAML"]]} />
+            <FolderPicker pid={pid} wid={wid} folder={row?.folder ?? null} folders={folders} onFolder={onFolder} />
+            {row?.last_run && (
+              <button type="button" className="btn sm ghost wf-last" onClick={() => go("flow", row.last_run!.thread_id)}
+                title="Open this workflow's newest flow on the Flow page (Run)">
+                {row.runs} run{row.runs === 1 ? "" : "s"} · last: {row.last_run.status} ▸</button>
+            )}
             <a className="btn sm" href={api.exportUrl(wid)} download={`${wid}.workflow.yaml`} style={{ textDecoration: "none" }}>Export</a>
           </div>
           {err && view !== "yaml" && <StepErrorBox error={err} steps={w.steps} onPick={pick} />}

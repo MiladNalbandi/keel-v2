@@ -8,7 +8,7 @@ export type Group = { id: string; label: string; hint: string; pages: [ScreenId,
 
 export const GROUPS: Group[] = [
   { id: "run", label: "Run", hint: "what is happening now", pages: [["flow", "Flow"], ["tasks", "Tasks"], ["inbox", "Inbox"], ["live", "Live agents"], ["jobs", "Jobs"]] },
-  { id: "know", label: "Project", hint: "what this project is", pages: [["repo", "Repo"], ["helper", "Helper"], ["map", "Map"], ["graph", "Graph"], ["wiki", "Wiki"]] },
+  { id: "know", label: "Project", hint: "what this project is", pages: [["repo", "Code"], ["helper", "KeelBot"], ["map", "Map"], ["graph", "Graph"], ["wiki", "Wiki"]] },
   {
     id: "build", label: "Build", hint: "how agents work",
     pages: [["workflows", "Workflows"], ["agents", "Agents"], ["skills", "Skill hub"], ["stacks", "Stacks"], ["tools", "Tools (MCP)"], ["quality", "Quality"]],
@@ -22,10 +22,14 @@ export const groupOf = (id: ScreenId) => GROUPS.find((g) => g.pages.some(([p]) =
 
 export type Route = { page: ScreenId; arg?: string };
 
+/** Pages by the names they show: #/code is the Code page (id repo), #/keelbot is KeelBot's own page (id helper). */
+const ALIASES: Record<string, ScreenId> = { code: "repo", keelbot: "helper" };
+
 /** "#/flow", "#flow", "#/wiki/kb:architecture" → route. Unknown pages fall back to Flow. */
 export function parseHash(hash: string): Route {
   const raw = hash.replace(/^#\/?/, "");
-  const [page, ...rest] = raw.split("/");
+  const [first, ...rest] = raw.split("/");
+  const page = ALIASES[first] ?? first;
   const arg = rest.length ? decodeURIComponent(rest.join("/")) : undefined;
   return { page: isScreen(page) ? page : "flow", arg };
 }

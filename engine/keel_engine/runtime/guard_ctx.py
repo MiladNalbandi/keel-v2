@@ -5,7 +5,7 @@
 
 readonly: the run mode is readonly (runtime/run_mode.py): every edit, write, commit and changing shell command is refused.
 
-ask: {url, key, session} in the Helper's Fix mode: a shell command that changes something waits for the person's OK
+ask: {url, key, session} in KeelBot's Fix mode: a shell command that changes something waits for the person's OK
 (runtime/permissions.py); the key only asks, it cannot answer.
 
 knowledge_*: the agent's knowledge setting (runtime/agent_knowledge.py); with strict on, reading a docs/knowledge
@@ -46,7 +46,7 @@ def hook_command() -> str:
 
 def claude_settings(path: str | Path, timeout: int = 10) -> str:
     """Writes the `--settings` file that loads keel's hook (and nothing else) into a Claude Code run. `timeout`: how long
-    one hook call may take (the Helper's Fix mode waits for the person's OK on a command)."""
+    one hook call may take (KeelBot's Fix mode waits for the person's OK on a command)."""
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps({"hooks": {"PreToolUse": [{

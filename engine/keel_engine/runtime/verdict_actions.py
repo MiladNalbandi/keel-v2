@@ -743,8 +743,8 @@ def pr_body(root: str, project: str, state: dict, title: str, base: str | None, 
 
 
 def helper_section(thread_id: str) -> list[str]:
-    """The PR body's and the final review's list of the commits keel's Helper made for this flow (Fix at a gate)."""
-    from . import helper          # late: the Helper's module imports most of the runtime
+    """The PR body's and the final review's list of the commits KeelBot made for this flow (Fix at a gate)."""
+    from . import helper          # late: KeelBot's module imports most of the runtime
     helped = helper.commits_for(thread_id)
     if not helped:
         return []
@@ -753,7 +753,7 @@ def helper_section(thread_id: str) -> list[str]:
         files = c["files"]
         more = ", …" if len(files) > 6 else ""
         lines.append(f"- `{c['sha'][:7]}` {c['subject']}" + (f" ({', '.join(files[:6])}{more})" if files else ""))
-    return ["## Helper changes", "", "Made with keel's Helper at a gate, then checked and committed by keel:", ""] + lines + [""]
+    return ["## KeelBot changes", "", "Made with KeelBot at a gate, then checked and committed by keel:", ""] + lines + [""]
 
 
 def lint_section(project: str) -> list[str]:

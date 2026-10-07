@@ -1,4 +1,4 @@
-// Plan 5b: the Repo page shows the project's code graph index and can rebuild it.
+// Plan 5b: the Code page shows the project's code graph index and can rebuild it.
 
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";

@@ -1,4 +1,4 @@
-"""keel's git worktrees: a side session of the Helper, or a flow next to other flows, works in a copy of the project on
+"""keel's git worktrees: a side session of KeelBot, or a flow next to other flows, works in a copy of the project on
 its own branch, under <root>/.keel/worktrees/<name>. The main folder's checkout, its files and a flow running there are
 never touched; the folder is excluded from the main repo's git status (.git/info/exclude), and the Repo page does not
 walk into it (it has its own .git file).

@@ -1520,3 +1520,34 @@ in + out + cached ÷ 10):
   except when KeelBot is the author already.
 - The Repo page counts a commit as keel's (`keel: true`) when KeelBot or the configured keel author made it, or when
   it names KeelBot in a `Co-Authored-By` line.
+
+## v0.9.0: KeelBot, workflow folders, the flows' history
+
+- **Names**: keel's Helper is now **KeelBot** and the Repo page is the **Code** page, in everything people see. Ids and
+  paths stay (`helper` agent, screen ids `helper` / `repo`, `/api/projects/{pid}/helper/...`); `#/keelbot` and
+  `#/code` open the same pages as `#/helper` and `#/repo`.
+- **KeelBot's view of keel**: every turn (`POST /helper/sessions/{sid}/turn`) carries
+  `keel: { workflows: [{id, name, source, based_on, folder, last_run?: {title, status}, steps: [{id, kind, name, agent}]}],
+  flows: [{thread_id, title, workflow, status, phase, step, waiting?: {title}, acs_done, acs_total, tokens, where, branch,
+  error, updated_at}] }` (the 8 newest flows). The engine (`runtime/keelbot.py`) puts them in the prompt with what each
+  keel template is for, and how to give buttons; a question about writing a workflow also gets the format, the phases,
+  the code-step actions and the agents.
+- **Buttons**: KeelBot never starts or saves anything. Its answer ends with fenced blocks the web turns into cards
+  (`components/helper/Actions.tsx`): ` ```keel-start ` with JSON `{workflow, title, request}` (Start the flow →
+  `POST /api/projects/{pid}/flows`), and ` ```keel-workflow ` with a whole workflow YAML (checked at once, then Save →
+  `POST /api/projects/{pid}/workflows/import`, optionally into a folder).
+
+```
+POST /api/projects/{pid}/workflows/check   { yaml }  → InstallReview { name, steps, gates, keel_rules, agents, mcp, tools,
+                                                       commands, edits_files, valid, errors, warnings }   (nothing saved)
+POST /api/projects/{pid}/workflows/import  { yaml | url, folder? }   (folder: v0.9.0)
+PUT  /api/projects/{pid}/workflows/{wid}/folder  { folder }  → { folder }   ("" takes it out; at most 40 characters)
+GET  /api/projects/{pid}/workflows   → Workflow[] + folder, runs, last_run { thread_id, title, status, at }
+GET  /api/projects/{pid}/runs?workflow=&limit=20  → RunRow[] { thread_id, title, workflow_id, status, phase, current,
+     waiting, acs_done, acs_total, tokens, where, branch, error, created_at, updated_at }   (newest first)
+```
+
+- Folders are per project and hold keel's templates too (V10 `workflow_folders`).
+- The Flow page (Run): a tab for each flow that runs or waits (when more than one, or when another one is open), and
+  **History** (the newest 20, all or one workflow's; **Open** shows any flow with all its details).
+

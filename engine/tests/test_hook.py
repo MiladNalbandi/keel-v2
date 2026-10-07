@@ -299,7 +299,7 @@ async def test_claude_runner_writes_context_and_settings_outside_the_project(tmp
     # only keel's built-in tools are in the model's prompt (the others' descriptions cost ~17k tokens a turn)
     argv = (out / "argv").read_text().split()
     assert argv[argv.index("--tools") + 1] == "Read,Edit,Write,Bash,Glob,Grep"
-    # a read-only run (the Helper's Ask) has no Edit or Write at all
+    # a read-only run (KeelBot's Ask) has no Edit or Write at all
     ro = dataclasses.replace(req, toolbox=ToolBox(str(root), "none", readonly=True))
     await ClaudeCLIRunner().run(ro, lambda *a, **k: None)
     argv = (out / "argv").read_text().split()

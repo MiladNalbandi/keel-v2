@@ -1,4 +1,4 @@
-"""Permission cards for the Helper's Fix mode: a command that changes something waits for the person's OK.
+"""Permission cards for KeelBot's Fix mode: a command that changes something waits for the person's OK.
 
 Who asks: keel's PreToolUse hook (claude, and opencode through its plugin) and keel's own ToolBox (API-key models).
 How: an HTTP call to the engine (`POST /helper/permissions/ask`) that waits until the person answers in the panel or

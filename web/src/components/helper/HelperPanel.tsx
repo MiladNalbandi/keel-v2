@@ -1,9 +1,9 @@
-// keel's Helper in the Repo page: a chat with an agent that reads this project and answers with file:line links,
+// KeelBot in the Code page: a chat with an agent that reads this project and answers with file:line links,
 // inside keel's rules. Ask mode changes nothing; Fix mode (while a flow waits at a gate) changes files inside the
 // phase's rules, asks before a command that changes something, and commits through keel's Done; a side session works
 // in its own worktree and branch, and ends as a task, a flow on that branch, or thrown away. Sessions are the
 // engine's; each answer is one agent call, so its steps stream live (helper.step events) and its tokens count in the
-// budget bar. ⌘I opens it from the Repo page.
+// budget bar. ⌘I opens it from the Code page.
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import {
@@ -14,6 +14,7 @@ import { modelLabel, provLabel } from "../../format";
 import { rankFiles } from "../../pages/repo/model";
 import { go, useApp, useLoad } from "../../state";
 import { Markdown } from "../Markdown";
+import { splitActions, StartCard, WorkflowCard } from "./Actions";
 import { ModelPicker } from "../ModelPicker";
 import { mergeSteps } from "../StepFeed";
 import { StepView } from "../StepView";
@@ -31,9 +32,9 @@ type Props = {
   /** Fix mode: open a changed file in the editor's Changes view */
   onOpenDiff?: (path: string) => void;
   onClose: () => void;
-  /** grows each time the Repo page wants the input focused (⌘I) */
+  /** grows each time the Code page wants the input focused (⌘I) */
   focusKey?: number;
-  /** panel: a column next to the code (Repo page); page: the Helper alone, one wide chat column (#/helper) */
+  /** panel: a column next to the code (Code page); page: KeelBot alone, one wide chat column (#/helper) */
   layout?: "panel" | "page";
 };
 
@@ -62,7 +63,7 @@ function TurnSteps({ callId, live, running }: { callId: string; live: JobStep[];
   }
   const shown = running ? steps.slice(-6) : steps;
   return (
-    <div className="hp-steps" aria-label="What the Helper did" aria-live={running ? "polite" : undefined}>
+    <div className="hp-steps" aria-label="What KeelBot did" aria-live={running ? "polite" : undefined}>
       {running && steps.length > shown.length && <p className="hp-steps-more">{steps.length - shown.length} earlier steps</p>}
       {shown.map((s) => <StepView key={s.n} s={s} idPrefix={`hp-${callId}`} />)}
       {running && <p className="hp-working"><span className="pg-spin" aria-hidden="true" /> Working…</p>}
@@ -72,8 +73,8 @@ function TurnSteps({ callId, live, running }: { callId: string; live: JobStep[];
   );
 }
 
-/** An answer: Markdown whose `file:line` chips open the editor. */
-function Answer({ text, onOpen }: { text: string; onOpen: (path: string, line?: number) => void }) {
+/** An answer: Markdown whose `file:line` chips open the editor, and KeelBot's buttons (start a flow, save a workflow). */
+function Answer({ text, onOpen, pid, onAsk }: { text: string; onOpen: (path: string, line?: number) => void; pid: string; onAsk: (t: string) => void }) {
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     box.current?.querySelectorAll<HTMLElement>(".cite").forEach((el) => {
@@ -92,7 +93,9 @@ function Answer({ text, onOpen }: { text: string; onOpen: (path: string, line?: 
   return (
     <div ref={box} className="hp-answer" onClick={(e) => go(e.target)}
       onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && go(e.target)) e.preventDefault(); }}>
-      <Markdown text={text} breaks />
+      {splitActions(text).map((seg, i) => seg.kind === "text" ? <Markdown key={i} text={seg.text} breaks />
+        : seg.kind === "start" ? <StartCard key={i} pid={pid} body={seg.body} />
+          : <WorkflowCard key={i} pid={pid} body={seg.body} onAsk={onAsk} />)}
     </div>
   );
 }
@@ -428,25 +431,25 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   const noHook = fix && !!model && ["codex", "copilot"].includes(model.provider);
 
   return (
-    <aside className={`hp${layout === "page" ? " page" : ""}`} aria-label="Helper">
+    <aside className={`hp${layout === "page" ? " page" : ""}`} aria-label="KeelBot">
       <header className="hp-head">
         <div className="hp-title">
-          <b>Helper</b>
+          <b>KeelBot</b>
           <div className="hp-modes" role="group" aria-label="Mode">
             <button type="button" aria-pressed={mode === "ask"} onClick={() => switchMode("ask")}
-              title="Ask: the Helper reads and answers; it changes no file">Ask</button>
+              title="Ask: KeelBot reads and answers; it changes no file">Ask</button>
             <button type="button" aria-pressed={fix} disabled={!fix && !fixable} onClick={() => switchMode("fix")}
-              title={fix || fixable ? "Fix: the Helper changes files at this gate, inside the phase's rules"
-                : readonlyRun ? "This flow runs read-only: change its run mode on the Flow page to let the Helper edit"
+              title={fix || fixable ? "Fix: KeelBot changes files at this gate, inside the phase's rules"
+                : readonlyRun ? "This flow runs read-only: change its run mode on the Flow page to let KeelBot edit"
                   : "Fix works while a flow waits at a gate"}>Fix</button>
             <button type="button" aria-pressed={side} onClick={() => switchMode("side")}
-              title="Side session: the Helper changes files in its own copy of the project (a git worktree on its own branch)">Side</button>
+              title="Side session: KeelBot changes files in its own copy of the project (a git worktree on its own branch)">Side</button>
           </div>
           {fix
             ? <span className="hp-mode fix" title="Fix mode: keel's rules of this phase apply">Fix{phase ? ` · ${phase}` : ""}</span>
             : side
               ? <span className="hp-mode side" title={s?.branch ? `Branch ${s.branch}` : "Its own worktree and branch"}>Side{s?.branch ? ` · ${s.branch.split("/").pop()}` : ""}</span>
-              : <span className="hp-mode" title="Ask mode: the Helper reads and answers; it changes no file">Ask · read only</span>}
+              : <span className="hp-mode" title="Ask mode: KeelBot reads and answers; it changes no file">Ask · read only</span>}
         </div>
         <div className="hp-tools">
           <button type="button" className="hp-tb" onClick={() => setShowModel((v) => !v)} aria-expanded={showModel}
@@ -456,11 +459,11 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
           <button type="button" className="hp-tb" onClick={() => newChat()} title="Start a new chat" aria-label="New chat">New</button>
           {layout === "panel"
             ? <>
-              <button type="button" className="hp-tb" onClick={() => go("helper")} title="Only the Helper, on a page of its own"
-                aria-label="Open the Helper full screen">⤢</button>
-              <button type="button" className="hp-tb hp-x" onClick={onClose} title="Close the Helper (⌘I)" aria-label="Close the Helper">×</button>
+              <button type="button" className="hp-tb" onClick={() => go("helper")} title="Only KeelBot, on a page of its own"
+                aria-label="Open KeelBot full screen">⤢</button>
+              <button type="button" className="hp-tb hp-x" onClick={onClose} title="Close KeelBot (⌘I)" aria-label="Close KeelBot">×</button>
             </>
-            : <button type="button" className="hp-tb" onClick={onClose} title="The Repo page, with the code and the Helper side by side"
+            : <button type="button" className="hp-tb" onClick={onClose} title="The Code page, with the code and KeelBot side by side"
               aria-label="Back to the code">Back to the code</button>}
         </div>
       </header>
@@ -499,7 +502,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
       <div ref={scroller} className="hp-body" role="log" aria-label="Conversation" aria-live="polite">
         {!messages.length && !runningCall && side && (
           <div className="hp-empty">
-            <p>Try an idea without touching the project folder. The Helper edits its own copy, you see every changed file
+            <p>Try an idea without touching the project folder. KeelBot edits its own copy, you see every changed file
               below, and Keep runs the checks and commits on the side branch. Then make it a task, start a flow on the
               branch, or throw it away.</p>
             <ul className="hp-starters">
@@ -511,7 +514,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
         )}
         {!messages.length && !runningCall && fix && (
           <div className="hp-empty">
-            <p>Tell the Helper what to change for this gate. It edits the files here, inside keel's rules for the work under review.
+            <p>Tell KeelBot what to change for this gate. It edits the files here, inside keel's rules for the work under review.
               You see every changed file below, can undo it, and Done runs the checks and lets keel commit.</p>
             <ul className="hp-starters">
               {["/gate", "Make the change the reviewer asked for, then run the tests"].map((q) => (
@@ -522,7 +525,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
         )}
         {!messages.length && !runningCall && mode === "ask" && (
           <div className="hp-empty">
-            <p>Ask about this project. The Helper reads the code, the knowledge pages, the map and the code graph, and links
+            <p>Ask about this project. KeelBot reads the code, the knowledge pages, the map and the code graph, and links
               every answer to the lines. It changes nothing in Ask mode.</p>
             <ul className="hp-starters">
               {starters({ flowWaits, openFile }).map((q) => (
@@ -534,7 +537,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
         )}
         {messages.map((m) => m.role === "user" ? <UserMessage key={m.n} m={m} /> : (
           <div key={m.n} className={`hp-msg ${m.role === "note" ? "hp-note" : "hp-help"}`}>
-            {m.role === "note" ? <p className="hp-text">{m.data.status === "stopped" ? "Stopped." : m.text}</p> : <Answer text={m.text} onOpen={onOpenFile} />}
+            {m.role === "note" ? <p className="hp-text">{m.data.status === "stopped" ? "Stopped." : m.text}</p> : <Answer text={m.text} onOpen={onOpenFile} pid={pid} onAsk={(t) => void send(t)} />}
             {m.call_id && <TurnSteps callId={m.call_id} live={liveSteps[m.call_id] ?? []} running={false} />}
             {m.role === "helper" && (
               <p className="hp-meta">{m.data.model ? `${provLabel(m.data.provider)} ${m.data.model} · ` : ""}{usageText(messageTokens(m), m.data.cost_usd ?? 0)}
@@ -581,10 +584,10 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
             ))}
           </ul>
         )}
-        <textarea ref={input} id="hp-input" rows={2} value={text} aria-label="Ask the Helper" disabled={handed}
-          placeholder={handed ? "This side session was handed over: start a new chat" : busy ? "The Helper is answering…"
-            : fix ? "Tell the Helper what to change…  (@ files, symbols · / commands)"
-              : side ? "Tell the Helper what to try…  (@ files, symbols · / commands)" : "Ask about this project…  (@ files, symbols · / commands)"}
+        <textarea ref={input} id="hp-input" rows={2} value={text} aria-label="Ask KeelBot" disabled={handed}
+          placeholder={handed ? "This side session was handed over: start a new chat" : busy ? "KeelBot is answering…"
+            : fix ? "Tell KeelBot what to change…  (@ files, symbols · / commands)"
+              : side ? "Tell KeelBot what to try…  (@ files, symbols · / commands)" : "Ask about this project…  (@ files, symbols · / commands)"}
           onChange={(e) => { setText(e.target.value); setCaret(e.target.selectionStart ?? e.target.value.length); }}
           onKeyUp={(e) => setCaret((e.target as HTMLTextAreaElement).selectionStart ?? 0)}
           onClick={(e) => setCaret((e.target as HTMLTextAreaElement).selectionStart ?? 0)}

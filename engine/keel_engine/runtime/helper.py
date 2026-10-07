@@ -1,14 +1,14 @@
-"""keel's Helper: chat sessions in the Repo page, run by keel's own harness under keel's rules.
+"""KeelBot: chat sessions in the Repo page, run by keel's own harness under keel's rules.
 
 A session belongs to one project and one mode. One turn is one agent run, shaped like a flow's agent step
 (runtime/compiler.py `_run_agent`): the model's runner (claude, codex, copilot / opencode, an API key or the fake
-model), keel's guarded tools (ToolBox), the MCP servers the Helper may use plus the code graph, the guard context
+model), keel's guarded tools (ToolBox), the MCP servers KeelBot may use plus the code graph, the guard context
 the hook reads on every tool call, and the diff guard as the backstop for engines without a hook.
 
     modes   ask   read only: no edit, no new file, no command that changes files or git (the guard's readonly)
             fix   while the project's flow waits at a gate: edits under the flow's phase rules and unlocks; a command
                   that changes something waits for the person's OK (runtime/permissions.py); keel remembers each file
-                  as it was before the Helper's first change (Undo), and Done runs the checks and makes keel's commit
+                  as it was before KeelBot's first change (Undo), and Done runs the checks and makes keel's commit
             side  any time, in its own copy of the project (a git worktree on branch keel/helper/<id>, tools/worktrees.py):
                   free edits there and nowhere else, commands asked as in Fix; Keep runs the checks and commits on that
                   branch; the person hands it over (a task, a change flow on the branch) or throws it away
@@ -39,7 +39,7 @@ from ..models import catalog
 from ..models.base import AgentRequest, AgentResult
 from ..tools import git, guard, mcp, testcmd, worktrees
 from ..tools.agent_tools import ToolBox, command_env
-from . import agent_knowledge, db, graph_hints, guard_ctx, permissions, plugins, prompts
+from . import agent_knowledge, db, graph_hints, guard_ctx, keelbot, permissions, plugins, prompts
 
 log = logging.getLogger(__name__)
 
@@ -89,7 +89,7 @@ def _session(row) -> dict:
 
 def fix_phase(flow: dict | None) -> str:
     """The phase a Fix chat works in. At a gate the flow's own phase often lets only notes change (phase "gate" at the
-    AC gate), yet a fix there is the work under review: so the Helper takes the phase of the nearest earlier step whose
+    AC gate), yet a fix there is the work under review: so KeelBot takes the phase of the nearest earlier step whose
     rules let code change (at the AC gate "green"; the api sends `phases_before`, nearest first), else the flow's own."""
     f = flow or {}
     phase = str(f.get("phase") or "none")
@@ -102,7 +102,7 @@ def fix_phase(flow: dict | None) -> str:
 def create(project: str, root: str, mode: str = "ask", model: dict | None = None, title: str = "",
            thread_id: str | None = None, flow: dict | None = None) -> dict:
     if mode not in MODES:
-        raise HelperError(400, f"Unknown Helper mode {mode!r}.", f"Use one of: {', '.join(MODES)}.")
+        raise HelperError(400, f"Unknown KeelBot mode {mode!r}.", f"Use one of: {', '.join(MODES)}.")
     if not Path(root).is_dir():
         raise HelperError(400, f"The project folder {root} does not exist.")
     if mode == "fix" and not thread_id:
@@ -135,7 +135,7 @@ def get(sid: str, messages: bool = True) -> dict:
     with db.connect() as conn:
         row = conn.execute(f"select {', '.join(FIELDS)} from helper_sessions where id = ?", (sid,)).fetchone()
         if not row:
-            raise HelperError(404, f"No Helper session {sid}.")
+            raise HelperError(404, f"No KeelBot session {sid}.")
         s = _session(row)
         if messages:
             msgs = conn.execute("select n, role, text, call_id, data_json, at from helper_messages where session_id = ? order by n",
@@ -217,7 +217,7 @@ def history(sid: str, before_n: int | None = None) -> list[tuple[str, str]]:
     return out
 
 
-# ------------------------------------------------------------------ Fix mode: the files the Helper changed
+# ------------------------------------------------------------------ Fix mode: the files KeelBot changed
 
 def _head_bytes(root: str, rel: str) -> bytes | None:
     if not git.tracked_in_head(root, rel):
@@ -252,7 +252,7 @@ def _text(b: bytes | None) -> str:
 
 
 def changes(sid: str) -> list[dict]:
-    """The files the Helper changed in this session, against what they were before: path, status, +/- lines, diff.
+    """The files KeelBot changed in this session, against what they were before: path, status, +/- lines, diff.
     A side session: what is not kept yet (its worktree against the last commit on its branch)."""
     s = get(sid, messages=False)
     if s["mode"] == "side":
@@ -278,13 +278,13 @@ def changes(sid: str) -> list[dict]:
 
 
 def undo(sid: str, path: str | None = None) -> list[dict]:
-    """Put one file (or every file) back as it was before the Helper changed it."""
+    """Put one file (or every file) back as it was before KeelBot changed it."""
     s = get(sid, messages=False)
     if s["mode"] == "side":
         if not s.get("worktree"):
             raise HelperError(409, "This side session was handed over; its worktree is gone.")
         if path and not any(c["path"] == path for c in changes(sid)):
-            raise HelperError(404, f"The Helper did not change {path} in this chat.")
+            raise HelperError(404, f"KeelBot did not change {path} in this chat.")
         try:
             return worktrees.undo(s["worktree"], "HEAD", path)
         except worktrees.WorktreeError as exc:
@@ -294,7 +294,7 @@ def undo(sid: str, path: str | None = None) -> list[dict]:
         q = "select path, existed, content from helper_files where session_id = ?" + (" and path = ?" if path else "")
         rows = conn.execute(q, (sid, path) if path else (sid,)).fetchall()
         if path and not rows:
-            raise HelperError(404, f"The Helper did not change {path} in this chat.")
+            raise HelperError(404, f"KeelBot did not change {path} in this chat.")
         for rel, existed, content in rows:
             f = root / rel
             if existed:
@@ -307,7 +307,7 @@ def undo(sid: str, path: str | None = None) -> list[dict]:
 
 
 def done(sid: str, flow: dict, emit=None, message: str = "", commit: dict | None = None) -> dict:
-    """Run the checks, then keel's commit of only the files the Helper changed (runtime/actions.py `commit`: the phase's
+    """Run the checks, then keel's commit of only the files KeelBot changed (runtime/actions.py `commit`: the phase's
     commit rules, secrets, new dependencies, pre-commit tools). The flow's timeline gets a helper.commit event."""
     from . import actions          # late: actions imports most of the runtime
 
@@ -319,7 +319,7 @@ def done(sid: str, flow: dict, emit=None, message: str = "", commit: dict | None
     root = workdir(s)
     files = [c["path"] for c in changes(sid)]
     if not files:
-        return {"ok": False, "step": "changes", "error": "Nothing to commit: the Helper changed no file in this chat."}
+        return {"ok": False, "step": "changes", "error": "Nothing to commit: KeelBot changed no file in this chat."}
     # the module's tests (the criterion's own test is one of them): the change works and nothing else broke
     ac = flow.get("ac") or None
     cmd = testcmd.command_for(root, None, (ac or {}).get("layer", "API")) or testcmd.command_for(root)
@@ -343,7 +343,7 @@ def done(sid: str, flow: dict, emit=None, message: str = "", commit: dict | None
     with db.connect() as conn:
         conn.execute("delete from helper_files where session_id = ?", (sid,))
     where = f" on branch {s['branch']}" if s["mode"] == "side" else ""
-    note = f"keel committed the Helper's change{where}: {res.note}" + (f" (checks: {cmd})" if cmd else " (no test command found)")
+    note = f"keel committed KeelBot's change{where}: {res.note}" + (f" (checks: {cmd})" if cmd else " (no test command found)")
     subject = git.git(root, "log", "-1", "--format=%s").stdout.strip()
     add_message(sid, "note", note, data={"status": "committed", "sha": sha, "files": files, "subject": subject})
     if emit:
@@ -440,7 +440,7 @@ def _transcript(hist: list[tuple[str, str]]) -> str:
     """The conversation so far, newest kept, for engines that cannot continue their own session."""
     parts, used = [], 0
     for role, text in reversed(hist):
-        line = f"{'Person' if role == 'user' else 'Helper'}: {text.strip()}"
+        line = f"{'Person' if role == 'user' else 'KeelBot'}: {text.strip()}"
         if used + len(line) > TRANSCRIPT_CHARS:
             break
         parts.append(line)
@@ -450,7 +450,7 @@ def _transcript(hist: list[tuple[str, str]]) -> str:
 
 def build_prompt(*, mode: str, root: str, question: str, know: dict, graph: bool, flow: dict | None,
                  mentions: list[dict] | None, selection: dict | None, open_file: str | None, transcript: str,
-                 branch: str = "", pid: str = "") -> str:
+                 branch: str = "", pid: str = "", keel: dict | None = None) -> str:
     where = f"Your folder (the worktree): {root}" if mode == "side" else f"The project folder: {root}"
     parts = [MODE_TEXT[mode].format(phase=fix_phase(flow), branch=branch or "?"), where]
     block = agent_knowledge.prompt_block(root, know, graph)
@@ -464,7 +464,8 @@ def build_prompt(*, mode: str, root: str, question: str, know: dict, graph: bool
     ctx = plugins.context_files(root)
     if ctx:
         parts.append("Read these when they help: " + ", ".join(ctx))
-    for extra in (_flow_block(flow), transcript, _pointing(mentions or [], selection, open_file)):
+    for extra in (_flow_block(flow), keelbot.keel_block(keel, question), transcript,
+                  _pointing(mentions or [], selection, open_file)):
         if extra:
             parts.append(extra)
     parts.append(f"Question: {question.strip()}")
@@ -489,11 +490,11 @@ class HelperRunner:
     def _ask(self, sid: str, key: str, kind: str, command: str, path: str = "") -> tuple[str | None, dict | None]:
         """(question id to wait for, or an answer at once)."""
         if not key or self.ask_keys.get(sid) != key:
-            return None, {"decision": "deny", "why": "This Helper turn may not ask (it ended, or the key is wrong)."}
+            return None, {"decision": "deny", "why": "This KeelBot turn may not ask (it ended, or the key is wrong)."}
         try:
             s = get(sid, messages=False)
         except HelperError:
-            return None, {"decision": "deny", "why": "The Helper chat is gone."}
+            return None, {"decision": "deny", "why": "The KeelBot chat is gone."}
         if permissions.granted(command, s["grants"]):
             return None, {"decision": "allow"}
         qid = "p_" + uuid.uuid4().hex[:12]
@@ -566,7 +567,7 @@ class HelperRunner:
         if not text:
             raise HelperError(400, "The message is empty.")
         if self.busy(sid):
-            raise HelperError(409, "The Helper is still answering in this session.", "Wait for the answer, or stop it.")
+            raise HelperError(409, "KeelBot is still answering in this session.", "Wait for the answer, or stop it.")
         if s["mode"] == "side" and not s.get("worktree"):
             raise HelperError(409, "This side session was handed over; its worktree is gone.", "Start a new chat.")
         if body.get("model"):
@@ -582,7 +583,7 @@ class HelperRunner:
         return {"session": sid, "call_id": call_id, "n": n, "command": command}
 
     async def stop(self, sid: str) -> dict:
-        self._drop_questions(sid, "The person stopped the Helper.")
+        self._drop_questions(sid, "The person stopped KeelBot.")
         t = self.tasks.get(sid)
         if t and not t.done():
             t.cancel()
@@ -672,7 +673,7 @@ class HelperRunner:
             prompt = build_prompt(mode=mode, root=root, question=question, know=know, branch=s.get("branch") or "", pid=project,
                                   graph=agent_knowledge.has_codegraph(mcp_specs, tools_allow), flow=body.get("flow"),
                                   mentions=body.get("mentions"), selection=body.get("selection"), open_file=body.get("open_file"),
-                                  transcript=transcript)
+                                  transcript=transcript, keel=body.get("keel"))
             with tempfile.TemporaryDirectory(prefix="keel-helper-") as tmp:
                 req = AgentRequest(agent=AGENT, system=prompts.system_prompt(AGENT, body.get("skills")), prompt=prompt,
                                    root=root, phase=phase, model=model, toolbox=toolbox, title=s["title"], step_name="helper",
@@ -692,11 +693,11 @@ class HelperRunner:
             status, err = "failed", f"{exc}{(' ' + exc.hint) if getattr(exc, 'hint', '') else ''}"
             emit("error", err[:2000], ok=False)
         self.ask_keys.pop(sid, None)
-        self._drop_questions(sid, "The Helper's answer ended.")
+        self._drop_questions(sid, "KeelBot's answer ended.")
         # the backstop for engines without keel's hook: in Ask nothing may change; in Fix only what the phase allows
         if mode == "ask":
             for r in guard.guard_diff(root, "none", before, cfg, None, None, True):
-                emit("guard", f"Put back {r['path']}: the Helper's Ask mode changes nothing.", path=r["path"], ok=False)
+                emit("guard", f"Put back {r['path']}: KeelBot's Ask mode changes nothing.", path=r["path"], ok=False)
         elif mode == "side":
             for r in guard.guard_diff(root, "none", before, cfg, None, None, False):
                 emit("guard", f"Put back {r['path']}: {r['reason']}", path=r["path"], ok=False)
@@ -713,7 +714,7 @@ class HelperRunner:
             cost = catalog.cost_usd(provider, model.get("model", ""), tin, tout)
         answer = (res.text if res else "") or ("" if status == "done" else err or "")
         if status == "done" and not answer.strip():
-            answer = "(The Helper gave no answer.)"
+            answer = "(KeelBot gave no answer.)"
         add_message(sid, "helper" if status == "done" else "note", answer, call_id=call_id,
                     data={"status": status, "provider": provider, "model": model.get("model"), "tokens_in": tin, "tokens_out": tout,
                           "tokens_cached": cached, "cost_usd": round(cost, 6), "ms": int((time.monotonic() - t0) * 1000)})

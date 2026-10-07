@@ -122,7 +122,14 @@ data class Workflow(
     val steps: List<Step>,
     val yaml: String,
     val source: String = "yours",
+    /** v0.9.0, in a project's list: the folder it sits in on the Workflows page, how often it ran, and its last run. */
+    val folder: String? = null,
+    val runs: Int? = null,
+    val lastRun: LastRun? = null,
 )
+
+/** A workflow's newest flow in the project (the Workflows page and KeelBot show it). */
+data class LastRun(val threadId: String, val title: String, val status: String, val at: String)
 
 data class LibraryItem(
     val id: String,

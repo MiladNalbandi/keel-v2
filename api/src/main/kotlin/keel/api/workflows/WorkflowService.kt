@@ -64,7 +64,46 @@ class WorkflowService(
 
     fun list(pid: String): List<Workflow> {
         projects.require(pid)
-        return templatesOrEmpty() + rows("project_id = ? OR project_id IS NULL", pid).map(::toWorkflow)
+        val all = templatesOrEmpty() + rows("project_id = ? OR project_id IS NULL", pid).map(::toWorkflow)
+        val folders = jdbc.query("SELECT workflow_id, folder FROM workflow_folders WHERE project_id = ?",
+            { rs, _ -> rs.getString(1) to rs.getString(2) }, pid).toMap()
+        val runs = mutableMapOf<String, Int>()
+        val last = mutableMapOf<String, LastRun>()
+        jdbc.query("SELECT workflow_id, id, title, status, updated_at FROM threads WHERE project_id = ? AND workflow_id IS NOT NULL ORDER BY updated_at DESC",
+            { rs, _ ->
+                val wid = rs.getString(1)
+                runs.merge(wid, 1, Int::plus)
+                last.putIfAbsent(wid, LastRun(rs.getString(2), rs.getString(3), rs.getString(4), rs.getString(5)))
+            }, pid)
+        return all.map { it.copy(folder = folders[it.id], runs = runs[it.id] ?: 0, lastRun = last[it.id]) }
+    }
+
+    /** v0.9.0: the folder a workflow sits in on this project's Workflows page; blank takes it out of its folder. */
+    fun setFolder(pid: String, wid: String, folder: String?): String? {
+        if (list(pid).none { it.id == wid }) throw NotFound("No workflow called \"$wid\" in this project")
+        val name = folder?.trim()?.replace(Regex("\\s+"), " ").orEmpty()
+        if (name.length > 40) throw BadRequest("The folder name is too long", "Keep it under 40 characters.")
+        if (name.isEmpty()) {
+            jdbc.update("DELETE FROM workflow_folders WHERE project_id = ? AND workflow_id = ?", pid, wid)
+            return null
+        }
+        jdbc.update("INSERT INTO workflow_folders(project_id, workflow_id, folder) VALUES (?, ?, ?) " +
+            "ON CONFLICT(project_id, workflow_id) DO UPDATE SET folder = excluded.folder", pid, wid, name)
+        return name
+    }
+
+    /** v0.9.0: a workflow YAML's review (KeelBot's new workflow before Save): what it does and whether keel can run it. */
+    fun check(pid: String, yaml: String): InstallReview {
+        projects.require(pid)
+        val doc = try {
+            WorkflowDoc.parse(yaml)
+        } catch (e: BadRequest) {
+            return InstallReview(name = "", source = "keelbot", steps = 0, gates = 0, keelRules = false, locked = 0, agents = emptyList(),
+                mcp = emptyList(), tools = emptyList(), commands = emptyList(), editsFiles = false, valid = false,
+                errors = listOfNotNull(e.message, e.hint), warnings = emptyList())
+        }
+        val res = engine.validate(yaml)
+        return review(doc, "keelbot", res.get("ok")?.asBoolean() == true, res.get("errors")?.map { it.asText() } ?: emptyList())
     }
 
     fun get(wid: String): Workflow {

@@ -202,7 +202,7 @@ class HelperPatch(BaseModel):
 
 
 class HelperTurn(BaseModel):
-    """One message to the Helper; the api adds the logins, the MCP servers and the project's flow (runtime/helper.py)."""
+    """One message to KeelBot; the api adds the logins, the MCP servers and the project's flow (runtime/helper.py)."""
     text: str = Field(min_length=1, max_length=20_000)
     model: ModelSpec | None = None
     keys: dict[str, str] | None = None
@@ -211,6 +211,7 @@ class HelperTurn(BaseModel):
     agents: dict[str, AgentSettings] = Field(default_factory=dict)
     skills: dict[str, str] = Field(default_factory=dict)
     flow: dict[str, Any] | None = None          # the flow that runs or waits: title, status, phase, spec, acs, waiting
+    keel: dict[str, Any] | None = None          # KeelBot's view of keel: {workflows, flows} (runtime/keelbot.py)
     mentions: list[dict[str, Any]] = Field(default_factory=list)   # [{kind: file|symbol|ac, value, file?, line?}]
     selection: dict[str, Any] | None = None     # {path, from, to, text}
     open_file: str | None = None
@@ -514,7 +515,7 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
             raise EngineError(400, msg)
         return await asyncio.to_thread(hunt.run_view, pid, run)
 
-    # ---- the Helper (runtime/helper.py) ------------------------------------------------------------------
+    # ---- KeelBot (runtime/helper.py) ------------------------------------------------------------------
 
     def helper_call(fn, *a, **k):
         try:
@@ -595,7 +596,7 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     async def post_helper_release(sid: str, request: Request):
         """A side session's worktree goes; its branch and commits stay for a change flow (the api checks it out)."""
         if request.app.state.helper.busy(sid):
-            raise EngineError(409, "The Helper is still working in this chat.", "Wait for it, or stop it, then hand it over.")
+            raise EngineError(409, "KeelBot is still working in this chat.", "Wait for it, or stop it, then hand it over.")
         return await asyncio.to_thread(helper_call, helper.release, sid)
 
     @app.post("/helper/sessions/{sid}/turn")
@@ -633,14 +634,14 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     @app.post("/helper/sessions/{sid}/undo")
     async def post_helper_undo(sid: str, body: HelperUndo, request: Request):
         if request.app.state.helper.busy(sid):
-            raise EngineError(409, "The Helper is still working in this chat.", "Wait for it, or stop it, then undo.")
+            raise EngineError(409, "KeelBot is still working in this chat.", "Wait for it, or stop it, then undo.")
         return await asyncio.to_thread(helper_call, helper.undo, sid, body.path)
 
     @app.post("/helper/sessions/{sid}/done")
     async def post_helper_done(sid: str, body: HelperDone, request: Request):
-        """Run the checks, then keel's commit of the Helper's files; the flow's timeline gets helper.commit."""
+        """Run the checks, then keel's commit of KeelBot's files; the flow's timeline gets helper.commit."""
         if request.app.state.helper.busy(sid):
-            raise EngineError(409, "The Helper is still working in this chat.", "Wait for it, or stop it, then press Done.")
+            raise EngineError(409, "KeelBot is still working in this chat.", "Wait for it, or stop it, then press Done.")
         bus_ = request.app.state.bus
         return await asyncio.to_thread(helper_call, helper.done, sid, body.flow,
                                        lambda t, tid, pid, data: bus_.emit(t, tid, pid, step="helper", data=data), body.message,

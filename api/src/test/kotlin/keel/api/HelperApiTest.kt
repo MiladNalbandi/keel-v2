@@ -9,7 +9,7 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders
 import org.springframework.http.MediaType
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 
-/** v0.6.0 keel's Helper: the api's sessions proxy the engine, a turn carries what the engine needs, and its events are agent calls. */
+/** v0.6.0 KeelBot: the api's sessions proxy the engine, a turn carries what the engine needs, and its events are agent calls. */
 class HelperApiTest : ApiTest() {
     @Autowired lateinit var jdbc: JdbcTemplate
 
@@ -164,10 +164,10 @@ class HelperApiTest : ApiTest() {
             "at" to java.time.Instant.now().toString(), "data" to data)
         post("/internal/events", listOf(ev("helper.permission", mapOf("id" to "p_2", "command" to "rm -rf build"))), mapOf("X-Keel-Token" to TOKEN))
             .andExpect(status().isOk)
-        val note = get("/api/notifications").json().first { it["title"].asText() == "The Helper asks to run a command" }
+        val note = get("/api/notifications").json().first { it["title"].asText() == "KeelBot asks to run a command" }
         assertThat(note["body"].asText()).isEqualTo("rm -rf build")
         post("/internal/events", listOf(ev("helper.permission.answered", mapOf("id" to "p_2", "decision" to "deny"))), mapOf("X-Keel-Token" to TOKEN))
-        assertThat(get("/api/notifications").json().first { it["title"].asText() == "The Helper asks to run a command" }["done"].asBoolean()).isTrue()
+        assertThat(get("/api/notifications").json().first { it["title"].asText() == "KeelBot asks to run a command" }["done"].asBoolean()).isTrue()
     }
 
     @Test

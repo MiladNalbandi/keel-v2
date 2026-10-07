@@ -1,4 +1,4 @@
-"""keel's Helper (runtime/helper.py, runtime/plugins.py): sessions, turns on the fake model, read-only Ask, plugins."""
+"""KeelBot (runtime/helper.py, runtime/plugins.py): sessions, turns on the fake model, read-only Ask, plugins."""
 
 import time
 from pathlib import Path
@@ -111,7 +111,7 @@ def test_the_prompt_carries_the_flow_what_the_person_points_at_and_the_conversat
     assert "- AC-2 [API] an unknown code is refused (red)" in p and "It waits for the person at a gate: AC gate." in p
     assert "- symbol checkout (src/app/checkout.js:4)" in p
     assert "- selected lines src/app/checkout.js:10-12:\n```\nconst off = discount(code)\n```" in p
-    assert "Person: hi\n\nHelper: hello" in p and p.endswith("Question: Why does AC-2 fail?")
+    assert "Person: hi\n\nKeelBot: hello" in p and p.endswith("Question: Why does AC-2 fail?")
 
 
 def test_plugins_keel_and_project_commands(tmp_path):
@@ -193,7 +193,7 @@ def test_fix_puts_back_what_the_phase_forbids(client, repo):
 
 
 def test_done_runs_the_checks_and_makes_keels_commit_of_only_the_helpers_files(client, repo):
-    (Path(repo) / "NOTES.md").write_text("the person's own unsaved notes\n")      # never part of the Helper's commit
+    (Path(repo) / "NOTES.md").write_text("the person's own unsaved notes\n")      # never part of KeelBot's commit
     s = fix_session(client, repo)
     ask(client, s["id"], "Add the helper.", flow=FLOW)
     r = client.post(f"/helper/sessions/{s['id']}/done", json={"flow": FLOW, "message": "Ranks use  the new helper"}).json()
@@ -207,12 +207,12 @@ def test_done_runs_the_checks_and_makes_keels_commit_of_only_the_helpers_files(c
     ev = [e for e in client.bus.recent if e["type"] == "helper.commit"][-1]
     assert ev["thread_id"] == "t-gate" and ev["data"]["sha"] == r["sha"] and ev["data"]["session"] == s["id"]
     assert client.get(f"/helper/sessions/{s['id']}").json()["messages"][-1]["data"]["status"] == "committed"
-    # the flow's PR body lists the Helper's commit
+    # the flow's PR body lists KeelBot's commit
     from keel_engine.runtime import verdict_actions
     assert helper.commits_for("t-gate")[0]["subject"] == "feat(AC-1): Ranks use the new helper"
     body = verdict_actions.pr_body(str(repo), "demo", {}, "Player ranks", None, thread_id="t-gate")
-    assert "## Helper changes" in body and f"`{r['sha'][:7]}` feat(AC-1): Ranks use the new helper (src/scores/helper_fix.py)" in body
-    assert "## Helper changes" not in verdict_actions.pr_body(str(repo), "demo", {}, "Player ranks", None, thread_id="t-other")
+    assert "## KeelBot changes" in body and f"`{r['sha'][:7]}` feat(AC-1): Ranks use the new helper (src/scores/helper_fix.py)" in body
+    assert "## KeelBot changes" not in verdict_actions.pr_body(str(repo), "demo", {}, "Player ranks", None, thread_id="t-other")
     from keel_engine.runtime import ship
     assert f"`{r['sha'][:7]}` feat(AC-1)" in ship.final_report(str(repo), "demo", {}, "Player ranks", "t-gate")
     nothing = client.post(f"/helper/sessions/{s['id']}/done", json={"flow": FLOW}).json()

@@ -1,4 +1,4 @@
-// The Repo page as a small, read-only VS Code: an activity bar (Explorer, Search, Source control, keel), a side
+// The Code page as a small, read-only VS Code: an activity bar (Explorer, Search, Source control, keel), a side
 // bar you can resize, editor tabs (preview / pinned), breadcrumbs, and a status bar. Deep links #/repo/<path>:<line>
 // open a file at a line, and the URL follows the active tab. On a phone the side bar and the editor are two screens.
 
@@ -91,10 +91,10 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
   const [wrap, setWrap] = useState<boolean>(() => readJson(local, "keel2.repo.wrap", false));
   const [dims, setDims] = useState("");
   const [copied, setCopied] = useState(false);
-  // keel's Helper: a chat panel on the right (⌘I), remembered per browser; it can take the lines selected in the code
+  // KeelBot: a chat panel on the right (⌘I), remembered per browser; it can take the lines selected in the code
   const [helperOpen, setHelperOpen] = useState<boolean>(() => readJson(local, "keel2.repo.helper", false));
   const [helperFocus, setHelperFocus] = useState(0);
-  // the Helper's column: drag its left edge (300 px up to all but 360 px of the IDE), remembered per browser
+  // KeelBot's column: drag its left edge (300 px up to all but 360 px of the IDE), remembered per browser
   const [helperW, setHelperW] = useState<number>(() => readJson(local, "keel2.repo.helper.w", 380));
   const [helperSel, setHelperSel] = useState<HelperSelection | null>(null);
 
@@ -171,7 +171,7 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
 
   const codeActive = !!active && active.kind === "file" && view === "code" && showText;
 
-  /** The lines selected in the code view, as the Helper takes them; null when nothing (or not code) is selected. */
+  /** The lines selected in the code view, as KeelBot takes them; null when nothing (or not code) is selected. */
   const codeSelection = useCallback((): HelperSelection | null => {
     const sel = typeof window !== "undefined" ? window.getSelection() : null;
     if (!sel || sel.isCollapsed || !activeFile || !codeActive) return null;
@@ -203,7 +203,7 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
       if (!mod || e.altKey) return;
       if (!e.shiftKey && k === "i") {
         e.preventDefault();
-        // ⌘I: open the Helper (with the selected lines); again with nothing selected closes it
+        // ⌘I: open KeelBot (with the selected lines); again with nothing selected closes it
         if (helperOpen && !codeSelection()) setHelperOpen(false);
         else askHelper();
         return;
@@ -429,7 +429,7 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
         </button>
       )}
       {view === "code" && showText && (
-        <button type="button" className="tb" aria-label="Ask the Helper" title={`Ask the Helper about the selected lines, or this file (${MOD}I)`}
+        <button type="button" className="tb" aria-label="Ask KeelBot" title={`Ask KeelBot about the selected lines, or this file (${MOD}I)`}
           onMouseDown={(e) => e.preventDefault()} onClick={askHelper}>
           <Icon name="helper" size={15} /><span>Ask</span>
         </button>
@@ -470,10 +470,10 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
             </button>
           );
         })}
-        <button type="button" className={`act act-help${helperOpen ? " on" : ""}`} aria-pressed={helperOpen} aria-label="Helper"
-          title={`Helper: ask about this project (${MOD}I)`} onClick={() => (helperOpen ? setHelperOpen(false) : askHelper())}>
+        <button type="button" className={`act act-help${helperOpen ? " on" : ""}`} aria-pressed={helperOpen} aria-label="KeelBot"
+          title={`KeelBot: ask about this project (${MOD}I)`} onClick={() => (helperOpen ? setHelperOpen(false) : askHelper())}>
           <Icon name="helper" size={22} />
-          {phone && <span className="act-l" aria-hidden="true">Helper</span>}
+          {phone && <span className="act-l" aria-hidden="true">KeelBot</span>}
         </button>
       </nav>
       <aside className="ide-side" aria-label={ACTIVITIES.find((a) => a[0] === activity)?.[1]}>{sideView}</aside>
@@ -559,9 +559,9 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
       {helperOpen && (
         <div className="ide-help">
           {!phone && (
-            <div className="ide-help-split" role="separator" aria-orientation="vertical" aria-label="Resize the Helper" tabIndex={0}
+            <div className="ide-help-split" role="separator" aria-orientation="vertical" aria-label="Resize KeelBot" tabIndex={0}
               aria-valuenow={helperW} aria-valuemin={300} onPointerDown={dragHelper} onDoubleClick={() => setHelperW(380)}
-              title="Drag to make the Helper wider (double-click: back to normal)"
+              title="Drag to make KeelBot wider (double-click: back to normal)"
               onKeyDown={(e) => {
                 if (e.key === "ArrowLeft") setHelperW((w) => Math.min(maxHelper(), w + 32));
                 if (e.key === "ArrowRight") setHelperW((w) => Math.max(300, w - 32));
@@ -601,7 +601,7 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
         {project && !fileTab && <span className="sb-i sb-wide">{project.name}</span>}
         {onFocus && (
           <button type="button" className="sb-i sb-focus" onClick={() => onFocus(!focus)}
-            title={focus ? "Show the Repo header again" : "Hide the Repo header: more room for the code and the Helper"}>
+            title={focus ? "Show the Code header again" : "Hide the Code header: more room for the code and KeelBot"}>
             {focus ? "Show the header" : "Hide the header"}
           </button>
         )}

@@ -44,7 +44,7 @@ class AgentRequest:
     guard_ctx: str = ""              # the guard context file keel's hook reads (runtime/guard_ctx.py); "" = the runner writes one
     thread: str = ""                 # the thread this call belongs to
     knowledge: dict | None = None    # {sections, code_graph, memory, strict} (runtime/agent_knowledge.py)
-    history: list[tuple[str, str]] = field(default_factory=list)   # earlier turns [(user|assistant, text)]: the Helper, api mode
+    history: list[tuple[str, str]] = field(default_factory=list)   # earlier turns [(user|assistant, text)]: KeelBot, api mode
 
 
 @dataclass

@@ -14,7 +14,7 @@ const at = (hash: string) => {
 };
 const calls = (method: string, path: string) => db.calls.filter((c) => c.method === method && c.path === path);
 
-describe("Repo", () => {
+describe("Code", () => {
   it("Update from base shows a clean merge, then conflicts", async () => {
     const user = userEvent.setup();
     at("#/repo");

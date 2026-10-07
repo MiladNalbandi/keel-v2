@@ -76,7 +76,7 @@ class StubEngine private constructor(private val server: HttpServer) {
     /** Helper sessions (POST /helper/sessions), like the engine keeps them; a test can set "project" to another one. */
     val helperSessions = java.util.concurrent.ConcurrentHashMap<String, MutableMap<String, Any?>>()
 
-    /** The Helper's commands waiting for the person (GET /helper/permissions); a test adds them. */
+    /** KeelBot's commands waiting for the person (GET /helper/permissions); a test adds them. */
     val helperQuestions = CopyOnWriteArrayList<Map<String, Any?>>()
     /** What GET /evals answers (tests change it). */
     @Volatile var evalSets: List<Map<String, Any?>> = listOf(mapOf("name" to "tiny", "description" to "a tiny eval", "project" to "project",
@@ -144,7 +144,7 @@ class StubEngine private constructor(private val server: HttpServer) {
         path == "/helper/commands" -> 200 to listOf(mapOf("name" to "explain", "description" to "Explain", "plugin" to "core", "source" to "keel"))
         path.matches(Regex("/helper/sessions/[^/]+/turn")) -> {
             val id = path.split('/')[3]
-            if (!helperSessions.containsKey(id)) 404 to mapOf("error" to "No Helper session $id.")
+            if (!helperSessions.containsKey(id)) 404 to mapOf("error" to "No KeelBot session $id.")
             else 200 to mapOf("session" to id, "call_id" to "call-$id", "n" to 1, "command" to null)
         }
         path.matches(Regex("/helper/sessions/[^/]+/stop")) -> 200 to helperSessions[path.split('/')[3]]
@@ -152,7 +152,7 @@ class StubEngine private constructor(private val server: HttpServer) {
             val id = path.split('/')[3]
             val sess = helperSessions[id]
             when {
-                sess == null -> 404 to mapOf("error" to "No Helper session $id.")
+                sess == null -> 404 to mapOf("error" to "No KeelBot session $id.")
                 method == "DELETE" -> { helperSessions.remove(id); 200 to mapOf("ok" to true) }
                 method == "PATCH" -> {
                     body?.get("title")?.asText()?.let { sess["title"] = it }

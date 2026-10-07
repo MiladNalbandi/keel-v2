@@ -110,13 +110,13 @@ class InboxService(
         return InboxCount(pids.size, pids.groupingBy { it }.eachCount())
     }
 
-    /** The Helper's commands that wait for the person (the engine keeps them in memory); none when the engine is down. */
+    /** KeelBot's commands that wait for the person (the engine keeps them in memory); none when the engine is down. */
     private fun helperQuestions(): List<JsonNode> = runCatching { engine.get("/helper/permissions").toList() }.getOrDefault(emptyList())
 
     private fun permissionItem(q: JsonNode, projectName: String): InboxItem = InboxItem(
         projectId = q.path("project").asText(), projectName = projectName, threadId = q.path("session").asText(),
-        flow = q.path("title").asText("Helper"), workflowId = null, step = "permission", kind = "permission",
-        title = "The Helper asks to run a command", detail = q.path("command").asText().take(DETAIL_MAX),
+        flow = q.path("title").asText("KeelBot"), workflowId = null, step = "permission", kind = "permission",
+        title = "KeelBot asks to run a command", detail = q.path("command").asText().take(DETAIL_MAX),
         more = q.path("command").asText().length > DETAIL_MAX, options = listOf("once", "always", "deny"), id = q.path("id").asText(),
         since = q.path("at").asText(null),
         permission = InboxPermission(q.path("id").asText(), q.path("session").asText(), q.path("command").asText(),

@@ -1,4 +1,4 @@
-// v0.5.1 the Repo page as a small read-only VS Code: tabs (preview / pin / close), quick open, find in file,
+// v0.5.1 the Code page as a small read-only VS Code: tabs (preview / pin / close), quick open, find in file,
 // search across files, diffs, deep links with a line, source control, the phone's two screens — and its logic.
 
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
