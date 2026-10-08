@@ -79,6 +79,14 @@ export function closeTab(t: Tabs, id: string): Tabs {
   return { tabs, active };
 }
 
+/** v0.15.4 the next (d = 1) or previous (d = -1) tab, round the row. */
+export function stepTab(t: Tabs, d: number): Tabs {
+  const n = t.tabs.length;
+  if (n < 2) return t;
+  const i = t.tabs.findIndex((x) => x.id === t.active);
+  return { ...t, active: t.tabs[(((i < 0 ? 0 : i + d) % n) + n) % n].id };
+}
+
 export const setView = (t: Tabs, id: string, view: View): Tabs => ({ ...t, tabs: t.tabs.map((x) => (x.id === id ? { ...x, view } : x)) });
 
 /** Point an open tab at something else in its place (a console moved to another database); an open tab for that wins. */
