@@ -1,0 +1,41 @@
+# Only for a test image built with --build-arg INSTALL_CLIS=0 (no claude, codex, copilot, opencode and no CodeGraph,
+# the code index), compared with a released image that has them:
+#
+#   python3 e2e/parity/parity.py --a ghcr.io/miladnalbandi/keel-v2:0.15.1 --b keel-v2:slim --allow e2e/parity/allow-no-clis.yml
+#
+# These differences come from the programs the image leaves out, not from keel's code. The real parity check uses an
+# image built the normal way, without this file.
+
+- what: api GET /api/projects/{pid}/index
+  why: no CodeGraph in the image, so the index is "failed" (CodeGraph is not installed in this image)
+
+- what: api GET /api/projects/{pid}/graph*
+  why: no CodeGraph in the image, so the code graph and its search are not available
+
+- what: web #/graph *
+  why: no CodeGraph in the image, so the Graph page offers "Build the index" instead of the graph
+
+- what: web launcher
+  detail: '*"group Code" only in A'
+  why: no CodeGraph in the image, so the launcher finds no symbols (its Code group)
+
+- what: web launcher
+  detail: '*, web/*.ts:#" only in A'
+  why: no CodeGraph in the image, so the launcher finds no symbols (its Code group)
+
+- what: web #/* rows
+  detail: '*".codegraph" only in A'
+  why: CodeGraph keeps its index in the project's .codegraph folder, so the Code page's file tree shows it on A only
+
+- what: web #/* badges
+  detail: '*"Index: *" only in *'
+  why: no CodeGraph in the image, so the Code page's status bar says "Index failed" (amber) instead of "Index ready"
+
+- what: web #/repo* style
+  why: the Code page's index tag is amber (failed) without CodeGraph; the only look that differs
+
+- what: web #/code style
+  why: the Code page's index tag is amber (failed) without CodeGraph; the only look that differs
+
+- what: web #/connections *
+  why: no agent CLIs in the image, so Connections shows "claude / codex / Copilot CLI not installed" (red pills)
