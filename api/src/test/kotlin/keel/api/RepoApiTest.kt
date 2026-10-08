@@ -111,7 +111,7 @@ class RepoApiTest : ApiTest() {
     }
 
     @Test
-    fun `keel docs, memory and wiki`() {
+    fun `keel docs and memory`() {
         val (pid, _) = newProject("repo-knowledge", files)
 
         val docs = get("/api/projects/$pid/keel-docs").andExpect(status().isOk).json()
@@ -136,15 +136,6 @@ class RepoApiTest : ApiTest() {
         delete("/api/projects/$pid/memory/$fid").andExpect(status().isOk)
         assertThat(get("/api/projects/$pid/memory").json()["facts"].size()).isEqualTo(0)
 
-        val wiki = get("/api/projects/$pid/wiki").json()
-        assertThat(wiki["sections"].map { it["id"].asText() }).containsExactly("knowledge", "workflows", "runbook", "decisions")
-        val page = get("/api/projects/$pid/wiki/page?id=kb:architecture").json()
-        assertThat(page["markdown"].asText()).contains("Layers live in")
-        val wf = get("/api/projects/$pid/wiki/page?id=wf:feature").json()
-        assertThat(wf["markdown"].asText()).contains("| 2 | spec approval | gate | you |")
-        assertThat(get("/api/projects/$pid/wiki/page?id=adr:ADR-001-graph.md").json()["title"].asText()).isEqualTo("The flow is a graph")
-        assertThat(get("/api/projects/$pid/wiki/page?id=runbook").json()["markdown"].asText()).contains("How to run")
-        get("/api/projects/$pid/wiki/page?id=adr:../../etc").andExpect(status().isBadRequest)
-        // the map is the Map plugin's (plugins/map/api: MapApiTest)
+        // the wiki is the Wiki plugin's (plugins/wiki/api: WikiApiTest), the map the Map plugin's (plugins/map/api: MapApiTest)
     }
 }

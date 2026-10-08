@@ -1,11 +1,9 @@
 // A workflow as a read-only panel (the Wiki): the blocks (default), a table, or the old graph with zoom. A click on a
-// block opens "what this step does".
+// block opens "what this step does". Only the Wiki uses it, so it moved with the page (plugins/wiki); the pictures
+// themselves are keel's (@keel/web-sdk).
 
 import type { ReactNode } from "react";
-import type { Step } from "../api";
-import { Blocks, BlocksLegend, StepTable, useMapView, ViewToggle } from "./Blocks";
-import { Graph, GraphLegend } from "./Graph";
-import { Zoom } from "./Zoom";
+import { Blocks, BlocksLegend, Graph, GraphLegend, StepTable, useMapView, ViewToggle, Zoom, type Step } from "@keel/web-sdk";
 
 export function WorkflowMap({ id, steps, tokens, acCount, onOpenStep, title = "Workflow", label, children }: {
   /** The place: it keeps its own Blocks / Table / Graph choice and zoom. */

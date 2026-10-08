@@ -1,4 +1,5 @@
-// v0.4.1 blocks: the workflow as Scratch-style blocks on the Workflows page (edit), the Flow page (live) and the Wiki.
+// v0.4.1 blocks: the workflow as Scratch-style blocks on the Workflows page (edit) and the Flow page (live); the Wiki's
+// read-only blocks: plugins/wiki/web/test.
 // The model is checked on the real templates (content/workflows/feature, fix, ship, expanded by the engine).
 
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -381,17 +382,6 @@ describe("Flow page (live blocks)", () => {
     await waitFor(() => expect(calls("POST", "/api/projects/ludus-engine/workflows/explain-step").at(-1)?.body)
       .toMatchObject({ step_id: "s3", thread_id: "th_7f3a", workflow: { id: "feature" } }));
     expect(await within(panel).findByRole("region", { name: "Task" })).toBeInTheDocument();
-  });
-});
-
-describe("Wiki workflow page", () => {
-  it("shows the workflow as read-only blocks; a click opens what it does", async () => {
-    const user = userEvent.setup();
-    location.hash = "#/wiki/wf%3Afeature";
-    render(<App />);
-    await user.click(await screen.findByRole("button", { name: /^verify_red, plain code/ }));
-    expect(await screen.findByRole("dialog", { name: /What verify_red does|What commit contract does/ })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^Remove / })).not.toBeInTheDocument();
   });
 });
 

@@ -118,9 +118,10 @@ private object Fence {
     // The packages that become plugins (docs/plugins/01-today.md). keel.api.repo and keel.api.knowledge stay core.
     val PLUGINS = listOf("keel.api.helper", "keel.api.jira", "keel.api.plugins", "keel.api.review", "keel.api.tasks")
 
-    // Core never uses these, not even today. They can never be in the allowlist. keel.api.map is the Map plugin's
-    // (plugins/map/api, step 3): a part that moved out keeps its package, and core never uses it again.
-    val FORBIDDEN = listOf("keel.product", "keel.api.map")
+    // Core never uses these, not even today. They can never be in the allowlist. keel.api.map and keel.api.wiki are
+    // the Map and the Wiki plugins' (plugins/map/api and plugins/wiki/api, step 3): a part that moved out keeps its
+    // package, and core never uses it again.
+    val FORBIDDEN = listOf("keel.product", "keel.api.map", "keel.api.wiki")
 
     data class Found(val couplings: Set<String>, val forbidden: Set<String>)
 

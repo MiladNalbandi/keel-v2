@@ -1,6 +1,6 @@
-// v0.4.1 "What this step does": a click (or Enter) on a block of the Flow page (its side panel) and the Wiki (the drawer),
-// the Wiki's table, and the builder's "What it does" tab show Task / Rules / Next / Last run; a click on a graph node
-// never pans.
+// v0.4.1 "What this step does": a click (or Enter) on a block of the Flow page (its side panel) and the builder's
+// "What it does" tab show Task / Rules / Next / Last run; a click on a graph node never pans. The Wiki's drawer and
+// table: plugins/wiki/web/test.
 
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -68,21 +68,6 @@ describe("What this step does", () => {
     fireEvent.pointerMove(box, { clientX: 40, clientY: 10 });
     expect(box.scrollLeft).toBe(110);
     window.PointerEvent = had;
-  });
-
-  it("opens from the Wiki's workflow page: the blocks and the table, with placeholders", async () => {
-    const user = userEvent.setup();
-    location.hash = "#/wiki/wf%3Afeature";
-    render(<App />);
-    await user.click(await screen.findByRole("button", { name: /^red, agent/ }));
-    const dlg = await screen.findByRole("dialog", { name: "What red does" });
-    await waitFor(() => expect(explains().at(-1)?.body).toEqual({ step_id: "s3", workflow_id: "feature" }));
-    expect(await within(dlg).findByText(/with «placeholders»/)).toBeInTheDocument();
-    expect(within(dlg).queryByRole("region", { name: "Last run" })).not.toBeInTheDocument();
-    await user.keyboard("{Escape}");
-    await user.click(screen.getByRole("button", { name: "Table" }));
-    await user.click(screen.getByRole("button", { name: "verify_red" }));
-    await waitFor(() => expect(explains().at(-1)?.body).toEqual({ step_id: "s4", workflow_id: "feature" }));
   });
 
   it("the builder's What it does explains the draft and editing still works", async () => {
