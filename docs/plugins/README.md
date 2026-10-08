@@ -101,6 +101,8 @@ users carry no risk, and every later step only repeats it. Details: [05-migratio
 | [06-spikes.md](06-spikes.md)                 | the two risky ideas of step 1 tried for real: a plugin jar from a folder, a plugin web part with one React |
 | [07-step1-contract.md](07-step1-contract.md) | the shared spec the five parts of step 1 were built against |
 | [08-step1-report.md](08-step1-report.md) | step 1 is built: what keel can do now, the commands, the test results |
+| [09-step2-contract.md](09-step2-contract.md) | the shared spec for step 2: approvals, Inbox sources, the engine registry, api services, web slots |
+| [10-step2-report.md](10-step2-report.md) | step 2 is built: what changed, the fence numbers, the test results |
 | [tools/create-plugin-repos.sh](tools/create-plugin-repos.sh) | creates the 14 repos in `keel-studio` (`keel-marketplace`, `keel-plugin-template`, `keel-plugin-<name>` × 12) with a short README, a draft manifest and the license; [move-plugin-repos.sh](tools/move-plugin-repos.sh) moves the first ones from `MiladNalbandi` there |
 
 ## Open questions for Milad
