@@ -17,7 +17,7 @@ CONTENT = Path(os.environ.get("KEEL_PRODUCT_CONTENT") or Path(__file__).resolve(
 ADDON = {
     "name": "product",
     "version": VERSION,
-    "requires": ">=0.13.0,<0.15.0",
+    "requires": ">=0.13.0,<0.16.0",
     "content": CONTENT,
     "actions": ACTIONS,
     "fake": fake_answer,
