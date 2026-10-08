@@ -16,7 +16,16 @@ fi
 
 echo "keel v2 · data $KEEL_DATA · workspace $KEEL_WORKSPACE · content $KEEL_CONTENT"
 
-KEEL_ENGINE_HOST=127.0.0.1 KEEL_ENGINE_PORT=8090 keel-engine &
+# keel Product (the product edition): the engine loads the add-on from /opt/keel-product, only the engine sees it
+engine_path="${PYTHONPATH:-}"
+if [ "${KEEL_EDITION:-dev}" = "product" ] && [ -d /opt/keel-product/keel_product ]; then
+  export KEEL_ADDONS="${KEEL_ADDONS:-keel_product}"
+  export KEEL_PRODUCT_CONTENT=/opt/keel-product/content
+  engine_path="/opt/keel-product${engine_path:+:$engine_path}"
+  echo "keel Product edition · add-ons $KEEL_ADDONS"
+fi
+
+PYTHONPATH="$engine_path" KEEL_ENGINE_HOST=127.0.0.1 KEEL_ENGINE_PORT=8090 keel-engine &
 engine=$!
 
 for _ in $(seq 1 60); do
