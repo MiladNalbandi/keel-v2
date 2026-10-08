@@ -46,10 +46,10 @@ class PluginHostApiTest {
 
     /** Records the exit instead of ending the test JVM. */
     class RecordingExit : ApiExit {
-        data class Call(val code: Int, val at: Long)
+        data class Call(val code: Int, val at: Long, val daemon: Boolean)
         val calls = CopyOnWriteArrayList<Call>()
         override fun exit(code: Int) {
-            calls += Call(code, System.nanoTime())
+            calls += Call(code, System.nanoTime(), Thread.currentThread().isDaemon)
         }
     }
 
@@ -196,5 +196,7 @@ class PluginHostApiTest {
         while (exits.calls.isEmpty() && System.nanoTime() < deadline) Thread.sleep(20)
         assertThat(exits.calls.map { it.code }).containsExactly(75)
         assertThat((exits.calls[0].at - asked) / 1_000_000).isGreaterThanOrEqualTo(450)
+        // a daemon thread lets the JVM end with code 0 once Spring has stopped, before the exit with 75 (a real race)
+        assertThat(exits.calls[0].daemon).isFalse()
     }
 }

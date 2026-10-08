@@ -39,7 +39,9 @@ class PluginRestart(@Value("\${keel.supervised:}") supervised: String, private v
             throw Conflict("keel can restart itself only when keel-start runs it (KEEL_SUPERVISED=1)", "Restart keel by hand: keel2 restart")
         }
         if (!asked.compareAndSet(false, true)) return
-        thread(name = "keel-restart", isDaemon = true) {
+        // Not a daemon: SpringApplication.exit stops Tomcat's threads, and with only daemon threads left the JVM would
+        // end by itself with code 0 before exitProcess(75) runs (keel-start then stops the container).
+        thread(name = "keel-restart", isDaemon = false) {
             Thread.sleep(DELAY_MS)
             exit.exit(EXIT_CODE)
         }
