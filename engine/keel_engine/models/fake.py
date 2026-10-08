@@ -157,7 +157,7 @@ def _review_answer(prompt: str) -> str:
         verdicts = [{"id": i, "verdict": "confirmed" if n == 0 else "rejected",
                      "why": "line 1 shows it" if n == 0 else "the code handles this case"} for n, i in enumerate(ids)]
         return "I checked the claims.\n```keel-review-verify\n" + json.dumps({"verdicts": verdicts}) + "\n```"
-    who = "A" if "reviewer A" in prompt else "B"
+    who = "A" if "You are reviewer A" in prompt else "B"
     findings = [{"title": f"value from {paths[0].rsplit('/', 1)[-1]} is never saved", "severity": "blocking",
                  "category": "correctness", "path": paths[0], "line": 1, "side": "RIGHT",
                  "why": "the new value is kept in memory only, so it is lost after a restart",

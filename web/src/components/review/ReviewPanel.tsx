@@ -437,6 +437,7 @@ export function FindingsTab({
       </section>
     );
   const found = r?.findings ?? [];
+  const live = found.filter((f) => ai?.decisions[f.id]?.decision !== "dismissed");
   return (
     <div className="rv-stack">
       {!run && (
@@ -495,13 +496,13 @@ export function FindingsTab({
           )}
           <p
             className={
-              found.some((f) => f.severity === "blocking") ? "rv-bad" : "rv-ok"
+              live.some((f) => f.severity === "blocking") ? "rv-bad" : "rv-ok"
             }
           >
-            {found.filter((f) => f.severity === "blocking").length
-              ? `${found.filter((f) => f.severity === "blocking").length} blocking · ${found.filter((f) => f.severity === "should_fix").length} should fix`
-              : found.length
-                ? `No blocking issues · ${found.length} to look at`
+            {live.filter((f) => f.severity === "blocking").length
+              ? `${live.filter((f) => f.severity === "blocking").length} blocking · ${live.filter((f) => f.severity === "should_fix").length} should fix`
+              : live.length
+                ? `No blocking issues · ${live.length} to look at`
                 : "No problems found."}
           </p>
           {group(
