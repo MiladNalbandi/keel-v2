@@ -1,0 +1,10 @@
+# A test plugin for PluginHostApiTest. This file is outside web/, so the api must never serve it.
+schema: 1
+name: demo
+title: Demo
+version: 1.0.0
+requires:
+  sdk: 1
+parts:
+  web: { entry: web/index.js, css: [web/style.css] }
+  migrations: migrations
