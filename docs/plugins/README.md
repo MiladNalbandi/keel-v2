@@ -99,6 +99,8 @@ users carry no risk, and every later step only repeats it. Details: [05-migratio
 | [05-migration.md](05-migration.md)           | seven releasable steps, their tests, and why step 1 is first                                        |
 | [mockup.html](mockup.html)                   | the mockup's source (published as a claude.ai artifact)                                             |
 | [06-spikes.md](06-spikes.md)                 | the two risky ideas of step 1 tried for real: a plugin jar from a folder, a plugin web part with one React |
+| [07-step1-contract.md](07-step1-contract.md) | the shared spec the five parts of step 1 were built against |
+| [08-step1-report.md](08-step1-report.md) | step 1 is built: what keel can do now, the commands, the test results |
 | [tools/create-plugin-repos.sh](tools/create-plugin-repos.sh) | creates the 14 repos in `keel-studio` (`keel-marketplace`, `keel-plugin-template`, `keel-plugin-<name>` × 12) with a short README, a draft manifest and the license; [move-plugin-repos.sh](tools/move-plugin-repos.sh) moves the first ones from `MiladNalbandi` there |
 
 ## Open questions for Milad
