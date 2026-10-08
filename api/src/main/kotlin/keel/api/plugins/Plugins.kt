@@ -64,7 +64,7 @@ class PluginService(
 
     fun require(pid: String, name: String) {
         if (!on(pid, name)) {
-            val title = mapOf("db" to "Database", "git" to "Git")[name] ?: name
+            val title = mapOf("db" to "Database", "git" to "Git", "ci" to "CI/CD", "review" to "Code Review")[name] ?: name
             throw Conflict("The $title plugin is off for this project", "Turn it on in Tools › Plugins.")
         }
     }

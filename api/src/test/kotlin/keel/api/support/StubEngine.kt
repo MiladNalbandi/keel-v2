@@ -133,7 +133,8 @@ class StubEngine private constructor(private val server: HttpServer) {
                 "actions" to listOf(mapOf("name" to "git:push", "with" to emptyMap<String, Any>(), "summary" to "push"))),
             mapOf("name" to "ci", "title" to "CI/CD", "installable" to true, "tools" to mapOf("server" to "keel-ci", "read" to listOf("ci_runs")),
                 "actions" to listOf(mapOf("name" to "ci:wait", "with" to emptyMap<String, Any>(), "summary" to "wait for CI")),
-                "workflows" to listOf("ci-fix")))
+                "workflows" to listOf("ci-fix")),
+            mapOf("name" to "review", "title" to "Code Review", "installable" to true, "needs" to listOf("github"), "actions" to emptyList<Any>()))
         path == "/plugins/db/test" -> 200 to (if (body?.path("connection")?.path("url")?.asText()?.contains("wrong") == true)
             mapOf("ok" to false, "error" to "keel could not reach local: password authentication failed", "hint" to "Check the password.")
             else mapOf("ok" to true, "server" to "PostgreSQL 16.4", "tables" to 23))

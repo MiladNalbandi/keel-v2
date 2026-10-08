@@ -70,6 +70,7 @@ abstract class ApiTest {
         val dataDir: Path = Files.createTempDirectory("keel-data")
         val engine: StubEngine = StubEngine.start()
         val github: StubGitHub = StubGitHub.start()
+        val hosts: StubCodeHost = StubCodeHost.start()
         val contentDir: Path = Paths.get(ApiTest::class.java.getResource("/content-fixture")!!.toURI())
         const val TOKEN = "test-token"
 
@@ -90,6 +91,10 @@ abstract class ApiTest {
             r.add("keel.tasks.github-api") { github.url }
             r.add("keel.tasks.github-from-env") { false }
             r.add("keel.tasks.public-url") { "http://keel.test" }
+            // v0.14.0 Code Review: GitHub and GitLab are the stub, AI runs are followed on the event thread
+            r.add("keel.review.github-api") { hosts.url }
+            r.add("keel.review.gitlab-api") { hosts.url + "/api/v4" }
+            r.add("keel.review.inline-effects") { true }
             // Login helpers: no pseudo-terminal in tests, and stand-in CLIs that behave like the real ones.
             r.add("keel.login-pty") { false }
             r.add("keel.login-commands.codex") {

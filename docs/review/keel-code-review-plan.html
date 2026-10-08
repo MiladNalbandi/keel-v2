@@ -1,0 +1,613 @@
+<title>keel Code Review</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+/* Layout: one reading column (about 70ch) for the text; mockups and tables break out wider inside their own scroll boxes. */
+:root {
+  --bg: #f7f6f3; --panel: #ffffff; --panel-2: #f1efea; --fg: #131314; --dim: #6f6b63; --faint: #9b968c; --border: #e3e0d9;
+  --accent: #7a5cff; --accent-soft: #ece6ff;
+  --ok: #1f8a4c; --ok-soft: #e3f3e9; --run: #0b74c4; --run-soft: #e2effa; --warn: #b26a00; --warn-soft: #fbefd9; --bad: #c0392b; --bad-soft: #f8e1de;
+  --add: #e6f4ea; --del: #fbe9e7; --add-fg: #1f6f3f; --del-fg: #a3352a;
+  /* the IDE mockups are dark in both themes (keel's Code page look) */
+  --ide-bg: #1a1a1c; --ide-2: #222225; --ide-3: #2c2c30; --ide-fg: #e9e7e2; --ide-dim: #9a958c; --ide-line: #333338;
+  --ide-add: #173225; --ide-del: #3a1d1a; --ide-accent: #a48bff;
+  --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #131314; --panel: #1a1a1c; --panel-2: #222225; --fg: #f7f6f3; --dim: #a39e95; --faint: #6b675f; --border: #2c2c30;
+  --accent: #a48bff; --accent-soft: #2a2342; --ok: #4ec07c; --ok-soft: #173225; --run: #57aeff; --run-soft: #142a3d;
+  --warn: #e0a13a; --warn-soft: #36290f; --bad: #f0685a; --bad-soft: #3a1d1a; --add: #173225; --del: #3a1d1a; --add-fg: #7fd6a0; --del-fg: #f3a197;
+  --ide-bg: #0f0f11; --ide-2: #18181b; --ide-3: #232327; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #131314; --panel: #1a1a1c; --panel-2: #222225; --fg: #f7f6f3; --dim: #a39e95; --faint: #6b675f; --border: #2c2c30;
+  --accent: #a48bff; --accent-soft: #2a2342; --ok: #4ec07c; --ok-soft: #173225; --run: #57aeff; --run-soft: #142a3d;
+  --warn: #e0a13a; --warn-soft: #36290f; --bad: #f0685a; --bad-soft: #3a1d1a; --add: #173225; --del: #3a1d1a; --add-fg: #7fd6a0; --del-fg: #f3a197;
+  --ide-bg: #0f0f11; --ide-2: #18181b; --ide-3: #232327; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font: 15px/1.6 var(--f-body); margin: 0; padding: 32px 16px 80px; }
+main { max-width: 1080px; margin: 0 auto; display: grid; gap: 52px; }
+.col { max-width: 72ch; }
+h1, h2, h3 { text-wrap: balance; line-height: 1.2; margin: 0; }
+h1 { font-size: clamp(30px, 5vw, 44px); letter-spacing: -.02em; }
+h2 { font-size: 26px; letter-spacing: -.01em; }
+h3 { font-size: 17px; }
+p { margin: 0; }
+.stack { display: grid; gap: 14px; }
+.eyebrow { font: 600 12px/1 var(--f-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+.lede { font-size: 18px; color: var(--dim); max-width: 64ch; }
+.meta { font: 13px var(--f-mono); color: var(--faint); }
+nav.toc { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 14px; }
+nav.toc a { color: var(--dim); text-decoration: none; border-bottom: 1px solid var(--border); }
+nav.toc a:hover { color: var(--fg); }
+code, .mono { font-family: var(--f-mono); font-size: .88em; }
+.k { background: var(--panel-2); border: 1px solid var(--border); border-radius: 5px; padding: 0 5px; font-family: var(--f-mono); font-size: 12.5px; }
+ul.plain { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+.box { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; min-width: 0; }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.verdict { border-left: 4px solid var(--accent); }
+.verdict.v1 { border-left-color: var(--warn); }
+.verdict.v2 { border-left-color: var(--run); }
+pre.ascii { margin: 0; padding: 16px 18px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow-x: auto;
+  font: 12.5px/1.45 var(--f-mono); color: var(--fg); }
+.scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--dim); font-weight: 600; background: var(--panel-2); }
+tr:last-child td { border-bottom: 0; }
+td.y { color: var(--ok); font-weight: 600; } td.n { color: var(--faint); } td.p { color: var(--warn); font-weight: 600; }
+.sev { display: inline-block; font: 600 11px/1.6 var(--f-mono); padding: 0 7px; border-radius: 99px; white-space: nowrap; }
+.sev.high { background: var(--bad-soft); color: var(--bad); } .sev.med { background: var(--warn-soft); color: var(--warn); } .sev.low { background: var(--panel-2); color: var(--dim); }
+.ok { color: var(--ok); }
+.problems { display: grid; gap: 10px; }
+.prob { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; padding: 12px 14px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; }
+.prob b { font-weight: 600; } .prob .where { grid-column: 2; font: 12.5px var(--f-mono); color: var(--dim); overflow-wrap: anywhere; }
+.prob p { grid-column: 2; color: var(--dim); font-size: 14px; }
+.src { font-size: 13px; color: var(--dim); }
+.src a { color: var(--dim); }
+ol.steps { margin: 0; padding-left: 22px; display: grid; gap: 8px; }
+ol.steps li::marker { font-family: var(--f-mono); color: var(--accent); font-weight: 700; }
+
+/* ---------- IDE mockups ---------- */
+.mock { background: var(--ide-bg); color: var(--ide-fg); border-radius: 12px; overflow: hidden; border: 1px solid var(--ide-line); font: 13px/1.45 var(--f-body);
+  box-shadow: 0 10px 40px rgba(0,0,0,.18); }
+.mock-cap { font: 12px var(--f-mono); color: var(--dim); margin-top: 8px; }
+.mwrap { overflow-x: auto; border-radius: 12px; }
+.mbar { display: flex; align-items: center; gap: 10px; padding: 9px 14px; background: var(--ide-2); border-bottom: 1px solid var(--ide-line); flex-wrap: wrap; }
+.mbar .t { font-weight: 600; }
+.mdim { color: var(--ide-dim); }
+.mmono { font-family: var(--f-mono); font-size: 12px; }
+.pill { display: inline-flex; align-items: center; gap: 5px; border-radius: 99px; padding: 0 8px; font: 600 11px/1.7 var(--f-body); white-space: nowrap; }
+.pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.p-ok { background: #173225; color: #4ec07c; } .p-warn { background: #36290f; color: #e0a13a; } .p-bad { background: #3a1d1a; color: #f0685a; }
+.p-run { background: #142a3d; color: #57aeff; } .p-idle { background: var(--ide-3); color: var(--ide-dim); }
+.mbtn { border: 1px solid var(--ide-line); background: var(--ide-3); color: var(--ide-fg); border-radius: 6px; padding: 3px 10px; font: 500 12px var(--f-body); white-space: nowrap; }
+.mbtn.pri { background: var(--ide-accent); border-color: var(--ide-accent); color: #131314; }
+.mbtn.ghost { background: transparent; }
+.grow { flex: 1; }
+.ide { display: grid; grid-template-columns: 44px 270px minmax(0, 1fr) 320px; min-width: 1040px; min-height: 560px; }
+.act { background: var(--ide-2); border-right: 1px solid var(--ide-line); display: grid; align-content: start; gap: 6px; padding: 10px 0; justify-items: center; }
+.act i { width: 26px; height: 26px; border-radius: 6px; display: block; background: var(--ide-3); }
+.act i.on { background: var(--ide-accent); opacity: .85; }
+.side { background: var(--ide-2); border-right: 1px solid var(--ide-line); padding: 10px; display: grid; align-content: start; gap: 10px; min-width: 0; }
+.side h4 { margin: 0; font: 600 11px var(--f-body); letter-spacing: .07em; text-transform: uppercase; color: var(--ide-dim); }
+.card { background: var(--ide-3); border-radius: 8px; padding: 10px; display: grid; gap: 6px; }
+.chips { display: flex; gap: 4px; flex-wrap: wrap; }
+.chip { font-size: 11.5px; padding: 1px 8px; border-radius: 99px; background: var(--ide-3); color: var(--ide-dim); border: 1px solid var(--ide-line); }
+.chip.on { background: #2a2342; color: #d7ccff; border-color: #4b3d85; }
+.pr { display: grid; gap: 2px; padding: 8px; border-radius: 7px; }
+.pr.on { background: #2a2342; }
+.pr .r1 { display: flex; gap: 6px; align-items: baseline; } .pr .r1 b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree { display: grid; gap: 1px; font-size: 12.5px; }
+.tree div { display: flex; gap: 6px; align-items: center; padding: 3px 6px; border-radius: 5px; }
+.tree div.on { background: #2a2342; }
+.tree .cb { width: 12px; height: 12px; border: 1px solid var(--ide-dim); border-radius: 3px; flex: none; }
+.tree .cb.x { background: var(--ide-accent); border-color: var(--ide-accent); }
+.tree .st { font: 700 11px var(--f-mono); width: 12px; } .st.a { color: #4ec07c; } .st.m { color: #e0a13a; } .st.d { color: #f0685a; }
+.tree .n { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree .cnt { font: 11px var(--f-mono); color: var(--ide-dim); }
+.dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.center { display: grid; grid-template-rows: auto 1fr; min-width: 0; }
+.dhead { display: flex; gap: 10px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--ide-line); font-size: 12.5px; }
+.diff { font: 12px/1.65 var(--f-mono); overflow: hidden; }
+.drow { display: grid; grid-template-columns: 34px minmax(0,1fr) 34px minmax(0,1fr); }
+.drow > span { padding: 0 8px; white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+.ln { color: #6b675f; text-align: right; user-select: none; }
+.drow .del { background: var(--ide-del); } .drow .add { background: var(--ide-add); }
+.drow .hunk { grid-column: 1 / -1; color: #7a8bd1; background: #1d1f2b; }
+.thread { margin: 4px 10px 6px 44px; background: var(--ide-2); border: 1px solid var(--ide-line); border-radius: 8px; padding: 8px 10px; font: 12.5px/1.5 var(--f-body); display: grid; gap: 6px; }
+.thread.ai { border-color: #4b3d85; background: #1e1a2e; }
+.thread .who { display: flex; gap: 6px; align-items: center; font-size: 12px; }
+.thread .who b { font-weight: 600; }
+.sugg { font: 11.5px/1.5 var(--f-mono); background: var(--ide-bg); border-radius: 6px; padding: 6px 8px; border: 1px solid var(--ide-line); }
+.sugg .m { color: #f3a197; } .sugg .p { color: #7fd6a0; }
+.right { background: var(--ide-2); border-left: 1px solid var(--ide-line); display: grid; grid-template-rows: auto 1fr; min-width: 0; }
+.tabs { display: flex; gap: 2px; padding: 6px; border-bottom: 1px solid var(--ide-line); flex-wrap: wrap; }
+.tabs span { font-size: 12px; padding: 3px 9px; border-radius: 6px; color: var(--ide-dim); }
+.tabs span.on { background: #2a2342; color: #e9e3ff; }
+.rbody { padding: 12px; display: grid; gap: 10px; align-content: start; font-size: 12.5px; }
+.rbody h5 { margin: 0; font: 600 11px var(--f-body); letter-spacing: .07em; text-transform: uppercase; color: var(--ide-dim); }
+.mini { font: 11px/1.4 var(--f-mono); color: #cfc9ff; background: var(--ide-bg); border: 1px solid var(--ide-line); border-radius: 6px; padding: 8px; white-space: pre; overflow-x: auto; }
+.find { background: var(--ide-3); border-radius: 8px; padding: 8px 9px; display: grid; gap: 4px; }
+.find .h { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.find .w { font: 11px var(--f-mono); color: var(--ide-dim); }
+.find .acts { display: flex; gap: 6px; flex-wrap: wrap; }
+.tag { font: 600 10.5px var(--f-mono); padding: 0 6px; border-radius: 4px; }
+.tag.b { background: #3a1d1a; color: #f0685a; } .tag.s { background: #36290f; color: #e0a13a; } .tag.n { background: var(--ide-bg); color: var(--ide-dim); } .tag.v { background: #173225; color: #4ec07c; }
+.submit { display: grid; gap: 10px; padding: 14px; background: var(--ide-2); max-width: 420px; }
+.radio { display: flex; gap: 8px; align-items: flex-start; }
+.radio i { width: 13px; height: 13px; border-radius: 50%; border: 2px solid var(--ide-dim); margin-top: 3px; flex: none; }
+.radio i.on { border-color: var(--ide-accent); background: radial-gradient(var(--ide-accent) 40%, transparent 45%); }
+.ta { background: var(--ide-bg); border: 1px solid var(--ide-line); border-radius: 6px; padding: 8px; min-height: 56px; color: var(--ide-dim); font-size: 12.5px; }
+@media (prefers-reduced-motion: no-preference) { nav.toc a { transition: color .15s; } }
+</style>
+
+<main>
+  <header class="stack col">
+    <span class="eyebrow">keel v2 · plugin plan · 8 Oct 2026</span>
+    <h1>keel Code Review</h1>
+    <p class="lede">Review the branch you are on, or anyone's pull request, inside keel. It has the same review window as JetBrains' GitLab and GitHub plugins, plus keel's AI: it explains the change, finds real problems, checks each one again, and you decide what to post.</p>
+    <p class="meta">Based on keel v1 0.80.0 (main 55c798f) and keel v2 0.13.0. Research sources are at the end.</p>
+    <nav class="toc" aria-label="Sections">
+      <a href="#short">In short</a><a href="#good">What a good review does</a><a href="#today">What we have today</a>
+      <a href="#problems">Problems found</a><a href="#plugin">The new plugin</a><a href="#mockups">Mockups</a><a href="#keys">Keyboard</a>
+      <a href="#process">Reviewer steps</a><a href="#v1">Then keel v1</a><a href="#build">Build plan</a><a href="#sources">Sources</a>
+    </nav>
+  </header>
+
+  <section id="short" class="stack">
+    <h2>In short</h2>
+    <div class="two">
+      <div class="box verdict v1 stack">
+        <h3>keel v1: <code>/keel:review-pr</code></h3>
+        <p>It checks a PR against a ticket and your Definition of Done. Then it prints a clear to-do list. The idea is good. But it has two serious bugs:</p>
+        <ul class="plain">
+          <li>it <b>runs the PR's build code on your computer</b>, with your tokens;</li>
+          <li>some checklist items are marked done or not done <b>by keywords</b>, and you cannot change it.</li>
+        </ul>
+      </div>
+      <div class="box verdict v2 stack">
+        <h3>keel v2: reviews inside its flows</h3>
+        <p>AC review, full-diff review, security and ship lenses, with a fix loop. Strong for keel's own work. But:</p>
+        <ul class="plain">
+          <li>findings are free text, so <b>real findings get lost</b> and <b>notes become "blocking"</b> and get "fixed";</li>
+          <li>it cannot review <b>someone else's PR</b>, and it posts nothing to GitHub.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="box verdict stack">
+      <h3>The plan</h3>
+      <p>Neither version has the review window that JetBrains' plugin has:</p>
+      <ul class="plain">
+        <li>the PR list;</li>
+        <li>a file tree;</li>
+        <li>a side-by-side diff with comments on lines;</li>
+        <li>threads you can reply to and resolve;</li>
+        <li>Approve and Request changes.</li>
+      </ul>
+      <p>So we build it in keel v2 as a plugin, <b>Code Review</b>, and add keel's AI on top. After that, the same finding format and the same checks go back into keel v1.</p>
+    </div>
+  </section>
+
+  <section id="good" class="stack">
+    <h2>What a good review does</h2>
+    <p class="col">From Google's review guide, the studies, and the AI review tools of 2026 (CodeRabbit, Copilot, Qodo, Greptile, Claude Code Review). Each step has one job:</p>
+<pre class="ascii" aria-label="Review pipeline">
+ your branch  or  PR #212
+        │
+  1  PREP          no AI · fetch the PR, list files, size, risk, CI checks          (fast, free)
+        │
+  2  UNDERSTAND    AI · what this PR does, each file in one line, a diagram,
+        │               "open these files first", effort 1–5, "split it?" when big
+        │
+  3  FIND          AI · 2 reviewers in parallel
+        │               A: correctness + security      B: tests + ticket/ACs + design
+        │
+  4  VERIFY        AI · a fresh agent checks every blocking / should-fix claim
+        │               → confirmed (kept)  or  rejected (hidden, with why)
+        │
+  5  YOU DECIDE    read the diff; findings sit on their lines
+        │               Add as comment · Edit · Dismiss (say why)
+        │
+  6  POST          one review on GitHub / GitLab: line comments + Approve / Request changes / Comment
+        │
+  7  RE-REVIEW     after new commits: only the new diff · open / resolved / new
+</pre>
+    <div class="two">
+      <div class="box stack">
+        <h3>The review report should have</h3>
+        <ol class="steps">
+          <li>One verdict line: <code>2 blocking · 3 should fix · 4 nits · CI ✓ · ACs 4/5 · effort 3/5 · risk medium</code>. It says "No blocking issues" when that is true.</li>
+          <li>What it does: 2–3 lines, a file table, "start here" files, a diagram when the flow crosses parts.</li>
+          <li>Ticket check: each AC → met / partly / not met / check by hand, with file:line and the test.</li>
+          <li>Findings, in this order: blocking, should fix, nits (at most 5), pre-existing (never blocking), questions.</li>
+          <li>A security part, always there, even when it is empty.</li>
+          <li>Tests: "would they fail if the code broke?"</li>
+        </ol>
+      </div>
+      <div class="box stack">
+        <h3>Each finding has</h3>
+        <ul class="plain">
+          <li>a short title and a severity (blocking / should fix / nit), as a Conventional Comments label, for example <code>issue (blocking):</code></li>
+          <li>a category: correctness, security, ticket, tests, performance, design;</li>
+          <li><code>file:line</code> at the reviewed commit;</li>
+          <li>why it matters, and how it was checked;</li>
+          <li>a suggestion: a small <code>```suggestion</code> patch only for small fixes, otherwise a prompt for an agent.</li>
+        </ul>
+        <p class="src">Why so strict: 79% of AI comments in one audit were nits nobody wanted. A verify pass and "silent when clean" are what work.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="today" class="stack">
+    <h2>What we have today</h2>
+    <p class="col">Green = yes. Orange = partly. Grey = no.</p>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>What</th><th>keel v1</th><th>keel v2</th><th>JetBrains plugin</th><th>keel Code Review (target)</th></tr></thead>
+        <tbody>
+          <tr><td>List of PRs with filters (mine, to review)</td><td class="n">no</td><td class="n">no</td><td class="y">yes</td><td class="y">yes</td></tr>
+          <tr><td>Review someone else's PR by number</td><td class="y">yes</td><td class="n">no (own branch only)</td><td class="y">yes</td><td class="y">yes</td></tr>
+          <tr><td>Review the branch I am on</td><td class="p">/keel:review</td><td class="p">review flow</td><td class="p">compare with branch</td><td class="y">yes, one click</td></tr>
+          <tr><td>File tree, side-by-side diff</td><td class="n">no (terminal)</td><td class="p">branch tab (v0.12)</td><td class="y">yes</td><td class="y">yes, plus "viewed" marks</td></tr>
+          <tr><td>Comment on a line, reply, resolve</td><td class="n">one PR comment</td><td class="n">reads comments only</td><td class="y">yes</td><td class="y">yes</td></tr>
+          <tr><td>Approve / Request changes</td><td class="n">no</td><td class="n">no</td><td class="y">yes</td><td class="y">yes</td></tr>
+          <tr><td>Check out the PR to run it</td><td class="n">no</td><td class="p">switch branch</td><td class="y">yes</td><td class="y">yes</td></tr>
+          <tr><td>Summary, per-file walkthrough, diagram</td><td class="n">no</td><td class="n">no</td><td class="n">no</td><td class="y">yes (AI)</td></tr>
+          <tr><td>Ticket / AC check</td><td class="y">yes</td><td class="p">own flows only</td><td class="n">no</td><td class="y">yes, when a ticket is linked</td></tr>
+          <tr><td>Structured findings (severity, file:line, fix)</td><td class="p">lines, fragile parser</td><td class="n">free text</td><td class="n">—</td><td class="y">JSON</td></tr>
+          <tr><td>Each claim checked again</td><td class="p">only not-met / blocking, no record</td><td class="n">no</td><td class="n">—</td><td class="y">yes, rejected ones kept with why</td></tr>
+          <tr><td>Never runs the PR's code</td><td class="n">runs its build</td><td class="y">yes</td><td class="y">yes</td><td class="y">yes</td></tr>
+          <tr><td>Human decides what is posted</td><td class="y">yes</td><td class="y">nothing posted</td><td class="y">yes</td><td class="y">yes</td></tr>
+          <tr><td>Re-review only new commits</td><td class="n">no</td><td class="n">no</td><td class="p">shows new commits</td><td class="y">yes</td></tr>
+          <tr><td>GitHub · GitLab</td><td class="p">GitHub</td><td class="p">GitHub</td><td class="y">both</td><td class="y">both (GitHub first)</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="problems" class="stack">
+    <h2>Problems found</h2>
+    <p class="col">I read the code and tested the most serious ones myself. <span class="ok">✓ checked</span> means I saw it happen or saw it in the code.</p>
+    <div class="two">
+      <div class="stack">
+        <h3>keel v1</h3>
+        <div class="problems">
+          <div class="prob"><span class="sev high">high</span><b>The build check runs the PR's code <span class="ok">✓</span></b><span class="where">lib/ticket.js:509-532</span><p>gradlew, eslint config and tsc come from the PR. They run with your environment (GH_TOKEN, SONAR_TOKEN) and the network, and your node_modules are linked in with write access. Nothing asks first.</p></div>
+          <div class="prob"><span class="sev high">high</span><b>Keyword rules decide checklist items <span class="ok">✓</span></b><span class="where">lib/ticket.js:240-266</span><p>An item that mentions "database" becomes "met" when no schema file changed. A Mongo <code>.skip(20)</code> counts as a disabled test. You cannot override either.</p></div>
+          <div class="prob"><span class="sev med">medium</span><b>Re-review after a force-push gets weaker <span class="ok">✓</span></b><span class="where">lib/ticket.js:129</span><p>The fetch has no <code>+</code>, so it fails. keel falls back to the patch only: no build, no reading files.</p></div>
+          <div class="prob"><span class="sev med">medium</span><b>A <code>|</code> in a finding breaks it <span class="ok">✓</span></b><span class="where">lib/ticket.js:582</span><p>TypeScript unions or <code>||</code> move half of the text into the "to do" column.</p></div>
+          <div class="prob"><span class="sev med">medium</span><b><code>main</code> is hard-coded <span class="ok">✓</span></b><span class="where">agents/code-reviewer.md:11, reviewer.md:11, security-auditor.md:15</span><p>Wrong diff on develop or master repos.</p></div>
+          <div class="prob"><span class="sev med">medium</span><b>Big PRs are reviewed only in part, with no warning</b><span class="where">lib/ticket.js:318-342</span><p>The last group takes everything that is left (9,250 lines in one test). Quality covers only the first 15 files.</p></div>
+        </div>
+      </div>
+      <div class="stack">
+        <h3>keel v2</h3>
+        <div class="problems">
+          <div class="prob"><span class="sev high">high</span><b>Real findings are lost <span class="ok">✓</span></b><span class="where">engine/keel_engine/runtime/findings.py:36-39</span><p>Two file:line bullets with <code>BLOCKING: yes</code> and no "Blocking" heading become one line: "The reviewer marked this blocking: Security lens on git diff…".</p></div>
+          <div class="prob"><span class="sev high">high</span><b>Notes become blocking findings <span class="ok">✓</span></b><span class="where">findings.py:40-54</span><p>"Checked: auth on /ranks" and non-blocking items count as blocking. In code_review they go to the implementer twice, and no human sees them.</p></div>
+          <div class="prob"><span class="sev high">high</span><b>No finding is ever checked</b><span class="where">compiler.py:848-856</span><p>Straight to the fixer or a yes/no gate. The bug hunt already has provers. Reviews do not use them.</p></div>
+          <div class="prob"><span class="sev med">medium</span><b>Two findings on one line become one <span class="ok">✓</span></b><span class="where">findings.py:57-67</span><p>A security problem and a performance problem on <code>a.py:3</code>: only one is kept.</p></div>
+          <div class="prob"><span class="sev med">medium</span><b><code>main</code> is hard-coded, AC shas are not sent</b><span class="where">reviewer.md:16, code-reviewer.md:16, prompts.py:150</span><p>Wrong scope on other base branches. The AC reviewer is promised commit ids it never gets.</p></div>
+          <div class="prob"><span class="sev med">medium</span><b>You cannot choose lens, base or AC in the UI</b><span class="where">web/src/components/StartFlow.tsx:110</span><p>Only the API can do it. The findings gate has two buttons: all or nothing.</p></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="plugin" class="stack">
+    <h2>The new plugin: Code Review</h2>
+    <div class="two">
+      <div class="box stack">
+        <h3>Like JetBrains' plugin</h3>
+        <ul class="plain">
+          <li>Review the <b>branch you are on</b> with one click, PR or not.</li>
+          <li>See the <b>pull requests</b> (GitLab: merge requests) with filters: to review, mine, all open.</li>
+          <li>Open one: a <b>file tree</b> with "viewed" marks and comment counts.</li>
+          <li><b>Side-by-side</b> or inline diff, with the threads on their lines.</li>
+          <li><b>Comment on a line</b>, reply, resolve.</li>
+          <li><b>Approve</b>, Request changes or Comment, posted as one review.</li>
+          <li><b>Check out</b> the branch to run and test it.</li>
+        </ul>
+      </div>
+      <div class="box stack">
+        <h3>Plus keel's AI</h3>
+        <ul class="plain">
+          <li><b>Overview</b>: what the PR does, each file in one line, a diagram, "open these first", effort and risk, "split it?".</li>
+          <li><b>Findings</b>: two reviewers, then a <b>verify</b> pass. You see only confirmed findings, on their lines.</li>
+          <li>Every finding: <b>Add as comment</b> (edit first), <b>Dismiss</b> (say why), or <b>Ask KeelBot</b>.</li>
+          <li><b>Checklist</b>: the reviewer steps, with the ticket's ACs when one is linked.</li>
+          <li><b>Explain this file</b> and "ask about these lines" in KeelBot.</li>
+        </ul>
+      </div>
+    </div>
+<pre class="ascii" aria-label="Architecture">
+  web · Code page                                                       (keel v2, plugin "review")
+  ┌───────────────┬───────────────────────────────────┬──────────────────────┐
+  │ Review         │ Review tab  #212 / this branch     │ keel panel            │
+  │ ▸ this branch  │ files tree · side-by-side diff     │ Overview · Findings   │
+  │ ▸ PR list      │ threads · comment box · Submit     │ Threads · Checklist   │
+  └───────┬────────┴─────────────────┬─────────────────┴───────────┬──────────┘
+          │        /api/projects/{pid}/review/…                     │
+  api ─── ReviewService ───────────────────────────────────────────┤
+          ├─ CodeHost ── GitHub (REST + GraphQL for threads)  |  GitLab (REST v4)
+          ├─ git: fetch PR head → refs/keel/review/pr-212  (+ base)   · never builds or runs it
+          ├─ drafts: your pending comments, until you press Submit
+          └─ AI runs ──► engine · KeelBot session, read only
+                           explain ─► find (A ∥ B) ─► verify each claim ─► JSON ─► keel panel
+</pre>
+    <div class="box stack">
+      <h3>Safety rules</h3>
+      <ul class="plain">
+        <li>keel <b>reads</b> the PR's code. It never builds or runs it. CI results come from GitHub or GitLab.</li>
+        <li>The AI never posts. A comment goes out only when <b>you</b> press Submit, and you see the text first.</li>
+        <li>Tokens stay in Connections (encrypted). Nothing goes into the image or the repo.</li>
+        <li>The review agents are read only (KeelBot's Ask mode guard).</li>
+        <li>PR text is treated as data, not as instructions.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="mockups" class="stack">
+    <h2>Mockups</h2>
+    <p class="col">This is the Code page with the new <b>Review</b> tool window, the review tab of PR #212, and the keel panel. These are example data.</p>
+    <div class="mwrap">
+      <div class="mock">
+        <div class="mbar">
+          <span class="t">#212 Paging and saved page size for orders</span>
+          <span class="mdim mmono">ana-k · main ← feat/order-paging · 9 files · +412 −58</span>
+          <span class="pill p-ok">CI 6/6</span><span class="pill p-warn">review requested</span><span class="pill p-idle">2 open threads</span>
+          <span class="grow"></span>
+          <span class="mbtn ghost">Check out</span><span class="mbtn ghost">Open on GitHub</span><span class="mbtn pri">Submit review (3)</span>
+        </div>
+        <div class="ide">
+          <div class="act"><i></i><i></i><i></i><i class="on" title="Review"></i><i></i></div>
+          <div class="side">
+            <h4>Review</h4>
+            <div class="card">
+              <div style="display:flex;gap:6px;align-items:center"><b>This branch</b><span class="mdim mmono">feat/order-paging</span></div>
+              <span class="mdim">5 commits · 9 files · PR #212</span>
+              <div class="chips"><span class="mbtn">Review this branch</span><span class="mbtn ghost">Explain it</span></div>
+            </div>
+            <h4>Pull requests</h4>
+            <div class="chips"><span class="chip on">To review 2</span><span class="chip">Mine 1</span><span class="chip">All open 7</span></div>
+            <div class="pr on"><div class="r1"><span class="mmono mdim">#212</span><b>Paging and saved page size…</b></div><span class="mdim">ana-k · <span class="pill p-ok">CI</span> · +412 −58</span></div>
+            <div class="pr"><div class="r1"><span class="mmono mdim">#209</span><b>Rate limit the login</b></div><span class="mdim">bo · <span class="pill p-bad">CI failed</span> · +88 −12</span></div>
+            <h4>Files</h4>
+            <div class="tree">
+              <div><span class="cb x"></span><span class="st m">M</span><span class="n">OrderController.kt</span><span class="cnt">+18 −4</span></div>
+              <div class="on"><span class="cb"></span><span class="st a">A</span><span class="n">PreferenceService.kt</span><span class="cnt">💬2 +64</span></div>
+              <div><span class="cb"></span><span class="st a">A</span><span class="n">V12__preferences.sql</span><span class="cnt">+11</span></div>
+              <div><span class="cb"></span><span class="st m">M</span><span class="n">OrdersPage.tsx</span><span class="cnt">+96 −30</span></div>
+              <div><span class="cb x"></span><span class="st m">M</span><span class="n">OrderPagingTest.kt</span><span class="cnt">+120</span></div>
+              <div><span class="cb"></span><span class="st d">D</span><span class="n">LegacyPager.kt</span><span class="cnt">−24</span></div>
+            </div>
+            <span class="mdim">2 of 9 viewed</span>
+          </div>
+          <div class="center">
+            <div class="dhead"><span class="mmono">PreferenceService.kt</span><span class="mdim">main…#212</span><span class="grow"></span><span class="chip on">Side by side</span><span class="chip">Inline</span></div>
+            <div class="diff">
+              <div class="drow"><span class="hunk">@@ -0,0 +1,64 @@ class PreferenceService</span></div>
+              <div class="drow"><span class="ln"></span><span></span><span class="ln">14</span><span class="add">  fun savePageSize(user: UserId, size: Int) {</span></div>
+              <div class="drow"><span class="ln"></span><span></span><span class="ln">15</span><span class="add">    require(size in 10..100)</span></div>
+              <div class="drow"><span class="ln"></span><span></span><span class="ln">16</span><span class="add">    val pref = Preference(user, size)</span></div>
+              <div class="drow"><span class="ln"></span><span></span><span class="ln">17</span><span class="add">    cache.put(user, pref)</span></div>
+              <div class="thread ai">
+                <div class="who"><span class="tag b">blocking</span><span class="tag v">verified</span><b>keel</b><span class="mdim">correctness · PreferenceService.kt:17</span></div>
+                <div><b>issue (blocking): the page size is never saved.</b> <code>savePageSize</code> writes only to the cache. After a restart, every user is back to 20. Ticket T3 says "the page size is kept".</div>
+                <div class="sugg"><span class="m">-    cache.put(user, pref)</span><br><span class="p">+    repository.save(pref)</span><br><span class="p">+    cache.put(user, pref)</span></div>
+                <div class="chips"><span class="mbtn pri">Add as comment</span><span class="mbtn">Edit</span><span class="mbtn ghost">Dismiss…</span><span class="mbtn ghost">Ask KeelBot</span></div>
+              </div>
+              <div class="drow"><span class="ln"></span><span></span><span class="ln">18</span><span class="add">  }</span></div>
+              <div class="drow"><span class="ln"></span><span></span><span class="ln">19</span><span class="add"></span></div>
+              <div class="drow"><span class="ln"></span><span></span><span class="ln">20</span><span class="add">  fun pageSize(user: UserId) = cache.get(user)?.size ?: 20</span></div>
+              <div class="thread">
+                <div class="who"><b>bo</b><span class="mdim">2 h ago · PreferenceService.kt:20</span><span class="pill p-warn">open</span></div>
+                <div>Should 20 come from config? We use 25 on mobile.</div>
+                <div class="who"><b>ana-k</b><span class="mdim">1 h ago</span></div>
+                <div>Good point, I'll move it to <code>PagingProperties</code>.</div>
+                <div class="chips"><span class="mbtn">Reply</span><span class="mbtn ghost">Resolve</span></div>
+              </div>
+              <div class="drow"><span class="ln"></span><span></span><span class="ln">21</span><span class="add"></span></div>
+              <div class="drow"><span class="ln"></span><span></span><span class="ln">22</span><span class="add">  private val cache = ConcurrentHashMap&lt;UserId, Preference&gt;()</span></div>
+            </div>
+          </div>
+          <div class="right">
+            <div class="tabs"><span class="on">Overview</span><span>Findings 3</span><span>Threads 2</span><span>Checklist</span></div>
+            <div class="rbody">
+              <div class="chips"><span class="tag b">1 blocking</span><span class="tag s">2 should fix</span><span class="tag n">effort 3/5</span><span class="tag n">risk medium</span></div>
+              <h5>What it does</h5>
+              <p>It adds paging to <code>GET /orders</code> (20 per page) and a page-size setting per user. The old pager is removed.</p>
+              <h5>Flow</h5>
+<div class="mini">OrdersPage ─▶ GET /orders?page
+   └▶ OrderController ─▶ OrderService.page()
+Settings ─▶ PUT /preferences
+   └▶ PreferenceService ─▶ cache ✗ db</div>
+              <h5>Open first</h5>
+              <p><code>PreferenceService.kt</code> (new logic), <code>V12__preferences.sql</code> (migration), then the tests.</p>
+              <h5>Ticket ORD-88</h5>
+              <p>✓ T1 paged · ✓ T2 page links · ✗ T3 size kept · ? T4 mobile (check by hand)</p>
+              <div class="find"><div class="h"><span class="tag s">should fix</span><span>migration has no index on user_id</span></div><span class="w">V12__preferences.sql:4 · performance · verified</span></div>
+              <div class="find"><div class="h"><span class="tag s">should fix</span><span>no test for size 101</span></div><span class="w">OrderPagingTest.kt · tests · verified</span></div>
+              <span class="mdim">1 claim was rejected by the check (hidden, see Findings).</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="mock-cap">Mockup 1: the review tab. Left: Review tool window and file tree. Middle: the diff with a verified finding and a person's thread. Right: the overview.</p>
+
+    <div class="two">
+      <div>
+        <div class="mock">
+          <div class="submit">
+            <b>Submit your review of #212</b>
+            <div class="ta">Paging looks good. One blocker: the page size is not saved (see the comment).</div>
+            <div class="radio"><i></i><div><b>Comment</b><div class="mdim">General feedback, no decision.</div></div></div>
+            <div class="radio"><i></i><div><b>Approve</b><div class="mdim">Ready to merge.</div></div></div>
+            <div class="radio"><i class="on"></i><div><b>Request changes</b><div class="mdim">Must be fixed before merging.</div></div></div>
+            <span class="mdim">3 line comments go with it (1 from keel, edited by you).</span>
+            <div class="chips"><span class="mbtn pri">Submit review</span><span class="mbtn ghost">Cancel</span></div>
+          </div>
+        </div>
+        <p class="mock-cap">Mockup 2: Submit. One GitHub review with every comment. On GitLab: discussions, then approve.</p>
+      </div>
+      <div>
+        <div class="mock">
+          <div class="rbody">
+            <div class="tabs" style="border:0;padding:0"><span>Overview</span><span class="on">Findings 3</span><span>Threads 2</span><span>Checklist</span></div>
+            <div class="find"><div class="h"><span class="tag b">blocking</span><span class="tag v">verified</span><span>page size never saved</span></div><span class="w">PreferenceService.kt:17 · correctness · T3</span><div class="acts"><span class="mbtn">Show</span><span class="mbtn pri">Add as comment</span><span class="mbtn ghost">Dismiss…</span></div></div>
+            <div class="find"><div class="h"><span class="tag s">should fix</span><span class="tag v">verified</span><span>no index on user_id</span></div><span class="w">V12__preferences.sql:4 · performance</span></div>
+            <div class="find"><div class="h"><span class="tag s">should fix</span><span class="tag v">verified</span><span>no test for size 101</span></div><span class="w">OrderPagingTest.kt · tests</span></div>
+            <h5>Rejected by the check (1)</h5>
+            <div class="find" style="opacity:.6"><div class="h"><span class="tag n">rejected</span><span>SQL injection in page param</span></div><span class="w">OrderController.kt:31 · "page is an Int, bound by Spring"</span></div>
+            <h5>Security</h5>
+            <p class="mdim">No security problem found. Checked: auth on PUT /preferences, input range, no secrets added.</p>
+          </div>
+        </div>
+        <p class="mock-cap">Mockup 3: Findings. Only checked findings are shown. Rejected ones stay visible, with the reason.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="keys" class="stack">
+    <h2>Keyboard: IntelliJ on a Mac</h2>
+    <p class="col">You can review without the mouse, with the shortcuts you already know from IntelliJ's macOS keymap. You can also jump through the code to understand it: go to where a name is defined, find every place that uses it, and go back. keel finds these places in the <b>pull request's own code</b>, even when it is not checked out.</p>
+    <div class="two">
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Open</th><th>Keys</th></tr></thead>
+          <tbody>
+            <tr><td>Review tool window</td><td><span class="k">⇧⌘9</span> <span class="src">keel's own; IntelliJ has no default for Pull Requests</span></td></tr>
+            <tr><td>Git (source control)</td><td><span class="k">⌘9</span></td></tr>
+            <tr><td>Project (files)</td><td><span class="k">⌘1</span></td></tr>
+            <tr><td>Search everywhere / go to file</td><td><span class="k">⇧⇧</span> <span class="k">⇧⌘O</span></td></tr>
+            <tr><td>Go to symbol</td><td><span class="k">⌥⌘O</span></td></tr>
+            <tr><td>Find action (every review action and its key)</td><td><span class="k">⇧⌘A</span></td></tr>
+            <tr><td>Recent places</td><td><span class="k">⌘E</span></td></tr>
+            <tr><td>Find in files / go to line</td><td><span class="k">⇧⌘F</span> <span class="k">⌘L</span></td></tr>
+            <tr><td>KeelBot</td><td><span class="k">⌘I</span> <span class="src">as today</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>In a review</th><th>Keys</th></tr></thead>
+          <tbody>
+            <tr><td>Next / previous change</td><td><span class="k">F7</span> <span class="k">⇧F7</span></td></tr>
+            <tr><td>Next / previous file</td><td><span class="k">⌥⌘→</span> <span class="k">⌥⌘←</span></td></tr>
+            <tr><td>Next / previous keel finding</td><td><span class="k">F2</span> <span class="k">⇧F2</span></td></tr>
+            <tr><td>Go to declaration</td><td><span class="k">⌘B</span> or <span class="k">⌘</span>-click</td></tr>
+            <tr><td>Find usages</td><td><span class="k">⌥F7</span></td></tr>
+            <tr><td>Jump to source (the whole file)</td><td><span class="k">⌘↓</span></td></tr>
+            <tr><td>Back / forward</td><td><span class="k">⌘[</span> <span class="k">⌘]</span></td></tr>
+            <tr><td>Quick documentation: keel explains it</td><td><span class="k">F1</span> <span class="k">⌃J</span></td></tr>
+            <tr><td>Actions on this line: comment, ask keel, copy link</td><td><span class="k">⌥↩</span></td></tr>
+            <tr><td>Mark the file viewed</td><td><span class="k">⌃⌥V</span> <span class="src">keel's own</span></td></tr>
+            <tr><td>Submit the review</td><td><span class="k">⌘↩</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="two">
+      <div>
+        <div class="mock">
+          <div class="rbody">
+            <div style="display:flex;gap:8px;align-items:center"><b>Usages of <span class="mmono">savePageSize</span></b><span class="mdim">⌥F7 · in #212 · 4 found</span></div>
+            <div class="find"><div class="h"><span class="mmono">PreferenceService.kt</span><span class="tag n">declaration</span></div><span class="w">14  fun savePageSize(user: UserId, size: Int) {</span></div>
+            <div class="find"><div class="h"><span class="mmono">PreferenceController.kt</span></div><span class="w">27  service.savePageSize(principal.id, body.size)</span></div>
+            <div class="find"><div class="h"><span class="mmono">OrderPagingTest.kt</span><span class="tag v">test</span></div><span class="w">41  prefs.savePageSize(user, 50)</span><span class="w">58  prefs.savePageSize(user, 101)</span></div>
+            <span class="mdim">↩ open · ⌘[ back · Esc close</span>
+          </div>
+        </div>
+        <p class="mock-cap">Mockup 4: Find usages (⌥F7) in the pull request's code. ↩ opens the place, ⌘[ brings you back.</p>
+      </div>
+      <div>
+        <div class="mock">
+          <div class="rbody">
+            <div style="display:flex;gap:8px;align-items:center"><b>Find action</b><span class="mdim">⇧⌘A</span></div>
+            <div class="ta" style="min-height:auto;color:var(--ide-fg)">comm|</div>
+            <div class="find"><div class="h"><span>Add comment on this line</span><span class="grow"></span><span class="k" style="color:#131314">⌥↩</span></div></div>
+            <div class="find"><div class="h"><span>Submit review</span><span class="grow"></span><span class="k" style="color:#131314">⌘↩</span></div></div>
+            <div class="find"><div class="h"><span>Next comment thread</span><span class="grow"></span><span class="mdim">no key</span></div></div>
+            <span class="mdim">Every review action is here, with its key.</span>
+          </div>
+        </div>
+        <p class="mock-cap">Mockup 5: Find action. You do not have to remember the keys.</p>
+      </div>
+    </div>
+    <p class="src col">On a MacBook keyboard, F1, F2 and F7 need <span class="k">fn</span>, unless "Use F1, F2, etc. keys as standard function keys" is on. The browser keeps a few keys for itself (⌘W, ⌘T, ⌘N), so the review never uses them. A keymap switch (IntelliJ or VS Code) on the Code page keeps keel's current keys for anyone who wants them.</p>
+  </section>
+
+  <section id="process" class="stack">
+    <h2>Reviewer steps</h2>
+    <p class="col">The Checklist tab shows these steps. They come from Google's guide and the review studies (about 60 minutes, about 200–400 lines per sitting).</p>
+    <div class="box">
+      <ol class="steps">
+        <li><b>Broad view (5 min).</b> Read the description, the ticket and keel's overview. Should this change exist at all? If not, say it now. Is CI green?</li>
+        <li><b>Ticket (5–10 min).</b> Check every AC marked partly, not met or "check by hand". Read the test of one AC marked met.</li>
+        <li><b>Tests first, then "open first" files.</b> Send design comments early, before you read the rest.</li>
+        <li><b>keel's findings, blocking first.</b> Add as comment, or dismiss with a reason. You stay responsible: do not approve without reading.</li>
+        <li><b>The rest of the diff, plus one security pass.</b> Check auth, input, data exposure and secrets. Look outside the diff where needed.</li>
+        <li><b>Write comments.</b> Use Conventional Comments labels, (blocking) or (non-blocking). Say why. Praise good parts.</li>
+        <li><b>Decide.</b> Approve when it makes the code better, even if not perfect. Request changes only for blocking items.</li>
+        <li><b>Re-review.</b> Only the new commits and the open threads. No new nits after round one.</li>
+      </ol>
+    </div>
+  </section>
+
+  <section id="v1" class="stack">
+    <h2>Then keel v1</h2>
+    <p class="col">When the plugin works in v2, keel v1 gets the same core. v1 has no web review window, so it keeps its terminal to-do list and its PR comment. These pieces are shared:</p>
+<pre class="ascii" aria-label="What moves to v1">
+  shared core (both)                      keel v2 only                    keel v1 only
+  ─────────────────────────────           ──────────────────────          ──────────────────────
+  finding JSON (severity, category,       review window (list,           /keel:review-pr in the
+   file, line, why, suggestion, id)        tree, diff, threads)           terminal, to-do report
+  verify pass (confirmed / rejected)      line comments, approve         dashboard card
+  report order (verdict → ticket →        AI panel next to the diff      ticket file / pasted text
+   findings → security → tests)
+  safety: never run PR code by default
+  fetch with +, base from config
+</pre>
+    <div class="box stack">
+      <h3>The keel v1 PR: <code>review-pr: safe and true</code> (0.81.0)</h3>
+      <ul class="plain">
+        <li><b>Build check off by default.</b> Ask first; run it without your tokens; never link your node_modules with write access.</li>
+        <li><b>Keyword rules only give hints</b>, never a verdict. An agent decides, and you can override.</li>
+        <li><b>Base branch from config</b> in every agent. No more <code>main</code>.</li>
+        <li>Fetch with <code>+</code> (force-pushed PRs). Clean up <code>refs/keel/*</code>.</li>
+        <li><b>JSON findings</b> instead of <code>|</code> lines. Record what verify rejected.</li>
+        <li><b>Size warning</b> and full coverage of big PRs, or "split it".</li>
+        <li>New: <b>Overview</b> (summary, file table, diagram) at the top of the report.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="build" class="stack">
+    <h2>Build plan (keel v2)</h2>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Step</th><th>What</th><th>Tests</th></tr></thead>
+        <tbody>
+          <tr><td><b>1</b></td><td>The plugin and its API: GitHub host (PR list, files, threads, comment, reply, resolve, review, approve), PR fetch into <code>refs/keel/review/*</code>, diffs between refs, drafts table.</td><td>API tests with a fake GitHub</td></tr>
+          <tr><td><b>2</b></td><td>The web: Review tool window, review tab (tree, viewed marks, side-by-side diff with threads and a comment box), Submit. IntelliJ keys on a Mac, Find action, and jumping through the PR's code: go to declaration, find usages, jump to source, back and forward.</td><td>web tests (MSW), keyboard tests</td></tr>
+          <tr><td><b>3</b></td><td>The AI: overview, find (2 in parallel), verify, as KeelBot read-only runs that return JSON. Findings on their lines.</td><td>engine fake answers, API and web tests</td></tr>
+          <tr><td><b>4</b></td><td>GitLab host (merge requests, discussions, approve), Checklist tab, re-review of new commits.</td><td>API tests with a fake GitLab</td></tr>
+          <tr><td><b>5</b></td><td>End to end in a throw-away keel, a browser walk-through, then the keel v1 PR.</td><td>e2e script, screenshots</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="sources" class="stack">
+    <h2>Sources</h2>
+    <ul class="plain src">
+      <li>Google engineering practices: <a href="https://google.github.io/eng-practices/review/reviewer/looking-for.html">what to look for</a>, <a href="https://google.github.io/eng-practices/review/reviewer/navigate.html">how to read a change</a>, <a href="https://google.github.io/eng-practices/review/reviewer/speed.html">speed</a>, <a href="https://google.github.io/eng-practices/review/developer/small-cls.html">small changes</a>, <a href="https://google.github.io/eng-practices/review/reviewer/comments.html">comments</a></li>
+      <li><a href="https://conventionalcomments.org/">Conventional Comments</a> · <a href="https://smartbear.com/learn/code-review/best-practices-for-peer-code-review/">SmartBear/Cisco review study</a> · <a href="https://arxiv.org/abs/2202.04586v2">Braz et al. 2022: a security focus finds 8x more</a></li>
+      <li><a href="https://greptile.com/blog/make-llms-shut-up">Greptile: 79% of AI comments were nits</a> · <a href="https://arxiv.org/abs/2411.07091">Mozilla/Ubisoft RevMate study</a> · <a href="https://arxiv.org/abs/2601.01129">Atlassian RovoDev (ICSE-SEIP 2026)</a> · <a href="https://github.blog/ai-and-ml/github-copilot/60-million-copilot-code-reviews-and-counting/">60M Copilot reviews</a></li>
+      <li>Tools: <a href="https://docs.coderabbit.ai/pr-reviews/walkthroughs">CodeRabbit walkthroughs</a>, <a href="https://docs.github.com/en/copilot/concepts/agents/code-review">Copilot code review</a>, <a href="https://github.com/qodo-ai/pr-agent/blob/main/docs/docs/tools/review.md">Qodo PR-Agent review</a>, <a href="https://code.claude.com/docs/en/code-review">Claude Code Review</a>, <a href="https://cursor.com/docs/bugbot">Cursor Bugbot</a></li>
+      <li>JetBrains: GitHub and GitLab plugins, bundled since IntelliJ 2023.2 (Merge Requests / Pull Requests tool window).</li>
+    </ul>
+  </section>
+</main>

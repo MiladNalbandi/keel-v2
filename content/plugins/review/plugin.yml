@@ -1,0 +1,27 @@
+# The Code Review plugin (api keel.api.review, web components/review). Installed per project on Tools › Plugins. Code
+# gets a Review tool window: the branch you are on and the project's pull requests (GitHub) or merge requests (GitLab),
+# each in a review tab with its files, a side-by-side diff, the threads and your line comments, Approve and Request
+# changes; keel explains the change and finds problems, checks each one again, and you decide what is posted.
+# keel only reads a pull request's code: it never builds or runs it. Nothing is posted until you press Submit.
+name: review
+title: Code Review
+installable: true
+description: Review the branch you are on or any pull request, with line comments, threads and approve, and keel's explain and checked findings.
+needs: [github]
+shows_in: [code, keelbot]
+
+commands:
+  - name: review-branch
+    description: Review the branch you are on against its base, with file:line
+    prompt: |
+      Review the branch I am on against its base branch (git diff <base>...HEAD; find the base with git branch -a).
+      First say in 3 lines what it does. Then list only real problems, most important first, each with file:line,
+      why it matters and a fix. Say "No blocking issues" when there are none. Do not change any file. {{args}}
+
+  - name: explain-pr
+    description: Explain a pull request or a branch so it is easy to review
+    prompt: |
+      Explain {{args}} so I can review it: what it does and why, each changed file in one line, the order to read
+      the files in, and a small diagram of the flow it changes when it crosses parts of the code. Do not change any file.
+
+context: []

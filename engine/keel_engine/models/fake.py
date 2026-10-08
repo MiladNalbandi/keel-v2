@@ -123,6 +123,8 @@ def _canned(req: AgentRequest) -> tuple[str | None, str, str, dict]:
         # Fix mode and side sessions: one real change through the guarded tools, so Undo, Done and Keep have work
         return "src/scores/helper_fix.py", 'def helped():\n    return "fixed by KeelBot"\n', \
             "Changed src/scores/helper_fix.py: a small helper the gate asked for.", {}
+    if agent == "helper" and "```keel-review-" in (req.prompt or ""):
+        return None, "", _review_answer(req.prompt or ""), {}
     if agent == "helper":
         asked = (req.prompt or "").split("Question:", 1)[-1].strip().splitlines()[0][:120] if "Question:" in (req.prompt or "") \
             else (req.prompt or "").strip().splitlines()[-1][:120]
@@ -133,6 +135,40 @@ def _canned(req: AgentRequest) -> tuple[str | None, str, str, dict]:
         return None, "", ("ROOT CAUSE: the counter is read before it is written (src/scores/__init__.py:1).\n"
                           "ROOT-CAUSE: confirmed"), {}
     return None, "", f"{agent}: done.", {}
+
+
+def _review_answer(prompt: str) -> str:
+    """The Code Review plugin's runs (api ReviewAiService): an overview, findings, or the check of findings, as the
+    fenced JSON block each prompt asks for, built from the changed files the prompt lists."""
+    import json
+    import re
+
+    files = re.findall(r"^  ([AMDRC])\S* (\S+) \(\+(\d+) \u2212(\d+)\)$", prompt, re.M)
+    paths = [p for st, p, _a, _d in files if st != "D"] or ["README.md"]
+    if "```keel-review-overview" in prompt:
+        o = {"summary": f"This change touches {len(files)} file(s). It adds the new behaviour in {paths[0]} and its tests.",
+             "files": [{"path": p, "what": f"{'adds' if st == 'A' else 'changes'} {p.rsplit('/', 1)[-1]}"} for st, p, _a, _d in files],
+             "order": paths[:3], "diagram": f"caller \u2500\u25b6 {paths[0].rsplit('/', 1)[-1]} \u2500\u25b6 storage",
+             "effort": 2, "risk": "medium", "risk_why": "it changes stored data", "split": "",
+             "questions": ["What happens to existing users without a saved value?"]}
+        return "Here is the overview.\n```keel-review-overview\n" + json.dumps(o) + "\n```"
+    if "```keel-review-verify" in prompt:
+        ids = re.findall(r"^- id (f_[0-9a-f]+):", prompt, re.M)
+        verdicts = [{"id": i, "verdict": "confirmed" if n == 0 else "rejected",
+                     "why": "line 1 shows it" if n == 0 else "the code handles this case"} for n, i in enumerate(ids)]
+        return "I checked the claims.\n```keel-review-verify\n" + json.dumps({"verdicts": verdicts}) + "\n```"
+    who = "A" if "reviewer A" in prompt else "B"
+    findings = [{"title": f"value from {paths[0].rsplit('/', 1)[-1]} is never saved", "severity": "blocking",
+                 "category": "correctness", "path": paths[0], "line": 1, "side": "RIGHT",
+                 "why": "the new value is kept in memory only, so it is lost after a restart",
+                 "suggestion": "", "fix": "save it through the repository", "pre_existing": False}] if who == "A" else [
+        {"title": "no test for the upper limit", "severity": "should_fix", "category": "tests", "path": paths[-1], "line": 1,
+         "side": "RIGHT", "why": "a value above the limit is not tested", "suggestion": "", "fix": "add a test", "pre_existing": False},
+        {"title": "name could be clearer", "severity": "nit", "category": "design", "path": paths[0], "line": 1, "side": "RIGHT",
+         "why": "", "suggestion": "", "fix": "", "pre_existing": False}]
+    out = {"findings": findings, "security": "Checked auth and input on the changed code." if who == "A" else "",
+           "tests": "" if who == "A" else "The new code has a test, one case is missing."}
+    return f"Reviewer {who}: done.\n```keel-review-findings\n" + json.dumps(out) + "\n```"
 
 
 class FakeRunner:

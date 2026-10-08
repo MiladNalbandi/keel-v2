@@ -21,7 +21,7 @@ class PluginsApiTest : ApiTest() {
     fun `a plugin is on for one project, or for all, and a project's own choice wins`() {
         val (a, _) = newProject("plug-a")
         val (b, _) = newProject("plug-b")
-        assertThat(get("/api/plugins").json().map { it["name"].asText() }).containsExactly("db", "git", "ci")
+        assertThat(get("/api/plugins").json().map { it["name"].asText() }).containsExactly("db", "git", "ci", "review")
         assertThat(get("/api/projects/$a/plugins").json().map { it["enabled"].asBoolean() }).containsOnly(false)
         val list = put("/api/projects/$a/plugins/db", mapOf("enabled" to true)).andExpect(status().isOk).json()
         assertThat(list.first { it["name"].asText() == "db" }["scope"].asText()).isEqualTo("project")
