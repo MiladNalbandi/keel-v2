@@ -98,6 +98,7 @@ users carry no risk, and every later step only repeats it. Details: [05-migratio
 | [04-marketplace.md](04-marketplace.md)       | the catalog, search, the Plugins page, the api, agents asking, publishing                           |
 | [05-migration.md](05-migration.md)           | seven releasable steps, their tests, and why step 1 is first                                        |
 | [mockup.html](mockup.html)                   | the mockup's source (published as a claude.ai artifact)                                             |
+| [tools/create-plugin-repos.sh](tools/create-plugin-repos.sh) | creates the 14 repos (`keel-marketplace`, `keel-plugin-template`, `keel-plugin-<name>` × 12) with a short README, a draft manifest and the license |
 
 ## Open questions for Milad
 
