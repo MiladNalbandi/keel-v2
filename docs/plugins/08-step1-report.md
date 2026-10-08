@@ -17,7 +17,7 @@
                                                    └ web:    import(url) + import map (one React)
 ```
 
-- **One plugin host.** It reads plugins from the image (`/opt/keel/plugins`) and from `/data/plugins`. It checks
+- **One plugin host.** It reads plugins from the image (`/opt/keel-v2/plugins`) and from `/data/plugins`. It checks
   each one (manifest, sha256, plugin SDK 1, keel version, needs, cycles), puts them in order, and starts keel with
   them. A broken plugin is left out with the reason, and keel still starts.
 - **Install from a file:** `keel-engine plugins install <file.kplug>`, then a restart from the api

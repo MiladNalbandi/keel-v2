@@ -3,7 +3,7 @@
 #
 #   product/build-plugin.sh <out-dir> [--no-web] [--no-build]
 #
-#   <out-dir>/product/<version>/        the plugin folder (the product image copies it to /opt/keel/plugins)
+#   <out-dir>/product/<version>/        the plugin folder (the product image copies it to /opt/keel-v2/plugins)
 #   <out-dir>/product-<version>.kplug   the same folder as a tar.gz, with no top folder inside
 #
 #   --no-web     do not build the web part (packs product/web/dist when it is there)

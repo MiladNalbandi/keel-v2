@@ -38,7 +38,7 @@ volume, and checks every page and api still shows the same data. It also runs th
 **What:**
 
 1. **The manifest and the resolver.** `keel-plugin.yml` (02, 2.3) and `keel-engine plugins resolve` (02, 2.5). The
-   resolver reads `/opt/keel/plugins` and `/data/plugins`, checks `requires`, `files.sha256` and names, and writes
+   resolver reads `/opt/keel-v2/plugins` and `/data/plugins`, checks `requires`, `files.sha256` and names, and writes
    `run/resolved.json` and `run/problems.json`. `KEEL_ADDONS` keeps working.
 2. **keel-start becomes a small supervisor.** Resolver → engine → api with `PropertiesLauncher` and `loader.path`.
    Exit code 75 = start again. A start that is not healthy in 90 s falls back to `last-good.json`. `KEEL_PLUGINS=off`
@@ -51,7 +51,7 @@ volume, and checks every page and api still shows the same data. It also runs th
    `@keel/web-sdk` exports what Product's pages use today (api client, `ui`, `state`, `routes`, `Markdown`).
 6. **Product becomes a real package.** `product/` builds `product-0.x.kplug` (engine package, thin api jar, web
    bundle, content, migrations). The product edition image is now "the normal image + that package in
-   `/opt/keel/plugins`". `productBootJar` and the `import.meta.glob` path go away.
+   `/opt/keel-v2/plugins`". `productBootJar` and the `import.meta.glob` path go away.
 7. **The fence.** Tests that fail if core imports a plugin: `import-linter` (Python), ArchUnit (Kotlin), ESLint
    `no-restricted-imports` (web). Today's couplings (the list in [01-today.md](01-today.md#14-blockers-ranked-hardest-first))
    go into an **allowlist** that may only get shorter.
@@ -102,7 +102,7 @@ moves yet; only the way parts talk changes.
 ## Step 3 · Each part becomes a plugin folder in this repo (0.17 – 0.19)
 
 Each part moves to `plugins/<name>/` with exactly the layout of an external plugin (engine/, api/, web/, content/,
-migrations/, `keel-plugin.yml`). CI builds a `.kplug` for each. The `:latest` image bakes them into `/opt/keel/plugins`
+migrations/, `keel-plugin.yml`). CI builds a `.kplug` for each. The `:latest` image bakes them into `/opt/keel-v2/plugins`
 and turns them all on. **For people, nothing changes**: the same pages, the same data.
 
 Order: easy and low-risk first, the most tied-in last.
@@ -152,7 +152,7 @@ git     1.2.0  sha256:…
 review  1.0.3  sha256:…
 ```
 
-The Dockerfile downloads these release assets, checks sha256 and signatures, and unpacks them into `/opt/keel/plugins`.
+The Dockerfile downloads these release assets, checks sha256 and signatures, and unpacks them into `/opt/keel-v2/plugins`.
 No token is needed (public releases).
 
 **Outward actions (ask first):** creating each repo, publishing the SDK packages (PyPI, npm, Maven / GitHub Packages).

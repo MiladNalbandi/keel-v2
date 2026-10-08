@@ -105,8 +105,8 @@ COPY --from=api /app.jar /opt/api/app.jar
 COPY content /opt/keel-v2/content
 # The plugins inside the image (docs/plugins): <name>/<version>/keel-plugin.yml. keel Product with EDITION=product,
 # else none. keel-start resolves them at every start, together with the ones a person installed (/data/plugins/store).
-COPY --from=product /out /opt/keel/plugins
-ENV KEEL_PLUGINS_IMAGE=/opt/keel/plugins
+COPY --from=product /out /opt/keel-v2/plugins
+ENV KEEL_PLUGINS_IMAGE=/opt/keel-v2/plugins
 COPY docker/keel-start /usr/local/bin/keel-start
 RUN chmod +x /usr/local/bin/keel-start \
     && (id -u ubuntu >/dev/null 2>&1 && userdel -r ubuntu || true) \

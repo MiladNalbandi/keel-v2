@@ -7,7 +7,7 @@ on port 8099 with the volume keel-lab-data. It never touches the person's own ke
         [--old-ref v0.14.0] [--only core-only,image,install,safe,broken,upgrade]
 
   core-only  the product image with KEEL_PLUGINS=off: no plugin at all, keel is Dev only and works
-  image      the product image: Product loads from /opt/keel/plugins, its web files are served with long caching
+  image      the product image: Product loads from /opt/keel-v2/plugins, its web files are served with long caching
   install    the normal image, product.kplug installed from a file, a restart from the api; then Product's own e2e
              runs on that keel (product/e2e/e2e.py --running)
   safe       the same data with KEEL_PLUGINS=image: the installed plugin is left out; without it, it is back
@@ -159,7 +159,7 @@ def core_only(a, ws: Path) -> None:
     check(h["mode"] == "off" and h["plugins"] == [], "the plugin host loads nothing")
     f = api("GET", "/features")
     check(f["mode"] == "dev" and f["addons"] == [] and f.get("plugins") == [], "features: Dev only, no add-on, no plugin")
-    check(sh("docker", "exec", NAME, "sh", "-c", "ls /opt/keel/plugins").strip() == "product", "Product is in the image, but off")
+    check(sh("docker", "exec", NAME, "sh", "-c", "ls /opt/keel-v2/plugins").strip() == "product", "Product is in the image, but off")
     pid = api("POST", "/projects", {"root": "/workspace/core-repo"})["id"]
     check(isinstance(api("GET", f"/projects/{pid}/workflows"), (list, dict)), "core works: a project and its workflows")
     code, _, page = http("GET", "/")
@@ -169,7 +169,7 @@ def core_only(a, ws: Path) -> None:
 
 
 def image(a, ws: Path) -> None:
-    print("image: the product image loads Product from /opt/keel/plugins")
+    print("image: the product image loads Product from /opt/keel-v2/plugins")
     start(a.product_image, ws)
     h = host()
     product = next((p for p in h["plugins"] if p["name"] == "product"), None)

@@ -18,7 +18,7 @@ file from its own git repo. keel checks it, unpacks it into `/data/plugins`, and
  │  └───────▲─────────┘       └────────────▲─────────────┘        └────────────▲─────────────┘  │
  │          │ web/index.js                 │ api/*.jar                         │ engine/          │
  │  ┌───────┴──────────────────────────────┴───────────────────────────────────┴──────────────┐  │
- │  │ /opt/keel/plugins/   plugins that came in the image   (read only)                          │  │
+ │  │ /opt/keel-v2/plugins/   plugins that came in the image   (read only)                          │  │
  │  │ /data/plugins/       plugins you installed            (a volume: survives updates)         │  │
  │  └──────────────────────────────────────────▲───────────────────────────────────────────────┘  │
  └─────────────────────────────────────────────┼──────────────────────────────────────────────────┘
@@ -127,7 +127,7 @@ permissions: # shown before install (03-security.md)
 ## 2.4 Where plugins live on disk
 
 ```
-/opt/keel/plugins/                       in the image (read only): the "keel set" bundled in :latest
+/opt/keel-v2/plugins/                       in the image (read only): the "keel set" bundled in :latest
   code/1.0.0/   git/1.2.0/   …
 
 /data/plugins/                           on the keel-data volume (keel can write here)

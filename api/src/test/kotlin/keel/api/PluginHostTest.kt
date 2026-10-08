@@ -20,7 +20,7 @@ class PluginHostTest {
         return PluginHost(KeelProperties(data = data.toString()))
     }
 
-    private fun plugin(name: String, version: String = "1.0.0", dir: String = "/opt/keel/plugins/$name/$version", more: String = "") =
+    private fun plugin(name: String, version: String = "1.0.0", dir: String = "/opt/keel-v2/plugins/$name/$version", more: String = "") =
         """{ "name": "$name", "title": "$name", "version": "$version", "source": "image", "dir": "$dir" $more }"""
 
     private fun file(vararg plugins: String, sdk: Int = 1) = """{ "sdk": $sdk, "mode": "image", "plugins": [${plugins.joinToString()}], "problems": [] }"""
