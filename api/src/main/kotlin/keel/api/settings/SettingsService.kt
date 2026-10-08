@@ -60,6 +60,8 @@ class SettingsService(private val jdbc: JdbcTemplate, private val mapper: Object
     /** `{ key: value | null }` — null removes the override, so the project follows General again. */
     fun updateProject(pid: String, patch: Map<String, Any?>): ProjectSettings {
         check(patch, allowNull = true)
+        val general = patch.keys.intersect(Settings.GENERAL_ONLY)
+        if (general.isNotEmpty()) throw BadRequest("${general.joinToString()} is a setting of the whole keel", "Change it in Settings › General.")
         val next = overrides(pid).toMutableMap()
         for ((k, v) in patch) if (v == null) next.remove(k) else next[k] = v
         fromMap(toMap(general()) + next) // validates types

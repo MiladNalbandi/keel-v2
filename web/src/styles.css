@@ -292,6 +292,11 @@ button.skilltag:hover { border-color: var(--accent); color: var(--accent); }
 .projbox { display: grid; gap: 4px; padding: 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--panel); }
 .pb-lab { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--faint); font-weight: 700; }
 .projbox select { border: 1px solid var(--border); background: var(--bg); border-radius: 7px; padding: 6px 8px; font-weight: 600; width: 100%; }
+/* v0.13.0 Product and Dev both on: the View under the project picker */
+.view-switch { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); margin-top: 8px; }
+.view-switch button { border: 0; background: transparent; border-radius: 6px; padding: 5px 4px; font: 600 11.5px/1 var(--f-body); color: var(--dim); cursor: pointer; }
+.view-switch button.on { background: var(--accent-soft); color: var(--accent); }
+.view-switch button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .pb-sub { font-size: 12px; color: var(--dim); }
 .amber { color: var(--warn); }
 .kvrow { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; }

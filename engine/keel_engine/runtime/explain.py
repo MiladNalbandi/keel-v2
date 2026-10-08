@@ -17,7 +17,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from .. import rules
+from .. import addons, rules
 from ..tools import git
 from ..workflows.model import Step, Workflow, from_dict
 from ..workflows.templates import get_template, templates
@@ -410,7 +410,7 @@ def included_from(wf: Workflow, step: Step) -> dict | None:
 
 def _front_matter(agent: str) -> dict:
     from .. import config
-    f = config.content_dir() / "agents" / f"{agent}.md"
+    f = addons.agent_path(agent)
     if not f.is_file():
         return {}
     return agent_knowledge._front_matter(str(f), f.stat().st_mtime)

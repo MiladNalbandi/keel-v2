@@ -1,6 +1,7 @@
 // Root: providers, shell, and the hash router (one file per screen under src/pages/).
 
-import { useEffect, type ReactElement } from "react";
+import { Suspense, useEffect, type ReactElement } from "react";
+import { addonPage, useFeatures } from "./addons";
 import { Shell } from "./components/Shell";
 import { NoProject } from "./components/ui";
 import { AgentsPage } from "./pages/Agents";
@@ -28,7 +29,7 @@ import { HelperPage } from "./pages/Helper";
 import { AppProvider, useApp, useRoute } from "./state";
 
 /** Screens that need a chosen project. */
-const PAGES: Record<Exclude<ScreenId, "projects" | "inbox" | "quality">, (p: { pid: string }) => ReactElement> = {
+const PAGES: Record<Exclude<ScreenId, "projects" | "inbox" | "quality" | "addon">, (p: { pid: string }) => ReactElement> = {
   flow: FlowPage,
   tasks: TasksPage,
   live: LivePage,
@@ -48,8 +49,27 @@ const PAGES: Record<Exclude<ScreenId, "projects" | "inbox" | "quality">, (p: { p
   connections: ConnectionsPage,
 };
 
+/** v0.13.0 an add-on's page (keel Product: #/initiatives): when its part of keel is on; Flow otherwise, as for any
+ *  unknown page. */
+function AddonRoute({ screen, arg, pid }: { screen: string; arg?: string; pid: string }) {
+  const features = useFeatures();
+  if (!features.loaded) return <div className="empty loading" role="status">Loading…</div>;
+  const s = features.screens.find((x) => x.id === screen);
+  if (!s) return pid ? <PageBoundary resetKey={`flow:${pid}`}><FlowPage key={pid} pid={pid} /></PageBoundary> : <NoProject />;
+  if (s.needs_project && !pid) return <NoProject />;
+  const Page = addonPage(s.addon, s.id);
+  return (
+    <PageBoundary resetKey={`${s.addon}:${s.id}:${pid}`}>
+      <Suspense fallback={<div className="empty loading" role="status">Loading…</div>}>
+        <Page pid={pid} arg={arg} />
+      </Suspense>
+    </PageBoundary>
+  );
+}
+
 function Router() {
-  const { page } = useRoute();
+  const route = useRoute();
+  const { page } = route;
   const { pid, projectsLoaded, projectsError } = useApp();
   useEffect(() => {
     try {
@@ -59,6 +79,10 @@ function Router() {
     }
   }, [page]);
   if (page === "projects") return <ProjectsPage />;
+  if (page === "addon" && route.screen) {
+    if (!pid && !projectsLoaded) return <div className="empty loading" role="status">Loading…</div>;
+    return <AddonRoute screen={route.screen} arg={route.arg} pid={pid ?? ""} />;
+  }
   // The inbox spans every project: it needs no chosen one.
   if (page === "inbox") return <PageBoundary resetKey="inbox"><InboxPage /></PageBoundary>;
   // v0.8.0: quality runs are keel's own, not one project's
@@ -75,7 +99,7 @@ function Router() {
       </>
     );
   }
-  const Page = PAGES[page];
+  const Page = PAGES[page === "addon" ? "flow" : page];
   return <PageBoundary resetKey={`${page}:${pid}`}><Page key={pid} pid={pid} /></PageBoundary>;
 }
 

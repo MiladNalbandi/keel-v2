@@ -10,6 +10,7 @@ import keel.api.connections.SecretService
 import keel.api.engine.EngineClient
 import keel.api.events.EngineEvent
 import keel.api.events.EventHub
+import keel.api.flow.Ac
 import keel.api.flow.FlowCap
 import keel.api.flow.FlowService
 import keel.api.jira.JiraClient
@@ -157,7 +158,7 @@ class TaskService(
             if (t.externalKey != null) append("\n\nJira ticket: ").append(t.externalKey).append(t.externalUrl?.let { " ($it)" } ?: "")
         }
         val state = try {
-            flows.start(t.projectId, wid, title.take(200), null, FlowCap(runMode = b.runMode?.trim()?.ifEmpty { null }),
+            flows.start(t.projectId, wid, title.take(200), criteria(t.description), FlowCap(runMode = b.runMode?.trim()?.ifEmpty { null }),
                 allowFake = b.allowFake, allowDirty = b.allowDirty, request = request)
         } catch (e: ApiException) {
             // A used-up cap, uncommitted files, the fake model, an unknown workflow: the task stays where it is and its history says why.
@@ -167,6 +168,22 @@ class TaskService(
         }
         val tid = state.get("thread_id")?.asText()?.takeIf { it.isNotBlank() } ?: throw Conflict("The engine did not say which flow it started")
         return view(fire(id, Trigger.Start(wid, tid, "Follow it in keel: ${link(t)}")), events = true)
+    }
+
+    /**
+     * v0.13.0: acceptance criteria written in a task's description, in a fenced block, go to the flow as its criteria;
+     * the feature flow then skips its interview. keel Product writes them; a person or a Jira ticket can too.
+     *
+     *     ```keel-criteria
+     *     AC-1 [API] GET /prices returns the currency
+     *     AC-2 [WEB] An EU visitor sees the price in euro
+     *     ```
+     */
+    fun criteria(description: String): List<Ac>? {
+        val block = CRITERIA.find(description)?.groupValues?.get(1) ?: return null
+        return block.lines().mapNotNull { line ->
+            CRITERION.matchEntire(line.trim())?.let { m -> Ac(id = m.groupValues[1], layer = m.groupValues[2].uppercase(), title = m.groupValues[3].trim()) }
+        }.distinctBy { it.id }.takeIf { it.isNotEmpty() }
     }
 
     fun confirm(id: String, b: ConfirmTask): TaskView {
@@ -468,5 +485,7 @@ class TaskService(
 
     companion object {
         val PR_OPENED = Regex("^PR opened: (https?://\\S+)")
+        private val CRITERIA = Regex("```[ \\t]*keel-criteria[ \\t]*\\n(.*?)\\n[ \\t]*```", RegexOption.DOT_MATCHES_ALL)
+        private val CRITERION = Regex("^[-*]?\\s*(AC-\\d+)\\s*\\[(\\w+)]\\s*(.+)$")
     }
 }

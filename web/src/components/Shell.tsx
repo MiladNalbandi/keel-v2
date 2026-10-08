@@ -4,7 +4,8 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { GROUPS, hashFor, type ScreenId } from "../routes";
+import { navGroups, saveView, useFeatures, useView, type View } from "../addons";
+import { hashFor, hashForScreen, type ScreenId } from "../routes";
 import { go, useApp, useRoute } from "../state";
 import { Mascot } from "./Mascot";
 import { BudgetBar } from "./BudgetBar";
@@ -122,7 +123,11 @@ function keepVisible(box: HTMLElement, el: HTMLElement) {
 
 /** The screens: All projects, then the four groups. `onPick` runs after a link is used (the phone menu closes). */
 function NavLinks({ onPick, hints }: { onPick?: () => void; hints?: boolean }) {
-  const { page } = useRoute();
+  const route = useRoute();
+  const { page } = route;
+  const features = useFeatures();
+  const view = useView();
+  const current = page === "addon" ? route.screen : page;
   const { project, projects } = useApp();
   const running = project?.running ?? 0;
   // flows that wait for a person in every project (the project list follows the event stream)
@@ -137,13 +142,14 @@ function NavLinks({ onPick, hints }: { onPick?: () => void; hints?: boolean }) {
         <span className="nav-l">All projects</span>
         {waitingAll > 0 && <span className="count" title="waiting for you in all projects">◆ {waitingAll}</span>}
       </a>
-      {GROUPS.map((g) => (
-        <div key={g.id} className={`nav-sec ${g.pages.some(([p]) => p === page) ? "cur" : ""}`}>
-          <div className="nav-h" title={g.hint}><span>{g.label}</span>{hints && <small>{g.hint}</small>}</div>
-          {g.pages.map(([id, label]) => (
-            <a key={id} href={hashFor(id)} aria-current={page === id ? "page" : undefined} onClick={onPick}>
-              <span className="nav-l">{label}</span>
-              {badge(id)}
+      {navGroups(features, view).map((g) => (
+        <div key={g.id} className={`nav-sec ${g.pages.some((p) => p.id === current) ? "cur" : ""}`}>
+          <div className="nav-h" title={g.hint}><span>{g.label}</span>{hints && g.hint && <small>{g.hint}</small>}</div>
+          {g.pages.map((p) => (
+            <a key={p.id} href={p.addon ? hashForScreen(p.id) : hashFor(p.id as ScreenId)} aria-current={current === p.id ? "page" : undefined}
+              onClick={onPick}>
+              <span className="nav-l">{p.label}</span>
+              {p.addon ? null : badge(p.id as ScreenId)}
             </a>
           ))}
         </div>
@@ -154,25 +160,29 @@ function NavLinks({ onPick, hints }: { onPick?: () => void; hints?: boolean }) {
 
 /** The folded menu: one icon per screen, grouped like the menu, with the same counts; ☰ opens the full menu again. */
 function RailLinks() {
-  const { page } = useRoute();
+  const route = useRoute();
+  const { page } = route;
+  const features = useFeatures();
+  const view = useView();
+  const current = page === "addon" ? route.screen : page;
   const { project, projects } = useApp();
   const running = project?.running ?? 0;
   const waitingAll = projects.reduce((a, p) => a + (p.waiting || 0), 0);
   const count = (id: ScreenId) =>
     id === "inbox" && waitingAll > 0 ? <span className="rail-count" aria-hidden="true">{waitingAll > 9 ? "9+" : waitingAll}</span>
       : (id === "jobs" || id === "live") && running > 0 ? <span className="rail-count run" aria-hidden="true">{running}</span> : null;
-  const link = (id: ScreenId, label: string) => (
-    <a key={id} href={hashFor(id)} className="rail-link" aria-current={page === id ? "page" : undefined} title={label}
-      aria-label={id === "inbox" && waitingAll ? `${label}, ${waitingAll} waiting` : label}>
-      <NavIcon id={id} />
-      {count(id)}
+  const link = (id: string, label: string, addon?: string) => (
+    <a key={id} href={addon ? hashForScreen(id) : hashFor(id as ScreenId)} className="rail-link" aria-current={current === id ? "page" : undefined}
+      title={label} aria-label={id === "inbox" && waitingAll ? `${label}, ${waitingAll} waiting` : label}>
+      <NavIcon id={addon ? "addon" : id} />
+      {addon ? null : count(id as ScreenId)}
     </a>
   );
   return (
     <nav className="rail-nav" aria-label="Screens (icons)">
       {link("projects", "All projects")}
-      {GROUPS.map((g) => (
-        <div key={g.id} className="rail-group" title={g.label}>{g.pages.map(([id, label]) => link(id, label))}</div>
+      {navGroups(features, view).map((g) => (
+        <div key={g.id} className="rail-group" title={g.label}>{g.pages.map((p) => link(p.id, p.label, p.addon))}</div>
       ))}
     </nav>
   );
@@ -301,6 +311,21 @@ function MenuSheet({ onClose, theme }: { onClose: () => void; theme: ReturnType<
 
 const NAV_KEY = "keel2.nav.hidden";
 
+/** Product and Dev both on: each person shows All, Product or Dev in the menu (the data stays the same). */
+function ViewSwitch() {
+  const features = useFeatures();
+  const view = useView();
+  if (features.mode !== "both") return null;
+  const opt = (v: View, label: string) => (
+    <button key={v} type="button" className={view === v ? "on" : ""} aria-pressed={view === v} onClick={() => saveView(v)}>{label}</button>
+  );
+  return (
+    <div className="view-switch" role="group" aria-label="View">
+      {opt("all", "All")}{opt("product", "Product")}{opt("dev", "Dev")}
+    </div>
+  );
+}
+
 export function Shell({ children }: { children: ReactNode }) {
   const { live } = useApp();
   const [notesOpen, setNotesOpen] = useState(false);
@@ -361,6 +386,7 @@ export function Shell({ children }: { children: ReactNode }) {
             </button>
           </span>
           <ProjectPicker />
+          <ViewSwitch />
         </div>
         <Nav />
         <div className="side-foot">

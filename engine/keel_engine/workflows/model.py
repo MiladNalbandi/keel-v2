@@ -96,6 +96,12 @@ class Step(BaseModel):
     report: Literal["verdicts"] | None = None
     choices: list[str] | dict[str, str] | None = None
     on_skip: dict | None = None
+    # A parallel step with `from`: "item" runs each agent in its item's folder (item["root"]), read only. An add-on uses
+    # it to read several projects at once (keel Product: one impact analyst per repo).
+    root: Literal["item"] | None = None
+    # An agent step that may end with a keel-questions block: the next gate shows the questions as buttons and the
+    # answers go back to the same agent session (keel's clarify loop, which the spec step uses), at most 2 rounds.
+    asks: bool | None = None
     # Set by `include`: the include ids this step came from, outermost first (`ship`, or `ship/cover` for a step of the
     # cover flow that ship includes). Only for showing the workflow (the web folds an include into one block).
     included_from: str | None = None
@@ -198,6 +204,8 @@ class Workflow(BaseModel):
     budget: Budget | None = None
     steps: list[Step] = Field(default_factory=list)
     yaml: str = ""
+    # Set by the loader for a workflow that comes from an add-on (keel_engine/addons.py): its name, e.g. "product".
+    addon: str | None = None
 
     @model_validator(mode="before")
     @classmethod

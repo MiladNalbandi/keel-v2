@@ -66,6 +66,10 @@ data class Step(
     val recommend: String? = null,
     /** Set by the engine when it expands an include: where the step came from, outermost include first ("ship", "ship/cover"). */
     val includedFrom: String? = null,
+    /** v0.13.0 add-on switches: "item" runs a parallel step's agents each in its item's folder, read only; `asks` lets an
+     *  agent step end with questions that the next gate shows as buttons (keel's clarify loop). */
+    val root: String? = null,
+    val asks: Boolean? = null,
 ) {
     val locked: Boolean @com.fasterxml.jackson.annotation.JsonIgnore get() = lock == true
 }
@@ -130,6 +134,8 @@ data class Workflow(
     val lastRun: LastRun? = null,
     /** v0.11.0: a plugin's own workflow (ci-fix: ci); listed only for the projects that turned that plugin on. */
     val plugin: String? = null,
+    /** v0.13.0: an add-on's workflow (keel Product: "product"); listed only while that part of keel is on. */
+    val addon: String? = null,
 )
 
 /** A workflow's newest flow in the project (the Workflows page and KeelBot show it). */

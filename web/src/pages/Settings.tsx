@@ -5,6 +5,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api, errorParts, type Model, type ProjectSettings, type Settings } from "../api";
+import { refreshFeatures, useFeatures } from "../addons";
 import { ModelPicker } from "../components/ModelPicker";
 import { Skeleton } from "../components/page";
 import { RUN_MODES, runModeAbout } from "../components/RunMode";
@@ -161,6 +162,49 @@ function SettingRow({ row, value, control, source, changed }: { row: Row; value:
 
 type Save = { state: "idle" | "saving" | "saved" | "error"; text: string };
 
+/** v0.13.0 Settings › General › What this keel does: only when an add-on (keel Product) offers more than Dev. */
+const MODE_TEXT: Record<string, [string, string]> = {
+  dev: ["Dev only", "Flows, tasks, code and workflows: keel as it is today. No Product menu, no product API."],
+  product: ["Product only", "Initiatives and teams. keel still reads the code for impact, read only, but code pages are hidden. Stories go to Jira."],
+  both: ["Product and Dev", "Everything. Start on a story runs keel's flow right here. Each person picks a view under the project."],
+};
+
+function KeelModePanel({ onSaved, onError }: { onSaved: (text: string) => void; onError: (e: { message: string; hint?: string } | null) => void }) {
+  const features = useFeatures();
+  const [busy, setBusy] = useState(false);
+  if (features.modes.length < 2) return null;
+  const pick = async (mode: string) => {
+    setBusy(true);
+    onError(null);
+    try {
+      await api.saveGeneralSettings({ keel_mode: mode } as Partial<Settings>);
+      await refreshFeatures();
+      onSaved(`Saved: keel does ${MODE_TEXT[mode]?.[0] ?? mode}`);
+    } catch (e) {
+      onError(errorParts(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="panel sg-sec" id="sg-mode" aria-labelledby="sg-mode-h">
+      <header className="sg-sec-h">
+        <h2 id="sg-mode-h">What this keel does</h2>
+        <p>For everyone on this keel. Turning a part off deletes nothing.</p>
+      </header>
+      <div className="mode-opts" role="radiogroup" aria-label="What this keel does">
+        {features.modes.map((m) => (
+          <label key={m} className={`mode-opt${features.mode === m ? " on" : ""}`}>
+            <input type="radio" name="keel-mode" value={m} checked={features.mode === m} disabled={busy} onChange={() => void pick(m)} />
+            <b>{MODE_TEXT[m]?.[0] ?? m}</b>
+            <span className="sub">{MODE_TEXT[m]?.[1] ?? ""}</span>
+          </label>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export function SettingsPage({ pid }: { pid: string }) {
   const { project } = useApp();
   const [scope, setScope] = useState<"general" | "project">(pid ? "project" : "general");
@@ -236,6 +280,7 @@ export function SettingsPage({ pid }: { pid: string }) {
       {data.error ? <ErrorBox error={data.error} onRetry={() => void data.reload()} /> : (
         <div className="sg-layout">
           <div className="sg-main">
+            {!isProj && <KeelModePanel onSaved={saved} onError={setErr} />}
             {shown.map((sec) => (
               <section key={sec.id} className="panel sg-sec" id={`sg-${sec.id}`} aria-labelledby={`sg-${sec.id}-h`}>
                 <header className="sg-sec-h">

@@ -2,7 +2,9 @@
 
 export type ScreenId =
   | "projects" | "inbox" | "flow" | "tasks" | "live" | "jobs" | "repo" | "helper" | "map" | "graph" | "wiki"
-  | "workflows" | "agents" | "skills" | "stacks" | "tools" | "quality" | "budget" | "settings" | "connections";
+  | "workflows" | "agents" | "skills" | "stacks" | "tools" | "quality" | "budget" | "settings" | "connections"
+  /** v0.13.0 a page of an add-on (keel Product): the route's `screen` names it. */
+  | "addon";
 
 export type Group = { id: string; label: string; hint: string; pages: [ScreenId, string][] };
 
@@ -20,7 +22,7 @@ export const SCREENS: [ScreenId, string][] = [["projects", "All projects"], ...G
 export const isScreen = (s: string): s is ScreenId => SCREENS.some(([id]) => id === s);
 export const groupOf = (id: ScreenId) => GROUPS.find((g) => g.pages.some(([p]) => p === id));
 
-export type Route = { page: ScreenId; arg?: string };
+export type Route = { page: ScreenId; arg?: string; screen?: string };
 
 /** Pages by the names they show: #/code is the Code page (id repo), #/keelbot is KeelBot's own page (id helper). */
 const ALIASES: Record<string, ScreenId> = { code: "repo", keelbot: "helper" };
@@ -31,8 +33,16 @@ export function parseHash(hash: string): Route {
   const [first, ...rest] = raw.split("/");
   const page = ALIASES[first] ?? first;
   const arg = rest.length ? decodeURIComponent(rest.join("/")) : undefined;
-  return { page: isScreen(page) ? page : "flow", arg };
+  if (isScreen(page)) return { page, arg };
+  // maybe an add-on's page (#/initiatives); the router shows Flow when no add-on has it
+  if (ADDON_SCREEN.test(page)) return { page: "addon", screen: page, arg };
+  return { page: "flow", arg };
 }
+
+const ADDON_SCREEN = /^[a-z][a-z0-9-]{1,31}$/;
+
+/** An add-on page's link: #/initiatives, #/initiatives/INI-12. */
+export const hashForScreen = (screen: string, arg?: string) => `#/${screen}${arg ? "/" + encodeURIComponent(arg) : ""}`;
 
 export const hashFor = (page: ScreenId, arg?: string) => `#/${page}${arg ? "/" + encodeURIComponent(arg) : ""}`;
 

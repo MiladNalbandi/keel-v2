@@ -28,7 +28,7 @@ from langgraph.errors import GraphBubbleUp
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
-from .. import models, rules
+from .. import addons, models, rules
 from .. import plugins as keel_plugins
 from ..models import catalog
 from ..models import usage as provider_usage
@@ -395,18 +395,22 @@ class Compiler:
         ac = _ac(state) if step.per_ac else None
         model = self._model(state, step, agent)
         call_id = uuid.uuid4().hex
-        cfg = rules.load_config(ctx.root)
+        # `root: item` (a parallel step): this agent works in its item's folder, read only (another project, e.g. one
+        # repo of a product); otherwise in the thread's folder.
+        item_root = bool(step.root == "item" and item and item.get("root"))
+        root = str(item["root"]) if item_root else ctx.root
+        cfg = rules.load_config(root)
         # What this agent may use: its knowledge sections, the code graph, its memory (agent_knowledge.py).
         know = agent_knowledge.for_agent(agent, ctx.agents)
         # The code graph joins the MCP servers once the project's index is ready (scan.py); filter_mcp keeps it only
         # for agents with code_graph on.
-        graph = await asyncio.to_thread(mcp.codegraph_server_spec, ctx.root)
+        graph = await asyncio.to_thread(mcp.codegraph_server_spec, root)
         specs = list(ctx.mcp) + ([graph] if graph and not any(s.get("name") == graph["name"] for s in ctx.mcp) else [])
         allow = list(step.tools or []) + ([f"mcp:{graph['name']}:*"] if graph else [])
         # a plugin's read tools (keel-db, keel-git) when the plugin is on and this agent may use them (Tools page)
         wanted = mcp.parse_allow(allow)
         mine = [n for n in keel_plugins.enabled(ctx.settings) if keel_plugins.SERVERS[n] in wanted]
-        plugin_key = keel_plugins.open_call(project=ctx.project_id, root=ctx.root, keys=ctx.keys, plugins=mine,
+        plugin_key = keel_plugins.open_call(project=ctx.project_id, root=root, keys=ctx.keys, plugins=mine,
                                             who=f"agent:{agent}") if mine else None
         if plugin_key:
             specs += keel_plugins.server_specs(mine, plugin_key)
@@ -418,9 +422,10 @@ class Compiler:
                 data["command"] = command
             ctx.emit("guard.refused", step=step.id, call_id=call_id, data=data)
 
-        toolbox = ToolBox(ctx.root, phase, cfg=cfg, lane=rules.ac_lane(ac) if ac else None,
+        toolbox = ToolBox(root, phase, cfg=cfg, lane=rules.ac_lane(ac) if ac else None,
                           ac=(ac or {}).get("id"), ac_layer=(ac or {}).get("layer", "API"), on_refuse=on_refuse,
-                          unlocks=state.get("unlocks") or [], agent=agent, knowledge=know, readonly=self._readonly())
+                          unlocks=state.get("unlocks") or [], agent=agent, knowledge=know,
+                          readonly=self._readonly() or item_root)
         ctx.emit("agent.started", step=step.id, call_id=call_id, data={
             "agent": agent, "provider": model["provider"], "model": model.get("model"), "mode": model.get("mode"),
             "phase": phase, "ac": (ac or {}).get("id"), "index": index, **({"item": item["id"]} if item else {})})
@@ -430,12 +435,12 @@ class Compiler:
         mem = ctx.memory
         key = memory_mod.attempt_key(step.id, ac or item, agent, index, section)
         prev = await mem.get(key) if mem and know["memory"] else None
-        same = bool(prev and prev["provider"] == model["provider"] and prev["root"] == ctx.root)
+        same = bool(prev and prev["provider"] == model["provider"] and prev["root"] == root)
         can_resume = model.get("mode") != "api" and model["provider"] in RESUMABLE
         resuming = bool(same and can_resume and prev.get("session"))
         session = prev["session"] if resuming else (str(uuid.uuid4()) if can_resume and model["provider"] == "claude" else None)
         if mem:
-            await mem.start(key, model["provider"], ctx.root, session, keep_trail=same)
+            await mem.start(key, model["provider"], root, session, keep_trail=same)
 
         def emit(kind: str, text: str = "", **extra):
             counter["n"] += 1
@@ -447,7 +452,7 @@ class Compiler:
             if line:
                 mem.note(key, line)
 
-        prompt = prompts.task_prompt(agent=agent, phase=phase, step_name=step.name, title=ctx.title, root=ctx.root, ac=ac,
+        prompt = prompts.task_prompt(agent=agent, phase=phase, step_name=step.name, title=ctx.title, root=root, ac=ac,
                                      acs=state.get("acs") or [], feedback=state.get("feedback"), index=index, spec=state.get("spec"),
                                      section=section, unlocks=state.get("unlocks") or [], request=ctx.request,
                                      knowledge=know, graph=agent_knowledge.has_codegraph(mcp_specs, tools_allow), item=item,
@@ -466,7 +471,7 @@ class Compiler:
             emit("text", "Continuing this agent's earlier session for this step." if resuming
                  else "This agent gets a summary of its last try on this step.")
         with tempfile.TemporaryDirectory(prefix="keel-agent-") as tmp:
-            req = AgentRequest(agent=agent, system=prompts.system_prompt(agent, ctx.skills), prompt=prompt, root=ctx.root,
+            req = AgentRequest(agent=agent, system=prompts.system_prompt(agent, ctx.skills), prompt=prompt, root=root,
                                phase=phase, model=model, toolbox=toolbox, ac=ac, acs=state.get("acs") or [], title=ctx.title,
                                step_name=step.name, index=index, feedback=state.get("feedback"), mcp_specs=mcp_specs,
                                tools_allow=tools_allow, key=models.key_for(model["provider"], ctx.keys), workdir=tmp,
@@ -819,6 +824,12 @@ class Compiler:
                 upd["clarify"] = {"questions": asked[:clarify.MAX_QUESTIONS]} if asked else {}
             if spec:
                 upd["spec"] = spec
+        if step.asks and not (state["phase"] in ("spec", "triage") and not state.get("acs")):
+            # keel's clarify loop for any agent step: its keel-questions go to the next gate as buttons, the answers back
+            # to this agent (at most clarify.MAX_ROUNDS rounds; then it must decide with the recommended options).
+            rounds = int(state.get("clarify_rounds") or 0)
+            asked = [q for res, _m, _tb in agent_results for q in clarify.parse_questions(res.text)] if rounds < clarify.MAX_ROUNDS else []
+            upd["clarify"] = {"questions": asked[:clarify.MAX_QUESTIONS], "step": step.id} if asked else {}
         if self._reviews(step):
             def lens(n: int) -> str:
                 if step.items_from and n in item_of:
@@ -842,6 +853,14 @@ class Compiler:
                     return upd, self.nav.jump(step.back, i)
                 return upd, fix_id(step.id)
         return upd, self.nav.after(i)
+
+    def _addon_event(self, step_id: str):
+        """An add-on action's own events: kind "<addon>.<what>" only (keel's own kinds stay keel's)."""
+        def event(kind: str, data: dict | None = None):
+            if not addons.may_emit(kind):
+                raise ValueError(f"an add-on may emit only its own events ('<name>.<what>'), not {kind!r}")
+            self.ctx.emit(kind, step=step_id, data=dict(data or {}))
+        return event
 
     def _tool_emit(self, step_id: str):
         """Each tool run as an event `tool.ran` with its full output (the dashboard); the agent only gets one line."""
@@ -1081,6 +1100,7 @@ class Compiler:
                 a.step = step.id
                 a.emit = self._tool_emit(step.id)
                 a.params = dict(step.params or {})
+                a.event = self._addon_event(step.id)
                 if action.startswith(("db:", "git:", "ci:")):
                     a.state["gate_approved"] = self._gate_approved(i, st)
                 if action == "open_pr":
@@ -1399,7 +1419,9 @@ class Compiler:
         options = OPTIONS
         title = step.name + (f" · {ac['id']}" if ac else f" · {item['id']}" if item else "")
         no_criteria = not ac and step.phase in ("spec", "triage") and not acs
-        asked = (state.get("clarify") or {}).get("questions") if no_criteria else None
+        clar = state.get("clarify") or {}
+        # the spec's questions, or the questions of an agent step with `asks: true` (clar["step"])
+        asked = clar.get("questions") if (no_criteria or clar.get("step")) else None
         if asked:
             return self._clarify_gate(i, step, state, gates, asked)
         if no_criteria:
@@ -1631,8 +1653,12 @@ class Compiler:
     def _clarify_gate(self, i: int, step: Step, state: FlowState, gates: dict, asked: list[dict]):
         """The explorer's questions as a pause with buttons. Answers (clicked or typed) go back to the explorer."""
         n = len(asked)
+        src = (state.get("clarify") or {}).get("step")      # an agent step with `asks: true`; else the spec's explorer
+        asker = next((s.name for s in self.wf.steps if s.id == src), src) if src else None
+        title = (f"{asker} has {n} question{'s' if n != 1 else ''}" if asker
+                 else f"The explorer has {n} question{'s' if n != 1 else ''} before the spec")
         answer, extra = self._ask(state, {
-            "step": step.id, "kind": "clarify", "title": f"The explorer has {n} question{'s' if n != 1 else ''} before the spec",
+            "step": step.id, "kind": "clarify", "title": title,
             "detail": clarify.describe(asked), "questions": asked, "options": ["approve"],
             "labels": {"approve": "Send my answers"}})
         payload = answer.get("payload") or {}
@@ -1644,7 +1670,14 @@ class Compiler:
                                                           "clarify": True})
         upd = {"gates": gates, **extra, "feedback": text, "clarify": {}, "clarify_rounds": round_no,
                "note": f"answered {n} question(s)"}
-        target = self.nav.jump(step.back, i) if step.back else self.nav.enter(max(i - 1, 0))
+        if src:
+            # keep the answers for the add-on's records too (data.<gate>_clarify: questions and answers, every round)
+            kept = list(((state.get("data") or {}).get(f"{step.id}_clarify")) or [])
+            kept.append({"round": round_no, "questions": asked, "answers": dict(payload.get("answers") or {}), "note": answer.get("why") or ""})
+            upd["data"] = {**(state.get("data") or {}), f"{step.id}_clarify": kept}
+            target = self.nav.jump(src, i)
+        else:
+            target = self.nav.jump(step.back, i) if step.back else self.nav.enter(max(i - 1, 0))
         return upd, target
 
     def _init_questions(self, step: Step, state: FlowState, gates: dict) -> dict:

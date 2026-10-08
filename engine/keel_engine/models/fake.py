@@ -56,6 +56,11 @@ def _plan(req: AgentRequest) -> tuple[str | None, str, str, dict]:
 
 
 def _canned(req: AgentRequest) -> tuple[str | None, str, str, dict]:
+    from .. import addons
+
+    got = addons.fake_answer(req)       # an add-on's own agents (keel_engine/addons.py)
+    if got:
+        return got
     agent, phase, title = req.agent, req.phase, req.title or "the change"
     ac = req.ac or {}
     ac_id = ac.get("id") or "BUG-1"

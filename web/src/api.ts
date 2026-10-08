@@ -773,6 +773,8 @@ export type Settings = {
   commit_coauthor?: boolean;
   /** v0.11.0 CI/CD plugin: when a pipeline fails: notify | fix (start the ci-fix flow) | quiet */
   ci_on_failure?: "notify" | "fix" | "quiet";
+  /** v0.13.0 what this keel does (General only): auto, dev, product or both */
+  keel_mode?: string;
   notify: "all" | "needs_you" | "none";
   env_names: string[];
   mcp: string[];
@@ -897,8 +899,19 @@ const e = encodeURIComponent;
 
 // ---------- routes ----------
 
+/** v0.13.0 what this keel does: its mode, the parts that are on, the installed add-ons and the menu items they add. */
+export type AddonScreen = { id: string; label: string; group: string; needs_project: boolean; addon: string };
+export type Features = {
+  mode: "dev" | "product" | "both" | string;
+  modes: string[];
+  parts: Record<string, boolean>;
+  addons: { name: string; version: string; title: string; part: string; on: boolean }[];
+  screens: AddonScreen[];
+};
+
 export const api = {
   health: () => get<Health>("/health"),
+  features: () => get<Features>("/features"),
   /** `pid` "*" = every project (notifications + project.changed only). */
   eventsUrl: (pid: string | null, notifyAll = false) => "/api/events" + q({ project: pid ?? (notifyAll ? "*" : null), notify: notifyAll && pid ? "all" : null }),
   /** The raw answer; `normalizeCatalog` (ModelPicker) also accepts the pre-v0.3 `{provider: [{id,label}]}` shape. */

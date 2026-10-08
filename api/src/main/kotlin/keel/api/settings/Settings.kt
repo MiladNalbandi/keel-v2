@@ -40,14 +40,18 @@ data class Settings(
     val notify: String = "all",
     val envNames: List<String> = emptyList(),
     val mcp: List<String> = listOf("keel"),
+    /** v0.13.0 what this keel does (general only): auto = Product and Dev when the Product add-on is installed, else Dev. */
+    val keelMode: String = "auto",
 ) {
     companion object {
         val RUN_MODES = setOf("manual", "important", "auto", "readonly")
         val KEYS = listOf(
             "gates_mode", "run_mode", "keel_rules", "fix_attempts", "coverage_min", "default_model", "implementer_model",
             "reviewer_model", "cheaper_model", "cap_tokens", "on_cap", "usage_warn", "usage_pause", "branch_pattern", "web_lane_worktree",
-            "push_pr", "commit_author", "commit_coauthor", "ci_on_failure", "notify", "env_names", "mcp",
+            "push_pr", "commit_author", "commit_coauthor", "ci_on_failure", "notify", "env_names", "mcp", "keel_mode",
         )
+        /** Settings of the whole keel only: a project cannot override them. */
+        val GENERAL_ONLY = setOf("keel_mode")
         /** "Name <email>", the form git and GitHub show. */
         val AUTHOR = Regex("""^\s*[^<>]+?\s*<\s*[^<>\s]+@[^<>\s]+\s*>\s*$""")
         val CHOICES = mapOf(
@@ -57,6 +61,7 @@ data class Settings(
             "notify" to setOf("all", "needs_you", "none"),
             "push_pr" to setOf("ask", "auto", "never"),
             "ci_on_failure" to setOf("notify", "fix", "quiet"),
+            "keel_mode" to setOf("auto", "dev", "product", "both"),
         )
     }
 }

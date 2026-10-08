@@ -18,7 +18,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from .. import config
+from .. import addons, config
 
 # One line per keel template (docs/GUIDE.md "Flows in detail"): what it is for.
 ABOUT = {
@@ -173,7 +173,7 @@ def _flow_line(f: dict) -> str:
 
 def _agents() -> list[str]:
     out = []
-    for f in sorted((Path(config.content_dir()) / "agents").glob("*.md")):
+    for f in addons.agent_files():
         m = re.search(r"^description:\s*(.+)$", f.read_text(), re.M)
         about = (m[1].split(". ")[0] if m else "").strip()
         if len(about) > 100:

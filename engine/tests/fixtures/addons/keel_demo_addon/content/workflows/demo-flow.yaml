@@ -1,0 +1,23 @@
+id: demo-flow
+name: demo flow (test add-on)
+keel_rules: false
+version: 1
+steps:
+  - id: ask
+    kind: agent
+    name: ask first
+    agent: demo-agent
+    phase: review
+    asks: true
+  - id: answers
+    kind: gate
+    name: the answers
+    phase: review
+  - id: read
+    kind: parallel
+    name: read each folder
+    agent: demo-agent
+    phase: review
+    from: folders
+    root: item
+  - { id: echo, kind: code, name: echo, action: "demo:echo", phase: review, with: { say: hello } }

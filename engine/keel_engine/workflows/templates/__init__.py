@@ -7,6 +7,7 @@ from pathlib import Path
 
 from ..model import Workflow, load_yaml
 
+from ... import addons
 from ...config import content_dir
 
 ORDER = ["feature", "change", "fix", "diagnose", "review", "init", "knowledge-refresh", "cover", "ship", "hunt", "hunt-next", "lint"]
@@ -19,7 +20,15 @@ def folder() -> Path:
 @lru_cache(maxsize=None)
 def _load(name: str) -> Workflow | None:
     f = folder() / f"{name}.yaml"
-    return load_yaml(f.read_text()) if f.is_file() else None
+    if f.is_file():
+        return load_yaml(f.read_text())
+    for addon, d in addons.folders("workflows"):
+        f = d / f"{name}.yaml"
+        if f.is_file():
+            wf = load_yaml(f.read_text())
+            wf.addon = addon
+            return wf
+    return None
 
 
 def get_template(name: str) -> Workflow | None:
@@ -29,4 +38,11 @@ def get_template(name: str) -> Workflow | None:
 
 def templates() -> list[Workflow]:
     extra = sorted(f.stem for f in folder().glob("*.yaml") if f.stem not in ORDER) if folder().is_dir() else []
-    return [wf for wf in (get_template(n) for n in ORDER + extra) if wf]
+    own = set(ORDER + extra)
+    more = [f.stem for _a, d in addons.folders("workflows") for f in sorted(d.glob("*.yaml")) if f.stem not in own]
+    return [wf for wf in (get_template(n) for n in ORDER + extra + more) if wf]
+
+
+def clear_cache() -> None:
+    """Forget loaded templates (tests that load add-ons)."""
+    _load.cache_clear()

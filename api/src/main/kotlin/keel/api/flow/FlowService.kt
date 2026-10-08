@@ -203,7 +203,8 @@ class FlowService(
 
     fun start(pid: String, workflowId: String, title: String, acs: List<Ac>?, cap: FlowCap? = null,
               allowFake: Boolean = false, allowDirty: Boolean = false, request: String? = null,
-              options: Map<String, Any?>? = null, where: String? = null, model: Model? = null): JsonNode {
+              options: Map<String, Any?>? = null, where: String? = null, model: Model? = null,
+              ownBranch: Boolean = true): JsonNode {
         if (title.isBlank()) throw BadRequest("Give the flow a title", "One short line: what should this flow build or fix?")
         cap?.check()
         var start = buildStart(pid, workflowId, title, acs, cap, model)
@@ -213,7 +214,8 @@ class FlowService(
         val wt = if (inWorktree(pid, where)) worktreeFor(pid, root, title) else null
         if (wt == null) {
             refuseDirty(root, allowDirty)
-            ownBranch(pid, root, title)
+            // an add-on's flow that only writes its own documents (keel Product) stays on the branch it is on
+            if (ownBranch) ownBranch(pid, root, title)
         } else {
             start = start.copy(root = wt.path)
         }

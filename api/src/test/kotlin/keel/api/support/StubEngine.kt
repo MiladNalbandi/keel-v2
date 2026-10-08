@@ -68,6 +68,9 @@ class StubEngine private constructor(private val server: HttpServer) {
 
     @Volatile var askAnswer: Map<String, Any?>? = null
 
+    /** v0.13.0 more engine templates (an add-on's workflows, with "addon"), after keel's own. */
+    val extraTemplates = CopyOnWriteArrayList<Map<String, Any?>>()
+
     /** Extra ThreadState fields per thread id (for example a "fix" wait), merged over the default. */
     val overrides = java.util.concurrent.ConcurrentHashMap<String, Map<String, Any?>>()
 
@@ -113,7 +116,7 @@ class StubEngine private constructor(private val server: HttpServer) {
     private fun route(method: String, path: String, body: JsonNode?): Pair<Int, Any?> = when {
         path == "/health" -> 200 to mapOf("ok" to true, "version" to "stub", "fake" to true)
         path == "/agents/ask" -> 200 to (askAnswer ?: mapOf("ok" to true, "fake" to true, "text" to ""))
-        path == "/templates" -> 200 to listOf(featureTemplate, knowledgeTemplate, ciFixTemplate)
+        path == "/templates" -> 200 to listOf(featureTemplate, knowledgeTemplate, ciFixTemplate) + extraTemplates
         path == "/plugins/ci/runs" -> 200 to ciRuns.filter { body?.path("branch")?.asText().isNullOrBlank() || it["branch"] == body?.path("branch")?.asText() }
         path == "/plugins/ci/run" -> 200 to (ciRuns.firstOrNull { it["id"] == body?.path("run")?.asLong() }?.plus(mapOf("jobs" to emptyList<Any>(), "log" to "FAIL"))
             ?: mapOf("error" to "no run"))

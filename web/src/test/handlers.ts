@@ -1,7 +1,7 @@
 // MSW handlers for every /api route the web uses, backed by a small in-memory db (reset per test).
 
 import { http, HttpResponse } from "msw";
-import type { Cap, CapLeft, CapsLeft, FlowBoard, FlowView, GraphFocus, GraphOverview, CiRun, DbConnection, DbResult, GitStatus, HelperChange, HelperDone, HelperQuestion, HelperSession, IndexStatus, OnCap, Plugin, PullRequest, RunRow, Settings, Stack, ThreadState, Workflow, WorkflowCheck } from "../api";
+import type { Cap, CapLeft, CapsLeft, Features, FlowBoard, FlowView, GraphFocus, GraphOverview, CiRun, DbConnection, DbResult, GitStatus, HelperChange, HelperDone, HelperQuestion, HelperSession, IndexStatus, OnCap, Plugin, PullRequest, RunRow, Settings, Stack, ThreadState, Workflow, WorkflowCheck } from "../api";
 import * as fx from "./fixtures";
 import { createTaskDb, taskHandlers } from "./taskHandlers";
 
@@ -52,6 +52,8 @@ export function createDb() {
     importAs: null as Workflow | null,
     /** v0.10.0 plugins: which are on, the database connections and query answers, git's state */
     plugins: { db: false, git: false } as Record<string, boolean>,
+    /** v0.13.0 GET /api/features: keel without an add-on unless a test installs one */
+    features: { mode: "dev", modes: ["dev"], parts: { dev: true }, addons: [], screens: [] } as Features,
     dbConns: [] as DbConnection[],
     dbAnswer: null as DbResult | null,
     gitStatus: { branch: "feat/euro", base: "main", upstream: "origin/feat/euro", ahead: 2, behind: 0, base_ahead: 2, base_behind: 1, pushed: true,
@@ -95,6 +97,7 @@ export function handlers(db: Db) {
   };
   return [
     http.get("/api/health", () => HttpResponse.json(fx.health)),
+    http.get("/api/features", () => HttpResponse.json(db.features)),
     http.get("/api/projects", () => HttpResponse.json(db.projects)),
     http.post("/api/projects", async ({ request }) => {
       const b = await log(request);

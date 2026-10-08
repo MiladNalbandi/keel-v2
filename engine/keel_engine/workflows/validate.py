@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .. import addons
 from ..rules import PHASES
 from ..runtime.findings import REVIEWERS
 from .model import Workflow, WorkflowError, load_yaml
@@ -39,13 +40,15 @@ def _plugin_params() -> dict[str, dict]:
 
 def _action_ok(action: str) -> bool:
     return (action in CODE_ACTIONS or action in FLOW_ACTIONS or action in _plugin_params()
-            or (action.startswith("run:") and len(action) > 4))
+            or (action.startswith("run:") and len(action) > 4) or addons.has_action(action))
 
 
 def _with_errors(where: str, s) -> list[str]:
     """A plugin step's `with:`: the settings it needs are there, and it has none it does not know."""
     plugin = [a for a in s.actions() if a in _plugin_params()]
     if not plugin:
+        if s.params and any(addons.has_action(a) for a in s.actions()):
+            return []          # an add-on action reads its own `with:` (keel_engine/addons.py)
         return [f"{where}: only a plugin step (db:..., git:..., ci:...) takes `with`."] if s.params else []
     errs, known = [], {}
     for a in plugin:
@@ -178,6 +181,10 @@ def validate(wf: Workflow) -> list[str]:
             errors.append(f"{where}: only a parallel step takes 'from' (one agent per item).")
         if s.items_from and s.lanes:
             errors.append(f"{where}: 'from' and lanes do not go together.")
+        if s.root and not (s.kind == "parallel" and s.items_from):
+            errors.append(f"{where}: 'root: item' needs a parallel step with 'from' (each item names its folder).")
+        if s.asks and s.kind != "agent":
+            errors.append(f"{where}: only an agent step takes 'asks' (its questions go to the next gate).")
         for name, v in (("cap", s.cap), ("batch", s.batch)):
             if isinstance(v, str):
                 if not v.startswith("$"):

@@ -82,6 +82,7 @@ class ActionInput:
     emit: object = None                                # tool runs report here (event tool.ran, full output)
     ident: str = ""                                    # commit: the scope in "fix(<ident>):" when no criterion names it
     params: dict = field(default_factory=dict)         # a plugin step's `with:` (plugins/db, plugins/git)
+    event: object = None                               # an add-on action's own events: event(kind, data), kind "<addon>.*"
 
     @property
     def key(self) -> str:
@@ -122,6 +123,10 @@ async def run_action(action: str, a: ActionInput) -> ActionResult:
     more = _flow_actions()
     if action in more:
         return await more[action](a)
+    from .. import addons
+
+    if addons.has_action(action):
+        return await addons.run_action(action, a)
     return ActionResult(False, f"Unknown action {action}.")
 
 

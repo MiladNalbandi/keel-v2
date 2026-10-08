@@ -18,7 +18,7 @@ from pathlib import Path
 
 import yaml
 
-from .. import config, rules
+from .. import addons, config, rules
 
 SECTIONS = rules.KNOWLEDGE_SECTIONS
 CODEGRAPH = "codegraph"   # the MCP server name of the code graph (stage 5b)
@@ -64,7 +64,7 @@ def _front_matter(path: str, mtime: float) -> dict:
 
 def default_for(agent: str) -> dict:
     """The agent's default from its front matter (or the builtin table)."""
-    f = config.content_dir() / "agents" / f"{agent}.md"
+    f = addons.agent_path(agent)
     if f.is_file():
         k = _front_matter(str(f), f.stat().st_mtime).get("knowledge")
         if isinstance(k, dict):

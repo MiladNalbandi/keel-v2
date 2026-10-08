@@ -15,7 +15,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from . import config, models
+from . import addons, config, models
 from .models import usage as provider_usage
 from .demo import create_demo, workspace_missing
 from .events import EventBus, bus as default_bus
@@ -415,6 +415,11 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
         if getattr(request.app.state, "demo", None):
             out["demo"] = request.app.state.demo
         return out
+
+    @app.get("/addons")
+    async def get_addons():
+        """The add-ons this engine loaded (KEEL_ADDONS), and the ones it left out with the reason."""
+        return addons.info()
 
     @app.get("/templates")
     async def get_templates():
@@ -838,5 +843,7 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     async def get_models():
         return await asyncio.to_thread(catalog.build_catalog)
 
+    # add-on routes last, so they cannot shadow one of keel's own (keel_engine/addons.py)
+    addons.mount(app)
     return app
 

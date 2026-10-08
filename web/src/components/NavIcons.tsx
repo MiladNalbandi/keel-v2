@@ -93,9 +93,16 @@ const ICONS: Record<ScreenId, ReactElement> = {
       )}
     </>
   ),
+  // an add-on's page (v0.13.0): a compass
+  addon: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      {P("M15.5 8.5l-2 5-5 2 2-5z")}
+    </>
+  ),
 };
 
-export function NavIcon({ id, size = 20 }: { id: ScreenId; size?: number }) {
+export function NavIcon({ id, size = 20 }: { id: ScreenId | string; size?: number }) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -108,7 +115,7 @@ export function NavIcon({ id, size = 20 }: { id: ScreenId; size?: number }) {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      {ICONS[id]}
+      {ICONS[id as ScreenId] ?? ICONS.addon}
     </svg>
   );
 }

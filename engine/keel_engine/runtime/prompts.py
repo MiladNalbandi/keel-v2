@@ -8,7 +8,7 @@ import re
 from ..tools import testcmd
 from functools import lru_cache
 
-from .. import config, rules
+from .. import addons, config, rules
 from . import agent_knowledge
 
 # Roles for agents that have no file in content/agents.
@@ -22,10 +22,10 @@ GENERIC_ROLE = "You are a careful software engineer working inside a keel flow. 
 
 
 @lru_cache(maxsize=64)
-def _agent_file(content: str, agent: str) -> str | None:
+def _agent_file(path: str) -> str | None:
     from pathlib import Path
 
-    f = Path(content) / "agents" / f"{agent}.md"
+    f = Path(path)
     if not f.is_file():
         return None
     text = f.read_text()
@@ -39,7 +39,7 @@ WRITING_TURNS = {("explorer", "spec"): 40, ("explorer", "triage"): 40}
 
 def max_turns(agent: str, phase: str | None = None) -> int | None:
     """maxTurns from the agent file's front matter (explorer: 20), so one step cannot run away."""
-    f = config.content_dir() / "agents" / f"{agent}.md"
+    f = addons.agent_path(agent)
     n = None
     if f.is_file():
         m = re.search(r"\A---\n.*?^maxTurns:\s*(\d+)\s*$.*?\n---\n", f.read_text(), flags=re.S | re.M)
@@ -49,7 +49,7 @@ def max_turns(agent: str, phase: str | None = None) -> int | None:
 
 
 def role_text(agent: str) -> str:
-    return _agent_file(str(config.content_dir()), agent) or BUILTIN_ROLES.get(agent) or GENERIC_ROLE
+    return _agent_file(str(addons.agent_path(agent))) or BUILTIN_ROLES.get(agent) or GENERIC_ROLE
 
 
 def skill_paths(text: str) -> str:
