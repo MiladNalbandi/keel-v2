@@ -14,6 +14,7 @@ import {
   type HelperSelection, type HelperSession, type JobStep, type Model,
 } from "../../api";
 import { modelLabel, provLabel } from "../../format";
+import { ProviderIcon } from "../ProviderIcon";
 import { rankFiles } from "../../pages/repo/model";
 import { go, useApp, useLoad } from "../../state";
 import { Markdown } from "../Markdown";
@@ -618,6 +619,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
         <div className="hp-tools">
           <button type="button" className="hp-tb" onClick={() => setShowModel((v) => !v)} aria-expanded={showModel}
             title="The model that answers" aria-label="Model">
+            {model && <ProviderIcon provider={model.provider} size={14} />}
             {model ? `${provLabel(model.provider)} ${modelLabel(model)}` : "Model"}
           </button>
           {!listColumn && <button type="button" className="hp-tb" onClick={() => newChat()} title="Start a new chat" aria-label="New chat">New</button>}

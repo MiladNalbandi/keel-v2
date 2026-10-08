@@ -233,3 +233,5 @@ main:has(> .helper-page) { padding-bottom: 14px; }
 /* new KeelBot answers: in the menu and on the Code page's KeelBot button (accent, not the "waits for you" amber) */
 .nav .count.kb-new, .ms-nav .count.kb-new { background: var(--accent); color: var(--on-accent); }
 .rail-count.kb-new { background: var(--accent); color: var(--on-accent); }
+/* v0.15.2 the company icon on KeelBot's model button */
+.hp-tb .pi { margin-right: 5px; vertical-align: -2px; flex: none; }
