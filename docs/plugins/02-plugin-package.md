@@ -71,7 +71,7 @@ title: Database
 version: 1.4.0 # semver; "-beta.1" is a pre-release
 publisher: keel # must match the key that signed the file
 summary: Connect a database. You get its tables and an ER diagram. Agents get read-only SQL tools.
-repo: https://github.com/MiladNalbandi/keel-plugin-db
+repo: https://github.com/keel-studio/keel-plugin-db
 license: MIT
 
 requires:

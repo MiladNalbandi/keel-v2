@@ -12,9 +12,9 @@ from pathlib import Path
 
 OUT = Path(sys.argv[1])
 LICENSE = Path(sys.argv[2]).read_text()
-OWNER = "MiladNalbandi"
-PLAN = f"https://github.com/{OWNER}/keel-v2/tree/main/docs/plugins"
-KEEL = f"https://github.com/{OWNER}/keel-v2"
+OWNER = "keel-studio"                  # the GitHub organization of the plugin repos and the marketplace
+KEEL = "https://github.com/MiladNalbandi/keel-v2"
+PLAN = f"{KEEL}/tree/main/docs/plugins"
 
 # id: (title, category, summary, parts, needs, optional, adds, today, tags)
 PLUGINS = {

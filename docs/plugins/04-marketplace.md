@@ -14,7 +14,7 @@ The marketplace is how people **find**, **install**, **update** and **publish** 
 
 ## 4.1 The catalog (a git repo + one JSON file)
 
-A small repo, for example `MiladNalbandi/keel-marketplace` (the name is an open question). It is the list of what keel
+A small repo, [`keel-studio/keel-marketplace`](https://github.com/keel-studio/keel-marketplace). It is the list of what keel
 can install. It holds **no plugin code**, only pointers.
 
 ```
@@ -46,7 +46,7 @@ The built file `v1/index.json` is served by GitHub Pages, next to `v1/index.json
       "publisher": "keel",
       "category": "code",
       "summary": "Connect a database…",
-      "repo": "https://github.com/MiladNalbandi/keel-plugin-db",
+      "repo": "https://github.com/keel-studio/keel-plugin-db",
       "trust": "code",
       "versions": [
         {
@@ -57,7 +57,7 @@ The built file `v1/index.json` is served by GitHub Pages, next to `v1/index.json
             "keel": ">=0.16.0,<1.0.0",
             "plugins": { "code": ">=1.0.0,<2.0.0" }
           },
-          "url": "https://github.com/MiladNalbandi/keel-plugin-db/releases/download/v1.4.0/db-1.4.0.kplug",
+          "url": "https://github.com/keel-studio/keel-plugin-db/releases/download/v1.4.0/db-1.4.0.kplug",
           "sha256": "9c41…e07a",
           "size": 2201344,
           "permissions": {

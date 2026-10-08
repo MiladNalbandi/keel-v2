@@ -462,7 +462,7 @@ function vDetail() {
     <div class="crumb"><a data-go="market">Plugins</a><span>›</span><a data-go="market">Marketplace</a><span>›</span><span>${esc(p.t)}</span></div>
     <div class="dhead">${ico(id, "lg")}
       <div style="min-width:0"><h1>${esc(p.t)}${p.beta ? ` <span class="tag warn">beta</span>` : ""}</h1>
-        <div class="meta"><span style="display:inline-flex;gap:5px;align-items:center">${by(p)}</span><span class="mono">${p.v}</span><span>${trust(p)}</span><span class="mono">github.com/MiladNalbandi/keel-plugin-${id}</span></div></div>
+        <div class="meta"><span style="display:inline-flex;gap:5px;align-items:center">${by(p)}</span><span class="mono">${p.v}</span><span>${trust(p)}</span><span class="mono">github.com/keel-studio/keel-plugin-${id}</span></div></div>
       <div class="actions">${btn}</div>
     </div>
     <div class="g2">
@@ -541,7 +541,7 @@ function vSources() {
     <div class="g2" style="margin-top:14px">
       <div class="stack">
         <div class="panel"><div class="panel-head"><h2>Catalogs</h2><span class="sub">Each catalog is signed</span></div><div class="panel-body src">
-          <div class="srcrow"><div><b>keel official</b> <span class="tag keel">built in</span><div class="sub mono">github.com/MiladNalbandi/keel-marketplace · index v1</div><div class="sub">Key <span class="mono">ed25519:K7f3…c21</span> · read 12 minutes ago · 16 plugins</div></div><button class="sw" role="switch" type="button" aria-checked="true" aria-label="keel official on"></button></div>
+          <div class="srcrow"><div><b>keel official</b> <span class="tag keel">built in</span><div class="sub mono">github.com/keel-studio/keel-marketplace · index v1</div><div class="sub">Key <span class="mono">ed25519:K7f3…c21</span> · read 12 minutes ago · 16 plugins</div></div><button class="sw" role="switch" type="button" aria-checked="true" aria-label="keel official on"></button></div>
           <div class="srcrow"><div><b>Acme internal</b><div class="sub mono">git.acme.dev/platform/keel-catalog</div><div class="sub">Key <span class="mono">ed25519:Ac9e…71b</span> · uses the connection “acme-git” to read</div></div><button class="sw" role="switch" type="button" aria-checked="false" aria-label="Acme internal on"></button></div>
           <div class="frow" style="padding-top:12px"><div class="field"><label for="curl">Catalog URL</label><input id="curl" placeholder="https://…/index.json"></div><div class="field"><label for="ckey">Its public key</label><input id="ckey" placeholder="ed25519:…"></div><button class="btn" type="button">Add</button></div>
         </div></div>

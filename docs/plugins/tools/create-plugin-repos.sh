@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Creates keel's plugin repos, the plugin template and the marketplace repo on GitHub (MiladNalbandi), each with its
+# Creates keel's plugin repos, the plugin template and the marketplace repo in the keel-studio organization, each with its
 # starter files: a short README, a draft keel-plugin.yml and the MIT license. It only creates the repos that are missing.
 #
 #   docs/plugins/tools/create-plugin-repos.sh             private repos (make them public later)
 #   docs/plugins/tools/create-plugin-repos.sh --public    public repos, like keel-v2
 #
-# Needs: gh logged in as MiladNalbandi, python3 (the marketplace check in CI uses PyYAML; this script does not).
+# Needs: gh logged in as an owner of keel-studio, python3 (the marketplace check in CI uses PyYAML; this script does not).
 set -euo pipefail
 
-owner=MiladNalbandi
+owner=keel-studio
 visibility="${1:---private}"
 case "$visibility" in --private|--public) ;; *) echo "usage: $0 [--private|--public]" >&2; exit 2 ;; esac
 

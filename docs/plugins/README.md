@@ -98,7 +98,7 @@ users carry no risk, and every later step only repeats it. Details: [05-migratio
 | [04-marketplace.md](04-marketplace.md)       | the catalog, search, the Plugins page, the api, agents asking, publishing                           |
 | [05-migration.md](05-migration.md)           | seven releasable steps, their tests, and why step 1 is first                                        |
 | [mockup.html](mockup.html)                   | the mockup's source (published as a claude.ai artifact)                                             |
-| [tools/create-plugin-repos.sh](tools/create-plugin-repos.sh) | creates the 14 repos (`keel-marketplace`, `keel-plugin-template`, `keel-plugin-<name>` × 12) with a short README, a draft manifest and the license |
+| [tools/create-plugin-repos.sh](tools/create-plugin-repos.sh) | creates the 14 repos in `keel-studio` (`keel-marketplace`, `keel-plugin-template`, `keel-plugin-<name>` × 12) with a short README, a draft manifest and the license; [move-plugin-repos.sh](tools/move-plugin-repos.sh) moves the first ones from `MiladNalbandi` there |
 
 ## Open questions for Milad
 
@@ -111,8 +111,9 @@ users carry no risk, and every later step only repeats it. Details: [05-migratio
    `:latest` core-only with a "Start with a set" page on first start?
 5. **Signing:** Ed25519 keys in GitHub Actions secrets (simple), or Sigstore keyless signing (no keys to keep, more
    work to verify)?
-6. **Where:** the catalog as `MiladNalbandi/keel-marketplace` on GitHub Pages and plugin repos as
-   `MiladNalbandi/keel-plugin-<name>`? Or a GitHub organisation (for example `keel-plugins`) so others can help?
+6. ~~**Where:**~~ **Answered:** the GitHub organisation [`keel-studio`](https://github.com/keel-studio), like
+   muxy-app: `keel-studio/keel-marketplace`, `keel-studio/keel-plugin-template` and `keel-studio/keel-plugin-<name>`.
+   keel-v2 stays at `MiladNalbandi/keel-v2` for now (its image name and `keel2` use it).
 7. **Other publishers:** at first only content-only plugins (workflows, agents, skills), or also code plugins with an
    "unverified" warning (off by default)?
 8. **Restart:** after an approved install, restart by itself when no agent step runs, or always wait for a button?
