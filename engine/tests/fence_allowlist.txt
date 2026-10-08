@@ -1,0 +1,32 @@
+# The fence allowlist (engine): today's places where keel's core imports a part that becomes a plugin.
+# Checked by tests/test_fence.py. See docs/plugins/07-step1-contract.md §9 and docs/plugins/01-today.md.
+#
+# Rule: this list may only shrink.
+#   - A new import from core into a plugin fails. Do not add a line here: use an extension point instead,
+#     see docs/plugins/02-plugin-package.md.
+#   - A line whose import is gone fails too: delete that line.
+#   - keel_product can never be here.
+#
+# Format: "core.module -> plugin.module", one per line, sorted. '#' starts a comment.
+
+keel_engine.app -> keel_engine.plugins
+keel_engine.app -> keel_engine.plugins.ci.core
+keel_engine.app -> keel_engine.plugins.db.core
+keel_engine.app -> keel_engine.plugins.git.core
+keel_engine.app -> keel_engine.runtime.codegraph_view
+keel_engine.app -> keel_engine.runtime.helper
+keel_engine.app -> keel_engine.runtime.mapper
+keel_engine.mcp_server -> keel_engine.plugins.ci.tools
+keel_engine.mcp_server -> keel_engine.plugins.db.tools
+keel_engine.mcp_server -> keel_engine.plugins.git.tools
+keel_engine.runtime.action_docs -> keel_engine.plugins
+keel_engine.runtime.actions -> keel_engine.plugins
+keel_engine.runtime.actions -> keel_engine.tools.codegraph
+keel_engine.runtime.compiler -> keel_engine.plugins
+keel_engine.runtime.prompts -> keel_engine.runtime.graph_hints
+keel_engine.runtime.scan -> keel_engine.runtime.mapper
+keel_engine.runtime.scan -> keel_engine.tools.codegraph
+keel_engine.runtime.service -> keel_engine.tools.codegraph
+keel_engine.runtime.verdict_actions -> keel_engine.runtime.helper
+keel_engine.tools.mcp -> keel_engine.tools.codegraph
+keel_engine.workflows.validate -> keel_engine.plugins
