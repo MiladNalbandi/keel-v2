@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Creates keel's plugin repos, the plugin template and the marketplace repo on GitHub (MiladNalbandi), each with its
-# starter files: a short README, a draft keel-plugin.yml and the MIT license. Repos that already exist are skipped.
+# starter files: a short README, a draft keel-plugin.yml and the MIT license. It only creates the repos that are missing.
 #
 #   docs/plugins/tools/create-plugin-repos.sh             private repos (make them public later)
 #   docs/plugins/tools/create-plugin-repos.sh --public    public repos, like keel-v2
@@ -31,11 +31,15 @@ create() {
   done
 }
 
+# only the repos that are not on GitHub yet
+existing="$(gh repo list "$owner" --limit 1000 --json name --jq '.[].name')"
+todo="$(while IFS=$'\t' read -r repo description; do
+  grep -qx "$repo" <<< "$existing" || printf '%s\t%s\n' "$repo" "$description"
+done < "$out.tsv")"
+[ -n "$todo" ] && echo "to create: $(cut -f1 <<< "$todo" | tr '\n' ' ')" || echo "every repo is there already"
+
 while IFS=$'\t' read -r repo description; do
-  if gh repo view "$owner/$repo" > /dev/null 2>&1; then
-    echo "exists, skipped: $owner/$repo"
-    continue
-  fi
+  [ -n "$repo" ] || continue
   git -C "$out/$repo" init -q -b main
   git -C "$out/$repo" add -A
   git -C "$out/$repo" commit -q -m "Start the repo: README, manifest draft and license" \
@@ -44,6 +48,6 @@ while IFS=$'\t' read -r repo description; do
   create "$repo" "$description"
   gh repo edit "$owner/$repo" --add-topic keel --add-topic keel-plugin > /dev/null
   echo "created: https://github.com/$owner/$repo"
-done < "$out.tsv"
+done <<< "$todo"
 
 gh repo edit "$owner/keel-plugin-template" --template > /dev/null && echo "keel-plugin-template is a template repo"
