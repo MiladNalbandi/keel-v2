@@ -28,7 +28,7 @@
 # data volume, so they survive restarts and new images. Nothing from your computer is copied into the container.
 set -euo pipefail
 
-KEEL2_VERSION="0.15.1"
+KEEL2_VERSION="0.15.2"
 IMAGE="${KEEL_IMAGE:-ghcr.io/miladnalbandi/keel-v2:latest}"
 NAME="${KEEL_NAME:-keel-v2}"
 VOLUME="${KEEL_VOLUME:-keel-data}"
