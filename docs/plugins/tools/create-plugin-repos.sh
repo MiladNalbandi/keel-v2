@@ -12,6 +12,12 @@ owner=keel-studio
 visibility="${1:---private}"
 case "$visibility" in --private|--public) ;; *) echo "usage: $0 [--private|--public]" >&2; exit 2 ;; esac
 
+gh api "users/$owner" --silent 2> /dev/null || {
+  echo "The organization $owner does not exist yet. Create it first: https://github.com/account/organizations/new?plan=free" >&2
+  echo "Then run move-plugin-repos.sh: it moves the repos made earlier and creates the rest." >&2
+  exit 1
+}
+
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(git -C "$here" rev-parse --show-toplevel)"
 out="$(mktemp -d)/repos"
