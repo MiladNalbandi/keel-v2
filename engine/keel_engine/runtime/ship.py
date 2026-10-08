@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import asyncio
 
-from .. import rules
+from .. import extensions, rules
 from ..tools import git
 from . import blockers, run_mode, verdict_actions, verdicts
 
@@ -210,7 +210,7 @@ def final_report(root: str, key: str, state: dict, title: str, thread_id: str = 
     rows = data.get("trace") or (verdict_actions.trace_rows(root, state.get("acs") or [], base) if repo and state.get("acs") else [])
     if rows:
         out += ["## Acceptance criteria", "", verdict_actions.trace_table(rows), ""]
-    out += verdict_actions.helper_section(thread_id)
+    out += extensions.pr_body_sections(thread_id)      # the parts' sections: KeelBot's commits at a gate
     if state.get("spec"):
         out += [f"Spec: `{state['spec']}`", ""]
     if repo and base:

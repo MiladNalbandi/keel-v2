@@ -8,7 +8,7 @@ import re
 from ..tools import testcmd
 from functools import lru_cache
 
-from .. import addons, config, rules
+from .. import addons, config, extensions, rules
 from . import agent_knowledge
 
 # Roles for agents that have no file in content/agents.
@@ -103,14 +103,11 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
         block = agent_knowledge.prompt_block(root, knowledge, graph)
         if block:
             lines.append(block)
-        if pid and knowledge.get("hints", False):
-            # keel's own lookups in the code graph for this step: the places to read first, at no tool call
-            from . import graph_hints
-            query = "\n".join(x for x in (title, request, (ac or {}).get("title") or "", feedback or "",
-                                           str((item or {}).get("title") or "")) if x)
-            hints = graph_hints.where_to_look(pid, query)
-            if hints:
-                lines.append(hints)
+        # what the parts add for this step (keel_engine/extensions.py prompt_context): the code graph's "where to look"
+        # lookups for agents with hints on, the places to read first, at no tool call
+        query = "\n".join(x for x in (title, request, (ac or {}).get("title") or "", feedback or "",
+                                       str((item or {}).get("title") or "")) if x)
+        lines += extensions.prompt_context(extensions.Agent(agent, knowledge), root, pid, query)
     elif (_P(root) / "docs" / "knowledge").is_dir() and not section:
         lines.append("keel's memory of this project is in docs/knowledge/ (start with index.md if it exists, then only the "
                      "section you need). Read it before exploring the code and trust its file:line citations.")

@@ -23,12 +23,14 @@ def test_every_dispatched_action_has_plain_words():
     names = action_docs.dispatch_names()
     for must in ("verify_red", "commit", "run:", "start_flow", "escalate_model", "hunt_take", "spec_freeze", "trace_strict"):
         assert must in names
-    missing = [n for n in names if n not in action_docs.DOCS]
-    assert not missing, f"actions without an entry in runtime/action_docs.py DOCS: {missing}"
+    docs = action_docs.all_docs()
+    missing = [n for n in names if n not in docs]
+    assert not missing, f"actions without an entry in runtime/action_docs.py DOCS or their part's docs: {missing}"
     empty = [n for n in names if not action_docs.describe(n)["steps"]]
     assert not empty, f"actions with neither steps in DOCS nor a docstring: {empty}"
-    stale = [n for n in action_docs.DOCS if n not in names]
+    stale = [n for n in docs if n not in names]
     assert not stale, f"DOCS entries for actions the engine no longer runs: {stale}"
+    assert {"db:query", "git:push", "ci:wait"} <= set(names)     # the parts' actions (keel_engine/extensions.py)
 
 
 def test_a_docstring_fills_an_entry_without_steps():

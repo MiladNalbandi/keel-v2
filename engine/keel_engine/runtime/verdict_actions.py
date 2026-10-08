@@ -25,7 +25,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .. import rules
+from .. import extensions, rules
 from ..rules import checks
 from ..tools import git, testcmd
 from ..tools.agent_tools import command_env
@@ -737,23 +737,9 @@ def pr_body(root: str, project: str, state: dict, title: str, base: str | None, 
     flaky = state.get("flaky") or []
     if flaky:
         out += ["## Flaky tests seen", ""] + [f"- {f.get('label')}: {', '.join(f.get('tests') or [])}" for f in flaky] + [""]
-    out += helper_section(thread_id)
+    out += extensions.pr_body_sections(thread_id)      # the parts' sections: KeelBot's commits at a gate
     out += ["---", "_Prepared by keel._"]
     return "\n".join(out)
-
-
-def helper_section(thread_id: str) -> list[str]:
-    """The PR body's and the final review's list of the commits KeelBot made for this flow (Fix at a gate)."""
-    from . import helper          # late: KeelBot's module imports most of the runtime
-    helped = helper.commits_for(thread_id)
-    if not helped:
-        return []
-    lines = []
-    for c in helped:
-        files = c["files"]
-        more = ", …" if len(files) > 6 else ""
-        lines.append(f"- `{c['sha'][:7]}` {c['subject']}" + (f" ({', '.join(files[:6])}{more})" if files else ""))
-    return ["## KeelBot changes", "", "Made with KeelBot at a gate, then checked and committed by keel:", ""] + lines + [""]
 
 
 def lint_section(project: str) -> list[str]:

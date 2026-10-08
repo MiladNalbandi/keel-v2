@@ -34,13 +34,12 @@ import uuid
 from pathlib import Path
 
 from .. import approvals
-from .. import config, models, rules
+from .. import config, extensions, models, rules
 from ..models import catalog
 from ..models.base import AgentRequest, AgentResult
-from ..tools import git, guard, mcp, testcmd, worktrees
+from ..tools import git, guard, testcmd, worktrees
 from ..tools.agent_tools import ToolBox, command_env
-from .. import plugins as keel_plugins
-from . import agent_knowledge, db, graph_hints, guard_ctx, keelbot, permissions, plugins, prompts
+from . import agent_knowledge, db, guard_ctx, keelbot, permissions, plugins, prompts
 
 log = logging.getLogger(__name__)
 
@@ -459,11 +458,9 @@ def build_prompt(*, mode: str, root: str, question: str, know: dict, graph: bool
     block = agent_knowledge.prompt_block(root, know, graph)
     if block:
         parts.append(block)
-    if pid and know.get("hints", False):
-        # keel's own lookups in the code graph: the places to read first, at no tool call (runtime/graph_hints.py)
-        hints = graph_hints.where_to_look(pid, question, mentions=mentions, open_file=open_file, selection=selection)
-        if hints:
-            parts.append(hints)
+    # what the parts add for this question (keel_engine/extensions.py prompt_context): the code graph's "where to look"
+    # lookups when hints are on, the places to read first, at no tool call
+    parts += extensions.prompt_context(extensions.Agent(AGENT, know, mentions, open_file, selection), root, pid, question)
     ctx = plugins.context_files(root, (keel or {}).get("plugins"))
     if ctx:
         parts.append("Read these when they help: " + ", ".join(ctx))
@@ -670,16 +667,16 @@ class HelperRunner:
         # everything that awaits sits in the try: a stop can come at any moment and is recorded the same way
         try:
             before = await asyncio.to_thread(guard.snapshot, root)
-            graph = await asyncio.to_thread(mcp.codegraph_server_spec, s["root"])     # the project's index (same paths)
-            sent = list(body.get("mcp") or [])
-            specs = sent + ([graph] if graph and not any(x.get("name") == graph["name"] for x in sent) else [])
-            allow = list(body.get("tools_allow") or []) + ([f"mcp:{graph['name']}:*"] if graph else [])
-            # the project's plugins (Tools › Plugins): their read tools, through one key for this turn (keel_engine/plugins)
-            on = keel_plugins.enabled({"plugins": body.get("plugins")})
+            # the parts' own servers (the code graph's: the project's index, same paths), keel_engine/extensions.py
+            specs, allow = await asyncio.to_thread(extensions.with_part_servers, list(body.get("mcp") or []),
+                                                   list(body.get("tools_allow") or []), extensions.Agent(AGENT, know),
+                                                   s["root"])
+            # the project's plugins (Tools › Plugins): their read tools, through one key for this turn
+            on = extensions.enabled({"plugins": body.get("plugins")})
             if on:
-                plugin_key = keel_plugins.open_call(project=project, root=root, keys=keys, plugins=on, who="keelbot")
-                specs += keel_plugins.server_specs(on, plugin_key)
-                allow += keel_plugins.allow_entries(on)
+                plugin_key = extensions.open_call(project=project, root=root, keys=keys, plugins=on, who="keelbot")
+                specs += extensions.server_specs(on, plugin_key)
+                allow += extensions.allow_entries(on)
             mcp_specs, tools_allow = agent_knowledge.filter_mcp(specs, allow, know)
             transcript = "" if (resume or model.get("mode") == "api" or provider == "fake") else _transcript(hist)
             prompt = build_prompt(mode=mode, root=root, question=question, know=know, branch=s.get("branch") or "", pid=project,
@@ -705,7 +702,7 @@ class HelperRunner:
             status, err = "failed", f"{exc}{(' ' + exc.hint) if getattr(exc, 'hint', '') else ''}"
             emit("error", err[:2000], ok=False)
         self.ask_keys.pop(sid, None)
-        keel_plugins.close_call(plugin_key)
+        extensions.close_call(plugin_key)
         self._drop_questions(sid, "KeelBot's answer ended.")
         # the backstop for engines without keel's hook: in Ask nothing may change; in Fix only what the phase allows
         if mode == "ask":

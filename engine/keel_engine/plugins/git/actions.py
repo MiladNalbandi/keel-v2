@@ -156,11 +156,4 @@ async def git_cleanup(a):
 
 ACTIONS = {"git:branch": git_branch, "git:sync": git_sync, "git:push": git_push, "git:pr": git_pr,
            "git:pr-checks": git_pr_checks, "git:cleanup": git_cleanup}
-PARAMS = {
-    "git:branch": {"name": "optional", "pattern": "optional"},
-    "git:sync": {},
-    "git:push": {},
-    "git:pr": {"title": "optional", "draft": "optional"},
-    "git:pr-checks": {"minutes": "optional"},
-    "git:cleanup": {},
-}
+# what each needs in `with:` is PARAMS in this package's PART (__init__.py)

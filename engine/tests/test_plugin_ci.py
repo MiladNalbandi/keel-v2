@@ -9,7 +9,7 @@ import textwrap
 import pytest
 
 from conftest import start, wait
-from keel_engine import plugins
+from keel_engine import extensions
 from keel_engine.plugins.ci import core as ci
 from keel_engine.runtime import plugins as manifests
 from keel_engine.workflows.model import from_dict, load_yaml
@@ -99,12 +99,12 @@ def test_the_engine_calls_and_the_read_tools_for_models(client, gh):
     assert client.post("/plugins/ci/run", json={**body, "run": 11}).json()["jobs"][0]["failed_steps"] == ["run the tests"]
     no = client.post("/plugins/ci/runs", json={"root": str(gh.root)})
     assert no.status_code == 400 and "Connections › GitHub" in no.json()["hint"]
-    key = plugins.open_call(project="demo", root=str(gh.root), keys={"github": "t"}, plugins=["ci"], who="keelbot")
+    key = extensions.open_call(project="demo", root=str(gh.root), keys={"github": "t"}, plugins=["ci"], who="keelbot")
     text = client.post("/plugins/call", json={"key": key, "tool": "ci_failure", "args": {}}).json()["text"]
     assert text.startswith("Run #11 ci on feat/ranks") and "- job test failed at: run the tests" in text and "assert 3 == 4" in text
     runs = client.post("/plugins/call", json={"key": key, "tool": "ci_runs", "args": {"branch": "main"}}).json()["text"]
     assert runs.startswith("- #10 ci on main (abc123): success")
-    plugins.close_call(key)
+    extensions.close_call(key)
 
 
 def ci_flow(client, repo, steps, on=("ci",), extra=None):

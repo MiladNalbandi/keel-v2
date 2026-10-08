@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .. import addons
+from .. import extensions
 from ..rules import PHASES
 from ..runtime.findings import REVIEWERS
 from .model import Workflow, WorkflowError, load_yaml
@@ -32,24 +32,23 @@ END = "end"          # a branch's no, or a gate choice, may finish the flow
 
 
 def _plugin_params() -> dict[str, dict]:
-    """The plugins' step actions (plugins/db, git, ci) with what each needs in `with:`."""
-    from ..plugins import action_params
-
-    return action_params()
+    """The parts' step actions (db, git, ci ...) with what each needs in `with:` (keel_engine/extensions.py)."""
+    return extensions.action_params()
 
 
 def _action_ok(action: str) -> bool:
     return (action in CODE_ACTIONS or action in FLOW_ACTIONS or action in _plugin_params()
-            or (action.startswith("run:") and len(action) > 4) or addons.has_action(action))
+            or (action.startswith("run:") and len(action) > 4) or extensions.has_action(action))
 
 
 def _with_errors(where: str, s) -> list[str]:
     """A plugin step's `with:`: the settings it needs are there, and it has none it does not know."""
     plugin = [a for a in s.actions() if a in _plugin_params()]
     if not plugin:
-        if s.params and any(addons.has_action(a) for a in s.actions()):
-            return []          # an add-on action reads its own `with:` (keel_engine/addons.py)
-        return [f"{where}: only a plugin step (db:..., git:..., ci:...) takes `with`."] if s.params else []
+        if s.params and any(extensions.has_action(a) for a in s.actions()):
+            return []          # a part's action without declared params (an add-on's) reads its own `with:`
+        kinds = ", ".join(f"{p}:..." for p in extensions.param_prefixes())
+        return [f"{where}: only a plugin step ({kinds}) takes `with`."] if s.params else []
     errs, known = [], {}
     for a in plugin:
         known.update(_plugin_params()[a])

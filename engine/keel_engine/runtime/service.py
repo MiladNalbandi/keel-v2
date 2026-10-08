@@ -19,9 +19,9 @@ import aiosqlite
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.types import Command
 
-from .. import config, rules
+from .. import config, extensions, rules
 from ..events import EventBus
-from ..tools import codegraph, git
+from ..tools import git
 from ..workflows.model import Workflow, from_dict
 from ..workflows.templates import get_template
 from . import hunt, ladder as ladder_mod
@@ -288,7 +288,7 @@ class Engine:
             state["base_head"] = state["git_head"]
             git.exclude_engine_files(root)
             state["preexisting"] = git.snapshot(root)
-        codegraph.sync_later(root)          # the code graph catches up with edits made since the last index (background)
+        extensions.on_thread_start(root, tid)   # the parts catch up (the code graph syncs edits since its last index)
         await self._import_legacy_unlocks(tid)
         started = {"workflow": wf.id, "workflow_id": wf.id, "title": ctx.title, "flow": wf.flow, "root": root,
                    "acs": len(state["acs"]), "fake": ctx.fake}

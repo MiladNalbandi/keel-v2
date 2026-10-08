@@ -9,8 +9,10 @@ turns that into a button the person presses (web components/helper/Actions.tsx):
     {"workflow": "feature", ...}       id: ...            (a whole workflow: keel checks it, then offers Save)
     ```                                ```
 
-    keel_block(keel, question)   the prompt block: workflows, flows, how to give buttons, and (only when the question
-                                 is about writing a workflow) the format, the phases, actions and agents to use
+    keel_block(keel, question)   the prompt block: workflows, flows, how to give buttons, what each part that is on
+                                 says (its `keelbot` words, keel_engine/extensions.py), and (only when the question is
+                                 about writing a workflow) the format, the phases, actions and agents to use
+    PART                         KeelBot as a part: its commits in the PR body (hook pr_body_sections)
 """
 
 from __future__ import annotations
@@ -18,7 +20,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from .. import addons, config
+from .. import addons, config, extensions
 
 # One line per keel template (docs/GUIDE.md "Flows in detail"): what it is for.
 ABOUT = {
@@ -92,44 +94,6 @@ USEFUL_ACTIONS = ["run:", "commit", "verify_green", "verify_red", "verify_lint",
                   "verify_coverage", "coverage_report", "verify_deps", "audit", "show_diff", "push_check", "report",
                   "review_scope", "review_lenses", "start_flow"]
 
-DB_PLUGIN = """The Database plugin is on. Your tools db_connections, db_schema and db_query only read. For a data question, \
-look at the schema first, then run one query, and show the rows. You never change data yourself: a change (INSERT, \
-UPDATE, DELETE) is a button the person presses. keel counts the rows it would change first, and runs it only on a \
-local or test database:
-```keel-query
-{"sql": "UPDATE scores SET value = 0 WHERE value IS NULL", "connection": "local"}
-```
-Use the connection names db_connections gives. A schema change is never a button: it belongs in a migration."""
-
-GIT_PLUGIN = """The Git plugin is on. Your tools git_status, git_diff, git_log, git_show, git_blame, git_branches and \
-pr_status only read. A commit, push, pull request, branch switch or merge of the base branch is a button the person \
-presses, one per block:
-```keel-git
-{"op": "commit", "message": "fix(prices): round half up\\n\\nThe reviewer asked for it on src/money.ts:14."}
-```
-ops: commit {message}, push {}, pr {title, body, draft?}, switch {branch, create?}, sync {} (merge the base branch \
-in). keel never force-pushes and never pushes to main or master."""
-
-CI_PLUGIN = """The CI/CD plugin is on. Your tools ci_runs and ci_failure only read the project's pipelines (GitHub \
-Actions). When the person asks why CI failed, read ci_failure, say the cause in plain words with file:line where the log \
-points at code, and what fixes it. You never re-run or fix it yourself: give a button, one per block:
-```keel-ci
-{"op": "fix"}
-```
-ops: fix {run?} (starts the ci-fix flow on this branch: read the failure, fix, commit, push, wait for CI), rerun {run?} \
-(runs the failed jobs again; for a flaky failure: a timeout, the network)."""
-
-PLUGIN_ACTIONS = {
-    "db": ["db:query    {sql, connection?}: a read; its rows go to data.<step id>",
-           "db:check    {sql, expect: none | some | <n>, connection?}: a data check (soft: true + a branch on RESULT)",
-           "db:change   {sql, connection?}: a change of data on a local or test database; keel asks the person first",
-           "db:migrate  {}: the project's migration command (commands.migrate in .keel/config.yml)"],
-    "git": ["git:branch  {name? | pattern?}", "git:sync  {}: merge the base branch in", "git:push  {}",
-            "git:pr  {title?, draft?}", "git:pr-checks  {minutes?}: wait for CI", "git:cleanup  {}"],
-    "ci": ["ci:status  {branch?}: the pipelines of this commit pass", "ci:wait  {minutes?}: wait for CI after a push",
-           "ci:logs  {run?}: why the newest failed run failed, into data.ci_failure", "ci:rerun  {run?}"],
-}
-
 
 def _workflow_line(w: dict) -> str:
     wid = str(w.get("id") or "")
@@ -190,7 +154,7 @@ def format_block(plugins: list[str] | None = None) -> str:
     acts = [f"{a} {DOCS[a]['summary']}" if a in DOCS else a for a in USEFUL_ACTIONS]
     parts = [FORMAT, "Phases: " + ", ".join(p for p in PHASES if p != "none") + ".",
              "Actions for code steps (more are in keel's templates):\n" + "\n".join(f"- {a}" for a in acts)]
-    mine = [line for p in plugins or [] for line in PLUGIN_ACTIONS.get(p, [])]
+    mine = extensions.keelbot_actions(plugins)       # each part's step lines (keel_engine/extensions.py)
     if mine:
         parts.append("The project's plugins add these code steps; their settings go in the step's `with:`, for example\n"
                      "  - { id: orphans, kind: code, name: no score without a player, action: db:check, soft: true,\n"
@@ -219,12 +183,26 @@ def keel_block(keel: dict | None, question: str) -> str:
         parts.append("No flow has run in this project yet.")
     parts.append(ACTIONS)
     on = list(keel.get("plugins") or [])
-    if "db" in on:
-        parts.append(DB_PLUGIN)
-    if "git" in on:
-        parts.append(GIT_PLUGIN)
-    if "ci" in on:
-        parts.append(CI_PLUGIN)
+    parts += [kb["prompt"] for kb in extensions.keelbot(on) if kb.get("prompt")]     # the parts on (Database ...)
     if ABOUT_WORKFLOW.search(question or "") and WRITE_WORDS.search(question or ""):
         parts.append(format_block(on))
     return "\n\n".join(parts)
+
+
+# ------------------------------------------------------------------ KeelBot as a part (keel_engine/extensions.py)
+
+def pr_body_sections(thread_id: str) -> list[str]:
+    """The PR body's and the final review's list of the commits KeelBot made for this flow (Fix at a gate)."""
+    from . import helper          # late: KeelBot's module imports most of the runtime
+    helped = helper.commits_for(thread_id)
+    if not helped:
+        return []
+    lines = []
+    for c in helped:
+        files = c["files"]
+        more = ", …" if len(files) > 6 else ""
+        lines.append(f"- `{c['sha'][:7]}` {c['subject']}" + (f" ({', '.join(files[:6])}{more})" if files else ""))
+    return ["## KeelBot changes", "", "Made with KeelBot at a gate, then checked and committed by keel:", ""] + lines + [""]
+
+
+PART = {"name": "keelbot", "title": "KeelBot", "hooks": {"pr_body_sections": pr_body_sections}}
