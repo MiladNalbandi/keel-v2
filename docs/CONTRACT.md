@@ -1687,3 +1687,40 @@ GET /api/projects/{pid}/repo/diff?path=…&branch=feat/test   → FileDiff { aga
 - The Git plugin's switch, commit, sync and cleanup send `project.changed`: the Code page reads the branch, the tree and
   the changes again.
 
+
+## v0.14.0: Code Review
+
+An installable plugin (`review`, content/plugins/review). With it on, Code gets a **Review** tool window (⇧⌘9): the
+branch you are on, and the pull requests (GitHub) or merge requests (GitLab) to review, assigned to you, yours or all.
+One opens in the tool window (Approve, Submit review, Merge your own, Check out; tabs Changes as a folder tree with
+viewed marks, Commits, Overview, Findings, Threads, Checklist) and each file as an editor tab (`kind: review`, path
+`<key>|<file>`, view `diff` or `code`). A review key is `pr:<n>` or `branch:<name>`. The host is origin's: github.com or
+an Enterprise host (token: Connections › GitHub), or GitLab (Connections › GitLab: server URL + token). keel fetches a
+pull request's head and base into `refs/keel/review/pr-<n>` and `-base`; it never builds or runs that code.
+
+```
+GET  /api/projects/{pid}/review/prs?filter=review|assigned|mine|all  → PrList { host, me, prs: PrSummary[], counts, note }
+GET  /api/projects/{pid}/review/branch                     → BranchSummary { branch, base, ahead, files, added, removed, pr?, note }
+GET  /api/projects/{pid}/review/view?key=pr:7[&refresh=true] → ReviewView { files, commits, threads, conversation, checks,
+                                                              approved, changes_requested, drafts, viewed, can_post, mine,
+                                                              mergeable, merge_state, notes, … }
+GET  /api/projects/{pid}/review/diff?key&path               → FileDiff (base merge base … head)
+GET  /api/projects/{pid}/review/file?key&path&side=head|base → { path, ref, sha, text, truncated }   the whole file
+GET  /api/projects/{pid}/review/definition?key&symbol       → Places { symbol, ref, places: [{path, line, text,
+GET  /api/projects/{pid}/review/usages?key&symbol             declaration, test, changed}], truncated }   (git grep at head)
+POST /api/projects/{pid}/review/drafts {key, path?, line?, side, body, finding_id?}   a pending comment (PUT/DELETE /drafts/{id})
+POST /api/projects/{pid}/review/viewed {key, path, viewed}  → { viewed }               per head commit
+POST /api/projects/{pid}/review/threads/{id}/reply {key, body} · /resolve {key, resolved} → ReviewView
+POST /api/projects/{pid}/review/submit {key, event: COMMENT|APPROVE|REQUEST_CHANGES, body} → { posted, in_body, view }
+POST /api/projects/{pid}/review/merge {key, method: merge|squash|rebase, delete_branch}   only your own (409 otherwise)
+POST /api/projects/{pid}/review/checkout {key}             → { branch, note }   its own branch, or review/pr-<n> for a fork
+GET  /api/projects/{pid}/review/ai?key                      → { overview, findings, decisions }
+POST /api/projects/{pid}/review/ai/overview|findings {key}  → starts read-only KeelBot runs (overview; reviewers A ∥ B, then checks)
+POST /api/projects/{pid}/review/ai/findings/{id} {key, decision: dismissed|commented|open, why}
+GET|PUT|DELETE /api/gitlab {url, token?}                   → { set, url, host, hint }   (the token never leaves keel)
+```
+
+- Submit sends one review: comments on lines of the diff as line comments, any other as part of the review's text.
+  GitHub: one review; GitLab: one discussion per line comment, a note, then approve (Request changes is a note and takes
+  back your approval). A review on a head that moved is refused until it is opened again.
+- keel's AI never posts: a finding becomes a pending comment only when the person presses Add as comment.
