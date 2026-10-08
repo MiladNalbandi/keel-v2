@@ -5,8 +5,9 @@
 
 readonly: the run mode is readonly (runtime/run_mode.py): every edit, write, commit and changing shell command is refused.
 
-ask: {url, key, session} in KeelBot's Fix mode: a shell command that changes something waits for the person's OK
-(runtime/permissions.py); the key only asks, it cannot answer.
+ask: {url, key, session} in KeelBot's Fix and side modes: a shell command that changes something waits for the person's
+OK (runtime/permissions.py asks at `url`, the full address; keel_engine/approvals.py waits); the key only asks, it
+cannot answer.
 
 knowledge_*: the agent's knowledge setting (runtime/agent_knowledge.py); with strict on, reading a docs/knowledge
 section the agent was not given is refused.

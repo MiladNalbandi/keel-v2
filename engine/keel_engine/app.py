@@ -578,6 +578,9 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
             raise EngineError(400, msg)
         return await asyncio.to_thread(hunt.run_view, pid, run)
 
+    from .approvals_routes import router as approvals_router   # core: ask a person and wait (keel_engine/approvals.py)
+    app.include_router(approvals_router)
+
     # ---- KeelBot (runtime/helper.py) ------------------------------------------------------------------
 
     def helper_call(fn, *a, **k):
