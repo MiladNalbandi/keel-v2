@@ -13,7 +13,10 @@
     "resolveJsonModule": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "types": ["vite/client", "vitest/globals", "@testing-library/jest-dom"]
+    "types": ["vite/client", "vitest/globals", "@testing-library/jest-dom"],
+    "baseUrl": ".",
+    // keel Product's pages (../product/web, an add-on) import keel's own packages from here
+    "paths": { "*": ["node_modules/@types/*", "node_modules/*"] }
   },
-  "include": ["src", "vite.config.ts"]
+  "include": ["src", "vite.config.ts", "../product/web"]
 }

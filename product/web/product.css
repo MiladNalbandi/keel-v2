@@ -1,0 +1,89 @@
+/* keel Product: the board, the initiative page and the teams. Only keel's tokens (light and dark come with them). */
+.pd { display: grid; gap: 16px; min-width: 0; }
+.pd .crumb a { color: inherit; }
+.pd-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.pd-board { display: grid; grid-template-columns: repeat(7, minmax(150px, 1fr)); gap: 10px; overflow-x: auto; padding-bottom: 6px; }
+.pd-col { background: var(--panel-2); border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 8px; min-height: 140px; }
+.pd-col h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); margin: 0 0 2px; display: flex; justify-content: space-between; }
+.pd-card { display: flex; flex-direction: column; gap: 6px; text-align: left; background: var(--panel); border: 1px solid var(--border); border-radius: 9px;
+  padding: 10px 11px; cursor: pointer; color: var(--fg); font: inherit; min-width: 0; }
+.pd-card:hover { border-color: var(--faint); }
+.pd-card.is-wait { border-color: var(--warn); box-shadow: inset 3px 0 0 var(--warn); }
+.pd-card b { font-weight: 600; overflow-wrap: anywhere; }
+.pd-card-top { display: flex; justify-content: space-between; align-items: center; gap: 6px; flex-wrap: wrap; }
+.pd-card-top .mono { white-space: nowrap; }
+.pd-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.pd-progress { display: block; height: 5px; border-radius: 99px; background: var(--panel-2); overflow: hidden; }
+.pd-progress.wide { width: 200px; max-width: 100%; }
+.pd-progress i { display: block; height: 100%; background: var(--ok); }
+.pd-parked { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.pd-parked h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); margin: 0 8px 0 0; }
+.pd-table-wrap { overflow-x: auto; }
+.pd-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.pd-table th { text-align: left; font-size: 12px; color: var(--dim); font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.pd-table td { padding: 7px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.pd-form { display: grid; gap: 14px; }
+.pd-text { width: 100%; min-height: 120px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); border-radius: 7px; padding: 8px 10px; font: inherit; }
+.pd-repos { border: 0; padding: 0; margin: 0; }
+.pd-repo-list { display: grid; gap: 4px; }
+.pd-track { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
+.pd-step { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; background: var(--panel); border: 1px solid var(--border); color: var(--dim); min-width: 0; }
+.pd-step i { font-style: normal; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 600; background: var(--panel-2); flex: none; }
+.pd-step span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pd-step.s-done { color: var(--fg); }
+.pd-step.s-done i { background: var(--ok-soft); color: var(--ok); }
+.pd-step.s-now { border-color: var(--run); color: var(--fg); }
+.pd-step.s-now i { background: var(--run-soft); color: var(--run); }
+.pd-step.s-wait { border-color: var(--warn); color: var(--fg); }
+.pd-step.s-wait i { background: var(--warn-soft); color: var(--warn); }
+.pd-step.s-bad { border-color: var(--bad); }
+.pd-step.s-bad i { background: var(--bad-soft); color: var(--bad); }
+.pd-main { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
+.pd-left, .pd-side { display: grid; gap: 14px; min-width: 0; }
+.pd-next { border: 1px solid var(--border); background: var(--panel); border-radius: 10px; padding: 14px 16px; display: grid; gap: 12px; }
+.pd-next.is-wait { border-color: var(--warn); background: linear-gradient(var(--warn-soft), var(--warn-soft)) top / 100% 4px no-repeat, var(--panel); }
+.pd-next-head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.pd-next-label { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); font-weight: 600; }
+.pd-detail { max-height: 260px; overflow: auto; border-left: 3px solid var(--border); padding-left: 10px; }
+.pd-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.pd-row { display: flex; gap: 8px; align-items: end; flex-wrap: wrap; }
+.pd-row input[type=text], .pd-row select, .pd-inline input, .pd-disagree input { border: 1px solid var(--border); background: var(--bg); color: var(--fg); border-radius: 7px; padding: 6px 9px; min-width: 0; }
+.pd-row .field { min-width: 140px; }
+.pd-grow { flex: 1 1 220px; }
+.pd-inline { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.pd-tab { min-width: 0; }
+.pd-doc { display: grid; gap: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; min-width: 0; }
+.pd-doc-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.pd-doc-bar select { border: 1px solid var(--border); background: var(--bg); color: var(--fg); border-radius: 6px; padding: 3px 6px; }
+.pd-disagree { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; width: 100%; }
+.pd-risks { display: flex; gap: 6px; flex-wrap: wrap; }
+.pd-risk { font-size: 12px; border-radius: 6px; padding: 2px 8px; background: var(--panel-2); }
+.pd-risk.r-high { background: var(--bad-soft); color: var(--bad); }
+.pd-risk.r-medium { background: var(--warn-soft); color: var(--warn); }
+.pd-risk.r-low { background: var(--ok-soft); color: var(--ok); }
+.pd-epic h3 { font-size: 14px; margin: 4px 0 6px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.pd-sub { margin: 4px 0 0; padding-left: 18px; color: var(--dim); font-size: 12.5px; }
+.pd-notes { margin: 0; padding-left: 18px; font-size: 13px; }
+.pd-notes.bad { color: var(--bad); }
+.pd-qs, .pd-dis, .pd-fus, .pd-history { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.pd-q { border-bottom: 1px solid var(--border); padding-bottom: 10px; display: grid; gap: 6px; }
+.pd-q.s-open { border-left: 3px solid var(--warn); padding-left: 10px; }
+.pd-answer { background: var(--panel-2); border-radius: 7px; padding: 6px 10px; }
+.pd-dis li { display: grid; gap: 6px; }
+.pd-dis li.s-open { border-left: 3px solid var(--warn); padding-left: 10px; }
+.pd-fus li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; align-items: center; }
+.pd-fus li .sub { grid-column: 1; }
+.pd-fus li button { grid-column: 2; grid-row: 1 / span 2; }
+.pd-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; margin: 0; font-size: 13px; }
+.pd-facts dt { color: var(--dim); }
+.pd-facts dd { margin: 0; overflow-wrap: anywhere; }
+.pd-history li { display: grid; grid-template-columns: 130px 60px minmax(0, 1fr); gap: 10px; font-size: 13px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.pd-teams { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+@media (max-width: 1000px) {
+  .pd-main { grid-template-columns: minmax(0, 1fr); }
+  .pd-track { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .pd-track { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pd-history li { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+}

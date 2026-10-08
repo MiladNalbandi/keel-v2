@@ -9,8 +9,11 @@ const API = process.env.KEEL_API ?? "http://127.0.0.1:8080";
 
 export default defineConfig({
   plugins: [react()],
+  // v0.13.0 keel Product's pages live in ../product/web (an add-on): they use this folder's React, not a copy of their own
+  resolve: { dedupe: ["react", "react-dom", "@testing-library/react", "@testing-library/user-event", "msw"] },
   server: {
     port: 5173,
+    fs: { allow: [".", "../product/web"] },
     proxy: {
       // SSE: no buffering, keep the connection open.
       "/api/events": {
@@ -31,6 +34,7 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
+    include: ["src/**/*.test.{ts,tsx}", "../product/web/**/*.test.{ts,tsx}"],
     css: false,
   },
 });
