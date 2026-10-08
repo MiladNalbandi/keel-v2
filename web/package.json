@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "build:product": "vite build --config ../product/web/vite.config.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest",
     "preview": "vite preview"

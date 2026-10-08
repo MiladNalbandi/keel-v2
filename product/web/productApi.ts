@@ -1,7 +1,7 @@
 // keel Product's api (product/api ProductController): initiatives, their stages, questions, disagreements, follow-ups,
 // the plan and its hand-off, and the teams with their knowledge.
 
-import { del, get, getText, patch, post, put } from "../../web/src/api";
+import { del, get, getText, patch, post, put } from "@keel/web-sdk";
 
 export const STAGES = [
   "idea",
