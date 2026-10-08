@@ -89,11 +89,15 @@ def find(tool: str) -> str:
     return path
 
 
+KEEL_PYTHON_VARS = ("VIRTUAL_ENV", "PYTHONHOME", "PYTHONPATH", "KEEL_PLUGIN_PATHS", "KEEL_PLUGIN_ADDONS")
+
+
 def project_env(env: dict) -> dict:
     """The environment a project's own commands and an agent's shell see: without keel's internal Python. keel's venv
     was first on PATH (so `python -m pytest` ran keel's Python, which has no pytest) and UV_PROJECT_ENVIRONMENT pointed
-    at it (a project's `uv sync` would have installed into keel). keel's own children use sys.executable directly."""
-    out = {k: v for k, v in env.items() if k not in ("VIRTUAL_ENV", "PYTHONHOME") and not k.startswith("UV_")}
+    at it (a project's `uv sync` would have installed into keel). keel's own children use sys.executable directly.
+    PYTHONPATH and the plugin variables are keel's too: a project's Python must not import keel's plugins."""
+    out = {k: v for k, v in env.items() if k not in KEEL_PYTHON_VARS and not k.startswith("UV_")}
     own = {os.path.join(sys.prefix, "bin"), os.path.join(os.environ.get("VIRTUAL_ENV") or sys.prefix, "bin")}
     if sys.prefix != getattr(sys, "base_prefix", sys.prefix) and out.get("PATH"):
         out["PATH"] = os.pathsep.join(p for p in out["PATH"].split(os.pathsep) if p and p.rstrip("/") not in own)
