@@ -114,7 +114,9 @@ users carry no risk, and every later step only repeats it. Details: [05-migratio
    work to verify)?
 6. ~~**Where:**~~ **Answered:** the GitHub organisation [`keel-studio`](https://github.com/keel-studio), like
    muxy-app: `keel-studio/keel-marketplace`, `keel-studio/keel-plugin-template` and `keel-studio/keel-plugin-<name>`.
-   keel-v2 stays at `MiladNalbandi/keel-v2` for now (its image name and `keel2` use it).
+   keel-v2 itself moved to `keel-studio/keel-app` (2026-10-08); the old address redirects. Its image becomes
+   `ghcr.io/keel-studio/keel-app`; releases also go to the old `ghcr.io/miladnalbandi/keel-v2` while the secret
+   `LEGACY_GHCR_TOKEN` is set.
 7. **Other publishers:** at first only content-only plugins (workflows, agents, skills), or also code plugins with an
    "unverified" warning (off by default)?
 8. **Restart:** after an approved install, restart by itself when no agent step runs, or always wait for a button?
