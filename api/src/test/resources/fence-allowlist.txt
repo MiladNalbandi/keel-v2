@@ -10,5 +10,3 @@
 # Format: "core.package.FileName -> plugin.package.Class", one per line, sorted. The left side is the package and the
 # file name (a file can hold more than one class). '#' starts a comment.
 
-keel.api.inbox.InboxService -> keel.api.tasks.TaskItem
-keel.api.inbox.InboxService -> keel.api.tasks.TaskStore
