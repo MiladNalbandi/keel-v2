@@ -3,10 +3,11 @@
 //
 //   Connections ─ connections.kind     Jobs ─ jobs.tab          Tools ─ tools.card       Settings ─ settings.section
 //   Workflows ── workflow.actions      Code ─ code.activity, code.tab, assistant        ⌘K ─ launcher.source
-//   Map (the Map plugin's page, step 3) ─ map.er.query
+//   Inbox ────── inbox.card (step 3)   Map (the Map plugin's page, step 3) ─ map.er.query
 
 import type { ComponentType } from "react";
 import type { GraphHit, HelperSelection } from "../api";
+import type { InboxItem } from "../inboxApi";
 import type { Item, Query, Recent } from "../components/launcher/model";
 import type { Ctx, LauncherNotes } from "../components/launcher/sources";
 import type { SlotItem } from "./registry";
@@ -30,6 +31,8 @@ export const SLOTS = {
   assistant: "assistant",
   /** ⌘K: results and actions a part adds (files, code, pull requests, tasks) */
   launcherSource: "launcher.source",
+  /** Inbox: the card for items of a part's own kinds (the Tasks plugin's task items) */
+  inboxCard: "inbox.card",
   /** Map › Database (ER): a panel under the diagram (the Database part's Query) — a slot of the Map plugin */
   mapErQuery: "map.er.query",
 } as const;
@@ -89,6 +92,24 @@ export type SettingsSectionItem = SlotItem & {
 /** Workflows: a code step whose action starts with `prefix` is a plugin's block: it takes `with:` settings, and the
  *  editor says so when the plugin is off. */
 export type WorkflowActionsItem = SlotItem & ForPlugin & { prefix: string };
+
+/** Inbox: what a card gets. `cardKey` goes on the card's root as data-key (with data-testid="inbox-item" and
+ *  tabIndex -1): after an answer the Inbox moves the focus to the next card. */
+export type InboxCardProps = {
+  item: InboxItem;
+  cardKey: string;
+  /** the label of the item's kind (the same as in the Kind filter) */
+  kindLabel: string;
+  /** after an answer: the toast's words; the Inbox reads its list (and the projects' counts) again */
+  onDone: (msg: string) => Promise<void>;
+};
+
+/** Inbox: the card for items of these kinds, with each kind's label (`{ task: "task", "jira-manual": "move in Jira" }`).
+ *  An item of a kind no card claims shows as a flow's pause. */
+export type InboxCardItem = SlotItem & {
+  kinds: Record<string, string>;
+  component: ComponentType<InboxCardProps>;
+};
 
 // ---------- the Code page ----------
 

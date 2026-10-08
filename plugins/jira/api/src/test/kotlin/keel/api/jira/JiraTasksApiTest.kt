@@ -1,4 +1,4 @@
-package keel.api
+package keel.api.jira
 
 import com.fasterxml.jackson.databind.JsonNode
 import keel.api.support.ApiTest
@@ -6,10 +6,13 @@ import keel.api.support.StubJira
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
-import java.nio.file.Files
 
-/** v0.5.0: tasks, the Jira connection and sync, the lifecycle driven by engine events and PR reviews, the Inbox items. */
-class TasksApiTest : ApiTest() {
+/**
+ * v0.5.0: the Jira plugin with the Tasks plugin: the Jira connection and sync, a ticket's lifecycle (keel moves and
+ * comments the real ticket, asks reviewers), and the Inbox's "move it by hand" items. The local tasks are the Tasks
+ * plugin's own tests (plugins/tasks/api).
+ */
+class JiraTasksApiTest : ApiTest() {
 
     companion object {
         val cloud: StubJira = StubJira.start("cloud")
@@ -31,86 +34,6 @@ class TasksApiTest : ApiTest() {
     private fun connect(pid: String, s: StubJira, extra: Map<String, Any?> = emptyMap()): JsonNode =
         put("/api/projects/$pid/jira", mapOf("kind" to s.kind, "base_url" to s.url, "email" to if (s.cloud) s.email else null, "token" to s.token) + extra)
             .andExpect(status().isOk).json()
-
-    @Test
-    fun `a local task is created, edited, started and walked to done without Jira`() {
-        val (pid, root) = newProject("tasks-local")
-        post("/api/projects/$pid/tasks", mapOf("title" to " ")).andExpect(status().isBadRequest)
-        post("/api/projects/$pid/tasks", mapOf("title" to "x", "type" to "epic")).andExpect(status().isBadRequest)
-        post("/api/projects/$pid/tasks", mapOf("title" to "x", "external_key" to "not a key")).andExpect(status().isBadRequest)
-        post("/api/projects/nope/tasks", mapOf("title" to "x")).andExpect(status().isNotFound)
-
-        val t = post("/api/projects/$pid/tasks", mapOf("title" to "Rank players", "type" to "story", "description" to "Top ten, weekly.", "reviewers" to listOf("@octocat")))
-            .andExpect(status().isOk).json()
-        val id = t["id"].asText()
-        assertThat(t["status"].asText()).isEqualTo("todo")
-        assertThat(t["source"].asText()).isEqualTo("local")
-        assertThat(t["reviewers"][0]["login"].asText()).isEqualTo("octocat")
-        assertThat(t["events"].single()["actor"].asText()).isEqualTo("user")
-        val list = get("/api/projects/$pid/tasks").json()
-        assertThat(list["tasks"].map { it["id"].asText() }).containsExactly(id)
-        assertThat(list["sync"]["connected"].asBoolean()).isFalse()
-        assertThat(get("/api/projects/$pid/tasks?source=jira").json()["tasks"].size()).isEqualTo(0)
-
-        put("/api/tasks/$id", mapOf("title" to "Rank the players", "priority" to "High")).andExpect(status().isOk)
-        assertThat(notes(task(id)).last()).isEqualTo("Changed: title, priority.")
-
-        // uncommitted files: the start is refused, the task stays and its history says why
-        Files.writeString(root.resolve("notes.txt"), "mine")
-        post("/api/tasks/$id/start", emptyMap<String, Any>()).andExpect(status().isConflict)
-        assertThat(task(id)["status"].asText()).isEqualTo("todo")
-        assertThat(kinds(task(id)).last()).isEqualTo("start_refused")
-        assertThat(notes(task(id)).last()).contains("did not start").contains("uncommitted changes")
-
-        // story → the feature flow; title, description go to the engine as the request
-        engine.nextThreadIds += "t-local-1"
-        val started = post("/api/tasks/$id/start", mapOf("allow_dirty" to true, "run_mode" to "important")).andExpect(status().isOk).json()
-        assertThat(started["status"].asText()).isEqualTo("in_progress")
-        assertThat(started["thread_id"].asText()).isEqualTo("t-local-1")
-        assertThat(started["workflow_id"].asText()).isEqualTo("feature")
-        assertThat(started["flow"]["status"].asText()).isEqualTo("running")
-        val body = engine.lastBody("/threads")!!
-        assertThat(body["title"].asText()).isEqualTo("Rank the players")
-        assertThat(body["request"].asText()).isEqualTo("Rank the players\n\nTop ten, weekly.")
-        assertThat(body["settings"]["run_mode"].asText()).isEqualTo("important")
-        post("/api/tasks/$id/start", mapOf("allow_dirty" to true)).andExpect(status().isConflict)        // a flow runs already
-
-        // the flow opens its PR: In review; no GitHub token, so the reviewers are named but not asked
-        send(ev("step.finished", pid, "t-local-1", "open", mapOf("note" to "PR opened: $PR")))
-        val review = task(id)
-        assertThat(review["status"].asText()).isEqualTo("in_review")
-        assertThat(review["pr_url"].asText()).isEqualTo(PR)
-        assertThat(notes(review).last()).contains("no GitHub token").contains("octocat")
-        send(ev("thread.done", pid, "t-local-1"))
-        assertThat(task(id)["status"].asText()).isEqualTo("in_review")
-
-        // approved by hand (no token to read the reviews): Testing (PP) and an Inbox item
-        post("/api/tasks/$id/status", mapOf("to" to "testing_pp")).andExpect(status().isOk)
-        val pp = inboxOf(pid).single()
-        assertThat(pp["kind"].asText()).isEqualTo("task")
-        assertThat(pp["title"].asText()).isEqualTo("Confirm PP testing for task ${id.take(8)}")
-        assertThat(pp["task"]["actions"].map { it["id"].asText() }).containsExactly("confirm", "send_back")
-        assertThat(get("/api/inbox/count").json()["projects"][pid].asInt()).isEqualTo(1)
-        assertThat(get("/api/projects/$pid").json()["waiting"].asInt()).isEqualTo(1)
-        assertThat(get("/api/inbox?kind=task").json()["kinds"].map { it.asText() }).contains("task")
-
-        post("/api/inbox/tasks/${pp["task"]["item_id"].asLong()}/act", mapOf("action" to "confirm", "note" to "works on PP")).andExpect(status().isOk)
-        post("/api/inbox/tasks/${pp["task"]["item_id"].asLong()}/act", mapOf("action" to "confirm")).andExpect(status().isConflict)
-        val ship = inboxOf(pid).single()
-        assertThat(ship["title"].asText()).startsWith("Ship task ")
-        assertThat(task(id)["status"].asText()).isEqualTo("ready_prod")
-        post("/api/tasks/$id/confirm", mapOf("stage" to "pp")).andExpect(status().isConflict)
-        post("/api/tasks/$id/confirm", mapOf("stage" to "qa")).andExpect(status().isBadRequest)
-        val done = post("/api/tasks/$id/confirm", mapOf("stage" to "prod")).andExpect(status().isOk).json()
-        assertThat(done["status"].asText()).isEqualTo("done")
-        assertThat(done["waiting"].size()).isEqualTo(0)
-        assertThat(inboxOf(pid)).isEmpty()
-        assertThat(kinds(done)).containsSubsequence("created", "updated", "start_refused", "start", "pr", "github", "flow", "status", "confirm", "confirm")
-        assertThat(kinds(done)).doesNotContain("jira", "jira_manual", "jira_error")       // no Jira key: nothing to move
-
-        delete("/api/tasks/$id").andExpect(status().isOk)
-        get("/api/tasks/$id").andExpect(status().isNotFound)
-    }
 
     @Test
     fun `a Jira Cloud ticket goes from To do to production, keel moving the real ticket and asking reviewers`() {
@@ -330,25 +253,6 @@ class TasksApiTest : ApiTest() {
     }
 
     @Test
-    fun `a flow that ends without a PR waits for its link, and one whose engine state names the PR moves on`() {
-        val (pid, _) = newProject("tasks-nopr")
-        val a = post("/api/projects/$pid/tasks", mapOf("title" to "A", "type" to "story")).json()["id"].asText()
-        val b = post("/api/projects/$pid/tasks", mapOf("title" to "B", "type" to "story")).json()["id"].asText()
-        engine.nextThreadIds += "t-np-a"
-        post("/api/tasks/$a/start", mapOf("allow_dirty" to true)).andExpect(status().isOk)
-        engine.nextThreadIds += "t-np-b"
-        post("/api/tasks/$b/start", mapOf("allow_dirty" to true)).andExpect(status().isOk)
-        send(ev("thread.done", pid, "t-np-a"))
-        assertThat(task(a)["status"].asText()).isEqualTo("in_progress")
-        assertThat(notes(task(a)).last()).contains("without a pull request")
-        engine.overrides["t-np-b"] = mapOf("status" to "done", "pr_url" to "https://github.com/acme/app/pull/9")
-        send(ev("thread.done", pid, "t-np-b"))
-        assertThat(task(b)["status"].asText()).isEqualTo("in_review")
-        assertThat(task(b)["pr_url"].asText()).isEqualTo("https://github.com/acme/app/pull/9")
-        engine.overrides.remove("t-np-b")
-    }
-
-    @Test
     fun `the Jira connection is checked, keeps its token secret, discovers the mapping and offers the MCP server`() {
         cloud.reset()
         cloud.add("ABC-1", "Rank players")
@@ -427,5 +331,14 @@ class TasksApiTest : ApiTest() {
         assertThat(gone["connected"].asBoolean()).isFalse()
         assertThat(gone["token_set"].asBoolean()).isFalse()
         assertThat(get("/api/mcp-servers").json().none { it["name"].asText() == name }).isTrue()
+    }
+
+    @Test
+    fun `Connections lists Jira first, before core's kinds`() {
+        val kinds = get("/api/connections/kinds").andExpect(status().isOk).json()
+        assertThat(kinds.map { it["kind"].asText() }).containsExactly("jira", "github", "gitlab", "database")
+        val jira = kinds.first { it["kind"].asText() == "jira" }
+        assertThat(jira["scope"].asText()).isEqualTo("project")
+        assertThat(jira["fields"].map { it["key"].asText() }).contains("kind", "base_url", "email", "token", "project_key")
     }
 }

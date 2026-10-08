@@ -1,8 +1,6 @@
-package keel.api
+package keel.api.jira
 
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
-import keel.api.jira.JiraClient
-import keel.api.jira.JiraException
 import keel.api.support.StubJira
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy

@@ -39,6 +39,8 @@ COPY api/*.gradle.kts ./
 RUN ./gradlew --no-daemon -q dependencies > /dev/null || true
 COPY api/src ./src
 COPY product/api /src/product/api
+# Gradle reads Product's requires.plugins (it compiles against the Tasks and Jira plugins)
+COPY product/keel-plugin.yml /src/product/keel-plugin.yml
 COPY plugins /src/plugins
 COPY --from=web /src/web/dist ./src/main/resources/static
 RUN ./gradlew --no-daemon -q bootJar -x test && cp build/libs/*.jar /app.jar

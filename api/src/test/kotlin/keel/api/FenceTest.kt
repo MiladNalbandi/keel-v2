@@ -29,7 +29,7 @@ class FenceTest {
         val bad = Fence.scan(sources).forbidden
         if (bad.isNotEmpty()) {
             fail(
-                "Core must never use keel Product (keel.product): it is a plugin. Use an extension point, see ${Fence.GUIDE}.\n" +
+                "Core must never use keel Product (keel.product) or a part that moved to plugins/: they are plugins. Use an extension point, see ${Fence.GUIDE}.\n" +
                     bad.joinToString("\n") { "  $it" },
             )
         }
@@ -83,20 +83,22 @@ class FenceTest {
             }
             """.trimIndent().replace('§', '$'),
         )
-        write(root, "keel/api/tasks/TaskService.kt", "package keel.api.tasks\n\nimport keel.product.X\nimport keel.api.helper.Y\n")
+        write(root, "keel/api/review/ReviewService.kt", "package keel.api.review\n\nimport keel.product.X\nimport keel.api.helper.Y\n")
         write(root, "keel/api/KeelApiApplication.kt", "package keel.api\n\nfun main() = Unit\n")
 
         val found = Fence.scan(root)
 
         assertThat(found.couplings).containsExactlyInAnyOrder(
             "keel.api.flow.FlowService -> keel.api.helper.Helper",
-            "keel.api.flow.FlowService -> keel.api.jira.*",
             "keel.api.flow.FlowService -> keel.api.plugins.PluginService",
             "keel.api.flow.FlowService -> keel.api.review.ReviewAiService",
-            "keel.api.flow.FlowService -> keel.api.tasks.TaskService",
         )
-        // a plugin part may use anything; only core is checked
-        assertThat(found.forbidden).containsExactly("keel.api.flow.FlowService -> keel.product.ProductService")
+        // a plugin part may use anything; only core is checked. Tasks and Jira moved out: core may never use them again.
+        assertThat(found.forbidden).containsExactlyInAnyOrder(
+            "keel.api.flow.FlowService -> keel.api.jira.*",
+            "keel.api.flow.FlowService -> keel.api.tasks.TaskService",
+            "keel.api.flow.FlowService -> keel.product.ProductService",
+        )
     }
 
     @Test
@@ -125,14 +127,14 @@ private object Fence {
     const val GUIDE = "docs/plugins/02-plugin-package.md"
 
     // The packages that become plugins (docs/plugins/01-today.md). keel.api.repo and keel.api.knowledge stay core.
-    val PLUGINS = listOf("keel.api.helper", "keel.api.jira", "keel.api.plugins", "keel.api.review", "keel.api.tasks")
+    val PLUGINS = listOf("keel.api.helper", "keel.api.plugins", "keel.api.review")
 
-    // Core never uses these, not even today. They can never be in the allowlist. keel.api.map and keel.api.wiki are
-    // the Map and the Wiki plugins' (plugins/map/api, plugins/wiki/api, step 3) and the Ci* classes are the CI/CD
-    // plugin's (plugins/ci/api, in keel's package keel.api.plugins): a part that moved out keeps its package, and core
-    // never uses it again.
+    // Core never uses these, not even today. They can never be in the allowlist. The parts that moved out keep their
+    // package, and core never uses it again (step 3): keel.api.map (plugins/map), keel.api.wiki (plugins/wiki),
+    // keel.api.tasks (plugins/tasks), keel.api.jira (plugins/jira), and the Ci* classes of CI/CD (plugins/ci, in keel's
+    // package keel.api.plugins).
     val FORBIDDEN = listOf(
-        "keel.product", "keel.api.map", "keel.api.wiki",
+        "keel.product", "keel.api.map", "keel.api.wiki", "keel.api.tasks", "keel.api.jira",
         "keel.api.plugins.CiController", "keel.api.plugins.CiFixBody", "keel.api.plugins.CiService",
     )
 

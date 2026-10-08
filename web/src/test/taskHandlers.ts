@@ -1,8 +1,37 @@
 // v0.5.0: MSW handlers for tasks, the Jira connection and the MCP catalog, over a small in-memory copy of the api's
-// lifecycle (enough for the Tasks page, the Inbox's task items, Connections › Jira and Tools › Catalog).
+// lifecycle (enough for the Tasks page, the Inbox's task items, Connections › Jira and Tools › Catalog). keel's test
+// harness serves the Tasks and Jira plugins' api too, as the full image has them.
 
 import { http, HttpResponse } from "msw";
-import type { CatalogEntry, JiraView, Task, TaskItem, TaskList, TaskStatus } from "../tasksApi";
+
+// ---- the JSON the Tasks and Jira plugins' api sends, as these handlers build it ----
+// A copy of their types (plugins/tasks/web/tasksApi.ts, plugins/jira/web/jiraApi.ts): keel's own type check runs before
+// plugins/ is there (the image's web stage), so core never imports a plugin, not even in its tests.
+type TaskStatus = "todo" | "in_progress" | "in_review" | "testing_pp" | "ready_prod" | "done" | "cancelled" | "blocked";
+type TaskItem = { id: number; task_id: string; project_id: string; kind: "task" | "jira-manual"; stage: string | null; title: string; detail: string; created_at: string; done_at: string | null };
+type Task = {
+  id: string; project_id: string; title: string; description: string; type: "bug" | "story" | "task"; status: TaskStatus; source: "local" | "jira";
+  external_key: string | null; external_url: string | null; external_status: string | null; assignee: string | null; priority: string | null;
+  thread_id: string | null; workflow_id: string | null; pr_url: string | null;
+  reviewers: { login: string; on: "github" | "jira"; state: string }[];
+  blocked_reason: string | null; created_at: string; updated_at: string;
+  flow: { thread_id: string; workflow_id: string | null; status: string; phase: string | null; current: string | null; title: string | null } | null;
+  waiting: TaskItem[];
+  events?: { id: number; task_id: string; at: string; kind: string; from_status: string | null; to_status: string | null; note: string | null; actor: "user" | "keel" | "jira" }[] | null;
+};
+type TaskList = {
+  tasks: Task[];
+  sync: { connected: boolean; kind: "cloud" | "server" | null; last_sync_at: string | null; last_sync_error: string | null; me: string | null; poll_minutes: number | null };
+};
+type JiraSettings = {
+  kind: "cloud" | "server"; base_url: string; email: string | null; project_key: string | null; board_id: string | null; jql: string | null;
+  status_map: Partial<Record<TaskStatus, string>>; reviewer_field: string | null; jira_reviewers: string[]; github_reviewers: string[]; poll_minutes: number;
+};
+type JiraView = {
+  connected: boolean; settings: JiraSettings; token_set: boolean; token_hint: string | null; default_jql: string; jql: string;
+  last_sync_at: string | null; last_sync_error: string | null; me: { name: string; account_id?: string | null } | null; mcp_server: string | null;
+};
+type CatalogEntry = { id: string; name: string; about: string; url: string; license: string; command: string; ready: boolean; why: string | null; server: string | null; added: boolean };
 
 const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
 

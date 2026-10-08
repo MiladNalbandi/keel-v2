@@ -12,16 +12,15 @@ import keel.api.doctor.WorkspaceDoctor
 import keel.api.engine.EngineClient
 import keel.api.flow.AgentStart
 import keel.api.flow.FlowService
+import keel.api.flow.TaskSink
 import keel.api.workflows.WorkflowService
 import keel.api.mcp.McpService
 import keel.api.projects.ProjectService
 import keel.api.settings.Model
 import keel.api.settings.SettingsService
 import keel.api.skills.SkillService
-import keel.api.tasks.NewTask
-import keel.api.tasks.TaskService
-import keel.api.tasks.TaskView
 import keel.api.workspace.Workspace
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.stereotype.Service
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
@@ -77,7 +76,7 @@ class HelperService(
     private val flows: FlowService,
     private val workflows: WorkflowService,
     private val plugins: keel.api.plugins.PluginService,
-    private val tasks: TaskService,
+    private val tasks: ObjectProvider<TaskSink>,
     private val workspace: Workspace,
     private val mapper: ObjectMapper,
     private val approvals: ApprovalService,
@@ -217,11 +216,16 @@ class HelperService(
         return engine.get("/helper/sessions/$sid/handover")
     }
 
-    /** A task whose description says what the side session did and where the work is (its branch stays). */
-    fun toTask(pid: String, sid: String, body: HelperTaskBody): TaskView {
+    /**
+     * A task whose description says what the side session did and where the work is (its branch stays). The Tasks
+     * plugin makes it (a [TaskSink]); without that plugin: 409.
+     */
+    fun toTask(pid: String, sid: String, body: HelperTaskBody): Any {
         val h = handover(pid, sid)
+        val sink = tasks.orderedStream().findFirst().orElse(null)
+            ?: throw Conflict("Tasks are not installed in this keel", "Add the Tasks plugin, or hand the side session over as a flow.")
         val title = body.title.trim().ifBlank { h.path("title").asText() }.take(300)
-        return tasks.create(pid, NewTask(title = title, description = handoverText(h), type = body.type))
+        return sink.create(pid, title, handoverText(h), body.type)
     }
 
     /**
@@ -388,7 +392,7 @@ class HelperController(private val helper: HelperService) {
     fun handover(@PathVariable pid: String, @PathVariable sid: String): JsonNode = helper.handover(pid, sid)
 
     @PostMapping("/sessions/{sid}/task")
-    fun toTask(@PathVariable pid: String, @PathVariable sid: String, @RequestBody(required = false) body: HelperTaskBody?): TaskView =
+    fun toTask(@PathVariable pid: String, @PathVariable sid: String, @RequestBody(required = false) body: HelperTaskBody?): Any =
         helper.toTask(pid, sid, body ?: HelperTaskBody())
 
     @PostMapping("/sessions/{sid}/flow")

@@ -1,0 +1,16 @@
+# Jira as a plugin (docs/plugins/11-step3-contract.md, wave A). scripts/build-plugin.sh packs it: jira-<version>.kplug.
+# Paths are relative to the plugin folder. Each part, and requires.plugins, is written on one line (scripts/build-plugin.sh
+# and api/build.gradle.kts read them). Its table (jira_connections) stays in keel's core history (V7).
+schema: 1
+name: jira
+title: Jira
+version: 1.0.0
+publisher: keel
+summary: A Jira connection per project - its tickets become tasks, and keel moves and comments the real ticket as the task moves.
+requires:
+  sdk: 1
+  plugins: { tasks: ">=1.0.0" }
+parts:
+  api: { jars: [api/keel-plugin-jira.jar] }
+  web: { entry: web/index.js }
+per_project: false

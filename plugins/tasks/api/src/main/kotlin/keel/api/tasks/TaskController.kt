@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.RestController
 /** v0.5.0: tasks (local or from Jira) and their lifecycle; docs/CONTRACT.md "v0.5.0: tasks and Jira". */
 @RestController
 @RequestMapping("/api")
-class TaskController(private val tasks: TaskService, private val sync: JiraSync) {
+class TaskController(private val tasks: TaskService) {
 
     @GetMapping("/projects/{pid}/tasks")
     fun list(@PathVariable pid: String, @RequestParam(required = false) source: String?): TaskList = tasks.list(pid, source)
@@ -21,9 +21,9 @@ class TaskController(private val tasks: TaskService, private val sync: JiraSync)
     @PostMapping("/projects/{pid}/tasks")
     fun create(@PathVariable pid: String, @RequestBody body: NewTask): TaskView = tasks.create(pid, body)
 
-    /** Jira → tasks now (when connected), and the PR reviews of the tasks in review. */
+    /** Jira → tasks now (when connected: the Jira plugin), and the PR reviews of the tasks in review. */
     @PostMapping("/projects/{pid}/tasks/sync")
-    fun syncNow(@PathVariable pid: String): SyncResult = sync.syncNow(pid)
+    fun syncNow(@PathVariable pid: String): SyncResult = tasks.syncNow(pid)
 
     @GetMapping("/tasks/{id}")
     fun get(@PathVariable id: String): TaskView = tasks.get(id)

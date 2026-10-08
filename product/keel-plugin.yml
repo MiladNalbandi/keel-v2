@@ -11,6 +11,8 @@ summary: Initiatives, teams and product docs, from an idea to the teams' stories
 requires:
   sdk: 1
   keel: ">=0.15.0,<1.0.0"
+  # the stories go to keel Tasks or to Jira (DeliveryService); on one line: api/build.gradle.kts reads it
+  plugins: { tasks: ">=1.0.0", jira: ">=1.0.0" }
 parts:
   engine: { path: engine, package: keel_product }
   api: { jars: [api/keel-plugin-product.jar] }

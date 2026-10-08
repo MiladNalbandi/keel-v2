@@ -1,25 +1,17 @@
 // Tasks (Run): the work of this project as a board — from Jira (synced) or your own list. A task starts a flow only
 // when you press Start; keel then moves it (and its Jira ticket) to In review when the PR opens, to Testing (PP) when the
 // PR is approved, and waits for you to confirm PP and the release. #/tasks/<id> opens one task's drawer.
-// The Tasks part registers its page and its launcher results at the end of this file (web/src/builtins.ts loads it).
+// The Tasks plugin's page and its launcher results; index.tsx registers them (plugins/tasks).
 
 import { useEffect, useMemo, useState } from "react";
-import { api, errorParts, type RunMode, type Workflow } from "../api";
-import { EmptyState } from "../components/EmptyState";
-import type { Item } from "../components/launcher/model";
-import { askAction, copyAction, goHash, linkAction, type Ctx } from "../components/launcher/sources";
-import { RunModePicker } from "../components/RunMode";
-import { Confirm, Drawer, ErrorBox, Loading, PageHead, Pill, type PillTone } from "../components/ui";
-import { agoText } from "../components/UsageStrip";
-import { clock } from "../format";
-import { hashFor } from "../routes";
+import {
+  agoText, askAction, clock, Confirm, copyAction, Drawer, EmptyState, ErrorBox, errorParts, go, goHash, hashForScreen as hashFor,
+  linkAction, Loading, PageHead, Pill, RunModePicker, useApp, useLoad, useRoute, WorkspaceDoctor,
+  type LauncherCtx as Ctx, type LauncherItem as Item, type LauncherSourceItem, type PillTone, type RunMode, type Workflow,
+} from "@keel/web-sdk";
 import {
   DEFAULT_FLOW, STATUS_LABEL, tasksApi, type NewTask, type Task, type TaskEvent, type TaskItem, type TaskList, type TaskStatus, type TaskType,
-} from "../tasksApi";
-import { registerPage, registerSlot } from "../sdk/registry";
-import { SLOTS, type LauncherSourceItem } from "../sdk/slots";
-import { go, useApp, useLoad, useRoute } from "../state";
-import { WorkspaceDoctor } from "../components/WorkspaceDoctor";
+} from "./tasksApi";
 
 /** The board's columns, in order; Blocked shows only when a task is blocked, cancelled tasks sit under Done. */
 const COLUMNS: TaskStatus[] = ["todo", "in_progress", "in_review", "testing_pp", "ready_prod", "done"];
@@ -193,12 +185,12 @@ function StartBox({ t, pid, onStarted }: { t: Task; pid: string; onStarted: (t: 
   const [allowFake, setAllowFake] = useState(false);
   const [doctor, setDoctor] = useState(false);
   useEffect(() => {
-    api.workflows(pid).then((l) => {
+    tasksApi.workflows(pid).then((l) => {
       setWfs(l);
       const want = DEFAULT_FLOW[t.type];
       setWid(l.some((w) => w.id === want) ? want : l.find((w) => w.id === "feature")?.id ?? l[0]?.id ?? "");
     }, (e) => setErr(errorParts(e)));
-    api.projectSettings(pid).then((s) => setMode(s.effective.run_mode ?? "manual"), () => undefined);
+    tasksApi.projectSettings(pid).then((s) => setMode(s.effective.run_mode ?? "manual"), () => undefined);
   }, [pid, t.type]);
   const dirty = !!err && /uncommitted changes/i.test(err.message);
   const fake = !!err && /fake model/i.test(err.message);
@@ -499,7 +491,7 @@ export function TasksPage({ pid }: { pid: string }) {
   );
 }
 
-// ---------- the Tasks part: its page in the menu and its results in the launcher (web/src/builtins.ts loads this file) ----------
+// ---------- the Tasks part's results in the launcher (index.tsx registers them) ----------
 
 /** A task as a launcher result: open it, ask KeelBot where the change goes, open it in Jira, copy its key. */
 function taskItem(ctx: Ctx, t: Task): Item {
@@ -554,17 +546,10 @@ function taskItem(ctx: Ctx, t: Task): Item {
 }
 
 /** ⌘K: this project's tasks (typing the Jira key finds one). */
-const tasksLauncher: LauncherSourceItem = {
+export const tasksLauncher: LauncherSourceItem = {
   id: "tasks",
   title: "Tasks",
   order: 30,
   load: (pid, notes) => tasksApi.list(pid).then((v) => v.tasks, notes.failed("Tasks")),
   items: (ctx, data, q) => (q.kinds.includes("task") ? ((data as Task[] | null) ?? []).map((t) => taskItem(ctx, t)) : []),
 };
-
-registerPage({
-  id: "tasks", label: "Tasks", group: "run", order: 20,
-  icon: <path d="M10 6h10M10 12h10M10 18h10M4 6l1.5 1.5L8 5M4 12l1.5 1.5L8 11M4 18l1.5 1.5L8 17" />,
-  component: TasksPage,
-});
-registerSlot(SLOTS.launcherSource, tasksLauncher);

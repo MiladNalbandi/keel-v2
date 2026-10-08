@@ -3,6 +3,9 @@ package keel.api.jira
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.node.JsonNodeFactory
+import keel.api.tasks.TicketClient
+import keel.api.tasks.TicketException
+import keel.api.tasks.TicketMove
 import org.springframework.http.HttpStatusCode
 import org.springframework.http.MediaType
 import org.springframework.http.client.JdkClientHttpRequestFactory
@@ -18,8 +21,9 @@ import java.util.Base64
 /**
  * Why a Jira call failed, in words a person can act on. [kind]: auth (401), forbidden (403), not_found (404),
  * bad_request (400/409/422), server (5xx and others), network (no answer). The message never holds the token.
+ * The Tasks plugin sees it as a [TicketException].
  */
-class JiraException(val kind: String, val status: Int?, override val message: String, val hint: String? = null) : RuntimeException(message)
+class JiraException(val kind: String, val status: Int?, message: String, hint: String? = null) : TicketException(message, hint)
 
 data class JiraUser(val name: String, val accountId: String? = null, val username: String? = null, val email: String? = null)
 
@@ -41,10 +45,10 @@ data class JiraTransition(val id: String, val name: String, val to: String, val 
 data class JiraField(val id: String, val name: String, val type: String?, val items: String?, val custom: Boolean)
 
 /** The result of moving a ticket: [moved] false when it already was in that status. */
-data class JiraMove(val moved: Boolean, val from: String?, val to: String, val transition: String?)
+data class JiraMove(override val moved: Boolean, override val from: String?, override val to: String, val transition: String?) : TicketMove
 
 /**
- * Jira's plain REST API, for Jira Cloud (`https://<site>.atlassian.net`, email + API token, Basic auth) and Jira
+ * Jira's plain REST API (the Tasks plugin's [TicketClient]), for Jira Cloud (`https://<site>.atlassian.net`, email + API token, Basic auth) and Jira
  * Server / Data Center (base URL + personal access token, Bearer). No SDK: Spring's RestClient on the JDK HTTP client.
  *
  * - test: GET /rest/api/2/myself (both)
@@ -65,7 +69,7 @@ class JiraClient(
     private val token: String,
     private val mapper: ObjectMapper,
     timeout: Duration = Duration.ofSeconds(20),
-) {
+) : TicketClient {
     val base = baseUrl.trim().trimEnd('/')
     val cloud get() = kind == "cloud"
 
@@ -192,7 +196,7 @@ class JiraClient(
      * Moves [key] to [target]: a status name or a transition name. Nothing happens when the ticket is already there.
      * Fails with the transitions it could take when none leads there.
      */
-    fun transitionTo(key: String, target: String): JiraMove {
+    override fun transitionTo(key: String, target: String): JiraMove {
         val now = runCatching { issue(key).status }.getOrNull()
         if (now != null && now.equals(target, ignoreCase = true)) return JiraMove(false, now, now, null)
         val list = transitions(key)
@@ -218,12 +222,12 @@ class JiraClient(
     }
 
     /** A plain-text comment (REST v2 on Cloud and Server). */
-    fun comment(key: String, text: String) {
+    override fun comment(key: String, text: String) {
         send("POST", "/rest/api/2/issue/${enc(key)}/comment", mapOf("body" to text), "ticket $key")
     }
 
     /** Sets one field: users for a user picker (single or multi), else the names joined as text. */
-    fun setUsers(key: String, fieldId: String, users: List<String>) {
+    override fun setUsers(key: String, fieldId: String, users: List<String>) {
         val field = fields().firstOrNull { it.id == fieldId }
             ?: throw JiraException("not_found", 404, "Jira has no field $fieldId.", "Pick the reviewer field again in Connections › Jira.")
         val value: Any = when {

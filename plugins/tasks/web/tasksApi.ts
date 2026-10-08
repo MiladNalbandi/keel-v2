@@ -1,7 +1,7 @@
-// v0.5.0 api calls: tasks (local or from Jira), their lifecycle, the Jira connection per project and the MCP catalog
-// (docs/CONTRACT.md, "v0.5.0: tasks and Jira").
+// v0.5.0 api calls: tasks (local or from Jira) and their lifecycle (docs/CONTRACT.md, "v0.5.0: tasks and Jira"). The
+// Jira connection and the MCP catalog are the Jira plugin's (plugins/jira/web/jiraApi.ts).
 
-import { del, get, post, put, type McpServer, type RunMode } from "./api";
+import { del, get, post, put, type ProjectSettings, type RunMode, type Workflow } from "@keel/web-sdk";
 
 export type TaskStatus = "todo" | "in_progress" | "in_review" | "testing_pp" | "ready_prod" | "done" | "cancelled" | "blocked";
 export type TaskType = "bug" | "story" | "task";
@@ -52,36 +52,6 @@ export type SyncResult = {
 };
 export type NewTask = { title: string; description?: string; type?: TaskType; external_key?: string; external_url?: string; assignee?: string; priority?: string; reviewers?: string[] };
 
-// ---- Jira connection ----
-export type JiraSettings = {
-  kind: "cloud" | "server";
-  base_url: string;
-  email: string | null;
-  project_key: string | null;
-  board_id: string | null;
-  jql: string | null;
-  /** keel status → Jira status or transition name; "-" = do not move */
-  status_map: Partial<Record<TaskStatus, string>>;
-  reviewer_field: string | null;
-  jira_reviewers: string[];
-  github_reviewers: string[];
-  poll_minutes: number;
-};
-export type JiraUser = { name: string; account_id?: string | null; username?: string | null; email?: string | null };
-export type JiraView = {
-  connected: boolean; settings: JiraSettings; token_set: boolean; token_hint: string | null; default_jql: string; jql: string;
-  last_sync_at: string | null; last_sync_error: string | null; me: JiraUser | null; mcp_server: string | null;
-};
-export type JiraSave = Partial<Omit<JiraSettings, "status_map">> & { token?: string; status_map?: Partial<Record<TaskStatus, string>> };
-export type JiraTest = { ok: boolean; user?: JiraUser | null; error?: string | null; hint?: string | null; kind?: string | null };
-export type JiraStatus = { name: string; category: string | null };
-export type JiraDiscovery = {
-  statuses: JiraStatus[]; transitions: { id: string; name: string; to: string; category: string | null }[];
-  fields: { id: string; name: string; type: string | null; items: string | null; custom: boolean }[];
-  suggested: Partial<Record<TaskStatus, string>>; keel_statuses: TaskStatus[];
-};
-export type CatalogEntry = { id: string; name: string; about: string; url: string; license: string; command: string; ready: boolean; why: string | null; server: string | null; added: boolean };
-
 const e = encodeURIComponent;
 
 export const tasksApi = {
@@ -98,12 +68,7 @@ export const tasksApi = {
   /** An Inbox task item's button: confirm | send_back | done. */
   act: (itemId: number, action: string, note?: string) => post<Task>(`/inbox/tasks/${itemId}/act`, { action, ...(note ? { note } : {}) }),
 
-  jira: (pid: string) => get<JiraView>(`/projects/${e(pid)}/jira`),
-  saveJira: (pid: string, s: JiraSave) => put<JiraView>(`/projects/${e(pid)}/jira`, s),
-  deleteJira: (pid: string) => del<{ ok: boolean }>(`/projects/${e(pid)}/jira`),
-  testJira: (pid: string, s?: JiraSave) => post<JiraTest>(`/projects/${e(pid)}/jira/test`, s ?? {}),
-  discoverJira: (pid: string, key?: string) => get<JiraDiscovery>(`/projects/${e(pid)}/jira/discover${key ? `?key=${e(key)}` : ""}`),
-
-  catalog: (pid: string) => get<CatalogEntry[]>(`/projects/${e(pid)}/mcp-catalog`),
-  addFromCatalog: (pid: string, id: string) => post<McpServer>(`/projects/${e(pid)}/mcp-catalog/${e(id)}`),
+  // keel's own reads the task drawer needs: the workflows a task can start, and the project's run mode
+  workflows: (pid: string) => get<Workflow[]>(`/projects/${e(pid)}/workflows`),
+  projectSettings: (pid: string) => get<ProjectSettings>(`/projects/${e(pid)}/settings`),
 };

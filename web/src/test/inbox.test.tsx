@@ -7,6 +7,8 @@ import { describe, expect, it } from "vitest";
 import { App } from "../App";
 import { RunModeSwitch } from "../components/RunMode";
 import type { InboxItem, InboxView } from "../inboxApi";
+import { registerSlot } from "../sdk/registry";
+import { SLOTS, type InboxCardItem, type InboxCardProps } from "../sdk/slots";
 import { AppProvider } from "../state";
 import { db, FakeEventSource, server } from "./setup";
 
@@ -132,6 +134,34 @@ describe("inbox", () => {
     inboxServer([]);
     await openInbox();
     expect(await screen.findByText("Nothing is waiting for you")).toBeInTheDocument();
+  });
+
+  it("shows an item of a part's own kind with the card that part put in inbox.card, and its kind's label", async () => {
+    const user = userEvent.setup();
+    const demo: InboxItem = { project_id: "platform", project_name: "platform", thread_id: "", flow: "Demo", workflow_id: null, step: null,
+      kind: "demo-ask", title: "The demo part asks", detail: "", more: false, options: [], id: "demo-1", since: ago(30) };
+    const state = inboxServer([...items(), demo]);
+    const off = registerSlot<InboxCardItem>(SLOTS.inboxCard, {
+      id: "demo", kinds: { "demo-ask": "demo question" },
+      component: ({ item, cardKey, kindLabel, onDone }: InboxCardProps) => (
+        <article aria-label={item.title} data-testid="inbox-item" data-key={cardKey} tabIndex={-1}>
+          <span>{kindLabel}</span>
+          <button type="button" onClick={() => { state.list = state.list.filter((i) => i.id !== item.id); void onDone("demo answered"); }}>Answer demo</button>
+        </article>
+      ),
+    });
+    try {
+      await openInbox();
+      const card = await screen.findByRole("article", { name: "The demo part asks" });
+      expect(card).toHaveTextContent("demo question");
+      expect(within(screen.getByLabelText("Kind")).getByRole("option", { name: "demo question" })).toBeInTheDocument();
+      expect(screen.getAllByTestId("inbox-item")).toHaveLength(4);
+      await user.click(within(card).getByRole("button", { name: "Answer demo" }));
+      expect(await screen.findByText("demo answered")).toBeInTheDocument();
+      await waitFor(() => expect(screen.queryByRole("article", { name: "The demo part asks" })).toBeNull());
+    } finally {
+      off();
+    }
   });
 });
 

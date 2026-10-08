@@ -6,8 +6,8 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 
-/** v0.13.0 keel's core without an add-on: features say "dev" only, add-on workflows stay hidden, and a task's
- *  keel-criteria block goes to its flow. */
+/** v0.13.0 keel's core without an add-on: features say "dev" only, and add-on workflows stay hidden. (A task's
+ *  keel-criteria block is the Tasks plugin's: plugins/tasks/api tests it.) */
 class AddonsCoreApiTest : ApiTest() {
     @AfterEach
     fun clean() {
@@ -38,25 +38,5 @@ class AddonsCoreApiTest : ApiTest() {
         val (pid, _) = newProject("core-wf")
         val ids = get("/api/projects/$pid/workflows").json().map { it["id"].asText() }
         assertThat(ids).contains("feature").doesNotContain("product-impact")
-    }
-
-    @Test
-    fun `a task's keel-criteria block goes to its flow as the criteria`() {
-        val (pid, _) = newProject("core-criteria")
-        val description = """
-            Why: EU visitors want euro prices.
-
-            ```keel-criteria
-            AC-1 [API] GET /prices returns the currency
-            - AC-2 [web] An EU visitor sees the price in euro
-            not a criterion
-            ```
-        """.trimIndent()
-        val task = post("/api/projects/$pid/tasks", mapOf("title" to "Euro prices", "description" to description, "type" to "story")).json()
-        post("/api/tasks/${task["id"].asText()}/start", mapOf("allow_fake" to true)).andExpect(status().isOk)
-        val sent = engine.lastBody("/threads")!!
-        assertThat(sent["acs"].map { it["id"].asText() + " " + it["layer"].asText() + " " + it["title"].asText() })
-            .containsExactly("AC-1 API GET /prices returns the currency", "AC-2 WEB An EU visitor sees the price in euro")
-        assertThat(sent["request"].asText()).contains("Why: EU visitors want euro prices.")
     }
 }

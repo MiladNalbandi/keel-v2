@@ -1,0 +1,15 @@
+# Tasks as a plugin (docs/plugins/11-step3-contract.md, wave A). scripts/build-plugin.sh packs it: tasks-<version>.kplug.
+# Paths are relative to the plugin folder. Each part is written on one line (scripts/build-plugin.sh reads them).
+# Its tables (tasks, task_events, task_inbox) stay in keel's core history (V7). The Jira plugin and keel Product need it.
+schema: 1
+name: tasks
+title: Tasks
+version: 1.0.0
+publisher: keel
+summary: The work of a project as a board - local tasks or Jira tickets - each started as a flow and walked through review, PP testing and production.
+requires:
+  sdk: 1
+parts:
+  api: { jars: [api/keel-plugin-tasks.jar] }
+  web: { entry: web/index.js }
+per_project: false

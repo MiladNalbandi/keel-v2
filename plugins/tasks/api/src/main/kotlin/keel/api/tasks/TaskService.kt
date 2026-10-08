@@ -13,10 +13,6 @@ import keel.api.events.EventHub
 import keel.api.flow.Ac
 import keel.api.flow.FlowCap
 import keel.api.flow.FlowService
-import keel.api.jira.JiraClient
-import keel.api.jira.JiraException
-import keel.api.jira.JiraService
-import keel.api.jira.JiraSettings
 import keel.api.notifications.NotificationService
 import keel.api.projects.ProjectService
 import keel.api.tasks.TaskStatus.IN_PROGRESS
@@ -24,6 +20,7 @@ import keel.api.tasks.TaskStatus.IN_REVIEW
 import keel.api.tasks.TaskStatus.READY_PROD
 import keel.api.tasks.TaskStatus.TESTING_PP
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.stereotype.Service
 import java.util.concurrent.ConcurrentHashMap
 
@@ -32,12 +29,12 @@ import java.util.concurrent.ConcurrentHashMap
  * goes through [fire]: the [TaskMachine] plans it, this class writes the status and the history, opens or closes Inbox
  * items, and does what the plan asks outside keel — move and comment the Jira ticket, ask for reviewers on GitHub and in
  * Jira. When Jira cannot be reached (or there is no connection) for a task with a Jira key, an Inbox item asks the user
- * to move the real ticket by hand.
+ * to move the real ticket by hand. Jira itself is the Jira plugin's: it is the [TicketTracker] (none without it).
  */
 @Service
 class TaskService(
     private val store: TaskStore,
-    private val jira: JiraService,
+    private val trackers: ObjectProvider<TicketTracker>,
     private val flows: FlowService,
     private val projects: ProjectService,
     private val secrets: SecretService,
@@ -51,6 +48,9 @@ class TaskService(
     private val locks = ConcurrentHashMap<String, Any>()
     private fun lock(id: String) = locks.computeIfAbsent(id) { Any() }
 
+    /** The tracker that holds the real tickets (the Jira plugin), or null. */
+    private fun tracker(): TicketTracker? = trackers.orderedStream().findFirst().orElse(null)
+
     // ---- reads ---------------------------------------------------------------------------------
 
     fun view(t: Task, events: Boolean = false) = TaskView(
@@ -61,10 +61,8 @@ class TaskService(
 
     fun list(pid: String, source: String? = null): TaskList {
         projects.require(pid)
-        val s = jira.settings(pid)
-        val last = jira.lastSync(pid)
         val tasks = store.list(pid).filter { source.isNullOrBlank() || it.source == source }.map { view(it) }
-        return TaskList(tasks, SyncInfo(s != null, s?.kind, last?.first, last?.second, jira.me(pid)?.name, s?.pollMinutes))
+        return TaskList(tasks, tracker()?.syncInfo(pid) ?: SyncInfo.NONE)
     }
 
     fun get(id: String): TaskView = view(store.require(id), events = true)
@@ -279,6 +277,14 @@ class TaskService(
         }
     }
 
+    /** "Sync now": the tracker's tickets (when the project is connected), then the PR reviews of its tasks in review. */
+    fun syncNow(pid: String): SyncResult {
+        projects.require(pid)
+        val r = tracker()?.sync(pid) ?: SyncResult(ok = true, jira = false, at = Time.now())
+        val (checked, moved) = checkReviews(pid)
+        return r.copy(reviewsChecked = checked, reviewsMoved = moved)
+    }
+
     /**
      * Reads the reviews of every task in review (of [pid], or all): approved (and nobody asks for changes) → Testing (PP).
      * Returns (PRs read, tasks moved). Needs a GitHub token; without one the user moves the task by hand.
@@ -343,8 +349,9 @@ class TaskService(
     private fun effects(start: Task, plan: Plan): Task {
         var t = start
         val key = t.externalKey
-        val conn = jira.settings(t.projectId)
-        val client = if (key != null) jira.client(t.projectId) else null
+        val tracker = tracker()
+        val conn = tracker?.connection(t.projectId)
+        val client = if (key != null) tracker?.client(t.projectId) else null
         if (plan.moveJira && key != null) {
             val target = TaskMachine.jiraTarget(plan.to, conn?.statusMap.orEmpty())
             if (target != null) {
@@ -356,7 +363,7 @@ class TaskService(
                     t = store.update(t.copy(externalStatus = m.to))
                     // keel reached Jira this time: an older "move it by hand" is out of date
                     store.openItems(t.id).filter { it.kind == "jira-manual" && it.stage != "reviewers" }.forEach { store.closeItem(it.id) }
-                } catch (e: JiraException) {
+                } catch (e: TicketException) {
                     store.event(t.id, "jira_error", null, null, "Jira: could not move $key to $target. ${e.message}", "keel")
                     byHand(t, target, e.message)
                 }
@@ -365,7 +372,7 @@ class TaskService(
         if (plan.comment != null && key != null && client != null) {
             try {
                 client.comment(key, plan.comment)
-            } catch (e: JiraException) {
+            } catch (e: TicketException) {
                 store.event(t.id, "jira_error", null, null, "Jira: the comment was not added. ${e.message}", "keel")
             }
         }
@@ -374,7 +381,7 @@ class TaskService(
     }
 
     /** Asks the GitHub reviewers on the PR (only with a token) and fills the Jira reviewer field. */
-    private fun askReviewers(start: Task, conn: JiraSettings?, client: JiraClient?): Task {
+    private fun askReviewers(start: Task, conn: TrackerConnection?, client: TicketClient?): Task {
         var t = start
         val wanted = t.reviewers.filter { it.on == "github" }.map { it.login }.ifEmpty { conn?.githubReviewers.orEmpty() }
         if (wanted.isNotEmpty()) {
@@ -396,7 +403,7 @@ class TaskService(
         }
         val key = t.externalKey
         val field = conn?.reviewerField
-        val people = conn?.jiraReviewers.orEmpty()
+        val people = conn?.reviewers.orEmpty()
         if (key != null && field != null && people.isNotEmpty()) {
             val why = if (client == null) "no Jira connection for this project" else try {
                 client.setUsers(key, field, people)
@@ -404,7 +411,7 @@ class TaskService(
                 val others = t.reviewers.filter { it.on != "jira" }
                 t = store.update(t.copy(reviewers = others + people.map { Reviewer(it, "jira", "set") }))
                 null
-            } catch (e: JiraException) {
+            } catch (e: TicketException) {
                 store.event(t.id, "jira_error", null, null, "Jira: could not set the reviewers of $key. ${e.message}", "keel")
                 e.message
             }
@@ -462,7 +469,7 @@ class TaskService(
 
     private fun link(t: Task) = "${props.publicUrl.trim().trimEnd('/').ifBlank { "http://127.0.0.1:8080" }}/#/tasks/${t.id}"
 
-    private fun browse(pid: String, key: String) = jira.settings(pid)?.baseUrl?.let { "$it/browse/$key" }
+    private fun browse(pid: String, key: String) = tracker()?.connection(pid)?.baseUrl?.let { "$it/browse/$key" }
 
     private fun key(raw: String?): String? {
         val k = raw?.trim()?.uppercase()?.ifEmpty { null } ?: return null

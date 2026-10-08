@@ -189,10 +189,10 @@ class HelperApiTest : ApiTest() {
         git(root, "branch", "keel/helper/abc")
         engine.helperHandover = engine.helperHandover + mapOf("base" to sha,
             "commits" to listOf(mapOf("sha" to "1234567abc", "subject" to "fix(helper): price helper")))
-        val task = post("/api/projects/$pid/helper/sessions/$sid/task", mapOf("type" to "story")).andExpect(status().isOk).json()
-        assertThat(task["title"].asText()).isEqualTo("Add a price helper")
-        assertThat(task["description"].asText()).contains("branch `keel/helper/abc`").contains("1234567 fix(helper): price helper")
-            .contains("- Add a price helper").contains("Added it.")
+        // a task: the Tasks plugin makes it (plugins/tasks tests that); keel's core alone has no tasks, and says so
+        val noTasks = post("/api/projects/$pid/helper/sessions/$sid/task", mapOf("type" to "story")).andExpect(status().isConflict).json()
+        assertThat(noTasks["error"].asText()).isEqualTo("Tasks are not installed in this keel")
+        post("/api/projects/$pid/helper/sessions/nope/task", mapOf("type" to "story")).andExpect(status().isNotFound)
 
         // a flow: not while something is not kept, not with a dirty folder; then the folder checks the branch out
         engine.helperHandover = engine.helperHandover + mapOf("uncommitted" to listOf("src/a.js"))

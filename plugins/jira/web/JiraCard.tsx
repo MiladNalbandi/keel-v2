@@ -1,20 +1,14 @@
 // Connections › Jira: one card per project. Cloud (site URL, email, API token) or Server / Data Center (URL, personal
 // access token); which tickets to bring in (project key, board, JQL); how often; the status mapping keel moves tickets
 // with (found from Jira); the Jira reviewer field and the GitHub reviewers. The token is stored encrypted and never shown.
-// Tools › Catalog: the MCP servers keel fills from these settings (mcp-atlassian). Both register at the end of this
-// file (web/src/builtins.ts loads it).
+// Tools › Catalog: the MCP servers keel fills from these settings (mcp-atlassian). The Jira plugin's index.tsx puts
+// both in their slots (plugins/jira).
 
 import { useEffect, useState } from "react";
-import { errorParts } from "../api";
-import { registerSlot } from "../sdk/registry";
-import { SLOTS } from "../sdk/slots";
-import { useApp, useLoad } from "../state";
+import { agoText, Confirm, EmptyState, ErrorBox, errorParts, Pill, Section, Skeleton, useApp, useLoad } from "@keel/web-sdk";
 import {
-  STATUS_LABEL, TASK_STATUSES, tasksApi, type JiraDiscovery, type JiraSave, type JiraTest, type JiraView, type TaskStatus,
-} from "../tasksApi";
-import { agoText } from "./UsageStrip";
-import { EmptyState, Section, Skeleton } from "./page";
-import { Confirm, ErrorBox, Pill } from "./ui";
+  jiraApi, STATUS_LABEL, TASK_STATUSES, type JiraDiscovery, type JiraSave, type JiraTest, type JiraView, type TaskStatus,
+} from "./jiraApi";
 
 /** The Jira status keel uses when the mapping names none (the api's TaskStatus.DEFAULT_JIRA). */
 const USUAL: Partial<Record<TaskStatus, string>> = {
@@ -37,7 +31,7 @@ function Mapping({ pid, view, onSaved }: { pid: string; view: JiraView; onSaved:
     setBusy(true);
     setErr(null);
     try {
-      const d = await tasksApi.discoverJira(pid, key.trim() || undefined);
+      const d = await jiraApi.discoverJira(pid, key.trim() || undefined);
       setFound(d);
       // fill the empty rows with the suggestion; what you chose stays
       setMap((m) => ({ ...d.suggested, ...Object.fromEntries(Object.entries(m).filter(([, v]) => v)) }));
@@ -53,7 +47,7 @@ function Mapping({ pid, view, onSaved }: { pid: string; view: JiraView; onSaved:
     setErr(null);
     try {
       const status_map = Object.fromEntries(Object.entries(map).filter(([, v]) => v)) as Partial<Record<TaskStatus, string>>;
-      onSaved(await tasksApi.saveJira(pid, { status_map, reviewer_field: field, jira_reviewers: list(jiraRev), github_reviewers: list(ghRev) }));
+      onSaved(await jiraApi.saveJira(pid, { status_map, reviewer_field: field, jira_reviewers: list(jiraRev), github_reviewers: list(ghRev) }));
       toast("Mapping and reviewers saved.");
     } catch (e) {
       setErr(errorParts(e));
@@ -149,7 +143,7 @@ function JiraForm({ pid, view, onSaved, onRemoved }: { pid: string; view: JiraVi
     setBusy(true);
     setErr(null);
     try {
-      const v = await tasksApi.saveJira(pid, body());
+      const v = await jiraApi.saveJira(pid, body());
       setToken("");
       onSaved(v);
       toast("Jira connection saved. The token is encrypted.");
@@ -163,7 +157,7 @@ function JiraForm({ pid, view, onSaved, onRemoved }: { pid: string; view: JiraVi
     setBusy(true);
     setTest(null);
     try {
-      setTest(await tasksApi.testJira(pid, body()));
+      setTest(await jiraApi.testJira(pid, body()));
     } catch (e) {
       const p = errorParts(e);
       setTest({ ok: false, error: p.message, hint: p.hint });
@@ -173,7 +167,7 @@ function JiraForm({ pid, view, onSaved, onRemoved }: { pid: string; view: JiraVi
   };
   const remove = async () => {
     try {
-      await tasksApi.deleteJira(pid);
+      await jiraApi.deleteJira(pid);
       toast("Jira connection removed. Tasks stay, with their history.");
       onRemoved();
     } catch (e) {
@@ -242,7 +236,7 @@ function JiraForm({ pid, view, onSaved, onRemoved }: { pid: string; view: JiraVi
 }
 
 function JiraCard({ pid, name, current }: { pid: string; name: string; current: boolean }) {
-  const r = useLoad(`jira:${pid}`, () => tasksApi.jira(pid));
+  const r = useLoad(`jira:${pid}`, () => jiraApi.jira(pid));
   const v = r.data;
   const [open, setOpen] = useState(false);
   useEffect(() => {
@@ -302,12 +296,12 @@ export function JiraSection() {
  *  turned off. */
 export function JiraCatalog({ pid, onAdded }: { pid: string; onAdded: () => void }) {
   const { toast } = useApp();
-  const c = useLoad(`catalog:${pid}`, () => tasksApi.catalog(pid), { live: false });
+  const c = useLoad(`catalog:${pid}`, () => jiraApi.catalog(pid), { live: false });
   const [busy, setBusy] = useState<string | null>(null);
   const add = async (id: string) => {
     setBusy(id);
     try {
-      const s = await tasksApi.addFromCatalog(pid, id);
+      const s = await jiraApi.addFromCatalog(pid, id);
       toast(`${s.name} added, turned off. Turn it on, add it to Settings › MCP servers, then pick its agents.`);
       onAdded();
       await c.reload();
@@ -341,8 +335,3 @@ export function JiraCatalog({ pid, onAdded }: { pid: string; onAdded: () => void
     </Section>
   );
 }
-
-// ---------- the Jira part: its section in Connections and its catalog in Tools (web/src/builtins.ts loads this file) ----------
-
-registerSlot(SLOTS.connectionsKind, { id: "jira", title: "Jira", order: 10, component: JiraSection });
-registerSlot(SLOTS.toolsCard, { id: "jira-catalog", title: "Catalog", order: 10, component: JiraCatalog });

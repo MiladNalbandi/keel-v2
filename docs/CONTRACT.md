@@ -1158,13 +1158,13 @@ allow it per agent. Saving the connection refreshes its env; deleting the connec
 `ThreadState` gains `pr_url` (from `data.pr_url`, which `open_pr` sets when it opened the PR).
 
 ### Web
-- **Run › Tasks** (`pages/Tasks.tsx`, `tasksApi.ts`): the board (To do, In progress, In review, Testing (PP), Ready, Done; Blocked
+- **Run › Tasks** (the Tasks plugin: `plugins/tasks/web/Tasks.tsx`, `tasksApi.ts`): the board (To do, In progress, In review, Testing (PP), Ready, Done; Blocked
   when a task is blocked; cancelled under Done), cards (key or "local", type, assignee, flow status, PR, reviewers, "needs
   you"), Mine / All, source and text filters, Sync now and the last sync (or "Connect Jira"), New task, and the task drawer
   (status, Jira link and status, flow with Open flow, PR, reviewers, its Inbox items with their buttons, Start flow with the
   workflow by type and the run mode, PR link, Mark approved, Confirm PP, Ship, Send back with a reason, Cancel, Reopen,
   Delete, the history). `#/tasks/<id>` opens a task (and switches to its project).
-- **Inbox**: task items with their buttons and "Open task ▸". **Connections › Jira** (`components/JiraCard.tsx`): a card per
+- **Inbox**: task items with their buttons and "Open task ▸". **Connections › Jira** (the Jira plugin: `plugins/jira/web/JiraCard.tsx`): a card per
   project (Cloud / Server, URL, email, token, project key, board, poll, JQL, Test, Connect/Save/Remove; when connected: the
   status mapping found from Jira with a select per keel status, the reviewer field, Jira and GitHub reviewers).
   **Tools › Catalog**: the optional Jira MCP server.

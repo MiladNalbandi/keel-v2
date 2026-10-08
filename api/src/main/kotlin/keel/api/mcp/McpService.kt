@@ -11,6 +11,7 @@ import keel.api.connections.SecretService
 import keel.api.engine.EngineClient
 import keel.api.engine.EngineDown
 import keel.api.projects.ProjectService
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.boot.ApplicationArguments
 import org.springframework.boot.ApplicationRunner
 import org.springframework.jdbc.core.JdbcTemplate
@@ -68,6 +69,7 @@ class McpService(
     private val kv: KvStore,
     private val projects: ProjectService,
     private val secrets: SecretService,
+    private val labels: ObjectProvider<McpServerLabel>,
 ) : ApplicationRunner {
 
     override fun run(args: ApplicationArguments?) = seed()
@@ -156,7 +158,8 @@ class McpService(
 
     /**
      * v0.5.0: an env value `secret:<name>` names a secret (Connections, AES-GCM); it is read only here, when a flow or a
-     * test starts the server, so GET /api/mcp-servers never shows it (the Jira catalog entry keeps its token this way).
+     * test starts the server, so GET /api/mcp-servers never shows it (a plugin's catalog entry, like Jira's, keeps its
+     * token this way).
      */
     private fun resolved(spec: McpServerSpec): McpServerSpec {
         val env = spec.env ?: return spec
@@ -164,8 +167,9 @@ class McpService(
         return spec.copy(env = env.mapValues { (_, v) -> if (v.startsWith(SECRET_REF)) secrets.get(v.removePrefix(SECRET_REF)).orEmpty() else v })
     }
 
+    /** keel's own label, else the first a plugin gives ([McpServerLabel]). */
     private fun labelOf(name: String, command: String): String? =
-        LABELS[name] ?: if (name.startsWith("jira-") && command == "uvx") "Jira (mcp-atlassian, optional)" else null
+        LABELS[name] ?: labels.orderedStream().map { it.label(name, command) }.filter { it != null }.findFirst().orElse(null)
 
     fun allow(pid: String): Map<String, List<String>> {
         projects.require(pid)
