@@ -302,6 +302,7 @@ class ProductApiTest : ApiTest() {
             .contains("- Convert prices")
         assertThat(get("/api/projects/$web/tasks").json()["tasks"].single()["title"].asText()).isEqualTo("WEB-S1 · Euro on the product page")
         assertThat(post("/api/initiatives/$id/handoff", mapOf("target" to "tasks")).json()["tasks"].size()).isZero()      // not twice
+        assertThat(detail(id)["stage"]["next"].asText()).isEqualTo("The teams build it")
         val board = get("/api/initiatives").json().first { it["id"].asText() == id }
         assertThat(board["progress"]["done"].asInt()).isZero()
         assertThat(board["progress"]["total"].asInt()).isEqualTo(3)

@@ -145,11 +145,14 @@ class InitiativeService(
         waiting && i.stage == "outcome" -> "Close the initiative"
         i.status == "running" -> "keel works on the ${i.stage}"
         i.stage == "idea" -> "Start discovery"
-        i.stage == "delivery" && i.status == "ready" -> "Send the stories to Tasks or Jira"
+        i.stage == "delivery" && i.status == "ready" && !handedOff(i) -> "Send the stories to Tasks or Jira"
         i.stage == "delivery" -> "The teams build it"
         i.stage == "outcome" -> "Enter the metric after the release"
         else -> "Start the ${i.stage}"
     }
+
+    private fun handedOff(i: Initiative): Boolean =
+        store.latest(i.id, "plan")?.let { p -> store.items(i.id, p.version).any { it.taskId != null || it.jiraKey != null } } ?: false
 
     // ---------------------------------------------------------------- writing
 

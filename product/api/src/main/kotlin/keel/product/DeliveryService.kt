@@ -227,7 +227,7 @@ class DeliveryService(
         val inPlay = (store.latest(i.id, "plan")?.let { store.items(i.id, it.version) }.orEmpty().mapNotNull { it.team } +
             i.repos.flatMap { teams.ownersOf(it).map { t -> t.id } }).distinct()
         inPlay.filter { store.team(it) != null }.forEach { tid ->
-            runCatching { teams.suggest(tid, "lessons", "${i.id} · ${i.title}: $outcome", i.id) }
+            runCatching { teams.suggest(tid, "lessons", "### ${i.id} · ${i.title}\n\n$outcome", i.id) }
                 .onFailure { log.warn("keel Product could not suggest a lesson to {}: {}", tid, it.message) }
         }
     }
