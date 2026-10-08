@@ -220,7 +220,7 @@ export function actionFor(
   return null;
 }
 
-/** IntelliJ's keys for the Code page itself: ⌘1 files, ⌘9 Git, ⇧⌘9 Review, ⇧⌘O / ⇧⇧ go to file, ⌘L go to line. */
+/** IntelliJ's keys for the Code page itself: ⌘1 files, ⌘9 Git, ⇧⌘9 Review, ⇧⌘O go to file, ⌘L go to line (⇧⇧ is the launcher). */
 export type IdeAction =
   "explorer" | "scm" | "review" | "quickOpen" | "gotoLine";
 export function ideActionFor(

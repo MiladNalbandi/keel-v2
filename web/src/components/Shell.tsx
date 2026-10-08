@@ -9,6 +9,8 @@ import { hashFor, hashForScreen, type ScreenId } from "../routes";
 import { go, useApp, useRoute } from "../state";
 import { Mascot } from "./Mascot";
 import { BudgetBar } from "./BudgetBar";
+import { Launcher, openLauncher } from "./launcher/Launcher";
+import { keyLabel } from "./review/keymap";
 import { NavIcon } from "./NavIcons";
 import { NotificationDrawer, Popups } from "./Notifications";
 
@@ -63,6 +65,20 @@ export function Bell({ onClick }: { onClick: () => void }) {
       </svg>
       {nset.quiet && <span className="bell-q">zz</span>}
       {unread > 0 && <span className="bell-n" data-testid="unread">{unread}</span>}
+    </button>
+  );
+}
+
+/** v0.15.0 opens the launcher (also ⌘K on any page). */
+function SearchButton({ className }: { className: string }) {
+  const keys = keyLabel("meta+k");
+  return (
+    <button type="button" className={className} onClick={() => openLauncher()} aria-label={`Search and actions (${keys})`}
+      title={`Search and actions (${keys})`}>
+      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+        <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" strokeWidth="1.9" />
+        <path d="M20 20l-4-4" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
+      </svg>
     </button>
   );
 }
@@ -359,6 +375,7 @@ export function Shell({ children }: { children: ReactNode }) {
           </button>
           <RailLinks />
           <div className="rail-foot">
+            <SearchButton className="rail-btn" />
             <Bell onClick={() => setNotesOpen(true)} />
             <button className="rail-btn" type="button" onClick={theme.toggle}
               aria-label={theme.dark ? "Switch to the light theme" : "Switch to the dark theme"} title={theme.dark ? "Switch to the light theme" : "Switch to the dark theme"}>
@@ -378,7 +395,7 @@ export function Shell({ children }: { children: ReactNode }) {
             {live !== "live" && <span className={`menu-dot ${live === "off" ? "bad" : "warn"}`} aria-hidden="true" />}
           </button>
           <span className="brand"><Logo /><b>keel</b><span className="brand-v">v2 studio</span><Version /></span>
-          <span className="side-tools"><Mascot /><Bell onClick={() => setNotesOpen(true)} />
+          <span className="side-tools"><Mascot /><SearchButton className="bell" /><Bell onClick={() => setNotesOpen(true)} />
             <button className="hide-nav" type="button" onClick={() => setNavHidden(true)} aria-label="Hide the menu" title="Hide the menu (⌘\)">
               <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
                 <path fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" d="M15 6l-6 6 6 6" />
@@ -405,6 +422,7 @@ export function Shell({ children }: { children: ReactNode }) {
       {menuOpen && <MenuSheet onClose={() => setMenuOpen(false)} theme={theme} />}
       {notesOpen && <NotificationDrawer onClose={() => setNotesOpen(false)} />}
       <Popups />
+      <Launcher dark={theme.dark} toggleTheme={theme.toggle} toggleNav={() => setNavHidden((h) => !h)} openNotes={() => setNotesOpen(true)} />
     </div>
   );
 }

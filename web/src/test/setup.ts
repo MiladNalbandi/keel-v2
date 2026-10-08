@@ -4,6 +4,7 @@ import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, beforeEach, vi } from "vitest";
 import { resetFeatures } from "../addons";
 import { resetReviews } from "../components/review/store";
+import { resetLauncherCache } from "../components/launcher/sources";
 import { resetProviderModels } from "../components/ModelPicker";
 import { resetAudio } from "../notify";
 import { createDb, handlers, type Db } from "./handlers";
@@ -29,6 +30,7 @@ beforeEach(() => {
   resetProviderModels();
   resetFeatures();
   resetReviews();
+  resetLauncherCache();
 });
 afterEach(() => cleanup());
 afterAll(() => server.close());

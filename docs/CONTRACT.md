@@ -1724,3 +1724,23 @@ GET|PUT|DELETE /api/gitlab {url, token?}                   → { set, url, host,
   GitHub: one review; GitLab: one discussion per line comment, a note, then approve (Request changes is a note and takes
   back your approval). A review on a head that moved is refused until it is opened again.
 - keel's AI never posts: a finding becomes a pending comment only when the person presses Add as comment.
+
+## v0.15.0: the launcher
+
+Web only: no new api. ⌘K (Ctrl+K off a Mac) on any page, ⇧⇧ in Code, or the search button next to the bell opens one
+search box (`web/src/components/launcher`). The empty box shows what waits for you (the inbox, this project first, and
+pull requests you are asked to review), the results you used last (per browser, `keel2.launcher.recent`) and a few
+actions. Typing searches, in groups with a best match first: the inbox, pull requests (when Code Review is on), files
+(`GET …/repo/files`), code (`GET …/graph/search`), tasks (by title or Jira key), flows, pages, keel's actions and the
+other projects. The selected result shows a preview (a file around its line, a pull request, a task, a flow).
+
+- Keys: ↑↓ (⌃N ⌃P), ⌥↑↓ next group, ⇥ next scope (All, Files, Code, Pull requests, Tasks, Flows, Actions), ⌘1–9 pick,
+  ↩ the first action, ⌘K all actions of the result, ⌘↩ ask KeelBot about it, ⌘⇧C copy, Esc back one step, ⌫ on an
+  empty field drops the prefix. While it is open the page's own keys are quiet.
+- Prefixes: `>` actions, `@` code, `#` pull requests and tasks, `!` flows and gates, `?` ask; `Prefs.kt:42` opens a file
+  at a line.
+- An action that changes something asks first in the panel: approve a gate (`POST /api/inbox/{tid}/act`, plain gates
+  only), check out a pull request's branch.
+- `?` asks KeelBot in a new Ask chat (read only: `POST …/helper/sessions {mode: ask}` and a turn); the answer shows in
+  the launcher with its file:line links; ⌘↩ continues the chat on KeelBot's page.
+- `#/repo/@review/<key>` (e.g. `#/repo/@review/pr%3A7`) opens that review in Code's Review tool window.

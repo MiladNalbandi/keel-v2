@@ -14,6 +14,7 @@ import "./styles/review.css";
 import "./styles/graph.css";
 import "./styles/helper.css";
 import "./styles/plugins.css";
+import "./styles/launcher.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

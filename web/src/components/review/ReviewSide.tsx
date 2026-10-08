@@ -35,6 +35,17 @@ const FILTERS: [Filter, string][] = [
   ["all", "All"],
 ];
 const SEL = (pid: string) => `keel2.review.sel.${pid}`;
+const OPEN_EVENT = "keel:open-review";
+
+/** v0.15.0 open one review in the Review tool window (the launcher, a #/repo/@review/pr:7 link). */
+export function openReview(pid: string, key: string) {
+  try {
+    sessionStorage.setItem(SEL(pid), key);
+  } catch {
+    /* private window */
+  }
+  window.dispatchEvent(new CustomEvent(OPEN_EVENT, { detail: { pid, key } }));
+}
 
 export function ReviewSide({
   pid,
@@ -62,6 +73,14 @@ export function ReviewSide({
   useEffect(() => {
     if (activeFile && activeFile.key !== selected) pick(activeFile.key);
   }, [activeFile?.key]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const on = (e: Event) => {
+      const d = (e as CustomEvent<{ pid: string; key: string }>).detail;
+      if (d?.pid === pid && d.key) setSelected(d.key);
+    };
+    window.addEventListener(OPEN_EVENT, on);
+    return () => window.removeEventListener(OPEN_EVENT, on);
+  }, [pid]);
   return (
     <div className="rv-side" role="region" aria-label="Review">
       {selected ? (

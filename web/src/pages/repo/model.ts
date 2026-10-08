@@ -8,9 +8,13 @@ import type { DiffRow } from "../../components/Code";
 
 export type DeepLink = { path: string; line?: number };
 
+/** v0.15.0 a review's link (#/repo/@review/pr:7): the Review tool window with that review open. */
+export const reviewHash = (key: string) => `#/repo/@review/${encodeURIComponent(key)}`;
+export const parseReviewLink = (arg: string | undefined | null): string | null => arg?.match(/^@review\/(.+)$/)?.[1] ?? null;
+
 /** "src/a.kt:12" → { path: "src/a.kt", line: 12 }; "src/a.kt" → { path }. */
 export function parseDeepLink(arg: string | undefined | null): DeepLink | null {
-  if (!arg) return null;
+  if (!arg || parseReviewLink(arg)) return null;
   const m = arg.match(/^(.*?)(?::(\d+))?$/);
   const path = (m?.[1] ?? arg).replace(/^\/+/, "");
   if (!path) return null;

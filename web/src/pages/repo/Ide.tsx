@@ -18,7 +18,7 @@ import { Explorer } from "./Explorer";
 import { FileIcon, Icon, extOf, languageName } from "./icons";
 import { DocsView, KeelView, MemoryView, ruleText } from "./KeelView";
 import {
-  bytes, closeTab, decoOf, nameOf, openTab, parseDeepLink, pinTab, repoHash, retargetTab, setView, tabId, webUrl,
+  bytes, closeTab, decoOf, nameOf, openTab, parseDeepLink, parseReviewLink, pinTab, repoHash, retargetTab, setView, tabId, webUrl,
   type EditorTab, type OpenSpec, type Tabs, type View,
 } from "./model";
 import { BranchTab } from "./Branch";
@@ -26,11 +26,12 @@ import { QuickOpen } from "./QuickOpen";
 import { ScmView } from "./Scm";
 import { SearchView } from "./Search";
 import { DbExplorer, DbTab, dbPath, dbTabTitle } from "../../components/plugins/DbTool";
-import { ReviewSide } from "../../components/review/ReviewSide";
+import { openReview, ReviewSide } from "../../components/review/ReviewSide";
 import { ReviewFileTab } from "../../components/review/ReviewFileTab";
 import { ReviewLayer } from "../../components/review/ReviewLayer";
 import { setOpener } from "../../components/review/store";
 import { doubleShift, ideActionFor } from "../../components/review/keymap";
+import { openLauncher } from "../../components/launcher/Launcher";
 
 type Activity = "explorer" | "search" | "scm" | "review" | "db" | "keel";
 const ACTIVITIES: [Activity, string, string, string, string][] = [
@@ -156,10 +157,18 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
   const openFile = useCallback((path: string, pin = false, view?: View) => open({ path, view }, { pin }), [open]);
 
   // a deep link (#/repo/<path>:<line>) opens that file at that line — on load and on every hash change, also when
-  // it names the same file again after the URL followed other tabs
+  // it names the same file again after the URL followed other tabs; #/repo/@review/pr:7 opens that review
   useEffect(() => {
     const follow = () => {
       const r = parseHash(location.hash);
+      const review = r.page === "repo" ? parseReviewLink(r.arg) : null;
+      if (review) {
+        openReview(pid, review);
+        setActivity("review");
+        setSideOpen(true);
+        setScreen("side");
+        return;
+      }
       const link = r.page === "repo" ? parseDeepLink(r.arg) : null;
       if (link) {
         open({ path: link.path, view: "code" }, { line: link.line });
@@ -169,7 +178,7 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
     follow();
     window.addEventListener("hashchange", follow);
     return () => window.removeEventListener("hashchange", follow);
-  }, [open]);
+  }, [open, pid]);
 
   // the URL follows the active tab (replaceState: no history entry per click)
   useEffect(() => {
@@ -237,9 +246,10 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
   useEffect(() => {
     const twice = doubleShift();
     const on = (e: KeyboardEvent) => {
-      // v0.14.0 IntelliJ's keys (keymap.ts): ⌘1 files, ⌘9 Git, ⇧⌘9 Review, ⇧⌘O and ⇧⇧ go to file, ⌘L go to line
+      // v0.14.0 IntelliJ's keys (keymap.ts): ⌘1 files, ⌘9 Git, ⇧⌘9 Review, ⇧⌘O go to file, ⌘L go to line;
+      // v0.15.0 ⇧⇧ searches everywhere (the launcher, like IntelliJ's Search Everywhere)
       if (twice(e)) {
-        setQo(true);
+        openLauncher();
         return;
       }
       const ij = ideActionFor(e);
