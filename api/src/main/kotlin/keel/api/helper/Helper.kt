@@ -14,13 +14,13 @@ import keel.api.flow.FlowService
 import keel.api.workflows.WorkflowService
 import keel.api.mcp.McpService
 import keel.api.projects.ProjectService
-import keel.api.repo.RepoService
 import keel.api.settings.Model
 import keel.api.settings.SettingsService
 import keel.api.skills.SkillService
 import keel.api.tasks.NewTask
 import keel.api.tasks.TaskService
 import keel.api.tasks.TaskView
+import keel.api.workspace.Workspace
 import org.springframework.stereotype.Service
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
@@ -77,7 +77,7 @@ class HelperService(
     private val workflows: WorkflowService,
     private val plugins: keel.api.plugins.PluginService,
     private val tasks: TaskService,
-    private val repo: RepoService,
+    private val workspace: Workspace,
     private val mapper: ObjectMapper,
 ) {
     private fun helperAgent(pid: String) = agents.list(pid).firstOrNull { it.id == AGENT }
@@ -236,13 +236,13 @@ class HelperService(
         if (open.isNotEmpty())
             throw Conflict("${open.size} file(s) are not kept yet: ${open.take(5).joinToString()}", "Keep them (the checks run, keel commits on the branch) or undo them first.")
         if (h.path("commits").isEmpty) throw Conflict("Nothing is kept on the branch yet", "Keep KeelBot's change first.")
-        val dirty = repo.git(root, "status", "--porcelain", "--untracked-files=all").out.lines().filter { it.length > 3 }
+        val dirty = workspace.git(root, "status", "--porcelain", "--untracked-files=all").out.lines().filter { it.length > 3 }
             .map { it.substring(3).trim() }.filterNot { WorkspaceDoctor.isEngineFile(it) }
         if (dirty.isNotEmpty())
             throw Conflict("The project folder has uncommitted changes: ${dirty.take(5).joinToString()}", "Commit or stash them first: the folder checks out the side branch.")
         engine.post("/helper/sessions/$sid/release", emptyMap<String, Any>())
         val branch = h.path("branch").asText()
-        val r = repo.git(root, "checkout", "-q", branch)
+        val r = workspace.git(root, "checkout", "-q", branch)
         if (!r.ok) throw Conflict("Could not check out $branch", r.err.ifBlank { r.out }.take(300))
         val title = body.title.trim().ifBlank { h.path("title").asText() }.take(200)
         return flows.start(pid, body.workflowId.ifBlank { "change" }, title, null, request = handoverText(h))

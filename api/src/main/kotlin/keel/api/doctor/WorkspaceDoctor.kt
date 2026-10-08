@@ -8,8 +8,8 @@ import keel.api.connections.SecretService
 import keel.api.engine.EngineClient
 import keel.api.engine.EngineDown
 import keel.api.projects.ProjectService
-import keel.api.repo.RepoService
 import keel.api.settings.SettingsService
+import keel.api.workspace.Workspace
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import java.nio.file.Files
@@ -46,7 +46,7 @@ data class Applied(val results: List<ApplyResult>, val remaining: List<String>, 
 @Service
 class WorkspaceDoctor(
     private val projects: ProjectService,
-    private val repo: RepoService,
+    private val workspace: Workspace,
     private val settings: SettingsService,
     private val secrets: SecretService,
     private val engine: EngineClient,
@@ -55,7 +55,7 @@ class WorkspaceDoctor(
     private val log = LoggerFactory.getLogger(javaClass)
 
     fun dirty(root: Path): List<DirtyFile> {
-        val r = repo.git(root, "status", "--porcelain", "--untracked-files=all")
+        val r = workspace.git(root, "status", "--porcelain", "--untracked-files=all")
         if (!r.ok) throw Conflict("This folder is not a git repository", r.err.take(200))
         return r.out.lines().filter { it.length > 3 }.mapNotNull { line ->
             val xy = line.substring(0, 2)
@@ -129,7 +129,7 @@ class WorkspaceDoctor(
             }
         }
         // Start from an empty index so a commit holds exactly its files (the work stays in the tree).
-        repo.git(root, "reset", "-q")
+        workspace.git(root, "reset", "-q")
         val results = mutableListOf<ApplyResult>()
         var gitignoreChanged = false
         for (item in items) {
@@ -137,7 +137,7 @@ class WorkspaceDoctor(
                 "exclude" -> {
                     // Hidden on this computer only: .git/info/exclude is never committed, the project's .gitignore stays.
                     val patterns = (item.patterns?.filter { it.isNotBlank() }?.takeIf { it.isNotEmpty() } ?: item.files).map { it.trim() }
-                    val where = repo.git(root, "rev-parse", "--git-path", "info/exclude").out.trim().ifBlank { ".git/info/exclude" }
+                    val where = workspace.git(root, "rev-parse", "--git-path", "info/exclude").out.trim().ifBlank { ".git/info/exclude" }
                     val f = root.resolve(where)
                     Files.createDirectories(f.parent)
                     val have = if (Files.exists(f)) Files.readAllLines(f).map { it.trim() }.toSet() else emptySet()
@@ -165,13 +165,13 @@ class WorkspaceDoctor(
                 }
                 "commit" -> {
                     val files = item.files
-                    val add = repo.git(root, "add", "-A", "--", *files.toTypedArray())
-                    val c = if (add.ok) repo.git(root, "commit", "-q", "-m", item.message!!.trim()) else add
+                    val add = workspace.git(root, "add", "-A", "--", *files.toTypedArray())
+                    val c = if (add.ok) workspace.git(root, "commit", "-q", "-m", item.message!!.trim()) else add
                     if (c.ok && files.contains(".gitignore")) gitignoreChanged = false
                     ApplyResult("commit", files, c.ok, if (c.ok) "committed: ${item.message!!.trim()}" else (c.err.ifBlank { c.out }).take(300))
                 }
                 "stash" -> {
-                    val s = repo.git(root, "stash", "push", "-q", "-u", "-m", "keel doctor: ${item.title ?: "saved work"}", "--", *item.files.toTypedArray())
+                    val s = workspace.git(root, "stash", "push", "-q", "-u", "-m", "keel doctor: ${item.title ?: "saved work"}", "--", *item.files.toTypedArray())
                     ApplyResult("stash", item.files, s.ok, if (s.ok) "stashed — get it back with: git stash pop" else (s.err.ifBlank { s.out }).take(300))
                 }
                 else -> ApplyResult("keep", item.files, true, "left as it is")
@@ -179,8 +179,8 @@ class WorkspaceDoctor(
             results += r
         }
         if (gitignoreChanged) {
-            val add = repo.git(root, "add", "--", ".gitignore")
-            val c = if (add.ok) repo.git(root, "commit", "-q", "-m", "chore: ignore local and secret files") else add
+            val add = workspace.git(root, "add", "--", ".gitignore")
+            val c = if (add.ok) workspace.git(root, "commit", "-q", "-m", "chore: ignore local and secret files") else add
             results += ApplyResult("commit", listOf(".gitignore"), c.ok, if (c.ok) "committed: chore: ignore local and secret files" else c.err.take(300))
         }
         val remaining = dirty(root).map { it.path }
@@ -263,7 +263,7 @@ class WorkspaceDoctor(
         var budget = 12_000
         for (f in files) {
             if (f.secret || budget <= 0) continue
-            val text = if (f.tracked) repo.git(root, "diff", "--", f.path).out
+            val text = if (f.tracked) workspace.git(root, "diff", "--", f.path).out
             else runCatching { val p = root.resolve(f.path); if (Files.size(p) < 50_000 && !isBinary(p)) Files.readString(p) else "(binary or large file)" }.getOrDefault("")
             val cut = text.lines().take(60).joinToString("\n").take(budget.coerceAtMost(2_000))
             budget -= cut.length

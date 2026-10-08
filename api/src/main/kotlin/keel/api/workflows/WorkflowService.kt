@@ -11,7 +11,9 @@ import keel.api.common.Slug
 import keel.api.common.Time
 import keel.api.engine.EngineClient
 import keel.api.engine.EngineDown
+import keel.api.flow.FlowContributor
 import keel.api.projects.ProjectService
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver
 import org.springframework.http.HttpStatus
 import org.springframework.jdbc.core.JdbcTemplate
@@ -33,7 +35,7 @@ class WorkflowService(
     private val projects: ProjectService,
     private val agents: AgentCatalog,
     private val mapper: ObjectMapper,
-    private val plugins: keel.api.plugins.PluginService,
+    private val contributors: ObjectProvider<FlowContributor>,
     private val features: keel.api.addons.FeatureService,
 ) {
     // ---- templates (engine) ---------------------------------------------------------------
@@ -65,10 +67,20 @@ class WorkflowService(
         return Workflow(r.id, doc.name, doc.basedOn, doc.keelRules, r.version, doc.steps, r.yaml, r.source)
     }
 
+    /**
+     * Whether a plugin's templates show for this project: the first FlowContributor that answers decides, and a plugin no
+     * contributor claims stays hidden. Asked once per plugin.
+     */
+    private fun pluginTemplatesOn(pid: String): (String) -> Boolean {
+        val found = contributors.orderedStream().toList()
+        val asked = mutableMapOf<String, Boolean>()
+        return { plugin -> asked.getOrPut(plugin) { found.firstNotNullOfOrNull { it.templateOn(pid, plugin) } == true } }
+    }
+
     fun list(pid: String): List<Workflow> {
         projects.require(pid)
-        val on = plugins.enabled(pid).toSet()
-        val all = templatesOrEmpty().filter { (it.plugin == null || it.plugin in on) && (it.addon == null || features.addonOn(it.addon)) } +
+        val on = pluginTemplatesOn(pid)
+        val all = templatesOrEmpty().filter { (it.plugin == null || on(it.plugin)) && (it.addon == null || features.addonOn(it.addon)) } +
             rows("project_id = ? OR project_id IS NULL", pid).map(::toWorkflow)
         val folders = jdbc.query("SELECT workflow_id, folder FROM workflow_folders WHERE project_id = ?",
             { rs, _ -> rs.getString(1) to rs.getString(2) }, pid).toMap()

@@ -1,5 +1,7 @@
 package keel.api.flow
 
+import com.fasterxml.jackson.annotation.JsonAnyGetter
+import com.fasterxml.jackson.annotation.JsonIgnore
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import keel.api.agents.AgentService
@@ -9,7 +11,7 @@ import keel.api.common.BadRequest
 import keel.api.common.Conflict
 import keel.api.common.KeelProperties
 import keel.api.common.Slug
-import keel.api.repo.RepoService
+import keel.api.workspace.Workspace
 import java.nio.file.Path
 import java.nio.file.Paths
 import keel.api.common.NotFound
@@ -29,6 +31,7 @@ import keel.api.settings.SettingsService
 import keel.api.skills.SkillService
 import keel.api.workflows.Workflow
 import keel.api.workflows.WorkflowService
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.http.HttpStatus
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
@@ -55,11 +58,16 @@ data class ThreadSettings(
     /** Who keel's commits are by ("Name <email>", null: the project's git name) and whether KeelBot co-authors them. */
     val commitAuthor: String? = null,
     val commitCoauthor: Boolean? = null,
-    /** v0.10.0: the plugins on for the project (db, git); git:push and git:pr follow pushPr; git:branch the pattern. */
-    val plugins: List<String>? = null,
-    val pushPr: String? = null,
-    val branchPattern: String? = null,
-)
+    /** What the FlowContributor beans add, by the engine's names (the Plugins part: `plugins`, the ones on). */
+    @get:JsonIgnore val contributed: Map<String, Any?> = emptyMap(),
+    /** v0.10.0: git:push and git:pr follow pushPr; git:branch the pattern. */
+    @get:JsonIgnore val pushPr: String? = null,
+    @get:JsonIgnore val branchPattern: String? = null,
+) {
+    /** Sent after the fields above: the contributed settings, then push_pr and branch_pattern (the order the engine always got). */
+    @JsonAnyGetter
+    fun tail(): Map<String, Any?> = contributed + linkedMapOf("push_pr" to pushPr, "branch_pattern" to branchPattern)
+}
 
 /** The engine's StartThread (CONTRACT "Shared types"). */
 data class StartThread(
@@ -141,14 +149,22 @@ class FlowService(
     private val hub: EventHub,
     private val mapper: ObjectMapper,
     private val secrets: SecretService,
-    private val repo: RepoService,
+    private val workspace: Workspace,
     private val props: KeelProperties,
     private val providerUsage: ProviderUsageService,
     private val notifications: keel.api.notifications.NotificationService,
     private val capPlanner: CapPlanner,
-    private val plugins: keel.api.plugins.PluginService,
+    private val contributors: ObjectProvider<FlowContributor>,
 ) {
     private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
+
+    /** Every contributor's secrets for this project's agent calls (a later one wins a clash). */
+    private fun contributedKeys(pid: String): Map<String, String> =
+        contributors.orderedStream().toList().fold(linkedMapOf<String, String>()) { acc, c -> acc.putAll(c.keys(pid)); acc }
+
+    /** Every contributor's settings for the engine, in order. */
+    private fun contributedSettings(pid: String): Map<String, Any?> =
+        contributors.orderedStream().toList().fold(linkedMapOf<String, Any?>()) { acc, c -> acc.putAll(c.settings(pid)); acc }
 
     /** Builds StartThread from the workflow + effective settings + agent models + MCP + skills. */
     fun buildStart(pid: String, workflowId: String, title: String, acs: List<Ac>?, cap: FlowCap? = null, model: Model? = null): StartThread {
@@ -194,7 +210,7 @@ class FlowService(
                 s.usageWarn, s.usagePause, providerUsage.windowsForEngine().takeIf { it.isNotEmpty() },
                 limits.capUsd, limits.onCapUsd, limits.stepCapTokens, limits.stepOnCap,
                 commitAuthor = s.commitAuthor.trim().ifBlank { null }, commitCoauthor = s.commitCoauthor,
-                plugins = plugins.enabled(pid).takeIf { it.isNotEmpty() }, pushPr = s.pushPr, branchPattern = s.branchPattern),
+                contributed = contributedSettings(pid), pushPr = s.pushPr, branchPattern = s.branchPattern),
             mcp = mcp.specsFor(s.mcp), skills = skillText,
             agents = all.filter { it.enabled }.associate { it.id to AgentStart(it.knowledge) },
             capNote = limits.notes.takeIf { it.isNotEmpty() }?.joinToString(" "),
@@ -221,7 +237,7 @@ class FlowService(
         }
         // API keys for "api" models and CLI logins for subscription models, from the encrypted secrets table; the
         // cheaper model's too, so a cap that switches to it mid-flow can run it.
-        val keys = keysFor(start.models.values + listOfNotNull(start.settings.cheaperModel)) + plugins.keysFor(pid)
+        val keys = keysFor(start.models.values + listOfNotNull(start.settings.cheaperModel)) + contributedKeys(pid)
         val withRequest = start.copy(request = request?.trim()?.takeIf { it.isNotEmpty() }?.take(8000),
             data = options?.takeIf { it.isNotEmpty() })
         val body = if (keys.isEmpty()) withRequest else withRequest.copy(keys = keys)
@@ -263,7 +279,7 @@ class FlowService(
     /** keel commits only what its agents change; uncommitted work in the tree is a reason to stop and ask first. */
     private fun refuseDirty(root: Path, allowDirty: Boolean) {
         if (allowDirty) return
-        val r = repo.git(root, "status", "--porcelain", "--untracked-files=all")
+        val r = workspace.git(root, "status", "--porcelain", "--untracked-files=all")
         if (!r.ok) return
         val files = r.out.lines().filter { it.length > 3 }.map { it.substring(3).trim() }
             .filterNot { WorkspaceDoctor.isEngineFile(it) }
@@ -298,15 +314,15 @@ class FlowService(
 
     /** A worktree for a flow, on its own branch (the branch pattern) from the base branch, not from what the folder has. */
     private fun worktreeFor(pid: String, root: Path, title: String): FlowWorktree {
-        if (!repo.git(root, "rev-parse", "--git-dir").ok)
+        if (!workspace.git(root, "rev-parse", "--git-dir").ok)
             throw Conflict("This project is not a git repository", "A flow next to another one needs git: its own worktree and branch.")
         val pattern = settings.effective(pid).branchPattern.ifBlank { "feat/{slug}" }
         val first = pattern.replace("{slug}", Slug.of(title).take(40)).replace("{user}", "keel").replace("{flow}", "flow")
         var branch = first
         var n = 2
-        while (repo.git(root, "rev-parse", "--verify", "--quiet", "refs/heads/$branch").ok) branch = "$first-${n++}"
+        while (workspace.git(root, "rev-parse", "--verify", "--quiet", "refs/heads/$branch").ok) branch = "$first-${n++}"
         val name = "flow-${Slug.of(title).take(30)}-${java.util.UUID.randomUUID().toString().take(6)}"
-        val res = engine.post("/worktrees", mapOf("root" to root.toString(), "name" to name, "branch" to branch, "start" to repo.base(root)))
+        val res = engine.post("/worktrees", mapOf("root" to root.toString(), "name" to name, "branch" to branch, "start" to workspace.base(root)))
         return FlowWorktree(name, res.path("branch").asText(branch), res.path("path").asText())
     }
 
@@ -339,15 +355,15 @@ class FlowService(
     /** Never work on main/master: a flow gets its own branch from the branch pattern in Settings (feat/{slug}). */
     private fun ownBranch(pid: String, root: Path, title: String) {
         if (isDemo(root)) return
-        val current = repo.git(root, "rev-parse", "--abbrev-ref", "HEAD").takeIf { it.ok }?.out?.trim() ?: return
-        val base = repo.base(root) ?: return
+        val current = workspace.git(root, "rev-parse", "--abbrev-ref", "HEAD").takeIf { it.ok }?.out?.trim() ?: return
+        val base = workspace.base(root) ?: return
         if (current != base) return
         val pattern = settings.effective(pid).branchPattern.ifBlank { "feat/{slug}" }
         val first = pattern.replace("{slug}", Slug.of(title).take(40)).replace("{user}", "keel").replace("{flow}", "flow")
         var name = first
         var n = 2
-        while (repo.git(root, "rev-parse", "--verify", "--quiet", "refs/heads/$name").ok) name = "$first-${n++}"
-        val r = repo.git(root, "checkout", "-q", "-b", name)
+        while (workspace.git(root, "rev-parse", "--verify", "--quiet", "refs/heads/$name").ok) name = "$first-${n++}"
+        val r = workspace.git(root, "checkout", "-q", "-b", name)
         if (!r.ok) throw Conflict("Could not create the branch $name", r.err.ifBlank { r.out }.take(300))
     }
 
@@ -375,7 +391,7 @@ class FlowService(
         val pid = threadProject(tid) ?: return emptyMap()
         val s = settings.effective(pid)
         val models = listOf(s.defaultModel, s.cheaperModel) + agents.list(pid).filter { it.enabled }.map { it.model }
-        return keysFor(models) + plugins.keysFor(pid)
+        return keysFor(models) + contributedKeys(pid)
     }
 
     /**
@@ -508,7 +524,7 @@ class FlowService(
     /** The flows that run or wait, in the project folder or in worktrees, and the finished ones whose worktree is left. */
     fun board(pid: String): FlowBoard {
         val root = projects.root(pid)
-        val base = repo.base(root)
+        val base = workspace.base(root)
         val rows = jdbc.query(
             "SELECT id, title, workflow_id, status, phase, current, worktree, branch, state_json, updated_at FROM threads " +
                 "WHERE project_id = ? AND (status IN ('running','waiting') OR worktree IS NOT NULL) ORDER BY created_at",
@@ -521,7 +537,7 @@ class FlowService(
             val left = !active && !r.worktree.isNullOrBlank() && java.nio.file.Files.isDirectory(dir)
             if (!active && !left) return@mapNotNull null
             val state = r.state?.let { runCatching { mapper.readTree(it) }.getOrNull() }
-            val branch = r.branch ?: repo.git(dir, "rev-parse", "--abbrev-ref", "HEAD").takeIf { it.ok }?.out?.trim()?.ifBlank { null }
+            val branch = r.branch ?: workspace.git(dir, "rev-parse", "--abbrev-ref", "HEAD").takeIf { it.ok }?.out?.trim()?.ifBlank { null }
             BoardFlow(r.id, r.title, r.workflowId, r.status, r.phase, r.current, state?.get("waiting")?.takeIf { it.isObject },
                 if (r.worktree.isNullOrBlank()) "folder" else "worktree", r.worktree, branch, changedFiles(dir, base), r.updatedAt, left)
         }
@@ -545,15 +561,15 @@ class FlowService(
     /** What a flow changed against the base branch: committed on its branch, or not yet (a running agent's files). */
     private fun changedFiles(dir: Path, base: String?): List<String> {
         if (!java.nio.file.Files.isDirectory(dir)) return emptyList()
-        val committed = base?.let { b -> repo.git(dir, "diff", "--name-only", "$b...HEAD").takeIf { it.ok }?.out?.lines() }.orEmpty()
-        val open = repo.git(dir, "status", "--porcelain", "--untracked-files=all").out.lines().filter { it.length > 3 }.map { it.substring(3).trim() }
+        val committed = base?.let { b -> workspace.git(dir, "diff", "--name-only", "$b...HEAD").takeIf { it.ok }?.out?.lines() }.orEmpty()
+        val open = workspace.git(dir, "status", "--porcelain", "--untracked-files=all").out.lines().filter { it.length > 3 }.map { it.substring(3).trim() }
         return (committed + open).map { it.trim() }
             .filter { it.isNotBlank() && !WorkspaceDoctor.isEngineFile(it) && !it.startsWith(".keel/") }.distinct().sorted()
     }
 
     /** The files where two branches do not merge cleanly (git merge-tree, git 2.38 or newer); null when git cannot tell. */
     private fun mergeConflicts(root: Path, a: String, b: String): List<String>? {
-        val r = repo.git(root, "merge-tree", "--write-tree", "--name-only", "--no-messages", a, b)
+        val r = workspace.git(root, "merge-tree", "--write-tree", "--name-only", "--no-messages", a, b)
         return when (r.code) {
             0 -> emptyList()
             1 -> r.out.lines().drop(1).map { it.trim() }.filter { it.isNotBlank() }.distinct()

@@ -5,10 +5,10 @@ import keel.api.common.ApiException
 import keel.api.common.BadRequest
 import keel.api.common.Forbidden
 import keel.api.common.NotFound
-import keel.api.common.Proc
 import keel.api.common.ProcResult
 import keel.api.common.Yaml
 import keel.api.projects.ProjectService
+import keel.api.workspace.Workspace
 import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Service
 import java.nio.charset.StandardCharsets
@@ -98,13 +98,16 @@ data class FileDiff(val path: String, val against: String, val ref: String, val 
 
 data class MergeResult(val ok: Boolean, val merged: Boolean, val conflicts: List<String>, val output: String)
 
-/** Views of a project's git repo, plus "update from base". Every git call runs with cwd = root and a timeout. */
+/**
+ * Views of a project's git repo, plus "update from base". Every git call goes through the core [Workspace] (cwd = root,
+ * with a timeout).
+ */
 @Service
-class RepoService(private val projects: ProjectService, private val rules: KeelRules) {
+class RepoService(private val projects: ProjectService, private val rules: KeelRules, private val workspace: Workspace) {
 
-    fun git(root: Path, vararg args: String, timeout: Long = 10): ProcResult = Proc.run(listOf("git", *args), root, timeout)
+    fun git(root: Path, vararg args: String, timeout: Long = 10): ProcResult = workspace.git(root, *args, timeout = timeout)
 
-    private fun gitOut(root: Path, vararg args: String): String? = git(root, *args).takeIf { it.ok }?.out?.trim()
+    private fun gitOut(root: Path, vararg args: String): String? = workspace.gitOut(root, *args)
 
     fun info(pid: String): RepoInfo {
         val root = projects.root(pid)
@@ -127,9 +130,7 @@ class RepoService(private val projects: ProjectService, private val rules: KeelR
     /** Strips credentials from https remotes (`https://user:token@host/...`). */
     private fun redactRemote(url: String) = url.replace(Regex("(https?://)[^@/]+@"), "$1")
 
-    fun base(root: Path): String? = listOf("main", "master").firstOrNull {
-        git(root, "show-ref", "--verify", "--quiet", "refs/heads/$it").ok
-    }
+    fun base(root: Path): String? = workspace.base(root)
 
     private fun worktrees(root: Path): List<Worktree> {
         val out = gitOut(root, "worktree", "list", "--porcelain") ?: return emptyList()
@@ -515,12 +516,6 @@ class RepoService(private val projects: ProjectService, private val rules: KeelR
         }
         return MergeResult(false, false, conflicts, output)
     }
-
-    /** Unix time of the last commit that touched code (not docs/ or .keel/), or null. */
-    fun lastCodeCommit(root: Path): Long? =
-        gitOut(root, "log", "-1", "--format=%ct", "--", ".", ":(exclude)docs", ":(exclude).keel")?.toLongOrNull()
-
-    fun lastCommitTime(root: Path, rel: String): Long? = gitOut(root, "log", "-1", "--format=%ct", "--", rel)?.toLongOrNull()
 
     companion object {
         /** KeelBot's e-mail: keel's own commits are by it, or name it in their Co-Authored-By line. */

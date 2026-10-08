@@ -10,10 +10,10 @@ import keel.api.engine.EngineClient
 import keel.api.engine.EngineDown
 import keel.api.projects.ProjectService
 import keel.api.repo.ClassifyConfig
-import keel.api.repo.RepoService
 import keel.api.workflows.Step
 import keel.api.workflows.Workflow
 import keel.api.workflows.WorkflowService
+import keel.api.workspace.Workspace
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
 import java.nio.file.Files
@@ -34,7 +34,7 @@ data class WikiPage(val id: String, val title: String, val markdown: String, val
 class KnowledgeService(
     private val jdbc: JdbcTemplate,
     private val projects: ProjectService,
-    private val repo: RepoService,
+    private val workspace: Workspace,
     private val workflows: WorkflowService,
     private val engine: EngineClient,
     private val mapper: ObjectMapper,
@@ -136,14 +136,14 @@ class KnowledgeService(
     fun knowledge(root: Path): List<KnowledgeSection> {
         val dir = root.resolve("docs/knowledge")
         val extra = listMd(dir).map { it.fileName.toString().removeSuffix(".md") }.filter { it !in SECTIONS && it.lowercase() != "readme" }
-        val lastCode = repo.lastCodeCommit(root)
+        val lastCode = workspace.lastCodeCommit(root)
         return (SECTIONS + extra).map { s ->
             val f = dir.resolve("$s.md")
             if (!Files.isRegularFile(f)) return@map KnowledgeSection(s, "missing", 0, 0)
             val text = Files.readString(f)
             val words = text.split(Regex("\\s+")).count { it.isNotBlank() }
             val cites = CITATION.findAll(text).count()
-            val written = repo.lastCommitTime(root, "docs/knowledge/$s.md")
+            val written = workspace.lastCommitTime(root, "docs/knowledge/$s.md")
             val stale = written != null && lastCode != null && written < lastCode
             KnowledgeSection(s, if (stale) "stale" else "written", words, cites)
         }
