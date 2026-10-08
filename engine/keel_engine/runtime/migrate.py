@@ -16,6 +16,7 @@
                             id to continue, status and what they used
     helper_messages         each session's messages in order: the person's, KeelBot's answers (with the turn's call id)
     helper_files            Fix mode: each file KeelBot changed, as it was before its first change (Undo, Done)
+    helper_folders          v0.15.2 folders a person sorts KeelBot's chats into (a chat's `folder` names one), per project
 """
 
 from __future__ import annotations
@@ -70,7 +71,7 @@ MIGRATIONS = [
       model_json text not null, engine_session text, status text not null, error text, thread_id text,
       tokens_in integer not null default 0, tokens_out integer not null default 0, tokens_cached integer not null default 0,
       cost_usd real not null default 0, turns integer not null default 0, created_at text not null, updated_at text not null,
-      grants_json text not null default '[]', phase text, worktree text, branch text, base_sha text
+      grants_json text not null default '[]', phase text, worktree text, branch text, base_sha text, folder text
     )""",
     """create index if not exists helper_sessions_project on helper_sessions (project, updated_at)""",
     # Fix mode: each file KeelBot changed, as it was before its first change (Undo puts it back; Done commits)
@@ -82,6 +83,11 @@ MIGRATIONS = [
       session_id text not null, n integer not null, role text not null, text text not null, call_id text,
       data_json text, at text not null, primary key (session_id, n)
     )""",
+    # v0.15.2 KeelBot's chat folders: one row per folder; deleting one moves its chats out, it never deletes a chat
+    """create table if not exists helper_folders (
+      id text primary key, project text not null, name text not null, created_at text not null, updated_at text not null
+    )""",
+    """create index if not exists helper_folders_project on helper_folders (project, name)""",
 ]
 
 
@@ -93,6 +99,7 @@ COLUMNS = [
     ("helper_sessions", "worktree", "text"),
     ("helper_sessions", "branch", "text"),
     ("helper_sessions", "base_sha", "text"),
+    ("helper_sessions", "folder", "text"),
 ]
 
 

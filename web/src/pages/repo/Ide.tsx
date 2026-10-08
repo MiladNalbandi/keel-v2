@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as RPointerEvent } from "react";
 import { api, type HelperSelection, type RepoInfo } from "../../api";
 import { HelperPanel } from "../../components/helper/HelperPanel";
+import { KeelBotCount } from "../../components/helper/unread";
 import { useNarrow } from "../../components/page";
 import { ErrorBox } from "../../components/ui";
 import { WorkspaceDoctor } from "../../components/WorkspaceDoctor";
@@ -564,6 +565,7 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
           title={`KeelBot: ask about this project (${MOD}I)`} onClick={() => (helperOpen ? setHelperOpen(false) : askHelper())}>
           <Icon name="helper" size={22} />
           {phone && <span className="act-l" aria-hidden="true">KeelBot</span>}
+          <KeelBotCount kind="act" />
         </button>
       </nav>
       <aside className="ide-side" aria-label={ACTIVITIES.find((a) => a[0] === activity)?.[1]}>{sideView}</aside>

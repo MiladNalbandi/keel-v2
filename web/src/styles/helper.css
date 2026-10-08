@@ -152,3 +152,84 @@ main:has(> .helper-page) { padding-bottom: 14px; }
 .kb-yaml summary { cursor: pointer; color: var(--dim); font-size: 12px; }
 .kb-yaml[open] summary { margin-bottom: 6px; }
 .kb-card .row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+
+/* v0.15.2 KeelBot's chats: the Chats button and the open chat's name, the chat list (search, folders, actions), the
+   in-page delete question, the how-to guide, and the number of new answers on KeelBot */
+.hp-chats-btn { flex: none; display: inline-flex; align-items: center; gap: 5px; border-color: var(--ide-line); color: var(--fg); max-width: none; }
+.hp-chats-btn.on { background: var(--accent-soft); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--ide-line)); }
+.hp-new-n, .hp-chat-new { min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--accent); color: var(--on-accent);
+  font: 700 10px/16px var(--f-body); text-align: center; }
+.hp-cur { flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; gap: 4px; font-size: 12.5px; overflow: hidden; white-space: nowrap; }
+.hp-cur-f { flex: none; color: var(--dim); }
+.hp-cur-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.hp-confirm { display: grid; gap: 8px; margin: 0 8px 8px 12px; padding: 9px 11px; border: 1px solid color-mix(in srgb, var(--bad) 50%, var(--ide-line));
+  border-radius: 9px; background: color-mix(in srgb, var(--bad) 7%, var(--ide-bg)); font-size: 12.5px; }
+.hp-confirm p { margin: 0; overflow-wrap: anywhere; }
+.hp-confirm-btns { display: flex; flex-wrap: wrap; gap: 6px; }
+.btn.hp-del { background: var(--bad); border-color: var(--bad); color: var(--on-accent, #fff); }
+
+.hp-list { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; padding: 10px 8px 8px 12px; overflow: hidden; }
+.hp-list-head { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12.5px; }
+.hp-list-n { font: 500 11px var(--f-mono); color: var(--faint); }
+.hp-list-tools { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 2px; margin-left: auto; }
+.hp-tb-new { color: var(--accent); }
+.hp-search { width: 100%; min-width: 0; font: inherit; font-size: 12.5px; padding: 5px 9px; border: 1px solid var(--ide-line); border-radius: 7px;
+  background: var(--ide-bg); color: var(--fg); }
+.hp-search:focus-visible, .hp-name input:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+.hp-list-body { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; display: grid; align-content: start; gap: 6px; padding-bottom: 6px; }
+.hp-list-empty { margin: 4px 2px; font-size: 12.5px; color: var(--dim); }
+.hp-list-empty.sm { margin: 0 0 4px 22px; font-size: 11.5px; color: var(--faint); }
+.hp-name { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.hp-name input { flex: 1 1 140px; min-width: 0; font: inherit; font-size: 12.5px; padding: 4px 8px; border: 1px solid var(--ide-line); border-radius: 6px;
+  background: var(--ide-bg); color: var(--fg); }
+.hp-group { display: grid; gap: 2px; min-width: 0; }
+.hp-fold { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.hp-fold-btn { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px; border: 0; background: none; padding: 4px 2px; cursor: pointer;
+  color: var(--dim); font: 600 11.5px var(--f-body); text-transform: uppercase; letter-spacing: .03em; text-align: left; }
+.hp-fold-btn:disabled { cursor: default; }
+.hp-fold-btn:hover:not(:disabled) { color: var(--fg); }
+.hp-caret { width: 10px; flex: none; }
+.hp-fold-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hp-fold-n { font: 500 10.5px var(--f-mono); color: var(--faint); text-transform: none; }
+.hp-chats { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; }
+.hp-group .hp-chats { padding-left: 12px; }
+.hp-chat { display: grid; gap: 4px; min-width: 0; }
+.hp-chat-row { display: flex; align-items: center; gap: 2px; min-width: 0; border-radius: 7px; }
+.hp-chat-row:hover { background: var(--ide-hover); }
+.hp-chat.on .hp-chat-row { background: var(--accent-soft); }
+.hp-chat-open { flex: 1 1 auto; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "t n" "m n";
+  column-gap: 6px; align-items: center; border: 0; background: none; color: var(--fg); padding: 5px 6px; border-radius: 7px; text-align: left; cursor: pointer; font: inherit; }
+.hp-chat-open:focus-visible, .hp-more:focus-visible, .hp-fold-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.hp-chat-t { grid-area: t; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
+.hp-chat.on .hp-chat-t { font-weight: 600; }
+.hp-chat-m { grid-area: m; display: flex; align-items: center; gap: 6px; min-width: 0; font: 500 10.5px var(--f-mono); color: var(--faint); }
+.hp-chat-mode { color: var(--ok); } .hp-chat-mode.fix { color: var(--warn); } .hp-chat-mode.side { color: var(--run); }
+.hp-chat-run { color: var(--run); }
+.hp-chat-new { grid-area: n; }
+.hp-more { flex: none; border: 0; background: none; color: var(--dim); width: 26px; height: 26px; border-radius: 6px; cursor: pointer; font-size: 15px; line-height: 1; }
+.hp-more:hover, .hp-more[aria-expanded="true"] { color: var(--fg); background: var(--ide-hover); }
+.hp-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; padding: 2px 6px 6px; }
+.hp-group > .hp-acts { padding-left: 18px; }
+.hp-tb.hp-tb-del { color: var(--bad); }
+.hp-move { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--dim); min-width: 0; }
+.hp-move select { min-width: 0; max-width: 170px; font: inherit; font-size: 12px; padding: 2px 5px; border: 1px solid var(--ide-line); border-radius: 6px;
+  background: var(--ide-bg); color: var(--fg); }
+.hp-list .hp-confirm { margin: 2px 0 6px; }
+
+/* the KeelBot page on a wide screen: the chat list is a column on the left */
+.hp-list-col { flex: none; width: 290px; min-height: 0; display: flex; border-right: 1px solid var(--border); background: var(--bg);
+  --ide-bg: var(--panel); --ide-side: var(--bg); --ide-line: var(--border); --ide-hover: color-mix(in srgb, var(--fg) 6%, transparent); }
+.hp-list-col .hp-list { padding: 12px 10px 10px 12px; }
+@media (max-width: 1280px) { .hp-list-col { width: 250px; } }
+
+.hp-guide { display: grid; gap: 6px; border: 1px solid var(--ide-line); border-radius: 10px; padding: 10px 12px; background: var(--ide-bg); color: var(--fg); }
+.hp-guide-h { margin: 0; font-size: 13px; }
+.hp-guide ul { margin: 0; padding-left: 16px; display: grid; gap: 4px; font-size: 12.5px; line-height: 1.45; color: var(--dim); }
+.hp-guide li b { color: var(--fg); }
+.hp-guide kbd { font: 600 10.5px var(--f-mono); border: 1px solid var(--ide-line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; color: var(--fg); }
+.hp-guide code { font: 500 11.5px var(--f-mono); }
+.hp.page .hp-guide ul { font-size: 13.5px; }
+
+/* new KeelBot answers: in the menu and on the Code page's KeelBot button (accent, not the "waits for you" amber) */
+.nav .count.kb-new, .ms-nav .count.kb-new { background: var(--accent); color: var(--on-accent); }
+.rail-count.kb-new { background: var(--accent); color: var(--on-accent); }

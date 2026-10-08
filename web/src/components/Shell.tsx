@@ -13,6 +13,7 @@ import { Launcher, openLauncher } from "./launcher/Launcher";
 import { keyLabel } from "./review/keymap";
 import { NavIcon } from "./NavIcons";
 import { NotificationDrawer, Popups } from "./Notifications";
+import { KeelBotCount, useKeelBotWatch } from "./helper/unread";
 
 const THEME_KEY = "keel2.theme";
 
@@ -166,6 +167,7 @@ function NavLinks({ onPick, hints }: { onPick?: () => void; hints?: boolean }) {
               onClick={onPick}>
               <span className="nav-l">{p.label}</span>
               {p.addon ? null : badge(p.id as ScreenId)}
+              {p.id === "helper" && <KeelBotCount kind="nav" />}
             </a>
           ))}
         </div>
@@ -192,6 +194,7 @@ function RailLinks() {
       title={label} aria-label={id === "inbox" && waitingAll ? `${label}, ${waitingAll} waiting` : label}>
       <NavIcon id={addon ? "addon" : id} />
       {addon ? null : count(id as ScreenId)}
+      {id === "helper" && <KeelBotCount kind="rail" />}
     </a>
   );
   return (
@@ -347,6 +350,8 @@ export function Shell({ children }: { children: ReactNode }) {
   const [notesOpen, setNotesOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const theme = useTheme();
+  // v0.15.2 a KeelBot answer you did not see: a number on KeelBot, and its own sound
+  useKeelBotWatch();
   // a big screen can fold the menu into a thin strip (☰ opens it again, ⌘\ toggles); a phone keeps its own bar
   const [navHidden, setNavHidden] = useState<boolean>(() => {
     try { return localStorage.getItem(NAV_KEY) === "1"; } catch { return false; }

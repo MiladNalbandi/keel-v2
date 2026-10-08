@@ -4,13 +4,15 @@ import { useState } from "react";
 import "./inbox.css";
 import type { Notification as Note, NotificationSettings } from "../api";
 import { clock, plainText } from "../format";
-import { askPermission, EVTYPES, NTONE, permission, playSound } from "../notify";
+import { askPermission, EVTYPES, NTONE, permission, playKeelBot, playSound } from "../notify";
 import { useApp } from "../state";
+import { useKeelBotSound } from "./helper/unread";
 import { Drawer, Tabs } from "./ui";
 
 function NoteSettings() {
   const { nset, saveNset, project, notifyLocal, toast, showMascot, setShowMascot } = useApp();
   const [perm, setPerm] = useState(permission());
+  const [kbSound, setKbSound] = useKeelBotSound();
   const set = (patch: Partial<NotificationSettings>) => saveNset({ ...nset, ...patch });
   return (
     <>
@@ -44,6 +46,17 @@ function NoteSettings() {
           }}>Test sound</button>
         </div>
         <span className="hint">Failures use a lower tone, so you can tell them apart without looking.</span>
+      </div>
+      {/* v0.15.2 KeelBot's own sound, kept in this browser */}
+      <div className="field">
+        <span className="lab">KeelBot</span>
+        <label className="chk switch">
+          <input type="checkbox" role="switch" id="n-keelbot" checked={kbSound} onChange={(e) => setKbSound(e.target.checked)} /> KeelBot's sound when an answer is ready
+        </label>
+        <div className="row">
+          <button className="btn sm" type="button" onClick={() => playKeelBot(nset.volume)}>Test KeelBot's sound</button>
+        </div>
+        <span className="hint">Its own sound: three short rising notes. It plays when you are not looking at that chat. Saved in this browser.</span>
       </div>
       <div className="field">
         <span className="lab">Pop-ups</span>

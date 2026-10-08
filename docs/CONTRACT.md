@@ -1273,14 +1273,20 @@ call, and the diff guard as the backstop for engines without a hook.
 GET    /api/projects/{pid}/helper/sessions                → HelperSession[] (newest first)
 POST   /api/projects/{pid}/helper/sessions                {mode?: "ask", model?: Model, title?} → HelperSession
 GET    /api/projects/{pid}/helper/sessions/{sid}          → HelperSession & {messages, busy}   (404 for another project's)
-PATCH  /api/projects/{pid}/helper/sessions/{sid}          {title?, model?} → HelperSession   (another provider starts its CLI session fresh)
+PATCH  /api/projects/{pid}/helper/sessions/{sid}          {title?, model?, folder?} → HelperSession   (another provider starts its CLI session fresh;
+                                                          folder: a folder id of this project, "" = no folder; moving keeps updated_at)
 DELETE /api/projects/{pid}/helper/sessions/{sid}          → {ok}
+GET    /api/projects/{pid}/helper/folders                 → HelperFolder[] (by name)                         v0.15.2
+POST   /api/projects/{pid}/helper/folders                 {name} → HelperFolder   (400 no name or > 60 characters, 409 the name exists in any case)
+PATCH  /api/projects/{pid}/helper/folders/{fid}           {name} → HelperFolder   (404 for another project's)
+DELETE /api/projects/{pid}/helper/folders/{fid}           → {ok, moved}   (its chats are kept, with no folder)
 POST   /api/projects/{pid}/helper/sessions/{sid}/turn     {text, model?, mentions?, selection?, open_file?} → {session, call_id, n, command}
 POST   /api/projects/{pid}/helper/sessions/{sid}/stop     → HelperSession
 GET    /api/projects/{pid}/helper/commands                → {name, description, plugin, source: keel|project}[]
 
 HelperSession = {id, project, root, mode, title, model, status: idle|running|failed, error, thread_id, tokens_in, tokens_out,
-                 tokens_cached, cost_usd, turns, created_at, updated_at}
+                 tokens_cached, cost_usd, turns, created_at, updated_at, folder}
+HelperFolder  = {id, project, name, chats, created_at, updated_at}      (engine table helper_folders; helper_sessions.folder)
 HelperMessage = {n, role: user|helper|note, text, call_id, data: {status, provider, model, tokens_in, tokens_out, tokens_cached,
                  cost_usd, ms, command?, mentions?, selection?}, at}
 HelperMention = {kind: file|symbol|ac, value, file?, line?}      HelperSelection = {path, from?, to?, text}
@@ -1302,6 +1308,17 @@ HelperMention = {kind: file|symbol|ac, value, file?, line?}      HelperSelection
   `helper.finished` (a hidden tab pauses the event stream) never leaves it "working".
 - The editor's toolbar has **Ask** (the selected lines, or the file); ⌘I opens the Helper with the selection, and closes it
   when nothing is selected.
+- v0.15.2 chats: leaving the page (or closing the panel) and coming back keeps the open chat (`keel2.helper.<pid>.session`),
+  each chat's draft with its mentions (`keel2.helper.<pid>.drafts`, localStorage) and where it was scrolled to, the new
+  chat's mode and whether the list is open (`keel2.helper.<pid>.tab`, sessionStorage); a chat is forgotten only on a 404.
+  **Chats** (`components/helper/ChatList.tsx`; a column on `#/keelbot` of a wide screen, over the conversation in the
+  panel) lists every chat by folder with search, new / rename / delete folder, and per chat rename, move to a folder and
+  delete; every delete asks in the page, never `window.confirm`. A new Ask chat shows how to use KeelBot.
+- v0.15.2 new answers (`components/helper/unread.tsx`): a `helper.finished` (not `stopped`) for a chat nobody looks at (no
+  panel shows it, or the tab is hidden) counts as new (`keel2.keelbot.unread`: project → chat → call ids) on the menu's
+  KeelBot entry, its folded-menu icon, the Code page's KeelBot button and the chat's row; showing the chat clears it.
+  It also plays KeelBot's own sound (`notify.playKeelBot`: three short rising sine notes), unless Do not disturb is on or
+  the switch in Settings › This browser (or the notification settings) is off (`keel2.keelbot.sound`, on at first).
 - More room (v0.8.x): the Helper's column has a drag edge (300 px up to all but 360 px of the IDE, remembered as
   `keel2.repo.helper.w`); **Focus** hides the Repo page head (`keel2.repo.focus`, the status bar brings it back);
   `#/helper` (menu: Project › Helper, **Helper only**, ⤢ in the panel) shows the Helper alone in one wide column

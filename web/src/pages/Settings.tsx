@@ -7,6 +7,8 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api, errorParts, type Model, type ProjectSettings, type Settings } from "../api";
 import { refreshFeatures, useFeatures } from "../addons";
 import { ModelPicker } from "../components/ModelPicker";
+import { useKeelBotSound } from "../components/helper/unread";
+import { playKeelBot } from "../notify";
 import { Skeleton } from "../components/page";
 import { RUN_MODES, runModeAbout } from "../components/RunMode";
 import { ErrorBox, PageHead, Tabs } from "../components/ui";
@@ -207,7 +209,8 @@ function KeelModePanel({ onSaved, onError }: { onSaved: (text: string) => void; 
 
 /** v0.15.0 choices kept in this browser only, whichever scope is shown. */
 function BrowserPanel() {
-  const { showMascot, setShowMascot } = useApp();
+  const { showMascot, setShowMascot, nset } = useApp();
+  const [kbSound, setKbSound] = useKeelBotSound();
   return (
     <section className="panel sg-sec" id="sg-browser" aria-labelledby="sg-browser-h">
       <header className="sg-sec-h">
@@ -219,6 +222,15 @@ function BrowserPanel() {
           <input type="checkbox" role="switch" checked={showMascot} onChange={(e) => setShowMascot(e.target.checked)} /> Show keel next to the bell
         </label>
         <span className="hint">The little hull jumps when something arrives and says what it is. Off at first.</span>
+      </div>
+      {/* v0.15.2 KeelBot's own sound when an answer is ready */}
+      <div className="field sg-browser">
+        <label className="chk switch">
+          <input type="checkbox" role="switch" checked={kbSound} onChange={(e) => setKbSound(e.target.checked)} /> KeelBot's sound when an answer is ready
+        </label>
+        <span className="hint">Three short rising notes, not the notification chime. It plays when you are not looking at that chat. Do not disturb
+          silences it too. On at first.{" "}
+          <button type="button" className="btn sm" onClick={() => playKeelBot(nset.volume)}>Play it</button></span>
       </div>
     </section>
   );

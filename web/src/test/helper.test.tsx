@@ -85,7 +85,7 @@ describe("Helper in the Code page", () => {
     await waitFor(() => expect(turns()).toHaveLength(1));
     expect(db.calls.some((c) => c.method === "POST" && c.path.endsWith("/helper/sessions"))).toBe(true);
     expect(turns()[0].body).toMatchObject({ text: "Where is a score saved?", open_file: "api/ScoreController.kt" });
-    expect(within(p).getByText("Where is a score saved?")).toBeInTheDocument();
+    expect(within(p).getByText("Where is a score saved?", { selector: ".hp-text" })).toBeInTheDocument();
 
     answer("It is saved in `api/ScoreController.kt:9`, after the check.", [{ kind: "read", text: "fun save()", path: "api/ScoreController.kt" }]);
     const link = await within(p).findByRole("link", { name: "api/ScoreController.kt:9" });
@@ -169,13 +169,17 @@ describe("Helper in the Code page", () => {
     await waitFor(() => expect(turns()).toHaveLength(1));
     answer("First answer.");
     await within(p).findByText("First answer.");
-    expect(within(p).getByRole("combobox", { name: "Chat" })).toHaveDisplayValue("First question");
+    expect(p.querySelector(".hp-cur")).toHaveTextContent("First question");
     await user.click(within(p).getByRole("button", { name: "New chat" }));
-    expect(within(p).getByRole("combobox", { name: "Chat" })).toHaveDisplayValue("New chat");
+    expect(p.querySelector(".hp-cur")).toHaveTextContent("New chat");
     expect(within(p).queryByText("First answer.")).toBeNull();
-    await user.selectOptions(within(p).getByRole("combobox", { name: "Chat" }), "First question");
+    // v0.15.2 the chat list (Chats) replaced the select; deleting asks in the page first
+    await user.click(within(p).getByRole("button", { name: /^Chats/ }));
+    await user.click(within(within(p).getByRole("navigation", { name: "KeelBot chats" })).getByRole("button", { name: /^First question/ }));
     expect(await within(p).findByText("First answer.")).toBeInTheDocument();
     await user.click(within(p).getByRole("button", { name: "Delete this chat" }));
+    expect(db.helper.sessions).toHaveLength(1);
+    await user.click(within(p).getByRole("alertdialog", { name: "Delete chat" }).querySelector("button")!);
     await waitFor(() => expect(db.helper.sessions).toHaveLength(0));
   });
 });
