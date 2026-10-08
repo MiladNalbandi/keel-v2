@@ -1751,7 +1751,7 @@ other projects. The selected result shows a preview (a file around its line, a p
 - keel (the pet by the bell) is off at first; Settings › This browser (or the notification settings) turns it on, kept
   in this browser (`keel2.mascot` = `1`). The logo next to "keel" no longer shrinks away when the row is full.
 
-## v0.15.x: Focus mode in Code
+## v0.15.1: Focus mode in Code
 
 Code's Focus is now the whole window, like an IDE's Zen mode: keel's menu, the usage bar and the Code header go; the IDE
 keeps its activity bar, tabs, editor, KeelBot and status bar. ⇧⌘\ (Ctrl+Shift+\ off a Mac) turns it on and off, Esc
