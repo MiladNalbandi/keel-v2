@@ -1,0 +1,125 @@
+/* v0.14.0 the Code Review plugin: Code › Review (tool window) and a review tab (files, diff, keel panel). keel's IDE tokens. */
+.rv-side { display: flex; flex-direction: column; min-height: 0; overflow: auto; scrollbar-width: thin; }
+.rv-card { margin: 0 10px 10px; padding: 10px; border: 1px solid var(--ide-line); border-radius: 8px; background: var(--ide-bg); display: grid; gap: 6px; }
+.rv-card-h { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.rv-dim { color: var(--dim); font-size: 12px; }
+.rv-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.rv-note { margin: 6px 14px; display: block; }
+.rv-prs { display: flex; flex-direction: column; min-height: 0; }
+.rv-prs .br-h { justify-content: space-between; }
+.rv-refresh { margin-left: auto; }
+.rv-chips { display: flex; gap: 4px; flex-wrap: wrap; padding: 2px 10px 6px 14px; }
+.rv-chip { border: 1px solid var(--ide-line); background: var(--ide-bg); color: var(--dim); border-radius: 999px; padding: 1px 9px; font-size: 12px; cursor: pointer; display: inline-flex; gap: 5px; align-items: center; }
+.rv-chip.on { background: var(--ide-sel); color: var(--fg); border-color: var(--accent); }
+.rv-n { font: 600 11px var(--f-mono); color: var(--dim); background: var(--ide-hover); border-radius: 999px; padding: 0 5px; margin-left: 4px; }
+.rv-pr { display: grid; gap: 2px; text-align: left; border: 0; background: none; color: inherit; font: inherit; padding: 7px 10px 7px 14px; cursor: pointer; border-left: 2px solid transparent; }
+.rv-pr:hover { background: var(--ide-hover); }
+.rv-pr:focus-visible { border-left-color: var(--accent); outline: none; background: var(--ide-hover); }
+.rv-pr-1 { display: flex; gap: 6px; align-items: baseline; min-width: 0; }
+.rv-pr-1 b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rv-pr-2 { display: flex; gap: 2px; align-items: center; flex-wrap: wrap; }
+.rv-side .add, .rv-cnt .add, .rv-fbar .add { color: var(--ok); } .rv-side .del, .rv-cnt .del, .rv-fbar .del { color: var(--bad); }
+
+/* one review in the tool window: back to the list, its head and actions, its tabs (Changes, Commits, keel's, Threads) */
+.rv-one { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.rv-back { padding-left: 6px; }
+.rv-pr-head { display: grid; gap: 6px; padding: 0 12px 10px 14px; border-bottom: 1px solid var(--ide-line); }
+.rv-title { font-size: 14px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.rv-confirm { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; padding: 2px 6px; border: 1px solid var(--accent); border-radius: 6px; }
+.rv-foot { margin: 8px 0 0; }
+.rv-commits { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; font-size: 12.5px; }
+
+/* the folder tree of changed files */
+.rv-tree { display: grid; font-size: 13px; }
+.rv-td { display: flex; align-items: center; gap: 6px; width: 100%; border: 0; background: none; color: var(--fg); font: inherit; padding: 3px 8px 3px 0; cursor: pointer; text-align: left; }
+.rv-td:hover, .rv-tf:hover { background: var(--ide-hover); }
+.rv-td .ex-tw { width: 10px; transition: transform .1s; display: inline-block; color: var(--dim); }
+.rv-td .ex-tw.open { transform: rotate(90deg); }
+.rv-td-n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.rv-tf { display: flex; align-items: center; gap: 4px; }
+.rv-tf.on { background: var(--ide-sel); }
+.rv-tf-b { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; border: 0; background: none; color: inherit; font: inherit; padding: 3px 6px 3px 2px; cursor: pointer; text-align: left; }
+.rv-tf-b .ex-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rv-tf-b .ex-deco { margin-left: 0; }
+.rv-all { color: var(--ok); }
+.rv-seen { opacity: .55; }
+.rv-cnt { font: 11px var(--f-mono); color: var(--dim); white-space: nowrap; }
+
+/* a review file in an editor tab */
+.rv-ftab { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.rv-fbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 4px 12px; border-bottom: 1px solid var(--ide-line); font-size: 12.5px; }
+.rv-fbar-r { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+.rv-viewed { display: inline-flex; gap: 5px; align-items: center; }
+.rv-seg { display: inline-flex; border: 1px solid var(--ide-line); border-radius: 6px; padding: 1px; }
+.rv-seg button { border: 0; background: none; color: var(--dim); font: 500 12px var(--f-body); padding: 2px 8px; border-radius: 5px; cursor: pointer; }
+.rv-seg button[aria-pressed="true"] { background: var(--ide-sel); color: var(--fg); }
+.rv-hint { padding: 3px 12px; border-top: 1px solid var(--ide-line); font: 11px var(--f-mono); color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* the diff: a line number is a button (comment on this line); the current line is marked */
+.rv-dv .dv-row { grid-template-columns: 4.6ch 4.6ch 2ch max-content; }
+.rv-ln { border: 0; background: none; color: var(--faint); font: inherit; text-align: right; padding: 0 8px 0 0; cursor: pointer; user-select: none; }
+.rv-ln:disabled { cursor: default; }
+.rv-ln:not(:disabled):hover { color: var(--accent); background: var(--ide-sel); }
+.dv-srow .rv-ln.add { background: var(--add-bg); } .dv-srow .rv-ln.del { background: var(--del-bg); }
+.dv-row.cur, .dv-srow.cur { box-shadow: inset 3px 0 0 var(--accent); }
+.rv-dv .dv-code { cursor: text; }
+.rv-under { margin: 4px 12px 8px 9.5ch; max-width: 92ch; white-space: normal; font: 13px/1.5 var(--f-body); }
+.rv-under .rv-thread, .rv-draft, .rv-ai, .rv-compose { border: 1px solid var(--ide-line); border-radius: 8px; background: var(--ide-side); padding: 8px 10px; display: grid; gap: 6px; }
+.rv-ai { border-color: color-mix(in srgb, var(--accent) 45%, var(--ide-line)); background: color-mix(in srgb, var(--accent) 6%, var(--ide-side)); }
+.rv-draft { border-style: dashed; border-color: var(--run); }
+.rv-ai p, .rv-draft p { margin: 0; }
+.rv-comment-h { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 12px; }
+.rv-body-text { margin: 0; white-space: pre-wrap; font: 13px/1.5 var(--f-body); }
+.rv-sugg { margin: 0; padding: 6px 8px; background: var(--ide-bg); border: 1px solid var(--ide-line); border-radius: 6px; font: 12px/1.5 var(--f-mono); white-space: pre-wrap; overflow-x: auto; }
+.rv-ta { width: 100%; min-height: 70px; resize: vertical; border: 1px solid var(--ide-line); background: var(--ide-bg); color: var(--fg); border-radius: 6px; padding: 7px 9px; font: 13px/1.45 var(--f-body); }
+.rv-ta:focus, .rv-in:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.rv-in { flex: 1; min-width: 12ch; border: 1px solid var(--ide-line); background: var(--ide-bg); color: var(--fg); border-radius: 6px; padding: 4px 8px; font: inherit; }
+.rv-file .dv-body { padding-bottom: 30vh; }
+.rv-fl { display: grid; grid-template-columns: 5.5ch max-content; white-space: pre; min-width: 100%; width: max-content; }
+.rv-fl.cur { background: var(--ide-sel); box-shadow: inset 3px 0 0 var(--accent); }
+
+/* the review's tabs in the tool window */
+.rv-tabs { display: flex; gap: 2px; padding: 6px 8px; border-bottom: 1px solid var(--ide-line); flex-wrap: wrap; }
+.rv-tabs button { border: 0; background: none; color: var(--dim); font: 500 12.5px var(--f-body); padding: 4px 8px; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; }
+.rv-tabs button.on { background: var(--ide-sel); color: var(--fg); }
+.rv-pbody { flex: 1; min-height: 0; overflow: auto; padding: 10px 12px; scrollbar-width: thin; font-size: 13px; }
+.rv-stack { display: grid; gap: 10px; align-content: start; }
+.rv-stack h4 { margin: 4px 0 0; font: 600 11px var(--f-body); letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
+.rv-stack p { margin: 0; }
+.rv-empty { display: grid; gap: 8px; justify-items: start; padding: 10px; border: 1px dashed var(--ide-line); border-radius: 8px; }
+.rv-running { display: grid; gap: 6px; }
+.rv-running ul { margin: 0; padding-left: 16px; font-size: 12px; }
+.rv-diagram { margin: 0; padding: 8px 10px; border: 1px solid var(--ide-line); border-radius: 6px; background: var(--ide-bg); font: 11.5px/1.45 var(--f-mono); white-space: pre; overflow-x: auto; }
+.rv-list { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.rv-link { border: 0; background: none; color: var(--accent); padding: 0; font: inherit; cursor: pointer; text-align: left; overflow-wrap: anywhere; }
+.rv-link:hover { text-decoration: underline; }
+.rv-where { font-size: 12px; }
+.rv-warn { color: var(--warn); } .rv-ok { color: var(--ok); } .rv-bad { color: var(--bad); font-weight: 600; }
+.rv-desc { max-height: 260px; overflow: auto; border-left: 3px solid var(--ide-line); padding-left: 10px; }
+.rv-group { display: grid; gap: 8px; }
+.rv-group-h { border: 0; background: none; padding: 0; color: var(--dim); font: 600 11px var(--f-body); letter-spacing: .06em; text-transform: uppercase; text-align: left; cursor: pointer; display: flex; align-items: center; }
+.rv-find { border: 1px solid var(--ide-line); border-radius: 8px; background: var(--ide-bg); padding: 8px 10px; display: grid; gap: 4px; }
+.rv-find.muted { opacity: .65; }
+.rv-find-h { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.rv-find p { margin: 0; }
+.rv-thread { border: 1px solid var(--ide-line); border-radius: 8px; background: var(--ide-bg); padding: 8px 10px; display: grid; gap: 6px; }
+.rv-thread.resolved { opacity: .7; }
+.rv-comment { display: grid; gap: 2px; }
+.rv-comment .md { font-size: 13px; }
+.rv-reply { display: grid; gap: 6px; }
+.rv-check { margin: 0; padding-left: 0; list-style: none; display: grid; gap: 10px; }
+.rv-check .chk { display: flex; gap: 8px; align-items: flex-start; }
+
+/* popups: usages, Find action, Submit */
+.rv-pop { width: min(680px, 100%); }
+.rv-pop-h { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.rv-pop-f { padding: 8px 12px; border-top: 1px solid var(--border); display: block; }
+.rv-places { overflow: auto; display: grid; padding: 4px; outline: none; }
+.rv-place { display: grid; gap: 2px; text-align: left; border: 0; background: none; color: inherit; font: inherit; padding: 6px 10px; border-radius: 6px; cursor: pointer; }
+.rv-place.on, .rv-place:hover, .rv-place:focus-visible { background: var(--ide-sel); outline: none; }
+.rv-place-h { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.rv-place .rv-dim { white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+.rv-action { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.rv-keys { font: 12px var(--f-mono); color: var(--dim); white-space: nowrap; }
+.rv-submit { display: grid; gap: 10px; padding: 12px; }
+.rv-radio { display: flex; gap: 8px; align-items: flex-start; }

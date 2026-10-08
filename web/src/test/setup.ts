@@ -3,6 +3,7 @@ import { cleanup, configure } from "@testing-library/react";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, beforeEach, vi } from "vitest";
 import { resetFeatures } from "../addons";
+import { resetReviews } from "../components/review/store";
 import { resetProviderModels } from "../components/ModelPicker";
 import { resetAudio } from "../notify";
 import { createDb, handlers, type Db } from "./handlers";
@@ -27,6 +28,7 @@ beforeEach(() => {
   resetAudio();
   resetProviderModels();
   resetFeatures();
+  resetReviews();
 });
 afterEach(() => cleanup());
 afterAll(() => server.close());

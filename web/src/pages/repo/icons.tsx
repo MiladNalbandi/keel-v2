@@ -118,6 +118,7 @@ const PATHS: Record<string, string> = {
   up: "M12 19V5M6 11l6-6 6 6",
   down: "M12 5v14M6 13l6 6 6-6",
   lock: "M7 11V8a5 5 0 0 1 10 0v3M5.5 11h13v9.5h-13z",
+  review: "M4 5h16v10.5H11L6.5 19.5V15.5H4zM8.5 10.2l2.2 2.2 4.8-4.8",
   back: "M15 5l-7 7 7 7",
   more: "M5 12h.01M12 12h.01M19 12h.01",
   copy: "M9 9h11v11H9zM5 15H4V4h11v1",

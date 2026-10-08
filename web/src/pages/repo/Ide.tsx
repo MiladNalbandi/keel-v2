@@ -26,12 +26,18 @@ import { QuickOpen } from "./QuickOpen";
 import { ScmView } from "./Scm";
 import { SearchView } from "./Search";
 import { DbExplorer, DbTab, dbPath, dbTabTitle } from "../../components/plugins/DbTool";
+import { ReviewSide } from "../../components/review/ReviewSide";
+import { ReviewFileTab } from "../../components/review/ReviewFileTab";
+import { ReviewLayer } from "../../components/review/ReviewLayer";
+import { setOpener } from "../../components/review/store";
+import { doubleShift, ideActionFor } from "../../components/review/keymap";
 
-type Activity = "explorer" | "search" | "scm" | "db" | "keel";
+type Activity = "explorer" | "search" | "scm" | "review" | "db" | "keel";
 const ACTIVITIES: [Activity, string, string, string, string][] = [
   ["explorer", "Explorer", "files", "⇧E", "Files"],
   ["search", "Search", "search", "⇧F", "Search"],
   ["scm", "Source control", "branch", "⇧G", "Git"],
+  ["review", "Review", "review", "", "Review"],
   ["db", "Database", "database", "", "DB"],
   ["keel", "keel", "keel", "", "keel"],
 ];
@@ -63,9 +69,19 @@ function tabTitle(t: EditorTab): string {
   if (t.kind === "doctor") return "Workspace Doctor";
   if (t.kind === "db") return dbTabTitle(t.path);
   if (t.kind === "branch") return t.path;
+  if (t.kind === "review") {
+    const [key, file] = splitReview(t.path);
+    return `${nameOf(file)} (${key.startsWith("pr:") ? key.slice(3) : key.slice(7)})`;
+  }
   if (t.kind === "commit") return `${nameOf(t.path)} @ ${t.sha?.slice(0, 7)}`;
   return nameOf(t.path);
 }
+
+/** A review file tab's path: "<review key>|<file>" (pr:7|src/a.kt, branch:feat/x|src/a.kt). */
+const splitReview = (p: string): [string, string] => {
+  const i = p.indexOf("|");
+  return i < 0 ? [p, ""] : [p.slice(0, i), p.slice(i + 1)];
+};
 
 export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
   pid: string; repo: RepoInfo | null; version?: number;
@@ -203,6 +219,12 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
 
   const plugins = useLoad(`plugins:${pid}`, () => api.plugins(pid), { live: false });
   const dbOn = !!plugins.data?.find((x) => x.name === "db")?.enabled;
+  const reviewOn = !!plugins.data?.find((x) => x.name === "review")?.enabled;
+  // v0.14.0 a review opens its files as editor tabs (kind "review", path "<key>|<file>", view diff or code)
+  useEffect(() => {
+    setOpener((key, path, view, pin) => open({ kind: "review", path: `${key}|${path}`, view }, { pin }));
+    return () => setOpener(null);
+  }, [open]);
 
   const askHelper = useCallback(() => {
     const picked = codeSelection();
@@ -213,7 +235,22 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
 
   // keyboard: ⌘/Ctrl+P quick open, +Shift+F search, +Shift+E explorer, +Shift+G source control, +F find, +G go to line, Alt+Z wrap
   useEffect(() => {
+    const twice = doubleShift();
     const on = (e: KeyboardEvent) => {
+      // v0.14.0 IntelliJ's keys (keymap.ts): ⌘1 files, ⌘9 Git, ⇧⌘9 Review, ⇧⌘O and ⇧⇧ go to file, ⌘L go to line
+      if (twice(e)) {
+        setQo(true);
+        return;
+      }
+      const ij = ideActionFor(e);
+      if (ij) {
+        if (ij === "review" && !reviewOn) return;
+        e.preventDefault();
+        if (ij === "quickOpen") setQo(true);
+        else if (ij === "gotoLine") { if (codeActive) setCmd({ kind: "goto", n: Date.now() }); }
+        else showSide(ij);
+        return;
+      }
       const mod = e.metaKey || e.ctrlKey;
       const k = e.key.toLowerCase();
       if (e.altKey && !mod && e.code === "KeyZ") {
@@ -250,7 +287,7 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
     };
     window.addEventListener("keydown", on);
     return () => window.removeEventListener("keydown", on);
-  }, [showSide, codeActive, helperOpen, codeSelection, askHelper]);
+  }, [showSide, codeActive, helperOpen, codeSelection, askHelper, reviewOn]);
 
   // the IDE fills the window below the page head (measured again when the head grows, e.g. a merge result)
   useLayoutEffect(() => {
@@ -345,6 +382,11 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
           onDoctor={() => open({ kind: "doctor", path: "doctor" }, { pin: true })}
           onOpenBranch={(name, pin) => open({ kind: "branch", path: name }, { pin })} />
       </div>
+      {reviewOn && (
+        <div hidden={activity !== "review"} className="sv-host">
+          <ReviewSide pid={pid} activeFile={active?.kind === "review" ? (([key, path]) => ({ key, path }))(splitReview(active.path)) : null} />
+        </div>
+      )}
       {dbOn && (
         <div hidden={activity !== "db"} className="sv-host">
           <DbExplorer pid={pid} onConsole={(c) => open({ kind: "db", path: dbPath(c) }, { pin: true })}
@@ -385,6 +427,9 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
       onConn={(c) => setTabs((t) => retargetTab(t, id, { kind: "db", path: dbPath(c) }))} />;
   } else if (active.kind === "doctor") {
     body = <div className="ed-doc"><WorkspaceDoctor pid={pid} onClean={() => void changes.reload()} /></div>;
+  } else if (active.kind === "review") {
+    const [rkey, rfile] = splitReview(active.path);
+    body = <ReviewFileTab key={active.id} pid={pid} reviewKey={rkey} path={rfile} view={active.view === "code" ? "code" : "diff"} mode={diffMode} />;
   } else if (active.kind === "branch") {
     body = <BranchTab key={active.id} pid={pid} name={active.path} mode={diffMode}
       onOpenCommitFile={(sha, p, pin) => open({ kind: "commit", path: p, sha, view: "diff" }, { pin })} />;
@@ -490,7 +535,7 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
   return (
     <div ref={root} className={`ide${phone ? ` phone s-${screen}` : ""}${sideOpen ? "" : " side-closed"}${helperOpen ? " help-open" : ""}`} style={ide}>
       <nav className="ide-act" aria-label="Repo views">
-        {ACTIVITIES.filter(([id]) => id !== "db" || dbOn).map(([id, label, icon, key, short]) => {
+        {ACTIVITIES.filter(([id]) => (id !== "db" || dbOn) && (id !== "review" || reviewOn)).map(([id, label, icon, key, short]) => {
           const n = id === "scm" ? changes.data?.length ?? 0 : 0;
           return (
             <button key={id} type="button" className={`act${activity === id && sideOpen ? " on" : ""}`} aria-pressed={activity === id && sideOpen}
@@ -512,6 +557,10 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
         </button>
       </nav>
       <aside className="ide-side" aria-label={ACTIVITIES.find((a) => a[0] === activity)?.[1]}>{sideView}</aside>
+      {reviewOn && (
+        <ReviewLayer pid={pid} active={active?.kind === "review"
+          ? (([key, path]) => ({ key, path, view: active.view === "code" ? "code" as const : "diff" as const }))(splitReview(active.path)) : null} />
+      )}
       {!phone && sideOpen && (
         <div className="ide-split" role="separator" aria-orientation="vertical" aria-label="Resize the side bar" tabIndex={0}
           aria-valuenow={width} aria-valuemin={180} aria-valuemax={640} onPointerDown={drag}
@@ -557,7 +606,7 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
                     if (e.key === "Delete") close(t.id);
                     if (e.key === "Enter") setTabs((x) => pinTab(x, t.id));
                   }}>
-                  {t.kind === "file" || t.kind === "commit" ? <FileIcon name={nameOf(t.path)} /> : <Icon name={t.kind === "branch" ? "branch" : t.kind === "doctor" ? "refresh" : t.kind === "memory" ? "history" : "keel"} size={15} />}
+                  {t.kind === "file" || t.kind === "commit" ? <FileIcon name={nameOf(t.path)} /> : <Icon name={t.kind === "review" ? "review" : t.kind === "branch" ? "branch" : t.kind === "doctor" ? "refresh" : t.kind === "memory" ? "history" : "keel"} size={15} />}
                   <span className="ed-tab-n">{title}</span>
                   {dup && <span className="ed-tab-d">{t.path.split("/").slice(-2, -1)[0]}</span>}
                   {t.kind === "file" && t.view === "diff" && <span className="ed-tab-v">diff</span>}

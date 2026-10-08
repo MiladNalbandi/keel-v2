@@ -12,6 +12,7 @@ import { UsageLine } from "../components/UsageStrip";
 import { JiraSection } from "../components/JiraCard";
 import { DatabasesSection } from "../components/plugins/Databases";
 import { GitHubSection } from "../components/plugins/GitHubToken";
+import { GitLabSection } from "../components/plugins/GitLabConnection";
 
 const SECRET: Record<string, string> = { claude: "ANTHROPIC_API_KEY", codex: "OPENAI_API_KEY", copilot: "GITHUB_TOKEN" };
 // How to get each CLI login; it is stored encrypted in keel's database and handed to the CLI inside the container.
@@ -387,6 +388,7 @@ export function ConnectionsPage({ pid }: { pid: string }) {
       </Section>
       <JiraSection />
       <GitHubSection />
+      <GitLabSection />
       <DatabasesSection pid={pid} />
       <Section title="This machine" sub="Programs keel and its agents find in the container.">
         <Panel body="checks">

@@ -84,6 +84,9 @@ export function handlers(db: Db) {
       tools: { server: "keel-ci", read: ["ci_runs", "ci_failure"] }, actions: [{ name: "ci:wait", with: { minutes: "optional" }, summary: "wait for CI" }],
       shows_in: ["jobs", "workflows", "keelbot", "settings"], commands: [{ name: "ci", description: "Why did CI fail" }],
       enabled: db.plugins.ci ?? false, scope: db.plugins.ci ? "project" : null },
+    { name: "review", title: "Code Review", description: "Review the branch you are on or any pull request.", needs: ["github"],
+      tools: {}, actions: [], shows_in: ["code", "keelbot"], commands: [{ name: "review-branch", description: "Review this branch" }],
+      enabled: db.plugins.review ?? false, scope: db.plugins.review ? "project" : null },
   ];
   const log = async (req: Request) => {
     let body: unknown = null;
@@ -305,6 +308,8 @@ export function handlers(db: Db) {
       return HttpResponse.json(pluginList());
     }),
     http.get("/api/github", () => HttpResponse.json(db.github)),
+    // v0.14.0 Connections › GitLab (the Code Review plugin)
+    http.get("/api/gitlab", () => HttpResponse.json({ set: false, url: null, host: null, hint: null })),
     http.put("/api/secrets/:name", async ({ request, params }) => {
       if (params.name !== "GITHUB_REPO_TOKEN") return undefined;   // the providers' keys: the handler further down
       await log(request);
