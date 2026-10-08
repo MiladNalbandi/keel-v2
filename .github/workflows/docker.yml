@@ -1,7 +1,9 @@
 # Builds the image for amd64 + arm64 on a version tag (v*) and pushes it to
-#   ghcr.io/<owner>/keel-v2         always (uses the workflow's GITHUB_TOKEN)
+#   ghcr.io/<owner>/<repo>          always: the repo's own name (keel-studio/keel-app once the repo moved there)
+#   ghcr.io/miladnalbandi/keel-v2   the old name, while the secret LEGACY_GHCR_TOKEN exists (a token of MiladNalbandi
+#                                   with write:packages), so installs made before the move keep getting updates
 #   docker.io/<user>/keel-v2        when the secrets DOCKERHUB_USERNAME and DOCKERHUB_TOKEN exist
-# and the product edition (keel Product, beta) to ghcr.io/<owner>/keel-v2:<version>-product-beta and :product-beta,
+# and the product edition (keel Product, beta) to <image>:<version>-product-beta and :product-beta for each ghcr name,
 # which never move :latest.
 name: docker
 on:
@@ -11,20 +13,32 @@ on:
 permissions:
   contents: read
   packages: write
+env:
+  LEGACY_IMAGE: ghcr.io/miladnalbandi/keel-v2
+  LEGACY_USER: MiladNalbandi
 jobs:
   image:
     runs-on: ubuntu-latest
     env:
       HAS_DOCKERHUB: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+      HAS_LEGACY: ${{ secrets.LEGACY_GHCR_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
+      # one login per registry: the legacy token can push both names, the workflow's token only the repo's own
       - uses: docker/login-action@v3
+        if: env.HAS_LEGACY != 'true'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/login-action@v3
+        if: env.HAS_LEGACY == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ env.LEGACY_USER }}
+          password: ${{ secrets.LEGACY_GHCR_TOKEN }}
       - uses: docker/login-action@v3
         if: env.HAS_DOCKERHUB == 'true'
         with:
@@ -32,8 +46,8 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - id: names
         run: |
-          owner="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
-          images="ghcr.io/${owner}/keel-v2"
+          images="$(echo 'ghcr.io/${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+          if [ "$HAS_LEGACY" = "true" ] && [ "$images" != "$LEGACY_IMAGE" ]; then images="${images}"$'\n'"${LEGACY_IMAGE}"; fi
           if [ "$HAS_DOCKERHUB" = "true" ]; then images="${images}"$'\n'"docker.io/${{ secrets.DOCKERHUB_USERNAME }}/keel-v2"; fi
           { echo "images<<EOF"; echo "$images"; echo "EOF"; } >> "$GITHUB_OUTPUT"
       - uses: docker/metadata-action@v5
@@ -63,20 +77,31 @@ jobs:
   product:
     # keel Product (product/, an add-on) is beta: its edition gets its own tags and never :latest
     runs-on: ubuntu-latest
+    env:
+      HAS_LEGACY: ${{ secrets.LEGACY_GHCR_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
+        if: env.HAS_LEGACY != 'true'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/login-action@v3
+        if: env.HAS_LEGACY == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ env.LEGACY_USER }}
+          password: ${{ secrets.LEGACY_GHCR_TOKEN }}
       - id: names
         run: |
-          owner="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+          image="$(echo 'ghcr.io/${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+          images="$image"
+          if [ "$HAS_LEGACY" = "true" ] && [ "$image" != "$LEGACY_IMAGE" ]; then images="$image $LEGACY_IMAGE"; fi
           version="${GITHUB_REF_NAME#v}"
-          { echo "tags<<EOF"; echo "ghcr.io/${owner}/keel-v2:${version}-product-beta"; echo "ghcr.io/${owner}/keel-v2:product-beta"; echo "EOF"; } >> "$GITHUB_OUTPUT"
+          { echo "tags<<EOF"; for i in $images; do echo "$i:${version}-product-beta"; echo "$i:product-beta"; done; echo "EOF"; } >> "$GITHUB_OUTPUT"
       - uses: docker/build-push-action@v6
         with:
           context: .
