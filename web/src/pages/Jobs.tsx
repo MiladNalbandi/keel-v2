@@ -1,15 +1,18 @@
-// Jobs (Run): every agent call. What runs now sits on top (only while something runs); the history is always there
-// below it — agent, flow step, model, tokens, time and status, one row per call — and a row opens its steps in place.
+// Jobs (Run): every agent call — agent, flow step, model, tokens, time and status, one row per call — and a row opens
+// its steps in place. v0.15.2 Running and Finished are two tabs with their counts (the chosen tab is kept in this
+// browser; before any choice Running opens while something runs), and one search box finds calls by agent, model,
+// provider, project, flow step, AC and status.
 
 import { useEffect, useRef, useState } from "react";
 import { api, errorParts, type Job } from "../api";
 import { EmptyState } from "../components/EmptyState";
+import { jobMatches, RunSearch, RunTabs, searchWords, useDebounced, useFinished, useRunTab } from "../components/RunSearch";
 import { StartFlowDrawer } from "../components/StartFlow";
 import { mergeSteps } from "../components/StepFeed";
 import { FilesTouched, Outcome, StepView, useJumpToStep } from "../components/StepView";
 import { PipelinesView } from "../components/plugins/Pipelines";
 import { ErrorBox, GoButton, Loading, PageHead, Panel, Pill, Prov, Since, StatusPill, Tabs } from "../components/ui";
-import { clock, kfmt, plural, since, usd } from "../format";
+import { clock, kfmt, since, usd } from "../format";
 import { go, useApp, useLoad, useRoute } from "../state";
 import { useJobSteps } from "./Live";
 
@@ -98,33 +101,43 @@ export function JobsPage({ pid }: { pid: string }) {
   const [fProject, setFProject] = useState(pid);
   const [fProvider, setFProvider] = useState("");
   const [fStatus, setFStatus] = useState("");
+  const [search, setSearch] = useState("");
   const [start, setStart] = useState(false);
-  const running = useLoad(`jobs-now:${pid}`, () => api.jobs({ project: pid, status: "running" }));
-  const histKey = `jobs-hist:${fProject}:${fProvider}:${fStatus}`;
-  const hist = useLoad(histKey, () => api.jobs({ project: fProject || undefined, provider: fProvider || undefined, status: fStatus || undefined }));
+  // v0.15.2 running calls: all of them, the search filters them here; finished calls: the api searches and counts them
+  const running = useLoad(`jobs-now:${fProject}:${fProvider}`, () => api.jobs({ project: fProject || undefined, provider: fProvider || undefined, status: "running" }));
+  const dq = useDebounced(search.trim());
+  const fin = useFinished(`jobs:${fProject}:${fProvider}:${fStatus}`, dq,
+    (q) => api.jobs({ project: fProject || undefined, provider: fProvider || undefined, status: fStatus || "finished", q: q || undefined }),
+    (q) => api.jobCount({ project: fProject || undefined, provider: fProvider || undefined, status: fStatus || "finished", q: q || undefined }));
   useEffect(() => {
     const t = window.setInterval(() => void running.reload(), 5000);
     return () => window.clearInterval(t);
   }, [running.reload]);
-  // a call that ends leaves "Running now": show it in the history too
+  // a call that ends leaves Running: show it in Finished too
   const n = running.data?.length ?? 0;
   const prevN = useRef(n);
   useEffect(() => {
-    if (n < prevN.current) void hist.reload();
+    if (n < prevN.current) fin.reload();
     prevN.current = n;
-  }, [n, hist.reload]);
+  }, [n, fin.reload]);
+  const [tab, setTab] = useRunTab("keel2.jobs.tab", !!running.data || !!running.error, n);
   const pname = (id: string) => projects.find((p) => p.id === id)?.name ?? id;
-  const filtered = fProject !== pid || !!fProvider || !!fStatus;
+  const words = searchWords(search);
+  const runList = (running.data ?? []).filter((j) => jobMatches(j, words, pname(j.project_id)));
+  const list = (fin.rows ?? []).filter((j) => j.status !== "running" && jobMatches(j, words, pname(j.project_id)));
+  const fresh = fin.q === search.trim();
+  const finCount = fin.rows === null ? null : fresh && fin.total !== null ? fin.total : list.length;
+  const filtered = fProject !== pid || !!fProvider || (tab === "finished" && !!fStatus);
   const clear = () => {
     setFProject(pid);
     setFProvider("");
     setFStatus("");
   };
-  const list = hist.data ?? [];
+  const clearSearch = <button className="btn sm" type="button" onClick={() => setSearch("")}>Clear the search</button>;
   const showProject = !fProject;
   const showCost = list.some((j) => j.cost_usd > 0);
   const cols = 7 + (showProject ? 1 : 0) + (showCost ? 1 : 0);
-  const open = arg && list.some((j) => j.id === arg) ? arg : null;
+  const open = tab === "finished" && arg && list.some((j) => j.id === arg) ? arg : null;
   const plugins = useLoad(`plugins:${pid}`, () => api.plugins(pid), { live: false });
   const ciOn = !!plugins.data?.find((p) => p.name === "ci")?.enabled;
   const tabs = ciOn ? (
@@ -146,63 +159,87 @@ export function JobsPage({ pid }: { pid: string }) {
         actions={running.data ? (n ? <Pill tone="run">{n} running now</Pill> : <Pill tone="idle">nothing running</Pill>) : undefined} />
       {tabs && <div style={{ marginBottom: 12 }}>{tabs}</div>}
       {running.error && <div style={{ marginBottom: 16 }}><ErrorBox error={running.error} onRetry={() => void running.reload()} /></div>}
-      {n > 0 && (
-        <section className="jobs-sec" aria-labelledby="jobs-now-h">
-          <h2 className="sec-h" id="jobs-now-h">Running now <span className="sub num">{n}</span></h2>
-          <div className="run-cards">
-            {running.data!.map((j) => <RunningCard key={j.id} j={j} />)}
-          </div>
+      <div className="pg-bar run-bar">
+        <RunTabs value={tab ?? "running"} onChange={setTab} label="Running or finished" running={running.data ? runList.length : null} finished={finCount} />
+        <div className="row jobs-filters" role="group" aria-label="Filters">
+          <RunSearch value={search} onChange={setSearch} label="Search calls" placeholder="Search agent, model, project, step, status" />
+          <select aria-label="Filter by project" value={fProject} onChange={(e) => setFProject(e.target.value)}>
+            <option value="">All projects</option>
+            {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          <select aria-label="Filter by provider" value={fProvider} onChange={(e) => setFProvider(e.target.value)}>
+            <option value="">All providers</option>
+            <option value="claude">Claude</option><option value="codex">GPT / Codex</option><option value="copilot">Copilot</option><option value="fake">Fake model</option>
+          </select>
+          {tab === "finished" && (
+            <select aria-label="Filter by status" value={fStatus} onChange={(e) => setFStatus(e.target.value)}>
+              <option value="">Any status</option><option value="done">done</option><option value="failed">failed</option>
+            </select>
+          )}
+          {filtered && <button className="btn sm ghost" type="button" onClick={clear}>Clear filters</button>}
+        </div>
+      </div>
+      {arg && arg !== "pipelines" && !open && fin.rows && <JobSteps key={arg} id={arg} onClose={() => go("jobs")} />}
+      {tab === null ? (
+        !running.error && <div className="panel"><Loading what="Loading the calls" /></div>
+      ) : tab === "running" ? (
+        <section className="jobs-sec" aria-label="Running now">
+          {!running.data ? (!running.error && <div className="panel"><Loading what="Loading the running calls" /></div>)
+            : runList.length ? <div className="run-cards">{runList.map((j) => <RunningCard key={j.id} j={j} />)}</div>
+              : (
+                <div className="panel">
+                  {words.length ? (
+                    <EmptyState title="No running call matches this search" action={clearSearch}>
+                      The search looks in the agent, model, provider, project, flow step, AC and status.
+                    </EmptyState>
+                  ) : (
+                    <EmptyState title="Nothing runs now" action={<button className="btn sm" type="button" onClick={() => setTab("finished")}>Show the finished calls</button>}>
+                      When a flow reaches an agent step, the call shows up here while it works.
+                    </EmptyState>
+                  )}
+                </div>
+              )}
+        </section>
+      ) : (
+        <section className="jobs-sec" aria-label="Finished calls">
+          {fin.error && !fin.rows ? <ErrorBox error={fin.error} onRetry={fin.reload} />
+            : !fin.rows ? <div className="panel"><Loading what="Loading the history" /></div>
+              : !list.length ? (
+                <div className="panel">
+                  {words.length ? (
+                    <EmptyState title="No finished call matches this search" action={clearSearch}>
+                      The search looks in the agent, model, provider, project, flow step, AC and status.
+                    </EmptyState>
+                  ) : filtered ? (
+                    <EmptyState title="No call matches these filters" action={<button className="btn sm" type="button" onClick={clear}>Clear filters</button>}>
+                      Try another project, provider or status.
+                    </EmptyState>
+                  ) : (
+                    <EmptyState title={fProject ? "No agent has run in this project yet" : "No agent has run yet"}
+                      action={<button className="btn primary" type="button" onClick={() => setStart(true)}>Start a flow</button>}>
+                      Start a flow. Every agent call then shows up here with its steps, tokens and time.
+                    </EmptyState>
+                  )}
+                </div>
+              ) : (
+                <div className="panel"><div className="table-wrap"><table className="jobs-t" aria-label="Agent calls">
+                  <thead><tr>
+                    <th>When</th>{showProject && <th>Project</th>}<th>Agent</th><th>Flow step</th><th>Model</th>
+                    <th title="new input / output (+ cached context re-sent)">Tokens in / out</th><th>Time</th>{showCost && <th>Cost</th>}<th>Status</th>
+                  </tr></thead>
+                  <tbody>
+                    {list.map((j) => (
+                      <JobRowWithSteps key={j.id} j={j} open={open === j.id} cols={cols} pname={pname(j.project_id)} showProject={showProject} showCost={showCost} />
+                    ))}
+                  </tbody>
+                </table></div></div>
+              )}
+          {fresh && finCount !== null && finCount > list.length && list.length > 0 && (
+            <p className="hint">The newest {list.length} of {finCount} finished calls. Search to find an older one.</p>
+          )}
+          {showCost && <p className="hint">Cost shows only for API-key and Claude CLI calls; subscription CLIs report tokens without a price.</p>}
         </section>
       )}
-      {arg && !open && hist.data && <JobSteps key={arg} id={arg} onClose={() => go("jobs")} />}
-      <section className="jobs-sec" aria-labelledby="jobs-hist-h">
-        <div className="sec-bar">
-          <h2 className="sec-h" id="jobs-hist-h">History {hist.data && <span className="sub num">{plural(list.length, "call")}</span>}</h2>
-          <div className="row jobs-filters" role="group" aria-label="Filters">
-            <select aria-label="Filter by project" value={fProject} onChange={(e) => setFProject(e.target.value)}>
-              <option value="">All projects</option>
-              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
-            <select aria-label="Filter by provider" value={fProvider} onChange={(e) => setFProvider(e.target.value)}>
-              <option value="">All providers</option>
-              <option value="claude">Claude</option><option value="codex">GPT / Codex</option><option value="copilot">Copilot</option><option value="fake">Fake model</option>
-            </select>
-            <select aria-label="Filter by status" value={fStatus} onChange={(e) => setFStatus(e.target.value)}>
-              <option value="">Any status</option><option value="running">running</option><option value="done">done</option><option value="failed">failed</option>
-            </select>
-            {filtered && <button className="btn sm ghost" type="button" onClick={clear}>Clear filters</button>}
-          </div>
-        </div>
-        {hist.error && !hist.data ? <ErrorBox error={hist.error} onRetry={() => void hist.reload()} />
-          : !hist.data ? <div className="panel"><Loading what="Loading the history" /></div>
-            : !list.length ? (
-              <div className="panel">
-                {filtered ? (
-                  <EmptyState title="No call matches these filters" action={<button className="btn sm" type="button" onClick={clear}>Clear filters</button>}>
-                    Try another project, provider or status.
-                  </EmptyState>
-                ) : (
-                  <EmptyState title={fProject ? "No agent has run in this project yet" : "No agent has run yet"}
-                    action={<button className="btn primary" type="button" onClick={() => setStart(true)}>Start a flow</button>}>
-                    Start a flow. Every agent call then shows up here with its steps, tokens and time.
-                  </EmptyState>
-                )}
-              </div>
-            ) : (
-              <div className="panel"><div className="table-wrap"><table className="jobs-t" aria-label="Agent calls">
-                <thead><tr>
-                  <th>When</th>{showProject && <th>Project</th>}<th>Agent</th><th>Flow step</th><th>Model</th>
-                  <th title="new input / output (+ cached context re-sent)">Tokens in / out</th><th>Time</th>{showCost && <th>Cost</th>}<th>Status</th>
-                </tr></thead>
-                <tbody>
-                  {list.map((j) => (
-                    <JobRowWithSteps key={j.id} j={j} open={open === j.id} cols={cols} pname={pname(j.project_id)} showProject={showProject} showCost={showCost} />
-                  ))}
-                </tbody>
-              </table></div></div>
-            )}
-        {showCost && <p className="hint">Cost shows only for API-key and Claude CLI calls; subscription CLIs report tokens without a price.</p>}
-      </section>
       {start && <StartFlowDrawer onClose={() => setStart(false)} />}
     </>
   );

@@ -199,7 +199,11 @@ POST   /api/threads/{tid}/rewind  { checkpoint_id }   → ThreadState
 GET    /api/projects/{pid}/estimate?workflow_id=&acs=3 → Estimate     (uses this project's job history)
 
 # jobs / live (Run)
-GET    /api/jobs?project=&status=running|done|failed&agent=&provider=&limit=50 → Job[]
+GET    /api/jobs?project=&status=running|done|failed|finished&agent=&provider=&q=&limit=50 → Job[]
+GET    /api/jobs/count?project=&status=&agent=&provider=&q=  → { count }   (v0.15.2: same filters, no limit)
+       status finished = every call that does not run any more (done also means stopped). q = search words, each
+       one must be in the id, agent, provider (or its web name, e.g. "GPT / Codex"), model, step, phase, AC, status,
+       project id or project name; case does not matter.
 GET    /api/jobs/{id}                                 → Job & { steps: JobStep[] }
 GET    /api/jobs/{id}/steps?after=n                   → { steps: JobStep[], running: bool }
 POST   /api/jobs/{id}/stop

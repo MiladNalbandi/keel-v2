@@ -16,13 +16,13 @@ import { db, FakeEventSource, server } from "./setup";
 const main = () => within(document.getElementById("main")!);
 const ago = (s: number) => new Date(Date.now() - s * 1000).toISOString();
 
-/** GET /api/jobs answers from this list (filtered by status and project like the api). */
+/** GET /api/jobs answers from this list (filtered by status and project like the api; "finished" = not running). */
 function jobsServer(list: Job[]) {
   server.use(http.get("/api/jobs", ({ request }) => {
     const u = new URL(request.url);
     const st = u.searchParams.get("status");
     const pid = u.searchParams.get("project");
-    return HttpResponse.json(list.filter((j) => (!st || j.status === st) && (!pid || j.project_id === pid)));
+    return HttpResponse.json(list.filter((j) => (!st || (st === "finished" ? j.status !== "running" : j.status === st)) && (!pid || j.project_id === pid)));
   }));
 }
 const finishedOnly = () => fx.jobs.filter((j) => j.status !== "running");
@@ -51,12 +51,15 @@ describe("Jobs", () => {
     expect(row).toHaveTextContent("done");
   });
 
-  it("keeps Running now on top while something runs, with the history under it", async () => {
+  it("opens on Running while something runs; the history is in the Finished tab", async () => {
+    const user = userEvent.setup();
+    jobsServer(fx.jobs);
     await at("#/jobs");
     const now = await main().findByRole("region", { name: /Running now/ });
     expect(within(now).getByText("ac-reviewer")).toBeInTheDocument();
     expect(within(now).getByRole("link", { name: "Watch live" })).toHaveAttribute("href", "#/live/j-482");
     expect(main().getByText("1 running now")).toBeInTheDocument();
+    await user.click(main().getByRole("tab", { name: /Finished/ }));
     expect(await main().findByRole("table", { name: "Agent calls" })).toBeInTheDocument();
   });
 
@@ -92,16 +95,18 @@ describe("Jobs", () => {
 });
 
 describe("Live agents", () => {
-  it("with nobody working, shows the last agent's feed and lists the recent ones (not folded)", async () => {
+  it("with nobody working, shows the last agent's feed and lists the finished ones (not folded)", async () => {
+    const user = userEvent.setup();
     jobsServer(finishedOnly());
     await at("#/live");
     expect(await main().findByText("No agent is working right now. This is the last one that ran.")).toBeInTheDocument();
     expect(main().getByRole("heading", { name: "implementer · AC-002" })).toBeInTheDocument();
     expect(await main().findByRole("region", { name: "Outcome" })).toBeInTheDocument();
-    const recent = main().getByRole("region", { name: "Recent" });
-    const pick = within(recent).getByRole("button", { name: /implementer/ });
+    const recent = await main().findByRole("region", { name: "Finished" });
+    const pick = await within(recent).findByRole("button", { name: /implementer/ });
     expect(pick).toHaveAttribute("aria-pressed", "true");
     expect(pick).toHaveTextContent("green · AC-002 · Copilot");
+    await user.click(main().getByRole("tab", { name: /Working now/ }));
     expect(main().getByText("No agent is working in this project. When a flow reaches an agent step, it shows up here.")).toBeInTheDocument();
   });
 
