@@ -1,0 +1,31 @@
+# The differences between the released keel (A) and the plugin-based keel (B) that are meant to be, each with a
+# reason. parity.py fails on every other difference. Keep this list short: a difference people would notice is a bug
+# to fix, not an entry here.
+#
+#   what    the id as the parity table prints it (a glob: * matches anything); without "[off]"/"[on]" it matches both
+#           rounds
+#   detail  optional (a glob): only a difference whose every line matches it is allowed
+#   why     the reason
+
+# ---- new endpoints of the plugin track (listed as "new in B"; never a failure, documented here)
+
+- what: api GET /api/plugin-host
+  why: step 1, the plugin host - which plugins are loaded, from where, and the problems (docs/plugins/05-migration.md)
+
+- what: api GET /api/approvals
+  why: step 2, approvals became a core service that every part asks through (docs/plugins/09-step2-contract.md)
+
+- what: api GET /api/connections/kinds
+  why: step 2, Connections lists the kinds of connection the parts register (Jira, databases, ...)
+
+- what: api GET /api/settings/sections
+  why: step 2, Settings shows the sections the parts register
+
+- what: api GET */settings/plugins/*
+  why: step 2, a plugin's own settings (general and per project)
+
+# ---- additions to an existing answer (B has more, A's keys are all there)
+
+- what: api GET /api/features
+  detail: "$.plugins: only in B"
+  why: step 1, the plugin host adds the loaded plugins' web parts to /api/features (what the web app loads at start)
