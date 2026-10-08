@@ -288,7 +288,9 @@ class FlowService(
             "worktree" -> true
             "folder" -> if (busy) throw Conflict("A flow already runs in the project folder",
                 "Start this one in its own worktree (it runs next to the other one), or wait until that flow ends.") else false
-            else -> throw BadRequest("where must be folder, worktree or auto")
+            // v0.13.0 a flow that writes only its own files (an add-on's documents) shares the folder with the others
+            "shared" -> false
+            else -> throw BadRequest("where must be folder, worktree, shared or auto")
         }
     }
 

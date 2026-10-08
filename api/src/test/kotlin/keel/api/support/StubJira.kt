@@ -45,8 +45,13 @@ class StubJira private constructor(private val server: HttpServer, val kind: Str
     /** Cloud only: false = an older site without /rest/api/3/search/jql (404); /rest/api/2/search answers instead. */
     @Volatile var enhancedSearch = true
 
+    /** v0.13.0 issue types this Jira has not (POST /rest/api/2/issue answers 400 for them), and the links made. */
+    val missingTypes = ConcurrentHashMap.newKeySet<String>()
+    val links = CopyOnWriteArrayList<Triple<String, String, String>>()
+    private val created = java.util.concurrent.atomic.AtomicInteger(100)
+
     fun reset() {
-        calls.clear(); issues.clear(); failures.clear(); noWayTo.clear(); enhancedSearch = true
+        calls.clear(); issues.clear(); failures.clear(); noWayTo.clear(); enhancedSearch = true; missingTypes.clear(); links.clear()
     }
 
     fun add(key: String, summary: String, status: String = "To Do", type: String = "Story", description: String = "", assignee: String? = "Dev One") {
@@ -128,6 +133,23 @@ class StubJira private constructor(private val server: HttpServer, val kind: Str
                 mapOf("id" to "customfield_10030", "name" to "Story points", "custom" to true, "schema" to mapOf("type" to "number")),
             )
             path == "/rest/api/2/user/search" -> 200 to (if (cloud) listOfNotNull(users[q["query"]]?.let { mapOf("accountId" to it) }) else emptyList())
+            path == "/rest/api/2/issue" && method == "POST" -> {
+                val f = body?.get("fields")
+                val type = f?.get("issuetype")?.get("name")?.asText().orEmpty()
+                val project = f?.get("project")?.get("key")?.asText().orEmpty()
+                if (type in missingTypes || project.isEmpty()) return 400 to mapOf("errors" to mapOf("issuetype" to "Specify a valid issue type"))
+                val parent = f?.get("parent")?.get("key")?.asText()
+                if (parent != null && issues[parent] == null) return 400 to mapOf("errors" to mapOf("parent" to "Could not find issue by id or key."))
+                val key = "$project-${created.incrementAndGet()}"
+                issues[key] = Issue(f?.get("summary")?.asText().orEmpty(), "To Do", type, null, null, f?.get("description")?.asText().orEmpty())
+                parent?.let { issues.getValue(key).fields["parent"] = it }
+                201 to mapOf("id" to "1${created.get()}", "key" to key)
+            }
+            path == "/rest/api/2/issueLink" && method == "POST" -> {
+                links += Triple(body?.get("type")?.get("name")?.asText().orEmpty(), body?.get("inwardIssue")?.get("key")?.asText().orEmpty(),
+                    body?.get("outwardIssue")?.get("key")?.asText().orEmpty())
+                201 to null
+            }
             path.endsWith("/transitions") && method == "GET" -> {
                 val i = issues.getValue(issueKey!!)
                 200 to mapOf("transitions" to statuses.keys.filter { it != i.status && it !in noWayTo }.map { s ->

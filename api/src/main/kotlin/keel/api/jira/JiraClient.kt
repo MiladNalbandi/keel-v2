@@ -204,6 +204,19 @@ class JiraClient(
         return JiraMove(true, now, t.to, t.name)
     }
 
+    /** v0.13.0 a new ticket (REST v2): `fields` as Jira wants them (project, issuetype, summary, ...). Returns its key. */
+    fun createIssue(fields: Map<String, Any?>): String {
+        val out = send("POST", "/rest/api/2/issue", mapOf("fields" to fields), "a new ticket")
+        return out.get("key")?.asText()?.takeIf { it.isNotBlank() }
+            ?: throw JiraException("bad_request", null, "Jira created no ticket.", "Check the project key and the issue type.")
+    }
+
+    /** v0.13.0 a link between two tickets, by Jira's link names: type "Blocks" = [inward] is blocked by [outward]. */
+    fun linkIssues(type: String, inward: String, outward: String) {
+        send("POST", "/rest/api/2/issueLink", mapOf("type" to mapOf("name" to type), "inwardIssue" to mapOf("key" to inward),
+            "outwardIssue" to mapOf("key" to outward)), "a link between $inward and $outward")
+    }
+
     /** A plain-text comment (REST v2 on Cloud and Server). */
     fun comment(key: String, text: String) {
         send("POST", "/rest/api/2/issue/${enc(key)}/comment", mapOf("body" to text), "ticket $key")

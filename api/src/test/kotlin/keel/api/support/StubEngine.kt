@@ -71,6 +71,9 @@ class StubEngine private constructor(private val server: HttpServer) {
     /** v0.13.0 more engine templates (an add-on's workflows, with "addon"), after keel's own. */
     val extraTemplates = CopyOnWriteArrayList<Map<String, Any?>>()
 
+    /** v0.13.0 an add-on's engine routes (exact path → answer), before keel's own. */
+    val extraRoutes = java.util.concurrent.ConcurrentHashMap<String, (JsonNode?) -> Pair<Int, Any?>>()
+
     /** Extra ThreadState fields per thread id (for example a "fix" wait), merged over the default. */
     val overrides = java.util.concurrent.ConcurrentHashMap<String, Map<String, Any?>>()
 
@@ -114,6 +117,7 @@ class StubEngine private constructor(private val server: HttpServer) {
     ) + overrides[id].orEmpty()
 
     private fun route(method: String, path: String, body: JsonNode?): Pair<Int, Any?> = when {
+        extraRoutes.containsKey(path) -> extraRoutes.getValue(path)(body)
         path == "/health" -> 200 to mapOf("ok" to true, "version" to "stub", "fake" to true)
         path == "/agents/ask" -> 200 to (askAnswer ?: mapOf("ok" to true, "fake" to true, "text" to ""))
         path == "/templates" -> 200 to listOf(featureTemplate, knowledgeTemplate, ciFixTemplate) + extraTemplates
