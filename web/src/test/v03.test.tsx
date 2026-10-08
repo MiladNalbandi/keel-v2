@@ -134,6 +134,8 @@ const note = (over: Partial<Notification> = {}): Notification => ({
   body: "AC-002 — ac-reviewer says PASS", link: "#/jobs", at: new Date().toISOString(), read: false, ...over,
 });
 async function ready() {
+  // v0.15.0 keel is off until the person turns it on
+  localStorage.setItem("keel2.mascot", "1");
   render(<App />);
   await screen.findByText(/AC gate — AC-002/);
   await waitFor(() => expect(FakeEventSource.instances.length).toBeGreaterThan(0));
@@ -184,6 +186,18 @@ describe("keel mascot", () => {
     expect(screen.queryByTestId("mascot")).not.toBeInTheDocument();
     expect(localStorage.getItem("keel2.mascot")).toBe("0");
     expect(calls("PUT", "/api/notification-settings")).toHaveLength(0);
+  });
+
+  it("is off at first; Settings › This browser turns it on next to the bell, and the logo stays", async () => {
+    const user = userEvent.setup();
+    location.hash = "#/settings";
+    render(<App />);
+    const box = await screen.findByRole("region", { name: "This browser" });
+    expect(screen.queryByTestId("mascot")).not.toBeInTheDocument();
+    expect(document.querySelector(".side-head .brand svg")).toBeInTheDocument();
+    await user.click(within(box).getByRole("switch", { name: "Show keel next to the bell" }));
+    expect(screen.getByTestId("mascot")).toBeInTheDocument();
+    expect(localStorage.getItem("keel2.mascot")).toBe("1");
   });
 });
 

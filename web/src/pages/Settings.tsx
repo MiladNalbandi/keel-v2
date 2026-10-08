@@ -205,6 +205,25 @@ function KeelModePanel({ onSaved, onError }: { onSaved: (text: string) => void; 
   );
 }
 
+/** v0.15.0 choices kept in this browser only, whichever scope is shown. */
+function BrowserPanel() {
+  const { showMascot, setShowMascot } = useApp();
+  return (
+    <section className="panel sg-sec" id="sg-browser" aria-labelledby="sg-browser-h">
+      <header className="sg-sec-h">
+        <h2 id="sg-browser-h">This browser</h2>
+        <p>Only for you, in this browser. Nothing here is saved on the keel.</p>
+      </header>
+      <div className="field sg-browser">
+        <label className="chk switch">
+          <input type="checkbox" role="switch" checked={showMascot} onChange={(e) => setShowMascot(e.target.checked)} /> Show keel next to the bell
+        </label>
+        <span className="hint">The little hull jumps when something arrives and says what it is. Off at first.</span>
+      </div>
+    </section>
+  );
+}
+
 export function SettingsPage({ pid }: { pid: string }) {
   const { project } = useApp();
   const [scope, setScope] = useState<"general" | "project">(pid ? "project" : "general");
@@ -319,6 +338,7 @@ export function SettingsPage({ pid }: { pid: string }) {
                 </div>
               </section>
             )}
+            {!filter && <BrowserPanel />}
           </div>
           <nav className="sg-nav" aria-label="Settings sections">
             <span className="sg-nav-h">On this page</span>
@@ -330,6 +350,9 @@ export function SettingsPage({ pid }: { pid: string }) {
                 </button>
               );
             })}
+            {!filter && (
+              <button type="button" onClick={() => document.getElementById("sg-browser")?.scrollIntoView({ behavior: "smooth", block: "start" })}>This browser</button>
+            )}
           </nav>
         </div>
       )}

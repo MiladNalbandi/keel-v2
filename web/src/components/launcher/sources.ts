@@ -681,8 +681,9 @@ export function startGroups(
       return it ? [it] : [];
     })
     .slice(0, 5);
-  const quick = actionItems(ctx).filter((i) =>
-    ["act:ask", "act:file", "act:new-flow"].includes(i.id),
+  // a quick action already under Recent is not shown twice
+  const quick = actionItems(ctx).filter(
+    (i) => ["act:ask", "act:file", "act:new-flow"].includes(i.id) && !mine.some((m) => m.id === i.id),
   );
   return [
     { label: "Waiting for you", items: [...waits, ...review] },

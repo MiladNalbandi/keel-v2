@@ -37,7 +37,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .side { border-right: 1px solid var(--border); padding: 18px 12px; display: flex; flex-direction: column; gap: 18px; position: sticky; top: env(safe-area-inset-top, 0px); height: 100vh; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 .side > * { flex-shrink: 0; }
 .brand { display: flex; align-items: center; gap: 10px; padding: 0 8px; }
-.brand svg { width: 34px; height: 20px; }
+.brand svg { width: 34px; height: 20px; flex: none; }
 .brand b { font-size: 16px; letter-spacing: -.01em; }
 .brand span { font-size: 11px; color: var(--dim); border: 1px solid var(--border); border-radius: 999px; padding: 0 7px; }
 .nav { display: flex; flex-direction: column; gap: 2px; }

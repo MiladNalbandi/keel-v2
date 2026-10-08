@@ -84,11 +84,12 @@ export function useApp(): Ctx {
 
 const PROJECT_KEY = "keel2.project";
 const MASCOT_KEY = "keel2.mascot";
+// v0.15.0 off unless the person turned it on (Settings › This browser, or the notification settings)
 function storedMascot(): boolean {
   try {
-    return localStorage.getItem(MASCOT_KEY) !== "0";
+    return localStorage.getItem(MASCOT_KEY) === "1";
   } catch {
-    return true;
+    return false;
   }
 }
 function storedProject(): string | null {

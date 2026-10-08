@@ -186,6 +186,7 @@
 .sg-ctl > select, .sg-ctl > .sg-input { width: 100%; border: 1px solid var(--border); background: var(--bg); border-radius: 7px; padding: 6px 8px; }
 .sg-ctl .model-picker select { border: 1px solid var(--border); background: var(--bg); border-radius: 7px; padding: 5px 8px; }
 .kv.sg-kv { padding: 14px 18px; grid-template-columns: 90px minmax(0,1fr); }
+.sg-browser { padding: 14px 18px; margin: 0; }
 .sg-help.is-warn { color: var(--warn); }
 @media (max-width: 1279px) { .sg-layout { grid-template-columns: minmax(0,1fr); } .sg-nav { display: none; } }
 @media (max-width: 900px) {

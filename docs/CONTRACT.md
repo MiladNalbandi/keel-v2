@@ -1744,3 +1744,5 @@ other projects. The selected result shows a preview (a file around its line, a p
 - `?` asks KeelBot in a new Ask chat (read only: `POST …/helper/sessions {mode: ask}` and a turn); the answer shows in
   the launcher with its file:line links; ⌘↩ continues the chat on KeelBot's page.
 - `#/repo/@review/<key>` (e.g. `#/repo/@review/pr%3A7`) opens that review in Code's Review tool window.
+- keel (the pet by the bell) is off at first; Settings › This browser (or the notification settings) turns it on, kept
+  in this browser (`keel2.mascot` = `1`). The logo next to "keel" no longer shrinks away when the row is full.
