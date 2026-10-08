@@ -1,0 +1,29 @@
+id: product-decide
+name: decide (keel Product)
+keel_rules: false
+version: 1
+# keel Product, stage Decision. The decision memo (value, cost, time, risk, three options), the presentation built from
+# the documents, then the product owner's choice: go (with an option), not now, or back to the memo with a note.
+steps:
+  - id: memo
+    kind: agent
+    name: decision memo
+    agent: product-manager
+    phase: review
+    keep: true
+    markers: [RECOMMEND]
+    instructions: >-
+      Write the decision memo for the initiative in the request, from its brief and its impact. Between BEGIN-DOC and
+      END-DOC: ## Value (the outcome metric, from → to), ## Cost (developer days as a range per team and in total, and
+      how sure you are: low, medium or high), ## Time (weeks, and what the critical path is), ## Risk (the biggest
+      risks, and what we do about each), ## Options with A · MVP, B · Full and C · Not now (for each: what it is, cost,
+      time, risk and gain). An estimate is always a range, never one number. Say which option you recommend and why.
+      End with the line RECOMMEND: A, RECOMMEND: B or RECOMMEND: C. A note from the product owner: {{data.note}}
+  - { id: save_memo, kind: code, name: save the memo, action: "product:save-doc", phase: review, with: { doc: decision, from: memo } }
+  - { id: deck, kind: code, name: build the presentation, action: "product:deck", phase: review, with: { memo: memo } }
+  - id: decide
+    kind: gate
+    name: go or not now
+    phase: review
+    choices: { go: record, not_now: record, back: memo }
+  - { id: record, kind: code, name: record the decision, action: "product:record-decision", phase: review, with: { gate: decide } }

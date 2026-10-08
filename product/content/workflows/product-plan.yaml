@@ -1,0 +1,37 @@
+id: product-plan
+name: plan (keel Product)
+keel_rules: false
+version: 1
+# keel Product, stage Plan. The planner maps every part of the impact to the team that owns it and puts the work in
+# order (contract first, so teams can start at the same time); the story writer cuts it into stories with keel's tagged
+# acceptance criteria, following each team's own pages. keel checks the plan (ids, loops, the critical path) and the
+# leads agree before anything goes to Jira or Tasks.
+steps:
+  - id: plan
+    kind: agent
+    name: team plan
+    agent: planner
+    phase: review
+    keep: true
+    instructions: >-
+      Plan the work for the initiative in the request: its brief, its impact and the option the product owner chose.
+      Map every part of the impact to the team that owns that code (the teams and what they own are in the request).
+      Group the work into one epic per team. Put it in order: an API contract or a schema change comes first, so the
+      other teams can start at the same time on a mock. Name what waits for what. Respect each team's capacity. Write
+      the plan as text: per team its epic, its parts and its order, then the order between teams.
+      Teams: {{data.team_list}} Repos: {{data.repo_list}} A note from the leads: {{data.note}}
+  - id: stories
+    kind: agent
+    name: stories
+    agent: story-writer
+    phase: review
+    keep: true
+    instructions: >-
+      Cut the team plan before you into stories, one or more per epic. Follow each team's pages in the request
+      (definition of ready, how they split and estimate). Every story: an id like PAY-S1, a title, its repo, 1 to 5
+      acceptance criteria written as "AC-1 [API] ..." (layer API, WEB, DATA, MOBILE or OPS; testable), depends_on
+      (the ids it waits for), estimate_days as a range [low, high], and 1 to 5 tasks. End your answer with one ```json
+      block: {"epics": [{"id": "PAY", "team": "<team id>", "title": "...", "stories": [...]}]}.
+      Teams: {{data.team_list}} Repos: {{data.repo_list}}
+  - { id: check_plan, kind: code, name: check and save the plan, action: "product:plan", phase: review, with: { from: stories } }
+  - { id: agree_plan, kind: gate, name: the leads agree the plan, phase: review, back: plan }

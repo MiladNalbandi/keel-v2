@@ -1,0 +1,25 @@
+id: product-discover
+name: discover (keel Product)
+keel_rules: false
+version: 1
+# keel Product, stage Brief. The product manager first asks what it needs to know (keel's clarify loop: the questions
+# are buttons on the gate, the answers go back to it), then writes the brief. The product owner approves it, or sends
+# it back with a note, which makes a new version. The api starts the next stage when this flow ends.
+steps:
+  - id: brief
+    kind: agent
+    name: brief
+    agent: product-manager
+    phase: review
+    asks: true
+    keep: true
+    instructions: >-
+      Write the brief for the initiative in the request. First decide whether you can: when the goal, the users or how
+      success is measured is unclear, ask at most 4 short questions in a keel-questions block (each with 2 to 4
+      options, one recommended) and write nothing else. When you have what you need, write the brief between the lines
+      BEGIN-DOC and END-DOC with these sections: ## Problem, ## Users, ## Outcome metric (the metric, from → to, how and
+      when it is measured), ## Guardrails (what must not get worse), ## In scope, ## Not in scope, ## Open questions
+      (each with who should answer it: PO, a lead, legal, or a named team). Short sentences. No solution design, no
+      code. A note from the product owner: {{data.note}}
+  - { id: save_brief, kind: code, name: save the brief, action: "product:save-doc", phase: review, with: { doc: brief, from: brief } }
+  - { id: approve_brief, kind: gate, name: approve the brief, phase: review, back: brief }

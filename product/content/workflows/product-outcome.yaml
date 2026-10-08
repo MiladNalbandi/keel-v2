@@ -1,0 +1,20 @@
+id: product-outcome
+name: outcome (keel Product)
+keel_rules: false
+version: 1
+# keel Product, stage Outcome. After the release the product owner enters what the metric is now; the product manager
+# compares it with the brief's target and the guardrails and writes what we learned.
+steps:
+  - id: outcome
+    kind: agent
+    name: outcome
+    agent: product-manager
+    phase: review
+    keep: true
+    instructions: >-
+      The initiative in the request was released. The metric now: {{data.metric}}. Compare it with the brief's outcome
+      metric (from → to) and its guardrails. Between BEGIN-DOC and END-DOC: ## Result (the target, what it is now, did
+      it move and how sure we are), ## Guardrails (each one: held or not), ## What we learned, ## Next (follow up,
+      option B, or close). Plain words.
+  - { id: save_outcome, kind: code, name: save the outcome, action: "product:save-doc", phase: review, with: { doc: outcome, from: outcome } }
+  - { id: close, kind: gate, name: close the initiative, phase: review, back: outcome }

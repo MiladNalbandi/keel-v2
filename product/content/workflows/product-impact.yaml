@@ -1,0 +1,26 @@
+id: product-impact
+name: impact (keel Product)
+keel_rules: false
+version: 1
+# keel Product, stage Impact. One impact analyst per repo the product owner picked, all at the same time, each in its
+# own repo and read only (root: item). Their reports become one impact document; the leads confirm it, correct it, or
+# disagree (the api runs it again with the objection).
+steps:
+  - id: analyse
+    kind: parallel
+    name: one impact analyst per repo
+    agent: impact-analyst
+    phase: review
+    from: repos
+    root: item
+    markers: [RISK]
+    instructions: >-
+      You read ONE repo: the folder you are in, read only. The brief is in the request. Find what this change touches
+      here: the files and lines (file:line), the APIs it adds or changes, the data (tables, migrations), the events, and
+      the tests that cover them. Use docs/knowledge/ and the code graph when they exist. Write between BEGIN-DOC and
+      END-DOC: ## Parts it touches, ## APIs, ## Data, ## Events, ## Risk (low, medium or high, and why),
+      ## Unknowns (one line each, starting with UNKNOWN:, for what the code does not tell; never call an unknown safe),
+      ## Estimate (developer days for this repo, as a range). When nothing in this repo changes, say so in one line.
+      An objection to the last impact, to answer: {{data.objection}}
+  - { id: save_impact, kind: code, name: save the impact, action: "product:save-doc", phase: review, with: { doc: impact, from: analyse } }
+  - { id: confirm_impact, kind: gate, name: the leads confirm the impact, phase: review, back: analyse }
