@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  api, ENGINE_EVENT_TYPES, errorParts,
+  api, ENGINE_CHANNEL, ENGINE_EVENT_TYPES, errorParts,
   type EngineEvent, type Health, type JobStep, type Notification as Note, type NotificationSettings, type Project,
 } from "./api";
 import { inboxApi } from "./inboxApi";
@@ -303,6 +303,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // Browsers allow only 6 connections per server, so every extra stream per tab can freeze other tabs.
       es = new EventSource(api.eventsUrl(pid, true));
       ENGINE_EVENT_TYPES.forEach((t) => es!.addEventListener(t, onEngine as EventListener));
+      es.addEventListener(ENGINE_CHANNEL, onEngine as EventListener);
       es.addEventListener("notification", onNote as EventListener);
       es.addEventListener("project.changed", onChanged);
       es.addEventListener("notification.done", onDone as EventListener);

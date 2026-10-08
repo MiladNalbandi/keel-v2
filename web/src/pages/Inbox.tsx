@@ -5,7 +5,7 @@
 // "Show more"; after you answer, the focus moves to the next item so the keyboard can go on.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, errorParts } from "../api";
+import { errorParts } from "../api";
 import { answersOf, ClarifyForm, type ClarifyAnswers } from "../components/ClarifyForm";
 import { RunModeNote } from "../components/RunMode";
 import { EmptyState } from "../components/EmptyState";
@@ -127,7 +127,7 @@ function PermissionInboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: stri
     setBusy(true);
     setErr(null);
     try {
-      await api.helperAnswer(it.project_id, q.id, decision, why.trim());
+      await inboxApi.decide(q.id, decision, why.trim());
       await onDone(decision === "deny" ? `Refused: ${who} will not run it.` : `Allowed: ${who} runs it now.`);
     } catch (e) {
       setErr(errorParts(e));
