@@ -6,9 +6,9 @@ on port 8099 with the volume keel-lab-data. It never touches the person's own ke
         --kplug out/product-0.1.0-beta.1.kplug [--old-image ghcr.io/miladnalbandi/keel-v2:0.14.0-product-beta] \\
         [--old-ref v0.14.0] [--only core-only,image,install,safe,broken,upgrade]
 
-  core-only  the product image with KEEL_PLUGINS=off: no plugin at all, keel is Dev only and works
+  core-only  the product image with KEEL_PLUGINS=off: no plugin at all (not even the keel set), keel still works
   image      the product image: Product loads from /opt/keel-v2/plugins, its web files are served with long caching
-  install    the normal image, product.kplug installed from a file, a restart from the api; then Product's own e2e
+  install    the normal image (the keel set, no Product), product.kplug installed from a file, a restart from the api; then Product's own e2e
              runs on that keel (product/e2e/e2e.py --running)
   safe       the same data with KEEL_PLUGINS=image: the installed plugin is left out; without it, it is back
   broken     a plugin that needs plugin SDK 2 is left out and listed; a plugin whose api jar breaks Spring makes
@@ -159,7 +159,8 @@ def core_only(a, ws: Path) -> None:
     check(h["mode"] == "off" and h["plugins"] == [], "the plugin host loads nothing")
     f = api("GET", "/features")
     check(f["mode"] == "dev" and f["addons"] == [] and f.get("plugins") == [], "features: Dev only, no add-on, no plugin")
-    check(sh("docker", "exec", NAME, "sh", "-c", "ls /opt/keel-v2/plugins").strip() == "product", "Product is in the image, but off")
+    baked = set(sh("docker", "exec", NAME, "sh", "-c", "ls /opt/keel-v2/plugins").split())
+    check("product" in baked and len(baked) > 1, f"the image has its plugins ({', '.join(sorted(baked))}), but none is loaded")
     pid = api("POST", "/projects", {"root": "/workspace/core-repo"})["id"]
     check(isinstance(api("GET", f"/projects/{pid}/workflows"), (list, dict)), "core works: a project and its workflows")
     code, _, page = http("GET", "/")
@@ -194,7 +195,9 @@ def image(a, ws: Path) -> None:
 def install_scenario(a, ws: Path) -> None:
     print("install: the normal image + product.kplug from a file")
     start(a.image, ws)
-    check(host()["plugins"] == [] and api("GET", "/features")["mode"] == "dev", "the normal image starts with no plugin")
+    first = names(host()["plugins"])
+    check("product" not in first and api("GET", "/features")["mode"] == "dev",
+          f"the normal image starts with the keel set ({', '.join(sorted(first)) or 'none'}), without Product")
     out = install(Path(a.kplug))
     check("restart" in out.lower(), "keel-engine plugins install unpacked it and says to restart")
     check(sh("docker", "exec", NAME, "sh", "-c", "ls /data/plugins/store/product").strip() != "", "it is in /data/plugins/store")
@@ -212,7 +215,9 @@ def install_scenario(a, ws: Path) -> None:
 def safe(a, ws: Path) -> None:
     print("safe: KEEL_PLUGINS=image leaves out what was installed into /data")
     start(a.image, ws, {"KEEL_PLUGINS": "image"}, fresh=False)
-    check(host()["plugins"] == [] and api("GET", "/features")["mode"] == "dev", "safe mode: the installed Product is left out")
+    safe_set = host()["plugins"]
+    check("product" not in names(safe_set) and all(p["source"] == "image" for p in safe_set)
+          and api("GET", "/features")["mode"] == "dev", "safe mode: only the image's plugins; the installed Product is left out")
     start(a.image, ws, fresh=False)
     check("product" in names(host()["plugins"]), "a normal start: Product is back (it stayed installed)")
 
