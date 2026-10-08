@@ -18,7 +18,7 @@ file first. Spikes that show the risky bits work: [06-spikes.md](06-spikes.md).
 | ------------------- | ---------------------------------------------------------------------------------------------- |
 | plugin SDK major    | `1` (engine: `keel_engine.pluginhost.SDK = 1`)                                                 |
 | plugin name         | `^[a-z][a-z0-9-]{0,31}$`                                                                       |
-| image plugins       | `$KEEL_PLUGINS_IMAGE` (default `/opt/keel/plugins`): `<root>/<name>/<version>/keel-plugin.yml` |
+| image plugins       | `$KEEL_PLUGINS_IMAGE` (default `/opt/keel-v2/plugins`): `<root>/<name>/<version>/keel-plugin.yml` |
 | installed plugins   | `$KEEL_DATA/plugins/store/<name>/<version>/keel-plugin.yml`                                    |
 | choices of a person | `$KEEL_DATA/plugins/installed.json`                                                            |
 | written at start    | `$KEEL_DATA/plugins/run/resolved.json`, `run/env`, `last-good.json`                            |
@@ -98,9 +98,9 @@ Checks (a plugin that fails one is left out, with the reason; plugins that need 
       "title": "keel Product",
       "version": "0.1.0-beta.1",
       "source": "image",
-      "dir": "/opt/keel/plugins/product/0.1.0-beta.1",
+      "dir": "/opt/keel-v2/plugins/product/0.1.0-beta.1",
       "engine": {
-        "path": "/opt/keel/plugins/product/0.1.0-beta.1/engine",
+        "path": "/opt/keel-v2/plugins/product/0.1.0-beta.1/engine",
         "package": "keel_product"
       },
       "api": { "jars": ["/opt/…/api/keel-plugin-product.jar"], "lib": null },
@@ -189,8 +189,8 @@ others go to problems with "left out: keel did not start with it last time".
   `<out-dir>/product-<version>.kplug` plus the unpacked folder `<out-dir>/product/<version>/`.
 - **Dockerfile:**
   - The web and api stages always build core only.
-  - With `EDITION=product`, the product stage builds the unpacked plugin into `/opt/keel/plugins/product/<version>/`.
-  - `/opt/keel-product` goes away. `ENV KEEL_PLUGINS_IMAGE=/opt/keel/plugins`.
+  - With `EDITION=product`, the product stage builds the unpacked plugin into `/opt/keel-v2/plugins/product/<version>/`.
+  - `/opt/keel-product` goes away. `ENV KEEL_PLUGINS_IMAGE=/opt/keel-v2/plugins`.
 - **`docker/keel-start` (a supervisor loop):**
   1. resolve (if it fails: start with no plugins and say why)
   2. source `run/env`

@@ -32,7 +32,7 @@ In plain words:
 
 1. **A plugin is one signed file** with up to five parts: engine (Python), api (Kotlin jar), web (JavaScript),
    content (workflows, agents, skills) and its own database migrations. One manifest, `keel-plugin.yml`, describes it.
-2. **keel loads plugins when it starts**, from `/data/plugins` (installed by you) and `/opt/keel/plugins` (came in the
+2. **keel loads plugins when it starts**, from `/data/plugins` (installed by you) and `/opt/keel-v2/plugins` (came in the
    image). Installing = download, check, unpack, restart (about 30 s). The image is never rebuilt.
 3. **Core never imports a plugin.** Plugins use core only through a small, versioned **SDK** and named **slots**
    (places in a page, like "a tab in the Code page" or "a kind in Connections"). A plugin can be a host too: Code

@@ -10,7 +10,7 @@ commit in its own product repo, and hands each story to its repo's project as a 
 criteria, so a developer starts it as a normal keel flow.
 
 **Status: beta (0.1.0-beta.1).** It is a plugin package (`product-<version>.kplug`), not part of keel's own image, and
-it never moves `:latest`. The product edition image (`EDITION=product`) has it inside, in `/opt/keel/plugins`. Do not
+it never moves `:latest`. The product edition image (`EDITION=product`) has it inside, in `/opt/keel-v2/plugins`. Do not
 use it for real work until its release gates pass.
 
 ## How it is versioned
@@ -59,7 +59,7 @@ It writes `out/product-<version>.kplug` (a tar.gz, no top folder inside) and the
       web/index.js  web/style.css                   the web part
       content/                                      workflows and agents
 
-The product image puts the unpacked folder in `/opt/keel/plugins/product/<version>/`, and keel-start loads it at every
+The product image puts the unpacked folder in `/opt/keel-v2/plugins/product/<version>/`, and keel-start loads it at every
 start.
 
 ## Tests

@@ -71,7 +71,8 @@ def test_parts_point_to_packed_files(packed):
     # keel_product finds its content two folders up, in the plugin layout too (the packed copy, in its own Python)
     env = {k: v for k, v in os.environ.items() if k not in ("KEEL_PRODUCT_CONTENT", "PYTHONPATH")}
     env["PYTHONPATH"] = str(folder / parts["engine"]["path"])
-    out = subprocess.run([sys.executable, "-c", "import keel_product; print(keel_product.CONTENT)"], env=env,
+    env["PYTHONDONTWRITEBYTECODE"] = "1"  # -B too: importing must not leave __pycache__ in the packed folder
+    out = subprocess.run([sys.executable, "-B", "-c", "import keel_product; print(keel_product.CONTENT)"], env=env,
                          cwd=packed, check=True, capture_output=True, text=True).stdout.strip()
     assert Path(out) == (folder / parts["content"]).resolve()
 

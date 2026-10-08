@@ -14,8 +14,8 @@ MODES = ("on", "image", "off")
 
 
 def image_root() -> Path:
-    """The plugins that came in the image: $KEEL_PLUGINS_IMAGE (default /opt/keel/plugins), <root>/<name>/<version>/."""
-    return Path(os.path.abspath(os.environ.get("KEEL_PLUGINS_IMAGE") or "/opt/keel/plugins"))
+    """The plugins that came in the image: $KEEL_PLUGINS_IMAGE (default /opt/keel-v2/plugins), <root>/<name>/<version>/."""
+    return Path(os.path.abspath(os.environ.get("KEEL_PLUGINS_IMAGE") or "/opt/keel-v2/plugins"))
 
 
 def plugins_dir() -> Path:
