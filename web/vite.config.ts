@@ -16,13 +16,14 @@ export default defineConfig({
   plugins: [react(), sdkShims({ sdk: SDK })],
   resolve: {
     alias: { "@keel/web-sdk": SDK },
-    // keel Product's tests (../product/web/test) run here: they use this folder's packages, not a copy of their own
+    // keel Product's tests (../product/web/test) and the plugins' (../plugins/*/web/test) run here: they use this
+    // folder's packages, not a copy of their own
     dedupe: ["react", "react-dom", "@testing-library/react", "@testing-library/user-event", "msw"],
   },
   server: {
     port: 5173,
-    // vitest loads keel Product's tests and pages from ../product/web
-    fs: { allow: [".", "../product/web"] },
+    // vitest loads keel Product's tests and pages from ../product/web, and the plugins' from ../plugins/<name>/web
+    fs: { allow: [".", "../product/web", "../plugins"] },
     proxy: {
       // SSE: no buffering, keep the connection open.
       "/api/events": {
@@ -44,7 +45,7 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
-    include: ["src/**/*.test.{ts,tsx}", "../product/web/**/*.test.{ts,tsx}"],
+    include: ["src/**/*.test.{ts,tsx}", "../product/web/**/*.test.{ts,tsx}", "../plugins/*/web/**/*.test.{ts,tsx}"],
     css: false,
   },
 });

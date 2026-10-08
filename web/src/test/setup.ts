@@ -5,11 +5,18 @@ import { afterAll, afterEach, beforeAll, beforeEach, vi } from "vitest";
 import { resetFeatures } from "../addons";
 // keel's built-in parts, as main.tsx loads them: their pages, slots and launcher results
 import "../builtins";
+import * as sdk from "../sdk";
+import type { AddonWeb } from "../sdk/plugin";
 import { resetReviews } from "../components/review/store";
 import { resetLauncherCache } from "../components/launcher/sources";
 import { resetProviderModels } from "../components/ModelPicker";
 import { resetAudio } from "../notify";
 import { createDb, handlers, type Db } from "./handlers";
+
+// keel as the full image has it: every plugin in plugins/ is there, and its setup() has run once (as addons.ts does at
+// start with the web parts /api/features lists), so the menu and the slots are the same as for people
+const plugins = import.meta.glob<{ default: AddonWeb }>("../../../plugins/*/web/index.tsx", { eager: true });
+for (const m of Object.values(plugins)) m.default.setup?.(sdk);
 
 // findBy* / waitFor wait up to 3 s (the default 1 s failed on CI's slower machines: the Repo IDE's first render took 1.1 s).
 configure({ asyncUtilTimeout: 3000 });

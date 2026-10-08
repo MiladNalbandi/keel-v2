@@ -1,16 +1,21 @@
 // v0.13.0 add-ons in the web: an add-on's pages (keel Product) load only when its part of keel is on, so keel's own
 // bundle does not grow. /api/features says what is on.
 // Plugins (step 1): an add-on's web part is the plugin's own ES module, built on its own. /api/features gives its url
-// and its css; keel loads it with import() when one of its pages is first shown. It uses keel's React and
-// @keel/web-sdk through the import map in index.html (tools/sdkShims.ts).
+// and its css. It uses keel's React and @keel/web-sdk through the import map in index.html (tools/sdkShims.ts).
+// Step 3: keel loads every plugin's web part at start, once /api/features has listed them, and calls its setup(sdk)
+// once: the part registers its pages and slots (the Map: its page in the menu, at its place). While they load, the menu
+// shows keel's own pages; a part's pages appear when it has loaded. keel Product's shape still works: its pages load
+// from the module's `pages` when one is first shown.
 //
-//   /api/features   plugins: [{ name: "product", web: { entry: "/plugins/product/0.1.0/web/index.js", css: [...] } }]
-//   #/initiatives   addonPage("product", "initiatives") ─▶ import(entry) ─▶ its default export's pages.initiatives
+//   /api/features   plugins: [{ name: "map", web: { entry: "/plugins/map/1.0.0/web/index.js", css: [] } }, …]
+//   at start        import(entry) ─▶ its default export's setup(sdk) ─▶ registerPage({ id: "map", … })
+//   #/initiatives   addonPage("product", "initiatives") ─▶ the same module ─▶ its pages.initiatives
 
 import { createElement, lazy, useEffect, useState, type ComponentType, type LazyExoticComponent } from "react";
 import { api, type AddonScreen, type Features, type PluginWeb } from "./api";
 import { menuGroups, type Group } from "./routes";
-import { pageOf } from "./sdk/registry";
+import * as sdk from "./sdk";
+import { pageOf, usePagesVersion } from "./sdk/registry";
 import type { AddonPageProps, AddonWeb } from "./sdk/plugin";
 import { useApp } from "./state";
 
@@ -61,8 +66,9 @@ function loadAddon(name: string): Promise<AddonWeb | null> {
     addCss(css ?? []);
     mod = importer(entry).then((m) => {
       const found = (m as { default?: Partial<AddonWeb> } | null)?.default;
-      if (typeof found?.pages !== "object" || found.pages === null) {
-        throw new Error(`${entry} has no default export with pages (export default definePlugin({ name, pages }))`);
+      const hasPages = typeof found?.pages === "object" && found.pages !== null;
+      if (!hasPages && typeof found?.setup !== "function") {
+        throw new Error(`${entry} has no default export with setup or pages (export default definePlugin({ name, setup }))`);
       }
       return found as AddonWeb;
     });
@@ -70,6 +76,53 @@ function loadAddon(name: string): Promise<AddonWeb | null> {
   }
   return mod;
 }
+
+// ---------- every plugin's web part, at start ----------
+
+// the web entries keel started (each once for this page), how many loads still run, and all of them; a load from
+// before resetFeatures() (tests) changes nothing
+const begun = new Set<string>();
+let pending = 0;
+let starting: Promise<void> = Promise.resolve();
+let generation = 0;
+
+/** Load each plugin web part /api/features lists that is not started yet, then call its setup(sdk) once, in the order
+ *  of the list (the plugins' dependency order). A part that does not load or whose setup fails is logged; keel goes
+ *  on without it. */
+function startPlugins(f: Features) {
+  const fresh = (f.plugins ?? []).filter((p) => p.web?.entry && !begun.has(p.web.entry));
+  if (fresh.length === 0) return;
+  fresh.forEach((p) => begun.add(p.web!.entry));
+  const gen = generation;
+  pending++;
+  const run = Promise.all(
+    fresh.map((p) =>
+      loadAddon(p.name).catch((e) => {
+        console.error(`keel: the web part of ${p.name} did not load`, e);
+        return null;
+      }),
+    ),
+  )
+    .then((mods) =>
+      fresh.forEach((p, i) => {
+        if (gen !== generation) return;
+        try {
+          mods[i]?.setup?.(sdk);
+        } catch (e) {
+          console.error(`keel: the web part of ${p.name} did not start`, e);
+        }
+      }),
+    )
+    .finally(() => {
+      if (gen !== generation) return;
+      pending--;
+      subscribers.forEach((s) => s());
+    });
+  starting = starting.then(() => run);
+}
+
+/** Tests: wait until the plugins' web parts started so far have loaded and registered their pieces. */
+export const pluginsStarted = () => starting;
 
 const pages = new Map<string, LazyExoticComponent<ComponentType<AddonPageProps>>>();
 
@@ -82,7 +135,7 @@ export function addonPage(addon: string, screen: string): LazyExoticComponent<Co
       let found: ComponentType<AddonPageProps> | undefined;
       let failed = false;
       try {
-        found = (await loadAddon(addon))?.pages[screen];
+        found = (await loadAddon(addon))?.pages?.[screen];
       } catch (e) {
         failed = true;
         console.error(`keel: the web part of ${addon} did not load`, e);
@@ -104,7 +157,7 @@ const subscribers = new Set<() => void>();
 
 function fetchFeatures(): Promise<void> {
   inflight ??= api.features().then(
-    (f) => { cache = f; failed = false; },
+    (f) => { cache = f; failed = false; void startPlugins(f); },
     () => { failed = true; },
   ).finally(() => {
     inflight = null;
@@ -123,20 +176,27 @@ export function resetFeatures() {
   inflight = null;
   pages.clear();
   modules.clear();
+  begun.clear();
+  pending = 0;
+  starting = Promise.resolve();
+  generation++;
   importer = importUrl;
 }
 
-/** What this keel does now; while it loads (or without the api) keel is Dev, as it always was. */
-export function useFeatures(): Features & { loaded: boolean } {
+/** What this keel does now; while it loads (or without the api) keel is Dev, as it always was. `started`: the
+ *  plugins' web parts have loaded and registered their pages (or there are none, or the api did not answer). The
+ *  menu and the router read it again when a page registers. */
+export function useFeatures(): Features & { loaded: boolean; started: boolean } {
   const { tick } = useApp();
   const [, force] = useState(0);
+  usePagesVersion();
   useEffect(() => {
     const on = () => force((n) => n + 1);
     subscribers.add(on);
     return () => { subscribers.delete(on); };
   }, []);
   useEffect(() => { void fetchFeatures(); }, [tick]);
-  return { ...(cache ?? DEV_ONLY), loaded: cache !== null || failed };
+  return { ...(cache ?? DEV_ONLY), loaded: cache !== null || failed, started: pending === 0 };
 }
 
 // ---------- the View (Product and Dev on: each person shows All, Product or Dev) ----------

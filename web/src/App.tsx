@@ -1,5 +1,6 @@
 // Root: providers, shell, and the hash router. The pages come from the page registry: keel's own (corePages.ts) and
-// the parts' (web/src/builtins.ts, loaded once by main.tsx).
+// the parts' (web/src/builtins.ts, loaded once by main.tsx), and the plugins' (their web parts, loaded at start by
+// addons.ts).
 
 import { Suspense, useEffect } from "react";
 import { addonPage, useFeatures } from "./addons";
@@ -14,7 +15,8 @@ import { pageOf, usePages } from "./sdk/registry";
 import { AppProvider, useApp, useRoute } from "./state";
 
 /** v0.13.0 an add-on's page (keel Product: #/initiatives): when its part of keel is on; Flow otherwise, as for any
- *  unknown page. */
+ *  unknown page. A link to a plugin's page (#/map) lands here until the plugin's web part has registered it at start:
+ *  it waits for that, then the router reads the link again. */
 function AddonRoute({
   screen,
   arg,
@@ -25,7 +27,7 @@ function AddonRoute({
   pid: string;
 }) {
   const features = useFeatures();
-  if (!features.loaded)
+  if (!features.loaded || !features.started)
     return (
       <div className="empty loading" role="status">
         Loading…

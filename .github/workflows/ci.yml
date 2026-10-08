@@ -1,4 +1,5 @@
-# Runs the three test suites and checks the shell scripts on every push and pull request.
+# Runs the three test suites (keel's core and every plugin in plugins/) and checks the shell scripts on every push and
+# pull request.
 name: ci
 on:
   push:
@@ -14,7 +15,7 @@ jobs:
       - run: bash -n keel2 && bash -n install.sh && bash -n docker/keel-start
       # keel v2 does not depend on keel v1 (0.4.1): any line that still does fails the build
       - run: scripts/no-v1.sh --strict
-      - run: shellcheck -S error keel2 install.sh docker/keel-start product/build-plugin.sh docker/tests/keel-start.test.sh
+      - run: shellcheck -S error keel2 install.sh docker/keel-start product/build-plugin.sh docker/tests/keel-start.test.sh scripts/build-plugin.sh scripts/test-plugins.sh
       - run: ./keel2 help | grep -q "keel2 start" && ./keel2 version
       # keel-start, the supervisor loop (restart on exit 75, fallback to the last good plugins), with stub commands
       - run: docker/tests/keel-start.test.sh
@@ -51,6 +52,8 @@ jobs:
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq python3-pytest python-is-python3
       - run: uv sync && uv run pytest -q
         working-directory: engine
+      # every plugin's engine tests (plugins/<name>/engine/tests), each with its own engine folder on PYTHONPATH
+      - run: scripts/test-plugins.sh
   api:
     runs-on: ubuntu-latest
     steps:
@@ -58,7 +61,8 @@ jobs:
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: 21, cache: gradle }
       - run: git config --global user.name ci && git config --global user.email ci@localhost
-      - run: ./gradlew --no-daemon test
+      # keel's tests, then every plugin's api tests and jars (plugins/<name>/api)
+      - run: ./gradlew --no-daemon test pluginTest pluginJars
         working-directory: api
   product:
     # keel Product, the plugin in product/ (beta): its engine part inside keel's engine (and its manifest, packed by
@@ -80,5 +84,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 20, cache: npm, cache-dependency-path: web/package-lock.json }
-      - run: npm ci && npx tsc --noEmit && npm test -- --run && npm run build
+      # vitest runs the plugins' web tests too (../plugins/*/web); each plugin's web part builds on its own
+      - run: npm ci && npx tsc --noEmit && npm test -- --run && npm run build && npm run build:plugins && npm run build:product
         working-directory: web

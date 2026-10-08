@@ -996,9 +996,7 @@ export const api = {
     put<Fact>(`/projects/${e(pid)}/memory/${e(fid)}`, f),
   forgetFact: (pid: string, fid: string) => del(`/projects/${e(pid)}/memory/${e(fid)}`),
 
-  // map + wiki
-  map: (pid: string) => get<MapResponse>(`/projects/${e(pid)}/map`),
-  rebuildMap: (pid: string) => post<MapResponse>(`/projects/${e(pid)}/map/rebuild`),
+  // wiki (the map: the Map plugin, plugins/map)
   wiki: (pid: string) => get<WikiTree>(`/projects/${e(pid)}/wiki`),
   wikiPage: (pid: string, id: string) => get<WikiPage>(`/projects/${e(pid)}/wiki/page${q({ id })}`),
   refreshWiki: (pid: string, sections?: string[]) =>

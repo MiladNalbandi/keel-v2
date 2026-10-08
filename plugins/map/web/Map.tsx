@@ -1,18 +1,15 @@
 // Map (Project): how the project is built, level by level, on one IDE-like canvas: the system, its modules and API
 // endpoints, and the database diagram (tables, keys and foreign keys from the SQL migrations). Journeys and classes
 // draw the boxes an older keel v1 map.json carried; the engine does not build them yet.
+// The Map plugin's page (plugins/map): it imports only react and @keel/web-sdk. The panel under the database diagram
+// comes from another part through the slot map.er.query (the Database part's Query).
 
-import { useEffect, useMemo, useState } from "react";
-import { api, errorParts, type KeelMap, type MapLevel, type MapNode, type MapResponse } from "../api";
-import { BoxDiagram, moduleBoxes, systemBoxes, type GBox } from "../components/er/BoxDiagram";
-import { ErDiagram } from "../components/er/ErDiagram";
-import { QueryPanel } from "../components/plugins/QueryPanel";
-import { schemaOf } from "../components/er/model";
-import { EmptyState } from "../components/page";
-import { Async, PageHead, Panel, Tabs } from "../components/ui";
-import { clock } from "../format";
-import { registerPage } from "../sdk/registry";
-import { useApp, useLoad } from "../state";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  Async, BoxDiagram, EmptyState, ErDiagram, PageHead, Panel, SLOTS, Tabs, clock, errorParts, get, moduleBoxes, post,
+  schemaOf, systemBoxes, useApp, useLoad, useSlot,
+  type GBox, type KeelMap, type MapErQueryItem, type MapLevel, type MapNode, type MapResponse,
+} from "@keel/web-sdk";
 
 type LevelId = "system" | "flow" | "modules" | "classes" | "er";
 const LEVELS: [LevelId, string][] = [["system", "System"], ["flow", "Journeys"], ["modules", "Modules"], ["classes", "Classes"], ["er", "Database (ER)"]];
@@ -114,6 +111,12 @@ function ErLegend() {
 
 const tabKey = (pid: string) => `keel2.map.${pid}.tab`;
 
+/** The panels other parts put under the database diagram (map.er.query). */
+function ErPanels({ pid }: { pid: string }) {
+  const panels = useSlot<MapErQueryItem>(SLOTS.mapErQuery);
+  return <>{panels.map(({ id, component: Piece }) => <Piece key={id} pid={pid} />)}</>;
+}
+
 function MapView({ m, onRebuild, busy, pid }: { m: KeelMap; onRebuild: () => void; busy: boolean; pid: string }) {
   const { project } = useApp();
   const schema = useMemo(() => schemaOf(m), [m]);
@@ -148,16 +151,16 @@ function MapView({ m, onRebuild, busy, pid }: { m: KeelMap; onRebuild: () => voi
   const mods = useMemo(() => (m.levels.modules ? moduleBoxes(m, m.levels.modules) : null), [m]);
   const nothing = <Panel><EmptyState title="Nothing to draw here">{`keel found no source for this level in ${name}.`}</EmptyState></Panel>;
 
-  let body: React.ReactNode;
+  let body: ReactNode;
   if (tab === "er") {
     body = schema ? (
       <>
         <ErDiagram key={`${pid}:${m.at}:${focus?.n ?? 0}`} schema={schema} pid={pid} name={name} initial={focus?.table ?? null} />
         <ErLegend />
         {!m.schema && <p className="hint">This map was built by an older keel: rebuild it for column types, nullability, indexes, views and the migration line of every column.</p>}
-        <QueryPanel pid={pid} />
+        <ErPanels pid={pid} />
       </>
-    ) : <><ErEmpty m={m} name={name} onRebuild={onRebuild} busy={busy} /><QueryPanel pid={pid} /></>;
+    ) : <><ErEmpty m={m} name={name} onRebuild={onRebuild} busy={busy} /><ErPanels pid={pid} /></>;
   } else if (tab === "system") {
     body = system?.boxes.length
       ? <BoxDiagram key={`sys:${m.at}`} pid={pid} level="system" name={name} boxes={system.boxes} edges={system.edges} onDrill={drill} />
@@ -205,14 +208,16 @@ function MapView({ m, onRebuild, busy, pid }: { m: KeelMap; onRebuild: () => voi
   );
 }
 
+const mapUrl = (pid: string) => `/projects/${encodeURIComponent(pid)}/map`;
+
 export function MapPage({ pid }: { pid: string }) {
   const { project, toast } = useApp();
-  const map = useLoad(`map:${pid}`, () => api.map(pid), { live: false });
+  const map = useLoad(`map:${pid}`, () => get<MapResponse>(mapUrl(pid)), { live: false });
   const [busy, setBusy] = useState(false);
   const rebuild = async () => {
     setBusy(true);
     try {
-      map.setData(await api.rebuildMap(pid));
+      map.setData(await post<MapResponse>(`${mapUrl(pid)}/rebuild`));
       toast("keel map rebuilt for HEAD.");
     } catch (e) {
       const p = errorParts(e);
@@ -237,16 +242,3 @@ export function MapPage({ pid }: { pid: string }) {
     </>
   );
 }
-
-// ---------- the Map part: its page in the menu (web/src/builtins.ts loads this file) ----------
-
-registerPage({
-  id: "map", label: "Map", group: "know", order: 30,
-  icon: (
-    <>
-      <path d="M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3z" />
-      <path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" />
-    </>
-  ),
-  component: MapPage,
-});

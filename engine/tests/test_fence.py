@@ -1,7 +1,8 @@
 """The fence: keel's core must not import a part that becomes a plugin (docs/plugins/07-step1-contract.md §9).
 
 Today's couplings (a core module that imports a plugin module) sit in fence_allowlist.txt. That list may only
-shrink: a new coupling fails, and so does a line whose import is gone. keel_product is never allowed in core.
+shrink: a new coupling fails, and so does a line whose import is gone. keel_product and the plugins' packages
+(keel_plugin_*, plugins/<name>/engine) are never allowed in core.
 Plugin modules may import core, and each other.
 """
 
@@ -20,16 +21,16 @@ PLUGIN_MODULES = (
     "keel_engine.runtime.graph_hints",
     "keel_engine.runtime.helper",
     "keel_engine.runtime.keelbot",
-    "keel_engine.runtime.mapper",
-    "keel_engine.runtime.sqlschema",
     "keel_engine.tools.codegraph",
 )
 # Core never imports these, not even today. They can never be in the allowlist.
-FORBIDDEN = ("keel_product",)
+# A name ending in "*" is a prefix: keel_plugin_* is every plugin's package (keel_plugin_map, ...).
+FORBIDDEN = ("keel_product", "keel_plugin_*")
 
 
 def under(module: str, prefixes) -> bool:
-    return any(module == p or module.startswith(p + ".") for p in prefixes)
+    return any(module.startswith(p[:-1]) if p.endswith("*") else module == p or module.startswith(p + ".")
+               for p in prefixes)
 
 
 def modules_in(src_root: Path, package: str = "keel_engine") -> dict[str, Path]:
@@ -127,7 +128,8 @@ def problems(found: set[str], allowed: list[str], allowlist_name: str) -> list[s
 
 def test_core_never_imports_keel_product():
     _, bad = scan(ENGINE)
-    assert not bad, ("Core must never import keel Product (keel_product): it is a plugin. Use an extension point, see "
+    assert not bad, ("Core must never import keel Product (keel_product) or a plugin (keel_plugin_*). Use an extension "
+                     "point, see "
                      f"{GUIDE}.\n" + "\n".join(f"  {line}" for line in sorted(bad)))
 
 
@@ -141,7 +143,7 @@ def test_the_allowlist_is_sorted_and_names_no_forbidden_module():
     allowed = read_allowlist(ALLOWLIST)
     assert allowed == sorted(set(allowed)), "Keep engine/tests/fence_allowlist.txt sorted, one line per coupling."
     never = [line for line in allowed if under(line.split(" -> ")[-1], FORBIDDEN)]
-    assert not never, "keel_product can never be in the allowlist:\n" + "\n".join(f"  {line}" for line in never)
+    assert not never, "keel_product and keel_plugin_* can never be in the allowlist:\n" + "\n".join(f"  {line}" for line in never)
 
 
 # ---------- the scanner itself, on a tiny tree ----------
@@ -166,8 +168,9 @@ def test_the_scanner_finds_every_kind_of_import(tmp_path):
             "def later():\n"
             "    from keel_engine.plugins.db.core import query\n"
             "    import keel_product\n"
+            "    from keel_plugin_map import mapper\n"
         ),
-        "keel_engine/runtime/__init__.py": "from .mapper import build\n",
+        "keel_engine/runtime/__init__.py": "from .graph_hints import build\n",
         "keel_engine/runtime/service.py": (
             "from . import plugins\n"  # runtime.plugins is core, not the plugins package
             "from ..plugins import git\n"
@@ -178,7 +181,7 @@ def test_the_scanner_finds_every_kind_of_import(tmp_path):
         ),
         "keel_engine/runtime/plugins.py": "",
         "keel_engine/runtime/helper.py": "from keel_engine.runtime import service\nimport keel_product\n",
-        "keel_engine/runtime/mapper.py": "",
+        "keel_engine/runtime/graph_hints.py": "",
         "keel_engine/runtime/keelbot.py": "from .helper import x\n",
         "keel_engine/tools/__init__.py": "",
         "keel_engine/tools/codegraph.py": "",
@@ -194,12 +197,13 @@ def test_the_scanner_finds_every_kind_of_import(tmp_path):
         "keel_engine.app -> keel_engine.plugins.db.core",
         "keel_engine.app -> keel_engine.runtime.helper",
         "keel_engine.app -> keel_engine.tools.codegraph",
-        "keel_engine.runtime -> keel_engine.runtime.mapper",
+        "keel_engine.runtime -> keel_engine.runtime.graph_hints",
         "keel_engine.runtime.service -> keel_engine.plugins.git",
         "keel_engine.runtime.service -> keel_engine.runtime.keelbot",
     }
     # plugin parts may import anything; only core is checked
-    assert bad == {"keel_engine.app -> keel_product", "keel_engine.runtime.service -> keel_product.web"}
+    assert bad == {"keel_engine.app -> keel_product", "keel_engine.app -> keel_plugin_map",
+                   "keel_engine.runtime.service -> keel_product.web"}
 
 
 def test_new_and_stale_lines_get_a_clear_message():

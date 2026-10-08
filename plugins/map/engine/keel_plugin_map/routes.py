@@ -1,4 +1,4 @@
-"""The map's engine routes, for the Map page (runtime/mapper.py)."""
+"""The map's engine routes, for the Map page (mapper.py)."""
 
 from __future__ import annotations
 
@@ -8,8 +8,9 @@ import os
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from ...extensions import PartError
-from ...runtime import mapper
+from keel_engine.extensions import PartError
+
+from . import mapper
 
 router = APIRouter()
 

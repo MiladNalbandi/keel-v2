@@ -15,11 +15,12 @@
     "noEmit": true,
     "types": ["vite/client", "vitest/globals", "@testing-library/jest-dom"],
     "baseUrl": ".",
-    // keel Product's pages (../product/web, a plugin) import @keel/web-sdk and keel's own packages from here
+    // keel Product's pages (../product/web) and the plugins' (../plugins/*/web) import @keel/web-sdk and keel's own
+    // packages from here
     "paths": {
       "@keel/web-sdk": ["src/sdk/index.ts"],
       "*": ["node_modules/@types/*", "node_modules/*"]
     }
   },
-  "include": ["src", "tools", "vite.config.ts", "../product/web"]
+  "include": ["src", "tools", "vite.config.ts", "plugin.vite.config.ts", "../product/web", "../plugins/*/web"]
 }

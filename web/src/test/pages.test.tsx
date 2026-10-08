@@ -1,5 +1,5 @@
 // v0.4.2 page polish: Budget in three parts with readable numbers, Connections that render before the check answers,
-// the Map's single "No map yet", Agents as scannable rows with tool chips, Tools with inline tests and a matrix that
+// Agents as scannable rows with tool chips, Tools with inline tests and a matrix that
 // shows each server's state, and empty states with a way out (Skill hub, Stacks, Wiki).
 
 import { render, screen, waitFor, within } from "@testing-library/react";
@@ -11,7 +11,6 @@ import type { Limit } from "../api";
 import { toolChips } from "../pages/Agents";
 import { limitUsed } from "../pages/Budget";
 import { connState } from "../pages/Connections";
-import { missingWhy } from "../pages/Map";
 import * as fx from "./fixtures";
 import { db, server } from "./setup";
 
@@ -117,19 +116,6 @@ describe("Connections", () => {
     expect(connState(p)).toMatchObject({ need: "login", text: "No login saved" });
     expect(connState({ ...p, selected: "api" })).toMatchObject({ need: "key", text: "No API key" });
     expect(connState({ ...p, modes: p.modes.map((m) => ({ ...m, ready: false })) })).toMatchObject({ need: "cli", text: "claude CLI not installed" });
-  });
-});
-
-describe("Map", () => {
-  it("says 'No map yet' once, with what building does and the button", async () => {
-    server.use(http.get("/api/projects/:pid/map", () => HttpResponse.json({ missing: "No map yet. Build it to draw one." })));
-    location.hash = "#/map";
-    render(<App />);
-    expect(await main().findByText("No map yet")).toBeInTheDocument();
-    expect(main().getAllByText(/No map yet/)).toHaveLength(1);
-    expect(main().getByRole("button", { name: "Build the map" })).toBeInTheDocument();
-    expect(missingWhy("No map yet. Build it to draw one.")).toMatch(/^Build it to see the system/);
-    expect(missingWhy("No map yet: the repo has no commit.")).toBe("the repo has no commit.");
   });
 });
 

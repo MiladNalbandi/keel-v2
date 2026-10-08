@@ -1,5 +1,6 @@
 // The Database part (web/src/builtins.ts loads this file): its section in Connections, its view in the Code page's
-// activity bar (while the plugin is on), a table or a console as an editor tab, and its workflow blocks (db:check, …).
+// activity bar (while the plugin is on), a table or a console as an editor tab, its workflow blocks (db:check, …), and
+// the Query panel under the Map plugin's database diagram (map.er.query).
 
 import { registerSlot } from "../../../sdk/registry";
 import {
@@ -9,10 +10,12 @@ import {
   type CodeTabItem,
   type CodeTabProps,
   type ConnectionKindItem,
+  type MapErQueryItem,
   type WorkflowActionsItem,
 } from "../../../sdk/slots";
 import { DatabasesSection } from "../Databases";
 import { DbExplorer, DbTab, dbPath, dbTabTitle } from "../DbTool";
+import { QueryPanel } from "../QueryPanel";
 
 /** Code › Database: the connections and their tables; a click opens a table or a console as a tab. */
 function DbActivity({ pid, open }: CodeActivityProps) {
@@ -63,4 +66,10 @@ registerSlot<WorkflowActionsItem>(SLOTS.workflowActions, {
   id: "db",
   plugin: "db",
   prefix: "db:",
+});
+
+// Map › Database (ER): the live database next to the diagram (it says itself when the plugin is off)
+registerSlot<MapErQueryItem>(SLOTS.mapErQuery, {
+  id: "db",
+  component: QueryPanel,
 });

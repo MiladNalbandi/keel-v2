@@ -265,26 +265,6 @@ class KnowledgeService(
         return WikiPage("runbook", "How to run this project", md, mapOf("from" to if (commands.isNullOrEmpty()) null else ".keel/config.yml"))
     }
 
-    // ---- map ------------------------------------------------------------------------------
-
-    /** The map the engine built (engine runtime/mapper.py, stored in its DB), or `{missing}` until it built one. */
-    fun map(pid: String): JsonNode {
-        projects.require(pid)
-        return try {
-            engine.map(pid)
-        } catch (e: EngineDown) {
-            missing("The engine is not running, so the map cannot be read.")
-        }
-    }
-
-    /** Builds the map for HEAD in the engine: folders, tables from the SQL migrations, endpoints from the API contract. */
-    fun rebuildMap(pid: String): JsonNode {
-        val root = projects.root(pid)
-        return engine.buildMap(pid, root.toString())
-    }
-
-    private fun missing(reason: String): JsonNode = mapper.createObjectNode().put("missing", reason)
-
     // ---- the code graph (the Graph page): the engine reads the project's CodeGraph index ---------
 
     fun graph(pid: String): JsonNode = graphCall(pid) { engine.graph(pid) }

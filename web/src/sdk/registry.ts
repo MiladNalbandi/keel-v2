@@ -74,16 +74,28 @@ const snapshot = () => version;
 // ---------- pages ----------
 
 const pages = new Map<string, PageRegistration>();
+// grows when a page comes or goes (not when a slot changes): what a link names can change then
+let pagesVersion = 0;
 
 /** Add a page (a page with the same id is replaced). Returns a function that takes it away again. */
 export function registerPage(page: PageRegistration): () => void {
   pages.set(page.id, page);
+  pagesVersion++;
   changed();
   return () => {
     if (pages.get(page.id) !== page) return;
     pages.delete(page.id);
+    pagesVersion++;
     changed();
   };
+}
+
+const pagesSnapshot = () => pagesVersion;
+
+/** A number that changes when a page comes or goes; the component renders again then (the router reads the link
+ *  again: a plugin's page registers after keel started). */
+export function usePagesVersion(): number {
+  return useSyncExternalStore(subscribe, pagesSnapshot, pagesSnapshot);
 }
 
 /** The page with this id, or null. */

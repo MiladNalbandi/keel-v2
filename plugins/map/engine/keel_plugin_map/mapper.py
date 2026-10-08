@@ -2,7 +2,7 @@
 
     build(root) -> {sha, at, demo, limits, counts, sources, schema, api, levels: {system, modules, er}}
 
-`schema` is the database the SQL migrations leave behind (runtime/sqlschema.py): every table and view with its columns
+`schema` is the database the SQL migrations leave behind (sqlschema.py): every table and view with its columns
 (type, nullable, default, keys), primary key, unique constraints, indexes and foreign keys, and `relations` (one per
 foreign key, column to column, with ON DELETE / ON UPDATE; one per table a view reads). Each carries the migration
 file and line it came from. Nothing is capped: the web lays the diagram out and handles the size.
@@ -33,9 +33,11 @@ from pathlib import Path
 
 import yaml
 
-from .. import rules
-from ..tools import git
-from . import db, sqlschema
+from keel_engine import rules
+from keel_engine.runtime import db
+from keel_engine.tools import git
+
+from . import sqlschema
 
 HEAD, SUB, ROW, PAD = 30, 16, 18, 10
 CH_TITLE, CH_SUB = 7.3, 6.2

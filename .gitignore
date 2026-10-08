@@ -1,6 +1,9 @@
 .data/
 node_modules/
 web/dist/
+# the plugins' web parts, built on their own (npm run build:plugins, build:product)
+plugins/*/web/dist/
+product/web/dist/
 api/build/
 api/.gradle/
 .gradle/

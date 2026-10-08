@@ -1,5 +1,5 @@
-// v0.10.0 the Database and Git plugins in the web: install on Tools, Connections › Databases and GitHub, Map › Query
-// (a read runs, a change is counted then run), Code › Git, KeelBot's query and git buttons, a plugin block's settings
+// v0.10.0 the Database and Git plugins in the web: install on Tools, Connections › Databases and GitHub (Map › Query:
+// plugins/map/web/test), Code › Git, KeelBot's query and git buttons, a plugin block's settings
 // on the Workflows page, and Claude Code's question in the Inbox.
 
 import { render, screen, waitFor, within } from "@testing-library/react";
@@ -60,33 +60,6 @@ describe("Connections › Databases and GitHub", () => {
     await user.click(within(screen.getByLabelText("GitHub token").closest(".gh-row") as HTMLElement).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(calls("PUT", "/api/secrets/GITHUB_REPO_TOKEN")[0]?.body).toEqual({ value: "ghp_123456789" }));
     expect(await screen.findByText("token set …789")).toBeInTheDocument();
-  });
-});
-
-describe("Map › Query", () => {
-  it("opens a table's rows, and counts a change before it runs it", async () => {
-    const user = userEvent.setup();
-    db.plugins.db = true;
-    db.dbConns = [{ name: "local", kind: "postgres", env: "local", shown: "postgres://app:•••@localhost/app", ok: true, server: "PostgreSQL 16.4",
-      tables: 2, can_change: true }];
-    localStorage.setItem("keel2.map.ludus-engine.tab", "er");
-    location.hash = "#/map";
-    render(<App />);
-    const panel = await screen.findByRole("region", { name: "Query" });
-    await user.click(await within(panel).findByRole("button", { name: "players" }));
-    await waitFor(() => expect(calls("POST", "/api/projects/ludus-engine/db/query")[0]?.body)
-      .toEqual({ connection: "local", sql: "SELECT * FROM players LIMIT 20", change: true, confirm: false }));
-    const rows = await within(panel).findByRole("table", { name: "Rows from local" });
-    expect(within(rows).getAllByRole("row")).toHaveLength(3);
-    expect(within(rows).getByText("NULL")).toHaveClass("qp-null");
-    await user.clear(within(panel).getByRole("textbox", { name: "SQL" }));
-    await user.type(within(panel).getByRole("textbox", { name: "SQL" }), "update scores set value = 0");
-    await user.click(within(panel).getByRole("button", { name: "Run" }));
-    const confirm = await within(panel).findByRole("group", { name: "Change data" });
-    expect(confirm).toHaveTextContent("This changes 3 rows in local (local).");
-    await user.click(within(confirm).getByRole("button", { name: "Run it (3 rows)" }));
-    expect(await within(panel).findByRole("status")).toHaveTextContent("3 rows changed in local.");
-    expect(calls("POST", "/api/projects/ludus-engine/db/query").at(-1)?.body).toMatchObject({ confirm: true });
   });
 });
 

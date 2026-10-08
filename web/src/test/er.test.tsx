@@ -1,10 +1,9 @@
 // The Map's database diagram (components/er): tables with key icons and typed columns, a line per foreign key, find a
 // table, keys only, selection with neighbours and the Structure panel, keyboard, drag + Reset layout remembered per
-// project, export, the other levels on the same canvas, and the empty state that says where keel looked.
+// project, export, and the other levels on the same canvas. The Map page itself: plugins/map/web/test.
 
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { http, HttpResponse } from "msw";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
 import type { DbSchema, KeelMap } from "../api";
@@ -12,7 +11,6 @@ import { BoxDiagram, endpointGroups, moduleBoxes, systemBoxes } from "../compone
 import { ErDiagram, posKey } from "../components/er/ErDiagram";
 import * as fx from "./fixtures";
 import shop from "./fixtures/er-shop.json";
-import { server } from "./setup";
 
 const schema = shop as unknown as DbSchema;
 const tables = schema.tables.filter((t) => t.kind === "table");
@@ -249,65 +247,6 @@ describe("the other map levels", () => {
     expect(boxes.filter((b) => b.kind === "api").map((b) => b.title)).toEqual(["/api/v1/orders", "/api/v1/products"]);
     expect(boxes.find((b) => b.id === "tbl:customer_order")).toMatchObject({ drill: "er", table: "customer_order", rows: [{ t: "9 columns, 5 FK" }] });
     expect(endpointGroups([{ method: "GET", path: "/a/b" }]).groups[0][0]).toBe("/a");
-  });
-});
-
-describe("Map page", () => {
-  const withSchema = { ...fx.map, schema, sources: { migrations: ["db/migration/V1__accounts.sql"], looked_in: ["db/migration"] } };
-
-  it("the Database tab draws the diagram from the map's schema", async () => {
-    localStorage.setItem("keel2.project", "ludus-engine");
-    localStorage.setItem("keel2.map.ludus-engine.tab", "er");
-    server.use(http.get("/api/projects/:pid/map", () => HttpResponse.json(withSchema)));
-    location.hash = "#/map";
-    render(<App />);
-    expect(await screen.findByRole("application", { name: /Database diagram of ludus-engine: 29 tables shown, 41 foreign keys/ })).toBeInTheDocument();
-    expect(screen.getByLabelText("Legend")).toHaveTextContent("primary key");
-  });
-
-  it("an older map (only levels.er) still draws, and says a rebuild adds the details", async () => {
-    localStorage.setItem("keel2.project", "ludus-engine");
-    localStorage.setItem("keel2.map.ludus-engine.tab", "er");
-    location.hash = "#/map";
-    render(<App />);
-    expect(await screen.findByRole("button", { name: "Table scores, 2 columns" })).toBeInTheDocument();
-    expect(screen.getByText(/built by an older keel/)).toBeInTheDocument();
-  });
-
-  it("no migrations: says where keel looked, how to point it, and builds the map", async () => {
-    const user = userEvent.setup();
-    localStorage.setItem("keel2.project", "ludus-engine");
-    localStorage.setItem("keel2.map.ludus-engine.tab", "er");
-    const empty = { ...fx.map, levels: { system: fx.map.levels.system }, schema: { tables: [], relations: [] },
-      sources: { migrations: [], looked_in: ["apps/api/src/main/resources/db/migration (backend.dir + backend.migrations)", "db/changelog (Liquibase SQL)"], configured: false } };
-    let rebuilt = 0;
-    server.use(http.get("/api/projects/:pid/map", () => HttpResponse.json(empty)),
-      http.post("/api/projects/:pid/map/rebuild", () => { rebuilt++; return HttpResponse.json(empty); }));
-    location.hash = "#/map";
-    render(<App />);
-    const region = await screen.findByRole("region", { name: "No database diagram" });
-    expect(within(region).getByRole("heading", { name: "No SQL migrations found" })).toBeInTheDocument();
-    expect(region).toHaveTextContent("db/changelog (Liquibase SQL)");
-    expect(region).toHaveTextContent("map:");
-    await user.click(within(region).getByRole("button", { name: "Build the map" }));
-    await waitFor(() => expect(rebuilt).toBe(1));
-  });
-
-  it("a table box of the modules level opens the database diagram on that table", async () => {
-    const user = userEvent.setup();
-    localStorage.setItem("keel2.project", "ludus-engine");
-    localStorage.setItem("keel2.map.ludus-engine.tab", "modules");
-    const m = { ...withSchema, levels: { ...fx.map.levels, modules: { width: 1, height: 1, edges: [], nodes: [
-      { id: "tbl:customer_order", kind: "data", title: "customer_order", rows: [{ t: "9 column(s)" }], x: 0, y: 0, w: 1, h: 1 }] } } };
-    server.use(http.get("/api/projects/:pid/map", () => HttpResponse.json(m)));
-    location.hash = "#/map";
-    const { container } = render(<App />);
-    await screen.findByRole("application", { name: /Modules map/ });
-    await act(async () => { fireEvent.doubleClick(box(container, "tbl:customer_order")); });
-    expect(await screen.findByRole("complementary", { name: "Structure of customer_order" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Database (ER)" })).toHaveAttribute("aria-selected", "true");
-    await user.click(screen.getByRole("tab", { name: "System" }));
-    expect(localStorage.getItem("keel2.map.ludus-engine.tab")).toBe("system");
   });
 });
 

@@ -1,12 +1,14 @@
 // Plugins step 1: an add-on's web part loads at run time from the url /api/features lists (plugins[].web.entry), with
 // its css linked once; with no web part, or a module that does not load, its page says so and keel goes on.
+// Step 3: every plugin's web part loads at start and its setup(sdk) runs once: its pages take their place in the menu,
+// and a link to one of them waits for it instead of showing Flow.
 
 import { act, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
-import { hasAddonWeb, refreshFeatures, setAddonImporter } from "../addons";
+import { hasAddonWeb, pluginsStarted, refreshFeatures, setAddonImporter } from "../addons";
 import type { Features, PluginWeb } from "../api";
-import { definePlugin, type AddonPageProps } from "../sdk";
+import { definePlugin, type AddonPageProps, type KeelSdk } from "../sdk";
 import { db } from "./setup";
 
 const ENTRY = "/plugins/demo/1.2.0/web/index.js";
@@ -97,9 +99,60 @@ describe("an add-on's web part, loaded at run time", () => {
 
   it("knows which add-ons have a web part from /api/features", async () => {
     db.features = demo({ entry: ENTRY, css: [] });
+    setAddonImporter(async () => MODULE);
     expect(hasAddonWeb("demo")).toBe(false);
     await refreshFeatures();
     expect(hasAddonWeb("demo")).toBe(true);
     expect(hasAddonWeb("other")).toBe(false);
+  });
+});
+
+describe("a plugin's web part with setup(), loaded at start (step 3)", () => {
+  const PENTRY = "/plugins/atlas/2.0.0/web/index.js";
+  const atlas = (web: PluginWeb | null): Features => ({
+    mode: "dev", modes: ["dev"], parts: { dev: true }, addons: [], screens: [],
+    plugins: [{ name: "atlas", title: "Atlas", version: "2.0.0", web }],
+  });
+  // a registered page gets the project; it reads the rest of the link itself (useRoute), like keel's own pages
+  const Atlas = ({ pid }: AddonPageProps) => <h1>Atlas of {pid}</h1>;
+  let off: (() => void)[] = [];
+  const setup = vi.fn((sdk: KeelSdk) => {
+    off.push(sdk.registerPage({ id: "atlas", label: "Atlas", group: "know", order: 35, component: Atlas }));
+  });
+  const ATLAS = { default: definePlugin({ name: "atlas", setup }) };
+
+  afterEach(() => {
+    off.forEach((f) => f());
+    off = [];
+    setup.mockClear();
+  });
+
+  it("imports it at start and runs setup once: the page joins the menu at its place", async () => {
+    const importer = open("#/flow", atlas({ entry: PENTRY, css: [] }), async () => ATLAS);
+    const nav = screen.getByRole("navigation", { name: "Screens" });
+    expect(await within(nav).findByRole("link", { name: "Atlas" })).toBeInTheDocument();
+    const links = within(nav).getAllByRole("link").map((l) => l.textContent?.trim());
+    expect(links.indexOf("Atlas")).toBe(links.indexOf("Map") + 1);   // order 35: between Map (30) and Graph (40)
+    await act(async () => { await refreshFeatures(); await pluginsStarted(); });
+    expect(importer).toHaveBeenCalledTimes(1);
+    expect(setup).toHaveBeenCalledTimes(1);
+  });
+
+  it("a link to its page waits for the web part, then shows the page (not Flow)", async () => {
+    let release = () => {};
+    const ready = new Promise<void>((r) => { release = r; });
+    open("#/atlas/north", atlas({ entry: PENTRY, css: [] }), async () => { await ready; return ATLAS; });
+    expect(await main().findByRole("status")).toHaveTextContent("Loading");
+    release();
+    expect(await main().findByRole("heading", { name: "Atlas of ludus-engine", level: 1 })).toBeInTheDocument();
+  });
+
+  it("a part that does not load, or whose setup fails, is logged and keel goes on", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const boom = { default: definePlugin({ name: "atlas", setup: () => { throw new Error("no"); } }) };
+    open("#/atlas", atlas({ entry: PENTRY, css: [] }), async () => boom);
+    // no page called atlas: the router shows Flow, as for any unknown page
+    expect(await screen.findByRole("button", { name: "Stop flow" })).toBeInTheDocument();
+    expect(error).toHaveBeenCalledWith("keel: the web part of atlas did not start", expect.any(Error));
   });
 });

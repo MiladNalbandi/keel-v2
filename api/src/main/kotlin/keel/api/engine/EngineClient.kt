@@ -101,11 +101,9 @@ class EngineClient(private val props: KeelProperties, private val mapper: Object
     fun providerTest(body: Map<String, Any?>): JsonNode = post("/providers/test", body, long = true)
     fun models(): JsonNode = get("/providers/models")
 
-    // ---- project scan: code graph index and map ---------------------------------------------
+    // ---- project scan: code graph index (the Map plugin's map: its own controller, with get/post) ---
     fun scan(pid: String, root: String, rebuild: Boolean = false): JsonNode = post("/projects/$pid/scan", mapOf("root" to root, "rebuild" to rebuild))
     fun index(pid: String): JsonNode = get("/projects/$pid/index")
-    fun map(pid: String): JsonNode = get("/projects/$pid/map")
-    fun buildMap(pid: String, root: String): JsonNode = post("/projects/$pid/map", mapOf("root" to root), long = true)
 
     // ---- the code graph for people (engine runtime/codegraph_view.py) ----------------------
     fun graph(pid: String): JsonNode = get("/projects/$pid/graph")

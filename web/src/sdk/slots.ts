@@ -3,6 +3,7 @@
 //
 //   Connections ─ connections.kind     Jobs ─ jobs.tab          Tools ─ tools.card       Settings ─ settings.section
 //   Workflows ── workflow.actions      Code ─ code.activity, code.tab, assistant        ⌘K ─ launcher.source
+//   Map (the Map plugin's page, step 3) ─ map.er.query
 
 import type { ComponentType } from "react";
 import type { GraphHit, HelperSelection } from "../api";
@@ -29,6 +30,8 @@ export const SLOTS = {
   assistant: "assistant",
   /** ⌘K: results and actions a part adds (files, code, pull requests, tasks) */
   launcherSource: "launcher.source",
+  /** Map › Database (ER): a panel under the diagram (the Database part's Query) — a slot of the Map plugin */
+  mapErQuery: "map.er.query",
 } as const;
 
 /** A part's piece is shown only while this project has the plugin on (Tools › Plugins), when it names one. */
@@ -185,6 +188,13 @@ export type AssistantProps = {
 export type AssistantItem = SlotItem & {
   title: string;
   component: ComponentType<AssistantProps>;
+};
+
+// ---------- the Map plugin's page ----------
+
+/** Map › Database (ER): a panel under the diagram, for the chosen project. */
+export type MapErQueryItem = SlotItem & {
+  component: ComponentType<{ pid: string }>;
 };
 
 // ---------- the launcher (⌘K) ----------

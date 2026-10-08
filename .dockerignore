@@ -10,3 +10,4 @@ engine/.venv
 **/.pytest_cache
 docs/mockup.html
 product/web/dist
+plugins/*/web/dist

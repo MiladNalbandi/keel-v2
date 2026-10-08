@@ -7,7 +7,8 @@ import { allPages, pageFor, pageOf } from "./sdk/registry";
 /** A screen's id: one of keel's own (SCREEN) or a registered page's (#/map, #/repo). */
 export type ScreenId = string;
 
-/** keel's own screens. The others (Tasks, Code, KeelBot, Map, Graph, Wiki) are parts' pages (web/src/builtins.ts). */
+/** keel's own screens. The others (Tasks, Code, KeelBot, Graph, Wiki) are parts' pages (web/src/builtins.ts), and the
+ *  plugins' pages (the Map: plugins/map, registered at start by addons.ts). */
 export const SCREEN = {
   projects: "projects",
   inbox: "inbox",

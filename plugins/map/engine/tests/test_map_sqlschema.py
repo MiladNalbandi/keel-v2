@@ -1,11 +1,13 @@
-"""The database schema the Map draws: SQL migrations -> tables, columns, keys, indexes, views (runtime/sqlschema.py),
-and where the mapper finds the migrations (runtime/mapper.py)."""
+"""The database schema the Map draws: SQL migrations -> tables, columns, keys, indexes, views (sqlschema.py), and where
+the mapper finds the migrations (mapper.py)."""
 
 import json
 import subprocess
 from pathlib import Path
 
-from keel_engine.runtime import mapper, sqlschema
+from keel_plugin_map import mapper, sqlschema
+
+ROOT = Path(__file__).resolve().parents[4]
 
 
 def parse(*texts: str) -> dict:
@@ -394,5 +396,5 @@ def test_the_shop_fixture_the_web_draws():
     assert col(table(s, "app_user"), "full_name")["nullable"]                                                 # renamed later
     assert col(table(s, "product"), "weight_grams")["cite"]["rel"] == "db/migration/V5__support.sql"
     assert table(s, "billing.invoice")["foreign_keys"][0]["ref_table"] == "customer_order"
-    web = Path(__file__).parents[2] / "web" / "src" / "test" / "fixtures" / "er-shop.json"
+    web = ROOT / "web" / "src" / "test" / "fixtures" / "er-shop.json"
     assert json.loads(web.read_text()) == {"tables": s["tables"], "relations": s["relations"]}
