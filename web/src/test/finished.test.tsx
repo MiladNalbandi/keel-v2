@@ -197,7 +197,8 @@ describe("Live agents: Working now and Finished tabs", () => {
     const user = userEvent.setup();
     jobsApi(all.filter((j) => j.status !== "running"));
     await at("#/live");
-    expect(await main().findByRole("tab", { name: "Finished 61" })).toHaveAttribute("aria-selected", "true");
+    // the tab is chosen once the running list is in (the count can come a moment earlier)
+    await waitFor(() => expect(main().getByRole("tab", { name: "Finished 61" })).toHaveAttribute("aria-selected", "true"));
     expect(localStorage.getItem("keel2.live.tab")).toBeNull();
     expect(await main().findByRole("heading", { name: "implementer · AC-002" })).toBeInTheDocument();
     await user.type(main().getByRole("searchbox", { name: "Search agents" }), "archaeologist");
@@ -210,7 +211,7 @@ describe("Live agents: Working now and Finished tabs", () => {
     jobsApi();
     await at("#/live");
     expect(await main().findByRole("heading", { name: "ac-reviewer · AC-002" })).toBeInTheDocument();
-    expect(await main().findByRole("tab", { name: "Working now 1" })).toHaveAttribute("aria-selected", "false");
+    await waitFor(() => expect(main().getByRole("tab", { name: "Working now 1" })).toHaveAttribute("aria-selected", "false"));
     expect(main().getByRole("tab", { name: /^Finished/ })).toHaveAttribute("aria-selected", "true");
   });
 });
