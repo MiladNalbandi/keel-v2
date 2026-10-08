@@ -4,7 +4,8 @@
     db/, git/, ci/    what content/plugins/<name>/plugin.yml promises (runtime/plugins.py loads those): workflow steps,
                       read tools for agents (server.py), routes, KeelBot's words and keel2 mcp's tools
     graph/            the code graph (tools/codegraph.py): its index, MCP server, hints and the Graph page's routes
-    map/              the map (runtime/mapper.py): built at each scan, and the Map page's routes
+
+The map left in step 3: it is the plugin plugins/map (package keel_plugin_map), loaded as an add-on.
 
 A project turns db, git and ci on (Tools › Plugins); the api then sends `plugins: [...]` with every flow and KeelBot
 turn, and the plugin's secrets in the call's keys (memory only): `db:<connection>` → {"name","kind","url","env"} as

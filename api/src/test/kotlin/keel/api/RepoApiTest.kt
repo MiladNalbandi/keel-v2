@@ -111,7 +111,7 @@ class RepoApiTest : ApiTest() {
     }
 
     @Test
-    fun `keel docs, memory, wiki and map`() {
+    fun `keel docs, memory and wiki`() {
         val (pid, _) = newProject("repo-knowledge", files)
 
         val docs = get("/api/projects/$pid/keel-docs").andExpect(status().isOk).json()
@@ -145,12 +145,6 @@ class RepoApiTest : ApiTest() {
         assertThat(get("/api/projects/$pid/wiki/page?id=adr:ADR-001-graph.md").json()["title"].asText()).isEqualTo("The flow is a graph")
         assertThat(get("/api/projects/$pid/wiki/page?id=runbook").json()["markdown"].asText()).contains("How to run")
         get("/api/projects/$pid/wiki/page?id=adr:../../etc").andExpect(status().isBadRequest)
-
-        assertThat(get("/api/projects/$pid/map").json()["missing"].asText()).contains("No map yet")
-        // the engine builds the map (no keel v1 binary involved) and keeps it
-        val built = post("/api/projects/$pid/map/rebuild").andExpect(status().isOk).json()
-        assertThat(built["levels"]["er"]).isNotNull()
-        assertThat(engine.lastBody("/projects/$pid/map")!!["root"].asText()).endsWith("repo-knowledge")
-        assertThat(get("/api/projects/$pid/map").json()["sha"].asText()).isEqualTo("abc1234")
+        // the map is the Map plugin's (plugins/map/api: MapApiTest)
     }
 }

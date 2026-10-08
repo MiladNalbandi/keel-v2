@@ -134,12 +134,16 @@ _addon_parts: dict[str, tuple[object, Part]] = {}
 
 
 def _addon_part(a) -> Part:
-    """An add-on as a part: its ADDON dict, with the actions and router addons.py checked."""
+    """An add-on as a part: its PART dict (a part moved out of core keeps the keys it had as a built-in), then its
+    ADDON dict, with the actions and router addons.py checked. A router or actions only in PART are used as they are."""
     have = _addon_parts.get(a.package)
     if have and have[0] is a:
         return have[1]
     mod = sys.modules.get(a.package) or importlib.import_module(a.package)
-    spec = {**(getattr(mod, "ADDON", None) or {}), "name": a.name, "actions": a.actions, "router": a.router}
+    part_spec = getattr(mod, "PART", None) or {}
+    spec = {**part_spec, **(getattr(mod, "ADDON", None) or {}), "name": a.name,
+            "actions": a.actions or part_spec.get("actions") or {},
+            "router": a.router if a.router is not None else part_spec.get("router")}
     part_ = Part(spec, a.package, False)
     _addon_parts[a.package] = (a, part_)
     return part_

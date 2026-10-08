@@ -8,17 +8,21 @@ import {
 import { inboxApi } from "./inboxApi";
 import { desktopPop, NOTIFY_DEFAULTS, playSound, shouldAlert, unlockAudio, withDefaults } from "./notify";
 import { hashFor, parseHash, routeFromLink, type Route, type ScreenId } from "./routes";
+import { usePagesVersion } from "./sdk/registry";
 
 // ---------- route ----------
 
 export function useRoute(): Route {
-  const [route, setRoute] = useState(() => parseHash(location.hash));
+  const [hash, setHash] = useState(() => location.hash);
+  // a plugin's page registers after keel started (its web part loads at start): the same link (#/map) may name it
+  // now, so the link is read again when a page comes or goes
+  const pages = usePagesVersion();
   useEffect(() => {
-    const on = () => setRoute(parseHash(location.hash));
+    const on = () => setHash(location.hash);
     window.addEventListener("hashchange", on);
     return () => window.removeEventListener("hashchange", on);
   }, []);
-  return route;
+  return useMemo(() => parseHash(hash), [hash, pages]);
 }
 
 export function go(page: ScreenId, arg?: string) {

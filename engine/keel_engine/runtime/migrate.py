@@ -6,7 +6,7 @@
                             (keel no longer writes or reads that file otherwise)
     verdicts                one row per check run (memory, release, coverage, ...), stamped with the commit it saw;
                             replaces keel v1's .keel/{release,coverage,security,memory}.json (runtime/verdicts.py)
-    project_map             the latest map of each project (runtime/mapper.py), in the shape the web's Map page draws
+    project_map             the latest map of each project (the Map plugin, plugins/map), in the shape its page draws
     project_index           each project's code-graph index: idle | indexing | ready | failed (runtime/scan.py)
     hunt_runs               one row per bug hunt (runtime/hunt.py): scope, mode, lenses, sweep record, report path
     hunt_candidates         every finding of a hunt with its verdict, severity, group, dispatch and close; never deleted

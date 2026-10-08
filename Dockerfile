@@ -2,30 +2,36 @@
 # Everything is installed or built inside the image; nothing comes from your computer except this repo's source.
 # keel v1 is a separate project and is not in the image (keel2 start --with-keel-v1 can mount one for its MCP server).
 #
-#   docker build -t keel-v2 .                                        (CLIs included)
+#   docker build -t keel-v2 .                                        (CLIs included, every plugin in plugins/ inside)
 #   docker build --build-arg INSTALL_CLIS=0 -t keel-v2:slim .        (no claude/codex/copilot/opencode)
-#   docker build --build-arg EDITION=product -t keel-v2:product .    (with the keel Product plugin inside: beta)
+#   docker build --build-arg EDITION=product -t keel-v2:product .    (also the keel Product plugin inside: beta)
+#   docker build --build-arg EDITION=core -t keel-v2:core .          (keel's core only, no plugin inside)
+# EDITION (docs/plugins/11-step3-contract.md): full (the default; the old value dev means full) bakes every plugin in
+# plugins/ into /opt/keel-v2/plugins, product = full + keel Product, core = none.
 # Run:
 #   docker run -p 127.0.0.1:8080:8080 -v /path/to/project:/workspace -v keel-data:/data keel-v2
 
-# ---------- build the web app (keel's own; keel Product's web part too with EDITION=product) ----------
+# ---------- build the web app (keel's own; the plugins' web parts on their own) ----------
 FROM node:20-bookworm-slim AS web
-ARG EDITION=dev
+ARG EDITION=full
 WORKDIR /src/web
 COPY web/package*.json ./
 RUN npm ci --no-audit --no-fund
 COPY web/ ./
-# keel's bundle is built before product/web is even here, so it never holds keel Product's pages
+# keel's bundle is built before plugins/ and product/web are even here, so it never holds a plugin's pages
 RUN npm run build
-# keel Product's pages are a plugin's web part: built on their own with web's node_modules (build:product writes
-# product/web/dist: index.js, style.css) and packed by the product stage. Empty unless EDITION=product.
+# The plugins' pages are their web parts: each built on its own with web's node_modules (build:plugins writes
+# plugins/<name>/web/dist, build:product writes product/web/dist) and packed by the plugins stage. None with
+# EDITION=core; keel Product's only with EDITION=product.
+COPY plugins /src/plugins
 COPY product/web /src/product/web
-RUN rm -rf /src/product/web/dist && mkdir -p /src/product/web/dist \
+RUN rm -rf /src/product/web/dist /src/plugins/*/web/dist && mkdir -p /src/product/web/dist \
+    && if [ "$EDITION" != "core" ]; then npm run build:plugins; fi \
     && if [ "$EDITION" = "product" ]; then npm run build:product; fi
 
 # ---------- build the api (with the web app inside) ----------
 FROM eclipse-temurin:21-jdk AS api
-ARG EDITION=dev
+ARG EDITION=full
 WORKDIR /src/api
 COPY api/gradlew ./
 COPY api/gradle ./gradle
@@ -33,30 +39,43 @@ COPY api/*.gradle.kts ./
 RUN ./gradlew --no-daemon -q dependencies > /dev/null || true
 COPY api/src ./src
 COPY product/api /src/product/api
+COPY plugins /src/plugins
 COPY --from=web /src/web/dist ./src/main/resources/static
 RUN ./gradlew --no-daemon -q bootJar -x test && cp build/libs/*.jar /app.jar
-# keel Product's api part is a thin plugin jar (productPluginJar), never inside keel's jar. /plugin stays empty unless
-# EDITION=product.
-RUN mkdir -p /plugin && if [ "$EDITION" = "product" ]; then \
-      ./gradlew --no-daemon -q productPluginJar && cp build/libs/keel-plugin-product.jar /plugin/; fi
+# The plugins' api parts are thin plugin jars (pluginJars: every plugins/<name>/api; productPluginJar), never inside
+# keel's jar. /plugin stays empty with EDITION=core.
+RUN mkdir -p /plugin && case "$EDITION" in \
+      core) ;; \
+      product) ./gradlew --no-daemon -q pluginJars productPluginJar ;; \
+      *) ./gradlew --no-daemon -q pluginJars ;; \
+    esac && find build/libs -name 'keel-plugin-*.jar' -exec cp {} /plugin/ \;
 
-# ---------- keel Product as a plugin: /out/product/<version>/, packed by product/build-plugin.sh ----------
-# (the same script as on a computer, with the parts built above). /out stays empty unless EDITION=product.
-FROM node:20-bookworm-slim AS product
-ARG EDITION=dev
+# ---------- the plugins: /out/<name>/<version>/, each packed by scripts/build-plugin.sh ----------
+# (the same script as on a computer, with the parts built above). Every plugins/<name> unless EDITION=core, and keel
+# Product (product/build-plugin.sh) with EDITION=product. /out stays empty with EDITION=core.
+FROM node:20-bookworm-slim AS plugins
+ARG EDITION=full
 WORKDIR /src
+COPY scripts/build-plugin.sh ./scripts/
+COPY --from=web /src/plugins ./plugins
 COPY product/keel-plugin.yml product/README.md product/build-plugin.sh ./product/
 COPY product/engine ./product/engine
 COPY product/content ./product/content
 COPY --from=web /src/product/web/dist ./product/web/dist
 COPY --from=api /plugin ./api/build/libs
-RUN mkdir -p /out && if [ "$EDITION" = "product" ]; then \
-      bash product/build-plugin.sh /tmp/plugin --no-build && mv /tmp/plugin/product /out/; fi
+RUN set -e; mkdir -p /out /tmp/plugins; \
+    if [ "$EDITION" != "core" ]; then \
+      for d in plugins/*/; do \
+        if [ -f "$d/keel-plugin.yml" ]; then bash scripts/build-plugin.sh "$d" /tmp/plugins --no-build; fi; \
+      done; \
+    fi; \
+    if [ "$EDITION" = "product" ]; then bash product/build-plugin.sh /tmp/plugins --no-build; fi; \
+    find /tmp/plugins -mindepth 1 -maxdepth 1 -type d -exec mv {} /out/ \;
 
 # ---------- runtime: Ubuntu 24.04 with a full JDK 21 (projects compile and test inside) ----------
 FROM eclipse-temurin:21-jdk-noble
 ARG INSTALL_CLIS=1
-ARG EDITION=dev
+ARG EDITION=full
 ARG NODE_MAJOR=20
 ENV LANG=C.UTF-8 \
     DEBIAN_FRONTEND=noninteractive \
@@ -103,9 +122,10 @@ RUN uv sync --no-dev --python /usr/bin/python3 $( [ -f uv.lock ] && echo --froze
 COPY --from=api /app.jar /opt/api/app.jar
 # keel v2's own agents, skills, stacks, packs and templates (content/README.md)
 COPY content /opt/keel-v2/content
-# The plugins inside the image (docs/plugins): <name>/<version>/keel-plugin.yml. keel Product with EDITION=product,
-# else none. keel-start resolves them at every start, together with the ones a person installed (/data/plugins/store).
-COPY --from=product /out /opt/keel-v2/plugins
+# The plugins inside the image (docs/plugins): <name>/<version>/keel-plugin.yml. Every plugin of plugins/ (and keel
+# Product with EDITION=product; none with EDITION=core). keel-start resolves them at every start, together with the
+# ones a person installed (/data/plugins/store).
+COPY --from=plugins /out /opt/keel-v2/plugins
 ENV KEEL_PLUGINS_IMAGE=/opt/keel-v2/plugins
 COPY docker/keel-start /usr/local/bin/keel-start
 RUN chmod +x /usr/local/bin/keel-start \

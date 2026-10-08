@@ -1,4 +1,5 @@
-"""Stage 5/5b: verdicts in the engine DB, the knowledge check, the map (ER + endpoints), the scan job and the code graph."""
+"""Stage 5/5b: verdicts in the engine DB, the knowledge check, the scan job and the code graph. The map (ER + endpoints)
+is the Map plugin's: plugins/map/engine/tests."""
 
 import json
 import stat
@@ -6,7 +7,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from keel_engine.runtime import blockers, knowledge, mapper, scan, verdicts
+from keel_engine.runtime import blockers, knowledge, scan, verdicts
 from keel_engine.runtime.actions import ActionInput, knowledge_check
 from keel_engine.tools import mcp
 
@@ -122,83 +123,6 @@ def test_knowledge_gate_reads_the_memory_verdict(repo):
     assert "changed since" in gates()["knowledge"]["why"]
 
 
-# ------------------------------------------------------------------ map
-
-MIGRATIONS = {
-    "apps/api/src/main/resources/db/migration/V1__players.sql": """
-create table players (
-    id bigserial primary key,
-    name varchar(80) not null
-);
-create table teams (
-    id bigint not null,
-    title text,
-    primary key (id)
-);
-""",
-    "apps/api/src/main/resources/db/migration/V2__scores.sql": """
-CREATE TABLE IF NOT EXISTS scores (
-    id      BIGSERIAL PRIMARY KEY,
-    player_id BIGINT NOT NULL REFERENCES players(id),
-    points  NUMERIC(10,2)
-);
-ALTER TABLE players ADD COLUMN team_id BIGINT;
-ALTER TABLE players ADD CONSTRAINT fk_team FOREIGN KEY (team_id) REFERENCES teams(id);
-CREATE TABLE tmp (id int);
-DROP TABLE tmp;
-""",
-    "apps/api/src/main/resources/db/migration/V10__later.sql": "ALTER TABLE scores ADD COLUMN at timestamp;\n",
-}
-
-OPENAPI = """openapi: 3.0.0
-info: {title: scores, version: '1'}
-paths:
-  /players:
-    get: {summary: list}
-    post: {summary: add}
-  "/players/{id}/scores":
-    get: {summary: scores}
-    description: |
-      get: this line is prose, not an endpoint
-"""
-
-
-def test_map_er_from_migrations_and_endpoints_from_openapi(repo):
-    for rel, text in MIGRATIONS.items():
-        write(repo, rel, text)
-    write(repo, "contracts/openapi.yaml", OPENAPI)
-    commit_all(repo)
-    m = mapper.build(str(repo))
-    assert m["counts"]["tables"] == 3 and m["counts"]["endpoints"] == 3
-    assert m["sha"] == git(repo, "rev-parse", "HEAD").stdout.strip()
-    er = m["levels"]["er"]
-    nodes = {n["title"]: n for n in er["nodes"]}
-    assert set(nodes) == {"players", "teams", "scores"}                    # tmp was dropped
-    rows = [r["t"].split()[0] for r in nodes["players"]["rows"]]
-    assert rows == ["id", "name", "team_id"] and nodes["players"]["rows"][0]["flag"] == "pk"
-    assert nodes["teams"]["rows"][0]["flag"] == "pk"                       # table-level primary key (id)
-    assert [r["t"].split()[0] for r in nodes["scores"]["rows"]] == ["id", "player_id", "points", "at"]  # V10 after V2
-    assert nodes["scores"]["rows"][1]["flag"] == "fk" and nodes["scores"]["cite"]["line"] == 2
-    fks = {(e["from"], e["to"]) for e in er["edges"]}
-    assert fks == {("tbl:players", "tbl:scores"), ("tbl:teams", "tbl:players")}
-    assert all(e["d"].startswith("M ") and e["kind"] == "fk" for e in er["edges"])
-    assert all({"x", "y", "w", "h"} <= set(n) for n in er["nodes"]) and er["width"] > 0 and er["height"] > 0
-    api = next(n for n in m["levels"]["modules"]["nodes"] if n["id"] == "api:contract")
-    assert [r["t"] for r in api["rows"]] == ["GET /players", "POST /players", "GET /players/{id}/scores"]
-    assert api["cite"] == {"rel": "contracts/openapi.yaml", "line": 4}
-    assert {n["title"] for n in m["levels"]["modules"]["nodes"]} >= {"apps/api", "src/scores", "contracts"}  # apps/ and src/ open one level
-    assert [n["id"] for n in m["levels"]["system"]["nodes"]] == ["app:code", "api:contract", "db:main"]
-    assert "flow" not in m["levels"] and "classes" not in m["levels"]
-
-
-def test_map_endpoints_store_and_read(client, repo):
-    assert client.get("/projects/demo/map").json() == {"missing": "No map yet. Build it to draw one."}
-    m = client.post("/projects/demo/map", json={"root": str(repo)}).json()
-    assert m["levels"]["system"]["nodes"] and "er" not in m["levels"]
-    assert client.get("/projects/demo/map").json()["at"] == m["at"]
-    assert client.post("/projects/demo/map", json={"root": "/no/such/folder"}).status_code == 400
-
-
 # ------------------------------------------------------------------ scan + code graph
 
 def scan_and_wait(client, root, rebuild=False, project="demo"):
@@ -219,10 +143,10 @@ def test_scan_with_codegraph(client, repo, tmp_path, monkeypatch):
     assert client.get("/projects/demo/index").json()["status"] == "idle"
     s = scan_and_wait(client, repo)
     assert s["status"] == "ready" and s["files"] == 3 and s["symbols"] == 12 and s["indexed_at"] and not s["error"]
-    assert "python" in s["stack"] and s["knowledge"]["missing"] == knowledge.SECTIONS and s["map"]["counts"]["files"] > 0
+    assert "python" in s["stack"] and s["knowledge"]["missing"] == knowledge.SECTIONS
+    assert "map" not in s                                        # the map is a plugin's (plugins/map), not core's
     assert ".codegraph/" in (Path(repo) / ".git/info/exclude").read_text()
     assert git(repo, "status", "--porcelain").stdout == ""      # nothing of the index shows up as a change
-    assert mapper.load("demo")["counts"]["files"] > 0
     done = [e for e in client.bus.recent if e["type"] == "index.done"]
     assert done[-1]["project_id"] == "demo" and done[-1]["data"]["files"] == 3
     assert any(e["type"] == "index.progress" and e["data"].get("step") == "graph" for e in client.bus.recent)
@@ -233,11 +157,10 @@ def test_scan_with_codegraph(client, repo, tmp_path, monkeypatch):
     assert [c for c in calls if c != "status"] == ["init", "sync", "index"]
 
 
-def test_scan_without_codegraph_fails_clearly_but_builds_the_map(client, repo, monkeypatch):
+def test_scan_without_codegraph_fails_clearly(client, repo, monkeypatch):
     no_codegraph(monkeypatch)
     s = scan_and_wait(client, repo)
     assert s["status"] == "failed" and "not installed" in s["error"] and s["available"] is False
-    assert mapper.load("demo") is not None
     assert mcp.codegraph_server_spec(str(Path(repo).resolve())) is None
 
 

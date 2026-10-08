@@ -232,13 +232,6 @@ describe("Flow v0.2", () => {
     expect(side).not.toHaveTextContent("0.67");
   });
 
-  it("the Map page has no Open in keel v1 either", async () => {
-    at("#/map");
-    render(<App />);
-    expect(await screen.findByRole("heading", { name: "Map" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /keel v1/ })).not.toBeInTheDocument();
-  });
-
   it("Start a flow sends the cap with the flow, not as a project setting", async () => {
     const user = userEvent.setup();
     localStorage.setItem("keel2.project", "yegi");

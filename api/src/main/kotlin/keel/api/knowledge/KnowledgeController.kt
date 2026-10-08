@@ -38,12 +38,6 @@ class KnowledgeController(private val knowledge: KnowledgeService) {
         return mapOf("ok" to true)
     }
 
-    @GetMapping("/map")
-    fun map(@PathVariable pid: String): JsonNode = knowledge.map(pid)
-
-    @PostMapping("/map/rebuild")
-    fun rebuild(@PathVariable pid: String): JsonNode = knowledge.rebuildMap(pid)
-
     @GetMapping("/graph")
     fun graph(@PathVariable pid: String): JsonNode = knowledge.graph(pid)
 

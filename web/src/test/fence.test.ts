@@ -35,8 +35,9 @@ const PLUGIN_PARTS = [
   "src/reviewApi.ts",
   "src/tasksApi.ts",
 ];
-/** Core never imports these (keel Product is a plugin). They can never be in the allowlist. */
-const FORBIDDEN = ["../product/"];
+/** Core never imports these (keel Product and the parts that moved to plugins/ are plugins). They can never be in the
+ *  allowlist. */
+const FORBIDDEN = ["../product/", "../plugins/"];
 
 type Found = { couplings: Set<string>; forbidden: Set<string> };
 type Spec = { spec: string; glob: boolean };

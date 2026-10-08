@@ -1,6 +1,9 @@
-"""The map as a part (keel_engine/extensions.py): what the code is made of, drawn for the Map page. Its code stays in
-runtime/mapper.py (and runtime/sqlschema.py) until step 3. It adds the map routes and builds the map at each project
-scan (hook on_scan)."""
+"""The Map plugin's engine part: what the code is made of, drawn for the Map page (mapper.py, sqlschema.py).
+
+keel loads it as an add-on (KEEL_PLUGIN_ADDONS=keel_plugin_map, written by `keel-engine plugins resolve`): ADDON says
+who it is, PART holds the keys it had as a built-in part (keel_engine/extensions.py). It adds the map routes and builds
+the map at each project scan (hook on_scan). The map lives in the engine DB (table project_map, made by core).
+"""
 
 from __future__ import annotations
 
@@ -8,10 +11,13 @@ import logging
 
 log = logging.getLogger(__name__)
 
+# the same version as ../../keel-plugin.yml (tests/test_map_part.py checks it)
+VERSION = "1.0.0"
+
 
 def on_scan(root: str, pid: str) -> dict:
     """Build and store the project's map: {"map": {counts, sha}}, or {"map": {error}} (the scan goes on)."""
-    from ...runtime import mapper
+    from . import mapper
 
     try:
         m = mapper.build_and_store(pid, root)
@@ -26,6 +32,12 @@ def _router():
 
     return router
 
+
+ADDON = {
+    "name": "map",
+    "title": "Map",
+    "version": VERSION,
+}
 
 PART = {
     "name": "map",

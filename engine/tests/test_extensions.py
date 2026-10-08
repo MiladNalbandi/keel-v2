@@ -52,23 +52,23 @@ def knowledge(**k):
 
 def test_the_built_in_parts_come_from_the_one_list_in_its_order():
     have = extensions.parts()
-    assert [p.name for p in have] == ["db", GIT, "ci", "graph", "map", "keelbot"]
+    assert [p.name for p in have] == ["db", GIT, "ci", "graph", "keelbot"]          # the map is a plugin (plugins/map)
     assert [p.source for p in have] == list(builtins.BUILTINS) and all(p.builtin for p in have)
     assert [extensions.title(n) for n in ("db", GIT, "ci", "nope")] == ["Database", "Git", "CI/CD", "nope"]
     assert extensions.servers() == {"db": "keel-db", GIT: f"keel-{GIT}", "ci": "keel-ci"}
     assert extensions.param_prefixes() == ["db", GIT, "ci"]
-    assert [n for n, _fn in extensions.hooks("on_scan")] == ["graph", "map"]     # the index first, then the map
+    assert [n for n, _fn in extensions.hooks("on_scan")] == ["graph"]
     assert [n for n, _fn in extensions.hooks("pr_body_sections")] == ["keelbot"]
 
 
 def test_only_per_project_parts_are_switched_and_actions_belong_to_their_prefix():
-    settings = {"plugins": [GIT, "nope", "map", "db"]}
-    assert extensions.enabled(settings) == [GIT, "db"]          # the settings' order; map is on everywhere
-    assert extensions.on(settings, "map") and extensions.on({}, "graph") and not extensions.on({}, "db")
+    settings = {"plugins": [GIT, "nope", "graph", "db"]}
+    assert extensions.enabled(settings) == [GIT, "db"]          # the settings' order; graph is on everywhere
+    assert extensions.on(settings, "graph") and extensions.on({}, "graph") and not extensions.on({}, "db")
     assert extensions.owner("db:query").name == "db" and extensions.owner(f"{GIT}:push").name == GIT
     assert extensions.owner("verify_red") is None and extensions.owner("nope:x") is None
     assert extensions.has_action("ci:wait") and not extensions.has_action("ci:nope")
-    assert extensions.allow_entries(["db", "map"]) == ["mcp:keel-db:*"]
+    assert extensions.allow_entries(["db", "graph"]) == ["mcp:keel-db:*"]
 
 
 def test_lazy_values_load_once_and_a_broken_built_in_is_left_out(monkeypatch):
@@ -102,7 +102,7 @@ def test_the_guards_hook_stays_light():
     code = ("import sys, keel_engine.hook as h\n"
             "assert h.plugin_read_tool('mcp__keel-db__db_query') and not h.plugin_read_tool('mcp__keel-db__db_drop')\n"
             "heavy = ('fastapi', 'langgraph', 'sqlglot', 'httpx', 'keel_engine.app', 'keel_engine.runtime.helper',\n"
-            "         'keel_engine.runtime.mapper', 'keel_engine.runtime.scan', 'keel_engine.plugins.db.core')\n"
+            "         'keel_plugin_map', 'keel_engine.runtime.scan', 'keel_engine.plugins.db.core')\n"
             "print(sorted(n for n in sys.modules if n.startswith(heavy)))")
     env = {k: v for k, v in os.environ.items() if k not in ("KEEL_ADDONS", "KEEL_PLUGIN_ADDONS")}
     out = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True, cwd=ENGINE, env=env)
@@ -138,7 +138,7 @@ def test_an_addon_part_brings_its_steps_with_their_settings_words_and_switch(acm
 def test_an_addon_parts_tools_routes_and_errors(acme, repo):
     assert extensions.read_tools()["keel-acme"] == {"acme_look"}
     assert hook.plugin_read_tool("mcp__keel-acme__acme_look") and not hook.plugin_read_tool("mcp__keel-acme__acme_poke")
-    [spec] = extensions.server_specs(["acme", "map"], "pk_x")
+    [spec] = extensions.server_specs(["acme", "graph"], "pk_x")
     assert spec["name"] == "keel-acme" and spec["args"] == ["-m", "keel_part_addon.server", "x"]
     assert spec["env"]["KEEL_PLUGIN_KEY"] == "pk_x"
     with TestClient(create_app(EventBus())) as client:
@@ -196,9 +196,9 @@ def test_a_flow_start_a_commit_and_a_scan_call_the_parts(acme, client, repo, mon
     while client.get("/projects/demo/index").json()["status"] == "indexing" and time.time() < deadline:
         time.sleep(0.05)
     st = client.get("/projects/demo/index").json()
-    assert st["acme"] == {"seen": "demo"} and "counts" in st["map"]
+    assert st["acme"] == {"seen": "demo"} and "map" not in st
     steps = [e["data"].get("step") for e in client.bus.recent if e["type"] == "index.progress"]
-    assert steps[-4:] == ["stack", "graph", "map", "acme"]
+    assert steps[-3:] == ["stack", "graph", "acme"]
 
 
 def test_a_failing_event_hook_never_stops_keel(acme, monkeypatch):
@@ -207,3 +207,22 @@ def test_a_failing_event_hook_never_stops_keel(acme, monkeypatch):
 
     monkeypatch.setitem(acme.ADDON["hooks"], "on_commit", broken)
     extensions.on_commit("/nowhere")        # logged, not raised
+
+
+# ------------------------------------------------------------------ a part moved out of core (step 3)
+
+def test_a_moved_part_is_an_add_on_with_the_keys_of_its_part_dict(monkeypatch):
+    """A plugin's package may keep its PART dict (keel_plugin_map does): its router and hooks work as before."""
+    monkeypatch.syspath_prepend(FIXTURES)
+    monkeypatch.setenv("KEEL_ADDONS", "keel_moved_part")
+    try:
+        extensions.reload()
+        p = extensions.part("moved")
+        assert p is not None and not p.builtin and p.title == "Moved" and p.source == "keel_moved_part"
+        assert [n for n, _fn in extensions.hooks("on_scan")][-1] == "moved"
+        with TestClient(create_app(EventBus())) as client:
+            assert client.get("/moved/hello").json() == {"hello": "moved"}
+    finally:
+        monkeypatch.delenv("KEEL_ADDONS", raising=False)
+        sys.modules.pop("keel_moved_part", None)
+        extensions.reload()
