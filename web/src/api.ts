@@ -78,6 +78,8 @@ export type RunRow = {
   thread_id: string; title: string; workflow_id: string | null; status: string; phase: string | null; current: string | null;
   waiting: string | null; acs_done: number; acs_total: number; tokens: number; where: "folder" | "worktree"; branch: string | null;
   error: string | null; created_at: string; updated_at: string;
+  /** v0.15.4 what it cost, and whether it is the project's newest flow (only that one, when stopped, can be resumed) */
+  cost_usd?: number; latest?: boolean;
 };
 /** v0.9.0: keel's check of a workflow YAML that is not saved yet (KeelBot's new workflow). */
 export type WorkflowCheck = {
@@ -930,6 +932,8 @@ export const api = {
   flow: (pid: string) => get<FlowView>(`/projects/${e(pid)}/flow`),
   flowOf: (pid: string, tid: string) => get<FlowView>(`/projects/${e(pid)}/flows/${e(tid)}`),
   flowBoard: (pid: string) => get<FlowBoard>(`/projects/${e(pid)}/flows`),
+  /** v0.15.4 delete a flow from the run history (only a mark: its checkpoints, branch and calls stay) */
+  deleteRun: (pid: string, tid: string) => del<{ ok: boolean; thread_id: string }>(`/projects/${e(pid)}/flows/${e(tid)}`),
   quality: () => get<QualityView>("/quality"),
   qualityStart: (body: { flows: string[]; models: Model[]; sets?: string[] }) => post<QualityRun>("/quality/runs", body),
   qualityStop: (id: string) => post<QualityRun>(`/quality/runs/${e(id)}/stop`),

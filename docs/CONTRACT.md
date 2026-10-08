@@ -1824,3 +1824,26 @@ keel's version shows at the menu's foot. In the Flow page the graph scrolls with
   ⌥⇧[ / ⌥⇧] previous / next tab, ⌘E recent files. The menu: F6 or ⌃⌘M jumps in (↑↓, ↩, Esc back), ⌃1–⌃9 open the
   first pages (Ctrl+Alt+1–9 off a Mac).
 - A notification opens where it came from: the api's `/projects/<id>/<page>` link goes to that project's page (a flow's notification to its own thread), not to All projects.
+
+## v0.15.4: run history
+
+When the project's flow does not run or wait (done, failed, stopped, or none), the Flow page shows **Runs**: every flow
+of the project, newest start first (search, status and workflow filters), each with its status, start, how long it
+took, tokens, cost, result (ACs done x of y, or the error) and branch. The History fold-out above it hides meanwhile
+(it comes back while a flow runs). **Load** opens a run read only under a banner "An earlier run (read only)" with
+"Back to the current flow": its steps (Blocks / Table / Graph), events, checkpoints (no Rewind) and outcome. Opening it
+only reads (`GET /api/projects/{pid}/flows/{tid}`); the current flow and its state do not change. A flow that runs or
+waits elsewhere opens live (Open, `#/flow/<tid>`), as before.
+- **Resume** only for the project's newest flow (`latest`), and only when it was stopped: the v0.15.3 Resume (asked
+  first, then `POST /api/threads/{tid}/rewind` to its newest checkpoint); the page then shows it live. Other stopped or
+  failed runs say "Only the last stopped flow can be resumed". The current flow's own card keeps its Resume (a failed
+  one too).
+- `GET /api/projects/{pid}/runs` rows add `cost_usd` (the flow's usage, else the sum of its agent calls) and `latest`
+  (the project's newest flow by start). Deleted flows are left out, unless they run or wait again.
+- `DELETE /api/projects/{pid}/flows/{tid}` → `{ ok: true, thread_id }` deletes a flow from the history, after an
+  in-page confirm. It is only a mark (`threads.hidden_at`, migration V14): the engine's checkpoints, the branch and
+  commits, the agent calls (budgets) and the events stay, and `GET …/flows/{tid}` still opens it. 409 while it runs
+  or waits, and for a stopped or failed flow that is the project's current flow or its newest one (it can still be
+  resumed); 404 for an unknown or already deleted flow. `GET …/flow` and a workflow's run count skip deleted flows.
+- Saving a finished flow's state again (opening it) no longer moves its `updated_at`, so looking at an old run does
+  not make it the project's current flow.

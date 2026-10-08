@@ -74,7 +74,7 @@ class WorkflowService(
             { rs, _ -> rs.getString(1) to rs.getString(2) }, pid).toMap()
         val runs = mutableMapOf<String, Int>()
         val last = mutableMapOf<String, LastRun>()
-        jdbc.query("SELECT workflow_id, id, title, status, updated_at FROM threads WHERE project_id = ? AND workflow_id IS NOT NULL ORDER BY updated_at DESC",
+        jdbc.query("SELECT workflow_id, id, title, status, updated_at FROM threads WHERE project_id = ? AND workflow_id IS NOT NULL AND hidden_at IS NULL ORDER BY updated_at DESC",
             { rs, _ ->
                 val wid = rs.getString(1)
                 runs.merge(wid, 1, Int::plus)

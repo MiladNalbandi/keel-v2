@@ -23,11 +23,14 @@ export function FlowRuns({
   pid,
   selected,
   loading = false,
+  history = true,
 }: {
   pid: string;
   selected: string | null;
   /** the open flow is still loading: no tab back to "the" running flow yet */
   loading?: boolean;
+  /** v0.15.4 false: no History fold-out (the Runs panel shows the history when no flow runs) */
+  history?: boolean;
 }) {
   const runs = useLoad(`runs:${pid}`, () => api.runs(pid, undefined, 50));
   const [open, setOpen] = useState(readOpen);
@@ -35,6 +38,8 @@ export function FlowRuns({
   const all = runs.data ?? [];
   if (!all.length) return null;
   const now = all.filter(active);
+  const tabs = now.length > 1 || (!loading && now.length === 1 && now[0].thread_id !== selected);
+  if (!history && !tabs) return null;
   const workflows = [
     ...new Set(all.map((r) => r.workflow_id).filter((w): w is string => !!w)),
   ].sort();
@@ -51,7 +56,7 @@ export function FlowRuns({
   };
   return (
     <section className="fr" aria-label="This project's flows">
-      {(now.length > 1 || (!loading && now.length === 1 && now[0].thread_id !== selected)) && (
+      {tabs && (
         <div className="fr-tabs" role="tablist" aria-label="Flows that run now">
           {now.map((r) => (
             <button
@@ -70,6 +75,7 @@ export function FlowRuns({
           ))}
         </div>
       )}
+      {history && (
       <button
         type="button"
         className="fr-more"
@@ -81,7 +87,8 @@ export function FlowRuns({
           {all.length} flow{all.length === 1 ? "" : "s"}
         </span>
       </button>
-      {open && (
+      )}
+      {history && open && (
         <div className="fr-hist">
           {workflows.length > 1 && (
             <label className="fr-filter">

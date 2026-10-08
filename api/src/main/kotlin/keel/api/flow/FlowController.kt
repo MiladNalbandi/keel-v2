@@ -1,6 +1,7 @@
 package keel.api.flow
 
 import com.fasterxml.jackson.databind.JsonNode
+import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
@@ -57,6 +58,11 @@ class FlowController(private val flows: FlowService) {
 
     @GetMapping("/projects/{pid}/flows/{tid}")
     fun flowOf(@PathVariable pid: String, @PathVariable tid: String): FlowView = flows.flowOf(pid, tid)
+
+    /** v0.15.4 Deletes a flow from the project's run history (a mark: its checkpoints, calls and events stay). 409 while it
+     *  runs or waits, and for the last flow that can still be resumed. */
+    @DeleteMapping("/projects/{pid}/flows/{tid}")
+    fun hide(@PathVariable pid: String, @PathVariable tid: String): JsonNode = flows.hide(pid, tid)
 
     /** A finished flow's worktree goes; its branch stays. */
     @PostMapping("/threads/{tid}/worktree/remove")

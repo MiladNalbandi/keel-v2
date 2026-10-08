@@ -120,6 +120,10 @@ data class RunRow(
     val threadId: String, val title: String, val workflowId: String?, val status: String, val phase: String?,
     val current: String?, val waiting: String?, val acsDone: Int, val acsTotal: Int, val tokens: Long,
     val where: String, val branch: String?, val error: String?, val createdAt: String, val updatedAt: String,
+    /** v0.15.4 what the flow cost (its own usage, else the sum of its agent calls) */
+    val costUsd: Double = 0.0,
+    /** v0.15.4 the project's newest flow (by start): only this one, when it was stopped, can be resumed from the history */
+    val latest: Boolean = false,
 )
 /** A file two or more flows change: their merges will meet there. */
 data class FlowOverlap(val file: String, val flows: List<String>)
@@ -354,11 +358,15 @@ class FlowService(
     /** Stores the latest ThreadState we saw, so the UI has something when the engine is down. */
     fun save(tid: String, state: JsonNode) {
         if (!state.isObject || state.get("status") == null) return
+        // v0.15.4 a finished flow whose status did not change (opening an earlier run) keeps its updated_at: looking at a
+        // flow does not make it the project's newest one
+        val status = state.get("status")?.asText()
         jdbc.update(
-            "UPDATE threads SET status = ?, current = ?, phase = ?, ac = ?, state_json = ?, error = ?, updated_at = ? WHERE id = ?",
-            state.get("status")?.asText(), state.get("current")?.takeIf { !it.isNull }?.asText(), state.get("phase")?.asText(),
+            "UPDATE threads SET status = ?, current = ?, phase = ?, ac = ?, state_json = ?, error = ?, " +
+                "updated_at = CASE WHEN status IS ? AND status IN ('done','failed','stopped') THEN updated_at ELSE ? END WHERE id = ?",
+            status, state.get("current")?.takeIf { !it.isNull }?.asText(), state.get("phase")?.asText(),
             state.get("ac")?.takeIf { !it.isNull }?.asText(), mapper.writeValueAsString(state),
-            state.get("error")?.takeIf { !it.isNull }?.asText(), Time.now(), tid,
+            state.get("error")?.takeIf { !it.isNull }?.asText(), status, Time.now(), tid,
         )
     }
 
@@ -448,10 +456,42 @@ class FlowService(
     fun flow(pid: String): FlowView {
         projects.require(pid)
         val row = jdbc.query(
-            "SELECT id, workflow_id, state_json FROM threads WHERE project_id = ? AND worktree IS NULL ORDER BY CASE WHEN status IN ('running','waiting') THEN 0 ELSE 1 END, updated_at DESC LIMIT 1",
+            "SELECT id, workflow_id, state_json FROM threads WHERE project_id = ? AND worktree IS NULL AND $SHOWN ORDER BY CASE WHEN status IN ('running','waiting') THEN 0 ELSE 1 END, updated_at DESC LIMIT 1",
             { rs, _ -> Triple(rs.getString(1), rs.getString(2), rs.getString(3)) }, pid,
         ).firstOrNull()
         return view(row)
+    }
+
+    /** v0.15.4 The flow the Flow page shows as the project's own (flow()), and the project's newest flow by start. */
+    private fun currentAndLatest(pid: String): Pair<String?, String?> {
+        val current = jdbc.query("SELECT id FROM threads WHERE project_id = ? AND worktree IS NULL AND $SHOWN " +
+            "ORDER BY CASE WHEN status IN ('running','waiting') THEN 0 ELSE 1 END, updated_at DESC LIMIT 1", { rs, _ -> rs.getString(1) }, pid).firstOrNull()
+        val latest = jdbc.query("SELECT id FROM threads WHERE project_id = ? AND $SHOWN ORDER BY created_at DESC, rowid DESC LIMIT 1",
+            { rs, _ -> rs.getString(1) }, pid).firstOrNull()
+        return current to latest
+    }
+
+    /**
+     * v0.15.4 Deletes a flow from the project's run history. It is only a mark (hidden_at): the engine's checkpoints, the
+     * agent calls (budgets count them) and the events stay, and a flow that runs again shows up again. Refused while the
+     * flow runs or waits, and for a stopped or failed flow that is the project's current or newest one (it can still be
+     * resumed).
+     */
+    fun hide(pid: String, tid: String): JsonNode {
+        projects.require(pid)
+        val known = jdbc.query("SELECT status FROM threads WHERE project_id = ? AND id = ? AND hidden_at IS NULL", { rs, _ -> rs.getString(1) }, pid, tid)
+            .firstOrNull() ?: throw NotFound("No flow $tid in this project's history")
+        // the engine knows best whether it still runs; the stored status when it is down
+        val status = runCatching { engine.thread(tid).also { save(tid, it) }.path("status").asText(known) }.getOrDefault(known)
+        if (status == "running") throw Conflict("This flow still runs", "Stop it first, or let it finish. Then you can delete it from the history.")
+        if (status == "waiting") throw Conflict("This flow waits for you", "Answer it or stop it first. Then you can delete it from the history.")
+        val (current, latest) = currentAndLatest(pid)
+        if (status in setOf("stopped", "failed") && (tid == current || tid == latest)) {
+            throw Conflict("This flow can still be resumed", "Only the last stopped flow can be resumed, so it stays in the history. Resume it, or start a new flow first.")
+        }
+        jdbc.update("UPDATE threads SET hidden_at = ? WHERE id = ?", Time.now(), tid)
+        hub.publish(pid, "project.changed", mapOf("id" to pid))
+        return mapper.valueToTree(mapOf("ok" to true, "thread_id" to tid))
     }
 
     /** One flow of the project, wherever it runs. */
@@ -485,9 +525,11 @@ class FlowService(
         val wf = workflow?.takeIf { it.isNotBlank() }
         val sql = "SELECT t.id, t.title, t.workflow_id, t.status, t.phase, t.current, t.state_json, t.worktree, t.branch, t.error, " +
             "t.created_at, t.updated_at, (SELECT COALESCE(SUM(c.tokens_in + c.tokens_out + c.tokens_cached / 10), 0) " +
-            "FROM agent_calls c WHERE c.thread_id = t.id) FROM threads t WHERE t.project_id = ?" +
+            "FROM agent_calls c WHERE c.thread_id = t.id), (SELECT COALESCE(SUM(c.cost_usd), 0) FROM agent_calls c WHERE c.thread_id = t.id) " +
+            "FROM threads t WHERE t.project_id = ? AND ${SHOWN.replace("status", "t.status").replace("hidden_at", "t.hidden_at")}" +
             (if (wf != null) " AND t.workflow_id = ?" else "") + " ORDER BY t.updated_at DESC LIMIT ?"
         val args = listOfNotNull(pid, wf, limit.coerceIn(1, 100)).toTypedArray()
+        val latest = currentAndLatest(pid).second
         return jdbc.query(sql, { rs, _ ->
             val state = rs.getString(7)?.let { runCatching { mapper.readTree(it) }.getOrNull() }
             val acs = state?.path("acs")?.takeIf { it.isArray }?.toList().orEmpty()
@@ -496,7 +538,9 @@ class FlowService(
                 waiting.takeIf { rs.getString(4) == "waiting" },
                 acs.count { it.path("status").asText() in setOf("done", "already-met", "accepted") }, acs.size, rs.getLong(13),
                 if (rs.getString(8) != null) "worktree" else "folder", rs.getString(9), rs.getString(10)?.take(300),
-                rs.getString(11), rs.getString(12))
+                rs.getString(11), rs.getString(12),
+                state?.path("usage")?.path("cost_usd")?.takeIf { it.isNumber && it.asDouble() > 0 }?.asDouble() ?: rs.getDouble(14),
+                rs.getString(1) == latest)
         }, *args)
     }
 
@@ -623,6 +667,9 @@ class FlowService(
         return UnlockResult(list, "engine", tid)
     }
 }
+
+/** v0.15.4 A flow that is not deleted from the history (a flow that runs or waits always shows). */
+private const val SHOWN = "(hidden_at IS NULL OR status IN ('running','waiting'))"
 
 data class UnlockResult(val unlocks: List<Any?>, val via: String, val threadId: String?)
 
