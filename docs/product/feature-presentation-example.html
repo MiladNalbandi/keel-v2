@@ -1,0 +1,492 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Euro Prices Review</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..700&family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* An example of what keel Product generates when a product owner presents a feature: initiative INI-12, built from its
+   brief, the impact report and the teams' answers. Sample data.
+   Layout: a 1600×900 slide stage scaled to the window; on a phone the slides become cards you scroll. */
+:root{
+  --bg:#F6F4EE;--surface:#FFFFFF;--surface2:#EEEADF;--text:#1E2033;--muted:#585A76;--line:#DEDACC;
+  --accent:#4B32C3;--on-accent:#FFFFFF;--accent-soft:rgba(75,50,195,.09);--hot:#B35F06;--on-hot:#FFFFFF;--hot-soft:rgba(179,95,6,.11);
+  --ok:#1D7F55;--bad:#B93C12;--stage:#D9D5C8;--bar:#1B1D36;--bar-fg:#EEECF8;--bar-line:#3A3E6E;
+  --f-display:'Bricolage Grotesque','IBM Plex Sans',system-ui,sans-serif;
+  --f-body:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --f-mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#14162B;--surface:#1E2142;--surface2:#272B55;--text:#EEECF8;--muted:#A9A7C7;--line:#323770;
+  --accent:#8B70FF;--on-accent:#14162B;--accent-soft:rgba(139,112,255,.16);--hot:#F2A93B;--on-hot:#14162B;--hot-soft:rgba(242,169,59,.16);
+  --ok:#4CC38A;--bad:#FF8A80;--stage:#0B0C1A;--bar:#262A52;--bar-fg:#EEECF8;--bar-line:#3A3E6E;color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#14162B;--surface:#1E2142;--surface2:#272B55;--text:#EEECF8;--muted:#A9A7C7;--line:#323770;
+  --accent:#8B70FF;--on-accent:#14162B;--accent-soft:rgba(139,112,255,.16);--hot:#F2A93B;--on-hot:#14162B;--hot-soft:rgba(242,169,59,.16);
+  --ok:#4CC38A;--bad:#FF8A80;--stage:#0B0C1A;--bar:#262A52;--bar-fg:#EEECF8;--bar-line:#3A3E6E;color-scheme:dark}
+/* a style the presenter picks wins over the viewer's theme */
+:root[data-style="keel"]{
+  --bg:#14162B;--surface:#1E2142;--surface2:#272B55;--text:#EEECF8;--muted:#A9A7C7;--line:#323770;
+  --accent:#8B70FF;--on-accent:#14162B;--accent-soft:rgba(139,112,255,.16);--hot:#F2A93B;--on-hot:#14162B;--hot-soft:rgba(242,169,59,.16);
+  --ok:#4CC38A;--bad:#FF8A80;--stage:#0B0C1A;--bar:#262A52;--bar-fg:#EEECF8;--bar-line:#3A3E6E;color-scheme:dark}
+:root[data-style="paper"]{
+  --bg:#F6F4EE;--surface:#FFFFFF;--surface2:#EEEADF;--text:#1E2033;--muted:#585A76;--line:#DEDACC;
+  --accent:#4B32C3;--on-accent:#FFFFFF;--accent-soft:rgba(75,50,195,.09);--hot:#B35F06;--on-hot:#FFFFFF;--hot-soft:rgba(179,95,6,.11);
+  --ok:#1D7F55;--bad:#B93C12;--stage:#D9D5C8;--bar:#1B1D36;--bar-fg:#EEECF8;--bar-line:#3A3E6E;color-scheme:light}
+:root[data-style="mono"]{
+  --bg:#FFFFFF;--surface:#F5F5F4;--surface2:#EAEAE8;--text:#121212;--muted:#5C5C5C;--line:#E0E0DE;
+  --accent:#121212;--on-accent:#FFFFFF;--accent-soft:rgba(0,0,0,.06);--hot:#C2410C;--on-hot:#FFFFFF;--hot-soft:rgba(194,65,12,.09);
+  --ok:#2B7A3D;--bad:#B42318;--stage:#E6E6E4;--bar:#1E1E1E;--bar-fg:#F5F5F4;--bar-line:#444444;color-scheme:light}
+
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:var(--stage);color:var(--text);font-family:var(--f-body);overflow:hidden}
+.deck{position:absolute;width:1600px;height:900px;transform-origin:0 0;box-shadow:0 30px 80px rgba(0,0,0,.28)}
+.slide{position:absolute;inset:0;display:none;flex-direction:column;gap:30px;padding:72px 88px 104px;background:var(--bg);color:var(--text);overflow:hidden}
+.slide.on{display:flex}
+.foot{position:absolute;left:88px;right:88px;bottom:38px;display:flex;align-items:center;gap:18px;font:500 15px/1.2 var(--f-mono);color:var(--muted)}
+.foot .sp{flex:1}
+.tag{display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;font:600 13px/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
+.tag.sample{background:var(--hot-soft);color:var(--hot)}
+.tag.acc{background:var(--accent-soft);color:var(--accent)}
+.tag.hot{background:var(--hot);color:var(--on-hot)}
+.tag.ok{border:1.5px solid var(--ok);color:var(--ok)}
+.tag.line{border:1.5px solid var(--line);color:var(--muted)}
+.eyebrow{font:600 16px/1 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+h1,h2,h3{font-family:var(--f-display);font-weight:650;letter-spacing:-.015em;text-wrap:balance}
+h1{font-size:78px;line-height:1.02}
+h2{font-size:52px;line-height:1.08}
+h3{font-size:24px;line-height:1.25;font-weight:600}
+p,li{font-size:21px;line-height:1.5}
+.muted{color:var(--muted)}
+.lead{font-size:26px;max-width:760px}
+.head{display:flex;flex-direction:column;gap:14px}
+.row{display:flex;gap:24px}
+.fill{flex:1;align-items:stretch}
+.col{display:flex;flex-direction:column;gap:16px;min-width:0}
+.grow{flex:1;min-width:0}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:28px 30px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.card.acc{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.card.hot{border-color:var(--hot);box-shadow:inset 0 0 0 1px var(--hot)}
+.big{font:650 64px/1 var(--f-display);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.big.xl{font-size:96px}
+.mid{font:650 40px/1.05 var(--f-display)}
+.src{font:500 15px/1.4 var(--f-mono);color:var(--muted)}
+ul.clean{list-style:none;display:flex;flex-direction:column;gap:10px}
+ul.clean li{padding-left:28px;position:relative}
+ul.clean li::before{content:"";position:absolute;left:4px;top:.6em;width:10px;height:10px;border-radius:3px;background:var(--accent)}
+ul.clean.no li::before{background:transparent;border:2px solid var(--muted)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:10px 18px;align-items:baseline}
+.kv dt{font:600 15px/1.4 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.kv dd{font-size:21px}
+.bar{height:10px;border-radius:99px;background:var(--surface2);overflow:hidden}
+.bar>i{display:block;height:100%;background:var(--accent);border-radius:99px}
+.quote-mark{font:700 64px/1 var(--f-display);color:var(--accent)}
+
+.title-grid{display:grid;grid-template-columns:1.25fr .9fr;gap:56px;align-items:center;flex:1}
+.mock{background:var(--surface);border:1px solid var(--line);border-radius:22px;padding:30px;display:flex;flex-direction:column;gap:18px}
+.mock.acc{border-color:var(--accent)}
+.mock .img{height:170px;border-radius:14px;background:linear-gradient(135deg,var(--accent-soft),var(--hot-soft));display:flex;align-items:center;justify-content:center;font:600 18px var(--f-mono);color:var(--muted)}
+.price{font:700 48px/1 var(--f-display);font-variant-numeric:tabular-nums}
+.price.old{color:var(--muted);text-decoration:line-through;text-decoration-thickness:3px;font-size:30px}
+.btn{align-self:flex-start;padding:12px 22px;border-radius:12px;background:var(--accent);color:var(--on-accent);font-weight:600;font-size:19px}
+.arrow{font:600 64px var(--f-display);color:var(--accent)}
+
+svg .n rect{fill:var(--surface);stroke:var(--line);stroke-width:2}
+svg .n.chg rect{stroke:var(--accent);stroke-width:2.5}
+svg .n.new rect{stroke:var(--hot);stroke-width:2.5}
+svg .n.none rect{stroke-dasharray:7 6}
+svg .n.ext rect{fill:var(--surface2);stroke:var(--bad);stroke-dasharray:4 5}
+svg text{fill:var(--text);font-family:var(--f-body)}
+svg .t1{font-size:22px;font-weight:600}
+svg .t2{font-size:17px;fill:var(--muted)}
+svg .t3{font-family:var(--f-mono);font-size:13px;font-weight:600;letter-spacing:.08em}
+svg .c-acc{fill:var(--accent)} svg .c-hot{fill:var(--hot)} svg .c-mut{fill:var(--muted)} svg .c-bad{fill:var(--bad)}
+svg .e{stroke:var(--muted);stroke-width:2;fill:none}
+svg .e.hot{stroke:var(--hot);stroke-width:3}
+svg .ah{fill:var(--muted)} svg .ah.hot{fill:var(--hot)}
+.scroll{min-width:0}
+
+.tl{display:grid;grid-template-columns:400px repeat(5,1fr);row-gap:12px;align-items:center}
+.tl .wk{font:600 15px/1 var(--f-mono);letter-spacing:.1em;color:var(--muted);text-align:center;padding-bottom:6px;border-bottom:1px solid var(--line)}
+.tl .task{display:flex;align-items:center;gap:12px;font-size:19px;padding-right:16px}
+.tl .seg{height:44px;border-radius:10px;background:var(--accent-soft);border:1.5px solid var(--accent);display:flex;align-items:center;padding:0 14px;font:600 14px/1 var(--f-mono);color:var(--accent);margin:0 4px;white-space:nowrap;overflow:hidden}
+.tl .seg.crit{background:var(--hot);border-color:var(--hot);color:var(--on-hot)}
+.sw{display:inline-block;width:40px;height:22px;border-radius:6px;background:var(--accent-soft);border:1.5px solid var(--accent)}
+.sw.crit{background:var(--hot);border-color:var(--hot)}
+.team{font:600 12px/1 var(--f-mono);letter-spacing:.06em;padding:5px 9px;border-radius:7px;background:var(--surface2);color:var(--muted);text-transform:uppercase;white-space:nowrap}
+.legend{align-items:center;gap:22px;margin-top:auto;flex-wrap:wrap}
+
+table{width:100%;border-collapse:collapse}
+th{font:600 14px/1.3 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);text-align:left;padding:0 14px 12px;border-bottom:1px solid var(--line)}
+td{font-size:20px;line-height:1.4;padding:14px;border-bottom:1px solid var(--line);vertical-align:top}
+
+.steps{display:grid;grid-template-columns:repeat(6,1fr);gap:16px}
+.step{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:22px;display:flex;flex-direction:column;gap:10px}
+.step.acc{border-color:var(--accent)}
+.step .when{font:600 14px/1 var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--accent)}
+.step p{font-size:18px}
+.dot{width:14px;height:14px;border-radius:50%;display:inline-block;flex:none}
+
+.toolbar{position:fixed;left:50%;bottom:calc(10px + env(safe-area-inset-bottom, 0px));transform:translateX(-50%);display:flex;align-items:center;gap:6px;padding:6px 8px;border-radius:12px;
+  background:var(--bar);color:var(--bar-fg);font:500 13px var(--f-mono);z-index:10;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+.toolbar button,.toolbar select{background:transparent;color:inherit;border:1px solid var(--bar-line);border-radius:8px;padding:6px 10px;font:inherit;cursor:pointer}
+.toolbar button:hover{background:var(--bar-line)}
+.toolbar button:focus-visible,.toolbar select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.toolbar select{color-scheme:dark}
+.toolbar .count{min-width:62px;text-align:center;font-variant-numeric:tabular-nums}
+.progress{position:fixed;left:0;top:env(safe-area-inset-top, 0px);height:3px;background:var(--accent);z-index:10;transition:width .2s}
+
+/* phone and short screens: every slide becomes a card in one scrolling page */
+body.reading{overflow:auto;height:auto}
+.reading .deck{position:static;width:auto;height:auto;transform:none!important;box-shadow:none;display:flex;flex-direction:column;gap:16px;padding-inline:16px;padding-block:16px 88px}
+.reading .slide{display:flex;position:relative;inset:auto;height:auto;padding:24px 18px;gap:20px;border-radius:16px;overflow:visible}
+.reading .foot{position:static;flex-wrap:wrap;gap:8px 12px;font-size:12px}
+.reading .foot .sp{display:none}
+.reading h1{font-size:34px}
+.reading h2{font-size:26px}
+.reading h3{font-size:18px}
+.reading p,.reading li,.reading .lead,.reading .kv dd{font-size:15px}
+.reading .step p{font-size:15px}
+.reading .eyebrow{font-size:12px}
+.reading .big,.reading .big.xl{font-size:38px}
+.reading .mid{font-size:26px}
+.reading .quote-mark{font-size:40px}
+.reading .src,.reading .kv dt{font-size:12px}
+.reading .card,.reading .mock{padding:18px;border-radius:14px}
+.reading .title-grid{grid-template-columns:1fr;gap:20px}
+.reading .row{flex-wrap:wrap;gap:12px}
+.reading .row>.card,.reading .row>.col,.reading .row>.grow{flex:1 1 100%}
+.reading .arrow{display:none}
+.reading .price{font-size:32px}
+.reading .price.old{font-size:20px}
+.reading .mock .img{height:110px}
+.reading .scroll{overflow-x:auto;margin-inline:-18px;padding-inline:18px}
+.reading .scroll svg{width:900px;height:auto}
+.reading .tl{min-width:820px;grid-template-columns:250px repeat(5,1fr)}
+.reading .tl .task{font-size:14px}
+.reading .steps{grid-template-columns:1fr;gap:10px}
+.reading td{font-size:14px;padding:10px 8px}
+.reading th{font-size:11px;padding:0 8px 8px}
+.reading .toolbar .nav{display:none}
+@media (prefers-reduced-motion: reduce){.progress{transition:none}}
+</style>
+
+<div class="progress" id="progress"></div>
+<main class="deck" id="deck">
+
+<section class="slide" aria-label="Title">
+  <div class="title-grid">
+    <div class="col" style="gap:26px">
+      <span class="eyebrow">Initiative INI-12 · Decision review</span>
+      <h1>Prices in euro for EU shoppers</h1>
+      <p class="muted lead">Should we build it, what will it change, and who does what?</p>
+      <div class="row" style="gap:12px;flex-wrap:wrap">
+        <span class="tag acc">Owner · Product</span>
+        <span class="tag line">3 teams · 6 parts of the system</span>
+        <span class="tag ok">Ready for go / no-go</span>
+      </div>
+    </div>
+    <div class="card acc" style="gap:18px;padding:34px">
+      <span class="eyebrow">Recommendation</span>
+      <div class="mid">Go, with the MVP</div>
+      <dl class="kv">
+        <dt>Value</dt><dd>EU checkout conversion 2.1% → 2.6%</dd>
+        <dt>Cost</dt><dd>18–30 developer days</dd>
+        <dt>Time</dt><dd>about 4 weeks</dd>
+        <dt>Risk</dt><dd>medium · 3 open questions</dd>
+      </dl>
+    </div>
+  </div>
+  <div class="foot"><span>INI-12 · prices in euro</span><span class="tag sample">Example · sample data</span><span class="sp"></span><span>Generated by keel Product · 8 Oct 2026</span><span class="num"></span></div>
+</section>
+
+<section class="slide" aria-label="The problem">
+  <div class="head"><span class="eyebrow">The problem</span><h2>EU visitors see prices in US dollars</h2></div>
+  <div class="row fill">
+    <div class="card grow"><div class="big">38%</div><h3>of visitors are in the EU</h3><p class="muted">They are our second-biggest group, and it grows.</p><div class="grow"></div><span class="src">Analytics · last 90 days</span></div>
+    <div class="card grow"><div class="big">2.1%</div><h3>EU checkout conversion</h3><p class="muted">US visitors convert at 3.0%. The gap starts on the product page.</p><div class="grow"></div><span class="src">Analytics · funnel by country</span></div>
+    <div class="card grow"><div class="big">112</div><h3>support tickets about currency</h3><p class="muted">"What will I pay in euro?" is the top question from EU buyers.</p><div class="grow"></div><span class="src">Helpdesk · last quarter</span></div>
+  </div>
+  <div class="card" style="flex-direction:row;align-items:center;gap:24px;flex-wrap:wrap">
+    <span class="quote-mark">“</span>
+    <p class="grow" style="font-size:24px">I like the product, but I don't know what it costs in euro, so I wait.</p>
+    <span class="src">Customer interview #7</span>
+  </div>
+  <div class="foot"><span>INI-12 · prices in euro</span><span class="tag sample">Example · sample data</span><span class="sp"></span><span>Sources linked in the brief (v3)</span><span class="num"></span></div>
+</section>
+
+<section class="slide" aria-label="Goal and outcome">
+  <div class="head"><span class="eyebrow">The goal</span><h2>More EU orders, and nothing else gets worse</h2></div>
+  <div class="row fill">
+    <div class="card acc" style="flex:1.1;justify-content:center;gap:18px">
+      <span class="eyebrow">Outcome metric</span>
+      <div class="big xl">2.1% → 2.6%</div>
+      <p>EU checkout conversion, measured 4 weeks after release, against the 4 weeks before.</p>
+    </div>
+    <div class="col grow">
+      <div class="card"><h3>Guardrails: must stay the same</h3>
+        <ul class="clean"><li>Refund rate stays under 1.5%</li><li>Product page still loads in under 300 ms</li><li>No change at all for US shoppers</li></ul></div>
+      <div class="row" style="gap:16px">
+        <div class="card grow"><h3>In scope</h3><ul class="clean"><li>EUR on product, cart, checkout</li><li>Daily exchange rate</li><li>EUR on the receipt</li></ul></div>
+        <div class="card grow"><h3>Not in scope</h3><ul class="clean no"><li>Charging cards in EUR</li><li>VAT or tax changes</li><li>Other currencies</li></ul></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>INI-12 · prices in euro</span><span class="tag sample">Example · sample data</span><span class="sp"></span><span>Approved by the PO · brief v3</span><span class="num"></span></div>
+</section>
+
+<section class="slide" aria-label="What the shopper sees">
+  <div class="head"><span class="eyebrow">For the shopper</span><h2>What changes on the screen</h2></div>
+  <div class="row fill" style="align-items:center;gap:40px">
+    <div class="col grow" style="gap:14px"><span class="tag line" style="align-self:flex-start">Today</span>
+      <div class="mock"><div class="img">product photo</div><h3>Trail backpack, 28 l</h3><div class="price">$49.00</div><p class="muted">Price in US dollars. The bank decides the final amount.</p><span class="btn">Add to cart</span></div></div>
+    <div class="arrow" aria-hidden="true">→</div>
+    <div class="col grow" style="gap:14px"><span class="tag acc" style="align-self:flex-start">With the MVP</span>
+      <div class="mock acc"><div class="img">product photo</div><h3>Trail backpack, 28 l</h3><div class="row" style="align-items:baseline;gap:18px"><div class="price">€45,90</div><div class="price old">$49.00</div></div><p class="muted">Prices in EUR · today's rate · you pay about this amount.</p><span class="btn">In den Warenkorb</span></div></div>
+  </div>
+  <div class="foot"><span>INI-12 · prices in euro</span><span class="tag sample">Example · sample data</span><span class="sp"></span><span>Design: Web team draft, 2 Oct</span><span class="num"></span></div>
+</section>
+
+<section class="slide" aria-label="Impact on our systems">
+  <div class="head"><span class="eyebrow">Impact</span><h2>What changes in our systems</h2></div>
+  <div class="scroll">
+  <svg viewBox="0 0 1424 470" width="1424" height="470" role="img" aria-label="Impact map: web-shop, payments-api and the events pipeline change; a prices table and a daily rate job are new; the mobile app does not change in the MVP">
+    <defs>
+      <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+      <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah hot" d="M0,0 L10,5 L0,10 z"/></marker>
+    </defs>
+    <path class="e" d="M150 240 H228" marker-end="url(#a)"/>
+    <path class="e hot" d="M500 220 C550 220 550 125 598 125" marker-end="url(#ah)"/>
+    <path class="e" d="M500 270 C550 270 550 365 598 365" marker-end="url(#a)"/>
+    <path class="e hot" d="M880 110 C930 110 930 55 978 55" marker-end="url(#ah)"/>
+    <path class="e hot" d="M1110 140 V112" marker-end="url(#ah)"/>
+    <path class="e" d="M1240 195 H1282" marker-end="url(#a)"/>
+    <path class="e" d="M880 150 C930 150 930 385 978 385" stroke-dasharray="6 6"/>
+    <g class="n"><rect x="0" y="198" width="150" height="84" rx="14"/><text class="t1" x="20" y="234">Shopper</text><text class="t2" x="20" y="260">EU visitor</text></g>
+    <g class="n chg"><rect x="230" y="168" width="270" height="146" rx="14"/><text class="t3 c-acc" x="252" y="198">CHANGE · WEB</text><text class="t1" x="252" y="232">web-shop</text><text class="t2" x="252" y="260">product page · cart</text><text class="t2" x="252" y="284">checkout · receipt</text></g>
+    <g class="n chg"><rect x="600" y="58" width="280" height="134" rx="14"/><text class="t3 c-acc" x="622" y="88">CHANGE · PAYMENTS</text><text class="t1" x="622" y="122">payments-api</text><text class="t2" x="622" y="150">GET /prices + currency</text><text class="t2" x="622" y="174">API v2 · contract first</text></g>
+    <g class="n chg"><rect x="600" y="298" width="280" height="134" rx="14"/><text class="t3 c-acc" x="622" y="328">CHANGE · DATA</text><text class="t1" x="622" y="362">events pipeline</text><text class="t2" x="622" y="390">price_shown + currency</text><text class="t2" x="622" y="414">dashboard by country</text></g>
+    <g class="n new"><rect x="980" y="0" width="260" height="110" rx="14"/><text class="t3 c-hot" x="1002" y="30">NEW · MIGRATION</text><text class="t1" x="1002" y="62">prices DB</text><text class="t2" x="1002" y="90">new table: rates</text></g>
+    <g class="n new"><rect x="980" y="142" width="260" height="110" rx="14"/><text class="t3 c-hot" x="1002" y="172">NEW · PAYMENTS</text><text class="t1" x="1002" y="204">daily rate job</text><text class="t2" x="1002" y="232">fetch rate, store it</text></g>
+    <g class="n ext"><rect x="1284" y="150" width="140" height="92" rx="14"/><text class="t3 c-bad" x="1300" y="178">UNKNOWN</text><text class="t1" x="1300" y="206" style="font-size:19px">rate</text><text class="t2" x="1300" y="228">provider?</text></g>
+    <g class="n none"><rect x="980" y="330" width="260" height="110" rx="14"/><text class="t3 c-mut" x="1002" y="360">NO CHANGE IN MVP</text><text class="t1" x="1002" y="392">mobile app</text><text class="t2" x="1002" y="420">later, in option B</text></g>
+  </svg>
+  </div>
+  <div class="row" style="align-items:center;gap:14px;flex-wrap:wrap">
+    <span class="tag acc">6 parts</span><span class="tag acc">2 API changes</span><span class="tag hot">1 data migration</span><span class="tag line">3 unknowns</span>
+    <span class="grow"></span><span class="src">keel read 4 repos (knowledge + code graph, read only) · tech leads confirmed</span>
+  </div>
+  <div class="foot"><span>INI-12 · prices in euro</span><span class="tag sample">Example · sample data</span><span class="sp"></span><span>Impact report v2 · amber = critical path</span><span class="num"></span></div>
+</section>
+
+<section class="slide" aria-label="Teams involved">
+  <div class="head"><span class="eyebrow">Teams</span><h2>Who does what</h2></div>
+  <div class="row fill">
+    <div class="card grow hot"><div class="row" style="align-items:center;gap:12px"><span class="dot" style="background:var(--hot)"></span><h3>Payments team</h3></div>
+      <ul class="clean"><li>Prices API v2 with currency (contract first)</li><li>Daily rate job and the rates table</li><li>One rounding rule, in the API</li></ul>
+      <div class="grow"></div><dl class="kv"><dt>Work</dt><dd>4 stories · 13 tasks</dd><dt>Estimate</dt><dd>8–12 dev days</dd><dt>People</dt><dd>2 developers, from week 1</dd></dl></div>
+    <div class="card grow"><div class="row" style="align-items:center;gap:12px"><span class="dot" style="background:var(--accent)"></span><h3>Web team</h3></div>
+      <ul class="clean"><li>EUR on product, cart and checkout</li><li>Number format per country</li><li>Starts with a mock of API v2</li></ul>
+      <div class="grow"></div><dl class="kv"><dt>Work</dt><dd>5 stories · 12 tasks</dd><dt>Estimate</dt><dd>6–10 dev days</dd><dt>People</dt><dd>1 developer, from week 1</dd></dl></div>
+    <div class="card grow"><div class="row" style="align-items:center;gap:12px"><span class="dot" style="background:var(--muted)"></span><h3>Data team</h3></div>
+      <ul class="clean"><li>Currency on the price_shown event</li><li>Conversion dashboard by country</li><li>Measures the outcome metric</li></ul>
+      <div class="grow"></div><dl class="kv"><dt>Work</dt><dd>2 stories · 6 tasks</dd><dt>Estimate</dt><dd>4–8 dev days</dd><dt>People</dt><dd>shared, from week 2</dd></dl></div>
+  </div>
+  <div class="foot"><span>INI-12 · prices in euro</span><span class="tag sample">Example · sample data</span><span class="sp"></span><span>Owners from CODEOWNERS · capacity from the team registry</span><span class="num"></span></div>
+</section>
+
+<section class="slide" aria-label="Plan and dependencies">
+  <div class="head"><span class="eyebrow">Plan</span><h2>The order of work, and what waits for what</h2></div>
+  <div class="scroll">
+  <div class="tl">
+    <div></div><div class="wk">Week 1</div><div class="wk">Week 2</div><div class="wk">Week 3</div><div class="wk">Week 4</div><div class="wk">Week 5</div>
+    <div class="task"><span class="team">Pay</span>Contract: prices API v2</div><div class="seg crit" style="grid-column:2 / 3">agreed by 3 teams</div><div style="grid-column:3 / 7"></div>
+    <div class="task"><span class="team">Pay</span>Rates table and daily job</div><div class="seg crit" style="grid-column:2 / 4">migration online</div><div style="grid-column:4 / 7"></div>
+    <div class="task"><span class="team">Pay</span>Build prices API v2</div><div style="grid-column:2 / 3"></div><div class="seg crit" style="grid-column:3 / 5">test first</div><div style="grid-column:5 / 7"></div>
+    <div class="task"><span class="team">Web</span>EUR screens on a mock</div><div class="seg" style="grid-column:2 / 4">no wait</div><div style="grid-column:4 / 7"></div>
+    <div class="task"><span class="team">Data</span>Event field and dashboard</div><div style="grid-column:2 / 3"></div><div class="seg" style="grid-column:3 / 5">parallel</div><div style="grid-column:5 / 7"></div>
+    <div class="task"><span class="team">Web</span>Connect to the real API</div><div style="grid-column:2 / 4"></div><div class="seg crit" style="grid-column:4 / 5">after API v2</div><div style="grid-column:5 / 7"></div>
+    <div class="task"><span class="team">All</span>End-to-end test, release</div><div style="grid-column:2 / 5"></div><div class="seg crit" style="grid-column:5 / 6">release</div><div style="grid-column:6 / 7"></div>
+  </div>
+  </div>
+  <div class="row legend">
+    <span class="row" style="align-items:center;gap:10px"><span class="sw crit"></span><span class="src">critical path</span></span>
+    <span class="row" style="align-items:center;gap:10px"><span class="sw"></span><span class="src">can run in parallel</span></span>
+    <span class="grow"></span><p class="muted" style="font-size:19px">Contract first: Web and Data start in week 1 and do not wait for Payments.</p>
+  </div>
+  <div class="foot"><span>INI-12 · prices in euro</span><span class="tag sample">Example · sample data</span><span class="sp"></span><span>Team plan v1 · leads agreed 7 Oct</span><span class="num"></span></div>
+</section>
+
+<section class="slide" aria-label="Cost, risk and time">
+  <div class="head"><span class="eyebrow">Cost, risk and time</span><h2>What it costs and what can go wrong</h2></div>
+  <div class="row">
+    <div class="card grow"><span class="eyebrow">Cost</span><div class="big">18–30</div><p>developer days, all teams</p><span class="src">confidence: medium · from 14 similar keel flows</span></div>
+    <div class="card grow"><span class="eyebrow">Time</span><div class="big">~4 weeks</div><p>critical path: the prices API</p><span class="src">week 5 is a buffer</span></div>
+    <div class="card grow hot"><span class="eyebrow" style="color:var(--hot)">Risk</span><div class="big">Medium</div><p>1 migration · 1 external service</p><span class="src">3 unknowns still open</span></div>
+  </div>
+  <div class="scroll">
+  <table>
+    <tr><th style="width:36%">Risk</th><th style="width:44%">What we do about it</th><th style="width:20%">Owner</th></tr>
+    <tr><td>The rate provider is down</td><td>Keep yesterday's rate and show a small note</td><td>Payments lead</td></tr>
+    <tr><td>API and screen round differently</td><td>One rounding rule in the API; the screen only formats</td><td>Payments + Web</td></tr>
+    <tr><td>Migration on a big table</td><td>Add the table online, fill it in small batches</td><td>Payments</td></tr>
+  </table>
+  </div>
+  <div class="foot"><span>INI-12 · prices in euro</span><span class="tag sample">Example · sample data</span><span class="sp"></span><span>Estimates are ranges, never one number</span><span class="num"></span></div>
+</section>
+
+<section class="slide" aria-label="Options">
+  <div class="head"><span class="eyebrow">Options</span><h2>Three ways to go</h2></div>
+  <div class="row fill">
+    <div class="card acc grow" style="gap:16px"><div class="row" style="align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px"><h3>A · MVP</h3><span class="tag hot">Recommended</span></div>
+      <p>Show EUR on the web shop with a daily rate. Cards are still charged in USD.</p>
+      <div class="grow"></div><dl class="kv"><dt>Cost</dt><dd>18–30 dev days</dd><dt>Time</dt><dd>~4 weeks</dd><dt>Risk</dt><dd>medium</dd><dt>Gain</dt><dd>most of the expected gain</dd></dl></div>
+    <div class="card grow" style="gap:16px"><h3>B · Full</h3>
+      <p>Everything in A, plus charging in EUR, the mobile app and live rates.</p>
+      <div class="grow"></div><dl class="kv"><dt>Cost</dt><dd>60–90 dev days</dd><dt>Time</dt><dd>10–12 weeks</dd><dt>Risk</dt><dd>high (payments, legal)</dd><dt>Gain</dt><dd>a little more than A</dd></dl></div>
+    <div class="card grow" style="gap:16px"><h3>C · Not now</h3>
+      <p>Keep USD. Look again next quarter.</p>
+      <div class="grow"></div><dl class="kv"><dt>Cost</dt><dd>none today</dd><dt>Time</dt><dd>none</dd><dt>Risk</dt><dd>EU conversion stays low</dd><dt>Gain</dt><dd>none</dd></dl></div>
+  </div>
+  <div class="foot"><span>INI-12 · prices in euro</span><span class="tag sample">Example · sample data</span><span class="sp"></span><span>B can follow A: nothing in A is thrown away</span><span class="num"></span></div>
+</section>
+
+<section class="slide" aria-label="Decisions needed">
+  <div class="head"><span class="eyebrow">Today</span><h2>What we need to decide</h2></div>
+  <div class="row" style="align-items:flex-start">
+    <div class="card" style="flex:1.4">
+      <div class="scroll">
+      <table>
+        <tr><th style="width:62%">Decision</th><th style="width:22%">Who</th><th style="width:16%">When</th></tr>
+        <tr><td>Go with option A, the MVP?</td><td>PO, PM</td><td>today</td></tr>
+        <tr><td>May we show EUR but charge USD?</td><td>Legal</td><td>week 1</td></tr>
+        <tr><td>Which exchange rate provider?</td><td>Payments lead</td><td>week 1</td></tr>
+        <tr><td>Mobile app stays out of the MVP?</td><td>PO</td><td>today</td></tr>
+      </table>
+      </div>
+    </div>
+    <div class="card grow" style="gap:18px">
+      <span class="eyebrow">Open questions</span>
+      <div class="big">3 <span class="muted" style="font-size:.55em">of 17</span></div>
+      <div class="bar"><i style="width:82%"></i></div>
+      <p class="muted">keel asked 17 questions while it planned. 14 have answers. A team's work can start only when its questions are closed.</p>
+    </div>
+  </div>
+  <div class="foot"><span>INI-12 · prices in euro</span><span class="tag sample">Example · sample data</span><span class="sp"></span><span>Answers go into the brief and the stories</span><span class="num"></span></div>
+</section>
+
+<section class="slide" aria-label="If we say go">
+  <div class="head"><span class="eyebrow">After the go</span><h2>What happens next</h2></div>
+  <div class="steps" style="flex:1">
+    <div class="step"><span class="when">Today</span><h3>Tickets</h3><p>keel creates 3 epics, 11 stories and 31 tasks in Jira, linked to INI-12.</p></div>
+    <div class="step"><span class="when">Day 1</span><h3>Questions</h3><p>Teams answer the last questions in keel's Inbox.</p></div>
+    <div class="step"><span class="when">Day 1–2</span><h3>Code starts</h3><p>Developers start their tasks. keel writes the test first, then the code, with a review at each step.</p></div>
+    <div class="step"><span class="when">Every day</span><h3>Progress</h3><p>Tasks, pull requests and CI roll up to this initiative.</p></div>
+    <div class="step"><span class="when">Week 4</span><h3>Release</h3><p>End-to-end test, then release behind a flag for the EU.</p></div>
+    <div class="step acc"><span class="when">Week 8</span><h3>Outcome</h3><p>Did EU conversion move from 2.1% toward 2.6%? We learn and decide on option B.</p></div>
+  </div>
+  <div class="foot"><span>INI-12 · prices in euro</span><span class="tag sample">Example · sample data</span><span class="sp"></span><span>Every step has a person who approves</span><span class="num"></span></div>
+</section>
+
+<section class="slide" aria-label="Where this comes from">
+  <div class="head"><span class="eyebrow">Appendix</span><h2>Where everything in this deck comes from</h2></div>
+  <div class="scroll">
+  <table>
+    <tr><th style="width:30%">Part</th><th style="width:46%">Source</th><th style="width:24%">Approved by</th></tr>
+    <tr><td>Problem and goal</td><td>Brief v3 · analytics · helpdesk · interviews</td><td>PO, 3 Oct</td></tr>
+    <tr><td>Impact</td><td>Impact report v2 · 4 repos read by keel</td><td>Tech leads, 6 Oct</td></tr>
+    <tr><td>Teams and plan</td><td>Team plan v1 · CODEOWNERS · team registry</td><td>Leads, 7 Oct</td></tr>
+    <tr><td>Estimates</td><td>Story sizes · history of 14 similar flows</td><td>Leads, 7 Oct</td></tr>
+    <tr><td>Tickets</td><td>Jira epics PAY-210, WEB-388, DATA-77</td><td>after the go</td></tr>
+  </table>
+  </div>
+  <p class="muted" style="margin-top:auto">This deck is built from initiative INI-12. When the brief or the plan changes, keel builds it again. The style comes from the company theme; pick another one in the bar below.</p>
+  <div class="foot"><span>INI-12 · prices in euro</span><span class="tag sample">Example · sample data</span><span class="sp"></span><span>Generated by keel Product · 8 Oct 2026</span><span class="num"></span></div>
+</section>
+
+</main>
+
+<nav class="toolbar" aria-label="Presentation controls">
+  <button type="button" id="prev" class="nav" aria-label="Previous slide">‹</button>
+  <span class="count nav" id="count">1 / 12</span>
+  <button type="button" id="next" class="nav" aria-label="Next slide">›</button>
+  <label for="style" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Style</label>
+  <select id="style">
+    <option value="auto">Style: your theme</option>
+    <option value="keel">Style: keel</option>
+    <option value="paper">Style: company light</option>
+    <option value="mono">Style: minimal</option>
+  </select>
+</nav>
+
+<script>
+(() => {
+  const root = document.documentElement;
+  const deck = document.getElementById('deck');
+  const slides = [...document.querySelectorAll('.slide')];
+  const count = document.getElementById('count');
+  const progress = document.getElementById('progress');
+  const styleSel = document.getElementById('style');
+  const styles = ['auto', 'keel', 'paper', 'mono'];
+  const small = matchMedia('(max-width: 760px), (max-height: 560px)');
+  let i = 0;
+
+  slides.forEach((s, k) => { const n = s.querySelector('.num'); if (n) n.textContent = String(k + 1).padStart(2, '0'); });
+
+  function layout() {
+    document.body.classList.toggle('reading', small.matches);
+    if (small.matches) { deck.style.transform = ''; deck.style.left = ''; deck.style.top = ''; return; }
+    const room = innerHeight - 64;
+    const s = Math.min(innerWidth / 1600, room / 900);
+    deck.style.transform = `scale(${s})`;
+    deck.style.left = `${(innerWidth - 1600 * s) / 2}px`;
+    deck.style.top = `${Math.max(0, (room - 900 * s) / 2)}px`;
+  }
+  function show(n) {
+    i = Math.max(0, Math.min(slides.length - 1, n));
+    slides.forEach((s, k) => s.classList.toggle('on', k === i));
+    count.textContent = `${i + 1} / ${slides.length}`;
+    progress.style.width = `${((i + 1) / slides.length) * 100}%`;
+    if (small.matches) slides[i].scrollIntoView({ block: 'start', behavior: 'smooth' });
+    try { history.replaceState(null, '', `#${i + 1}`); } catch (e) { /* not allowed here */ }
+  }
+  function setStyle(v) {
+    if (v === 'auto') delete root.dataset.style; else root.dataset.style = v;
+    styleSel.value = v;
+    try { localStorage.setItem('euro-review-style', v); } catch (e) { /* storage blocked */ }
+  }
+
+  let saved = null;
+  try { saved = localStorage.getItem('euro-review-style'); } catch (e) { /* storage blocked */ }
+  setStyle(styles.includes(saved) ? saved : 'auto');
+  layout();
+  show((parseInt(location.hash.slice(1), 10) || 1) - 1);
+
+  addEventListener('resize', layout);
+  small.addEventListener?.('change', layout);
+  document.getElementById('prev').onclick = () => show(i - 1);
+  document.getElementById('next').onclick = () => show(i + 1);
+  styleSel.onchange = () => setStyle(styleSel.value);
+  deck.addEventListener('click', (e) => {
+    if (small.matches || e.target.closest('a,button,select')) return;
+    show(e.clientX > innerWidth / 2 ? i + 1 : i - 1);
+  });
+  addEventListener('keydown', (e) => {
+    if (e.target.closest('select')) return;
+    if (['ArrowRight', 'PageDown', ' '].includes(e.key)) { e.preventDefault(); show(i + 1); }
+    else if (['ArrowLeft', 'PageUp'].includes(e.key)) { e.preventDefault(); show(i - 1); }
+    else if (e.key === 'Home') show(0);
+    else if (e.key === 'End') show(slides.length - 1);
+    else if (e.key.toLowerCase() === 't') setStyle(styles[(styles.indexOf(styleSel.value) + 1) % styles.length]);
+    else if (e.key.toLowerCase() === 'f' && !small.matches) {
+      try {
+        const p = document.fullscreenElement ? document.exitFullscreen() : root.requestFullscreen?.();
+        p?.catch?.(() => {});
+      } catch (err) { /* fullscreen not allowed */ }
+    }
+  });
+})();
+</script>
+</html>

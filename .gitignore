@@ -14,3 +14,6 @@ __pycache__/
 
 # local screenshots of the web (docs/screens: before/after of the v0.4.1 blocks)
 docs/screens/
+
+# a local code tool's settings
+.serena/
