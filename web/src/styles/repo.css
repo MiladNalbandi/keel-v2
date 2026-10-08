@@ -447,3 +447,5 @@ button.sb-i:hover { background: color-mix(in srgb, var(--on-accent) 14%, transpa
   .lg-detail { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
   .lg-dside { max-height: 40vh; border-right: 0; border-bottom: 1px solid var(--ide-line); }
 }
+/* v0.15.3 in Code it feels like an IDE: a panel that reaches its end keeps the wheel, the page behind does not move */
+.ide, .ide * { overscroll-behavior: contain; }
