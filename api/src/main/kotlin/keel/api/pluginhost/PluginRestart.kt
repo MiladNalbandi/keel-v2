@@ -8,7 +8,6 @@ import org.springframework.context.ApplicationContext
 import org.springframework.stereotype.Component
 import org.springframework.stereotype.Service
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.concurrent.thread
 import kotlin.system.exitProcess
 
 /** Ends the api with an exit code. Tests put a fake one in its place. */
@@ -40,11 +39,12 @@ class PluginRestart(@Value("\${keel.supervised:}") supervised: String, private v
         }
         if (!asked.compareAndSet(false, true)) return
         // Not a daemon: SpringApplication.exit stops Tomcat's threads, and with only daemon threads left the JVM would
-        // end by itself with code 0 before exitProcess(75) runs (keel-start then stops the container).
-        thread(name = "keel-restart", isDaemon = false) {
+        // end by itself with code 0 before exitProcess(75) runs (keel-start then stops the container). Set it here:
+        // a new thread copies the flag of the thread that makes it, and Tomcat's request threads are daemons.
+        Thread({
             Thread.sleep(DELAY_MS)
             exit.exit(EXIT_CODE)
-        }
+        }, "keel-restart").apply { isDaemon = false }.start()
     }
 
     companion object {
