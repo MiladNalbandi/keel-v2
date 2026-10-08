@@ -18,7 +18,7 @@ import { Explorer } from "./Explorer";
 import { FileIcon, Icon, extOf, languageName } from "./icons";
 import { DocsView, KeelView, MemoryView, ruleText } from "./KeelView";
 import {
-  bytes, closeTab, decoOf, nameOf, openTab, parseDeepLink, parseReviewLink, pinTab, repoHash, retargetTab, setView, tabId, webUrl,
+  bytes, closeTab, decoOf, FOCUS_KEYS, nameOf, openTab, parseDeepLink, parseReviewLink, pinTab, repoHash, retargetTab, setView, tabId, webUrl,
   type EditorTab, type OpenSpec, type Tabs, type View,
 } from "./model";
 import { BranchTab } from "./Branch";
@@ -30,7 +30,7 @@ import { openReview, ReviewSide } from "../../components/review/ReviewSide";
 import { ReviewFileTab } from "../../components/review/ReviewFileTab";
 import { ReviewLayer } from "../../components/review/ReviewLayer";
 import { setOpener } from "../../components/review/store";
-import { doubleShift, ideActionFor } from "../../components/review/keymap";
+import { doubleShift, ideActionFor, keyLabel } from "../../components/review/keymap";
 import { openLauncher } from "../../components/launcher/Launcher";
 
 type Activity = "explorer" | "search" | "scm" | "review" | "db" | "keel";
@@ -695,8 +695,8 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
         {project && !fileTab && <span className="sb-i sb-wide">{project.name}</span>}
         {onFocus && (
           <button type="button" className="sb-i sb-focus" onClick={() => onFocus(!focus)}
-            title={focus ? "Show the Code header again" : "Hide the Code header: more room for the code and KeelBot"}>
-            {focus ? "Show the header" : "Hide the header"}
+            title={focus ? `Leave Focus mode (${keyLabel(FOCUS_KEYS)}, or Esc twice)` : `Focus mode (${keyLabel(FOCUS_KEYS)}): only the code, like an IDE`}>
+            {focus ? "Exit focus" : "Focus"} <kbd className="sb-k">{keyLabel(FOCUS_KEYS)}</kbd>
           </button>
         )}
       </footer>

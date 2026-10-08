@@ -7,7 +7,9 @@ import { api, errorParts, type IndexStatus, type RepoInfo, type UpdateFromBase }
 import { ErrorBox, PageHead } from "../components/ui";
 import { plural } from "../format";
 import { go, useApp, useLoad } from "../state";
+import { isMac, keyLabel } from "../components/review/keymap";
 import { RepoIde } from "./repo/Ide";
+import { FOCUS_EVENT, FOCUS_KEYS } from "./repo/model";
 
 export function RepoPage({ pid }: { pid: string }) {
   const { project } = useApp();
@@ -22,6 +24,35 @@ export function RepoPage({ pid }: { pid: string }) {
   useEffect(() => {
     try { localStorage.setItem("keel2.repo.focus", focus ? "1" : "0"); } catch { /* private window */ }
   }, [focus]);
+  // v0.15.x Focus mode is the whole window, like an IDE's Zen mode: keel's menu and the usage bar go too (the shell
+  // hides them while <html data-focus> is set); ⇧⌘\ turns it on and off, Esc twice leaves it (as in VS Code)
+  useEffect(() => {
+    const root = document.documentElement;
+    if (focus) root.dataset.focus = "code";
+    else delete root.dataset.focus;
+    return () => { delete root.dataset.focus; };
+  }, [focus]);
+  useEffect(() => {
+    let lastEsc = 0;
+    const onKey = (e: KeyboardEvent) => {
+      if ((isMac ? e.metaKey : e.ctrlKey) && e.shiftKey && !e.altKey && (e.code === "Backslash" || e.key === "|" || e.key === "\\")) {
+        e.preventDefault();
+        setFocus((f) => !f);
+        return;
+      }
+      // only an Esc nothing else used (a popup or the find bar closing keeps Focus)
+      if (e.key !== "Escape" || e.defaultPrevented) { lastEsc = 0; return; }
+      const now = Date.now();
+      if (now - lastEsc < 450) { lastEsc = 0; setFocus(false); } else lastEsc = now;
+    };
+    const onToggle = (e: Event) => {
+      const want = (e as CustomEvent<boolean | undefined>).detail;
+      setFocus((f) => (typeof want === "boolean" ? want : !f));
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener(FOCUS_EVENT, onToggle);
+    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener(FOCUS_EVENT, onToggle); };
+  }, []);
   return (
     <div className={`repo-page${focus ? " focus" : ""}`}>
       {!focus && <PageHead title="Code" sub={<>Read, search and check the code of {project?.name ?? pid}. Read-only: keel never edits files here.</>}
@@ -35,7 +66,8 @@ export function RepoPage({ pid }: { pid: string }) {
             }} />
           )}
           <button className="btn sm" type="button" onClick={() => go("helper")} title="Only KeelBot, on a page of its own">KeelBot only</button>
-          <button className="btn sm ghost" type="button" onClick={() => setFocus(true)} title="Hide this header: the code and KeelBot get the room">Focus</button>
+          <button className="btn sm ghost" type="button" onClick={() => setFocus(true)}
+            title={`Focus mode (${keyLabel(FOCUS_KEYS)}): only the code, like an IDE; Esc twice comes back`}>Focus</button>
         </>} />}
       {repo.error && <div style={{ marginBottom: 12 }}><ErrorBox error={repo.error} onRetry={() => void repo.reload()} /></div>}
       {result && <UpdateResult result={result} base={repo.data?.base ?? "base"} onClose={() => setResult(null)} />}

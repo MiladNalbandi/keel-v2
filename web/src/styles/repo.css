@@ -351,3 +351,12 @@ button.sb-i:hover { background: color-mix(in srgb, var(--on-accent) 14%, transpa
 }
 
 @media (prefers-reduced-motion: reduce) { .ide * { transition: none !important; } }
+
+/* v0.15.x Focus mode (⇧⌘\, Esc twice leaves): the IDE is the whole window, like an IDE's Zen mode — keel's menu, the
+   usage bar and the Code header go; the IDE keeps its activity bar, tabs and status bar */
+:root[data-focus] .app { grid-template-columns: minmax(0, 1fr); }
+:root[data-focus] .app > .side, :root[data-focus] .app > .side-rail, :root[data-focus] .bbar { display: none; }
+:root[data-focus] .app-col { --bar-h: 0px; }
+:root[data-focus] main:has(> .repo-page) { padding: 0; }
+:root[data-focus] .repo-page .ide { height: 100vh; height: 100dvh; border: 0; border-radius: 0; }
+.sb-k { font: inherit; opacity: .75; margin-left: 2px; }
