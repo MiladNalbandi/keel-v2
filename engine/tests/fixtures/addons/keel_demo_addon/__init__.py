@@ -17,7 +17,7 @@ async def ping():
 
 def echo(a):
     a.event("demo.saved", {"items": len(a.data.get("folders") or []), "answers": a.data.get("answers_clarify"),
-                           "read": a.data.get("read_results")})
+                           "read": a.data.get("read_results"), "kept": a.data.get("ask_text")})
     return ActionResult(True, f"echo: {a.params.get('say', 'hi')}")
 
 

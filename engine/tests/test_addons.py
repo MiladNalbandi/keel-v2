@@ -100,7 +100,7 @@ async def test_actions_go_to_their_addon_and_unknown_stays_unknown(with_addons, 
                     params={"say": "hello"}, data={"folders": [1, 2]})
     a.event = lambda kind, data: seen.append((kind, data))
     r = await run_action("demo:echo", a)
-    assert r.ok and r.note == "echo: hello" and seen == [("demo.saved", {"items": 2, "answers": None, "read": None})]
+    assert r.ok and r.note == "echo: hello" and seen == [("demo.saved", {"items": 2, "answers": None, "read": None, "kept": None})]
     assert not (await run_action("demo:nope", a)).ok
     assert addons.may_emit("demo.saved") and not addons.may_emit("thread.done") and not addons.may_emit("demo")
 
@@ -128,6 +128,8 @@ def test_root_item_and_asks_in_a_flow(demo_client, repo, tmp_path):
     assert saved["items"] == 2
     assert saved["answers"][0]["answers"] == {"colour": "Green"}
     assert saved["answers"][0]["questions"][0]["question"] == "Which colour?"
+    # keep: the asking step's whole last answer is in the flow's data
+    assert saved["kept"] == "DONE with 1. Which colour?"
     # root: item: one agent per folder, each in its own folder, read only
     results = {r["item"]: r["text"] for r in saved["read"]}
     assert results["web"] == f"READ {folders[0]['root']} readonly=True"

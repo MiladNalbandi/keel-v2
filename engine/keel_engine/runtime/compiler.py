@@ -60,6 +60,9 @@ STEP_FIELD_MAX = 24_000          # per string field of an agent.step (runners al
 
 
 
+KEEP_MAX = 60_000       # `keep: true`: the most of an agent's answer the flow keeps for its next steps
+
+
 def budget_tokens(usage: dict) -> int:
     """Tokens that count toward caps: new input + output + a tenth of cache reads (they cost about a tenth)."""
     return int(usage.get("tokens_in", 0)) + int(usage.get("tokens_out", 0)) + int(usage.get("tokens_cached", 0)) // 10
@@ -916,6 +919,8 @@ class Compiler:
         if step.items_from:
             data[f"{step.id}_results"] = [{"item": item_of[n]["id"], "title": item_of[n].get("title") or item_of[n]["id"],
                                            "text": (r.text or "")[:16000], "markers": found[n]} for n, r in enumerate(results)]
+        elif step.keep and results:
+            data[f"{step.id}_text"] = (results[-1].text or "")[:KEEP_MAX]
         if step.markers:
             mine: dict = {}
             for f in found:

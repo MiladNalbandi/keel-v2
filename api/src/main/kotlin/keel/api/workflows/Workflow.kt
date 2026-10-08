@@ -70,6 +70,8 @@ data class Step(
      *  agent step end with questions that the next gate shows as buttons (keel's clarify loop). */
     val root: String? = null,
     val asks: Boolean? = null,
+    /** v0.13.0 an agent step whose whole answer the next steps read: state.data["<step id>_text"]. */
+    val keep: Boolean? = null,
 ) {
     val locked: Boolean @com.fasterxml.jackson.annotation.JsonIgnore get() = lock == true
 }

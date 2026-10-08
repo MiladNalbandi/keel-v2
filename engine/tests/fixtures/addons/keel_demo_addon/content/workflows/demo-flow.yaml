@@ -9,6 +9,7 @@ steps:
     agent: demo-agent
     phase: review
     asks: true
+    keep: true
   - id: answers
     kind: gate
     name: the answers

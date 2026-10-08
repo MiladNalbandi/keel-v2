@@ -102,6 +102,8 @@ class Step(BaseModel):
     # An agent step that may end with a keel-questions block: the next gate shows the questions as buttons and the
     # answers go back to the same agent session (keel's clarify loop, which the spec step uses), at most 2 rounds.
     asks: bool | None = None
+    # An agent step whose whole answer the next steps read (an add-on's document): state.data["<step id>_text"].
+    keep: bool | None = None
     # Set by `include`: the include ids this step came from, outermost first (`ship`, or `ship/cover` for a step of the
     # cover flow that ship includes). Only for showing the workflow (the web folds an include into one block).
     included_from: str | None = None

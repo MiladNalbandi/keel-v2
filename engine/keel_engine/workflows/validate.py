@@ -185,6 +185,8 @@ def validate(wf: Workflow) -> list[str]:
             errors.append(f"{where}: 'root: item' needs a parallel step with 'from' (each item names its folder).")
         if s.asks and s.kind != "agent":
             errors.append(f"{where}: only an agent step takes 'asks' (its questions go to the next gate).")
+        if s.keep and s.kind != "agent":
+            errors.append(f"{where}: only an agent step takes 'keep' (its whole answer, for the next steps).")
         for name, v in (("cap", s.cap), ("batch", s.batch)):
             if isinstance(v, str):
                 if not v.startswith("$"):
