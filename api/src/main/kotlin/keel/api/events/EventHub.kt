@@ -61,6 +61,20 @@ class EventHub(private val mapper: ObjectMapper) {
 
     companion object {
         val LIGHT = setOf("notification", "notification.done", "project.changed")
+
+        /** The one generic channel: an engine event the web does not listen to by name goes out as `event: engine`, its
+         *  type inside (approval.*, a plugin's own events), so a part's web code can follow it. */
+        const val ENGINE = "engine"
+
+        /** Engine events the web listens to by their own name (web api.ts ENGINE_EVENT_TYPES). */
+        val NAMED = setOf(
+            "thread.started", "step.started", "step.finished", "agent.started", "agent.step", "agent.finished",
+            "gate.waiting", "gate.decided", "budget.warn", "budget.stop", "guard.refused", "thread.done", "thread.failed",
+            "helper.started", "helper.step", "helper.finished", "helper.permission", "helper.permission.answered", "helper.commit",
+        )
+
+        /** The SSE event name an engine event goes out under. */
+        fun channelOf(type: String): String = if (type in NAMED) type else ENGINE
     }
 
     @Scheduled(fixedRate = 20_000, initialDelay = 20_000)

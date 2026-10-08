@@ -146,7 +146,8 @@ def decide(tool: str, ti: dict, ctx: dict) -> str | None:
                              exists=lambda rel: (Path(root) / rel).exists(), unlocks=unlocks)
         if not v.ok:
             return v.reason
-        # KeelBot's Fix mode: a command that changes something waits for the person's OK (runtime/permissions.py)
+        # a run that may ask (KeelBot's Fix and side modes): a command that changes something waits for the person's OK
+        # (runtime/permissions.py asks at the context's URL; keel_engine/approvals.py does the waiting)
         if ctx.get("ask") and permissions.needs_ask(str(ti.get("command") or "")):
             ok, why = permissions.ask_engine(ctx["ask"], "command", str(ti.get("command") or ""))
             return None if ok else why

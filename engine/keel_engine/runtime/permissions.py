@@ -1,9 +1,11 @@
 """Permission cards for KeelBot's Fix mode: a command that changes something waits for the person's OK.
 
 Who asks: keel's PreToolUse hook (claude, and opencode through its plugin) and keel's own ToolBox (API-key models).
-How: an HTTP call to the engine (`POST /helper/permissions/ask`) that waits until the person answers in the panel or
-the Inbox (Allow once, Always for this command, Deny with a reason), or until ASK_TIMEOUT. The call carries the
-turn's own ask key: it can only ask; answering takes keel's internal token, which no agent has.
+How: an HTTP call to the URL in the run's ask settings `{url, key, session}` (KeelBot names its
+`POST /helper/permissions/ask`, which checks the turn's key and asks keel_engine/approvals.py). It waits until the
+person answers in the panel or the Inbox (Allow once, Always for this command, Deny with a reason), or until
+ASK_TIMEOUT. The call carries the turn's own ask key: it can only ask; answering takes keel's internal token, which no
+agent has.
 
 Stdlib only (plus run_mode, itself stdlib): the hook imports this on every tool call.
 """
@@ -36,13 +38,13 @@ def granted(command: str, grants: list[str] | None) -> bool:
 
 
 def ask_engine(ask: dict | None, kind: str, command: str, path: str = "") -> tuple[bool, str]:
-    """(allowed, why not). No ask settings: nothing to ask, the rules alone decide."""
+    """(allowed, why not). No ask settings: nothing to ask, the rules alone decide. `url` is where to ask, in full."""
     a = ask or {}
     url, key, sid = a.get("url"), a.get("key"), a.get("session")
     if not (url and key and sid):
         return True, ""
     body = json.dumps({"session": sid, "key": key, "kind": kind, "command": str(command)[:4000], "path": path}).encode()
-    req = urllib.request.Request(f"{url.rstrip('/')}/helper/permissions/ask", data=body,
+    req = urllib.request.Request(url, data=body,
                                  headers={"content-type": "application/json"}, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=ASK_TIMEOUT + 30) as r:

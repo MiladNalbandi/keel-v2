@@ -23,7 +23,6 @@ them as agent calls (agent "helper", so the budget, Live agents and Jobs count t
 from __future__ import annotations
 
 import asyncio
-import concurrent.futures
 import difflib
 import json
 import logging
@@ -34,6 +33,7 @@ import time
 import uuid
 from pathlib import Path
 
+from .. import approvals
 from .. import config, models, rules
 from ..models import catalog
 from ..models.base import AgentRequest, AgentResult
@@ -67,6 +67,7 @@ MODE_TEXT = {
 }
 DIFF_MAX = 40_000
 MCP_SESSION = "mcp"         # questions from keel2 mcp --write (Claude Code), with no KeelBot chat behind them
+ASK_PATH = "/helper/permissions/ask"   # where the guard hook asks (it checks the turn's key, then asks approvals.py)
 
 FIELDS = ("id", "project", "root", "mode", "title", "model_json", "engine_session", "status", "error", "thread_id",
           "tokens_in", "tokens_out", "tokens_cached", "cost_usd", "turns", "created_at", "updated_at", "grants_json", "phase",
@@ -482,16 +483,15 @@ class HelperRunner:
     def __init__(self, bus):
         self.bus = bus
         self.tasks: dict[str, asyncio.Task] = {}
-        # Fix mode: the running turn's ask key per session (it can only ask), and the questions waiting for the person
+        # Fix and side: the running turn's ask key per session (it can only ask). The waiting itself is core's
+        # (keel_engine/approvals.py); KeelBot keeps its keys, its "always" grants and the cards of its own panel.
         self.ask_keys: dict[str, str] = {}
-        self.questions: dict[str, dict] = {}
-        self.answers: dict[str, concurrent.futures.Future] = {}
-        self.decided: dict[str, dict] = {}      # keel2 mcp's answered questions, until it reads them
+        self.approvals = approvals.of(bus)
 
     # ---- permission cards (runtime/permissions.py) --------------------------------------------------------------
 
-    def _ask(self, sid: str, key: str, kind: str, command: str, path: str = "") -> tuple[str | None, dict | None]:
-        """(question id to wait for, or an answer at once)."""
+    def _check(self, sid: str, key: str, command: str) -> tuple[dict | None, dict | None]:
+        """(the session that asks, or an answer at once)."""
         if not key or self.ask_keys.get(sid) != key:
             return None, {"decision": "deny", "why": "This KeelBot turn may not ask (it ended, or the key is wrong)."}
         try:
@@ -500,89 +500,67 @@ class HelperRunner:
             return None, {"decision": "deny", "why": "The KeelBot chat is gone."}
         if permissions.granted(command, s["grants"]):
             return None, {"decision": "allow"}
-        qid = "p_" + uuid.uuid4().hex[:12]
-        q = {"id": qid, "session": sid, "project": s["project"], "thread_id": s["thread_id"], "kind": kind, "command": command,
-             "path": path, "title": s["title"], "at": db.now()}
-        self.questions[qid] = q
-        self.answers[qid] = concurrent.futures.Future()
-        self.bus.emit("helper.permission", sid, s["project"], step="helper", data=q)
-        return qid, None
+        return s, None
 
-    def _settle(self, qid: str, answer: dict):
-        fut = self.answers.pop(qid, None)
-        q = self.questions.pop(qid, None)
-        if q and q["session"] == MCP_SESSION:
-            self.decided[qid] = answer          # keel2 mcp polls for it (asked)
-            while len(self.decided) > 200:
-                self.decided.pop(next(iter(self.decided)))
-        if fut and not fut.done():
-            fut.set_result(answer)
-        if q:
-            self.bus.emit("helper.permission.answered", q["session"], q["project"], step="helper",
-                          data={"id": qid, "decision": answer.get("decision"), "why": answer.get("why", "")})
+    def _open(self, s: dict, kind: str, command: str, path: str = "") -> str:
+        """Asks approvals; KeelBot's own panel gets helper.permission, and helper.permission.answered when it ends."""
+        sid = s["id"]
+
+        def answered(q: dict, said: str, ans: dict):
+            if said == "always":
+                add_grant(sid, q["command"])
+            self.bus.emit("helper.permission.answered", sid, q["project"], step="helper",
+                          data={"id": q["id"], "decision": ans.get("decision"), "why": ans.get("why", "")})
+
+        q = self.approvals.open(kind, s["project"], s["title"], command, source="keelbot", thread_id=s["thread_id"],
+                                session=sid, path=path, on_answer=answered)
+        self.bus.emit("helper.permission", sid, s["project"], step="helper", data=q)
+        return q["id"]
 
     async def ask(self, sid: str, key: str, kind: str, command: str, path: str = "") -> dict:
         """The hook's question (POST /helper/permissions/ask): waits for the person, at most ASK_TIMEOUT."""
-        qid, now = self._ask(sid, key, kind, command, path)
+        s, now = self._check(sid, key, command)
         if now:
             return now
-        try:
-            return await asyncio.wait_for(asyncio.wrap_future(self.answers[qid]), permissions.ASK_TIMEOUT)
-        except asyncio.TimeoutError:
-            self._settle(qid, {"decision": "deny", "why": "Nobody answered in 10 minutes, so the command did not run."})
-            return {"decision": "deny", "why": "Nobody answered in 10 minutes, so the command did not run."}
+        return await self.approvals.wait(self._open(s, kind, command, path))
 
     def ask_blocking(self, sid: str, key: str, command: str) -> tuple[bool, str]:
         """The ToolBox's question (API-key models run their tools in a worker thread)."""
-        qid, now = self._ask(sid, key, "command", command)
-        ans = now
-        if qid:
-            try:
-                ans = self.answers[qid].result(timeout=permissions.ASK_TIMEOUT)
-            except concurrent.futures.TimeoutError:
-                ans = {"decision": "deny", "why": "Nobody answered in 10 minutes, so the command did not run."}
-                self._settle(qid, ans)
-        return (ans or {}).get("decision") == "allow", (ans or {}).get("why", "")
+        s, now = self._check(sid, key, command)
+        ans = now or self.approvals.wait_blocking(self._open(s, "command", command))
+        return ans.get("decision") == "allow", ans.get("why", "")
 
     def answer(self, qid: str, decision: str, why: str = "") -> dict:
         """The person's answer: once | always (this command, for the rest of the chat) | deny (with a reason)."""
-        q = self.questions.get(qid)
-        if not q:
-            raise HelperError(404, "That question was answered already, or its command ended.")
-        if decision not in ("once", "always", "deny"):
-            raise HelperError(400, "Answer once, always or deny.")
-        if decision == "always" and q["session"] != MCP_SESSION:
-            add_grant(q["session"], q["command"])
-        self._settle(qid, {"decision": "deny" if decision == "deny" else "allow",
-                           "why": (why or "The person said no to this command.") if decision == "deny" else ""})
-        return {"id": qid, "decision": decision}
+        try:
+            return self.approvals.answer(qid, decision, why)
+        except approvals.ApprovalError as exc:
+            raise HelperError(exc.status, str(exc), exc.hint) from exc
 
     # ---- v0.10.0: keel2 mcp --write (Claude Code): an acting plugin tool asks the person in the Inbox, then polls
 
     def ask_person(self, project: str, title: str, command: str) -> dict:
         """A question with no KeelBot chat behind it: the Inbox shows it like KeelBot's commands."""
-        qid = "p_" + uuid.uuid4().hex[:12]
-        q = {"id": qid, "session": MCP_SESSION, "project": project, "thread_id": None, "kind": "plugin", "command": command,
-             "path": "", "title": title, "at": db.now()}
-        self.questions[qid] = q
-        self.answers[qid] = concurrent.futures.Future()
+        def answered(q: dict, _said: str, ans: dict):
+            self.bus.emit("helper.permission.answered", MCP_SESSION, project, step="helper",
+                          data={"id": q["id"], "decision": ans.get("decision"), "why": ans.get("why", "")})
+
+        q = self.approvals.open("plugin", project, title, command, source="mcp", session=MCP_SESSION, on_answer=answered)
         self.bus.emit("helper.permission", MCP_SESSION, project, step="helper", data=q)
         return q
 
     def asked(self, qid: str) -> dict:
         """{waiting: true} until the person answers, then {decision: allow | deny, why} once."""
-        if qid in self.questions:
-            return {"id": qid, "waiting": True}
-        if qid in self.decided:
-            return {"id": qid, **self.decided.pop(qid)}
-        raise HelperError(404, "keel knows no such question.")
+        try:
+            return self.approvals.asked(qid)
+        except approvals.ApprovalError as exc:
+            raise HelperError(exc.status, str(exc), exc.hint) from exc
 
     def pending(self, project: str | None = None) -> list[dict]:
-        return [q for q in self.questions.values() if not project or q["project"] == project]
+        return self.approvals.pending(project)
 
     def _drop_questions(self, sid: str, why: str):
-        for qid in [k for k, q in self.questions.items() if q["session"] == sid]:
-            self._settle(qid, {"decision": "deny", "why": why})
+        self.approvals.close(session=sid, why=why)
 
     def busy(self, sid: str) -> bool:
         t = self.tasks.get(sid)
@@ -659,7 +637,7 @@ class HelperRunner:
             toolbox = ToolBox(root, phase, cfg=cfg, lane=rules.ac_lane(ac) if ac else None, ac=(ac or {}).get("id"),
                               ac_layer=(ac or {}).get("layer", "API"), on_refuse=on_refuse, unlocks=unlocks, agent=AGENT,
                               knowledge=know, readonly=flow.get("run_mode") == "readonly",
-                              ask={"url": f"http://127.0.0.1:{config.port()}", "key": key, "session": sid},
+                              ask={"url": f"http://127.0.0.1:{config.port()}{ASK_PATH}", "key": key, "session": sid},
                               asker=lambda command: self.ask_blocking(sid, key, command))
         elif mode == "side":
             # no flow's phase: only keel's always-on rules (secrets, .git, old migrations), and nothing outside the worktree
@@ -667,7 +645,7 @@ class HelperRunner:
             key = secrets.token_urlsafe(24)
             self.ask_keys[sid] = key
             toolbox = ToolBox(root, "none", cfg=cfg, on_refuse=on_refuse, agent=AGENT, knowledge=know, confine=True,
-                              ask={"url": f"http://127.0.0.1:{config.port()}", "key": key, "session": sid},
+                              ask={"url": f"http://127.0.0.1:{config.port()}{ASK_PATH}", "key": key, "session": sid},
                               asker=lambda command: self.ask_blocking(sid, key, command))
         else:
             phase, unlocks, ac = "none", [], None

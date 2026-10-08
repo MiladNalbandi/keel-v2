@@ -189,8 +189,12 @@ export const ENGINE_EVENT_TYPES: EngineEventType[] = [
   "gate.waiting", "gate.decided", "budget.warn", "budget.stop", "guard.refused", "thread.done", "thread.failed",
   "helper.started", "helper.step", "helper.finished", "helper.permission", "helper.permission.answered", "helper.commit",
 ];
+/** v0.16.0: the one generic channel. The api sends every engine event the web does not list above (approval.*, a plugin's
+ *  own events) as `event: engine`, its type inside; it lands in `recent` like the others. */
+export const ENGINE_CHANNEL = "engine";
 export type EngineEvent = {
-  type: EngineEventType;
+  /** one of ENGINE_EVENT_TYPES, or any other engine event from the generic channel */
+  type: EngineEventType | (string & {});
   thread_id: string;
   project_id: string;
   step?: string;

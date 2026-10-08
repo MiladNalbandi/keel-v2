@@ -2,6 +2,7 @@ package keel.api.plugins
 
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
+import keel.api.approvals.ApprovalService
 import keel.api.common.BadRequest
 import keel.api.common.Conflict
 import keel.api.common.NotFound
@@ -37,6 +38,7 @@ class PluginService(
     private val projects: ProjectService,
     private val secrets: SecretService,
     private val mapper: ObjectMapper,
+    private val approvals: ApprovalService,
 ) : FlowContributor {
     @Volatile private var cache: Pair<Long, JsonNode>? = null
 
@@ -134,9 +136,10 @@ class PluginService(
             "command" to body.command.take(4000)))
     }
 
+    /** keel2 mcp polls its question (core approvals): {waiting: true} until the person answers, then the answer. */
     fun asked(qid: String): JsonNode {
         if (!Regex("^p_[0-9a-f]{12}$").matches(qid)) throw BadRequest("That is not a question id")
-        return engine.get("/plugins/ask/$qid")
+        return approvals.asked(qid)
     }
 
     fun github(): Map<String, Any?> {

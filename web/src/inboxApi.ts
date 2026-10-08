@@ -34,8 +34,28 @@ export type InboxItem = {
   since?: string | null;
   /** v0.5.0: a task's item (kind task | jira-manual) instead of a flow's pause; answered with tasksApi.act. */
   task?: InboxTask | null;
-  /** v0.6.x: a Helper's command that waits for the person's OK (kind permission); answered with api.helperAnswer. */
+  /** v0.6.x: a command that waits for the person's OK (kind permission: KeelBot's, or keel2 mcp's acting tool);
+   *  answered with inboxApi.decide. */
   permission?: { id: string; session: string; command: string; path?: string | null } | null;
+};
+/** v0.16.0: one question for a person, kept by keel's core approvals (GET /api/approvals). */
+export type ApprovalStatus = "waiting" | "approved" | "denied" | "expired" | "closed";
+export type Approval = {
+  id: string;
+  project_id: string;
+  /** "command" (KeelBot), "plugin" (keel2 mcp's acting tool), or a kind the api asks itself */
+  kind: string;
+  source: string;
+  title: string;
+  detail: string;
+  payload: Record<string, unknown> | null;
+  status: ApprovalStatus;
+  decision: string | null;
+  why: string | null;
+  requested_by: string | null;
+  created_at: string;
+  decided_at: string | null;
+  decided_by: string | null;
 };
 export type InboxTask = {
   id: string; item_id: number; key: string | null; url: string | null; title: string; status: string; stage: string | null; pr_url: string | null;
@@ -59,4 +79,8 @@ export const inboxApi = {
   setMode: (tid: string, mode: RunMode) => post<ThreadState>(`/threads/${e(tid)}/mode`, { mode }),
   deleteNote: (id: string) => del<{ ok: boolean }>(`/notifications/${e(id)}`),
   clearNotes: () => del<{ ok: boolean; count: number }>("/notifications"),
+  /** v0.16.0 approvals: waiting ones oldest first; no status = every status, newest first. */
+  approvals: (f: { status?: ApprovalStatus; project?: string } = {}) => get<Approval[]>(`/approvals${q(f)}`),
+  /** The person's answer to an approval; a command's: once | always (that command, for the rest of the chat) | deny. */
+  decide: (id: string, decision: string, why = "") => post<Approval>(`/approvals/${e(id)}/decide`, { decision, why }),
 };

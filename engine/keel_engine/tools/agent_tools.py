@@ -51,8 +51,8 @@ class ToolBox:
         self.knowledge = knowledge   # {sections, strict, ...}: with strict on, other docs/knowledge sections are refused
         self._reads: dict[str, tuple[int, int]] = {}   # what this run read (file|range → mtime, size)
         self.readonly = readonly     # run mode readonly: no write, no shell command that changes files or git
-        # KeelBot's Fix mode: `ask` goes into the guard context (CLI hooks ask the engine), `asker` asks for this
-        # ToolBox's own commands (API-key models); both wait for the person's OK (runtime/permissions.py)
+        # KeelBot's Fix and side modes: `ask` goes into the guard context (CLI hooks ask the engine at its url), `asker`
+        # asks for this ToolBox's own commands (API-key models); both wait for the person's OK (keel_engine/approvals.py)
         self.ask = ask
         self.asker = asker
         # KeelBot's side session: the hook also refuses a write outside the root (its worktree); this ToolBox always does
