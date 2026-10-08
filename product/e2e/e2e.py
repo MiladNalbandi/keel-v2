@@ -105,10 +105,18 @@ def STAGE_WAIT() -> float:  # noqa: N802
     return 1200.0 if REAL["on"] else 120.0
 
 
+def host_path(source: str) -> Path:
+    """A bind mount's folder on this computer. Docker Desktop reports /host_mnt/<path> for it (its VM's view)."""
+    p = Path(source)
+    if not p.exists() and source.startswith("/host_mnt/"):
+        p = Path(source[len("/host_mnt"):])
+    return p
+
+
 def real_workspace(ws: Path) -> Path:
     """The running keel-lab mounts its own workspace: the scratch repos go there."""
     mounts = json.loads(sh("docker", "inspect", "-f", "{{json .Mounts}}", NAME))
-    host = next(Path(m["Source"]) for m in mounts if m["Destination"] == "/workspace")
+    host = host_path(next(m["Source"] for m in mounts if m["Destination"] == "/workspace"))
     for name in ("web-shop", "payments-api"):
         if not (host / name).exists():
             shutil.copytree(ws / name, host / name)

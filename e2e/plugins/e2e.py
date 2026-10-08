@@ -204,7 +204,8 @@ def install_scenario(a, ws: Path) -> None:
     check(api("GET", "/features")["mode"] == "both", "features: Product and Dev are on")
     print("  running Product's own e2e on this keel …")
     r = subprocess.run([sys.executable, str(ROOT / "product/e2e/e2e.py"), "--running"], capture_output=True, text=True)
-    tail = (r.stdout + r.stderr).strip().splitlines()[-3:]
+    lines = [x for x in (r.stdout + r.stderr).splitlines() if x.strip() and not x.startswith(("20", "INFO:"))]
+    tail = lines[-4:]
     check(r.returncode == 0, "Product's own e2e passes on the installed plugin: " + " | ".join(tail))
 
 
@@ -243,7 +244,8 @@ def upgrade(a, ws: Path) -> None:
     r = subprocess.run([sys.executable, str(old_e2e), "--image", a.old_image, "--keep"], capture_output=True, text=True)
     check(r.returncode == 0, f"the {a.old_ref} Product e2e filled keel-lab on the old image")
     mounts = json.loads(sh("docker", "inspect", "-f", "{{json .Mounts}}", NAME))
-    old_ws = Path(next(m["Source"] for m in mounts if m["Destination"] == "/workspace"))
+    source = next(m["Source"] for m in mounts if m["Destination"] == "/workspace")
+    old_ws = Path(source[len("/host_mnt"):]) if source.startswith("/host_mnt/") and not Path(source).exists() else Path(source)
     before = {"initiatives": sorted((i["id"], i["stage"]) for i in api("GET", "/initiatives")),
               "projects": sorted(p["id"] for p in api("GET", "/projects")),
               "product_history": sh("docker", "exec", NAME, "sqlite3", "/data/keel.db", "select count(*) from product_schema_history").strip()}
