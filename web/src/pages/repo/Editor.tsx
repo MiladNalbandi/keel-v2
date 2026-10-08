@@ -6,7 +6,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { api, errorParts, type RepoFile } from "../../api";
 import { linesOf, parseDiff, type DiffRow } from "../../components/Code";
 import { highlight, languageOf } from "../../components/highlight";
-import { Markdown } from "../../components/Markdown";
+import { MarkdownView } from "../../components/Markdown";
 import { ErrorBox } from "../../components/ui";
 import { useLoad } from "../../state";
 import { Icon, isImage, extOf } from "./icons";
@@ -395,8 +395,9 @@ export function ImagePane({ pid, path, size, onDims }: { pid: string; path: stri
   );
 }
 
+// v0.15.3 rendered, and a copy gives the Markdown back
 export function MarkdownPane({ text }: { text: string }) {
-  return <div className="md-pane"><div className="md wdoc"><Markdown text={text} fold={0} /></div></div>;
+  return <div className="md-pane" role="region" aria-label="Rendered Markdown"><div className="wdoc"><MarkdownView text={text} fold={0} /></div></div>;
 }
 
 export function Notice({ title, children }: { title: string; children?: ReactNode }) {

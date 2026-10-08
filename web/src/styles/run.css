@@ -371,3 +371,7 @@ dl.tk-kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; display: flex; f
 .fl-confirm h2 { margin: 0; font-size: 17px; }
 .fl-confirm p { margin: 0; color: var(--dim); }
 .fl-confirm .row { display: flex; flex-wrap: wrap; gap: 8px; }
+/* v0.15.3 tool output: Raw / Copy Markdown buttons, and rendered Markdown in a step */
+.tool-out .out-raw { margin-left: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--dim); border-radius: 5px; padding: 0 7px; font: 500 11px var(--f-body); cursor: pointer; }
+.tool-out .out-raw:hover, .tool-out .out-raw[aria-pressed="true"] { color: var(--fg); border-color: var(--accent); }
+.md-view { padding: 8px 12px; overflow-x: auto; } .md-view .md-src { display: contents; }

@@ -3,11 +3,11 @@
 // `$ command` + output for a shell call, a server/tool badge for an MCP call. Newlines are kept everywhere,
 // long content folds after FOLD lines. Also the Outcome card and the "Files touched" list.
 
-import { useCallback, useMemo, type ReactNode } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import type { Job, JobStep } from "../api";
 import { clock, kfmt, since } from "../format";
 import { CodeBlock, DiffView, FoldedText, linesOf, parseDiff } from "./Code";
-import { Markdown } from "./Markdown";
+import { Markdown, MarkdownView } from "./Markdown";
 import { Pill } from "./ui";
 
 export const KIND_LABEL: Record<string, string> = {
@@ -60,17 +60,42 @@ function Badges({ s, shell }: { s: JobStep; shell: boolean }) {
   );
 }
 
-/** Tool output: collapsible, with exit badge and duration; JSON is pretty-printed and highlighted. */
+/** v0.15.3 what a tool's output is: a diff (git diff, git show), Markdown (cat of a .md file, or text that reads like
+ *  Markdown), or plain text. */
+export function outputKind(out: string, cmd = ""): "diff" | "md" | "text" {
+  if (/^diff --git /m.test(out) && /^@@ /m.test(out)) return "diff";
+  if (/^--- (a\/|\/dev\/null)/m.test(out) && /^\+\+\+ (b\/|\/dev\/null)/m.test(out) && /^@@ /m.test(out)) return "diff";
+  if (/\b(cat|head|tail|less|bat|sed -n)\b[^|;&]*\.(md|markdown)\b/i.test(cmd)) return "md";
+  const t = out.trimStart();
+  const marks = [/^#{1,3} \S/m, /^\s*[-*] \S/m, /^\|.*\|\s*$/m, /^```/m, /\*\*\S/, /^> /m].filter((r) => r.test(out)).length;
+  return /^#{1,3} \S/.test(t) && marks >= 3 ? "md" : "text";
+}
+
+/** Tool output: collapsible, with exit badge and duration; JSON is pretty-printed and highlighted; v0.15.3 a diff shows
+ *  as a highlighted diff and Markdown rendered (Raw shows the text; copying the rendered view gives the Markdown). */
 function Output({ s, shell }: { s: JobStep; shell: boolean }) {
   const out = s.output ?? "";
   const p = pretty(out);
   const n = linesOf(out).length;
+  const kind = p.json ? "text" : outputKind(out, shell ? s.text ?? "" : "");
+  const [raw, setRaw] = useState(false);
   return (
     <details className="tool-out" open>
       <summary>
         <span className="lab-s">Output</span> <span className="sub">{n} line{n === 1 ? "" : "s"}</span> <Badges s={s} shell={shell} />
+        {kind !== "text" && (
+          <button type="button" className="out-raw" aria-pressed={raw} onClick={(e) => { e.preventDefault(); setRaw((r) => !r); }}
+            title={raw ? "Show it rendered" : "Show the plain text"}>{raw ? (kind === "md" ? "Rendered" : "Diff") : "Raw"}</button>
+        )}
+        {kind === "md" && (
+          <button type="button" className="out-raw" onClick={(e) => { e.preventDefault(); void navigator.clipboard?.writeText(out).catch(() => undefined); }}
+            title="Copy the Markdown">Copy Markdown</button>
+        )}
       </summary>
-      {p.json ? <CodeBlock text={p.text} lang="json" gutter={false} /> : <FoldedText text={out} />}
+      {p.json ? <CodeBlock text={p.text} lang="json" gutter={false} />
+        : raw || kind === "text" ? <FoldedText text={out} />
+          : kind === "diff" ? <DiffView diff={out} />
+            : <MarkdownView text={out} />}
     </details>
   );
 }
@@ -126,7 +151,9 @@ function ReadStep({ s }: { s: JobStep }) {
         <span className="file-chip" title={s.path}><FileIcon />{s.path ? shortPath(s.path) : "file"}</span>
         <span className="sub">{n} line{n === 1 ? "" : "s"}</span>
       </summary>
-      {s.text ? <CodeBlock text={s.text} path={s.path} /> : <div className="sub" style={{ padding: "6px 10px" }}>(empty)</div>}
+      {/* v0.15.3 a Markdown file reads rendered; copying it gives the Markdown */}
+      {s.text ? (/\.(md|markdown)$/i.test(s.path ?? "") ? <MarkdownView text={s.text} /> : <CodeBlock text={s.text} path={s.path} />)
+        : <div className="sub" style={{ padding: "6px 10px" }}>(empty)</div>}
     </details>
   );
 }

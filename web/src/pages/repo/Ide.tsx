@@ -158,7 +158,8 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
     setScreen("editor");
   }, []);
 
-  const openFile = useCallback((path: string, pin = false, view?: View) => open({ path, view }, { pin }), [open]);
+  // v0.15.3 a Markdown file opens rendered (Preview); Code and Changes are one click away
+  const openFile = useCallback((path: string, pin = false, view?: View) => open({ path, view: view ?? (canPreview(path) ? "preview" : undefined) }, { pin }), [open]);
   // v0.15.2 the Git log: one tab, on a branch ("" = the current one)
   const showLog = useCallback((branch = "") => {
     setTabs((t) => openLog(t, branch));
@@ -495,8 +496,9 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
 
   const toolbar = fileTab && active && (
     <div className="ed-tools" role="toolbar" aria-label="Editor">
-      {canPreview(active.path) && view !== "diff" && (
-        <button type="button" className={`tb${view === "preview" ? " on" : ""}`} aria-pressed={view === "preview"} aria-label="Preview" title="Preview"
+      {canPreview(active.path) && (
+        <button type="button" className={`tb${view === "preview" ? " on" : ""}`} aria-pressed={view === "preview"} aria-label="Preview"
+          title={view === "preview" ? "Show the code" : "Show it rendered (copying it gives the Markdown)"}
           onClick={() => setTabs((t) => setView(t, active.id, view === "preview" ? "code" : "preview"))}>
           <Icon name="preview" size={15} /><span>Preview</span>
         </button>
