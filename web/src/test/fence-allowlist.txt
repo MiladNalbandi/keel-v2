@@ -1,0 +1,32 @@
+# The fence allowlist (web): today's places where keel's core web code imports a part that becomes a plugin.
+# Checked by src/test/fence.test.ts. See docs/plugins/07-step1-contract.md §9 and docs/plugins/01-today.md.
+#
+# Rule: this list may only shrink.
+#   - A new import from core into a plugin part fails. Do not add a line here: use an extension point (a slot)
+#     instead, see docs/plugins/02-plugin-package.md.
+#   - A line whose import is gone fails too: delete that line.
+#   - Nothing in product/ can ever be here.
+#
+# Format: "core file -> plugin file", paths relative to web/, one per line, sorted. '#' starts a comment.
+
+src/App.tsx -> src/pages/Graph.tsx
+src/App.tsx -> src/pages/Helper.tsx
+src/App.tsx -> src/pages/Map.tsx
+src/App.tsx -> src/pages/Repo.tsx
+src/App.tsx -> src/pages/Tasks.tsx
+src/App.tsx -> src/pages/Wiki.tsx
+src/components/Shell.tsx -> src/components/review/keymap.ts
+src/components/launcher/Launcher.tsx -> src/components/helper/model.ts
+src/components/launcher/Launcher.tsx -> src/components/review/keymap.ts
+src/components/launcher/Launcher.tsx -> src/pages/repo/model.ts
+src/components/launcher/sources.ts -> src/pages/repo/model.ts
+src/components/launcher/sources.ts -> src/reviewApi.ts
+src/components/launcher/sources.ts -> src/tasksApi.ts
+src/pages/Connections.tsx -> src/components/JiraCard.tsx
+src/pages/Connections.tsx -> src/components/plugins/Databases.tsx
+src/pages/Connections.tsx -> src/components/plugins/GitHubToken.tsx
+src/pages/Connections.tsx -> src/components/plugins/GitLabConnection.tsx
+src/pages/Inbox.tsx -> src/tasksApi.ts
+src/pages/Jobs.tsx -> src/components/plugins/Pipelines.tsx
+src/pages/Tools.tsx -> src/components/plugins/PluginCards.tsx
+src/pages/Tools.tsx -> src/tasksApi.ts

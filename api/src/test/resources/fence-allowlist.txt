@@ -1,0 +1,16 @@
+# The fence allowlist (api): today's places where keel's core uses a package that becomes a plugin.
+# Checked by src/test/kotlin/keel/api/FenceTest.kt. See docs/plugins/07-step1-contract.md §9 and docs/plugins/01-today.md.
+#
+# Rule: this list may only shrink.
+#   - A new use from core of a plugin fails. Do not add a line here: use an extension point instead,
+#     see docs/plugins/02-plugin-package.md.
+#   - A line whose use is gone fails too: delete that line.
+#   - keel.product can never be here.
+#
+# Format: "core.package.FileName -> plugin.package.Class", one per line, sorted. The left side is the package and the
+# file name (a file can hold more than one class). '#' starts a comment.
+
+keel.api.flow.FlowService -> keel.api.plugins.PluginService
+keel.api.inbox.InboxService -> keel.api.tasks.TaskItem
+keel.api.inbox.InboxService -> keel.api.tasks.TaskStore
+keel.api.workflows.WorkflowService -> keel.api.plugins.PluginService
