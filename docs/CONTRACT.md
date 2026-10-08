@@ -1264,7 +1264,9 @@ call, and the diff guard as the backstop for engines without a hook.
 - **The prompt** carries the mode, the knowledge sections the `helper` agent uses (`content/agents/helper.md`), the
   plugins' context files, the project's running or waiting flow (title, phase, spec, criteria, the waiting gate), what
   the person points at (`@` mentions, selected lines, the open file), and the question.
-- **Plugins** (`engine/keel_engine/runtime/plugins.py`): `content/plugins/<name>/plugin.yml` (keel's) and
+- **Plugins** (`engine/keel_engine/runtime/plugins.py`): `content/plugins/<name>/plugin.yml` (keel's, and since
+  step 3 the same folder in a loaded plugin package's content, like `plugins/ci/content/plugins/ci`; listed together in
+  name order) and
   `<project>/.keel/plugins/<name>/plugin.yml` (the project's; a command with the same name replaces keel's):
   `commands` (`/name` sends the template; `{{args}}` is the rest of the line) and `context` (project files every prompt
   names). A broken plugin is listed with its problems and never used.
@@ -1617,8 +1619,9 @@ POST /api/projects/{pid}/plugins/ask { title, command } → { id } · GET /api/p
 
 ## v0.11.0: the CI/CD plugin, and the Database tool on the Code page
 
-**CI/CD plugin** (`content/plugins/ci`, `engine/keel_engine/plugins/ci`): the project's pipelines on GitHub Actions
-through `gh` and the token of Connections › GitHub.
+**CI/CD plugin** (since step 3 the plugin folder `plugins/ci`: engine `keel_plugin_ci`, content `content/plugins/ci`, api
+`keel-plugin-ci.jar`, web `plugins/ci/web`): the project's pipelines on GitHub Actions through `gh` and the token of
+Connections › GitHub.
 
 - A plugin may bring its own workflows (`workflows: [ci-fix]` → `content/plugins/ci/workflows/ci-fix.yaml`). The
   engine's `GET /templates` lists them after keel's with `"plugin": "ci"`; the api lists one only for the projects that

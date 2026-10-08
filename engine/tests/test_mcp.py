@@ -1,6 +1,7 @@
 """keel v2's MCP server (keel_engine.mcp): tools/list in read-only and write mode, each tool against a stub api."""
 
 import json
+import os
 import subprocess
 import sys
 
@@ -13,11 +14,10 @@ from keel_engine.plugins.db import mcp_tools as db_mcp
 from keel_engine.plugins.git import mcp_tools as git_mcp
 from keel_engine.tools import mcp as mcp_tools
 
+# (the CI/CD plugin's keel_ci_* tools come with it: plugins/ci/engine/tests)
 READ_TOOLS = {"keel_status", "keel_projects", "keel_timeline", "keel_next", "keel_explain",
-              "keel_db_schema", "keel_db_query", "keel_git_status", "keel_pr_status",           # v0.10.0 plugins
-              "keel_ci_runs", "keel_ci_failure"}
-WRITE_TOOLS = {"keel_approve_gate", "keel_resume", "keel_db_change", "keel_git_commit", "keel_git_push", "keel_pr_create",
-               "keel_ci_rerun"}
+              "keel_db_schema", "keel_db_query", "keel_git_status", "keel_pr_status"}           # v0.10.0 plugins
+WRITE_TOOLS = {"keel_approve_gate", "keel_resume", "keel_db_change", "keel_git_commit", "keel_git_push", "keel_pr_create"}
 
 PROJECTS = [
     {"id": "shop", "name": "shop", "root": "/workspace/shop", "branch": "feat/scores", "flow": "feature", "phase": "spec",
@@ -239,6 +239,48 @@ def test_agents_get_the_read_only_builtin():
     [out] = mcp_tools.servers_for([seeded], ["mcp:keel:keel_next"])
     assert out["args"][-1] == "--read-only" and "KEEL_API_URL" in out["env"]
     assert mcp_tools.servers_for([], ["mcp:keel"])[0]["args"][-1] == "--read-only"
+
+
+def test_keels_server_gets_the_engines_plugins(monkeypatch):
+    """The plugins' tools are in keel's MCP server too: the engine hands it its plugin variables (that process only)."""
+    monkeypatch.delenv("KEEL_PLUGIN_PATHS", raising=False)
+    monkeypatch.delenv("KEEL_PLUGIN_ADDONS", raising=False)
+    assert set(mcp_tools.keel_server_spec()["env"]) == {"KEEL_API_URL"}
+    monkeypatch.setenv("KEEL_PLUGIN_PATHS", "/opt/p/ci/1.0.0/engine")
+    monkeypatch.setenv("KEEL_PLUGIN_ADDONS", "keel_plugin_ci")
+    env = mcp_tools.keel_server_spec()["env"]
+    assert env["KEEL_PLUGIN_PATHS"] == "/opt/p/ci/1.0.0/engine" and env["KEEL_PLUGIN_ADDONS"] == "keel_plugin_ci"
+    seeded = {"name": "keel", "command": "/opt/engine/.venv/bin/python", "args": ["-m", "keel_engine.mcp", "--read-only"]}
+    assert mcp_tools.servers_for([seeded], ["mcp:keel"])[0]["env"]["KEEL_PLUGIN_ADDONS"] == "keel_plugin_ci"
+
+
+def test_keel2_mcp_beside_the_engine_reads_the_plugins_of_keels_start(monkeypatch, tmp_path):
+    """keel2 mcp is a docker exec, not the engine's child: it reads run/env, as the resolver wrote it at keel's start."""
+    from keel_engine.pluginhost import resolver, state
+
+    monkeypatch.delenv("KEEL_PLUGIN_PATHS", raising=False)
+    monkeypatch.delenv("KEEL_PLUGIN_ADDONS", raising=False)
+    mcp_server.plugin_env()                                              # no run/env yet: nothing changes
+    assert "KEEL_PLUGIN_ADDONS" not in os.environ
+    state.write_atomic(state.run_dir() / "env", resolver.env_text(
+        {"KEEL_PLUGIN_PATHS": "/opt/a b/engine:/opt/it's/engine", "KEEL_PLUGIN_ADDONS": "keel_plugin_ci,keel_plugin_map",
+         "KEEL_PLUGIN_LOADER_PATH": "/opt/x.jar"}))
+    assert resolver.read_env()["KEEL_PLUGIN_PATHS"] == "/opt/a b/engine:/opt/it's/engine"     # sh quoting read back
+    try:
+        mcp_server.plugin_env()
+        assert os.environ["KEEL_PLUGIN_ADDONS"] == "keel_plugin_ci,keel_plugin_map"
+        assert os.environ["KEEL_PLUGIN_PATHS"] == "/opt/a b/engine:/opt/it's/engine"
+        assert "KEEL_PLUGIN_LOADER_PATH" not in os.environ                 # the api's, not this server's
+        os.environ["KEEL_PLUGIN_ADDONS"] = "keel_other"                    # the engine's own always win
+        mcp_server.plugin_env()
+        assert os.environ["KEEL_PLUGIN_ADDONS"] == "keel_other"
+    finally:
+        # plugin_env writes os.environ itself: clean it by hand (monkeypatch would put it back)
+        os.environ.pop("KEEL_PLUGIN_PATHS", None)
+        os.environ.pop("KEEL_PLUGIN_ADDONS", None)
+        from keel_engine import extensions
+
+        extensions.reload()
 
 
 # ---- v0.10.0 the plugins' tools: through the api, with keel's rules; acting ones wait for the person's Inbox answer

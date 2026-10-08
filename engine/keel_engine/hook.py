@@ -36,11 +36,17 @@ WRITEISH = re.compile(r"(write|create|insert|update|delete|replace|edit|apply|ex
 # keel_engine/plugins/server.py): they change nothing (a change is a button for the person), so they are not judged by
 # name ("ci_runs" lists runs). Only these exact tools of these servers pass. The registry reads only the parts' light
 # declarations, so the hook stays light. tests/test_hook.py checks the list against the servers.
-def plugin_read_tool(name: str) -> bool:
+# A plugin's part (keel-ci) is not loaded in the hook: the guard context names its read tools (`more`, from the engine).
+def plugin_read_tool(name: str, more: dict | None = None) -> bool:
     from .extensions import read_tools
 
     parts = name.split("__", 2)
-    return len(parts) == 3 and parts[2] in read_tools().get(parts[1], set())
+    if len(parts) != 3:
+        return False
+    if parts[2] in read_tools().get(parts[1], set()):
+        return True
+    named = (more or {}).get(parts[1]) if isinstance(more, dict) else None
+    return isinstance(named, list) and parts[2] in named
 
 
 class NoContext(Exception):
@@ -149,7 +155,7 @@ def decide(tool: str, ti: dict, ctx: dict) -> str | None:
             return None if ok else why
         return None
     if tool.startswith("mcp__"):
-        if plugin_read_tool(tool):
+        if plugin_read_tool(tool, ctx.get("read_tools")):
             return None
         if readonly and (WRITEISH.search(tool.split("__", 2)[-1]) or (re.search("serena", tool, re.I) and SERENA_EDIT.search(tool))):
             return run_mode.READONLY_MCP

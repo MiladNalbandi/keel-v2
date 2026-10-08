@@ -11,13 +11,14 @@ from __future__ import annotations
 
 import asyncio
 
-from ...tools import git
-from .. import github_token
+from keel_engine.tools import git
+
 from . import core, tools
+from .core import github_token
 
 
 def _result(ok: bool, note: str, detail: str = "", update: dict | None = None):
-    from ...runtime.actions import ActionResult
+    from keel_engine.runtime.actions import ActionResult
 
     return ActionResult(ok, note, detail, update or {})
 

@@ -1,0 +1,6 @@
+id: moved-fix
+name: moved fix
+keel_rules: false
+version: 1
+steps:
+  - { id: look, kind: gate, name: look at it }

@@ -340,6 +340,23 @@ def env_text(env: dict[str, str]) -> str:
     return "".join(f"{k}={quote(v)}\n" for k, v in env.items())
 
 
+def read_env(folder: Path | None = None) -> dict[str, str]:
+    """run/env as {name: value} (what env_text wrote); {} when there is none or it does not read."""
+    import shlex
+
+    f = (folder or state.run_dir()) / "env"
+    out: dict[str, str] = {}
+    try:
+        for line in f.read_text(encoding="utf-8").splitlines():
+            for word in shlex.split(line):
+                name, eq, value = word.partition("=")
+                if eq and name.isidentifier():
+                    out[name] = value
+    except (OSError, UnicodeDecodeError, ValueError):
+        return {}
+    return out
+
+
 def write(res: Resolution, folder: Path | None = None) -> Path:
     """Write run/resolved.json and run/env (each whole or not at all)."""
     folder = folder or state.run_dir()

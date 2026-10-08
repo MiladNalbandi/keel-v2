@@ -1,14 +1,14 @@
-package keel.api
+package keel.api.plugins
 
-import keel.api.plugins.CiService
 import keel.api.support.ApiTest
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 
-/** v0.11.0 the CI/CD plugin: its pipelines, its own fix workflow (listed only where it is on), the fix flow's rules,
- *  and the watcher that tells about a failed run once (and starts the fix when the setting says so). */
+/** v0.11.0 the CI/CD plugin (plugins/ci, moved from keel's api tests): its pipelines, its own fix workflow (listed only
+ *  where it is on), the fix flow's rules, and the watcher that tells about a failed run once (and starts the fix when
+ *  the setting says so). */
 class CiApiTest : ApiTest() {
     @Autowired lateinit var ci: CiService
 

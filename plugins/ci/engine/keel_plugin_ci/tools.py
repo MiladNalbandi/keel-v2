@@ -1,11 +1,12 @@
-"""The CI/CD plugin's read tools for KeelBot and agents (the MCP server keel-ci, plugins/server.py). Every answer is
+"""The CI/CD plugin's read tools for KeelBot and agents (the MCP server keel-ci, server.py). Every answer is
 text for a model; a refusal says why instead of failing the call."""
 
 from __future__ import annotations
 
-from ...tools import git
-from .. import PluginError, github_token
+from keel_engine.tools import git
+
 from . import core
+from .core import PluginError, github_token
 
 
 def runs_text(rs: list[dict]) -> str:

@@ -1,5 +1,5 @@
-# The CI/CD plugin (engine keel_engine/plugins/ci). Installed per project on Tools › Plugins. keel watches the project's
-# pipelines on GitHub Actions (the token of Connections › GitHub): a failed run is a notification, Run › Jobs ›
+# The CI/CD plugin (plugins/ci, engine keel_plugin_ci). Installed per project on Tools › Plugins. keel watches the
+# project's pipelines on GitHub Actions (the token of Connections › GitHub): a failed run is a notification, Run › Jobs ›
 # Pipelines shows the runs and why one failed, and the ci-fix flow fixes it (it pushes with the Git plugin).
 name: ci
 title: CI/CD

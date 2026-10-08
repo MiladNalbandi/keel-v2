@@ -1,9 +1,12 @@
 """The guard context: what keel's PreToolUse hook (keel_engine.hook) needs to judge one tool call.
 
     {root, phase, ac: {id, layer} | null, lane, unlocks: [{path, phase, by?, reason?, at?}], agent, thread,
-     knowledge_allowed: [section] | null, knowledge_strict: bool, readonly: bool}
+     knowledge_allowed: [section] | null, knowledge_strict: bool, readonly: bool, read_tools: {server: [tool]}}
 
 readonly: the run mode is readonly (runtime/run_mode.py): every edit, write, commit and changing shell command is refused.
+
+read_tools: the read tools of the parts' MCP servers, the plugins' too (keel-ci): they pass in every phase. The hook runs
+without the plugins loaded, so the engine writes them here.
 
 ask: {url, key, session} in KeelBot's Fix and side modes: a shell command that changes something waits for the person's
 OK (runtime/permissions.py asks at `url`, the full address; keel_engine/approvals.py waits); the key only asks, it
@@ -93,6 +96,14 @@ class GuardFile:
             write_context(self.path, **self.ctx)
 
 
+def read_tools() -> dict[str, list[str]]:
+    """{MCP server: its read tools} of every part the engine loaded, plugins too (keel_engine/extensions.py). The hook
+    runs without the plugins (a project's environment never names them), so it reads them here."""
+    from .. import extensions
+
+    return {server: sorted(tools) for server, tools in extensions.read_tools().items()}
+
+
 def context_for(req) -> dict:
     """The context of one AgentRequest (its ToolBox carries the lane and the unlocks)."""
     tb = req.toolbox
@@ -104,7 +115,7 @@ def context_for(req) -> dict:
             "agent": req.agent, "thread": getattr(req, "thread", "") or "",
             "knowledge_allowed": list(k["sections"]) if k else None, "knowledge_strict": bool(k and k.get("strict")),
             "readonly": bool(getattr(tb, "readonly", False)), "ask": getattr(tb, "ask", None),
-            "confine": bool(getattr(tb, "confine", False))}
+            "confine": bool(getattr(tb, "confine", False)), "read_tools": read_tools()}
 
 
 def ensure(req, folder: str | None = None) -> str:

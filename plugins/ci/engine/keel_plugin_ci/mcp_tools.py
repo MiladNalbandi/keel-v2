@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import time
 
-from ...mcp_server import KeelApi, _ask_person, _plugin_on, _project
+from keel_engine.mcp_server import KeelApi, _ask_person, _plugin_on, _project
 
 
 def ci_runs(api: KeelApi, project: str | None = None, branch: str | None = None) -> str:

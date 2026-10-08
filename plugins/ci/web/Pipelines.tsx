@@ -1,13 +1,71 @@
 // v0.11.0 Run › Jobs › Pipelines (the CI/CD plugin): the project's pipeline runs on GitHub Actions, newest first. Open
 // a failed run to see its failed jobs and steps and the end of their log; Fix it starts the ci-fix flow (read the
 // failure, fix, commit, push, wait for CI), Run again re-runs the failed jobs, Ask KeelBot explains the failure.
+// The CI/CD plugin's page part (plugins/ci): it imports only react and @keel/web-sdk.
 
 import { useState } from "react";
-import { api, errorParts, type CiRun } from "../../api";
-import { clock } from "../../format";
-import { go, useApp, useLoad } from "../../state";
-import { ErrorBox, Pill, type PillTone } from "../ui";
-import { askAssistant } from "../../sdk/assistant";
+import {
+  askAssistant,
+  clock,
+  ErrorBox,
+  errorParts,
+  get,
+  hashForScreen,
+  Pill,
+  post,
+  useApp,
+  useLoad,
+  type PillTone,
+} from "@keel/web-sdk";
+
+/** One pipeline run, as the api's /projects/{pid}/ci/runs answers (keel.api.plugins.CiController). */
+export type CiRun = {
+  id: number;
+  workflow: string;
+  title: string;
+  branch: string;
+  sha: string;
+  event: string;
+  status: string;
+  conclusion: string | null;
+  url: string;
+  attempt?: number;
+  created_at: string;
+  updated_at: string;
+  failed: boolean;
+  jobs?: {
+    id: number;
+    name: string;
+    status: string;
+    conclusion: string | null;
+    url: string;
+    failed_steps: string[];
+  }[];
+  log?: string;
+};
+
+// the CI/CD plugin's api calls
+const base = (pid: string) => `/projects/${encodeURIComponent(pid)}/ci`;
+const ci = {
+  runs: (pid: string) => get<CiRun[]>(`${base(pid)}/runs`),
+  run: (pid: string, id: number) => get<CiRun>(`${base(pid)}/runs/${id}`),
+  rerun: (pid: string, id: number) =>
+    post<{ id: number; rerun: boolean }>(`${base(pid)}/runs/${id}/rerun`),
+  fix: (pid: string, run?: number) =>
+    post<{ thread_id: string }>(`${base(pid)}/fix`, run ? { run } : {}),
+  check: (pid: string) => post<{ told: number[] }>(`${base(pid)}/check`),
+};
+
+/** Open one of keel's screens (#/flow/<id>, #/helper), as keel's own pages do. */
+function go(screen: string, arg?: string) {
+  const h = hashForScreen(screen, arg);
+  if (location.hash !== h) location.hash = h;
+  try {
+    window.scrollTo(0, 0);
+  } catch {
+    /* jsdom */
+  }
+}
 
 export function runTone(r: CiRun): PillTone {
   if (r.status !== "completed") return "run";
@@ -16,14 +74,14 @@ export function runTone(r: CiRun): PillTone {
 }
 
 export function PipelinesView({ pid }: { pid: string }) {
-  const runs = useLoad(`ci-runs:${pid}`, () => api.ciRuns(pid));
+  const runs = useLoad(`ci-runs:${pid}`, () => ci.runs(pid));
   const [open, setOpen] = useState<number | null>(null);
   const { toast } = useApp();
   const [busy, setBusy] = useState(false);
   const check = async () => {
     setBusy(true);
     try {
-      const r = await api.ciCheck(pid);
+      const r = await ci.check(pid);
       toast(
         r.told.length
           ? `${r.told.length} new failed run${r.told.length === 1 ? "" : "s"}.`
@@ -142,7 +200,7 @@ function RunRow({
 }
 
 function RunDetail({ pid, id }: { pid: string; id: number }) {
-  const run = useLoad(`ci-run:${pid}:${id}`, () => api.ciRun(pid, id), {
+  const run = useLoad(`ci-run:${pid}:${id}`, () => ci.run(pid, id), {
     live: false,
   });
   const { toast } = useApp();
@@ -155,7 +213,7 @@ function RunDetail({ pid, id }: { pid: string; id: number }) {
     setBusy(true);
     setErr(null);
     try {
-      const t = await api.ciFix(pid, id);
+      const t = await ci.fix(pid, id);
       toast("The fix flow started.");
       go("flow", t.thread_id);
     } catch (e) {
@@ -167,7 +225,7 @@ function RunDetail({ pid, id }: { pid: string; id: number }) {
   const rerun = async () => {
     setBusy(true);
     try {
-      await api.ciRerun(pid, id);
+      await ci.rerun(pid, id);
       toast(`The failed jobs of run #${id} run again.`);
     } catch (e) {
       setErr(errorParts(e));

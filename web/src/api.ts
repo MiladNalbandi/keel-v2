@@ -1110,11 +1110,10 @@ export const api = {
   dbSchema: (pid: string, connection?: string) => get<LiveSchema>(`/projects/${e(pid)}/db/schema${q({ connection })}`),
   dbQuery: (pid: string, body: { connection?: string; sql: string; change?: boolean; confirm?: boolean }) =>
     post<DbResult>(`/projects/${e(pid)}/db/query`, body),
+  // the CI/CD plugin's calls KeelBot's CI button makes (Jobs › Pipelines is the plugin's own page part: plugins/ci/web)
   ciRuns: (pid: string, branch?: string) => get<CiRun[]>(`/projects/${e(pid)}/ci/runs${q({ branch })}`),
-  ciRun: (pid: string, id: number) => get<CiRun>(`/projects/${e(pid)}/ci/runs/${id}`),
   ciRerun: (pid: string, id: number) => post<{ id: number; rerun: boolean }>(`/projects/${e(pid)}/ci/runs/${id}/rerun`),
   ciFix: (pid: string, run?: number) => post<ThreadState>(`/projects/${e(pid)}/ci/fix`, run ? { run } : {}),
-  ciCheck: (pid: string) => post<{ told: number[] }>(`/projects/${e(pid)}/ci/check`),
   gitStatus: (pid: string) => get<GitStatus>(`/projects/${e(pid)}/git/status`),
   gitBranches: (pid: string) => get<GitBranch[]>(`/projects/${e(pid)}/git/branches`),
   gitPr: (pid: string) => get<{ pr: PullRequest | null }>(`/projects/${e(pid)}/git/pr`),

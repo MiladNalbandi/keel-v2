@@ -1,0 +1,19 @@
+# CI/CD as a plugin (docs/plugins/11-step3-contract.md, wave A). scripts/build-plugin.sh packs it: ci-<version>.kplug.
+# Paths are relative to the plugin folder. The version must equal VERSION in engine/keel_plugin_ci/__init__.py
+# (engine/tests/test_ci_part.py checks it). Each part is written on one line (scripts/build-plugin.sh reads them).
+# Its ci-fix flow pushes with Git's git:push: Git is still part of keel's core in this wave, so it needs no plugin yet
+# (the api checks that Git is on for the project before it starts the flow).
+schema: 1
+name: ci
+title: CI/CD
+version: 1.0.0
+publisher: keel
+summary: Watch the project's pipelines, see why one failed, and fix it with a flow.
+requires:
+  sdk: 1
+parts:
+  engine: { path: engine, package: keel_plugin_ci }
+  api: { jars: [api/keel-plugin-ci.jar] }
+  web: { entry: web/index.js }
+  content: content
+per_project: true
