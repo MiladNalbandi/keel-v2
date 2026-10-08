@@ -22,6 +22,8 @@ type Props = {
   onDoctor: () => void;
   /** with the Git plugin: open a branch's tab (a single click a preview tab, a double click a pinned one) */
   onOpenBranch?: (name: string, pin: boolean) => void;
+  /** v0.15.2 open the Git log on a branch ("" = the current one) */
+  onOpenLog?: (branch: string) => void;
 };
 
 function Group({ title, count, children, start = true }: { title: string; count?: number; children: ReactNode; start?: boolean }) {
@@ -89,7 +91,7 @@ export function CommitRow({ pid, c, onOpen }: { pid: string; c: { sha: string; m
   );
 }
 
-export function ScmView({ pid, repo, changes, changesError, onOpenChange, onOpenCommitFile, onDoctor, onOpenBranch }: Props) {
+export function ScmView({ pid, repo, changes, changesError, onOpenChange, onOpenCommitFile, onDoctor, onOpenBranch, onOpenLog }: Props) {
   const branch = repo?.branch;
   const onBase = !!repo && repo.base === repo.branch;
   const commits = useLoad(`commits:${pid}:${onBase ? "all" : "branch"}`, () => api.commits(pid, 50, onBase ? undefined : "branch"));
@@ -105,6 +107,12 @@ export function ScmView({ pid, repo, changes, changesError, onOpenChange, onOpen
     <div className="sv">
       <div className="sv-head">
         <h2 className="sv-title">Source control</h2>
+        {onOpenLog && (
+          <button type="button" className="btn sm ghost scm-log" onClick={() => onOpenLog("")} aria-label="Show the Git log"
+            title="The Git log: every commit of a branch (or all branches) with a graph, who and when, and what is not committed">
+            <Icon name="commit" size={14} /><span>Log</span>
+          </button>
+        )}
       </div>
       <div className="scm-branch">
         <Icon name="branch" size={16} />
@@ -146,7 +154,15 @@ export function ScmView({ pid, repo, changes, changesError, onOpenChange, onOpen
                   <span className="scm-cm"><b className="mono scm-msg">{b.name}</b><span className="scm-meta">{b.note}</span></span>
                 </button>
               )
-              : <div key={b.name} className="scm-wt"><b className="mono">{b.name}</b><span className="sub">{b.note}</span></div>)}
+              : onOpenLog
+                ? (
+                  <button key={b.name} type="button" className="scm-row scm-br" onClick={() => onOpenLog(b.name)}
+                    title={`${b.name}: its commits in the Git log`} aria-label={`Show the log of ${b.name}`}>
+                    <Icon name="branch" size={14} />
+                    <span className="scm-cm"><b className="mono scm-msg">{b.name}</b><span className="scm-meta">{b.note}</span></span>
+                  </button>
+                )
+                : <div key={b.name} className="scm-wt"><b className="mono">{b.name}</b><span className="sub">{b.note}</span></div>)}
           </Group>
         )}
       </div>

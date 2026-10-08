@@ -22,6 +22,8 @@ import {
   type EditorTab, type OpenSpec, type Tabs, type View,
 } from "./model";
 import { BranchTab } from "./Branch";
+import { logTitle, openLog, setLogBranch } from "./gitLog";
+import { LogTab } from "./Log";
 import { QuickOpen } from "./QuickOpen";
 import { ScmView } from "./Scm";
 import { SearchView } from "./Search";
@@ -70,6 +72,7 @@ function tabTitle(t: EditorTab): string {
   if (t.kind === "doctor") return "Workspace Doctor";
   if (t.kind === "db") return dbTabTitle(t.path);
   if (t.kind === "branch") return t.path;
+  if (t.kind === "log") return logTitle(t.path);
   if (t.kind === "review") {
     const [key, file] = splitReview(t.path);
     return `${nameOf(file)} (${key.startsWith("pr:") ? key.slice(3) : key.slice(7)})`;
@@ -155,6 +158,11 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
   }, []);
 
   const openFile = useCallback((path: string, pin = false, view?: View) => open({ path, view }, { pin }), [open]);
+  // v0.15.2 the Git log: one tab, on a branch ("" = the current one)
+  const showLog = useCallback((branch = "") => {
+    setTabs((t) => openLog(t, branch));
+    setScreen("editor");
+  }, []);
 
   // a deep link (#/repo/<path>:<line>) opens that file at that line — on load and on every hash change, also when
   // it names the same file again after the URL followed other tabs; #/repo/@review/pr:7 opens that review
@@ -390,7 +398,7 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
           onOpenChange={(p, pin) => openFile(p, pin, "diff")}
           onOpenCommitFile={(sha, p, pin) => open({ kind: "commit", path: p, sha, view: "diff" }, { pin })}
           onDoctor={() => open({ kind: "doctor", path: "doctor" }, { pin: true })}
-          onOpenBranch={(name, pin) => open({ kind: "branch", path: name }, { pin })} />
+          onOpenBranch={(name, pin) => open({ kind: "branch", path: name }, { pin })} onOpenLog={showLog} />
       </div>
       {reviewOn && (
         <div hidden={activity !== "review"} className="sv-host">
@@ -441,8 +449,11 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
     const [rkey, rfile] = splitReview(active.path);
     body = <ReviewFileTab key={active.id} pid={pid} reviewKey={rkey} path={rfile} view={active.view === "code" ? "code" : "diff"} mode={diffMode} />;
   } else if (active.kind === "branch") {
-    body = <BranchTab key={active.id} pid={pid} name={active.path} mode={diffMode}
+    body = <BranchTab key={active.id} pid={pid} name={active.path} mode={diffMode} onOpenLog={showLog}
       onOpenCommitFile={(sha, p, pin) => open({ kind: "commit", path: p, sha, view: "diff" }, { pin })} />;
+  } else if (active.kind === "log") {
+    body = <LogTab pid={pid} branch={active.path} changes={changes.data} mode={diffMode} onBranch={(b) => setTabs((t) => setLogBranch(t, b))}
+      onOpenCommitFile={(sha, p, pin) => open({ kind: "commit", path: p, sha, view: "diff" }, { pin })} onOpenChange={(p, pin) => openFile(p, pin, "diff")} />;
   } else if (active.kind === "commit") {
     body = <DiffPane pid={pid} path={active.path} against="head" sha={active.sha} mode={diffMode} />;
   } else if (view === "diff") {
@@ -616,7 +627,7 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
                     if (e.key === "Delete") close(t.id);
                     if (e.key === "Enter") setTabs((x) => pinTab(x, t.id));
                   }}>
-                  {t.kind === "file" || t.kind === "commit" ? <FileIcon name={nameOf(t.path)} /> : <Icon name={t.kind === "review" ? "review" : t.kind === "branch" ? "branch" : t.kind === "doctor" ? "refresh" : t.kind === "memory" ? "history" : "keel"} size={15} />}
+                  {t.kind === "file" || t.kind === "commit" ? <FileIcon name={nameOf(t.path)} /> : <Icon name={t.kind === "review" ? "review" : t.kind === "branch" ? "branch" : t.kind === "log" ? "commit" : t.kind === "doctor" ? "refresh" : t.kind === "memory" ? "history" : "keel"} size={15} />}
                   <span className="ed-tab-n">{title}</span>
                   {dup && <span className="ed-tab-d">{t.path.split("/").slice(-2, -1)[0]}</span>}
                   {t.kind === "file" && t.view === "diff" && <span className="ed-tab-v">diff</span>}

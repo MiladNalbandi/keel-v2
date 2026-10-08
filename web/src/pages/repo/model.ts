@@ -33,7 +33,8 @@ export function repoHash(path: string, line?: number): string {
 
 // ---------- editor tabs ----------
 
-export type TabKind = "file" | "commit" | "docs" | "memory" | "doctor" | "db" | "branch" | "review";
+/** v0.15.2 "log": the Git log (one tab, id keel:log; its path is the branch it shows, see gitLog.ts). */
+export type TabKind = "file" | "commit" | "docs" | "memory" | "doctor" | "db" | "branch" | "review" | "log";
 export type View = "code" | "diff" | "preview";
 export type EditorTab = { id: string; kind: TabKind; path: string; sha?: string; preview: boolean; view: View };
 export type Tabs = { tabs: EditorTab[]; active: string | null };

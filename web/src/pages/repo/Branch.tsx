@@ -14,9 +14,11 @@ import { CommitRow } from "./Scm";
 
 const tone = (s: string) => (s === "A" ? "add" : s === "D" ? "del" : "mod");
 
-export function BranchTab({ pid, name, mode, onOpenCommitFile }: {
+export function BranchTab({ pid, name, mode, onOpenCommitFile, onOpenLog }: {
   pid: string; name: string; mode: DiffMode;
   onOpenCommitFile: (sha: string, path: string, pin: boolean) => void;
+  /** v0.15.2 the Git log on this branch */
+  onOpenLog?: (name: string) => void;
 }) {
   const b = useLoad(`branch:${pid}:${name}`, () => api.gitBranch(pid, name));
   const { toast } = useApp();
@@ -51,6 +53,7 @@ export function BranchTab({ pid, name, mode, onOpenCommitFile }: {
           ? <span className="sub">the base branch</span>
           : <span className="sub">{v.ahead} commit{v.ahead === 1 ? "" : "s"} not in <span className="mono">{v.base}</span>{v.behind > 0 ? ` · ${v.behind} behind it` : ""}</span>}
         <span className="br-acts">
+          {onOpenLog && <button type="button" className="btn sm ghost" onClick={() => onOpenLog(v.name)}>Show in the log</button>}
           {!v.current && (
             <button type="button" className="btn sm primary" disabled={busy} onClick={() => void switchTo()}>
               {busy ? "Switching…" : `Switch to ${v.name}`}
