@@ -174,6 +174,17 @@ class StubEngine private constructor(private val server: HttpServer) {
             200 to sess
         }
         path == "/helper/sessions" -> 200 to helperSessions.values.toList()
+        // core approvals (engine keel_engine/approvals.py): the same waiting questions as KeelBot's old routes
+        path == "/approvals" -> 200 to helperQuestions.toList()
+        path.matches(Regex("/approvals/[^/]+")) -> {
+            val id = path.split('/')[2]
+            val q = helperQuestions.firstOrNull { it["id"] == id }
+            when {
+                method != "POST" -> 200 to (if (q != null) mapOf("id" to id, "waiting" to true) else mapOf("id" to id, "decision" to "allow", "why" to ""))
+                q == null -> 404 to mapOf("error" to "That question was answered already, or its command ended.")
+                else -> { helperQuestions.remove(q); 200 to mapOf("id" to id, "decision" to body?.get("decision")?.asText()) }
+            }
+        }
         path == "/helper/permissions" -> 200 to helperQuestions.toList()
         path.matches(Regex("/helper/permissions/[^/]+")) && method == "POST" -> {
             val id = path.split('/')[3]

@@ -3,6 +3,7 @@ package keel.api.helper
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import keel.api.agents.AgentService
+import keel.api.approvals.ApprovalService
 import keel.api.common.BadRequest
 import keel.api.common.Conflict
 import keel.api.common.NotFound
@@ -79,6 +80,7 @@ class HelperService(
     private val tasks: TaskService,
     private val repo: RepoService,
     private val mapper: ObjectMapper,
+    private val approvals: ApprovalService,
 ) {
     private fun helperAgent(pid: String) = agents.list(pid).firstOrNull { it.id == AGENT }
 
@@ -194,17 +196,18 @@ class HelperService(
             "commit" to commit), long = true)
     }
 
+    /** The commands that wait for the person's OK in this project (core approvals), as the engine asked them. */
     fun permissions(pid: String): JsonNode {
         projects.require(pid)
-        return engine.get("/helper/permissions?project=$pid")
+        return mapper.valueToTree(approvals.list(ApprovalService.WAITING, pid).filter { approvals.engineOwned(it) }.mapNotNull { it.payload })
     }
 
+    /** The old answer route: the same as POST /api/approvals/{id}/decide, for this project's questions. */
     fun answer(pid: String, qid: String, body: HelperAnswer): JsonNode {
         projects.require(pid)
-        if (body.decision !in setOf("once", "always", "deny")) throw BadRequest("Answer once, always or deny")
-        val q = engine.get("/helper/permissions?project=$pid").firstOrNull { it.path("id").asText() == qid }
-            ?: throw NotFound("That question was answered already, or its command ended")
-        return engine.post("/helper/permissions/${q.path("id").asText()}", mapOf("decision" to body.decision, "why" to body.why.take(500)))
+        if (body.decision !in ApprovalService.ENGINE_DECISIONS) throw BadRequest("Answer once, always or deny")
+        approvals.decide(qid, body.decision, body.why, project = pid)
+        return mapper.valueToTree(mapOf("id" to qid, "decision" to body.decision))
     }
 
     // ---- side sessions: hand over as a task, or as a change flow on the branch ---------------------------

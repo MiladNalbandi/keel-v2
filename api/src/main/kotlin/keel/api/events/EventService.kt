@@ -5,6 +5,7 @@ import keel.api.common.Json
 import keel.api.common.Time
 import keel.api.notifications.NotificationService
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.context.ApplicationEventPublisher
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
@@ -24,7 +25,8 @@ data class EngineEventStored(val event: EngineEvent)
 
 /**
  * Stores engine events: agent calls become jobs (agent_calls + agent_steps), thread status follows
- * the flow, some events become notifications, and every event fans out over SSE.
+ * the flow, some events become notifications, and every event fans out over SSE. A part's own events go to its
+ * [EngineEventHandler] (by prefix): KeelBot's helper.*, the index's index.done, approval.*.
  */
 @Service
 class EventService(
@@ -33,8 +35,13 @@ class EventService(
     private val hub: EventHub,
     private val usage: ProviderUsageStore,
     private val publisher: ApplicationEventPublisher,
+    private val calls: AgentCalls,
+    found: ObjectProvider<EngineEventHandler>,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
+
+    /** Read on first use: a handler may itself need a bean that needs this service. */
+    private val handlers by lazy { found.orderedStream().toList() }
 
     @Synchronized
     fun ingest(events: List<EngineEvent>): Int {
@@ -48,7 +55,7 @@ class EventService(
             } catch (ex: Exception) {
                 log.warn("could not store event {} for {}: {}", e.type, e.threadId, ex.message)
             }
-            hub.publish(e.projectId.ifBlank { null }, e.type, e)
+            hub.publish(e.projectId.ifBlank { null }, EventHub.channelOf(e.type), e)
         }
         return stored
     }
@@ -60,6 +67,22 @@ class EventService(
             "INSERT INTO events(thread_id, project_id, type, step, call_id, at, data_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
             e.threadId, e.projectId, e.type, e.step, e.callId, at, Json.write(d),
         )
+        core(e, at)
+        val stored = e.copy(at = at)
+        for (h in handlers) {
+            if (!e.type.startsWith(h.prefix)) continue
+            // one part's broken handler must not take the event from core or from the other parts
+            try {
+                h.handle(stored)
+            } catch (ex: Exception) {
+                log.warn("{} could not handle {} for {}: {}", h.javaClass.simpleName, e.type, e.threadId, ex.message)
+            }
+        }
+    }
+
+    /** Core's own side effects: threads, a flow's agent calls, gates, budget, provider usage and their notifications. */
+    private fun core(e: EngineEvent, at: String) {
+        val d = e.data
         val link = if (e.projectId.isNotBlank()) "/projects/${e.projectId}/flow" else null
 
         when (e.type) {
@@ -71,65 +94,16 @@ class EventService(
             "step.finished" -> upsertThread(e, null, at)
 
             "agent.started" -> {
-                val id = e.callId ?: "${e.threadId}:${e.step}:$at"
-                jdbc.update(
-                    """INSERT INTO agent_calls(id, project_id, thread_id, agent, provider, model, step, phase, ac, status, started_at, mode)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?)
-                       ON CONFLICT(id) DO UPDATE SET status = 'running', mode = COALESCE(excluded.mode, agent_calls.mode)""",
-                    id, e.projectId, e.threadId, d.str("agent"), d.str("provider"), d.str("model"), e.step,
-                    d.str("phase"), d.str("ac"), at, modeOf(d.str("provider"), d.str("mode")),
-                )
+                val id = calls.start(e, at, d.str("agent"), d.str("ac"))
                 upsertThread(e, "running", at)
                 jdbc.update("UPDATE threads SET phase = COALESCE(?, phase), ac = COALESCE(?, ac) WHERE id = ?", d.str("phase"), d.str("ac"), e.threadId)
                 val agent = d.str("agent") ?: "An agent"
                 notifications.create("started", e.projectId, "$agent started", listOfNotNull(d.str("phase"), d.str("ac")).joinToString(" · "), "/jobs/$id")
             }
-            // KeelBot (engine runtime/helper.py): its turns are agent calls (budget, Live agents, Jobs) but never a flow
-            "helper.started" -> {
-                val id = e.callId ?: "${e.threadId}:${e.step}:$at"
-                jdbc.update(
-                    """INSERT INTO agent_calls(id, project_id, thread_id, agent, provider, model, step, phase, ac, status, started_at, mode)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 'running', ?, ?)
-                       ON CONFLICT(id) DO UPDATE SET status = 'running', mode = COALESCE(excluded.mode, agent_calls.mode)""",
-                    id, e.projectId, e.threadId, d.str("agent") ?: "helper", d.str("provider"), d.str("model"), e.step,
-                    d.str("phase"), at, modeOf(d.str("provider"), d.str("mode")),
-                )
-            }
-            // a Fix chat's command waits for the person's OK (a card in KeelBot's panel and the Inbox)
-            "helper.permission" -> if (e.threadId == "mcp") {
-                // keel2 mcp --write: Claude Code waits for the answer in the Inbox
-                notifications.create("review", e.projectId, d.str("title") ?: "Claude Code asks", d.str("command")?.take(300) ?: "",
-                    "/inbox", threadId = d.str("id"), step = "permission")
-            } else notifications.create("review", e.projectId, "KeelBot asks to run a command",
-                d.str("command")?.take(300) ?: "", "/projects/${e.projectId}/repo", threadId = e.threadId, step = "permission")
-            "helper.permission.answered" -> notifications.markDone((if (e.threadId == "mcp") d.str("id") else e.threadId) ?: "")
-            "agent.step", "helper.step" -> {
-                val id = e.callId ?: return
-                ensureCall(id, e, at)
-                val n = d.long("n") ?: ((jdbc.queryForObject("SELECT COALESCE(MAX(n), 0) FROM agent_steps WHERE call_id = ?", Long::class.java, id) ?: 0L) + 1)
-                val kind = d.str("kind") ?: "text"
-                val inserted = jdbc.update(
-                    """INSERT OR IGNORE INTO agent_steps(call_id, n, at, kind, text, tool, server, path, diff, ms, ok, output)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    id, n, at, kind, d.str("text"), d.str("tool"), d.str("server"), d.str("path"), d.str("diff"),
-                    d.long("ms"), d["ok"]?.let { if (it == true || it.toString() == "true") 1 else 0 }, d.str("output"),
-                )
-                if (inserted > 0) {
-                    val mcp = if (kind == "tool" && !d.str("server").isNullOrBlank()) 1 else 0
-                    jdbc.update("UPDATE agent_calls SET steps_count = steps_count + 1, mcp_calls = mcp_calls + ? WHERE id = ?", mcp, id)
-                }
-            }
-            "agent.finished", "helper.finished" -> {
-                val id = e.callId ?: return
-                ensureCall(id, e, at)
-                val status = d.str("status") ?: "done"
-                jdbc.update(
-                    """UPDATE agent_calls SET status = ?, ended_at = ?, tokens_in = ?, tokens_out = ?, tokens_cached = ?, cost_usd = ?,
-                       premium_requests = ?, result = ? WHERE id = ?""",
-                    status, at, d.long("tokens_in") ?: 0, d.long("tokens_out") ?: 0, d.long("tokens_cached") ?: 0, d.double("cost_usd") ?: 0.0,
-                    d.long("premium_requests") ?: 0, d["result"]?.let { if (it is String) it else Json.write(it) }, id,
-                )
-                if (status == "failed" && e.type == "agent.finished") {
+            "agent.step" -> calls.step(e, at)
+            "agent.finished" -> {
+                val id = calls.finish(e, at) ?: return
+                if (d.str("status") == "failed") {
                     val agent = jdbc.queryForObject("SELECT COALESCE(agent, 'An agent') FROM agent_calls WHERE id = ?", String::class.java, id)
                     notifications.create("failed", e.projectId, "$agent failed", d.str("result")?.take(200) ?: "The agent step did not finish.", "/jobs/$id")
                 }
@@ -163,16 +137,6 @@ class EventService(
                 d.str("text") ?: listOfNotNull(d.str("agent"), d.str("path")?.let { "tried to change $it" }, d.str("phase")?.let { "in $it" }).joinToString(" "),
                 link,
             )
-            "index.done" -> {
-                val repo = "/projects/${e.projectId}/repo"
-                if (d.str("status") == "ready") {
-                    notifications.create("finished", e.projectId, "Index ready: ${d.long("files") ?: 0} files, ${d.long("symbols") ?: 0} symbols",
-                        "Agents can use the code graph for this project.", repo)
-                } else {
-                    notifications.create("failed", e.projectId, "Index failed: ${d.str("error")?.take(160) ?: "unknown reason"}",
-                        "Agents find their way with grep instead. Rebuild it from the Repo page.", repo)
-                }
-            }
             "thread.done" -> {
                 upsertThread(e, "done", at)
                 notifications.markDone(e.threadId, read = false)
@@ -194,15 +158,6 @@ class EventService(
         if (e.projectId.isNotBlank()) hub.publish(e.projectId, "project.changed", mapOf("id" to e.projectId))
     }
 
-    /** How a job runs: the engine's "subscription" and "opencode" are both the plan; only "api" bills a key. */
-    private fun modeOf(provider: String?, mode: String?): String? = when {
-        provider == "fake" -> "fake"
-        provider == null -> null
-        mode == "api" -> "api"
-        mode == null -> null
-        else -> "subscription"
-    }
-
     private fun budgetText(d: Map<String, Any?>): String {
         val used = d.long("tokens") ?: d.long("used")
         val cap = d.long("cap_tokens") ?: d.long("cap")
@@ -222,24 +177,4 @@ class EventService(
             )
         }
     }
-
-    /** A step can arrive before its agent.started when the engine retries; keep the job anyway. */
-    private fun ensureCall(id: String, e: EngineEvent, at: String) {
-        jdbc.update(
-            "INSERT OR IGNORE INTO agent_calls(id, project_id, thread_id, step, status, started_at) VALUES (?, ?, ?, ?, 'running', ?)",
-            id, e.projectId, e.threadId, e.step, at,
-        )
-    }
-}
-
-private fun Map<String, Any?>.str(key: String): String? = this[key]?.let { if (it is String) it else it.toString() }?.takeIf { it.isNotEmpty() }
-private fun Map<String, Any?>.long(key: String): Long? = when (val v = this[key]) {
-    is Number -> v.toLong()
-    is String -> v.toDoubleOrNull()?.toLong()
-    else -> null
-}
-private fun Map<String, Any?>.double(key: String): Double? = when (val v = this[key]) {
-    is Number -> v.toDouble()
-    is String -> v.toDoubleOrNull()
-    else -> null
 }

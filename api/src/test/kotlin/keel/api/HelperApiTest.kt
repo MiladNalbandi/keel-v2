@@ -153,7 +153,8 @@ class HelperApiTest : ApiTest() {
         post("/api/projects/$pid/helper/permissions/p_1", mapOf("decision" to "maybe")).andExpect(status().isBadRequest)
         post("/api/projects/$pid/helper/permissions/p_9", mapOf("decision" to "once")).andExpect(status().isNotFound)
         post("/api/projects/$pid/helper/permissions/p_1", mapOf("decision" to "deny", "why" to "not now")).andExpect(status().isOk)
-        assertThat(engine.lastBody("/helper/permissions/p_1")!!["why"].asText()).isEqualTo("not now")
+        // step 2: the answer goes through core approvals, to the engine's POST /approvals/{id}
+        assertThat(engine.lastBody("/approvals/p_1")!!["why"].asText()).isEqualTo("not now")
         assertThat(get("/api/inbox?project=$pid").json()["items"].none { it["kind"].asText() == "permission" }).isTrue()
     }
 

@@ -9,8 +9,8 @@ import keel.api.common.NotFound
 import keel.api.engine.EngineClient
 import keel.api.flow.FlowService
 import keel.api.projects.ProjectService
-import keel.api.tasks.TaskItem
-import keel.api.tasks.TaskStore
+import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
 import java.util.concurrent.ConcurrentHashMap
@@ -46,8 +46,8 @@ data class InboxItem(
     val since: String?,
     /** v0.5.0: a task item (kind task | jira-manual) instead of a flow's pause; answered with POST /api/inbox/tasks/{item_id}/act. */
     val task: InboxTask? = null,
-    /** v0.6.x: a Helper's command that waits for the person's OK (kind permission); answered with
-     *  POST /api/projects/{pid}/helper/permissions/{id} (once | always | deny). */
+    /** v0.6.x: a command that waits for the person's OK (kind permission: KeelBot's, or keel2 mcp's acting tool); answered
+     *  with POST /api/approvals/{id}/decide (once | always | deny). */
     val permission: InboxPermission? = null,
 )
 
@@ -74,10 +74,10 @@ data class InboxCount(val count: Int, val projects: Map<String, Int>)
 data class InboxAct(val decision: String = "", val why: String? = null, val payload: Map<String, Any?>? = null, val id: String? = null)
 
 /**
- * The inbox: every thread that waits for a person, across all projects. The api knows which threads wait (engine
- * events keep `threads.status`); what each one asks comes from the engine (GET /threads/{id}, cached for a few seconds),
- * or from the last state the api saved when the engine is down. Acting goes through FlowService.resume, the same path as
- * the Flow page and MCP.
+ * The inbox: every thread that waits for a person, across all projects, and the items of every [InboxSource] (approvals,
+ * tasks, …). The api knows which threads wait (engine events keep `threads.status`); what each one asks comes from the
+ * engine (GET /threads/{id}, cached for a few seconds), or from the last state the api saved when the engine is down.
+ * Acting goes through FlowService.resume, the same path as the Flow page and MCP.
  */
 @Service
 class InboxService(
@@ -86,11 +86,15 @@ class InboxService(
     private val projects: ProjectService,
     private val flows: FlowService,
     private val mapper: ObjectMapper,
-    private val tasks: TaskStore,
+    found: ObjectProvider<InboxSource>,
 ) {
+    private val log = LoggerFactory.getLogger(javaClass)
     private data class Cached(val at: Long, val state: JsonNode)
 
     private val cache = ConcurrentHashMap<String, Cached>()
+
+    /** Read on first use: a source may itself need a bean that needs this service. */
+    private val sources by lazy { found.orderedStream().toList() }
 
     private data class Row(val tid: String, val pid: String, val title: String, val workflowId: String?, val stateJson: String?, val updatedAt: String?)
 
@@ -104,33 +108,40 @@ class InboxService(
 
     /** Cheap: the database only (for a badge). */
     fun count(): InboxCount {
-        val listed = projects.rows().map { it.id }.toSet()
-        val pids = waitingRows().map { it.pid } + tasks.openItemsAll().map { it.projectId }.filter { it in listed } +
-            helperQuestions().map { it.path("project").asText() }.filter { it in listed }
-        return InboxCount(pids.size, pids.groupingBy { it }.eachCount())
+        val listed = projects.rows().map { it.id }
+        val per = waitingRows().groupingBy { it.pid }.eachCount().toMutableMap()
+        for (pid in listed) {
+            val n = sources.sumOf { waitingOf(it, pid) }
+            if (n > 0) per.merge(pid, n, Int::plus)
+        }
+        return InboxCount(per.values.sum(), per)
     }
 
-    /** KeelBot's commands that wait for the person (the engine keeps them in memory); none when the engine is down. */
-    private fun helperQuestions(): List<JsonNode> = runCatching { engine.get("/helper/permissions").toList() }.getOrDefault(emptyList())
+    /** What waits in one project: its flows at a pause and every source's items (a project's waiting count). */
+    fun waiting(pid: String): Int =
+        (jdbc.queryForObject("SELECT COUNT(*) FROM threads WHERE project_id = ? AND status = 'waiting'", Int::class.java, pid) ?: 0) +
+            sources.sumOf { waitingOf(it, pid) }
 
-    private fun permissionItem(q: JsonNode, projectName: String): InboxItem = InboxItem(
-        projectId = q.path("project").asText(), projectName = projectName, threadId = q.path("session").asText(),
-        flow = q.path("title").asText("KeelBot"), workflowId = null, step = "permission", kind = "permission",
-        // v0.10.0: Claude Code's acting tool (keel2 mcp --write) asks with its own title ("Claude Code: push the branch?")
-        title = if (q.path("session").asText() == "mcp") q.path("title").asText("Claude Code asks") else "KeelBot asks to run a command",
-        detail = q.path("command").asText().take(DETAIL_MAX),
-        more = q.path("command").asText().length > DETAIL_MAX, options = listOf("once", "always", "deny"), id = q.path("id").asText(),
-        since = q.path("at").asText(null),
-        permission = InboxPermission(q.path("id").asText(), q.path("session").asText(), q.path("command").asText(),
-            q.path("path").asText("").ifBlank { null }),
-    )
+    /** A source that fails leaves its items out; the rest of the Inbox still shows. */
+    private fun waitingOf(source: InboxSource, pid: String): Int = try {
+        source.waiting(pid)
+    } catch (e: Exception) {
+        log.warn("inbox source {} could not count: {}", source.kind, e.message)
+        0
+    }
+
+    private fun itemsOf(source: InboxSource): List<InboxItem> = try {
+        source.items(null)
+    } catch (e: Exception) {
+        log.warn("inbox source {} could not list: {}", source.kind, e.message)
+        emptyList()
+    }
 
     fun list(project: String? = null, kind: String? = null): InboxView {
         val names = projects.rows().associate { it.id to it.name }
-        val taskItems = tasks.openItemsAll().filter { it.projectId in names }.mapNotNull { taskItem(it, names.getValue(it.projectId)) }
-        val askItems = helperQuestions().filter { it.path("project").asText() in names }
-            .map { permissionItem(it, names.getValue(it.path("project").asText())) }
-        val all = (waitingRows().mapNotNull { item(it, names[it.pid] ?: it.pid) } + taskItems + askItems).sortedBy { it.since ?: "" }
+        val fromSources = sources.flatMap { itemsOf(it) }.filter { it.projectId in names }
+            .map { it.copy(projectName = names.getValue(it.projectId)) }
+        val all = (waitingRows().mapNotNull { item(it, names[it.pid] ?: it.pid) } + fromSources).sortedBy { it.since ?: "" }
         val items = all.filter { (project.isNullOrBlank() || it.projectId == project) && (kind.isNullOrBlank() || it.kind == kind) }
         val perProject = all.groupingBy { it.projectId }.eachCount()
         return InboxView(items, all.size, all.map { it.kind }.distinct().sorted(),
@@ -196,22 +207,6 @@ class InboxService(
             id = w.get("id")?.asText(),
             phase = state.get("phase")?.asText(), ac = state.get("ac")?.takeIf { !it.isNull }?.asText(),
             runMode = state.get("run_mode")?.asText(), autoApproved = auto.size, lastAuto = auto.lastOrNull(), since = since,
-        )
-    }
-
-    /** A task's Inbox item: confirm PP testing, ship, or move the Jira ticket by hand. */
-    private fun taskItem(it: TaskItem, projectName: String): InboxItem? {
-        val t = tasks.find(it.taskId) ?: return null
-        val actions = if (it.kind == "jira-manual") listOf(InboxTaskAction("done", "Done"))
-        else listOf(
-            InboxTaskAction("confirm", if (it.stage == "prod") "Shipped, confirm" else "PP works, confirm"),
-            InboxTaskAction("send_back", "Send back", needsNote = true),
-        )
-        return InboxItem(
-            projectId = it.projectId, projectName = projectName, threadId = t.threadId ?: "", flow = t.title, workflowId = t.workflowId,
-            step = null, kind = it.kind, title = it.title, detail = it.detail, more = false, options = emptyList(), id = "task-item-${it.id}",
-            since = it.createdAt,
-            task = InboxTask(t.id, it.id, t.externalKey, t.externalUrl, t.title, t.status, it.stage, t.prUrl, actions),
         )
     }
 
