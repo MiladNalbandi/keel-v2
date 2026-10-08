@@ -101,6 +101,35 @@ export function playSound(type: NotificationType, s: Pick<NotificationSettings, 
   }
 }
 
+/** v0.15.2 KeelBot's own sound when an answer is ready: three quick, soft rising notes, each sliding up a little
+ *  (sine). It is not the chime (two notes), the soft tone (one note) or the failure tone (two falling notes). */
+export const KEELBOT_NOTES = [587, 784, 1175];
+export function playKeelBot(volume: number): boolean {
+  const a = ctx();
+  if (!a) return false;
+  try {
+    KEELBOT_NOTES.forEach((hz, i) => {
+      const o = a.createOscillator();
+      const g = a.createGain();
+      const t0 = a.currentTime + i * 0.085;
+      o.type = "sine";
+      o.frequency.value = hz;
+      o.frequency.setValueAtTime?.(hz * 0.94, t0);
+      o.frequency.exponentialRampToValueAtTime?.(hz, t0 + 0.05);
+      g.gain.setValueAtTime(0, t0);
+      g.gain.linearRampToValueAtTime(0.22 * volume, t0 + 0.015);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.24);
+      o.connect(g);
+      g.connect(a.destination);
+      o.start(t0);
+      o.stop(t0 + 0.26);
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // ---------- desktop ----------
 
 export const canNotify = () => typeof window !== "undefined" && "Notification" in window;

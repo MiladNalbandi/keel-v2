@@ -4,10 +4,13 @@
 // in its own worktree and branch, and ends as a task, a flow on that branch, or thrown away. Sessions are the
 // engine's; each answer is one agent call, so its steps stream live (helper.step events) and its tokens count in the
 // budget bar. ⌘I opens it from the Code page.
+// v0.15.2 the chat stays as it was when you come back (the open chat, the text not sent yet, where it was scrolled to:
+// chats.ts), the chat list has search, folders, rename and delete (ChatList.tsx), and a new answer you did not see is
+// counted on KeelBot's menu entry and button, with its own sound (unread.tsx).
 
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import {
-  api, errorParts, type GraphHit, type HelperCommand, type HelperDone, type HelperMention, type HelperMessage, type HelperMode,
+  api, ApiError, errorParts, type GraphHit, type HelperCommand, type HelperDone, type HelperMention, type HelperMessage, type HelperMode,
   type HelperSelection, type HelperSession, type JobStep, type Model,
 } from "../../api";
 import { modelLabel, provLabel } from "../../format";
@@ -21,6 +24,11 @@ import { mergeSteps } from "../StepFeed";
 import { StepView } from "../StepView";
 import { ChangesBox, DoneFailed, fixRequest, PermissionCard, SideBar } from "./FixParts";
 import { fileLink, messageTokens, replaceTyping, sessionTokens, starters, typingAt, usageText, type Typing } from "./model";
+import { ChatList, ConfirmRow } from "./ChatList";
+import { dropDraft, getDraft, getListOpen, getNewMode, getScroll, saveListOpen, saveNewMode, saveScroll, setDraft } from "./chats";
+import { markSeen, useKeelBotUnread, useSeen } from "./unread";
+import { keyLabel } from "../review/keymap";
+import { useWide } from "../useWide";
 
 type Props = {
   pid: string;
@@ -106,6 +114,25 @@ function Answer({ text, onOpen, pid, onAsk }: { text: string; onOpen: (path: str
   );
 }
 
+/** v0.15.2 how to use KeelBot, in short and simple words: a new Ask chat shows it. */
+function Guide() {
+  return (
+    <div className="hp-guide" role="note" aria-label="How to use KeelBot">
+      <p className="hp-guide-h"><b>How to use KeelBot</b></p>
+      <ul>
+        <li><b>Ask</b> is read only. KeelBot reads the code and answers, with links to the lines. It changes nothing in Ask mode.</li>
+        <li><b>Fix</b> works while a flow waits at a gate. KeelBot changes the files for that gate, inside keel's rules. You check
+          each change, then press Done.</li>
+        <li><b>Side</b> tries an idea in KeelBot's own copy of the project, on its own branch. Keep it, make it a task, or throw it away.</li>
+        <li>Type <kbd>@</kbd> to point at a file, a symbol or a criterion.</li>
+        <li>Type <kbd>/</kbd> for a command, for example <code>/explain</code> or <code>/plan</code>.</li>
+        <li><kbd>{keyLabel("meta+i")}</kbd> opens and closes KeelBot in the Code page. Select lines in the code first to ask about them.</li>
+        <li>Every chat is kept. <b>Chats</b> finds an old one, and puts it in a folder, renames or deletes it.</li>
+      </ul>
+    </div>
+  );
+}
+
 function UserMessage({ m }: { m: HelperMessage }) {
   const sel = m.data.selection;
   return (
@@ -126,19 +153,38 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   const [sid, setSidState] = useState<string | null>(() => read(sidKey(pid)));
   const setSid = useCallback((v: string | null) => { setSidState(v); write(sidKey(pid), v); }, [pid]);
   const list = useLoad(`helper:${pid}:list`, () => api.helperSessions(pid), { live: false });
-  const sess = useLoad(sid ? `helper:${pid}:${sid}` : null, () => api.helperSession(pid, sid!), { live: false });
+  // v0.15.2 a chat is forgotten only when the server says it is gone (404), never because the server did not answer
+  const gone = useRef<string | null>(null);
+  const sess = useLoad(sid ? `helper:${pid}:${sid}` : null, () => api.helperSession(pid, sid!).catch((e: unknown) => {
+    if (e instanceof ApiError && e.status === 404) gone.current = sid;
+    throw e;
+  }), { live: false });
+  const folders = useLoad(`helper:${pid}:folders`, () => api.helperFolders(pid), { live: false });
+  // v0.15.2 the chat list: a column on the KeelBot page of a wide screen, else it opens over the conversation (Chats)
+  const wide = useWide();
+  const listColumn = layout === "page" && wide;
+  const [listOpenState, setListOpenState] = useState(() => getListOpen(pid));
+  const listOpen = !listColumn && listOpenState;
+  const setListOpen = (open: boolean) => { setListOpenState(open); saveListOpen(pid, open); };
+  const [confirmDel, setConfirmDel] = useState(false);
+  const { chats: newIn } = useKeelBotUnread(pid);
+  // the conversation is on screen (not covered by the list): its new answers are seen
+  useSeen(pid, sid, !listOpen);
   const cmds = useLoad(`helper:${pid}:commands`, () => api.helperCommands(pid), { live: false });
   const flow = useLoad(`helper:${pid}:flow`, () => api.flow(pid), { live: false });
   const flowWaits = flow.data?.thread?.status === "waiting";
   // Fix needs a flow that waits at a gate and does not run read-only (the api refuses it otherwise)
   const readonlyRun = flow.data?.thread?.run_mode === "readonly";
   const fixable = flowWaits && !readonlyRun;
-  const [newMode, setNewMode] = useState<HelperMode>("ask");
+  const [newMode, setNewModeState] = useState<HelperMode>(() => getNewMode(pid));
+  const setNewMode = (m: HelperMode) => { setNewModeState(m); saveNewMode(pid, m); };
   const [doneBusy, setDoneBusy] = useState(false);
   const [failed, setFailed] = useState<Extract<HelperDone, { ok: false }> | null>(null);
-  const [text, setText] = useState("");
+  // v0.15.2 the text not sent yet (and its @ mentions) is each chat's draft: kept when you leave and found when you come back
+  const [text, setText] = useState(() => getDraft(pid, read(sidKey(pid))).text);
   const [caret, setCaret] = useState(0);
-  const [mentions, setMentions] = useState<HelperMention[]>([]);
+  const [mentions, setMentions] = useState<HelperMention[]>(() => getDraft(pid, read(sidKey(pid))).mentions);
+  useEffect(() => setDraft(pid, sid, { text, mentions }), [pid, sid, text, mentions]);
   const [pending, setPending] = useState<{ call: string; n: number } | null>(null);
   const [sending, setSending] = useState(false);
   const [pick, setPick] = useState(0);
@@ -146,10 +192,22 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   const [symbols, setSymbols] = useState<GraphHit[]>([]);
   const [showModel, setShowModel] = useState(false);
   const input = useRef<HTMLTextAreaElement>(null);
-  const scroller = useRef<HTMLDivElement>(null);
+  const scroller = useRef<HTMLDivElement | null>(null);
+  // v0.15.2 where the chat was scrolled to: put back when it shows again; at the bottom it follows new messages
+  const stick = useRef(true);
+  const restored = useRef<string | null | undefined>(undefined);
+  const bodyRef = useCallback((el: HTMLDivElement | null) => {
+    scroller.current = el;
+    restored.current = undefined;
+  }, []);
 
   // a session that is gone (deleted, another keel) is forgotten
-  useEffect(() => { if (sess.error && sid) setSid(null); }, [sess.error, sid, setSid]);
+  useEffect(() => {
+    if (sess.error && sid && gone.current === sid) {
+      markSeen(pid, sid);
+      setSid(null);
+    }
+  }, [sess.error, sid, setSid, pid]);
   useEffect(() => { input.current?.focus(); }, [focusKey, sid]);
   useEffect(() => {
     if (prefill?.text) {
@@ -170,8 +228,12 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   }, []);
 
   const s: HelperSession | null = sess.data ?? null;
+  // v0.15.2 the open chat is still loading, or did not load (the server did not answer): it is not a new chat
+  const loadingChat = !!sid && !s && !sess.error;
+  const notReady = !!sid && !s;
   const messages = s?.messages ?? [];
-  const mode: HelperMode = s?.mode ?? newMode;
+  // a new chat kept as Fix while no flow waits any more is an Ask chat
+  const mode: HelperMode = s?.mode ?? (newMode === "fix" && !fixable ? "ask" : newMode);
   const fix = mode === "fix";
   const side = mode === "side";
   const edits = fix || side;                 // a chat that changes files: its changes, Undo, Done / Keep
@@ -233,10 +295,38 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
     if (side) void handover.reload();
   }, [messages.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // keep the newest message in view
+  // put the chat back where it was scrolled to, once its messages are on screen
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (!el || restored.current === sid || (sid && s?.id !== sid)) return;
+    restored.current = sid;
+    const saved = getScroll(pid, sid);
+    stick.current = !saved || saved.bottom;
+    el.scrollTop = stick.current ? el.scrollHeight : saved!.top;
+  });
+  // the place is written a moment after the scrolling stops, and at once when the panel goes away
+  const scrollSave = useRef<{ sid: string | null; top: number; bottom: boolean; timer: number } | null>(null);
+  const flushScroll = useCallback(() => {
+    const p = scrollSave.current;
+    if (!p) return;
+    window.clearTimeout(p.timer);
+    scrollSave.current = null;
+    saveScroll(pid, p.sid, { top: p.top, bottom: p.bottom });
+  }, [pid]);
+  useEffect(() => flushScroll, [flushScroll]);
+  const onScroll = () => {
+    const el = scroller.current;
+    if (!el || restored.current !== sid) return;
+    const bottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    stick.current = bottom;
+    if (scrollSave.current && scrollSave.current.sid !== sid) flushScroll();
+    if (scrollSave.current) window.clearTimeout(scrollSave.current.timer);
+    scrollSave.current = { sid, top: el.scrollTop, bottom, timer: window.setTimeout(flushScroll, 150) };
+  };
+  // keep the newest message in view, unless the person scrolled up to read
   useEffect(() => {
     const el = scroller.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (el && stick.current) el.scrollTop = el.scrollHeight;
   }, [messages.length, runningCall, runningCall ? liveSteps[runningCall]?.length : 0]);
 
   const typing: Typing = useMemo(() => typingAt(text, caret), [text, caret]);
@@ -292,7 +382,8 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   const ensureSession = async (): Promise<string> => {
     if (sid && s) return sid;
     const created = await api.helperCreate(pid, { mode });
-    setSid(created.id);
+    setSid(created.id);          // the draft moves with the chat (the draft effect); the new-chat draft is done
+    dropDraft(pid, null);
     void list.reload();
     return created.id;
   };
@@ -301,6 +392,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
     const body = (raw ?? text).trim();
     if (!body || sending || runningCall || handed) return;
     setSending(true);
+    stick.current = true;
     try {
       const id = await ensureSession();
       const used = mentions.filter((m) => body.includes(`@${m.value}`));
@@ -331,12 +423,25 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
     }
   };
 
+  /** Open a chat of the list (null: a new chat), with its draft. */
+  const openChat = (id: string | null) => {
+    if (id !== sid) {
+      flushScroll();
+      const d = getDraft(pid, id);
+      setSid(id);
+      setText(d.text);
+      setMentions(d.mentions);
+      setCaret(0);
+      setPending(null);
+      setFailed(null);
+    }
+    setConfirmDel(false);
+    setListOpen(false);
+  };
+
   const newChat = (m: HelperMode = mode) => {
     setNewMode(m === "fix" && !fixable ? "ask" : m);
-    setSid(null);
-    setPending(null);
-    setFailed(null);
-    setText("");
+    openChat(null);
     input.current?.focus();
   };
 
@@ -409,11 +514,36 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
     if (!sid) return;
     try {
       await api.helperDelete(pid, sid);
+      markSeen(pid, sid);
+      dropDraft(pid, sid);
       newChat();
       void list.reload();
+      void folders.reload();
     } catch (e) {
       toast(`Not deleted: ${errorParts(e).message}`);
     }
+  };
+
+  const toggleList = () => {
+    if (!listOpen) {
+      void list.reload();
+      void folders.reload();
+    }
+    setConfirmDel(false);
+    setListOpen(!listOpen);
+  };
+  // the list changed (a rename, a move, a folder): read both again
+  const listChanged = () => {
+    void list.reload();
+    void folders.reload();
+    if (sid) void sess.reload();
+  };
+  // the open chat was deleted from the list: a new chat, and the list stays open
+  const chatDeleted = (id: string) => {
+    if (id !== sid) return;
+    const open = listOpen;
+    openChat(null);
+    if (open) setListOpen(true);
   };
 
   const setModel = async (m: Model) => {
@@ -452,9 +582,20 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   // the engine picks it when the chat starts: at a gate, the phase of the work under review (the AC gate: green)
   const phase = s?.phase && s.phase !== "none" ? s.phase : null;
   const noHook = fix && !!model && ["codex", "copilot"].includes(model.provider);
+  const chatFolder = s?.folder ? (folders.data ?? []).find((f) => f.id === s.folder)?.name : undefined;
+  // new answers in the other chats (the open one is seen)
+  const newElsewhere = Object.entries(newIn).reduce((a, [id, n]) => a + (id === sid ? 0 : n), 0);
+  const chatList = (
+    <ChatList pid={pid} chats={list.data ?? []} folders={folders.data ?? []} current={sid} unread={newIn}
+      onOpen={(id) => openChat(id)} onNew={listColumn ? () => newChat() : undefined} onChanged={listChanged} onDeleted={chatDeleted}
+      onClose={listColumn ? undefined : () => setListOpen(false)} />
+  );
 
   return (
-    <aside className={`hp${layout === "page" ? " page" : ""}`} aria-label="KeelBot">
+    <>
+    {listColumn && <div className="hp-list-col">{chatList}</div>}
+    <aside className={`hp${layout === "page" ? " page" : ""}`} aria-label="KeelBot"
+      onKeyDown={(e) => { if (e.key === "Escape" && listOpen) { e.preventDefault(); setListOpen(false); } }}>
       <header className="hp-head">
         <div className="hp-title">
           <b>KeelBot</b>
@@ -479,7 +620,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
             title="The model that answers" aria-label="Model">
             {model ? `${provLabel(model.provider)} ${modelLabel(model)}` : "Model"}
           </button>
-          <button type="button" className="hp-tb" onClick={() => newChat()} title="Start a new chat" aria-label="New chat">New</button>
+          {!listColumn && <button type="button" className="hp-tb" onClick={() => newChat()} title="Start a new chat" aria-label="New chat">New</button>}
           {layout === "panel"
             ? <>
               <button type="button" className="hp-tb" onClick={() => go("helper")} title="Only KeelBot, on a page of its own"
@@ -498,14 +639,28 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
         </div>
       )}
       <div className="hp-sessions">
-        <label className="hp-sr" htmlFor="hp-session">Chat</label>
-        <select id="hp-session" value={sid ?? ""} onChange={(e) => setSid(e.target.value || null)}>
-          <option value="">New chat</option>
-          {(list.data ?? []).map((x) => <option key={x.id} value={x.id}>{x.title}</option>)}
-        </select>
+        {!listColumn && (
+          <button type="button" className={`hp-tb hp-chats-btn${listOpen ? " on" : ""}`} aria-expanded={listOpen} aria-controls="hp-list"
+            onClick={toggleList} title="All your chats: search, folders, rename, delete">
+            <span aria-hidden="true">☰</span> Chats{newElsewhere > 0 && <span className="hp-new-n" aria-label={`, ${newElsewhere} new`}>{newElsewhere}</span>}
+          </button>
+        )}
+        <span className="hp-cur" title={s ? `${chatFolder ? `${chatFolder} / ` : ""}${s.title}` : "A new chat: it is kept when you send the first message"}>
+          {chatFolder && <span className="hp-cur-f">{chatFolder} /</span>}
+          <span className="hp-cur-t">{s?.title ?? (loadingChat ? "…" : "New chat")}</span>
+        </span>
         {s && <span className="hp-usage" title="What this chat used">{usageText(sessionTokens(s), s.cost_usd)}</span>}
-        {s && <button type="button" className="hp-tb" onClick={() => void remove()} aria-label="Delete this chat" title="Delete this chat">Delete</button>}
+        {s && !listOpen && (
+          <button type="button" className="hp-tb" onClick={() => setConfirmDel((v) => !v)} aria-label="Delete this chat" title="Delete this chat"
+            aria-expanded={confirmDel}>Delete</button>
+        )}
       </div>
+      {confirmDel && s && !listOpen && (
+        <ConfirmRow yes="Delete chat" onYes={() => { setConfirmDel(false); void remove(); }} onNo={() => setConfirmDel(false)}
+          text={`Delete “${s.title}”? Its messages are gone for good.${side && s.worktree ? ` Its worktree and the branch ${s.branch ?? ""} are deleted too.` : ""}`} />
+      )}
+      {listOpen && chatList}
+      {!listOpen && <>
 
       {fix && (
         <div className={`hp-fixbar${moved ? " moved" : ""}`}>
@@ -522,8 +677,13 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
           onThrow={() => void throwAway()} />
       )}
 
-      <div ref={scroller} className="hp-body" role="log" aria-label="Conversation" aria-live="polite">
-        {!messages.length && !runningCall && side && (
+      <div ref={bodyRef} className="hp-body" role="log" aria-label="Conversation" aria-live="polite" onScroll={onScroll}>
+        {loadingChat && <p className="hp-hint">Loading the chat…</p>}
+        {notReady && sess.error && (
+          <p className="hp-err">This chat did not load: {sess.error.message}{" "}
+            <button type="button" className="hp-tb" onClick={() => void sess.reload()}>Try again</button></p>
+        )}
+        {!messages.length && !runningCall && !notReady && side && (
           <div className="hp-empty">
             <p>Try an idea without touching the project folder. KeelBot edits its own copy, you see every changed file
               below, and Keep runs the checks and commits on the side branch. Then make it a task, start a flow on the
@@ -535,7 +695,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
             </ul>
           </div>
         )}
-        {!messages.length && !runningCall && fix && (
+        {!messages.length && !runningCall && !notReady && fix && (
           <div className="hp-empty">
             <p>Tell KeelBot what to change for this gate. It edits the files here, inside keel's rules for the work under review.
               You see every changed file below, can undo it, and Done runs the checks and lets keel commit.</p>
@@ -546,16 +706,15 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
             </ul>
           </div>
         )}
-        {!messages.length && !runningCall && mode === "ask" && (
+        {!messages.length && !runningCall && !notReady && mode === "ask" && (
           <div className="hp-empty">
-            <p>Ask about this project. KeelBot reads the code, the knowledge pages, the map and the code graph, and links
-              every answer to the lines. It changes nothing in Ask mode.</p>
+            <Guide />
+            <p className="hp-hint">Try one:</p>
             <ul className="hp-starters">
               {starters({ flowWaits, openFile }).map((q) => (
                 <li key={q}><button type="button" onClick={() => void send(q)} disabled={busy}>{q}</button></li>
               ))}
             </ul>
-            <p className="hp-hint">Type <kbd>@</kbd> for a file, a symbol or a criterion, and <kbd>/</kbd> for a command.</p>
           </div>
         )}
         {messages.map((m) => m.role === "user" ? <UserMessage key={m.n} m={m} /> : (
@@ -622,6 +781,8 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
             : <button type="submit" className="btn sm primary" disabled={!text.trim() || sending}>{sending ? "Sending…" : "Send"}</button>}
         </div>
       </form>
+      </>}
     </aside>
+    </>
   );
 }

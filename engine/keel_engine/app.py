@@ -252,6 +252,17 @@ class WorktreeRemove(BaseModel):
 class HelperPatch(BaseModel):
     title: str | None = None
     model: ModelSpec | None = None
+    folder: str | None = None           # v0.15.2 a folder id of the chat's project; "" takes the chat out of its folder
+
+
+class HelperFolder(BaseModel):
+    """v0.15.2 a folder for KeelBot's chats, in one project."""
+    project_id: str
+    name: str = ""
+
+
+class HelperFolderPatch(BaseModel):
+    name: str = ""
 
 
 class HelperTurn(BaseModel):
@@ -608,6 +619,8 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
             await asyncio.to_thread(helper.set_model, sid, body.model.model_dump())
         if body.title is not None and body.title.strip():
             await asyncio.to_thread(helper.update, sid, title=body.title.strip()[:120])
+        if body.folder is not None:
+            await asyncio.to_thread(helper_call, helper.set_folder, sid, body.folder)
         return await asyncio.to_thread(helper.get, sid)
 
     @app.delete("/helper/sessions/{sid}")
@@ -615,6 +628,23 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
         await request.app.state.helper.stop(sid)
         await asyncio.to_thread(helper_call, helper.delete, sid)
         return {"ok": True}
+
+    # v0.15.2 folders for KeelBot's chats: a chat's `folder` names one (PATCH the session); deleting one keeps its chats
+    @app.get("/helper/folders")
+    async def get_helper_folders(project: str):
+        return await asyncio.to_thread(helper.folders, project)
+
+    @app.post("/helper/folders")
+    async def post_helper_folder(body: HelperFolder):
+        return await asyncio.to_thread(helper_call, helper.create_folder, body.project_id, body.name)
+
+    @app.patch("/helper/folders/{fid}")
+    async def patch_helper_folder(fid: str, body: HelperFolderPatch):
+        return await asyncio.to_thread(helper_call, helper.rename_folder, fid, body.name)
+
+    @app.delete("/helper/folders/{fid}")
+    async def delete_helper_folder(fid: str):
+        return await asyncio.to_thread(helper_call, helper.delete_folder, fid)
 
     # v0.8.0 quality runs: the eval sets (content/evals) and a fresh copy of a set's project for one case
     @app.get("/evals")

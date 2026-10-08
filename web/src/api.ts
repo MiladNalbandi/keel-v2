@@ -694,7 +694,11 @@ export type HelperSession = {
   tokens_in: number; tokens_out: number; tokens_cached: number; cost_usd: number; turns: number;
   created_at: string; updated_at: string;
   messages?: HelperMessage[]; busy?: boolean;
+  /** v0.15.2 the folder it is in (a HelperFolder id), or none */
+  folder?: string | null;
 };
+/** v0.15.2 a folder for KeelBot's chats, in one project (the engine keeps them; every browser sees the same). */
+export type HelperFolder = { id: string; project: string; name: string; chats: number; created_at: string; updated_at: string };
 export type HelperMention = { kind: "file" | "symbol" | "ac" | string; value: string; file?: string; line?: number };
 export type HelperSelection = { path: string; from?: number; to?: number; text: string };
 export type HelperCommand = { name: string; description: string; plugin: string; source: "keel" | "project" | string };
@@ -1051,9 +1055,14 @@ export const api = {
   helperCreate: (pid: string, body: { mode?: HelperMode; model?: Model; title?: string } = {}) =>
     post<HelperSession>(`/projects/${e(pid)}/helper/sessions`, body),
   helperSession: (pid: string, sid: string) => get<HelperSession>(`/projects/${e(pid)}/helper/sessions/${e(sid)}`),
-  helperPatch: (pid: string, sid: string, body: { title?: string; model?: Model }) =>
+  helperPatch: (pid: string, sid: string, body: { title?: string; model?: Model; folder?: string }) =>
     patch<HelperSession>(`/projects/${e(pid)}/helper/sessions/${e(sid)}`, body),
   helperDelete: (pid: string, sid: string) => del<{ ok: boolean }>(`/projects/${e(pid)}/helper/sessions/${e(sid)}`),
+  // v0.15.2 folders for the chats (a chat moves with helperPatch {folder}; "" takes it out)
+  helperFolders: (pid: string) => get<HelperFolder[]>(`/projects/${e(pid)}/helper/folders`),
+  helperFolderCreate: (pid: string, name: string) => post<HelperFolder>(`/projects/${e(pid)}/helper/folders`, { name }),
+  helperFolderRename: (pid: string, fid: string, name: string) => patch<HelperFolder>(`/projects/${e(pid)}/helper/folders/${e(fid)}`, { name }),
+  helperFolderDelete: (pid: string, fid: string) => del<{ ok: boolean; moved: number }>(`/projects/${e(pid)}/helper/folders/${e(fid)}`),
   helperTurn: (pid: string, sid: string, body: { text: string; model?: Model; mentions?: HelperMention[]; selection?: HelperSelection; open_file?: string }) =>
     post<HelperTurnStarted>(`/projects/${e(pid)}/helper/sessions/${e(sid)}/turn`, body),
   helperStop: (pid: string, sid: string) => post<HelperSession>(`/projects/${e(pid)}/helper/sessions/${e(sid)}/stop`),

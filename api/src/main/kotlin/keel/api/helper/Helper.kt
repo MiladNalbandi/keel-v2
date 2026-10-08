@@ -44,7 +44,10 @@ data class HelperTaskBody(val title: String = "", val type: String = "task")
 data class HelperFlowBody(val title: String = "", val workflowId: String = "change")
 /** The person's answer to a permission card: once | always (this command, for the rest of the chat) | deny (with a reason). */
 data class HelperAnswer(val decision: String = "", val why: String = "")
-data class HelperPatch(val title: String? = null, val model: Model? = null)
+/** v0.15.2 folder: a folder id of this project; "" takes the chat out of its folder. */
+data class HelperPatch(val title: String? = null, val model: Model? = null, val folder: String? = null)
+/** v0.15.2 a folder for KeelBot's chats (create, rename): its name. */
+data class HelperFolderBody(val name: String = "")
 
 /** What the person points at in the Repo page: a file, a code-graph symbol or a criterion. */
 data class HelperMention(val kind: String = "", val value: String = "", val file: String? = null, val line: Int? = null)
@@ -124,7 +127,42 @@ class HelperService(
 
     fun patch(pid: String, sid: String, body: HelperPatch): JsonNode {
         get(pid, sid)
-        return engine.patch("/helper/sessions/$sid", mapOf("title" to body.title, "model" to body.model).filterValues { it != null })
+        val folder = body.folder?.trim()
+        if (!folder.isNullOrEmpty()) requireFolder(pid, folder)
+        return engine.patch("/helper/sessions/$sid", mapOf("title" to body.title, "model" to body.model, "folder" to folder)
+            .filterValues { it != null })
+    }
+
+    // v0.15.2 folders for the chats: the engine keeps them next to the sessions, one list per project, so every browser
+    // sees the same folders. Deleting a folder keeps its chats (they move out of it).
+    fun folders(pid: String): JsonNode {
+        projects.require(pid)
+        return engine.get("/helper/folders?project=$pid")
+    }
+
+    fun createFolder(pid: String, body: HelperFolderBody): JsonNode {
+        projects.require(pid)
+        return engine.post("/helper/folders", mapOf("project_id" to pid, "name" to folderName(body.name)))
+    }
+
+    fun renameFolder(pid: String, fid: String, body: HelperFolderBody): JsonNode {
+        requireFolder(pid, fid)
+        return engine.patch("/helper/folders/$fid", mapOf("name" to folderName(body.name)))
+    }
+
+    fun deleteFolder(pid: String, fid: String): JsonNode {
+        requireFolder(pid, fid)
+        return engine.delete("/helper/folders/$fid")
+    }
+
+    private fun folderName(name: String): String {
+        if (name.isBlank()) throw BadRequest("A folder needs a name", "Write a short name, for example Payments.")
+        return name.trim().take(200)
+    }
+
+    /** The folder, if it belongs to this project (a folder id from another project is a 404 here). */
+    private fun requireFolder(pid: String, fid: String) {
+        if (folders(pid).none { it.path("id").asText() == fid }) throw NotFound("No KeelBot folder $fid in project $pid")
     }
 
     fun delete(pid: String, sid: String): JsonNode {
@@ -360,6 +398,19 @@ class HelperController(private val helper: HelperService) {
 
     @DeleteMapping("/sessions/{sid}")
     fun delete(@PathVariable pid: String, @PathVariable sid: String): JsonNode = helper.delete(pid, sid)
+
+    @GetMapping("/folders")
+    fun folders(@PathVariable pid: String): JsonNode = helper.folders(pid)
+
+    @PostMapping("/folders")
+    fun createFolder(@PathVariable pid: String, @RequestBody body: HelperFolderBody): JsonNode = helper.createFolder(pid, body)
+
+    @PatchMapping("/folders/{fid}")
+    fun renameFolder(@PathVariable pid: String, @PathVariable fid: String, @RequestBody body: HelperFolderBody): JsonNode =
+        helper.renameFolder(pid, fid, body)
+
+    @DeleteMapping("/folders/{fid}")
+    fun deleteFolder(@PathVariable pid: String, @PathVariable fid: String): JsonNode = helper.deleteFolder(pid, fid)
 
     @PostMapping("/sessions/{sid}/turn")
     fun turn(@PathVariable pid: String, @PathVariable sid: String, @RequestBody body: HelperTurn): JsonNode = helper.turn(pid, sid, body)
