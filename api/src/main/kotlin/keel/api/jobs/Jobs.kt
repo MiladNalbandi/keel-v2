@@ -79,19 +79,44 @@ class JobService(private val jdbc: JdbcTemplate) {
         )
     }
 
-    fun list(project: String?, status: String?, agent: String?, provider: String?, limit: Int): List<Job> {
+    fun list(project: String?, status: String?, agent: String?, provider: String?, limit: Int, q: String? = null): List<Job> {
+        val (where, args) = filter(project, status, agent, provider, q)
+        args += limit.coerceIn(1, 500)
+        return jdbc.query("SELECT $cols FROM agent_calls$where ORDER BY started_at DESC LIMIT ?", jobMapper, *args.toTypedArray())
+    }
+
+    /** v0.15.2 how many calls match, with the same filters as [list] and no limit (the Finished tab's count). */
+    fun count(project: String?, status: String?, agent: String?, provider: String?, q: String?): Int {
+        val (where, args) = filter(project, status, agent, provider, q)
+        return jdbc.queryForObject("SELECT COUNT(*) FROM agent_calls$where", Int::class.java, *args.toTypedArray()) ?: 0
+    }
+
+    /**
+     * The WHERE part and its arguments. Status "done" also means stopped; v0.15.2 status "finished" is every call
+     * that does not run any more. `q` is a search: each word must be in the call's id, agent, provider (or its name
+     * in the web), model, step, phase, AC, status, project id or project name. Case does not matter.
+     */
+    private fun filter(project: String?, status: String?, agent: String?, provider: String?, q: String?): Pair<String, MutableList<Any>> {
         val where = mutableListOf<String>()
         val args = mutableListOf<Any>()
         if (!project.isNullOrBlank()) { where += "project_id = ?"; args += project }
-        if (!status.isNullOrBlank()) {
-            if (status == "done") where += "status IN ('done', 'stopped')" else { where += "status = ?"; args += status }
+        when {
+            status.isNullOrBlank() -> {}
+            status == "done" -> where += "status IN ('done', 'stopped')"
+            status == "finished" -> where += "status <> 'running'"
+            else -> { where += "status = ?"; args += status }
         }
         if (!agent.isNullOrBlank()) { where += "agent = ?"; args += agent }
         if (!provider.isNullOrBlank()) { where += "provider = ?"; args += provider }
-        val sql = "SELECT $cols FROM agent_calls" + (if (where.isEmpty()) "" else " WHERE " + where.joinToString(" AND ")) +
-            " ORDER BY started_at DESC LIMIT ?"
-        args += limit.coerceIn(1, 500)
-        return jdbc.query(sql, jobMapper, *args.toTypedArray())
+        searchWords(q).forEach { w ->
+            val providers = PROVIDER_NAMES.filterValues { it.lowercase().contains(w) }.keys
+            where += "(instr(lower($SEARCHED), ?) > 0 OR project_id IN (SELECT id FROM projects WHERE instr(lower(name), ?) > 0)" +
+                (if (providers.isEmpty()) "" else " OR provider IN (${providers.joinToString(", ") { "?" }})") + ")"
+            args += w
+            args += w
+            args.addAll(providers)
+        }
+        return (if (where.isEmpty()) "" else " WHERE " + where.joinToString(" AND ")) to args
     }
 
     fun get(id: String): Job =
@@ -103,6 +128,19 @@ class JobService(private val jdbc: JdbcTemplate) {
 
     fun markStopped(id: String) {
         jdbc.update("UPDATE agent_calls SET status = 'stopped', ended_at = COALESCE(ended_at, ?) WHERE id = ? AND status = 'running'", Time.now(), id)
+    }
+
+    companion object {
+        /** The columns a search looks in, as one text (a space between them, so a word never spans two). */
+        private const val SEARCHED = "id || ' ' || coalesce(project_id, '') || ' ' || coalesce(agent, '') || ' ' || coalesce(provider, '') || ' ' || " +
+            "coalesce(model, '') || ' ' || coalesce(step, '') || ' ' || coalesce(phase, '') || ' ' || coalesce(ac, '') || ' ' || status"
+
+        /** The provider names the web shows (web/src/format.ts PROV), so a search for "GPT" finds codex calls. */
+        private val PROVIDER_NAMES = mapOf("claude" to "Claude", "codex" to "GPT / Codex", "copilot" to "Copilot", "fake" to "Fake model")
+
+        /** At most 8 lower-case words. */
+        fun searchWords(q: String?): List<String> =
+            q.orEmpty().trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }.take(8)
     }
 }
 
@@ -116,8 +154,19 @@ class JobController(private val jobs: JobService, private val engine: EngineClie
         @RequestParam(required = false) status: String?,
         @RequestParam(required = false) agent: String?,
         @RequestParam(required = false) provider: String?,
+        @RequestParam(required = false) q: String?,
         @RequestParam(defaultValue = "50") limit: Int,
-    ): List<Job> = jobs.list(project, status, agent, provider, limit)
+    ): List<Job> = jobs.list(project, status, agent, provider, limit, q)
+
+    /** v0.15.2 how many calls match the same filters as the list, without its limit: `{"count": 312}`. */
+    @GetMapping("/count")
+    fun count(
+        @RequestParam(required = false) project: String?,
+        @RequestParam(required = false) status: String?,
+        @RequestParam(required = false) agent: String?,
+        @RequestParam(required = false) provider: String?,
+        @RequestParam(required = false) q: String?,
+    ): Map<String, Int> = mapOf("count" to jobs.count(project, status, agent, provider, q))
 
     @GetMapping("/{id}")
     fun get(@PathVariable id: String): JobDetail = JobDetail(jobs.get(id), jobs.steps(id, 0))

@@ -1,12 +1,15 @@
 // Live agents (Run): watch each agent while it works — what it says, which tools it calls, what code it writes,
 // and what it returns. Steps arrive over SSE (agent.step) and by polling /api/jobs/{id}/steps. With nobody working,
-// the feed shows the last agent that ran and the Recent list opens any other.
+// the feed shows the last agent that ran and the Finished tab opens any other.
+// v0.15.2 Working now and Finished are two tabs with their counts (the chosen tab is kept in this browser), and one
+// search box finds agents by name, model, provider, flow step, AC and status.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, errorParts, type Job, type JobStep } from "../api";
 import { kindClass, mergeSteps } from "../components/StepFeed";
 import { FilesTouched, kindLabel, Outcome, StepView, useJumpToStep } from "../components/StepView";
 import { EmptyState } from "../components/EmptyState";
+import { jobMatches, RunSearch, RunTabs, searchWords, useDebounced, useFinished, useRunTab } from "../components/RunSearch";
 import { StartFlowDrawer } from "../components/StartFlow";
 import { agoText } from "../components/UsageStrip";
 import { ErrorBox, GoButton, Loading, PageHead, Panel, Pill, Prov, Since, Tabs } from "../components/ui";
@@ -154,28 +157,43 @@ function RecentRow({ j, sel }: { j: Job; sel: boolean }) {
 export function LivePage({ pid }: { pid: string }) {
   const { project } = useApp();
   const { arg } = useRoute();
+  const [search, setSearch] = useState("");
   const running = useLoad(`live-run:${pid}`, () => api.jobs({ project: pid, status: "running" }));
-  const recent = useLoad(`live-fin:${pid}`, () => api.jobs({ project: pid, limit: 12 }));
+  // v0.15.2 finished agents: the api searches them (the list has a limit) and counts them for the tab
+  const dq = useDebounced(search.trim());
+  const fin = useFinished(`live:${pid}`, dq,
+    (q) => api.jobs({ project: pid, status: "finished", q: q || undefined, limit: 30 }),
+    (q) => api.jobCount({ project: pid, status: "finished", q: q || undefined }));
   const [start, setStart] = useState(false);
   const runningList = running.data ?? [];
-  const finished = (recent.data ?? []).filter((j) => j.status !== "running");
+  const finished = (fin.rows ?? []).filter((j) => j.status !== "running");
+  const words = searchWords(search);
+  const pname = project?.name ?? pid;
+  const runShown = runningList.filter((j) => jobMatches(j, words, pname));
+  const finShown = finished.filter((j) => jobMatches(j, words, pname));
+  // the feed opens on the last agent that ran, not on the first match of a search
+  const lastRan = useRef<Job | null>(null);
+  if (fin.q === "" && fin.rows) lastRan.current = finished[0] ?? null;
   // what the feed shows: the agent in the link, else the one that works now, else the last one that ran
-  const selId = arg ?? runningList[0]?.id ?? (running.data ? finished[0]?.id : undefined) ?? null;
-  const selJob = runningList.find((j) => j.id === selId) ?? finished.find((j) => j.id === selId) ?? null;
+  const selId = arg ?? runningList[0]?.id ?? (running.data ? lastRan.current?.id : undefined) ?? null;
+  const selJob = runningList.find((j) => j.id === selId) ?? finished.find((j) => j.id === selId) ?? (lastRan.current?.id === selId ? lastRan.current : null);
   const detail = useLoad(selId && !selJob ? `job:${selId}` : null, () => api.job(selId!), { live: false });
   const job = selJob ?? detail.data;
   const { steps } = useJobSteps(selJob?.status === "running" ? selJob.id : null);
-  const loaded = !!running.data && !!recent.data;
-  const never = loaded && !runningList.length && !finished.length;
+  const loaded = !!running.data && !!fin.rows;
+  const never = loaded && fin.q === "" && !runningList.length && !finished.length;
+  const [tab, setTab] = useRunTab("keel2.live.tab", !!running.data || !!running.error, runningList.length);
+  const fresh = fin.q === search.trim();
+  const finCount = fin.rows === null ? null : fresh && fin.total !== null ? fin.total : finShown.length;
 
   // keep both lists fresh even when no event arrives
   useEffect(() => {
     const t = window.setInterval(() => {
       void running.reload();
-      if (runningList.length) void recent.reload();
+      if (runningList.length) fin.reload();
     }, 5000);
     return () => window.clearInterval(t);
-  }, [running.reload, recent.reload, runningList.length]);
+  }, [running.reload, fin.reload, runningList.length]);
 
   const note = !arg && job && job.status !== "running" && running.data && !runningList.length
     ? "No agent is working right now. This is the last one that ran." : undefined;
@@ -198,24 +216,33 @@ export function LivePage({ pid }: { pid: string }) {
         </div>
       ) : (
         <div className="live-grid">
-          <div className="live-list">
-            <section aria-labelledby="live-now-h" className="live-sec">
-              <h2 className="sec-h" id="live-now-h">Working now</h2>
-              {running.error ? <ErrorBox error={running.error} onRetry={() => void running.reload()} />
-                : !running.data ? <Loading what="Loading agents" />
-                  : !runningList.length ? <p className="sub live-idle">No agent is working in this project. When a flow reaches an agent step, it shows up here.</p>
-                    : runningList.map((j) => <AgentCard key={j.id} j={j} sel={j.id === selId} steps={j.id === selId ? steps : undefined} />)}
-            </section>
-            <section aria-labelledby="live-recent-h" className="live-sec">
-              <div className="sec-bar">
-                <h2 className="sec-h" id="live-recent-h">Recent</h2>
+          <div className="live-list live-tabbed">
+            <div className="live-bar">
+              <RunTabs value={tab ?? "running"} onChange={setTab} label="Working or finished" first="Working now" running={running.data ? runShown.length : null} finished={finCount} />
+              <RunSearch value={search} onChange={setSearch} label="Search agents" placeholder="Search agent, model, step, AC, status" />
+            </div>
+            {tab === "finished" ? (
+              <section aria-label="Finished" className="live-sec">
+                {fin.error && !fin.rows ? <ErrorBox error={fin.error} onRetry={fin.reload} />
+                  : !fin.rows ? <Loading what="Loading finished agents" />
+                    : !finShown.length ? <p className="sub live-idle">{words.length ? "No finished agent matches this search." : "Nothing finished yet."}</p>
+                      : <div className="recent-list">{finShown.map((f) => <RecentRow key={f.id} j={f} sel={f.id === selId} />)}</div>}
+                {fresh && finCount !== null && finCount > finShown.length && finShown.length > 0 && (
+                  <p className="hint">The newest {finShown.length} of {finCount}. Search to find an older one.</p>
+                )}
                 <GoButton to="jobs" className="btn sm ghost">All calls in Jobs</GoButton>
-              </div>
-              {recent.error ? <ErrorBox error={recent.error} onRetry={() => void recent.reload()} />
-                : !recent.data ? <Loading what="Loading recent agents" />
-                  : !finished.length ? <p className="sub">Nothing finished yet.</p>
-                    : <div className="recent-list">{finished.map((f) => <RecentRow key={f.id} j={f} sel={f.id === selId} />)}</div>}
-            </section>
+              </section>
+            ) : (
+              <section aria-label="Working now" className="live-sec">
+                {running.error ? <ErrorBox error={running.error} onRetry={() => void running.reload()} />
+                  : !running.data || !tab ? <Loading what="Loading agents" />
+                    : !runShown.length ? (
+                      <p className="sub live-idle">
+                        {words.length ? "No working agent matches this search." : "No agent is working in this project. When a flow reaches an agent step, it shows up here."}
+                      </p>
+                    ) : runShown.map((j) => <AgentCard key={j.id} j={j} sel={j.id === selId} steps={j.id === selId ? steps : undefined} />)}
+              </section>
+            )}
           </div>
           {job ? <Feed key={job.id} job={job} note={note} /> : detail.error ? <ErrorBox error={detail.error} /> : (
             <div className="panel live-wait"><Loading what={selId ? "Loading the feed" : "Loading agents"} /></div>

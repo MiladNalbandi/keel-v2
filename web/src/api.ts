@@ -954,8 +954,12 @@ export const api = {
   estimateYaml: (pid: string, yaml: string, acs: number) => post<Estimate>(`/projects/${e(pid)}/estimate`, { yaml, acs }),
 
   // jobs
-  jobs: (f: { project?: string; status?: string; agent?: string; provider?: string; limit?: number } = {}) =>
+  // v0.15.2 status "finished" = every call that does not run any more; q = search words (agent, model, provider, project, step, AC, status)
+  jobs: (f: { project?: string; status?: string; agent?: string; provider?: string; q?: string; limit?: number } = {}) =>
     get<Job[]>(`/jobs${q({ limit: 50, ...f })}`),
+  /** v0.15.2 how many calls match the same filters as jobs(), without its limit (the Finished tab's count). */
+  jobCount: (f: { project?: string; status?: string; agent?: string; provider?: string; q?: string } = {}) =>
+    get<{ count: number }>(`/jobs/count${q(f)}`),
   job: (id: string) => get<JobDetail>(`/jobs/${e(id)}`),
   jobSteps: (id: string, after = 0) => get<{ steps: JobStep[]; running: boolean }>(`/jobs/${e(id)}/steps${q({ after })}`),
   stopJob: (id: string) => post<void>(`/jobs/${e(id)}/stop`),
