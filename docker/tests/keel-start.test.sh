@@ -68,7 +68,7 @@ trap 'rm -f "$t/api.up"; echo "api stop" >> "$t/log"; kill $s 2>/dev/null; exit 
 case "${1:-up}" in
   exit) echo "api exit $2" >> "$t/log"; exit "$2" ;;
   up) touch "$t/api.up"
-      if [ -n "${2:-}" ]; then sleep 1; rm -f "$t/api.up"; echo "api exit $2" >> "$t/log"; exit "$2"; fi ;;
+      if [ -n "${2:-}" ]; then sleep 3; rm -f "$t/api.up"; echo "api exit $2" >> "$t/log"; exit "$2"; fi ;;
 esac
 sleep 30 & s=$!
 wait $s
@@ -98,7 +98,7 @@ start_bg() {
   env HOME="$T/home" KEEL_DATA="$T/data" KEEL_WORKSPACE="$T" KEEL_CONTENT="$T" KEEL_TEST_DIR="$T" \
     PATH="$BIN:$PATH" KEEL_RESOLVE_CMD="$BIN/resolve" KEEL_ENGINE_CMD="$BIN/engine" KEEL_API_CMD="$BIN/api" \
     KEEL_ENGINE_HEALTH_URL="file://$T/engine.up" KEEL_API_HEALTH_URL="file://$T/api.up" \
-    KEEL_ENGINE_START_TIMEOUT=5 KEEL_API_START_TIMEOUT=1 KEEL_STOP_TIMEOUT=3 KEEL_START_POLL=0.1 \
+    KEEL_ENGINE_START_TIMEOUT=5 KEEL_API_START_TIMEOUT=3 KEEL_STOP_TIMEOUT=3 KEEL_START_POLL=0.1 \
     "$@" bash "$START" > "$T/out" 2>&1 &
   pid=$!
 }
