@@ -429,6 +429,22 @@ def test_only_keeps_the_plugins_keel_last_started_with(image, data, tmp_path):
         resolver.read_only(str(tmp_path / "nope.json"))
 
 
+def test_only_still_gives_the_real_reason_for_a_plugin_that_fails_its_checks(image, data):
+    """A plugin keel could never load keeps its own reason, not "keel did not start with it last time"."""
+    plugin(image, "a", package="keel_a")
+    plugin(image, "future", "2.0.0", requires={"sdk": 2})
+    plugin(image, "fine", package="keel_fine")
+    last_good = data / "plugins" / "last-good.json"
+    last_good.parent.mkdir(parents=True)
+    last_good.write_text(json.dumps({"plugins": [{"name": "a", "version": "1.0.0"}]}))
+    assert main(["resolve", "--only", str(last_good)]) == 0
+    doc = json.loads((data / "plugins/run/resolved.json").read_text())
+    errors = {p["name"]: p["error"] for p in doc["problems"]}
+    assert [p["name"] for p in doc["plugins"]] == ["a"]
+    assert "SDK 2" in errors["future"]
+    assert errors["fine"] == resolver.ONLY_LEFT_OUT
+
+
 def test_a_broken_installed_json_fails_the_resolve_and_clears_the_old_run_files(image, data, capsys):
     plugin(image, "a", package="keel_a")
     assert main(["resolve"]) == 0

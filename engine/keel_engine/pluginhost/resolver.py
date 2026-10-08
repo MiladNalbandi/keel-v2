@@ -158,7 +158,13 @@ def _choose(res: Resolution, entries: dict, only: set[tuple[str, str]] | None) -
         else:
             continue
         if only is not None and (name, f.version) not in only:
-            res.problem(name, f.version, f.dir, ONLY_LEFT_OUT)
+            # a plugin keel could never load keeps its own reason (needs SDK 2, a bad sha256, …)
+            try:
+                check(f)
+                why = ONLY_LEFT_OUT
+            except ManifestError as exc:
+                why = str(exc)
+            res.problem(name, f.version, f.dir, why)
             absent[name] = LEFT_OUT
             continue
         found.append(f)
