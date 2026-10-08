@@ -41,12 +41,16 @@ a test image add `--allow e2e/parity/allow-no-clis.yml`. The real check is with 
    - `[off]`: as keel starts (the plugins are off);
    - `[on]`: the four plugins on (CI/CD, Database, Git, Code Review) and the shop's database added as a connection;
    - `[flow]`: a `change` flow runs with keel's fake model (no login, no token). It stops at the scope gate, is
-     approved as "small", runs the test-first loop and stops at the AC gate. Where it stopped must be the same.
+     approved as "small", runs the test-first loop and stops at the AC gate. Where it stopped must be the same. (A
+     step may run twice on one keel, even on 0.15.1, so in this round lists are compared without their length and
+     order, and Live agents and Jobs, which show each agent call step by step, only by their structure.)
 3. **api**: about 120 read-only GET endpoints (`ENDPOINTS` and `FLOW_ENDPOINTS` in `parity.py`; from
    `docs/CONTRACT.md` and the controllers; nothing that needs a model or a token, nothing that changes state) on
-   both. The **status** and the **JSON shape** must match: the keys and the value types, lists by their first element.
-   Values do not count (ids, times, versions differ anyway); keys that are data (ids, shas, dates) count only by their
-   place. A few ask for what does not exist, so the errors must match too. An endpoint that A does not have (404 or 405) and B answers is **new in B**: listed, not a failure.
+   both. The **status** and the **JSON shape** must match: the keys and the value types, lists by their first element
+   and their length (the same data on both: a list with fewer items lost a workflow, a skill, an agent). Values do
+   not count (ids, times, versions differ anyway); keys that are data (ids, shas, dates) count only by their place. A
+   few ask for what does not exist, so the errors must match too. An endpoint that A does not have (404 or 405) and B
+   answers is **new in B**: listed, not a failure.
 4. **web**: `pages.mjs` (headless Chromium) reads the menu (groups, labels, order, links) and the frame around the
    pages, searches in the launcher (⌘K) in every scope, then opens every menu page, `#/projects`, `#/code`,
    `#/keelbot` and a few deep links, each with a full load. In the main area it records the headings, tabs, views
@@ -58,21 +62,33 @@ a test image add `--allow e2e/parity/allow-no-clis.yml`. The real check is with 
 
 ## Read the table
 
+The step 2 plugin track (built with `INSTALL_CLIS=0`, run with `--allow e2e/parity/allow-no-clis.yml`):
+
 ```
 parity   A = ghcr.io/miladnalbandi/keel-v2:0.15.1
-         B = keel-v2:dev
+         B = keel-v2:parity-b
 
                same  different  allowed  new in B  skipped
-  api [off]     107          0        1         6        0
-  web [off]      28          0        0         0        0
-  api [on]      107          0        1         6        0
-  web [on]       28          0        0         0        0
+  api [off]     100          0        7         6        0
+  web [off]      22          0        6         0        0
+  api [on]      100          0        7         6        0
+  web [on]       22          0        6         0        0
   flow            1          0        0         0        0
-  api [flow]    113          0        1         6        0
-  web [flow]     28          0        0         0        0
+  api [flow]    108          0        5         6        0
+  web [flow]     22          0        6         0        0
 
-PASSED: 0 difference(s) not on the allow list (7.4 min)
+allowed differences:
+  api GET /api/features [off]   <- step 1, the plugin host adds the loaded plugins' web parts to /api/features ...
+  web #/graph buttons [off]   <- no CodeGraph in the image, so the Graph page offers "Build the index" ...
+  ...
+new in B:
+  api GET /api/approvals [off]   <- step 2, approvals became a core service that every part asks through ...
+  ...
+
+PASSED: 0 difference(s) not on the allow list (4.7 min)
 ```
+
+With A = B = 0.15.1 every row is "same" (113 / 28 / 113 / 28 / 1 / 119 / 28).
 
 - **same**: the same on A and B. For the web, one row is one page (or the menu, the frame, the launcher).
 - **different**: B is not like A, and the allow list does not say why. Each one is printed under the table with what

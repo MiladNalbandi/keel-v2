@@ -2,18 +2,22 @@
 """Parity: is a new keel the same for people as a released one? (docs/plugins/11-step3-contract.md, "The parity e2e")
 
     python3 e2e/parity/parity.py --a ghcr.io/miladnalbandi/keel-v2:0.15.1 --b keel-v2:dev [--keep] [--only api,web]
+        [--allow more.yml] [--verbose]
 
 It starts two throw-away keels on the same small fixture project and compares them:
 
   keel-parity-a  127.0.0.1:8094  volume keel-parity-a-data   the image --a (the released keel)
   keel-parity-b  127.0.0.1:8095  volume keel-parity-b-data   the image --b (the new keel)
 
+in three rounds, each after the same calls on both: [off] as keel starts, [on] with the plugins on and a database,
+[flow] with a fake-model flow stopped at a gate. In each round:
+
   api  every read-only GET of the api (docs/CONTRACT.md and the controllers; nothing that needs a model, a token or
        changes state) on both: the same status and the same JSON shape (keys and value types, lists by their first
        element; not the values). An endpoint that only B has is "new in B" (not a failure).
-  web  e2e/parity/pages.mjs (headless Chromium through npx playwright@1) reads the menu and opens every menu page on
-       both: the same menu, the same headings, tabs and views, no console error and no failed request that A does
-       not have too. On a difference it saves screenshots of A and B.
+  web  e2e/parity/pages.mjs (headless Chromium through npx playwright@1): the same menu, frame and launcher, and on
+       every page (with its tabs and Code views) the same headings, regions, buttons, fields, badges, rows and looks,
+       no console error and no failed request that A does not have too. On a difference it saves screenshots.
 
 At the end one parity table; exit 1 on any difference that is not on the allow list (e2e/parity/allow.yml, each entry
 with a reason). Without --keep both containers and volumes are removed at the end. It never touches another keel.
@@ -39,7 +43,6 @@ import urllib.request
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parents[1]
 KEELS = {"a": ("keel-parity-a", "keel-parity-a-data", 8094), "b": ("keel-parity-b", "keel-parity-b-data", 8095)}
 PROJECT = "shop"
 # a fixed time for the fixture's commits, so both keels (and every run) see the same history
@@ -338,6 +341,11 @@ def run_flow(k: Keel) -> list[tuple]:
         k.api("POST", f"/threads/{tid}/resume", {"decision": "approve", "payload": {"choice": "small"}})
         stops.append(wait_until(f"{k.name}: the flow to stop again",
                                 lambda: (s := where(k))[0] != "running" and s != stops[0] and s, timeout=300))
+    # the code graph follows the flow's commits in the background, when it gets to it: index it now, on both
+    k.api("POST", f"/projects/{k.pid}/index/rebuild")
+    time.sleep(1)
+    wait_until(f"{k.name}: the code graph index after the flow",
+               lambda: k.api("GET", f"/projects/{k.pid}/index").get("status") in ("ready", "failed"), timeout=180)
     return stops
 
 
@@ -474,8 +482,8 @@ def variables(k: Keel) -> dict[str, str]:
 
 
 def shape(v):
-    """The JSON's shape: keys and value types, lists by their first element. Keys that are data (ids, shas, times,
-    numbers) become <id>, so only their place counts."""
+    """The JSON's shape: keys and value types, lists by their first element and their length. Keys that are data
+    (ids, shas, times, numbers) become <id>, so only their place counts."""
     if v is None:
         return "null"
     if isinstance(v, bool):
@@ -485,7 +493,7 @@ def shape(v):
     if isinstance(v, str):
         return "string"
     if isinstance(v, list):
-        return ["list", shape(v[0]) if v else None]
+        return ["list", shape(v[0]) if v else None, len(v)]
     out: dict = {}
     for key, value in v.items():
         out.setdefault("<id>" if ID_KEY.match(str(key)) else key, shape(value))
@@ -500,20 +508,22 @@ def kind(s) -> str:
     return {"null": "null"}.get(s, f"a {s}")
 
 
-def compare_shape(a, b, path: str = "$") -> list[str]:
+def compare_shape(a, b, path: str = "$", counts: bool = True) -> list[str]:
     if isinstance(a, dict) and isinstance(b, dict):
         out = [f"{path}.{key}: only in A" for key in a if key not in b]
         out += [f"{path}.{key}: only in B" for key in b if key not in a]
         for key in a:
             if key in b:
-                out += compare_shape(a[key], b[key], f"{path}.{key}")
+                out += compare_shape(a[key], b[key], f"{path}.{key}", counts)
         return out
     if isinstance(a, list) and isinstance(b, list):
         if a[1] is None and b[1] is None:
             return []
         if a[1] is None or b[1] is None:
             return [f"{path}: {kind(a)} in A, {kind(b)} in B"]
-        return compare_shape(a[1], b[1], path + "[0]")
+        # the same data on both: a list with fewer items in B lost something (a workflow, a skill, an agent call)
+        count = [] if a[2] == b[2] or not counts else [f"{path}: {a[2]} items in A, {b[2]} in B"]
+        return count + compare_shape(a[1], b[1], path + "[0]", counts)
     return [] if a == b else [f"{path}: {kind(a)} in A, {kind(b)} in B"]
 
 
@@ -532,8 +542,9 @@ def fetch(k: Keel, path: str) -> dict:
     return {"status": code, "type": ctype, "shape": body}
 
 
-def api_parity(a: Keel, b: Keel, phase: str, endpoints: list[str]) -> list[dict]:
-    """Every endpoint on both keels: same, different (and what differs) or new in B."""
+def api_parity(a: Keel, b: Keel, phase: str, endpoints: list[str], counts: bool = True) -> list[dict]:
+    """Every endpoint on both keels: same, different (and what differs) or new in B. counts=False: lists may have
+    another length (a flow's retries make one more agent call or checkpoint on one keel)."""
     va, vb = variables(a), variables(b)
     rows = []
     for template in endpoints:
@@ -562,7 +573,7 @@ def api_parity(a: Keel, b: Keel, phase: str, endpoints: list[str]) -> list[dict]
         elif ra["type"] != rb["type"]:
             verdict, details = "different", [f"content type {ra['type'] or '-'} in A, {rb['type'] or '-'} in B"]
         elif ra["shape"] is not None or rb["shape"] is not None:
-            details = compare_shape(ra["shape"], rb["shape"])
+            details = compare_shape(ra["shape"], rb["shape"], counts=counts)
             verdict = "different" if details else "same"
         rows.append({"id": ident, "verdict": verdict, "details": details})
     return rows
@@ -571,17 +582,19 @@ def api_parity(a: Keel, b: Keel, phase: str, endpoints: list[str]) -> list[dict]
 # ---------------------------------------------------------------- web parity
 
 
-def web_parity(a: Keel, b: Keel, out: Path, phase: str) -> list[dict]:
-    """e2e/parity/pages.mjs on both keels; its web.json becomes rows like the api's."""
+def web_parity(a: Keel, b: Keel, out: Path, phase: str, sets: bool = False) -> list[dict]:
+    """e2e/parity/pages.mjs on both keels; its web.json becomes rows like the api's. sets: see pages.mjs --sets."""
     where = out / f"web-{phase}"
     shutil.rmtree(where, ignore_errors=True)
     where.mkdir(parents=True)
-    cmd = ["npx", "-y", "-p", "playwright@1", "node", str(HERE / "pages.mjs"), a.url, b.url, str(where)]
+    cmd = ["npx", "-y", "-p", "playwright@1", "node", str(HERE / "pages.mjs"), a.url, b.url, str(where), *(["--sets"] if sets else [])]
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
     report = where / "web.json"
     if not report.exists():
         raise RuntimeError(f"pages.mjs did not finish ({r.returncode}): {(r.stderr or r.stdout)[-3000:]}")
     data = json.loads(report.read_text())
+    if not data.get("complete"):
+        raise RuntimeError(f"pages.mjs broke half way ({r.returncode}): {(data.get('failure') or r.stderr or r.stdout)[-3000:]}")
     rows = [{"id": f"web {item['what']} [{phase}]", "verdict": item["verdict"], "details": item["details"],
              "shots": item.get("shots") or [], "page": item["page"]} for item in data["items"]]
     rows += [{"id": f"web [{phase}] {note}", "verdict": "note", "details": []} for note in data.get("notes", [])]
@@ -699,10 +712,11 @@ def main() -> int:
                                          "details": [] if same else [f"A: {stops['a']}", f"B: {stops['b']}"]}]))
             if "api" in only:
                 print(f"api [{phase}]: {len(endpoints)} endpoints")
-                groups.append((f"api [{phase}]", api_parity(a, b, phase, endpoints)))
+                # in the flow round a retry may add an agent call or a checkpoint on one keel: no counts, no order
+                groups.append((f"api [{phase}]", api_parity(a, b, phase, endpoints, counts=phase != "flow")))
             if "web" in only:
                 print(f"web [{phase}]: the menu and every page (headless Chromium)")
-                groups.append((f"web [{phase}]", web_parity(a, b, out, phase)))
+                groups.append((f"web [{phase}]", web_parity(a, b, out, phase, sets=phase == "flow")))
         for _, rows in groups:
             judge(rows, allow)
         failures = table(groups, a, b, args.verbose)

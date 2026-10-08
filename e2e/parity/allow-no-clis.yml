@@ -9,6 +9,14 @@
 - what: api GET /api/projects/{pid}/index
   why: no CodeGraph in the image, so the index is "failed" (CodeGraph is not installed in this image)
 
+- what: api GET /api/providers/models
+  detail: "$.co*: * items in A, * in B"
+  why: the codex and Copilot model lists come from their CLIs (models/catalog.py); without them, the built-in short lists
+
+- what: api GET /api/projects/{pid}/repo/tree?depth=4
+  detail: "$: * items in A, * in B"
+  why: CodeGraph keeps its index in the project's .codegraph folder (5 files more in A's tree)
+
 - what: api GET /api/projects/{pid}/graph*
   why: no CodeGraph in the image, so the code graph and its search are not available
 

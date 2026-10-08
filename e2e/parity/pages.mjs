@@ -1,22 +1,30 @@
 // The web half of the parity e2e (e2e/parity/parity.py): is keel B's web app the same for people as keel A's?
 //
-//   npx -y -p playwright@1 node e2e/parity/pages.mjs <urlA> <urlB> <outdir>
+//   npx -y -p playwright@1 node e2e/parity/pages.mjs <urlA> <urlB> <outdir> [--sets]
 //
 // For both keels (headless Chromium, the keel's first project chosen) it reads the menu (groups, labels, order,
-// links), then opens every menu page and #/projects, #/code, #/keelbot, each with a full load, and records what a
-// person sees in the main area: its headings, tabs, views, regions, buttons, fields and alerts, plus the console
-// errors and the failed requests. It clicks every tab and every Code view (they only show things) and records what
-// each one shows. Then it compares A with B; on a difference it saves screenshots of both into <outdir>.
-// It writes <outdir>/web.json (parity.py reads it) and prints one line per page. Exit 1 when something differs.
+// links) and the frame around the pages, searches in the launcher (⌘K) scope by scope, then opens every menu page,
+// #/projects, #/code, #/keelbot and a few deep links, each with a full load. It records what a person sees in the main
+// area: headings, tabs, views, regions, buttons, fields, alerts, badges, listed rows and looks (computed styles),
+// plus the console errors and the failed requests. It clicks every tab and every Code view (they only show things)
+// and records what each one shows. Then it compares A with B; on a difference it looks again once, then saves
+// screenshots of both into <outdir>. It writes <outdir>/web.json (parity.py reads it) and seen.json (what each page
+// showed), and prints one line per page. Exit 1 when something differs.
 
 import fs from "fs";
 import { createRequire } from "module";
 import os from "os";
 import path from "path";
 
-const [urlA, urlB, outDir] = process.argv.slice(2);
+const [urlA, urlB, outDir] = process.argv.slice(2).filter((x) => !x.startsWith("--"));
+// --sets: the data may differ in how many times a thing is there (a flow's retries: one more agent call, one more
+// checkpoint), so buttons, badges and rows are compared as sets: the same things, in any order and number
+const SETS = process.argv.includes("--sets");
+// with --sets (a flow ran): the pages that show each agent call step by step (what a step wrote, its diff) differ
+// when a step ran twice on one keel; there only the page's structure counts, not its content
+const STEP_BY_STEP = SETS ? new Set(["#/live", "#/jobs"]) : new Set();
 if (!urlA || !urlB || !outDir) {
-  console.error("usage: npx -y -p playwright@1 node e2e/parity/pages.mjs <urlA> <urlB> <outdir>");
+  console.error("usage: npx -y -p playwright@1 node e2e/parity/pages.mjs <urlA> <urlB> <outdir> [--sets]");
   process.exit(2);
 }
 fs.mkdirSync(outDir, { recursive: true });
@@ -166,6 +174,18 @@ async function menu(s) {
   await s.page.goto("about:blank");
   await s.page.goto(`${s.base}/#/flow`);
   await settle(s);
+  // the parts' pages join the menu when their web part has loaded: read it until it stays the same for 1.5 s
+  let last = null;
+  for (let i = 0; i < 8; i++) {
+    const now = await readMenu(s);
+    if (last && JSON.stringify(now) === JSON.stringify(last)) return now;
+    last = now;
+    await wait(1500);
+  }
+  return last;
+}
+
+function readMenu(s) {
   return s.page.evaluate(() => {
     const text = (el) => (el?.textContent || "").replace(/\s+/g, " ").trim();
     const nav = document.querySelector("nav#nav") || document.querySelector("nav[aria-label=Screens]");
@@ -272,8 +292,9 @@ async function visit(s, hash) {
 // ---------------------------------------------------------------- comparing
 
 /** Lines only in A / only in B (as a multiset), or "the order differs". Styles are compared as they are. */
-function listDiff(what, a = [], b = [], exact = false) {
-  const na = exact ? [...a] : a.map(norm), nb = exact ? [...b] : b.map(norm);
+function listDiff(what, a = [], b = [], exact = false, sets = false) {
+  const unique = (x) => (sets ? [...new Set(x)].sort() : x);
+  const na = unique(exact ? [...a] : a.map(norm)), nb = unique(exact ? [...b] : b.map(norm));
   if (JSON.stringify(na) === JSON.stringify(nb)) return [];
   const left = [...na], right = [...nb];
   for (const x of na) {
@@ -287,8 +308,9 @@ function listDiff(what, a = [], b = [], exact = false) {
   return [...left.map((x) => `${what}: "${x}" only in A`), ...right.map((x) => `${what}: "${x}" only in B`)];
 }
 
-/** What differs between two views of the same place, by aspect. */
-function compareSeen(a, b) {
+/** What differs between two views of the same place, by aspect. structure: only the page's structure (headings, tabs,
+ *  views, regions, fields, alerts), not what it lists (buttons, badges, rows, looks). */
+function compareSeen(a, b, structure = false) {
   const out = {};
   const add = (aspect, lines) => {
     if (lines.length) out[aspect] = [...(out[aspect] || []), ...lines];
@@ -306,11 +328,12 @@ function compareSeen(a, b) {
   const navs = (x) => x.map((n) => `${n.label}: ${n.items.map(norm).join(" | ")}`);
   add("views", listDiff("views", navs(a.views), navs(b.views)));
   add("regions", listDiff("region", a.regions, b.regions));
-  add("buttons", listDiff("button", a.buttons, b.buttons));
   add("fields", listDiff("field", a.fields, b.fields));
   add("alerts", listDiff("alert", a.alerts, b.alerts));
-  add("badges", listDiff("badge", a.badges, b.badges));
-  add("rows", listDiff("row", a.rows, b.rows));
+  if (structure) return out;
+  add("buttons", listDiff("button", a.buttons, b.buttons, false, SETS));
+  add("badges", listDiff("badge", a.badges, b.badges, false, SETS));
+  add("rows", listDiff("row", a.rows, b.rows, false, SETS));
   // the looks used on the page, as a set: one more row of a kind already there is not a new look
   const sa = new Set(a.style), sb = new Set(b.style);
   const onlyA = [...sa].filter((x) => !sb.has(x)), onlyB = [...sb].filter((x) => !sa.has(x));
@@ -321,17 +344,18 @@ function compareSeen(a, b) {
   return out;
 }
 
-function comparePage(a, b) {
+function comparePage(a, b, hash) {
   const out = {};
   const merge = (prefix, diffs) => {
     for (const [aspect, lines] of Object.entries(diffs)) out[aspect] = [...(out[aspect] || []), ...lines.map((l) => prefix + l)];
   };
-  merge("", compareSeen(a.top, b.top));
+  const structure = STEP_BY_STEP.has(hash);
+  merge("", compareSeen(a.top, b.top, structure));
   const keys = [...new Set([...Object.keys(a.inner), ...Object.keys(b.inner)])];
   for (const k of keys) {
     if (!(k in b.inner)) out.clicks = [...(out.clicks || []), `${k}: only in A`];
     else if (!(k in a.inner)) out.clicks = [...(out.clicks || []), `${k}: only in B`];
-    else merge(`${k}: `, compareSeen(a.inner[k], b.inner[k]));
+    else merge(`${k}: `, compareSeen(a.inner[k], b.inner[k], structure));
   }
   // B must not add console errors or failed requests (the ones A has too are 0.15.1's own)
   const newer = (x, y) => x.filter((e) => !y.includes(e));
@@ -363,6 +387,8 @@ const seenBy = {};
 const notes = [];
 const started = Date.now();
 let differs = 0;
+let complete = false;
+let failure = null;
 try {
   const A = await session(browser, urlA, "a");
   const B = await session(browser, urlB, "b");
@@ -394,7 +420,7 @@ try {
     let a, b, diffs;
     for (let attempt = 0; attempt < 2; attempt++) {
       [a, b] = await Promise.all([visit(A, hash), visit(B, hash)]);
-      diffs = comparePage(a, b);
+      diffs = comparePage(a, b, hash);
       if (!Object.keys(diffs).length) break; // a second look rules out what was only still loading
     }
     // without the styles (they are many): what a person reads
@@ -429,9 +455,14 @@ try {
   }
   await A.ctx.close();
   await B.ctx.close();
+  complete = true;
+} catch (e) {
+  failure = String(e?.stack || e);
+  throw e;
 } finally {
   await browser.close();
-  fs.writeFileSync(path.join(outDir, "web.json"), JSON.stringify({ a: urlA, b: urlB, items, notes }, null, 2));
+  // complete: false when the run broke half way (parity.py then does not take the pages it has for all of them)
+  fs.writeFileSync(path.join(outDir, "web.json"), JSON.stringify({ a: urlA, b: urlB, complete, failure, items, notes }, null, 2));
   fs.writeFileSync(path.join(outDir, "seen.json"), JSON.stringify(seenBy, null, 1));
 }
 const whole = items.filter((i) => !i.page.startsWith("#") && i.verdict === "different").map((i) => i.what);
