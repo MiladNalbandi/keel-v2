@@ -14,8 +14,10 @@ jobs:
       - run: bash -n keel2 && bash -n install.sh && bash -n docker/keel-start
       # keel v2 does not depend on keel v1 (0.4.1): any line that still does fails the build
       - run: scripts/no-v1.sh --strict
-      - run: shellcheck -S error keel2 install.sh docker/keel-start
+      - run: shellcheck -S error keel2 install.sh docker/keel-start product/build-plugin.sh docker/tests/keel-start.test.sh
       - run: ./keel2 help | grep -q "keel2 start" && ./keel2 version
+      # keel-start, the supervisor loop (restart on exit 75, fallback to the last good plugins), with stub commands
+      - run: docker/tests/keel-start.test.sh
       # keel2 mcp: the client config names this script; --with-keel-v1 refuses a folder without mcp/server.js
       - run: |
           ./keel2 help | grep -q "keel2 mcp"
@@ -59,8 +61,8 @@ jobs:
       - run: ./gradlew --no-daemon test
         working-directory: api
   product:
-    # keel Product, the add-on in product/ (beta): its engine part inside keel's engine, its api part with keel's api
-    # (its web pages are tested in the web job, which finds them next to keel's web)
+    # keel Product, the plugin in product/ (beta): its engine part inside keel's engine (and its manifest, packed by
+    # product/build-plugin.sh), its api part with keel's api and as a plugin jar (its web pages are tested in the web job)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -70,7 +72,7 @@ jobs:
       - run: git config --global user.name ci && git config --global user.email ci@localhost
       - run: uv sync && PYTHONPATH=../product/engine uv run pytest -q ../product/engine/tests
         working-directory: engine
-      - run: ./gradlew --no-daemon productTest productBootJar
+      - run: ./gradlew --no-daemon productTest productPluginJar
         working-directory: api
   web:
     runs-on: ubuntu-latest

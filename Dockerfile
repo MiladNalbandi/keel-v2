@@ -4,20 +4,24 @@
 #
 #   docker build -t keel-v2 .                                        (CLIs included)
 #   docker build --build-arg INSTALL_CLIS=0 -t keel-v2:slim .        (no claude/codex/copilot/opencode)
-#   docker build --build-arg EDITION=product -t keel-v2:product .    (with keel Product, the add-on in product/: beta)
+#   docker build --build-arg EDITION=product -t keel-v2:product .    (with the keel Product plugin inside: beta)
 # Run:
 #   docker run -p 127.0.0.1:8080:8080 -v /path/to/project:/workspace -v keel-data:/data keel-v2
 
-# ---------- build the web app ----------
+# ---------- build the web app (keel's own; keel Product's web part too with EDITION=product) ----------
 FROM node:20-bookworm-slim AS web
 ARG EDITION=dev
 WORKDIR /src/web
 COPY web/package*.json ./
 RUN npm ci --no-audit --no-fund
 COPY web/ ./
-# keel Product's pages sit next to keel's web (../product/web) only in the product edition; keel's own bundle stays as it is
+# keel's bundle is built before product/web is even here, so it never holds keel Product's pages
+RUN npm run build
+# keel Product's pages are a plugin's web part: built on their own with web's node_modules (build:product writes
+# product/web/dist: index.js, style.css) and packed by the product stage. Empty unless EDITION=product.
 COPY product/web /src/product/web
-RUN if [ "$EDITION" != "product" ]; then rm -rf /src/product; fi && npm run build
+RUN rm -rf /src/product/web/dist && mkdir -p /src/product/web/dist \
+    && if [ "$EDITION" = "product" ]; then npm run build:product; fi
 
 # ---------- build the api (with the web app inside) ----------
 FROM eclipse-temurin:21-jdk AS api
@@ -31,15 +35,23 @@ COPY api/src ./src
 COPY product/api /src/product/api
 COPY --from=web /src/web/dist ./src/main/resources/static
 RUN ./gradlew --no-daemon -q bootJar -x test && cp build/libs/*.jar /app.jar
-# the product edition's jar is keel's api plus the add-on (productBootJar); keel's own jar never holds it
-RUN if [ "$EDITION" = "product" ]; then ./gradlew --no-daemon -q productBootJar && cp build/libs/keel-api-product.jar /app.jar; fi
+# keel Product's api part is a thin plugin jar (productPluginJar), never inside keel's jar. /plugin stays empty unless
+# EDITION=product.
+RUN mkdir -p /plugin && if [ "$EDITION" = "product" ]; then \
+      ./gradlew --no-daemon -q productPluginJar && cp build/libs/keel-plugin-product.jar /plugin/; fi
 
-# ---------- keel Product's engine part and content: empty unless EDITION=product ----------
+# ---------- keel Product as a plugin: /out/product/<version>/, packed by product/build-plugin.sh ----------
+# (the same script as on a computer, with the parts built above). /out stays empty unless EDITION=product.
 FROM node:20-bookworm-slim AS product
 ARG EDITION=dev
-COPY product/engine /in/engine
-COPY product/content /in/content
-RUN mkdir -p /out && if [ "$EDITION" = "product" ]; then cp -r /in/engine/keel_product /in/content /out/ && find /out -name __pycache__ -prune -exec rm -rf {} +; fi
+WORKDIR /src
+COPY product/keel-plugin.yml product/README.md product/build-plugin.sh ./product/
+COPY product/engine ./product/engine
+COPY product/content ./product/content
+COPY --from=web /src/product/web/dist ./product/web/dist
+COPY --from=api /plugin ./api/build/libs
+RUN mkdir -p /out && if [ "$EDITION" = "product" ]; then \
+      bash product/build-plugin.sh /tmp/plugin --no-build && mv /tmp/plugin/product /out/; fi
 
 # ---------- runtime: Ubuntu 24.04 with a full JDK 21 (projects compile and test inside) ----------
 FROM eclipse-temurin:21-jdk-noble
@@ -91,8 +103,10 @@ RUN uv sync --no-dev --python /usr/bin/python3 $( [ -f uv.lock ] && echo --froze
 COPY --from=api /app.jar /opt/api/app.jar
 # keel v2's own agents, skills, stacks, packs and templates (content/README.md)
 COPY content /opt/keel-v2/content
-# keel Product (product edition only): /opt/keel-product/keel_product (engine add-on) and /opt/keel-product/content
-COPY --from=product /out /opt/keel-product
+# The plugins inside the image (docs/plugins): <name>/<version>/keel-plugin.yml. keel Product with EDITION=product,
+# else none. keel-start resolves them at every start, together with the ones a person installed (/data/plugins/store).
+COPY --from=product /out /opt/keel/plugins
+ENV KEEL_PLUGINS_IMAGE=/opt/keel/plugins
 COPY docker/keel-start /usr/local/bin/keel-start
 RUN chmod +x /usr/local/bin/keel-start \
     && (id -u ubuntu >/dev/null 2>&1 && userdel -r ubuntu || true) \

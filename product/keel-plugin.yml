@@ -1,0 +1,20 @@
+# keel Product as a plugin package (docs/plugins/07-step1-contract.md, section 2).
+# product/build-plugin.sh packs it: product-<version>.kplug. Paths are relative to the plugin folder.
+# The version must equal VERSION in engine/keel_product/__init__.py and PRODUCT_VERSION in
+# api/.../ProductAutoConfiguration.kt (engine/tests/test_manifest.py checks it).
+schema: 1
+name: product
+title: keel Product
+version: 0.1.0-beta.1
+publisher: keel
+summary: Initiatives, teams and product docs, from an idea to the teams' stories.
+requires:
+  sdk: 1
+  keel: ">=0.15.0,<1.0.0"
+parts:
+  engine: { path: engine, package: keel_product }
+  api: { jars: [api/keel-plugin-product.jar] }
+  web: { entry: web/index.js, css: [web/style.css] }
+  content: content
+  # no migrations part: Product runs its own Flyway history (ProductSchema)
+per_project: false
