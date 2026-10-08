@@ -1,7 +1,10 @@
 """keel add-ons: optional packages that add workflows, agents, code actions, fake-model answers and routes to the engine
-without changing it (keel Product is one). Nothing loads unless KEEL_ADDONS names a package.
+without changing it (keel Product is one). Nothing loads unless KEEL_PLUGIN_ADDONS or KEEL_ADDONS names a package.
 
-    KEEL_ADDONS=keel_product            a comma-separated list of importable Python packages
+    KEEL_PLUGIN_ADDONS=keel_product     the engine packages of the resolved plugins (run/env, written by
+                                        `keel-engine plugins resolve`), loaded first
+    KEEL_PLUGIN_PATHS=/opt/…/engine     their folders (':'-separated), put on sys.path inside the engine only
+    KEEL_ADDONS=keel_product            a comma-separated list of importable Python packages (as before plugins)
 
 An add-on package has a module-level ADDON dict:
 
@@ -23,6 +26,7 @@ import inspect
 import logging
 import os
 import re
+import sys
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -101,11 +105,33 @@ def _load_one(package: str) -> Addon | None:
     return a
 
 
+def _plugin_paths() -> None:
+    """Put each KEEL_PLUGIN_PATHS folder at the front of sys.path, in its order, each once (inside the engine only:
+    project commands never see them, unlike PYTHONPATH)."""
+    folders = [p.strip() for p in os.environ.get("KEEL_PLUGIN_PATHS", "").split(":") if p.strip()]
+    for folder in reversed(folders):
+        if folder not in sys.path:
+            sys.path.insert(0, folder)
+    if folders:
+        importlib.invalidate_caches()
+
+
+def packages() -> list[str]:
+    """The packages to load: KEEL_PLUGIN_ADDONS, then KEEL_ADDONS, each once."""
+    out: list[str] = []
+    for var in ("KEEL_PLUGIN_ADDONS", "KEEL_ADDONS"):
+        for p in os.environ.get(var, "").split(","):
+            if p.strip() and p.strip() not in out:
+                out.append(p.strip())
+    return out
+
+
 @lru_cache(maxsize=1)
 def loaded() -> tuple[Addon, ...]:
     _problems.clear()
+    _plugin_paths()
     out: list[Addon] = []
-    for package in [p.strip() for p in os.environ.get("KEEL_ADDONS", "").split(",") if p.strip()]:
+    for package in packages():
         a = _load_one(package)
         if a and not any(x.name == a.name for x in out):
             out.append(a)
@@ -116,7 +142,7 @@ def loaded() -> tuple[Addon, ...]:
 
 
 def reload() -> tuple[Addon, ...]:
-    """Read KEEL_ADDONS again (tests)."""
+    """Read KEEL_PLUGIN_PATHS, KEEL_PLUGIN_ADDONS and KEEL_ADDONS again (tests)."""
     loaded.cache_clear()
     return loaded()
 
