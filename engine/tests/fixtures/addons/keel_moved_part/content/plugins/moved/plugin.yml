@@ -1,0 +1,13 @@
+# A plugin package's per-project plugin (tests/test_extensions.py): listed in Tools › Plugins with keel's own.
+name: moved
+title: Moved
+installable: true
+description: A part that moved out of core.
+tools:
+  server: keel-moved
+  read: [moved_runs]
+workflows: [moved-fix]
+commands:
+  - name: moved
+    description: Ask about the moved part
+    prompt: "Tell me about {{args}}."

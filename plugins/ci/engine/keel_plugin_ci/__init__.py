@@ -1,8 +1,24 @@
-"""The CI/CD plugin as a part (keel_engine/extensions.py): its workflow steps (actions.py), its read tools for agents
-(tools.py, the keel-ci server), its routes (routes.py), its tools in keel2 mcp (mcp_tools.py), and what KeelBot and
-"explain a step" say about it. Its code loads only when it is used: this module stays light."""
+"""The CI/CD plugin's engine part (plugins/ci): its workflow steps (actions.py), its read tools for agents (tools.py,
+the keel-ci server in server.py), its routes (routes.py), its tools in keel2 mcp (mcp_tools.py), and what KeelBot and
+"explain a step" say about it. Its code loads only when it is used: this module stays light (the guard's hook reads
+the read tools on each tool call).
+
+keel loads it as an add-on (KEEL_PLUGIN_ADDONS=keel_plugin_ci, written by `keel-engine plugins resolve`): ADDON says who
+it is and where its content is, PART holds the keys it had as a built-in part (keel_engine/extensions.py). Its content
+is the per-project plugin of Tools › Plugins: content/plugins/ci/plugin.yml (commands, tools, steps) and its own
+workflow ci-fix (runtime/plugins.py reads both from a loaded add-on's content/plugins).
+
+    repo:    plugins/ci/engine/keel_plugin_ci/   ->  plugins/ci/content
+    plugin:  <plugin>/engine/keel_plugin_ci/     ->  <plugin>/content   (keel-plugin.yml, scripts/build-plugin.sh)
+"""
 
 from __future__ import annotations
+
+from pathlib import Path
+
+# the same version as ../../keel-plugin.yml (tests/test_ci_part.py checks it)
+VERSION = "1.0.0"
+CONTENT = Path(__file__).resolve().parents[2] / "content"
 
 PARAMS = {
     "ci:status": {"branch": "optional"},
@@ -73,6 +89,13 @@ def _keel_mcp(server, api, guard, write: bool) -> None:
     register(server, api, guard, write)
 
 
+ADDON = {
+    "name": "ci",
+    "title": "CI/CD",
+    "version": VERSION,
+    "content": CONTENT,
+}
+
 PART = {
     "name": "ci",
     "title": "CI/CD",
@@ -81,7 +104,7 @@ PART = {
     "params": PARAMS,
     "docs": DOCS,
     "read_tools": ("ci_runs", "ci_failure"),
-    "mcp": {"server": "keel-ci", "module": "keel_engine.plugins.server", "args": ["ci"], "call": _call},
+    "mcp": {"server": "keel-ci", "module": "keel_plugin_ci.server", "call": _call},
     "router": _router,
     "errors": _errors,
     "keelbot": {"prompt": KEELBOT, "actions": KEELBOT_ACTIONS},

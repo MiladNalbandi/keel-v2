@@ -1,11 +1,12 @@
 """keel's built-in parts that become plugins. Each declares itself in a PART dict that keel_engine/extensions.py reads
 (keel_engine/builtins.py names the modules); core never imports them:
 
-    db/, git/, ci/    what content/plugins/<name>/plugin.yml promises (runtime/plugins.py loads those): workflow steps,
+    db/, git/         what content/plugins/<name>/plugin.yml promises (runtime/plugins.py loads those): workflow steps,
                       read tools for agents (server.py), routes, KeelBot's words and keel2 mcp's tools
     graph/            the code graph (tools/codegraph.py): its index, MCP server, hints and the Graph page's routes
 
-The map left in step 3: it is the plugin plugins/map (package keel_plugin_map), loaded as an add-on.
+The map and CI/CD left in step 3: they are the plugins plugins/map and plugins/ci (packages keel_plugin_map and
+keel_plugin_ci), loaded as add-ons.
 
 A project turns db, git and ci on (Tools › Plugins); the api then sends `plugins: [...]` with every flow and KeelBot
 turn, and the plugin's secrets in the call's keys (memory only): `db:<connection>` → {"name","kind","url","env"} as

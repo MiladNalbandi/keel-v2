@@ -43,6 +43,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 from functools import lru_cache
+from pathlib import Path
 
 from . import addons, builtins, config
 
@@ -288,16 +289,29 @@ def close_call(key: str | None):
         _calls.pop(key, None)
 
 
+def _package_folder(p: Part) -> str | None:
+    """The folder that holds a plugin part's package (plugins/ci/engine), so the server it starts can import it; None for
+    a built-in part (keel's own Python finds keel_engine)."""
+    if p.builtin:
+        return None
+    top = sys.modules.get(p.source.split(".", 1)[0])
+    paths = list(getattr(top, "__path__", None) or [])
+    return str(Path(paths[0]).resolve().parent) if paths else None
+
+
 def server_specs(names: list[str], key: str) -> list[dict]:
-    """The MCP servers of these parts for one call: each runs its module and asks the engine back with the key."""
+    """The MCP servers of these parts for one call: each runs its module and asks the engine back with the key. A
+    plugin's server gets its package's folder on PYTHONPATH (that process only: a project's commands never see it)."""
     url = f"http://127.0.0.1:{config.port()}/plugins/call"
     out = []
     for n in names:
         p = part(n)
         if p and p.mcp.get("server") and p.mcp.get("module"):
+            env = {"KEEL_PLUGIN_URL": url, "KEEL_PLUGIN_KEY": key}
+            if folder := _package_folder(p):
+                env["PYTHONPATH"] = folder
             out.append({"name": p.mcp["server"], "command": sys.executable,
-                        "args": ["-m", p.mcp["module"], *[str(x) for x in p.mcp.get("args") or []]],
-                        "env": {"KEEL_PLUGIN_URL": url, "KEEL_PLUGIN_KEY": key}})
+                        "args": ["-m", p.mcp["module"], *[str(x) for x in p.mcp.get("args") or []]], "env": env})
     return out
 
 

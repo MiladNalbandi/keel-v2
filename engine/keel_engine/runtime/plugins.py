@@ -2,6 +2,9 @@
 
     content/plugins/<name>/plugin.yml           keel's own: core is always on; an `installable` one (db, git) is on
                                                 only for the projects that turned it on (the api sends `plugins`)
+    <add-on content>/plugins/<name>/plugin.yml  keel's own too, brought by a loaded add-on or plugin package (its ADDON
+                                                content, e.g. plugins/ci/content/plugins/ci): listed with keel's, in name
+                                                order; content/plugins wins when both have a name
     <project>/.keel/plugins/<name>/plugin.yml   the project's own: text only (a command with the same name replaces keel's)
 
     name: db
@@ -28,18 +31,31 @@ from pathlib import Path
 
 import yaml
 
-from .. import config
+from .. import addons, config
 
 NAME = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
 ARGS = re.compile(r"\{\{\s*args\s*\}\}")
 MAX_PROMPT = 6000
 
 
-def _dirs(root: str | None) -> list[tuple[str, Path]]:
-    out = [("keel", config.content_dir() / "plugins")]
-    if root:
-        out.append(("project", Path(root) / ".keel" / "plugins"))
-    return out
+def keel_files() -> list[Path]:
+    """keel's own plugin.yml files: content/plugins/*, then each loaded add-on's content/plugins/*; one per folder name
+    (keel's content first), in name order."""
+    by: dict[str, Path] = {}
+    for d in [config.content_dir() / "plugins", *(d for _addon, d in addons.folders("plugins"))]:
+        if d.is_dir():
+            for f in sorted(d.glob("*/plugin.yml")):
+                by.setdefault(f.parent.name, f)
+    return [by[name] for name in sorted(by)]
+
+
+def _found(root: str | None) -> list[dict]:
+    """keel's plugins, then the project's, each read with its problems."""
+    found = [_one("keel", f) for f in keel_files()]
+    d = Path(root) / ".keel" / "plugins" if root else None
+    if d and d.is_dir():
+        found += [_one("project", f) for f in sorted(d.glob("*/plugin.yml"))]
+    return found
 
 
 def _one(source: str, file: Path) -> dict:
@@ -93,29 +109,28 @@ def _one(source: str, file: Path) -> dict:
 def load(root: str | None, enabled: list[str] | None = None) -> list[dict]:
     """The plugins in use, keel's first, then the project's, each with its problems: keel's installable plugins only
     when `enabled` names them."""
-    found = []
-    for source, d in _dirs(root):
-        if d.is_dir():
-            found += [_one(source, f) for f in sorted(d.glob("*/plugin.yml"))]
     on = set(enabled or [])
-    return [p for p in found if not p["installable"] or p["name"] in on]
+    return [p for p in _found(root) if not p["installable"] or p["name"] in on]
+
+
+def _installable() -> list[dict]:
+    """keel's installable plugins as read, with the path of their plugin.yml."""
+    return [p for p in (_one("keel", f) for f in keel_files()) if p["installable"]]
 
 
 def catalog() -> list[dict]:
     """keel's installable plugins (Tools › Plugins), with what each adds."""
-    d = config.content_dir() / "plugins"
-    found = [_one("keel", f) for f in sorted(d.glob("*/plugin.yml"))] if d.is_dir() else []
-    return [{k: v for k, v in p.items() if k not in ("path", "source")} for p in found if p["installable"]]
+    return [{k: v for k, v in p.items() if k not in ("path", "source")} for p in _installable()]
 
 
 def plugin_workflows() -> list[dict]:
-    """keel's plugins' own workflows (content/plugins/<name>/workflows/<id>.yaml), each with "plugin": its plugin."""
+    """keel's plugins' own workflows (workflows/<id>.yaml next to their plugin.yml), each with "plugin": its plugin."""
     from ..workflows.model import load_yaml
 
     out = []
-    for p in catalog():
+    for p in _installable():
         for wid in p.get("workflows") or []:
-            f = config.content_dir() / "plugins" / p["name"] / "workflows" / f"{wid}.yaml"
+            f = Path(p["path"]).parent / "workflows" / f"{wid}.yaml"
             if f.is_file():
                 text = f.read_text()
                 out.append({**load_yaml(text).model_dump(by_alias=True), "yaml": text, "plugin": p["name"]})

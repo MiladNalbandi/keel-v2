@@ -431,6 +431,23 @@ def write_mode(argv: list[str]) -> bool:
     return "--write" in argv or os.environ.get("KEEL_MCP_WRITE", "0") == "1"
 
 
+PLUGIN_ENV = ("KEEL_PLUGIN_PATHS", "KEEL_PLUGIN_ADDONS")
+
+
+def plugin_env() -> None:
+    """The plugins whose tools this server adds (their `keel_mcp`). The engine hands its own to the servers it starts
+    (tools/mcp.py keel_server_env). `keel2 mcp` runs beside the engine (docker exec), not as its child: then the ones
+    keel's last start resolved ($KEEL_DATA/plugins/run/env), so the person gets the same tools as before."""
+    if any(os.environ.get(k) for k in PLUGIN_ENV):
+        return
+    from .pluginhost import resolver
+
+    found = {k: v for k, v in resolver.read_env().items() if k in PLUGIN_ENV and v}
+    if found:
+        os.environ.update(found)
+        extensions.reload()
+
+
 def main(argv: list[str] | None = None) -> None:
     argv = sys.argv[1:] if argv is None else argv
     parser = argparse.ArgumentParser(prog="python -m keel_engine.mcp", description="keel v2 MCP server (stdio)")
@@ -438,4 +455,5 @@ def main(argv: list[str] | None = None) -> None:
     group.add_argument("--read-only", action="store_true", help="only the read tools (default; what agents get)")
     group.add_argument("--write", action="store_true", help="also keel_approve_gate and keel_resume")
     parser.parse_args(argv)
+    plugin_env()
     build_server(write=write_mode(argv)).run("stdio")

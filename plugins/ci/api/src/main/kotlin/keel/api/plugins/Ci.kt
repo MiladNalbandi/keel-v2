@@ -24,10 +24,15 @@ import java.time.Instant
 data class CiFixBody(val run: Long? = null)
 
 /**
- * The CI/CD plugin (engine keel_engine/plugins/ci): the project's pipelines on GitHub Actions for Run › Jobs ›
+ * The CI/CD plugin (plugins/ci; engine keel_plugin_ci): the project's pipelines on GitHub Actions for Run › Jobs ›
  * Pipelines, a re-run of the failed jobs, and the ci-fix flow (the plugin's own workflow: read the failure, fix, commit,
  * push, wait for CI). A watcher looks every two minutes: a newly failed run is a notification, and with
  * Settings › When CI fails = fix the flow starts by itself, when the project folder is free and on that branch.
+ *
+ * Its api part is a plugin jar (keel-plugin-ci.jar). It keeps keel's package (keel.api.plugins), so keel's component
+ * scan finds it when the jar is on loader.path (docs/plugins/11-step3-contract.md). The setting (Settings.ciOnFailure)
+ * and the table ci_seen (V12) stay in keel's core. The fix flow pushes with the Git plugin: it is checked here, when the
+ * flow starts.
  */
 @Service
 class CiService(

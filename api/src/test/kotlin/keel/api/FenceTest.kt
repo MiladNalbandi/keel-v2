@@ -36,6 +36,15 @@ class FenceTest {
     }
 
     @Test
+    fun `the CI-CD plugin's classes are not in core, not even in its package keel_api_plugins`() {
+        // the scan skips keel.api.plugins (Database and Git still live there), so look for the names themselves
+        val names = Regex("""\bCi(Service|Controller|FixBody)\b""")
+        val found = Files.walk(sources).use { paths -> paths.filter { it.extension == "kt" }.sorted().toList() }
+            .filter { names.containsMatchIn(Fence.withoutComments(it.readText())) }
+        assertThat(found).describedAs("plugins/ci/api has them; core never uses them").isEmpty()
+    }
+
+    @Test
     fun `core uses no plugin beyond the allowlist`() {
         assertThat(sources.isDirectory()).describedAs("run the tests from api/: $sources is missing").isTrue()
         val problems = Fence.problems(Fence.scan(sources).couplings, Fence.readAllowlist(allowlist), allowlistName)
@@ -119,8 +128,12 @@ private object Fence {
     val PLUGINS = listOf("keel.api.helper", "keel.api.jira", "keel.api.plugins", "keel.api.review", "keel.api.tasks")
 
     // Core never uses these, not even today. They can never be in the allowlist. keel.api.map is the Map plugin's
-    // (plugins/map/api, step 3): a part that moved out keeps its package, and core never uses it again.
-    val FORBIDDEN = listOf("keel.product", "keel.api.map")
+    // (plugins/map/api, step 3) and the Ci* classes are the CI/CD plugin's (plugins/ci/api, in keel's package
+    // keel.api.plugins): a part that moved out keeps its package, and core never uses it again.
+    val FORBIDDEN = listOf(
+        "keel.product", "keel.api.map",
+        "keel.api.plugins.CiController", "keel.api.plugins.CiFixBody", "keel.api.plugins.CiService",
+    )
 
     data class Found(val couplings: Set<String>, val forbidden: Set<String>)
 

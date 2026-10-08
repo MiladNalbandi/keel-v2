@@ -1,5 +1,6 @@
-"""v0.11.0 the CI/CD plugin (keel_engine/plugins/ci): the pipelines through gh, why a run failed, a re-run, the steps a
-workflow uses, the read tools for models, and the ci-fix flow. A fake `gh` on PATH answers from a JSON file."""
+"""v0.11.0 the CI/CD plugin (plugins/ci, keel_plugin_ci; moved from keel_engine/plugins/ci): the pipelines through gh,
+why a run failed, a re-run, the steps a workflow uses, the read tools for models, and the ci-fix flow. A fake `gh` on
+PATH answers from a JSON file."""
 
 import json
 import stat
@@ -10,8 +11,8 @@ import pytest
 
 from conftest import start, wait
 from keel_engine import extensions
-from keel_engine.plugins.ci import core as ci
 from keel_engine.runtime import plugins as manifests
+from keel_plugin_ci import core as ci
 from keel_engine.workflows.model import from_dict, load_yaml
 from keel_engine.workflows.validate import validate
 

@@ -52,11 +52,11 @@ def knowledge(**k):
 
 def test_the_built_in_parts_come_from_the_one_list_in_its_order():
     have = extensions.parts()
-    assert [p.name for p in have] == ["db", GIT, "ci", "graph", "keelbot"]          # the map is a plugin (plugins/map)
+    assert [p.name for p in have] == ["db", GIT, "graph", "keelbot"]     # map and ci are plugins (plugins/map, plugins/ci)
     assert [p.source for p in have] == list(builtins.BUILTINS) and all(p.builtin for p in have)
-    assert [extensions.title(n) for n in ("db", GIT, "ci", "nope")] == ["Database", "Git", "CI/CD", "nope"]
-    assert extensions.servers() == {"db": "keel-db", GIT: f"keel-{GIT}", "ci": "keel-ci"}
-    assert extensions.param_prefixes() == ["db", GIT, "ci"]
+    assert [extensions.title(n) for n in ("db", GIT, "nope")] == ["Database", "Git", "nope"]
+    assert extensions.servers() == {"db": "keel-db", GIT: f"keel-{GIT}"}
+    assert extensions.param_prefixes() == ["db", GIT]
     assert [n for n, _fn in extensions.hooks("on_scan")] == ["graph"]
     assert [n for n, _fn in extensions.hooks("pr_body_sections")] == ["keelbot"]
 
@@ -67,7 +67,8 @@ def test_only_per_project_parts_are_switched_and_actions_belong_to_their_prefix(
     assert extensions.on(settings, "graph") and extensions.on({}, "graph") and not extensions.on({}, "db")
     assert extensions.owner("db:query").name == "db" and extensions.owner(f"{GIT}:push").name == GIT
     assert extensions.owner("verify_red") is None and extensions.owner("nope:x") is None
-    assert extensions.has_action("ci:wait") and not extensions.has_action("ci:nope")
+    assert extensions.has_action("db:query") and not extensions.has_action("db:nope")
+    assert not extensions.has_action("ci:wait")                 # the CI/CD plugin is not loaded here (plugins/ci)
     assert extensions.allow_entries(["db", "graph"]) == ["mcp:keel-db:*"]
 
 
@@ -123,7 +124,7 @@ def test_an_addon_part_brings_its_steps_with_their_settings_words_and_switch(acm
     assert errs({"id": "a", "kind": "code", "name": "a", "action": "acme:ping", "with": {"say": "hi"}}) == []
     assert errs({"id": "a", "kind": "code", "name": "a", "action": "acme:ping"}) == ["Step 'a': acme:ping needs `with: {say: ...}`."]
     assert errs({"id": "a", "kind": "code", "name": "a", "action": "commit", "with": {"x": 1}}) == \
-        [f"Step 'a': only a plugin step (db:..., {GIT}:..., ci:..., acme:...) takes `with`."]
+        [f"Step 'a': only a plugin step (db:..., {GIT}:..., acme:...) takes `with`."]
 
     import asyncio
 
@@ -141,6 +142,9 @@ def test_an_addon_parts_tools_routes_and_errors(acme, repo):
     [spec] = extensions.server_specs(["acme", "graph"], "pk_x")
     assert spec["name"] == "keel-acme" and spec["args"] == ["-m", "keel_part_addon.server", "x"]
     assert spec["env"]["KEEL_PLUGIN_KEY"] == "pk_x"
+    # a plugin's server runs its own module: its package's folder is on that process's PYTHONPATH (a built-in's is not)
+    assert spec["env"]["PYTHONPATH"] == str(Path(FIXTURES).resolve())
+    assert "PYTHONPATH" not in extensions.server_specs(["db"], "pk_x")[0]["env"]
     with TestClient(create_app(EventBus())) as client:
         boom = client.get("/acme/boom")
         assert boom.status_code == 409 and boom.json() == {"error": "Too loud.", "hint": "Whisper."}
@@ -162,7 +166,7 @@ def test_keelbot_and_keel_mcp_hear_about_an_addon_part(acme):
 
     tools = lambda write: {t.name for t in asyncio.run(mcp_server.build_server(write=write, api=object()).list_tools())}
     assert "keel_acme_look" in tools(False) and "keel_acme_poke" not in tools(False)
-    assert {"keel_acme_look", "keel_acme_poke", "keel_db_query", "keel_ci_rerun"} <= tools(True)
+    assert {"keel_acme_look", "keel_acme_poke", "keel_db_query", "keel_git_push"} <= tools(True)
 
 
 # ------------------------------------------------------------------ the hooks, where core calls them
@@ -226,3 +230,32 @@ def test_a_moved_part_is_an_add_on_with_the_keys_of_its_part_dict(monkeypatch):
         monkeypatch.delenv("KEEL_ADDONS", raising=False)
         sys.modules.pop("keel_moved_part", None)
         extensions.reload()
+
+
+def test_a_moved_parts_plugin_yml_is_one_of_keels_plugins(monkeypatch, repo):
+    """A plugin package brings its Tools › Plugins entry in its content (content/plugins/<name>/plugin.yml, as
+    plugins/ci does): runtime/plugins.py reads it with keel's own content/plugins, in name order, with its own workflow
+    (listed with its plugin) and its commands (only while a project has it on)."""
+    from keel_engine.runtime import plugins as manifests
+
+    monkeypatch.syspath_prepend(FIXTURES)
+    monkeypatch.setenv("KEEL_ADDONS", "keel_moved_part")
+    try:
+        extensions.reload()
+        assert [f.parent.name for f in manifests.keel_files()] == ["core", "db", GIT, "moved", "review"]
+        with TestClient(create_app(EventBus())) as client:
+            cat = client.get("/plugins").json()
+            assert [p["name"] for p in cat] == ["db", GIT, "moved", "review"]
+            moved = next(p for p in cat if p["name"] == "moved")
+            assert moved["title"] == "Moved" and moved["tools"] == {"server": "keel-moved", "read": ["moved_runs"]}
+            tpls = client.get("/templates").json()
+            assert tpls[-1]["id"] == "moved-fix" and tpls[-1]["plugin"] == "moved" and "look at it" in tpls[-1]["yaml"]
+            names = lambda on: {c["name"] for c in client.post("/helper/commands", json={"root": str(repo), "plugins": on}).json()}
+            assert "moved" in names(["moved"]) and "moved" not in names([])
+        assert manifests.expand(str(repo), "/moved the part", ["moved"]) == ("Tell me about the part.", "moved")
+    finally:
+        monkeypatch.delenv("KEEL_ADDONS", raising=False)
+        sys.modules.pop("keel_moved_part", None)
+        extensions.reload()
+    assert [p["name"] for p in manifests.catalog()] == ["db", GIT, "review"]       # gone with the package
+    assert not [w for w in manifests.plugin_workflows() if w["id"] == "moved-fix"]

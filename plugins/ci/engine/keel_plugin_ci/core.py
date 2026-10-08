@@ -8,6 +8,9 @@
 
 Reading is free. Re-running is the only action here; a fix is a flow (content/plugins/ci/workflows/ci-fix.yaml) that
 commits and pushes under keel's rules.
+
+    github_token(keys)            the GitHub token an agent call or an api call carries (Connections › GitHub)
+    PluginError                   keel's refusal of a part (status, message, hint): the app answers it as a 4xx
 """
 
 from __future__ import annotations
@@ -16,12 +19,22 @@ import json
 import re
 import time
 
-from ...tools import git, testcmd
-from ...tools.agent_tools import command_env
+from keel_engine.extensions import PartError as PluginError
+from keel_engine.tools import git, testcmd
+from keel_engine.tools.agent_tools import command_env
+
+__all__ = ["CiError", "PluginError", "for_head", "github_token", "rerun", "run", "runs", "wait"]
 
 LOG_TAIL = 8000
 FAILED = {"failure", "timed_out", "cancelled", "startup_failure", "action_required"}
 RUN_FIELDS = "databaseId,headBranch,headSha,status,conclusion,workflowName,event,createdAt,updatedAt,url,displayTitle,attempt"
+
+
+def github_token(keys: dict | None) -> str | None:
+    """The GitHub token a call carries (keys["github"]), read as keel's own ship step reads it."""
+    from keel_engine.runtime.verdict_actions import github_token as token
+
+    return token(keys or {})
 
 
 class CiError(Exception):

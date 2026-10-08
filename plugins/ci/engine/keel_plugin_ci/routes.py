@@ -9,8 +9,8 @@ import os
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
-from .. import PluginError, github_token
 from . import core as ci
+from .core import PluginError, github_token
 
 router = APIRouter()
 

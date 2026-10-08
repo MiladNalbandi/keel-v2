@@ -1,74 +1,16 @@
-// v0.11.0 the CI/CD plugin in the web (Run › Jobs › Pipelines, KeelBot's CI button, Settings › When CI fails) and the
-// Database plugin's IntelliJ-style tool on the Code page (connections ▸ tables ▸ columns, a console, a table's data).
+// v0.11.0 the CI/CD plugin in keel's core web (KeelBot's CI button, Settings › When CI fails; Run › Jobs › Pipelines is
+// the plugin's own page part, tested in plugins/ci/web/test) and the Database plugin's IntelliJ-style tool on the Code
+// page (connections ▸ tables ▸ columns, a console, a table's data).
 
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import type { CiRun } from "../api";
 import { App } from "../App";
 import { statementAt } from "../components/plugins/DbTool";
 import { db } from "./setup";
 
 const calls = (method: string, path: string) =>
   db.calls.filter((c) => c.method === method && c.path === path);
-const ciRun = (id: number, failed: boolean, branch = "feat/euro"): CiRun => ({
-  id,
-  workflow: "ci",
-  title: "feat: euro prices",
-  branch,
-  sha: "abc1234def",
-  event: "push",
-  status: "completed",
-  conclusion: failed ? "failure" : "success",
-  url: `https://github.com/o/r/actions/runs/${id}`,
-  created_at: new Date().toISOString(),
-  updated_at: new Date().toISOString(),
-  failed,
-});
-
-describe("Run › Jobs › Pipelines", () => {
-  it("lists the runs, opens a failed one with its log, and starts the fix flow", async () => {
-    const user = userEvent.setup();
-    db.plugins.ci = true;
-    db.ciRuns = [ciRun(12, true), ciRun(11, false, "main")];
-    location.hash = "#/jobs";
-    render(<App />);
-    await user.click(await screen.findByRole("tab", { name: "Pipelines" }));
-    await waitFor(() => expect(location.hash).toBe("#/jobs/pipelines"));
-    const table = await screen.findByRole("table", { name: "Pipeline runs" });
-    expect(within(table).getAllByRole("row")).toHaveLength(3);
-    await user.click(
-      within(table).getByRole("button", { name: "Open run #12" }),
-    );
-    const run = await screen.findByRole("group", { name: "Run #12" });
-    expect(
-      within(run).getByLabelText("The failed steps' log"),
-    ).toHaveTextContent("assert 3 == 4");
-    expect(run).toHaveTextContent("at run the tests");
-    await user.click(
-      within(run).getByRole("button", { name: "Run the failed jobs again" }),
-    );
-    await waitFor(() =>
-      expect(
-        calls("POST", "/api/projects/ludus-engine/ci/runs/12/rerun"),
-      ).toHaveLength(1),
-    );
-    await user.click(within(run).getByRole("button", { name: "Fix it" }));
-    await waitFor(() =>
-      expect(
-        calls("POST", "/api/projects/ludus-engine/ci/fix")[0]?.body,
-      ).toEqual({ run: 12 }),
-    );
-    await waitFor(() => expect(location.hash).toBe("#/flow/t-ci-fix"));
-  });
-
-  it("shows no Pipelines tab while the plugin is off", async () => {
-    location.hash = "#/jobs";
-    render(<App />);
-    await screen.findByRole("heading", { name: "Jobs" });
-    expect(screen.queryByRole("tab", { name: "Pipelines" })).toBeNull();
-  });
-});
 
 describe("KeelBot's CI button and the setting", () => {
   it("fix starts the flow from KeelBot's answer", async () => {
