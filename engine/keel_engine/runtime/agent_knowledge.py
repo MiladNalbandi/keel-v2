@@ -18,10 +18,10 @@ from pathlib import Path
 
 import yaml
 
-from .. import addons, config, rules
+from .. import addons, config, extensions, rules
 
 SECTIONS = rules.KNOWLEDGE_SECTIONS
-CODEGRAPH = "codegraph"   # the MCP server name of the code graph (stage 5b)
+CODEGRAPH = "codegraph"   # the MCP server name of the code graph (stage 5b): the code_graph setting gives it or not
 
 # One line per section for the prompt: what an agent finds there.
 PURPOSE = {
@@ -115,9 +115,10 @@ def prompt_block(root: str, k: dict, graph: bool) -> str:
         lines.append(f"Knowledge you can use: none of your sections ({', '.join(k['sections'])}) exist in "
                      "docs/knowledge/ yet, so read the code.")
     if graph and k["code_graph"]:
-        lines.append("Code graph: codegraph_search finds where a class, function or route is (file:line, no code); then "
-                     "read only those lines (Read with offset and limit) instead of whole files. codegraph_callers, "
-                     "codegraph_callees and codegraph_impact list who calls what and what a change touches.")
+        # how to use the code graph's tools: the code graph part says it (keel_engine/extensions.py, mcp.prompt)
+        told = extensions.server_prompt(CODEGRAPH)
+        if told:
+            lines.append(told)
     if k["memory"]:
         lines.append("Memory: if you ran this step before, you continue that session (or get its summary); do not redo "
                      "finished work.")

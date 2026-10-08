@@ -117,9 +117,4 @@ async def ci_rerun(a):
 
 
 ACTIONS = {"ci:status": ci_status, "ci:wait": ci_wait, "ci:logs": ci_logs, "ci:rerun": ci_rerun}
-PARAMS = {
-    "ci:status": {"branch": "optional"},
-    "ci:wait": {"minutes": "optional"},
-    "ci:logs": {"run": "optional"},
-    "ci:rerun": {"run": "optional"},
-}
+# what each needs in `with:` is PARAMS in this package's PART (__init__.py)

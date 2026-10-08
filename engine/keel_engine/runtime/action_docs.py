@@ -2,15 +2,18 @@
 
 One entry per action name the engine can run: `summary` (one line) and `steps` (what it runs and decides, in
 order). An entry without `steps` uses the action function's own docstring instead (the feature, review and fix
-helpers have good ones). tests/test_explain.py fails when an action in the dispatch (actions.run_action, the action
-modules' ACTIONS tables, the compiler's own start_flow and escalate_model) has no entry here, so a new action needs
-its words before it ships.
+helpers have good ones). A part's actions (db:*, git:*, ci:*) bring their own words: its `docs`
+(keel_engine/extensions.py); all_docs() has both. tests/test_explain.py fails when an action in the dispatch
+(actions.run_action, the action modules' ACTIONS tables, the compiler's own start_flow and escalate_model, the parts'
+actions) has no entry, so a new action needs its words before it ships.
 """
 
 from __future__ import annotations
 
 import inspect
 import re
+
+from .. import extensions
 
 # The compiler runs these itself (runtime/compiler.py code_step); they are not in actions.run_action.
 COMPILER_ACTIONS = ("start_flow", "escalate_model")
@@ -246,78 +249,6 @@ DOCS: dict[str, dict] = {
             "Runs it (15 minutes at most); the last 3000 characters of the output are kept.",
         ],
     },
-    # ---------------------------------------------------------------- plugins (Tools › Plugins; settings in `with:`)
-    "db:query": {
-        "summary": "Database plugin: runs one read query; its rows go into the flow's data under the step's id.",
-        "steps": [
-            "with: sql (one SELECT, EXPLAIN or SHOW) and connection (default: the project's local database).",
-            "Runs in a read-only transaction: at most 200 rows and 15 seconds; columns named like a secret show as •••.",
-            "Fails when the plugin is off for the project, the connection is missing, or the SQL is not a read.",
-        ],
-    },
-    "db:check": {
-        "summary": "Database plugin: a data check; runs a read query and passes when the rows match what you expect.",
-        "steps": [
-            "with: sql, expect (none: no row may come back, the default; some; or a number) and connection.",
-            "A failed check shows the query and the first 20 rows; with soft: true a branch reads RESULT pass or fail.",
-        ],
-    },
-    "db:change": {
-        "summary": "Database plugin: changes data (INSERT, UPDATE, DELETE), only on a local or test database.",
-        "steps": [
-            "keel runs it once in a transaction it rolls back, to count the rows.",
-            "Then it asks you (Run it, or stop the flow), unless the run mode is auto and the database is local.",
-            "Schema changes are refused: they belong in the project's migrations (db:migrate).",
-        ],
-    },
-    "db:migrate": {
-        "summary": "Database plugin: runs the project's migration command (commands.migrate in .keel/config.yml).",
-        "steps": ["The command goes through keel's shell guard first; a nonzero exit fails the step."],
-    },
-    "git:branch": {
-        "summary": "Git plugin: switches to the flow's branch, creating it when it does not exist.",
-        "steps": ["with: name, or pattern (default the branch_pattern setting; {slug} is the flow's title)."],
-    },
-    "git:sync": {
-        "summary": "Git plugin: merges the base branch (the remote's when there is one) into the current branch.",
-        "steps": ["Needs a clean tree. A conflict is undone at once and fails the step with the files."],
-    },
-    "git:push": {
-        "summary": "Git plugin: pushes the branch, never with force and never to main, master or the base branch.",
-        "steps": [
-            "Follows Settings › Push and open PR at ship: never skips it, ask needs the gate before it approved (or asks "
-            "you here), automatic goes on. The Auto run mode never pushes.",
-            "A GitHub remote gets the token from Connections › GitHub.",
-        ],
-    },
-    "git:pr": {
-        "summary": "Git plugin: opens the pull request with keel's PR body, or updates its title and body.",
-        "steps": ["with: title (default the flow's title) and draft. The branch must be pushed. Same rules as git:push."],
-    },
-    "git:pr-checks": {
-        "summary": "Git plugin: waits for the pull request's CI checks; a failed check fails the step.",
-        "steps": ["with: minutes (default 30). Polls every 30 seconds."],
-    },
-    "git:cleanup": {
-        "summary": "Git plugin: deletes local branches already merged into the base, and prunes old worktrees.",
-        "steps": ["git branch -d refuses anything that is not merged, so no work is lost."],
-    },
-    "ci:status": {
-        "summary": "CI/CD plugin: the newest pipeline runs of this commit (or a branch); passes when all are done and green.",
-        "steps": ["with: branch (default: the runs of HEAD). A run that is still going fails the step (soft: a branch reads it)."],
-    },
-    "ci:wait": {
-        "summary": "CI/CD plugin: waits for the pipelines of this commit after a push; a failed run fails the step.",
-        "steps": ["with: minutes (default 30). The failed run's jobs, steps and log go to data.ci_failure."],
-    },
-    "ci:logs": {
-        "summary": "CI/CD plugin: reads why the newest failed pipeline of this branch failed, into data.ci_failure.",
-        "steps": ["with: run (a run id; default the newest failed run of the branch). No failed run fails the step."],
-    },
-    "ci:rerun": {
-        "summary": "CI/CD plugin: runs the failed jobs of a pipeline again (for a flaky failure).",
-        "steps": ["with: run (default the newest failed run of the branch)."],
-    },
     # ---------------------------------------------------------------- compiler
     "start_flow": {
         "summary": "Starts another workflow's thread on this project with a seed; both threads keep the link.",
@@ -536,17 +467,20 @@ def dispatch_names() -> list[str]:
                                                       for n in re.findall(r'"([\w:]+)"', grp)]
     if 'startswith("run:")' in src:
         own.append("run:")
-    from .. import plugins
-
     names = [*own, *actions.VERDICT_ACTIONS, *flow_actions.ACTIONS, *feature_actions.ACTIONS, *actions._flow_actions(),
-             *COMPILER_ACTIONS, *plugins.action_names()]
+             *COMPILER_ACTIONS, *extensions.action_names()]
     return list(dict.fromkeys(names))
+
+
+def all_docs() -> dict[str, dict]:
+    """keel's own entries and the parts' (their `docs`)."""
+    return {**DOCS, **extensions.docs()}
 
 
 def describe(name: str) -> dict:
     """{name, summary, steps, known} for one action of a code step (`run:<cmd>` keeps its command)."""
     key = "run:" if name.startswith("run:") else name
-    entry = DOCS.get(key)
+    entry = DOCS.get(key) or extensions.docs().get(key)
     if not entry:
         return {"name": name, "known": False, "summary": f"Unknown action {name}: the step fails with \"Unknown action\".",
                 "steps": []}

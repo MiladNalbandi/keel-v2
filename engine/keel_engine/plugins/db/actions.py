@@ -136,10 +136,4 @@ async def db_migrate(a):
 
 
 ACTIONS = {"db:query": db_query, "db:check": db_check, "db:change": db_change, "db:migrate": db_migrate}
-# what each needs in `with:` (workflows/validate.py checks it; the Workflows page's form shows it)
-PARAMS = {
-    "db:query": {"sql": "required", "connection": "optional"},
-    "db:check": {"sql": "required", "expect": "optional", "connection": "optional"},
-    "db:change": {"sql": "required", "connection": "optional"},
-    "db:migrate": {},
-}
+# what each needs in `with:` is PARAMS in this package's PART (__init__.py)

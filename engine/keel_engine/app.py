@@ -15,12 +15,12 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from . import addons, config, models
+from . import addons, config, extensions, models
 from .models import usage as provider_usage
 from .demo import create_demo, workspace_missing
 from .events import EventBus, bus as default_bus
 from .models import catalog
-from .runtime import codegraph_view, evals, helper, hunt, mapper, scan
+from .runtime import evals, helper, hunt, scan
 from .runtime.explain import ExplainError, explain_step
 from .runtime.service import Engine, EngineError
 from .tools import mcp, worktrees
@@ -172,41 +172,6 @@ class PluginAsk(BaseModel):
     command: str
 
 
-class PluginDb(BaseModel):
-    """The person's own database call (Map › Query, KeelBot's button, Connections › Databases): the api sends the
-    connection with its password, memory only."""
-    root: str = ""
-    connection: dict[str, Any] = Field(default_factory=dict)
-    sql: str = ""
-    change: bool = False        # the person may change data (only on a local or test database)
-    confirm: bool = False       # run a change for real (else keel counts its rows and rolls back)
-    mask: bool = False          # a model reads the rows (keel2 mcp): columns named like a secret show as •••
-
-
-class PluginCi(BaseModel):
-    """The CI/CD plugin's calls (Run › Jobs › Pipelines, the api's watcher)."""
-    root: str
-    keys: dict[str, str] = Field(default_factory=dict)        # github: the token
-    branch: str = ""
-    limit: int = Field(default=20, ge=1, le=50)
-    run: int = 0
-
-
-class PluginGit(BaseModel):
-    """The person's own git call (Code › Git, KeelBot's button)."""
-    root: str
-    keys: dict[str, str] = Field(default_factory=dict)        # github: the token
-    settings: dict[str, Any] = Field(default_factory=dict)    # commit_author, commit_coauthor
-    branch: str = ""
-    create: bool = False
-    message: str = ""
-    title: str = ""
-    body: str = ""
-    draft: bool = False
-    path: str = ""
-    sha: str = ""
-
-
 class HelperAsk(BaseModel):
     """keel's hook asks for the person's OK on a command (runtime/permissions.py); the key is the turn's own."""
     session: str
@@ -319,19 +284,6 @@ class ExplainBody(BaseModel):
 class ScanBody(BaseModel):
     root: str
     rebuild: bool = False                 # a full re-index instead of an incremental sync of an existing index
-
-
-class MapBody(BaseModel):
-    root: str
-
-
-class GraphSearch(BaseModel):
-    q: str = ""
-
-
-class GraphNode(BaseModel):
-    id: str
-    depth: int = 1                        # 1: who uses it and what it uses; 2: one more step on both sides
 
 
 class HuntClose(BaseModel):
@@ -532,29 +484,6 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     async def get_index(pid: str):
         return await asyncio.to_thread(scan.status, pid)
 
-    @app.post("/projects/{pid}/map")
-    async def post_map(pid: str, body: MapBody):
-        return await asyncio.to_thread(mapper.build_and_store, pid, project_root(body.root))
-
-    @app.get("/projects/{pid}/map")
-    async def get_map(pid: str):
-        m = await asyncio.to_thread(mapper.load, pid)
-        return m or {"missing": "No map yet. Build it to draw one."}
-
-    @app.get("/projects/{pid}/graph")
-    async def get_graph(pid: str):
-        """The code graph for people: groups (packages or folders), units and the uses between them (codegraph_view.py)."""
-        return await asyncio.to_thread(codegraph_view.overview, pid)
-
-    @app.post("/projects/{pid}/graph/search")
-    async def post_graph_search(pid: str, body: GraphSearch):
-        return await asyncio.to_thread(codegraph_view.search, pid, body.q)
-
-    @app.post("/projects/{pid}/graph/node")
-    async def post_graph_node(pid: str, body: GraphNode):
-        """One symbol: who uses it (left), what it uses (right), its members and how much depends on it."""
-        return await asyncio.to_thread(codegraph_view.focus, pid, body.id, body.depth)
-
     @app.get("/projects/{pid}/hunts")
     async def get_hunts(pid: str):
         """The project's bug hunts, newest first, with their counts (runtime/hunt.py)."""
@@ -716,27 +645,15 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
         root = body.root if body.root and os.path.isdir(body.root) else None
         return await asyncio.to_thread(helper.commands, root, body.plugins)
 
-    # ---- v0.10.0 plugins: Database and Git (keel_engine/plugins) ------------------------------------------------
-
-    def plugin_call(fn, *a, **k):
-        from .plugins import PluginError
-        from .plugins.ci.core import CiError
-        from .plugins.db.core import DbError
-        from .plugins.git.core import GitError
-
-        try:
-            return fn(*a, **k)
-        except (PluginError, DbError, GitError, CiError) as exc:
-            raise EngineError(exc.status, str(exc), exc.hint) from exc
+    # ---- v0.10.0 plugins (keel_engine/plugins): each part's own routes are its router (extensions.mount, below) --
 
     @app.get("/plugins")
     async def get_plugins():
         """keel's installable plugins with what each adds, and what each step action takes in `with:`."""
-        from .plugins import action_params
         from .runtime import plugins as manifests
         from .runtime.action_docs import describe
 
-        params = action_params()
+        params = extensions.action_params()
         out = []
         for p in manifests.catalog():
             acts = [{"name": a, "with": params.get(a, {}), "summary": describe(a)["summary"]} for a in p["actions"]]
@@ -757,70 +674,8 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
 
     @app.post("/plugins/call")
     async def post_plugin_call(body: PluginCall):
-        from . import plugins
-
-        return {"text": await asyncio.to_thread(plugin_call, plugins.call, body.key, body.tool, body.args)}
-
-    @app.post("/plugins/db/{op}")
-    async def post_plugin_db(op: str, body: PluginDb):
-        from .plugins.db import core as db
-
-        root = body.root if body.root and os.path.isdir(body.root) else ""
-        if op == "suggest":
-            return await asyncio.to_thread(db.suggest, root)
-        conn = plugin_call(db.conn_of, body.connection)
-        if op == "test":
-            return await asyncio.to_thread(db.test, conn, root)
-        if op == "schema":
-            return await asyncio.to_thread(plugin_call, db.schema, conn, root)
-        if op == "query":
-            return await asyncio.to_thread(plugin_call, db.query, conn, body.sql, root=root, allow_change=body.change,
-                                           confirm=body.confirm, mask=body.mask)
-        if op == "classify":
-            kind, why = db.classify(body.sql, conn.kind)
-            return {"kind": kind, "why": why}
-        raise EngineError(404, f"Unknown database call {op}.")
-
-    @app.post("/plugins/ci/{op}")
-    async def post_plugin_ci(op: str, body: PluginCi):
-        from .plugins import github_token
-        from .plugins.ci import core as ci
-
-        if not os.path.isdir(body.root):
-            raise EngineError(404, "The project folder is gone.")
-        token = github_token(body.keys)
-        calls = {
-            "runs": lambda: ci.runs(body.root, token, body.branch or None, body.limit),
-            "run": lambda: ci.run(body.root, token, body.run),
-            "rerun": lambda: ci.rerun(body.root, token, body.run),
-        }
-        if op not in calls:
-            raise EngineError(404, f"Unknown CI call {op}.")
-        return await asyncio.to_thread(plugin_call, calls[op])
-
-    @app.post("/plugins/git/{op}")
-    async def post_plugin_git(op: str, body: PluginGit):
-        from .plugins import github_token
-        from .plugins.git import core as g
-
-        if not os.path.isdir(body.root):
-            raise EngineError(404, "The project folder is gone.")
-        token = github_token(body.keys)
-        calls = {
-            "status": lambda: g.status(body.root),
-            "branches": lambda: g.branches(body.root),
-            "log": lambda: g.log(body.root, 30),
-            "switch": lambda: g.switch(body.root, body.branch, body.create),
-            "commit": lambda: g.commit(body.root, body.message, body.settings),
-            "sync": lambda: g.sync(body.root, token),
-            "push": lambda: g.push(body.root, token),
-            "pr": lambda: g.pr(body.root, token, body.title, body.body, body.draft),
-            "pr_status": lambda: {"pr": g.pr_status(body.root, token)},
-            "cleanup": lambda: g.cleanup(body.root),
-        }
-        if op not in calls:
-            raise EngineError(404, f"Unknown git call {op}.")
-        return await asyncio.to_thread(plugin_call, calls[op])
+        """A tool call from a part's MCP server, with its agent call's key (keel_engine/extensions.py call)."""
+        return {"text": await asyncio.to_thread(extensions.call, body.key, body.tool, body.args)}
 
     @app.post("/mcp/tools")
     async def post_mcp_tools(body: McpServerSpec):
@@ -843,7 +698,13 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     async def get_models():
         return await asyncio.to_thread(catalog.build_catalog)
 
-    # add-on routes last, so they cannot shadow one of keel's own (keel_engine/addons.py)
-    addons.mount(app)
+    # the parts' routes last (built-in parts first, then add-ons), so they cannot shadow one of keel's own; what their
+    # routes raise (PartError, DbError, GitError ...) is answered as {error, hint} with its status
+    async def part_error(_req, exc: Exception):
+        return _err(getattr(exc, "status", 400), str(exc), getattr(exc, "hint", "") or None)
+
+    for kind in extensions.errors():
+        app.add_exception_handler(kind, part_error)
+    extensions.mount(app)
     return app
 

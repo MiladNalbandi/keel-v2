@@ -9,8 +9,7 @@ import re
 import sys
 from pathlib import Path
 
-from .. import config
-from . import codegraph
+from .. import config, extensions
 
 log = logging.getLogger(__name__)
 
@@ -25,19 +24,9 @@ def keel_server_spec() -> dict:
 
 
 def codegraph_server_spec(root: str) -> dict | None:
-    """The code graph's MCP server (`codegraph serve --mcp`, cwd = the project) when keel indexed this folder and the
-    index is ready; None otherwise (agents then find their way with grep)."""
-    from ..runtime import scan
-
-    if not root or not codegraph.binary() or not codegraph.has_index(root):
-        return None
-    try:
-        if not scan.ready(root):
-            return None
-    except Exception as exc:  # the engine DB is busy or gone: no graph this time, never a failed step
-        log.info("code graph readiness unknown for %s: %s", root, exc)
-        return None
-    return codegraph.server_spec(root)
+    """The code graph's MCP server when keel indexed this folder and the index is ready (the parts' mcp_specs hook,
+    keel_engine/extensions.py); None otherwise (agents then find their way with grep)."""
+    return next((s for s in extensions.mcp_specs(extensions.Agent(""), root) if s.get("name") == "codegraph"), None)
 
 
 def _server_env(spec: dict) -> dict:

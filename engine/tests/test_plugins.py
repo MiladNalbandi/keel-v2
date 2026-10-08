@@ -11,7 +11,7 @@ import pytest
 import yaml
 
 from conftest import decide, start, wait
-from keel_engine import plugins
+from keel_engine import extensions
 from keel_engine.plugins.db import core as db
 from keel_engine.plugins.git import core as g
 from keel_engine.workflows.model import from_dict
@@ -125,7 +125,7 @@ def test_keel_suggests_the_databases_the_project_names_never_from_env(client, sc
 # ------------------------------------------------------------------ an agent call's read tools
 
 def test_an_agent_call_reads_through_its_key_with_secrets_hidden_and_changes_refused(client, scores):
-    key = plugins.open_call(project="demo", root=str(scores), keys=keys(conn(), conn("prod", "prod")), plugins=["db"], who="keelbot")
+    key = extensions.open_call(project="demo", root=str(scores), keys=keys(conn(), conn("prod", "prod")), plugins=["db"], who="keelbot")
     call = lambda tool, **args: client.post("/plugins/call", json={"key": key, "tool": tool, "args": args})
     lines = call("db_connections").json()["text"]
     assert "- local: SQLite, local (data changes: a keel-query button the person presses)" in lines
@@ -137,7 +137,7 @@ def test_an_agent_call_reads_through_its_key_with_secrets_hidden_and_changes_ref
     assert rows.startswith("3 rows from local") and "hidden as •••: password_hash" in rows and "| Ada | ••• |" in rows
     assert call("db_query", sql="DELETE FROM scores").json()["text"].startswith("Refused: This query changes data")
     assert call("git_status").status_code == 403                 # the git plugin is not on for this call
-    plugins.close_call(key)
+    extensions.close_call(key)
     assert call("db_schema").status_code == 401
 
 
@@ -311,7 +311,7 @@ def test_the_mcp_servers_offer_only_read_tools():
                        ("git", {"git_status", "git_diff", "git_log", "git_show", "git_blame", "git_branches", "pr_status"})):
         tools = asyncio.run(build(name).list_tools())
         assert {t.name for t in tools} == want and all(t.annotations.readOnlyHint for t in tools)
-    spec = plugins.server_specs(["db", "nope"], "pk_x")
+    spec = extensions.server_specs(["db", "nope"], "pk_x")
     assert [s["name"] for s in spec] == ["keel-db"] and spec[0]["env"]["KEEL_PLUGIN_KEY"] == "pk_x"
     assert "url" not in json.dumps(spec)                         # no connection, no password in the server's config
 

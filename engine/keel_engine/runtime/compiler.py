@@ -28,8 +28,7 @@ from langgraph.errors import GraphBubbleUp
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
-from .. import addons, models, rules
-from .. import plugins as keel_plugins
+from .. import addons, extensions, models, rules
 from ..models import catalog
 from ..models import usage as provider_usage
 from ..models.base import AgentRequest, AgentResult
@@ -405,18 +404,18 @@ class Compiler:
         cfg = rules.load_config(root)
         # What this agent may use: its knowledge sections, the code graph, its memory (agent_knowledge.py).
         know = agent_knowledge.for_agent(agent, ctx.agents)
-        # The code graph joins the MCP servers once the project's index is ready (scan.py); filter_mcp keeps it only
-        # for agents with code_graph on.
-        graph = await asyncio.to_thread(mcp.codegraph_server_spec, root)
-        specs = list(ctx.mcp) + ([graph] if graph and not any(s.get("name") == graph["name"] for s in ctx.mcp) else [])
-        allow = list(step.tools or []) + ([f"mcp:{graph['name']}:*"] if graph else [])
+        # The parts' own servers join the MCP servers (keel_engine/extensions.py mcp_specs: the code graph's once the
+        # project's index is ready); filter_mcp keeps the code graph only for agents with code_graph on.
+        specs, allow = await asyncio.to_thread(extensions.with_part_servers, list(ctx.mcp), list(step.tools or []),
+                                               extensions.Agent(agent, know), root)
         # a plugin's read tools (keel-db, keel-git) when the plugin is on and this agent may use them (Tools page)
         wanted = mcp.parse_allow(allow)
-        mine = [n for n in keel_plugins.enabled(ctx.settings) if keel_plugins.SERVERS[n] in wanted]
-        plugin_key = keel_plugins.open_call(project=ctx.project_id, root=root, keys=ctx.keys, plugins=mine,
-                                            who=f"agent:{agent}") if mine else None
+        servers = extensions.servers()
+        mine = [n for n in extensions.enabled(ctx.settings) if servers.get(n) in wanted]
+        plugin_key = extensions.open_call(project=ctx.project_id, root=root, keys=ctx.keys, plugins=mine,
+                                          who=f"agent:{agent}") if mine else None
         if plugin_key:
-            specs += keel_plugins.server_specs(mine, plugin_key)
+            specs += extensions.server_specs(mine, plugin_key)
         mcp_specs, tools_allow = agent_knowledge.filter_mcp(specs, allow, know)
 
         def on_refuse(tool: str, path: str, reason: str, command: str | None = None):
@@ -508,7 +507,7 @@ class Compiler:
             finally:
                 for g in live:
                     ctx.guards.remove(g)
-                keel_plugins.close_call(plugin_key)
+                extensions.close_call(plugin_key)
                 self._usage_event(step, model["provider"], t0)
         if mem:
             await mem.finish(key, "done", res.text or "")
@@ -1106,8 +1105,8 @@ class Compiler:
                 a.emit = self._tool_emit(step.id)
                 a.params = dict(step.params or {})
                 a.event = self._addon_event(step.id)
-                if action.startswith(("db:", "git:", "ci:")):
-                    a.state["gate_approved"] = self._gate_approved(i, st)
+                if extensions.owner(action):
+                    a.state["gate_approved"] = self._gate_approved(i, st)     # a part's step (git:push asks the gate)
                 if action == "open_pr":
                     a.state["pr_approved"] = self._gate_approved(i, st)
                     a.state["pr_auto"] = run_mode.is_auto_line(self._gate_line(i, st))

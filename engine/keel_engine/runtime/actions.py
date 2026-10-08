@@ -22,9 +22,9 @@ from pathlib import Path
 
 import yaml
 
-from .. import rules
+from .. import extensions, rules
 from ..rules import checks
-from ..tools import codegraph, git, testcmd
+from ..tools import git, testcmd
 from ..tools.agent_tools import command_env
 from . import blockers as push_gates
 from . import feature_actions, flow_actions, knowledge, lint_actions, ship, verdict_actions, verdicts
@@ -81,7 +81,7 @@ class ActionInput:
     paths: list[str] = field(default_factory=list)     # commit: stage only these paths (feature: the spec alone)
     emit: object = None                                # tool runs report here (event tool.ran, full output)
     ident: str = ""                                    # commit: the scope in "fix(<ident>):" when no criterion names it
-    params: dict = field(default_factory=dict)         # a plugin step's `with:` (plugins/db, plugins/git)
+    params: dict = field(default_factory=dict)         # a part's step `with:` (plugins/db, plugins/git ...)
     event: object = None                               # an add-on action's own events: event(kind, data), kind "<addon>.*"
 
     @property
@@ -116,17 +116,12 @@ async def run_action(action: str, a: ActionInput) -> ActionResult:
         return await asyncio.to_thread(push_check, a)
     if action.startswith("run:"):
         return await run_command(action[4:].strip(), a)
-    if action.startswith(("db:", "git:", "ci:")):
-        from .. import plugins
-
-        return await plugins.run_action(action, a)
+    if extensions.owner(action):
+        # a part's step ("<part>:<what>": db:query, product:save-doc ...); a per-project part must be on
+        return await extensions.run_action(action, a)
     more = _flow_actions()
     if action in more:
         return await more[action](a)
-    from .. import addons
-
-    if addons.has_action(action):
-        return await addons.run_action(action, a)
     return ActionResult(False, f"Unknown action {action}.")
 
 
@@ -400,7 +395,7 @@ def commit(a: ActionInput) -> ActionResult:
         git.git(a.root, "reset", "-q")
         return ActionResult(False, "git commit failed.", (r.stderr or r.stdout)[-2000:])
     sha = git.head(a.root)
-    codegraph.sync_later(a.root)            # the code graph follows every keel commit (best effort, in the background)
+    extensions.on_commit(a.root)            # the parts follow every keel commit (the code graph syncs in the background)
     tail_note = f" · tools: {'; '.join(tool_notes)}" if tool_notes else ""
     return ActionResult(True, f"{message} {sha[:7] if sha else ''}".strip() + tail_note, "\n".join(staged),
                         {"git_head": sha, "blockers": push_gates.push_blockers(a.root, a.base, project=a.key)})

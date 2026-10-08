@@ -109,11 +109,11 @@ def test_plugin_read_tools_pass_in_a_read_only_run_and_a_write_ish_tool_does_not
 
 
 async def test_the_guards_plugin_read_tools_are_exactly_the_plugin_servers_tools():
-    from keel_engine import plugins
+    from keel_engine import extensions
     from keel_engine.plugins import server
 
-    have = {name: {t.name for t in await server.build(p).list_tools()} for p, name in plugins.SERVERS.items()}
-    assert have == hook.PLUGIN_READ_TOOLS
+    have = {name: {t.name for t in await server.build(p).list_tools()} for p, name in extensions.servers().items()}
+    assert have == extensions.read_tools() and set(have) == {"keel-db", "keel-git", "keel-ci"}
 
 
 def test_absolute_paths_are_judged_relative_to_the_project(capsys, tmp_path, root):
