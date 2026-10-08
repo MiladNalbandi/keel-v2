@@ -1823,3 +1823,4 @@ keel's version shows at the menu's foot. In the Flow page the graph scrolls with
   ⌘1 / ⌘9 / ⇧⌘9 (also ⌥1 / ⌥9 / ⌥⇧9) show and hide their panel, ⇧Esc hides the active tool window, ⌥W closes the tab,
   ⌥⇧[ / ⌥⇧] previous / next tab, ⌘E recent files. The menu: F6 or ⌃⌘M jumps in (↑↓, ↩, Esc back), ⌃1–⌃9 open the
   first pages (Ctrl+Alt+1–9 off a Mac).
+- A notification opens where it came from: the api's `/projects/<id>/<page>` link goes to that project's page (a flow's notification to its own thread), not to All projects.
