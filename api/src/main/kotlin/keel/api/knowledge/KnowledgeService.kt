@@ -5,14 +5,10 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import keel.api.common.BadRequest
 import keel.api.common.NotFound
 import keel.api.common.Time
-import keel.api.common.Yaml
 import keel.api.engine.EngineClient
 import keel.api.engine.EngineDown
 import keel.api.projects.ProjectService
 import keel.api.repo.ClassifyConfig
-import keel.api.workflows.Step
-import keel.api.workflows.Workflow
-import keel.api.workflows.WorkflowService
 import keel.api.workspace.Workspace
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
@@ -24,18 +20,14 @@ data class KeelDoc(val path: String, val what: String, val by: String, val updat
 data class Fact(val id: String, val title: String, val text: String, val kind: String, val source: String, val at: String)
 data class KnowledgeSection(val id: String, val status: String, val words: Int, val cites: Int)
 data class Memory(val facts: List<Fact>, val knowledge: List<KnowledgeSection>)
-data class WikiItem(val id: String, val title: String, val status: String? = null)
-data class WikiSection(val id: String, val title: String, val items: List<WikiItem>)
-data class Wiki(val sections: List<WikiSection>)
-data class WikiPage(val id: String, val title: String, val markdown: String, val meta: Map<String, Any?>)
 
-/** keel docs, memory (facts + knowledge base), the wiki and the map of a project. */
+/** keel docs, memory (facts + knowledge base) and the code graph of a project. The Wiki page reads the knowledge base
+ *  from here (the Wiki plugin, plugins/wiki). */
 @Service
 class KnowledgeService(
     private val jdbc: JdbcTemplate,
     private val projects: ProjectService,
     private val workspace: Workspace,
-    private val workflows: WorkflowService,
     private val engine: EngineClient,
     private val mapper: ObjectMapper,
 ) {
@@ -147,122 +139,6 @@ class KnowledgeService(
             val stale = written != null && lastCode != null && written < lastCode
             KnowledgeSection(s, if (stale) "stale" else "written", words, cites)
         }
-    }
-
-    // ---- wiki -----------------------------------------------------------------------------
-
-    fun wiki(pid: String): Wiki {
-        val root = projects.root(pid)
-        val kb = knowledge(root).map { WikiItem("kb:${it.id}", it.id.replaceFirstChar { c -> c.uppercase() }, it.status) }
-        val wfs = workflows.list(pid).map { WikiItem("wf:${it.id}", it.name) }
-        val adrs = listMd(root.resolve("docs/adr")).map { WikiItem("adr:${it.fileName}", title(it)) }
-        return Wiki(
-            listOf(
-                WikiSection("knowledge", "Knowledge", kb),
-                WikiSection("workflows", "Workflows", wfs),
-                WikiSection("runbook", "Runbook", listOf(WikiItem("runbook", "How to run this project"))),
-                WikiSection("decisions", "Decisions", adrs),
-            ),
-        )
-    }
-
-    fun page(pid: String, id: String): WikiPage {
-        val root = projects.root(pid)
-        return when {
-            id.startsWith("kb:") -> {
-                val name = id.removePrefix("kb:")
-                if (!Regex("^[A-Za-z0-9_-]+$").matches(name)) throw BadRequest("Bad page id")
-                val f = root.resolve("docs/knowledge/$name.md")
-                val section = knowledge(root).firstOrNull { it.id == name }
-                if (!Files.isRegularFile(f)) {
-                    WikiPage(id, name, "This section is not written yet. Run the init flow, or ask the librarian to write it.", mapOf("status" to "missing"))
-                } else {
-                    WikiPage(id, title(f), Files.readString(f), mapOf(
-                        "path" to "docs/knowledge/$name.md", "status" to section?.status, "words" to section?.words,
-                        "cites" to section?.cites, "updated" to mtime(f),
-                    ))
-                }
-            }
-            id.startsWith("wf:") -> {
-                val wf = workflows.get(id.removePrefix("wf:"))
-                WikiPage(id, wf.name, workflowMarkdown(wf), mapOf("version" to wf.version, "keel_rules" to wf.keelRules, "steps" to wf.steps.size, "source" to wf.source))
-            }
-            id == "runbook" -> runbook(root)
-            id.startsWith("adr:") -> {
-                val name = id.removePrefix("adr:")
-                if (name.contains('/') || name.contains("..")) throw BadRequest("Bad page id")
-                val f = root.resolve("docs/adr/$name")
-                if (!Files.isRegularFile(f)) throw NotFound("No decision called $name")
-                WikiPage(id, title(f), Files.readString(f), mapOf("path" to "docs/adr/$name", "updated" to mtime(f)))
-            }
-            else -> throw NotFound("No wiki page \"$id\"", "Ids look like kb:architecture, wf:<id>, runbook or adr:<file>.")
-        }
-    }
-
-    fun workflowMarkdown(wf: Workflow): String = buildString {
-        appendLine("# ${wf.name}")
-        appendLine()
-        wf.basedOn?.let { appendLine("Based on **$it**.") }
-        appendLine(if (wf.keelRules) "keel rules are **on**: locked steps stay in the flow." else "keel rules are **off**.")
-        appendLine()
-        appendLine("| # | Step | Kind | Who | Notes |")
-        appendLine("|---|---|---|---|---|")
-        wf.steps.forEachIndexed { i, s -> appendLine("| ${i + 1} | ${s.name.ifBlank { s.id }} | ${s.kind} | ${who(s)} | ${notes(s)} |") }
-        val gates = wf.steps.filter { it.kind == "gate" }
-        if (gates.isNotEmpty()) {
-            appendLine()
-            appendLine("## Where it asks you")
-            gates.forEach { g -> appendLine("- **${g.name}**" + (g.back?.let { " — send back goes to `$it`" } ?: "")) }
-        }
-    }
-
-    private fun who(s: Step) = when (s.kind) {
-        "agent", "parallel" -> s.agent ?: "—"
-        "code" -> s.action ?: "code"
-        "gate" -> "you"
-        else -> "—"
-    }
-
-    private fun notes(s: Step) = listOfNotNull(
-        "per AC".takeIf { s.perAc == true }, "locked".takeIf { s.locked }, s.phase?.let { "phase $it" },
-        s.parallel?.let { "× $it" }, s.no?.let { "no → $it" },
-    ).joinToString(", ")
-
-    private fun runbook(root: Path): WikiPage {
-        val ladder = root.resolve(".keel/ladder.json")
-        if (Files.isRegularFile(ladder)) {
-            val node = runCatching { mapper.readTree(ladder.toFile()) }.getOrNull()
-            val rungs = (node?.get("rungs") ?: node?.get("steps") ?: node)?.takeIf { it.isArray }
-            if (rungs != null) {
-                val md = buildString {
-                    appendLine("# How to run this project")
-                    appendLine()
-                    appendLine("From the setup ladder (`.keel/ladder.json`).")
-                    appendLine()
-                    rungs.forEachIndexed { i, r ->
-                        val name = r.get("name")?.asText() ?: r.get("id")?.asText() ?: "step ${i + 1}"
-                        val cmd = r.get("cmd")?.asText() ?: r.get("command")?.asText()
-                        val ok = r.get("ok")?.asBoolean()
-                        appendLine("${i + 1}. **$name**" + (cmd?.let { " — `$it`" } ?: "") + (ok?.let { if (it) " ✓" else " ✗" } ?: ""))
-                    }
-                }
-                return WikiPage("runbook", "How to run this project", md, mapOf("from" to ".keel/ladder.json"))
-            }
-        }
-        val running = root.resolve("docs/RUNNING.md")
-        if (Files.isRegularFile(running)) return WikiPage("runbook", "How to run this project", Files.readString(running), mapOf("from" to "docs/RUNNING.md"))
-        val cfg = root.resolve(".keel/config.yml").takeIf { Files.isRegularFile(it) }?.let { Yaml.readMap(Files.readString(it)) }
-        val commands = (cfg?.get("commands") as? Map<*, *>)?.filterValues { it != null && it.toString().isNotBlank() }
-        val md = if (commands.isNullOrEmpty()) {
-            "# How to run this project\n\nNo runbook yet. The init flow writes one when it proves the setup ladder."
-        } else buildString {
-            appendLine("# How to run this project")
-            appendLine()
-            appendLine("Commands from `.keel/config.yml`:")
-            appendLine()
-            commands.forEach { (k, v) -> appendLine("- **$k** — `$v`") }
-        }
-        return WikiPage("runbook", "How to run this project", md, mapOf("from" to if (commands.isNullOrEmpty()) null else ".keel/config.yml"))
     }
 
     // ---- the code graph (the Graph page): the engine reads the project's CodeGraph index ---------

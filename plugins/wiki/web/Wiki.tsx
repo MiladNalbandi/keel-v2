@@ -1,18 +1,37 @@
 // Wiki (Project): the knowledge base the librarians write, a page for every workflow (its Steps map, read only, or
 // the graph), the setup runbook and decisions. The page id is in the hash: #/wiki/kb:architecture.
+// The Wiki plugin's page (plugins/wiki): it imports only react, @keel/web-sdk and its own files. Its pages come from
+// the plugin's api part (/wiki, /wiki/page); "Refresh stale" is keel's (the Code page shows it too).
 
 import { useState } from "react";
-import { api, type WikiTree } from "../api";
-import { Markdown } from "../components/Markdown";
-import { RefreshStaleButton } from "../components/RefreshStale";
-import { StepInfoDrawer } from "../components/StepInfo";
-import { EmptyState, SearchBox, Skeleton, useNarrow } from "../components/page";
-import { Async, ErrorBox, Loading, PageHead, Pill } from "../components/ui";
-import { tokensByStep } from "../components/workflow";
-import { WorkflowMap } from "../components/WorkflowMap";
-import { kfmt } from "../format";
-import { registerPage } from "../sdk/registry";
-import { go, useApp, useLoad, useRoute } from "../state";
+import {
+  Async, EmptyState, ErrorBox, Loading, Markdown, PageHead, Pill, RefreshStaleButton, SearchBox, Skeleton, StepInfoDrawer,
+  get, go, kfmt, tokensByStep, useApp, useLoad, useNarrow, useRoute,
+  type Estimate, type WikiPage as WikiPageData, type WikiTree, type Workflow,
+} from "@keel/web-sdk";
+import { WorkflowMap } from "./WorkflowMap";
+
+const e = encodeURIComponent;
+
+/** "?a=1&b=x" without the empty values, written as keel's api.ts writes a query. */
+function query(params: Record<string, string | number | undefined | null>): string {
+  const s = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== "") s.set(k, String(v));
+  });
+  const str = s.toString();
+  return str ? "?" + str : "";
+}
+
+/** The page's reads: the same urls as keel 0.15.1 (its api.ts). */
+const wikiApi = {
+  wiki: (pid: string) => get<WikiTree>(`/projects/${e(pid)}/wiki`),
+  wikiPage: (pid: string, id: string) => get<WikiPageData>(`/projects/${e(pid)}/wiki/page${query({ id })}`),
+  workflow: (wid: string) => get<Workflow>(`/workflows/${e(wid)}`),
+  estimate: (pid: string, workflow_id: string, acs: number) =>
+    get<Estimate>(`/projects/${e(pid)}/estimate${query({ workflow_id, acs })}`),
+  exportUrl: (wid: string) => `/api/workflows/${e(wid)}/export`,
+};
 
 const STATUS: Record<string, ["ok" | "run" | "warn" | "idle", string]> = {
   written: ["ok", "written"], ok: ["ok", "written"], writing: ["run", "writing"], stale: ["warn", "stale"], missing: ["idle", "not written"],
@@ -43,8 +62,8 @@ function Tree({ tree, cur, q }: { tree: WikiTree; cur: string; q: string }) {
 }
 
 function WorkflowPage({ pid, wid }: { pid: string; wid: string }) {
-  const wf = useLoad(`wf:${wid}`, () => api.workflow(wid));
-  const est = useLoad(`wfest:${pid}:${wid}`, () => api.estimate(pid, wid, 3), { live: false });
+  const wf = useLoad(`wf:${wid}`, () => wikiApi.workflow(wid));
+  const est = useLoad(`wfest:${pid}:${wid}`, () => wikiApi.estimate(pid, wid, 3), { live: false });
   const [explain, setExplain] = useState<string | null>(null);
   return (
     <>
@@ -60,7 +79,7 @@ function WorkflowPage({ pid, wid }: { pid: string; wid: string }) {
               <h2 className="wh">{w.name}</h2>
               <div className="row">
                 <button className="btn sm" type="button" onClick={() => go("workflows", w.id)}>Edit in builder</button>
-                <a className="btn sm" href={api.exportUrl(w.id)} download={`${w.id}.workflow.yaml`} style={{ textDecoration: "none" }}>Export</a>
+                <a className="btn sm" href={wikiApi.exportUrl(w.id)} download={`${w.id}.workflow.yaml`} style={{ textDecoration: "none" }}>Export</a>
               </div>
             </div>
             <p className="sub" style={{ marginTop: 0 }}>
@@ -81,7 +100,7 @@ function WorkflowPage({ pid, wid }: { pid: string; wid: string }) {
 }
 
 function Page({ pid, id }: { pid: string; id: string }) {
-  const page = useLoad(`wikipage:${pid}:${id}`, () => api.wikiPage(pid, id));
+  const page = useLoad(`wikipage:${pid}:${id}`, () => wikiApi.wikiPage(pid, id));
   if (page.error) return <ErrorBox error={page.error} onRetry={() => void page.reload()} />;
   if (!page.data) return <Loading />;
   const p = page.data;
@@ -126,7 +145,7 @@ function PagePicker({ tree, cur, q }: { tree: WikiTree; cur: string; q: string }
 export function WikiPage({ pid }: { pid: string }) {
   const { project } = useApp();
   const { arg } = useRoute();
-  const tree = useLoad(`wiki:${pid}`, () => api.wiki(pid));
+  const tree = useLoad(`wiki:${pid}`, () => wikiApi.wiki(pid));
   const [q, setQ] = useState("");
   const narrow = useNarrow(900);
   const first = tree.data?.sections.flatMap((s) => s.items)[0]?.id;
@@ -157,11 +176,3 @@ export function WikiPage({ pid }: { pid: string }) {
     </>
   );
 }
-
-// ---------- the Wiki part: its page in the menu (web/src/builtins.ts loads this file) ----------
-
-registerPage({
-  id: "wiki", label: "Wiki", group: "know", order: 50,
-  icon: <path d="M12 6c-2-1.5-5-2-8-1.5V19c3-.5 6 0 8 1.5 2-1.5 5-2 8-1.5V4.5c-3-.5-6 0-8 1.5zM12 6v14.5" />,
-  component: WikiPage,
-});

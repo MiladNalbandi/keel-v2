@@ -47,10 +47,4 @@ class KnowledgeController(private val knowledge: KnowledgeService) {
     @GetMapping("/graph/node")
     fun graphNode(@PathVariable pid: String, @RequestParam(defaultValue = "") id: String, @RequestParam(defaultValue = "1") depth: Int): JsonNode =
         knowledge.graphNode(pid, id, depth)
-
-    @GetMapping("/wiki")
-    fun wiki(@PathVariable pid: String): Wiki = knowledge.wiki(pid)
-
-    @GetMapping("/wiki/page")
-    fun page(@PathVariable pid: String, @RequestParam id: String): WikiPage = knowledge.page(pid, id)
 }

@@ -1,9 +1,10 @@
-package keel.api.knowledge
+package keel.api.wiki
 
 import com.fasterxml.jackson.databind.JsonNode
 import keel.api.common.BadRequest
 import keel.api.flow.Ac
 import keel.api.flow.FlowService
+import keel.api.knowledge.KnowledgeService
 import keel.api.projects.ProjectService
 import org.springframework.stereotype.Service
 import org.springframework.web.bind.annotation.PathVariable
@@ -17,6 +18,9 @@ data class WikiRefreshBody(val sections: List<String>? = null)
  * Starts the engine's `knowledge-refresh` template for stale knowledge sections, like any flow
  * start. Each section goes to the engine as one AC (`{id: section, layer: "API", title: section}`):
  * the template runs one librarian per AC.
+ *
+ * The Wiki plugin's (plugins/wiki): the knowledge base itself (which sections are stale, the
+ * librarian, the workflow) stays keel's.
  */
 @Service
 class WikiRefreshService(

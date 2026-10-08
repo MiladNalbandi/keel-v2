@@ -1,6 +1,6 @@
 // v0.4.2 page polish: Budget in three parts with readable numbers, Connections that render before the check answers,
 // Agents as scannable rows with tool chips, Tools with inline tests and a matrix that
-// shows each server's state, and empty states with a way out (Skill hub, Stacks, Wiki).
+// shows each server's state, and empty states with a way out (Skill hub, Stacks; the Wiki's: plugins/wiki/web/test).
 
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -190,13 +190,5 @@ describe("empty states with a way out", () => {
     db.stacks = db.stacks.map((s) => ({ ...s, detected: true }));
     await user.click(main().getByRole("button", { name: "Detect again" }));
     expect(await screen.findByText("Detected in ludus-engine: ts-react · kotlin-spring")).toBeInTheDocument();
-  });
-
-  it("Wiki: an empty wiki says what fills it", async () => {
-    server.use(http.get("/api/projects/:pid/wiki", () => HttpResponse.json({ sections: [{ id: "knowledge", title: "Knowledge", items: [] }] })));
-    location.hash = "#/wiki";
-    render(<App />);
-    expect(await main().findByText("The wiki is empty")).toBeInTheDocument();
-    expect(main().getByRole("link", { name: "Open Flow" })).toHaveAttribute("href", "#/flow");
   });
 });

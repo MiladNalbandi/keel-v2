@@ -996,9 +996,7 @@ export const api = {
     put<Fact>(`/projects/${e(pid)}/memory/${e(fid)}`, f),
   forgetFact: (pid: string, fid: string) => del(`/projects/${e(pid)}/memory/${e(fid)}`),
 
-  // wiki (the map: the Map plugin, plugins/map)
-  wiki: (pid: string) => get<WikiTree>(`/projects/${e(pid)}/wiki`),
-  wikiPage: (pid: string, id: string) => get<WikiPage>(`/projects/${e(pid)}/wiki/page${q({ id })}`),
+  // "Refresh stale" (the Wiki and the Code page): the Wiki plugin's api starts the knowledge refresh (plugins/wiki)
   refreshWiki: (pid: string, sections?: string[]) =>
     post<ThreadState>(`/projects/${e(pid)}/wiki/refresh`, sections?.length ? { sections } : {}),
 

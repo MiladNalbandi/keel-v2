@@ -1,0 +1,17 @@
+# The Wiki as a plugin (docs/plugins/11-step3-contract.md, wave A). scripts/build-plugin.sh packs it as
+# wiki-<version>.kplug.
+# Paths are relative to the plugin folder. Each part is written on one line (scripts/build-plugin.sh reads them).
+# Only the page and its reads and refresh are here: the knowledge base itself (the librarian, knowledge_check, the push
+# blocker, the guard rule, the knowledge-refresh workflow) stays keel's. engine/tests checks this file and the package.
+schema: 1
+name: wiki
+title: Wiki
+version: 1.0.0
+publisher: keel
+summary: What keel knows about a project - the knowledge base the librarians write, a page for every workflow, the runbook and decisions.
+requires:
+  sdk: 1
+parts:
+  api: { jars: [api/keel-plugin-wiki.jar] }
+  web: { entry: web/index.js }
+per_project: false

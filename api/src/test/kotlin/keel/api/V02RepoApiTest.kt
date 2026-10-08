@@ -6,7 +6,7 @@ import org.junit.jupiter.api.Test
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import java.nio.file.Files
 
-/** v0.2: update from base, file history, unlocks, stacks, wiki refresh. */
+/** v0.2: update from base, file history, unlocks, stacks (the wiki refresh: plugins/wiki/api, WikiApiTest). */
 class V02RepoApiTest : ApiTest() {
 
     @Test
@@ -169,27 +169,5 @@ class V02RepoApiTest : ApiTest() {
         post("/api/projects/$pid/stacks/django/install").andExpect(status().isOk)
         assertThat(Files.readString(pack.resolve("stack.yml"))).endsWith("# edited\n")
         post("/api/projects/$pid/stacks/nope/install").andExpect(status().isNotFound)
-    }
-
-    @Test
-    fun `wiki refresh starts the knowledge-refresh template with one AC per stale section`() {
-        val (pid, root) = newProject("v2-wiki", mapOf("docs/knowledge/architecture.md" to "# A\n", "docs/knowledge/domain.md" to "# D\n", "src/A.kt" to "class A"))
-        post("/api/projects/$pid/wiki/refresh", emptyMap<String, Any>()).andExpect(status().isBadRequest)
-
-        Files.writeString(root.resolve("src/A.kt"), "class A2")
-        gitEnv(root, mapOf("GIT_COMMITTER_DATE" to "2099-01-01T00:00:00Z", "GIT_AUTHOR_DATE" to "2099-01-01T00:00:00Z"), "commit", "-q", "-am", "code moved on")
-        assertThat(get("/api/projects/$pid/memory").json()["knowledge"].first { it["id"].asText() == "architecture" }["status"].asText()).isEqualTo("stale")
-
-        val state = post("/api/projects/$pid/wiki/refresh").andExpect(status().isOk).json()
-        assertThat(state["thread_id"].asText()).isEqualTo("t-stub-1")
-        val body = engine.lastBody("/threads")!!
-        assertThat(body["workflow"]["id"].asText()).isEqualTo("knowledge-refresh")
-        assertThat(body["acs"].map { it["id"].asText() }).containsExactly("architecture", "domain")
-        assertThat(body["acs"][0]["layer"].asText()).isEqualTo("API")
-        assertThat(body["title"].asText()).contains("architecture")
-
-        post("/api/projects/$pid/wiki/refresh", mapOf("sections" to listOf("domain"))).andExpect(status().isOk)
-        assertThat(engine.lastBody("/threads")!!["acs"].map { it["title"].asText() }).containsExactly("domain")
-        post("/api/projects/$pid/wiki/refresh", mapOf("sections" to listOf("gossip"))).andExpect(status().isBadRequest)
     }
 }
