@@ -6,13 +6,15 @@
 
 import { useMemo, useRef, useState } from "react";
 import {
-  api, errorParts, type Blocker, type Checkpoint, type EngineEvent, type FlowView, type Job, type LadderRung, type Memory, type ThreadState, type Workflow,
+  api, errorParts, type Blocker, type Checkpoint, type EngineEvent, type FlowView, type Job, type LadderRung, type Memory, type Step, type StepExplanation,
+  type ThreadState, type Workflow,
 } from "../api";
 import { CodeBlock, FoldedText } from "../components/Code";
 import { answersOf, ClarifyForm, type ClarifyAnswers } from "../components/ClarifyForm";
 import { Markdown } from "../components/Markdown";
 import { eventLine } from "../components/events";
 import { EmptyState } from "../components/EmptyState";
+import { FoldPanel } from "../components/FoldPanel";
 import { FlowBoardView, showBoard } from "../components/FlowBoard";
 import { FlowRuns } from "../components/FlowRuns";
 import { StartFlowDrawer } from "../components/StartFlow";
@@ -20,12 +22,13 @@ import { autoLines, RunModeNote, RunModeSwitch } from "../components/RunMode";
 import { AcChips, Blocks, BlocksLegend, StepTable, useMapView, ViewToggle, type BlocksHandle } from "../components/Blocks";
 import { phaseTitle } from "../components/flowmap";
 import { Graph, GraphLegend } from "../components/Graph";
-import { infoRequest, StepInfoBody, StepInfoDrawer, useStepInfo } from "../components/StepInfo";
+import { infoRequest, StepInfoBody, useStepInfo } from "../components/StepInfo";
 import { StepView } from "../components/StepView";
+import { KIND } from "../components/workflow";
 import { Zoom } from "../components/Zoom";
 import { useJobSteps } from "./Live";
 import { useWide } from "../components/useWide";
-import { Async, Confirm, ErrorBox, GoButton, Loading, PageHead, Panel, Pill, Prov, Tabs, type PillTone } from "../components/ui";
+import { Async, Confirm, Drawer, ErrorBox, GoButton, Loading, PageHead, Panel, Pill, Prov, Tabs, type PillTone } from "../components/ui";
 import { acLabel, clock, kfmt, usd } from "../format";
 import { useApp, useLoad, useRoute } from "../state";
 
@@ -209,7 +212,7 @@ function LiveCanvas({ thread, workflow, tokens, actual, visited, waiting, canvas
             {waiting && onCanvas && <div style={{ marginBottom: 12 }}>{waiting}</div>}
             <Zoom id="flow">
               <Graph steps={workflow.steps} current={thread.current} status={thread.status} tokens={thread.status === "done" ? undefined : tokens}
-                acs={thread.acs} currentAc={thread.ac} onSelect={onOpen} />
+                acs={thread.acs} currentAc={thread.ac} onSelect={onOpen} selected={selected} />
             </Zoom>
             <AcChips acs={thread.acs} current={thread.ac} />
             <GraphLegend />
@@ -221,8 +224,8 @@ function LiveCanvas({ thread, workflow, tokens, actual, visited, waiting, canvas
 }
 
 /** The right column: what is happening now (and the running agent's last steps), the selected step, checkpoints. */
-function FlowSidePanel({ pid, thread, workflow, job, side, setSide, selected, onClose, onDone, history, onJump }: {
-  pid: string; thread: ThreadState; workflow: Workflow; job: Job | null; side: FlowSide; setSide: (s: FlowSide) => void;
+function FlowSidePanel({ pid, thread, workflow, job, running, side, setSide, selected, onClose, onDone, history, onJump }: {
+  pid: string; thread: ThreadState; workflow: Workflow; job: Job | null; running: Job[]; side: FlowSide; setSide: (s: FlowSide) => void;
   selected: string | null; onClose: () => void; onDone: () => Promise<void>; history: ReturnType<typeof useThreadBits>["history"]; onJump: () => void;
 }) {
   const name = selected ? workflow.steps.find((s) => s.id === selected)?.name ?? selected : null;
@@ -231,18 +234,13 @@ function FlowSidePanel({ pid, thread, workflow, job, side, setSide, selected, on
       <Tabs value={side} onChange={setSide} label="Flow details" options={[["now", "Now"], ["step", name ? `Step: ${name}` : "Step"], ["checkpoints", "Checkpoints"]]} />
       {side === "now" ? (
         <div className="grid" style={{ gap: 12 }}>
-          {thread.status === "waiting" && thread.waiting ? (
-            <div className="interrupt fl-waits">
-              <b><Pill tone="warn">waiting for you</Pill> {thread.waiting.title}</b>
-              <span className="sub">The flow stopped here. Your answer goes in the card under its block.</span>
-              <div className="row"><button className="btn warn" type="button" onClick={onJump}>Go to it</button></div>
-            </div>
-          ) : <StatusCard pid={pid} thread={thread} workflow={workflow} job={job} onDone={onDone} />}
+          {thread.status === "waiting" && thread.waiting ? <WaitsCard thread={thread} onJump={onJump} />
+            : <StatusCard pid={pid} thread={thread} workflow={workflow} job={job} onDone={onDone} />}
           {job && <JobFeed job={job} />}
           <EventsPanel pid={pid} thread={thread} history={history.error ? [] : history.data} onAll={() => setSide("checkpoints")} />
         </div>
       ) : side === "step" ? (
-        selected ? <StepInfoPanel pid={pid} workflow={workflow} stepId={selected} threadId={thread.thread_id} onClose={onClose} />
+        selected ? <StepPanel key={selected} pid={pid} thread={thread} workflow={workflow} stepId={selected} running={running} onClose={onClose} onJump={onJump} />
           : <div className="panel"><div className="panel-body wb-hint"><b>Select a block to see what it does.</b><span className="sub">Its task, the rules of its phase, where it goes next and what it did in this flow.</span></div></div>
       ) : (
         <CheckpointsPanel thread={thread} history={history.data} error={history.error} onRewound={onDone} />
@@ -251,37 +249,143 @@ function FlowSidePanel({ pid, thread, workflow, job, side, setSide, selected, on
   );
 }
 
-/** "What this step does" in the side panel (the drawer's content), for the workflow the page draws and this thread. */
-function StepInfoPanel({ pid, workflow, stepId, threadId, onClose }: { pid: string; workflow: Workflow; stepId: string; threadId: string; onClose: () => void }) {
-  const { x, error } = useStepInfo(pid, infoRequest(stepId, workflow, threadId));
-  const name = x?.name ?? workflow.steps.find((s) => s.id === stepId)?.name ?? stepId;
+/** The flow waits for you: for what, and a button to the answer card under its block. */
+function WaitsCard({ thread, onJump }: { thread: ThreadState; onJump: () => void }) {
   return (
-    <section className="panel" aria-label={`What ${name} does`}>
-      <div className="panel-head"><h2>What {name} does</h2><button className="btn sm ghost" type="button" onClick={onClose}>Close</button></div>
-      <div className="panel-body">{error ? <ErrorBox error={error} /> : !x ? <Loading what="Reading the step" /> : <StepInfoBody x={x} />}</div>
-    </section>
+    <div className="interrupt fl-waits">
+      <b><Pill tone="warn">waiting for you</Pill> {thread.waiting?.title}</b>
+      <span className="sub">The flow stopped here. Your answer goes in the card under its block.</span>
+      <div className="row"><button className="btn warn" type="button" onClick={onJump}>Go to it</button></div>
+    </div>
   );
 }
 
-/** The running agent's newest steps, with a link to watch it live. */
+/** v0.15.2 The workflow step a job names: its id, a review's `<id>__fix`, or its name. */
+function stepIdOf(workflow: Workflow, step: string): string | null {
+  return workflow.steps.find((x) => x.id === step.replace(/__fix$/, "") || x.name === step)?.id ?? null;
+}
+
+/** v0.15.2 Is this step the one that runs now (or waits for you)? And the agent of this flow that works in it, if any. */
+function nowOf(thread: ThreadState, workflow: Workflow, running: Job[], id: string): { now: boolean; job: Job | null } {
+  if (thread.status !== "running" && thread.status !== "waiting") return { now: false, job: null };
+  const cur = (thread.waiting?.step ?? thread.current ?? "").replace(/__fix$/, "");
+  const job = running.find((j) => j.thread_id === thread.thread_id && stepIdOf(workflow, j.step) === id) ?? null;
+  return { now: id === cur || !!job, job };
+}
+
+type StepMode = "now" | "details";
+
+/** v0.15.2 The clicked step, in the side panel (or in a drawer: narrow screens, the init flow). The step that runs now,
+ * or waits for you, opens on "Now": the step in a few words and only what happens in it now (the waiting or running
+ * card, the agent's newest steps, this step's events since it started), not its past runs. "Details" is the whole
+ * explanation (task, rules, next, last runs); any other step shows only that. */
+function StepPanel({ pid, thread, workflow, stepId, running, onClose, onJump, drawer }: {
+  pid: string; thread: ThreadState; workflow: Workflow; stepId: string; running: Job[]; onClose: () => void; onJump: () => void; drawer?: boolean;
+}) {
+  // the workflow the page draws, plus the thread (its state and what the step did there)
+  const { x, error } = useStepInfo(pid, infoRequest(stepId, workflow, thread.thread_id));
+  const [pick, setPick] = useState<StepMode>("now");
+  const step = workflow.steps.find((s) => s.id === stepId);
+  const { now, job } = nowOf(thread, workflow, running, stepId);
+  const showNow = now && !!step && pick === "now";
+  const title = showNow ? `${step!.name} now` : `What ${x?.name ?? step?.name ?? stepId} does`;
+  const toggle = now && step ? <StepModeToggle value={showNow ? "now" : "details"} onChange={setPick} /> : null;
+  const details = error ? <ErrorBox error={error} /> : !x ? <Loading what="Reading the step" /> : <StepInfoBody x={x} />;
+  const live = showNow ? <StepNow pid={pid} thread={thread} step={step!} job={job} onJump={onJump} /> : null;
+  if (drawer) {
+    return (
+      <Drawer title={title} onClose={onClose}>
+        {toggle}
+        {showNow ? <><StepAbout step={step!} x={x} />{live}</> : details}
+      </Drawer>
+    );
+  }
+  const head = (
+    <div className="panel-head">
+      <h2>{title}</h2>
+      <div className="fold-tools">{toggle}<button className="btn sm ghost" type="button" onClick={onClose}>Close</button></div>
+    </div>
+  );
+  if (!showNow) return <section className="panel" aria-label={title}>{head}<div className="panel-body">{details}</div></section>;
+  return (
+    <div className="grid" style={{ gap: 12 }}>
+      <section className="panel" aria-label={title}>{head}<div className="panel-body"><StepAbout step={step!} x={x} /></div></section>
+      {live}
+    </div>
+  );
+}
+
+function StepModeToggle({ value, onChange }: { value: StepMode; onChange: (m: StepMode) => void }) {
+  return (
+    <div className="tabs fl-mode" role="group" aria-label="Now or the details of this step">
+      <button type="button" aria-pressed={value === "now"} onClick={() => onChange("now")} title="Only what happens in this step now">Now</button>
+      <button type="button" aria-pressed={value === "details"} onClick={() => onChange("details")} title="What the step does, its rules and its past runs">Details</button>
+    </div>
+  );
+}
+
+/** v0.15.2 The step in a few words: its kind, agent, phase and loop, then what it does and what its phase means. */
+function StepAbout({ step, x }: { step: Step; x: StepExplanation | null }) {
+  const what = x?.agent?.about || x?.code?.text || x?.code?.actions?.[0]?.summary || (x?.branch ? `Asks: ${x.branch.condition}` : "")
+    || (x?.gate ? "Waits for your answer." : "");
+  const phase = x?.phase ?? step.phase;
+  const facts = [KIND[step.kind] ?? step.kind, step.agent ? `agent ${step.agent}` : "", phase ? `phase ${phase}` : "", x?.loop?.text ?? ""].filter(Boolean);
+  return (
+    <div className="fl-about" data-testid="step-about">
+      <span className="sub">{facts.join(" · ")}</span>
+      {what && <p>{what}</p>}
+      {x?.phase_meaning && <p className="sub">{x.phase_meaning}</p>}
+    </div>
+  );
+}
+
+/** v0.15.2 What happens in the step now: the waiting card (Go to it) or the running card, the agent's newest steps, and
+ * this step's events since it started. */
+function StepNow({ pid, thread, step, job, onJump }: { pid: string; thread: ThreadState; step: Step; job: Job | null; onJump: () => void }) {
+  const waits = thread.status === "waiting" && !!thread.waiting && thread.waiting.step.replace(/__fix$/, "") === step.id;
+  const runs = !waits && (!!job || (thread.status === "running" && (thread.current ?? "").replace(/__fix$/, "") === step.id));
+  return (
+    <>
+      {waits ? <WaitsCard thread={thread} onJump={onJump} /> : runs ? <RunningCard step={step} name={step.name} ac={job?.ac ?? thread.ac} job={job} /> : null}
+      {job && <JobFeed job={job} />}
+      <EventsPanel pid={pid} thread={thread} step={step.id} title={`Events of ${step.name}`} />
+    </>
+  );
+}
+
+/** The running agent's newest steps, with a link to watch it live. v0.15.2 Hide folds it (this browser remembers it);
+ * ⤢ shows every step so far in a large view. */
 function JobFeed({ job }: { job: Job }) {
   const { steps } = useJobSteps(job.id);
   const last = steps.slice(-6);
+  const watch = <GoButton to="live" arg={job.id} className="btn sm">Watch live</GoButton>;
+  const none = <span className="sub">Waiting for the first step…</span>;
   return (
-    <section className="panel" aria-label={`${job.agent} works`}>
-      <div className="panel-head"><h2>{job.agent} works</h2><GoButton to="live" arg={job.id} className="btn sm">Watch live</GoButton></div>
-      <div className="panel-body feed fl-feed" aria-live="polite">
-        {last.length ? last.map((st) => <StepView key={st.n} s={st} idPrefix={`fl-${job.id}`} />) : <span className="sub">Waiting for the first step…</span>}
-      </div>
-    </section>
+    <FoldPanel id="flow.works" title={`${job.agent} works`} extra={watch} bodyClass="feed fl-feed" live
+      big={() => (
+        <>
+          <div className="row fl-big-head">
+            <span className="sub">{job.agent} · <Prov p={job.provider} m={job.model} />{job.ac ? ` · ${job.ac}` : ""} · {steps.length} steps so far</span>
+            {watch}
+            <GoButton to="jobs" arg={job.id} className="btn sm ghost">Open job</GoButton>
+          </div>
+          <div className="feed" aria-label={`Every step of ${job.agent}`} aria-live="polite">
+            {steps.length ? steps.map((st) => <StepView key={st.n} s={st} idPrefix={`flbig-${job.id}`} />) : none}
+          </div>
+        </>
+      )}>
+      {last.length ? last.map((st) => <StepView key={st.n} s={st} idPrefix={`fl-${job.id}`} />) : none}
+    </FoldPanel>
   );
 }
 
 function ThreadView({ pid, thread, workflow, reload, onStart }: {
   pid: string; thread: ThreadState; workflow: Workflow; reload: () => Promise<void>; onStart: () => void;
 }) {
-  const { history, est, job, actual, visited, started } = useThreadBits(pid, thread, workflow);
+  const { history, est, job, jobs, actual, visited, started } = useThreadBits(pid, thread, workflow);
   const tokens = useMemo(() => perStep(workflow, est.data?.per_step), [workflow, est.data]);
+  // v0.15.2 the agents of this flow that work now: a click on the step one of them works in shows that step "now"
+  const running = useMemo(() => (jobs.data ?? []).filter((j) => j.thread_id === thread.thread_id && j.status === "running"), [jobs.data, thread.thread_id]);
   const [sel, setSel] = useState<string | null>(null);
   const [side, setSide] = useState<FlowSide>("now");
   const wide = useWide();
@@ -304,10 +408,11 @@ function ThreadView({ pid, thread, workflow, reload, onStart }: {
   return (
     <>
       <FlowBar thread={thread} workflow={workflow} estimate={est.data?.tokens ?? null} started={started} onStart={onStart} onJump={jump} />
-      {!wide && sel && <StepInfoDrawer pid={pid} workflow={workflow} stepId={sel} threadId={thread.thread_id} onClose={() => setSel(null)} />}
+      {!wide && sel && <StepPanel drawer key={sel} pid={pid} thread={thread} workflow={workflow} stepId={sel} running={running} onClose={() => setSel(null)}
+        onJump={() => { setSel(null); jump(); }} />}
       <div className="fl">
         <LiveCanvas thread={thread} workflow={workflow} tokens={tokens} actual={actual} visited={visited} waiting={waiting} canvas={canvas} onOpen={open} selected={sel} />
-        <FlowSidePanel pid={pid} thread={thread} workflow={workflow} job={job} side={wide ? side : side === "step" ? "now" : side} setSide={setSide}
+        <FlowSidePanel pid={pid} thread={thread} workflow={workflow} job={job} running={running} side={wide ? side : side === "step" ? "now" : side} setSide={setSide}
           selected={sel} onClose={() => { setSel(null); setSide("now"); }} onDone={reload} history={history} onJump={jump} />
       </div>
       <div className="grid fl-more">
@@ -335,22 +440,7 @@ export function StatusCard({ pid, thread, workflow, job, onDone }: {
 }) {
   const step = workflow.steps.find((s) => s.id === (thread.current ?? "").replace(/__fix$/, ""));
   if (thread.status === "waiting" && thread.waiting) return <GateCard thread={thread} workflow={workflow} onDone={onDone} />;
-  if (thread.status === "running") {
-    return (
-      <div className="running-card">
-        <b><Pill tone="run">running</Pill> node <span className="mono">{step?.name ?? thread.current ?? thread.phase}</span>{thread.ac ? ` — ${thread.ac}` : ""}</b>
-        <span className="sub">
-          {job ? <>{job.agent} · <Prov p={job.provider} m={job.model} /> · {job.steps_count} steps · keel calls {job.mcp_calls}</>
-            : step?.agent ? <>{step.agent}{step.tools?.length ? ` · tools: ${step.tools.join(", ")}` : ""}</>
-              : step?.kind === "code" ? "plain code, no LLM" : "working"}
-        </span>
-        <div className="row">
-          <GoButton to="live" arg={job?.id}>Watch live</GoButton>
-          <GoButton to="jobs" arg={job?.id} className="btn sm ghost">Open job</GoButton>
-        </div>
-      </div>
-    );
-  }
+  if (thread.status === "running") return <RunningCard step={step} name={step?.name ?? thread.current ?? thread.phase} ac={thread.ac} job={job} />;
   void pid;
   const tone: PillTone = thread.status === "done" ? "ok" : thread.status === "failed" ? "bad" : "idle";
   return (
@@ -358,6 +448,24 @@ export function StatusCard({ pid, thread, workflow, job, onDone }: {
       <b><Pill tone={tone}>{thread.status}</Pill> {thread.status === "done" ? "The flow is done." : thread.status === "failed" ? "The flow failed." : "The flow was stopped."}</b>
       {thread.error && <span className="sub">{thread.error}</span>}
       {thread.status !== "done" && <span className="hint">Rewind to a checkpoint below to try again from there.</span>}
+    </div>
+  );
+}
+
+/** An agent (or plain code) works in this step: who, with which model, and where to watch it. */
+function RunningCard({ step, name, ac, job }: { step?: Step; name: string; ac?: string | null; job: Job | null }) {
+  return (
+    <div className="running-card">
+      <b><Pill tone="run">running</Pill> node <span className="mono">{name}</span>{ac ? ` — ${ac}` : ""}</b>
+      <span className="sub">
+        {job ? <>{job.agent} · <Prov p={job.provider} m={job.model} /> · {job.steps_count} steps · keel calls {job.mcp_calls}</>
+          : step?.agent ? <>{step.agent}{step.tools?.length ? ` · tools: ${step.tools.join(", ")}` : ""}</>
+            : step?.kind === "code" ? "plain code, no LLM" : "working"}
+      </span>
+      <div className="row">
+        <GoButton to="live" arg={job?.id}>Watch live</GoButton>
+        <GoButton to="jobs" arg={job?.id} className="btn sm ghost">Open job</GoButton>
+      </div>
     </div>
   );
 }
@@ -622,19 +730,40 @@ function AcsPanel({ thread }: { thread: ThreadState }) {
 const EARLIER = 8;
 
 /** What happened in this flow, newest first: the events of this visit, then the saved steps (checkpoints) before them,
- * so a flow that waits still says how it got here. */
-export function EventsPanel({ pid, thread, history, onAll }: {
-  pid: string; thread: ThreadState; history?: Checkpoint[] | null; onAll?: () => void;
+ * so a flow that waits still says how it got here. v0.15.2 `step`: only that step's events since it started (the
+ * step's Now view). Hide folds it (this browser remembers it); ⤢ shows every event and saved step in a large view. */
+export function EventsPanel({ pid, thread, history, onAll, step, title = "Events" }: {
+  pid: string; thread: ThreadState; history?: Checkpoint[] | null; onAll?: () => void; step?: string; title?: string;
 }) {
-  const { recent } = useApp();
-  const mine = recent.filter((e: EngineEvent) => e.thread_id === thread.thread_id && e.type !== "agent.step").slice(-12).reverse();
-  const [asking, setAsking] = useState<EngineEvent | null>(null);
-  // the saved steps from before the oldest live event (the history is newest first)
-  const oldest = mine.length ? Date.parse(mine[mine.length - 1].at) : Infinity;
-  const before = (history ?? []).filter((c) => !(Date.parse(c.at) >= oldest));
-  const earlier = before.slice(0, EARLIER);
   return (
-    <Panel title="Events" extra={onAll && (history?.length ?? 0) > 0 ? <button className="btn sm ghost" type="button" onClick={onAll}>All checkpoints</button> : undefined}>
+    <FoldPanel id="flow.events" title={title}
+      extra={onAll && (history?.length ?? 0) > 0 ? <button className="btn sm ghost" type="button" onClick={onAll}>All checkpoints</button> : undefined}
+      big={() => <EventList pid={pid} thread={thread} history={history} step={step} all />}>
+      <EventList pid={pid} thread={thread} history={history} step={step} />
+    </FoldPanel>
+  );
+}
+
+/** v0.15.2 One step's events since it last started (a step that runs again, for the next criterion, starts over). */
+function sinceStart(events: EngineEvent[], step: string): EngineEvent[] {
+  const mine = events.filter((e) => (e.step ?? "").replace(/__fix$/, "") === step);
+  const at = mine.map((e) => e.type).lastIndexOf("step.started");
+  return at > 0 ? mine.slice(at) : mine;
+}
+
+/** The event lines: the newest 12 events and 8 saved steps before them; `all` (the big view): every one. */
+function EventList({ pid, thread, history, step, all }: { pid: string; thread: ThreadState; history?: Checkpoint[] | null; step?: string; all?: boolean }) {
+  const { recent } = useApp();
+  const ofThread = recent.filter((e: EngineEvent) => e.thread_id === thread.thread_id && e.type !== "agent.step");
+  const shown = step ? sinceStart(ofThread, step) : ofThread;
+  const mine = (all ? shown : shown.slice(-12)).slice().reverse();
+  const [asking, setAsking] = useState<EngineEvent | null>(null);
+  // the saved steps from before the oldest live event (the history is newest first); none in a step's Now view
+  const oldest = mine.length ? Date.parse(mine[mine.length - 1].at) : Infinity;
+  const before = step ? [] : (history ?? []).filter((c) => !(Date.parse(c.at) >= oldest));
+  const earlier = all ? before : before.slice(0, EARLIER);
+  return (
+    <>
       <div className="events" aria-label="What happened, newest first">
         {mine.map((e, i) => {
           const l = eventLine(e);
@@ -655,15 +784,16 @@ export function EventsPanel({ pid, thread, history, onAll }: {
             <span title={c.note}><b className="mono">{c.step}</b> <span className="sub">{c.note}</span></span>
           </div>
         ))}
-        {before.length > EARLIER && <span className="hint">{before.length - EARLIER} older steps are under Checkpoints.</span>}
+        {before.length > earlier.length && <span className="hint">{before.length - earlier.length} older steps are under Checkpoints.</span>}
         {!mine.length && !earlier.length && (
-          history === undefined || (history !== null && !history.length)
-            ? <span className="sub">Nothing happened yet. Events show here as they happen.</span>
-            : history === null ? <span className="sub loading">Loading what happened…</span> : null
+          step ? <span className="sub">Nothing happened in this step yet. Its events show here as they happen.</span>
+            : history === undefined || (history !== null && !history.length)
+              ? <span className="sub">Nothing happened yet. Events show here as they happen.</span>
+              : history === null ? <span className="sub loading">Loading what happened…</span> : null
         )}
       </div>
       {asking && <UnlockConfirm pid={pid} path={String(asking.data.path)} phase={typeof asking.data.phase === "string" ? asking.data.phase : thread.phase} onClose={() => setAsking(null)} />}
-    </Panel>
+    </>
   );
 }
 
@@ -722,9 +852,11 @@ function InitFlow({ pid, f, onStart, reload }: { pid: string; f: { thread: Threa
   const [explain, setExplain] = useState<string | null>(null);
   const canvas = useRef<BlocksHandle>(null);
   const waiting = thread.status === "waiting" && thread.waiting ? <GateCard thread={thread} workflow={workflow} onDone={reload} /> : null;
+  const running = (jobs.data ?? []).filter((j) => j.thread_id === thread.thread_id && j.status === "running");
   return (
     <>
-      {explain && <StepInfoDrawer pid={pid} workflow={workflow} stepId={explain} threadId={thread.thread_id} onClose={() => setExplain(null)} />}
+      {explain && <StepPanel drawer key={explain} pid={pid} thread={thread} workflow={workflow} stepId={explain} running={running} onClose={() => setExplain(null)}
+        onJump={() => { setExplain(null); canvas.current?.reveal((thread.current ?? "").replace(/__fix$/, ""), true); }} />}
       <FlowBar thread={thread} workflow={workflow} estimate={est.data?.tokens ?? null} started={started} onStart={onStart}
         onJump={() => canvas.current?.reveal((thread.current ?? "").replace(/__fix$/, ""), true)} extra={<GoButton to="wiki" className="btn">Open wiki</GoButton>} />
       <LiveCanvas thread={thread} workflow={workflow} actual={actual} visited={visited} waiting={waiting} canvas={canvas} onOpen={setExplain} selected={explain} />
