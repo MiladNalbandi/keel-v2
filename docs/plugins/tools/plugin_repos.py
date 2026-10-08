@@ -13,7 +13,7 @@ from pathlib import Path
 OUT = Path(sys.argv[1])
 LICENSE = Path(sys.argv[2]).read_text()
 OWNER = "keel-studio"                  # the GitHub organization of the plugin repos and the marketplace
-KEEL = "https://github.com/keel-studio/keel-app"
+KEEL = "https://github.com/MiladNalbandi/keel-v2"
 PLAN = f"{KEEL}/tree/main/docs/plugins"
 
 # id: (title, category, summary, parts, needs, optional, adds, today, tags)
@@ -322,7 +322,7 @@ MIT
 name: keel
 title: keel
 verified: true
-contact: https://github.com/keel-studio/keel-app/issues
+contact: https://github.com/MiladNalbandi/keel-v2/issues
 # Ed25519 public keys that sign keel's plugin releases. Added when signing starts (keel 0.20).
 # Only public keys go here; the private key lives in GitHub Actions secrets.
 keys: []
