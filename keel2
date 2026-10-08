@@ -5,8 +5,9 @@
 #   keel2 start --docker [dir]  same, and let the project's tests use your Docker (Testcontainers, compose)
 #   keel2 start --with-keel-v1 <keel-checkout> [dir]
 #                               also offer keel v1's MCP server (optional, off until you turn it on in Tools)
+#   keel2 start --safe [dir]    same, in safe mode: only the plugins inside the image load (installed ones wait)
 #   keel2 stop | restart        stop keel / start it again with the same project and options (they ask first
-#                               when agents are working; --force does not ask)
+#                               when agents are working; --force does not ask; restart --safe: in safe mode)
 #   keel2 status                is keel running, for which project, on which port
 #   keel2 open                  open the dashboard in the browser
 #   keel2 logs                  follow keel's log (Ctrl+C to leave)
@@ -23,7 +24,8 @@
 #   keel2 version | help
 #
 # Settings (environment): KEEL_IMAGE, PORT (default 8080; a busy port moves to the next free one), KEEL_NAME,
-# KEEL_VOLUME (a second keel needs its own), KEEL_OPEN=0 (no browser), KEEL_DOCKER=1 (same as --docker).
+# KEEL_VOLUME (a second keel needs its own), KEEL_OPEN=0 (no browser), KEEL_DOCKER=1 (same as --docker),
+# KEEL_PLUGINS=on|image|off (which plugins load: all, only the image's (same as --safe), none).
 # Logins: dashboard › Control › Connections › "Set up login". They are saved encrypted in keel's database on the
 # data volume, so they survive restarts and new images. Nothing from your computer is copied into the container.
 set -euo pipefail
@@ -184,11 +186,12 @@ docker_socket() {  # the host's Docker socket path, for --docker
 
 # ---------------------------------------------------------------- commands
 cmd_start() {
-  local docker_mode="${KEEL_DOCKER:-0}" folder="" keel_v1=""
+  local docker_mode="${KEEL_DOCKER:-0}" folder="" keel_v1="" plugins="${KEEL_PLUGINS:-}"
   while [ $# -gt 0 ]; do
     case "$1" in
       --docker) docker_mode=1 ;;
       --no-docker) docker_mode=0 ;;
+      --safe) plugins=image ;;
       --with-keel-v1)
         [ $# -ge 2 ] || die "--with-keel-v1 needs the folder of a keel v1 checkout" "For example: keel2 start --with-keel-v1 ~/Projects/keel ."
         keel_v1="$(keel_v1_path "$2")"; shift ;;
@@ -199,6 +202,7 @@ cmd_start() {
     esac
     shift
   done
+  case "$plugins" in ""|on|image|off) ;; *) die "KEEL_PLUGINS must be on, image or off (it is '$plugins')." ;; esac
   local project; project="$(project_path "${folder:-.}")"
   need_docker
   check_git "$project"
@@ -235,6 +239,9 @@ cmd_start() {
   local v; for v in ANTHROPIC_API_KEY OPENAI_API_KEY GITHUB_TOKEN GH_TOKEN CLAUDE_CODE_OAUTH_TOKEN; do
     if [ -n "${!v:-}" ]; then args+=(-e "$v"); fi
   done
+  # Plugins (docker/keel-start): on = the image's and the installed ones; image = safe mode; off = none
+  if [ -n "$plugins" ]; then args+=(-e "KEEL_PLUGINS=$plugins" --label "keel2.plugins=$plugins"); fi
+  if [ "$plugins" = image ]; then warn "Safe mode: only the plugins inside the image load. 'keel2 restart' loads all again."; fi
 
   info "Starting keel for ${B}$project${N}…"
   docker run "${args[@]}" "$IMAGE" >/dev/null || die "Docker could not start the container." "Run 'keel2 doctor' to find out why."
@@ -259,7 +266,15 @@ cmd_stop() {
   docker rm -f "$NAME" >/dev/null && ok "keel stopped (your data and logins are kept)"
 }
 
-cmd_restart() {
+cmd_restart() {  # keel2 restart [--safe] [--force]; safe mode lasts until the next start without --safe
+  local safe=() a
+  for a in "$@"; do
+    case "$a" in
+      --force) KEEL_FORCE=1 ;;
+      --safe) safe=(--safe) ;;
+      *) die "Unknown option $a" "usage: keel2 restart [--safe] [--force]" ;;
+    esac
+  done
   need_docker
   container_exists || die "keel has not been started yet." "Start it: keel2 start /path/to/project"
   local p d v1; p="$(label project)"; d="$(label docker)"; v1="$(label keelv1)"
@@ -267,6 +282,7 @@ cmd_restart() {
   local port; port="$(running_port || true)"
   if [ -n "$port" ] && [ -z "${PORT:-}" ]; then WANT_PORT="$port"; fi
   local extra=(); if [ -n "$v1" ] && [ -f "$v1/mcp/server.js" ]; then extra=(--with-keel-v1 "$v1"); fi
+  extra+=(${safe[@]+"${safe[@]}"})
   if [ "$d" = 1 ]; then cmd_start --docker ${extra[@]+"${extra[@]}"} "$p"; else cmd_start --no-docker ${extra[@]+"${extra[@]}"} "$p"; fi
 }
 
@@ -286,6 +302,10 @@ cmd_status() {
   info "  project    $(label project)"
   info "  docker     $([ "$(label docker)" = 1 ] && echo "on (tests may start containers)" || echo off)"
   [ -n "$(label keelv1)" ] && info "  keel v1    MCP server offered from $(label keelv1) (Tools, off until turned on)"
+  case "$(label plugins)" in
+    image) info "  plugins    safe mode: only the image's (keel2 restart loads all again)" ;;
+    off)   info "  plugins    off (KEEL_PLUGINS=off)" ;;
+  esac
   info "  image      $(docker inspect -f '{{.Config.Image}}' "$NAME")"
   info "  data       volume $VOLUME"
 }
@@ -472,7 +492,7 @@ case "$cmd" in
   start)            cmd_start "$@" ;;
   --docker)         cmd_start --docker "$@" ;;          # keel2 --docker <folder>   (older form)
   stop)             cmd_stop "$@" ;;
-  restart)          [ "${1:-}" = "--force" ] && KEEL_FORCE=1; cmd_restart ;;
+  restart)          cmd_restart "$@" ;;
   status|ps)        cmd_status ;;
   open)             cmd_open ;;
   logs)             need_docker; container_exists || die "keel is not running."; exec docker logs -f --tail 100 "$NAME" ;;
