@@ -68,19 +68,23 @@ tasks.named<Jar>("jar") { enabled = false }
 //   <name>Test       its tests, with keel's test support (ApiTest, StubEngine)
 // `pluginJars` and `pluginTest` run them for every plugin in ../plugins. keel Product keeps its own tasks
 // (productPluginJar, productTest), made the same way.
+// A plugin that needs other plugins (keel-plugin.yml requires.plugins, e.g. Jira needs Tasks) is compiled and tested
+// against their classes too; its jar still holds only its own.
 
-/** A plugin's tasks. */
-class PluginTasks(val jar: TaskProvider<Jar>, val test: TaskProvider<Test>)
+/** A plugin's tasks, and its main source set (the plugins that need it compile against it). */
+class PluginTasks(val jar: TaskProvider<Jar>, val test: TaskProvider<Test>, val main: SourceSet)
 
 fun camelName(name: String): String =
     name.split('-').mapIndexed { i, s -> if (i == 0) s else s.replaceFirstChar { it.uppercase() } }.joinToString("")
 
-fun pluginApi(name: String, dir: File): PluginTasks {
+fun pluginApi(name: String, dir: File, needs: List<PluginTasks> = emptyList()): PluginTasks {
     val id = camelName(name)
     val main = sourceSets.create(id) {
         kotlin.srcDir(dir.resolve("src/main/kotlin"))
         resources.srcDir(dir.resolve("src/main/resources"))
         compileClasspath += sourceSets.main.get().output + sourceSets.main.get().compileClasspath
+        // the plugins it needs, and what they need in turn
+        needs.forEach { compileClasspath += it.main.output + it.main.compileClasspath }
         runtimeClasspath += output + compileClasspath + sourceSets.main.get().runtimeClasspath
     }
     val tests = sourceSets.create("${id}Test") {
@@ -113,17 +117,49 @@ fun pluginApi(name: String, dir: File): PluginTasks {
         isPreserveFileTimestamps = false
         isReproducibleFileOrder = true
     }
-    return PluginTasks(jar, test)
+    return PluginTasks(jar, test, main)
+}
+
+/**
+ * The names under `requires: plugins:` in a keel-plugin.yml. Write that mapping on one line, as the parts are
+ * (`plugins: { tasks: ">=1.0.0" }`; scripts/build-plugin.sh reads the parts the same way).
+ */
+fun requiredPlugins(manifest: File): List<String> {
+    if (!manifest.isFile) return emptyList()
+    val plugins = Regex("""^\s+plugins:\s*\{([^}]*)}""")
+    var inRequires = false
+    for (line in manifest.readLines()) {
+        if (line.isBlank() || line.trimStart().startsWith("#")) continue
+        if (!line[0].isWhitespace()) {
+            inRequires = line.trimEnd() == "requires:"
+            continue
+        }
+        val found = if (inRequires) plugins.find(line) else null
+        if (found != null) {
+            return found.groupValues[1].split(',').map { it.substringBefore(':').trim().trim('"', '\'') }.filter { it.isNotEmpty() }
+        }
+    }
+    return emptyList()
 }
 
 val pluginName = Regex("^[a-z][a-z0-9-]{0,31}$")
-val plugins: List<PluginTasks> = (file("../plugins").listFiles() ?: emptyArray())
+val pluginDirs: Map<String, File> = (file("../plugins").listFiles() ?: emptyArray())
     .filter { it.resolve("api").isDirectory }
     .sortedBy { it.name }
-    .map {
+    .associateBy {
         require(pluginName.matches(it.name)) { "plugins/${it.name}: a plugin's name is a-z, 0-9 and '-' (32 at most)" }
-        pluginApi(it.name, it.resolve("api"))
+        it.name
     }
+val pluginsByName = linkedMapOf<String, PluginTasks>()
+
+/** A plugin's tasks, made after those of the plugins it needs (a cycle fails the build; the resolver refuses it too). */
+fun pluginNamed(name: String, path: List<String> = emptyList()): PluginTasks = pluginsByName[name] ?: run {
+    require(name !in path) { "plugins/$name: requires.plugins makes a cycle (${(path + name).joinToString(" -> ")})" }
+    val dir = pluginDirs.getValue(name)
+    val needs = requiredPlugins(dir.resolve("keel-plugin.yml")).filter { it in pluginDirs }.map { pluginNamed(it, path + name) }
+    pluginApi(name, dir.resolve("api"), needs).also { pluginsByName[name] = it }
+}
+val plugins: List<PluginTasks> = pluginDirs.keys.map { pluginNamed(it) }
 
 tasks.register("pluginJars") {
     description = "every plugin's api jar (plugins/*/api): build/libs/keel-plugin-<name>.jar"
@@ -138,5 +174,6 @@ tasks.register("pluginTest") {
 
 // keel Product (beta) keeps its folder: productPluginJar (Product's classes and resources: META-INF/spring/
 // ...AutoConfiguration.imports, db/product/P1__product.sql; product/build-plugin.sh puts it in the .kplug) and
-// productTest.
-pluginApi("product", file("../product/api"))
+// productTest. It needs the Tasks and Jira plugins (product/keel-plugin.yml requires.plugins).
+pluginApi("product", file("../product/api"),
+    requiredPlugins(file("../product/keel-plugin.yml")).filter { it in pluginsByName }.map { pluginsByName.getValue(it) })

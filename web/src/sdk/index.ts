@@ -11,23 +11,33 @@ export type { AddonPageProps, AddonWeb, KeelSdk } from "./plugin";
 
 // keel's api: the same transport as keel's own pages (/api + path, errors as ApiError)
 export { ApiError, del, errorParts, get, getText, patch, post, put } from "../api";
-export type { ClarifyQuestion, KeelMap, MapLevel, MapNode, MapResponse } from "../api";
+export type {
+  ClarifyQuestion, KeelMap, MapLevel, MapNode, MapResponse, McpServer, ProjectSettings, RunMode, Workflow,
+} from "../api";
+// the Inbox's items (a plugin's inbox.card shows its own kinds)
+export type { InboxItem, InboxTask } from "../inboxApi";
 
 // data loading (live: loads again on every server event tick), and the app's state (the chosen project, toast)
 export { useApp, useLoad } from "../state";
 export type { Loaded } from "../state";
 
-// links to screens, keel's own and the add-ons' (#/initiatives/INI-3)
+// links to screens, keel's own and the add-ons' (#/initiatives/INI-3); go() opens one, useRoute() reads the link
 export { hashForScreen } from "../routes";
+export { go, useRoute } from "../state";
+export type { Route } from "../routes";
 
 // keel's small ui pieces
-export { Async, Confirm, Drawer, Empty, ErrorBox, PageHead, Panel, Pill, Tabs } from "../components/ui";
+export { Async, Confirm, Drawer, Empty, ErrorBox, Loading, PageHead, Panel, Pill, Since, Tabs } from "../components/ui";
 export type { PillTone } from "../components/ui";
-export { EmptyState } from "../components/page";
+export { EmptyState, Section, Skeleton } from "../components/page";
 export { Markdown } from "../components/Markdown";
 export { ClarifyForm, answersOf } from "../components/ClarifyForm";
 export type { ClarifyAnswers } from "../components/ClarifyForm";
 export { clock } from "../format";
+export { agoText } from "../components/UsageStrip";
+// starting a flow: the run mode picker, and the Doctor that cleans the project folder when a start is refused
+export { RunModePicker } from "../components/RunMode";
+export { WorkspaceDoctor } from "../components/WorkspaceDoctor";
 
 // keel's diagram canvas (components/er): the boxes of a map level and the database diagram (the Map plugin draws
 // them; the Graph page uses the same canvas)
@@ -43,10 +53,15 @@ export type { PageProps, PageRegistration, SlotItem } from "./registry";
 export { SLOTS } from "./slots";
 export type {
   AssistantItem, AssistantProps, CodeActivityItem, CodeActivityProps, CodeOpen, CodeOpenSpec, CodeTabItem, CodeTabProps,
-  CodeTabRef, CodeView, ConnectionKindItem, JobsTabItem, LauncherSourceItem, MapErQueryItem, ScmPanelProps, SettingKind,
-  SettingRow, SettingsSectionItem, ToolsCardItem, WorkflowActionsItem,
+  CodeTabRef, CodeView, ConnectionKindItem, InboxCardItem, InboxCardProps, JobsTabItem, LauncherSourceItem, MapErQueryItem,
+  ScmPanelProps, SettingKind, SettingRow, SettingsSectionItem, ToolsCardItem, WorkflowActionsItem,
 } from "./slots";
 
 // "ask KeelBot" without importing it: the assistant's part listens
 export { ASK_ASSISTANT_EVENT, askAssistant } from "./assistant";
 export type { AskAssistantDetail } from "./assistant";
+
+// the launcher (⌘K): a launcher.source's results and their actions (open a link, ask KeelBot, copy)
+export { askAction, copyAction, goHash, linkAction } from "../components/launcher/sources";
+export type { Ctx as LauncherCtx } from "../components/launcher/sources";
+export type { Item as LauncherItem } from "../components/launcher/model";

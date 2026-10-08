@@ -9,14 +9,11 @@
 #
 # Format: "core file -> plugin file", paths relative to web/, one per line, sorted. '#' starts a comment.
 
-src/builtins.ts -> src/components/JiraCard.tsx
 src/builtins.ts -> src/components/graph/register.tsx
 src/builtins.ts -> src/components/helper/register.tsx
 src/builtins.ts -> src/components/plugins/ci/register.ts
 src/builtins.ts -> src/components/plugins/db/register.tsx
 src/builtins.ts -> src/components/plugins/git/register.tsx
 src/builtins.ts -> src/components/review/register.tsx
-src/builtins.ts -> src/pages/Tasks.tsx
 src/builtins.ts -> src/pages/Wiki.tsx
 src/builtins.ts -> src/pages/repo/register.tsx
-src/pages/Inbox.tsx -> src/tasksApi.ts

@@ -1,11 +1,5 @@
-package keel.api
+package keel.api.tasks
 
-import keel.api.tasks.IllegalMove
-import keel.api.tasks.Task
-import keel.api.tasks.TaskMachine
-import keel.api.tasks.TaskStatus
-import keel.api.tasks.TaskTypes
-import keel.api.tasks.Trigger
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test

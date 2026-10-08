@@ -2,7 +2,10 @@ package keel.api.tasks
 
 import org.springframework.boot.context.properties.ConfigurationProperties
 
-/** keel.tasks.* (application.yml): how the task lifecycle reaches the outside and runs in the background. */
+/**
+ * keel.tasks.*: how the task lifecycle reaches the outside and runs in the background. Core's application.yml does not
+ * name them (the Tasks plugin owns them): a value set as keel.tasks.<key> wins, else the default below.
+ */
 @ConfigurationProperties(prefix = "keel.tasks")
 data class TaskProperties(
     /** Run the lifecycle's effects of engine events on the event thread (tests) instead of a background worker. */
@@ -11,10 +14,10 @@ data class TaskProperties(
     val scheduler: Boolean = true,
     /** How often the scheduler looks (each connection keeps its own poll interval; PR reviews every 2 ticks). */
     val tickMs: Long = 60_000,
-    /** The GitHub API root; blank = api.github.com (or https://<host>/api/v3 for an Enterprise PR URL). */
-    val githubApi: String = "",
+    /** The GitHub API root (KEEL_GITHUB_API); blank = api.github.com (or https://<host>/api/v3 for an Enterprise PR URL). */
+    val githubApi: String = System.getenv("KEEL_GITHUB_API").orEmpty(),
     /** Where people open keel (KEEL_PUBLIC_URL), for the links keel writes into Jira comments. */
-    val publicUrl: String = "",
+    val publicUrl: String = System.getenv("KEEL_PUBLIC_URL").orEmpty(),
     /** Also read GITHUB_TOKEN / GH_TOKEN from the environment when no token is saved in Connections. */
     val githubFromEnv: Boolean = true,
 )
@@ -141,8 +144,29 @@ data class TaskItem(
     val doneAt: String?,
 )
 
-data class SyncInfo(val connected: Boolean, val kind: String?, val lastSyncAt: String?, val lastSyncError: String?, val me: String?, val pollMinutes: Int?)
+/** The Tasks page's sync line: the project's tracker connection (Jira), or not connected. */
+data class SyncInfo(val connected: Boolean, val kind: String?, val lastSyncAt: String?, val lastSyncError: String?, val me: String?, val pollMinutes: Int?) {
+    companion object {
+        val NONE = SyncInfo(false, null, null, null, null, null)
+    }
+}
 data class TaskList(val tasks: List<TaskView>, val sync: SyncInfo)
+
+/** "Sync now": the tracker's tickets to tasks (when connected), then the PR reviews of the tasks in review. */
+data class SyncResult(
+    val ok: Boolean,
+    /** false: the project has no Jira connection (only the PR reviews were read). */
+    val jira: Boolean,
+    val total: Int = 0,
+    val created: Int = 0,
+    val updated: Int = 0,
+    val moved: Int = 0,
+    val at: String? = null,
+    val error: String? = null,
+    val hint: String? = null,
+    val reviewsChecked: Int = 0,
+    val reviewsMoved: Int = 0,
+)
 
 // ---- request bodies ----
 

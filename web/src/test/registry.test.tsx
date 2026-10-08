@@ -167,6 +167,8 @@ describe("registerSlot and useSlot", () => {
     expect(ids(SLOTS.assistant)).toEqual(["keelbot"]);
     expect(ids(SLOTS.launcherSource)).toEqual(["review", "code", "tasks"]);
     expect(ids(SLOTS.settingsSection)).toEqual([]);
+    // step 3: the Tasks plugin's cards in the Inbox
+    expect(ids(SLOTS.inboxCard)).toEqual(["tasks"]);
   });
 
   it("Settings shows a part's section after keel's own", async () => {

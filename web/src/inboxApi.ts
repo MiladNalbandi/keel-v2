@@ -32,7 +32,7 @@ export type InboxItem = {
   auto_approved?: number;
   last_auto?: string | null;
   since?: string | null;
-  /** v0.5.0: a task's item (kind task | jira-manual) instead of a flow's pause; answered with tasksApi.act. */
+  /** v0.5.0: a task's item (kind task | jira-manual) instead of a flow's pause; the Tasks plugin's card answers it. */
   task?: InboxTask | null;
   /** v0.6.x: a command that waits for the person's OK (kind permission: KeelBot's, or keel2 mcp's acting tool);
    *  answered with inboxApi.decide. */
