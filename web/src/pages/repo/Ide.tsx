@@ -19,13 +19,14 @@ import { Explorer } from "./Explorer";
 import { FileIcon, Icon, extOf, languageName } from "./icons";
 import { DocsView, KeelView, MemoryView, ruleText } from "./KeelView";
 import {
-  bytes, closeTab, decoOf, FOCUS_KEYS, nameOf, openTab, parseDeepLink, parseReviewLink, pinTab, repoHash, retargetTab, setView, tabId, webUrl,
+  bytes, closeTab, decoOf, FOCUS_KEYS, nameOf, openTab, parseDeepLink, parseReviewLink, pinTab, repoHash, retargetTab, setView, stepTab, tabId, webUrl,
   type EditorTab, type OpenSpec, type Tabs, type View,
 } from "./model";
 import { BranchTab } from "./Branch";
 import { logTitle, openLog, setLogBranch } from "./gitLog";
 import { LogTab } from "./Log";
 import { QuickOpen } from "./QuickOpen";
+import { RecentFiles } from "./Recent";
 import { ScmView } from "./Scm";
 import { SearchView } from "./Search";
 import { DbExplorer, DbTab, dbPath, dbTabTitle } from "../../components/plugins/DbTool";
@@ -33,7 +34,8 @@ import { openReview, ReviewSide } from "../../components/review/ReviewSide";
 import { ReviewFileTab } from "../../components/review/ReviewFileTab";
 import { ReviewLayer } from "../../components/review/ReviewLayer";
 import { setOpener } from "../../components/review/store";
-import { doubleShift, ideActionFor, keyLabel } from "../../components/review/keymap";
+import { doubleShift, ideActionFor, IDE_KEYS, keyLabel, readKeymap } from "../../components/review/keymap";
+import { isTyping, modalOpen } from "../../keys";
 import { openLauncher } from "../../components/launcher/Launcher";
 
 type Activity = "explorer" | "search" | "scm" | "review" | "db" | "keel";
@@ -48,6 +50,8 @@ const ACTIVITIES: [Activity, string, string, string, string][] = [
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 const MOD = isMac ? "⌘" : "Ctrl+";
+/** v0.15.4 the key that closes the editor tab (⌥W: the browser keeps ⌘W), for the tab's tooltip */
+const CLOSE_KEY = keyLabel(IDE_KEYS.find((a) => a.id === "closeTab")!.keys.intellij[0]);
 
 function readJson<T>(store: Storage | undefined, key: string, fallback: T): T {
   try {
@@ -108,6 +112,10 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
   const [cursor, setCursor] = useState<Cursor | null>(null);
   const [cmd, setCmd] = useState<Cmd>(null);
   const [qo, setQo] = useState(false);
+  // v0.15.4 Recent files (⌘E): the tabs you looked at, newest first, also after they were closed
+  const [recentOpen, setRecentOpen] = useState(false);
+  const recentKey = `keel2.repo.recent.${pid}`;
+  const [recent, setRecent] = useState<EditorTab[]>(() => readJson(session, recentKey, []));
   const [screen, setScreen] = useState<"side" | "editor">(() => (parseDeepLink(route.arg) ? "editor" : "side"));
   const [reveal, setReveal] = useState(0);
   const [searchFocus, setSearchFocus] = useState(0);
@@ -146,7 +154,9 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
   useEffect(() => {
     setCursor(null);
     setDims("");
+    if (active) setRecent((r) => [active, ...r.filter((x) => x.id !== active.id)].slice(0, 30));
   }, [active?.id]);
+  useEffect(() => writeJson(session, recentKey, recent.filter((t) => t.kind !== "doctor")), [recent, recentKey]);
 
   const open = useCallback((spec: OpenSpec, o: { pin?: boolean; line?: number; col?: number; len?: number } = {}) => {
     setTabs((t) => openTab(t, spec, o.pin));
@@ -207,6 +217,22 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
     setSideOpen(true);
     setScreen("side");
   }, []);
+  // v0.15.4 an activity's button and its key (⌘1, ⌘9, ⇧⌘9) show its panel, or hide it when it is shown already
+  const toggleSide = useCallback((a: Activity) => {
+    if (!phone && activity === a && sideOpen) setSideOpen(false);
+    else showSide(a);
+  }, [phone, activity, sideOpen, showSide]);
+  // v0.15.4 ⇧Esc hides the active tool window, like IntelliJ: KeelBot when the focus is in it, else the side bar
+  const hideActive = useCallback(() => {
+    const at = document.activeElement;
+    const inHelp = !!at && !!root.current?.querySelector(".ide-help")?.contains(at);
+    const inSide = !!at && !!root.current?.querySelector(".ide-side")?.contains(at);
+    if (inHelp) setHelperOpen(false);
+    else if (phone) setScreen("editor");
+    else setSideOpen(false);
+    // the focus was in what closed: it goes to the editor's tab
+    if (inHelp || inSide) window.setTimeout(() => root.current?.querySelector<HTMLElement>('.ed-tab[aria-selected="true"]')?.focus(), 0);
+  }, [phone]);
 
   const codeActive = !!active && active.kind === "file" && view === "code" && showText;
 
@@ -264,10 +290,17 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
       const ij = ideActionFor(e);
       if (ij) {
         if (ij === "review" && !reviewOn) return;
+        // v0.15.4 a key with ⌥ types a letter on a Mac (⌥W is ∑): not while typing; and none under another popup
+        if ((e.altKey && isTyping(e.target)) || modalOpen()) return;
         e.preventDefault();
         if (ij === "quickOpen") setQo(true);
         else if (ij === "gotoLine") { if (codeActive) setCmd({ kind: "goto", n: Date.now() }); }
-        else showSide(ij);
+        else if (ij === "toggleSide") setSideOpen((o) => !o);
+        else if (ij === "hideSide") hideActive();
+        else if (ij === "recentFiles") setRecentOpen(true);
+        else if (ij === "closeTab") setTabs((t) => (t.active ? closeTab(t, t.active) : t));
+        else if (ij === "nextTab" || ij === "prevTab") setTabs((t) => stepTab(t, ij === "nextTab" ? 1 : -1));
+        else toggleSide(ij);
         return;
       }
       const mod = e.metaKey || e.ctrlKey;
@@ -306,7 +339,7 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
     };
     window.addEventListener("keydown", on);
     return () => window.removeEventListener("keydown", on);
-  }, [showSide, codeActive, helperOpen, codeSelection, askHelper, reviewOn]);
+  }, [showSide, toggleSide, hideActive, codeActive, helperOpen, codeSelection, askHelper, reviewOn]);
 
   // the IDE fills the window below the page head (measured again when the head grows, e.g. a merge result)
   useLayoutEffect(() => {
@@ -559,13 +592,13 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
       <nav className="ide-act" aria-label="Repo views">
         {ACTIVITIES.filter(([id]) => (id !== "db" || dbOn) && (id !== "review" || reviewOn)).map(([id, label, icon, key, short]) => {
           const n = id === "scm" ? changes.data?.length ?? 0 : 0;
+          // v0.15.4 the tooltip names IntelliJ's key too (⌘1, ⌘9, ⇧⌘9)
+          const ij = IDE_KEYS.find((a) => a.id === id)?.keys[readKeymap()][0];
+          const keys = [key && `${MOD}${key}`, ij && keyLabel(ij)].filter(Boolean);
           return (
             <button key={id} type="button" className={`act${activity === id && sideOpen ? " on" : ""}`} aria-pressed={activity === id && sideOpen}
-              aria-label={label} title={key ? `${label} (${MOD}${key})` : label}
-              onClick={() => {
-                if (!phone && activity === id && sideOpen) setSideOpen(false);
-                else showSide(id);
-              }}>
+              aria-label={label} title={keys.length ? `${label} (${keys.join(", ")})` : label}
+              onClick={() => toggleSide(id)}>
               <Icon name={icon} size={22} />
               {phone && <span className="act-l" aria-hidden="true">{short}</span>}
               {n > 0 && <span className="act-n" aria-label={`${n} changed`}>{n > 99 ? "99+" : n}</span>}
@@ -634,7 +667,7 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
                   {dup && <span className="ed-tab-d">{t.path.split("/").slice(-2, -1)[0]}</span>}
                   {t.kind === "file" && t.view === "diff" && <span className="ed-tab-v">diff</span>}
                   {tdeco && <span className={`ed-tab-m t-${tdeco.tone}`} aria-label={tdeco.title}>{tdeco.letter}</span>}
-                  <button type="button" className="ed-tab-x" aria-label={`Close ${title}`} title="Close (middle-click)"
+                  <button type="button" className="ed-tab-x" aria-label={`Close ${title}`} title={`Close (${CLOSE_KEY}, or middle-click)`}
                     onClick={(e) => {
                       e.stopPropagation();
                       close(t.id);
@@ -717,6 +750,11 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
         <QuickOpen pid={pid} hasFile={codeActive} onClose={() => setQo(false)}
           onOpen={(p, pin) => openFile(p, pin)}
           onGoto={(line) => active && setTargets((x) => ({ ...x, [active.id]: { line, n: Date.now() } }))} />
+      )}
+      {recentOpen && (
+        <RecentFiles onClose={() => setRecentOpen(false)}
+          items={recent.filter((x) => x.id !== tabs.active).map((x) => ({ tab: x, title: tabTitle(x), open: tabs.tabs.some((t) => t.id === x.id) }))}
+          onPick={(x) => open({ kind: x.kind, path: x.path, sha: x.sha, view: x.view }, { pin: !tabs.tabs.some((t) => t.id === x.id) })} />
       )}
     </div>
   );

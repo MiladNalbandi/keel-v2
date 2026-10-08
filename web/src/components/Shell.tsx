@@ -10,7 +10,10 @@ import { go, useApp, useRoute } from "../state";
 import { Mascot } from "./Mascot";
 import { BudgetBar } from "./BudgetBar";
 import { Launcher, openLauncher } from "./launcher/Launcher";
-import { keyLabel } from "./review/keymap";
+import { isMac, keyLabel } from "./review/keymap";
+import { KeySheet } from "./KeySheet";
+import { KEYS, isTyping, matchesAny, menuPageKey, menuPageOf } from "../keys";
+import { FOCUS_EVENT } from "../pages/repo/model";
 import { NavIcon } from "./NavIcons";
 import { NotificationDrawer, Popups } from "./Notifications";
 import { KeelBotCount, useKeelBotWatch } from "./helper/unread";
@@ -138,6 +141,9 @@ function keepVisible(box: HTMLElement, el: HTMLElement) {
   else if (r.right > b.right - 36) box.scrollLeft += r.right - b.right + 40;
 }
 
+/** v0.15.4 a menu link's tooltip names its key: ⌃1–⌃9 open the first nine pages. */
+const keyTip = (label: string, n: number) => (n <= 9 ? `${label} (${keyLabel(menuPageKey(n))})` : label);
+
 /** The screens: All projects, then the four groups. `onPick` runs after a link is used (the phone menu closes). */
 function NavLinks({ onPick, hints }: { onPick?: () => void; hints?: boolean }) {
   const route = useRoute();
@@ -153,9 +159,10 @@ function NavLinks({ onPick, hints }: { onPick?: () => void; hints?: boolean }) {
     id === "inbox" ? (waitingAll > 0 ? <span className="count" data-testid={onPick ? undefined : "inbox-count"} title="waiting for you in all projects"
       aria-label={`${waitingAll} waiting`}>{waitingAll}</span> : null)
       : (id === "jobs" || id === "live") && running > 0 ? <span className="count run" title="running now" aria-label={`${running} running`}>{running}</span> : null;
+  let n = 1;
   return (
     <>
-      <a href={hashFor("projects")} className="nav-home" aria-current={page === "projects" ? "page" : undefined} onClick={onPick}>
+      <a href={hashFor("projects")} className="nav-home" aria-current={page === "projects" ? "page" : undefined} onClick={onPick} title={keyTip("All projects", 1)}>
         <span className="nav-l">All projects</span>
         {waitingAll > 0 && <span className="count" title="waiting for you in all projects">◆ {waitingAll}</span>}
       </a>
@@ -164,7 +171,7 @@ function NavLinks({ onPick, hints }: { onPick?: () => void; hints?: boolean }) {
           <div className="nav-h" title={g.hint}><span>{g.label}</span>{hints && g.hint && <small>{g.hint}</small>}</div>
           {g.pages.map((p) => (
             <a key={p.id} href={p.addon ? hashForScreen(p.id) : hashFor(p.id as ScreenId)} aria-current={current === p.id ? "page" : undefined}
-              onClick={onPick}>
+              onClick={onPick} title={keyTip(p.label, ++n)}>
               <span className="nav-l">{p.label}</span>
               {p.addon ? null : badge(p.id as ScreenId)}
               {p.id === "helper" && <KeelBotCount kind="nav" />}
@@ -189,9 +196,10 @@ function RailLinks() {
   const count = (id: ScreenId) =>
     id === "inbox" && waitingAll > 0 ? <span className="rail-count" aria-hidden="true">{waitingAll > 9 ? "9+" : waitingAll}</span>
       : (id === "jobs" || id === "live") && running > 0 ? <span className="rail-count run" aria-hidden="true">{running}</span> : null;
+  let n = 0;
   const link = (id: string, label: string, addon?: string) => (
     <a key={id} href={addon ? hashForScreen(id) : hashFor(id as ScreenId)} className="rail-link" aria-current={current === id ? "page" : undefined}
-      title={label} aria-label={id === "inbox" && waitingAll ? `${label}, ${waitingAll} waiting` : label}>
+      title={keyTip(label, ++n)} aria-label={id === "inbox" && waitingAll ? `${label}, ${waitingAll} waiting` : label}>
       <NavIcon id={addon ? "addon" : id} />
       {addon ? null : count(id as ScreenId)}
       {id === "helper" && <KeelBotCount kind="rail" />}
@@ -242,7 +250,7 @@ function Nav() {
     };
   }, []);
   return (
-    <nav className="nav" id="nav" aria-label="Screens" ref={ref}>
+    <nav className="nav" id="nav" aria-label="Screens" ref={ref} aria-keyshortcuts={KEYS.menuJump[0].toUpperCase()}>
       <NavLinks />
     </nav>
   );
@@ -361,6 +369,7 @@ export function Shell({ children }: { children: ReactNode }) {
   }, [navHidden]);
   useEffect(() => {
     const on = (e: KeyboardEvent) => {
+      // KEYS.menuToggle (⌘\); ⌘ or Ctrl on every system, as before
       if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key === "\\") {
         e.preventDefault();
         setNavHidden((h) => !h);
@@ -369,11 +378,80 @@ export function Shell({ children }: { children: ReactNode }) {
     window.addEventListener("keydown", on);
     return () => window.removeEventListener("keydown", on);
   }, []);
+  // v0.15.4 the menu by keyboard: F6 (or ⌃⌘M) jumps into it at the current page, ↑↓ Home End move, ↩ opens, Esc goes
+  // back to the page; ⌃1–⌃9 open the first nine pages. The folded rail works the same way.
+  const navHiddenRef = useRef(navHidden);
+  navHiddenRef.current = navHidden;
+  useEffect(() => {
+    let back: HTMLElement | null = null;
+    const shown = (el: Element | null): el is HTMLElement =>
+      !!el && (typeof (el as HTMLElement).checkVisibility !== "function" || (el as HTMLElement).checkVisibility());
+    const box = () => {
+      const rail = document.querySelector(".side-rail .rail-nav");
+      const nav = document.getElementById("nav");
+      return [navHiddenRef.current ? rail : nav, rail, nav].find(shown) ?? null;
+    };
+    const links = (b: Element) => [...b.querySelectorAll<HTMLAnchorElement>("a[href]")];
+    const jumpIn = () => {
+      const b = box();
+      (b?.querySelector<HTMLElement>('a[aria-current="page"]') ?? (b && links(b)[0]))?.focus();
+    };
+    const on = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
+      const at = document.activeElement as HTMLElement | null;
+      if (matchesAny(e, KEYS.menuJump)) {
+        e.preventDefault();
+        if (!at?.closest("#nav, .rail-nav")) back = at;
+        // Focus mode hides the menu: leave it first
+        if (document.documentElement.dataset.focus) {
+          window.dispatchEvent(new CustomEvent(FOCUS_EVENT, { detail: false }));
+          window.setTimeout(jumpIn, 50);
+        } else jumpIn();
+        return;
+      }
+      const page = menuPageOf(e);
+      if (page) {
+        // off a Mac Ctrl+Alt is AltGr, which types { [ @ in a text field
+        if (!isMac && isTyping(e.target)) return;
+        const h = links(document.getElementById("nav") ?? document.body)[page - 1]?.getAttribute("href");
+        if (!h) return;
+        e.preventDefault();
+        if (location.hash !== h) location.hash = h;
+        return;
+      }
+      const b = at?.closest("#nav, .rail-nav, .ms-nav");
+      if (!b || at?.tagName !== "A" || e.altKey || e.ctrlKey || e.metaKey) return;
+      const list = links(b);
+      const i = list.indexOf(at as HTMLAnchorElement);
+      const move = (j: number) => {
+        e.preventDefault();
+        list[Math.max(0, Math.min(list.length - 1, j))]?.focus();
+      };
+      if (e.key === "ArrowDown" || e.key === "ArrowRight") move(i + 1);
+      else if (e.key === "ArrowUp" || e.key === "ArrowLeft") move(i - 1);
+      else if (e.key === "Home") move(0);
+      else if (e.key === "End") move(list.length - 1);
+      else if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        (at as HTMLAnchorElement).click();
+      } else if (e.key === "Escape" && !b.matches(".ms-nav")) {
+        // back to the page: where the focus was before the jump, else the page itself
+        e.preventDefault();
+        const main = document.getElementById("main");
+        const to = back?.isConnected && main?.contains(back) ? back : main;
+        back = null;
+        to?.focus();
+      }
+    };
+    window.addEventListener("keydown", on);
+    return () => window.removeEventListener("keydown", on);
+  }, []);
+  const menuKeys = `${keyLabel(KEYS.menuToggle)}; ${keyLabel(KEYS.menuJump[0])} jumps into it`;
   return (
     <div className={`app${navHidden ? " nav-hidden" : ""}`}>
       {navHidden && (
         <div className="side-rail">
-          <button className="rail-btn" type="button" onClick={() => setNavHidden(false)} aria-label="Show the menu" title="Show the menu (⌘\)">
+          <button className="rail-btn" type="button" onClick={() => setNavHidden(false)} aria-label="Show the menu" title={`Show the menu (${menuKeys})`}>
             <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
               <path fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" d="M4 7h16M4 12h16M4 17h16" />
             </svg>
@@ -401,7 +479,7 @@ export function Shell({ children }: { children: ReactNode }) {
           </button>
           <span className="brand"><Logo /><b>keel</b><span className="brand-v">v2 studio</span></span>
           <span className="side-tools"><Mascot /><SearchButton className="bell" /><Bell onClick={() => setNotesOpen(true)} />
-            <button className="hide-nav" type="button" onClick={() => setNavHidden(true)} aria-label="Hide the menu" title="Hide the menu (⌘\)">
+            <button className="hide-nav" type="button" onClick={() => setNavHidden(true)} aria-label="Hide the menu" title={`Hide the menu (${menuKeys})`}>
               <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
                 <path fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" d="M15 6l-6 6 6 6" />
               </svg>
@@ -423,12 +501,13 @@ export function Shell({ children }: { children: ReactNode }) {
       {/* the budget bar stays on top while the page scrolls (a phone scrolls it away under its own header) */}
       <div className="app-col">
         <BudgetBar />
-        <main id="main">{children}</main>
+        <main id="main" tabIndex={-1}>{children}</main>
       </div>
       {menuOpen && <MenuSheet onClose={() => setMenuOpen(false)} theme={theme} />}
       {notesOpen && <NotificationDrawer onClose={() => setNotesOpen(false)} />}
       <Popups />
       <Launcher dark={theme.dark} toggleTheme={theme.toggle} toggleNav={() => setNavHidden((h) => !h)} openNotes={() => setNotesOpen(true)} />
+      <KeySheet />
     </div>
   );
 }
