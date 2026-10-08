@@ -1808,9 +1808,18 @@ GET /api/projects/{pid}/repo/log?branch=&all=&author=&q=&path=&limit=100&skip=0
 - `GET …/repo/commit` and `…/repo/diff?sha=` of a merge commit now show what it brought into its first parent (before:
   no files).
 
-## v0.15.3: Resume a stopped flow, Stop asks first
+## v0.15.3: Resume a stopped flow, Stop asks first, Markdown, keyboard first
 
 Web only. A stopped or failed flow's card says why and offers **Resume the flow** (after an in-page "Yes, resume": a
 rewind to its newest checkpoint, `POST /api/threads/{tid}/rewind`, so the next step runs again) and **Go back to an
 earlier step…** (the Checkpoints tab). **Stop flow** asks first in a small dialog (Stop the flow / Keep it running, Esc).
 keel's version shows at the menu's foot. In the Flow page the graph scrolls with its panel (no second scroll bar).
+- Markdown in an agent's tool output (a `cat` of a `.md` file, or text that reads like Markdown) and a read `.md` file
+  show rendered; Raw shows the text, and copying whole blocks of the rendered view gives their Markdown (Copy Markdown
+  copies all). A `git diff` / `git show` in tool output shows as a highlighted diff. In Code a `.md` file opens rendered
+  (Preview), and Preview works in every view (code, changes).
+- In Code a panel keeps the wheel at its end (like an IDE); elsewhere nested panels hand it to the parent.
+- Keyboard first: ⌘/ (or ?) opens the key cheat sheet for the page (searchable, IntelliJ or VS Code keymap). Code:
+  ⌘1 / ⌘9 / ⇧⌘9 (also ⌥1 / ⌥9 / ⌥⇧9) show and hide their panel, ⇧Esc hides the active tool window, ⌥W closes the tab,
+  ⌥⇧[ / ⌥⇧] previous / next tab, ⌘E recent files. The menu: F6 or ⌃⌘M jumps in (↑↓, ↩, Esc back), ⌃1–⌃9 open the
+  first pages (Ctrl+Alt+1–9 off a Mac).
