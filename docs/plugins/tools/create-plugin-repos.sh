@@ -17,6 +17,20 @@ root="$(git -C "$here" rev-parse --show-toplevel)"
 out="$(mktemp -d)/repos"
 python3 "$here/plugin_repos.py" "$out" "$root/LICENSE" > "$out.tsv"
 
+# gh repo create, waiting out GitHub's "too many repositories, too quickly" limit (10 minutes, up to 6 times)
+create() {
+  local tries=0 err
+  until err="$(gh repo create "$owner/$1" "$visibility" --source "$out/$1" --push --description "$2" 2>&1 > /dev/null)"; do
+    if [[ "$err" == *"too many repositories"* ]] && (( ++tries <= 6 )); then
+      echo "GitHub says too many new repos; waiting 10 minutes (try $tries of 6), then $1 again ..."
+      sleep 600
+    else
+      echo "$err" >&2
+      return 1
+    fi
+  done
+}
+
 while IFS=$'\t' read -r repo description; do
   if gh repo view "$owner/$repo" > /dev/null 2>&1; then
     echo "exists, skipped: $owner/$repo"
@@ -27,7 +41,7 @@ while IFS=$'\t' read -r repo description; do
   git -C "$out/$repo" commit -q -m "Start the repo: README, manifest draft and license" \
     -m "Part of splitting keel into a small core plus plugins (keel-v2 docs/plugins). The code still lives in keel-v2 for now." \
     -m "Co-Authored-By: KeelBot <keel.dev.bot@gmail.com>"
-  gh repo create "$owner/$repo" "$visibility" --source "$out/$repo" --push --description "$description" > /dev/null
+  create "$repo" "$description"
   gh repo edit "$owner/$repo" --add-topic keel --add-topic keel-plugin > /dev/null
   echo "created: https://github.com/$owner/$repo"
 done < "$out.tsv"
