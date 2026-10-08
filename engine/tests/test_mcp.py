@@ -283,6 +283,46 @@ def test_keel2_mcp_beside_the_engine_reads_the_plugins_of_keels_start(monkeypatc
         extensions.reload()
 
 
+def test_a_server_with_no_environment_reads_the_plugins_from_keels_image_folder(monkeypatch, tmp_path):
+    """Codex and Copilot start MCP servers with no environment (no KEEL_DATA): the server looks in /data, keel's image
+    folder, so their agents keep the plugins' keel_* tools (as in 0.15.1, where they were part of keel)."""
+    from keel_engine.pluginhost import resolver
+
+    monkeypatch.delenv("KEEL_PLUGIN_PATHS", raising=False)
+    monkeypatch.delenv("KEEL_PLUGIN_ADDONS", raising=False)
+    monkeypatch.delenv("KEEL_DATA", raising=False)
+    monkeypatch.chdir(tmp_path)                                          # ./.data has no run/env here
+    image_run = tmp_path / "image-data" / "plugins" / "run"
+    image_run.mkdir(parents=True)
+    (image_run / "env").write_text(resolver.env_text({"KEEL_PLUGIN_PATHS": "/opt/keel-v2/plugins/ci/1.0.0/engine",
+                                                      "KEEL_PLUGIN_ADDONS": "keel_plugin_ci"}))
+    monkeypatch.setattr(mcp_server, "IMAGE_RUN_DIR", image_run)
+    try:
+        mcp_server.plugin_env()
+        assert os.environ["KEEL_PLUGIN_ADDONS"] == "keel_plugin_ci"
+    finally:
+        os.environ.pop("KEEL_PLUGIN_PATHS", None)
+        os.environ.pop("KEEL_PLUGIN_ADDONS", None)
+        from keel_engine import extensions
+
+        extensions.reload()
+
+
+def test_with_keel_data_set_the_image_folder_is_not_used(monkeypatch, tmp_path):
+    """A keel outside the image (KEEL_DATA set, no run/env yet) does not pick up some other keel's /data."""
+    from keel_engine.pluginhost import resolver
+
+    monkeypatch.delenv("KEEL_PLUGIN_PATHS", raising=False)
+    monkeypatch.delenv("KEEL_PLUGIN_ADDONS", raising=False)
+    monkeypatch.setenv("KEEL_DATA", str(tmp_path / "data"))
+    image_run = tmp_path / "image-data" / "plugins" / "run"
+    image_run.mkdir(parents=True)
+    (image_run / "env").write_text(resolver.env_text({"KEEL_PLUGIN_ADDONS": "keel_plugin_ci"}))
+    monkeypatch.setattr(mcp_server, "IMAGE_RUN_DIR", image_run)
+    mcp_server.plugin_env()
+    assert "KEEL_PLUGIN_ADDONS" not in os.environ
+
+
 # ---- v0.10.0 the plugins' tools: through the api, with keel's rules; acting ones wait for the person's Inbox answer
 
 class PluginApi(StubApi):

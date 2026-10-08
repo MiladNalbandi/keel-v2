@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import os
+from pathlib import Path
 import sys
 import time
 from datetime import datetime
@@ -432,17 +433,22 @@ def write_mode(argv: list[str]) -> bool:
 
 
 PLUGIN_ENV = ("KEEL_PLUGIN_PATHS", "KEEL_PLUGIN_ADDONS")
+IMAGE_RUN_DIR = Path("/data/plugins/run")   # keel's image keeps its data in /data (Dockerfile KEEL_DATA)
 
 
 def plugin_env() -> None:
     """The plugins whose tools this server adds (their `keel_mcp`). The engine hands its own to the servers it starts
     (tools/mcp.py keel_server_env). `keel2 mcp` runs beside the engine (docker exec), not as its child: then the ones
-    keel's last start resolved ($KEEL_DATA/plugins/run/env), so the person gets the same tools as before."""
+    keel's last start resolved ($KEEL_DATA/plugins/run/env), so the person gets the same tools as before. Codex and
+    Copilot start MCP servers with no environment at all (no KEEL_DATA either): then keel's image folder, /data."""
     if any(os.environ.get(k) for k in PLUGIN_ENV):
         return
     from .pluginhost import resolver
 
-    found = {k: v for k, v in resolver.read_env().items() if k in PLUGIN_ENV and v}
+    env = resolver.read_env()
+    if not env and not os.environ.get("KEEL_DATA"):
+        env = resolver.read_env(IMAGE_RUN_DIR)
+    found = {k: v for k, v in env.items() if k in PLUGIN_ENV and v}
     if found:
         os.environ.update(found)
         extensions.reload()
