@@ -339,7 +339,9 @@ class RepoService(private val projects: ProjectService, private val rules: KeelR
         val (ref, r) = when {
             sha != null -> {
                 val s = checkSha(sha)
-                "commit ${s.take(7)}" to git(root, *common, "show", "--format=", *opts, s, "--", relNorm, timeout = 20)
+                val first = firstParentOfMerge(root, s)
+                "commit ${s.take(7)}" to if (first != null) git(root, *common, "diff", *opts, first, s, "--", relNorm, timeout = 20)
+                else git(root, *common, "show", "--format=", *opts, s, "--", relNorm, timeout = 20)
             }
             branch != null -> {
                 val b = localBranch(root, branch)
@@ -378,13 +380,19 @@ class RepoService(private val projects: ProjectService, private val rules: KeelR
         if (!head.ok) throw NotFound("No commit $sha")
         val p = head.out.trimEnd().split('\u001f')
         val authors = keelAuthors(root)
-        val list = nameStatus(git(root, "-c", "core.quotePath=false", "diff-tree", "--no-commit-id", "-r", "-M", "--root", "--name-status", "-z", s), 1000)
+        val first = firstParentOfMerge(root, p[0])
+        val list = if (first != null) nameStatus(git(root, "-c", "core.quotePath=false", "diff", "--name-status", "-M", "-z", first, p[0]), 1000)
+        else nameStatus(git(root, "-c", "core.quotePath=false", "diff-tree", "--no-commit-id", "-r", "-M", "--root", "--name-status", "-z", s), 1000)
         return CommitView(
             sha = p[0], message = p.getOrElse(1) { "" }, body = p.getOrElse(5) { "" }.trim(), author = p.getOrElse(2) { "" },
             at = p.getOrElse(3) { "" }, keel = isKeelAuthor(p.getOrElse(2) { "" }, p.getOrElse(4) { "" }, authors) ||
                 KEELBOT_EMAIL in p.getOrElse(5) { "" }, files = list,
         )
     }
+
+    /** v0.15.2 A merge's first parent (its files and diffs are what it brought into that branch, like IDEs show them); null for any other commit. */
+    private fun firstParentOfMerge(root: Path, sha: String): String? =
+        gitOut(root, "show", "-s", "--format=%P", sha)?.split(' ')?.filter { it.isNotBlank() }?.takeIf { it.size > 1 }?.first()
 
     /** `--name-status -z` output (diff-tree or diff): status letter, path, and the old path of a rename or copy. */
     private fun nameStatus(r: ProcResult, max: Int): List<CommitFile> {
@@ -440,7 +448,7 @@ class RepoService(private val projects: ProjectService, private val rules: KeelR
 
     /** The names and e-mails keel commits as by itself: KeelBot, or `.keel/config.yml` commit.author_name / author_email.
      *  A commit by the person is keel's when it ends with the KeelBot co-author line. */
-    private fun keelAuthors(root: Path): Set<String> {
+    fun keelAuthors(root: Path): Set<String> {
         val f = root.resolve(".keel/config.yml")
         val cfg = if (Files.isRegularFile(f)) Yaml.readMap(runCatching { Files.readString(f) }.getOrDefault("")) else null
         val c = cfg?.get("commit") as? Map<*, *>
@@ -448,7 +456,7 @@ class RepoService(private val projects: ProjectService, private val rules: KeelR
             .filter { it.isNotBlank() }.toSet()
     }
 
-    private fun isKeelAuthor(name: String, email: String, authors: Set<String>) = name in authors || email in authors
+    fun isKeelAuthor(name: String, email: String, authors: Set<String>) = name in authors || email in authors
 
     /** `range` branch = only the commits this branch has that the base does not (`base..HEAD`). */
     fun commits(pid: String, limit: Int, range: String? = null): List<Commit> {

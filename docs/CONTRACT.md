@@ -1758,3 +1758,35 @@ keeps its activity bar, tabs, editor, KeelBot and status bar. ⇧⌘\ (Ctrl+Shif
 twice (an Esc nothing else used) leaves it, and so do the status bar's Exit focus and the launcher's "Focus mode in
 Code". While it is on, `<html data-focus="code">` is set (the shell's parts hide by it); leaving the Code page clears it,
 and `keel2.repo.focus` = `1` opens Code in Focus mode next time.
+
+## v0.15.2: the Git log
+
+Code › Source control › **Log** (like JetBrains' Git › Log; read only, no plugin needed) opens one editor tab (`kind:
+log`, id `keel:log`, path = the branch it shows: `""` the current one, `*` all branches, else a branch, remote branch or
+tag). On the left the branches: HEAD, local (the current one marked, ↑↓ against the base), remote (by remote), tags. In
+the middle the commits with a graph, ref badges, author, date and id; filters for branch, author, text (or a commit id)
+and path; "Uncommitted changes (N files)" on top for the current branch; commits the base does not have are marked, the
+ones it has are dimmed. A commit shows its message, its files and one file's diff; a double click opens the file's
+change as a commit tab. A branch in Source control (without the Git plugin) and a branch tab ("Show in the log") open
+the log on that branch. The filters and the chosen commit stay per project in this browser tab (`keel2.repo.log.<pid>`).
+
+```
+GET /api/projects/{pid}/repo/refs   → RefsView { head (null when detached), base, local: RefItem[], remote: RefItem[], tags: RefItem[] }
+                                      RefItem { name, sha, date, subject, current, upstream?, ahead?, behind? }  (ahead/behind: a
+                                      local branch against the base; local ≤200, remote ≤300, tags ≤100)
+GET /api/projects/{pid}/repo/log?branch=&all=&author=&q=&path=&limit=100&skip=0
+                                    → GitLog { branch (null = all), head, base, ahead, behind, has_more,
+                                      commits: [{ sha, parents, subject, author, email, at, refs: [{name, kind: head|local|remote|tag,
+                                      current}], in_base, keel }] }
+```
+
+- `branch` blank = HEAD; a local branch, a remote branch or a tag by name, never an option, a range or a revision (400;
+  404 unknown). `all=true`: every branch, remote branch and tag (`--branches --remotes --tags HEAD`, not stashes or
+  keel's review refs).
+- Date order, `limit` ≤ 1000 (+ `skip` for paging). `author` and `q` are fixed strings, any case (both must match);
+  `q` that is a commit id (7–40 hex) the shown branch has returns that commit only. `path` is a file or folder inside
+  the repo (deleted ones too; `.git` and secret files 403); the parents are then rewritten to the shown commits so the
+  graph stays connected.
+- `in_base`: the base (main or master) has the commit; without a base every commit is `false`.
+- `GET …/repo/commit` and `…/repo/diff?sha=` of a merge commit now show what it brought into its first parent (before:
+  no files).
