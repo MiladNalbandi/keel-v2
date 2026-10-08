@@ -67,6 +67,9 @@ export function Zoom({ id, children }: { id: string; children: ReactNode }) {
     const t = e.target as Element;
     if (e.button !== 0 || t.closest(".node, button, a, input, textarea, select, .plus")) return;
     const el = box.current!;
+    // v0.15.3 a press on the box's own scroll bar scrolls, it does not pan
+    const r = el.getBoundingClientRect();
+    if (e.clientX - r.left > el.clientWidth || e.clientY - r.top > el.clientHeight) return;
     drag.current = { x: e.clientX, y: e.clientY, left: el.scrollLeft, top: el.scrollTop };
     el.setPointerCapture?.(e.pointerId);
   };
