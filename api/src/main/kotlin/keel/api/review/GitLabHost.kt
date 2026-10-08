@@ -53,6 +53,8 @@ class GitLabHost(override val ref: HostRef, private val token: String, private v
         reviewRequested = m.path("reviewers").any { it.path("username").asText().equals(me, true) },
         mine = m.path("author").path("username").asText().equals(me, true),
         headSha = m.path("sha").asText(null),
+        assigned = m.path("assignees").any { it.path("username").asText().equals(me, true) } ||
+            m.path("assignee").path("username").asText().equals(me, true),
     )
 
     override fun pr(number: Int): PrDetail {
@@ -69,6 +71,8 @@ class GitLabHost(override val ref: HostRef, private val token: String, private v
             draft = m.path("draft").asBoolean(false),
             url = m.path("web_url").asText(),
             sameRepo = m.path("source_project_id").asLong() == m.path("target_project_id").asLong(),
+            mergeable = (m.path("detailed_merge_status").asText(null) ?: m.path("merge_status").asText(null))?.let { it == "mergeable" || it == "can_be_merged" },
+            mergeState = m.path("detailed_merge_status").asText(null) ?: m.path("merge_status").asText(null),
         )
     }
 
@@ -155,6 +159,17 @@ class GitLabHost(override val ref: HostRef, private val token: String, private v
         return pr.url
     }
 
+    override fun merge(pr: PrDetail, method: String, deleteBranch: Boolean): String {
+        if (method == "rebase") throw HostException("keel merges a GitLab merge request with a merge commit or a squash", "Pick merge or squash.", 400)
+        val out = call("merging !${pr.number}") {
+            rest.put().uri(URI.create("$project/merge_requests/${pr.number}/merge")).contentType(MediaType.APPLICATION_JSON)
+                .body(mapper.valueToTree<JsonNode>(mapOf("sha" to pr.headSha, "squash" to (method == "squash"), "should_remove_source_branch" to deleteBranch)))
+                .retrieve().body(JsonNode::class.java) ?: mapper.createObjectNode()
+        }
+        if (out.path("state").asText() != "merged") throw HostException("GitLab did not merge !${pr.number} (${out.path("state").asText("unknown")})", status = 409)
+        return "Merged"
+    }
+
     override fun fetchUrl(): String = "https://${ref.host}/${ref.path}.git"
 
     override fun authHeader(): String = "AUTHORIZATION: basic " + Base64.getEncoder().encodeToString("oauth2:$token".toByteArray())
@@ -182,6 +197,7 @@ class GitLabHost(override val ref: HostRef, private val token: String, private v
             401 -> throw HostException("GitLab refused the token ($what).", "Check the GitLab token in Connections (scope api).", 409)
             403 -> throw HostException("GitLab did not allow $what: $clean", "The token needs the api scope, and your role must allow it.", 409)
             404 -> throw HostException("GitLab did not find $what.", "Check that the token can see ${ref.path}.", 404)
+            405, 406 -> throw HostException("GitLab did not allow $what: $clean", "It is not mergeable yet: pipeline, approvals, threads or conflicts.", 409)
             400, 409, 422 -> throw HostException("GitLab did not accept $what: $clean", status = 409)
             else -> throw HostException("GitLab answered ${e.statusCode.value()} for $what: $clean")
         }

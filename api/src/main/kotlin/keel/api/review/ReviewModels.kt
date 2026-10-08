@@ -26,6 +26,8 @@ data class PrSummary(
     /** you opened it */
     val mine: Boolean,
     val headSha: String?,
+    /** you are one of its assignees */
+    val assigned: Boolean = false,
 )
 
 data class PrList(
@@ -50,6 +52,10 @@ data class PrDetail(
     val url: String,
     /** the branch is in this repo (not a fork): it can be checked out under its own name */
     val sameRepo: Boolean,
+    /** the host says it can be merged now (null: it does not know yet) */
+    val mergeable: Boolean? = null,
+    /** the host's word for it: clean, blocked, behind, dirty (GitHub), mergeable, ci_must_pass, conflict… (GitLab) */
+    val mergeState: String? = null,
 )
 
 data class CheckRun(val name: String, val state: String, val url: String?)
@@ -114,6 +120,10 @@ data class ReviewView(
     val host: HostRef?,
     val me: String?,
     val notes: List<String>,
+    /** you opened it: only then keel offers Merge */
+    val mine: Boolean = false,
+    val mergeable: Boolean? = null,
+    val mergeState: String? = null,
 )
 
 /** The branch the project folder is on, against its base: Review › This branch. */
@@ -138,3 +148,5 @@ data class SubmitBody(val key: String = "", val event: String = "COMMENT", val b
 data class KeyBody(val key: String = "")
 data class SubmitResult(val posted: Int, val inBody: Int, val event: String, val url: String?, val view: ReviewView)
 data class CheckoutResult(val branch: String, val note: String)
+data class MergeBody(val key: String = "", val method: String = "merge", val deleteBranch: Boolean = false)
+data class MergeResult(val merged: Boolean, val message: String, val view: ReviewView)

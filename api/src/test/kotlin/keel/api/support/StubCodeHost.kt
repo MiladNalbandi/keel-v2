@@ -34,6 +34,7 @@ class StubCodeHost private constructor(private val server: HttpServer) {
         val threads: MutableList<Thread> = CopyOnWriteArrayList(), val conversation: MutableList<Comment> = CopyOnWriteArrayList(),
         val reviews: MutableList<Map<String, Any?>> = CopyOnWriteArrayList(), val checks: MutableList<Map<String, Any?>> = CopyOnWriteArrayList(),
         val approvedBy: MutableList<String> = CopyOnWriteArrayList(),
+        val assignees: List<String> = emptyList(), var mergeable: Boolean = true,
     )
 
     /** "owner/repo" or "group/project" → its pull requests (GitHub) or merge requests (GitLab). */
@@ -62,6 +63,11 @@ class StubCodeHost private constructor(private val server: HttpServer) {
             if (ex.requestHeaders.getFirst("Authorization") != "Bearer $githubToken") 401 to mapOf("message" to "Bad credentials")
             else github(ex.requestMethod, path, params(query), body)
         }
+        if (code == 204) {
+            ex.sendResponseHeaders(204, -1)
+            ex.close()
+            return
+        }
         val bytes = mapper.writeValueAsBytes(res)
         ex.responseHeaders.add("Content-Type", "application/json")
         ex.sendResponseHeaders(code, bytes.size.toLong())
@@ -79,6 +85,7 @@ class StubCodeHost private constructor(private val server: HttpServer) {
         "merged" to (p.state == "merged"), "draft" to false, "updated_at" to "2026-10-08T10:00:00Z", "html_url" to "https://github.com/$repo/pull/${p.number}",
         "head" to mapOf("ref" to p.branch, "sha" to p.headSha, "repo" to mapOf("full_name" to if (p.fork) "someone/fork" else repo)),
         "base" to mapOf("ref" to p.base), "requested_reviewers" to p.reviewers.map { mapOf("login" to it) },
+        "assignees" to p.assignees.map { mapOf("login" to it) }, "mergeable" to p.mergeable, "mergeable_state" to if (p.mergeable) "clean" else "blocked",
     )
 
     private fun github(method: String, path: String, q: Map<String, String>, body: JsonNode?): Pair<Int, Any?> {
@@ -93,6 +100,14 @@ class StubCodeHost private constructor(private val server: HttpServer) {
             val head = q["head"]?.substringAfter(':')
             return 200 to prs.values.filter { it.state == "open" && (head == null || it.branch == head) }.sortedByDescending { it.number }.map { ghPr(repo, it) }
         }
+        Regex("^/pulls/(\\d+)/merge$").find(rest)?.let { r ->
+            val p = pr(r.groupValues[1]) ?: return 404 to mapOf("message" to "Not Found")
+            if (!p.mergeable) return 405 to mapOf("message" to "Pull Request is not mergeable")
+            if (body?.path("sha")?.asText() != p.headSha) return 409 to mapOf("message" to "Head branch was modified. Review and try the merge again.")
+            p.state = "merged"
+            return 200 to mapOf("merged" to true, "message" to "Pull Request successfully merged", "sha" to "d".repeat(40))
+        }
+        Regex("^/git/refs/heads/(.+)$").find(rest)?.let { return 204 to null }
         Regex("^/pulls/(\\d+)$").find(rest)?.let { r -> return pr(r.groupValues[1])?.let { 200 to ghPr(repo, it) } ?: (404 to mapOf("message" to "Not Found")) }
         Regex("^/commits/([0-9a-f]+)/check-runs$").find(rest)?.let { r ->
             val p = prs.values.firstOrNull { it.headSha == r.groupValues[1] }
@@ -155,7 +170,8 @@ class StubCodeHost private constructor(private val server: HttpServer) {
         "state" to if (p.state == "open") "opened" else p.state, "draft" to false, "updated_at" to "2026-10-08T10:00:00Z",
         "web_url" to "https://gitlab.test/$project/-/merge_requests/${p.number}", "source_branch" to p.branch, "target_branch" to p.base,
         "sha" to p.headSha, "source_project_id" to if (p.fork) 2 else 1, "target_project_id" to 1,
-        "reviewers" to p.reviewers.map { mapOf("username" to it) },
+        "reviewers" to p.reviewers.map { mapOf("username" to it) }, "assignees" to p.assignees.map { mapOf("username" to it) },
+        "detailed_merge_status" to if (p.mergeable) "mergeable" else "ci_must_pass",
         "diff_refs" to mapOf("base_sha" to "b".repeat(40), "start_sha" to "s".repeat(40), "head_sha" to p.headSha),
     )
 
@@ -171,6 +187,13 @@ class StubCodeHost private constructor(private val server: HttpServer) {
             return 200 to mrs.values.filter { it.state == "open" && (src == null || it.branch == src) }.sortedByDescending { it.number }.map { glMr(project, it) }
         }
         Regex("^/merge_requests/(\\d+)$").find(rest)?.let { r -> return mr(r.groupValues[1])?.let { 200 to glMr(project, it) } ?: (404 to mapOf("message" to "404 Not found")) }
+        Regex("^/merge_requests/(\\d+)/merge$").find(rest)?.let { r ->
+            val p = mr(r.groupValues[1]) ?: return 404 to mapOf("message" to "404 Not found")
+            if (!p.mergeable) return 405 to mapOf("message" to "405 Method Not Allowed")
+            if (body?.path("sha")?.asText() != p.headSha) return 409 to mapOf("message" to "SHA does not match HEAD of source branch")
+            p.state = "merged"
+            return 200 to glMr(project, p)
+        }
         Regex("^/merge_requests/(\\d+)/pipelines$").find(rest)?.let { return 200 to listOf(mapOf("id" to 55, "status" to "success", "web_url" to null)) }
         Regex("^/pipelines/(\\d+)/jobs$").find(rest)?.let { return 200 to listOf(mapOf("name" to "test", "status" to "success")) }
         Regex("^/merge_requests/(\\d+)/approvals$").find(rest)?.let { r ->

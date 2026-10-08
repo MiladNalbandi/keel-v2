@@ -61,6 +61,9 @@ class ReviewController(private val reviews: ReviewService, private val ai: Revie
     @PostMapping("/submit")
     fun submit(@PathVariable pid: String, @RequestBody b: SubmitBody) = reviews.submit(pid, b)
 
+    @PostMapping("/merge")
+    fun merge(@PathVariable pid: String, @RequestBody b: MergeBody) = reviews.merge(pid, b)
+
     @PostMapping("/checkout")
     fun checkout(@PathVariable pid: String, @RequestBody b: KeyBody) = reviews.checkout(pid, b.key)
 

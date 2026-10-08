@@ -62,6 +62,7 @@ class GitHubHost(override val ref: HostRef, private val token: String, private v
         reviewRequested = p.path("requested_reviewers").any { it.path("login").asText().equals(me, true) },
         mine = p.path("user").path("login").asText().equals(me, true),
         headSha = p.path("head").path("sha").asText(null),
+        assigned = p.path("assignees").any { it.path("login").asText().equals(me, true) },
     )
 
     override fun pr(number: Int): PrDetail {
@@ -79,6 +80,8 @@ class GitHubHost(override val ref: HostRef, private val token: String, private v
             draft = p.path("draft").asBoolean(false),
             url = p.path("html_url").asText(),
             sameRepo = headRepo.equals(ref.path, true),
+            mergeable = p.path("mergeable").takeIf { it.isBoolean }?.asBoolean(),
+            mergeState = p.path("mergeable_state").asText(null),
         )
     }
 
@@ -150,6 +153,21 @@ class GitHubHost(override val ref: HostRef, private val token: String, private v
         return out.path("html_url").asText(null)
     }
 
+    override fun merge(pr: PrDetail, method: String, deleteBranch: Boolean): String {
+        val out = call("merging #${pr.number}") {
+            rest.put().uri(URI.create("$repo/pulls/${pr.number}/merge")).contentType(MediaType.APPLICATION_JSON)
+                .body(mapper.valueToTree<JsonNode>(mapOf("merge_method" to method, "sha" to pr.headSha)))
+                .retrieve().body(JsonNode::class.java) ?: mapper.createObjectNode()
+        }
+        if (!out.path("merged").asBoolean(false)) throw HostException("GitHub did not merge #${pr.number}: ${out.path("message").asText()}", status = 409)
+        if (deleteBranch && pr.sameRepo) {
+            runCatching {
+                rest.delete().uri(URI.create("$repo/git/refs/heads/${pr.branch.split('/').joinToString("/") { enc(it) }}")).retrieve().toBodilessEntity()
+            }
+        }
+        return out.path("message").asText("Merged")
+    }
+
     override fun fetchUrl(): String = "https://${ref.host}/${ref.path}.git"
 
     override fun authHeader(): String =
@@ -186,6 +204,7 @@ class GitHubHost(override val ref: HostRef, private val token: String, private v
             401 -> throw HostException("GitHub refused the token ($what).", "Check the GitHub token in Connections.", 409)
             403 -> throw HostException("GitHub did not allow $what: $clean", "The token needs repo access (and pull request write access to comment).", 409)
             404 -> throw HostException("GitHub did not find $what.", "Check that the token can see ${ref.path}.", 404)
+            405 -> throw HostException("GitHub did not allow $what: $clean", "It is not mergeable yet: checks, reviews or conflicts.", 409)
             422 -> throw HostException("GitHub did not accept $what: $clean", status = 409)
             else -> throw HostException("GitHub answered ${e.statusCode.value()} for $what: $clean")
         }

@@ -98,12 +98,13 @@ class ReviewService(
         if (h == null) return PrList(hostRef(root), null, emptyList(), emptyMap(), why)
         val me = me(h)
         val all = h.list(me)
-        val counts = mapOf("review" to all.count { it.reviewRequested }, "mine" to all.count { it.mine }, "all" to all.size)
+        val counts = mapOf("review" to all.count { it.reviewRequested }, "assigned" to all.count { it.assigned }, "mine" to all.count { it.mine }, "all" to all.size)
         val shown = when (filter) {
             "review" -> all.filter { it.reviewRequested }
+            "assigned" -> all.filter { it.assigned }
             "mine" -> all.filter { it.mine }
             "all", "" -> all
-            else -> throw BadRequest("filter is review, mine or all")
+            else -> throw BadRequest("filter is review, assigned, mine or all")
         }
         return PrList(h.ref, me, shown, counts, null)
     }
@@ -190,7 +191,7 @@ class ReviewService(
         return ReviewView(key, "pr", n, pr.title, pr.author, pr.body, pr.base, pr.branch, r.base, r.head, pr.url, pr.state, pr.draft, pr.sameRepo,
             checks, decisions.approved, decisions.changes, files, files.sumOf { it.added }, files.sumOf { it.removed },
             repo.commits(root, 100, null, "${r.base}..${r.head}"), threads, conversation, drafts(pid, key), viewed(pid, key, r.head),
-            pr.state == "open", h.ref, me(h), notes)
+            pr.state == "open", h.ref, me(h), notes, pr.author.equals(me(h), true), pr.mergeable, pr.mergeState)
     }
 
     private fun fileOf(root: Path, r: Refs, path: String): ChangedFile =
@@ -373,6 +374,21 @@ class ReviewService(
         jdbc.update("DELETE FROM review_drafts WHERE project_id = ? AND review_key = ?", pid, b.key)
         hub.publish(pid, "review.submitted", mapOf("key" to b.key, "event" to b.event, "comments" to out.size))
         return SubmitResult(out.size, extra.size, b.event, url, view(pid, b.key))
+    }
+
+    /** Merges your own pull request (keel offers Merge only on yours). The host checks the rest: checks, reviews, conflicts. */
+    fun merge(pid: String, b: MergeBody): MergeResult {
+        val root = root(pid)
+        val n = prNumber(b.key)
+        if (b.method !in setOf("merge", "squash", "rebase")) throw BadRequest("method is merge, squash or rebase")
+        val h = needHost(root)
+        val pr = h.pr(n)
+        if (!pr.author.equals(me(h), true)) throw Conflict("Only your own ${if (h.ref.kind == "gitlab") "merge" else "pull"} request can be merged here", "Its author merges it, or merge it on ${h.ref.host}.")
+        if (pr.state != "open") throw Conflict("${if (h.ref.kind == "gitlab") "!" else "#"}$n is ${pr.state}")
+        if (pr.draft) throw Conflict("${if (h.ref.kind == "gitlab") "!" else "#"}$n is a draft", "Mark it ready for review first.")
+        val message = h.merge(pr, b.method, b.deleteBranch)
+        hub.publish(pid, "review.merged", mapOf("key" to b.key, "method" to b.method))
+        return MergeResult(true, message, view(pid, b.key))
     }
 
     /** The pull request's code in the project folder, to run and test it: its own branch name, or review/pr-<n> for a fork. */

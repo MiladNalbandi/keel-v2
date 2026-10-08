@@ -64,7 +64,8 @@ class ReviewApiTest : ApiTest() {
 
     private fun githubPr(): Pair<String, Path> {
         val (pid, root, head) = repoWithChange("review-gh", "github.com", "acme/shop", "refs/pull/7/head")
-        val pr = StubCodeHost.Pr(7, "Save the page size", "ana", "feat/paging", "main", head, reviewers = listOf("me"), body = "Closes ORD-88")
+        val pr = StubCodeHost.Pr(7, "Save the page size", "ana", "feat/paging", "main", head, reviewers = listOf("me"), body = "Closes ORD-88",
+            assignees = listOf("me", "bo"))
         pr.checks += mapOf("name" to "build", "conclusion" to "success", "status" to "completed", "html_url" to null)
         hosts.thread(pr, "src/Prefs.kt", 6, "bo", "Should 20 come from config?")
         pr.conversation += StubCodeHost.Comment(1, "bo", "Nice change")
@@ -92,6 +93,8 @@ class ReviewApiTest : ApiTest() {
         assertThat(list["counts"]["review"].asInt()).isEqualTo(1)
         assertThat(list["counts"]["mine"].asInt()).isEqualTo(1)
         assertThat(get("/api/projects/$pid/review/prs?filter=mine").json()["prs"].map { it["number"].asInt() }).containsExactly(8)
+        assertThat(get("/api/projects/$pid/review/prs?filter=assigned").json()["prs"].map { it["number"].asInt() }).containsExactly(7)
+        assertThat(list["counts"]["assigned"].asInt()).isEqualTo(1)
         assertThat(get("/api/projects/$pid/review/prs?filter=all").json()["prs"].size()).isEqualTo(2)
         get("/api/projects/$pid/review/prs?filter=nope").andExpect(status().isBadRequest)
 
@@ -104,6 +107,9 @@ class ReviewApiTest : ApiTest() {
         assertThat(v["conversation"].single()["body"].asText()).isEqualTo("Nice change")
         assertThat(v["checks"].single()["state"].asText()).isEqualTo("success")
         assertThat(v["can_post"].asBoolean()).isTrue()
+        assertThat(v["mine"].asBoolean()).isFalse()
+        assertThat(v["mergeable"].asBoolean()).isTrue()
+        assertThat(v["merge_state"].asText()).isEqualTo("clean")
         assertThat(git(root, "show-ref", "refs/keel/review/pr-7")).contains(sha(root, "feat/paging"))
         assertThat(git(root, "branch", "--show-current").trim()).isEqualTo("main")          // nothing checked out
 
@@ -205,7 +211,7 @@ class ReviewApiTest : ApiTest() {
 
     @Test
     fun `a GitLab merge request is reviewed the same way, with approve`() {
-        val (pid, _, head) = repoWithChange("review-gl", "gitlab.test", "group/shop", "refs/merge-requests/3/head")
+        val (pid, root, head) = repoWithChange("review-gl", "gitlab.test", "group/shop", "refs/merge-requests/3/head")
         get("/api/projects/$pid/review/prs").json().let { assertThat(it["note"].asText()).contains("Add GitLab") }        // no GitLab connection yet
         put("/api/gitlab", mapOf("url" to "ftp://x")).andExpect(status().isBadRequest)
         val conn = put("/api/gitlab", mapOf("url" to "https://gitlab.test/", "token" to hosts.gitlabToken)).andExpect(status().isOk).json()
@@ -234,6 +240,39 @@ class ReviewApiTest : ApiTest() {
         val tid = sent["view"]["threads"].single()["id"].asText()
         post("/api/projects/$pid/review/threads/$tid/reply", mapOf("key" to "pr:3", "body" to "done")).andExpect(status().isOk)
         assertThat(post("/api/projects/$pid/review/threads/$tid/resolve", mapOf("key" to "pr:3", "resolved" to true)).json()["threads"].single()["resolved"].asBoolean()).isTrue()
+
+        // assigned to you, and your own merge request merged (squash), not someone else's
+        hosts.gitlab["group/shop"]!![4] = StubCodeHost.Pr(4, "Mine", "me", "feat/paging", "main", head, assignees = listOf("me"))
+        git(root, "push", "-q", remotes.resolve("group/shop.git").toString(), "feat/paging:refs/merge-requests/4/head")
+        assertThat(get("/api/projects/$pid/review/prs?filter=assigned").json()["prs"].map { it["number"].asInt() }).containsExactly(4)
+        post("/api/projects/$pid/review/merge", mapOf("key" to "pr:3")).andExpect(status().isConflict)
+        post("/api/projects/$pid/review/merge", mapOf("key" to "pr:4", "method" to "rebase")).andExpect(status().isBadRequest)
+        val merged = post("/api/projects/$pid/review/merge", mapOf("key" to "pr:4", "method" to "squash")).andExpect(status().isOk).json()
+        assertThat(merged["view"]["state"].asText()).isEqualTo("merged")
+        assertThat(hosts.calls("PUT", "/merge_requests/4/merge").single().body!!["squash"].asBoolean()).isTrue()
+    }
+
+    @Test
+    fun `only your own pull request can be merged, and the host decides if it can be now`() {
+        val (pid, root) = githubPr()
+        git(root, "push", "-q", remotes.resolve("acme/shop.git").toString(), "feat/paging:refs/pull/9/head")
+        val mine = StubCodeHost.Pr(9, "My paging", "me", "feat/paging", "main", sha(root, "feat/paging"))
+        hosts.github["acme/shop"]!![9] = mine
+        val err = post("/api/projects/$pid/review/merge", mapOf("key" to "pr:7")).andExpect(status().isConflict).json()
+        assertThat(err["error"].asText()).isEqualTo("Only your own pull request can be merged here")
+        assertThat(hosts.calls("PUT", "/pulls/7/merge")).isEmpty()
+        post("/api/projects/$pid/review/merge", mapOf("key" to "pr:9", "method" to "fast")).andExpect(status().isBadRequest)
+        mine.mergeable = false
+        assertThat(view(pid, "pr:9")["mine"].asBoolean()).isTrue()
+        val blocked = post("/api/projects/$pid/review/merge", mapOf("key" to "pr:9")).andExpect(status().isConflict).json()
+        assertThat(blocked["hint"].asText()).contains("not mergeable yet")
+        mine.mergeable = true
+        val done = post("/api/projects/$pid/review/merge", mapOf("key" to "pr:9", "method" to "squash", "delete_branch" to true)).andExpect(status().isOk).json()
+        assertThat(done["merged"].asBoolean()).isTrue()
+        assertThat(done["view"]["state"].asText()).isEqualTo("merged")
+        assertThat(hosts.calls("PUT", "/pulls/9/merge").last().body!!["merge_method"].asText()).isEqualTo("squash")
+        assertThat(hosts.calls("DELETE", "/git/refs/heads/feat/paging")).hasSize(1)
+        post("/api/projects/$pid/review/merge", mapOf("key" to "pr:9")).andExpect(status().isConflict)          // merged already
     }
 
     @Test

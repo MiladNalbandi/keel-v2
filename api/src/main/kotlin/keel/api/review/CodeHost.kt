@@ -43,6 +43,9 @@ interface CodeHost {
     /** One review: line comments plus COMMENT, APPROVE or REQUEST_CHANGES. Returns a link to it, when the host gives one. */
     fun submit(pr: PrDetail, event: String, body: String, comments: List<OutComment>): String?
 
+    /** Merges it (merge, squash or rebase) at [PrDetail.headSha]; the host refuses when it moved on. Returns the host's message. */
+    fun merge(pr: PrDetail, method: String, deleteBranch: Boolean): String
+
     /** What `git fetch` needs: the repo's https URL, the auth header for it, and the refs of a pull request's head. */
     fun fetchUrl(): String
     fun authHeader(): String
