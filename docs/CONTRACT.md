@@ -1807,3 +1807,10 @@ GET /api/projects/{pid}/repo/log?branch=&all=&author=&q=&path=&limit=100&skip=0
 - `in_base`: the base (main or master) has the commit; without a base every commit is `false`.
 - `GET …/repo/commit` and `…/repo/diff?sha=` of a merge commit now show what it brought into its first parent (before:
   no files).
+
+## v0.15.3: Resume a stopped flow, Stop asks first
+
+Web only. A stopped or failed flow's card says why and offers **Resume the flow** (after an in-page "Yes, resume": a
+rewind to its newest checkpoint, `POST /api/threads/{tid}/rewind`, so the next step runs again) and **Go back to an
+earlier step…** (the Checkpoints tab). **Stop flow** asks first in a small dialog (Stop the flow / Keep it running, Esc).
+keel's version shows at the menu's foot. In the Flow page the graph scrolls with its panel (no second scroll bar).

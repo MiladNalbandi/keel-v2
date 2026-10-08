@@ -399,7 +399,7 @@ export function Shell({ children }: { children: ReactNode }) {
             {/* the phone bar has no Live pill: a dot says when the event stream is not live */}
             {live !== "live" && <span className={`menu-dot ${live === "off" ? "bad" : "warn"}`} aria-hidden="true" />}
           </button>
-          <span className="brand"><Logo /><b>keel</b><span className="brand-v">v2 studio</span><Version /></span>
+          <span className="brand"><Logo /><b>keel</b><span className="brand-v">v2 studio</span></span>
           <span className="side-tools"><Mascot /><SearchButton className="bell" /><Bell onClick={() => setNotesOpen(true)} />
             <button className="hide-nav" type="button" onClick={() => setNavHidden(true)} aria-label="Hide the menu" title="Hide the menu (⌘\)">
               <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
@@ -412,7 +412,8 @@ export function Shell({ children }: { children: ReactNode }) {
         </div>
         <Nav />
         <div className="side-foot">
-          <div className="row"><LiveDot /><EngineStatus /></div>
+          {/* v0.15.3 the version shows here: the head row is often too full for it */}
+          <div className="row"><LiveDot /><EngineStatus version /></div>
           <button className="btn sm ghost theme-btn" id="theme" type="button" onClick={theme.toggle}
             aria-label={theme.dark ? "Switch to the light theme" : "Switch to the dark theme"} title={theme.dark ? "Switch to the light theme" : "Switch to the dark theme"}>
             <ThemeIcon dark={theme.dark} />

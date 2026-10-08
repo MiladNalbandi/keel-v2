@@ -4,7 +4,7 @@
 // the budget, the acceptance criteria, what blocks shipping and keel's state. The init workflow adds its ladder and
 // knowledge build.
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   api, errorParts, type Blocker, type Checkpoint, type EngineEvent, type FlowView, type Job, type LadderRung, type Memory, type Step, type StepExplanation,
   type ThreadState, type Workflow,
@@ -120,6 +120,8 @@ function FlowBar({ thread, workflow, estimate, started, onStart, onJump, extra }
 }) {
   const { project, toast } = useApp();
   const [busy, setBusy] = useState(false);
+  // v0.15.3 Stop flow asks first
+  const [confirmStop, setConfirmStop] = useState(false);
   const live = thread.status === "running" || thread.status === "waiting";
   const u = thread.usage;
   const used = u.tokens_in + u.tokens_out + Math.floor((u.tokens_cached ?? 0) / 10);
@@ -155,21 +157,25 @@ function FlowBar({ thread, workflow, estimate, started, onStart, onJump, extra }
           <span className="fl-long">Jump to current</span><span className="fl-short" aria-hidden="true">Jump</span></button>}
         {live && <RunModeSwitch compact pid={thread.project_id} threadId={thread.thread_id} mode={thread.run_mode} />}
         {live ? (
-          <button className="btn" type="button" disabled={busy} onClick={async () => {
-            setBusy(true);
-            try {
-              await api.stopThread(thread.thread_id);
-              toast("Stop sent; the thread keeps its last checkpoint.");
-            } catch (e) {
-              toast(errorParts(e).message);
-            } finally {
-              setBusy(false);
-            }
-          }}>Stop flow</button>
+          <button className="btn" type="button" disabled={busy} onClick={() => setConfirmStop(true)}>Stop flow</button>
         ) : <button className="btn primary" type="button" onClick={onStart}>Start a flow</button>}
         {live && <button className="btn ghost" type="button" onClick={onStart}
           title="It runs next to this one, in a worktree of its own">Start another flow</button>}
       </div>
+      {confirmStop && (
+        <ConfirmStop title={thread.title} busy={busy} onCancel={() => setConfirmStop(false)} onStop={async () => {
+          setBusy(true);
+          try {
+            await api.stopThread(thread.thread_id);
+            toast("Stopped. Every finished step is saved: Resume goes on from there.");
+            setConfirmStop(false);
+          } catch (e) {
+            toast(errorParts(e).message);
+          } finally {
+            setBusy(false);
+          }
+        }} />
+      )}
     </header>
   );
 }
@@ -235,7 +241,7 @@ function FlowSidePanel({ pid, thread, workflow, job, running, side, setSide, sel
       {side === "now" ? (
         <div className="grid" style={{ gap: 12 }}>
           {thread.status === "waiting" && thread.waiting ? <WaitsCard thread={thread} onJump={onJump} />
-            : <StatusCard pid={pid} thread={thread} workflow={workflow} job={job} onDone={onDone} />}
+            : <StatusCard pid={pid} thread={thread} workflow={workflow} job={job} onDone={onDone} onCheckpoints={() => setSide("checkpoints")} />}
           {job && <JobFeed job={job} />}
           <EventsPanel pid={pid} thread={thread} history={history.error ? [] : history.data} onAll={() => setSide("checkpoints")} />
         </div>
@@ -435,8 +441,10 @@ function perStep(w: Workflow, per?: { step: string; tokens: number }[]) {
 }
 
 /** The ◆ card when the thread waits, the running card while an agent works, or how it ended. */
-export function StatusCard({ pid, thread, workflow, job, onDone }: {
+export function StatusCard({ pid, thread, workflow, job, onDone, onCheckpoints }: {
   pid: string; thread: ThreadState; workflow: Workflow; job: Job | null; onDone: () => Promise<void>;
+  /** v0.15.3 show the Checkpoints tab (pick an earlier step to go back to) */
+  onCheckpoints?: () => void;
 }) {
   const step = workflow.steps.find((s) => s.id === (thread.current ?? "").replace(/__fix$/, ""));
   if (thread.status === "waiting" && thread.waiting) return <GateCard thread={thread} workflow={workflow} onDone={onDone} />;
@@ -447,7 +455,88 @@ export function StatusCard({ pid, thread, workflow, job, onDone }: {
     <div className={thread.status === "failed" ? "errbox" : "running-card"} style={thread.status === "done" ? { borderColor: "var(--ok)", background: "var(--ok-soft)" } : undefined}>
       <b><Pill tone={tone}>{thread.status}</Pill> {thread.status === "done" ? "The flow is done." : thread.status === "failed" ? "The flow failed." : "The flow was stopped."}</b>
       {thread.error && <span className="sub">{thread.error}</span>}
-      {thread.status !== "done" && <span className="hint">Rewind to a checkpoint below to try again from there.</span>}
+      {thread.status !== "done" && <ResumeRow thread={thread} onDone={onDone} onCheckpoints={onCheckpoints} />}
+    </div>
+  );
+}
+
+/** v0.15.3 Stop flow asks first, in a small dialog over the page (Esc or Keep it running closes it). */
+function ConfirmStop({ title, busy, onCancel, onStop }: { title: string; busy: boolean; onCancel: () => void; onStop: () => void }) {
+  const keep = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    keep.current?.focus();
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); onCancel(); } };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+  return (
+    <div className="fl-confirm-back" onMouseDown={(e) => e.target === e.currentTarget && onCancel()}>
+      <div className="fl-confirm panel" role="alertdialog" aria-modal="true" aria-labelledby="fl-stop-h" aria-describedby="fl-stop-p">
+        <h2 id="fl-stop-h">Stop this flow?</h2>
+        <p id="fl-stop-p">“{title}” stops now, and the step that runs stops with it. Every finished step stays saved: you can
+          Resume later from the last one, or go back to an earlier step.</p>
+        <div className="row">
+          <button className="btn warn" type="button" disabled={busy} onClick={onStop}>{busy ? "Stopping…" : "Stop the flow"}</button>
+          <button ref={keep} className="btn" type="button" disabled={busy} onClick={onCancel}>Keep it running</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** v0.15.3 a stopped or failed flow: go on from its last saved step (a rewind to the newest checkpoint, asked
+ *  first because agents run again), or pick an earlier step. Nothing is lost: every finished step is saved. */
+function ResumeRow({ thread, onDone, onCheckpoints }: { thread: ThreadState; onDone: () => Promise<void>; onCheckpoints?: () => void }) {
+  const { toast } = useApp();
+  const [last, setLast] = useState<Checkpoint | null>(null);
+  const [busy, setBusy] = useState(false);
+  const ask = async () => {
+    setBusy(true);
+    try {
+      const h = await api.history(thread.thread_id);
+      const newest = [...h].sort((a, b) => b.n - a.n)[0];
+      if (newest) setLast(newest);
+      else toast("This flow has no saved step yet: start it again.");
+    } catch (e) {
+      toast(errorParts(e).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const resume = async () => {
+    if (!last) return;
+    setBusy(true);
+    try {
+      await api.rewind(thread.thread_id, last.id);
+      toast(`Resumed after “${last.step}”. The next step runs now.`);
+      setLast(null);
+      await onDone();
+    } catch (e) {
+      const p = errorParts(e);
+      toast(p.hint ? `${p.message} ${p.hint}` : p.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="fl-resume">
+      <span className="hint">
+        {thread.status === "stopped"
+          ? "It stopped while a step ran (Stop flow, or keel itself was stopped). Every finished step is saved."
+          : "Every finished step is saved: go on from the last one, or go back to an earlier one."}
+      </span>
+      {last ? (
+        <div className="row" role="group" aria-label="Resume the flow">
+          <span>Resume after <b className="mono">{last.step}</b>{last.note ? ` (${last.note.slice(0, 80)}${last.note.length > 80 ? "…" : ""})` : ""}? The next step runs again.</span>
+          <button className="btn primary sm" type="button" disabled={busy} onClick={() => void resume()}>{busy ? "Resuming…" : "Yes, resume"}</button>
+          <button className="btn ghost sm" type="button" disabled={busy} onClick={() => setLast(null)}>Cancel</button>
+        </div>
+      ) : (
+        <div className="row">
+          <button className="btn primary sm" type="button" disabled={busy} onClick={() => void ask()}>Resume the flow</button>
+          {onCheckpoints && <button className="btn sm" type="button" onClick={onCheckpoints}>Go back to an earlier step…</button>}
+        </div>
+      )}
     </div>
   );
 }
