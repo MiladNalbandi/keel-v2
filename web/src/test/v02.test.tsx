@@ -312,7 +312,7 @@ describe("Build v0.2", () => {
     render(<App />);
     await user.click(await screen.findByText("Writes the minimum code to make the failing test pass."));
     const dlg = await screen.findByRole("dialog", { name: "implementer" });
-    await waitFor(() => expect(within(dlg).getByTestId("am-models").querySelector('option[value="gpt-5"]')).toHaveAttribute("label", "GPT-5 (Copilot)"));
+    await waitFor(() => expect(within(dlg).getByTestId("am-model")).toHaveTextContent("GPT-5 (Copilot)"));
     await user.selectOptions(within(dlg).getByLabelText("Lane"), "api");
     await user.click(within(dlg).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(calls("PUT", "/api/projects/ludus-engine/agents/implementer")[0]?.body).toEqual({ lane: "api" }));
