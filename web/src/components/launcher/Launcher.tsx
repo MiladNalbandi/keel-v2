@@ -8,11 +8,10 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboa
 import { createPortal } from "react-dom";
 import { api, errorParts, type GraphHit, type HelperSession } from "../../api";
 import { navGroups, useFeatures, useView } from "../../addons";
-import { repoHash } from "../../pages/repo/model";
+import { fileLink } from "../../format";
+import { isMac, keyLabel, matches } from "../../keys";
 import { go, useApp } from "../../state";
-import { fileLink } from "../helper/model";
 import { Markdown } from "../Markdown";
-import { isMac, keyLabel, matches } from "../review/keymap";
 import {
   flat,
   groupJump,
@@ -30,6 +29,8 @@ import {
 } from "./model";
 import {
   copyText,
+  emptyData,
+  fileHash,
   itemsFor,
   load,
   startGroups,
@@ -87,15 +88,7 @@ export function Launcher(props: Props) {
   );
 }
 
-const EMPTY: Data = {
-  inbox: null,
-  prs: null,
-  host: null,
-  files: null,
-  tasks: null,
-  flows: null,
-  notes: [],
-};
+const EMPTY: Data = emptyData();
 
 type Ask = {
   status: "idle" | "sending" | "running" | "done" | "failed";
@@ -616,7 +609,9 @@ function Dialog({
             lastStep={steps[steps.length - 1]?.text}
             onOpen={(path, line) => {
               onClose();
-              location.hash = repoHash(path, line);
+              // the part that shows files (Code) knows their link
+              const hash = fileHash(path, line);
+              if (hash) location.hash = hash;
             }}
             onAgain={() => {
               setAsk({ status: "idle", question: "" });

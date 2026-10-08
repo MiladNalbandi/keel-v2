@@ -1,14 +1,19 @@
 // The Code page as a small, read-only VS Code: an activity bar (Explorer, Search, Source control, keel), a side
 // bar you can resize, editor tabs (preview / pinned), breadcrumbs, and a status bar. Deep links #/repo/<path>:<line>
 // open a file at a line, and the URL follows the active tab. On a phone the side bar and the editor are two screens.
+// The parts add to it through slots: side views (code.activity: Review, Database, and Git's panel in Source control),
+// tab kinds (code.tab: a table, a review file, a branch) and the assistant's column (assistant: KeelBot, ⌘I).
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as RPointerEvent } from "react";
 import { api, type HelperSelection, type RepoInfo } from "../../api";
-import { HelperPanel } from "../../components/helper/HelperPanel";
 import { useNarrow } from "../../components/page";
 import { ErrorBox } from "../../components/ui";
 import { WorkspaceDoctor } from "../../components/WorkspaceDoctor";
+import { doubleShift, keyLabel } from "../../keys";
 import { parseHash } from "../../routes";
+import { ASK_ASSISTANT_EVENT, type AskAssistantDetail } from "../../sdk/assistant";
+import { slotItems, useSlot } from "../../sdk/registry";
+import { SLOTS, type AssistantItem, type CodeActivityItem, type CodeTabItem } from "../../sdk/slots";
 import { useApp, useLoad, useRoute } from "../../state";
 import {
   CodeView, DiffPane, ImagePane, MarkdownPane, Notice, TEXT_MAX, WRAP_MAX, canPreview, kindOf, useFileText,
@@ -18,30 +23,28 @@ import { Explorer } from "./Explorer";
 import { FileIcon, Icon, extOf, languageName } from "./icons";
 import { DocsView, KeelView, MemoryView, ruleText } from "./KeelView";
 import {
-  bytes, closeTab, decoOf, FOCUS_KEYS, nameOf, openTab, parseDeepLink, parseReviewLink, pinTab, repoHash, retargetTab, setView, tabId, webUrl,
-  type EditorTab, type OpenSpec, type Tabs, type View,
+  bytes, closeTab, decoOf, FOCUS_KEYS, ideActionFor, nameOf, openTab, parseDeepLink, parseToolLink, pinTab, repoHash, retargetTab, setView, tabId,
+  webUrl, type EditorTab, type OpenSpec, type Tabs, type View,
 } from "./model";
-import { BranchTab } from "./Branch";
 import { QuickOpen } from "./QuickOpen";
 import { ScmView } from "./Scm";
 import { SearchView } from "./Search";
-import { DbExplorer, DbTab, dbPath, dbTabTitle } from "../../components/plugins/DbTool";
-import { openReview, ReviewSide } from "../../components/review/ReviewSide";
-import { ReviewFileTab } from "../../components/review/ReviewFileTab";
-import { ReviewLayer } from "../../components/review/ReviewLayer";
-import { setOpener } from "../../components/review/store";
-import { doubleShift, ideActionFor, keyLabel } from "../../components/review/keymap";
 import { openLauncher } from "../../components/launcher/Launcher";
 
-type Activity = "explorer" | "search" | "scm" | "review" | "db" | "keel";
-const ACTIVITIES: [Activity, string, string, string, string][] = [
-  ["explorer", "Explorer", "files", "⇧E", "Files"],
-  ["search", "Search", "search", "⇧F", "Search"],
-  ["scm", "Source control", "branch", "⇧G", "Git"],
-  ["review", "Review", "review", "", "Review"],
-  ["db", "Database", "database", "", "DB"],
-  ["keel", "keel", "keel", "", "keel"],
+/** A view in the activity bar: its id, name, icon, key (after ⌘) and phone label; `order` places it. */
+type Activity = string;
+type ActivityDef = { id: Activity; title: string; icon: string; keys: string; short: string; order: number };
+/** The Code page's own views. The parts' views (slot code.activity: Review 40, Database 50) go between by order. */
+const OWN_ACTIVITIES: ActivityDef[] = [
+  { id: "explorer", title: "Explorer", icon: "files", keys: "⇧E", short: "Files", order: 10 },
+  { id: "search", title: "Search", icon: "search", keys: "⇧F", short: "Search", order: 20 },
+  { id: "scm", title: "Source control", icon: "branch", keys: "⇧G", short: "Git", order: 30 },
+  { id: "keel", title: "keel", icon: "keel", keys: "", short: "keel", order: 60 },
 ];
+type SideItem = Extract<CodeActivityItem, { icon: string }>;
+const isSide = (a: CodeActivityItem): a is SideItem => a.place !== "scm";
+const byOrder = (a: { order: number }, b: { order: number }) => a.order - b.order;
+const defOf = (a: SideItem): ActivityDef => ({ id: a.id, title: a.title, icon: a.icon, keys: a.keys ?? "", short: a.short, order: a.order ?? 0 });
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 const MOD = isMac ? "⌘" : "Ctrl+";
@@ -64,25 +67,18 @@ function writeJson(store: Storage | undefined, key: string, value: unknown) {
 const session = typeof sessionStorage !== "undefined" ? sessionStorage : undefined;
 const local = typeof localStorage !== "undefined" ? localStorage : undefined;
 
-function tabTitle(t: EditorTab): string {
+/** The Code page's own tab kinds; any other kind is a part's (slot code.tab). */
+const OWN_TABS = new Set(["file", "commit", "docs", "memory", "doctor"]);
+
+function tabTitle(t: EditorTab, kinds: CodeTabItem[]): string {
   if (t.kind === "docs") return "Files keel wrote";
   if (t.kind === "memory") return "Memory";
   if (t.kind === "doctor") return "Workspace Doctor";
-  if (t.kind === "db") return dbTabTitle(t.path);
-  if (t.kind === "branch") return t.path;
-  if (t.kind === "review") {
-    const [key, file] = splitReview(t.path);
-    return `${nameOf(file)} (${key.startsWith("pr:") ? key.slice(3) : key.slice(7)})`;
-  }
+  const theirs = kinds.find((k) => k.id === t.kind);
+  if (theirs) return theirs.tabTitle(t.path);
   if (t.kind === "commit") return `${nameOf(t.path)} @ ${t.sha?.slice(0, 7)}`;
   return nameOf(t.path);
 }
-
-/** A review file tab's path: "<review key>|<file>" (pr:7|src/a.kt, branch:feat/x|src/a.kt). */
-const splitReview = (p: string): [string, string] => {
-  const i = p.indexOf("|");
-  return i < 0 ? [p, ""] : [p.slice(0, i), p.slice(i + 1)];
-};
 
 export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
   pid: string; repo: RepoInfo | null; version?: number;
@@ -119,6 +115,12 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
   // KeelBot's column: drag its left edge (300 px up to all but 360 px of the IDE), remembered per browser
   const [helperW, setHelperW] = useState<number>(() => readJson(local, "keel2.repo.helper.w", 380));
   const [helperSel, setHelperSel] = useState<HelperSelection | null>(null);
+  // the assistant's column (KeelBot), when a part answers askAssistant
+  const assistant = useSlot<AssistantItem>(SLOTS.assistant)[0] ?? null;
+  const helperName = assistant?.title ?? "";
+  // the parts' side views and tab kinds
+  const activityItems = useSlot<CodeActivityItem>(SLOTS.codeActivity);
+  const tabKinds = useSlot<CodeTabItem>(SLOTS.codeTab);
 
   const changes = useLoad(`changes:${pid}`, () => api.changes(pid));
   const byPath = useMemo(() => new Map((changes.data ?? []).map((c) => [c.path, c])), [changes.data]);
@@ -157,21 +159,23 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
   const openFile = useCallback((path: string, pin = false, view?: View) => open({ path, view }, { pin }), [open]);
 
   // a deep link (#/repo/<path>:<line>) opens that file at that line — on load and on every hash change, also when
-  // it names the same file again after the URL followed other tabs; #/repo/@review/pr:7 opens that review
+  // it names the same file again after the URL followed other tabs; #/repo/@review/pr:7 opens that review (the side
+  // view with that id says what the rest means)
   useEffect(() => {
     const follow = () => {
       const r = parseHash(location.hash);
-      const review = r.page === "repo" ? parseReviewLink(r.arg) : null;
-      if (review) {
-        openReview(pid, review);
-        setActivity("review");
+      const link = r.page === "repo" ? parseToolLink(r.arg) : null;
+      const tool = link ? slotItems<CodeActivityItem>(SLOTS.codeActivity).filter(isSide).find((a) => a.id === link.tool) : null;
+      if (link && tool?.onLink) {
+        tool.onLink(pid, link.value);
+        setActivity(tool.id);
         setSideOpen(true);
         setScreen("side");
         return;
       }
-      const link = r.page === "repo" ? parseDeepLink(r.arg) : null;
-      if (link) {
-        open({ path: link.path, view: "code" }, { line: link.line });
+      const file = r.page === "repo" ? parseDeepLink(r.arg) : null;
+      if (file) {
+        open({ path: file.path, view: "code" }, { line: file.line });
         setReveal((n) => n + 1);
       }
     };
@@ -213,29 +217,31 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
     return text ? { path: activeFile, from: lines[0], to: lines[1], text: text.slice(0, 8000) } : null;
   }, [activeFile, codeActive]);
 
-  // a part of the page hands text to KeelBot (Code › Git: address the comments, draft the PR): open it with the text
+  // a part of the page hands text to the assistant (Code › Git: address the comments, draft the PR): open it with the
+  // text (askAssistant in @keel/web-sdk)
   const [prefill, setPrefill] = useState<{ text: string; n: number } | null>(null);
   useEffect(() => {
     const on = (e: Event) => {
-      const text = String((e as CustomEvent).detail ?? "");
-      if (!text) return;
+      const text = String((e as CustomEvent<AskAssistantDetail>).detail?.text ?? "");
+      if (!text || !slotItems(SLOTS.assistant).length) return;
       setHelperOpen(true);
       setPrefill((p) => ({ text, n: (p?.n ?? 0) + 1 }));
     };
-    window.addEventListener("keel:ask-keelbot", on);
-    return () => window.removeEventListener("keel:ask-keelbot", on);
+    window.addEventListener(ASK_ASSISTANT_EVENT, on);
+    return () => window.removeEventListener(ASK_ASSISTANT_EVENT, on);
   }, []);
 
+  // a part's view shows while this project has its plugin on (Tools › Plugins)
   const plugins = useLoad(`plugins:${pid}`, () => api.plugins(pid), { live: false });
-  const dbOn = !!plugins.data?.find((x) => x.name === "db")?.enabled;
-  const reviewOn = !!plugins.data?.find((x) => x.name === "review")?.enabled;
-  // v0.14.0 a review opens its files as editor tabs (kind "review", path "<key>|<file>", view diff or code)
-  useEffect(() => {
-    setOpener((key, path, view, pin) => open({ kind: "review", path: `${key}|${path}`, view }, { pin }));
-    return () => setOpener(null);
-  }, [open]);
+  const pluginOn = (name?: string) => !name || !!plugins.data?.find((x) => x.name === name)?.enabled;
+  const sideItems = activityItems.filter(isSide);
+  const theirs = sideItems.filter((a) => pluginOn(a.plugin));
+  const activities = [...OWN_ACTIVITIES, ...theirs.map(defOf)].sort(byOrder);
+  const shownIds = activities.map((a) => a.id).join(" ");
+  const nameOfActivity = (id: Activity) => [...OWN_ACTIVITIES, ...sideItems.map(defOf)].find((a) => a.id === id)?.title;
 
   const askHelper = useCallback(() => {
+    if (!slotItems(SLOTS.assistant).length) return;
     const picked = codeSelection();
     if (picked) setHelperSel(picked);
     setHelperOpen(true);
@@ -254,7 +260,8 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
       }
       const ij = ideActionFor(e);
       if (ij) {
-        if (ij === "review" && !reviewOn) return;
+        // ⇧⌘9 Review only while its view is there
+        if (ij !== "quickOpen" && ij !== "gotoLine" && !shownIds.split(" ").includes(ij)) return;
         e.preventDefault();
         if (ij === "quickOpen") setQo(true);
         else if (ij === "gotoLine") { if (codeActive) setCmd({ kind: "goto", n: Date.now() }); }
@@ -269,7 +276,7 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
         return;
       }
       if (!mod || e.altKey) return;
-      if (!e.shiftKey && k === "i") {
+      if (!e.shiftKey && k === "i" && slotItems(SLOTS.assistant).length) {
         e.preventDefault();
         // ⌘I: open KeelBot (with the selected lines); again with nothing selected closes it
         if (helperOpen && !codeSelection()) setHelperOpen(false);
@@ -297,7 +304,7 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
     };
     window.addEventListener("keydown", on);
     return () => window.removeEventListener("keydown", on);
-  }, [showSide, codeActive, helperOpen, codeSelection, askHelper, reviewOn]);
+  }, [showSide, codeActive, helperOpen, codeSelection, askHelper, shownIds]);
 
   // the IDE fills the window below the page head (measured again when the head grows, e.g. a merge result)
   useLayoutEffect(() => {
@@ -372,9 +379,9 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
   const remoteUrl = activeFile ? webUrl(repo?.remote, repo?.branch, activeFile, links[active!.id]) : null;
   const names = useMemo(() => {
     const count = new Map<string, number>();
-    for (const t of tabs.tabs) count.set(tabTitle(t), (count.get(tabTitle(t)) ?? 0) + 1);
+    for (const t of tabs.tabs) count.set(tabTitle(t, tabKinds), (count.get(tabTitle(t, tabKinds)) ?? 0) + 1);
     return count;
-  }, [tabs.tabs]);
+  }, [tabs.tabs, tabKinds]);
 
   const sideView = (
     <>
@@ -392,17 +399,11 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
           onDoctor={() => open({ kind: "doctor", path: "doctor" }, { pin: true })}
           onOpenBranch={(name, pin) => open({ kind: "branch", path: name }, { pin })} />
       </div>
-      {reviewOn && (
-        <div hidden={activity !== "review"} className="sv-host">
-          <ReviewSide pid={pid} activeFile={active?.kind === "review" ? (([key, path]) => ({ key, path }))(splitReview(active.path)) : null} />
+      {theirs.map((a) => (
+        <div key={a.id} hidden={activity !== a.id} className="sv-host">
+          <a.component pid={pid} active={active} open={open} />
         </div>
-      )}
-      {dbOn && (
-        <div hidden={activity !== "db"} className="sv-host">
-          <DbExplorer pid={pid} onConsole={(c) => open({ kind: "db", path: dbPath(c) }, { pin: true })}
-            onTable={(c, t, pin) => open({ kind: "db", path: dbPath(c, t) }, { pin })} />
-        </div>
-      )}
+      ))}
       <div hidden={activity !== "keel"} className="sv-host">
         <KeelView pid={pid} file={metaData} fileError={activeFile ? meta.error : null}
           onOpenDocs={() => open({ kind: "docs", path: "docs" }, { pin: true })}
@@ -431,18 +432,15 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
     body = <DocsView pid={pid} onOpen={(p) => openFile(p, true)} />;
   } else if (active.kind === "memory") {
     body = <MemoryView pid={pid} />;
-  } else if (active.kind === "db") {
-    const id = active.id;
-    body = <DbTab key={id} pid={pid} path={active.path}
-      onConn={(c) => setTabs((t) => retargetTab(t, id, { kind: "db", path: dbPath(c) }))} />;
   } else if (active.kind === "doctor") {
     body = <div className="ed-doc"><WorkspaceDoctor pid={pid} onClean={() => void changes.reload()} /></div>;
-  } else if (active.kind === "review") {
-    const [rkey, rfile] = splitReview(active.path);
-    body = <ReviewFileTab key={active.id} pid={pid} reviewKey={rkey} path={rfile} view={active.view === "code" ? "code" : "diff"} mode={diffMode} />;
-  } else if (active.kind === "branch") {
-    body = <BranchTab key={active.id} pid={pid} name={active.path} mode={diffMode}
-      onOpenCommitFile={(sha, p, pin) => open({ kind: "commit", path: p, sha, view: "diff" }, { pin })} />;
+  } else if (!OWN_TABS.has(active.kind)) {
+    // a part's tab (a table, a review file, a branch)
+    const id = active.id;
+    const Tab = tabKinds.find((k) => k.id === active.kind)?.component;
+    body = Tab
+      ? <Tab key={id} pid={pid} tab={active} mode={diffMode} open={open} retarget={(spec) => setTabs((t) => retargetTab(t, id, spec))} />
+      : <Notice title={`${tabTitle(active, tabKinds)} cannot be shown.`}>The part of keel that opens it is not here.</Notice>;
   } else if (active.kind === "commit") {
     body = <DiffPane pid={pid} path={active.path} against="head" sha={active.sha} mode={diffMode} />;
   } else if (view === "diff") {
@@ -518,8 +516,8 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
           <Icon name="wrap" size={15} /><span>Wrap</span>
         </button>
       )}
-      {view === "code" && showText && (
-        <button type="button" className="tb" aria-label="Ask KeelBot" title={`Ask KeelBot about the selected lines, or this file (${MOD}I)`}
+      {view === "code" && showText && assistant && (
+        <button type="button" className="tb" aria-label={`Ask ${helperName}`} title={`Ask ${helperName} about the selected lines, or this file (${MOD}I)`}
           onMouseDown={(e) => e.preventDefault()} onClick={askHelper}>
           <Icon name="helper" size={15} /><span>Ask</span>
         </button>
@@ -543,9 +541,9 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
   } as CSSProperties;
 
   return (
-    <div ref={root} className={`ide${phone ? ` phone s-${screen}` : ""}${sideOpen ? "" : " side-closed"}${helperOpen ? " help-open" : ""}`} style={ide}>
+    <div ref={root} className={`ide${phone ? ` phone s-${screen}` : ""}${sideOpen ? "" : " side-closed"}${helperOpen && assistant ? " help-open" : ""}`} style={ide}>
       <nav className="ide-act" aria-label="Repo views">
-        {ACTIVITIES.filter(([id]) => (id !== "db" || dbOn) && (id !== "review" || reviewOn)).map(([id, label, icon, key, short]) => {
+        {activities.map(({ id, title: label, icon, keys: key, short }) => {
           const n = id === "scm" ? changes.data?.length ?? 0 : 0;
           return (
             <button key={id} type="button" className={`act${activity === id && sideOpen ? " on" : ""}`} aria-pressed={activity === id && sideOpen}
@@ -560,17 +558,16 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
             </button>
           );
         })}
-        <button type="button" className={`act act-help${helperOpen ? " on" : ""}`} aria-pressed={helperOpen} aria-label="KeelBot"
-          title={`KeelBot: ask about this project (${MOD}I)`} onClick={() => (helperOpen ? setHelperOpen(false) : askHelper())}>
-          <Icon name="helper" size={22} />
-          {phone && <span className="act-l" aria-hidden="true">KeelBot</span>}
-        </button>
+        {assistant && (
+          <button type="button" className={`act act-help${helperOpen ? " on" : ""}`} aria-pressed={helperOpen} aria-label={helperName}
+            title={`${helperName}: ask about this project (${MOD}I)`} onClick={() => (helperOpen ? setHelperOpen(false) : askHelper())}>
+            <Icon name="helper" size={22} />
+            {phone && <span className="act-l" aria-hidden="true">{helperName}</span>}
+          </button>
+        )}
       </nav>
-      <aside className="ide-side" aria-label={ACTIVITIES.find((a) => a[0] === activity)?.[1]}>{sideView}</aside>
-      {reviewOn && (
-        <ReviewLayer pid={pid} active={active?.kind === "review"
-          ? (([key, path]) => ({ key, path, view: active.view === "code" ? "code" as const : "diff" as const }))(splitReview(active.path)) : null} />
-      )}
+      <aside className="ide-side" aria-label={nameOfActivity(activity)}>{sideView}</aside>
+      {theirs.map((a) => (a.layer ? <a.layer key={a.id} pid={pid} active={active} open={open} /> : null))}
       {!phone && sideOpen && (
         <div className="ide-split" role="separator" aria-orientation="vertical" aria-label="Resize the side bar" tabIndex={0}
           aria-valuenow={width} aria-valuemin={180} aria-valuemax={640} onPointerDown={drag}
@@ -583,12 +580,12 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
         <div className="ed-head">
           {phone && (
             <button type="button" className="ed-back" onClick={() => setScreen("side")} aria-label="Back to the files">
-              <Icon name="back" size={18} /><span>{ACTIVITIES.find((a) => a[0] === activity)?.[1]}</span>
+              <Icon name="back" size={18} /><span>{nameOfActivity(activity)}</span>
             </button>
           )}
           <div ref={tabsRef} className="ed-tabs" role="tablist" aria-label="Open files">
             {tabs.tabs.map((t) => {
-              const title = tabTitle(t);
+              const title = tabTitle(t, tabKinds);
               const dup = (names.get(title) ?? 0) > 1 && t.kind === "file";
               const tdeco = t.kind === "file" ? decoOf(byPath.get(t.path)) : undefined;
               const on = t.id === tabs.active;
@@ -616,7 +613,8 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
                     if (e.key === "Delete") close(t.id);
                     if (e.key === "Enter") setTabs((x) => pinTab(x, t.id));
                   }}>
-                  {t.kind === "file" || t.kind === "commit" ? <FileIcon name={nameOf(t.path)} /> : <Icon name={t.kind === "review" ? "review" : t.kind === "branch" ? "branch" : t.kind === "doctor" ? "refresh" : t.kind === "memory" ? "history" : "keel"} size={15} />}
+                  {t.kind === "file" || t.kind === "commit" ? <FileIcon name={nameOf(t.path)} />
+                    : <Icon name={tabKinds.find((k) => k.id === t.kind)?.icon ?? (t.kind === "doctor" ? "refresh" : t.kind === "memory" ? "history" : "keel")} size={15} />}
                   <span className="ed-tab-n">{title}</span>
                   {dup && <span className="ed-tab-d">{t.path.split("/").slice(-2, -1)[0]}</span>}
                   {t.kind === "file" && t.view === "diff" && <span className="ed-tab-v">diff</span>}
@@ -650,19 +648,19 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
         )}
         <div className="ed-body">{body}</div>
       </section>
-      {helperOpen && (
+      {helperOpen && assistant && (
         <div className="ide-help">
           {!phone && (
-            <div className="ide-help-split" role="separator" aria-orientation="vertical" aria-label="Resize KeelBot" tabIndex={0}
+            <div className="ide-help-split" role="separator" aria-orientation="vertical" aria-label={`Resize ${helperName}`} tabIndex={0}
               aria-valuenow={helperW} aria-valuemin={300} onPointerDown={dragHelper} onDoubleClick={() => setHelperW(380)}
-              title="Drag to make KeelBot wider (double-click: back to normal)"
+              title={`Drag to make ${helperName} wider (double-click: back to normal)`}
               onKeyDown={(e) => {
                 if (e.key === "ArrowLeft") setHelperW((w) => Math.min(maxHelper(), w + 32));
                 if (e.key === "ArrowRight") setHelperW((w) => Math.max(300, w - 32));
               }} />
           )}
-          <HelperPanel pid={pid} openFile={activeFile} selection={helperSel} onClearSelection={() => setHelperSel(null)} focusKey={helperFocus} prefill={prefill}
-            onOpenFile={(p, line) => open({ path: p, view: "code" }, { pin: true, line })} onOpenDiff={(p) => openFile(p, true, "diff")}
+          <assistant.component pid={pid} openFile={activeFile} selection={helperSel} onClearSelection={() => setHelperSel(null)} focusKey={helperFocus}
+            prefill={prefill} onOpenFile={(p, line) => open({ path: p, view: "code" }, { pin: true, line })} onOpenDiff={(p) => openFile(p, true, "diff")}
             onClose={() => setHelperOpen(false)} />
         </div>
       )}

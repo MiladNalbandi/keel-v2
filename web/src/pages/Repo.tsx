@@ -7,7 +7,7 @@ import { api, errorParts, type IndexStatus, type RepoInfo, type UpdateFromBase }
 import { ErrorBox, PageHead } from "../components/ui";
 import { plural } from "../format";
 import { go, useApp, useLoad } from "../state";
-import { isMac, keyLabel } from "../components/review/keymap";
+import { isMac, keyLabel } from "../keys";
 import { RepoIde } from "./repo/Ide";
 import { FOCUS_EVENT, FOCUS_KEYS } from "./repo/model";
 

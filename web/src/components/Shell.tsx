@@ -5,12 +5,13 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { navGroups, saveView, useFeatures, useView, type View } from "../addons";
+import { keyLabel } from "../keys";
 import { hashFor, hashForScreen, type ScreenId } from "../routes";
+import { usePages } from "../sdk/registry";
 import { go, useApp, useRoute } from "../state";
 import { Mascot } from "./Mascot";
 import { BudgetBar } from "./BudgetBar";
 import { Launcher, openLauncher } from "./launcher/Launcher";
-import { keyLabel } from "./review/keymap";
 import { NavIcon } from "./NavIcons";
 import { NotificationDrawer, Popups } from "./Notifications";
 
@@ -143,6 +144,8 @@ function NavLinks({ onPick, hints }: { onPick?: () => void; hints?: boolean }) {
   const { page } = route;
   const features = useFeatures();
   const view = useView();
+  // the menu follows the page registry (a plugin's page shows when it registers)
+  usePages();
   const current = page === "addon" ? route.screen : page;
   const { project, projects } = useApp();
   const running = project?.running ?? 0;
@@ -162,10 +165,10 @@ function NavLinks({ onPick, hints }: { onPick?: () => void; hints?: boolean }) {
         <div key={g.id} className={`nav-sec ${g.pages.some((p) => p.id === current) ? "cur" : ""}`}>
           <div className="nav-h" title={g.hint}><span>{g.label}</span>{hints && g.hint && <small>{g.hint}</small>}</div>
           {g.pages.map((p) => (
-            <a key={p.id} href={p.addon ? hashForScreen(p.id) : hashFor(p.id as ScreenId)} aria-current={current === p.id ? "page" : undefined}
+            <a key={p.id} href={p.addon ? hashForScreen(p.id) : hashFor(p.id)} aria-current={current === p.id ? "page" : undefined}
               onClick={onPick}>
               <span className="nav-l">{p.label}</span>
-              {p.addon ? null : badge(p.id as ScreenId)}
+              {p.addon ? null : badge(p.id)}
             </a>
           ))}
         </div>
@@ -180,6 +183,7 @@ function RailLinks() {
   const { page } = route;
   const features = useFeatures();
   const view = useView();
+  usePages();
   const current = page === "addon" ? route.screen : page;
   const { project, projects } = useApp();
   const running = project?.running ?? 0;
@@ -188,10 +192,10 @@ function RailLinks() {
     id === "inbox" && waitingAll > 0 ? <span className="rail-count" aria-hidden="true">{waitingAll > 9 ? "9+" : waitingAll}</span>
       : (id === "jobs" || id === "live") && running > 0 ? <span className="rail-count run" aria-hidden="true">{running}</span> : null;
   const link = (id: string, label: string, addon?: string) => (
-    <a key={id} href={addon ? hashForScreen(id) : hashFor(id as ScreenId)} className="rail-link" aria-current={current === id ? "page" : undefined}
+    <a key={id} href={addon ? hashForScreen(id) : hashFor(id)} className="rail-link" aria-current={current === id ? "page" : undefined}
       title={label} aria-label={id === "inbox" && waitingAll ? `${label}, ${waitingAll} waiting` : label}>
       <NavIcon id={addon ? "addon" : id} />
-      {addon ? null : count(id as ScreenId)}
+      {addon ? null : count(id)}
     </a>
   );
   return (

@@ -1,15 +1,19 @@
 // Connections › Jira: one card per project. Cloud (site URL, email, API token) or Server / Data Center (URL, personal
 // access token); which tickets to bring in (project key, board, JQL); how often; the status mapping keel moves tickets
 // with (found from Jira); the Jira reviewer field and the GitHub reviewers. The token is stored encrypted and never shown.
+// Tools › Catalog: the MCP servers keel fills from these settings (mcp-atlassian). Both register at the end of this
+// file (web/src/builtins.ts loads it).
 
 import { useEffect, useState } from "react";
 import { errorParts } from "../api";
+import { registerSlot } from "../sdk/registry";
+import { SLOTS } from "../sdk/slots";
 import { useApp, useLoad } from "../state";
 import {
   STATUS_LABEL, TASK_STATUSES, tasksApi, type JiraDiscovery, type JiraSave, type JiraTest, type JiraView, type TaskStatus,
 } from "../tasksApi";
 import { agoText } from "./UsageStrip";
-import { EmptyState, Section } from "./page";
+import { EmptyState, Section, Skeleton } from "./page";
 import { Confirm, ErrorBox, Pill } from "./ui";
 
 /** The Jira status keel uses when the mapping names none (the api's TaskStatus.DEFAULT_JIRA). */
@@ -293,3 +297,52 @@ export function JiraSection() {
     </Section>
   );
 }
+
+/** v0.5.0 Tools › Catalog: optional servers keel fills from this project's settings (Jira → mcp-atlassian). They start
+ *  turned off. */
+export function JiraCatalog({ pid, onAdded }: { pid: string; onAdded: () => void }) {
+  const { toast } = useApp();
+  const c = useLoad(`catalog:${pid}`, () => tasksApi.catalog(pid), { live: false });
+  const [busy, setBusy] = useState<string | null>(null);
+  const add = async (id: string) => {
+    setBusy(id);
+    try {
+      const s = await tasksApi.addFromCatalog(pid, id);
+      toast(`${s.name} added, turned off. Turn it on, add it to Settings › MCP servers, then pick its agents.`);
+      onAdded();
+      await c.reload();
+    } catch (e) {
+      toast(errorParts(e).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <Section title="Catalog" sub="Optional servers keel sets up from this project's settings. They are added turned off.">
+      {c.error ? <ErrorBox error={c.error} onRetry={() => void c.reload()} /> : !c.data ? <div className="panel"><Skeleton lines={2} label="Loading the catalog" /></div> : (
+        <div className="panel tl-cat" data-testid="mcp-catalog">
+          {c.data.map((e) => (
+            <div key={e.id} className="tl-cat-item">
+              <div className="tl-cat-id">
+                <span className="row" style={{ gap: 6 }}><b>{e.name}</b><span className="tag">{e.license}</span>
+                  {e.added && <Pill tone="ok">added</Pill>}</span>
+                <span className="sub">{e.about}</span>
+                <span className="mono sub">{e.command} · <a href={e.url} target="_blank" rel="noreferrer">source ↗</a></span>
+                {!e.ready && e.why && <span className="hint">{e.why}</span>}
+                {e.added && <span className="hint">Added as <b className="mono">{e.server}</b>: turn it on above, add it to Settings › MCP servers, then tick the agents below.</span>}
+              </div>
+              <button className="btn sm" type="button" disabled={!e.ready || busy === e.id} onClick={() => void add(e.id)}>
+                {busy === e.id ? "Adding…" : e.added ? "Refresh from settings" : "Add (turned off)"}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </Section>
+  );
+}
+
+// ---------- the Jira part: its section in Connections and its catalog in Tools (web/src/builtins.ts loads this file) ----------
+
+registerSlot(SLOTS.connectionsKind, { id: "jira", title: "Jira", order: 10, component: JiraSection });
+registerSlot(SLOTS.toolsCard, { id: "jira-catalog", title: "Catalog", order: 10, component: JiraCatalog });

@@ -18,6 +18,8 @@ import { KIND, toYaml, tokensByStep } from "../components/workflow";
 import { ImportDrawer, LibraryTab, NewWorkflowDrawer } from "../components/WorkflowDrawers";
 import { Zoom } from "../components/Zoom";
 import { kfmt, PROV, usd } from "../format";
+import { useSlot } from "../sdk/registry";
+import { SLOTS, type WorkflowActionsItem } from "../sdk/slots";
 import { go, useApp, useLoad, useRoute } from "../state";
 
 type View = "blocks" | "table" | "graph" | "yaml";
@@ -493,7 +495,10 @@ function CodeStepFields({ s, pid, onChange }: { s: Step; pid: string; onChange: 
   const plugins = useLoad(pid ? `plugins:${pid}` : null, () => api.plugins(pid), { live: false });
   const pactions = (plugins.data ?? []).filter((p) => p.enabled).flatMap((p) => p.actions.map((a) => ({ ...a, plugin: p.title })));
   const mine = s.action ? pactions.find((a) => a.name === s.action) : undefined;
-  const offPlugin = !!s.action && /^(db|git):/.test(s.action) && !mine;
+  // a plugin's block (db:check, git:push): the parts name their action prefixes (slot workflow.actions)
+  const prefixes = useSlot<WorkflowActionsItem>(SLOTS.workflowActions);
+  const isPluginAction = (action: string) => prefixes.some((p) => action.startsWith(p.prefix));
+  const offPlugin = !!s.action && isPluginAction(s.action) && !mine;
   const params = (s.with ?? {}) as Record<string, unknown>;
   const setParam = (k: string, v: string) => {
     const next = { ...params, [k]: v || undefined };
@@ -504,7 +509,7 @@ function CodeStepFields({ s, pid, onChange }: { s: Step; pid: string; onChange: 
     <>
       <div className="field"><label htmlFor="wact">What it runs</label>
         <input type="text" id="wact" list="wact-list" value={s.action ?? ""} placeholder="verify_red | commit | run:<cmd> | db:check"
-          onChange={(e) => onChange({ action: e.target.value || undefined, ...(/^(db|git):/.test(e.target.value) ? {} : { with: undefined }) })} />
+          onChange={(e) => onChange({ action: e.target.value || undefined, ...(isPluginAction(e.target.value) ? {} : { with: undefined }) })} />
         <datalist id="wact-list">
           {CORE_ACTIONS.map((a) => <option key={a} value={a} />)}
           {pactions.map((a) => <option key={a.name} value={a.name}>{`${a.plugin}: ${a.summary}`}</option>)}

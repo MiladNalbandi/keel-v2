@@ -1,53 +1,92 @@
-// Screens and their groups — the same grouped navigation as docs/mockup.html.
+// Screens and their groups — the same grouped navigation as docs/mockup.html. keel's own screens are named in SCREEN;
+// every page (keel's own and the parts') registers in the page registry (sdk/registry.ts) with its group and order, so
+// the menu and the router read one list. Aliases (#/code, #/keelbot) come from the pages too.
 
-export type ScreenId =
-  | "projects" | "inbox" | "flow" | "tasks" | "live" | "jobs" | "repo" | "helper" | "map" | "graph" | "wiki"
-  | "workflows" | "agents" | "skills" | "stacks" | "tools" | "quality" | "budget" | "settings" | "connections"
+import { allPages, pageFor, pageOf } from "./sdk/registry";
+
+/** A screen's id: one of keel's own (SCREEN) or a registered page's (#/map, #/repo). */
+export type ScreenId = string;
+
+/** keel's own screens. The others (Tasks, Code, KeelBot, Map, Graph, Wiki) are parts' pages (web/src/builtins.ts). */
+export const SCREEN = {
+  projects: "projects",
+  inbox: "inbox",
+  flow: "flow",
+  live: "live",
+  jobs: "jobs",
+  workflows: "workflows",
+  agents: "agents",
+  skills: "skills",
+  stacks: "stacks",
+  tools: "tools",
+  quality: "quality",
+  budget: "budget",
+  settings: "settings",
+  connections: "connections",
   /** v0.13.0 a page of an add-on (keel Product): the route's `screen` names it. */
-  | "addon";
+  addon: "addon",
+} as const;
 
-export type Group = { id: string; label: string; hint: string; pages: [ScreenId, string][] };
+const OWN = new Set<string>(
+  Object.values(SCREEN).filter((s) => s !== SCREEN.addon),
+);
 
-export const GROUPS: Group[] = [
-  { id: "run", label: "Run", hint: "what is happening now", pages: [["flow", "Flow"], ["tasks", "Tasks"], ["inbox", "Inbox"], ["live", "Live agents"], ["jobs", "Jobs"]] },
-  { id: "know", label: "Project", hint: "what this project is", pages: [["repo", "Code"], ["helper", "KeelBot"], ["map", "Map"], ["graph", "Graph"], ["wiki", "Wiki"]] },
-  {
-    id: "build", label: "Build", hint: "how agents work",
-    pages: [["workflows", "Workflows"], ["agents", "Agents"], ["skills", "Skill hub"], ["stacks", "Stacks"], ["tools", "Tools (MCP)"], ["quality", "Quality"]],
-  },
-  { id: "control", label: "Control", hint: "cost, limits, accounts", pages: [["budget", "Budget"], ["settings", "Settings"], ["connections", "Connections"]] },
+/** The menu's groups, in order. Their pages come from the page registry. */
+export type GroupHead = { id: string; label: string; hint: string };
+export const GROUP_HEADS: GroupHead[] = [
+  { id: "run", label: "Run", hint: "what is happening now" },
+  { id: "know", label: "Project", hint: "what this project is" },
+  { id: "build", label: "Build", hint: "how agents work" },
+  { id: "control", label: "Control", hint: "cost, limits, accounts" },
 ];
 
-export const SCREENS: [ScreenId, string][] = [["projects", "All projects"], ...GROUPS.flatMap((g) => g.pages)];
-export const isScreen = (s: string): s is ScreenId => SCREENS.some(([id]) => id === s);
-export const groupOf = (id: ScreenId) => GROUPS.find((g) => g.pages.some(([p]) => p === id));
+export type Group = GroupHead & { pages: [ScreenId, string][] };
+
+/** The menu: each group with its registered pages, by their order. */
+export function menuGroups(): Group[] {
+  const pages = allPages();
+  return GROUP_HEADS.map((g) => ({
+    ...g,
+    pages: pages
+      .filter((p) => p.group === g.id)
+      .sort((a, b) => a.order - b.order)
+      .map((p): [ScreenId, string] => [p.id, p.label]),
+  }));
+}
+
+export const isScreen = (s: string): s is ScreenId =>
+  OWN.has(s) || pageOf(s) !== null;
+export const groupOf = (id: ScreenId) =>
+  menuGroups().find((g) => g.pages.some(([p]) => p === id));
 
 export type Route = { page: ScreenId; arg?: string; screen?: string };
-
-/** Pages by the names they show: #/code is the Code page (id repo), #/keelbot is KeelBot's own page (id helper). */
-const ALIASES: Record<string, ScreenId> = { code: "repo", keelbot: "helper" };
 
 /** "#/flow", "#flow", "#/wiki/kb:architecture" → route. Unknown pages fall back to Flow. */
 export function parseHash(hash: string): Route {
   const raw = hash.replace(/^#\/?/, "");
   const [first, ...rest] = raw.split("/");
-  const page = ALIASES[first] ?? first;
+  // a page by the name it shows: #/code is the Code page (id repo), #/keelbot is KeelBot's own page (id helper)
+  const page = pageFor(first)?.id ?? first;
   const arg = rest.length ? decodeURIComponent(rest.join("/")) : undefined;
   if (isScreen(page)) return { page, arg };
   // maybe an add-on's page (#/initiatives); the router shows Flow when no add-on has it
-  if (ADDON_SCREEN.test(page)) return { page: "addon", screen: page, arg };
-  return { page: "flow", arg };
+  if (ADDON_SCREEN.test(page)) return { page: SCREEN.addon, screen: page, arg };
+  return { page: SCREEN.flow, arg };
 }
 
 const ADDON_SCREEN = /^[a-z][a-z0-9-]{1,31}$/;
 
 /** An add-on page's link: #/initiatives, #/initiatives/INI-12. */
-export const hashForScreen = (screen: string, arg?: string) => `#/${screen}${arg ? "/" + encodeURIComponent(arg) : ""}`;
+export const hashForScreen = (screen: string, arg?: string) =>
+  `#/${screen}${arg ? "/" + encodeURIComponent(arg) : ""}`;
 
-export const hashFor = (page: ScreenId, arg?: string) => `#/${page}${arg ? "/" + encodeURIComponent(arg) : ""}`;
+export const hashFor = (page: ScreenId, arg?: string) =>
+  `#/${page}${arg ? "/" + encodeURIComponent(arg) : ""}`;
 
 /** A notification link ("flow", "#/jobs/j-1", "/jobs") → route. */
 export function routeFromLink(link: string | undefined): Route {
-  if (!link) return { page: "flow" };
-  return parseHash(link.startsWith("#") ? link : "#" + link.replace(/^\/+/, "/"));
+  if (!link) return { page: SCREEN.flow };
+  return parseHash(
+    link.startsWith("#") ? link : "#" + link.replace(/^\/+/, "/"),
+  );
 }

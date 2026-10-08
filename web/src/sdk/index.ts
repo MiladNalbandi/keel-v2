@@ -26,3 +26,18 @@ export type { PillTone } from "../components/ui";
 export { Markdown } from "../components/Markdown";
 export { ClarifyForm, answersOf } from "../components/ClarifyForm";
 export type { ClarifyAnswers } from "../components/ClarifyForm";
+
+// extension points (step 2, docs/plugins/09-step2-contract.md §5): pages for the menu and the router, and slots — named
+// places in keel's pages where a part puts a piece (live: a page renders again when a piece registers)
+export { allPages, pageFor, pageOf, registerPage, registerSlot, slotItems, usePages, useSlot } from "./registry";
+export type { PageProps, PageRegistration, SlotItem } from "./registry";
+export { SLOTS } from "./slots";
+export type {
+  AssistantItem, AssistantProps, CodeActivityItem, CodeActivityProps, CodeOpen, CodeOpenSpec, CodeTabItem, CodeTabProps,
+  CodeTabRef, CodeView, ConnectionKindItem, JobsTabItem, LauncherSourceItem, ScmPanelProps, SettingKind, SettingRow,
+  SettingsSectionItem, ToolsCardItem, WorkflowActionsItem,
+} from "./slots";
+
+// "ask KeelBot" without importing it: the assistant's part listens
+export { ASK_ASSISTANT_EVENT, askAssistant } from "./assistant";
+export type { AskAssistantDetail } from "./assistant";

@@ -3,6 +3,8 @@ import { cleanup, configure } from "@testing-library/react";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, beforeEach, vi } from "vitest";
 import { resetFeatures } from "../addons";
+// keel's built-in parts, as main.tsx loads them: their pages, slots and launcher results
+import "../builtins";
 import { resetReviews } from "../components/review/store";
 import { resetLauncherCache } from "../components/launcher/sources";
 import { resetProviderModels } from "../components/ModelPicker";

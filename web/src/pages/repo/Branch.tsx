@@ -4,8 +4,8 @@
 
 import { useState } from "react";
 import { api, errorParts } from "../../api";
-import { askKeelBot } from "../../components/plugins/GitPanel";
 import { ErrorBox, Pill } from "../../components/ui";
+import { askAssistant } from "../../sdk/assistant";
 import { useApp, useLoad } from "../../state";
 import { DiffPane, type DiffMode } from "./Editor";
 import { FileIcon, Icon } from "./icons";
@@ -58,7 +58,7 @@ export function BranchTab({ pid, name, mode, onOpenCommitFile }: {
           )}
           {!isBase && v.files.length > 0 && (
             <button type="button" className="btn sm ghost"
-              onClick={() => askKeelBot(`Review the branch ${v.name} against ${v.base} (git diff ${v.base}...${v.name}): what it changes, and anything that looks wrong, with file:line.`)}>
+              onClick={() => askAssistant(`Review the branch ${v.name} against ${v.base} (git diff ${v.base}...${v.name}): what it changes, and anything that looks wrong, with file:line.`)}>
               Ask KeelBot to review it
             </button>
           )}

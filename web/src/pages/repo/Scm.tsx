@@ -1,13 +1,15 @@
 // Source control (read-only): the uncommitted files grouped as staged / changed / untracked (a click opens the
 // diff), the workspace Doctor when the tree is dirty, and this branch's commits against the base with each
 // commit's files (keel's own commits marked). Worktrees and branches are at the end; with the Git plugin a branch opens
-// as a tab (Branch.tsx): its commits, the files it changed, and Switch.
+// as a tab (Branch.tsx): its commits, the files it changed, and Switch. The Git plugin's panel (commit, push, the pull
+// request) comes from its part (slot code.activity, place "scm").
 
 import { useState, type ReactNode } from "react";
 import { api, errorParts, type Change, type CommitView, type RepoInfo } from "../../api";
-import { GitPanel } from "../../components/plugins/GitPanel";
 import { ErrorBox } from "../../components/ui";
 import { clock } from "../../format";
+import { useSlot } from "../../sdk/registry";
+import { SLOTS, type CodeActivityItem } from "../../sdk/slots";
 import { useLoad } from "../../state";
 import { Chevron, FileIcon, Icon } from "./icons";
 import { acOf, decoOf, nameOf, parentOf } from "./model";
@@ -94,7 +96,11 @@ export function ScmView({ pid, repo, changes, changesError, onOpenChange, onOpen
   const onBase = !!repo && repo.base === repo.branch;
   const commits = useLoad(`commits:${pid}:${onBase ? "all" : "branch"}`, () => api.commits(pid, 50, onBase ? undefined : "branch"));
   const plugins = useLoad(`plugins:${pid}`, () => api.plugins(pid), { live: false });
-  const gitOn = !!plugins.data?.find((x) => x.name === "git")?.enabled;
+  const panel = useSlot<CodeActivityItem>(SLOTS.codeActivity)
+    .flatMap((a) => (a.place === "scm" ? [a] : []))
+    .find((a) => !a.plugin || !!plugins.data?.find((x) => x.name === a.plugin)?.enabled);
+  // with the Git plugin on, Source control can change things (and a branch opens as a tab)
+  const gitOn = !!panel;
   const list = changes ?? [];
   const staged = list.filter((c) => c.staged && !c.conflict);
   const unstaged = list.filter((c) => c.unstaged && !c.conflict);
@@ -111,7 +117,7 @@ export function ScmView({ pid, repo, changes, changesError, onOpenChange, onOpen
         <b className="mono">{branch ?? "—"}</b>
         {repo && !onBase && <span className="sub">from <span className="mono">{repo.base}</span> · ↑{repo.ahead} ↓{repo.behind}</span>}
       </div>
-      {gitOn ? <GitPanel pid={pid} dirty={list.length} onChanged={() => void commits.reload()} />
+      {panel ? <panel.component pid={pid} dirty={list.length} onChanged={() => void commits.reload()} />
         : <p className="scm-ro">Read-only: keel never stages, commits or changes files from this page. The Git plugin (Tools) adds commit, push and pull requests.</p>}
       {changesError && <div className="sv-pad"><ErrorBox error={changesError} /></div>}
       {dirty > 0 && (

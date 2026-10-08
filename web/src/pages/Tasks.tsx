@@ -1,10 +1,13 @@
 // Tasks (Run): the work of this project as a board — from Jira (synced) or your own list. A task starts a flow only
 // when you press Start; keel then moves it (and its Jira ticket) to In review when the PR opens, to Testing (PP) when the
 // PR is approved, and waits for you to confirm PP and the release. #/tasks/<id> opens one task's drawer.
+// The Tasks part registers its page and its launcher results at the end of this file (web/src/builtins.ts loads it).
 
 import { useEffect, useMemo, useState } from "react";
 import { api, errorParts, type RunMode, type Workflow } from "../api";
 import { EmptyState } from "../components/EmptyState";
+import type { Item } from "../components/launcher/model";
+import { askAction, copyAction, goHash, linkAction, type Ctx } from "../components/launcher/sources";
 import { RunModePicker } from "../components/RunMode";
 import { Confirm, Drawer, ErrorBox, Loading, PageHead, Pill, type PillTone } from "../components/ui";
 import { agoText } from "../components/UsageStrip";
@@ -13,6 +16,8 @@ import { hashFor } from "../routes";
 import {
   DEFAULT_FLOW, STATUS_LABEL, tasksApi, type NewTask, type Task, type TaskEvent, type TaskItem, type TaskList, type TaskStatus, type TaskType,
 } from "../tasksApi";
+import { registerPage, registerSlot } from "../sdk/registry";
+import { SLOTS, type LauncherSourceItem } from "../sdk/slots";
 import { go, useApp, useLoad, useRoute } from "../state";
 import { WorkspaceDoctor } from "../components/WorkspaceDoctor";
 
@@ -493,3 +498,73 @@ export function TasksPage({ pid }: { pid: string }) {
     </>
   );
 }
+
+// ---------- the Tasks part: its page in the menu and its results in the launcher (web/src/builtins.ts loads this file) ----------
+
+/** A task as a launcher result: open it, ask KeelBot where the change goes, open it in Jira, copy its key. */
+function taskItem(ctx: Ctx, t: Task): Item {
+  return {
+    id: `task:${t.id}`,
+    kind: "task",
+    // the Jira key first: typing ABC-12 finds it
+    title: t.external_key ? `${t.external_key} ${t.title}` : t.title,
+    sub: STATUS_LABEL[t.status] ?? t.status,
+    actions: [
+      {
+        id: "open",
+        label: "Open the task",
+        keys: "enter",
+        run: goHash(ctx, hashFor("tasks", t.id)),
+      },
+      askAction(
+        ctx,
+        `Task${t.external_key ? " " + t.external_key : ""}: ${t.title}. Where in the code would this change go?`,
+      ),
+      ...(t.external_url ? [linkAction("Open in Jira", t.external_url)] : []),
+      copyAction(
+        ctx,
+        t.external_key ?? t.title,
+        t.external_key ? "Copy the key" : "Copy the title",
+      ),
+    ],
+    ask: `Task${t.external_key ? " " + t.external_key : ""}: ${t.title}. Where in the code would this change go?`,
+    copy: t.external_key ?? t.title,
+    preview: {
+      kind: "text",
+      title: t.title,
+      lines: [
+        ["Status", STATUS_LABEL[t.status] ?? t.status],
+        ["Type", t.type],
+        ...(t.external_key
+          ? [["Jira", t.external_key] as [string, string]]
+          : []),
+        ...(t.flow
+          ? [
+              [
+                "Flow",
+                `${t.flow.status}${t.flow.phase ? ` · ${t.flow.phase}` : ""}`,
+              ] as [string, string],
+            ]
+          : []),
+      ],
+      body: t.description,
+    },
+    score: t.status === "done" || t.status === "cancelled" ? -20 : 0,
+  };
+}
+
+/** ⌘K: this project's tasks (typing the Jira key finds one). */
+const tasksLauncher: LauncherSourceItem = {
+  id: "tasks",
+  title: "Tasks",
+  order: 30,
+  load: (pid, notes) => tasksApi.list(pid).then((v) => v.tasks, notes.failed("Tasks")),
+  items: (ctx, data, q) => (q.kinds.includes("task") ? ((data as Task[] | null) ?? []).map((t) => taskItem(ctx, t)) : []),
+};
+
+registerPage({
+  id: "tasks", label: "Tasks", group: "run", order: 20,
+  icon: <path d="M10 6h10M10 12h10M10 18h10M4 6l1.5 1.5L8 5M4 12l1.5 1.5L8 11M4 18l1.5 1.5L8 17" />,
+  component: TasksPage,
+});
+registerSlot(SLOTS.launcherSource, tasksLauncher);

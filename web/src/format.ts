@@ -79,3 +79,10 @@ export function plainText(md: string | null | undefined, max = 220): string {
     .trim();
   return t.length > max ? t.slice(0, max - 1).trimEnd() + "…" : t;
 }
+
+/** `src/app/checkout.js:12` or `src/app/checkout.js:12-14` → {path, line}; anything else → null (KeelBot's answers). */
+export function fileLink(text: string): { path: string; line: number } | null {
+  const m = /^\s*([\w@.~-][\w@./~ -]*\.[\w]+):(\d+)(?:[-–](\d+))?\s*$/.exec(text);
+  if (!m || m[1].includes("://") || m[1].startsWith("/")) return null;
+  return { path: m[1].replace(/^\.\//, ""), line: Number(m[2]) };
+}

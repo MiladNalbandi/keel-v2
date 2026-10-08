@@ -9,7 +9,8 @@
 
 import { createElement, lazy, useEffect, useState, type ComponentType, type LazyExoticComponent } from "react";
 import { api, type AddonScreen, type Features, type PluginWeb } from "./api";
-import { GROUPS, type Group, type ScreenId } from "./routes";
+import { menuGroups, type Group } from "./routes";
+import { pageOf } from "./sdk/registry";
 import type { AddonPageProps, AddonWeb } from "./sdk/plugin";
 import { useApp } from "./state";
 
@@ -172,13 +173,14 @@ export function saveView(v: View) {
   window.dispatchEvent(new CustomEvent("keel:view", { detail: v }));
 }
 
-/** keel's own screens a Product-only keel (or the Product view) keeps: the Inbox, KeelBot, and Control. */
-const PRODUCT_KEEPS = new Set<ScreenId>(["inbox", "helper", "budget", "settings", "connections"]);
+/** The screens a Product-only keel (or the Product view) keeps: the pages that say so (the Inbox, KeelBot, Control). */
+const productKeeps = (id: string) => pageOf(id)?.product === true;
 
 export type NavPage = { id: string; label: string; addon?: string };
 export type NavGroup = { id: string; label: string; hint: string; pages: NavPage[] };
 
-/** The menu for this mode and view: the add-ons' groups first, then keel's own groups with what stays. */
+/** The menu for this mode and view: the add-ons' groups first, then keel's own groups (with the parts' pages) with
+ *  what stays. */
 export function navGroups(features: Features, view: View): NavGroup[] {
   const productOn = Object.entries(features.parts).some(([p, on]) => p !== "dev" && on);
   const devOn = features.parts.dev !== false;
@@ -190,9 +192,9 @@ export function navGroups(features: Features, view: View): NavGroup[] {
     id: `addon-${label.toLowerCase()}`, label, hint: "",
     pages: screens.map((s) => ({ id: s.id, label: s.label, addon: s.addon })),
   }));
-  const own = GROUPS.map((g: Group) => ({
+  const own = menuGroups().map((g: Group) => ({
     id: g.id, label: g.label, hint: g.hint,
-    pages: g.pages.filter(([id]) => fullDev || PRODUCT_KEEPS.has(id)).map(([id, label]) => ({ id, label })),
+    pages: g.pages.filter(([id]) => fullDev || productKeeps(id)).map(([id, label]) => ({ id, label })),
   })).filter((g) => g.pages.length > 0);
   return [...addonGroups, ...own];
 }

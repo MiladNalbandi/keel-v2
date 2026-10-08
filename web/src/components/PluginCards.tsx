@@ -3,9 +3,9 @@
 // what" on the same page, its blocks in Workflows, its section in Connections, and its panel on the Map or Code page.
 
 import { useState } from "react";
-import { api, errorParts, type Plugin } from "../../api";
-import { useApp, type Loaded } from "../../state";
-import { Pill } from "../ui";
+import { api, errorParts, type Plugin } from "../api";
+import { useApp, type Loaded } from "../state";
+import { Pill } from "./ui";
 
 const WHERE: Record<string, string> = {
   connections: "Connections",

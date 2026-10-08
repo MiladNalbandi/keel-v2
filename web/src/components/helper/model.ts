@@ -3,12 +3,11 @@
 
 import type { HelperMessage, HelperSession } from "../../api";
 
-/** `src/app/checkout.js:12` or `src/app/checkout.js:12-14` → {path, line}; anything else → null. */
-export function fileLink(text: string): { path: string; line: number } | null {
-  const m = /^\s*([\w@.~-][\w@./~ -]*\.[\w]+):(\d+)(?:[-–](\d+))?\s*$/.exec(text);
-  if (!m || m[1].includes("://") || m[1].startsWith("/")) return null;
-  return { path: m[1].replace(/^\.\//, ""), line: Number(m[2]) };
-}
+// file:line links are keel's own (the launcher reads them in answers too)
+export { fileLink } from "../../format";
+
+/** KeelBot's own page (#/keelbot) reads this once when it opens: text another page handed over (askAssistant). */
+export const PREFILL_KEY = "keel2.keelbot.prefill";
 
 export type Typing = { kind: "mention" | "command"; query: string; start: number } | null;
 

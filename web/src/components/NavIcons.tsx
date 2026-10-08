@@ -1,12 +1,13 @@
 // One line icon per screen, for the folded menu (Shell's icon strip): 24×24, stroke only, so it takes the text colour
-// and the accent of the active screen in both themes.
+// and the accent of the active screen in both themes. keel's own screens are here; a part's page brings its icon
+// when it registers (registerPage({ icon })).
 
 import type { ReactElement } from "react";
-import type { ScreenId } from "../routes";
+import { pageOf } from "../sdk/registry";
 
 const P = (d: string) => <path d={d} />;
 
-const ICONS: Record<ScreenId, ReactElement> = {
+const ICONS: Record<string, ReactElement> = {
   projects: <>{P("M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z")}</>,
   flow: (
     <>
@@ -14,13 +15,6 @@ const ICONS: Record<ScreenId, ReactElement> = {
       <circle cx="12" cy="6" r="2.5" />
       <circle cx="12" cy="18" r="2.5" />
       {P("M12 8.5v7")}
-    </>
-  ),
-  tasks: (
-    <>
-      {P(
-        "M10 6h10M10 12h10M10 18h10M4 6l1.5 1.5L8 5M4 12l1.5 1.5L8 11M4 18l1.5 1.5L8 17",
-      )}
     </>
   ),
   inbox: (
@@ -31,34 +25,6 @@ const ICONS: Record<ScreenId, ReactElement> = {
   ),
   live: <>{P("M3 12h4l3-7 4 14 3-7h4")}</>,
   jobs: <>{P("M4 8h16v12H4zM9 8V5h6v3M4 13h16")}</>,
-  repo: <>{P("M8 7l-5 5 5 5M16 7l5 5-5 5M13.5 5l-3 14")}</>,
-  helper: (
-    <>
-      {P("M4 5h16v11H10l-5 4v-4H4z")}
-      {P("M12 8l.8 1.7 1.7.8-1.7.8L12 13l-.8-1.7-1.7-.8 1.7-.8z")}
-    </>
-  ),
-  map: (
-    <>
-      {P("M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3z")}
-      {P("M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3")}
-    </>
-  ),
-  graph: (
-    <>
-      <circle cx="6" cy="6" r="2.5" />
-      <circle cx="18" cy="7" r="2.5" />
-      <circle cx="12" cy="18" r="2.5" />
-      {P("M8.3 7l7.3-.2M7.2 8.3l3.7 7.5M16.9 9.3l-3.7 6.5")}
-    </>
-  ),
-  wiki: (
-    <>
-      {P(
-        "M12 6c-2-1.5-5-2-8-1.5V19c3-.5 6 0 8 1.5 2-1.5 5-2 8-1.5V4.5c-3-.5-6 0-8 1.5zM12 6v14.5",
-      )}
-    </>
-  ),
   workflows: <>{P("M3 4h7v5H3zM14 15h7v5h-7zM6.5 9v3.5h11V15")}</>,
   agents: (
     <>
@@ -102,7 +68,7 @@ const ICONS: Record<ScreenId, ReactElement> = {
   ),
 };
 
-export function NavIcon({ id, size = 20 }: { id: ScreenId | string; size?: number }) {
+export function NavIcon({ id, size = 20 }: { id: string; size?: number }) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -115,7 +81,7 @@ export function NavIcon({ id, size = 20 }: { id: ScreenId | string; size?: numbe
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      {ICONS[id as ScreenId] ?? ICONS.addon}
+      {ICONS[id] ?? pageOf(id)?.icon ?? ICONS.addon}
     </svg>
   );
 }

@@ -2,7 +2,7 @@
 // (keymap.ts: IntelliJ's macOS keymap or VS Code's) while a review's file tab is the active editor tab.
 
 import { useEffect, useState } from "react";
-import { askKeelBot } from "../plugins/GitPanel";
+import { askAssistant } from "../../sdk/assistant";
 import { ErrorBox, Pill } from "../ui";
 import { useApp } from "../../state";
 import {
@@ -188,7 +188,7 @@ export function ReviewLayer({
       case "explain": {
         const w = selected();
         const line = at?.line;
-        askKeelBot(
+        askAssistant(
           `Explain ${w ? `\`${w}\` at ` : ""}${path}${line ? `:${line}` : ""} in ${v?.kind === "pr" ? `${prWord(v.host)} ${prLabel(v.host, v.number)}` : `branch ${v?.branch}`}: ` +
             `what it does and why it changed. Read it with git show ${v?.head_sha.slice(0, 12)}:${path}.`,
         );
