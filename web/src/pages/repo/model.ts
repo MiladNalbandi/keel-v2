@@ -3,6 +3,25 @@
 
 import type { Change, TreeNode } from "../../api";
 import type { DiffRow } from "../../components/Code";
+import { matches, readKeymap, type Keymap } from "../../keys";
+
+// ---------- IntelliJ's keys for the Code page ----------
+
+/** IntelliJ's keys for the Code page itself: ⌘1 files, ⌘9 Git, ⇧⌘9 Review, ⇧⌘O go to file, ⌘L go to line (⇧⇧ is the launcher). */
+export type IdeAction =
+  "explorer" | "scm" | "review" | "quickOpen" | "gotoLine";
+export function ideActionFor(
+  e: KeyboardEvent,
+  k: Keymap = readKeymap(),
+): IdeAction | null {
+  if (k !== "intellij") return null;
+  if (matches(e, "meta+1")) return "explorer";
+  if (matches(e, "shift+meta+9")) return "review";
+  if (matches(e, "meta+9")) return "scm";
+  if (matches(e, "shift+meta+o")) return "quickOpen";
+  if (matches(e, "meta+l")) return "gotoLine";
+  return null;
+}
 
 // ---------- deep links: #/repo/<path>:<line> ----------
 
@@ -15,6 +34,12 @@ export const FOCUS_EVENT = "keel:focus";
 /** v0.15.0 a review's link (#/repo/@review/pr:7): the Review tool window with that review open. */
 export const reviewHash = (key: string) => `#/repo/@review/${encodeURIComponent(key)}`;
 export const parseReviewLink = (arg: string | undefined | null): string | null => arg?.match(/^@review\/(.+)$/)?.[1] ?? null;
+/** A tool window's link (#/repo/@review/pr:7): the side view's id and what it opens. The view (a part's, slot
+ *  code.activity) decides what the rest means; a file path like @types/x.d.ts is a file unless a view has that id. */
+export const parseToolLink = (arg: string | undefined | null): { tool: string; value: string } | null => {
+  const m = arg?.match(/^@([a-z][a-z0-9-]*)\/(.+)$/);
+  return m ? { tool: m[1], value: m[2] } : null;
+};
 
 /** "src/a.kt:12" → { path: "src/a.kt", line: 12 }; "src/a.kt" → { path }. */
 export function parseDeepLink(arg: string | undefined | null): DeepLink | null {
@@ -33,14 +58,17 @@ export function repoHash(path: string, line?: number): string {
 
 // ---------- editor tabs ----------
 
-export type TabKind = "file" | "commit" | "docs" | "memory" | "doctor" | "db" | "branch" | "review";
+/** The Code page's own tab kinds are file, commit, docs, memory and doctor; the parts add theirs (slot code.tab: db,
+ *  review, branch). */
+export type TabKind = string;
+const OWN_KEEL_TABS = new Set(["docs", "memory", "doctor"]);
 export type View = "code" | "diff" | "preview";
 export type EditorTab = { id: string; kind: TabKind; path: string; sha?: string; preview: boolean; view: View };
 export type Tabs = { tabs: EditorTab[]; active: string | null };
 export type OpenSpec = { kind?: TabKind; path: string; sha?: string; view?: View };
 
 export const tabId = (s: OpenSpec) => (s.kind && s.kind !== "file"
-  ? (s.kind === "commit" ? `commit:${s.sha}:${s.path}` : s.kind === "db" || s.kind === "branch" || s.kind === "review" ? `${s.kind}:${s.path}` : `keel:${s.kind}`) : s.path);
+  ? (s.kind === "commit" ? `commit:${s.sha}:${s.path}` : OWN_KEEL_TABS.has(s.kind) ? `keel:${s.kind}` : `${s.kind}:${s.path}`) : s.path);
 
 /**
  * Open a tab like VS Code: a single click opens a preview tab (italic) that the next single click replaces;

@@ -4,7 +4,7 @@
 // keel's Overview and Findings, Threads, the Checklist). Each file opens as an editor tab.
 
 import { useEffect, useState } from "react";
-import { askKeelBot } from "../plugins/GitPanel";
+import { askAssistant } from "../../sdk/assistant";
 import { ErrorBox, Pill } from "../ui";
 import { useApp, useLoad } from "../../state";
 import {
@@ -686,7 +686,7 @@ function OneReview({
 }
 
 export function askAboutFinding(v: ReviewView, f: Finding) {
-  askKeelBot(
+  askAssistant(
     `In ${v.kind === "pr" ? `${prWord(v.host)} ${prLabel(v.host, v.number)}` : `branch ${v.branch}`} (commit ${v.head_sha.slice(0, 12)}), ` +
       `keel found: "${f.title}" at ${f.path}${f.line ? `:${f.line}` : ""}. ${f.why} Is it a real problem? Read it with git show ${v.head_sha.slice(0, 12)}:${f.path}.`,
   );

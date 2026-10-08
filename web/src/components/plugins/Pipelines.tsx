@@ -7,7 +7,7 @@ import { api, errorParts, type CiRun } from "../../api";
 import { clock } from "../../format";
 import { go, useApp, useLoad } from "../../state";
 import { ErrorBox, Pill, type PillTone } from "../ui";
-import { askKeelBot } from "./GitPanel";
+import { askAssistant } from "../../sdk/assistant";
 
 export function runTone(r: CiRun): PillTone {
   if (r.status !== "completed") return "run";
@@ -229,7 +229,7 @@ function RunDetail({ pid, id }: { pid: string; id: number }) {
             type="button"
             className="btn sm ghost"
             onClick={() => {
-              askKeelBot(
+              askAssistant(
                 `/ci run #${id}${failedJobs.length ? ` (${failedJobs.map((j) => j.name).join(", ")})` : ""}`,
               );
               go("helper");

@@ -14,13 +14,12 @@ import { modelLabel, provLabel } from "../../format";
 import { rankFiles } from "../../pages/repo/model";
 import { go, useApp, useLoad } from "../../state";
 import { Markdown } from "../Markdown";
-import { PREFILL_KEY } from "../plugins/GitPanel";
 import { CiCard, GitCard, QueryCard, splitActions, StartCard, WorkflowCard } from "./Actions";
 import { ModelPicker } from "../ModelPicker";
 import { mergeSteps } from "../StepFeed";
 import { StepView } from "../StepView";
 import { ChangesBox, DoneFailed, fixRequest, PermissionCard, SideBar } from "./FixParts";
-import { fileLink, messageTokens, replaceTyping, sessionTokens, starters, typingAt, usageText, type Typing } from "./model";
+import { fileLink, messageTokens, PREFILL_KEY, replaceTyping, sessionTokens, starters, typingAt, usageText, type Typing } from "./model";
 
 type Props = {
   pid: string;

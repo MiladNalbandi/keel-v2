@@ -1,14 +1,16 @@
 // Tools (MCP) (Build): servers your agents can call, a test for each (the result stays next to it), who may use
-// what as a compact matrix (one column per server, its state in the header), and recent calls.
+// what as a compact matrix (one column per server, its state in the header), and recent calls. The parts add cards
+// under the servers (slot tools.card: Jira's MCP catalog).
 
 import { Fragment, useState } from "react";
 import { api, errorParts, type JobStep, type McpAllow, type McpServer, type Plugin } from "../api";
 import { EmptyState, SearchBox, Section, Skeleton, Spinner } from "../components/page";
 import { Drawer, ErrorBox, PageHead, Panel, Pill } from "../components/ui";
 import { clock } from "../format";
-import { PluginCards } from "../components/plugins/PluginCards";
+import { PluginCards } from "../components/PluginCards";
+import { useSlot } from "../sdk/registry";
+import { SLOTS, type ToolsCardItem } from "../sdk/slots";
 import { useApp, useLoad, type Loaded } from "../state";
-import { tasksApi } from "../tasksApi";
 
 function AddServerDrawer({ onClose, onAdded }: { onClose: () => void; onAdded: () => void }) {
   const { toast } = useApp();
@@ -51,49 +53,6 @@ function AddServerDrawer({ onClose, onAdded }: { onClose: () => void; onAdded: (
   );
 }
 
-/** v0.5.0: optional servers keel fills from this project's settings (Jira → mcp-atlassian). They start turned off. */
-function Catalog({ pid, onAdded }: { pid: string; onAdded: () => void }) {
-  const { toast } = useApp();
-  const c = useLoad(`catalog:${pid}`, () => tasksApi.catalog(pid), { live: false });
-  const [busy, setBusy] = useState<string | null>(null);
-  const add = async (id: string) => {
-    setBusy(id);
-    try {
-      const s = await tasksApi.addFromCatalog(pid, id);
-      toast(`${s.name} added, turned off. Turn it on, add it to Settings › MCP servers, then pick its agents.`);
-      onAdded();
-      await c.reload();
-    } catch (e) {
-      toast(errorParts(e).message);
-    } finally {
-      setBusy(null);
-    }
-  };
-  return (
-    <Section title="Catalog" sub="Optional servers keel sets up from this project's settings. They are added turned off.">
-      {c.error ? <ErrorBox error={c.error} onRetry={() => void c.reload()} /> : !c.data ? <div className="panel"><Skeleton lines={2} label="Loading the catalog" /></div> : (
-        <div className="panel tl-cat" data-testid="mcp-catalog">
-          {c.data.map((e) => (
-            <div key={e.id} className="tl-cat-item">
-              <div className="tl-cat-id">
-                <span className="row" style={{ gap: 6 }}><b>{e.name}</b><span className="tag">{e.license}</span>
-                  {e.added && <Pill tone="ok">added</Pill>}</span>
-                <span className="sub">{e.about}</span>
-                <span className="mono sub">{e.command} · <a href={e.url} target="_blank" rel="noreferrer">source ↗</a></span>
-                {!e.ready && e.why && <span className="hint">{e.why}</span>}
-                {e.added && <span className="hint">Added as <b className="mono">{e.server}</b>: turn it on above, add it to Settings › MCP servers, then tick the agents below.</span>}
-              </div>
-              <button className="btn sm" type="button" disabled={!e.ready || busy === e.id} onClick={() => void add(e.id)}>
-                {busy === e.id ? "Adding…" : e.added ? "Refresh from settings" : "Add (turned off)"}
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-    </Section>
-  );
-}
-
 type Call = JobStep & { agent: string };
 
 async function recentCalls(pid: string): Promise<Call[]> {
@@ -132,6 +91,7 @@ export function ToolsPage({ pid }: { pid: string }) {
   const [adding, setAdding] = useState(false);
   const [tests, setTests] = useState<Record<string, TestState>>({});
   const [q, setQ] = useState("");
+  const cards = useSlot<ToolsCardItem>(SLOTS.toolsCard);
 
   const test = async (s: McpServer) => {
     setTests((t) => ({ ...t, [s.name]: { busy: true, text: "asking for its tools…" } }));
@@ -233,7 +193,7 @@ export function ToolsPage({ pid }: { pid: string }) {
           </Panel>
         </Section>
       </div>
-      <div className="tl-catwrap"><Catalog pid={pid} onAdded={() => void mcpServers.reload()} /></div>
+      {cards.map((c) => <div key={c.id} className="tl-catwrap"><c.component pid={pid} onAdded={() => void mcpServers.reload()} /></div>)}
       <Section title="Who may use what" sub="Tick a box to give an agent that server's tools. Applies to API-key agents and to CLI agents (a config file is written per call)."
 >
         {(agents.data?.length ?? 0) > 8 && <div><SearchBox value={q} onChange={setQ} label="Find an agent" /></div>}

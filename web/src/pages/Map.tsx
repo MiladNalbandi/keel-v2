@@ -11,6 +11,7 @@ import { schemaOf } from "../components/er/model";
 import { EmptyState } from "../components/page";
 import { Async, PageHead, Panel, Tabs } from "../components/ui";
 import { clock } from "../format";
+import { registerPage } from "../sdk/registry";
 import { useApp, useLoad } from "../state";
 
 type LevelId = "system" | "flow" | "modules" | "classes" | "er";
@@ -236,3 +237,16 @@ export function MapPage({ pid }: { pid: string }) {
     </>
   );
 }
+
+// ---------- the Map part: its page in the menu (web/src/builtins.ts loads this file) ----------
+
+registerPage({
+  id: "map", label: "Map", group: "know", order: 30,
+  icon: (
+    <>
+      <path d="M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3z" />
+      <path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" />
+    </>
+  ),
+  component: MapPage,
+});

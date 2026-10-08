@@ -4,21 +4,9 @@
 
 import { useState } from "react";
 import { api, errorParts, type PullRequest } from "../../api";
+import { askAssistant } from "../../sdk/assistant";
 import { useApp, useLoad } from "../../state";
 import { Pill } from "../ui";
-
-/** Hand text to KeelBot's input (the Code page opens its panel; the person reads it and sends it). */
-export function askKeelBot(text: string) {
-  try {
-    sessionStorage.setItem(PREFILL_KEY, text);
-  } catch {
-    /* the Code page's panel still gets the event */
-  }
-  window.dispatchEvent(new CustomEvent("keel:ask-keelbot", { detail: text }));
-}
-
-/** KeelBot's own page (#/keelbot) reads this once when it opens: text another page handed over. */
-export const PREFILL_KEY = "keel2.keelbot.prefill";
 
 const FAILED = new Set([
   "failure",
@@ -233,7 +221,7 @@ export function GitPanel({
             <button
               type="button"
               className="btn sm ghost"
-              onClick={() => askKeelBot("/commit")}
+              onClick={() => askAssistant("/commit")}
             >
               Ask KeelBot to write it
             </button>
@@ -300,7 +288,7 @@ export function GitPanel({
               <button
                 type="button"
                 className="btn sm primary"
-                onClick={() => askKeelBot(addressComments(p))}
+                onClick={() => askAssistant(addressComments(p))}
               >
                 Ask KeelBot to address the comments
               </button>
@@ -309,7 +297,7 @@ export function GitPanel({
               <button
                 type="button"
                 className="btn sm"
-                onClick={() => askKeelBot("/ci")}
+                onClick={() => askAssistant("/ci")}
               >
                 Why did CI fail?
               </button>
@@ -322,7 +310,7 @@ export function GitPanel({
           <button
             type="button"
             className="btn sm"
-            onClick={() => askKeelBot("/pr")}
+            onClick={() => askAssistant("/pr")}
           >
             Ask KeelBot to draft the pull request
           </button>

@@ -11,6 +11,7 @@ import { Async, ErrorBox, Loading, PageHead, Pill } from "../components/ui";
 import { tokensByStep } from "../components/workflow";
 import { WorkflowMap } from "../components/WorkflowMap";
 import { kfmt } from "../format";
+import { registerPage } from "../sdk/registry";
 import { go, useApp, useLoad, useRoute } from "../state";
 
 const STATUS: Record<string, ["ok" | "run" | "warn" | "idle", string]> = {
@@ -156,3 +157,11 @@ export function WikiPage({ pid }: { pid: string }) {
     </>
   );
 }
+
+// ---------- the Wiki part: its page in the menu (web/src/builtins.ts loads this file) ----------
+
+registerPage({
+  id: "wiki", label: "Wiki", group: "know", order: 50,
+  icon: <path d="M12 6c-2-1.5-5-2-8-1.5V19c3-.5 6 0 8 1.5 2-1.5 5-2 8-1.5V4.5c-3-.5-6 0-8 1.5zM12 6v14.5" />,
+  component: WikiPage,
+});

@@ -3,6 +3,8 @@ import * as ReactDOM from "react-dom";
 import * as ReactDOMClient from "react-dom/client";
 import * as jsxRuntime from "react/jsx-runtime";
 import { App } from "./App";
+// keel's built-in parts register their pages and pieces (once, before the first render)
+import "./builtins";
 import * as sdk from "./sdk";
 import "./styles.css";
 // The shell and Run pages refine styles.css, so they load after it (an import from a component would load first).

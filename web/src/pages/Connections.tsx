@@ -1,6 +1,8 @@
 // Connections (Control): which accounts the agents use — mode per provider, API keys (stored encrypted,
 // never shown again), a test call per provider, and what is installed on this machine. Each provider's card shows at
 // once with its own "Checking…" and fills in when the check answers; a card that misses a login says so first.
+// The parts add their own kinds of account below the providers (slot connections.kind: Jira, GitHub, GitLab,
+// Databases).
 
 import { useEffect, useRef, useState } from "react";
 import { api, errorParts, type Connections, type LoginView, type Mode, type Model } from "../api";
@@ -9,10 +11,8 @@ import { EmptyState, Section, Spinner } from "../components/page";
 import { Drawer, ErrorBox, PageHead, Panel, Pill, Prov, type PillTone } from "../components/ui";
 import { useApp, useLoad } from "../state";
 import { UsageLine } from "../components/UsageStrip";
-import { JiraSection } from "../components/JiraCard";
-import { DatabasesSection } from "../components/plugins/Databases";
-import { GitHubSection } from "../components/plugins/GitHubToken";
-import { GitLabSection } from "../components/plugins/GitLabConnection";
+import { useSlot } from "../sdk/registry";
+import { SLOTS, type ConnectionKindItem } from "../sdk/slots";
 
 const SECRET: Record<string, string> = { claude: "ANTHROPIC_API_KEY", codex: "OPENAI_API_KEY", copilot: "GITHUB_TOKEN" };
 // How to get each CLI login; it is stored encrypted in keel's database and handed to the CLI inside the container.
@@ -371,6 +371,7 @@ function CheckingCard({ id }: { id: string }) {
 
 export function ConnectionsPage({ pid }: { pid: string }) {
   const conns = useLoad("connections", () => api.connections(), { live: false });
+  const kinds = useSlot<ConnectionKindItem>(SLOTS.connectionsKind);
   const c = conns.data;
   const providers = c ? [...c.providers].sort(order) : null;
   const missing = providers?.filter((p) => connState(p).need).length ?? 0;
@@ -386,10 +387,7 @@ export function ConnectionsPage({ pid }: { pid: string }) {
           {providers && !providers.length && <div className="panel"><EmptyState title="No provider known">The keel api lists none. Update keel and reload.</EmptyState></div>}
         </div>
       </Section>
-      <JiraSection />
-      <GitHubSection />
-      <GitLabSection />
-      <DatabasesSection pid={pid} />
+      {kinds.map((k) => <k.component key={k.id} pid={pid} />)}
       <Section title="This machine" sub="Programs keel and its agents find in the container.">
         <Panel body="checks">
           {c ? c.machine.map((m) => (
