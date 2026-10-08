@@ -9,6 +9,7 @@ import keel.api.common.Time
 import keel.api.connections.SecretService
 import keel.api.engine.EngineClient
 import keel.api.engine.EngineDown
+import keel.api.flow.FlowContributor
 import keel.api.projects.ProjectService
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
@@ -36,7 +37,7 @@ class PluginService(
     private val projects: ProjectService,
     private val secrets: SecretService,
     private val mapper: ObjectMapper,
-) {
+) : FlowContributor {
     @Volatile private var cache: Pair<Long, JsonNode>? = null
 
     /** The catalog from the engine (kept a minute; an engine that is down gives an empty list). */
@@ -115,6 +116,16 @@ class PluginService(
         }
         return out
     }
+
+    // ---- FlowContributor: what flows get from the plugins -----------------------------------
+
+    override fun keys(pid: String): Map<String, String> = keysFor(pid)
+
+    /** `plugins`: the ones on for the project (null when none, as the engine always got it). */
+    override fun settings(pid: String): Map<String, Any?> = mapOf("plugins" to enabled(pid).takeIf { it.isNotEmpty() })
+
+    /** A template of a plugin in the catalog shows while that plugin is on; any other plugin is not ours. */
+    override fun templateOn(pid: String, plugin: String): Boolean? = if (plugin in names()) on(pid, plugin) else null
 
     fun ask(pid: String, body: PluginAskBody): JsonNode {
         projects.require(pid)
