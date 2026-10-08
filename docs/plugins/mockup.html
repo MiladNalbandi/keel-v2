@@ -1,0 +1,878 @@
+<title>keel Plugin Marketplace</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: keel's app shell (left rail + one working pane) under a thin mockup bar that switches screens.
+   keel's own dark palette, purple accent; IBM Plex Sans for UI, JetBrains Mono for ids, versions and paths. */
+:root {
+  --bg: #131314; --panel: #1a1a1c; --panel-2: #222225; --fg: #f7f6f3; --dim: #9a958c; --faint: #6b675f;
+  --border: #2c2c30; --rail: #333338;
+  --accent: #a48bff; --accent-soft: #2a2342; --on-accent: #131314;
+  --ok: #4ec07c; --ok-soft: #173225; --run: #57aeff; --run-soft: #142a3d;
+  --warn: #e0a13a; --warn-soft: #36290f; --bad: #f0685a; --bad-soft: #3a1d1a;
+  --shadow: 0 12px 40px rgba(0,0,0,.55);
+  --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { min-height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 var(--f-body); }
+button, input, select, textarea { font: inherit; color: inherit; }
+a { color: var(--accent); }
+.mono { font-family: var(--f-mono); font-size: 12.5px; }
+.num { font-variant-numeric: tabular-nums; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+h1, h2, h3 { text-wrap: balance; }
+
+/* ---------- the mockup bar (not part of keel) ---------- */
+.mockbar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: #0d0d0e; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 12px; padding: 8px 16px; flex-wrap: wrap; }
+.mockbar .lab { font: 600 11px var(--f-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--faint); white-space: nowrap; }
+.mockbar .lab b { color: var(--accent); font-weight: 600; }
+.seg { display: flex; gap: 2px; border: 1px solid var(--border); border-radius: 8px; padding: 2px; overflow-x: auto; max-width: 100%; scrollbar-width: none; }
+.seg button { border: 0; background: transparent; color: var(--dim); padding: 4px 11px; border-radius: 6px; cursor: pointer; font-weight: 500; white-space: nowrap; font-size: 13px; }
+.seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--fg); }
+.seg button:hover { color: var(--fg); }
+
+/* ---------- keel shell ---------- */
+.app { display: grid; grid-template-columns: 224px minmax(0,1fr); min-height: calc(100vh - 46px); }
+.side { border-right: 1px solid var(--border); padding: 16px 12px; display: flex; flex-direction: column; gap: 16px; }
+.brand { display: flex; align-items: center; gap: 9px; padding: 0 8px; }
+.brand svg { width: 30px; height: 18px; flex: none; }
+.brand b { font-size: 16px; letter-spacing: -.01em; }
+.brand span { font-size: 11px; color: var(--dim); border: 1px solid var(--border); border-radius: 999px; padding: 0 7px; white-space: nowrap; }
+.proj { border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; display: grid; gap: 1px; background: var(--panel); }
+.proj b { font-size: 13px; }
+.proj span { font: 11.5px var(--f-mono); color: var(--faint); }
+.navg { display: grid; gap: 2px; }
+.navg h4 { margin: 0 0 3px; padding: 0 10px; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--faint); font-weight: 600; }
+.navg a { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; border-radius: 7px; color: var(--dim); text-decoration: none; font-weight: 500; cursor: pointer; }
+.navg a:hover { background: var(--panel-2); color: var(--fg); }
+.navg a[aria-current="page"] { background: var(--accent-soft); color: var(--fg); }
+.navg a .pdot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); opacity: .75; flex: none; }
+.navg a .count { font-size: 11px; min-width: 20px; text-align: center; border-radius: 999px; padding: 0 6px; background: var(--warn-soft); color: var(--warn); font-weight: 600; }
+.navempty { border: 1.5px dashed var(--rail); border-radius: 9px; padding: 10px 11px; display: grid; gap: 7px; font-size: 12.5px; color: var(--dim); }
+.navempty b { color: var(--fg); font-size: 13px; }
+.side-foot { margin-top: auto; display: grid; gap: 6px; font-size: 12px; color: var(--dim); padding: 0 8px; }
+.side-foot .row { display: flex; align-items: center; gap: 7px; }
+.dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex: none; }
+
+main { padding-inline: 28px; padding-block: 22px 70px; min-width: 0; }
+.crumb { font-size: 12.5px; color: var(--faint); margin-bottom: 8px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.crumb a { color: var(--dim); text-decoration: none; cursor: pointer; }
+.crumb a:hover { color: var(--fg); }
+.top { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
+.top h1 { font-size: 22px; line-height: 1.2; margin: 0; letter-spacing: -.015em; }
+.top p { margin: 4px 0 0; color: var(--dim); max-width: 72ch; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+.btn { border: 1px solid var(--border); background: var(--panel); border-radius: 7px; padding: 6px 12px; cursor: pointer; font-weight: 500; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
+.btn:hover { border-color: var(--faint); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.warn { background: var(--warn); border-color: var(--warn); color: var(--bg); font-weight: 600; }
+.btn.danger { color: var(--bad); }
+.btn.ghost { background: transparent; }
+.btn.sm { padding: 3px 9px; font-size: 12.5px; }
+.btn:disabled { opacity: .5; cursor: default; }
+
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; min-width: 0; }
+.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.panel-head h2 { font-size: 12px; margin: 0; text-transform: uppercase; letter-spacing: .07em; color: var(--dim); font-weight: 600; }
+.panel-body { padding: 14px 16px; }
+.stack { display: grid; gap: 16px; }
+.g2 { display: grid; gap: 16px; grid-template-columns: minmax(0,1.55fr) minmax(0,1fr); align-items: start; }
+
+.pill { display: inline-flex; align-items: center; gap: 5px; border-radius: 999px; padding: 1px 9px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.p-ok { background: var(--ok-soft); color: var(--ok); }
+.p-run { background: var(--run-soft); color: var(--run); }
+.p-warn { background: var(--warn-soft); color: var(--warn); }
+.p-bad { background: var(--bad-soft); color: var(--bad); }
+.p-idle { background: var(--panel-2); color: var(--dim); }
+.tag { display: inline-block; border: 1px solid var(--border); border-radius: 5px; padding: 0 6px; font-size: 11.5px; color: var(--dim); font-family: var(--f-mono); white-space: nowrap; }
+.tag.keel { border-color: var(--accent); color: var(--accent); }
+.tag.warn { border-color: var(--warn); color: var(--warn); }
+.tag.bad { border-color: var(--bad); color: var(--bad); }
+.tag.ok { border-color: var(--ok); color: var(--ok); }
+.sub { color: var(--dim); font-size: 12.5px; }
+.faint { color: var(--faint); }
+.tabs { display: inline-flex; flex-wrap: wrap; max-width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 2px; background: var(--panel); }
+.tabs button { border: 0; background: transparent; padding: 4px 12px; border-radius: 6px; cursor: pointer; color: var(--dim); font-weight: 500; }
+.tabs button[aria-selected="true"] { background: var(--accent-soft); color: var(--fg); }
+
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--faint); font-weight: 600; padding: 8px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+tr:last-child td { border-bottom: 0; }
+tr.child td:first-child { padding-left: 34px; position: relative; }
+tr.child td:first-child::before { content: ""; position: absolute; left: 18px; top: 0; bottom: 50%; width: 9px; border-left: 1px solid var(--rail); border-bottom: 1px solid var(--rail); border-bottom-left-radius: 4px; }
+tr.off td { color: var(--faint); }
+
+/* ---------- marketplace ---------- */
+.searchrow { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+.search { flex: 1 1 280px; display: flex; align-items: center; gap: 8px; border: 1px solid var(--border); background: var(--panel); border-radius: 8px; padding: 0 12px; min-width: 0; }
+.search:focus-within { border-color: var(--accent); }
+.search svg { color: var(--faint); flex: none; }
+.search input { border: 0; background: transparent; padding: 8px 0; outline: none; width: 100%; min-width: 0; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { border: 1px solid var(--border); background: transparent; color: var(--dim); border-radius: 999px; padding: 3px 11px; cursor: pointer; font-size: 12.5px; font-weight: 500; }
+.chip[aria-pressed="true"] { border-color: var(--accent); color: var(--fg); background: var(--accent-soft); }
+.sect { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 22px 0 10px; flex-wrap: wrap; }
+.sect h2 { margin: 0; font-size: 15px; }
+.sect p { margin: 0; }
+.cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 268px), 1fr)); }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px; display: grid; gap: 10px; grid-template-rows: auto 1fr auto; cursor: pointer; text-align: left; min-width: 0; }
+.card:hover { border-color: var(--rail); background: #1d1d20; }
+.card .hd { display: grid; grid-template-columns: 40px minmax(0,1fr); gap: 11px; align-items: center; }
+.ico { width: 40px; height: 40px; border-radius: 9px; display: grid; place-items: center; font: 600 12px var(--f-mono); background: var(--panel-2); border: 1px solid var(--border); color: var(--accent); letter-spacing: -.02em; }
+.ico.lg { width: 56px; height: 56px; border-radius: 12px; font-size: 15px; }
+.ico.c2 { color: var(--run); } .ico.c3 { color: var(--ok); } .ico.c4 { color: var(--warn); }
+.card h3 { margin: 0; font-size: 14.5px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.card .by { font-size: 12px; color: var(--dim); display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.card p { margin: 0; color: var(--dim); font-size: 13px; }
+.card .ft { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.tick { display: inline-grid; place-items: center; width: 14px; height: 14px; border-radius: 50%; background: var(--accent); color: var(--on-accent); font-size: 9px; font-weight: 700; }
+.trust { font-size: 11.5px; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.trust i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+.t-content { color: var(--ok); } .t-content i { background: var(--ok); }
+.t-web { color: var(--run); } .t-web i { background: var(--run); }
+.t-code { color: var(--warn); } .t-code i { background: var(--warn); }
+.empty { border: 1px dashed var(--rail); border-radius: 10px; padding: 26px; text-align: center; color: var(--dim); }
+
+/* ---------- detail ---------- */
+.dhead { display: grid; grid-template-columns: 56px minmax(0,1fr) auto; gap: 16px; align-items: center; margin-bottom: 18px; }
+.dhead h1 { margin: 0; font-size: 24px; letter-spacing: -.015em; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dhead .meta { display: flex; gap: 6px 14px; flex-wrap: wrap; font-size: 12.5px; color: var(--dim); margin-top: 3px; }
+.perm { display: grid; grid-template-columns: 64px minmax(0,1fr); gap: 10px; padding: 9px 0; border-bottom: 1px dashed var(--border); align-items: start; }
+.perm:last-child { border-bottom: 0; }
+.perm b { font-weight: 600; font-size: 13.5px; }
+.perm .why { font-size: 12.5px; color: var(--dim); }
+.lvl { font: 600 10.5px var(--f-mono); text-transform: uppercase; letter-spacing: .05em; border-radius: 4px; padding: 2px 0; text-align: center; }
+.lvl.hi { background: var(--bad-soft); color: var(--bad); }
+.lvl.md { background: var(--warn-soft); color: var(--warn); }
+.lvl.lo { background: var(--panel-2); color: var(--dim); }
+.adds { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.adds li { display: grid; grid-template-columns: 74px minmax(0,1fr); gap: 10px; align-items: baseline; }
+.adds li .tag { justify-self: start; }
+.checks { display: grid; gap: 7px; }
+.checks div { display: flex; gap: 9px; align-items: baseline; }
+.ok-mark { color: var(--ok); font-weight: 700; font-family: var(--f-mono); }
+.kv { display: grid; grid-template-columns: max-content minmax(0,1fr); gap: 6px 14px; font-size: 13px; }
+.kv dt { color: var(--dim); }
+.kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.note { border-left: 3px solid var(--rail); padding: 2px 0 2px 12px; color: var(--dim); font-size: 13px; }
+
+/* ---------- installed ---------- */
+.banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; border: 1.5px solid var(--warn); background: var(--warn-soft); border-radius: 10px; padding: 11px 14px; margin-bottom: 16px; }
+.banner.ok { border-color: var(--ok); background: var(--ok-soft); }
+.banner b { display: block; }
+.banner .sub { color: var(--fg); opacity: .8; }
+.parts { display: flex; gap: 4px; flex-wrap: wrap; }
+.sw { position: relative; width: 34px; height: 20px; border-radius: 999px; background: var(--rail); border: 0; cursor: pointer; padding: 0; flex: none; }
+.sw::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: var(--fg); transition: transform .15s; }
+.sw[aria-checked="true"] { background: var(--accent); }
+.sw[aria-checked="true"]::after { transform: translateX(14px); background: var(--on-accent); }
+.sw:disabled { opacity: .45; cursor: default; }
+.rowact { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
+.pname { display: flex; gap: 10px; align-items: center; min-width: 190px; }
+.pname .ico { width: 30px; height: 30px; border-radius: 7px; font-size: 10.5px; }
+.pname b { display: block; font-weight: 600; }
+.src { display: grid; gap: 10px; }
+.srcrow { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.srcrow:last-child { border-bottom: 0; }
+.field { display: grid; gap: 4px; }
+.field label { font-size: 12px; color: var(--dim); font-weight: 500; }
+.field input, .field select { border: 1px solid var(--border); background: var(--bg); border-radius: 7px; padding: 7px 10px; min-width: 0; width: 100%; }
+.frow { display: grid; grid-template-columns: minmax(0,2fr) minmax(0,1fr) auto; gap: 10px; align-items: end; }
+
+/* ---------- core only ---------- */
+.hello { border: 1px solid var(--border); border-radius: 12px; padding: 22px; background: radial-gradient(120% 140% at 100% 0%, var(--accent-soft) 0%, transparent 55%), var(--panel); display: grid; gap: 10px; margin-bottom: 8px; }
+.hello h1 { margin: 0; font-size: 24px; letter-spacing: -.015em; }
+.hello p { margin: 0; color: var(--dim); max-width: 70ch; }
+.sets { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); }
+.set { border: 1px solid var(--border); border-radius: 10px; background: var(--panel); padding: 14px; display: grid; gap: 10px; grid-template-rows: auto auto 1fr auto; }
+.set h3 { margin: 0; font-size: 14.5px; }
+.set .mini { display: flex; gap: 5px; flex-wrap: wrap; }
+.set .mini .ico { width: 26px; height: 26px; font-size: 9.5px; border-radius: 6px; }
+.corelist { display: grid; gap: 4px 18px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr)); list-style: none; padding: 0; margin: 0; font-size: 13px; }
+.corelist li { display: flex; gap: 8px; align-items: baseline; }
+
+/* ---------- inbox ---------- */
+.req { border: 1.5px solid var(--warn); background: var(--panel); border-radius: 12px; overflow: hidden; }
+.req.done { border-color: var(--ok); }
+.req .rh { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: center; padding: 11px 16px; background: var(--warn-soft); }
+.req.done .rh { background: var(--ok-soft); }
+.req .rh .who { display: flex; gap: 9px; align-items: center; font-size: 13px; flex-wrap: wrap; }
+.req .rb { padding: 14px 16px; display: grid; gap: 14px; }
+.req .title { display: grid; grid-template-columns: 44px minmax(0,1fr); gap: 12px; align-items: center; }
+.req .title h3 { margin: 0; font-size: 16px; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.quote { border-left: 3px solid var(--accent); background: var(--panel-2); border-radius: 0 8px 8px 0; padding: 9px 12px; font-size: 13.5px; }
+.quote .sub { display: block; margin-bottom: 3px; }
+.cols { display: grid; gap: 14px; grid-template-columns: minmax(0,1.3fr) minmax(0,1fr); }
+.minihead { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--faint); font-weight: 600; margin: 0 0 6px; }
+.req .acts { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; border-top: 1px solid var(--border); padding-top: 12px; }
+.diffp { font-family: var(--f-mono); font-size: 12.5px; display: grid; gap: 3px; }
+.diffp .add { color: var(--ok); } .diffp .same { color: var(--faint); }
+
+/* ---------- progress ---------- */
+.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; }
+.steps li { display: grid; grid-template-columns: 20px minmax(0,1fr) auto; gap: 8px; align-items: center; font-size: 13px; color: var(--faint); }
+.steps li .m { width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid var(--rail); display: grid; place-items: center; font-size: 10px; }
+.steps li.now { color: var(--fg); }
+.steps li.now .m { border-color: var(--run); border-top-color: transparent; animation: spin .8s linear infinite; }
+.steps li.done { color: var(--fg); }
+.steps li.done .m { border-color: var(--ok); background: var(--ok); color: var(--bg); font-weight: 700; }
+.steps li .r { font: 11.5px var(--f-mono); color: var(--faint); }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- dialog ---------- */
+.scrim { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: grid; place-items: center; padding: 16px; z-index: 50; }
+.dialog { width: min(560px, 100%); max-height: calc(100vh - 32px); overflow-y: auto; background: var(--panel); border: 1px solid var(--rail); border-radius: 14px; box-shadow: var(--shadow); }
+.dialog header { padding: 16px 18px 0; display: grid; grid-template-columns: 44px minmax(0,1fr); gap: 12px; align-items: center; }
+.dialog header h2 { margin: 0; font-size: 17px; }
+.dialog .db { padding: 14px 18px; display: grid; gap: 14px; }
+.dialog footer { padding: 12px 18px 16px; display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; border-top: 1px solid var(--border); }
+.chk { display: flex; gap: 9px; align-items: flex-start; font-size: 13px; }
+.chk input { margin-top: 3px; accent-color: var(--accent); }
+.radio { display: grid; gap: 8px; }
+
+/* ---------- architecture ---------- */
+pre.ascii { margin: 0; font: 12px/1.45 var(--f-mono); color: var(--fg); overflow-x: auto; padding: 16px; background: #0f0f10; border: 1px solid var(--border); border-radius: 10px; }
+pre.ascii .a { color: var(--accent); } pre.ascii .o { color: var(--ok); } pre.ascii .w { color: var(--warn); } pre.ascii .f { color: var(--faint); } pre.ascii .r { color: var(--run); }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12.5px; color: var(--dim); }
+.legend span { display: inline-flex; gap: 6px; align-items: center; }
+
+.toast { position: fixed; right: 18px; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); background: var(--panel); border: 1px solid var(--ok); color: var(--fg); border-radius: 9px; padding: 9px 14px; box-shadow: var(--shadow); z-index: 60; font-size: 13px; display: flex; gap: 8px; align-items: center; }
+
+@media (max-width: 900px) {
+  .app { grid-template-columns: minmax(0,1fr); }
+  .side { border-right: 0; border-bottom: 1px solid var(--border); flex-direction: row; flex-wrap: wrap; gap: 10px; padding: 10px 16px; align-items: center; }
+  .side .proj, .side .side-foot, .navg h4, .navempty p { display: none; }
+  .navwrap { display: flex; gap: 2px; overflow-x: auto; max-width: 100%; scrollbar-width: none; }
+  .navg { display: flex; gap: 2px; }
+  .navg a { white-space: nowrap; }
+  .navempty { padding: 4px 9px; display: flex; align-items: center; }
+  main { padding-inline: 16px; }
+  .g2, .cols { grid-template-columns: minmax(0,1fr); }
+  .dhead { grid-template-columns: 56px minmax(0,1fr); }
+  .dhead .actions { grid-column: 1 / -1; }
+  .frow { grid-template-columns: minmax(0,1fr); }
+}
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+
+<div class="mockbar" role="navigation" aria-label="Mockup screens">
+  <span class="lab"><b>keel</b> plugins · mockup</span>
+  <div class="seg" id="seg"></div>
+</div>
+<div class="app">
+  <aside class="side" id="side"></aside>
+  <main id="main" tabindex="-1"></main>
+</div>
+<div id="layer"></div>
+
+<script>
+// ---------------------------------------------------------------- data (examples, not real numbers)
+const CORE = "0.16.0";
+const P = {
+  code:    { t: "Code", ic: "{ }", pub: "keel", v: "1.0.0", cat: "code", kind: "code", parts: ["engine","api","web"], size: "1.9 MB",
+             d: "The Code page: files, search, an editor and the changes on your branch. It hosts its own plugins: Git, Code Review, Database and CI/CD.", host: true },
+  git:     { t: "Git", ic: "git", pub: "keel", v: "1.2.0", cat: "code", kind: "code", parent: "code", parts: ["engine","api","web","content"], size: "0.6 MB",
+             d: "The Git panel, git actions for flows and git tools for agents. A person presses Commit and Push. Core keeps the git basics flows need." },
+  review:  { t: "Code Review", ic: "CR", pub: "keel", v: "1.0.3", cat: "code", kind: "code", parent: "code", parts: ["api","web","content"], size: "1.2 MB",
+             d: "Review GitHub and GitLab pull requests inside the Code page. AI comments wait for your OK before they are posted." },
+  db:      { t: "Database", ic: "DB", pub: "keel", v: "1.4.0", cat: "code", kind: "code", parent: "code", parts: ["engine","api","web","content"], size: "2.1 MB",
+             d: "Connect a database. You get its tables and an ER diagram. Agents get read-only SQL tools." },
+  ci:      { t: "CI/CD", ic: "CI", pub: "keel", v: "1.0.2", cat: "code", kind: "code", parent: "code", parts: ["engine","api","web","content"], size: "0.5 MB", needs: ["git"],
+             d: "Pipeline results in flows, Jobs and the Code page. A failed job can start a fix flow." },
+  keelbot: { t: "KeelBot", ic: "KB", pub: "keel", v: "2.0.0", cat: "assist", kind: "code", parts: ["engine","api","web","content"], size: "1.4 MB",
+             d: "Chat with your project. Other plugins add slash commands to it, like /commit from Git." },
+  map:     { t: "Map", ic: "MAP", pub: "keel", v: "1.0.0", cat: "know", kind: "code", parts: ["engine","web"], size: "0.4 MB",
+             d: "A picture of the project: the system, its modules and the database (ER), drawn from folders, migrations and the API contract." },
+  graph:   { t: "Graph", ic: "GR", pub: "keel", v: "1.0.0", cat: "know", kind: "code", parts: ["engine","web"], size: "0.7 MB",
+             d: "The code graph page, and code-graph context for agents. Flows still run without it, with less context." },
+  wiki:    { t: "Wiki", ic: "WK", pub: "keel", v: "1.1.0", cat: "know", kind: "code", parts: ["engine","api","web","content"], size: "0.5 MB",
+             d: "The Wiki page for the project's knowledge base. The knowledge base itself stays in core, because flows check it." },
+  tasks:   { t: "Tasks", ic: "TK", pub: "keel", v: "1.0.0", cat: "tickets", kind: "code", parts: ["api","web"], size: "0.3 MB",
+             d: "A list of work items. Start a flow from a task with one button." },
+  jira:    { t: "Jira", ic: "JR", pub: "keel", v: "1.0.1", cat: "tickets", kind: "code", parent: "tasks", parts: ["api","web"], size: "0.4 MB",
+             d: "Bring Jira issues into Tasks and keep their status in step with your flows." },
+  product: { t: "keel Product", ic: "PRD", pub: "keel", v: "0.3.0-beta.1", cat: "product", kind: "code", parts: ["engine","api","web","content"], size: "1.6 MB", beta: true, needs: ["tasks","jira"],
+             d: "Initiatives, teams and product docs, with their own workflows and agents." },
+  relnotes:{ t: "Release notes", ic: "RN", pub: "ana-k", v: "0.4.0", cat: "community", kind: "content", parts: ["content"], size: "18 KB", community: true,
+             d: "A workflow and an agent that write release notes from the pull requests merged since the last tag." },
+  k8s:     { t: "Kubernetes stack", ic: "K8S", pub: "infra-guild", v: "1.2.0", cat: "community", kind: "content", parts: ["content"], size: "42 KB", community: true,
+             d: "A stack for Helm charts and manifests: lint, dry-run and kubeconform checks for flows." },
+  triage:  { t: "Error triage", ic: "ERR", pub: "ops-collective", v: "0.2.1", cat: "community", kind: "code", parts: ["engine","web","content"], size: "0.9 MB", community: true,
+             d: "Reads errors from your error tracker and opens a fix flow for the loudest one. Unverified publisher." },
+  sql:     { t: "SQL style", ic: "SQL", pub: "dbtools", v: "1.0.0", cat: "community", kind: "web", parts: ["web","content"], size: "120 KB", community: true,
+             d: "A skill and a checklist page for SQL migrations: naming, locks and safe column changes." },
+};
+const KIND = { content: ["t-content", "Content only"], web: ["t-web", "Adds pages"], code: ["t-code", "Runs code in keel"] };
+const CATS = [["all","All"],["code","Code"],["assist","Assistant"],["know","Knowledge"],["tickets","Tickets"],["product","Product"],["community","Community"]];
+
+// what this keel has now (full image with the keel set, as today)
+const S = {
+  screen: "market", detail: "db", cat: "all", q: "", tab: "installed", inboxDone: {},
+  inst: { code: "1.0.0", git: "1.1.0", review: "1.0.3", ci: "1.0.2", keelbot: "2.0.0", map: "1.0.0", graph: "1.0.0", wiki: "1.1.0", tasks: "1.0.0", jira: "1.0.1", product: "0.2.0-beta.1" },
+  on:   { code: true, git: true, review: true, ci: true, keelbot: true, map: true, graph: false, wiki: true, tasks: true, jira: true, product: false },
+  src:  { code: "image", git: "image", review: "image", ci: "image", keelbot: "image", map: "image", graph: "image", wiki: "image", tasks: "image", jira: "image", product: "downloaded" },
+  pending: [],   // [{id, what}]
+};
+const UPDATES = { git: "1.2.0", product: "0.3.0-beta.1" };
+
+const PERMS = {
+  db: [
+    ["hi", "Read the database connections you add", "Connection URLs and passwords are kept in keel's secret store. The plugin gets them only for the connection a person picks."],
+    ["md", "Connect to your database hosts", "Network: only the hosts in your saved connections. Nothing else."],
+    ["md", "Give agents read-only SQL tools", "MCP server keel-db: db_tables, db_schema, db_query (SELECT only, 500 rows), db_explain."],
+    ["lo", "Add a tab to the Code page", "Code › Database: tables, columns and an ER diagram."],
+    ["lo", "Keep its own tables in keel's database", "db_connection, db_snapshot. They have their own migration history and are removed only if you ask."],
+  ],
+  generic: [
+    ["md", "Read and write files in /workspace", "Only inside the project folder keel was started with."],
+    ["lo", "Add pages to the menu", "Pages load in your browser from keel itself, never from another site."],
+    ["lo", "Keep its own tables in keel's database", "With their own migration history."],
+  ],
+  content: [
+    ["lo", "Add workflows, agents and skills", "Text files only. No code runs. Agents still follow keel's guard and gates."],
+  ],
+};
+
+// ---------------------------------------------------------------- helpers
+const $ = (s, r = document) => r.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const LOGO = `<svg viewBox="0 0 120 68" aria-hidden="true"><path fill="var(--accent)" d="M4 0H116Q120 0 119.4 4C118 22 92 38 66.6 50Q64 51.5 64 54L62.2 64.5Q61.8 67 60 67Q58.2 67 57.8 64.5L56 54Q56 51.5 53.4 50C28 38 2 22 .6 4Q0 0 4 0Z"/></svg>`;
+const icoClass = (id) => ({ code: "", git: "c3", review: "c2", db: "c4", ci: "c3", keelbot: "", map: "c2", graph: "c2", wiki: "c3", tasks: "c4", jira: "c2", product: "" }[id] ?? "c2");
+const ico = (id, cls = "") => `<span class="ico ${icoClass(id)} ${cls}" aria-hidden="true">${esc(P[id].ic)}</span>`;
+const by = (p) => p.pub === "keel"
+  ? `<span>keel</span><span class="tick" title="Verified publisher">✓</span>`
+  : `<span>${esc(p.pub)}</span><span class="tag">community</span>`;
+const trust = (p) => { const [c, l] = KIND[p.kind]; return `<span class="trust ${c}"><i></i>${l}</span>`; };
+const isInst = (id) => id in S.inst;
+const isPending = (id) => S.pending.some((x) => x.id === id);
+
+function toast(msg) {
+  const t = document.createElement("div");
+  t.className = "toast"; t.setAttribute("role", "status");
+  t.innerHTML = `<span class="ok-mark">✓</span>${esc(msg)}`;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 2600);
+}
+
+// ---------------------------------------------------------------- the menu
+const NAV_FULL = [
+  ["Run", [["flow","Flow"],["tasks","Tasks","tasks"],["inbox","Inbox"],["live","Live agents"],["jobs","Jobs"]]],
+  ["Project", [["code","Code","code"],["keelbot","KeelBot","keelbot"],["map","Map","map"],["graph","Graph","graph"],["wiki","Wiki","wiki"]]],
+  ["Build", [["workflows","Workflows"],["agents","Agents"],["skills","Skill hub"],["stacks","Stacks"],["tools","Tools (MCP)"],["quality","Quality"]]],
+  ["Control", [["budget","Budget"],["settings","Settings"],["connections","Connections"],["plugins","Plugins"]]],
+];
+function sideHTML(coreOnly, current) {
+  const groups = NAV_FULL.map(([g, pages]) => {
+    const shown = pages.filter(([, , plug]) => !plug || (!coreOnly && isInst(plug) && S.on[plug]));
+    if (g === "Project" && coreOnly) {
+      return `<div class="navg"><h4>Project</h4><div class="navempty"><b>No pages yet</b><p style="margin:0">Code, KeelBot, Map, Graph and Wiki are plugins now.</p><button class="btn sm" type="button" data-go="market">+ Add pages</button></div></div>`;
+    }
+    if (!shown.length) return "";
+    return `<div class="navg"><h4>${g}</h4>${shown.map(([id, label, plug]) =>
+      `<a ${id === current ? 'aria-current="page"' : ""} data-nav="${id}">${label}${id === "inbox" ? `<span class="count">2</span>` : plug ? `<span class="pdot" title="From a plugin"></span>` : ""}</a>`).join("")}</div>`;
+  }).join("");
+  return `
+    <span class="brand">${LOGO}<b>keel</b><span>${coreOnly ? "core" : "v2 studio"}</span></span>
+    <div class="proj"><b>ludus-engine</b><span>main · no flow</span></div>
+    <nav class="navwrap" aria-label="keel">${groups}</nav>
+    <div class="side-foot">
+      ${coreOnly ? "" : `<div class="row"><span class="pdot dot" style="background:var(--accent)"></span>page from a plugin</div>`}
+      <div class="row"><span class="dot" style="background:var(--ok)"></span>engine ok · keel ${CORE}</div>
+      <div class="row"><span class="dot" style="background:var(--faint)"></span>${coreOnly ? "0 plugins" : Object.keys(S.inst).length + " plugins"}</div>
+    </div>`;
+}
+
+// ---------------------------------------------------------------- screens
+const SCREENS = [["market","Marketplace"],["detail","Plugin detail"],["installed","Installed plugins"],["core","Core-only keel"],["request","Agent install request"],["arch","Architecture"]];
+
+function vMarket() {
+  const q = S.q.trim().toLowerCase();
+  const match = (id) => {
+    const p = P[id];
+    if (S.cat !== "all" && p.cat !== S.cat) return false;
+    return !q || (p.t + " " + p.d + " " + p.pub).toLowerCase().includes(q);
+  };
+  const card = (id) => {
+    const p = P[id];
+    const upd = isInst(id) && UPDATES[id];
+    const btn = isPending(id) ? `<span class="pill p-warn">Restart needed</span>`
+      : upd ? `<button class="btn sm" type="button" data-update="${id}">Update to ${UPDATES[id]}</button>`
+      : isInst(id) ? `<span class="pill p-ok">Installed</span>`
+      : `<button class="btn sm primary" type="button" data-install="${id}">Install</button>`;
+    return `<div class="card" role="link" tabindex="0" data-detail="${id}">
+      <div class="hd">${ico(id)}<div style="min-width:0"><h3>${esc(p.t)}${p.beta ? ` <span class="tag warn">beta</span>` : ""}</h3>
+        <div class="by">${by(p)}<span class="mono faint">${p.v}</span></div></div></div>
+      <p>${esc(p.d)}</p>
+      <div class="ft"><span style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${trust(p)}${needsOf(id).length ? `<span class="tag">needs ${needsOf(id).map((n) => esc(P[n].t)).join(", ")}</span>` : ""}</span>${btn}</div>
+    </div>`;
+  };
+  const keelIds = Object.keys(P).filter((id) => !P[id].community && match(id));
+  const comIds = Object.keys(P).filter((id) => P[id].community && match(id));
+  return `
+    <div class="top"><div><h1>Plugins</h1><p>Plugins add pages, tools, workflows and agents to keel. Each comes from its own git repo. keel checks its signature before it installs it.</p></div>
+      <div class="actions"><span class="sub">Catalog</span><span class="tag keel">keel official</span><button class="btn sm ghost" type="button" data-tab="sources">Sources</button></div></div>
+    ${tabsHTML("market")}
+    <div class="searchrow" style="margin-top:14px">
+      <label class="search"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-4-4"/></svg>
+        <input id="q" type="search" placeholder="Search plugins: database, review, tickets…" value="${esc(S.q)}" aria-label="Search plugins"></label>
+      <div class="chips" role="group" aria-label="Category">${CATS.map(([id, l]) => `<button class="chip" type="button" aria-pressed="${S.cat === id}" data-cat="${id}">${l}</button>`).join("")}</div>
+    </div>
+    <div class="legend" style="margin-bottom:6px">${Object.values(KIND).map(([c, l]) => `<span class="trust ${c}"><i></i>${l}</span>`).join("")}<span class="faint">· what a plugin is allowed to bring</span></div>
+    ${keelIds.length ? `<div class="sect"><h2>The keel set</h2><p class="sub">Made and signed by keel. Each one was part of keel before.</p></div><div class="cards">${keelIds.map(card).join("")}</div>` : ""}
+    ${comIds.length ? `<div class="sect"><h2>From the community</h2><p class="sub">Examples. Published through a pull request to the catalog repo.</p></div><div class="cards">${comIds.map(card).join("")}</div>` : ""}
+    ${!keelIds.length && !comIds.length ? `<div class="empty" style="margin-top:16px">No plugin matches “${esc(S.q)}”. Try another word, or ask an agent to look for one.</div>` : ""}`;
+}
+
+function tabsHTML(active) {
+  const pend = S.pending.length;
+  return `<div class="tabs" role="tablist">
+    <button role="tab" type="button" aria-selected="${active === "installed"}" data-tab="installed">Installed (${Object.keys(S.inst).length})</button>
+    <button role="tab" type="button" aria-selected="${active === "market"}" data-tab="market">Marketplace</button>
+    <button role="tab" type="button" aria-selected="${active === "sources"}" data-tab="sources">Sources and rules</button>
+  </div>${pend ? ` <span class="pill p-warn" style="margin-left:8px">${pend} waiting for restart</span>` : ""}`;
+}
+
+function vDetail() {
+  const id = S.detail, p = P[id];
+  const perms = PERMS[id] || (p.kind === "content" ? PERMS.content : PERMS.generic);
+  const inst = isInst(id);
+  const needs = needsOf(id);
+  const btn = isPending(id) ? `<span class="pill p-warn">Installed · restart needed</span>`
+    : inst ? `<span class="pill p-ok">Installed ${S.inst[id]}</span>${UPDATES[id] ? ` <button class="btn primary" type="button" data-update="${id}">Update to ${UPDATES[id]}</button>` : ""}`
+    : `<button class="btn primary" type="button" data-install="${id}">Install ${p.v}</button>`;
+  const adds = id === "db" ? [
+      ["web", "Code › Database: tables, columns, row counts and an ER diagram"],
+      ["engine", "MCP server keel-db with 4 read-only tools for agents"],
+      ["engine", "Actions db:snapshot and db:diff for flows"],
+      ["content", "KeelBot commands /schema and /query"],
+      ["api", "Connection kind “Database” in Connections"],
+      ["db", "Tables db_connection and db_snapshot (own history)"],
+    ] : p.parts.map((x) => [x, { engine: "Engine code: tools and actions for flows", api: "API code: its own endpoints and tables", web: "Pages in keel's web", content: "Workflows, agents, skills or commands" }[x]]);
+  return `
+    <div class="crumb"><a data-go="market">Plugins</a><span>›</span><a data-go="market">Marketplace</a><span>›</span><span>${esc(p.t)}</span></div>
+    <div class="dhead">${ico(id, "lg")}
+      <div style="min-width:0"><h1>${esc(p.t)}${p.beta ? ` <span class="tag warn">beta</span>` : ""}</h1>
+        <div class="meta"><span style="display:inline-flex;gap:5px;align-items:center">${by(p)}</span><span class="mono">${p.v}</span><span>${trust(p)}</span><span class="mono">github.com/MiladNalbandi/keel-plugin-${id}</span></div></div>
+      <div class="actions">${btn}</div>
+    </div>
+    <div class="g2">
+      <div class="stack">
+        <div class="panel"><div class="panel-head"><h2>About</h2></div><div class="panel-body"><p style="margin:0 0 12px">${esc(p.d)}</p>
+          <ul class="adds">${adds.map(([k, t]) => `<li><span class="tag">${k}</span><span>${esc(t)}</span></li>`).join("")}</ul></div></div>
+        <div class="panel"><div class="panel-head"><h2>Versions</h2><span class="sub">Older versions stay installable</span></div>
+          <div class="table-wrap"><table><thead><tr><th>Version</th><th>Works with</th><th>Released</th><th>Changes</th></tr></thead><tbody>
+            <tr><td class="mono">${p.v}</td><td class="mono">keel ≥0.16 &lt;1.0</td><td class="num">2026-10-02</td><td>New: db_explain tool. Needs one new permission.</td></tr>
+            <tr><td class="mono">1.3.2</td><td class="mono">keel ≥0.16 &lt;1.0</td><td class="num">2026-09-18</td><td>Fix: MySQL views were missing.</td></tr>
+            <tr><td class="mono">1.3.0</td><td class="mono">keel ≥0.15 &lt;0.17</td><td class="num">2026-08-30</td><td>First release as a plugin.</td></tr>
+          </tbody></table></div></div>
+        <div class="panel"><div class="panel-head"><h2>Checks keel runs before install</h2></div><div class="panel-body checks">
+          <div><span class="ok-mark">✓</span><span>Checksum <span class="mono">sha256:9c41…e07a</span> matches the catalog</span></div>
+          <div><span class="ok-mark">✓</span><span>Signed by <b>keel</b> <span class="mono">ed25519:K7f3…c21</span>, a key this keel trusts</span></div>
+          <div><span class="ok-mark">✓</span><span>Built by GitHub Actions from tag <span class="mono">v${p.v}</span> of its repo</span></div>
+          <div><span class="ok-mark">✓</span><span>Manifest is valid. Its ids start with <span class="mono">${id}</span>. Its tables start with <span class="mono">${id}_</span></span></div>
+        </div></div>
+      </div>
+      <div class="stack">
+        <div class="panel"><div class="panel-head"><h2>Permissions</h2><span class="sub">${perms.length} asked</span></div><div class="panel-body">
+          ${perms.map(([l, t, w]) => `<div class="perm"><span class="lvl ${l}">${{ hi: "high", md: "medium", lo: "low" }[l]}</span><div><b>${esc(t)}</b><div class="why">${esc(w)}</div></div></div>`).join("")}
+          <p class="note" style="margin:10px 0 0">A plugin that runs code is trusted like keel itself. Install it only from a publisher you trust.</p>
+        </div></div>
+        <div class="panel"><div class="panel-head"><h2>Needs</h2></div><div class="panel-body checks">
+          <div><span class="ok-mark">✓</span><span>keel core <span class="mono">≥0.16.0 &lt;1.0</span> · you have <span class="mono">${CORE}</span></span></div>
+          ${needs.map((n) => `<div>${isInst(n) ? `<span class="ok-mark">✓</span>` : `<span class="tag warn">+</span>`}<span>${esc(P[n].t)} <span class="mono">≥${P[n].v.split(".")[0]}.0</span> · ${isInst(n) ? `installed ${S.inst[n]}` : "will be installed too"}</span></div>`).join("")}
+          <dl class="kv" style="margin-top:6px"><dt>Size</dt><dd class="mono">${p.size}</dd><dt>After install</dt><dd>${p.kind === "content" ? "Ready at once, no restart" : "keel restarts its api and engine (about 30 s)"}</dd><dt>Goes to</dt><dd class="mono">/data/plugins/${id}/${p.v}/</dd></dl>
+        </div></div>
+      </div>
+    </div>`;
+}
+
+function vInstalled() {
+  const order = ["code", "git", "review", "db", "ci", "keelbot", "map", "graph", "wiki", "tasks", "jira", "product", "relnotes", "k8s", "triage", "sql"];
+  const rows = order.filter(isInst).map((id) => {
+    const p = P[id], pend = S.pending.find((x) => x.id === id);
+    const problem = id === "product" && S.inst.product.startsWith("0.2");
+    const status = pend ? `<span class="pill p-warn">${esc(pend.what)} · restart</span>`
+      : problem ? `<span class="pill p-bad">Needs keel &lt;0.16</span>`
+      : S.on[id] ? `<span class="pill p-ok">On</span>` : `<span class="pill p-idle">Off</span>`;
+    const upd = UPDATES[id] && S.inst[id] !== UPDATES[id];
+    const kids = order.filter((k) => P[k].parent === id && isInst(k));
+    return `<tr class="${p.parent ? "child" : ""} ${S.on[id] || pend ? "" : "off"}">
+      <td><div class="pname">${ico(id)}<div><b>${esc(p.t)}</b><span class="sub">${p.parent ? "in " + esc(P[p.parent].t) : kids.length ? kids.length + " plugins inside" : esc(p.pub)}</span></div></div></td>
+      <td class="mono">${S.inst[id]}${upd ? `<div><span class="tag keel">${UPDATES[id]} ready</span></div>` : ""}</td>
+      <td><div class="parts">${p.parts.map((x) => `<span class="tag">${x}</span>`).join("")}</div></td>
+      <td class="sub">${S.src[id] === "image" ? "in the image" : "downloaded"}</td>
+      <td>${status}${problem ? `<div class="sub" style="margin-top:3px">Left out at start. Update fixes it.</div>` : ""}</td>
+      <td><button class="sw" role="switch" type="button" aria-label="${esc(p.t)} on" aria-checked="${!!S.on[id]}" data-toggle="${id}" ${problem || pend ? "disabled" : ""}></button></td>
+      <td><div class="rowact">${upd ? `<button class="btn sm" type="button" data-update="${id}">Update</button>` : ""}<button class="btn sm ghost danger" type="button" data-remove="${id}">Remove</button></div></td>
+    </tr>`;
+  }).join("");
+  const pend = S.pending.length;
+  return `
+    <div class="top"><div><h1>Plugins</h1><p>What this keel has installed. Turn a plugin off to hide it without losing its data. Plugins that came in the image can be updated from the marketplace.</p></div>
+      <div class="actions"><button class="btn" type="button" data-check>Check for updates</button><button class="btn primary" type="button" data-go="market">Browse marketplace</button></div></div>
+    ${tabsHTML("installed")}
+    <div style="height:14px"></div>
+    ${pend ? `<div class="banner" role="status"><div><b>${pend} change${pend > 1 ? "s" : ""} wait for a restart</b><span class="sub">${S.pending.map((x) => esc(P[x.id].t) + ": " + esc(x.what)).join(" · ")}</span></div><button class="btn warn" type="button" data-restart>Restart keel (about 30 s)</button></div>` : ""}
+    <div class="panel"><div class="table-wrap"><table>
+      <thead><tr><th>Plugin</th><th>Version</th><th>Parts</th><th>From</th><th>Status</th><th>On</th><th></th></tr></thead>
+      <tbody>
+        <tr><td><div class="pname"><span class="ico" aria-hidden="true">${LOGO.replace('viewBox', 'width="18" viewBox')}</span><div><b>keel core</b><span class="sub">flows, agents, Inbox, settings</span></div></div></td>
+          <td class="mono">${CORE}</td><td><div class="parts"><span class="tag">engine</span><span class="tag">api</span><span class="tag">web</span><span class="tag">content</span></div></td>
+          <td class="sub">the image</td><td><span class="pill p-ok">On</span></td><td><button class="sw" role="switch" type="button" aria-label="keel core on" aria-checked="true" disabled></button></td><td class="sub" style="text-align:right">Update the image</td></tr>
+        ${rows}
+      </tbody></table></div></div>
+    <p class="sub" style="margin-top:12px">Data stays when you turn a plugin off. When you remove one, keel asks if its tables go too.</p>`;
+}
+
+function vSources() {
+  return `
+    <div class="top"><div><h1>Plugins</h1><p>Where plugins come from, and who may install them.</p></div></div>
+    ${tabsHTML("sources")}
+    <div class="g2" style="margin-top:14px">
+      <div class="stack">
+        <div class="panel"><div class="panel-head"><h2>Catalogs</h2><span class="sub">Each catalog is signed</span></div><div class="panel-body src">
+          <div class="srcrow"><div><b>keel official</b> <span class="tag keel">built in</span><div class="sub mono">github.com/MiladNalbandi/keel-marketplace · index v1</div><div class="sub">Key <span class="mono">ed25519:K7f3…c21</span> · read 12 minutes ago · 16 plugins</div></div><button class="sw" role="switch" type="button" aria-checked="true" aria-label="keel official on"></button></div>
+          <div class="srcrow"><div><b>Acme internal</b><div class="sub mono">git.acme.dev/platform/keel-catalog</div><div class="sub">Key <span class="mono">ed25519:Ac9e…71b</span> · uses the connection “acme-git” to read</div></div><button class="sw" role="switch" type="button" aria-checked="false" aria-label="Acme internal on"></button></div>
+          <div class="frow" style="padding-top:12px"><div class="field"><label for="curl">Catalog URL</label><input id="curl" placeholder="https://…/index.json"></div><div class="field"><label for="ckey">Its public key</label><input id="ckey" placeholder="ed25519:…"></div><button class="btn" type="button">Add</button></div>
+        </div></div>
+        <div class="panel"><div class="panel-head"><h2>For plugin authors</h2></div><div class="panel-body stack" style="gap:10px">
+          <p style="margin:0" class="sub">Install a plugin file you built, or a release URL. keel shows it as <b>unsigned</b> and asks again before it runs code.</p>
+          <div class="actions"><button class="btn" type="button">Install from a file…</button><button class="btn" type="button">Install from a URL…</button></div>
+        </div></div>
+      </div>
+      <div class="stack">
+        <div class="panel"><div class="panel-head"><h2>Rules</h2></div><div class="panel-body stack" style="gap:12px">
+          <label class="chk"><input type="checkbox" checked id="r1"><span><b>Agents may ask to install plugins</b><br><span class="sub">KeelBot and flow agents send a request to the Inbox. Nothing installs until a person approves it.</span></span></label>
+          <label class="chk"><input type="checkbox" checked id="r2"><span><b>Check for updates every day</b><br><span class="sub">Updates never install by themselves. An update that asks for a new permission always asks you.</span></span></label>
+          <label class="chk"><input type="checkbox" id="r3"><span><b>Allow unverified publishers</b><br><span class="sub">Off: only publishers signed into a catalog you trust.</span></span></label>
+          <div class="field"><label for="who">Who can approve installs</label><select id="who"><option>Owners of this keel</option><option>Anyone who can use this keel</option></select></div>
+        </div></div>
+      </div>
+    </div>`;
+}
+
+function vCore() {
+  const sets = [
+    ["Developer set", "Read and change code with agents.", ["code", "git", "keelbot", "graph"]],
+    ["Review set", "Review pull requests in keel.", ["code", "git", "review"]],
+    ["Knowledge set", "Help agents know the project.", ["wiki", "map", "graph"]],
+    ["Tickets", "Start flows from your issues.", ["tasks", "jira"]],
+  ];
+  return `
+    <div class="hello">
+      <span class="tag keel" style="justify-self:start">keel core ${CORE}</span>
+      <h1>Welcome to keel core</h1>
+      <p>This keel has only the core. Flows, workflows, agents, stacks, the Inbox, the budget and your settings work now. Pages like Code and KeelBot are plugins. Add the ones you need. You can remove them later.</p>
+      <div class="actions"><button class="btn primary" type="button" data-go="market">Open the marketplace</button><button class="btn" type="button" data-go="arch">How plugins work</button></div>
+    </div>
+    <div class="sect"><h2>Start with a set</h2><p class="sub">One click installs the set. Then keel restarts once.</p></div>
+    <div class="sets">${sets.map(([t, d, ids]) => `<div class="set"><h3>${t}</h3><p class="sub" style="margin:0">${d}</p>
+      <div class="mini">${ids.map((i) => `<span title="${esc(P[i].t)}">${ico(i)}</span>`).join("")}<span class="sub" style="align-self:center">${ids.map((i) => P[i].t).join(", ")}</span></div>
+      <button class="btn sm" type="button" data-set="${ids.join(",")}">Install ${ids.length}</button></div>`).join("")}</div>
+    <div class="sect"><h2>What core does without plugins</h2></div>
+    <div class="panel"><div class="panel-body"><ul class="corelist">
+      ${["Runs flows and workflows", "Agents, skills and stacks", "Guard and gates", "Inbox and notifications", "Budget and usage", "Connections and secrets", "Projects", "Plugin host and marketplace"].map((x) => `<li><span class="ok-mark">✓</span>${x}</li>`).join("")}
+    </ul></div></div>
+    <p class="note" style="margin-top:16px">A flow can ask for a plugin it needs. The request waits in the Inbox until you approve it.</p>`;
+}
+
+function reqCard(key) {
+  const done = S.inboxDone[key];
+  if (key === "db") {
+    const p = P.db;
+    return `<div class="req ${done === "ok" ? "done" : ""}" id="req-db">
+      <div class="rh"><div class="who"><span class="pill ${done === "ok" ? "p-ok" : "p-warn"}">${done === "ok" ? "Approved" : done === "no" ? "Declined" : "Waiting for you"}</span><b>Install request</b><span class="sub">from flow <span class="mono">fix-login-timeout</span> · step <span class="mono">investigate</span> · agent <span class="mono">investigator</span></span></div><span class="sub num">4 min ago</span></div>
+      <div class="rb">
+        <div class="title">${ico("db")}<div><h3>Database <span class="mono" style="font-size:13px;color:var(--dim)">${p.v}</span> <span class="tick" title="Verified publisher">✓</span><span class="sub" style="font-weight:400">by keel</span></h3><span class="sub">${esc(p.d)}</span></div></div>
+        <div class="quote"><span class="sub">The agent says</span>“The bug looks like a null <span class="mono">session_expires_at</span>. I need to read the schema of the <span class="mono">sessions</span> table and a few rows to be sure. The Database plugin gives me read-only SQL.”</div>
+        <div class="cols">
+          <div><p class="minihead">It will be allowed to</p>
+            ${PERMS.db.slice(0, 3).map(([l, t]) => `<div class="perm" style="grid-template-columns:58px minmax(0,1fr);padding:6px 0"><span class="lvl ${l}">${{ hi: "high", md: "med", lo: "low" }[l]}</span><b style="font-weight:500">${esc(t)}</b></div>`).join("")}
+            <a data-go="detail" style="font-size:12.5px;cursor:pointer">See all 5 permissions</a></div>
+          <div><p class="minihead">What happens</p>
+            <div class="checks" style="font-size:13px">
+              <div><span class="ok-mark">✓</span><span>Needs Code ≥1.0 · installed</span></div>
+              <div><span class="ok-mark">✓</span><span>Signed by keel</span></div>
+              <div><span class="faint mono">→</span><span>keel restarts api and engine, about 30 s</span></div>
+              <div><span class="faint mono">→</span><span>The flow waits at this gate, then goes on</span></div>
+              <div><span class="faint mono">→</span><span>You still add the database in Connections</span></div>
+            </div></div>
+        </div>
+        <div id="prog-db"></div>
+        <div class="acts">${done ? (done === "ok" ? `<span class="sub">Approved by you. Installed to <span class="mono">/data/plugins/db/1.4.0</span>.</span>` : `<span class="sub">Declined. The agent was told and goes on without it.</span>`)
+          : `<button class="btn primary" type="button" data-approve="db">Approve and install</button><button class="btn" type="button" data-decline="db">Decline</button><span class="sub">The agent cannot install anything by itself.</span>`}</div>
+      </div></div>`;
+  }
+  return `<div class="req ${done === "ok" ? "done" : ""}">
+    <div class="rh"><div class="who"><span class="pill ${done === "ok" ? "p-ok" : "p-warn"}">${done === "ok" ? "Approved" : "Waiting for you"}</span><b>Update asks for more</b><span class="sub">from the daily update check</span></div><span class="sub num">today 06:00</span></div>
+    <div class="rb">
+      <div class="title">${ico("git")}<div><h3>Git <span class="mono" style="font-size:13px;color:var(--dim)">1.1.0 → 1.2.0</span> <span class="tick">✓</span><span class="sub" style="font-weight:400">by keel</span></h3><span class="sub">This update asks for one new permission, so it did not install by itself.</span></div></div>
+      <div><p class="minihead">Permissions</p><div class="diffp">
+        <span class="same">  read and write files in /workspace</span>
+        <span class="same">  use your GitHub connection</span>
+        <span class="add">+ use your GitLab connection (new: GitLab merge requests)</span>
+        <span class="add">+ talk to gitlab.com and your GitLab host</span></div></div>
+      <div class="acts">${done === "ok" ? `<span class="sub">Approved. Waits for the next restart.</span>` : `<button class="btn primary" type="button" data-approve="git">Approve update</button><button class="btn" type="button" data-decline="git">Keep 1.1.0</button>`}</div>
+    </div></div>`;
+}
+
+function vRequest() {
+  return `
+    <div class="top"><div><h1>Inbox</h1><p>Things that wait for a person. Agents ask here before they add anything to keel.</p></div>
+      <div class="tabs" role="tablist"><button role="tab" type="button" aria-selected="true">Waiting (2)</button><button role="tab" type="button" aria-selected="false">Done</button></div></div>
+    <div class="stack">${reqCard("db")}${reqCard("git")}</div>`;
+}
+
+function vArch() {
+  return `
+    <div class="top"><div><h1>How plugins fit</h1><p>One small core. Plugins come from their own repos as signed files. keel unpacks them into <span class="mono">/data/plugins</span> and loads them when it starts. The image is never rebuilt.</p></div></div>
+    <div class="legend" style="margin-bottom:12px"><span><span class="dot" style="background:var(--accent)"></span>core</span><span><span class="dot" style="background:var(--ok)"></span>plugin</span><span><span class="dot" style="background:var(--warn)"></span>a person's OK</span><span><span class="dot" style="background:var(--run)"></span>outside keel</span></div>
+    <div class="stack">
+      <div class="panel"><div class="panel-head"><h2>The recommended way</h2><span class="sub">keel Product's add-on pattern, made general</span></div><div class="panel-body">
+        <ul class="corelist" style="grid-template-columns:repeat(auto-fill,minmax(min(100%,320px),1fr));gap:8px 18px">
+          ${[["One signed file", "engine, api, web, content and migrations, described by keel-plugin.yml"],
+             ["Loaded when keel starts", "from /data/plugins; install = check, unpack, restart (about 30 s)"],
+             ["Core never imports a plugin", "plugins use a versioned SDK and named slots; Code hosts its own plugins"],
+             ["Trust from signatures", "sha256 + Ed25519; permissions shown before install"],
+             ["A catalog, not a server", "a git repo and one signed index.json on GitHub Pages"],
+             ["Agents only ask", "search and request tools; a person approves in the Inbox"]]
+            .map(([b, t]) => `<li><span class="ok-mark">✓</span><span><b>${b}</b><br><span class="sub">${t}</span></span></li>`).join("")}
+        </ul></div></div>
+      <div class="panel"><div class="panel-head"><h2>1 · Architecture</h2></div><div class="panel-body"><pre class="ascii">${esc(ARCH)}</pre></div></div>
+      <div class="panel"><div class="panel-head"><h2>2 · Install flow</h2></div><div class="panel-body"><pre class="ascii">${esc(FLOW)}</pre></div></div>
+      <div class="panel"><div class="panel-head"><h2>3 · An agent asks for a plugin</h2></div><div class="panel-body"><pre class="ascii">${esc(AGENT)}</pre></div></div>
+    </div>`;
+}
+
+const ARCH = String.raw`
+ ┌──────────────────────── the keel image (never rebuilt to add a plugin) ───────────────────────┐
+ │                                                                                                │
+ │   web (React)                api (Kotlin, Spring)                 engine (Python, LangGraph)   │
+ │  ┌─────────────────┐       ┌──────────────────────────┐        ┌──────────────────────────┐  │
+ │  │ shell + menu    │ HTTP  │ flows · inbox · settings │  HTTP  │ flow runner · guard      │  │
+ │  │ slots:          │──────▶│ connections · budget     │───────▶│ agents · workflows       │  │
+ │  │  nav.page       │       │ projects · events        │        │ stacks · MCP server      │  │
+ │  │  code.tab ...   │       │ PLUGIN HOST              │        │ PLUGIN HOST              │  │
+ │  │ PLUGIN LOADER   │       │  KeelAddon beans         │        │  KEEL_ADDONS packages    │  │
+ │  │  import map     │       │  own Flyway per plugin   │        │  actions · routes · MCP  │  │
+ │  └───────▲─────────┘       └────────────▲─────────────┘        └────────────▲─────────────┘  │
+ │          │ web/index.js                 │ api/*.jar (loader.path)           │ engine/ (path)  │
+ │          │                              │                                   │                 │
+ │  ┌───────┴──────────────────────────────┴───────────────────────────────────┴──────────────┐  │
+ │  │ /data/plugins/            (a volume: survives image updates)                              │  │
+ │  │   enabled.json            which plugins and versions are on                               │  │
+ │  │   code/1.0.0/   keel-plugin.yml  engine/  api/  web/  content/                             │  │
+ │  │   db/1.4.0/     keel-plugin.yml  engine/  api/  web/  content/                             │  │
+ │  │ /opt/keel/plugins/        plugins that came in the image (the "full" image)               │  │
+ │  └──────────────────────────────────────────▲───────────────────────────────────────────────┘  │
+ └─────────────────────────────────────────────┼──────────────────────────────────────────────────┘
+                                               │ download + check sha256 + check signature
+                  ┌────────────────────────────┴───────────────────────────┐
+                  │ marketplace catalog  (index.json + index.json.sig)      │
+                  │   → points to each plugin's GitHub release asset        │
+                  │ github.com/…/keel-plugin-db   releases/v1.4.0/db.kplug  │
+                  └─────────────────────────────────────────────────────────┘
+`;
+const FLOW = String.raw`
+  person / agent          web                  api (plugin host)                     /data/plugins
+  ──────────────          ───                  ─────────────────                     ─────────────
+  "Install Database" ──▶  shows permissions
+                          and needs
+                          [Install] ────────▶  1 read catalog entry (signed)
+                                               2 resolve needs: core range, Code ≥1.0
+                                               3 download db-1.4.0.kplug
+                                               4 check sha256 == catalog
+                                               5 check signature (publisher key)
+                                               6 check manifest: names, tables, slots
+                                               7 unpack ──────────────────────────▶  db/1.4.0/
+                                               8 write enabled.json (staged)  ─────▶  enabled.json
+                          "restart needed" ◀── 9 content-only? load now, done
+                          [Restart keel] ───▶ 10 keel-start restarts api + engine
+                                                  engine: PYTHONPATH += db/1.4.0/engine
+                                                          KEEL_ADDONS += keel_plugin_db
+                                                  api:    loader.path += db/1.4.0/api
+                                                          Flyway "db" history → migrate
+                                                  web:    /api/features lists db's web entry
+                          menu shows Database ◀── 11 health ok → plugin "On"
+                                                  fails? → left out, shown under Problems,
+                                                           keel still starts without it
+`;
+const AGENT = String.raw`
+  agent (KeelBot or a flow step)        core MCP server (keel)             Inbox                person
+  ──────────────────────────────        ──────────────────────             ─────                ──────
+  marketplace_search("database") ───▶   reads the catalog
+                                 ◀───   db 1.4.0, permissions, needs
+  plugin_request_install(db, 1.4.0,
+     reason="read sessions schema") ─▶  checks rules: agents may ask?
+                                        creates an approval item ───────▶  card: Database
+                                 ◀───   "request r-41 waits"                permissions, reason  ──▶ reads
+  (the flow waits at a gate,                                                                         │
+   or KeelBot goes on without it)                                         [Approve and install] ◀────┘
+                                        install as in the install flow  ◀── approved by person
+                                        restart (or ask to restart)
+  event plugin.installed(db) ◀───────── engine sends the event to the flow
+  the agent now has db_* tools
+
+  The agent never gets an "install" tool. It can only ask.
+`;
+
+const VIEWS = { market: vMarket, detail: vDetail, installed: vInstalled, sources: vSources, core: vCore, request: vRequest, arch: vArch };
+const NAV_FOR = { market: "plugins", detail: "plugins", installed: "plugins", sources: "plugins", core: "flow", request: "inbox", arch: "" };
+
+function render() {
+  const seg = SCREENS.map(([id, l]) => `<button type="button" aria-pressed="${S.screen === id || (S.screen === "sources" && id === "installed")}" data-screen="${id}">${l}</button>`).join("");
+  $("#seg").innerHTML = seg;
+  $("#side").innerHTML = sideHTML(S.screen === "core", NAV_FOR[S.screen]);
+  $("#main").innerHTML = VIEWS[S.screen]();
+}
+function go(screen) { S.screen = screen; render(); window.scrollTo(0, 0); }
+
+// ---------------------------------------------------------------- install dialog
+function needsOf(id) { const p = P[id]; return [...new Set([...(p.parent ? [p.parent] : []), ...(p.needs || [])])]; }
+function deps(id, seen = new Set()) {
+  const out = [];
+  for (const n of needsOf(id)) { if (seen.has(n)) continue; seen.add(n); out.push(...deps(n, seen)); if (!isInst(n)) out.push(n); }
+  return out;
+}
+
+function openInstall(ids, opts = {}) {
+  const all = [...new Set(ids.flatMap((id) => [...deps(id), id]))].filter((id) => !isInst(id));
+  if (!all.length) { toast("Already installed"); return; }
+  const main = P[all[all.length - 1]];
+  const runsCode = all.some((id) => P[id].kind === "code");
+  const unverified = all.some((id) => P[id].community);
+  const extra = all.slice(0, -1);
+  $("#layer").innerHTML = `<div class="scrim" data-close>
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dlg-t">
+      <header>${ico(all[all.length - 1])}<div><h2 id="dlg-t">${all.length > 1 && opts.set ? `Install ${all.length} plugins?` : `Install ${esc(main.t)} ${main.v}?`}</h2><span class="sub">${all.length > 1 ? all.map((i) => P[i].t).join(", ") : "by " + esc(main.pub)}</span></div></header>
+      <div class="db" id="dlg-body">
+        ${extra.length && !opts.set ? `<div class="banner" style="margin:0"><div><b>Also installs ${extra.map((i) => esc(P[i].t)).join(", ")}</b><span class="sub">${esc(main.t)} needs ${extra.map((i) => esc(P[i].t)).join(", ")} to work.</span></div></div>` : ""}
+        <div><p class="minihead">It will be allowed to</p>${(PERMS[all[all.length - 1]] || (main.kind === "content" ? PERMS.content : PERMS.generic)).map(([l, t]) => `<div class="perm" style="grid-template-columns:58px minmax(0,1fr);padding:6px 0"><span class="lvl ${l}">${{ hi: "high", md: "med", lo: "low" }[l]}</span><span>${esc(t)}</span></div>`).join("")}</div>
+        ${runsCode ? `<p class="note" style="margin:0">${unverified ? "This publisher is not verified. Its code would run inside keel with keel's rights." : "This plugin runs code inside keel. keel checked that keel signed it."}</p>` : ""}
+        <label class="chk"><input type="checkbox" id="trustpub" ${unverified ? "" : "checked disabled"}><span>${unverified ? `I trust <b>${esc(main.pub)}</b> and want to run its code` : "Publisher keel is trusted (built in)"}</span></label>
+      </div>
+      <footer id="dlg-foot"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="button" id="go-install" ${unverified ? "disabled" : ""}>Install</button></footer>
+    </div></div>`;
+  const tp = $("#trustpub");
+  tp?.addEventListener("change", () => { $("#go-install").disabled = !tp.checked; });
+  $("#go-install").focus();
+  $("#go-install").addEventListener("click", () => runSteps(all, $("#dlg-body"), () => {
+    $("#dlg-foot").innerHTML = `<button class="btn" type="button" data-close>Restart later</button><button class="btn primary" type="button" data-restart data-close>Restart keel now</button>`;
+  }));
+}
+
+function runSteps(ids, box, done) {
+  const names = ids.map((i) => P[i].t).join(", ");
+  const size = ids.length > 1 ? `${ids.length} files` : P[ids[0]].size;
+  const steps = [
+    ["Download", size], ["Check sha256", "matches catalog"], ["Check signature", "keel · ed25519"],
+    ["Check needs", `sdk 1 · keel ${CORE}${ids.some((i) => needsOf(i).length) ? " · needs ok" : ""}`], ["Unpack", ids.length > 1 ? "/data/plugins/…" : `/data/plugins/${ids[0]}/${P[ids[0]].v}`],
+  ];
+  box.innerHTML = `<p class="minihead" style="margin:0">Installing ${esc(names)}</p><ol class="steps">${steps.map(([t, r]) => `<li><span class="m"></span><span>${t}</span><span class="r">${esc(r)}</span></li>`).join("")}</ol><div id="after"></div>`;
+  const lis = [...box.querySelectorAll(".steps li")];
+  const fast = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let i = 0;
+  const tick = () => {
+    if (i > 0) { lis[i - 1].className = "done"; lis[i - 1].querySelector(".m").textContent = "✓"; }
+    if (i < lis.length) { lis[i].className = "now"; i++; setTimeout(tick, fast ? 60 : 420); return; }
+    ids.forEach((id) => { S.inst[id] = P[id].v; S.src[id] = "downloaded"; S.on[id] = true; if (P[id].kind !== "content") S.pending.push({ id, what: "installed" }); });
+    const needRestart = ids.some((id) => P[id].kind !== "content");
+    box.querySelector("#after").innerHTML = needRestart
+      ? `<div class="banner" style="margin:10px 0 0"><div><b>Ready. Restart keel to turn it on.</b><span class="sub">The api and the engine restart. Running flows pause and go on after.</span></div></div>`
+      : `<div class="banner ok" style="margin:10px 0 0"><div><b>Installed and on.</b><span class="sub">Content only, so no restart.</span></div></div>`;
+    done && done(needRestart);
+  };
+  tick();
+}
+
+function openRemove(id) {
+  const p = P[id];
+  const kids = Object.keys(S.inst).filter((k) => needsOf(k).includes(id));
+  $("#layer").innerHTML = `<div class="scrim" data-close>
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="rm-t">
+      <header>${ico(id)}<div><h2 id="rm-t">Remove ${esc(p.t)}?</h2><span class="sub mono">${S.inst[id]}</span></div></header>
+      <div class="db">
+        ${kids.length ? `<div class="banner" style="margin:0"><div><b>${kids.map((k) => esc(P[k].t)).join(", ")} need${kids.length === 1 ? "s" : ""} ${esc(p.t)}</b><span class="sub">They are removed too. Or turn ${esc(p.t)} off instead.</span></div></div>` : ""}
+        <div class="radio" role="radiogroup" aria-label="Its data">
+          <label class="chk"><input type="radio" name="keep" id="keep1" checked><span><b>Keep its data</b><br><span class="sub">Tables stay. Install it again later and everything is back.</span></span></label>
+          <label class="chk"><input type="radio" name="keep" id="keep2"><span><b>Delete its data too</b><br><span class="sub">Drops its own tables (<span class="mono">${id}_*</span>). This cannot be undone.</span></span></label>
+        </div>
+      </div>
+      <footer><button class="btn" type="button" data-close>Cancel</button><button class="btn danger" type="button" id="go-rm">Remove${kids.length ? ` ${kids.length + 1} plugins` : ""}</button></footer>
+    </div></div>`;
+  $("#go-rm").addEventListener("click", () => {
+    [id, ...kids].forEach((k) => { delete S.inst[k]; delete S.on[k]; S.pending = S.pending.filter((x) => x.id !== k); });
+    S.pending.push({ id, what: "removed" }); P[id]._gone = true;
+    close(); render(); toast(`${p.t} removed. Restart to finish.`);
+  });
+}
+function close() { $("#layer").innerHTML = ""; }
+
+function restart() {
+  const n = S.pending.length;
+  S.pending.forEach((x) => { if (x.what === "removed") { /* gone */ } });
+  S.pending = [];
+  render(); toast(n ? `keel restarted · ${n} change${n > 1 ? "s" : ""} applied` : "keel restarted");
+}
+
+// ---------------------------------------------------------------- events
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("[data-screen],[data-go],[data-tab],[data-cat],[data-detail],[data-install],[data-update],[data-toggle],[data-remove],[data-restart],[data-close],[data-approve],[data-decline],[data-set],[data-nav],[data-check]");
+  if (!t) return;
+  const d = t.dataset;
+  if (d.close !== undefined && (t.classList.contains("scrim") ? e.target === t : true)) {
+    if (d.restart !== undefined) { close(); restart(); return; }
+    if (t.classList.contains("scrim") && e.target !== t) return;
+    close(); render(); return;
+  }
+  if (d.screen) { if (d.screen === "detail") S.detail = S.detail || "db"; go(d.screen); return; }
+  if (d.go) { go(d.go); return; }
+  if (d.tab) { go(d.tab === "market" ? "market" : d.tab); return; }
+  if (d.cat) { S.cat = d.cat; render(); return; }
+  if (d.install) { e.stopPropagation(); openInstall([d.install]); return; }
+  if (d.update) {
+    e.stopPropagation(); const id = d.update;
+    S.inst[id] = UPDATES[id]; delete UPDATES[id]; S.pending.push({ id, what: "update" });
+    if (id === "product") S.on.product = true;
+    render(); toast(`${P[id].t} downloaded and checked. Restart to use it.`); return;
+  }
+  if (d.toggle) { S.on[d.toggle] = !S.on[d.toggle]; render(); return; }
+  if (d.remove) { openRemove(d.remove); return; }
+  if (d.restart !== undefined) { restart(); return; }
+  if (d.check) { toast("Catalog read · 2 updates found"); return; }
+  if (d.set) { openInstall(d.set.split(","), { set: true }); return; }
+  if (d.nav) { if (d.nav === "plugins") go("installed"); else if (d.nav === "inbox") go("request"); return; }
+  if (d.detail) { S.detail = d.detail; go("detail"); return; }
+  if (d.approve) {
+    const k = d.approve;
+    if (k === "db") {
+      const box = $("#prog-db"); t.closest(".acts").innerHTML = `<span class="sub">Installing…</span>`;
+      runSteps(["db"], box, () => { S.inboxDone.db = "ok"; setTimeout(() => { render(); toast("Database installed. Restart keel to finish."); }, 700); });
+    } else { S.inboxDone[k] = "ok"; S.inst.git = "1.2.0"; delete UPDATES.git; S.pending.push({ id: "git", what: "update" }); render(); }
+    return;
+  }
+  if (d.decline) { S.inboxDone[d.decline] = "no"; render(); return; }
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && $("#layer").innerHTML) { close(); render(); }
+  if ((e.key === "Enter" || e.key === " ") && e.target.matches(".card[data-detail]")) { e.preventDefault(); S.detail = e.target.dataset.detail; go("detail"); }
+});
+document.addEventListener("input", (e) => {
+  if (e.target.id === "q") { S.q = e.target.value; const pos = e.target.selectionStart; render(); const q = $("#q"); q.focus(); q.setSelectionRange(pos, pos); }
+});
+
+// deep link: #market #detail #installed #core #request #arch
+const start = location.hash.replace("#", "");
+if (VIEWS[start]) S.screen = start;
+render();
+</script>
