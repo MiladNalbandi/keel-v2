@@ -15,6 +15,8 @@ import "./styles/graph.css";
 import "./styles/helper.css";
 import "./styles/plugins.css";
 import "./styles/launcher.css";
+// v0.15.2 the model picker and the providers' marks.
+import "./styles/models.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
