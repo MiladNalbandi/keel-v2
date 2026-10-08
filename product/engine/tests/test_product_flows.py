@@ -5,7 +5,7 @@ checks, and the outcome. Every document is a version in the product repo and a p
 import json
 from pathlib import Path
 
-from conftest import decide, start, wait
+from product_support import decide, start, wait
 
 
 def docs_of(client, tid, kind=None):

@@ -9,6 +9,7 @@ from pathlib import Path
 
 from .actions import ACTIONS
 from .fake import answer as fake_answer
+from .routes import router
 
 VERSION = "0.1.0-beta.1"
 CONTENT = Path(os.environ.get("KEEL_PRODUCT_CONTENT") or Path(__file__).resolve().parents[2] / "content")
@@ -16,8 +17,9 @@ CONTENT = Path(os.environ.get("KEEL_PRODUCT_CONTENT") or Path(__file__).resolve(
 ADDON = {
     "name": "product",
     "version": VERSION,
-    "requires": ">=0.12.0,<0.15.0",
+    "requires": ">=0.13.0,<0.15.0",
     "content": CONTENT,
     "actions": ACTIONS,
     "fake": fake_answer,
+    "router": router,
 }

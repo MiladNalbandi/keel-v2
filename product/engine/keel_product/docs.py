@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import re
 import subprocess
+import time
 from pathlib import Path
 
 DOC_KINDS = ("brief", "impact", "decision", "plan", "deck", "outcome")
 ID = re.compile(r"^INI-\d{1,6}$")
 BEGIN, END = "BEGIN-DOC", "END-DOC"
+LOCK_TRIES, LOCK_WAIT = 6, 0.25
 QUESTIONS = re.compile(r"```[ \t]*keel-questions[ \t]*\n.*?\n[ \t]*```", re.S | re.I)
 
 
@@ -72,9 +74,15 @@ def commit(root: str, paths: list[str], message: str) -> str | None:
         return subprocess.run(["git", "-c", "user.name=keel", "-c", "user.email=keel@localhost", "-c", "commit.gpgsign=false",
                                *args], cwd=root, capture_output=True, text=True, timeout=30)
 
-    git("add", "--", *paths)
-    r = git("commit", "-q", "-m", message, "--", *paths)
-    if r.returncode != 0:
-        return None
-    out = git("rev-parse", "HEAD").stdout.strip()
-    return out or None
+    # Two stage flows (or a flow and the api) may commit at the same moment: git's index.lock makes one of them wait.
+    for attempt in range(LOCK_TRIES):
+        r = git("add", "--", *paths)
+        if r.returncode == 0:
+            r = git("commit", "-q", "-m", message, "--", *paths)
+        if r.returncode == 0:
+            out = git("rev-parse", "HEAD").stdout.strip()
+            return out or None
+        if "index.lock" not in (r.stderr or "") or attempt == LOCK_TRIES - 1:
+            return None
+        time.sleep(LOCK_WAIT * (attempt + 1))
+    return None

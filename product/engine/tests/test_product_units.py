@@ -31,7 +31,7 @@ def test_plan_parse_reads_the_last_json_block():
 
 
 def test_documents_are_versions_committed_in_the_product_repo(tmp_path):
-    from conftest import git_repo
+    from product_support import git_repo
 
     root = git_repo(tmp_path / "p", {"README.md": "x\n"})
     a = docs.write(str(root), "INI-3", "brief", "## Problem\nx")
@@ -56,3 +56,28 @@ def test_the_presentation_escapes_what_documents_say():
     assert "<img src=x" not in html and "<svg onload" not in html
     assert "<b>bold</b> idea" in html and "<code>code</code>" in html and "Option A" in html
     assert to_html("| a | b |\n|---|---|\n| 1 | 2 |").startswith("<table>")
+
+
+def test_a_commit_waits_while_another_one_holds_the_index_lock(product_repo):
+    import threading
+    import time
+
+    lock = product_repo / ".git" / "index.lock"
+    lock.write_text("")
+    threading.Thread(target=lambda: (time.sleep(0.4), lock.unlink()), daemon=True).start()
+    meta = docs.write(str(product_repo), "INI-3", "brief", "# Brief")
+    assert meta["sha"] and meta["version"] == 1
+
+
+def test_the_api_rebuilds_a_presentation_through_the_engine_route(client, product_repo):
+    body = {"root": str(product_repo), "initiative": {"id": "INI-5", "title": "Gift cards", "idea": "Sell them.", "owner": "Mia"},
+            "docs": {"brief": "# Brief\n\nGift cards <b>now</b>.", "decision": "# Memo\n\nOption A."}, "versions": {"brief": 2}, "recommend": "A"}
+    r = client.post("/product/deck", json=body)
+    assert r.status_code == 200, r.text
+    meta = r.json()
+    assert meta["kind"] == "deck" and meta["version"] == 1 and meta["path"] == "initiatives/INI-5/deck-v1.html" and meta["sha"]
+    html = (product_repo / meta["path"]).read_text()
+    assert "Gift cards" in html and "<b>now</b>" not in html
+    assert client.post("/product/deck", json=body).json()["version"] == 2
+    assert client.post("/product/deck", json={**body, "root": str(product_repo / "nope")}).status_code == 400
+    assert client.post("/product/deck", json={**body, "initiative": {"id": "../x"}}).status_code == 400
