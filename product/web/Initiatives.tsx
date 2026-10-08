@@ -2,9 +2,14 @@
 // idea. With an id in the link (#/initiatives/INI-3) it is that initiative's page.
 
 import { useMemo, useState } from "react";
-import { Async, Drawer, Empty, Tabs } from "../../web/src/components/ui";
-import type { AddonPageProps } from "../../web/src/addons";
-import { useLoad } from "../../web/src/state";
+import {
+  Async,
+  Drawer,
+  Empty,
+  Tabs,
+  useLoad,
+  type AddonPageProps,
+} from "@keel/web-sdk";
 import { InitiativePage } from "./Initiative";
 import {
   productApi,
