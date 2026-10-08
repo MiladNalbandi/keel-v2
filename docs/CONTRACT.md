@@ -1746,3 +1746,11 @@ other projects. The selected result shows a preview (a file around its line, a p
 - `#/repo/@review/<key>` (e.g. `#/repo/@review/pr%3A7`) opens that review in Code's Review tool window.
 - keel (the pet by the bell) is off at first; Settings › This browser (or the notification settings) turns it on, kept
   in this browser (`keel2.mascot` = `1`). The logo next to "keel" no longer shrinks away when the row is full.
+
+## v0.15.x: Focus mode in Code
+
+Code's Focus is now the whole window, like an IDE's Zen mode: keel's menu, the usage bar and the Code header go; the IDE
+keeps its activity bar, tabs, editor, KeelBot and status bar. ⇧⌘\ (Ctrl+Shift+\ off a Mac) turns it on and off, Esc
+twice (an Esc nothing else used) leaves it, and so do the status bar's Exit focus and the launcher's "Focus mode in
+Code". While it is on, `<html data-focus="code">` is set (the shell's parts hide by it); leaving the Code page clears it,
+and `keel2.repo.focus` = `1` opens Code in Focus mode next time.

@@ -10,7 +10,7 @@ import {
 } from "../../api";
 import type { NavGroup } from "../../addons";
 import { inboxApi, type InboxItem } from "../../inboxApi";
-import { repoHash, reviewHash, rankFiles } from "../../pages/repo/model";
+import { FOCUS_EVENT, FOCUS_KEYS, repoHash, reviewHash, rankFiles } from "../../pages/repo/model";
 import { reviewApi, type PrSummary } from "../../reviewApi";
 import { hashFor, hashForScreen, type ScreenId } from "../../routes";
 import { STATUS_LABEL, tasksApi, type Task } from "../../tasksApi";
@@ -527,6 +527,19 @@ export function actionItems(ctx: Ctx): Item[] {
       ctx.close();
       ctx.openNotes();
     }),
+    // v0.15.x on the Code page it turns Focus mode on and off; elsewhere it opens Code in Focus mode
+    a("focus", "Focus mode in Code", () => {
+      ctx.close();
+      if (location.hash.startsWith("#/repo")) window.dispatchEvent(new CustomEvent(FOCUS_EVENT));
+      else {
+        try {
+          localStorage.setItem("keel2.repo.focus", "1");
+        } catch {
+          /* private window */
+        }
+        location.hash = hashFor("repo");
+      }
+    }, FOCUS_KEYS, "only the code, like an IDE"),
   ];
 }
 

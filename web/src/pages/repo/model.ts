@@ -8,6 +8,10 @@ import type { DiffRow } from "../../components/Code";
 
 export type DeepLink = { path: string; line?: number };
 
+/** v0.15.x Focus mode's key: ⇧⌘\ (⌘\ hides the menu, ⇧⌘\ everything but the IDE), and the event that toggles it. */
+export const FOCUS_KEYS = "shift+meta+\\";
+export const FOCUS_EVENT = "keel:focus";
+
 /** v0.15.0 a review's link (#/repo/@review/pr:7): the Review tool window with that review open. */
 export const reviewHash = (key: string) => `#/repo/@review/${encodeURIComponent(key)}`;
 export const parseReviewLink = (arg: string | undefined | null): string | null => arg?.match(/^@review\/(.+)$/)?.[1] ?? null;

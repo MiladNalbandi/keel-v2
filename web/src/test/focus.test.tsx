@@ -68,7 +68,7 @@ describe("Markdown of a PR body", () => {
 });
 
 describe("Code page: Focus and KeelBot's room", () => {
-  it("hides the header and brings it back from the status bar", async () => {
+  it("Focus mode is the whole window: the header, keel's menu and the usage bar go; the status bar brings them back", async () => {
     const user = userEvent.setup();
     location.hash = "#/repo";
     render(<App />);
@@ -78,10 +78,35 @@ describe("Code page: Focus and KeelBot's room", () => {
     await user.click(screen.getByRole("button", { name: "Focus" }));
     expect(screen.queryByRole("heading", { name: "Code" })).toBeNull();
     expect(localStorage.getItem("keel2.repo.focus")).toBe("1");
-    await user.click(screen.getByRole("button", { name: "Show the header" }));
+    // the shell hides keel's menu and the usage bar while <html data-focus> is set (styles/repo.css)
+    expect(document.documentElement.dataset.focus).toBe("code");
+    await user.click(screen.getByRole("button", { name: /Exit focus/ }));
     expect(
       await screen.findByRole("heading", { name: "Code" }),
     ).toBeInTheDocument();
+    expect(document.documentElement.dataset.focus).toBeUndefined();
+  });
+
+  it("⇧⌘\\ turns Focus mode on and off, Esc twice leaves it, and leaving Code shows keel's menu again", async () => {
+    location.hash = "#/repo";
+    render(<App />);
+    await screen.findByRole("heading", { name: "Code" });
+    const focusKey = () => fireEvent.keyDown(window, { key: "|", code: "Backslash", ctrlKey: true, shiftKey: true });
+    focusKey();
+    await waitFor(() => expect(document.documentElement.dataset.focus).toBe("code"));
+    focusKey();
+    await waitFor(() => expect(document.documentElement.dataset.focus).toBeUndefined());
+    focusKey();
+    await waitFor(() => expect(document.documentElement.dataset.focus).toBe("code"));
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(document.documentElement.dataset.focus).toBe("code"); // one Esc is not enough
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(document.documentElement.dataset.focus).toBeUndefined());
+    focusKey();
+    await waitFor(() => expect(document.documentElement.dataset.focus).toBe("code"));
+    location.hash = "#/flow";
+    await waitFor(() => expect(document.documentElement.dataset.focus).toBeUndefined());
+    expect(localStorage.getItem("keel2.repo.focus")).toBe("1"); // Code opens in Focus mode next time
   });
 
   it("makes KeelBot wider by its edge, and opens it alone on its page", async () => {
