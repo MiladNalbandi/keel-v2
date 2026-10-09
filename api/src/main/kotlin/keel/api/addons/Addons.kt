@@ -69,7 +69,13 @@ class FeatureService(found: ObjectProvider<KeelAddon>, private val settings: Set
         return if (part == "dev") mode == "dev" || mode == "both" else part in parts() && (mode == part || mode == "both")
     }
 
-    fun addonOn(name: String): Boolean = addons.firstOrNull { it.name == name }?.let { partOn(it.part) } ?: false
+    /**
+     * Whether an engine add-on's workflows show. An add-on that is a part of keel (keel Product: a [KeelAddon]) follows
+     * its part's mode. v0.16.0 a plugin keel-start loaded whose engine part brings workflows but that is no part of keel
+     * (a marketplace plugin: no KeelAddon) shows them while it is loaded. Any other engine add-on stays hidden.
+     */
+    fun addonOn(name: String): Boolean = addons.firstOrNull { it.name == name }?.let { partOn(it.part) }
+        ?: host.plugins.any { it.name == name }
 
     fun features(): Features {
         val offered = parts()

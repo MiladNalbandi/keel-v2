@@ -140,6 +140,32 @@ class PluginHostApiTest {
     }
 
     @Test
+    fun `a loaded plugin's own workflows are listed, an add-on workflow that no loaded plugin brings stays hidden`() {
+        val gate = listOf(mapOf("id" to "wait", "kind" to "gate", "name" to "wait here", "phase" to "review"))
+        // demo-notes is loaded (its engine part brings the workflow) and is no part of keel (no KeelAddon): listed
+        val added = listOf(
+            mapOf("id" to "notes-flow", "name" to "notes flow", "addon" to "demo-notes", "keel_rules" to false, "version" to 1, "steps" to gate, "yaml" to ""),
+            mapOf("id" to "nobody-flow", "name" to "nobody flow", "addon" to "nobody", "keel_rules" to false, "version" to 1, "steps" to gate, "yaml" to ""),
+        )
+        ApiTest.engine.extraTemplates += added
+        try {
+            val root = Files.createDirectories(Files.createTempDirectory("keel-proj").resolve("plugin-flows"))
+            for (args in listOf(listOf("init", "-q", "-b", "main"), listOf("commit", "-q", "--allow-empty", "-m", "first"))) {
+                val p = ProcessBuilder(listOf("git", "-c", "user.name=Test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false") + args)
+                    .directory(root.toFile()).redirectErrorStream(true).start()
+                p.inputStream.readAllBytes()
+                assertThat(p.waitFor()).isZero()
+            }
+            val pid = mvc.perform(MockMvcRequestBuilders.post("/api/projects").contentType("application/json")
+                .content(mapper.writeValueAsString(mapOf("root" to root.toString())))).andExpect(status().isOk).json()["id"].asText()
+            val ids = get("/api/projects/$pid/workflows").andExpect(status().isOk).json().map { it["id"].asText() }
+            assertThat(ids).contains("feature", "notes-flow").doesNotContain("nobody-flow")
+        } finally {
+            ApiTest.engine.extraTemplates -= added.toSet()
+        }
+    }
+
+    @Test
     fun `a plugin's web files are served for a year with their content type`() {
         get("/plugins/demo/1.0.0/web/index.js").andExpect(status().isOk)
             .andExpect(header().string("Cache-Control", "public, max-age=31536000, immutable"))
