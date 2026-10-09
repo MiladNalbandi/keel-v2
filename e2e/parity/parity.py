@@ -604,6 +604,35 @@ def web_parity(a: Keel, b: Keel, out: Path, phase: str, sets: bool = False) -> l
 # ---------------------------------------------------------------- the table
 
 
+def mcp_tools(k: Keel, write: bool) -> list[str]:
+    """keel2 mcp's tools/list, as a person's client sees it: the server inside the container, over stdio (MCP)."""
+    msgs = [{"jsonrpc": "2.0", "id": 1, "method": "initialize",
+             "params": {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "parity", "version": "1"}}},
+            {"jsonrpc": "2.0", "method": "notifications/initialized"},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}]
+    args = ["docker", "exec", "-i", k.name, "/opt/engine/.venv/bin/python", "-m", "keel_engine.mcp"] + (["--write"] if write else [])
+    r = subprocess.run(args, input="".join(json.dumps(m) + "\n" for m in msgs), capture_output=True, text=True, timeout=60)
+    for line in r.stdout.splitlines():
+        try:
+            msg = json.loads(line)
+        except ValueError:
+            continue
+        if msg.get("id") == 2:
+            return [t["name"] for t in msg.get("result", {}).get("tools", [])]
+    raise AssertionError(f"{k.name}: keel2 mcp gave no tools/list answer: {(r.stderr or r.stdout)[-400:]}")
+
+
+def mcp_parity(a: Keel, b: Keel, phase: str) -> list[dict]:
+    """The same tools, in the same order, for the read-only server (what agents get) and the write one (keel2 mcp --write)."""
+    rows = []
+    for write in (False, True):
+        ta, tb = mcp_tools(a, write), mcp_tools(b, write)
+        ident = f"mcp {'--write' if write else '--read-only'} tools/list [{phase}]"
+        details = [] if ta == tb else [f"A: {', '.join(ta)}", f"B: {', '.join(tb)}"]
+        rows.append({"id": ident, "verdict": "same" if not details else "different", "details": details})
+    return rows
+
+
 def judge(rows: list[dict], allow: list[dict]) -> None:
     for row in rows:
         if row["verdict"] in ("different", "new"):
@@ -714,6 +743,9 @@ def main() -> int:
                 print(f"api [{phase}]: {len(endpoints)} endpoints")
                 # in the flow round a retry may add an agent call or a checkpoint on one keel: no counts, no order
                 groups.append((f"api [{phase}]", api_parity(a, b, phase, endpoints, counts=phase != "flow")))
+            if "api" in only:
+                print(f"mcp [{phase}]: keel2 mcp's tools/list, read-only and --write")
+                groups.append((f"mcp [{phase}]", mcp_parity(a, b, phase)))
             if "web" in only:
                 print(f"web [{phase}]: the menu and every page (headless Chromium)")
                 groups.append((f"web [{phase}]", web_parity(a, b, out, phase, sets=phase == "flow")))

@@ -51,7 +51,9 @@ a test image add `--allow e2e/parity/allow-no-clis.yml`. The real check is with 
    not count (ids, times, versions differ anyway); keys that are data (ids, shas, dates) count only by their place. A
    few ask for what does not exist, so the errors must match too. An endpoint that A does not have (404 or 405) and B
    answers is **new in B**: listed, not a failure.
-4. **web**: `pages.mjs` (headless Chromium) reads the menu (groups, labels, order, links) and the frame around the
+4. **mcp**: in each round, keel's own MCP server inside each container (`python -m keel_engine.mcp`, what agents
+   and `keel2 mcp` use) answers `tools/list`, read-only and with `--write`. The same tools must come in the same order.
+5. **web**: `pages.mjs` (headless Chromium) reads the menu (groups, labels, order, links) and the frame around the
    pages, searches in the launcher (⌘K) in every scope, then opens every menu page, `#/projects`, `#/code`,
    `#/keelbot` and a few deep links, each with a full load. In the main area it records the headings, tabs, views
    (the Code page's activity bar), regions, buttons, fields, alerts, badges, the listed rows and the looks (the
