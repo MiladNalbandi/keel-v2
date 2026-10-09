@@ -605,21 +605,48 @@ def web_parity(a: Keel, b: Keel, out: Path, phase: str, sets: bool = False) -> l
 
 
 def mcp_tools(k: Keel, write: bool) -> list[str]:
-    """keel2 mcp's tools/list, as a person's client sees it: the server inside the container, over stdio (MCP)."""
-    msgs = [{"jsonrpc": "2.0", "id": 1, "method": "initialize",
-             "params": {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "parity", "version": "1"}}},
-            {"jsonrpc": "2.0", "method": "notifications/initialized"},
-            {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}]
+    """keel2 mcp's tools/list, as a person's client sees it: the server inside the container, over stdio (MCP). The
+    client keeps the input open until the answer comes (a server may stop at end of input before it answers)."""
+    import queue
+    import threading
+
     args = ["docker", "exec", "-i", k.name, "/opt/engine/.venv/bin/python", "-m", "keel_engine.mcp"] + (["--write"] if write else [])
-    r = subprocess.run(args, input="".join(json.dumps(m) + "\n" for m in msgs), capture_output=True, text=True, timeout=60)
-    for line in r.stdout.splitlines():
+    proc = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    lines: queue.Queue = queue.Queue()
+    threading.Thread(target=lambda: [lines.put(x) for x in proc.stdout], daemon=True).start()
+
+    def send(msg: dict) -> None:
+        proc.stdin.write(json.dumps(msg) + "\n")
+        proc.stdin.flush()
+
+    def answer(want: int, timeout: float = 60) -> dict:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                line = lines.get(timeout=max(0.1, deadline - time.time()))
+            except queue.Empty:
+                break
+            try:
+                msg = json.loads(line)
+            except ValueError:
+                continue
+            if msg.get("id") == want:
+                return msg
+        raise AssertionError(f"{k.name}: keel2 mcp gave no answer to request {want}: {proc.stderr.read()[-400:] if proc.poll() is not None else ''}")
+
+    try:
+        send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+              "params": {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "parity", "version": "1"}}})
+        answer(1)
+        send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        send({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+        return [t["name"] for t in answer(2).get("result", {}).get("tools", [])]
+    finally:
         try:
-            msg = json.loads(line)
-        except ValueError:
-            continue
-        if msg.get("id") == 2:
-            return [t["name"] for t in msg.get("result", {}).get("tools", [])]
-    raise AssertionError(f"{k.name}: keel2 mcp gave no tools/list answer: {(r.stderr or r.stdout)[-400:]}")
+            proc.stdin.close()
+            proc.wait(timeout=10)
+        except Exception:  # noqa: BLE001 - the answer is what counts
+            proc.kill()
 
 
 def mcp_parity(a: Keel, b: Keel, phase: str) -> list[dict]:

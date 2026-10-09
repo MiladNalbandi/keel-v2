@@ -11,7 +11,9 @@ identical to 0.15.1, and to what `main` adds after it). The normal image (`EDITI
 | A    | CI/CD                      | `plugins/ci`    | —     | done (Git is still core)              |
 | A    | Tasks                      | `plugins/tasks` | —     | done (core: `TaskSink`, `inbox.card`) |
 | A    | Jira                       | `plugins/jira`  | tasks | done                                  |
-| B    | Database, Code Review, Git |                 |       | next                                  |
+| B    | Database    | `plugins/db`      | — (optional: map) | done (its keys come from its own FlowContributor) |
+| B    | Code Review | `plugins/review`  | —            | done (still uses KeelBot's sessions)     |
+| B    | Git         | `plugins/git`     | —            | done (GitHub token, Workspace, opening PRs stay core) |
 | C    | Graph, Code page, KeelBot  |                 |       | after B                               |
 
 keel Product now needs `tasks` and `jira` (its delivery hands stories to them).
@@ -43,3 +45,16 @@ The parity e2e (`e2e/parity/`, see its README) also compared 0.15.1 with itself:
   step 6.
 - **Plugin-to-plugin uses:** Jira → Tasks classes; Product → Tasks and Jira. They work because all jars share one
   `loader.path`. In step 5, when the plugins get their own repos, this needs a published API.
+
+## Wave B check (on `f5fb049`, images built with `INSTALL_CLIS=0`)
+
+| what                                        | result                                    |
+| ------------------------------------------- | ----------------------------------------- |
+| engine core / plugin engines / Product      | 871 · ci, db, git, map, review, wiki all pass · 15 |
+| api, all source sets                        | 232 passed                                |
+| web                                         | 409 of 409 passed, all builds ok          |
+| e2e: Code Review / Product / plugin host    | 23 / 27 / 36 checks passed                |
+| **parity e2e: 0.15.1 vs the wave B image**  | **0 differences**, now also `keel2 mcp`'s tools/list (read-only and `--write`) in every round |
+
+Fixed on the way: `keel2 mcp --write` listed CI/CD's acting tool after Git's (since CI/CD moved in wave A); now the
+read tools come in the parts' order and the acting tools by name, exactly as 0.15.1. The parity e2e checks it.
