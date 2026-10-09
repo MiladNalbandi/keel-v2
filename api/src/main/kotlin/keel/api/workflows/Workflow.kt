@@ -140,6 +140,12 @@ data class Workflow(
     val plugin: String? = null,
     /** v0.13.0: an add-on's workflow (keel Product: "product"); listed only while that part of keel is on. */
     val addon: String? = null,
+    /**
+     * v0.16.0 the plugins it needs (needs_plugins): the start body carries it to the engine, which refuses to start the
+     * flow while one is not loaded. Only a workflow that has some shows the key (every other answer stays as it was).
+     */
+    @get:JsonInclude(JsonInclude.Include.NON_EMPTY)
+    val needsPlugins: List<String>? = null,
 )
 
 /** A workflow's newest flow in the project (the Workflows page and KeelBot show it). */
