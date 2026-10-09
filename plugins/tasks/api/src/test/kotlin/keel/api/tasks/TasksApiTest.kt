@@ -1,9 +1,11 @@
 package keel.api.tasks
 
 import com.fasterxml.jackson.databind.JsonNode
+import keel.api.flow.TaskSink
 import keel.api.support.ApiTest
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import java.nio.file.Files
 
@@ -173,25 +175,17 @@ class TasksApiTest : ApiTest() {
     }
 
     @Test
-    fun `KeelBot hands a side session over as a task`() {
-        val (pid, root) = newProject("helper-side-task")
-        val sid = post("/api/projects/$pid/helper/sessions", mapOf("mode" to "side")).andExpect(status().isOk).json()["id"].asText()
-        val sha = git(root, "rev-parse", "HEAD").trim()
-        git(root, "branch", "keel/helper/abc")
-        val before = engine.helperHandover
-        engine.helperHandover = engine.helperHandover + mapOf("base" to sha,
-            "commits" to listOf(mapOf("sha" to "1234567abc", "subject" to "fix(helper): price helper")))
-        try {
-            val t = post("/api/projects/$pid/helper/sessions/$sid/task", mapOf("type" to "story")).andExpect(status().isOk).json()
-            assertThat(t["title"].asText()).isEqualTo("Add a price helper")
-            assertThat(t["type"].asText()).isEqualTo("story")
-            assertThat(t["status"].asText()).isEqualTo("todo")
-            assertThat(t["description"].asText()).contains("branch `keel/helper/abc`").contains("1234567 fix(helper): price helper")
-                .contains("- Add a price helper").contains("Added it.")
-            assertThat(get("/api/projects/$pid/tasks").json()["tasks"].map { it["id"].asText() }).containsExactly(t["id"].asText())
-            post("/api/projects/$pid/helper/sessions/$sid/task", mapOf("type" to "epic")).andExpect(status().isBadRequest)
-        } finally {
-            engine.helperHandover = before
-        }
+    fun `KeelBot hands a side session over as a task through the one TaskSink`(@Autowired sinks: List<TaskSink>) {
+        // KeelBot (plugins/keelbot) calls the TaskSink with the session's title and what it did; this is the sink
+        val (pid, _) = newProject("helper-side-task")
+        val sink = sinks.single()
+        val text = "Made in a KeelBot side session on branch `keel/helper/abc` (from 1234567).\n\n- 1234567 fix(helper): price helper"
+        val t = mapper.valueToTree<JsonNode>(sink.create(pid, "Add a price helper", text, "story"))
+        assertThat(t["title"].asText()).isEqualTo("Add a price helper")
+        assertThat(t["type"].asText()).isEqualTo("story")
+        assertThat(t["status"].asText()).isEqualTo("todo")
+        assertThat(t["description"].asText()).isEqualTo(text)
+        assertThat(get("/api/projects/$pid/tasks").json()["tasks"].map { it["id"].asText() }).containsExactly(t["id"].asText())
+        org.junit.jupiter.api.assertThrows<keel.api.common.BadRequest> { sink.create(pid, "Add a price helper", text, "epic") }
     }
 }

@@ -5,31 +5,13 @@ import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 
-/** v0.9.0: KeelBot knows the project's workflows and flows, checks a workflow it wrote, and the Workflows page has
- *  folders and each workflow's runs. */
-class KeelBotApiTest : ApiTest() {
+/** v0.9.0: a workflow (one KeelBot wrote) is checked without saving, and the Workflows page has folders and each
+ *  workflow's runs. What KeelBot is told about them is tested with it (plugins/keelbot/api). */
+class WorkflowCheckApiTest : ApiTest() {
 
     private fun start(pid: String, title: String) =
         post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to title, "allow_fake" to true, "allow_dirty" to true,
             "where" to "worktree")).andExpect(status().isOk)
-
-    @Test
-    fun `every KeelBot message carries the workflows it can suggest and the project's flows`() {
-        val (pid, _) = newProject("keelbot-context")
-        engine.nextThreadIds.addAll(listOf("t-kb-1", "t-kb-2"))
-        start(pid, "Euro prices")
-        start(pid, "Score ranks")
-        val sid = post("/api/projects/$pid/helper/sessions", emptyMap<String, Any>()).andExpect(status().isOk).json()["id"].asText()
-        post("/api/projects/$pid/helper/sessions/$sid/turn", mapOf("text" to "Which workflow for a new report page?")).andExpect(status().isOk)
-        val keel = engine.lastBody("/helper/sessions/$sid/turn")!!["keel"]
-        val feature = keel["workflows"].first { it["id"].asText() == "feature" }
-        assertThat(feature["source"].asText()).isEqualTo("keel")
-        assertThat(feature["steps"].size()).isGreaterThan(0)
-        assertThat(feature["last_run"]["title"].asText()).isEqualTo("Score ranks")
-        assertThat(keel["flows"].map { it["title"].asText() }).containsExactly("Score ranks", "Euro prices")
-        assertThat(keel["flows"][0]["workflow"].asText()).isEqualTo("feature")
-        assertThat(keel["flows"][0]["thread_id"].asText()).isEqualTo("t-kb-2")
-    }
 
     @Test
     fun `a workflow KeelBot wrote is checked without saving, then saved into a folder`() {

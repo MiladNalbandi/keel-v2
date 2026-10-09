@@ -89,7 +89,7 @@ starts or is saved until you press one.
 - **Point at things**: select lines and press **Ask** (or ⌘I); type `@` for a file, a symbol or a criterion of the
   running flow; the open file always goes along.
 - **Commands**: type `/` — `/explain`, `/where`, `/review`, `/plan`, `/gate` (what the waiting gate asks), `/test`. A
-  project can add its own in `.keel/plugins/<name>/plugin.yml` (see `content/plugins/core/plugin.yml`).
+  project can add its own in `.keel/plugins/<name>/plugin.yml` (see `plugins/keelbot/content/plugins/core/plugin.yml`).
 - **Ask mode changes nothing**: no edit, no new file, no command that changes files or git, whatever the model.
 - **Fix mode** (while a flow waits at a gate): switch to **Fix** and tell KeelBot what to change. It works inside the
   rules of the flow's phase. A command that changes something waits for your OK in the panel or the Inbox (**Allow

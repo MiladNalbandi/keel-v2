@@ -1,9 +1,9 @@
 """KeelBot's view of keel itself: the project's workflows, the flows that run now, and the buttons it may give.
 
-The api sends `keel` with every turn (helper/Helper.kt keelContext): the workflows the project can run and its recent
-flows. KeelBot uses them to say which workflow fits a piece of work, to answer questions about a running flow, and to
-write a new workflow. It never starts or saves anything itself: it ends its answer with an action block, and the panel
-turns that into a button the person presses (web components/helper/Actions.tsx):
+The api sends `keel` with every turn (the plugin's api, Helper.kt keelContext): the workflows the project can run and
+its recent flows. KeelBot uses them to say which workflow fits a piece of work, to answer questions about a running
+flow, and to write a new workflow. It never starts or saves anything itself: it ends its answer with an action block,
+and the panel turns that into a button the person presses (the plugin's web, Actions.tsx):
 
     ```keel-start                      ```keel-workflow
     {"workflow": "feature", ...}       id: ...            (a whole workflow: keel checks it, then offers Save)
@@ -12,7 +12,7 @@ turns that into a button the person presses (web components/helper/Actions.tsx):
     keel_block(keel, question)   the prompt block: workflows, flows, how to give buttons, what each part that is on
                                  says (its `keelbot` words, keel_engine/extensions.py), and (only when the question is
                                  about writing a workflow) the format, the phases, actions and agents to use
-    PART                         KeelBot as a part: its commits in the PR body (hook pr_body_sections)
+    pr_body_sections(thread_id)  its commits in the PR body and the final review (the part's hook, __init__.py)
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from .. import addons, config, extensions
+from keel_engine import addons, extensions
 
 # One line per keel template (docs/GUIDE.md "Flows in detail"): what it is for.
 ABOUT = {
@@ -148,8 +148,8 @@ def _agents() -> list[str]:
 
 
 def format_block(plugins: list[str] | None = None) -> str:
-    from ..rules import PHASES
-    from .action_docs import DOCS
+    from keel_engine.rules import PHASES
+    from keel_engine.runtime.action_docs import DOCS
 
     acts = [f"{a} {DOCS[a]['summary']}" if a in DOCS else a for a in USEFUL_ACTIONS]
     parts = [FORMAT, "Phases: " + ", ".join(p for p in PHASES if p != "none") + ".",
@@ -189,7 +189,7 @@ def keel_block(keel: dict | None, question: str) -> str:
     return "\n\n".join(parts)
 
 
-# ------------------------------------------------------------------ KeelBot as a part (keel_engine/extensions.py)
+# ------------------------------------------------------------------ KeelBot's hook (its PART, __init__.py)
 
 def pr_body_sections(thread_id: str) -> list[str]:
     """The PR body's and the final review's list of the commits KeelBot made for this flow (Fix at a gate)."""
@@ -203,6 +203,3 @@ def pr_body_sections(thread_id: str) -> list[str]:
         more = ", …" if len(files) > 6 else ""
         lines.append(f"- `{c['sha'][:7]}` {c['subject']}" + (f" ({', '.join(files[:6])}{more})" if files else ""))
     return ["## KeelBot changes", "", "Made with KeelBot at a gate, then checked and committed by keel:", ""] + lines + [""]
-
-
-PART = {"name": "keelbot", "title": "KeelBot", "hooks": {"pr_body_sections": pr_body_sections}}

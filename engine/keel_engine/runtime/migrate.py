@@ -12,7 +12,7 @@
     hunt_candidates         every finding of a hunt with its verdict, severity, group, dispatch and close; never deleted
     hunt_groups             findings that share one cause: the cause in a sentence and the lead finding
     hunt_recipes            a proven finding's repro recipe (the file the fix flow's reproducer gets, never the claim)
-    helper_sessions         KeelBot's chat sessions (runtime/helper.py): project, mode, model, the CLI's own session
+    helper_sessions         KeelBot's chat sessions (plugins/keelbot): project, mode, model, the CLI's own session
                             id to continue, status and what they used
     helper_messages         each session's messages in order: the person's, KeelBot's answers (with the turn's call id)
     helper_files            Fix mode: each file KeelBot changed, as it was before its first change (Undo, Done)
@@ -64,7 +64,8 @@ MIGRATIONS = [
       project text not null, run text not null, candidate text not null, file text not null, body text not null,
       runs integer, at text not null, primary key (project, run, candidate)
     )""",
-    # KeelBot (runtime/helper.py): one row per chat session, one per message; a turn's steps are agent steps in the api
+    # KeelBot (plugins/keelbot; its old tables stay core): one row per chat session, one per message; a turn's steps
+    # are agent steps in the api
     """create table if not exists helper_sessions (
       id text primary key, project text not null, root text not null, mode text not null, title text not null,
       model_json text not null, engine_session text, status text not null, error text, thread_id text,

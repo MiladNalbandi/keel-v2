@@ -1,4 +1,4 @@
-"""KeelBot: chat sessions in the Repo page, run by keel's own harness under keel's rules.
+"""KeelBot (plugins/keelbot): chat sessions in the Code page, run by keel's own harness under keel's rules.
 
 A session belongs to one project and one mode. One turn is one agent run, shaped like a flow's agent step
 (runtime/compiler.py `_run_agent`): the model's runner (claude, codex, copilot / opencode, an API key or the fake
@@ -18,6 +18,10 @@ API-key runner gets the earlier messages; the other CLIs get the conversation so
 
 Events (thread_id = the session id, step "helper"): helper.started, helper.step, helper.finished. The api stores
 them as agent calls (agent "helper", so the budget, Live agents and Jobs count them) but never as a flow.
+
+Its sessions live in the engine DB's helper_sessions, helper_messages and helper_files: core's runtime/migrate.py
+still makes them (the old tables stay core). Its routes are routes.py; its runner starts and stops with keel's app
+(the part's lifespan, __init__.py).
 """
 
 from __future__ import annotations
@@ -33,13 +37,15 @@ import time
 import uuid
 from pathlib import Path
 
-from .. import approvals
-from .. import config, extensions, models, rules
-from ..models import catalog
-from ..models.base import AgentRequest, AgentResult
-from ..tools import git, guard, testcmd, worktrees
-from ..tools.agent_tools import ToolBox, command_env
-from . import agent_knowledge, db, guard_ctx, keelbot, permissions, plugins, prompts
+from keel_engine import approvals, config, extensions, models, rules
+from keel_engine.models import catalog
+from keel_engine.models.base import AgentRequest, AgentResult
+from keel_engine.runtime import agent_knowledge, db, guard_ctx, permissions, plugins, prompts
+from keel_engine.tools import git, guard, testcmd, worktrees
+from keel_engine.tools.agent_tools import ToolBox, command_env
+
+from . import ASK_PATH as PART_ASK_PATH
+from . import keelbot
 
 log = logging.getLogger(__name__)
 
@@ -65,8 +71,7 @@ MODE_TEXT = {
              "short line per file you changed."),
 }
 DIFF_MAX = 40_000
-MCP_SESSION = "mcp"         # questions from keel2 mcp --write (Claude Code), with no KeelBot chat behind them
-ASK_PATH = "/helper/permissions/ask"   # where the guard hook asks (it checks the turn's key, then asks approvals.py)
+ASK_PATH = PART_ASK_PATH               # where the guard hook asks (it checks the turn's key, then asks approvals.py)
 
 FIELDS = ("id", "project", "root", "mode", "title", "model_json", "engine_session", "status", "error", "thread_id",
           "tokens_in", "tokens_out", "tokens_cached", "cost_usd", "turns", "created_at", "updated_at", "grants_json", "phase",
@@ -311,7 +316,7 @@ def undo(sid: str, path: str | None = None) -> list[dict]:
 def done(sid: str, flow: dict, emit=None, message: str = "", commit: dict | None = None) -> dict:
     """Run the checks, then keel's commit of only the files KeelBot changed (runtime/actions.py `commit`: the phase's
     commit rules, secrets, new dependencies, pre-commit tools). The flow's timeline gets a helper.commit event."""
-    from . import actions          # late: actions imports most of the runtime
+    from keel_engine.runtime import actions          # late: actions imports most of the runtime
 
     s = get(sid, messages=False)
     if s["mode"] not in ("fix", "side"):
@@ -531,25 +536,6 @@ class HelperRunner:
         """The person's answer: once | always (this command, for the rest of the chat) | deny (with a reason)."""
         try:
             return self.approvals.answer(qid, decision, why)
-        except approvals.ApprovalError as exc:
-            raise HelperError(exc.status, str(exc), exc.hint) from exc
-
-    # ---- v0.10.0: keel2 mcp --write (Claude Code): an acting plugin tool asks the person in the Inbox, then polls
-
-    def ask_person(self, project: str, title: str, command: str) -> dict:
-        """A question with no KeelBot chat behind it: the Inbox shows it like KeelBot's commands."""
-        def answered(q: dict, _said: str, ans: dict):
-            self.bus.emit("helper.permission.answered", MCP_SESSION, project, step="helper",
-                          data={"id": q["id"], "decision": ans.get("decision"), "why": ans.get("why", "")})
-
-        q = self.approvals.open("plugin", project, title, command, source="mcp", session=MCP_SESSION, on_answer=answered)
-        self.bus.emit("helper.permission", MCP_SESSION, project, step="helper", data=q)
-        return q
-
-    def asked(self, qid: str) -> dict:
-        """{waiting: true} until the person answers, then {decision: allow | deny, why} once."""
-        try:
-            return self.approvals.asked(qid)
         except approvals.ApprovalError as exc:
             raise HelperError(exc.status, str(exc), exc.hint) from exc
 

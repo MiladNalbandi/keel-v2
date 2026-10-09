@@ -33,7 +33,7 @@ GOLDEN = json.loads((Path(__file__).parent / "fake_answers_0151.json").read_text
 def test_one_version_and_name_everywhere():
     assert MANIFEST["version"] == keel_plugin_review.VERSION == keel_plugin_review.ADDON["version"] == "1.0.0"
     assert MANIFEST["name"] == keel_plugin_review.ADDON["name"] == "review"
-    assert MANIFEST["requires"] == {"sdk": 1} and MANIFEST["per_project"] is True
+    assert MANIFEST["requires"] == {"sdk": 1, "plugins": {"keelbot": ">=1.0.0"}} and MANIFEST["per_project"] is True
     assert MANIFEST["parts"]["engine"] == {"path": "engine", "package": keel_plugin_review.__name__}
     assert MANIFEST["parts"]["content"] == "content" and keel_plugin_review.CONTENT == PLUGIN / "content"
     m = manifests.parse((PLUGIN / "keel-plugin.yml").read_text())   # the resolver reads it as it is
@@ -42,7 +42,7 @@ def test_one_version_and_name_everywhere():
 
 
 def test_it_is_an_add_on_that_changes_no_flow_and_no_keelbot_prompt():
-    assert [a.name for a in addons.loaded()] == ["review"] and not addons.info()["problems"]
+    assert [a.name for a in addons.loaded()] == ["keelbot", "review"] and not addons.info()["problems"]   # it needs KeelBot
     assert not [m for m in builtins.BUILTINS if "review" in m]
     p = extensions.part("review")
     assert p is not None and not p.builtin and p.source == "keel_plugin_review" and p.title == "Code Review"

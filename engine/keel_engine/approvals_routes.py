@@ -4,7 +4,7 @@
     GET  /approvals/{id}        {waiting: true}, or the answer once (an asker that polls: keel2 mcp)
     POST /approvals/{id}        the person's answer {decision: once | always | deny, why}
 
-KeelBot's old routes (`/helper/permissions*`) still work: they reach the same broker.
+KeelBot's old routes (`/helper/permissions*`, its plugin's: plugins/keelbot) reach the same broker.
 """
 
 from __future__ import annotations

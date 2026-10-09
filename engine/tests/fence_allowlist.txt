@@ -9,4 +9,4 @@
 #
 # Format: "core.module -> plugin.module", one per line, sorted. '#' starts a comment.
 
-keel_engine.app -> keel_engine.runtime.helper
+# (empty since step 3, wave C: KeelBot took the last line, app.py -> its routes and runner, into plugins/keelbot)

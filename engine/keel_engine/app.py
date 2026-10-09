@@ -15,12 +15,12 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from . import addons, config, extensions, models
+from . import addons, approvals, config, extensions, models
 from .models import usage as provider_usage
 from .demo import create_demo, workspace_missing
 from .events import EventBus, bus as default_bus
 from .models import catalog
-from .runtime import evals, helper, hunt, scan
+from .runtime import evals, hunt, scan
 from .runtime.explain import ExplainError, explain_step
 from .runtime.service import Engine, EngineError
 from .tools import mcp, worktrees
@@ -144,21 +144,6 @@ class Ask(BaseModel):
     timeout: int = Field(default=300, ge=10, le=1800)
 
 
-class HelperCreate(BaseModel):
-    project_id: str
-    root: str
-    mode: Literal["ask", "fix", "side"] = "ask"
-    model: ModelSpec | None = None
-    title: str = ""
-    thread_id: str | None = None
-    flow: dict | None = None        # fix: the waiting flow's context (phase, phases_before ...) for the chat's phase
-
-
-class HelperCommands(BaseModel):
-    root: str | None = None
-    plugins: list[str] = Field(default_factory=list)    # the project's plugins add their commands (/sql, /commit ...)
-
-
 class PluginCall(BaseModel):
     """A tool call from a plugin's MCP server (keel_plugin_<name>.server): the agent call's key, the tool, its
     arguments."""
@@ -171,30 +156,6 @@ class PluginAsk(BaseModel):
     project: str
     title: str
     command: str
-
-
-class HelperAsk(BaseModel):
-    """keel's hook asks for the person's OK on a command (runtime/permissions.py); the key is the turn's own."""
-    session: str
-    key: str
-    kind: str = "command"
-    command: str = Field(default="", max_length=8000)
-    path: str = ""
-
-
-class HelperAnswer(BaseModel):
-    decision: Literal["once", "always", "deny"]
-    why: str = ""
-
-
-class HelperUndo(BaseModel):
-    path: str | None = None
-
-
-class HelperDone(BaseModel):
-    flow: dict[str, Any] = Field(default_factory=dict)   # the waiting flow: phase, acs, ac, unlocks, workflow, run_mode
-    message: str = ""                                    # the commit's subject, as the person wrote it (else the chat's title)
-    commit: dict[str, Any] = Field(default_factory=dict)  # the project's commit_author / commit_coauthor settings
 
 
 class EvalPrepare(BaseModel):
@@ -213,29 +174,6 @@ class WorktreeRemove(BaseModel):
     root: str
     name: str
     branch: str | None = None           # also delete this branch (a flow's is kept for its PR)
-
-
-class HelperPatch(BaseModel):
-    title: str | None = None
-    model: ModelSpec | None = None
-
-
-class HelperTurn(BaseModel):
-    """One message to KeelBot; the api adds the logins, the MCP servers and the project's flow (runtime/helper.py)."""
-    text: str = Field(min_length=1, max_length=20_000)
-    model: ModelSpec | None = None
-    keys: dict[str, str] | None = None
-    mcp: list[McpServerSpec] = Field(default_factory=list)
-    tools_allow: list[str] = Field(default_factory=list)
-    agents: dict[str, AgentSettings] = Field(default_factory=dict)
-    skills: dict[str, str] = Field(default_factory=dict)
-    flow: dict[str, Any] | None = None          # the flow that runs or waits: title, status, phase, spec, acs, waiting
-    keel: dict[str, Any] | None = None          # KeelBot's view of keel: {workflows, flows} (runtime/keelbot.py)
-    plugins: list[str] = Field(default_factory=list)   # the plugins on for the project: KeelBot gets their read tools
-    mentions: list[dict[str, Any]] = Field(default_factory=list)   # [{kind: file|symbol|ac, value, file?, line?}]
-    selection: dict[str, Any] | None = None     # {path, from, to, text}
-    open_file: str | None = None
-    timeout: int | None = Field(default=None, ge=30, le=3600)
 
 
 class Resume(BaseModel):
@@ -322,7 +260,6 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
         engine = Engine(bus)
         app.state.engine = engine
         app.state.scanner = scan.Scanner(bus)
-        app.state.helper = helper.HelperRunner(bus)
         app.state.bus = bus
         app.state.demo = None
         if workspace_missing() and os.environ.get("KEEL_DEMO", "1") != "0":
@@ -333,9 +270,10 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
         bus.start()
         await engine.open(resume_running=resume_running)
         try:
-            yield
+            # the parts' own lifespans (keel_engine/extensions.py): they start now and stop first, in reverse order
+            async with extensions.lifespan(app):
+                yield
         finally:
-            await app.state.helper.close()
             await engine.close()
             await bus.stop()
 
@@ -344,8 +282,9 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     @app.middleware("http")
     async def token_check(request: Request, call_next):
         token = config.internal_token()
-        # the hook's permission question carries the turn's own ask key instead (it can only ask, never answer)
-        if token and request.url.path not in ("/health", "/helper/permissions/ask", "/plugins/call"):
+        # a part's open path (KeelBot's /helper/permissions/ask: the hook's question carries the turn's own ask key
+        # instead, which can only ask, never answer) and a part's tool call (its own key) need no internal token
+        if token and request.url.path not in ("/health", "/plugins/call", *extensions.open_paths()):
             if not secrets.compare_digest(request.headers.get("X-Keel-Token", ""), token):
                 return _err(401, "Missing or wrong X-Keel-Token.")
         return await call_next(request)
@@ -511,44 +450,6 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     from .approvals_routes import router as approvals_router   # core: ask a person and wait (keel_engine/approvals.py)
     app.include_router(approvals_router)
 
-    # ---- KeelBot (runtime/helper.py) ------------------------------------------------------------------
-
-    def helper_call(fn, *a, **k):
-        try:
-            return fn(*a, **k)
-        except helper.HelperError as exc:
-            raise EngineError(exc.status, str(exc), exc.hint) from exc
-
-    @app.post("/helper/sessions")
-    async def post_helper_session(body: HelperCreate):
-        return await asyncio.to_thread(helper_call, helper.create, body.project_id, project_root(body.root), body.mode,
-                                       body.model.model_dump() if body.model else None, body.title, body.thread_id, body.flow)
-
-    @app.get("/helper/sessions")
-    async def get_helper_sessions(project: str):
-        return await asyncio.to_thread(helper.list_sessions, project)
-
-    @app.get("/helper/sessions/{sid}")
-    async def get_helper_session(sid: str, request: Request):
-        s = await asyncio.to_thread(helper_call, helper.get, sid)
-        s["busy"] = request.app.state.helper.busy(sid)
-        return s
-
-    @app.patch("/helper/sessions/{sid}")
-    async def patch_helper_session(sid: str, body: HelperPatch):
-        await asyncio.to_thread(helper_call, helper.get, sid, False)
-        if body.model:
-            await asyncio.to_thread(helper.set_model, sid, body.model.model_dump())
-        if body.title is not None and body.title.strip():
-            await asyncio.to_thread(helper.update, sid, title=body.title.strip()[:120])
-        return await asyncio.to_thread(helper.get, sid)
-
-    @app.delete("/helper/sessions/{sid}")
-    async def delete_helper_session(sid: str, request: Request):
-        await request.app.state.helper.stop(sid)
-        await asyncio.to_thread(helper_call, helper.delete, sid)
-        return {"ok": True}
-
     # v0.8.0 quality runs: the eval sets (content/evals) and a fresh copy of a set's project for one case
     @app.get("/evals")
     async def get_evals():
@@ -583,72 +484,6 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
         await asyncio.to_thread(worktrees.remove, root, str(path), body.branch)
         return {"ok": True}
 
-    @app.get("/helper/sessions/{sid}/handover")
-    async def get_helper_handover(sid: str):
-        """A side session's branch, the commits kept on it, what is not kept yet, and its last answer."""
-        return await asyncio.to_thread(helper_call, helper.handover, sid)
-
-    @app.post("/helper/sessions/{sid}/release")
-    async def post_helper_release(sid: str, request: Request):
-        """A side session's worktree goes; its branch and commits stay for a change flow (the api checks it out)."""
-        if request.app.state.helper.busy(sid):
-            raise EngineError(409, "KeelBot is still working in this chat.", "Wait for it, or stop it, then hand it over.")
-        return await asyncio.to_thread(helper_call, helper.release, sid)
-
-    @app.post("/helper/sessions/{sid}/turn")
-    async def post_helper_turn(sid: str, body: HelperTurn, request: Request):
-        """Starts one answer and returns at once; its steps and its end come as helper.* events."""
-        try:
-            return await request.app.state.helper.turn(sid, body.model_dump(exclude_none=True))
-        except helper.HelperError as exc:
-            raise EngineError(exc.status, str(exc), exc.hint) from exc
-
-    @app.post("/helper/sessions/{sid}/stop")
-    async def post_helper_stop(sid: str, request: Request):
-        await asyncio.to_thread(helper_call, helper.get, sid, False)
-        return await request.app.state.helper.stop(sid)
-
-    @app.post("/helper/permissions/ask")
-    async def post_helper_ask(body: HelperAsk, request: Request):
-        return await request.app.state.helper.ask(body.session, body.key, body.kind, body.command, body.path)
-
-    @app.get("/helper/permissions")
-    async def get_helper_permissions(request: Request, project: str | None = None):
-        return request.app.state.helper.pending(project)
-
-    @app.post("/helper/permissions/{qid}")
-    async def post_helper_answer(qid: str, body: HelperAnswer, request: Request):
-        try:
-            return request.app.state.helper.answer(qid, body.decision, body.why)
-        except helper.HelperError as exc:
-            raise EngineError(exc.status, str(exc), exc.hint) from exc
-
-    @app.get("/helper/sessions/{sid}/changes")
-    async def get_helper_changes(sid: str):
-        return await asyncio.to_thread(helper_call, helper.changes, sid)
-
-    @app.post("/helper/sessions/{sid}/undo")
-    async def post_helper_undo(sid: str, body: HelperUndo, request: Request):
-        if request.app.state.helper.busy(sid):
-            raise EngineError(409, "KeelBot is still working in this chat.", "Wait for it, or stop it, then undo.")
-        return await asyncio.to_thread(helper_call, helper.undo, sid, body.path)
-
-    @app.post("/helper/sessions/{sid}/done")
-    async def post_helper_done(sid: str, body: HelperDone, request: Request):
-        """Run the checks, then keel's commit of KeelBot's files; the flow's timeline gets helper.commit."""
-        if request.app.state.helper.busy(sid):
-            raise EngineError(409, "KeelBot is still working in this chat.", "Wait for it, or stop it, then press Done.")
-        bus_ = request.app.state.bus
-        return await asyncio.to_thread(helper_call, helper.done, sid, body.flow,
-                                       lambda t, tid, pid, data: bus_.emit(t, tid, pid, step="helper", data=data), body.message,
-                                       body.commit)
-
-    @app.post("/helper/commands")
-    async def post_helper_commands(body: HelperCommands):
-        """The slash commands of keel's plugins and the project's own (runtime/plugins.py)."""
-        root = body.root if body.root and os.path.isdir(body.root) else None
-        return await asyncio.to_thread(helper.commands, root, body.plugins)
-
     # ---- v0.10.0 plugins (keel_engine/plugins): each part's own routes are its router (extensions.mount, below) --
 
     @app.get("/plugins")
@@ -667,13 +502,13 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     @app.post("/plugins/ask")
     async def post_plugin_ask(body: PluginAsk, request: Request):
         """keel2 mcp --write: an acting tool (change data, commit, push, open a PR) asks the person in the Inbox."""
-        return request.app.state.helper.ask_person(body.project, body.title[:200], body.command[:4000])
+        return approvals.of(request.app.state.bus).ask_person(body.project, body.title[:200], body.command[:4000])
 
     @app.get("/plugins/ask/{qid}")
     async def get_plugin_ask(qid: str, request: Request):
         try:
-            return request.app.state.helper.asked(qid)
-        except helper.HelperError as exc:
+            return approvals.of(request.app.state.bus).asked(qid)
+        except approvals.ApprovalError as exc:
             raise EngineError(exc.status, str(exc), exc.hint) from exc
 
     @app.post("/plugins/call")

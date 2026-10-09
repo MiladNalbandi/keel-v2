@@ -26,7 +26,20 @@ def _router():
     async def boom():
         raise AcmeError(409, "Too loud.", "Whisper.")
 
+    @router.get("/acme/open")
+    async def open_():
+        return {"open": True}
+
     return router
+
+
+def start(app):
+    SEEN.append(("start",))
+    app.state.acme = "running"
+
+
+async def stop(app):
+    SEEN.append(("stop", app.state.acme))
 
 
 def call(c, tool, args):
@@ -83,6 +96,8 @@ ADDON = {
     "read_tools": ["acme_look"],
     "mcp": {"server": "keel-acme", "module": "keel_part_addon.server", "args": ["x"], "call": call},
     "router": _router,
+    "open_paths": ["/acme/open"],
+    "lifespan": {"start": start, "stop": stop},
     "errors": AcmeError,
     "keelbot": {"prompt": "The Acme plugin is on.", "actions": ["acme:ping  {say}"]},
     "keel_mcp": keel_mcp,

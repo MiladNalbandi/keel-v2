@@ -1,6 +1,7 @@
 package keel.api.plugins
 
 import keel.api.connections.SecretService
+import keel.api.flow.FlowService
 import keel.api.support.ApiTest
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -11,10 +12,11 @@ import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 
 /** v0.10.0 the Database plugin (plugins/db, moved from keel's api tests): a connection's password is a secret, the
  *  person's own queries go to the engine only while the plugin is on, flows and KeelBot turns carry the connections
- *  (its FlowContributor, DatabaseKeys), and Connections › Databases is its connection kind. */
+ *  (its FlowContributor, DatabaseKeys; KeelBot's side: plugins/keelbot/api), and Connections › Databases is its connection kind. */
 class DatabaseApiTest : ApiTest() {
     @Autowired lateinit var secrets: SecretService
     @Autowired lateinit var jdbc: JdbcTemplate
+    @Autowired lateinit var flows: FlowService
 
     private fun del(url: String) = mvc.perform(MockMvcRequestBuilders.delete(url))
 
@@ -77,12 +79,8 @@ class DatabaseApiTest : ApiTest() {
         assertThat(body["keys"]["db:ci"].asText()).isEqualTo("""{"name":"ci","kind":"sqlite","url":"sqlite:ci.db","env":"test"}""")
         assertThat(body["settings"].toString()).doesNotContain("sqlite:app.db")       // secrets never in the saved settings
 
-        val sid = post("/api/projects/$pid/helper/sessions", emptyMap<String, Any>()).json()["id"].asText()
-        post("/api/projects/$pid/helper/sessions/$sid/turn", mapOf("text" to "How many scores?")).andExpect(status().isOk)
-        val turn = engine.lastBody("/helper/sessions/$sid/turn")!!
-        assertThat(turn["plugins"].map { it.asText() }).containsExactly("db")
-        assertThat(turn["keys"]["db:local"].asText()).contains("sqlite:app.db")
-        assertThat(turn["keys"]["github"].asText()).isEqualTo("ghp_exampletoken")
+        // a KeelBot turn carries the same keys (the KeelBot plugin adds every FlowContributor's: plugins/keelbot/api)
+        assertThat(flows.contributedKeys(pid)["db:local"]).contains("sqlite:app.db")
         del("/api/secrets/GITHUB_REPO_TOKEN").andExpect(status().isOk)
     }
 

@@ -18,7 +18,7 @@ from conftest import decide, start, wait
 from keel_engine import hook, rules
 from keel_engine.models.base import AgentRequest
 from keel_engine.models.cli_runners import ClaudeCLIRunner, write_opencode_plugin
-from keel_engine.runtime import guard_ctx, migrate
+from keel_engine.runtime import guard_ctx, migrate, permissions
 from keel_engine.runtime.state import ThreadContext
 from keel_engine.tools.agent_tools import ToolBox
 from keel_engine.workflows.templates import get_template
@@ -519,3 +519,50 @@ def test_opencode_and_copilot_runs_leave_out_tools_a_step_never_needs(tmp_path):
     tools = json.loads((Path(conf) / "opencode.json").read_text())["tools"]
     assert tools["write"] is False and tools["edit"] is False and "bash" not in tools
     assert "--disable-builtin-mcps" in Path(cli_runners.__file__).read_text()
+
+
+# ------------------------------------------------------------------ the person's OK, and a side session's own worktree
+# (what KeelBot's Fix and side sessions use from core: runtime/permissions.py, the hook, the engine DB's helper tables)
+
+def test_the_hook_asks_only_for_commands_that_change_something(repo, monkeypatch):
+    asked = []
+    monkeypatch.setattr(permissions, "ask_engine", lambda a, kind, cmd, path="": (asked.append(cmd) or (False, "said no")))
+    ctx = {"root": str(repo), "phase": "green", "unlocks": [], "ask": {"url": "http://x", "key": "k", "session": "h_1"}}
+    assert hook.decide("Bash", {"command": "ls src && git status"}, dict(ctx)) is None
+    assert hook.decide("Bash", {"command": "python -m pytest -q"}, dict(ctx)) is None              # tests need no OK
+    assert hook.decide("Bash", {"command": "rm -rf build"}, dict(ctx)) == "said no"
+    assert asked == ["rm -rf build"]
+    no_ask = {k: v for k, v in ctx.items() if k != "ask"}
+    assert hook.decide("Bash", {"command": "rm -rf build"}, no_ask) is None                         # a flow's agent: rules alone
+
+
+def test_permission_rules():
+    assert not permissions.needs_ask("grep -rn score src")
+    assert permissions.needs_ask("npm install x") and permissions.needs_ask("echo hi > out.txt")
+    assert permissions.granted("npm test -- --watch=false", ["npm test *"])
+    assert permissions.granted("git status", ["git status"]) and not permissions.granted("git push", ["git status"])
+
+
+def test_the_hook_keeps_a_side_session_inside_its_worktree(repo, tmp_path):
+    wt = tmp_path / "wt"
+    wt.mkdir()
+    ctx = {"root": str(wt), "phase": "none", "unlocks": [], "confine": True}
+    assert "outside" in hook.decide("Write", {"file_path": str(Path(repo) / "src" / "x.py")}, ctx)
+    assert hook.decide("Write", {"file_path": str(wt / "src" / "x.py")}, ctx) is None
+    assert hook.decide("Write", {"file_path": str(Path(repo) / "src" / "x.py")}, {**ctx, "confine": False}) is None
+
+
+async def test_an_older_helper_table_gets_its_new_columns(tmp_path):
+    async with aiosqlite.connect(tmp_path / "m.db") as conn:
+        # the table as the first Helper build made it: no grants_json, no phase
+        await conn.execute("""create table helper_sessions (
+          id text primary key, project text not null, root text not null, mode text not null, title text not null,
+          model_json text not null, engine_session text, status text not null, error text, thread_id text,
+          tokens_in integer not null default 0, tokens_out integer not null default 0, tokens_cached integer not null default 0,
+          cost_usd real not null default 0, turns integer not null default 0, created_at text not null, updated_at text not null)""")
+        await conn.execute("insert into helper_sessions (id, project, root, mode, title, model_json, status, created_at, updated_at) "
+                           "values ('h_old', 'p', '/w', 'ask', 't', '{}', 'idle', 'x', 'x')")
+        await migrate.migrate(conn)
+        await migrate.migrate(conn)
+        async with conn.execute("select grants_json, phase from helper_sessions where id = 'h_old'") as cur:
+            assert await cur.fetchone() == ("[]", None)

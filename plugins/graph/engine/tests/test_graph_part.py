@@ -39,7 +39,7 @@ def test_it_is_an_add_on_part_with_the_keys_it_had_as_a_built_in():
     assert "keel_engine.plugins.graph" not in builtins.BUILTINS
     p = extensions.part("graph")
     assert p is not None and not p.builtin and p.source == "keel_plugin_graph" and p.title == "Code graph"
-    assert p.order == 90 and [x.name for x in extensions.parts()] == ["graph", "keelbot"]
+    assert p.order == 90 and [x.name for x in extensions.parts()] == ["graph"]   # KeelBot is a plugin too, not loaded here
     assert extensions.on({}, "graph") and not p.per_project                     # on for every project
     assert [n for n, _fn in extensions.hooks("on_scan")] == ["graph"]
     for hook in ("on_commit", "on_thread_start", "mcp_specs", "prompt_context", "index_available"):

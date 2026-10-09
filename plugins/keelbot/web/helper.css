@@ -1,5 +1,6 @@
-/* keel's Helper (components/helper/HelperPanel.tsx): a chat column on the right of the Repo page, in the IDE's tokens.
-   Quiet by design: the person's messages sit in a soft accent box, answers on the page, steps folded under them. */
+/* KeelBot (HelperPanel.tsx; the KeelBot plugin's style.css, the look of keel 0.15.1's styles/helper.css): a chat column
+   on the right of the Code page (its slot assistant), in the IDE's tokens, and its own page. Quiet by design: the
+   person's messages sit in a soft accent box, answers on the page, steps folded under them. */
 
 .ide.help-open { grid-template-columns: 48px var(--side-w, 280px) 4px minmax(0, 1fr) var(--help-w, 380px);
   grid-template-areas: "act side split main help" "sb sb sb sb sb"; }
@@ -117,7 +118,7 @@
 .hp-fixbar.side { background: color-mix(in srgb, var(--run) 8%, var(--ide-side)); }
 .hp-fixbar code, .hp-fixbar .mono { font: 500 11.5px var(--f-mono); overflow-wrap: anywhere; }
 
-/* the Helper on a page of its own (#/helper, pages/Helper.tsx): one wide, readable chat column */
+/* KeelBot on a page of its own (#/helper, HelperPage.tsx): one wide, readable chat column */
 .helper-page { height: calc(100dvh - var(--hp-top, 150px) - 14px); min-height: 420px; display: flex;
   border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--panel); }
 /* KeelBot alone (#/keelbot) sits outside the Code page's .ide: the same colours, so its cards keep their borders */
@@ -131,7 +132,7 @@
 .hp.page .hp-sessions select { max-width: 420px; }
 main:has(> .helper-page) { padding-bottom: 14px; }
 
-/* v0.9.0 KeelBot's buttons in an answer (components/helper/Actions.tsx): start a flow, save a workflow it wrote */
+/* v0.9.0 KeelBot's buttons in an answer (Actions.tsx): start a flow, save a workflow it wrote */
 .kb-card { display: grid; gap: 8px; margin: 8px 0; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--ide-line)); border-radius: 10px;
   padding: 10px 11px; background: var(--ide-bg); min-width: 0; font-size: 12.5px; }
 .kb-card.bad { border-color: color-mix(in srgb, var(--bad) 55%, var(--ide-line)); color: var(--bad); }

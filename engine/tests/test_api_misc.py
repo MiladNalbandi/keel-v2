@@ -1,3 +1,4 @@
+import subprocess
 import sys
 import textwrap
 from pathlib import Path
@@ -120,3 +121,26 @@ steps:
     assert [e["step"] for e in client.bus.of(tid, "agent.started")] == ["work"] * 3
     s = decide(client, tid, "reject")
     assert s["status"] == "failed" and "exited 1" in s["error"]
+
+
+# ------------------------------------------------------------------ a flow's own worktree (POST /worktrees)
+
+def _git(repo, *args):
+    return subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True).stdout
+
+
+def test_a_flow_worktree_starts_from_the_base_branch_and_goes_with_or_without_its_branch(client, repo):
+    _git(repo, "checkout", "-q", "-b", "feat/other")
+    (Path(repo) / "other.txt").write_text("another flow's work\n")
+    _git(repo, "add", "other.txt")
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@x", "commit", "-qm", "other"], cwd=repo, check=True)
+    base = _git(repo, "rev-parse", "main").strip() or _git(repo, "rev-parse", "master").strip()
+    start = "main" if _git(repo, "rev-parse", "--verify", "--quiet", "main").strip() else "master"
+    w = client.post("/worktrees", json={"root": str(repo), "name": "flow-ranks-1", "branch": "feat/ranks", "start": start}).json()
+    assert w["branch"] == "feat/ranks" and w["base"] == base and not (Path(w["path"]) / "other.txt").exists()
+    again = client.post("/worktrees", json={"root": str(repo), "name": "flow-ranks-2", "branch": "feat/ranks", "start": start})
+    assert again.status_code == 409 and "exists already" in again.json()["error"]
+    assert client.post("/worktrees/remove", json={"root": str(repo), "name": "flow-ranks-1"}).json() == {"ok": True}
+    assert not Path(w["path"]).exists() and _git(repo, "branch", "--list", "feat/ranks").strip()     # the branch stays
+    bad = client.post("/worktrees/remove", json={"root": str(repo), "name": "../../etc"})
+    assert bad.status_code >= 400

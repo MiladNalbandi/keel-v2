@@ -1260,18 +1260,19 @@ GET /api/projects/{pid}/graph/node?id=…&depth=1|2 → GraphFocus
 ## v0.6.0: the Helper
 
 A chat in the Repo page (⌘I, or the Helper button in the activity bar) with an agent that reads the project and answers
-with `file:line` links. keel runs it with its own harness (`engine/keel_engine/runtime/helper.py`): one answer is one
-agent run on the model's runner (claude, codex, copilot / opencode, an API key, or the fake model), with keel's guarded
-tools, the MCP servers the `helper` agent may use plus the code graph, the guard context the hook reads on every tool
-call, and the diff guard as the backstop for engines without a hook.
+with `file:line` links. keel runs it with its own harness (the KeelBot plugin's engine,
+`plugins/keelbot/engine/keel_plugin_keelbot/helper.py`): one answer is one agent run on the model's runner (claude, codex,
+copilot / opencode, an API key, or the fake model), with keel's guarded tools, the MCP servers the `helper` agent may use
+plus the code graph, the guard context the hook reads on every tool call, and the diff guard as the backstop for engines
+without a hook.
 
 - **Modes**: `ask` (read only: the guard's readonly; codex runs in its read-only sandbox, copilot without its write and
   shell tools; anything that still changes is put back). More modes come in later releases.
 - **Sessions continue**: claude and codex continue their own CLI session (the first turn of a claude session pins
   `--session-id`, the next ones `--resume`); the API-key runner gets the earlier messages; other CLIs get the conversation
   so far in the prompt (`TRANSCRIPT_CHARS`).
-- **The prompt** carries the mode, the knowledge sections the `helper` agent uses (`content/agents/helper.md`), the
-  plugins' context files, the project's running or waiting flow (title, phase, spec, criteria, the waiting gate), what
+- **The prompt** carries the mode, the knowledge sections the `helper` agent uses
+  (`plugins/keelbot/content/agents/helper.md`), the plugins' context files, the project's running or waiting flow (title, phase, spec, criteria, the waiting gate), what
   the person points at (`@` mentions, selected lines, the open file), and the question.
 - **Plugins** (`engine/keel_engine/runtime/plugins.py`): `content/plugins/<name>/plugin.yml` (keel's, and since
   step 3 the same folder in a loaded plugin package's content, like `plugins/ci/content/plugins/ci`; listed together in
@@ -1541,8 +1542,8 @@ in + out + cached ÷ 10):
 - **KeelBot's view of keel**: every turn (`POST /helper/sessions/{sid}/turn`) carries
   `keel: { workflows: [{id, name, source, based_on, folder, last_run?: {title, status}, steps: [{id, kind, name, agent}]}],
   flows: [{thread_id, title, workflow, status, phase, step, waiting?: {title}, acs_done, acs_total, tokens, where, branch,
-  error, updated_at}] }` (the 8 newest flows). The engine (`runtime/keelbot.py`) puts them in the prompt with what each
-  keel template is for, and how to give buttons; a question about writing a workflow also gets the format, the phases,
+  error, updated_at}] }` (the 8 newest flows). The engine (the KeelBot plugin's `keel_plugin_keelbot/keelbot.py`) puts
+  them in the prompt with what each keel template is for, and how to give buttons; a question about writing a workflow also gets the format, the phases,
   the code-step actions and the agents.
 - **Buttons**: KeelBot never starts or saves anything. Its answer ends with fenced blocks the web turns into cards
   (`components/helper/Actions.tsx`): ` ```keel-start ` with JSON `{workflow, title, request}` (Start the flow →

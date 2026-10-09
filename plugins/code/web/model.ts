@@ -118,7 +118,7 @@ export function retargetTab(t: Tabs, id: string, spec: OpenSpec): Tabs {
   };
 }
 
-// ---------- fuzzy file matching (quick open) ----------
+// ---------- fuzzy file matching (quick open): core's components/fuzzy.ts (KeelBot uses it too) ----------
 
 // keel's own (components/fuzzy.ts): KeelBot's @ mentions rank files with it too, through @keel/web-sdk
 export { fuzzy, rankFiles, type Fuzzy } from "@keel/web-sdk";

@@ -345,3 +345,14 @@ def test_the_thread_state_carries_the_pr_the_flow_opened(client, repo, monkeypat
     assert s["status"] == "done" and s["pr_url"] == url
     notes = [e["data"].get("note") or "" for e in client.bus.of(tid, "step.finished") if e.get("step") == "open"]
     assert notes[-1] == f"PR opened: {url}"
+
+
+def test_a_spec_extract_with_its_own_code_block_stays_inside_the_pr_bodys_fold(repo):
+    from keel_engine.runtime import tools, verdict_actions
+    assert tools.fenced("a\n```\nb\n```", "markdown") == ["````markdown", "a\n```\nb\n```", "````"]
+    assert tools.fenced("plain") == ["```", "plain", "```"]
+    spec = Path(repo) / "docs" / "specs" / "euro.md"
+    spec.parent.mkdir(parents=True, exist_ok=True)
+    spec.write_text("# Euro\n\n## Request path\n```\ntest -> formatEuro(cents)\n```\n")
+    body = verdict_actions.pr_body(str(repo), "demo", {"spec": "docs/specs/euro.md"}, "Euro", None)
+    assert "````markdown" in body and body.index("</details>") > body.index("formatEuro") and body.count("````") == 2

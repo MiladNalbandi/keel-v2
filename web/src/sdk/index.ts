@@ -10,10 +10,30 @@ export { definePlugin } from "./plugin";
 export type { AddonPageProps, AddonWeb, KeelSdk } from "./plugin";
 
 // keel's api: the same transport as keel's own pages (/api + path, errors as ApiError)
-export { ApiError, del, errorParts, get, getText, patch, post, put } from "../api";
+export {
+  ApiError,
+  del,
+  errorParts,
+  get,
+  getText,
+  patch,
+  post,
+  put,
+} from "../api";
 export type {
-  ClarifyQuestion, Estimate, KeelMap, MapLevel, MapNode, MapResponse, McpServer, ProjectSettings, RunMode, Step, WikiPage,
-  WikiTree, Workflow,
+  ClarifyQuestion,
+  Estimate,
+  KeelMap,
+  MapLevel,
+  MapNode,
+  MapResponse,
+  McpServer,
+  ProjectSettings,
+  RunMode,
+  Step,
+  WikiPage,
+  WikiTree,
+  Workflow,
 } from "../api";
 // the Inbox's items (a plugin's inbox.card shows its own kinds)
 export type { InboxItem, InboxTask } from "../inboxApi";
@@ -29,9 +49,27 @@ export { go, useRoute } from "../state";
 export type { Route } from "../routes";
 
 // keel's small ui pieces
-export { Async, Confirm, Drawer, Empty, ErrorBox, Loading, PageHead, Panel, Pill, Since, Tabs } from "../components/ui";
+export {
+  Async,
+  Confirm,
+  Drawer,
+  Empty,
+  ErrorBox,
+  Loading,
+  PageHead,
+  Panel,
+  Pill,
+  Since,
+  Tabs,
+} from "../components/ui";
 export type { PillTone } from "../components/ui";
-export { EmptyState, SearchBox, Section, Skeleton, useNarrow } from "../components/page";
+export {
+  EmptyState,
+  SearchBox,
+  Section,
+  Skeleton,
+  useNarrow,
+} from "../components/page";
 export { Markdown } from "../components/Markdown";
 // a code block with keel's highlighting (the Database plugin's KeelBot card shows its SQL with it)
 export { CodeBlock } from "../components/Code";
@@ -46,7 +84,13 @@ export { WorkspaceDoctor } from "../components/WorkspaceDoctor";
 // keel's workflow pictures (the Flow page and the builder draw with them; the Wiki plugin shows a workflow read only):
 // the blocks, the step table, the graph with zoom, the Blocks / Table / Graph choice, the tokens per step, and the
 // "what this step does" drawer
-export { Blocks, BlocksLegend, StepTable, useMapView, ViewToggle } from "../components/Blocks";
+export {
+  Blocks,
+  BlocksLegend,
+  StepTable,
+  useMapView,
+  ViewToggle,
+} from "../components/Blocks";
 export { Graph, GraphLegend } from "../components/Graph";
 export { Zoom } from "../components/Zoom";
 export { tokensByStep } from "../components/workflow";
@@ -74,14 +118,44 @@ export type { Rect } from "../components/er/route";
 
 // extension points (step 2, docs/plugins/09-step2-contract.md §5): pages for the menu and the router, and slots — named
 // places in keel's pages where a part puts a piece (live: a page renders again when a piece registers)
-export { allPages, pageFor, pageOf, registerPage, registerSlot, slotItems, usePages, useSlot } from "./registry";
+export {
+  allPages,
+  pageFor,
+  pageOf,
+  registerPage,
+  registerSlot,
+  slotItems,
+  usePages,
+  useSlot,
+} from "./registry";
 export type { PageProps, PageRegistration, SlotItem } from "./registry";
 export { SLOTS } from "./slots";
 export type {
-  AssistantItem, AssistantProps, CodeActivityItem, CodeActivityProps, CodeOpen, CodeOpenSpec, CodeTabItem, CodeTabProps,
-  CodeTabRef, CodeView, ConnectionKindItem, InboxCardItem, InboxCardProps, JobsTabItem, KeelbotBlock, KeelbotCardItem,
-  KeelbotCardProps, LauncherSourceItem, MapErQueryItem, ScmPanelProps, SettingKind, SettingRow, SettingsSectionItem,
-  ToolsCardItem, WorkflowActionsItem,
+  AssistantItem,
+  AssistantProps,
+  CodeActivityItem,
+  CodeActivityProps,
+  CodeOpen,
+  CodeOpenSpec,
+  CodeTabItem,
+  CodeTabProps,
+  CodeTabRef,
+  CodeView,
+  ConnectionKindItem,
+  InboxCardItem,
+  InboxCardProps,
+  JobsTabItem,
+  KeelbotBlock,
+  KeelbotCardItem,
+  KeelbotCardProps,
+  LauncherSourceItem,
+  MapErQueryItem,
+  ScmPanelProps,
+  SettingKind,
+  SettingRow,
+  SettingsSectionItem,
+  ToolsCardItem,
+  WorkflowActionsItem,
 } from "./slots";
 
 // "ask KeelBot" without importing it: the assistant's part listens
@@ -89,7 +163,12 @@ export { ASK_ASSISTANT_EVENT, askAssistant } from "./assistant";
 export type { AskAssistantDetail } from "./assistant";
 
 // the launcher (⌘K): a launcher.source's results and their actions (open a link, ask KeelBot, copy)
-export { askAction, copyAction, goHash, linkAction } from "../components/launcher/sources";
+export {
+  askAction,
+  copyAction,
+  goHash,
+  linkAction,
+} from "../components/launcher/sources";
 export type { Ctx as LauncherCtx } from "../components/launcher/sources";
 export type { Item as LauncherItem } from "../components/launcher/model";
 
@@ -117,3 +196,15 @@ export { doubleShift, isMac } from "../keys";
 export { parseHash } from "../routes";
 export { plural } from "../format";
 export type { Fact, FactKind, GraphHit, HelperSelection, IndexStatus, KeelDoc, Memory } from "../api";
+// KeelBot's chat (plugins/keelbot): the model picker and its labels, an answer's steps as they stream in, a change's
+// diff with its fold, the @file ranking (above), file:line links in answers, and the api's types of its sessions, of the
+// flow it follows and of the buttons it gives
+export { ModelPicker } from "../components/ModelPicker";
+export { fileLink, modelLabel, provLabel } from "../format";
+export { mergeSteps } from "../components/StepFeed";
+export { StepView } from "../components/StepView";
+export { DiffView, FoldedText } from "../components/Code";
+export type {
+  CiRun, FlowView, HelperChange, HelperCommand, HelperDone, HelperHandover, HelperMention, HelperMessage, HelperMode,
+  HelperQuestion, HelperSession, HelperTurnStarted, JobStep, Model, ThreadState, WorkflowCheck,
+} from "../api";

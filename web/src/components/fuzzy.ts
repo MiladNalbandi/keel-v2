@@ -1,12 +1,11 @@
 // Fuzzy file matching (keel's core, shared through @keel/web-sdk): the Code page's quick open (⌘P) and its files in the
-// launcher, and KeelBot's @ mentions rank a project's files with it. No React, so it is easy to test.
+// launcher (⌘K), and KeelBot's @ mentions rank a project's files with it. Kept in core so a part can use it without the
+// Code page. No React, so it is easy to test.
 
 export type Fuzzy = { score: number; hits: number[] };
 
 const isBoundary = (s: string, i: number) =>
-  i === 0 ||
-  "/._- ".includes(s[i - 1]) ||
-  (s[i] >= "A" && s[i] <= "Z" && s[i - 1] >= "a" && s[i - 1] <= "z");
+  i === 0 || "/._- ".includes(s[i - 1]) || (s[i] >= "A" && s[i] <= "Z" && s[i - 1] >= "a" && s[i - 1] <= "z");
 
 function subseq(path: string, q: string, from: number): Fuzzy | null {
   const low = path.toLowerCase();
@@ -36,28 +35,14 @@ export function fuzzy(query: string, path: string): Fuzzy | null {
   const nameAt = path.lastIndexOf("/") + 1;
   const inName = q.includes("/") ? null : subseq(path, q, nameAt);
   const whole = subseq(path, q, 0);
-  let best = inName
-    ? {
-        score:
-          inName.score +
-          10 +
-          (path.toLowerCase().startsWith(q, nameAt) ? 20 : 0),
-        hits: inName.hits,
-      }
-    : whole;
+  let best = inName ? { score: inName.score + 10 + (path.toLowerCase().startsWith(q, nameAt) ? 20 : 0), hits: inName.hits } : whole;
   if (inName && whole && whole.score > best!.score) best = whole;
   if (!best) return null;
   return { score: best.score - path.length / 100, hits: best.hits };
 }
 
-/** The files that match `query`, best first (at most `limit`); an empty query keeps the list's own order. */
-export function rankFiles(
-  files: string[],
-  query: string,
-  limit = 50,
-): { path: string; hits: number[] }[] {
-  if (!query.trim())
-    return files.slice(0, limit).map((path) => ({ path, hits: [] }));
+export function rankFiles(files: string[], query: string, limit = 50): { path: string; hits: number[] }[] {
+  if (!query.trim()) return files.slice(0, limit).map((path) => ({ path, hits: [] }));
   const out: { path: string; hits: number[]; score: number }[] = [];
   for (const path of files) {
     const f = fuzzy(query, path);
