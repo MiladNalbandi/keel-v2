@@ -1,5 +1,18 @@
 #!/usr/bin/env bash
-# Starts the engine, waits for it, then the api. If either stops, the container stops.
+# keel's supervisor (docs/plugins/07-step1-contract.md, section 8). In a loop:
+#   1. resolve the plugins: keel-engine plugins resolve writes $KEEL_DATA/plugins/run/resolved.json and run/env
+#      (KEEL_PLUGINS=on|image|off reaches it through the environment). If it fails, keel starts with no plugins.
+#   2. start the engine with the plugin env (run/env), and wait for it
+#   3. start the api with KEEL_SUPERVISED=1 and the plugin jars on loader.path, and wait for it
+#   4. healthy: save the plugin set (names, versions) in $KEEL_DATA/plugins/last-good.json.
+#      Not healthy in time, or the api stopped, and the set differs from last-good.json: stop both and start again
+#      with only the last good plugins (--only last-good.json).
+#   5. wait. Exit code 75 (the api asks for a restart, for example after a plugin install): stop both, back to 1.
+#      Any other exit stops both and the container, as before.
+#
+# Tests (docker/tests/keel-start.test.sh) set the commands, health urls and timeouts through the environment:
+# KEEL_RESOLVE_CMD, KEEL_ENGINE_CMD, KEEL_API_CMD, KEEL_ENGINE_HEALTH_URL, KEEL_API_HEALTH_URL,
+# KEEL_ENGINE_START_TIMEOUT (30 s), KEEL_API_START_TIMEOUT (90 s), KEEL_STOP_TIMEOUT (20 s), KEEL_START_POLL (0.5 s).
 set -euo pipefail
 
 export KEEL_INTERNAL_TOKEN="${KEEL_INTERNAL_TOKEN:-$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')}"
@@ -14,33 +27,179 @@ if [ -S /var/run/docker.sock ]; then
   docker version --format 'docker: client {{.Client.Version}}, host engine {{.Server.Version}}' 2>/dev/null || echo "docker: socket mounted but not usable (permissions?)"
 fi
 
-echo "keel v2 · data $KEEL_DATA · workspace $KEEL_WORKSPACE · content $KEEL_CONTENT"
+echo "keel v2 · data $KEEL_DATA · workspace $KEEL_WORKSPACE · content $KEEL_CONTENT · plugins ${KEEL_PLUGINS:-on}"
 
-# keel Product (the product edition): the engine loads the add-on from /opt/keel-product, only the engine sees it
-engine_path="${PYTHONPATH:-}"
-if [ "${KEEL_EDITION:-dev}" = "product" ] && [ -d /opt/keel-product/keel_product ]; then
-  export KEEL_ADDONS="${KEEL_ADDONS:-keel_product}"
-  export KEEL_PRODUCT_CONTENT=/opt/keel-product/content
-  engine_path="/opt/keel-product${engine_path:+:$engine_path}"
-  echo "keel Product edition · add-ons $KEEL_ADDONS"
-fi
+RUN="$KEEL_DATA/plugins/run"
+LAST_GOOD="$KEEL_DATA/plugins/last-good.json"
+RESOLVE_CMD="${KEEL_RESOLVE_CMD:-keel-engine plugins resolve}"
+ENGINE_CMD="${KEEL_ENGINE_CMD:-keel-engine}"
+ENGINE_HEALTH="${KEEL_ENGINE_HEALTH_URL:-http://127.0.0.1:8090/health}"
+API_HEALTH="${KEEL_API_HEALTH_URL:-http://127.0.0.1:8080/api/health}"
+ENGINE_TIMEOUT="${KEEL_ENGINE_START_TIMEOUT:-30}"
+API_TIMEOUT="${KEEL_API_START_TIMEOUT:-90}"
+STOP_TIMEOUT="${KEEL_STOP_TIMEOUT:-20}"
+POLL="${KEEL_START_POLL:-0.5}"
+engine="" api="" resolved=0
 
-PYTHONPATH="$engine_path" KEEL_ENGINE_HOST=127.0.0.1 KEEL_ENGINE_PORT=8090 keel-engine &
-engine=$!
+# ---------------------------------------------------------------- plugins
 
-for _ in $(seq 1 60); do
-  curl -fs http://127.0.0.1:8090/health > /dev/null && break
-  kill -0 "$engine" 2>/dev/null || { echo "engine failed to start"; exit 1; }
-  sleep 0.5
+# resolve [--only <file>]: runs the resolver; resolved=1 when it worked
+resolve() {
+  mkdir -p "$RUN"
+  resolved=0
+  # shellcheck disable=SC2086  # the command is words on purpose (tests give their own)
+  if $RESOLVE_CMD "$@"; then resolved=1; else no_plugins "the resolver failed (exit $?)"; fi
+}
+
+# no_plugins <why>: start with no plugins at all. The api then finds no resolved.json, so it has none either.
+no_plugins() {
+  echo "plugins: $1, so keel starts with no plugins"
+  rm -f "$RUN/resolved.json" "$RUN/env"
+  resolved=0
+}
+
+# load_env: KEEL_PLUGIN_PATHS, KEEL_PLUGIN_ADDONS and KEEL_PLUGIN_LOADER_PATH from run/env (empty without plugins)
+load_env() {
+  KEEL_PLUGIN_PATHS="" KEEL_PLUGIN_ADDONS="" KEEL_PLUGIN_LOADER_PATH=""
+  if [ "$resolved" = 1 ] && [ -f "$RUN/env" ]; then
+    # shellcheck source=/dev/null
+    if (. "$RUN/env") > /dev/null 2>&1; then . "$RUN/env"; else no_plugins "$RUN/env does not read"; fi
+  fi
+  export KEEL_PLUGIN_PATHS KEEL_PLUGIN_ADDONS KEEL_PLUGIN_LOADER_PATH
+}
+
+# plugin_set <json file>: one "name version" line per plugin, sorted; nothing when the file is missing or broken
+plugin_set() {
+  [ -f "$1" ] || return 0
+  python3 -c 'import json, sys
+for p in sorted(json.load(open(sys.argv[1])).get("plugins") or [], key=lambda p: p["name"]):
+    print(p["name"], p["version"])' "$1" 2>/dev/null || true
+}
+
+# save_last_good: the plugins of this healthy start, for the next start that fails
+save_last_good() {
+  python3 - "$RUN/resolved.json" "$LAST_GOOD" << 'EOF' || echo "plugins: could not write $LAST_GOOD"
+import datetime, json, os, sys
+src, dst = sys.argv[1], sys.argv[2]
+plugins = [{"name": p["name"], "version": p["version"]} for p in json.load(open(src)).get("plugins") or []]
+now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+with open(dst + ".tmp", "w") as f:
+    json.dump({"saved_at": now, "plugins": plugins}, f, indent=2)
+    f.write("\n")
+os.replace(dst + ".tmp", dst)
+EOF
+}
+
+# ---------------------------------------------------------------- processes
+
+start_engine() {
+  # shellcheck disable=SC2086
+  KEEL_ENGINE_HOST=127.0.0.1 KEEL_ENGINE_PORT=8090 $ENGINE_CMD &
+  engine=$!
+}
+
+start_api() {
+  if [ -n "${KEEL_API_CMD:-}" ]; then
+    # shellcheck disable=SC2086
+    KEEL_SUPERVISED=1 $KEEL_API_CMD &
+  else
+    # keel's plain jar; PropertiesLauncher adds the plugin jars (loader.path) and finds Start-Class by itself
+    # shellcheck disable=SC2086  # JAVA_OPTS holds several options
+    KEEL_SUPERVISED=1 java ${JAVA_OPTS:--XX:MaxRAMPercentage=60} -Dloader.path="$KEEL_PLUGIN_LOADER_PATH" \
+      -cp /opt/api/app.jar org.springframework.boot.loader.launch.PropertiesLauncher &
+  fi
+  api=$!
+}
+
+healthy() { curl -fs --max-time 5 "$1" > /dev/null 2>&1; }
+
+# wait_up <pid> <url> <seconds>: 0 healthy, 1 not healthy in time, 2 the process stopped
+wait_up() {
+  local end=$((SECONDS + $3))
+  while :; do
+    healthy "$2" && return 0
+    kill -0 "$1" 2>/dev/null || return 2
+    [ "$SECONDS" -lt "$end" ] || return 1
+    sleep "$POLL"
+  done
+}
+
+both_running() { kill -0 "$engine" 2>/dev/null && kill -0 "$api" 2>/dev/null; }
+
+# wait_any: waits until the engine or the api stops, and returns its exit code
+wait_any() {
+  if ((BASH_VERSINFO[0] * 100 + BASH_VERSINFO[1] >= 501)) && both_running; then
+    wait -n "$engine" "$api"
+  else
+    # one has stopped already, or bash is older than 5.1 (no wait -n for given ids; macOS runs the tests with
+    # bash 3.2): look every POLL seconds
+    while both_running; do sleep "$POLL"; done
+    if kill -0 "$engine" 2>/dev/null; then wait "$api"; else wait "$engine"; fi
+  fi
+}
+
+# stop_both: TERM to the engine and the api, KILL after KEEL_STOP_TIMEOUT seconds, and wait for them
+stop_both() {
+  local pid end=$((SECONDS + STOP_TIMEOUT))
+  for pid in $api $engine; do kill -TERM "$pid" 2>/dev/null || true; done
+  for pid in $api $engine; do
+    while kill -0 "$pid" 2>/dev/null && [ "$SECONDS" -lt "$end" ]; do sleep "$POLL"; done
+    kill -KILL "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+  done
+  engine="" api=""
+}
+
+trap 'stop_both; exit 143' TERM
+trap 'stop_both; exit 130' INT
+
+# ---------------------------------------------------------------- the loop
+fallback=0
+while :; do
+  if [ "$fallback" = 1 ]; then resolve --only "$LAST_GOOD"; else resolve; fi
+  load_env
+  plugins="$(plugin_set "$RUN/resolved.json")"
+  echo "plugins: $(printf '%s' "${plugins:-none}" | tr '\n' ',' | sed 's/,/, /g')"
+
+  start_engine
+  up=0
+  wait_up "$engine" "$ENGINE_HEALTH" "$ENGINE_TIMEOUT" || up=$?
+  if [ "$up" = 2 ]; then
+    echo "engine failed to start"
+    stop_both
+    exit 1
+  fi
+  [ "$up" = 0 ] || echo "the engine is not healthy after ${ENGINE_TIMEOUT}s; starting the api anyway"
+
+  start_api
+  echo "keel v2 is starting on http://localhost:8080"
+  up=0
+  wait_up "$api" "$API_HEALTH" "$API_TIMEOUT" || up=$?
+  if [ "$up" = 0 ]; then
+    if [ "$resolved" = 1 ]; then save_last_good; fi
+  elif [ "$fallback" = 0 ] && [ -f "$LAST_GOOD" ] && [ "$plugins" != "$(plugin_set "$LAST_GOOD")" ]; then
+    # a new plugin can break the api's start (a bad jar): try once more with the plugins that worked last time
+    echo "keel did not start with these plugins: starting again with the last good ones ($LAST_GOOD)"
+    stop_both
+    fallback=1
+    continue
+  elif [ "$up" = 2 ]; then
+    code=0
+    wait "$api" || code=$?
+    echo "the api stopped before it was healthy (exit $code)"
+    stop_both
+    exit "$code"
+  else
+    echo "the api is not healthy after ${API_TIMEOUT}s; waiting for it"
+  fi
+  fallback=0
+
+  code=0
+  wait_any || code=$?
+  stop_both
+  if [ "$code" = 75 ]; then
+    echo "keel restarts (exit 75): resolving the plugins again"
+    continue
+  fi
+  exit "$code"
 done
-
-java ${JAVA_OPTS:--XX:MaxRAMPercentage=60} -jar /opt/api/app.jar &
-api=$!
-
-trap 'kill -TERM "$engine" "$api" 2>/dev/null; wait' TERM INT
-echo "keel v2 is starting on http://localhost:8080"
-wait -n "$engine" "$api"
-code=$?
-kill -TERM "$engine" "$api" 2>/dev/null || true
-wait || true
-exit "$code"

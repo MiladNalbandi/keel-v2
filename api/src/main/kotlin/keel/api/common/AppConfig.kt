@@ -60,10 +60,11 @@ class WebConfig : WebMvcConfigurer {
         companion object {
             /**
              * First path parts that are never the web app, so they answer 404 instead of index.html: the api, the
-             * engine's internal calls, and "keel-v1", where 0.4.0 still proxied keel v1's dashboard (removed in
+             * engine's internal calls, "plugins" (plugin web files, keel.api.pluginhost: a missing one must fail, not
+             * load the app as JavaScript), and "keel-v1", where 0.4.0 still proxied keel v1's dashboard (removed in
              * 0.4.1: an old bookmark fails clearly instead of opening an empty page).
              */
-            val NOT_WEB = setOf("api", "internal", "keel-v1")
+            val NOT_WEB = setOf("api", "internal", "plugins", "keel-v1")
         }
     }
 }

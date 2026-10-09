@@ -59,9 +59,9 @@ tasks.named<org.springframework.boot.gradle.tasks.bundling.BootJar>("bootJar") {
 tasks.named<Jar>("jar") { enabled = false }
 
 // ---------- v0.13.0 keel Product, an add-on in its own folder (../product/api) ----------
-// Compiled against keel's api but never part of keel's own jar: `bootJar` stays as it was; `productBootJar` is keel's
-// api plus the add-on (the keel-v2-product image). Its tests run in their own task (`productTest`) with keel's test
-// support (ApiTest, StubEngine).
+// Compiled against keel's api but never part of keel's own jar: `bootJar` stays as it was. `productPluginJar` is the
+// add-on's api part as a plugin jar (product/build-plugin.sh puts it in the .kplug). Its tests run in their own task
+// (`productTest`) with keel's test support (ApiTest, StubEngine).
 val product: SourceSet by sourceSets.creating {
     kotlin.srcDir("../product/api/src/main/kotlin")
     resources.srcDir("../product/api/src/main/resources")
@@ -89,11 +89,16 @@ val productTestTask = tasks.register<Test>("productTest") {
     }
 }
 
-tasks.register<org.springframework.boot.gradle.tasks.bundling.BootJar>("productBootJar") {
-    description = "keel's api with the keel Product add-on"
+// A thin jar: only Product's classes and resources (META-INF/spring/...AutoConfiguration.imports,
+// db/product/P1__product.sql). Product needs no library beyond keel's own. keel's plain jar loads it at start:
+// java -Dloader.path=<jar> -cp keel-api.jar org.springframework.boot.loader.launch.PropertiesLauncher
+tasks.register<Jar>("productPluginJar") {
+    description = "keel Product's api part as a plugin jar (keel-plugin-product.jar)"
     group = "build"
-    mainClass.set("keel.api.KeelApiApplicationKt")
-    targetJavaVersion.set(JavaVersion.VERSION_21)
-    classpath(sourceSets.main.get().runtimeClasspath, product.output)
-    archiveFileName.set("keel-api-product.jar")
+    from(product.output)
+    archiveFileName.set("keel-plugin-product.jar")
+    destinationDirectory.set(layout.buildDirectory.dir("libs"))
+    // the same input gives the same bytes, so files.sha256 only changes when Product changes
+    isPreserveFileTimestamps = false
+    isReproducibleFileOrder = true
 }

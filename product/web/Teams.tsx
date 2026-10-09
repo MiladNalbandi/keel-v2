@@ -2,10 +2,17 @@
 // team's own knowledge pages (keel reads them in every stage; keel suggests, the team accepts).
 
 import { useState } from "react";
-import { Markdown } from "../../web/src/components/Markdown";
-import { Async, Confirm, Drawer, Empty, Panel, Pill } from "../../web/src/components/ui";
-import type { AddonPageProps } from "../../web/src/addons";
-import { useLoad } from "../../web/src/state";
+import {
+  Async,
+  Confirm,
+  Drawer,
+  Empty,
+  Markdown,
+  Panel,
+  Pill,
+  useLoad,
+  type AddonPageProps,
+} from "@keel/web-sdk";
 import {
   productApi,
   type RepoOwner,

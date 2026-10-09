@@ -1,9 +1,13 @@
 // Small pieces the Product pages share: the page head, an action runner with its error, the stage tracker, pills.
 
 import { useCallback, useState, type ReactNode } from "react";
-import { errorParts } from "../../web/src/api";
-import { ErrorBox, Pill, type PillTone } from "../../web/src/components/ui";
-import { hashForScreen } from "../../web/src/routes";
+import {
+  ErrorBox,
+  errorParts,
+  hashForScreen,
+  Pill,
+  type PillTone,
+} from "@keel/web-sdk";
 import { STAGE_LABEL } from "./productApi";
 
 export const TRACK = [

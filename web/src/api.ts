@@ -913,7 +913,12 @@ export type Features = {
   parts: Record<string, boolean>;
   addons: { name: string; version: string; title: string; part: string; on: boolean }[];
   screens: AddonScreen[];
+  /** The plugins this keel loaded, with their web part's urls (absolute) when they have one. */
+  plugins: PluginInfo[];
 };
+/** A plugin's web part: its ES module and its stylesheets, served by the api under /plugins/<name>/<version>/web/. */
+export type PluginWeb = { entry: string; css: string[] };
+export type PluginInfo = { name: string; title: string; version: string; web: PluginWeb | null };
 
 export const api = {
   health: () => get<Health>("/health"),

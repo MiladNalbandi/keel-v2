@@ -55,7 +55,7 @@ export function createDb() {
     /** v0.10.0 plugins: which are on, the database connections and query answers, git's state */
     plugins: { db: false, git: false } as Record<string, boolean>,
     /** v0.13.0 GET /api/features: keel without an add-on unless a test installs one */
-    features: { mode: "dev", modes: ["dev"], parts: { dev: true }, addons: [], screens: [] } as Features,
+    features: { mode: "dev", modes: ["dev"], parts: { dev: true }, addons: [], screens: [], plugins: [] } as Features,
     dbConns: [] as DbConnection[],
     dbAnswer: null as DbResult | null,
     gitStatus: { branch: "feat/euro", base: "main", upstream: "origin/feat/euro", ahead: 2, behind: 0, base_ahead: 2, base_behind: 1, pushed: true,

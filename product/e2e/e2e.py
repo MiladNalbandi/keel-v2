@@ -3,6 +3,8 @@
 
     python3 product/e2e/e2e.py --image keel-v2:0.13.0-product-beta [--keep]          the fake model (repeatable)
     python3 product/e2e/e2e.py --real claude --keep                                  a real model, on a running keel-lab
+    python3 product/e2e/e2e.py --running                                             the fake model, on a running keel-lab
+                                                                                     (e2e/plugins installs Product into it)
 
 It starts the container keel-lab (port 8099, volume keel-lab-data), makes two git repos with CODEOWNERS, and walks one
 initiative through every stage over the HTTP api, the way a person clicks it: keel's questions, the brief (sent back
@@ -103,10 +105,18 @@ def STAGE_WAIT() -> float:  # noqa: N802
     return 1200.0 if REAL["on"] else 120.0
 
 
+def host_path(source: str) -> Path:
+    """A bind mount's folder on this computer. Docker Desktop reports /host_mnt/<path> for it (its VM's view)."""
+    p = Path(source)
+    if not p.exists() and source.startswith("/host_mnt/"):
+        p = Path(source[len("/host_mnt"):])
+    return p
+
+
 def real_workspace(ws: Path) -> Path:
     """The running keel-lab mounts its own workspace: the scratch repos go there."""
     mounts = json.loads(sh("docker", "inspect", "-f", "{{json .Mounts}}", NAME))
-    host = next(Path(m["Source"]) for m in mounts if m["Destination"] == "/workspace")
+    host = host_path(next(m["Source"] for m in mounts if m["Destination"] == "/workspace"))
     for name in ("web-shop", "payments-api"):
         if not (host / name).exists():
             shutil.copytree(ws / name, host / name)
@@ -154,6 +164,7 @@ def main() -> int:
     ap.add_argument("--real", metavar="PROVIDER", help="use the running keel-lab and this provider's subscription login (claude, codex)")
     ap.add_argument("--model", default="", help="with --real: the model name (default: the provider's default)")
     ap.add_argument("--keep", action="store_true", help="leave keel-lab running for a browser walk-through")
+    ap.add_argument("--running", action="store_true", help="the fake run on the keel-lab that is already running (left running)")
     args = ap.parse_args()
     ws = Path(tempfile.mkdtemp(prefix="keel-product-e2e-"))
     try:
@@ -167,6 +178,9 @@ def main() -> int:
             ws = real_workspace(ws)
             call("PUT", "/settings/general", {"default_model": {"provider": args.real, "mode": "subscription", "model": args.model or "default"}})
             print(f"using the running {NAME} with {args.real}")
+        elif args.running:
+            ws = real_workspace(ws)
+            print(f"using the running {NAME} with the fake model")
         else:
             if not args.image:
                 ap.error("--image is needed for the fake run")
@@ -277,7 +291,7 @@ def main() -> int:
         print(sh("docker", "logs", "--tail", "60", NAME, check=False)[-4000:], file=sys.stderr)
         return 1
     finally:
-        if not args.keep and not args.real:
+        if not args.keep and not args.real and not args.running:
             sh("docker", "rm", "-f", NAME, check=False)
             sh("docker", "volume", "rm", VOLUME, check=False)
             shutil.rmtree(ws, ignore_errors=True)

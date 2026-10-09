@@ -1,11 +1,12 @@
 {
   "name": "keel-v2-web",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.15.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "build:product": "vite build --config ../product/web/vite.config.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest",
     "preview": "vite preview"

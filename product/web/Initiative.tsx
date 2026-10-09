@@ -3,14 +3,18 @@
 
 import { useState } from "react";
 import {
+  Async,
   ClarifyForm,
+  Empty,
+  Markdown,
+  Panel,
+  Pill,
+  Tabs,
   answersOf,
+  useLoad,
   type ClarifyAnswers,
-} from "../../web/src/components/ClarifyForm";
-import { Markdown } from "../../web/src/components/Markdown";
-import { Async, Empty, Panel, Pill, Tabs } from "../../web/src/components/ui";
-import { useLoad } from "../../web/src/state";
-import type { ClarifyQuestion } from "../../web/src/api";
+  type ClarifyQuestion,
+} from "@keel/web-sdk";
 import {
   productApi,
   STAGE_LABEL,

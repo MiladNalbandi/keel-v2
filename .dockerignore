@@ -9,3 +9,4 @@ engine/.venv
 **/__pycache__
 **/.pytest_cache
 docs/mockup.html
+product/web/dist
