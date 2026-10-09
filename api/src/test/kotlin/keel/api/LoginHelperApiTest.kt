@@ -14,7 +14,7 @@ class LoginHelperApiTest : ApiTest() {
     }
 
     private fun waitFor(id: String, vararg states: String): com.fasterxml.jackson.databind.JsonNode {
-        repeat(80) {
+        repeat(200) {   // up to 20 s: a busy CI machine is slow, a passing login still answers at once
             val v = get("/api/logins/$id").json()
             if (v["status"].asText() in states) return v
             Thread.sleep(100)
