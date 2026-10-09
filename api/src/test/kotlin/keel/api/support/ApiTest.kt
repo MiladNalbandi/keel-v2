@@ -103,7 +103,9 @@ abstract class ApiTest {
             }
             r.add("keel.login-commands.copilot") {
                 "echo 'To authenticate, visit https://github.com/login/device and enter code 32B2-75E8'; sleep 1; " +
-                    "mkdir -p \"\$HOME/.copilot\"; echo '{\"token\":\"gho_abcdefghijklmnopqrstuvwxyz123456\"}' > \"\$HOME/.copilot/config.json\""
+                    "mkdir -p \"\$HOME/.copilot\"; echo '{\"token\":\"gho_abcdefghijklmnopqrstuvwxyz123456\"}' > \"\$HOME/.copilot/config.json\"; " +
+                    // like the real CLI on some machines: it saved the login but stays open
+                    "echo 'Waiting for authorization...'; sleep 600"
             }
             r.add("keel.login-commands.claude") {
                 "echo 'Browse to https://claude.com/cai/oauth/authorize?code=true&client_id=x'; printf 'Paste code here if prompted> '; read code; " +

@@ -157,23 +157,18 @@ class LoginService(
     }
 
     private fun finish(s: Session) {
-        val ended = s.proc.waitFor(15, TimeUnit.MINUTES)
-        if (!ended) s.proc.destroyForcibly()
+        // v0.15.5 the CLI can stay open after it saved the login (the Copilot CLI does on some machines): look for the
+        // result every 2 s while it runs, not only when it ends, so the page does not wait for the 15-minute limit
+        val deadline = System.nanoTime() + TimeUnit.MINUTES.toNanos(15)
+        var ended = false
+        while (!ended && System.nanoTime() < deadline && s.status !in setOf("done", "cancelled", "failed")) {
+            ended = s.proc.waitFor(2, TimeUnit.SECONDS)
+            if (!ended) collect(s)
+        }
+        if (!ended && s.status != "done") s.proc.destroyForcibly()
         Thread.sleep(200)
         parse(s)
-        if (s.status !in setOf("done", "cancelled")) {
-            try {
-                when (s.provider) {
-                    "codex" -> {
-                        val f = s.home.resolve(".codex/auth.json")
-                        if (Files.isRegularFile(f)) save(s, "CODEX_AUTH_JSON", Files.readString(f))
-                    }
-                    "copilot" -> findGithubToken(s.home)?.let { save(s, "GH_TOKEN", it) }
-                }
-            } catch (e: Exception) {
-                log.warn("{} login: could not read the result: {}", s.provider, e.javaClass.simpleName)
-            }
-        }
+        collect(s)
         if (s.status !in setOf("done", "cancelled")) {
             s.status = "failed"
             s.message = when {
@@ -182,6 +177,22 @@ class LoginService(
             }
         }
         s.home.toFile().deleteRecursively()
+    }
+
+    /** The login's result, when the CLI wrote it to a file: Codex's auth.json, the Copilot CLI's token. */
+    private fun collect(s: Session) {
+        if (s.status in setOf("done", "cancelled")) return
+        try {
+            when (s.provider) {
+                "codex" -> {
+                    val f = s.home.resolve(".codex/auth.json")
+                    if (Files.isRegularFile(f) && Files.size(f) > 0) save(s, "CODEX_AUTH_JSON", Files.readString(f))
+                }
+                "copilot" -> findGithubToken(s.home)?.let { save(s, "GH_TOKEN", it) }
+            }
+        } catch (e: Exception) {
+            log.warn("{} login: could not read the result: {}", s.provider, e.javaClass.simpleName)
+        }
     }
 
     private fun save(s: Session, name: String, value: String) {
