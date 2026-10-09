@@ -194,7 +194,8 @@ describe("registerSlot and useSlot", () => {
       expect(
         within(sec).getByText("What the demo part does."),
       ).toBeInTheDocument();
-      expect(within(sec).getByLabelText("Demo mode")).toHaveValue("1");
+      // the rows come once the settings have loaded (a moment after the section on a slow machine)
+      expect(await within(sec).findByLabelText("Demo mode")).toHaveValue("1");
       const nav = screen.getByRole("navigation", { name: "Settings sections" });
       const names = within(nav)
         .getAllByRole("button")
