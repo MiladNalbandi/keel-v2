@@ -18,6 +18,9 @@ import java.util.concurrent.Executors
 
 data class ProjectRow(val id: String, val name: String, val root: String)
 
+/** v0.15.7 a folder the bulk add did not add, and why. */
+data class Skipped(val root: String, val why: String)
+
 data class Project(
     val id: String,
     val name: String,
@@ -92,6 +95,34 @@ class ProjectService(private val jdbc: JdbcTemplate, private val mapper: ObjectM
         find(pid) ?: throw NotFound("No project called \"$pid\"", "GET /api/projects lists the projects keel knows.")
 
     fun root(pid: String): Path = Paths.get(require(pid).root)
+
+    /** v0.15.7 every project's folder (not a parked one) → its id, to mark the repos that are projects already. */
+    fun idsByRoot(): Map<String, String> =
+        jdbc.query("SELECT id, root FROM projects WHERE root NOT LIKE '%$PARKED%'") { rs, _ -> rs.getString(2) to rs.getString(1) }.toMap()
+
+    /**
+     * v0.15.7 registers many folders at once, each like [register] (the same checks). A folder that is a project
+     * already, or that [register] refuses, is skipped with the reason; the rest are added and scanned.
+     */
+    fun registerMany(roots: List<String>, names: Map<String, String> = emptyMap()): Pair<List<ProjectRow>, List<Skipped>> {
+        val added = mutableListOf<ProjectRow>()
+        val skipped = mutableListOf<Skipped>()
+        val ids = idsByRoot()
+        for (text in roots.map { it.trim() }.distinct()) {
+            val norm = text.takeIf { it.isNotEmpty() }?.let { Paths.get(it).toAbsolutePath().normalize().toString() }
+            val already = norm?.let { ids[it] } ?: added.firstOrNull { it.root == norm }?.id
+            if (already != null) {
+                skipped += Skipped(text, "already a project ($already)")
+                continue
+            }
+            try {
+                added += register(text, names[text])
+            } catch (e: keel.api.common.ApiException) {
+                skipped += Skipped(text, e.message)
+            }
+        }
+        return added to skipped
+    }
 
     /** Registers a folder (a new one is scanned). Same root again returns the existing project. */
     fun register(rootText: String, name: String? = null, scan: Boolean = true): ProjectRow {

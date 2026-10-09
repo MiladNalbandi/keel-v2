@@ -9,6 +9,8 @@ import java.nio.file.Paths
 data class KeelProperties(
     val data: String = "./.data",
     val workspace: String = "",
+    /** v0.15.7 the folders keel may look in for repos (KEEL_FOLDERS, ':' between them like PATH); blank = [workspace] alone. */
+    val folders: String = "",
     /** keel v2's content folder (KEEL_CONTENT); blank = found, see [contentDir]. */
     val content: String = "",
     val engineUrl: String = "http://127.0.0.1:8090",
@@ -25,6 +27,15 @@ data class KeelProperties(
     /** The command for keel's builtin MCP server. */
     val mcpPythonCommand: String by lazy {
         mcpPython.ifBlank { ENGINE_PYTHON.takeIf { Files.isExecutable(Paths.get(it)) } ?: "python3" }
+    }
+
+    /**
+     * v0.15.7 the folders to find repos in: KEEL_FOLDERS (the main project folder first, then the ones `keel2 add` mounted),
+     * else KEEL_WORKSPACE alone; absolute, normalized, no doubles.
+     */
+    val folderRoots: List<Path> by lazy {
+        val list = folders.split(':').map { it.trim() }.filter { it.isNotEmpty() }.ifEmpty { listOf(workspace.trim()).filter { it.isNotEmpty() } }
+        list.map { Paths.get(it).toAbsolutePath().normalize() }.distinct()
     }
 
     /** Absolute data folder; created on first use. */

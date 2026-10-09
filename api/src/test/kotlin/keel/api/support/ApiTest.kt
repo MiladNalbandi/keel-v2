@@ -68,6 +68,8 @@ abstract class ApiTest {
 
     companion object {
         val dataDir: Path = Files.createTempDirectory("keel-data")
+        /** v0.15.7 KEEL_FOLDERS in tests: two folders under this one ("main" and "extra"), and "missing", which is not there. */
+        val foldersDir: Path = Files.createTempDirectory("keel-folders")
         val engine: StubEngine = StubEngine.start()
         val github: StubGitHub = StubGitHub.start()
         val hosts: StubCodeHost = StubCodeHost.start()
@@ -81,6 +83,7 @@ abstract class ApiTest {
             r.add("keel.engine-url") { engine.url }
             r.add("keel.content") { contentDir.toString() }
             r.add("keel.workspace") { "" }
+            r.add("keel.folders") { listOf("main", "extra", "missing").joinToString(":") { foldersDir.resolve(it).toString() } }
             r.add("keel.internal-token") { TOKEN }
             r.add("keel.secret") { "" }
             r.add("keel.fake-on-real-projects") { true }

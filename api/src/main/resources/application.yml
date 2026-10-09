@@ -26,6 +26,7 @@ spring:
 keel:
   data: ${KEEL_DATA:./.data}
   workspace: ${KEEL_WORKSPACE:}
+  folders: ${KEEL_FOLDERS:}
   content: ${KEEL_CONTENT:}
   engine-url: ${KEEL_ENGINE_URL:http://127.0.0.1:8090}
   internal-token: ${KEEL_INTERNAL_TOKEN:}

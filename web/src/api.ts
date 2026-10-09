@@ -220,6 +220,14 @@ export type Project = {
   flows?: number;
 };
 
+// v0.15.7 Add projects from your folders (GET /api/folders, GET /api/folders/browse, POST /api/projects/bulk)
+export type FolderRoot = { path: string; exists: boolean };
+export type FoundRepo = { path: string; name: string; root: string; project_id: string | null };
+export type Folders = { roots: FolderRoot[]; repos: FoundRepo[]; truncated?: boolean };
+export type BrowseDir = { path: string; name: string; repo: boolean; project_id: string | null };
+export type FolderWalk = { path: string; root: string; parent: string | null; dirs: BrowseDir[]; truncated?: boolean };
+export type BulkAdded = { added: Project[]; skipped: { root: string; why: string }[] };
+
 export type FlowView = { thread: ThreadState | null; workflow: Workflow | null };
 /** v0.7.x: one flow on the project's board: in the project folder, or in a worktree of its own next to the others. */
 export type BoardFlow = {
@@ -926,6 +934,12 @@ export const api = {
   // projects
   projects: () => get<Project[]>("/projects"),
   addProject: (root: string, name?: string) => post<Project>("/projects", { root, name }),
+  /** v0.15.7 the folders keel may look in, and the git repos inside them */
+  folders: () => get<Folders>("/folders"),
+  /** v0.15.7 one folder's sub folders (403 outside the folders keel may look in) */
+  browseFolder: (path?: string) => get<FolderWalk>("/folders/browse" + q({ path })),
+  /** v0.15.7 adds many repos at once; one that is a project already comes back in `skipped` with why */
+  addProjects: (roots: string[], names?: Record<string, string>) => post<BulkAdded>("/projects/bulk", { roots, ...(names ? { names } : {}) }),
   project: (pid: string) => get<Project>(`/projects/${e(pid)}`),
 
   // flow

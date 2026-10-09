@@ -8,7 +8,7 @@ const nav = () => screen.getByRole("navigation", { name: "Screens" });
 describe("navigation and project switching", () => {
   it("shows the grouped nav like the mockup", async () => {
     render(<App />);
-    await screen.findByRole("option", { name: "ludus-engine" });
+    await screen.findByRole("button", { name: /^Project: ludus-engine/ });
     const n = within(nav());
     for (const g of ["Run", "Project", "Build", "Control"]) expect(n.getAllByText(g).length).toBeGreaterThan(0);
     for (const l of ["Flow", "Live agents", "Jobs", "Code", "Map", "Graph", "Wiki", "Workflows", "Agents", "Skill hub", "Stacks", "Tools (MCP)", "Budget", "Settings", "Connections"]) {
@@ -31,7 +31,9 @@ describe("navigation and project switching", () => {
     const user = userEvent.setup();
     render(<App />);
     await screen.findByText(/AC gate — AC-002/);
-    await user.selectOptions(screen.getByLabelText("Project"), "yegi");
+    // v0.15.7 the picker is a searchable switcher: open it, choose the project
+    await user.click(screen.getByRole("button", { name: /^Project: ludus-engine/ }));
+    await user.click(within(screen.getByRole("listbox", { name: "Projects" })).getByRole("option", { name: "YegiResearcher" }));
     expect(await screen.findByText("Nothing running here yet")).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("Now showing YegiResearcher");
     expect(localStorage.getItem("keel2.project")).toBe("yegi");
