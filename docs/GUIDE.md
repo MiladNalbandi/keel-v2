@@ -207,6 +207,21 @@ The image has JDK 21, Node 20, Python 3.12 and the Docker CLI (compose, buildx).
 Docker socket and the project at the **same path** as on your computer, so Testcontainers and compose bind mounts
 work. Docker access is as strong as root on your computer: use it only for projects you trust.
 
+## Several project folders
+
+`keel2 start <folder>` gives keel one folder. To add projects from other places, name them, several at once:
+
+```bash
+keel2 add ~/Projects/api ~/Work/web ~/Projects/clients   # each a git repo, or a folder of git repos
+keel2 folders                                            # the main folder and the added ones
+keel2 remove ~/Work/web                                  # off the list; keel keeps its history
+```
+
+The list is kept per keel in `~/.config/keel2/<KEEL_NAME>.folders`. If keel runs, `add` and `remove` restart it once
+(they ask first when agents are working). Each added folder is mounted at the **same path** as on your computer, and
+every git repo in it becomes a project (a folder of repos: each repo directly inside it). More repos later? All
+projects › Add projects lets you pick them. A folder that no longer exists is skipped (`keel2 folders` marks it).
+
 ## Problems
 
 Run `keel2 doctor` first. The most common ones:
@@ -226,6 +241,7 @@ All commands: `keel2 help` (logs, tokens, backup, restore, uninstall …).
 | Folder | What |
 |---|---|
 | `/workspace` | your project (one git repo, or a folder of repos); its real path with `--docker` |
+| the same path as on your computer | each folder added with `keel2 add` |
 | `/data` | keel's database, flow checkpoints, encrypted logins |
 | `/opt/keel-v2/content` | keel v2's agents, skills, stacks, packs, templates and workflows |
 | `/opt/keel-v1-optional` | only with `--with-keel-v1`: that keel v1 checkout, read-only, for its MCP server |

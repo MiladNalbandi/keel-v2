@@ -22,6 +22,16 @@ jobs:
           ./keel2 mcp --print-config | grep -q "claude mcp add keel-v2 -- $PWD/keel2 mcp$"
           ./keel2 mcp --write --print-config | grep -q '"args": \["mcp", "--write"\]'
           ! ./keel2 start --with-keel-v1 /tmp
+      # keel2 add / remove / folders: the list of added folders works without Docker or a running keel
+      - run: |
+          ./keel2 help | grep -q "keel2 add"
+          export KEEL_NAME=keel-ci-folders XDG_CONFIG_HOME="$(mktemp -d)"
+          repo="$(mktemp -d)" && git init -q "$repo"
+          ./keel2 folders | grep -q "No added folders"
+          ./keel2 add "$repo" </dev/null
+          ./keel2 folders | grep -qF "added    $(cd "$repo" && pwd -P)"
+          ./keel2 remove "$repo"
+          ./keel2 folders | grep -q "No added folders"
   engine:
     runs-on: ubuntu-latest
     # v0.10.0 the Database plugin's tests run against a real PostgreSQL and MySQL (tests/test_plugins_servers.py)

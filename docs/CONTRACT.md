@@ -1856,3 +1856,16 @@ waits elsewhere opens live (Open, `#/flow/<tid>`), as before.
 ## v0.15.6: the Copilot login finishes
 
 - After the person authorizes, the Copilot CLI finds no keychain in keel's container and asks "Store token in plaintext config file? (y/N)". keel now answers yes (the token goes to the login's own temporary folder; keel saves it encrypted as GH_TOKEN and deletes the folder). If the CLI still says the token was not saved, the login ends as failed with a clear message.
+
+## v0.15.7: several project folders
+
+- `keel2 add <folder>…` keeps a per-keel list of extra host folders (`${XDG_CONFIG_HOME:-~/.config}/keel2/<KEEL_NAME>.folders`,
+  one absolute path per line). `keel2 start` mounts each one that exists at the same path (`-v <path>:<path>`), in
+  both modes, and skips missing ones with a warning. `keel2 remove` and `keel2 folders` edit and show the list.
+- The container gets `KEEL_FOLDERS=<p1>:<p2>:…`: every project folder it has, as paths inside the container, the main
+  project first (`/workspace`, or its host path with `--docker`, the same as `KEEL_WORKSPACE`), then the added
+  folders in list order. It is always set (only the main folder when nothing was added). A path with `:` cannot be
+  added.
+- After `/api/health` answers, keel2 registers each added folder that is a git repo, and each git repo directly
+  inside an added folder of repos, with `POST /api/projects {"root": "<path>"}`; roots that `GET /api/projects`
+  already lists are skipped.

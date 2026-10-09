@@ -7,6 +7,11 @@
 #                               also offer keel v1's MCP server (optional, off until you turn it on in Tools)
 #   keel2 stop | restart        stop keel / start it again with the same project and options (they ask first
 #                               when agents are working; --force does not ask)
+#   keel2 add <folder> [<folder> …]
+#                               add more project folders (each a git repo, or a folder of repos); keel restarts once
+#   keel2 remove <folder> [<folder> …]
+#                               take added folders off the list (keel keeps their projects' history)
+#   keel2 folders               the main project folder and the added ones
 #   keel2 status                is keel running, for which project, on which port
 #   keel2 open                  open the dashboard in the browser
 #   keel2 logs                  follow keel's log (Ctrl+C to leave)
@@ -24,6 +29,7 @@
 #
 # Settings (environment): KEEL_IMAGE, PORT (default 8080; a busy port moves to the next free one), KEEL_NAME,
 # KEEL_VOLUME (a second keel needs its own), KEEL_OPEN=0 (no browser), KEEL_DOCKER=1 (same as --docker).
+# Added folders are listed in ${XDG_CONFIG_HOME:-~/.config}/keel2/<KEEL_NAME>.folders (one path per line).
 # Logins: dashboard › Control › Connections › "Set up login". They are saved encrypted in keel's database on the
 # data volume, so they survive restarts and new images. Nothing from your computer is copied into the container.
 set -euo pipefail
@@ -182,6 +188,55 @@ docker_socket() {  # the host's Docker socket path, for --docker
   echo /var/run/docker.sock
 }
 
+# ---------------------------------------------------------------- added project folders (keel2 add)
+# The list is per keel (KEEL_NAME): one absolute host path per line. keel2 start mounts each folder at the same path.
+folders_file() { echo "${XDG_CONFIG_HOME:-$HOME/.config}/keel2/$NAME.folders"; }
+list_folders() { local f; f="$(folders_file)"; [ -f "$f" ] || return 0; grep -v '^[[:space:]]*$' "$f" || true; }
+is_repo() { [ -d "$1/.git" ] || [ -f "$1/.git" ]; }
+json_str() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }   # a string for inside JSON quotes
+keel_running() { command -v docker >/dev/null 2>&1 && container_running; }
+main_project() {  # the main project folder of keel's container, or nothing (no Docker, or never started)
+  command -v docker >/dev/null 2>&1 || return 0
+  label project
+}
+container_folders() {  # the KEEL_FOLDERS the running container got, one per line
+  command -v docker >/dev/null 2>&1 || return 0
+  docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$NAME" 2>/dev/null | sed -n 's/^KEEL_FOLDERS=//p' | tr ':' '\n' || true
+}
+abs_path() {  # like project_path, but the folder may be gone (for keel2 remove)
+  local p="$1"
+  case "$p" in "~"*) p="$HOME${p#\~}" ;; esac
+  if [ -d "$p" ]; then (cd "$p" && pwd -P); return; fi
+  case "$p" in /*) ;; *) p="$PWD/$p" ;; esac
+  while [ "${p%/}" != "$p" ] && [ "$p" != / ]; do p="${p%/}"; done
+  echo "$p"
+}
+
+register_added() {  # register_added <port> <folder>… — every git repo in the added folders becomes a keel project
+  local port="$1"; shift
+  [ $# -gt 0 ] || return 0
+  local known f r j out; known="$(curl -fs -m 10 "$(api "$port")/projects" 2>/dev/null || true)"
+  local roots=()
+  for f in "$@"; do
+    if is_repo "$f"; then roots+=("$f"); continue; fi
+    for r in "$f"/*/; do
+      r="${r%/}"
+      if [ -d "$r" ] && is_repo "$r"; then roots+=("$r"); fi
+    done
+  done
+  for r in ${roots[@]+"${roots[@]}"}; do
+    j="$(json_str "$r")"
+    if printf '%s' "$known" | grep -qF "\"root\":\"$j\""; then continue; fi
+    if out="$(curl -fsS -m 30 -X POST "$(api "$port")/projects" -H 'content-type: application/json' \
+                --data-binary "{\"root\":\"$j\"}" 2>&1)"; then
+      ok "project added: $(basename "$r")  ${D}($r)${N}"
+    else
+      warn "Could not add $r as a project: $out"
+    fi
+  done
+  info "  ${D}More repos? All projects › Add projects lets you pick them.${N}"
+}
+
 # ---------------------------------------------------------------- commands
 cmd_start() {
   local docker_mode="${KEEL_DOCKER:-0}" folder="" keel_v1=""
@@ -203,6 +258,13 @@ cmd_start() {
   need_docker
   check_git "$project"
   check_shared "$project"
+  local added=() f
+  while IFS= read -r f; do
+    [ "$f" = "$project" ] && continue
+    case "$f" in "$project"/*) info "  ${D}$f is inside the main project, so keel has it already.${N}"; continue ;; esac
+    if [ -d "$f" ]; then added+=("$f")
+    else warn "The added folder $f is missing, so keel skips it. Take it off the list: keel2 remove \"$f\""; fi
+  done < <(list_folders)
   ensure_image
 
   if container_exists; then
@@ -232,14 +294,24 @@ cmd_start() {
   else
     args+=(-v "$project:/workspace")
   fi
+  # Added folders (keel2 add) are mounted at the same path as on this computer, in both modes. KEEL_FOLDERS tells
+  # keel every folder it has, as paths inside the container, the main project first.
+  local folders; if [ "$docker_mode" = 1 ]; then folders="$project"; else folders=/workspace; fi
+  for f in ${added[@]+"${added[@]}"}; do
+    check_shared "$f"
+    args+=(-v "$f:$f"); folders="$folders:$f"
+  done
+  args+=(-e KEEL_FOLDERS="$folders")
   local v; for v in ANTHROPIC_API_KEY OPENAI_API_KEY GITHUB_TOKEN GH_TOKEN CLAUDE_CODE_OAUTH_TOKEN; do
     if [ -n "${!v:-}" ]; then args+=(-e "$v"); fi
   done
 
   info "Starting keel for ${B}$project${N}…"
+  [ ${#added[@]} = 0 ] || info "  ${D}and ${#added[@]} added folder(s): ${added[*]}${N}"
   docker run "${args[@]}" "$IMAGE" >/dev/null || die "Docker could not start the container." "Run 'keel2 doctor' to find out why."
   wait_healthy "$port"
   ok "keel is running: ${B}http://localhost:$port${N}"
+  register_added "$port" ${added[@]+"${added[@]}"}
   info "  ${D}Next: open Control › Connections › Set up login (Claude, Codex or GitHub Copilot).${N}"
   info "  ${D}Stop: keel2 stop · Status: keel2 status · Problems: keel2 doctor${N}"
   [ "${KEEL_OPEN:-1}" = 1 ] && open_url "http://localhost:$port" || true
@@ -270,6 +342,70 @@ cmd_restart() {
   if [ "$d" = 1 ]; then cmd_start --docker ${extra[@]+"${extra[@]}"} "$p"; else cmd_start --no-docker ${extra[@]+"${extra[@]}"} "$p"; fi
 }
 
+cmd_add() {  # keel2 add <folder>… — saves the folders in the list, then restarts keel once
+  [ $# -gt 0 ] || die "usage: keel2 add <folder> [<folder> …]" "For example: keel2 add ~/Projects/api ~/Projects/web"
+  local main a p new=() list; main="$(main_project)"; list="$(list_folders)"
+  for a in "$@"; do
+    case "$a" in --force) KEEL_FORCE=1; continue ;; -*) die "Unknown option $a" "See: keel2 help" ;; esac
+    p="$(project_path "$a")"
+    case "$p" in *:*) die "keel cannot add a folder with ':' in its path: $p" "Rename or move the folder, then add it." ;; esac
+    if [ -n "$main" ] && [ "$p" = "$main" ]; then info "  $p is keel's main project already."; continue; fi
+    if [ -n "$main" ]; then case "$p" in "$main"/*) info "  $p is inside the main project ($main), so keel has it already."; continue ;; esac; fi
+    if printf '%s\n' "$list" ${new[@]+"${new[@]}"} | grep -qxF "$p"; then info "  $p is in the list already."; continue; fi
+    check_git "$p"
+    check_shared "$p"
+    new+=("$p")
+  done
+  if [ ${#new[@]} = 0 ]; then info "Nothing new to add. See the list: keel2 folders"; return 0; fi
+  local file; file="$(folders_file)"
+  mkdir -p "$(dirname "$file")"
+  printf '%s\n' "${new[@]}" >> "$file"
+  for p in "${new[@]}"; do ok "added $p"; done
+  if keel_running; then
+    info "Restarting keel once, so it gets the new folder(s)…"
+    cmd_restart
+  else
+    info "  ${D}keel is not running. The folders are mounted when it starts: keel2 start /path/to/project (or keel2 restart)${N}"
+  fi
+}
+
+cmd_remove() {  # keel2 remove <folder>… — takes folders off the list, then restarts keel once
+  [ $# -gt 0 ] || die "usage: keel2 remove <folder> [<folder> …]" "keel2 folders shows the list."
+  local file a p gone=() list; file="$(folders_file)"; list="$(list_folders)"
+  [ -n "$list" ] || die "No folders were added, so there is nothing to remove." "Add one: keel2 add <folder>"
+  for a in "$@"; do
+    case "$a" in --force) KEEL_FORCE=1; continue ;; -*) die "Unknown option $a" "See: keel2 help" ;; esac
+    p="$(abs_path "$a")"
+    if printf '%s\n' "$list" | grep -qxF "$p"; then gone+=("$p"); else warn "$p is not in the list (keel2 folders shows it)."; fi
+  done
+  if [ ${#gone[@]} = 0 ]; then info "Nothing changed."; return 0; fi
+  local keep; keep="$(printf '%s\n' "$list" | grep -vxF -f <(printf '%s\n' "${gone[@]}") || true)"
+  if [ -n "$keep" ]; then printf '%s\n' "$keep" > "$file"; else rm -f "$file"; fi
+  for p in "${gone[@]}"; do ok "removed $p"; done
+  info "  ${D}keel keeps those projects' history. Add the folder again to see it.${N}"
+  if keel_running; then
+    info "Restarting keel once, so it lets go of the folder(s)…"
+    cmd_restart
+  fi
+}
+
+cmd_folders() {
+  local main f n=0 mounted; main="$(main_project)"; mounted="$(container_folders)"
+  if [ -n "$main" ]; then
+    info "main     $main$([ -d "$main" ] || echo "  ${R}(missing)${N}")"
+  else
+    info "main     ${D}(not known: keel has not been started. keel2 start /path/to/project)${N}"
+  fi
+  while IFS= read -r f; do
+    n=$((n + 1))
+    if [ ! -d "$f" ]; then info "added    $f  ${R}(missing: keel skips it; keel2 remove takes it off)${N}"
+    elif [ -n "$mounted" ] && ! printf '%s\n' "$mounted" | grep -qxF "$f"; then info "added    $f  ${Y}(not in keel yet: keel2 restart)${N}"
+    else info "added    $f"; fi
+  done < <(list_folders)
+  [ "$n" -gt 0 ] || info "  ${D}No added folders. Add some: keel2 add <folder> [<folder> …]${N}"
+  info "  ${D}list: $(folders_file)${N}"
+}
+
 cmd_status() {
   need_docker
   if ! container_exists; then info "keel is ${B}not running${N}. Start it: keel2 start /path/to/project"; return 0; fi
@@ -284,6 +420,9 @@ cmd_status() {
   info "  dashboard  http://localhost:$port"
   [ -n "$version" ] && info "  version    keel v2 $version"
   info "  project    $(label project)"
+  local f; while IFS= read -r f; do
+    info "  added      $f$([ -d "$f" ] || echo "  (missing)")"
+  done < <(list_folders)
   info "  docker     $([ "$(label docker)" = 1 ] && echo "on (tests may start containers)" || echo off)"
   [ -n "$(label keelv1)" ] && info "  keel v1    MCP server offered from $(label keelv1) (Tools, off until turned on)"
   info "  image      $(docker inspect -f '{{.Config.Image}}' "$NAME")"
@@ -411,14 +550,17 @@ cmd_restore() {
   ok "restored from $file"
 }
 
+remove_folders_file() { local f; f="$(folders_file)"; if [ -f "$f" ]; then rm -f "$f"; ok "removed the list of added folders ($f)"; fi; }
+
 cmd_uninstall() {
   need_docker
   container_exists && docker rm -f "$NAME" >/dev/null && ok "removed the keel container"
   if [ "${1:-}" = "--all" ]; then
-    docker volume inspect "$VOLUME" >/dev/null 2>&1 || { info "No keel data to remove."; return 0; }
+    if ! docker volume inspect "$VOLUME" >/dev/null 2>&1; then info "No keel data to remove."; remove_folders_file; return 0; fi
     warn "This deletes keel's data: logins, settings, flow history (volume $VOLUME). Your projects are not touched."
     ask_yes "Delete keel's data for good? (keel2 backup first if you may need it)" || { info "Kept keel's data."; return 0; }
     docker volume rm "$VOLUME" >/dev/null && ok "removed keel's data"
+    remove_folders_file
   else
     info "  ${D}keel's data (volume $VOLUME) is kept. To remove it too: keel2 uninstall --all${N}"
   fi
@@ -474,6 +616,9 @@ case "$cmd" in
   stop)             cmd_stop "$@" ;;
   restart)          [ "${1:-}" = "--force" ] && KEEL_FORCE=1; cmd_restart ;;
   status|ps)        cmd_status ;;
+  add)              cmd_add "$@" ;;
+  remove|rm)        cmd_remove "$@" ;;
+  folders)          cmd_folders ;;
   open)             cmd_open ;;
   logs)             need_docker; container_exists || die "keel is not running."; exec docker logs -f --tail 100 "$NAME" ;;
   doctor|check)     cmd_doctor "$@" ;;
