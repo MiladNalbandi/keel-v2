@@ -2,7 +2,7 @@
 # Paths are relative to the plugin folder. The version must equal VERSION in engine/keel_plugin_git/__init__.py
 # (engine/tests/test_git_part.py checks it). Each part is written on one line (scripts/build-plugin.sh reads them).
 # What flows need stays in keel's core: the git helper (Workspace, tools/git.py), Connections › GitHub (the token) and
-# "open the pull request" in ship. The Code page's branch tab (core until wave C) shows a branch with this plugin's api.
+# "open the pull request" in ship. The Code page's branch tab (the Code plugin's) shows a branch with this plugin's api.
 schema: 1
 name: git
 title: Git

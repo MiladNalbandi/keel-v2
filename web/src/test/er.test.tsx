@@ -1,11 +1,11 @@
 // The Map's database diagram (components/er): tables with key icons and typed columns, a line per foreign key, find a
 // table, keys only, selection with neighbours and the Structure panel, keyboard, drag + Reset layout remembered per
-// project, export, and the other levels on the same canvas. The Map page itself: plugins/map/web/test.
+// project, export, and the other levels on the same canvas. The Map page itself: plugins/map/web/test; a map link
+// opening the Code page at a line: plugins/code/web/test.
 
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { App } from "../App";
 import type { DbSchema, KeelMap } from "../api";
 import { BoxDiagram, endpointGroups, moduleBoxes, systemBoxes } from "../components/er/BoxDiagram";
 import { ErDiagram, posKey } from "../components/er/ErDiagram";
@@ -247,18 +247,5 @@ describe("the other map levels", () => {
     expect(boxes.filter((b) => b.kind === "api").map((b) => b.title)).toEqual(["/api/v1/orders", "/api/v1/products"]);
     expect(boxes.find((b) => b.id === "tbl:customer_order")).toMatchObject({ drill: "er", table: "customer_order", rows: [{ t: "9 columns, 5 FK" }] });
     expect(endpointGroups([{ method: "GET", path: "/a/b" }]).groups[0][0]).toBe("/a");
-  });
-});
-
-describe("Code page from a map link", () => {
-  it("opens the file at the line a table or column cites", async () => {
-    localStorage.setItem("keel2.project", "ludus-engine");
-    location.hash = `#/repo/${encodeURIComponent("api/ScoreController.kt:3")}`;
-    render(<App />);
-    // The Repo IDE (v0.5.1) opens the encoded map link at the line and marks it.
-    await screen.findByRole("region", { name: "Code of api/ScoreController.kt" });
-    const row = () => document.querySelector<HTMLElement>('.cv-row[data-line="3"]');
-    await waitFor(() => expect(row()).toHaveClass("tgt"));
-    expect(row()!.textContent).toContain("import org.springframework.web.bind.annotation.PostMapping");
   });
 });

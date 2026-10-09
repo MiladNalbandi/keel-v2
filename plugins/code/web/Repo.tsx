@@ -1,15 +1,12 @@
 // Repo (Project): a small, read-only VS Code for the project — files with git and keel marks, editor tabs,
-// search, source control, and keel's own pages (the IDE is in ./repo/). The head keeps the code graph index and
+// search, source control, and keel's own pages (the IDE is in ./Ide.tsx). The head keeps the code graph index and
 // "Update from <base>", the one action here that changes the repo (a git merge that stops on a conflict).
 
 import { useEffect, useState } from "react";
-import { api, errorParts, type IndexStatus, type RepoInfo, type UpdateFromBase } from "../api";
-import { ErrorBox, PageHead } from "../components/ui";
-import { plural } from "../format";
-import { go, useApp, useLoad } from "../state";
-import { isMac, keyLabel } from "../keys";
-import { RepoIde } from "./repo/Ide";
-import { FOCUS_EVENT, FOCUS_KEYS } from "./repo/model";
+import { ErrorBox, errorParts, go, isMac, keyLabel, PageHead, plural, useApp, useLoad } from "@keel/web-sdk";
+import { codeApi as api, type IndexStatus, type RepoInfo, type UpdateFromBase } from "./codeApi";
+import { RepoIde } from "./Ide";
+import { FOCUS_EVENT, FOCUS_KEYS } from "./model";
 
 export function RepoPage({ pid }: { pid: string }) {
   const { project } = useApp();

@@ -3,10 +3,8 @@
 // with Switch to it (keel's switch: git refuses when uncommitted changes would be lost) and Ask KeelBot to review it.
 
 import { useState } from "react";
-import { api, errorParts } from "../../api";
-import { ErrorBox, Pill } from "../../components/ui";
-import { askAssistant } from "../../sdk/assistant";
-import { useApp, useLoad } from "../../state";
+import { askAssistant, ErrorBox, errorParts, Pill, useApp, useLoad } from "@keel/web-sdk";
+import { codeApi as api } from "./codeApi";
 import { DiffPane, type DiffMode } from "./Editor";
 import { FileIcon, Icon } from "./icons";
 import { nameOf, parentOf } from "./model";

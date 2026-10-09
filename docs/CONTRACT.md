@@ -207,6 +207,8 @@ type Job = { id, project_id, thread_id, agent, provider, model, step, phase, ac,
 type JobStep = { n, at, kind, text, tool?, server?, path?, diff?, ms?, ok? }
 
 # repo (Project)
+# since step 3 the Code plugin's (plugins/code: api keel.api.repo.RepoController and RepoSearch in keel-plugin-code.jar,
+# web plugins/code/web); RepoService (the repo's info, tree, files and diffs) stays core: Git and Code Review read the repo with it
 GET    /api/projects/{pid}/repo                       → { branch, base, ahead, behind, remote, worktrees: {branch,path}[], branches: {name, note}[] }
 GET    /api/projects/{pid}/repo/tree?depth=4&dir=     → TreeNode[]   { path, name, depth, kind: "dir"|"file", mark?: "A"|"M"|"D", keel: bool, frozen: bool, ac?: string }
                                                         (dir: lazy loading — that folder's subtree, depth levels down; depth 1 = the root's children)
@@ -227,7 +229,7 @@ GET    /api/projects/{pid}/repo/diff?path=&against=head|base&sha=
                                                       → { path, against, ref, diff (unified), binary, truncated }   (head: work tree vs HEAD; base: work tree vs the merge-base
                                                          with main/master; sha: that commit's change; an untracked file diffs against nothing)
 GET    /api/projects/{pid}/repo/commit?sha=           → { sha, message, body, author, at, keel, files: { path, status: "A"|"M"|"D"|"R", from? }[] }
-# web (pages/Repo.tsx + pages/repo/): an activity bar (Explorer, Search, Source control, keel), editor tabs (single click = preview
+# web (pages/Repo.tsx + pages/repo/; since step 3 plugins/code/web): an activity bar (Explorer, Search, Source control, keel), editor tabs (single click = preview
 # tab replaced by the next one, double click = pinned), a status bar. Deep links: #/repo/<path> opens a file, #/repo/<path>:<line>
 # opens it at that line and highlights it (the Map links a table to its migration this way); the URL follows the active tab.
 # Keys: Ctrl/⌘+P quick open (":12" = line), +Shift+F search, +Shift+E explorer, +Shift+G source control, +F find in file,
@@ -1296,7 +1298,8 @@ HelperMention = {kind: file|symbol|ac, value, file?, line?}      HelperSelection
 - One answer at a time per session (409 while one runs); `stop` cancels it at any moment and leaves a `note` message.
 
 ### Web
-- `components/helper/HelperPanel.tsx` in `pages/repo/Ide.tsx` (a column on the right; a phone shows it over the page):
+- `components/helper/HelperPanel.tsx` in `pages/repo/Ide.tsx` (since step 3 the Code plugin's `plugins/code/web/Ide.tsx`,
+  through the slot `assistant`; a column on the right; a phone shows it over the page):
   the chat list, the model, what the chat used, the answers (Markdown; `file:line` chips open the editor there), each
   answer's steps (live while it runs from `helper.step`, stored ones on demand from `/jobs/{call_id}/steps`), the open
   file and the selected lines that go along, `/` commands and `@` mentions (criteria of the flow, code-graph symbols,

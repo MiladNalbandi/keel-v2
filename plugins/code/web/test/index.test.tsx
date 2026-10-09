@@ -1,10 +1,12 @@
-// Plan 5b: the Code page shows the project's code graph index and can rebuild it.
+// Plan 5b: the Code page shows the project's code graph index and can rebuild it. Moved from web/src/test with the
+// plugin: it runs inside keel's web, as the full image has it.
 
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { App } from "../App";
-import { db } from "./setup";
+// keel's own app and test harness
+import { App } from "../../../../web/src/App";
+import { db } from "../../../../web/src/test/setup";
 
 const calls = (method: string, path: string) => db.calls.filter((c) => c.method === method && c.path === path);
 

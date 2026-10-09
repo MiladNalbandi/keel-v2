@@ -63,6 +63,15 @@ class FenceTest {
     }
 
     @Test
+    fun `the Code page's classes are not in core, not even in its package keel_api_repo`() {
+        // keel.api.repo stays core (RepoService: Git and Code Review read the repo with it), so look for the names themselves
+        val names = Regex("""\b(RepoController|RepoSearch|SearchMatch|SearchFile|SearchResult|FileList)\b""")
+        val found = Files.walk(sources).use { paths -> paths.filter { it.extension == "kt" }.sorted().toList() }
+            .filter { names.containsMatchIn(Fence.withoutComments(it.readText())) }
+        assertThat(found).describedAs("plugins/code/api has them; core never uses them").isEmpty()
+    }
+
+    @Test
     fun `core uses no plugin beyond the allowlist`() {
         assertThat(sources.isDirectory()).describedAs("run the tests from api/: $sources is missing").isTrue()
         val problems = Fence.problems(Fence.scan(sources).couplings, Fence.readAllowlist(allowlist), allowlistName)
@@ -145,14 +154,16 @@ class FenceTest {
 private object Fence {
     const val GUIDE = "docs/plugins/02-plugin-package.md"
 
-    // The packages that become plugins (docs/plugins/01-today.md). keel.api.repo and keel.api.knowledge stay core.
+    // The packages that become plugins (docs/plugins/01-today.md). keel.api.repo (RepoService) and keel.api.knowledge
+    // stay core; the Code page's own classes in keel.api.repo are plugins/code's (FORBIDDEN).
     val PLUGINS = listOf("keel.api.helper", "keel.api.plugins")
 
     // Core never uses these, not even today. They can never be in the allowlist. The parts that moved out keep their
     // package, and core never uses it again (step 3): keel.api.map (plugins/map), keel.api.wiki (plugins/wiki),
     // keel.api.tasks (plugins/tasks), keel.api.jira (plugins/jira), keel.api.review (plugins/review), the Ci* classes
     // of CI/CD (plugins/ci), the Database* and Db* classes of Database (plugins/db) and the Git* classes of Git
-    // (plugins/git), all in keel's package keel.api.plugins.
+    // (plugins/git), all in keel's package keel.api.plugins, and the Code page's RepoController and RepoSearch (with its
+    // answers) of plugins/code, in keel's package keel.api.repo.
     val FORBIDDEN = listOf(
         "keel.product", "keel.api.map", "keel.api.wiki", "keel.api.tasks", "keel.api.jira", "keel.api.review",
         "keel.api.plugins.CiController", "keel.api.plugins.CiFixBody", "keel.api.plugins.CiService",
@@ -161,6 +172,8 @@ private object Fence {
         "keel.api.plugins.DbQueryBody",
         "keel.api.plugins.GitCommitBody", "keel.api.plugins.GitPluginController", "keel.api.plugins.GitPluginService",
         "keel.api.plugins.GitPrBody", "keel.api.plugins.GitSwitchBody",
+        "keel.api.repo.FileList", "keel.api.repo.RepoController", "keel.api.repo.RepoSearch", "keel.api.repo.SearchFile",
+        "keel.api.repo.SearchMatch", "keel.api.repo.SearchResult",
     )
 
     data class Found(val couplings: Set<String>, val forbidden: Set<String>)

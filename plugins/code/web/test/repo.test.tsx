@@ -1,17 +1,20 @@
 // v0.5.1 the Code page as a small read-only VS Code: tabs (preview / pin / close), quick open, find in file,
 // search across files, diffs, deep links with a line, source control, the phone's two screens — and its logic.
+// Moved from web/src/test with the plugin: it runs inside keel's web, as the full image has it (web/src/test/setup.ts
+// runs every plugin's setup()).
 
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { App } from "../App";
-import type { DiffRow } from "../components/Code";
+import type { DiffRow } from "@keel/web-sdk";
+// keel's own app and test harness: this test runs the Code page inside keel's web, as keel loads it
+import { App } from "../../../../web/src/App";
+import * as fx from "../../../../web/src/test/fixtures";
+import { db } from "../../../../web/src/test/setup";
 import {
   closeTab, findAll, findRegExp, fuzzy, markHtml, openTab, parseDeepLink, parseGoto, pinTab, rankFiles, repoHash, retargetTab,
   splitHtmlLines, splitRows, visibleRows, indexTree, webUrl, type Tabs,
-} from "../pages/repo/model";
-import * as fx from "./fixtures";
-import { db } from "./setup";
+} from "../model";
 
 const at = (hash: string) => {
   location.hash = hash;

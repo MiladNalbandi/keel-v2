@@ -1,4 +1,4 @@
-// The Code page's icons that the Database tool uses, drawn the same way as keel's (pages/repo/icons.tsx: the same paths,
+// The Code page's icons that the Database tool uses, drawn the same way as keel's (components/icons.tsx: the same paths,
 // class and stroke), so Code › Database looks as in keel 0.15.1. A plugin carries its own copy: it imports only react and
 // @keel/web-sdk.
 

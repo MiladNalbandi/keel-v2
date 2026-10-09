@@ -1,10 +1,25 @@
 // Example api data for tests (MSW). Shapes follow docs/CONTRACT.md; values follow docs/mockup.html.
 
 import type {
-  Agent, Budget, BudgetNow, Cap, Catalog, GraphFocus, GraphOverview, Checkpoint, Connections, Estimate, Health, Job, JobStep, KeelDoc, KeelMap, LibraryItem, Limit, McpServer,
-  Memory, Notification, NotificationSettings, Project, ProjectSettings, ProviderUsage, RepoFile, RepoInfo, Settings, Skill, SkillDetail,
-  Stack, StepExplanation, ThreadState, TreeNode, WikiPage, WikiTree, Workflow,
+  Agent, Budget, BudgetNow, Cap, Catalog, Commit, GraphFocus, GraphOverview, Checkpoint, Connections, Estimate, Health, Job, JobStep, KeelDoc, KeelMap, LibraryItem, Limit,
+  McpServer, Memory, Notification, NotificationSettings, Project, ProjectSettings, ProviderUsage, Settings, Skill, SkillDetail,
+  Stack, StepExplanation, ThreadState, WikiPage, WikiTree, Workflow,
 } from "../api";
+
+// ---- the JSON the Code plugin's api sends, as these fixtures build it ----
+// A copy of its types (plugins/code/web/codeApi.ts): keel's own type check runs before plugins/ is there (the image's
+// web stage), so core never imports a plugin, not even in its tests.
+type RepoInfo = {
+  branch: string; base: string; ahead: number; behind: number; remote: string;
+  worktrees: { branch: string; path: string }[]; branches: { name: string; note: string }[];
+};
+type TreeNode = {
+  path: string; name: string; depth: number; kind: "dir" | "file"; mark?: "A" | "M" | "D"; keel: boolean; frozen: boolean; ac?: string;
+};
+type RepoFile = {
+  path: string; size: number; mark?: "A" | "M" | "D"; frozen: boolean; keel: boolean; ac?: string | null; head: string;
+  last_commit?: Commit | null; binary?: boolean; modified?: number; phase?: string; bucket?: string; verdict?: string;
+};
 
 const now = Date.now();
 const ago = (s: number) => new Date(now - s * 1000).toISOString();

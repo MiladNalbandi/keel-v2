@@ -10,6 +10,10 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 
+/**
+ * The Code page's endpoints: the Code plugin's api part (plugins/code, keel-plugin-code.jar), in keel's package
+ * keel.api.repo so keel's component scan finds it. RepoService stays core: Git, Code Review and flows read the repo with it.
+ */
 @RestController
 @RequestMapping("/api/projects/{pid}/repo")
 class RepoController(private val repo: RepoService, private val search: RepoSearch, private val hub: EventHub) {

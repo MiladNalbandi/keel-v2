@@ -8,7 +8,7 @@
 //   KeelBot                 its buttons (```keel-git: commit, push, pr, switch, sync)               slot keelbot.card
 //
 // What stays in keel's core: Connections › GitHub (the token; ship opens the pull request with it), and the Code page's
-// branch tab (pages/repo/Branch.tsx, the Code page's own until it is a plugin), which Source control opens while this
+// branch tab (the Code plugin's own: plugins/code/web/Branch.tsx), which Source control opens while this
 // panel is there.
 
 import {

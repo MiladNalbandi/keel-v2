@@ -30,7 +30,8 @@ data class FileList(val files: List<String>, val truncated: Boolean)
 
 /**
  * Search across files with `git grep` (tracked and untracked files, .gitignore respected, binary files skipped) and
- * the list of files for quick open (`git ls-files`). Read-only; every git call has a timeout.
+ * the list of files for quick open (`git ls-files`). Read-only; every git call has a timeout. The Code plugin's own
+ * (plugins/code): only the Code page's endpoints use it.
  */
 @Service
 class RepoSearch(private val projects: ProjectService) {

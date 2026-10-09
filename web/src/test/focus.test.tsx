@@ -1,11 +1,10 @@
-// The Code page's Focus (no header), KeelBot's width, KeelBot on a page of its own, and Markdown that keeps
-// a PR body readable (a <details> fold-out with a code block of its own inside, then the tables).
+// Markdown that keeps a PR body readable (a <details> fold-out with a code block of its own inside, then the tables),
+// and the menu on a big screen. The Code page's Focus mode and KeelBot's room in it: plugins/code/web/test.
 
 import {
   fireEvent,
   render,
   screen,
-  waitFor,
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -64,96 +63,6 @@ describe("Markdown of a PR body", () => {
       "a ```markdown b",
     );
     expect(screen.getByText("after").tagName).toBe("P");
-  });
-});
-
-describe("Code page: Focus and KeelBot's room", () => {
-  it("Focus mode is the whole window: the header, keel's menu and the usage bar go; the status bar brings them back", async () => {
-    const user = userEvent.setup();
-    location.hash = "#/repo";
-    render(<App />);
-    expect(
-      await screen.findByRole("heading", { name: "Code" }),
-    ).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Focus" }));
-    expect(screen.queryByRole("heading", { name: "Code" })).toBeNull();
-    expect(localStorage.getItem("keel2.repo.focus")).toBe("1");
-    // the shell hides keel's menu and the usage bar while <html data-focus> is set (styles/repo.css)
-    expect(document.documentElement.dataset.focus).toBe("code");
-    await user.click(screen.getByRole("button", { name: /Exit focus/ }));
-    expect(
-      await screen.findByRole("heading", { name: "Code" }),
-    ).toBeInTheDocument();
-    expect(document.documentElement.dataset.focus).toBeUndefined();
-  });
-
-  it("⇧⌘\\ turns Focus mode on and off, Esc twice leaves it, and leaving Code shows keel's menu again", async () => {
-    location.hash = "#/repo";
-    render(<App />);
-    await screen.findByRole("heading", { name: "Code" });
-    const focusKey = () => fireEvent.keyDown(window, { key: "|", code: "Backslash", ctrlKey: true, shiftKey: true });
-    focusKey();
-    await waitFor(() => expect(document.documentElement.dataset.focus).toBe("code"));
-    focusKey();
-    await waitFor(() => expect(document.documentElement.dataset.focus).toBeUndefined());
-    focusKey();
-    await waitFor(() => expect(document.documentElement.dataset.focus).toBe("code"));
-    fireEvent.keyDown(window, { key: "Escape" });
-    expect(document.documentElement.dataset.focus).toBe("code"); // one Esc is not enough
-    fireEvent.keyDown(window, { key: "Escape" });
-    await waitFor(() => expect(document.documentElement.dataset.focus).toBeUndefined());
-    focusKey();
-    await waitFor(() => expect(document.documentElement.dataset.focus).toBe("code"));
-    location.hash = "#/flow";
-    await waitFor(() => expect(document.documentElement.dataset.focus).toBeUndefined());
-    expect(localStorage.getItem("keel2.repo.focus")).toBe("1"); // Code opens in Focus mode next time
-  });
-
-  it("makes KeelBot wider by its edge, and opens it alone on its page", async () => {
-    const user = userEvent.setup();
-    location.hash = "#/repo";
-    localStorage.setItem("keel2.repo.helper", "true");
-    render(<App />);
-    const edge = await screen.findByRole("separator", {
-      name: "Resize KeelBot",
-    });
-    fireEvent.keyDown(edge, { key: "ArrowLeft" });
-    fireEvent.keyDown(edge, { key: "ArrowLeft" });
-    await waitFor(() =>
-      expect(localStorage.getItem("keel2.repo.helper.w")).toBe("444"),
-    );
-    expect(
-      document
-        .querySelector<HTMLElement>(".ide")!
-        .style.getPropertyValue("--help-w"),
-    ).toBe("444px");
-    await user.click(
-      screen.getByRole("button", { name: "Open KeelBot full screen" }),
-    );
-    await waitFor(() => expect(location.hash).toBe("#/helper"));
-    const page = await screen.findByRole("complementary", { name: "KeelBot" });
-    expect(page).toHaveClass("page");
-    expect(screen.queryByRole("region", { name: "Editor" })).toBeNull(); // only KeelBot
-    await user.click(
-      within(page).getByRole("button", { name: "Back to the code" }),
-    );
-    await waitFor(() => expect(location.hash).toBe("#/repo"));
-  });
-
-  it("has a KeelBot only button on the Code page and a KeelBot entry in the menu", async () => {
-    const user = userEvent.setup();
-    location.hash = "#/repo";
-    render(<App />);
-    await user.click(
-      await screen.findByRole("button", { name: "KeelBot only" }),
-    );
-    await waitFor(() => expect(location.hash).toBe("#/helper"));
-    expect(
-      within(screen.getByRole("navigation", { name: "Screens" })).getByRole(
-        "link",
-        { name: "KeelBot" },
-      ),
-    ).toHaveAttribute("aria-current", "page");
   });
 });
 

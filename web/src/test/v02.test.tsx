@@ -1,5 +1,6 @@
-// v0.2 screens: repo update / history / unlock, caps, YAML editing with an unsaved estimate, blockers,
-// gate labels, guard unlock, init ladder, keel v1, per-flow cap, cross-project notifications, lanes, stacks, skills.
+// v0.2 screens: caps, YAML editing with an unsaved estimate, blockers, gate labels, guard unlock, init ladder, keel v1,
+// per-flow cap, cross-project notifications, lanes, stacks, skills. The Code page's (repo update / history / unlock):
+// plugins/code/web/test.
 
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -13,62 +14,6 @@ const at = (hash: string) => {
   location.hash = hash;
 };
 const calls = (method: string, path: string) => db.calls.filter((c) => c.method === method && c.path === path);
-
-describe("Code", () => {
-  it("Update from base shows a clean merge, then conflicts", async () => {
-    const user = userEvent.setup();
-    at("#/repo");
-    render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Update from main" }));
-    expect(await screen.findByText("Updated: main is merged into this branch.")).toBeInTheDocument();
-    expect(calls("POST", "/api/projects/ludus-engine/repo/update-from-base")).toHaveLength(1);
-
-    db.update = { ok: true, merged: false, conflicts: ["api/ScoreController.kt", "web/App.tsx"], output: "CONFLICT (content)" };
-    await user.click(screen.getByRole("button", { name: "Update from main" }));
-    const box = await screen.findByText("Not updated: 2 files conflict with main.");
-    const alert = box.closest(".errbox") as HTMLElement;
-    expect(within(alert).getByText("api/ScoreController.kt")).toBeInTheDocument();
-    expect(within(alert).getByText(/nothing changed/)).toBeInTheDocument();
-  });
-
-  it("file History (keel view) lists the commits of that file", async () => {
-    const user = userEvent.setup();
-    at("#/repo/api/ScoreController.kt");
-    render(<App />);
-    await user.click(await screen.findByRole("button", { name: "keel" }));
-    await user.click(await screen.findByRole("button", { name: "History" }));
-    const list = await screen.findByRole("list", { name: "File history" });
-    expect(within(list).getByText(/77b1e02/)).toBeInTheDocument();
-    expect(within(list).getByText(/save a score/)).toBeInTheDocument();
-  });
-
-  it("Unlock for this phase asks first, says it is logged, then calls the api", async () => {
-    const user = userEvent.setup();
-    at("#/repo/api/ScoreController.kt");
-    render(<App />);
-    await user.click(await screen.findByRole("button", { name: "keel" }));
-    await user.click(await screen.findByRole("button", { name: "Unlock for this phase" }));
-    const confirm = screen.getByRole("group", { name: "Confirm" });
-    expect(confirm).toHaveTextContent(/logged/);
-    expect(confirm).toHaveTextContent("ac-gate");
-    expect(calls("POST", "/api/projects/ludus-engine/unlock")).toHaveLength(0);
-    await user.click(within(confirm).getByRole("button", { name: "Yes, unlock it" }));
-    await waitFor(() => expect(calls("POST", "/api/projects/ludus-engine/unlock")[0]?.body).toEqual({ path: "api/ScoreController.kt", phase: "ac-gate" }));
-    expect(await screen.findByText("unlocked in ac-gate")).toBeInTheDocument();
-  });
-
-  it("Refresh stale in Memory starts the knowledge refresh and links to Flow", async () => {
-    const user = userEvent.setup();
-    at("#/repo");
-    render(<App />);
-    await user.click(await screen.findByRole("button", { name: "keel" }));
-    await user.click(await screen.findByRole("button", { name: /^Memory/ }));
-    await user.click(await screen.findByRole("button", { name: "Refresh stale" }));
-    await waitFor(() => expect(calls("POST", "/api/projects/ludus-engine/wiki/refresh")[0]?.body).toEqual({ sections: ["domain"] }));
-    expect(await screen.findByRole("link", { name: "Watch it in Flow" })).toHaveAttribute("href", "#/flow");
-    expect(screen.getByText("th_kr1")).toBeInTheDocument();
-  });
-});
 
 describe("Budget caps", () => {
   it("adds, edits and deletes caps", async () => {

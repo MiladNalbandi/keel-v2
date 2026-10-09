@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { api, errorParts } from "../../api";
+import { errorParts } from "@keel/web-sdk";
+import { codeApi as api } from "./codeApi";
 import { FileIcon } from "./icons";
 import { nameOf, rankFiles } from "./model";
 

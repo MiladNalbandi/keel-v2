@@ -1,6 +1,6 @@
 // The Git plugin's api calls (keel.api.plugins.GitPluginController, /api/projects/{pid}/git/*), through keel's own
-// transport (@keel/web-sdk get and post: /api + path, errors as ApiError). The Code page's branch tab (keel's core
-// until it is a plugin) reads /git/branch and switches with /git/switch through keel's own api.ts.
+// transport (@keel/web-sdk get and post: /api + path, errors as ApiError). The Code page's branch tab (the Code plugin's,
+// plugins/code) reads /git/branch and switches with /git/switch through its own calls (plugins/code/web/codeApi.ts).
 
 import { get, post } from "@keel/web-sdk";
 
