@@ -1,16 +1,22 @@
-# Releases keel's own plugins as signed packages (docs/plugins/14-publishing.md). By hand only, on plugin-base:
+# Releases keel's own plugins as signed packages (docs/plugins/14-publishing.md), from plugin-base only:
 #
-#   gh workflow run plugins-release.yml --repo MiladNalbandi/keel-v2 --ref plugin-base -f plugins=all
-#   gh workflow run plugins-release.yml --repo MiladNalbandi/keel-v2 --ref plugin-base -f plugins=map,db
+#   - by itself, on a push to plugin-base that changes a plugin's keel-plugin.yml (or content/trust/keel.pub): every
+#     plugin whose version has no release yet is released (a released version is left as it is). Until both secrets
+#     are set, it only says so and ends (no red run).
+#   - by hand (needs this file on the default branch, which keel's main does not get; so the push is the normal way):
+#       gh workflow run plugins-release.yml --repo MiladNalbandi/keel-v2 --ref plugin-base -f plugins=map,db
 #
 # For each chosen plugin (plugins/<name>, and product): its web and api parts are built as the Dockerfile builds them
 # (npm run build:plugin / build:product, ./gradlew <name>PluginJar), scripts/build-plugin.sh --no-build puts the plugin
 # folder together, keel-plugin packs, lints and signs it (the secret KEEL_PUBLISHER_KEY), and it is released as
-# v<version> in keel-studio/keel-plugin-<name> (the secret KEEL_STUDIO_TOKEN): a new release, or new files for one
-# that is there. keel-marketplace's sync picks the release up within the hour.
-# It stops at the first step, with a clear message, until both secrets are set.
+# v<version> in keel-studio/keel-plugin-<name> (the secret KEEL_STUDIO_TOKEN). keel-marketplace's sync picks the
+# release up within the hour.
 name: plugins-release
 on:
+  push:
+    branches: [plugin-base]
+    # a plugin's new version, or keel's publisher key (its first commit makes the first release of every plugin)
+    paths: ["plugins/*/keel-plugin.yml", "product/keel-plugin.yml", "content/trust/keel.pub"]
   workflow_dispatch:
     inputs:
       plugins:
@@ -28,11 +34,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: On plugin-base, with both secrets
+        id: ready
         env:
           REF: ${{ github.ref_name }}
+          EVENT: ${{ github.event_name }}
           HAS_KEY: ${{ secrets.KEEL_PUBLISHER_KEY != '' }}
           HAS_TOKEN: ${{ secrets.KEEL_STUDIO_TOKEN != '' }}
         run: |
+          # a push before the secrets are set: say so and end without releasing (by hand it is an error)
+          if [ "$EVENT" = push ] && { [ "$HAS_KEY" != "true" ] || [ "$HAS_TOKEN" != "true" ]; }; then
+            echo "::notice::No release: the secrets KEEL_PUBLISHER_KEY and KEEL_STUDIO_TOKEN are not both set yet (docs/plugins/14-publishing.md)."
+            echo "go=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "go=true" >> "$GITHUB_OUTPUT"
           ok=1
           if [ "$REF" != "plugin-base" ]; then
             echo "::error::Run this workflow on plugin-base (gh workflow run plugins-release.yml --ref plugin-base), not on $REF."
@@ -48,15 +63,38 @@ jobs:
           fi
           [ "$ok" = 1 ]
       - uses: actions/checkout@v4
+        if: steps.ready.outputs.go == 'true'
       - name: Which plugins
         id: pick
+        if: steps.ready.outputs.go == 'true'
         env:
-          WANT: ${{ inputs.plugins }}
+          WANT: ${{ inputs.plugins || 'all' }}
+          EVENT: ${{ github.event_name }}
+          GH_TOKEN: ${{ secrets.KEEL_STUDIO_TOKEN }}
         run: |
           set -euo pipefail
           all="$(for d in plugins/*/; do if [ -f "$d/keel-plugin.yml" ]; then basename "$d"; fi; done; echo product)"
           want="$(tr -d ' ' <<< "$WANT")"
           if [ "$want" = "all" ]; then names="$all"; else names="$(tr ',' '\n' <<< "$want" | sed '/^$/d')"; fi
+          # a push releases only the versions that have no release yet
+          if [ "$EVENT" = push ]; then
+            todo=""
+            while IFS= read -r n; do
+              dir="plugins/$n"; if [ "$n" = product ]; then dir=product; fi
+              v="$(sed -n 's/^version:[[:space:]]*//p' "$dir/keel-plugin.yml" | tr -d "\"' \r")"
+              if gh release view "v$v" --repo "keel-studio/keel-plugin-$n" > /dev/null 2>&1; then
+                echo "$n $v: released already"
+              else
+                todo="$todo$n"$'\n'
+              fi
+            done <<< "$names"
+            names="$(sed '/^$/d' <<< "$todo")"
+            if [ -z "$names" ]; then
+              echo "names=" >> "$GITHUB_OUTPUT"
+              echo "Every plugin's version is released already."
+              exit 0
+            fi
+          fi
           [ -n "$names" ] || { echo "::error::Name at least one plugin, or all."; exit 1; }
           while IFS= read -r n; do
             if ! [[ "$n" =~ ^[a-z][a-z0-9-]{0,31}$ ]] || ! grep -qx "$n" <<< "$all"; then
@@ -67,12 +105,16 @@ jobs:
           echo "names=$(paste -sd' ' - <<< "$names")" >> "$GITHUB_OUTPUT"
           echo "plugins: $(paste -sd' ' - <<< "$names")"
       - uses: actions/setup-node@v4
+        if: steps.pick.outputs.names != ''
         with: { node-version: 20, cache: npm, cache-dependency-path: web/package-lock.json }
       - uses: actions/setup-java@v4
+        if: steps.pick.outputs.names != ''
         with: { distribution: temurin, java-version: 21, cache: gradle }
       - uses: astral-sh/setup-uv@v6
+        if: steps.pick.outputs.names != ''
       # the web parts, each on its own with web's node_modules (as the Dockerfile's web stage)
       - name: Build the web parts
+        if: steps.pick.outputs.names != ''
         working-directory: web
         env:
           NAMES: ${{ steps.pick.outputs.names }}
@@ -87,6 +129,7 @@ jobs:
           if [ ${#web[@]} -gt 0 ]; then npm run build:plugin -- "${web[@]}"; fi
       # the api parts: thin plugin jars (as the Dockerfile's api stage), build/libs/keel-plugin-<name>.jar
       - name: Build the api parts
+        if: steps.pick.outputs.names != ''
         working-directory: api
         env:
           NAMES: ${{ steps.pick.outputs.names }}
@@ -101,6 +144,7 @@ jobs:
           if [ ${#tasks[@]} -gt 0 ]; then ./gradlew --no-daemon -q "${tasks[@]}"; fi
       # the plugin folder (scripts/build-plugin.sh, as the Dockerfile's plugins stage), then keel-plugin's package
       - name: Pack and lint
+        if: steps.pick.outputs.names != ''
         env:
           NAMES: ${{ steps.pick.outputs.names }}
         run: |
@@ -114,6 +158,7 @@ jobs:
           done
           "${kp[@]}" lint dist/*.kplug
       - name: Sign
+        if: steps.pick.outputs.names != ''
         env:
           KEEL_PUBLISHER_KEY: ${{ secrets.KEEL_PUBLISHER_KEY }}
         run: |
@@ -127,10 +172,12 @@ jobs:
             echo "::warning::content/trust/keel.pub is missing: commit the public key setup-signing-keys.sh wrote."
           fi
       - uses: actions/upload-artifact@v4
+        if: steps.pick.outputs.names != ''
         with:
           name: plugins
           path: dist/
       - name: Release in keel-studio
+        if: steps.pick.outputs.names != ''
         env:
           GH_TOKEN: ${{ secrets.KEEL_STUDIO_TOKEN }}
           SHA: ${{ github.sha }}

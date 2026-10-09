@@ -6,7 +6,7 @@ the first release. The spec is [13-step4-contract.md](13-step4-contract.md), sec
 ```
  keel-v2, branch plugin-base           keel-studio/keel-plugin-<name>     keel-studio/keel-marketplace          keel
  ───────────────────────────           ──────────────────────────────     ────────────────────────────          ────
- plugins-release.yml (by hand)         release v1.0.0                     sync.yml (every hour)
+ plugins-release.yml (on a push)      release v1.0.0                     sync.yml (every hour)
    build the web and api parts   ──▶     db-1.0.0.kplug          ──▶       download each release          ──▶  reads v1/index.json
    keel-plugin pack, lint                db-1.0.0.kplug.minisig            lint it, check its signature         checks its signature,
    keel-plugin sign                                                        keel-plugin index, sign              then sha256 and the
@@ -55,13 +55,11 @@ with a clear message. Its tests run in CI (the `keel-plugin` job), with the sign
 ## Release keel's plugins
 
 1. Change the plugin's `version` in its `keel-plugin.yml` (and the `VERSION` in its engine package, when it has one).
-   Commit on `plugin-base`.
-2. Start the workflow (only on `plugin-base`):
-
-   ```
-   gh workflow run plugins-release.yml --repo MiladNalbandi/keel-v2 --ref plugin-base -f plugins=db,map
-   gh workflow run plugins-release.yml --repo MiladNalbandi/keel-v2 --ref plugin-base -f plugins=all
-   ```
+   Commit on `plugin-base` and push.
+2. The push starts `plugins-release.yml` by itself (it runs when a `keel-plugin.yml` or `content/trust/keel.pub`
+   changes on `plugin-base`). It releases every plugin whose version has no release yet, and leaves the released
+   ones as they are. (By hand, `gh workflow run plugins-release.yml --ref plugin-base -f plugins=db,map`, works only
+   when the file is on the default branch too. keel's `main` never gets plugin-track files, so the push is the way.)
 
 3. The workflow builds each plugin like the Dockerfile does: the web part (`npm run build:plugin`, or
    `build:product`), the api jar (`./gradlew <name>PluginJar`), and the folder (`scripts/build-plugin.sh --no-build`).
@@ -71,7 +69,8 @@ with a clear message. Its tests run in CI (the `keel-plugin` job), with the sign
 5. Within an hour the marketplace's `sync` lists the new version. To see it sooner:
    `gh workflow run sync.yml --repo keel-studio/keel-marketplace`.
 
-When a secret is missing, the workflow stops at its first step and says which one.
+Until both secrets are set, a push only says so and ends (no red run). By hand, a missing secret stops the workflow
+at its first step with the secret's name.
 
 ## How the catalog is built
 
@@ -127,12 +126,10 @@ installs a revoked version and warns where one is installed.
 4. **Turn on GitHub Pages** for `keel-studio/keel-marketplace`: Settings › Pages › Source: **GitHub Actions**. Pages
    for free needs a **public** repo. The plugin repos must be public too: keel downloads the files without a token.
 
-5. **Let GitHub start the release workflow.** GitHub starts a `workflow_dispatch` workflow only when the file is also
-   on the default branch. Put a copy of `.github/workflows/plugins-release.yml` on `main` (only this file; it refuses
-   to run anywhere but `plugin-base`, and a run with `--ref plugin-base` uses plugin-base's copy).
-
-6. **First release.** Run `plugins-release.yml` with `plugins=all`, then `sync.yml` by hand, then open
-   `https://keel-studio.github.io/keel-marketplace/v1/index.json`.
+5. **First release.** Pushing step 1's commit (with `content/trust/keel.pub`) to `plugin-base` starts
+   `plugins-release.yml`: it releases every plugin. Then run `sync.yml` by hand
+   (`gh workflow run sync.yml --repo keel-studio/keel-marketplace`) and open
+   `https://keel-studio.github.io/keel-marketplace/v1/index.json`. keel's `main` is never touched.
 
 ## Changing a key later
 
