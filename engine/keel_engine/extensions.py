@@ -443,8 +443,10 @@ def keelbot_actions(names: list[str] | None) -> list[str]:
 
 
 def keel_mcp(server, api, guard, write: bool) -> None:
-    """Each part adds its tools to keel's own MCP server: the read ones, or (write) the acting ones."""
-    for p in parts():
+    """Each part adds its tools to keel's own MCP server: the read ones, or (write) the acting ones. The read ones come in
+    the parts' order (Database, Git, CI/CD), the acting ones by name (CI/CD, Database, Git): keel2 mcp's tools/list
+    stays exactly as 0.15.1 listed them."""
+    for p in (sorted(parts(), key=lambda x: x.name) if write else parts()):
         fn = p.spec.get("keel_mcp")
         if callable(fn):
             fn(server, api, guard, write)

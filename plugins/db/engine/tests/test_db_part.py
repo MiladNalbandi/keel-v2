@@ -91,6 +91,17 @@ def test_with_the_ci_plugin_keelbot_and_validation_name_them_as_keel_0_15_1_did(
     assert tools.index("keel_db_query") < tools.index("keel_git_status") < tools.index("keel_ci_runs")
 
 
+def test_keel2_mcp_lists_its_tools_in_keel_0_15_1s_order(with_ci):
+    """keel2 mcp's tools/list, exactly as 0.15.1 listed them (it named each tool in mcp_server.py): the read tools
+    Database, Git, CI/CD; the acting tools CI/CD, Database, Git; then keel's own two."""
+    names = lambda write: [t.name for t in asyncio.run(mcp_server.build_server(write=write, api=object()).list_tools())]
+    read = ["keel_status", "keel_projects", "keel_timeline", "keel_next", "keel_explain", "keel_db_schema", "keel_db_query",
+            "keel_git_status", "keel_pr_status", "keel_ci_runs", "keel_ci_failure"]
+    assert names(False) == read
+    assert names(True) == read + ["keel_ci_rerun", "keel_db_change", "keel_git_commit", "keel_git_push", "keel_pr_create",
+                                  "keel_approve_gate", "keel_resume"]
+
+
 # ------------------------------------------------------------------ its content: Tools › Plugins and its command
 
 def test_tools_plugins_lists_it_where_it_always_was(client):
