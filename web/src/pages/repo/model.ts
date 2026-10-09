@@ -2,7 +2,6 @@
 // fuzzy file matching, the explorer's rows, highlighted lines, find in file, and side-by-side diff rows.
 
 import type { Change, TreeNode } from "../../api";
-import type { DiffRow } from "../../components/Code";
 import { matches, readKeymap, type Keymap } from "../../keys";
 
 // ---------- IntelliJ's keys for the Code page ----------
@@ -31,8 +30,8 @@ export type DeepLink = { path: string; line?: number };
 export const FOCUS_KEYS = "shift+meta+\\";
 export const FOCUS_EVENT = "keel:focus";
 
-/** v0.15.0 a review's link (#/repo/@review/pr:7): the Review tool window with that review open. */
-export const reviewHash = (key: string) => `#/repo/@review/${encodeURIComponent(key)}`;
+/** v0.15.0 a review's link (#/repo/@review/pr:7, made by the Code Review plugin): the Review tool window with that
+ *  review open, never a file. */
 export const parseReviewLink = (arg: string | undefined | null): string | null => arg?.match(/^@review\/(.+)$/)?.[1] ?? null;
 /** A tool window's link (#/repo/@review/pr:7): the side view's id and what it opens. The view (a part's, slot
  *  code.activity) decides what the rest means; a file path like @types/x.d.ts is a file unless a view has that id. */
@@ -379,35 +378,8 @@ export function parseGoto(s: string, lines: number): { line: number; col: number
 
 // ---------- side-by-side diff ----------
 
-export type SplitRow = { kind: "hunk"; text: string } | { kind: "pair"; left?: DiffRow; right?: DiffRow };
-
-/** Unified diff rows → side-by-side rows: removed lines on the left next to the added lines that replace them. */
-export function splitRows(rows: DiffRow[]): SplitRow[] {
-  const out: SplitRow[] = [];
-  let dels: DiffRow[] = [];
-  let adds: DiffRow[] = [];
-  const flush = () => {
-    for (let i = 0; i < Math.max(dels.length, adds.length); i++) out.push({ kind: "pair", left: dels[i], right: adds[i] });
-    dels = [];
-    adds = [];
-  };
-  for (const r of rows) {
-    if (r.kind === "del") {
-      if (adds.length) flush();
-      dels.push(r);
-    } else if (r.kind === "add") {
-      adds.push(r);
-    } else if (r.kind === "ctx") {
-      flush();
-      out.push({ kind: "pair", left: r, right: r });
-    } else {
-      flush();
-      out.push({ kind: "hunk", text: r.text });
-    }
-  }
-  flush();
-  return out;
-}
+// keel's own (components/Code.tsx, next to parseDiff): the Code Review plugin's diff uses it too, through @keel/web-sdk
+export { splitRows, type SplitRow } from "../../components/Code";
 
 // ---------- small helpers ----------
 

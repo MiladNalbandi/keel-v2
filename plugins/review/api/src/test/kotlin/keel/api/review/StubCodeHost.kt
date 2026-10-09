@@ -1,4 +1,4 @@
-package keel.api.support
+package keel.api.review
 
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
@@ -12,7 +12,8 @@ import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * v0.14.0 a small GitHub (REST + the GraphQL review threads) and GitLab (REST v4 under /api/v4) for the Code Review
- * plugin's tests. Pull requests and merge requests are what a test puts in; every call is recorded.
+ * plugin's tests (moved from keel's test support with the plugin). Pull requests and merge requests are what a test
+ * puts in; every call is recorded.
  */
 class StubCodeHost private constructor(private val server: HttpServer) {
     private val mapper = jacksonObjectMapper()

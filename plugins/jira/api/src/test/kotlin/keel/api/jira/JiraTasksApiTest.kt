@@ -336,7 +336,8 @@ class JiraTasksApiTest : ApiTest() {
     @Test
     fun `Connections lists Jira first, before core's kinds`() {
         val kinds = get("/api/connections/kinds").andExpect(status().isOk).json()
-        assertThat(kinds.map { it["kind"].asText() }).containsExactly("jira", "github", "gitlab", "database")
+        // GitLab comes with the Code Review plugin (plugins/review), which these tests do not load
+        assertThat(kinds.map { it["kind"].asText() }).containsExactly("jira", "github", "database")
         val jira = kinds.first { it["kind"].asText() == "jira" }
         assertThat(jira["scope"].asText()).isEqualTo("project")
         assertThat(jira["fields"].map { it["key"].asText() }).contains("kind", "base_url", "email", "token", "project_key")

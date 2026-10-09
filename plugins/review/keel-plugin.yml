@@ -1,0 +1,20 @@
+# Code Review as a plugin (docs/plugins/11-step3-contract.md, wave B). scripts/build-plugin.sh packs it:
+# review-<version>.kplug. Paths are relative to the plugin folder. The version must equal VERSION in
+# engine/keel_plugin_review/__init__.py (engine/tests/test_review_part.py checks it). Each part is written on one line
+# (scripts/build-plugin.sh reads them).
+# Its tables (review_drafts, review_viewed, review_runs, review_decisions) stay in keel's core history (V13). Its web
+# part brings its own stylesheet (web/style.css, the look of keel 0.15.1's review.css).
+schema: 1
+name: review
+title: Code Review
+version: 1.0.0
+publisher: keel
+summary: Review the branch you are on or any pull request (GitHub) or merge request (GitLab), with line comments, threads and approve, and keel's explain and checked findings.
+requires:
+  sdk: 1
+parts:
+  engine: { path: engine, package: keel_plugin_review }
+  api: { jars: [api/keel-plugin-review.jar] }
+  web: { entry: web/index.js, css: [web/style.css] }
+  content: content
+per_project: true

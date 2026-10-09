@@ -3,15 +3,14 @@
 // a pending comment only when you press Add as comment.
 
 import { useState } from "react";
-import { Markdown } from "../Markdown";
-import { ErrorBox, Pill, type PillTone } from "../ui";
+import { ErrorBox, Markdown, Pill, type PillTone } from "@keel/web-sdk";
 import {
   prLabel,
   type AiState,
   type Finding,
   type ReviewThread,
   type ReviewView,
-} from "../../reviewApi";
+} from "./reviewApi";
 
 export type PanelTab = "changes" | "commits" | "overview" | "findings" | "threads" | "checklist";
 

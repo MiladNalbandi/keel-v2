@@ -1,4 +1,5 @@
-# The Code Review plugin (api keel.api.review, web components/review). Installed per project on Tools › Plugins. Code
+# The Code Review plugin (plugins/review: api keel.api.review, web plugins/review/web, engine keel_plugin_review, which
+# also holds the fake model's answers for its runs). Installed per project on Tools › Plugins. Code
 # gets a Review tool window: the branch you are on and the project's pull requests (GitHub) or merge requests (GitLab),
 # each in a review tab with its files, a side-by-side diff, the threads and your line comments, Approve and Request
 # changes; keel explains the change and finds problems, checks each one again, and you decide what is posted.

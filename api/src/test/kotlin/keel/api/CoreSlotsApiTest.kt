@@ -54,10 +54,11 @@ class CoreSlotsApiTest : ApiTest() {
 
     @Test
     fun `the connection kinds come in the page's order, GitHub from core`() {
-        // Jira's kind comes with the Jira plugin (plugins/jira checks it there, first in this order)
+        // Jira's kind comes with the Jira plugin (plugins/jira checks it there, first in this order), GitLab's with the
+        // Code Review plugin (plugins/review checks it there, between GitHub and the databases)
         val kinds = get("/api/connections/kinds").andExpect(status().isOk).json()
-        assertThat(kinds.map { it["kind"].asText() }).containsExactly("github", "gitlab", "database")
-        assertThat(kinds.map { it["scope"].asText() }).containsExactly("keel", "keel", "project")
+        assertThat(kinds.map { it["kind"].asText() }).containsExactly("github", "database")
+        assertThat(kinds.map { it["scope"].asText() }).containsExactly("keel", "project")
         val github = kinds.first { it["kind"].asText() == "github" }
         assertThat(github["title"].asText()).isEqualTo("GitHub")
         assertThat(github["fields"].map { it["key"].asText() + ":" + it["type"].asText() }).containsExactly("token:secret")

@@ -7,7 +7,6 @@ import { resetFeatures } from "../addons";
 import "../builtins";
 import * as sdk from "../sdk";
 import type { AddonWeb } from "../sdk/plugin";
-import { resetReviews } from "../components/review/store";
 import { resetLauncherCache } from "../components/launcher/sources";
 import { resetProviderModels } from "../components/ModelPicker";
 import { resetAudio } from "../notify";
@@ -17,6 +16,11 @@ import { createDb, handlers, type Db } from "./handlers";
 // start with the web parts /api/features lists), so the menu and the slots are the same as for people
 const plugins = import.meta.glob<{ default: AddonWeb }>("../../../plugins/*/web/index.tsx", { eager: true });
 for (const m of Object.values(plugins)) m.default.setup?.(sdk);
+// the Code Review plugin keeps the open reviews in one store: each test starts without them (a glob, not an import:
+// keel's own build type-checks this file before plugins/ is there, see the Dockerfile)
+const reviewStores = import.meta.glob<{ resetReviews: () => void }>("../../../plugins/review/web/store.ts", {
+  eager: true,
+});
 
 // findBy* / waitFor wait up to 3 s (the default 1 s failed on CI's slower machines: the Repo IDE's first render took 1.1 s).
 configure({ asyncUtilTimeout: 3000 });
@@ -38,7 +42,7 @@ beforeEach(() => {
   resetAudio();
   resetProviderModels();
   resetFeatures();
-  resetReviews();
+  Object.values(reviewStores).forEach((m) => m.resetReviews());
   resetLauncherCache();
 });
 afterEach(() => cleanup());

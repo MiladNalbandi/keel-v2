@@ -3,11 +3,8 @@
 // characters are ever shown. A project is on GitLab when its origin remote names this server.
 
 import { useState } from "react";
-import { errorParts } from "../../api";
-import { reviewApi } from "../../reviewApi";
-import { useApp, useLoad } from "../../state";
-import { Section } from "../page";
-import { Pill } from "../ui";
+import { errorParts, Pill, Section, useApp, useLoad } from "@keel/web-sdk";
+import { reviewApi } from "./reviewApi";
 
 export function GitLabSection() {
   const gl = useLoad("gitlab", () => reviewApi.gitlab(), { live: false });

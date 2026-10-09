@@ -4,9 +4,7 @@
 // keel's Overview and Findings, Threads, the Checklist). Each file opens as an editor tab.
 
 import { useEffect, useState } from "react";
-import { askAssistant } from "../../sdk/assistant";
-import { ErrorBox, Pill } from "../ui";
-import { useApp, useLoad } from "../../state";
+import { askAssistant, ErrorBox, Pill, useApp, useLoad } from "@keel/web-sdk";
 import {
   prLabel,
   prWord,
@@ -14,7 +12,7 @@ import {
   type Finding,
   type PrSummary,
   type ReviewView,
-} from "../../reviewApi";
+} from "./reviewApi";
 import { FileTree, treeOrder } from "./FileTree";
 import { keyLabel, readKeymap } from "./keymap";
 import {

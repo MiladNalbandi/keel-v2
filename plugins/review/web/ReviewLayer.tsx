@@ -2,15 +2,13 @@
 // (keymap.ts: IntelliJ's macOS keymap or VS Code's) while a review's file tab is the active editor tab.
 
 import { useEffect, useState } from "react";
-import { askAssistant } from "../../sdk/assistant";
-import { ErrorBox, Pill } from "../ui";
-import { useApp } from "../../state";
+import { askAssistant, ErrorBox, Pill, useApp } from "@keel/web-sdk";
 import {
   prLabel,
   prWord,
   type Places,
   type SubmitEvent,
-} from "../../reviewApi";
+} from "./reviewApi";
 import {
   ACTIONS,
   actionFor,

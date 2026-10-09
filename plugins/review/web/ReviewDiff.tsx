@@ -9,12 +9,16 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { parseDiff, type DiffRow } from "../Code";
-import { highlight, languageOf } from "../highlight";
-import { ErrorBox } from "../ui";
-import { useLoad } from "../../state";
-import { splitRows } from "../../pages/repo/model";
-import { reviewApi } from "../../reviewApi";
+import {
+  ErrorBox,
+  highlight,
+  languageOf,
+  parseDiff,
+  splitRows,
+  useLoad,
+  type DiffRow,
+} from "@keel/web-sdk";
+import { reviewApi } from "./reviewApi";
 import { wordAt } from "./keymap";
 
 export type Side = "RIGHT" | "LEFT";

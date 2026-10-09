@@ -1693,7 +1693,9 @@ GET /api/projects/{pid}/repo/diff?path=…&branch=feat/test   → FileDiff { aga
 
 ## v0.14.0: Code Review
 
-An installable plugin (`review`, content/plugins/review). With it on, Code gets a **Review** tool window (⇧⌘9): the
+An installable plugin (`review`; since step 3 the plugin folder `plugins/review`: engine `keel_plugin_review` (its
+content `content/plugins/review` and the fake model's answers for its runs), api `keel-plugin-review.jar`, web
+`plugins/review/web` with its own `style.css`). With it on, Code gets a **Review** tool window (⇧⌘9): the
 branch you are on, and the pull requests (GitHub) or merge requests (GitLab) to review, assigned to you, yours or all.
 One opens in the tool window (Approve, Submit review, Merge your own, Check out; tabs Changes as a folder tree with
 viewed marks, Commits, Overview, Findings, Threads, Checklist) and each file as an editor tab (`kind: review`, path

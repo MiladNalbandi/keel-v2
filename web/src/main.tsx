@@ -15,7 +15,6 @@ import "./styles/pages.css";
 import "./styles/diagram.css";
 // The Code page's small IDE (activity bar, side bar, editor tabs, status bar).
 import "./styles/repo.css";
-import "./styles/review.css";
 import "./styles/graph.css";
 import "./styles/helper.css";
 import "./styles/plugins.css";

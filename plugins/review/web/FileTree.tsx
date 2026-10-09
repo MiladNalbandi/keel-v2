@@ -3,8 +3,8 @@
 // box, status, comments and +/− lines.
 
 import { useMemo, useState } from "react";
-import { FileIcon, Icon } from "../../pages/repo/icons";
-import type { ChangedFile } from "../../reviewApi";
+import { FileIcon, Icon } from "@keel/web-sdk";
+import type { ChangedFile } from "./reviewApi";
 
 type Node = { name: string; path: string; dirs: Node[]; files: ChangedFile[] };
 

@@ -2,7 +2,7 @@
 // view, AI state and pending comments), the review's cursor and navigation history, and the actions that change it.
 
 import { useSyncExternalStore } from "react";
-import { errorParts } from "../../api";
+import { errorParts } from "@keel/web-sdk";
 import {
   reviewApi,
   type AiState,
@@ -10,7 +10,7 @@ import {
   type Places,
   type ReviewView,
   type SubmitEvent,
-} from "../../reviewApi";
+} from "./reviewApi";
 
 export type Side = "RIGHT" | "LEFT";
 export type Err = { message: string; hint?: string; details?: string[] };

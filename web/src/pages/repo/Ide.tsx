@@ -161,8 +161,10 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
   // a deep link (#/repo/<path>:<line>) opens that file at that line — on load and on every hash change, also when
   // it names the same file again after the URL followed other tabs; #/repo/@review/pr:7 opens that review (the side
   // view with that id says what the rest means)
+  const waitingLink = useRef<{ tool: string; value: string } | null>(null);
   useEffect(() => {
     const follow = () => {
+      waitingLink.current = null;
       const r = parseHash(location.hash);
       const link = r.page === "repo" ? parseToolLink(r.arg) : null;
       const tool = link ? slotItems<CodeActivityItem>(SLOTS.codeActivity).filter(isSide).find((a) => a.id === link.tool) : null;
@@ -177,12 +179,26 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
       if (file) {
         open({ path: file.path, view: "code" }, { line: file.line });
         setReveal((n) => n + 1);
-      }
+      } else if (link) waitingLink.current = link;
     };
     follow();
     window.addEventListener("hashchange", follow);
     return () => window.removeEventListener("hashchange", follow);
   }, [open, pid]);
+
+  // a tool window's link can come before its view: a plugin's web part (Code Review) registers it once it has loaded,
+  // and this page may open first. The link waits, and opens the view when it is there.
+  const sideIds = activityItems.filter(isSide).map((a) => a.id).join(" ");
+  useEffect(() => {
+    const link = waitingLink.current;
+    const tool = link ? slotItems<CodeActivityItem>(SLOTS.codeActivity).filter(isSide).find((a) => a.id === link.tool) : null;
+    if (!link || !tool?.onLink) return;
+    waitingLink.current = null;
+    tool.onLink(pid, link.value);
+    setActivity(tool.id);
+    setSideOpen(true);
+    setScreen("side");
+  }, [sideIds, pid]);
 
   // the URL follows the active tab (replaceState: no history entry per click)
   useEffect(() => {

@@ -89,6 +89,36 @@ export function parseDiff(diff: string): { rows: DiffRow[]; added: number; remov
   return { rows, added, removed, files };
 }
 
+export type SplitRow = { kind: "hunk"; text: string } | { kind: "pair"; left?: DiffRow; right?: DiffRow };
+
+/** Unified diff rows → side-by-side rows: removed lines on the left next to the added lines that replace them. */
+export function splitRows(rows: DiffRow[]): SplitRow[] {
+  const out: SplitRow[] = [];
+  let dels: DiffRow[] = [];
+  let adds: DiffRow[] = [];
+  const flush = () => {
+    for (let i = 0; i < Math.max(dels.length, adds.length); i++) out.push({ kind: "pair", left: dels[i], right: adds[i] });
+    dels = [];
+    adds = [];
+  };
+  for (const r of rows) {
+    if (r.kind === "del") {
+      if (adds.length) flush();
+      dels.push(r);
+    } else if (r.kind === "add") {
+      adds.push(r);
+    } else if (r.kind === "ctx") {
+      flush();
+      out.push({ kind: "pair", left: r, right: r });
+    } else {
+      flush();
+      out.push({ kind: "hunk", text: r.text });
+    }
+  }
+  flush();
+  return out;
+}
+
 const SIGN: Record<DiffRow["kind"], string> = { add: "+", del: "-", ctx: " ", hunk: "", meta: "" };
 
 /** A unified diff: green added and red removed lines, old and new line numbers, highlighted by `path`. */

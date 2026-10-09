@@ -1,12 +1,13 @@
-package keel.api
+package keel.api.review
 
 import com.fasterxml.jackson.databind.JsonNode
 import keel.api.support.ApiTest
-import keel.api.support.StubCodeHost
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.springframework.test.context.DynamicPropertyRegistry
+import org.springframework.test.context.DynamicPropertySource
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import java.nio.file.Files
 import java.nio.file.Path
@@ -14,9 +15,22 @@ import java.nio.file.Path
 /**
  * v0.14.0 the Code Review plugin: a GitHub pull request and a GitLab merge request (the stub host, fetched from a local
  * "remote" through git's insteadOf), the branch you are on, pending comments and Submit, threads, checkout, go to
- * declaration and find usages in the reviewed code, and keel's AI runs (KeelBot sessions in the stub engine).
+ * declaration and find usages in the reviewed code, and keel's AI runs (KeelBot sessions in the stub engine). Moved
+ * with the plugin (plugins/review); it runs with keel's test support (ApiTest, StubEngine).
  */
 class ReviewApiTest : ApiTest() {
+    companion object {
+        val hosts: StubCodeHost = StubCodeHost.start()
+
+        /** GitHub and GitLab are the stub; keel's AI runs are followed on the event thread. */
+        @JvmStatic
+        @DynamicPropertySource
+        fun reviewProps(r: DynamicPropertyRegistry) {
+            r.add("keel.review.github-api") { hosts.url }
+            r.add("keel.review.gitlab-api") { hosts.url + "/api/v4" }
+            r.add("keel.review.inline-effects") { true }
+        }
+    }
 
     private val remotes: Path = Files.createTempDirectory("keel-remotes")
 
@@ -207,6 +221,24 @@ class ReviewApiTest : ApiTest() {
         assertThat(co["branch"].asText()).isEqualTo("feat/paging")
         assertThat(git(root, "branch", "--show-current").trim()).isEqualTo("feat/paging")
         assertThat(Files.readString(root.resolve("src/Prefs.kt"))).contains("savePageSize")
+    }
+
+    @Test
+    fun `Connections › GitLab comes with the plugin, and its token is saved without whitespace`() {
+        // keel's core has GitHub and Database; GitLab is this plugin's kind, at its place between them
+        val kinds = get("/api/connections/kinds").andExpect(status().isOk).json()
+        assertThat(kinds.map { it["kind"].asText() }).containsExactly("github", "gitlab", "database")
+        val gitlab = kinds.first { it["kind"].asText() == "gitlab" }
+        assertThat(gitlab["scope"].asText()).isEqualTo("keel")
+        assertThat(gitlab["fields"].map { it["key"].asText() + ":" + it["type"].asText() }).containsExactly("url:url", "token:secret")
+        assertThat(gitlab.has("tokens")).isFalse()
+        // a token copied from a wrapped terminal line: GitLab gets it whole (the stub refuses any other token)
+        val (pid, _, head) = repoWithChange("review-gl-token", "gitlab.test", "group/shop", "refs/merge-requests/5/head")
+        put("/api/gitlab", mapOf("url" to "https://gitlab.test", "token" to hosts.gitlabToken.chunked(6).joinToString("\n  ")))
+            .andExpect(status().isOk)
+        hosts.gitlab["group/shop"] = mutableMapOf(5 to StubCodeHost.Pr(5, "Save the page size", "ana", "feat/paging", "main", head))
+        val list = get("/api/projects/$pid/review/prs?filter=all").andExpect(status().isOk).json()
+        assertThat(list["prs"].map { it["number"].asInt() }).containsExactly(5)
     }
 
     @Test
