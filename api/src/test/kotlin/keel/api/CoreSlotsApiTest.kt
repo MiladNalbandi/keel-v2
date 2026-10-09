@@ -54,16 +54,14 @@ class CoreSlotsApiTest : ApiTest() {
 
     @Test
     fun `the connection kinds come in the page's order, GitHub from core`() {
-        // Jira's kind comes with the Jira plugin (plugins/jira checks it there, first in this order)
+        // Jira's kind comes with the Jira plugin (plugins/jira checks it there, first in this order), Databases with the
+        // Database plugin (plugins/db checks it there, last)
         val kinds = get("/api/connections/kinds").andExpect(status().isOk).json()
-        assertThat(kinds.map { it["kind"].asText() }).containsExactly("github", "gitlab", "database")
-        assertThat(kinds.map { it["scope"].asText() }).containsExactly("keel", "keel", "project")
+        assertThat(kinds.map { it["kind"].asText() }).containsExactly("github", "gitlab")
+        assertThat(kinds.map { it["scope"].asText() }).containsExactly("keel", "keel")
         val github = kinds.first { it["kind"].asText() == "github" }
         assertThat(github["title"].asText()).isEqualTo("GitHub")
         assertThat(github["fields"].map { it["key"].asText() + ":" + it["type"].asText() }).containsExactly("token:secret")
-        val db = kinds.first { it["kind"].asText() == "database" }
-        assertThat(db["fields"].filter { it["required"].asBoolean() }.map { it["key"].asText() }).containsExactly("name", "url")
-        assertThat(db["fields"].first { it["key"].asText() == "env" }["choices"].map { it.asText() }).containsExactly("local", "test", "staging", "prod")
     }
 
     @Test

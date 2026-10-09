@@ -37,11 +37,20 @@ class FenceTest {
 
     @Test
     fun `the CI-CD plugin's classes are not in core, not even in its package keel_api_plugins`() {
-        // the scan skips keel.api.plugins (Database and Git still live there), so look for the names themselves
+        // the scan skips keel.api.plugins (Git still lives there), so look for the names themselves
         val names = Regex("""\bCi(Service|Controller|FixBody)\b""")
         val found = Files.walk(sources).use { paths -> paths.filter { it.extension == "kt" }.sorted().toList() }
             .filter { names.containsMatchIn(Fence.withoutComments(it.readText())) }
         assertThat(found).describedAs("plugins/ci/api has them; core never uses them").isEmpty()
+    }
+
+    @Test
+    fun `the Database plugin's classes are not in core, not even in its package keel_api_plugins`() {
+        // the scan skips keel.api.plugins (Git still lives there), so look for the names themselves
+        val names = Regex("""\b(Database(Service|Controller|ConnectionKind|Keys)|Db(Connection|ConnectionBody|QueryBody))\b""")
+        val found = Files.walk(sources).use { paths -> paths.filter { it.extension == "kt" }.sorted().toList() }
+            .filter { names.containsMatchIn(Fence.withoutComments(it.readText())) }
+        assertThat(found).describedAs("plugins/db/api has them; core never uses them").isEmpty()
     }
 
     @Test
@@ -131,11 +140,14 @@ private object Fence {
 
     // Core never uses these, not even today. They can never be in the allowlist. The parts that moved out keep their
     // package, and core never uses it again (step 3): keel.api.map (plugins/map), keel.api.wiki (plugins/wiki),
-    // keel.api.tasks (plugins/tasks), keel.api.jira (plugins/jira), and the Ci* classes of CI/CD (plugins/ci, in keel's
-    // package keel.api.plugins).
+    // keel.api.tasks (plugins/tasks), keel.api.jira (plugins/jira), the Ci* classes of CI/CD (plugins/ci) and the
+    // Database* and Db* classes of Database (plugins/db), both in keel's package keel.api.plugins.
     val FORBIDDEN = listOf(
         "keel.product", "keel.api.map", "keel.api.wiki", "keel.api.tasks", "keel.api.jira",
         "keel.api.plugins.CiController", "keel.api.plugins.CiFixBody", "keel.api.plugins.CiService",
+        "keel.api.plugins.DatabaseConnectionKind", "keel.api.plugins.DatabaseController", "keel.api.plugins.DatabaseKeys",
+        "keel.api.plugins.DatabaseService", "keel.api.plugins.DbConnection", "keel.api.plugins.DbConnectionBody",
+        "keel.api.plugins.DbQueryBody",
     )
 
     data class Found(val couplings: Set<String>, val forbidden: Set<String>)

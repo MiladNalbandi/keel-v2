@@ -158,8 +158,8 @@ class FlowService(
 ) {
     private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
 
-    /** Every contributor's secrets for this project's agent calls (a later one wins a clash). */
-    private fun contributedKeys(pid: String): Map<String, String> =
+    /** Every contributor's secrets for this project's agent calls and KeelBot's turns (a later one wins a clash). */
+    fun contributedKeys(pid: String): Map<String, String> =
         contributors.orderedStream().toList().fold(linkedMapOf<String, String>()) { acc, c -> acc.putAll(c.keys(pid)); acc }
 
     /** Every contributor's settings for the engine, in order. */

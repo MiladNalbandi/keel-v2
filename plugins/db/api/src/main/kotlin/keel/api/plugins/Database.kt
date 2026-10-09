@@ -36,8 +36,9 @@ data class DbConnection(
 
 /**
  * The Database plugin's connections and the person's own queries (Connections › Databases, Map › Query, KeelBot's
- * buttons). The address with its password is a secret (`db.<id>`); the engine (keel_engine/plugins/db) connects, tests,
- * reads the schema and runs queries under its rules.
+ * buttons). The address with its password is a secret (`db.<id>`); the engine (the plugin's keel_plugin_db) connects,
+ * tests, reads the schema and runs queries under its rules. Since step 3 this is the plugin's api part (plugins/db,
+ * keel-plugin-db.jar) in keel's package; its table db_connections stays in core (V11).
  */
 @Service
 class DatabaseService(

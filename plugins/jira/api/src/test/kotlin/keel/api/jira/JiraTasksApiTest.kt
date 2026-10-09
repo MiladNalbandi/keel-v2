@@ -336,7 +336,8 @@ class JiraTasksApiTest : ApiTest() {
     @Test
     fun `Connections lists Jira first, before core's kinds`() {
         val kinds = get("/api/connections/kinds").andExpect(status().isOk).json()
-        assertThat(kinds.map { it["kind"].asText() }).containsExactly("jira", "github", "gitlab", "database")
+        // (Databases, after these, comes with the Database plugin: plugins/db)
+        assertThat(kinds.map { it["kind"].asText() }).containsExactly("jira", "github", "gitlab")
         val jira = kinds.first { it["kind"].asText() == "jira" }
         assertThat(jira["scope"].asText()).isEqualTo("project")
         assertThat(jira["fields"].map { it["key"].asText() }).contains("kind", "base_url", "email", "token", "project_key")
