@@ -37,6 +37,9 @@ export type InboxItem = {
   /** v0.6.x: a command that waits for the person's OK (kind permission: KeelBot's, or keel2 mcp's acting tool);
    *  answered with inboxApi.decide. */
   permission?: { id: string; session: string; command: string; path?: string | null } | null;
+  /** v0.16.0 what the api's own question carries for its card (kind plugin-install: marketplaceApi's InstallRequest);
+   *  answered with inboxApi.decide (approve | deny). */
+  payload?: Record<string, unknown> | null;
 };
 /** v0.16.0: one question for a person, kept by keel's core approvals (GET /api/approvals). */
 export type ApprovalStatus = "waiting" | "approved" | "denied" | "expired" | "closed";

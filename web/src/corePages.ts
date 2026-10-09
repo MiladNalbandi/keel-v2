@@ -4,7 +4,7 @@
 //   Run      Flow 10 · Tasks 20 · Inbox 30 · Live agents 40 · Jobs 50
 //   Project  Code 10 · KeelBot 20 · Map 30 · Graph 40 · Wiki 50
 //   Build    Workflows 10 · Agents 20 · Skill hub 30 · Stacks 40 · Tools (MCP) 50 · Quality 60
-//   Control  Budget 10 · Settings 20 · Connections 30
+//   Control  Budget 10 · Settings 20 · Connections 30 · Plugins 40
 //
 // And keel's own piece in a part's place: Connections › GitHub (slot connections.kind, order 20: after Jira, before
 // GitLab and Databases). Its token is core: the Git plugin pushes with it, and a flow's ship step opens the pull request.
@@ -17,6 +17,7 @@ import { FlowPage } from "./pages/Flow";
 import { InboxPage } from "./pages/Inbox";
 import { JobsPage } from "./pages/Jobs";
 import { LivePage } from "./pages/Live";
+import { PluginsPage } from "./pages/Plugins";
 import { QualityPage } from "./pages/Quality";
 import { SettingsPage } from "./pages/Settings";
 import { SkillsPage } from "./pages/Skills";
@@ -130,6 +131,17 @@ registerPage({
   needsProject: "optional",
   product: true,
   component: ConnectionsPage,
+});
+
+// v0.16.0 the plugins of this keel and the marketplace: keel-wide, with or without a project
+registerPage({
+  id: SCREEN.plugins,
+  label: "Plugins",
+  group: "control",
+  order: 40,
+  needsProject: false,
+  product: true,
+  component: PluginsPage,
 });
 
 registerSlot<ConnectionKindItem>(SLOTS.connectionsKind, {

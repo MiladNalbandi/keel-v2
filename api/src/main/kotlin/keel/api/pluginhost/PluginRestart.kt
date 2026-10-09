@@ -32,11 +32,15 @@ class PluginRestart(@Value("\${keel.supervised:}") supervised: String, private v
     private val supervised = supervised.trim() == "1"
     private val asked = AtomicBoolean(false)
 
+    /** True when keel-start runs the api, so keel can restart itself. */
+    val canRestart: Boolean get() = supervised
+
+    /** The answer when keel cannot restart itself. */
+    fun refusal() = Conflict("keel can restart itself only when keel-start runs it (KEEL_SUPERVISED=1)", "Restart keel by hand: keel2 restart")
+
     /** Answers at once; the api ends about [DELAY_MS] later, so the answer reaches the browser first. */
     fun restart() {
-        if (!supervised) {
-            throw Conflict("keel can restart itself only when keel-start runs it (KEEL_SUPERVISED=1)", "Restart keel by hand: keel2 restart")
-        }
+        if (!supervised) throw refusal()
         if (!asked.compareAndSet(false, true)) return
         // Not a daemon: SpringApplication.exit stops Tomcat's threads, and with only daemon threads left the JVM would
         // end by itself with code 0 before exitProcess(75) runs (keel-start then stops the container). Set it here:

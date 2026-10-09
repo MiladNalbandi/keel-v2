@@ -20,6 +20,7 @@ import keel.api.connections.SecretService
 import keel.api.doctor.WorkspaceDoctor
 import keel.api.engine.EngineClient
 import keel.api.engine.EngineDown
+import keel.api.engine.EngineError
 import keel.api.events.EventHub
 import keel.api.mcp.McpServerSpec
 import keel.api.mcp.McpService
@@ -159,6 +160,7 @@ class FlowService(
     private val notifications: keel.api.notifications.NotificationService,
     private val capPlanner: CapPlanner,
     private val contributors: ObjectProvider<FlowContributor>,
+    private val refusals: ObjectProvider<StartRefusal>,
 ) {
     private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
 
@@ -249,6 +251,11 @@ class FlowService(
             engine.startThread(body)
         } catch (e: Exception) {
             wt?.let { removeWorktreeAt(root, it.name) }
+            // v0.16.0 a part may answer the refusal better (needs_plugins: install requests for the missing plugins)
+            if (e is EngineError) {
+                val name = start.workflow.name.ifBlank { workflowId }
+                refusals.orderedStream().toList().firstNotNullOfOrNull { it.answer(e, pid, name) }?.let { throw it }
+            }
             throw e
         }
         val tid = res.get("thread_id")?.asText() ?: throw ApiException(HttpStatus.BAD_GATEWAY, "The engine did not return a thread id")

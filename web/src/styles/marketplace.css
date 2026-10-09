@@ -1,0 +1,391 @@
+/* v0.16.0 Control › Plugins, the Inbox's install requests and the core-only menu's "Start with a set". Colours come
+   from the app's tokens (styles.css), so both themes follow. */
+
+/* trust levels: content only (green), adds pages (blue), runs code in keel (amber) */
+.trust {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--dim);
+}
+.trust i {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: currentColor;
+}
+.trust.t-content {
+  color: var(--ok);
+}
+.trust.t-web {
+  color: var(--run);
+}
+.trust.t-code {
+  color: var(--warn);
+}
+
+/* permissions with their levels */
+.perms {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.perm {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+}
+.perms.compact .perm {
+  gap: 6px;
+  font-size: 13px;
+}
+.perms.compact .perm b {
+  font-weight: 500;
+}
+.perm .why {
+  display: block;
+  color: var(--dim);
+  font-size: 12.5px;
+}
+.lvl {
+  font: 600 11px/1.6 var(--f-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-align: center;
+  border-radius: 5px;
+  padding: 0 4px;
+}
+.lvl.high {
+  color: var(--bad);
+  background: var(--bad-soft);
+}
+.lvl.medium {
+  color: var(--warn);
+  background: var(--warn-soft);
+}
+.lvl.low {
+  color: var(--dim);
+  background: var(--panel-2);
+}
+.perm-none {
+  margin: 0;
+}
+
+/* the page */
+.mk-tab {
+  margin-top: 14px;
+}
+.mk-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--warn-soft);
+  border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
+}
+.mk-banner-t {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.mk-banner .errbox,
+.mk-banner .confirm {
+  flex-basis: 100%;
+}
+.mk-note {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--warn-soft);
+  font-size: 13px;
+}
+.mk-warn {
+  color: var(--bad);
+  font-size: 12.5px;
+  margin-top: 3px;
+}
+.mk-set {
+  margin-bottom: 14px;
+  border-color: var(--accent);
+}
+.mk-set-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+.mk-set-list li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.mk-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  align-items: center;
+}
+.mk-tab button.chip {
+  cursor: pointer;
+}
+.mk-tab button.chip[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.perms + .mk-note,
+.perm-none + .mk-note {
+  margin-top: 10px;
+}
+
+.mk-table td {
+  vertical-align: top;
+}
+.mk-table tr.off td {
+  color: var(--dim);
+}
+.mk-parts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.mk-rowact {
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+}
+.mk-table .confirm {
+  margin-top: 8px;
+  min-width: 240px;
+}
+.mk-problems {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+
+.mk-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  gap: 12px;
+}
+.mk-card {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  grid-template-rows: auto auto 1fr auto;
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+}
+.mk-card-h {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.mk-card-h h3 {
+  margin: 0;
+  font-size: 15px;
+}
+.mk-sum {
+  margin: 0;
+  color: var(--dim);
+  font-size: 13px;
+}
+.mk-card-a {
+  justify-content: space-between;
+}
+.tick {
+  color: var(--ok);
+  font-weight: 700;
+}
+
+.mk-kv {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 12px;
+  margin: 0;
+  font-size: 13px;
+}
+.mk-kv dt {
+  color: var(--dim);
+}
+.mk-kv dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.mk-h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--dim);
+}
+.mk-needs,
+.mk-checks {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+}
+.mk-install-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.mk-install-item {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel-2);
+}
+
+.mk-g2 {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .mk-g2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.mk-sources {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.mk-source {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.mk-source-t {
+  min-width: 0;
+}
+.mk-url {
+  overflow-wrap: anywhere;
+}
+.mk-add {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  align-items: end;
+  margin-top: 14px;
+}
+.mk-add .row {
+  grid-column: 1 / -1;
+}
+@media (max-width: 640px) {
+  .mk-add {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.mk-rule {
+  align-items: flex-start;
+}
+.mk-rule input {
+  margin-top: 3px;
+}
+
+/* the Inbox's install request */
+.inbox-item.k-plugin-install {
+  border-left-color: var(--accent);
+}
+.inbox-quote {
+  margin: 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--border);
+  background: var(--panel-2);
+  border-radius: 0 8px 8px 0;
+  display: grid;
+  gap: 4px;
+}
+.inbox-quote p {
+  margin: 0;
+}
+.inbox-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: 12px 18px;
+}
+@media (max-width: 720px) {
+  .inbox-cols {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.inbox-mini {
+  margin: 0 0 6px;
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--faint);
+  font-weight: 600;
+}
+.inbox-what {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 3px;
+  font-size: 13px;
+}
+.inbox-more {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+  font-size: 12.5px;
+  color: var(--warn);
+}
+
+/* the core-only menu: no Project pages yet */
+.nav-start {
+  display: grid;
+  gap: 6px;
+  margin: 2px 10px 8px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+}
+.nav-start p {
+  margin: 0;
+  color: var(--dim);
+  font-size: 12px;
+}
+.nav-start .nav-sets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+/* a phone's row of screens has no room for it: its menu (☰) shows it */
+@media (max-width: 900px) {
+  .app .side .nav .nav-sec.nav-start-sec {
+    display: none;
+  }
+}

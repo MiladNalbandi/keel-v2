@@ -4,6 +4,7 @@
 // #/inbox/<project> opens it filtered to one project (the Answer link on All projects). Long details fold with
 // "Show more"; after you answer, the focus moves to the next item so the keyboard can go on.
 // A part shows the items of its own kinds with its own card (the slot inbox.card: the Tasks plugin's task items).
+// v0.16.0 an agent's (or a workflow's) request to install a plugin is keel's own card: Approve and install, or Deny.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { errorParts } from "../api";
@@ -11,6 +12,8 @@ import { answersOf, ClarifyForm, type ClarifyAnswers } from "../components/Clari
 import { RunModeNote } from "../components/RunMode";
 import { EmptyState } from "../components/EmptyState";
 import { GateDetail } from "./Flow";
+import { PermissionList, TrustTag } from "../components/Permissions";
+import { whoAsked, type InstallRequest } from "../marketplaceApi";
 import { ErrorBox, Loading, PageHead, Pill, Since } from "../components/ui";
 import { inboxApi, type InboxAnswer, type InboxItem } from "../inboxApi";
 import { useSlot } from "../sdk/registry";
@@ -20,9 +23,10 @@ import "../components/inbox.css";
 
 const KIND_LABEL: Record<string, string> = {
   gate: "gate", clarify: "questions", fix: "needs a fix", budget: "budget", usage: "plan window", dependency: "new dependency",
-  permission: "may it run?",
+  permission: "may it run?", "plugin-install": "install request",
 };
 const kindLabel = (k: string) => KIND_LABEL[k] ?? k;
+const PLUGIN_INSTALL = "plugin-install";
 const keyOf = (it: InboxItem) => `${it.thread_id}:${it.id ?? it.step}`;
 
 /** Details longer than this fold behind "Show more". */
@@ -98,6 +102,82 @@ function PermissionInboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: stri
         <button className="btn sm" type="button" disabled={busy} onClick={() => void answer("deny")}>Deny</button>
         {!mcp && <button className="btn sm ghost inbox-open" type="button" onClick={() => { setProjectId(it.project_id); go("repo"); }}
           aria-label={`Open KeelBot in ${it.project_name}`}>Open KeelBot ▸</button>}
+      </div>
+      {err && <ErrorBox error={err} />}
+    </article>
+  );
+}
+
+/** v0.16.0 an agent (or a workflow) asks to install a plugin: what it is, why, what it may do and what comes with it. Approve
+ *  installs it (it loads when keel restarts); Deny installs nothing. */
+function PluginInstallCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) => Promise<void> }) {
+  const p = (it.payload ?? {}) as Partial<InstallRequest>;
+  const [why, setWhy] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<{ message: string; hint?: string } | null>(null);
+  const hid = `inbox-install-${it.id}`;
+  const title = p.title || p.name || "the plugin";
+  const reasons = p.reasons?.length ? p.reasons : p.reason ? [{ reason: p.reason, source: p.source }] : [];
+  const installs = p.installs ?? [];
+  const answer = async (decision: "approve" | "deny") => {
+    setBusy(true);
+    setErr(null);
+    try {
+      await inboxApi.decide(it.id ?? "", decision, why.trim());
+      const done = p.update ? "updated" : "installed";
+      await onDone(decision === "approve" ? `${title} is ${done}. Restart keel to use it.` : `Denied: ${title} is not ${done}.`);
+    } catch (e) {
+      setErr(errorParts(e));
+      setBusy(false);
+    }
+  };
+  return (
+    <article className="inbox-item k-plugin-install" aria-labelledby={hid} data-testid="inbox-item" data-key={keyOf(it)} tabIndex={-1}>
+      <div className="inbox-meta">
+        <Pill tone="warn">{kindLabel(it.kind)}</Pill>
+        <span className="sub"><b>{it.project_name}</b> · from {whoAsked(p.source ?? it.flow)}</span>
+        {it.since && <span className="hint inbox-since">waiting <Since from={it.since} /></span>}
+      </div>
+      <h2 id={hid} className="inbox-title">{it.title}</h2>
+      <div className="row">
+        <TrustTag trust={p.trust} />
+        {p.publisher && <span className="sub">by {p.publisher}{p.verified ? " ✓" : p.verified === false ? " (not verified)" : ""}</span>}
+      </div>
+      {p.summary && <p className="sub" style={{ margin: 0 }}>{p.summary}</p>}
+      {reasons.length > 0 && (
+        <div className="inbox-quote" aria-label="Why it asks">
+          <span className="sub">{reasons.length > 1 ? "They say" : `${whoAsked(reasons[0].source)} says`}</span>
+          {reasons.map((r, i) => <p key={i}>“{r.reason}”{reasons.length > 1 ? <span className="sub"> · {whoAsked(r.source)}</span> : null}</p>)}
+        </div>
+      )}
+      <div className="inbox-cols">
+        <div>
+          {!!p.more?.length && (
+            <>
+              <p className="inbox-mini">New permissions</p>
+              <ul className="inbox-more" aria-label="New permissions">{p.more.map((m, i) => <li key={i} className="mono">{m}</li>)}</ul>
+            </>
+          )}
+          <p className="inbox-mini">It will be allowed to</p><PermissionList permissions={p.permissions} compact />
+        </div>
+        <div>
+          <p className="inbox-mini">What happens</p>
+          <ul className="inbox-what">
+            {installs.length > 0 && <li>Also installs {installs.map((x) => x.title || x.name).join(", ")}: {title} needs {installs.length === 1 ? "it" : "them"}.</li>}
+            {!installs.length && !!p.needs?.length && <li>It needs {p.needs.join(", ")}.</li>}
+            <li>{p.update ? `keel updates it${p.installed ? ` from ${p.installed}` : ""}${p.version ? ` to ${p.version}` : ""}` : "keel checks its signature, then installs it"}. Nothing runs yet.</li>
+            <li>It loads when keel restarts.</li>
+          </ul>
+        </div>
+      </div>
+      <div className="field">
+        <label htmlFor={`${hid}-why`}>Note (optional)</label>
+        <input id={`${hid}-why`} type="text" value={why} onChange={(e) => setWhy(e.target.value)} />
+      </div>
+      <div className="row inbox-actions">
+        <button className="btn sm warn" type="button" disabled={busy} onClick={() => void answer("approve")}>{p.update ? "Approve and update" : "Approve and install"}</button>
+        <button className="btn sm" type="button" disabled={busy} onClick={() => void answer("deny")}>Deny</button>
+        <span className="sub">An agent cannot install anything by itself.</span>
       </div>
       {err && <ErrorBox error={err} />}
     </article>
@@ -212,14 +292,14 @@ export function InboxPage() {
   const groups = useMemo(() => {
     const flowsOf = new Map<string, Set<string>>();
     for (const it of items) {
-      if (it.task || it.permission) continue;
+      if (it.task || it.permission || it.kind === PLUGIN_INSTALL) continue;
       flowsOf.set(it.project_id, (flowsOf.get(it.project_id) ?? new Set<string>()).add(it.thread_id));
     }
     if (![...flowsOf.values()].some((x) => x.size > 1)) return null;
     const order: string[] = [];
     const by = new Map<string, InboxItem[]>();
     for (const it of items) {
-      const g = it.task || it.permission ? `other:${it.project_id}` : `${it.project_id}:${it.thread_id}`;
+      const g = it.task || it.permission || it.kind === PLUGIN_INSTALL ? `other:${it.project_id}` : `${it.project_id}:${it.thread_id}`;
       if (!by.has(g)) { by.set(g, []); order.push(g); }
       by.get(g)!.push(it);
     }
@@ -260,6 +340,7 @@ export function InboxPage() {
     const Card = cardOf(it.kind)?.component;
     if (Card) return <Card key={keyOf(it)} item={it} cardKey={keyOf(it)} kindLabel={labelOf(it.kind)} onDone={(msg) => done(msg, keyOf(it))} />;
     if (it.permission) return <PermissionInboxCard key={keyOf(it)} it={it} onDone={(msg) => done(msg, keyOf(it))} />;
+    if (it.kind === PLUGIN_INSTALL) return <PluginInstallCard key={keyOf(it)} it={it} onDone={(msg) => done(msg, keyOf(it))} />;
     // a task's item whose part has not loaded yet: it shows when its card registers
     if (it.task) return null;
     return <InboxCard key={keyOf(it)} it={it} onDone={(msg) => done(msg, keyOf(it))} />;

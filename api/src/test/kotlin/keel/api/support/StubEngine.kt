@@ -103,6 +103,12 @@ class StubEngine private constructor(private val server: HttpServer) {
     @Volatile var helperHandover: Map<String, Any?> = mapOf("branch" to "keel/helper/abc", "base" to "0000000", "commits" to emptyList<Any>(),
         "uncommitted" to emptyList<Any>(), "asked" to listOf("Add a price helper"), "answer" to "Added it.", "title" to "Add a price helper")
 
+    /** v0.16.0 what POST /threads answers instead of a thread (a workflow that needs plugins: 409 {error, missing}). */
+    @Volatile var threadRefusal: Pair<Int, Map<String, Any?>>? = null
+
+    /** v0.16.0 the engine's marketplace (keel_engine/marketplace): its catalog, what is installed, sources and rules. */
+    val market = StubMarket()
+
     /** Unlocks posted per thread (POST /threads/{id}/unlocks), like the engine keeps them. */
     val unlocks = java.util.concurrent.ConcurrentHashMap<String, MutableList<Map<String, Any?>>>()
 
@@ -117,8 +123,10 @@ class StubEngine private constructor(private val server: HttpServer) {
         "run_mode" to (modes[id] ?: "manual"),
     ) + overrides[id].orEmpty()
 
-    private fun route(method: String, path: String, body: JsonNode?): Pair<Int, Any?> = when {
+    private fun route(method: String, path: String, body: JsonNode?, query: String? = null): Pair<Int, Any?> = when {
         extraRoutes.containsKey(path) -> extraRoutes.getValue(path)(body)
+        path.startsWith("/marketplace/") -> market.route(method, path, body, query)
+        path == "/threads" && method == "POST" && threadRefusal != null -> threadRefusal!!
         path == "/health" -> 200 to mapOf("ok" to true, "version" to "stub", "fake" to true)
         path == "/agents/ask" -> 200 to (askAnswer ?: mapOf("ok" to true, "fake" to true, "text" to ""))
         path == "/templates" -> 200 to listOf(featureTemplate, knowledgeTemplate, ciFixTemplate) + extraTemplates
@@ -141,7 +149,7 @@ class StubEngine private constructor(private val server: HttpServer) {
             else mapOf("ok" to true, "server" to "PostgreSQL 16.4", "tables" to 23))
         path == "/plugins/db/suggest" -> 200 to listOf(
             mapOf("name" to "db", "kind" to "postgres", "url" to "postgres://app:app@localhost:15432/scores", "env" to "local", // keel:allow-secret
-                "source" to "docker-compose.yml (service db)", "shown" to "postgres://app:•••@localhost:15432/scores"))
+                "source" to "docker-compose.yml (service db)", "shown" to "postgres://app:•••@localhost:15432/scores")) // keel:allow-secret
         path == "/plugins/db/schema" -> 200 to mapOf("connection" to body?.path("connection")?.path("name")?.asText(), "kind" to "postgres",
             "tables" to listOf(mapOf("name" to "scores", "columns" to emptyList<Any>(), "fks" to emptyList<Any>())))
         path == "/plugins/db/query" -> 200 to mapOf("connection" to body?.path("connection")?.path("name")?.asText(),
@@ -328,7 +336,7 @@ class StubEngine private constructor(private val server: HttpServer) {
         val body = if (text.isBlank()) null else runCatching { mapper.readTree(text) }.getOrNull()
         val path = ex.requestURI.path
         calls += Call(ex.requestMethod, path, body, ex.requestURI.query)
-        val (code, res) = route(ex.requestMethod, path, body)
+        val (code, res) = route(ex.requestMethod, path, body, ex.requestURI.query)
         val bytes = mapper.writeValueAsBytes(res)
         ex.responseHeaders.add("Content-Type", "application/json")
         ex.sendResponseHeaders(code, bytes.size.toLong())

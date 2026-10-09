@@ -1,5 +1,6 @@
 package keel.api.inbox
 
+import com.fasterxml.jackson.annotation.JsonInclude
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import keel.api.common.ApiException
@@ -49,6 +50,10 @@ data class InboxItem(
     /** v0.6.x: a command that waits for the person's OK (kind permission: KeelBot's, or keel2 mcp's acting tool); answered
      *  with POST /api/approvals/{id}/decide (once | always | deny). */
     val permission: InboxPermission? = null,
+    /** v0.16.0: what the api's own question carries for its card (a plugin install request: title, reason, trust,
+     *  permissions, needed plugins); left out of the JSON when there is none. */
+    @get:JsonInclude(JsonInclude.Include.NON_NULL)
+    val payload: JsonNode? = null,
 )
 
 data class InboxPermission(val id: String, val session: String, val command: String, val path: String?)
@@ -114,7 +119,9 @@ class InboxService(
             val n = sources.sumOf { waitingOf(it, pid) }
             if (n > 0) per.merge(pid, n, Int::plus)
         }
-        return InboxCount(per.values.sum(), per)
+        // v0.16.0 what belongs to no project (a plugin install request) counts in the total only
+        val keelWide = sources.sumOf { runCatching { it.waitingKeelWide() }.getOrDefault(0) }
+        return InboxCount(per.values.sum() + keelWide, per)
     }
 
     /** What waits in one project: its flows at a pause and every source's items (a project's waiting count). */
@@ -139,11 +146,12 @@ class InboxService(
 
     fun list(project: String? = null, kind: String? = null): InboxView {
         val names = projects.rows().associate { it.id to it.name }
-        val fromSources = sources.flatMap { itemsOf(it) }.filter { it.projectId in names }
-            .map { it.copy(projectName = names.getValue(it.projectId)) }
+        // an item of no project (keel-wide: a plugin install request) shows too, under keel's name
+        val fromSources = sources.flatMap { itemsOf(it) }.filter { it.projectId in names || it.projectId.isBlank() }
+            .map { it.copy(projectName = names[it.projectId] ?: KEEL_WIDE) }
         val all = (waitingRows().mapNotNull { item(it, names[it.pid] ?: it.pid) } + fromSources).sortedBy { it.since ?: "" }
         val items = all.filter { (project.isNullOrBlank() || it.projectId == project) && (kind.isNullOrBlank() || it.kind == kind) }
-        val perProject = all.groupingBy { it.projectId }.eachCount()
+        val perProject = all.filter { it.projectId.isNotBlank() }.groupingBy { it.projectId }.eachCount()
         return InboxView(items, all.size, all.map { it.kind }.distinct().sorted(),
             perProject.map { (id, n) -> InboxProject(id, names[id] ?: id, n) }.sortedBy { it.name.lowercase() })
     }
@@ -213,5 +221,7 @@ class InboxService(
     companion object {
         const val DETAIL_MAX = 700
         const val TTL_MS = 3_000L
+        /** The project name of an item that belongs to no project. */
+        const val KEEL_WIDE = "keel"
     }
 }

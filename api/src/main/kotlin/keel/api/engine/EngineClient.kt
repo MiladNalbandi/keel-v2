@@ -20,6 +20,12 @@ class EngineDown : ApiException(
     "Start it with `cd engine && uv run keel-engine`, or check KEEL_ENGINE_URL.",
 )
 
+/**
+ * The engine refused a call: its status (a 5xx becomes 502), its error and hint, and its whole answer in [body], so a
+ * caller can pass on more of it (the marketplace's refusals list what is missing). Shown like any [ApiException].
+ */
+class EngineError(status: HttpStatus, message: String, hint: String?, val body: JsonNode?) : ApiException(status, message, hint)
+
 /** Talks to the Python engine (FastAPI). Every call maps "cannot connect" to a 503 with a hint. */
 @Component
 class EngineClient(private val props: KeelProperties, private val mapper: ObjectMapper) {
@@ -36,9 +42,16 @@ class EngineClient(private val props: KeelProperties, private val mapper: Object
 
     private val fast by lazy { client(Duration.ofSeconds(30)) }
     private val slow by lazy { client(Duration.ofSeconds(180)) }
+    /** v0.16.0 a plugin's install or update answers when its download and checks are done (up to 200 MB). */
+    private val install by lazy { client(Duration.ofMinutes(20)) }
 
     fun get(path: String, long: Boolean = false): JsonNode = call {
         (if (long) slow else fast).get().uri(path).retrieve().body(JsonNode::class.java) ?: mapper.nullNode()
+    }
+
+    /** [path] is a template: `{name}` takes its value from [vars], encoded (a search word may hold any character). */
+    fun get(path: String, vars: Map<String, Any?>): JsonNode = call {
+        fast.get().uri(path, vars.mapValues { it.value ?: "" }).retrieve().body(JsonNode::class.java) ?: mapper.nullNode()
     }
 
     fun post(path: String, body: Any?, long: Boolean = false): JsonNode = call {
@@ -48,8 +61,23 @@ class EngineClient(private val props: KeelProperties, private val mapper: Object
             .retrieve().body(JsonNode::class.java) ?: mapper.nullNode()
     }
 
+    /** A call that waits for a download: the engine answers when it is done (a plugin's install or update). */
+    fun postWaiting(path: String, body: Any?): JsonNode = call {
+        install.post().uri(path)
+            .contentType(MediaType.APPLICATION_JSON)
+            .body(mapper.valueToTree<JsonNode>(body ?: emptyMap<String, Any>()))
+            .retrieve().body(JsonNode::class.java) ?: mapper.nullNode()
+    }
+
     fun patch(path: String, body: Any?): JsonNode = call {
         fast.patch().uri(path)
+            .contentType(MediaType.APPLICATION_JSON)
+            .body(mapper.valueToTree<JsonNode>(body ?: emptyMap<String, Any>()))
+            .retrieve().body(JsonNode::class.java) ?: mapper.nullNode()
+    }
+
+    fun put(path: String, body: Any?): JsonNode = call {
+        fast.put().uri(path)
             .contentType(MediaType.APPLICATION_JSON)
             .body(mapper.valueToTree<JsonNode>(body ?: emptyMap<String, Any>()))
             .retrieve().body(JsonNode::class.java) ?: mapper.nullNode()
@@ -76,7 +104,7 @@ class EngineClient(private val props: KeelProperties, private val mapper: Object
             val msg = body?.get("error")?.asText() ?: body?.get("detail")?.toString() ?: "The engine refused the request"
             val hint = body?.get("hint")?.asText()
             val status = HttpStatus.resolve(e.statusCode.value()) ?: HttpStatus.BAD_GATEWAY
-            throw ApiException(if (status.is5xxServerError) HttpStatus.BAD_GATEWAY else status, msg, hint)
+            throw EngineError(if (status.is5xxServerError) HttpStatus.BAD_GATEWAY else status, msg, hint, body)
         }
     }
 
