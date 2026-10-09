@@ -29,3 +29,9 @@
 - what: api GET /api/features
   detail: "$.plugins: only in B"
   why: step 1, the plugin host adds the loaded plugins' web parts to /api/features (what the web app loads at start)
+
+# ---- not keel's code: the image's programs
+
+- what: api GET /api/providers/models
+  detail: "$.co*.modes.*: * items in A, * in B"
+  why: the agent CLIs are installed at their newest version when an image is built, and codex and Copilot list their own models (models/catalog.py), so a newer CLI may bring a new model (Copilot 1.0.94 added claude-haiku-5.5). Only the number may differ; each model's shape is still compared
