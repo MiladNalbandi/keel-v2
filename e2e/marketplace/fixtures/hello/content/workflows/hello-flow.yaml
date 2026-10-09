@@ -1,0 +1,10 @@
+id: hello-flow
+name: hello flow (marketplace e2e)
+keel_rules: false
+version: 1
+steps:
+  - id: hello
+    kind: agent
+    name: say hello
+    agent: hello-agent
+    phase: review
