@@ -25,8 +25,10 @@ from keel_engine.workflows.templates import get_template
 
 PROD = "apps/api/src/main/kotlin/app/Score.kt"
 TEST = "apps/api/src/test/kotlin/app/ScoreTest.kt"
-# a plugin's read tools, as the engine writes them into the guard context (the CI/CD plugin's, plugins/ci)
-PLUGIN_READ = {"keel-ci": ["ci_failure", "ci_runs"]}
+# a plugin's read tools, as the engine writes them into the guard context (the CI/CD and Git plugins', plugins/ci and
+# plugins/git)
+PLUGIN_READ = {"keel-ci": ["ci_failure", "ci_runs"],
+               "keel-git": ["git_blame", "git_branches", "git_diff", "git_log", "git_show", "git_status", "pr_status"]}
 
 
 def ctx_file(tmp_path, root, phase="red", **kw) -> str:
@@ -131,7 +133,7 @@ async def test_the_guards_plugin_read_tools_are_exactly_the_plugin_servers_tools
     from keel_engine.plugins import server
 
     have = {name: {t.name for t in await server.build(p).list_tools()} for p, name in extensions.servers().items()}
-    assert have == extensions.read_tools() and set(have) == {"keel-db", "keel-git"}      # keel-ci: plugins/ci
+    assert have == extensions.read_tools() and set(have) == {"keel-db"}      # keel-ci, keel-git: plugins/ci, plugins/git
 
 
 def test_absolute_paths_are_judged_relative_to_the_project(capsys, tmp_path, root):

@@ -1,7 +1,7 @@
-"""The CI/CD plugin's engine tests: keel_plugin_ci loaded into a real engine as the image loads it (KEEL_PLUGIN_PATHS and
+"""The Git plugin's engine tests: keel_plugin_git loaded into a real engine as the image loads it (KEEL_PLUGIN_PATHS and
 KEEL_PLUGIN_ADDONS, as `keel-engine plugins resolve` writes them), on the fake model. Run from engine/:
 
-    PYTHONPATH=../plugins/ci/engine uv run pytest ../plugins/ci/engine/tests      (scripts/test-plugins.sh)
+    PYTHONPATH=../plugins/git/engine uv run pytest ../plugins/git/engine/tests      (scripts/test-plugins.sh)
 """
 
 import time
@@ -17,9 +17,7 @@ from keel_engine.events import EventBus
 from keel_engine.models import usage
 from keel_engine.workflows.templates import get_template
 
-ENGINE = str(Path(__file__).resolve().parents[1])          # plugins/ci/engine: the folder that holds keel_plugin_ci
-# CI/CD needs Git (keel-plugin.yml requires.plugins): the resolver puts Git's engine first, as the image does
-GIT_ENGINE = str(Path(__file__).resolve().parents[3] / "git" / "engine")
+ENGINE = str(Path(__file__).resolve().parents[1])          # plugins/git/engine: the folder that holds keel_plugin_git
 
 
 @pytest.fixture(autouse=True)
@@ -28,8 +26,8 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setenv("KEEL_FAKE", "1")
     monkeypatch.setenv("KEEL_API_URL", "off")
     monkeypatch.setenv("KEEL_DEMO", "0")
-    monkeypatch.setenv("KEEL_PLUGIN_PATHS", f"{GIT_ENGINE}:{ENGINE}")
-    monkeypatch.setenv("KEEL_PLUGIN_ADDONS", "keel_plugin_git,keel_plugin_ci")
+    monkeypatch.setenv("KEEL_PLUGIN_PATHS", ENGINE)
+    monkeypatch.setenv("KEEL_PLUGIN_ADDONS", "keel_plugin_git")
     monkeypatch.delenv("KEEL_ADDONS", raising=False)
     monkeypatch.delenv("KEEL_INTERNAL_TOKEN", raising=False)
     monkeypatch.delenv("KEEL_FAKE_DELAY", raising=False)
@@ -73,3 +71,9 @@ def wait(client, tid, timeout=30):
             return s
         time.sleep(0.02)
     raise AssertionError(f"thread {tid} still running: {s}")
+
+
+def decide(client, tid, decision="approve", why=None, **kw):
+    r = client.post(f"/threads/{tid}/resume", json={"decision": decision, "why": why, **kw})
+    assert r.status_code == 200, r.text
+    return wait(client, tid)

@@ -68,8 +68,9 @@ export type { PageProps, PageRegistration, SlotItem } from "./registry";
 export { SLOTS } from "./slots";
 export type {
   AssistantItem, AssistantProps, CodeActivityItem, CodeActivityProps, CodeOpen, CodeOpenSpec, CodeTabItem, CodeTabProps,
-  CodeTabRef, CodeView, ConnectionKindItem, InboxCardItem, InboxCardProps, JobsTabItem, LauncherSourceItem, MapErQueryItem,
-  ScmPanelProps, SettingKind, SettingRow, SettingsSectionItem, ToolsCardItem, WorkflowActionsItem,
+  CodeTabRef, CodeView, ConnectionKindItem, InboxCardItem, InboxCardProps, JobsTabItem, KeelbotBlock, KeelbotCardItem,
+  KeelbotCardProps, LauncherSourceItem, MapErQueryItem, ScmPanelProps, SettingKind, SettingRow, SettingsSectionItem,
+  ToolsCardItem, WorkflowActionsItem,
 } from "./slots";
 
 // "ask KeelBot" without importing it: the assistant's part listens

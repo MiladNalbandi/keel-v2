@@ -1,6 +1,6 @@
 // v0.10.0 the Database and Git plugins in the web: install on Tools, Connections › Databases and GitHub (Map › Query:
-// plugins/map/web/test), Code › Git, KeelBot's query and git buttons, a plugin block's settings
-// on the Workflows page, and Claude Code's question in the Inbox.
+// plugins/map/web/test), the Code page's branch tab, KeelBot's query buttons, a plugin block's settings on the Workflows
+// page, and Claude Code's question in the Inbox. Code › Git and KeelBot's git buttons: plugins/git/web/test.
 
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -63,28 +63,6 @@ describe("Connections › Databases and GitHub", () => {
   });
 });
 
-describe("Code › Git", () => {
-  it("pushes, and hands the review comments to KeelBot", async () => {
-    const user = userEvent.setup();
-    db.plugins.git = true;
-    db.pr = { number: 7, title: "Euro prices", url: "https://github.com/o/r/pull/7", state: "OPEN", review: "CHANGES_REQUESTED",
-      checks: [{ name: "ci / web", state: "success", url: "" }, { name: "ci / api", state: "failure", url: "" }], checks_done: 2, checks_failed: 1,
-      comments: [{ author: "rev", body: "round half up", path: "src/money.ts", line: 14 }] };
-    location.hash = "#/repo";
-    render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Source control" }));
-    const git = await screen.findByLabelText("Git");
-    expect(within(git).getByText("↑ 2 to push")).toBeInTheDocument();
-    await user.click(within(git).getByRole("button", { name: "Push" }));
-    await waitFor(() => expect(calls("POST", "/api/projects/ludus-engine/git/push")).toHaveLength(1));
-    const pr = await within(git).findByRole("group", { name: "Pull request #7" });
-    expect(pr).toHaveTextContent("1 check failed");
-    await user.click(within(pr).getByRole("button", { name: "Ask KeelBot to address the comments" }));
-    const box = await screen.findByRole("textbox", { name: "Ask KeelBot" });
-    await waitFor(() => expect((box as HTMLTextAreaElement).value).toContain("rev (src/money.ts:14): round half up"));
-  });
-});
-
 describe("Code › Source control › a branch", () => {
   it("opens a branch as a tab with its changed files, a file's diff, its commits, and switches to another", async () => {
     const user = userEvent.setup();
@@ -126,13 +104,13 @@ describe("Code › Source control › a branch", () => {
   });
 });
 
-describe("KeelBot's query and git buttons", () => {
+describe("KeelBot's query buttons", () => {
   it("reads the plugin blocks among the others", () => {
     const segs = splitActions('Here:\n```keel-query\n{"sql": "select 1"}\n```\n```keel-git\n{"op": "push"}\n```');
     expect(segs.map((x) => x.kind)).toEqual(["text", "query", "git"]);
   });
 
-  it("a change KeelBot gives is counted first, and a commit uses the message the person may edit", async () => {
+  it("a change KeelBot gives is counted first, and a part's block shows its card (the Git plugin's)", async () => {
     const user = userEvent.setup();
     const p = await chatWith('Zero them:\n```keel-query\n{"sql": "update scores set value = 0", "connection": "local"}\n```\n'
       + '```keel-git\n{"op": "commit", "message": "fix: zero scores"}\n```');
@@ -140,11 +118,14 @@ describe("KeelBot's query and git buttons", () => {
     await user.click(within(q).getByRole("button", { name: "Run" }));
     await user.click(await within(q).findByRole("button", { name: "Run it (3 rows)" }));
     await waitFor(() => expect(calls("POST", "/api/projects/ludus-engine/db/query").map((c) => (c.body as { confirm: boolean }).confirm)).toEqual([false, true]));
-    const g = within(p).getByRole("region", { name: "Git: Commit" });
-    await user.type(within(g).getByRole("textbox", { name: "Commit message" }), " for the reset");
-    await user.click(within(g).getByRole("button", { name: "Commit" }));
-    await waitFor(() => expect(calls("POST", "/api/projects/ludus-engine/git/commit")[0]?.body).toEqual({ message: "fix: zero scores for the reset" }));
-    expect(await within(g).findByRole("status")).toHaveTextContent("Committed abc1234 fix: zero scores for the reset (1 file).");
+    // the keel-git block is the Git plugin's card (slot keelbot.card; its buttons: plugins/git/web/test)
+    expect(within(p).getByRole("region", { name: "Git: Commit" })).toBeInTheDocument();
+  });
+
+  it("a keel block of a kind keel does not know shows as code", async () => {
+    const p = await chatWith('Look:\n```keel-nope\n{"op": "x"}\n```\nDone.');
+    expect(await within(p).findByText('{"op": "x"}')).toBeInTheDocument();
+    expect(within(p).getByText("Done.")).toBeInTheDocument();
   });
 });
 

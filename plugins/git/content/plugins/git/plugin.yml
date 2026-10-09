@@ -1,4 +1,4 @@
-# The Git plugin (engine keel_engine/plugins/git). Installed per project on Tools › Plugins. KeelBot and flow agents
+# The Git plugin (plugins/git, engine keel_plugin_git). Installed per project on Tools › Plugins. KeelBot and flow agents
 # read git and the pull request through its tools; a commit, push, pull request or branch switch is a button the
 # person presses (keel-git). Never: force push, rewriting pushed history, pushing to main or master.
 name: git

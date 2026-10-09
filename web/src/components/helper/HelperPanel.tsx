@@ -14,7 +14,7 @@ import { modelLabel, provLabel } from "../../format";
 import { rankFiles } from "../../pages/repo/model";
 import { go, useApp, useLoad } from "../../state";
 import { Markdown } from "../Markdown";
-import { CiCard, GitCard, QueryCard, splitActions, StartCard, WorkflowCard } from "./Actions";
+import { CiCard, QueryCard, SlotCard, splitActions, StartCard, WorkflowCard } from "./Actions";
 import { ModelPicker } from "../ModelPicker";
 import { mergeSteps } from "../StepFeed";
 import { StepView } from "../StepView";
@@ -98,9 +98,10 @@ function Answer({ text, onOpen, pid, onAsk }: { text: string; onOpen: (path: str
       {splitActions(text).map((seg, i) => seg.kind === "text" ? <Markdown key={i} text={seg.text} breaks />
         : seg.kind === "start" ? <StartCard key={i} pid={pid} body={seg.body} />
           : seg.kind === "query" ? <QueryCard key={i} pid={pid} body={seg.body} />
-            : seg.kind === "git" ? <GitCard key={i} pid={pid} body={seg.body} />
-              : seg.kind === "ci" ? <CiCard key={i} pid={pid} body={seg.body} />
-              : <WorkflowCard key={i} pid={pid} body={seg.body} onAsk={onAsk} />)}
+            : seg.kind === "ci" ? <CiCard key={i} pid={pid} body={seg.body} />
+              : seg.kind === "workflow" ? <WorkflowCard key={i} pid={pid} body={seg.body} onAsk={onAsk} />
+                // a plugin's block (keel-git): its card from the slot keelbot.card
+                : <SlotCard key={i} pid={pid} block={{ kind: `keel-${seg.kind}`, body: seg.body }} />)}
     </div>
   );
 }

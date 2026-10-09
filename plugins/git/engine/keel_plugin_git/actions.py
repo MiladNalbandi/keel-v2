@@ -17,13 +17,14 @@ from __future__ import annotations
 import asyncio
 import re
 
-from ...runtime import run_mode as run_modes
-from .. import github_token
+from keel_engine.runtime import run_mode as run_modes
+
 from . import core
+from .core import github_token
 
 
 def _result(ok: bool, note: str, detail: str = "", update: dict | None = None, ask: dict | None = None):
-    from ...runtime.actions import ActionResult
+    from keel_engine.runtime.actions import ActionResult
 
     return ActionResult(ok, note, detail, update or {}, ask=ask)
 
@@ -95,7 +96,7 @@ def _pr(a):
     p = a.params or {}
     body = (a.state or {}).get("pr_body") or ""
     if not body:
-        from ...runtime.verdict_actions import pr_body
+        from keel_engine.runtime.verdict_actions import pr_body
 
         st = core.status(a.root)
         body = pr_body(a.root, a.key, a.state or {}, a.title, st["base"], getattr(a, "request", "") or "",

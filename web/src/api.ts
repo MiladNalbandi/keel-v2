@@ -592,11 +592,6 @@ export type DbResult = {
   columns?: string[]; rows?: unknown[][]; count?: number; truncated?: boolean; masked?: string[];
   changed?: number; done?: boolean;
 };
-export type GitStatus = {
-  branch: string | null; base: string | null; upstream: string | null; ahead: number; behind: number; base_ahead: number; base_behind: number;
-  pushed: boolean; changes: { path: string; status: string }[];
-};
-export type GitBranch = { name: string; current: boolean; ahead: number; behind: number; date: string; subject: string };
 /** v0.11.0 CI/CD plugin: a pipeline run on GitHub Actions; a run's detail adds its jobs and the failed steps' log. */
 export type CiRun = {
   id: number; workflow: string; title: string; branch: string; sha: string; event: string; status: string;
@@ -604,12 +599,6 @@ export type CiRun = {
   jobs?: { id: number; name: string; status: string; conclusion: string | null; url: string; failed_steps: string[] }[];
   log?: string;
 };
-export type PullRequest = {
-  number: number; title: string; url: string; state: string; draft?: boolean; review?: string | null; base?: string; branch?: string;
-  checks: { name: string; state: string; url: string }[]; checks_done: number; checks_failed: number;
-  comments: { author: string; body: string; path?: string | null; line?: number | null }[];
-};
-
 export type CapScope = "day" | "flow" | "step" | "api_month";
 export type Cap = { id: string; scope: CapScope; limit: number; unit: "tokens" | "usd"; action: "pause" | "cheaper" | "stop" };
 /** v0.4.2 `GET /api/projects/{pid}/caps/left`: what each cap leaves for a flow that starts now. */
@@ -1114,16 +1103,10 @@ export const api = {
   ciRuns: (pid: string, branch?: string) => get<CiRun[]>(`/projects/${e(pid)}/ci/runs${q({ branch })}`),
   ciRerun: (pid: string, id: number) => post<{ id: number; rerun: boolean }>(`/projects/${e(pid)}/ci/runs/${id}/rerun`),
   ciFix: (pid: string, run?: number) => post<ThreadState>(`/projects/${e(pid)}/ci/fix`, run ? { run } : {}),
-  gitStatus: (pid: string) => get<GitStatus>(`/projects/${e(pid)}/git/status`),
-  gitBranches: (pid: string) => get<GitBranch[]>(`/projects/${e(pid)}/git/branches`),
-  gitPr: (pid: string) => get<{ pr: PullRequest | null }>(`/projects/${e(pid)}/git/pr`),
+  // the Code page's branch tab (pages/repo/Branch.tsx) reads a branch and switches with the Git plugin's api; the Git
+  // plugin's panel and KeelBot buttons have their own calls (plugins/git/web/gitApi.ts)
   gitSwitch: (pid: string, branch: string, create = false) => post<{ branch: string }>(`/projects/${e(pid)}/git/switch`, { branch, create }),
   gitBranch: (pid: string, name: string) => get<BranchView>(`/projects/${e(pid)}/git/branch${q({ name })}`),
-  gitCommit: (pid: string, message: string) => post<{ sha: string; subject: string; files: string[] }>(`/projects/${e(pid)}/git/commit`, { message }),
-  gitSync: (pid: string) => post<{ merged: boolean; from: string; branch: string }>(`/projects/${e(pid)}/git/sync`),
-  gitPush: (pid: string) => post<{ branch: string; sha: string }>(`/projects/${e(pid)}/git/push`),
-  gitOpenPr: (pid: string, body: { title: string; body: string; draft?: boolean }) =>
-    post<{ url?: string; number?: number; updated: boolean }>(`/projects/${e(pid)}/git/pr`, body),
   testConnection: (provider: string) => post<TestResult>(`/connections/${e(provider)}/test`),
 
   // notifications

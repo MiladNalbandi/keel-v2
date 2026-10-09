@@ -4,6 +4,7 @@
 //   Connections ─ connections.kind     Jobs ─ jobs.tab          Tools ─ tools.card       Settings ─ settings.section
 //   Workflows ── workflow.actions      Code ─ code.activity, code.tab, assistant        ⌘K ─ launcher.source
 //   Inbox ────── inbox.card (step 3)   Map (the Map plugin's page, step 3) ─ map.er.query
+//   KeelBot ──── keelbot.card (step 3: a part's button in an answer, ```keel-git)
 
 import type { ComponentType } from "react";
 import type { GraphHit, HelperSelection } from "../api";
@@ -35,6 +36,8 @@ export const SLOTS = {
   inboxCard: "inbox.card",
   /** Map › Database (ER): a panel under the diagram (the Database part's Query) — a slot of the Map plugin */
   mapErQuery: "map.er.query",
+  /** KeelBot: the card for an answer's block of a part's own kind (the Git plugin's ```keel-git buttons) */
+  keelbotCard: "keelbot.card",
 } as const;
 
 /** A part's piece is shown only while this project has the plugin on (Tools › Plugins), when it names one. */
@@ -209,6 +212,18 @@ export type AssistantProps = {
 export type AssistantItem = SlotItem & {
   title: string;
   component: ComponentType<AssistantProps>;
+};
+
+// ---------- KeelBot ----------
+
+/** An action block of KeelBot's answer: ```keel-git {"op": "push"}``` is { kind: "keel-git", body: '{"op": "push"}' }. */
+export type KeelbotBlock = { kind: string; body: string };
+/** What a KeelBot card gets: its block and the chosen project. */
+export type KeelbotCardProps = { block: KeelbotBlock; pid: string };
+/** KeelBot: the card for the blocks of this kind ("keel-git"). A block no card claims shows as code. */
+export type KeelbotCardItem = SlotItem & {
+  kind: string;
+  component: ComponentType<KeelbotCardProps>;
 };
 
 // ---------- the Map plugin's page ----------

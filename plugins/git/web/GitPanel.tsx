@@ -1,12 +1,11 @@
 // v0.10.0 Code › Source control › Git (the Git plugin): the branch against its remote and its base, the buttons to
 // commit, bring the base in, push and switch branches, and the pull request with its CI checks and review comments.
 // keel's rules hold here too: never a force push, never a push to main or master, a commit only after the secret check.
+// The Git plugin's panel part (plugins/git): it imports only react and @keel/web-sdk.
 
 import { useState } from "react";
-import { api, errorParts, type PullRequest } from "../../api";
-import { askAssistant } from "../../sdk/assistant";
-import { useApp, useLoad } from "../../state";
-import { Pill } from "../ui";
+import { askAssistant, errorParts, Pill, useApp, useLoad } from "@keel/web-sdk";
+import { gitApi, type PullRequest } from "./gitApi";
 
 const FAILED = new Set([
   "failure",
@@ -36,11 +35,11 @@ export function GitPanel({
   onChanged: () => void;
 }) {
   const { toast } = useApp();
-  const status = useLoad(`git:${pid}`, () => api.gitStatus(pid));
-  const branches = useLoad(`git-branches:${pid}`, () => api.gitBranches(pid), {
+  const status = useLoad(`git:${pid}`, () => gitApi.status(pid));
+  const branches = useLoad(`git-branches:${pid}`, () => gitApi.branches(pid), {
     live: false,
   });
-  const pr = useLoad(`git-pr:${pid}`, () => api.gitPr(pid), { live: false });
+  const pr = useLoad(`git-pr:${pid}`, () => gitApi.pr(pid), { live: false });
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [newBranch, setNewBranch] = useState<string | null>(null);
@@ -101,7 +100,7 @@ export function GitPanel({
             title={dirty ? "Commit or stash your changes first" : undefined}
             onClick={() =>
               void act("sync", async () => {
-                const r = await api.gitSync(pid);
+                const r = await gitApi.sync(pid);
                 return r.merged
                   ? `Merged ${r.from} into ${r.branch}.`
                   : `${r.branch} already has ${r.from}.`;
@@ -118,7 +117,7 @@ export function GitPanel({
             disabled={!!busy || (!!st.upstream && !st.ahead)}
             onClick={() =>
               void act("push", async () => {
-                const r = await api.gitPush(pid);
+                const r = await gitApi.push(pid);
                 return `Pushed ${r.branch} (${r.sha.slice(0, 7)}).`;
               })
             }
@@ -133,7 +132,7 @@ export function GitPanel({
           onChange={(e) =>
             e.target.value &&
             void act("switch", async () => {
-              const r = await api.gitSwitch(pid, e.target.value);
+              const r = await gitApi.switch(pid, e.target.value);
               return `On ${r.branch} now.`;
             })
           }
@@ -161,7 +160,7 @@ export function GitPanel({
             onSubmit={(e) => {
               e.preventDefault();
               void act("new", async () => {
-                const r = await api.gitSwitch(pid, newBranch, true);
+                const r = await gitApi.switch(pid, newBranch, true);
                 setNewBranch(null);
                 return `Created ${r.branch}.`;
               });
@@ -196,7 +195,7 @@ export function GitPanel({
           onSubmit={(e) => {
             e.preventDefault();
             void act("commit", async () => {
-              const r = await api.gitCommit(pid, message);
+              const r = await gitApi.commit(pid, message);
               setMessage("");
               return `Committed ${r.sha.slice(0, 7)} ${r.subject}.`;
             });

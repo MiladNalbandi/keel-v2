@@ -91,6 +91,7 @@ def _keel_mcp(server, api, guard, write: bool) -> None:
 PART = {
     "name": "db",
     "title": "Database",
+    "order": 10,            # first, then Git (20): the order KeelBot, validation and keel2 mcp name them
     "per_project": True,
     "actions": _actions,
     "params": PARAMS,

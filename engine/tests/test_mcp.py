@@ -11,13 +11,12 @@ from mcp.shared.memory import create_connected_server_and_client_session
 
 from keel_engine import mcp_server
 from keel_engine.plugins.db import mcp_tools as db_mcp
-from keel_engine.plugins.git import mcp_tools as git_mcp
 from keel_engine.tools import mcp as mcp_tools
 
-# (the CI/CD plugin's keel_ci_* tools come with it: plugins/ci/engine/tests)
+# (the CI/CD and Git plugins' keel_ci_* and keel_git_* tools come with them: plugins/ci and plugins/git engine tests)
 READ_TOOLS = {"keel_status", "keel_projects", "keel_timeline", "keel_next", "keel_explain",
-              "keel_db_schema", "keel_db_query", "keel_git_status", "keel_pr_status"}           # v0.10.0 plugins
-WRITE_TOOLS = {"keel_approve_gate", "keel_resume", "keel_db_change", "keel_git_commit", "keel_git_push", "keel_pr_create"}
+              "keel_db_schema", "keel_db_query"}           # v0.10.0 plugins
+WRITE_TOOLS = {"keel_approve_gate", "keel_resume", "keel_db_change"}
 
 PROJECTS = [
     {"id": "shop", "name": "shop", "root": "/workspace/shop", "branch": "feat/scores", "flow": "feature", "phase": "spec",
@@ -348,9 +347,6 @@ class PluginApi(StubApi):
             done = self.polls > 1
             return httpx.Response(200, json={"id": "p_000000000001", "waiting": True} if not done else
                                   {"id": "p_000000000001", "decision": self.answer, "why": "" if self.answer == "allow" else "not now"})
-        if path == "/api/projects/shop/git/push":
-            self.posts.append((path, body))
-            return httpx.Response(200, json={"branch": "feat/scores", "sha": "abc1234def"})
         return super().__call__(req)
 
 
@@ -360,8 +356,8 @@ def test_plugin_tools_read_through_the_api_and_say_when_a_plugin_is_off(monkeypa
     text = db_mcp.db_query(api, "select name, api_key from players", "shop")
     assert text.startswith("1 row from local") and "| Ada | ••• |" in text
     assert s.posts[-1][1] == {"sql": "select name, api_key from players", "connection": "", "mask": True}
-    with pytest.raises(mcp_server.ApiError, match="The Git plugin is off for shop"):
-        git_mcp.git_status(api, "shop")
+    with pytest.raises(mcp_server.ApiError, match="The Database plugin is off for shop"):
+        db_mcp.db_query(mcp_server.KeelApi("http://keel.test", transport=httpx.MockTransport(PluginApi(on=()))), "select 1", "shop")
 
 
 def test_an_acting_tool_waits_for_the_persons_inbox_answer(monkeypatch):
@@ -374,6 +370,7 @@ def test_an_acting_tool_waits_for_the_persons_inbox_answer(monkeypatch):
     assert [b.get("confirm") for p, b in s.posts if p.endswith("/db/query")] == [None, True]
     no = PluginApi(answer="deny")
     api = mcp_server.KeelApi("http://keel.test", transport=httpx.MockTransport(no))
-    assert git_mcp.git_act(api, "push", "shop", sleep=lambda _s: None) == "The person said no in keel's Inbox: not now"
-    assert not any(p.endswith("/git/push") for p, _ in no.posts)
+    assert db_mcp.db_change(api, "update scores set value = 0", "shop", sleep=lambda _s: None) == \
+        "The person said no in keel's Inbox: not now"
+    assert [b.get("confirm") for p, b in no.posts if p.endswith("/db/query")] == [None]       # counted, never run
 

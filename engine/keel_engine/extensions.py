@@ -5,6 +5,9 @@ built-in parts are named in one place, builtins.py (each module's PART dict); ad
 (KEEL_PLUGIN_ADDONS, KEEL_ADDONS: each package's ADDON dict). A part's dict may have these keys (only name is needed):
 
     name, title   its id ("db") and name ("Database"); its actions are "<name>:*"
+    order         its place in the registry: lower first, default 100; parts with the same order keep the order they
+                  load in (built-ins, then add-ons). Database 10, Git 20: KeelBot, validation and keel2 mcp name them
+                  before CI/CD, as keel 0.15.1 did, whether they are built in or plugins
     per_project   True: a project turns it on (Tools › Plugins, the flow's settings["plugins"]); while it is off its
                   actions and its MCP server are refused. Without it the part is on for every project.
     actions       {"<name>:x": fn}: workflow code steps, fn(ActionInput) -> ActionResult, plain or async
@@ -82,6 +85,7 @@ class Part:
         self.name = str(spec["name"])
         self.title = str(spec.get("title") or self.name)
         self.per_project = bool(spec.get("per_project"))
+        self.order = int(spec.get("order", 100))
         self.source = source            # the module or package it comes from
         self.builtin = builtin
         self._got: dict = {}
@@ -151,14 +155,15 @@ def _addon_part(a) -> Part:
 
 
 def parts() -> tuple[Part, ...]:
-    """The built-in parts, then the loaded add-ons and plugins; each name once (the first one wins)."""
+    """The built-in parts, then the loaded add-ons and plugins; each name once (the first one wins); sorted by their
+    order (stable: the same order keeps this one)."""
     out = list(_builtins())
     seen = {p.name for p in out}
     for a in addons.loaded():
         if a.name not in seen:
             out.append(_addon_part(a))
             seen.add(a.name)
-    return tuple(out)
+    return tuple(sorted(out, key=lambda p: p.order))
 
 
 def reload() -> tuple[Part, ...]:

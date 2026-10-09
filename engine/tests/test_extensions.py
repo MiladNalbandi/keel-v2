@@ -52,20 +52,30 @@ def knowledge(**k):
 
 def test_the_built_in_parts_come_from_the_one_list_in_its_order():
     have = extensions.parts()
-    assert [p.name for p in have] == ["db", GIT, "graph", "keelbot"]     # map and ci are plugins (plugins/map, plugins/ci)
+    # map, ci and git are plugins (plugins/map, plugins/ci, plugins/git)
+    assert [p.name for p in have] == ["db", "graph", "keelbot"]
     assert [p.source for p in have] == list(builtins.BUILTINS) and all(p.builtin for p in have)
-    assert [extensions.title(n) for n in ("db", GIT, "nope")] == ["Database", "Git", "nope"]
-    assert extensions.servers() == {"db": "keel-db", GIT: f"keel-{GIT}"}
-    assert extensions.param_prefixes() == ["db", GIT]
+    assert [extensions.title(n) for n in ("db", GIT, "nope")] == ["Database", GIT, "nope"]     # a plugin not loaded: its name
+    assert extensions.servers() == {"db": "keel-db"}
+    assert extensions.param_prefixes() == ["db"]
     assert [n for n, _fn in extensions.hooks("on_scan")] == ["graph"]
     assert [n for n, _fn in extensions.hooks("pr_body_sections")] == ["keelbot"]
+    assert [p.order for p in have] == [10, 100, 100]                 # Database first (Git, a plugin now, is 20)
+
+
+def test_parts_come_in_their_order_and_the_same_order_keeps_the_load_order(monkeypatch):
+    made = lambda name, **kw: extensions.Part({"name": name, **kw}, name, True)
+    monkeypatch.setattr(extensions, "_builtins", lambda: (made("a"), made("b", order=20), made("c"), made("d", order=10)))
+    assert [p.name for p in extensions.parts()] == ["d", "b", "a", "c"]
+    assert made("x").order == 100
 
 
 def test_only_per_project_parts_are_switched_and_actions_belong_to_their_prefix():
     settings = {"plugins": [GIT, "nope", "graph", "db"]}
-    assert extensions.enabled(settings) == [GIT, "db"]          # the settings' order; graph is on everywhere
+    assert extensions.enabled(settings) == ["db"]          # a loaded per-project part only; graph is on everywhere
     assert extensions.on(settings, "graph") and extensions.on({}, "graph") and not extensions.on({}, "db")
-    assert extensions.owner("db:query").name == "db" and extensions.owner(f"{GIT}:push").name == GIT
+    # the Git plugin (plugins/git) is not loaded here: its actions have no owner
+    assert extensions.owner("db:query").name == "db" and extensions.owner(f"{GIT}:push") is None
     assert extensions.owner("verify_red") is None and extensions.owner("nope:x") is None
     assert extensions.has_action("db:query") and not extensions.has_action("db:nope")
     assert not extensions.has_action("ci:wait")                 # the CI/CD plugin is not loaded here (plugins/ci)
@@ -124,7 +134,7 @@ def test_an_addon_part_brings_its_steps_with_their_settings_words_and_switch(acm
     assert errs({"id": "a", "kind": "code", "name": "a", "action": "acme:ping", "with": {"say": "hi"}}) == []
     assert errs({"id": "a", "kind": "code", "name": "a", "action": "acme:ping"}) == ["Step 'a': acme:ping needs `with: {say: ...}`."]
     assert errs({"id": "a", "kind": "code", "name": "a", "action": "commit", "with": {"x": 1}}) == \
-        [f"Step 'a': only a plugin step (db:..., {GIT}:..., acme:...) takes `with`."]
+        ["Step 'a': only a plugin step (db:..., acme:...) takes `with`."]
 
     import asyncio
 
@@ -166,7 +176,7 @@ def test_keelbot_and_keel_mcp_hear_about_an_addon_part(acme):
 
     tools = lambda write: {t.name for t in asyncio.run(mcp_server.build_server(write=write, api=object()).list_tools())}
     assert "keel_acme_look" in tools(False) and "keel_acme_poke" not in tools(False)
-    assert {"keel_acme_look", "keel_acme_poke", "keel_db_query", "keel_git_push"} <= tools(True)
+    assert {"keel_acme_look", "keel_acme_poke", "keel_db_query"} <= tools(True)
 
 
 # ------------------------------------------------------------------ the hooks, where core calls them
@@ -242,10 +252,10 @@ def test_a_moved_parts_plugin_yml_is_one_of_keels_plugins(monkeypatch, repo):
     monkeypatch.setenv("KEEL_ADDONS", "keel_moved_part")
     try:
         extensions.reload()
-        assert [f.parent.name for f in manifests.keel_files()] == ["core", "db", GIT, "moved", "review"]
+        assert [f.parent.name for f in manifests.keel_files()] == ["core", "db", "moved", "review"]
         with TestClient(create_app(EventBus())) as client:
             cat = client.get("/plugins").json()
-            assert [p["name"] for p in cat] == ["db", GIT, "moved", "review"]
+            assert [p["name"] for p in cat] == ["db", "moved", "review"]
             moved = next(p for p in cat if p["name"] == "moved")
             assert moved["title"] == "Moved" and moved["tools"] == {"server": "keel-moved", "read": ["moved_runs"]}
             tpls = client.get("/templates").json()
@@ -257,5 +267,5 @@ def test_a_moved_parts_plugin_yml_is_one_of_keels_plugins(monkeypatch, repo):
         monkeypatch.delenv("KEEL_ADDONS", raising=False)
         sys.modules.pop("keel_moved_part", None)
         extensions.reload()
-    assert [p["name"] for p in manifests.catalog()] == ["db", GIT, "review"]       # gone with the package
+    assert [p["name"] for p in manifests.catalog()] == ["db", "review"]       # gone with the package
     assert not [w for w in manifests.plugin_workflows() if w["id"] == "moved-fix"]

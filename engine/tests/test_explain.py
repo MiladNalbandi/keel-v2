@@ -30,7 +30,7 @@ def test_every_dispatched_action_has_plain_words():
     assert not empty, f"actions with neither steps in DOCS nor a docstring: {empty}"
     stale = [n for n in docs if n not in names]
     assert not stale, f"DOCS entries for actions the engine no longer runs: {stale}"
-    assert {"db:query", "git:push"} <= set(names)                # the parts' actions (keel_engine/extensions.py)
+    assert {"db:query"} <= set(names)                # the parts' actions (keel_engine/extensions.py; git:*: plugins/git)
 
 
 def test_a_docstring_fills_an_entry_without_steps():
