@@ -43,9 +43,10 @@ class MarketplaceController(private val marketplace: Marketplace) {
 }
 
 /**
- * The installed plugins and everything a person does with them (docs/plugins/13-step4-contract.md §6). GET /api/plugins
- * is the engine's list plus `restart` {pending, scheduled, supervised, running} and the plugin host's problems; the
- * per-project plugins' catalog is GET /api/plugins/catalog (keel.api.plugins).
+ * The installed plugins and everything a person does with them (docs/plugins/13-step4-contract.md §6). GET
+ * /api/plugins/installed is the engine's list plus `restart` {pending, scheduled, supervised, running} and the plugin
+ * host's problems. GET /api/plugins itself stays what keel 0.15.4 answers: the per-project plugins' catalog
+ * (keel.api.plugins).
  */
 @RestController
 @RequestMapping("/api/plugins")
@@ -56,10 +57,6 @@ class InstalledPluginsController(
     private val restarts: RestartPlan,
     private val requests: PluginRequests,
 ) {
-    @GetMapping
-    fun list(): JsonNode = overview.get()
-
-    /** The same as GET /api/plugins. */
     @GetMapping("/installed")
     fun installed(): JsonNode = overview.get()
 

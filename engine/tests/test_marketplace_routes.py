@@ -286,7 +286,7 @@ class MarketApi:
                                     "plan": {"install": [{"name": "code", "version": "1.0.0", "needed_by": "db"},
                                                          {"name": "db", "version": "1.0.0", "needed_by": None}],
                                              "turn_on": []}},
-            "/api/plugins": {"plugins": [{"name": "code", "version": "1.0.0", "title": "Code", "from": "image",
+            "/api/plugins/installed": {"plugins": [{"name": "code", "version": "1.0.0", "title": "Code", "from": "image",
                                           "on": True, "status": "loaded", "problems": []}],
                              "restart": {"pending": True, "scheduled": False}},
             "/api/plugins/rules": {"agents_may_ask": self.may_ask},

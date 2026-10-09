@@ -111,7 +111,7 @@ stays.
 | `GET /api/marketplace?q=&category=`                             | search the cached index; each hit says installed / update / fits this keel      |
 | `GET /api/marketplace/{name}`                                   | one plugin: versions, permissions, needs, checks                                |
 | `POST /api/marketplace/refresh`                                 | read the catalogs now                                                           |
-| `GET /api/plugins`                                              | installed plugins with status and problems (from `run/problems.json`)           |
+| `GET /api/plugins/installed`                                    | installed plugins with status and problems (`GET /api/plugins` stays 0.15.4's)  |
 | `POST /api/plugins/install` `{name, version?}`                  | starts an install job; progress comes as `plugin.install.*` events              |
 | `POST /api/plugins/{name}/update` `{version?}`                  | same, for a new version; refused if it asks for new permissions (use a request) |
 | `POST /api/plugins/{name}/rollback`                             | back to the kept version                                                        |

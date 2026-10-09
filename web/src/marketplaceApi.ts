@@ -1,6 +1,6 @@
 // v0.16.0 the marketplace (docs/plugins/13-step4-contract.md §6, §12): search the catalogs, one plugin, what this keel
 // has installed, install, update, roll back, remove, restart, sources and rules. The api passes the engine's answers on
-// as they are (§12 "Engine routes: the shapes"); GET /api/plugins adds `restart`.
+// as they are (§12 "Engine routes: the shapes"); GET /api/plugins/installed adds `restart` (GET /api/plugins stays 0.15.4's catalog).
 
 import { del, get, post, put } from "./api";
 
@@ -113,7 +113,7 @@ export type MarketPlugin = MarketHit & {
   refused?: { error: string; hint?: string | null } | null;
 };
 
-/** One installed plugin (GET /api/plugins). status: loaded (runs now), restart (loads at the next start), off, left out
+/** One installed plugin (GET /api/plugins/installed). status: loaded (runs now), restart (loads at the next start), off, left out
  *  (the next start leaves it out), removed (gone at the next start). */
 export type InstalledPlugin = {
   name: string;
@@ -257,7 +257,7 @@ export const marketApi = {
     post<{ sources?: Source[] }>(
       `/marketplace/refresh${query({ source: source ?? "" })}`,
     ),
-  installed: () => get<PluginsView>("/plugins"),
+  installed: () => get<PluginsView>("/plugins/installed"),
   /** It answers when the download and the checks are done. */
   install: (name: string, version?: string) =>
     post<ChangeAnswer>(

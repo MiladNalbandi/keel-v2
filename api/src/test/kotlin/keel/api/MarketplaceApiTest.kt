@@ -82,7 +82,7 @@ class MarketplaceApiTest : ApiTest() {
         assertThat(note["link"].asText()).isEqualTo("/plugins")
         assertThat(note["body"].asText()).contains("1.3.0")
 
-        val list = get("/api/plugins").andExpect(status().isOk).json()
+        val list = get("/api/plugins/installed").andExpect(status().isOk).json()
         assertThat(list["plugins"].map { it["name"].asText() }).containsExactly("db")
         assertThat(list["restart"]["pending"].asBoolean()).isTrue()
         assertThat(list["restart"]["scheduled"].asBoolean()).isFalse()
@@ -182,7 +182,7 @@ class MarketplaceApiTest : ApiTest() {
         post("/api/approvals/$id/decide", mapOf("decision" to "approve")).andExpect(status().isOk)
         val body = engine.lastBody("/marketplace/installed/db/update")!!
         assertThat(body["allow_more_permissions"].asBoolean()).isTrue()
-        assertThat(get("/api/plugins").json()["plugins"].first { it["name"].asText() == "db" }["version"].asText()).isEqualTo("1.4.0")
+        assertThat(get("/api/plugins/installed").json()["plugins"].first { it["name"].asText() == "db" }["version"].asText()).isEqualTo("1.4.0")
         assertThat(events("plugin.updated").last()["request"].asText()).isEqualTo(id)
     }
 
@@ -204,7 +204,7 @@ class MarketplaceApiTest : ApiTest() {
         assertThat(sets.map { it["id"].asText() }).containsExactly("developer")
         assertThat(sets[0]["missing"].map { it.asText() }).contains("code", "db")
         // the per-project plugins' catalog moved next to them
-        assertThat(get("/api/plugins/catalog").json().map { it["name"].asText() }).containsExactly("db", "git", "ci", "review")
+        assertThat(get("/api/plugins").json().map { it["name"].asText() }).containsExactly("db", "git", "ci", "review")
     }
 
     // ---------- agents ask, a person decides
@@ -296,9 +296,9 @@ class MarketplaceApiTest : ApiTest() {
         assertThat(events("plugin.installed").last()["request"].asText()).isEqualTo(id)
         assertThat(events("plugin.request.approved").last()["id"].asText()).isEqualTo(id)
         assertThat(notes().any { it["title"].asText() == "Database is installed: restart keel to use it" }).isTrue()
-        assertThat(get("/api/plugins").json()["restart"]["pending"].asBoolean()).isTrue()
+        assertThat(get("/api/plugins/installed").json()["restart"]["pending"].asBoolean()).isTrue()
         // the rule restart_when_idle cannot restart a keel that keel-start does not run: nothing waits
-        assertThat(get("/api/plugins").json()["restart"]["scheduled"].asBoolean()).isFalse()
+        assertThat(get("/api/plugins/installed").json()["restart"]["scheduled"].asBoolean()).isFalse()
     }
 
     @Test
@@ -360,6 +360,6 @@ class MarketplaceApiTest : ApiTest() {
         assertThat(now["hint"].asText()).isEqualTo("Restart keel by hand: keel2 restart")
         post("/api/plugins/restart", mapOf<String, Any>()).andExpect(status().isConflict)
         post("/api/plugins/restart").andExpect(status().isConflict)
-        assertThat(get("/api/plugins").json()["restart"]["scheduled"].asBoolean()).isFalse()
+        assertThat(get("/api/plugins/installed").json()["restart"]["scheduled"].asBoolean()).isFalse()
     }
 }

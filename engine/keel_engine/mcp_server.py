@@ -413,7 +413,7 @@ def plugin_info(api: KeelApi, name: str) -> str:
 
 
 def plugins_installed(api: KeelApi, project: str | None = None) -> str:
-    body = api.get("/plugins") or {}
+    body = api.get("/plugins/installed") or {}
     out = ["keel has:"]
     for p in _items(body):
         out.append(f"  {p.get('name')} {p.get('version')}  {p.get('title')} · from {p.get('from')} · "

@@ -272,7 +272,7 @@ export function marketHandlers(
         refused: null,
       });
     }),
-    http.get("/api/plugins", () =>
+    http.get("/api/plugins/installed", () =>
       HttpResponse.json({
         plugins: m.installed,
         restart: m.restart,

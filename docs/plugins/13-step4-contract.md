@@ -216,7 +216,9 @@ The CLI gets `keel-engine plugins search <q>`, `get <name>[@version]`, `update <
 
 The endpoints of 04-marketplace.md §4.3, proxied to §5's routes, plus:
 
-- `GET /api/plugins` also has `restart: {pending: bool, scheduled: bool}` and the plugin host's problems.
+- The installed plugins are `GET /api/plugins/installed` (with `restart: {pending, scheduled}` and the plugin host's
+  problems). **`GET /api/plugins` stays exactly what keel 0.15.4 answers** (the per-project plugins' catalog): 04's
+  table put the installed list there, but that would change an answer people already have.
 - `POST /api/plugins/restart {now?}`: `now` restarts at once (PluginRestart, exit 75); else it waits until no agent step
   runs, then restarts (`scheduled`). The rule `restart_when_idle` does this by itself after an approved install.
 - **`plugin-install` approvals**: an `ApprovalHandler` (step 2's interface, `approvals/Approvals.kt`), decisions
@@ -306,7 +308,7 @@ running flow waits for an install in step 4.
 
 What the engine answers, as built (`engine/keel_engine/marketplace/routes.py`; the tests in
 `engine/tests/test_marketplace_routes.py`). The api proxies these bodies as they are; it adds only what §6 says
-(`restart` on `GET /api/plugins`, `requests` on a `needs_plugins` refusal).
+(`restart` on `GET /api/plugins/installed`, `requests` on a `needs_plugins` refusal).
 
 **Every route** needs `X-Keel-Token` like every other engine route. A refusal is `{"error": str, "hint"?: str, ...}`
 in plain words, with these statuses: 400 bad input; 404 an unknown plugin, version or file; 409 keel will not do it
@@ -400,7 +402,7 @@ for each missing plugin, reason "the workflow <name> needs it", source `workflow
 
 **What the MCP tools call** (they go through the api, like keel's other tools): `keel_marketplace_search` →
 `GET /api/marketplace?q=&category=` (the search shape above); `keel_plugin_info` → `GET /api/marketplace/{name}`
-(the one-plugin shape); `keel_plugins_installed` → `GET /api/plugins` (the installed shape, plus `restart`) and
+(the one-plugin shape); `keel_plugins_installed` → `GET /api/plugins/installed` (the installed shape, plus `restart`) and
 `GET /api/projects/{pid}/plugins`; `keel_plugin_request` → `GET /api/plugins/rules`, then
 `POST /api/plugins/requests {name, version?, reason, source: "agent", project?}`, whose answer it reads as
 `{id, joined?: bool}`; a 409 there (agents may not ask) becomes "Ask the person to install it in Control › Plugins".
