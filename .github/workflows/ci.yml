@@ -3,7 +3,7 @@
 name: ci
 on:
   push:
-    branches: [main, "release/**"]
+    branches: [main, "release/**", plugin-base]   # plugin-base: the plugin track (never merged into main)
   pull_request:
 permissions:
   contents: read

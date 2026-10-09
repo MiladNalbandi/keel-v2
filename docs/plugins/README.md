@@ -105,6 +105,7 @@ users carry no risk, and every later step only repeats it. Details: [05-migratio
 | [10-step2-report.md](10-step2-report.md) | step 2 is built: what changed, the fence numbers, the test results |
 | [11-step3-contract.md](11-step3-contract.md) | step 3: plugin folders, the build machinery, the waves, the parity e2e |
 | [12-step3-progress.md](12-step3-progress.md) | step 3 so far: which parts are plugins, the checks, parity with 0.15.1; the port of 0.15.2–0.15.4 and parity with 0.15.4 |
+| [13-step4-contract.md](13-step4-contract.md) | step 4: the marketplace, minisign signatures, install / update / roll back / remove, agents can ask, publishing |
 | [tools/create-plugin-repos.sh](tools/create-plugin-repos.sh) | creates the 14 repos in `keel-studio` (`keel-marketplace`, `keel-plugin-template`, `keel-plugin-<name>` × 12) with a short README, a draft manifest and the license; [move-plugin-repos.sh](tools/move-plugin-repos.sh) moves the first ones from `MiladNalbandi` there |
 
 ## Open questions for Milad
