@@ -98,3 +98,21 @@ six; a chat answers on the fake model and is an agent call; `keel2 mcp --write`'
 KeelBot's old route answers it and the notification follows; `#/keelbot`, `/` commands, the Database and Git cards
 through `keelbot.card`, the Code page's column (⌘I, its width from KeelBot's stylesheet), the Inbox's "Open KeelBot" and
 `askAssistant` all work; the menu (links, text, icons) is 0.15.1's; no console errors.
+
+## Wave C check (on `6e599a5`, the full image built the normal way: with the agent CLIs and CodeGraph)
+
+Every part is a plugin now: `builtins.py` and `builtins.ts` name none, and all three fence allowlists (engine, api,
+web) are empty.
+
+| what                                         | result                                                                    |
+| -------------------------------------------- | ------------------------------------------------------------------------- |
+| engine core / plugin engines / Product       | 826 · ci 17, db 25, git 22, graph 28, keelbot 40, map 36, review 15, wiki 4 · 15 |
+| api, all source sets                         | 243 passed                                                                |
+| web                                          | 416 of 416 passed, all builds ok                                          |
+| no-v1                                        | clean                                                                     |
+| e2e: Code Review / Product / plugin host     | 23 / 27 / 36 checks passed                                                |
+| **parity e2e: 0.15.1 vs the wave C image**   | **0 differences**, now **without** `allow-no-clis.yml` (web 28 pages same in each round) |
+
+The first parity run with the CLIs found one difference: Copilot's model list had 29 models on 0.15.1 and 30 on the new
+image. Copilot CLI 1.0.94 (installed at build time) added `claude-haiku-5.5`; keel reads the list from the CLI. The
+allow list now has one narrow entry for it: only the number of models from a CLI may differ.
