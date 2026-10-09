@@ -1,13 +1,13 @@
-// v0.16.0 the marketplace (docs/plugins/13-step4-contract.md §6): search the catalogs, one plugin, what this keel has
-// installed, install, update, roll back, remove, restart, sources and rules. The api passes the engine's answers on as
-// they are, so the readers below accept the shapes the engine may send (a list, or an object that holds it).
+// v0.16.0 the marketplace (docs/plugins/13-step4-contract.md §6, §12): search the catalogs, one plugin, what this keel
+// has installed, install, update, roll back, remove, restart, sources and rules. The api passes the engine's answers on
+// as they are (§12 "Engine routes: the shapes"); GET /api/plugins adds `restart`.
 
 import { del, get, post, put } from "./api";
 
 /** content: no code runs · web: adds pages (JavaScript in the browser) · code: runs code inside keel (03-security.md §3.1) */
 export type Trust = "content" | "web" | "code";
 export type Category =
-  "code" | "knowledge" | "tickets" | "review" | "product" | "other";
+  "code" | "review" | "knowledge" | "tickets" | "product" | "other";
 
 /** The permissions a plugin asks for, as in its keel-plugin.yml. */
 export type Permissions = {
@@ -21,34 +21,48 @@ export type Permissions = {
   [key: string]: unknown;
 };
 
+export type Revoked = { version?: string; why?: string; fixed?: string | null };
+
+/** One version of a plugin in a catalog (newest first). revoked: why, when it was revoked. */
 export type CatalogVersion = {
   version: string;
   released?: string;
   requires?: { sdk?: number; keel?: string; plugins?: Record<string, string> };
   permissions?: Permissions;
   size?: number;
-  revoked?: boolean | string | null;
+  revoked?: string | boolean | null;
+  fits?: boolean;
+  why_not?: string | null;
 };
 
-/** One hit of a search (GET /api/marketplace). */
+/** One plugin of a search (GET /api/marketplace): the engine's Hit. */
 export type MarketHit = {
   name: string;
   title?: string;
-  publisher?: string | { name?: string; title?: string; verified?: boolean };
+  publisher?: string;
+  publisher_title?: string;
   verified?: boolean;
   category?: string;
   summary?: string;
   tags?: string[];
   trust?: Trust | string;
-  version?: string;
+  repo?: string;
+  source?: string;
   latest?: string;
-  /** false, true or the installed version */
-  installed?: boolean | string | null;
+  /** the newest version that fits this keel */
+  version?: string | null;
+  permissions?: Permissions;
+  fits?: boolean;
+  why_not?: string | null;
+  /** the installed version, or nothing */
+  installed?: string | boolean | null;
+  installed_from?: "image" | "marketplace" | "file" | null;
   /** a newer version that fits, or nothing */
   update?: string | boolean | null;
-  fits?: boolean;
-  needs?: (string | { name: string })[];
-  revoked?: boolean | string | { why?: string } | null;
+  revoked?: Revoked | string | null;
+  old?: boolean;
+  /** a hit says what it needs only on the one-plugin answer ({name: range}) */
+  needs?: Record<string, string> | (string | { name: string })[];
 };
 
 export type SourceStatus = {
@@ -59,48 +73,70 @@ export type SourceStatus = {
 };
 export type MarketSearch =
   | {
-      hits?: MarketHit[];
-      results?: MarketHit[];
       plugins?: MarketHit[];
-      sources?: SourceStatus[];
+      hits?: MarketHit[];
+      sources?: (SourceStatus & Partial<Source>)[];
+      categories?: string[];
     }
   | MarketHit[];
 
+/** One plugin an install takes (the plan's step). needed_by: the plugin that needs it. */
 export type PlanItem = {
   name: string;
   title?: string;
   version?: string;
   trust?: string;
+  publisher?: string;
+  publisher_title?: string;
+  verified?: boolean;
   permissions?: Permissions;
+  size?: number;
+  needed_by?: string | null;
 };
 
-/** One plugin (GET /api/marketplace/{name}). */
+/** What installing it does: the plugins it installs (the needed ones first) and the ones it turns on. */
+export type Plan = {
+  name?: string;
+  version?: string;
+  title?: string;
+  source?: string;
+  install?: PlanItem[];
+  turn_on?: string[];
+  checks?: string[];
+};
+
+/** One plugin (GET /api/marketplace/{name}). plan: null when keel would refuse it (refused says why). */
 export type MarketPlugin = MarketHit & {
-  repo?: string;
   versions?: CatalogVersion[];
-  permissions?: Permissions;
   checks?: (string | { name?: string; text?: string; ok?: boolean })[];
-  plan?:
-    | PlanItem[]
-    | { version?: string; plugins?: PlanItem[]; install?: PlanItem[] };
+  plan?: Plan | PlanItem[] | null;
+  refused?: { error: string; hint?: string | null } | null;
 };
 
-/** One installed plugin (GET /api/plugins). from: image (in keel's image), marketplace, or file. */
+/** One installed plugin (GET /api/plugins). status: loaded (runs now), restart (loads at the next start), off, left out
+ *  (the next start leaves it out), removed (gone at the next start). */
 export type InstalledPlugin = {
   name: string;
   title?: string;
   version?: string;
+  loaded?: string | null;
   parts?: string[];
-  from?: "image" | "marketplace" | "file" | string;
+  from?: "image" | "marketplace" | "file" | string | null;
   source?: string;
   on?: boolean;
-  status?: string;
+  status?: "loaded" | "restart" | "off" | "left out" | "removed" | string;
   problems?: (string | { error?: string })[];
-  revoked?: boolean | string | { why?: string; fixed?: string } | null;
+  revoked?: Revoked | string | boolean | null;
   update?: string | boolean | null;
   previous?: string | null;
+  image_version?: string | null;
+  can_remove?: boolean;
+  needed_by?: string[];
+  needs?: Record<string, string>;
   publisher?: string;
-  trust?: string;
+  trust?: string | null;
+  catalog?: string | null;
+  permissions?: Permissions;
 };
 
 export type PluginProblem = {
@@ -115,9 +151,16 @@ export type RestartState = {
   supervised: boolean;
   running: number;
 };
+/** What loads after a restart: each change, from the version now to the next one (null: none). */
+export type Pending = {
+  pending: boolean;
+  changes?: { name: string; now: string | null; next: string | null }[];
+  problem?: string;
+};
 export type PluginsView = {
   plugins: InstalledPlugin[];
   restart: RestartState;
+  pending_restart?: Pending | boolean | null;
   problems: PluginProblem[];
   mode?: string;
   /** false: the engine did not answer; the list is what this run loaded */
@@ -133,7 +176,10 @@ export type Source = {
   official?: boolean;
   ok?: boolean;
   problem?: string | null;
+  old?: boolean;
   fetched_at?: string | null;
+  plugins?: number;
+  problems?: string[];
 };
 export type Rules = {
   agents_may_ask: boolean;
@@ -141,11 +187,14 @@ export type Rules = {
   check_daily: boolean;
   restart_when_idle: boolean;
 };
+/** A set of plugins: missing = not in this keel, off = in it but off (the engine says both). */
 export type PluginSet = {
   id: string;
   title?: string;
   summary?: string;
   plugins: string[];
+  missing?: string[];
+  off?: string[];
 };
 export type RestartAnswer = {
   restarting: boolean;
@@ -156,7 +205,6 @@ export type ChangeAnswer = {
   name?: string;
   title?: string;
   version?: string;
-  status?: string;
   [key: string]: unknown;
 };
 
@@ -180,7 +228,11 @@ export type InstallRequest = {
     project?: string | null;
     at?: string;
   }[];
+  /** approving updates it (it is installed in another version) */
   update?: boolean;
+  /** an update's new permissions ("+ secrets: gitlab"), and the version it has now */
+  more?: string[];
+  installed?: string | null;
 };
 
 const e = encodeURIComponent;
@@ -191,12 +243,22 @@ const query = (p: Record<string, string>) => {
   return s ? `?${s}` : "";
 };
 
+/** The official catalog: only on or off can change. */
+const forSave = (s: Source) =>
+  s.official || s.id === "keel"
+    ? { id: s.id, on: s.on !== false }
+    : { id: s.id, title: s.title, url: s.url, key: s.key, on: s.on !== false };
+
 export const marketApi = {
   search: (q = "", category = "") =>
     get<MarketSearch>(`/marketplace${query({ q, category })}`),
   plugin: (name: string) => get<MarketPlugin>(`/marketplace/${e(name)}`),
-  refresh: () => post<unknown>("/marketplace/refresh"),
+  refresh: (source?: string) =>
+    post<{ sources?: Source[] }>(
+      `/marketplace/refresh${query({ source: source ?? "" })}`,
+    ),
   installed: () => get<PluginsView>("/plugins"),
+  /** It answers when the download and the checks are done. */
   install: (name: string, version?: string) =>
     post<ChangeAnswer>(
       "/plugins/install",
@@ -219,16 +281,18 @@ export const marketApi = {
     post<RestartAnswer>("/plugins/restart", now ? { now: true } : {}),
   sources: () => get<{ sources?: Source[] } | Source[]>("/plugins/sources"),
   saveSources: (sources: Source[]) =>
-    put<{ sources?: Source[] } | Source[]>("/plugins/sources", { sources }),
+    put<{ sources?: Source[] } | Source[]>("/plugins/sources", {
+      sources: sources.map(forSave),
+    }),
   rules: () => get<Rules>("/plugins/rules"),
   saveRules: (rules: Rules) => put<Rules>("/plugins/rules", rules),
-  sets: () => get<PluginSet[] | { sets?: PluginSet[] }>("/plugins/sets"),
+  sets: () => get<{ sets?: PluginSet[] } | PluginSet[]>("/plugins/sets"),
 };
 
 // ---------- reading the answers ----------
 
 export const hitsOf = (s: MarketSearch | null | undefined): MarketHit[] =>
-  !s ? [] : Array.isArray(s) ? s : (s.hits ?? s.results ?? s.plugins ?? []);
+  !s ? [] : Array.isArray(s) ? s : (s.plugins ?? s.hits ?? []);
 export const sourceStatusOf = (
   s: MarketSearch | null | undefined,
 ): SourceStatus[] => (!s || Array.isArray(s) ? [] : (s.sources ?? []));
@@ -239,24 +303,34 @@ export const setsOf = (
   s: PluginSet[] | { sets?: PluginSet[] } | null | undefined,
 ): PluginSet[] => (!s ? [] : Array.isArray(s) ? s : (s.sets ?? []));
 
+const planItemsOf = (plan: MarketPlugin["plan"]): PlanItem[] =>
+  !plan ? [] : Array.isArray(plan) ? plan : (plan.install ?? []);
+
 /** What installing this plugin installs (its plan): the needed plugins first, then itself. */
 export function planOf(p: MarketPlugin): PlanItem[] {
-  const plan = p.plan;
-  const items = Array.isArray(plan)
-    ? plan
-    : (plan?.plugins ?? plan?.install ?? []);
-  if (items.length) return items.filter((i) => i && typeof i.name === "string");
+  const items = planItemsOf(p.plan).filter(
+    (i) => i && typeof i.name === "string",
+  );
+  if (items.length) return items;
   return [
     {
       name: p.name,
       title: p.title,
       version: newestVersion(p),
       trust: typeof p.trust === "string" ? p.trust : undefined,
+      permissions: permissionsOf(p),
+      publisher: p.publisher,
+      publisher_title: p.publisher_title,
+      verified: p.verified,
     },
   ];
 }
 
-/** The version an install takes: the plan's, else the newest listed. */
+/** The plugins its plan turns on (in keel already, but off). */
+export const turnOnOf = (p: MarketPlugin): string[] =>
+  p.plan && !Array.isArray(p.plan) ? (p.plan.turn_on ?? []) : [];
+
+/** The version an install takes: the plan's, else the newest that fits, else the newest listed. */
 export function newestVersion(p: MarketPlugin): string | undefined {
   const plan = p.plan;
   if (plan && !Array.isArray(plan) && plan.version) return plan.version;
@@ -264,36 +338,26 @@ export function newestVersion(p: MarketPlugin): string | undefined {
   return own ?? p.version ?? p.latest ?? p.versions?.[0]?.version;
 }
 
-const planItemsOf = (plan: MarketPlugin["plan"]): PlanItem[] =>
-  Array.isArray(plan) ? plan : (plan?.plugins ?? plan?.install ?? []);
-
 /** The permissions of the version an install takes. */
 export function permissionsOf(p: MarketPlugin): Permissions | undefined {
   const v = newestVersion(p);
   return (
     p.versions?.find((x) => x.version === v)?.permissions ??
-    p.permissions ??
-    planItemsOf(p.plan).find((i) => i.name === p.name)?.permissions
+    planItemsOf(p.plan).find((i) => i.name === p.name)?.permissions ??
+    p.permissions
   );
 }
 
-/** The plugins it needs: from the version's requires.plugins, else its `needs`. */
+/** The plugins it needs: the answer's {name: range}, else the version's requires.plugins (or a list of names). */
 export function needsOf(p: MarketPlugin | MarketHit): string[] {
-  const v =
-    "versions" in p
-      ? (p as MarketPlugin).versions?.find(
-          (x) => x.version === newestVersion(p as MarketPlugin),
-        )
-      : undefined;
-  const fromVersion = v?.requires?.plugins
-    ? Object.keys(v.requires.plugins)
-    : null;
-  return (
-    fromVersion ??
-    (p.needs ?? [])
-      .map((n) => (typeof n === "string" ? n : n.name))
-      .filter(Boolean)
+  const n = p.needs;
+  if (n && !Array.isArray(n)) return Object.keys(n);
+  if (Array.isArray(n))
+    return n.map((x) => (typeof x === "string" ? x : x.name)).filter(Boolean);
+  const v = (p as MarketPlugin).versions?.find(
+    (x) => x.version === newestVersion(p as MarketPlugin),
   );
+  return v?.requires?.plugins ? Object.keys(v.requires.plugins) : [];
 }
 
 export const installedVersion = (h: MarketHit): string | null =>
@@ -312,15 +376,21 @@ export const updateOf = (x: {
       ? "a newer version"
       : null;
 
-export function publisherOf(h: MarketHit): { name: string; verified: boolean } {
-  const p = h.publisher;
-  if (p && typeof p === "object")
-    return {
-      name: p.title ?? p.name ?? "",
-      verified: Boolean(p.verified ?? h.verified),
-    };
-  return { name: p ?? "", verified: Boolean(h.verified) };
-}
+export const publisherOf = (
+  h: MarketHit | PlanItem,
+): { name: string; verified: boolean } => ({
+  name: h.publisher_title || h.publisher || "",
+  verified: Boolean(h.verified),
+});
+
+/** Is a restart due: the engine's {pending, changes} (or true). */
+export const pendingOf = (v: PluginsView): Pending | null => {
+  const p = v.pending_restart;
+  if (p && typeof p === "object") return p;
+  return v.restart?.pending || p === true
+    ? { pending: true, changes: [] }
+    : null;
+};
 
 export function revokedText(
   r: InstalledPlugin["revoked"] | MarketHit["revoked"],
@@ -329,7 +399,7 @@ export function revokedText(
   if (typeof r === "string") return r;
   if (typeof r === "object")
     return (
-      [r.why, "fixed" in r && r.fixed ? `${r.fixed} fixes it` : null]
+      [r.why, r.fixed ? `${r.fixed} fixes it` : null]
         .filter(Boolean)
         .join(" · ") || "revoked"
     );
@@ -469,6 +539,8 @@ export function whoAsked(source: string | null | undefined): string {
       return "A workflow";
     case "mcp":
       return "Claude Code";
+    case "keel":
+      return "keel";
     case "":
     case "agent":
       return "An agent";

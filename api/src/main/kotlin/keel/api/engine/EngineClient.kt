@@ -42,6 +42,8 @@ class EngineClient(private val props: KeelProperties, private val mapper: Object
 
     private val fast by lazy { client(Duration.ofSeconds(30)) }
     private val slow by lazy { client(Duration.ofSeconds(180)) }
+    /** v0.16.0 a plugin's install or update answers when its download and checks are done (up to 200 MB). */
+    private val install by lazy { client(Duration.ofMinutes(20)) }
 
     fun get(path: String, long: Boolean = false): JsonNode = call {
         (if (long) slow else fast).get().uri(path).retrieve().body(JsonNode::class.java) ?: mapper.nullNode()
@@ -54,6 +56,14 @@ class EngineClient(private val props: KeelProperties, private val mapper: Object
 
     fun post(path: String, body: Any?, long: Boolean = false): JsonNode = call {
         (if (long) slow else fast).post().uri(path)
+            .contentType(MediaType.APPLICATION_JSON)
+            .body(mapper.valueToTree<JsonNode>(body ?: emptyMap<String, Any>()))
+            .retrieve().body(JsonNode::class.java) ?: mapper.nullNode()
+    }
+
+    /** A call that waits for a download: the engine answers when it is done (a plugin's install or update). */
+    fun postWaiting(path: String, body: Any?): JsonNode = call {
+        install.post().uri(path)
             .contentType(MediaType.APPLICATION_JSON)
             .body(mapper.valueToTree<JsonNode>(body ?: emptyMap<String, Any>()))
             .retrieve().body(JsonNode::class.java) ?: mapper.nullNode()

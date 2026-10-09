@@ -124,7 +124,8 @@ function PluginInstallCard({ it, onDone }: { it: InboxItem; onDone: (msg: string
     setErr(null);
     try {
       await inboxApi.decide(it.id ?? "", decision, why.trim());
-      await onDone(decision === "approve" ? `${title} is installed. Restart keel to use it.` : `Denied: ${title} is not installed.`);
+      const done = p.update ? "updated" : "installed";
+      await onDone(decision === "approve" ? `${title} is ${done}. Restart keel to use it.` : `Denied: ${title} is not ${done}.`);
     } catch (e) {
       setErr(errorParts(e));
       setBusy(false);
@@ -150,13 +151,21 @@ function PluginInstallCard({ it, onDone }: { it: InboxItem; onDone: (msg: string
         </div>
       )}
       <div className="inbox-cols">
-        <div><p className="inbox-mini">It will be allowed to</p><PermissionList permissions={p.permissions} compact /></div>
+        <div>
+          {!!p.more?.length && (
+            <>
+              <p className="inbox-mini">New permissions</p>
+              <ul className="inbox-more" aria-label="New permissions">{p.more.map((m, i) => <li key={i} className="mono">{m}</li>)}</ul>
+            </>
+          )}
+          <p className="inbox-mini">It will be allowed to</p><PermissionList permissions={p.permissions} compact />
+        </div>
         <div>
           <p className="inbox-mini">What happens</p>
           <ul className="inbox-what">
             {installs.length > 0 && <li>Also installs {installs.map((x) => x.title || x.name).join(", ")}: {title} needs {installs.length === 1 ? "it" : "them"}.</li>}
             {!installs.length && !!p.needs?.length && <li>It needs {p.needs.join(", ")}.</li>}
-            <li>keel checks its signature, then installs it. Nothing runs yet.</li>
+            <li>{p.update ? `keel updates it${p.installed ? ` from ${p.installed}` : ""}${p.version ? ` to ${p.version}` : ""}` : "keel checks its signature, then installs it"}. Nothing runs yet.</li>
             <li>It loads when keel restarts.</li>
           </ul>
         </div>
@@ -166,7 +175,7 @@ function PluginInstallCard({ it, onDone }: { it: InboxItem; onDone: (msg: string
         <input id={`${hid}-why`} type="text" value={why} onChange={(e) => setWhy(e.target.value)} />
       </div>
       <div className="row inbox-actions">
-        <button className="btn sm warn" type="button" disabled={busy} onClick={() => void answer("approve")}>Approve and install</button>
+        <button className="btn sm warn" type="button" disabled={busy} onClick={() => void answer("approve")}>{p.update ? "Approve and update" : "Approve and install"}</button>
         <button className="btn sm" type="button" disabled={busy} onClick={() => void answer("deny")}>Deny</button>
         <span className="sub">An agent cannot install anything by itself.</span>
       </div>

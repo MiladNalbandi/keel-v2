@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.node.ArrayNode
 import com.fasterxml.jackson.databind.node.ObjectNode
+import keel.api.common.ApiException
 import keel.api.common.BadRequest
 import keel.api.engine.EngineDown
 import keel.api.pluginhost.PluginHost
@@ -36,8 +37,9 @@ class MarketplaceController(private val marketplace: Marketplace) {
     @GetMapping("/{name}")
     fun plugin(@PathVariable name: String): JsonNode = marketplace.plugin(name)
 
+    /** source: read only that catalog. */
     @PostMapping("/refresh")
-    fun refresh(): JsonNode = marketplace.refresh()
+    fun refresh(@RequestParam(required = false) source: String?): JsonNode = marketplace.refresh(source)
 }
 
 /**
@@ -67,8 +69,13 @@ class InstalledPluginsController(
     @PostMapping("/install-file")
     fun installFile(@RequestBody body: InstallFileBody): JsonNode = changes.installFile(body.path)
 
+    /** A new version that asks for more permissions is not installed: a request with the difference waits in the Inbox. */
     @PostMapping("/{name}/update")
-    fun update(@PathVariable name: String, @RequestBody(required = false) body: VersionBody?): JsonNode = changes.update(name, body?.version)
+    fun update(@PathVariable name: String, @RequestBody(required = false) body: VersionBody?): JsonNode = try {
+        changes.update(name, body?.version)
+    } catch (e: ApiException) {
+        throw requests.forMorePermissions(name, e) ?: e
+    }
 
     @PostMapping("/{name}/rollback")
     fun rollback(@PathVariable name: String): JsonNode = changes.rollback(name)
@@ -130,13 +137,14 @@ class PluginsOverview(
         if (!out.path("plugins").isArray) out.set<JsonNode>("plugins", out.path("installed").takeIf { it.isArray } ?: mapper.createArrayNode())
         out.set<JsonNode>("restart", mapper.valueToTree(restarts.state(pending(out.path("pending_restart")))))
         out.set<JsonNode>("problems", problems(out.path("problems")))
-        out.put("mode", host.mode)
+        if (!out.path("mode").isTextual) out.put("mode", host.mode)
         return out
     }
 
-    /** The engine says a restart is due: true, or a list (object) of what differs from this run. */
+    /** The engine says a restart is due: {pending, changes} (or true, or a list of what differs from this run). */
     private fun pending(p: JsonNode): Boolean = when {
         p.isBoolean -> p.asBoolean()
+        p.isObject && p.path("pending").isBoolean -> p.path("pending").asBoolean()
         p.isArray || p.isObject -> p.size() > 0
         else -> false
     }

@@ -43,10 +43,11 @@ class MarketplaceApiTest : ApiTest() {
 
     @Test
     fun `search, one plugin and refresh go to the engine, and its refusals keep their status, words and fields`() {
-        val hits = get("/api/marketplace?q=sql&category=code").andExpect(status().isOk).json()
-        assertThat(hits["hits"].map { it["name"].asText() }).containsExactly("db")
+        val hits = get("/api/marketplace?q=database&category=code").andExpect(status().isOk).json()
+        assertThat(hits["plugins"].map { it["name"].asText() }).containsExactly("db")
         assertThat(hits["sources"][0]["ok"].asBoolean()).isTrue()
-        assertThat(engine.calls.last { it.path == "/marketplace/search" }.query).isEqualTo("q=sql&category=code")
+        assertThat(hits["categories"].map { it.asText() }).contains("code", "review")
+        assertThat(engine.calls.last { it.path == "/marketplace/search" }.query).isEqualTo("q=database&category=code")
         // a search word with any character reaches the engine as it is
         get("/api/marketplace?q=" + java.net.URLEncoder.encode("a&b{c}+d", Charsets.UTF_8)).andExpect(status().isOk)
         val q = engine.calls.last { it.path == "/marketplace/search" }.query!!
@@ -54,13 +55,17 @@ class MarketplaceApiTest : ApiTest() {
 
         val db = get("/api/marketplace/db").andExpect(status().isOk).json()
         assertThat(db["title"].asText()).isEqualTo("Database")
-        assertThat(db["plan"]["plugins"].map { it["name"].asText() }).containsExactly("code", "db")
+        assertThat(db["plan"]["install"].map { it["name"].asText() }).containsExactly("code", "db")
+        assertThat(db["needs"]["code"].asText()).isEqualTo(">=1.0.0")
         val nope = get("/api/marketplace/nope").andExpect(status().isNotFound).json()
-        assertThat(nope["error"].asText()).isEqualTo("No plugin nope in the catalogs.")
+        assertThat(nope["error"].asText()).isEqualTo("No catalog lists a plugin called nope.")
         assertThat(nope["hint"].asText()).isEqualTo("Search for another word.")
         get("/api/marketplace/Not_A_Name").andExpect(status().isBadRequest)
         post("/api/marketplace/refresh").andExpect(status().isOk)
         assertThat(engine.calls.last().path).isEqualTo("/marketplace/refresh")
+        assertThat(post("/api/marketplace/refresh?source=keel").andExpect(status().isOk).json()["sources"].single()["id"].asText()).isEqualTo("keel")
+        assertThat(engine.calls.last().query).isEqualTo("source=keel")
+        post("/api/marketplace/refresh?source=a/b").andExpect(status().isBadRequest)
     }
 
     // ---------- what a person does on the Plugins page
@@ -70,6 +75,7 @@ class MarketplaceApiTest : ApiTest() {
         val done = post("/api/plugins/install", mapOf("name" to "db", "version" to "1.3.0")).andExpect(status().isOk).json()
         assertThat(done["version"].asText()).isEqualTo("1.3.0")
         assertThat(engine.lastBody("/marketplace/install")!!["name"].asText()).isEqualTo("db")
+        assertThat(engine.lastBody("/marketplace/install")!!["by"].asText()).isEqualTo("person")
         assertThat(events("plugin.installed").last()["by"].asText()).isEqualTo("person")
         assertThat(events("plugin.installed").last()["version"].asText()).isEqualTo("1.3.0")
         val note = notes().first { it["title"].asText() == "Database is installed: restart keel to use it" }
@@ -84,17 +90,22 @@ class MarketplaceApiTest : ApiTest() {
         assertThat(list["problems"].isArray).isTrue()
         assertThat(get("/api/plugins/installed").json()["plugins"].size()).isEqualTo(1)
 
-        engine.market.refusals["update:db"] = 409 to mapOf("error" to "The new version asks for more permissions.",
-            "hint" to "Approve it through a request in the Inbox.", "added" to listOf("network: from-connections"))
-        val more = post("/api/plugins/db/update", mapOf<String, Any>()).andExpect(status().isConflict).json()
-        assertThat(more["error"].asText()).isEqualTo("The new version asks for more permissions.")
-        assertThat(more["hint"].asText()).isEqualTo("Approve it through a request in the Inbox.")
-        assertThat(more["added"].map { it.asText() }).containsExactly("network: from-connections")
+        engine.market.refusals["update:db"] = 502 to mapOf("error" to "the sha256 of the download is not the catalog's",
+            "hint" to "Try again later.", "step" to "sha256")
+        val bad = post("/api/plugins/db/update", mapOf<String, Any>()).andExpect(status().isBadGateway).json()
+        assertThat(bad["error"].asText()).isEqualTo("the sha256 of the download is not the catalog's")
+        assertThat(bad["hint"].asText()).isEqualTo("Try again later.")
+        assertThat(bad["step"].asText()).isEqualTo("sha256")
         engine.market.refusals.clear()
 
-        assertThat(post("/api/plugins/db/update", null).andExpect(status().isOk).json()["version"].asText()).isEqualTo("1.4.0")
+        val updated = post("/api/plugins/db/update", null).andExpect(status().isOk).json()
+        assertThat(updated["version"].asText()).isEqualTo("1.4.0")
+        assertThat(engine.lastBody("/marketplace/installed/db/update")!!.has("allow_more_permissions")).isFalse()
         assertThat(events("plugin.updated").last()["version"].asText()).isEqualTo("1.4.0")
+        assertThat(events("plugin.updated").last()["from"].asText()).isEqualTo("1.3.0")
+        assertThat(notes().any { it["title"].asText() == "Database is updated: restart keel to use it" }).isTrue()
         assertThat(post("/api/plugins/db/rollback").andExpect(status().isOk).json()["version"].asText()).isEqualTo("1.3.0")
+        assertThat(engine.calls.last { it.path == "/marketplace/installed/db/rollback" }.query).isEqualTo("by=person")
         assertThat(events("plugin.rolled_back").last()["name"].asText()).isEqualTo("db")
         assertThat(notes().any { it["title"].asText() == "Database is back on 1.3.0: restart keel to use it" }).isTrue()
 
@@ -105,8 +116,9 @@ class MarketplaceApiTest : ApiTest() {
 
         delete("/api/plugins/db?data=maybe").andExpect(status().isBadRequest)
         delete("/api/plugins/db?data=delete").andExpect(status().isOk)
-        assertThat(engine.calls.last().query).isEqualTo("data=delete")
+        assertThat(engine.calls.last().query).isEqualTo("data=delete&by=person")
         assertThat(events("plugin.removed").last()["data"].asText()).isEqualTo("delete")
+        assertThat(events("plugin.removed").last()["version"].asText()).isEqualTo("1.3.0")
         delete("/api/plugins/db").andExpect(status().isNotFound)          // the engine's 404, passed on
         post("/api/plugins/install", mapOf("name" to "db", "version" to "../1")).andExpect(status().isBadRequest)
     }
@@ -122,28 +134,56 @@ class MarketplaceApiTest : ApiTest() {
         assertThat(events("plugin.installed").none { it["name"].asText() == "hello" && it["source"]?.asText() != "file" }).isTrue()
 
         post("/api/plugins/install-file", mapOf("path" to " ")).andExpect(status().isBadRequest)
-        val file = post("/api/plugins/install-file", mapOf("path" to "/data/hello-0.1.0.kplug")).andExpect(status().isOk).json()
+        val file = post("/api/plugins/install-file", mapOf("path" to "/data/hello-0.1.0-beta.1.kplug")).andExpect(status().isOk).json()
         assertThat(file["source"].asText()).isEqualTo("file")
+        assertThat(engine.lastBody("/marketplace/install-file")!!["path"].asText()).isEqualTo("/data/hello-0.1.0-beta.1.kplug")
         assertThat(events("plugin.installed").last()["source"].asText()).isEqualTo("file")
         assertThat(events("plugin.installed").last()["name"].asText()).isEqualTo("hello")
+        assertThat(events("plugin.installed").last()["version"].asText()).isEqualTo("0.1.0-beta.1")
     }
 
     @Test
-    fun `an install the engine runs in the background tells the person once, when its event says it is done`() {
+    fun `an install from elsewhere tells the person once, and the api's own install is not told twice`() {
         fun told() = notes().count { it["title"].asText() == "Code is installed: restart keel to use it" }
         val before = told()
-        engine.market.installExtra = mapOf("status" to "started")
-        post("/api/plugins/install", mapOf("name" to "code")).andExpect(status().isOk)
-        assertThat(told()).isEqualTo(before)
-        val done = mapOf("type" to "plugin.install.done", "thread_id" to "", "project_id" to "", "at" to Instant.now().toString(),
-            "data" to mapOf("name" to "code", "title" to "Code", "version" to "1.0.0"))
+        // keel2 plugins install code: only the engine's event says so
+        val done = mapOf("type" to "plugin.install.done", "thread_id" to "marketplace", "project_id" to "", "step" to "plugin",
+            "at" to Instant.now().toString(), "data" to mapOf("name" to "code", "version" to "1.0.0", "update" to false,
+                "installed" to listOf(mapOf("name" to "code", "version" to "1.0.0", "from" to null)), "turned_on" to emptyList<String>()))
         post("/internal/events", listOf(done, done), mapOf("X-Keel-Token" to TOKEN)).andExpect(status().isOk)
-        assertThat(told()).isEqualTo(before + 1)
-        // an install the engine answers as done tells at once; its event is only an echo
-        engine.market.installExtra = emptyMap()
+        assertThat(notes().count { it["title"].asText() == "code is installed: restart keel to use it" }).isGreaterThanOrEqualTo(1)
+        // the api's own install tells at once; the engine's event that follows is only an echo
         post("/api/plugins/install", mapOf("name" to "code")).andExpect(status().isOk)
+        assertThat(told()).isEqualTo(before + 1)
         post("/internal/events", listOf(done), mapOf("X-Keel-Token" to TOKEN)).andExpect(status().isOk)
-        assertThat(told()).isEqualTo(before + 2)
+        assertThat(told()).isEqualTo(before + 1)
+    }
+
+    @Test
+    fun `an update that asks for more permissions waits in the Inbox, and approving it updates with them`() {
+        post("/api/plugins/install", mapOf("name" to "db", "version" to "1.3.0")).andExpect(status().isOk)
+        engine.market.more["db"] = listOf("+ network: from-connections", "+ workspace: read")
+        val refused = post("/api/plugins/db/update", mapOf<String, Any>()).andExpect(status().isConflict).json()
+        assertThat(refused["error"].asText()).isEqualTo("Database 1.4.0 asks for more permissions than 1.3.0.")
+        assertThat(refused["hint"].asText()).isEqualTo("A request with the new permissions waits in the Inbox: approve it there to update.")
+        assertThat(refused["more"].map { it.asText() }).containsExactly("+ network: from-connections", "+ workspace: read")
+        assertThat(refused["installed"].asText()).isEqualTo("1.3.0")
+        val id = refused["requests"].single().asText()
+
+        val item = get("/api/inbox").json()["items"].first { it["id"].asText() == id }
+        assertThat(item["title"].asText()).isEqualTo("Update Database to 1.4.0?")
+        assertThat(item["payload"]["more"].map { it.asText() }).containsExactly("+ network: from-connections", "+ workspace: read")
+        assertThat(item["payload"]["update"].asBoolean()).isTrue()
+        assertThat(item["payload"]["source"].asText()).isEqualTo("keel")
+        // a second click joins the same request
+        val again = post("/api/plugins/db/update", mapOf<String, Any>()).andExpect(status().isConflict).json()
+        assertThat(again["requests"].single().asText()).isEqualTo(id)
+
+        post("/api/approvals/$id/decide", mapOf("decision" to "approve")).andExpect(status().isOk)
+        val body = engine.lastBody("/marketplace/installed/db/update")!!
+        assertThat(body["allow_more_permissions"].asBoolean()).isTrue()
+        assertThat(get("/api/plugins").json()["plugins"].first { it["name"].asText() == "db" }["version"].asText()).isEqualTo("1.4.0")
+        assertThat(events("plugin.updated").last()["request"].asText()).isEqualTo(id)
     }
 
     @Test
@@ -160,7 +200,9 @@ class MarketplaceApiTest : ApiTest() {
             .andExpect(status().isOk).json()
         assertThat(rules["agents_may_ask"].asBoolean()).isFalse()
         assertThat(rules["restart_when_idle"].asBoolean()).isTrue()
-        assertThat(get("/api/plugins/sets").json().map { it["id"].asText() }).containsExactly("developer", "knowledge")
+        val sets = get("/api/plugins/sets").json()["sets"]
+        assertThat(sets.map { it["id"].asText() }).containsExactly("developer")
+        assertThat(sets[0]["missing"].map { it.asText() }).contains("code", "db")
         // the per-project plugins' catalog moved next to them
         assertThat(get("/api/plugins/catalog").json().map { it["name"].asText() }).containsExactly("db", "git", "ci", "review")
     }
@@ -219,6 +261,10 @@ class MarketplaceApiTest : ApiTest() {
         request("db", "x", project = "no-such-project").andExpect(status().isNotFound)
         request("db", "x", version = "1.x/../2").andExpect(status().isBadRequest)
         request("nope", "x").andExpect(status().isNotFound)
+        // keel would refuse its install: the agent hears why, nobody is asked
+        val old = request("old", "I need it.").andExpect(status().isConflict).json()
+        assertThat(old["error"].asText()).isEqualTo("Old 0.1.0 was revoked: it sent errors to a wrong host.")
+        assertThat(old["hint"].asText()).isEqualTo("Wait for a fixed version.")
         post("/api/plugins/install", mapOf("name" to "code")).andExpect(status().isOk)
         assertThat(request("code", "I need the editor.").andExpect(status().isConflict).json()["error"].asText()).isEqualTo("Code is installed already")
 
@@ -282,7 +328,8 @@ class MarketplaceApiTest : ApiTest() {
     @Test
     fun `a workflow that needs a plugin which is not loaded opens a request for it and says so`() {
         val (pid, _) = newProject("mkt-needs")
-        engine.threadRefusal = 409 to mapOf("error" to "This workflow needs Database.", "missing" to listOf("db", "nope"))
+        engine.threadRefusal = 409 to mapOf("error" to "This workflow needs Database.", "hint" to "Install it in Control › Plugins, then restart keel.",
+            "missing" to listOf("db", "nope"), "workflow" to "feature")
         val res = post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "Scores"))
             .andExpect(status().isConflict).json()
         assertThat(res["error"].asText()).isEqualTo("This workflow needs Database.")

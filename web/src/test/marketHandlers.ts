@@ -153,13 +153,20 @@ export function marketHandlers(
     const have = m.installed.find((x) => x.name === p.name);
     const { versions, checks: _c, ...rest } = p;
     const newest = versions?.[0]?.version;
+    // the engine's Hit (docs/plugins/13-step4-contract.md §12)
     return {
       ...rest,
+      publisher_title: p.publisher,
+      latest: newest,
       version: newest,
-      installed: have?.version ?? false,
+      permissions: versions?.[0]?.permissions ?? {},
+      installed: have?.version ?? null,
+      installed_from: have?.from ?? null,
       update: have && have.version !== newest ? newest : null,
       fits: true,
-      needs: Object.keys(versions?.[0]?.requires?.plugins ?? {}),
+      why_not: null,
+      revoked: null,
+      old: false,
     };
   };
   const notFound = (name: string) =>
@@ -170,6 +177,14 @@ export function marketHandlers(
       },
       { status: 404 },
     );
+  const pending = () => ({
+    pending: m.restart.pending,
+    changes: m.installed.map((x) => ({
+      name: x.name,
+      now: null,
+      next: x.version ?? null,
+    })),
+  });
   const install = (name: string, version?: string) => {
     const p = entry(name)!;
     m.installed.push({
@@ -179,7 +194,8 @@ export function marketHandlers(
       from: "marketplace",
       on: true,
       parts: ["engine", "web"],
-      status: "installed",
+      status: "restart",
+      can_remove: true,
     });
     m.restart = { ...m.restart, pending: true };
   };
@@ -199,7 +215,18 @@ export function marketHandlers(
               )),
         )
         .map(hit);
-      return HttpResponse.json({ hits, sources: m.status });
+      return HttpResponse.json({
+        plugins: hits,
+        sources: m.status,
+        categories: [
+          "code",
+          "review",
+          "knowledge",
+          "tickets",
+          "product",
+          "other",
+        ],
+      });
     }),
     http.post("/api/marketplace/refresh", async ({ request }) => {
       await log(request);
@@ -208,28 +235,48 @@ export function marketHandlers(
     http.get("/api/marketplace/:name", ({ params }) => {
       const p = entry(String(params.name));
       if (!p) return notFound(String(params.name));
-      const needs = Object.keys(p.versions?.[0]?.requires?.plugins ?? {});
-      const plan = [
-        ...needs
-          .filter((n) => !m.installed.some((x) => x.name === n))
-          .map((n) => ({
-            name: n,
-            title: entry(n)?.title,
-            version: entry(n)?.versions?.[0]?.version,
-          })),
-        { name: p.name, title: p.title, version: p.versions?.[0]?.version },
+      const needs = p.versions?.[0]?.requires?.plugins ?? {};
+      const step = (e: MarketPlugin, neededBy: string | null) => ({
+        name: e.name,
+        version: e.versions?.[0]?.version,
+        title: e.title,
+        trust: e.trust,
+        publisher: e.publisher,
+        publisher_title: e.publisher,
+        verified: e.verified,
+        permissions: e.versions?.[0]?.permissions ?? {},
+        size: 1000,
+        needed_by: neededBy,
+        source: "keel",
+      });
+      const install = [
+        ...Object.keys(needs)
+          .filter((n) => !m.installed.some((x) => x.name === n) && entry(n))
+          .map((n) => step(entry(n)!, p.name)),
+        step(p, null),
       ];
       return HttpResponse.json({
         ...hit(p),
         versions: p.versions,
+        needs,
         checks: p.checks,
-        plan: { version: p.versions?.[0]?.version, plugins: plan },
+        plan: {
+          name: p.name,
+          version: p.versions?.[0]?.version,
+          title: p.title,
+          source: "keel",
+          install,
+          turn_on: [],
+          checks: p.checks,
+        },
+        refused: null,
       });
     }),
     http.get("/api/plugins", () =>
       HttpResponse.json({
         plugins: m.installed,
         restart: m.restart,
+        pending_restart: pending(),
         problems: m.problems,
         mode: "on",
       }),
@@ -243,10 +290,14 @@ export function marketHandlers(
       ))
         if (!m.installed.some((x) => x.name === n) && entry(n)) install(n);
       install(name, b.version as string | undefined);
+      const version = m.installed.find((x) => x.name === name)!.version;
       return HttpResponse.json({
         name,
         title: entry(name)!.title,
-        version: m.installed.find((x) => x.name === name)!.version,
+        version,
+        installed: [{ name, version, from: null }],
+        turned_on: [],
+        pending_restart: pending(),
       });
     }),
     http.post("/api/plugins/install-file", async ({ request }) => {
@@ -285,7 +336,16 @@ export function marketHandlers(
     ),
     http.put("/api/plugins/sources", async ({ request }) => {
       const b = await log(request);
-      m.sources = b.sources as Source[];
+      // the official one may only be turned on or off
+      const sent = b.sources as Source[];
+      const official = m.sources.find((s) => s.id === "keel")!;
+      m.sources = [
+        {
+          ...official,
+          on: sent.find((s) => s.id === "keel")?.on ?? official.on,
+        },
+        ...sent.filter((s) => s.id !== "keel"),
+      ];
       return HttpResponse.json({ sources: m.sources });
     }),
     http.get("/api/plugins/rules", () => HttpResponse.json(m.rules)),
@@ -293,10 +353,23 @@ export function marketHandlers(
       m.rules = (await log(request)) as unknown as Rules;
       return HttpResponse.json(m.rules);
     }),
-    http.get("/api/plugins/sets", () => HttpResponse.json(m.sets)),
+    http.get("/api/plugins/sets", () =>
+      HttpResponse.json({
+        sets: m.sets.map((s) => ({
+          ...s,
+          missing: s.plugins.filter(
+            (n) => !m.installed.some((x) => x.name === n),
+          ),
+          off: s.plugins.filter((n) =>
+            m.installed.some((x) => x.name === n && x.on === false),
+          ),
+        })),
+      }),
+    ),
     http.post("/api/plugins/:name/update", async ({ request, params }) => {
       await log(request);
       const p = m.installed.find((x) => x.name === params.name)!;
+      const from = p.version ?? null;
       p.previous = p.version;
       p.version =
         typeof p.update === "string"
@@ -304,21 +377,39 @@ export function marketHandlers(
           : entry(p.name)?.versions?.[0]?.version;
       p.update = null;
       m.restart = { ...m.restart, pending: true };
-      return HttpResponse.json(p);
+      return HttpResponse.json({
+        name: p.name,
+        version: p.version,
+        title: p.title,
+        installed: [{ name: p.name, version: p.version, from }],
+        turned_on: [],
+        pending_restart: pending(),
+      });
     }),
     http.post("/api/plugins/:name/rollback", async ({ request, params }) => {
       await log(request);
       const p = m.installed.find((x) => x.name === params.name)!;
+      const from = p.version ?? null;
       [p.version, p.previous] = [p.previous ?? p.version, null];
       m.restart = { ...m.restart, pending: true };
-      return HttpResponse.json(p);
+      return HttpResponse.json({
+        name: p.name,
+        version: p.version,
+        from,
+        pending_restart: pending(),
+      });
     }),
     http.put("/api/plugins/:name", async ({ request, params }) => {
       const b = await log(request);
       const p = m.installed.find((x) => x.name === params.name)!;
       p.on = Boolean(b.on);
       m.restart = { ...m.restart, pending: true };
-      return HttpResponse.json({ name: p.name, on: p.on, dependents: [] });
+      return HttpResponse.json({
+        name: p.name,
+        on: p.on,
+        also: [],
+        pending_restart: pending(),
+      });
     }),
     http.delete("/api/plugins/:name", async ({ request, params }) => {
       await log(request);
@@ -326,9 +417,16 @@ export function marketHandlers(
         name: String(params.name),
         data: new URL(request.url).searchParams.get("data"),
       });
+      const gone = m.installed.find((x) => x.name === params.name);
       m.installed = m.installed.filter((x) => x.name !== params.name);
       m.restart = { ...m.restart, pending: true };
-      return HttpResponse.json({ name: params.name, removed: true });
+      return HttpResponse.json({
+        name: params.name,
+        removed: gone?.version,
+        data: new URL(request.url).searchParams.get("data"),
+        back_to_image: null,
+        pending_restart: pending(),
+      });
     }),
   ];
 }

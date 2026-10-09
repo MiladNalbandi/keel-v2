@@ -35,9 +35,11 @@ import {
   marketApi,
   needsOf,
   newestVersion,
+  pendingOf,
   permissionsOf,
   planOf,
   publisherOf,
+  turnOnOf,
   revokedText,
   setsOf,
   sourceStatusOf,
@@ -159,6 +161,14 @@ function RestartBanner({
   if (!r || (!r.pending && !r.scheduled)) return null;
   // keel-start does not run this keel (a dev run): it cannot restart itself
   const manual = r.supervised === false;
+  // what loads after the restart: db 1.3.0 → 1.4.0, hello new, map gone
+  const changes = (pendingOf(view)?.changes ?? []).map((c) =>
+    c.now && c.next
+      ? `${c.name} ${c.now} → ${c.next}`
+      : c.next
+        ? `${c.name} ${c.next} (new)`
+        : `${c.name} (goes)`,
+  );
   const restart = async (now: boolean) => {
     setBusy(true);
     setErr(null);
@@ -189,6 +199,11 @@ function RestartBanner({
                 ? `keel restarts by itself when no agent step runs${r.running ? ` (${r.running} running now)` : ""}.`
                 : "keel loads new and changed plugins when it starts again. It takes about 30 seconds."}
         </span>
+        {!gone && changes.length > 0 && (
+          <span className="sub mono" aria-label="What changes">
+            {changes.join(" · ")}
+          </span>
+        )}
       </div>
       {!gone &&
         !manual &&
@@ -320,6 +335,22 @@ function SetOffer({
 
 // ---------- Installed ----------
 
+/** A plugin's status in words: loaded (runs now), restart (loads at the next start), off, left out, removed. */
+function StatusOf({ p, problems }: { p: InstalledPlugin; problems: boolean }) {
+  const s = p.status ?? "";
+  if (s === "left out" || (problems && s !== "restart"))
+    return <Pill tone="bad">left out</Pill>;
+  if (s === "restart")
+    return (
+      <Pill tone="warn">
+        {p.on === false ? "off after restart" : "after restart"}
+      </Pill>
+    );
+  if (s === "removed") return <Pill tone="warn">removed at restart</Pill>;
+  if (s === "off" || p.on === false) return <Pill tone="idle">off</Pill>;
+  return <Pill tone="ok">on</Pill>;
+}
+
 function InstalledTab({ view }: { view: Loaded<PluginsView> }) {
   const { toast } = useApp();
   const [busy, setBusy] = useState<string | null>(null);
@@ -418,18 +449,8 @@ function InstalledTab({ view }: { view: Loaded<PluginsView> }) {
                       <td>
                         {revoked ? (
                           <Pill tone="bad">revoked</Pill>
-                        ) : problems.length ? (
-                          <Pill tone="bad">left out</Pill>
-                        ) : p.on === false ? (
-                          <Pill tone="idle">off</Pill>
                         ) : (
-                          <Pill tone="ok">
-                            {p.status &&
-                            p.status !== "installed" &&
-                            p.status !== "loaded"
-                              ? p.status
-                              : "on"}
-                          </Pill>
+                          <StatusOf p={p} problems={problems.length > 0} />
                         )}
                         {revoked && (
                           <div className="mk-warn">
@@ -441,6 +462,12 @@ function InstalledTab({ view }: { view: Loaded<PluginsView> }) {
                             {x}
                           </div>
                         ))}
+                        {!!p.needed_by?.length && (
+                          <div className="sub">
+                            {p.needed_by.join(", ")} need
+                            {p.needed_by.length === 1 ? "s" : ""} it
+                          </div>
+                        )}
                       </td>
                       <td>
                         <input
@@ -492,7 +519,7 @@ function InstalledTab({ view }: { view: Loaded<PluginsView> }) {
                               Roll back
                             </button>
                           )}
-                          {from !== "image" && (
+                          {(p.can_remove ?? from !== "image") && (
                             <button
                               className="btn sm ghost"
                               type="button"
@@ -714,10 +741,15 @@ function MarketTab({
                     <span className="tag">needs {needs.join(", ")}</span>
                   )}
                   {h.fits === false && (
-                    <Pill tone="warn">does not fit this keel</Pill>
+                    <Pill tone="warn" title={h.why_not ?? undefined}>
+                      does not fit this keel
+                    </Pill>
                   )}
                   {revoked && <Pill tone="bad">revoked</Pill>}
                 </div>
+                {h.fits === false && h.why_not && (
+                  <p className="sub mk-sum">{h.why_not}</p>
+                )}
                 <div className="row mk-card-a">
                   <button
                     className="btn sm ghost"
@@ -801,6 +833,7 @@ function PluginDetail({
             <button
               className="btn primary"
               type="button"
+              disabled={!!p.refused}
               onClick={() => onInstall(name)}
             >
               Install{version ? ` ${version}` : ""}
@@ -816,6 +849,14 @@ function PluginDetail({
       ) : (
         <>
           {p.summary && <p style={{ margin: 0 }}>{p.summary}</p>}
+          {p.refused && inst === null && (
+            <ErrorBox
+              error={{
+                message: p.refused.error,
+                hint: p.refused.hint ?? undefined,
+              }}
+            />
+          )}
           <dl className="mk-kv">
             <dt>Publisher</dt>
             <dd>
@@ -894,12 +935,26 @@ function PluginDetail({
                           {x.revoked ? (
                             <>
                               {" "}
-                              <Pill tone="bad">revoked</Pill>
+                              <Pill
+                                tone="bad"
+                                title={
+                                  typeof x.revoked === "string"
+                                    ? x.revoked
+                                    : undefined
+                                }
+                              >
+                                revoked
+                              </Pill>
                             </>
                           ) : null}
                         </td>
                         <td className="mono">
                           {x.requires?.keel ? `keel ${x.requires.keel}` : "—"}
+                          {x.fits === false && (
+                            <div className="sub">
+                              {x.why_not ?? "does not fit"}
+                            </div>
+                          )}
                         </td>
                         <td className="sub">{x.released ?? ""}</td>
                       </tr>
@@ -938,6 +993,8 @@ type Item = {
   publisher?: string;
   verified?: boolean;
   target: boolean;
+  /** why it cannot be installed (not in the catalogs): it is left out */
+  problem?: string;
 };
 
 function InstallDialog({
@@ -953,6 +1010,10 @@ function InstallDialog({
 }) {
   const { toast } = useApp();
   const [items, setItems] = useState<Item[] | null>(null);
+  // the targets no catalog has (or keel would refuse): never installed on their own
+  const [unlisted, setUnlisted] = useState<Set<string>>(new Set());
+  // what the installs turn on by themselves (needed plugins that are off)
+  const [alsoOn, setAlsoOn] = useState<string[]>([]);
   const [loadErr, setLoadErr] = useState<Err>(null);
   const [state, setState] = useState<
     Record<string, "waiting" | "installing" | "done" | "failed">
@@ -969,12 +1030,39 @@ function InstallDialog({
     let live = true;
     (async () => {
       try {
-        const details = await Promise.all(
-          plan.install.map((n) => marketApi.plugin(n)),
+        // a set may name a plugin no catalog has: it shows with the reason and is left out
+        const found = await Promise.all(
+          plan.install.map((n) =>
+            marketApi.plugin(n).then(
+              (d) => ({ n, d }),
+              (e: unknown) => ({ n, problem: errorParts(e).message }),
+            ),
+          ),
+        );
+        // one keel would refuse (revoked, the catalog is old, it does not fit) is left out too, with the reason
+        const details = found.flatMap((f) =>
+          "d" in f && !f.d.refused ? [f.d] : [],
         );
         const byName = new Map<string, MarketPlugin>(
           details.map((d) => [d.name, d]),
         );
+        const left: Item[] = found.flatMap((f) =>
+          "problem" in f
+            ? [{ name: f.n, title: f.n, target: true, problem: f.problem }]
+            : f.d.refused
+              ? [
+                  {
+                    name: f.n,
+                    title: f.d.title ?? f.n,
+                    target: true,
+                    problem: [f.d.refused.error, f.d.refused.hint]
+                      .filter(Boolean)
+                      .join(" "),
+                  },
+                ]
+              : [],
+        );
+        const turning = details.flatMap(turnOnOf);
         const out: Item[] = [];
         for (const d of details) {
           for (const it of planOf(d)) {
@@ -987,7 +1075,11 @@ function InstallDialog({
             if (!own)
               own = await marketApi.plugin(it.name).catch(() => undefined);
             if (own) byName.set(it.name, own);
-            const pub = own ? publisherOf(own) : null;
+            const pub = it.publisher
+              ? publisherOf(it)
+              : own
+                ? publisherOf(own)
+                : null;
             out.push({
               name: it.name,
               title: it.title ?? own?.title ?? it.name,
@@ -1003,7 +1095,19 @@ function InstallDialog({
             });
           }
         }
-        if (live) setItems(out);
+        // one another plugin's plan brings in is not left out, but it is never installed on its own
+        if (live) {
+          setAlsoOn(
+            turning.filter(
+              (n, i) => turning.indexOf(n) === i && !turnOn.includes(n),
+            ),
+          );
+          setUnlisted(new Set(left.map((l) => l.name)));
+          setItems([
+            ...out,
+            ...left.filter((l) => !out.some((o) => o.name === l.name)),
+          ]);
+        }
       } catch (e) {
         if (live) setLoadErr(errorParts(e));
       }
@@ -1015,8 +1119,9 @@ function InstallDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const main = items?.find((x) => x.target);
+  const main = items?.find((x) => x.target && !x.problem);
   const extra = items?.filter((x) => !x.target) ?? [];
+  const nothing = !!items && !items.some((x) => !x.problem) && !turnOn.length;
   // one plugin (and what it needs): its name and version; several: how many
   const title =
     plan.title ??
@@ -1036,6 +1141,7 @@ function InstallDialog({
     let done = 0;
     try {
       for (const name of plan.install) {
+        if (unlisted.has(name)) continue;
         // a set's earlier install may have brought this one in already
         const now = await marketApi.installed();
         if (now.plugins.some((p) => p.name === name)) continue;
@@ -1055,7 +1161,9 @@ function InstallDialog({
       }
       for (const name of turnOn) await marketApi.setOn(name, true);
       const names = [
-        ...(items ?? []).filter((x) => x.target).map((x) => x.title),
+        ...(items ?? [])
+          .filter((x) => x.target && !x.problem)
+          .map((x) => x.title),
         ...turnOn,
       ];
       toast(
@@ -1092,7 +1200,7 @@ function InstallDialog({
             className="btn primary"
             type="button"
             onClick={() => void install()}
-            disabled={busy || !items}
+            disabled={busy || !items || nothing}
           >
             {busy ? "Installing…" : "Install"}
           </button>
@@ -1140,13 +1248,22 @@ function InstallDialog({
                   {state[x.name] === "done" && <Pill tone="ok">installed</Pill>}
                   {state[x.name] === "failed" && <Pill tone="bad">failed</Pill>}
                 </div>
-                <PermissionList permissions={x.permissions} compact />
+                {x.problem ? (
+                  <span className="mk-warn">Left out: {x.problem}</span>
+                ) : (
+                  <PermissionList permissions={x.permissions} compact />
+                )}
               </li>
             ))}
           </ul>
           {turnOn.length > 0 && (
             <p style={{ margin: 0 }}>
               Turns on (they came in keel's image): <b>{turnOn.join(", ")}</b>
+            </p>
+          )}
+          {alsoOn.length > 0 && (
+            <p style={{ margin: 0 }}>
+              Also turns on what it needs: <b>{alsoOn.join(", ")}</b>
             </p>
           )}
           {runsCode && (

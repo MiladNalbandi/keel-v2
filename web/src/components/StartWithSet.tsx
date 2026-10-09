@@ -43,7 +43,7 @@ export function StartWithSet({ onPick }: { onPick?: () => void }) {
     onPick?.();
   };
   return (
-    <div className="nav-sec">
+    <div className="nav-sec nav-start-sec">
       <div className="nav-h" title="what this project is">
         <span>Project</span>
       </div>

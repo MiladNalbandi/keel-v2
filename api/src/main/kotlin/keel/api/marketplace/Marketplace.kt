@@ -32,28 +32,41 @@ class Marketplace(private val engine: EngineClient, private val mapper: ObjectMa
 
     fun plugin(name: String): JsonNode = pass { engine.get("/marketplace/plugins/${checkName(name)}") }
 
-    fun refresh(): JsonNode = pass { engine.post("/marketplace/refresh", null, long = true) }
+    /** [source]: read only that catalog. */
+    fun refresh(source: String? = null): JsonNode = pass {
+        val id = source?.trim()?.ifBlank { null }
+        if (id == null) engine.post("/marketplace/refresh", null, long = true)
+        else if (!SOURCE_ID.matches(id)) throw BadRequest("$id is not a catalog id")
+        else engine.post("/marketplace/refresh?source=$id", null, long = true)
+    }
 
     fun installed(): JsonNode = pass { engine.get("/marketplace/installed") }
 
-    fun install(name: String, version: String?): JsonNode =
-        pass { engine.post("/marketplace/install", body(name, version), long = true) }
+    /** It answers when the download and the checks are done. [by]: who, for the engine's log. */
+    fun install(name: String, version: String?, by: String): JsonNode =
+        pass { engine.postWaiting("/marketplace/install", body(name, version) + mapOf("by" to by)) }
 
-    fun update(name: String, version: String?): JsonNode =
-        pass { engine.post("/marketplace/installed/${checkName(name)}/update", versionBody(version), long = true) }
-
-    fun rollback(name: String): JsonNode = pass { engine.post("/marketplace/installed/${checkName(name)}/rollback", null, long = true) }
-
-    fun switch(name: String, on: Boolean): JsonNode = pass { engine.put("/marketplace/installed/${checkName(name)}", mapOf("on" to on)) }
-
-    fun remove(name: String, data: String): JsonNode {
-        if (data !in setOf("keep", "delete")) throw BadRequest("data is keep or delete", "keep: its data stays; delete: its folder in /data goes too.")
-        return pass { engine.delete("/marketplace/installed/${checkName(name)}?data=$data") }
+    /** [allowMore]: a person approved the permissions the new version adds (a request in the Inbox). */
+    fun update(name: String, version: String?, by: String, allowMore: Boolean = false): JsonNode = pass {
+        engine.postWaiting("/marketplace/installed/${checkName(name)}/update",
+            versionBody(version) + mapOf("by" to by) + (if (allowMore) mapOf("allow_more_permissions" to true) else emptyMap()))
     }
 
-    fun installFile(path: String): JsonNode {
+    fun rollback(name: String, by: String): JsonNode =
+        pass { engine.post("/marketplace/installed/${checkName(name)}/rollback?by=${byParam(by)}", null, long = true) }
+
+    fun switch(name: String, on: Boolean, by: String): JsonNode =
+        pass { engine.put("/marketplace/installed/${checkName(name)}", mapOf("on" to on, "by" to by)) }
+
+    fun remove(name: String, data: String, by: String): JsonNode {
+        if (data !in setOf("keep", "delete")) throw BadRequest("data is keep or delete", "keep: its data stays; delete: its folder in /data goes too.")
+        return pass { engine.delete("/marketplace/installed/${checkName(name)}?data=$data&by=${byParam(by)}") }
+    }
+
+    fun installFile(path: String, by: String, force: Boolean = false): JsonNode {
         if (path.isBlank()) throw BadRequest("Say which file to install", "A .kplug file in /data, for example /data/hello-1.0.0.kplug.")
-        return pass { engine.post("/marketplace/install-file", mapOf("path" to path.trim()), long = true) }
+        val body = mapOf("path" to path.trim(), "by" to by) + (if (force) mapOf("force" to true) else emptyMap())
+        return pass { engine.postWaiting("/marketplace/install-file", body) }
     }
 
     fun sources(): JsonNode = pass { engine.get("/marketplace/sources") }
@@ -81,6 +94,9 @@ class Marketplace(private val engine: EngineClient, private val mapper: ObjectMa
 
     private fun body(name: String, version: String?) = mapOf("name" to checkName(name)) + versionBody(version)
 
+    /** Who, in a query: a-z, A-Z, 0-9, '-' and '_' only (keel's own words: person, keel, request-a_…). */
+    private fun byParam(by: String) = by.filter { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it == '-' || it == '_' }.take(60)
+
     private fun versionBody(version: String?): Map<String, Any?> {
         val v = version?.trim()?.ifBlank { null } ?: return emptyMap()
         if (!PluginHost.VERSION.matches(v)) throw BadRequest("$v is not a version", "A version looks like 1.4.0.")
@@ -101,6 +117,8 @@ class Marketplace(private val engine: EngineClient, private val mapper: ObjectMa
     }
 
     companion object {
+        private val SOURCE_ID = Regex("^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+
         /** A plugin's name (keel's plugin name rule); anything else never reaches the engine. */
         fun checkName(name: String): String {
             val n = name.trim()

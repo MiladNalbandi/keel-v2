@@ -1,6 +1,7 @@
 package keel.api.marketplace
 
 import com.fasterxml.jackson.databind.JsonNode
+import com.fasterxml.jackson.databind.node.JsonNodeFactory
 import keel.api.approvals.Approval
 import keel.api.approvals.ApprovalHandler
 import keel.api.approvals.ApprovalService
@@ -93,13 +94,44 @@ class PluginRequests(
             throw Conflict("${card.title} is installed already",
                 "A new install loads after the next restart; one that is off can be turned on in Control › Plugins.")
         }
+        // keel would refuse the install (revoked, the catalog is old, it does not fit): say so now, ask nobody
+        if (have == null) card.refused?.let { throw ApiException(HttpStatus.CONFLICT, it.first, it.second) }
         // installed in another version: approving updates it
-        val payload = card.payload + mapOf("reason" to reason, "source" to source, "reasons" to listOf(asked), "update" to (have != null))
-        val a = approvals.create(KIND, project ?: "", card.heading, reason, payload, requestedBy = source, source = source)
-        log.record("plugin.request.asked", mapOf("id" to a.id, "name" to name, "version" to card.version, "by" to source,
-            "reason" to reason, "project" to project))
-        notifications.create("review", project, "${who(source)} asks to install ${card.title}", reason.take(300), "/inbox", threadId = a.id)
+        val a = open(card, card.heading, reason, source, project, asked, mapOf("update" to (have != null)))
         return answer(a, joined = false)
+    }
+
+    /**
+     * An update the engine refused because the new version asks for more permissions (409 {more, installed, version}):
+     * a request in the Inbox with the difference; approving it updates with those permissions. Null: not that refusal.
+     */
+    @Synchronized
+    fun forMorePermissions(name: String, e: ApiException): ApiException? {
+        val extra = e.extra ?: return null
+        val more = (extra["more"] as? List<*>)?.map { it.toString() }
+        if (e.status != HttpStatus.CONFLICT || more.isNullOrEmpty()) return null
+        val version = extra["version"]?.toString()?.ifBlank { null }
+        val reason = "The new version${version?.let { " $it" } ?: ""} asks for more permissions: ${more.joinToString("; ")}."
+        val asked = mapOf("reason" to reason, "source" to KEEL, "project" to null, "at" to Time.now())
+        val id = waitingFor(name)?.let { join(it, asked).id } ?: run {
+            val info = runCatching { marketplace.plugin(name) }.getOrNull() ?: JsonNodeFactory.instance.objectNode()
+            val card = card(name, version, info)
+            open(card, "Update ${card.title}${version?.let { " to $it" } ?: ""}?", reason, KEEL, null, asked,
+                mapOf("update" to true, "more" to more, "installed" to extra["installed"])).id
+        }
+        return ApiException(HttpStatus.CONFLICT, e.message, MORE_HINT, extra + mapOf("requests" to listOf(id)))
+    }
+
+    /** A new request: the row, its event and the person's notification. */
+    private fun open(card: Card, heading: String, reason: String, source: String, project: String?, asked: Map<String, Any?>,
+                     more: Map<String, Any?>): Approval {
+        val payload = card.payload + mapOf("reason" to reason, "source" to source, "reasons" to listOf(asked)) + more
+        val a = approvals.create(KIND, project ?: "", heading, reason, payload, requestedBy = source, source = source)
+        log.record("plugin.request.asked", mapOf("id" to a.id, "name" to card.payload["name"], "version" to card.version, "by" to source,
+            "reason" to reason, "project" to project))
+        val what = if (more["update"] == true) "update" else "install"
+        notifications.create("review", project, "${who(source)} asks to $what ${card.title}", reason.take(300), "/inbox", threadId = a.id)
+        return a
     }
 
     private fun join(a: Approval, asked: Map<String, Any?>): PluginRequestAnswer {
@@ -138,7 +170,8 @@ class PluginRequests(
         val name = p?.path("name")?.asText("").orEmpty()
         val version = p?.path("version")?.asText(null)
         if (decision == "approve") {
-            if (p?.path("update")?.asBoolean() == true) changes.update(name, version)
+            // the person saw the permissions on the card: an update may add them
+            if (p?.path("update")?.asBoolean() == true) changes.update(name, version, allowMore = true, request = approval.id)
             else changes.install(name, version, by = PluginChanges.PERSON, request = approval.id)
             restarts.afterApprovedInstall(marketplace.ruleValues())
         }
@@ -186,13 +219,19 @@ class PluginRequests(
                 null
             }
         }
-        return ApiException(HttpStatus.CONFLICT, e.message, e.hint ?: NEEDS_HINT, mapOf("missing" to missing, "requests" to ids))
+        // the requests wait in the Inbox: say so (the engine's hint says to install it by hand)
+        val hint = if (ids.isNotEmpty()) NEEDS_HINT else e.hint ?: NEEDS_HINT
+        return ApiException(HttpStatus.CONFLICT, e.message, hint, mapOf("missing" to missing, "requests" to ids))
     }
 
     // ---- the card -------------------------------------------------------------------------------------------------
 
-    /** What the Inbox card shows, read from the engine's answer for one plugin (versions, permissions, needs, plan). */
-    internal data class Card(val title: String, val version: String?, val installed: JsonNode?, val payload: Map<String, Any?>) {
+    /**
+     * What the Inbox card shows, read from the engine's answer for one plugin (versions, permissions, needs, plan).
+     * [refused]: the engine would refuse its install (error, hint).
+     */
+    internal data class Card(val title: String, val version: String?, val installed: JsonNode?, val payload: Map<String, Any?>,
+                             val refused: Pair<String, String?>? = null) {
         val heading get() = "Install $title${version?.let { " $it" } ?: ""}?"
     }
 
@@ -209,14 +248,21 @@ class PluginRequests(
         val entry = versions.firstOrNull { it.path("version").asText() == version }
         val permissions = entry?.path("permissions")?.takeIf { !it.isMissingNode && !it.isNull }
             ?: info.path("permissions").takeIf { !it.isMissingNode && !it.isNull }
+        // needs: the version's requires.plugins, or the answer's {name: range} (or a list of names)
+        val needsNode = info.path("needs")
         val needs = entry?.path("requires")?.path("plugins")?.takeIf { it.isObject }?.fieldNames()?.asSequence()?.toList()
-            ?: info.path("needs").takeIf { it.isArray }?.mapNotNull { n -> (if (n.isObject) n.path("name").asText("") else n.asText("")).ifBlank { null } }
+            ?: needsNode.takeIf { it.isObject }?.fieldNames()?.asSequence()?.toList()
+            ?: needsNode.takeIf { it.isArray }?.mapNotNull { n -> (if (n.isObject) n.path("name").asText("") else n.asText("")).ifBlank { null } }
             ?: emptyList()
         val installs = planItems(plan).filter { it.path("name").asText() != name }.map { item ->
             mapOf("name" to item.path("name").asText(), "title" to item.path("title").asText("").ifBlank { null },
                 "version" to item.path("version").asText("").ifBlank { null })
         }
-        val publisher = info.path("publisher").let { if (it.isObject) it.path("name").asText("").ifBlank { it.path("title").asText("") } else it.asText("") }
+        val publisher = info.path("publisher_title").asText("").ifBlank { null }
+            ?: info.path("publisher").let { if (it.isObject) it.path("name").asText("").ifBlank { it.path("title").asText("") } else it.asText("") }
+        val refused = info.path("refused").takeIf { it.isObject }?.let { r ->
+            r.path("error").asText("").ifBlank { null }?.let { it to r.path("hint").asText("").ifBlank { null } }
+        }
         val verified = info.path("verified").takeIf { it.isBoolean }?.asBoolean()
             ?: info.path("publisher").path("verified").takeIf { it.isBoolean }?.asBoolean()
         val payload = linkedMapOf<String, Any?>(
@@ -226,7 +272,7 @@ class PluginRequests(
             "publisher" to publisher.ifBlank { null }, "verified" to verified,
             "permissions" to permissions, "needs" to needs, "installs" to installs,
         )
-        return Card(title, version, info.path("installed").takeIf { !it.isMissingNode && !it.isNull }, payload)
+        return Card(title, version, info.path("installed").takeIf { !it.isMissingNode && !it.isNull }, payload, refused)
     }
 
     /** The plugins a plan installs: a list, or {plugins: [...]} / {install: [...]}. */
@@ -251,11 +297,15 @@ class PluginRequests(
         val WAITS: Duration = Duration.ofDays(7)
         const val REASON_MAX = 2000
         const val NEEDS_HINT = "keel asked you in the Inbox to install it. Approve the request, restart keel, then start the flow again."
+        const val MORE_HINT = "A request with the new permissions waits in the Inbox: approve it there to update."
+        /** keel itself asks (an update that needs more permissions). */
+        const val KEEL = "keel"
 
         fun who(source: String) = when (source.lowercase()) {
             "keelbot" -> "KeelBot"
             "workflow" -> "A workflow"
             "mcp" -> "Claude Code"
+            KEEL -> "keel"
             "agent", "" -> "An agent"
             else -> source
         }

@@ -137,6 +137,18 @@
   gap: 6px 14px;
   align-items: center;
 }
+.mk-tab button.chip {
+  cursor: pointer;
+}
+.mk-tab button.chip[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.perms + .mk-note,
+.perm-none + .mk-note {
+  margin-top: 10px;
+}
 
 .mk-table td {
   vertical-align: top;
@@ -342,6 +354,15 @@
   gap: 3px;
   font-size: 13px;
 }
+.inbox-more {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+  font-size: 12.5px;
+  color: var(--warn);
+}
 
 /* the core-only menu: no Project pages yet */
 .nav-start {
@@ -361,4 +382,10 @@
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
+}
+/* a phone's row of screens has no room for it: its menu (☰) shows it */
+@media (max-width: 900px) {
+  .app .side .nav .nav-sec.nav-start-sec {
+    display: none;
+  }
 }

@@ -30,6 +30,8 @@ function installSome() {
       on: true,
       parts: ["engine", "api", "web"],
       status: "loaded",
+      can_remove: false,
+      needed_by: ["db"],
     },
     {
       name: "db",
@@ -38,9 +40,15 @@ function installSome() {
       from: "marketplace",
       on: true,
       parts: ["engine", "web"],
+      status: "loaded",
+      can_remove: true,
       update: "1.4.0",
       previous: "1.2.0",
-      revoked: { why: "it sent errors to a wrong host", fixed: "1.4.0" },
+      revoked: {
+        version: "1.3.0",
+        why: "it sent errors to a wrong host",
+        fixed: "1.4.0",
+      },
     },
     {
       name: "hello",
@@ -49,6 +57,18 @@ function installSome() {
       from: "file",
       on: false,
       parts: ["content"],
+      status: "off",
+      can_remove: true,
+    },
+    {
+      name: "wiki",
+      title: "Wiki",
+      version: "1.1.0",
+      from: "marketplace",
+      on: true,
+      parts: ["web"],
+      status: "removed",
+      can_remove: true,
     },
   ];
   db.market.problems = [
@@ -73,14 +93,19 @@ describe("Control › Plugins: Installed", () => {
     expect(
       within(nav).queryByRole("group", { name: "Start with a set" }),
     ).toBeNull();
-    expect(screen.getByRole("tab", { name: "Installed (3)" })).toHaveAttribute(
+    expect(screen.getByRole("tab", { name: "Installed (4)" })).toHaveAttribute(
       "aria-selected",
       "true",
     );
 
     const code = await screen.findByTestId("plugin-code");
     expect(code).toHaveTextContent("in the image");
+    expect(code).toHaveTextContent("db needs it");
     expect(within(code).queryByRole("button", { name: "Remove" })).toBeNull(); // the image's: turn off only
+    expect(screen.getByTestId("plugin-wiki")).toHaveTextContent(
+      "removed at restart",
+    );
+    expect(screen.getByTestId("plugin-hello")).toHaveTextContent("off");
     const dbRow = screen.getByTestId("plugin-db");
     expect(dbRow).toHaveTextContent("1.4.0 ready");
     expect(dbRow).toHaveTextContent(
@@ -245,7 +270,7 @@ describe("Control › Plugins: Marketplace", () => {
       name: "Database plugin",
     });
     expect(card).toHaveTextContent("Runs code in keel");
-    expect(card).toHaveTextContent("needs code");
+    expect(card).toHaveTextContent("keel ✓ · 1.4.0");
     expect(
       within(screen.getByRole("article", { name: "Code plugin" })).getByText(
         "Installed 1.0.0",
@@ -516,7 +541,29 @@ describe("Inbox: a plugin-install request", () => {
 
   it("shows what it is, why, what it may do and what comes with it, and Approve and install / Deny answer the approval", async () => {
     const user = userEvent.setup();
-    const state = { list: [request("a_1"), request("a_2", "Wiki")] };
+    const update: InboxItem = {
+      ...request("a_3", "Git"),
+      title: "Update Git to 1.2.0?",
+      payload: {
+        name: "git",
+        title: "Git",
+        version: "1.2.0",
+        installed: "1.1.0",
+        update: true,
+        trust: "code",
+        more: ["+ secrets: gitlab"],
+        permissions: { secrets: ["github", "gitlab"] },
+        source: "keel",
+        reasons: [
+          {
+            reason:
+              "The new version 1.2.0 asks for more permissions: + secrets: gitlab.",
+            source: "keel",
+          },
+        ],
+      },
+    };
+    const state = { list: [request("a_1"), request("a_2", "Wiki"), update] };
     const decided: { id: string; body: unknown }[] = [];
     server.use(
       http.get("/api/inbox", () =>
@@ -588,6 +635,28 @@ describe("Inbox: a plugin-install request", () => {
     );
     expect(
       await screen.findByText("Denied: Wiki is not installed."),
+    ).toBeInTheDocument();
+
+    // an update that asks for more: the new permissions, then Approve and update
+    const git = (
+      await screen.findByRole("heading", { name: "Update Git to 1.2.0?" })
+    ).closest("article")!;
+    expect(
+      within(git).getByRole("list", { name: "New permissions" }),
+    ).toHaveTextContent("+ secrets: gitlab");
+    expect(git).toHaveTextContent("keel updates it from 1.1.0 to 1.2.0");
+    expect(git).toHaveTextContent("from keel");
+    await user.click(
+      within(git).getByRole("button", { name: "Approve and update" }),
+    );
+    await waitFor(() =>
+      expect(decided[2]).toEqual({
+        id: "a_3",
+        body: { decision: "approve", why: "" },
+      }),
+    );
+    expect(
+      await screen.findByText("Git is updated. Restart keel to use it."),
     ).toBeInTheDocument();
   });
 });
@@ -685,6 +754,23 @@ describe("a keel with only its core", () => {
     expect(
       await screen.findByText("There is no set called nope."),
     ).toBeInTheDocument();
+  });
+
+  it("leaves out what no catalog has, and says why", async () => {
+    const user = userEvent.setup();
+    await openPlugins("#/plugins?set=tickets");
+    await user.click(await screen.findByRole("button", { name: "Install 2" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Install the Tickets set?",
+    });
+    expect(
+      await within(dialog).findByText(
+        "Left out: No plugin tasks in the catalogs.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole("button", { name: "Install" }),
+    ).toBeDisabled();
   });
 });
 
