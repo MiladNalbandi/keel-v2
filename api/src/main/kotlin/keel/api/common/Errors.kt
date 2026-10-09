@@ -17,10 +17,12 @@ import org.springframework.web.servlet.resource.NoResourceFoundException
 /** The one error shape every route returns: `{ error, hint? }`. */
 data class ErrorBody(val error: String, val hint: String? = null)
 
+/** [extra]: more fields for the error body, next to error and hint (a refused install lists what is missing). */
 open class ApiException(
     val status: HttpStatus,
     override val message: String,
     val hint: String? = null,
+    val extra: Map<String, Any?>? = null,
 ) : RuntimeException(message)
 
 class NotFound(what: String, hint: String? = null) : ApiException(HttpStatus.NOT_FOUND, what, hint)
@@ -33,8 +35,11 @@ class ErrorAdvice {
     private val log = LoggerFactory.getLogger(javaClass)
 
     @ExceptionHandler(ApiException::class)
-    fun api(e: ApiException): ResponseEntity<ErrorBody> =
-        ResponseEntity.status(e.status).body(ErrorBody(e.message, e.hint))
+    fun api(e: ApiException): ResponseEntity<Any> {
+        val extra = e.extra
+        if (extra.isNullOrEmpty()) return ResponseEntity.status(e.status).body(ErrorBody(e.message, e.hint))
+        return ResponseEntity.status(e.status).body(linkedMapOf<String, Any?>("error" to e.message, "hint" to e.hint) + extra)
+    }
 
     @ExceptionHandler(MethodArgumentNotValidException::class)
     fun invalid(e: MethodArgumentNotValidException): ResponseEntity<ErrorBody> {

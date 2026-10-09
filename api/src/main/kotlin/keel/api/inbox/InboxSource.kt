@@ -13,4 +13,7 @@ interface InboxSource {
 
     /** How many items wait, in one project or (null) in every project. Cheap: badges and project cards ask often. */
     fun waiting(pid: String?): Int
+
+    /** How many of its items wait that belong to no project (projectId ""): they count in the Inbox's total only. */
+    fun waitingKeelWide(): Int = 0
 }

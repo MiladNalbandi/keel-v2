@@ -154,7 +154,9 @@ class PluginService(
 @RestController
 @RequestMapping("/api")
 class PluginController(private val plugins: PluginService) {
-    @GetMapping("/plugins")
+    /** The per-project plugins' catalog (engine GET /plugins). v0.16.0: GET /api/plugins is the installed plugins
+     *  (keel.api.marketplace), so the catalog moved here. */
+    @GetMapping("/plugins/catalog")
     fun catalog(): JsonNode = plugins.catalog()
 
     @GetMapping("/projects/{pid}/plugins")

@@ -63,6 +63,9 @@ interface ApprovalHandler {
     val decisions: List<String> get() = listOf("approve", "deny")
 
     fun decided(approval: Approval, decision: String, why: String)
+
+    /** Ends its own waiting questions whose time is up (before the waiting ones are listed). */
+    fun tidy() {}
 }
 
 /**
@@ -164,6 +167,23 @@ class ApprovalService(
         return find(id)!!
     }
 
+    /** The asker adds to its own waiting question (a second agent asks for the same plugin: its reason joins). */
+    fun amend(id: String, detail: String, payload: Map<String, Any?>): Approval? {
+        val n = jdbc.update("UPDATE approvals SET detail = ?, payload_json = ? WHERE id = ? AND status = ?",
+            detail.take(4000), Json.write(payload), id, WAITING)
+        val a = find(id) ?: return null
+        if (n > 0) changed(a.projectId)
+        return a
+    }
+
+    /** The api ends one of its own waiting questions (its time is up): status expired or closed, decided by keel. */
+    fun end(id: String, status: String, why: String): Boolean {
+        val n = jdbc.update("UPDATE approvals SET status = ?, why = ?, decided_at = ?, decided_by = 'keel' WHERE id = ? AND status = ?",
+            status, why, Time.now(), id, WAITING)
+        if (n > 0) find(id)?.let { changed(it.projectId) }
+        return n > 0
+    }
+
     // ---- reading ------------------------------------------------------------------------------------------------
 
     fun find(id: String): Approval? = rows("id = ?", listOf(id)).firstOrNull()
@@ -172,7 +192,10 @@ class ApprovalService(
     fun list(status: String? = WAITING, project: String? = null): List<Approval> {
         val st = status?.trim()?.ifBlank { null }
         if (st != null && st !in STATUSES) throw BadRequest("Unknown status $st", "Use one of: ${STATUSES.joinToString(", ")}.")
-        if (st == null || st == WAITING) sync()
+        if (st == null || st == WAITING) {
+            sync()
+            own.values.forEach { runCatching { it.tidy() } }
+        }
         val where = mutableListOf<String>()
         val args = mutableListOf<Any>()
         st?.let { where += "status = ?"; args += it }
@@ -184,6 +207,16 @@ class ApprovalService(
     fun waitingCount(project: String?): Int =
         if (project.isNullOrBlank()) jdbc.queryForObject("SELECT COUNT(*) FROM approvals WHERE status = ?", Int::class.java, WAITING) ?: 0
         else jdbc.queryForObject("SELECT COUNT(*) FROM approvals WHERE status = ? AND project_id = ?", Int::class.java, WAITING, project) ?: 0
+
+    /** How many of the api's own questions wait that belong to no project (keel-wide: a plugin install request). */
+    fun waitingKeelWide(): Int {
+        if (own.isEmpty()) return 0
+        val kinds = own.keys.toList()
+        return jdbc.queryForObject(
+            "SELECT COUNT(*) FROM approvals WHERE status = ? AND project_id = '' AND kind IN (${kinds.joinToString(",") { "?" }})",
+            Int::class.java, WAITING, *kinds.toTypedArray(),
+        ) ?: 0
+    }
 
     /** keel2 mcp polls its question: {waiting: true} until the person answers, then {decision: allow | deny, why}. */
     fun asked(id: String): JsonNode {

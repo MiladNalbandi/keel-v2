@@ -17,10 +17,15 @@ import org.springframework.stereotype.Component
 class ApprovalInboxSource(private val approvals: ApprovalService) : InboxSource {
     override val kind = "approvals"
 
+    // an engine question always has a project; the api's own may have none (keel-wide: a plugin install request)
     override fun items(pid: String?): List<InboxItem> =
-        approvals.list(ApprovalService.WAITING, pid).map { if (approvals.engineOwned(it)) permission(it) else item(it) }
+        approvals.list(ApprovalService.WAITING, pid).mapNotNull {
+            if (!approvals.engineOwned(it)) item(it) else if (it.projectId.isBlank()) null else permission(it)
+        }
 
     override fun waiting(pid: String?): Int = approvals.waitingCount(pid)
+
+    override fun waitingKeelWide(): Int = approvals.waitingKeelWide()
 
     private fun permission(a: Approval): InboxItem {
         val p = a.payload
@@ -40,7 +45,7 @@ class ApprovalInboxSource(private val approvals: ApprovalService) : InboxSource 
     private fun item(a: Approval): InboxItem = InboxItem(
         projectId = a.projectId, projectName = "", threadId = a.id, flow = a.source, workflowId = null, step = "approval",
         kind = a.kind, title = a.title, detail = a.detail.take(InboxService.DETAIL_MAX), more = a.detail.length > InboxService.DETAIL_MAX,
-        options = approvals.decisionsOf(a), id = a.id, since = a.createdAt,
+        options = approvals.decisionsOf(a), id = a.id, since = a.createdAt, payload = a.payload,
     )
 
     companion object {
