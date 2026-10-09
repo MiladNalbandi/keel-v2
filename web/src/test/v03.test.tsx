@@ -223,7 +223,7 @@ describe("model pickers follow the catalog", () => {
 
     await user.click(button);
     const list = d.getByRole("listbox", { name: "Models" });
-    expect(within(list).getAllByRole("group").map((g) => g.getAttribute("data-provider"))).toEqual(["claude", "codex", "copilot", "fake"]);
+    expect(within(list).getAllByRole("group").map((g) => g.getAttribute("data-provider"))).toEqual(["claude", "codex", "copilot", "copilot", "fake"]);
     await user.click(within(list).getByRole("option", { name: "GPT-5.6 Sol" }));
     expect(d.queryByRole("listbox")).not.toBeInTheDocument();
     expect(d.getByLabelText("Runs on")).toHaveValue("subscription");
