@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Parity: is a new keel the same for people as a released one? (docs/plugins/11-step3-contract.md, "The parity e2e")
 
-    python3 e2e/parity/parity.py --a ghcr.io/miladnalbandi/keel-v2:0.15.1 --b keel-v2:dev [--keep] [--only api,web]
+    python3 e2e/parity/parity.py --a ghcr.io/miladnalbandi/keel-v2:0.15.4 --b keel-v2:dev [--keep] [--only api,web]
         [--allow more.yml] [--verbose]
 
 It starts two throw-away keels on the same small fixture project and compares them:
@@ -415,6 +415,9 @@ ENDPOINTS = [
     "/api/inbox?project={pid}", "/api/jobs?limit=50", "/api/jobs?project={pid}&status=done", "/api/quality",
     "/api/library", "/api/library?project={pid}", "/api/plugins", "/api/workflows/{wid}", "/api/workflows/{wid}/export",
     "/api/skills/{sid}", "/api/skills/{sid}?project={pid}",
+    # v0.15.2 Jobs: Finished (every call that does not run any more), the search words and the count without a limit
+    "/api/jobs?limit=50&status=finished", "/api/jobs?project={pid}&status=finished&q=fake", "/api/jobs/count",
+    "/api/jobs/count?project={pid}&status=finished", "/api/jobs/count?q=nothing-matches-this",
     # added by the plugin track (steps 1 and 2): "new in B"
     "/api/approvals", "/api/plugin-host", "/api/connections/kinds", "/api/settings/sections", "/api/settings/plugins/git",
     "/api/projects/{pid}/settings/plugins/git",
@@ -435,6 +438,10 @@ ENDPOINTS = [
     "/api/projects/{pid}/repo/diff?path=web/price.ts&sha={sha}", "/api/projects/{pid}/repo/commit?sha={sha}",
     "/api/projects/{pid}/repo/commits?limit=30", "/api/projects/{pid}/repo/commits?range=branch",
     "/api/projects/{pid}/repo/history?path=web/price.ts",
+    # v0.15.2 the Git log (Code › Source control › Log): the branches, and the log with its graph, refs and filters
+    "/api/projects/{pid}/repo/refs", "/api/projects/{pid}/repo/log", "/api/projects/{pid}/repo/log?all=true&limit=20",
+    "/api/projects/{pid}/repo/log?branch=main&author=keel&q=price&path=web", "/api/projects/{pid}/repo/log?limit=1&skip=1",
+    "/api/projects/{pid}/repo/log?q={sha}",
     # Map, Graph, Wiki
     "/api/projects/{pid}/map", "/api/projects/{pid}/graph", "/api/projects/{pid}/graph/search?q=Cart",
     "/api/projects/{pid}/graph/node?id={node}&depth=1", "/api/projects/{pid}/wiki", "/api/projects/{pid}/wiki/page?id=kb:architecture",
@@ -442,6 +449,8 @@ ENDPOINTS = [
     "/api/projects/{pid}/wiki/page?id=adr:0001-sqlite.md",
     # KeelBot
     "/api/projects/{pid}/helper/sessions", "/api/projects/{pid}/helper/commands", "/api/projects/{pid}/helper/permissions",
+    # v0.15.2 KeelBot's chat folders
+    "/api/projects/{pid}/helper/folders",
     # the plugins (off at first, so 409; on in the second round)
     "/api/projects/{pid}/db/connections", "/api/projects/{pid}/db/suggest", "/api/projects/{pid}/db/schema",
     "/api/projects/{pid}/git/status", "/api/projects/{pid}/git/branches", "/api/projects/{pid}/git/branch?name=main",
@@ -452,6 +461,8 @@ ENDPOINTS = [
     "/api/quality/runs/nope", "/api/logins/nope", "/api/threads/nope/history", "/api/projects/{pid}/hunts/nope",
     "/api/projects/{pid}/helper/sessions/nope", "/api/projects/{pid}/wiki/page?id=nope",
     "/api/projects/{pid}/repo/file?path=../outside.txt", "/api/projects/{pid}/repo/search?q=(&regex=true",
+    "/api/projects/{pid}/repo/log?branch=nope", "/api/projects/{pid}/repo/log?branch=--all",
+    "/api/projects/{pid}/repo/log?path=../outside.txt", "/api/projects/{pid}/flows/nope",
     # the web app itself
     "/",
 ]
@@ -460,6 +471,9 @@ ENDPOINTS = [
 FLOW_ENDPOINTS = [
     "/api/projects/{pid}/flows/{tid}", "/api/threads/{tid}/history", "/api/jobs/{job}", "/api/jobs/{job}/steps?after=0",
     "/api/jobs?project={pid}&status=running", "/api/projects/{pid}/runs?limit=5",
+    # v0.15.2 a flow's calls in Finished and their count; v0.15.4 the run history's rows (cost_usd, latest)
+    "/api/jobs?project={pid}&status=finished", "/api/jobs/count?project={pid}&status=finished",
+    "/api/jobs?project={pid}&q=implementer", "/api/projects/{pid}/runs?workflow=change",
 ]
 
 ID_KEY = re.compile(r"^([0-9a-f]{7,64}|[0-9a-f-]{32,36}|\d+|\d{4}-\d{2}-\d{2}.*|[a-z]+:[0-9a-f]{16,64})$")
@@ -725,7 +739,7 @@ def lacks_programs(a: Keel, b: Keel) -> list[str]:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Is keel B the same for people as keel A?")
-    ap.add_argument("--a", required=True, help="the released image, e.g. ghcr.io/miladnalbandi/keel-v2:0.15.1")
+    ap.add_argument("--a", required=True, help="the released image, e.g. ghcr.io/miladnalbandi/keel-v2:0.15.4")
     ap.add_argument("--b", required=True, help="the new image")
     ap.add_argument("--only", default="api,web", help="api, web or both (the default)")
     ap.add_argument("--allow", action="append", default=[], help="another allow list, besides e2e/parity/allow.yml")

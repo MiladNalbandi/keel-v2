@@ -16,7 +16,7 @@ done only when every page, flow and part works as in 0.15.1, with every plugin b
    web/index.tsx                         ES module: definePlugin({ name, setup }) registers pages and slots
    web/test/
    content/                              workflows, agents, skills, plugin.yml (KeelBot commands)
-   migrations/                           only for new tables (old ones stay in core's V1–V14)
+   migrations/                           only for new tables (old ones stay in core's V1–V15)
 ```
 
 ## Wave 0: build machinery + the first part (Map)

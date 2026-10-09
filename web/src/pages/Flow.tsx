@@ -4,30 +4,34 @@
 // the budget, the acceptance criteria, what blocks shipping and keel's state. The init workflow adds its ladder and
 // knowledge build.
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  api, errorParts, type Blocker, type Checkpoint, type EngineEvent, type FlowView, type Job, type LadderRung, type Memory, type ThreadState, type Workflow,
+  api, errorParts, type Blocker, type Checkpoint, type EngineEvent, type FlowView, type Job, type LadderRung, type Memory, type Step, type StepExplanation,
+  type RunRow, type ThreadState, type Workflow,
 } from "../api";
 import { CodeBlock, FoldedText } from "../components/Code";
 import { answersOf, ClarifyForm, type ClarifyAnswers } from "../components/ClarifyForm";
 import { Markdown } from "../components/Markdown";
 import { eventLine } from "../components/events";
 import { EmptyState } from "../components/EmptyState";
+import { FoldPanel } from "../components/FoldPanel";
 import { FlowBoardView, showBoard } from "../components/FlowBoard";
 import { FlowRuns } from "../components/FlowRuns";
+import { RunHistory } from "../components/RunHistory";
 import { StartFlowDrawer } from "../components/StartFlow";
 import { autoLines, RunModeNote, RunModeSwitch } from "../components/RunMode";
 import { AcChips, Blocks, BlocksLegend, StepTable, useMapView, ViewToggle, type BlocksHandle } from "../components/Blocks";
 import { phaseTitle } from "../components/flowmap";
 import { Graph, GraphLegend } from "../components/Graph";
-import { infoRequest, StepInfoBody, StepInfoDrawer, useStepInfo } from "../components/StepInfo";
+import { infoRequest, StepInfoBody, useStepInfo } from "../components/StepInfo";
 import { StepView } from "../components/StepView";
+import { KIND } from "../components/workflow";
 import { Zoom } from "../components/Zoom";
 import { useJobSteps } from "./Live";
 import { useWide } from "../components/useWide";
-import { Async, Confirm, ErrorBox, GoButton, Loading, PageHead, Panel, Pill, Prov, Tabs, type PillTone } from "../components/ui";
+import { Async, Confirm, Drawer, ErrorBox, GoButton, Loading, PageHead, Panel, Pill, Prov, Tabs, type PillTone } from "../components/ui";
 import { acLabel, clock, kfmt, usd } from "../format";
-import { useApp, useLoad, useRoute } from "../state";
+import { go, useApp, useLoad, useRoute } from "../state";
 
 const AC_TONE: Record<string, PillTone> = { done: "ok", green: "ok", red: "bad", todo: "idle", "already-met": "met" };
 
@@ -38,12 +42,40 @@ export function FlowPage({ pid }: { pid: string }) {
   const board = useLoad(`flows:${pid}`, () => api.flowBoard(pid));
   const { project } = useApp();
   const [start, setStart] = useState(false);
+  // v0.15.4 an earlier run, open read only: it changes nothing of the current flow (no rewind or resume when it opens)
+  const [viewing, setViewing] = useState<RunRow | null>(null);
+  useEffect(() => setViewing(null), [pid, tid]);
+  const cur = flow.data?.thread ?? null;
+  const live = !!cur && (cur.status === "running" || cur.status === "waiting");
+  // the Runs history shows when the current flow does not run or wait (or there is none)
+  const history = !!flow.data && !live;
+  const shown = history ? viewing : null;
+  const top = useRef<HTMLDivElement>(null);
+  const load = (r: RunRow | null) => {
+    setViewing(r);
+    if (r) window.setTimeout(() => top.current?.scrollIntoView?.({ block: "start" }), 0);
+  };
+  // after Resume the flow runs: show it live (the project's flow, or that flow by its id)
+  const resumed = async (r: RunRow) => {
+    setViewing(null);
+    if (r.thread_id !== cur?.thread_id && r.thread_id !== tid) go("flow", r.thread_id);
+    else await flow.reload();
+    void board.reload();
+  };
   return (
     <>
-      <FlowRuns pid={pid} selected={flow.data?.thread?.thread_id ?? null} loading={!flow.data} />
+      <FlowRuns pid={pid} selected={flow.data?.thread?.thread_id ?? null} loading={!flow.data} history={!history} />
       {showBoard(board.data) && (
         <FlowBoardView board={board.data!} selected={flow.data?.thread?.thread_id ?? null} onChanged={() => void board.reload()} />
       )}
+      {history && (
+        <RunHistory pid={pid} current={cur?.thread_id ?? null} viewing={shown?.thread_id ?? null} onLoad={load} onChanged={flow.reload}
+          resume={(r, close) => <ResumeRow thread={r} autoAsk onCancel={close} onDone={() => resumed(r)} />} />
+      )}
+      <div ref={top} className="rh-anchor" />
+      {shown ? (
+        <EarlierRun key={shown.thread_id} pid={pid} run={shown} onBack={() => setViewing(null)} onResumed={() => resumed(shown)} />
+      ) : (
       <Async r={flow} what="Loading the flow">
         {(f) => !f.thread || !f.workflow ? (
           <>
@@ -61,7 +93,38 @@ export function FlowPage({ pid }: { pid: string }) {
           <ThreadView pid={pid} thread={f.thread} workflow={f.workflow} reload={flow.reload} onStart={() => setStart(true)} />
         )}
       </Async>
+      )}
       {start && <StartFlowDrawer onClose={() => setStart(false)} />}
+    </>
+  );
+}
+
+/** v0.15.4 How an earlier run opens: read only, and Resume only for the project's newest flow when it was stopped. */
+type ReadOnly = { resumable: boolean; branch?: string | null; onResumed: () => Promise<void> };
+
+/** v0.15.4 An earlier run, read only: its steps (Blocks / Table / Graph), events, checkpoints and how it ended. Opening it
+ * only reads (GET); the current flow keeps working as it is. */
+function EarlierRun({ pid, run, onBack, onResumed }: { pid: string; run: RunRow; onBack: () => void; onResumed: () => Promise<void> }) {
+  const r = useLoad(`flow-ro:${pid}:${run.thread_id}`, () => api.flowOf(pid, run.thread_id));
+  const resumable = !!run.latest && run.status === "stopped";
+  return (
+    <>
+      <div className="rh-banner" role="region" aria-label="An earlier run (read only)">
+        <div className="rh-banner-t">
+          <b>An earlier run (read only)</b>
+          <span className="sub">{resumable ? "It is the last flow and it was stopped: Resume goes on from its last saved step."
+            : "Looking at it changes nothing in the current flow."}</span>
+        </div>
+        <button className="btn" type="button" onClick={onBack}>Back to the current flow</button>
+      </div>
+      <Async r={r} what="Loading the run">
+        {(f) => !f.thread || !f.workflow ? (
+          <div className="panel"><EmptyState title="Nothing saved for this run">Its state or its workflow is gone.</EmptyState></div>
+        ) : (
+          <ThreadView pid={pid} thread={f.thread} workflow={f.workflow} reload={r.reload} onStart={onBack}
+            readOnly={{ resumable, branch: run.branch, onResumed }} />
+        )}
+      </Async>
     </>
   );
 }
@@ -112,11 +175,15 @@ const STATUS_PILL: Record<string, [PillTone, string]> = {
 };
 
 /** The flow on one line: title, workflow, phase, status; tokens used against the cap, cost, time; Stop. */
-function FlowBar({ thread, workflow, estimate, started, onStart, onJump, extra }: {
+function FlowBar({ thread, workflow, estimate, started, onStart, onJump, extra, readOnly, branch }: {
   thread: ThreadState; workflow: Workflow; estimate: number | null; started: number | null; onStart: () => void; onJump?: () => void; extra?: React.ReactNode;
+  /** v0.15.4 an earlier run: no Stop, Start or run mode here, and its own branch */
+  readOnly?: boolean; branch?: string | null;
 }) {
   const { project, toast } = useApp();
   const [busy, setBusy] = useState(false);
+  // v0.15.3 Stop flow asks first
+  const [confirmStop, setConfirmStop] = useState(false);
   const live = thread.status === "running" || thread.status === "waiting";
   const u = thread.usage;
   const used = u.tokens_in + u.tokens_out + Math.floor((u.tokens_cached ?? 0) / 10);
@@ -132,7 +199,7 @@ function FlowBar({ thread, workflow, estimate, started, onStart, onJump, extra }
           <span><b>{workflow.name}</b> v{workflow.version}</span>
           <span>phase <b>{phaseTitle(thread.phase)}</b></span>
           <Pill tone={tone}>{label}</Pill>
-          <span>branch <span className="mono">{project?.branch ?? "—"}</span></span>
+          <span>branch <span className="mono">{readOnly ? branch ?? "—" : project?.branch ?? "—"}</span></span>
           <span className="sub fl-tid">thread <span className="mono">{thread.thread_id}</span></span>
         </div>
       </div>
@@ -148,25 +215,31 @@ function FlowBar({ thread, workflow, estimate, started, onStart, onJump, extra }
       </div>
       <div className="actions">
         {extra}
+        {!readOnly && <>
         {onJump && live && <button className="btn" type="button" onClick={onJump} aria-label="Jump to current">
           <span className="fl-long">Jump to current</span><span className="fl-short" aria-hidden="true">Jump</span></button>}
         {live && <RunModeSwitch compact pid={thread.project_id} threadId={thread.thread_id} mode={thread.run_mode} />}
         {live ? (
-          <button className="btn" type="button" disabled={busy} onClick={async () => {
-            setBusy(true);
-            try {
-              await api.stopThread(thread.thread_id);
-              toast("Stop sent; the thread keeps its last checkpoint.");
-            } catch (e) {
-              toast(errorParts(e).message);
-            } finally {
-              setBusy(false);
-            }
-          }}>Stop flow</button>
+          <button className="btn" type="button" disabled={busy} onClick={() => setConfirmStop(true)}>Stop flow</button>
         ) : <button className="btn primary" type="button" onClick={onStart}>Start a flow</button>}
         {live && <button className="btn ghost" type="button" onClick={onStart}
           title="It runs next to this one, in a worktree of its own">Start another flow</button>}
+        </>}
       </div>
+      {confirmStop && (
+        <ConfirmStop title={thread.title} busy={busy} onCancel={() => setConfirmStop(false)} onStop={async () => {
+          setBusy(true);
+          try {
+            await api.stopThread(thread.thread_id);
+            toast("Stopped. Every finished step is saved: Resume goes on from there.");
+            setConfirmStop(false);
+          } catch (e) {
+            toast(errorParts(e).message);
+          } finally {
+            setBusy(false);
+          }
+        }} />
+      )}
     </header>
   );
 }
@@ -175,9 +248,11 @@ type FlowSide = "now" | "step" | "checkpoints";
 
 /** The live canvas: the workflow's blocks with each one's state and tokens; the waiting gate's card sits under its
  * block, so you act where the flow stopped. */
-function LiveCanvas({ thread, workflow, tokens, actual, visited, waiting, canvas, onOpen, selected }: {
+function LiveCanvas({ thread, workflow, tokens, actual, visited, waiting, canvas, onOpen, selected, still }: {
   thread: ThreadState; workflow: Workflow; tokens?: Record<string, number>; actual?: Record<string, number>; visited: Set<string>;
   waiting: React.ReactNode; canvas: React.RefObject<BlocksHandle>; onOpen: (id: string) => void; selected: string | null;
+  /** v0.15.4 an earlier run: the page does not scroll to its last block (its banner stays in view) */
+  still?: boolean;
 }) {
   const [view, setView] = useMapView("flow");
   const waitAt = thread.status === "waiting" ? (thread.waiting?.step ?? thread.current ?? "").replace(/__fix$/, "") : null;
@@ -194,7 +269,7 @@ function LiveCanvas({ thread, workflow, tokens, actual, visited, waiting, canvas
           <>
             <Blocks ref={canvas} steps={workflow.steps} tokens={thread.status === "done" ? undefined : tokens} actual={actual} acCount={thread.acs.length || 3}
               current={thread.current} status={thread.status} acs={thread.acs} currentAc={thread.ac} visited={visited} selected={selected}
-              onOpenStep={onOpen} autoScroll inline={(id) => (onCanvas && id === waitAt ? <div className="sx-inline">{waiting}</div> : null)}
+              onOpenStep={onOpen} autoScroll={!still} inline={(id) => (onCanvas && id === waitAt ? <div className="sx-inline">{waiting}</div> : null)}
               label={`Steps of ${workflow.name}: ${workflow.steps.length} steps`} />
             {thread.acs.length > 0 && !workflow.steps.some((s) => s.per_ac) ? <AcChips acs={thread.acs} current={thread.ac} /> : null}
             <BlocksLegend live />
@@ -209,7 +284,7 @@ function LiveCanvas({ thread, workflow, tokens, actual, visited, waiting, canvas
             {waiting && onCanvas && <div style={{ marginBottom: 12 }}>{waiting}</div>}
             <Zoom id="flow">
               <Graph steps={workflow.steps} current={thread.current} status={thread.status} tokens={thread.status === "done" ? undefined : tokens}
-                acs={thread.acs} currentAc={thread.ac} onSelect={onOpen} />
+                acs={thread.acs} currentAc={thread.ac} onSelect={onOpen} selected={selected} />
             </Zoom>
             <AcChips acs={thread.acs} current={thread.ac} />
             <GraphLegend />
@@ -221,9 +296,10 @@ function LiveCanvas({ thread, workflow, tokens, actual, visited, waiting, canvas
 }
 
 /** The right column: what is happening now (and the running agent's last steps), the selected step, checkpoints. */
-function FlowSidePanel({ pid, thread, workflow, job, side, setSide, selected, onClose, onDone, history, onJump }: {
-  pid: string; thread: ThreadState; workflow: Workflow; job: Job | null; side: FlowSide; setSide: (s: FlowSide) => void;
+function FlowSidePanel({ pid, thread, workflow, job, running, side, setSide, selected, onClose, onDone, history, onJump, readOnly }: {
+  pid: string; thread: ThreadState; workflow: Workflow; job: Job | null; running: Job[]; side: FlowSide; setSide: (s: FlowSide) => void;
   selected: string | null; onClose: () => void; onDone: () => Promise<void>; history: ReturnType<typeof useThreadBits>["history"]; onJump: () => void;
+  readOnly?: ReadOnly;
 }) {
   const name = selected ? workflow.steps.find((s) => s.id === selected)?.name ?? selected : null;
   return (
@@ -231,57 +307,161 @@ function FlowSidePanel({ pid, thread, workflow, job, side, setSide, selected, on
       <Tabs value={side} onChange={setSide} label="Flow details" options={[["now", "Now"], ["step", name ? `Step: ${name}` : "Step"], ["checkpoints", "Checkpoints"]]} />
       {side === "now" ? (
         <div className="grid" style={{ gap: 12 }}>
-          {thread.status === "waiting" && thread.waiting ? (
-            <div className="interrupt fl-waits">
-              <b><Pill tone="warn">waiting for you</Pill> {thread.waiting.title}</b>
-              <span className="sub">The flow stopped here. Your answer goes in the card under its block.</span>
-              <div className="row"><button className="btn warn" type="button" onClick={onJump}>Go to it</button></div>
-            </div>
-          ) : <StatusCard pid={pid} thread={thread} workflow={workflow} job={job} onDone={onDone} />}
+          {thread.status === "waiting" && thread.waiting ? <WaitsCard thread={thread} onJump={onJump} />
+            : <StatusCard pid={pid} thread={thread} workflow={workflow} job={job} onDone={onDone} onCheckpoints={readOnly ? undefined : () => setSide("checkpoints")}
+              noResume={readOnly && !readOnly.resumable ? "Only the last stopped flow can be resumed." : undefined} />}
           {job && <JobFeed job={job} />}
-          <EventsPanel pid={pid} thread={thread} history={history.error ? [] : history.data} onAll={() => setSide("checkpoints")} />
+          <EventsPanel pid={pid} thread={thread} history={history.error ? [] : history.data} onAll={() => setSide("checkpoints")} readOnly={!!readOnly} />
         </div>
       ) : side === "step" ? (
-        selected ? <StepInfoPanel pid={pid} workflow={workflow} stepId={selected} threadId={thread.thread_id} onClose={onClose} />
+        selected ? <StepPanel key={selected} pid={pid} thread={thread} workflow={workflow} stepId={selected} running={running} onClose={onClose} onJump={onJump} />
           : <div className="panel"><div className="panel-body wb-hint"><b>Select a block to see what it does.</b><span className="sub">Its task, the rules of its phase, where it goes next and what it did in this flow.</span></div></div>
       ) : (
-        <CheckpointsPanel thread={thread} history={history.data} error={history.error} onRewound={onDone} />
+        <CheckpointsPanel thread={thread} history={history.data} error={history.error} onRewound={onDone} readOnly={!!readOnly} />
       )}
     </aside>
   );
 }
 
-/** "What this step does" in the side panel (the drawer's content), for the workflow the page draws and this thread. */
-function StepInfoPanel({ pid, workflow, stepId, threadId, onClose }: { pid: string; workflow: Workflow; stepId: string; threadId: string; onClose: () => void }) {
-  const { x, error } = useStepInfo(pid, infoRequest(stepId, workflow, threadId));
-  const name = x?.name ?? workflow.steps.find((s) => s.id === stepId)?.name ?? stepId;
+/** The flow waits for you: for what, and a button to the answer card under its block. */
+function WaitsCard({ thread, onJump }: { thread: ThreadState; onJump: () => void }) {
   return (
-    <section className="panel" aria-label={`What ${name} does`}>
-      <div className="panel-head"><h2>What {name} does</h2><button className="btn sm ghost" type="button" onClick={onClose}>Close</button></div>
-      <div className="panel-body">{error ? <ErrorBox error={error} /> : !x ? <Loading what="Reading the step" /> : <StepInfoBody x={x} />}</div>
-    </section>
+    <div className="interrupt fl-waits">
+      <b><Pill tone="warn">waiting for you</Pill> {thread.waiting?.title}</b>
+      <span className="sub">The flow stopped here. Your answer goes in the card under its block.</span>
+      <div className="row"><button className="btn warn" type="button" onClick={onJump}>Go to it</button></div>
+    </div>
   );
 }
 
-/** The running agent's newest steps, with a link to watch it live. */
+/** v0.15.2 The workflow step a job names: its id, a review's `<id>__fix`, or its name. */
+function stepIdOf(workflow: Workflow, step: string): string | null {
+  return workflow.steps.find((x) => x.id === step.replace(/__fix$/, "") || x.name === step)?.id ?? null;
+}
+
+/** v0.15.2 Is this step the one that runs now (or waits for you)? And the agent of this flow that works in it, if any. */
+function nowOf(thread: ThreadState, workflow: Workflow, running: Job[], id: string): { now: boolean; job: Job | null } {
+  if (thread.status !== "running" && thread.status !== "waiting") return { now: false, job: null };
+  const cur = (thread.waiting?.step ?? thread.current ?? "").replace(/__fix$/, "");
+  const job = running.find((j) => j.thread_id === thread.thread_id && stepIdOf(workflow, j.step) === id) ?? null;
+  return { now: id === cur || !!job, job };
+}
+
+type StepMode = "now" | "details";
+
+/** v0.15.2 The clicked step, in the side panel (or in a drawer: narrow screens, the init flow). The step that runs now,
+ * or waits for you, opens on "Now": the step in a few words and only what happens in it now (the waiting or running
+ * card, the agent's newest steps, this step's events since it started), not its past runs. "Details" is the whole
+ * explanation (task, rules, next, last runs); any other step shows only that. */
+function StepPanel({ pid, thread, workflow, stepId, running, onClose, onJump, drawer }: {
+  pid: string; thread: ThreadState; workflow: Workflow; stepId: string; running: Job[]; onClose: () => void; onJump: () => void; drawer?: boolean;
+}) {
+  // the workflow the page draws, plus the thread (its state and what the step did there)
+  const { x, error } = useStepInfo(pid, infoRequest(stepId, workflow, thread.thread_id));
+  const [pick, setPick] = useState<StepMode>("now");
+  const step = workflow.steps.find((s) => s.id === stepId);
+  const { now, job } = nowOf(thread, workflow, running, stepId);
+  const showNow = now && !!step && pick === "now";
+  const title = showNow ? `${step!.name} now` : `What ${x?.name ?? step?.name ?? stepId} does`;
+  const toggle = now && step ? <StepModeToggle value={showNow ? "now" : "details"} onChange={setPick} /> : null;
+  const details = error ? <ErrorBox error={error} /> : !x ? <Loading what="Reading the step" /> : <StepInfoBody x={x} />;
+  const live = showNow ? <StepNow pid={pid} thread={thread} step={step!} job={job} onJump={onJump} /> : null;
+  if (drawer) {
+    return (
+      <Drawer title={title} onClose={onClose}>
+        {toggle}
+        {showNow ? <><StepAbout step={step!} x={x} />{live}</> : details}
+      </Drawer>
+    );
+  }
+  const head = (
+    <div className="panel-head">
+      <h2>{title}</h2>
+      <div className="fold-tools">{toggle}<button className="btn sm ghost" type="button" onClick={onClose}>Close</button></div>
+    </div>
+  );
+  if (!showNow) return <section className="panel" aria-label={title}>{head}<div className="panel-body">{details}</div></section>;
+  return (
+    <div className="grid" style={{ gap: 12 }}>
+      <section className="panel" aria-label={title}>{head}<div className="panel-body"><StepAbout step={step!} x={x} /></div></section>
+      {live}
+    </div>
+  );
+}
+
+function StepModeToggle({ value, onChange }: { value: StepMode; onChange: (m: StepMode) => void }) {
+  return (
+    <div className="tabs fl-mode" role="group" aria-label="Now or the details of this step">
+      <button type="button" aria-pressed={value === "now"} onClick={() => onChange("now")} title="Only what happens in this step now">Now</button>
+      <button type="button" aria-pressed={value === "details"} onClick={() => onChange("details")} title="What the step does, its rules and its past runs">Details</button>
+    </div>
+  );
+}
+
+/** v0.15.2 The step in a few words: its kind, agent, phase and loop, then what it does and what its phase means. */
+function StepAbout({ step, x }: { step: Step; x: StepExplanation | null }) {
+  const what = x?.agent?.about || x?.code?.text || x?.code?.actions?.[0]?.summary || (x?.branch ? `Asks: ${x.branch.condition}` : "")
+    || (x?.gate ? "Waits for your answer." : "");
+  const phase = x?.phase ?? step.phase;
+  const facts = [KIND[step.kind] ?? step.kind, step.agent ? `agent ${step.agent}` : "", phase ? `phase ${phase}` : "", x?.loop?.text ?? ""].filter(Boolean);
+  return (
+    <div className="fl-about" data-testid="step-about">
+      <span className="sub">{facts.join(" · ")}</span>
+      {what && <p>{what}</p>}
+      {x?.phase_meaning && <p className="sub">{x.phase_meaning}</p>}
+    </div>
+  );
+}
+
+/** v0.15.2 What happens in the step now: the waiting card (Go to it) or the running card, the agent's newest steps, and
+ * this step's events since it started. */
+function StepNow({ pid, thread, step, job, onJump }: { pid: string; thread: ThreadState; step: Step; job: Job | null; onJump: () => void }) {
+  const waits = thread.status === "waiting" && !!thread.waiting && thread.waiting.step.replace(/__fix$/, "") === step.id;
+  const runs = !waits && (!!job || (thread.status === "running" && (thread.current ?? "").replace(/__fix$/, "") === step.id));
+  return (
+    <>
+      {waits ? <WaitsCard thread={thread} onJump={onJump} /> : runs ? <RunningCard step={step} name={step.name} ac={job?.ac ?? thread.ac} job={job} /> : null}
+      {job && <JobFeed job={job} />}
+      <EventsPanel pid={pid} thread={thread} step={step.id} title={`Events of ${step.name}`} />
+    </>
+  );
+}
+
+/** The running agent's newest steps, with a link to watch it live. v0.15.2 Hide folds it (this browser remembers it);
+ * ⤢ shows every step so far in a large view. */
 function JobFeed({ job }: { job: Job }) {
   const { steps } = useJobSteps(job.id);
   const last = steps.slice(-6);
+  const watch = <GoButton to="live" arg={job.id} className="btn sm">Watch live</GoButton>;
+  const none = <span className="sub">Waiting for the first step…</span>;
   return (
-    <section className="panel" aria-label={`${job.agent} works`}>
-      <div className="panel-head"><h2>{job.agent} works</h2><GoButton to="live" arg={job.id} className="btn sm">Watch live</GoButton></div>
-      <div className="panel-body feed fl-feed" aria-live="polite">
-        {last.length ? last.map((st) => <StepView key={st.n} s={st} idPrefix={`fl-${job.id}`} />) : <span className="sub">Waiting for the first step…</span>}
-      </div>
-    </section>
+    <FoldPanel id="flow.works" title={`${job.agent} works`} extra={watch} bodyClass="feed fl-feed" live
+      big={() => (
+        <>
+          <div className="row fl-big-head">
+            <span className="sub">{job.agent} · <Prov p={job.provider} m={job.model} />{job.ac ? ` · ${job.ac}` : ""} · {steps.length} steps so far</span>
+            {watch}
+            <GoButton to="jobs" arg={job.id} className="btn sm ghost">Open job</GoButton>
+          </div>
+          <div className="feed" aria-label={`Every step of ${job.agent}`} aria-live="polite">
+            {steps.length ? steps.map((st) => <StepView key={st.n} s={st} idPrefix={`flbig-${job.id}`} />) : none}
+          </div>
+        </>
+      )}>
+      {last.length ? last.map((st) => <StepView key={st.n} s={st} idPrefix={`fl-${job.id}`} />) : none}
+    </FoldPanel>
   );
 }
 
-function ThreadView({ pid, thread, workflow, reload, onStart }: {
+function ThreadView({ pid, thread, workflow, reload, onStart, readOnly }: {
   pid: string; thread: ThreadState; workflow: Workflow; reload: () => Promise<void>; onStart: () => void;
+  /** v0.15.4 an earlier run, read only */
+  readOnly?: ReadOnly;
 }) {
-  const { history, est, job, actual, visited, started } = useThreadBits(pid, thread, workflow);
+  const { history, est, job, jobs, actual, visited, started } = useThreadBits(pid, thread, workflow);
   const tokens = useMemo(() => perStep(workflow, est.data?.per_step), [workflow, est.data]);
+  // v0.15.2 the agents of this flow that work now: a click on the step one of them works in shows that step "now"
+  const running = useMemo(() => (jobs.data ?? []).filter((j) => j.thread_id === thread.thread_id && j.status === "running"), [jobs.data, thread.thread_id]);
   const [sel, setSel] = useState<string | null>(null);
   const [side, setSide] = useState<FlowSide>("now");
   const wide = useWide();
@@ -300,15 +480,20 @@ function ThreadView({ pid, thread, workflow, reload, onStart }: {
     }, 120);
   };
   const open = (id: string) => { setSel(id); setSide("step"); };
-  const waiting = thread.status === "waiting" && thread.waiting ? <GateCard thread={thread} workflow={workflow} onDone={reload} /> : null;
+  const waiting = !readOnly && thread.status === "waiting" && thread.waiting ? <GateCard thread={thread} workflow={workflow} onDone={reload} /> : null;
+  // v0.15.4 an earlier run changes nothing, except Resume of the last stopped one: then the page shows it live
+  const done = readOnly ? readOnly.onResumed : reload;
   return (
     <>
-      <FlowBar thread={thread} workflow={workflow} estimate={est.data?.tokens ?? null} started={started} onStart={onStart} onJump={jump} />
-      {!wide && sel && <StepInfoDrawer pid={pid} workflow={workflow} stepId={sel} threadId={thread.thread_id} onClose={() => setSel(null)} />}
+      <FlowBar thread={thread} workflow={workflow} estimate={est.data?.tokens ?? null} started={started} onStart={onStart} onJump={jump}
+        readOnly={!!readOnly} branch={readOnly?.branch} />
+      {!wide && sel && <StepPanel drawer key={sel} pid={pid} thread={thread} workflow={workflow} stepId={sel} running={running} onClose={() => setSel(null)}
+        onJump={() => { setSel(null); jump(); }} />}
       <div className="fl">
-        <LiveCanvas thread={thread} workflow={workflow} tokens={tokens} actual={actual} visited={visited} waiting={waiting} canvas={canvas} onOpen={open} selected={sel} />
-        <FlowSidePanel pid={pid} thread={thread} workflow={workflow} job={job} side={wide ? side : side === "step" ? "now" : side} setSide={setSide}
-          selected={sel} onClose={() => { setSel(null); setSide("now"); }} onDone={reload} history={history} onJump={jump} />
+        <LiveCanvas thread={thread} workflow={workflow} tokens={tokens} actual={actual} visited={visited} waiting={waiting} canvas={canvas} onOpen={open} selected={sel}
+          still={!!readOnly} />
+        <FlowSidePanel pid={pid} thread={thread} workflow={workflow} job={job} running={running} side={wide ? side : side === "step" ? "now" : side} setSide={setSide}
+          selected={sel} onClose={() => { setSel(null); setSide("now"); }} onDone={done} history={history} onJump={jump} readOnly={readOnly} />
       </div>
       <div className="grid fl-more">
         <BudgetMeter thread={thread} estimate={est.data?.tokens ?? null} />
@@ -330,34 +515,130 @@ function perStep(w: Workflow, per?: { step: string; tokens: number }[]) {
 }
 
 /** The ◆ card when the thread waits, the running card while an agent works, or how it ended. */
-export function StatusCard({ pid, thread, workflow, job, onDone }: {
+export function StatusCard({ pid, thread, workflow, job, onDone, onCheckpoints, noResume }: {
   pid: string; thread: ThreadState; workflow: Workflow; job: Job | null; onDone: () => Promise<void>;
+  /** v0.15.3 show the Checkpoints tab (pick an earlier step to go back to) */
+  onCheckpoints?: () => void;
+  /** v0.15.4 an earlier run that cannot be resumed: this line instead of Resume */
+  noResume?: string;
 }) {
   const step = workflow.steps.find((s) => s.id === (thread.current ?? "").replace(/__fix$/, ""));
   if (thread.status === "waiting" && thread.waiting) return <GateCard thread={thread} workflow={workflow} onDone={onDone} />;
-  if (thread.status === "running") {
-    return (
-      <div className="running-card">
-        <b><Pill tone="run">running</Pill> node <span className="mono">{step?.name ?? thread.current ?? thread.phase}</span>{thread.ac ? ` — ${thread.ac}` : ""}</b>
-        <span className="sub">
-          {job ? <>{job.agent} · <Prov p={job.provider} m={job.model} /> · {job.steps_count} steps · keel calls {job.mcp_calls}</>
-            : step?.agent ? <>{step.agent}{step.tools?.length ? ` · tools: ${step.tools.join(", ")}` : ""}</>
-              : step?.kind === "code" ? "plain code, no LLM" : "working"}
-        </span>
-        <div className="row">
-          <GoButton to="live" arg={job?.id}>Watch live</GoButton>
-          <GoButton to="jobs" arg={job?.id} className="btn sm ghost">Open job</GoButton>
-        </div>
-      </div>
-    );
-  }
+  if (thread.status === "running") return <RunningCard step={step} name={step?.name ?? thread.current ?? thread.phase} ac={thread.ac} job={job} />;
   void pid;
   const tone: PillTone = thread.status === "done" ? "ok" : thread.status === "failed" ? "bad" : "idle";
   return (
     <div className={thread.status === "failed" ? "errbox" : "running-card"} style={thread.status === "done" ? { borderColor: "var(--ok)", background: "var(--ok-soft)" } : undefined}>
       <b><Pill tone={tone}>{thread.status}</Pill> {thread.status === "done" ? "The flow is done." : thread.status === "failed" ? "The flow failed." : "The flow was stopped."}</b>
       {thread.error && <span className="sub">{thread.error}</span>}
-      {thread.status !== "done" && <span className="hint">Rewind to a checkpoint below to try again from there.</span>}
+      {thread.status !== "done" && (noResume ? <span className="hint">{noResume}</span> : <ResumeRow thread={thread} onDone={onDone} onCheckpoints={onCheckpoints} />)}
+    </div>
+  );
+}
+
+/** v0.15.3 Stop flow asks first, in a small dialog over the page (Esc or Keep it running closes it). */
+function ConfirmStop({ title, busy, onCancel, onStop }: { title: string; busy: boolean; onCancel: () => void; onStop: () => void }) {
+  const keep = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    keep.current?.focus();
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); onCancel(); } };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+  return (
+    <div className="fl-confirm-back" onMouseDown={(e) => e.target === e.currentTarget && onCancel()}>
+      <div className="fl-confirm panel" role="alertdialog" aria-modal="true" aria-labelledby="fl-stop-h" aria-describedby="fl-stop-p">
+        <h2 id="fl-stop-h">Stop this flow?</h2>
+        <p id="fl-stop-p">“{title}” stops now, and the step that runs stops with it. Every finished step stays saved: you can
+          Resume later from the last one, or go back to an earlier step.</p>
+        <div className="row">
+          <button className="btn warn" type="button" disabled={busy} onClick={onStop}>{busy ? "Stopping…" : "Stop the flow"}</button>
+          <button ref={keep} className="btn" type="button" disabled={busy} onClick={onCancel}>Keep it running</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** v0.15.3 a stopped or failed flow: go on from its last saved step (a rewind to the newest checkpoint, asked
+ *  first because agents run again), or pick an earlier step. Nothing is lost: every finished step is saved. */
+function ResumeRow({ thread, onDone, onCheckpoints, autoAsk, onCancel }: {
+  thread: Pick<ThreadState, "thread_id"> & { status: string }; onDone: () => Promise<void>; onCheckpoints?: () => void;
+  /** v0.15.4 from the Runs history: ask about the last saved step right away, and Cancel closes it */
+  autoAsk?: boolean; onCancel?: () => void;
+}) {
+  const { toast } = useApp();
+  const [last, setLast] = useState<Checkpoint | null>(null);
+  const [busy, setBusy] = useState(false);
+  const ask = async () => {
+    setBusy(true);
+    try {
+      const h = await api.history(thread.thread_id);
+      const newest = [...h].sort((a, b) => b.n - a.n)[0];
+      if (newest) setLast(newest);
+      else toast("This flow has no saved step yet: start it again.");
+    } catch (e) {
+      toast(errorParts(e).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  useEffect(() => {
+    if (autoAsk) void ask();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoAsk]);
+  const resume = async () => {
+    if (!last) return;
+    setBusy(true);
+    try {
+      await api.rewind(thread.thread_id, last.id);
+      toast(`Resumed after “${last.step}”. The next step runs now.`);
+      setLast(null);
+      await onDone();
+    } catch (e) {
+      const p = errorParts(e);
+      toast(p.hint ? `${p.message} ${p.hint}` : p.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="fl-resume">
+      <span className="hint">
+        {thread.status === "stopped"
+          ? "It stopped while a step ran (Stop flow, or keel itself was stopped). Every finished step is saved."
+          : "Every finished step is saved: go on from the last one, or go back to an earlier one."}
+      </span>
+      {last ? (
+        <div className="row" role="group" aria-label="Resume the flow">
+          <span>Resume after <b className="mono">{last.step}</b>{last.note ? ` (${last.note.slice(0, 80)}${last.note.length > 80 ? "…" : ""})` : ""}? The next step runs again.</span>
+          <button className="btn primary sm" type="button" disabled={busy} onClick={() => void resume()}>{busy ? "Resuming…" : "Yes, resume"}</button>
+          <button className="btn ghost sm" type="button" disabled={busy} onClick={() => { setLast(null); onCancel?.(); }}>Cancel</button>
+        </div>
+      ) : (
+        <div className="row">
+          <button className="btn primary sm" type="button" disabled={busy} onClick={() => void ask()}>Resume the flow</button>
+          {onCheckpoints && <button className="btn sm" type="button" onClick={onCheckpoints}>Go back to an earlier step…</button>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** An agent (or plain code) works in this step: who, with which model, and where to watch it. */
+function RunningCard({ step, name, ac, job }: { step?: Step; name: string; ac?: string | null; job: Job | null }) {
+  return (
+    <div className="running-card">
+      <b><Pill tone="run">running</Pill> node <span className="mono">{name}</span>{ac ? ` — ${ac}` : ""}</b>
+      <span className="sub">
+        {job ? <>{job.agent} · <Prov p={job.provider} m={job.model} /> · {job.steps_count} steps · keel calls {job.mcp_calls}</>
+          : step?.agent ? <>{step.agent}{step.tools?.length ? ` · tools: ${step.tools.join(", ")}` : ""}</>
+            : step?.kind === "code" ? "plain code, no LLM" : "working"}
+      </span>
+      <div className="row">
+        <GoButton to="live" arg={job?.id}>Watch live</GoButton>
+        <GoButton to="jobs" arg={job?.id} className="btn sm ghost">Open job</GoButton>
+      </div>
     </div>
   );
 }
@@ -563,8 +844,10 @@ export function BudgetMeter({ thread, estimate, title = "Budget for this flow" }
   );
 }
 
-function CheckpointsPanel({ thread, history, error, onRewound }: {
+function CheckpointsPanel({ thread, history, error, onRewound, readOnly }: {
   thread: ThreadState; history: Checkpoint[] | null; error: { message: string; hint?: string } | null; onRewound: () => Promise<void>;
+  /** v0.15.4 an earlier run: the checkpoints without Rewind */
+  readOnly?: boolean;
 }) {
   const { toast } = useApp();
   const [busy, setBusy] = useState<string | null>(null);
@@ -582,7 +865,7 @@ function CheckpointsPanel({ thread, history, error, onRewound }: {
     }
   };
   return (
-    <Panel title="Checkpoints" extra={<span className="hint">Every step is saved. Rewind starts a new branch from that point.</span>}>
+    <Panel title="Checkpoints" extra={<span className="hint">{readOnly ? "Every saved step of this run." : "Every step is saved. Rewind starts a new branch from that point."}</span>}>
       {error ? <ErrorBox error={error} /> : !history ? <div className="empty loading">Loading…</div> : !history.length ? <div className="empty">No checkpoint yet.</div> : (
         <ul className="timeline">
           {history.map((c, i) => (
@@ -590,7 +873,7 @@ function CheckpointsPanel({ thread, history, error, onRewound }: {
               <span className="cp">#{c.n}</span>
               <span className="t">{clock(c.at)}</span>
               <span><span className="mono">{c.step}</span> <span className="sub">{c.note}</span></span>
-              {i === 0 ? <span className="tag">now</span> : (
+              {i === 0 ? <span className="tag">now</span> : readOnly ? null : (
                 <button className="btn sm ghost" type="button" disabled={busy !== null} onClick={() => rewind(c)}>{busy === c.id ? "Rewinding…" : "Rewind here"}</button>
               )}
             </li>
@@ -622,19 +905,44 @@ function AcsPanel({ thread }: { thread: ThreadState }) {
 const EARLIER = 8;
 
 /** What happened in this flow, newest first: the events of this visit, then the saved steps (checkpoints) before them,
- * so a flow that waits still says how it got here. */
-export function EventsPanel({ pid, thread, history, onAll }: {
-  pid: string; thread: ThreadState; history?: Checkpoint[] | null; onAll?: () => void;
+ * so a flow that waits still says how it got here. v0.15.2 `step`: only that step's events since it started (the
+ * step's Now view). Hide folds it (this browser remembers it); ⤢ shows every event and saved step in a large view. */
+export function EventsPanel({ pid, thread, history, onAll, step, title = "Events", readOnly }: {
+  pid: string; thread: ThreadState; history?: Checkpoint[] | null; onAll?: () => void; step?: string; title?: string;
+  /** v0.15.4 an earlier run: no "Allow this file" */
+  readOnly?: boolean;
+}) {
+  return (
+    <FoldPanel id="flow.events" title={title}
+      extra={onAll && (history?.length ?? 0) > 0 ? <button className="btn sm ghost" type="button" onClick={onAll}>All checkpoints</button> : undefined}
+      big={() => <EventList pid={pid} thread={thread} history={history} step={step} all readOnly={readOnly} />}>
+      <EventList pid={pid} thread={thread} history={history} step={step} readOnly={readOnly} />
+    </FoldPanel>
+  );
+}
+
+/** v0.15.2 One step's events since it last started (a step that runs again, for the next criterion, starts over). */
+function sinceStart(events: EngineEvent[], step: string): EngineEvent[] {
+  const mine = events.filter((e) => (e.step ?? "").replace(/__fix$/, "") === step);
+  const at = mine.map((e) => e.type).lastIndexOf("step.started");
+  return at > 0 ? mine.slice(at) : mine;
+}
+
+/** The event lines: the newest 12 events and 8 saved steps before them; `all` (the big view): every one. */
+function EventList({ pid, thread, history, step, all, readOnly }: {
+  pid: string; thread: ThreadState; history?: Checkpoint[] | null; step?: string; all?: boolean; readOnly?: boolean;
 }) {
   const { recent } = useApp();
-  const mine = recent.filter((e: EngineEvent) => e.thread_id === thread.thread_id && e.type !== "agent.step").slice(-12).reverse();
+  const ofThread = recent.filter((e: EngineEvent) => e.thread_id === thread.thread_id && e.type !== "agent.step");
+  const shown = step ? sinceStart(ofThread, step) : ofThread;
+  const mine = (all ? shown : shown.slice(-12)).slice().reverse();
   const [asking, setAsking] = useState<EngineEvent | null>(null);
-  // the saved steps from before the oldest live event (the history is newest first)
+  // the saved steps from before the oldest live event (the history is newest first); none in a step's Now view
   const oldest = mine.length ? Date.parse(mine[mine.length - 1].at) : Infinity;
-  const before = (history ?? []).filter((c) => !(Date.parse(c.at) >= oldest));
-  const earlier = before.slice(0, EARLIER);
+  const before = step ? [] : (history ?? []).filter((c) => !(Date.parse(c.at) >= oldest));
+  const earlier = all ? before : before.slice(0, EARLIER);
   return (
-    <Panel title="Events" extra={onAll && (history?.length ?? 0) > 0 ? <button className="btn sm ghost" type="button" onClick={onAll}>All checkpoints</button> : undefined}>
+    <>
       <div className="events" aria-label="What happened, newest first">
         {mine.map((e, i) => {
           const l = eventLine(e);
@@ -642,7 +950,7 @@ export function EventsPanel({ pid, thread, history, onAll }: {
           return (
             <div key={i}>
               <span className="t mono sub">{clock(e.at, false)}</span><span className="k">{l.k}</span>
-              <span>{l.text}{path && asking !== e && (
+              <span>{l.text}{path && !readOnly && asking !== e && (
                 <> <button className="btn sm ghost" type="button" onClick={() => setAsking(e)} aria-label={`Allow ${path} in this phase`}>Allow this file in this phase</button></>
               )}</span>
             </div>
@@ -655,15 +963,16 @@ export function EventsPanel({ pid, thread, history, onAll }: {
             <span title={c.note}><b className="mono">{c.step}</b> <span className="sub">{c.note}</span></span>
           </div>
         ))}
-        {before.length > EARLIER && <span className="hint">{before.length - EARLIER} older steps are under Checkpoints.</span>}
+        {before.length > earlier.length && <span className="hint">{before.length - earlier.length} older steps are under Checkpoints.</span>}
         {!mine.length && !earlier.length && (
-          history === undefined || (history !== null && !history.length)
-            ? <span className="sub">Nothing happened yet. Events show here as they happen.</span>
-            : history === null ? <span className="sub loading">Loading what happened…</span> : null
+          step ? <span className="sub">Nothing happened in this step yet. Its events show here as they happen.</span>
+            : history === undefined || (history !== null && !history.length)
+              ? <span className="sub">Nothing happened yet. Events show here as they happen.</span>
+              : history === null ? <span className="sub loading">Loading what happened…</span> : null
         )}
       </div>
       {asking && <UnlockConfirm pid={pid} path={String(asking.data.path)} phase={typeof asking.data.phase === "string" ? asking.data.phase : thread.phase} onClose={() => setAsking(null)} />}
-    </Panel>
+    </>
   );
 }
 
@@ -722,9 +1031,11 @@ function InitFlow({ pid, f, onStart, reload }: { pid: string; f: { thread: Threa
   const [explain, setExplain] = useState<string | null>(null);
   const canvas = useRef<BlocksHandle>(null);
   const waiting = thread.status === "waiting" && thread.waiting ? <GateCard thread={thread} workflow={workflow} onDone={reload} /> : null;
+  const running = (jobs.data ?? []).filter((j) => j.thread_id === thread.thread_id && j.status === "running");
   return (
     <>
-      {explain && <StepInfoDrawer pid={pid} workflow={workflow} stepId={explain} threadId={thread.thread_id} onClose={() => setExplain(null)} />}
+      {explain && <StepPanel drawer key={explain} pid={pid} thread={thread} workflow={workflow} stepId={explain} running={running} onClose={() => setExplain(null)}
+        onJump={() => { setExplain(null); canvas.current?.reveal((thread.current ?? "").replace(/__fix$/, ""), true); }} />}
       <FlowBar thread={thread} workflow={workflow} estimate={est.data?.tokens ?? null} started={started} onStart={onStart}
         onJump={() => canvas.current?.reveal((thread.current ?? "").replace(/__fix$/, ""), true)} extra={<GoButton to="wiki" className="btn">Open wiki</GoButton>} />
       <LiveCanvas thread={thread} workflow={workflow} actual={actual} visited={visited} waiting={waiting} canvas={canvas} onOpen={setExplain} selected={explain} />

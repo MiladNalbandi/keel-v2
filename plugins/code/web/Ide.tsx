@@ -6,8 +6,9 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as RPointerEvent } from "react";
 import {
-  ASK_ASSISTANT_EVENT, doubleShift, ErrorBox, keyLabel, openLauncher, parseHash, slotItems, SLOTS, useApp, useLoad, useNarrow, useRoute,
-  useSlot, WorkspaceDoctor, type AskAssistantDetail, type AssistantItem, type CodeActivityItem, type CodeTabItem, type HelperSelection,
+  ASK_ASSISTANT_EVENT, doubleShift, ErrorBox, isTyping, keyLabel, modalOpen, openLauncher, parseHash, readKeymap, slotItems, SLOTS, useApp,
+  useLoad, useNarrow, useRoute, useSlot, WorkspaceDoctor, type AskAssistantDetail, type AssistantItem, type CodeActivityItem, type CodeTabItem,
+  type HelperSelection,
 } from "@keel/web-sdk";
 import { codeApi as api, type RepoInfo } from "./codeApi";
 import {
@@ -18,10 +19,13 @@ import { Explorer } from "./Explorer";
 import { FileIcon, Icon, extOf, languageName } from "./icons";
 import { DocsView, KeelView, MemoryView, ruleText } from "./KeelView";
 import {
-  bytes, closeTab, decoOf, FOCUS_KEYS, ideActionFor, nameOf, openTab, parseDeepLink, parseToolLink, pinTab, repoHash, retargetTab, setView, tabId,
-  webUrl, type EditorTab, type OpenSpec, type Tabs, type View,
+  bytes, closeTab, decoOf, FOCUS_KEYS, IDE_KEYS, ideActionFor, nameOf, openTab, parseDeepLink, parseToolLink, pinTab, repoHash, retargetTab,
+  setView, stepTab, tabId, webUrl, type EditorTab, type OpenSpec, type Tabs, type View,
 } from "./model";
+import { logTitle, openLog, setLogBranch } from "./gitLog";
+import { LogTab } from "./Log";
 import { QuickOpen } from "./QuickOpen";
+import { RecentFiles } from "./Recent";
 import { ScmView } from "./Scm";
 import { SearchView } from "./Search";
 
@@ -42,6 +46,8 @@ const defOf = (a: SideItem): ActivityDef => ({ id: a.id, title: a.title, icon: a
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 const MOD = isMac ? "⌘" : "Ctrl+";
+/** v0.15.4 the key that closes the editor tab (⌥W: the browser keeps ⌘W), for the tab's tooltip */
+const CLOSE_KEY = keyLabel(IDE_KEYS.find((a) => a.id === "closeTab")!.keys.intellij[0]);
 
 function readJson<T>(store: Storage | undefined, key: string, fallback: T): T {
   try {
@@ -61,13 +67,14 @@ function writeJson(store: Storage | undefined, key: string, value: unknown) {
 const session = typeof sessionStorage !== "undefined" ? sessionStorage : undefined;
 const local = typeof localStorage !== "undefined" ? localStorage : undefined;
 
-/** The Code page's own tab kinds; any other kind is a part's (slot code.tab). */
-const OWN_TABS = new Set(["file", "commit", "docs", "memory", "doctor"]);
+/** The Code page's own tab kinds; any other kind is a part's (slot code.tab). v0.15.2 "log": the Git log. */
+const OWN_TABS = new Set(["file", "commit", "docs", "memory", "doctor", "log"]);
 
 function tabTitle(t: EditorTab, kinds: CodeTabItem[]): string {
   if (t.kind === "docs") return "Files keel wrote";
   if (t.kind === "memory") return "Memory";
   if (t.kind === "doctor") return "Workspace Doctor";
+  if (t.kind === "log") return logTitle(t.path);
   const theirs = kinds.find((k) => k.id === t.kind);
   if (theirs) return theirs.tabTitle(t.path);
   if (t.kind === "commit") return `${nameOf(t.path)} @ ${t.sha?.slice(0, 7)}`;
@@ -94,6 +101,10 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
   const [cursor, setCursor] = useState<Cursor | null>(null);
   const [cmd, setCmd] = useState<Cmd>(null);
   const [qo, setQo] = useState(false);
+  // v0.15.4 Recent files (⌘E): the tabs you looked at, newest first, also after they were closed
+  const [recentOpen, setRecentOpen] = useState(false);
+  const recentKey = `keel2.repo.recent.${pid}`;
+  const [recent, setRecent] = useState<EditorTab[]>(() => readJson(session, recentKey, []));
   const [screen, setScreen] = useState<"side" | "editor">(() => (parseDeepLink(route.arg) ? "editor" : "side"));
   const [reveal, setReveal] = useState(0);
   const [searchFocus, setSearchFocus] = useState(0);
@@ -138,10 +149,13 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
   useEffect(() => {
     setCursor(null);
     setDims("");
+    if (active) setRecent((r) => [active, ...r.filter((x) => x.id !== active.id)].slice(0, 30));
   }, [active?.id]);
+  useEffect(() => writeJson(session, recentKey, recent.filter((t) => t.kind !== "doctor")), [recent, recentKey]);
 
   const open = useCallback((spec: OpenSpec, o: { pin?: boolean; line?: number; col?: number; len?: number } = {}) => {
-    setTabs((t) => openTab(t, spec, o.pin));
+    // v0.15.2 the Git log is one tab: opening it on a branch moves it there (a part's tab asks with kind "log")
+    setTabs((t) => (spec.kind === "log" ? openLog(t, spec.path) : openTab(t, spec, o.pin)));
     const id = tabId(spec);
     if (o.line) {
       setTargets((x) => ({ ...x, [id]: { line: o.line!, col: o.col, len: o.len, n: Date.now() } }));
@@ -150,7 +164,13 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
     setScreen("editor");
   }, []);
 
-  const openFile = useCallback((path: string, pin = false, view?: View) => open({ path, view }, { pin }), [open]);
+  // v0.15.3 a Markdown file opens rendered (Preview); Code and Changes are one click away
+  const openFile = useCallback((path: string, pin = false, view?: View) => open({ path, view: view ?? (canPreview(path) ? "preview" : undefined) }, { pin }), [open]);
+  // v0.15.2 the Git log: one tab, on a branch ("" = the current one)
+  const showLog = useCallback((branch = "") => {
+    setTabs((t) => openLog(t, branch));
+    setScreen("editor");
+  }, []);
 
   // a deep link (#/repo/<path>:<line>) opens that file at that line — on load and on every hash change, also when
   // it names the same file again after the URL followed other tabs; #/repo/@review/pr:7 opens that review (the side
@@ -212,6 +232,22 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
     setSideOpen(true);
     setScreen("side");
   }, []);
+  // v0.15.4 an activity's button and its key (⌘1, ⌘9, ⇧⌘9) show its panel, or hide it when it is shown already
+  const toggleSide = useCallback((a: Activity) => {
+    if (!phone && activity === a && sideOpen) setSideOpen(false);
+    else showSide(a);
+  }, [phone, activity, sideOpen, showSide]);
+  // v0.15.4 ⇧Esc hides the active tool window, like IntelliJ: KeelBot when the focus is in it, else the side bar
+  const hideActive = useCallback(() => {
+    const at = document.activeElement;
+    const inHelp = !!at && !!root.current?.querySelector(".ide-help")?.contains(at);
+    const inSide = !!at && !!root.current?.querySelector(".ide-side")?.contains(at);
+    if (inHelp) setHelperOpen(false);
+    else if (phone) setScreen("editor");
+    else setSideOpen(false);
+    // the focus was in what closed: it goes to the editor's tab
+    if (inHelp || inSide) window.setTimeout(() => root.current?.querySelector<HTMLElement>('.ed-tab[aria-selected="true"]')?.focus(), 0);
+  }, [phone]);
 
   const codeActive = !!active && active.kind === "file" && view === "code" && showText;
 
@@ -271,11 +307,18 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
       const ij = ideActionFor(e);
       if (ij) {
         // ⇧⌘9 Review only while its view is there
-        if (ij !== "quickOpen" && ij !== "gotoLine" && !shownIds.split(" ").includes(ij)) return;
+        if ((ij === "explorer" || ij === "scm" || ij === "review") && !shownIds.split(" ").includes(ij)) return;
+        // v0.15.4 a key with ⌥ types a letter on a Mac (⌥W is ∑): not while typing; and none under another popup
+        if ((e.altKey && isTyping(e.target)) || modalOpen()) return;
         e.preventDefault();
         if (ij === "quickOpen") setQo(true);
         else if (ij === "gotoLine") { if (codeActive) setCmd({ kind: "goto", n: Date.now() }); }
-        else showSide(ij);
+        else if (ij === "toggleSide") setSideOpen((o) => !o);
+        else if (ij === "hideSide") hideActive();
+        else if (ij === "recentFiles") setRecentOpen(true);
+        else if (ij === "closeTab") setTabs((t) => (t.active ? closeTab(t, t.active) : t));
+        else if (ij === "nextTab" || ij === "prevTab") setTabs((t) => stepTab(t, ij === "nextTab" ? 1 : -1));
+        else toggleSide(ij);
         return;
       }
       const mod = e.metaKey || e.ctrlKey;
@@ -314,7 +357,7 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
     };
     window.addEventListener("keydown", on);
     return () => window.removeEventListener("keydown", on);
-  }, [showSide, codeActive, helperOpen, codeSelection, askHelper, shownIds]);
+  }, [showSide, toggleSide, hideActive, codeActive, helperOpen, codeSelection, askHelper, shownIds]);
 
   // the IDE fills the window below the page head (measured again when the head grows, e.g. a merge result)
   useLayoutEffect(() => {
@@ -407,7 +450,7 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
           onOpenChange={(p, pin) => openFile(p, pin, "diff")}
           onOpenCommitFile={(sha, p, pin) => open({ kind: "commit", path: p, sha, view: "diff" }, { pin })}
           onDoctor={() => open({ kind: "doctor", path: "doctor" }, { pin: true })}
-          onOpenBranch={(name, pin) => open({ kind: "branch", path: name }, { pin })} />
+          onOpenBranch={(name, pin) => open({ kind: "branch", path: name }, { pin })} onOpenLog={showLog} />
       </div>
       {theirs.map((a) => (
         <div key={a.id} hidden={activity !== a.id} className="sv-host">
@@ -444,6 +487,9 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
     body = <MemoryView pid={pid} />;
   } else if (active.kind === "doctor") {
     body = <div className="ed-doc"><WorkspaceDoctor pid={pid} onClean={() => void changes.reload()} /></div>;
+  } else if (active.kind === "log") {
+    body = <LogTab pid={pid} branch={active.path} changes={changes.data} mode={diffMode} onBranch={(b) => setTabs((t) => setLogBranch(t, b))}
+      onOpenCommitFile={(sha, p, pin) => open({ kind: "commit", path: p, sha, view: "diff" }, { pin })} onOpenChange={(p, pin) => openFile(p, pin, "diff")} />;
   } else if (!OWN_TABS.has(active.kind)) {
     // a part's tab (a table, a review file, a branch)
     const id = active.id;
@@ -491,8 +537,9 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
 
   const toolbar = fileTab && active && (
     <div className="ed-tools" role="toolbar" aria-label="Editor">
-      {canPreview(active.path) && view !== "diff" && (
-        <button type="button" className={`tb${view === "preview" ? " on" : ""}`} aria-pressed={view === "preview"} aria-label="Preview" title="Preview"
+      {canPreview(active.path) && (
+        <button type="button" className={`tb${view === "preview" ? " on" : ""}`} aria-pressed={view === "preview"} aria-label="Preview"
+          title={view === "preview" ? "Show the code" : "Show it rendered (copying it gives the Markdown)"}
           onClick={() => setTabs((t) => setView(t, active.id, view === "preview" ? "code" : "preview"))}>
           <Icon name="preview" size={15} /><span>Preview</span>
         </button>
@@ -555,13 +602,13 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
       <nav className="ide-act" aria-label="Repo views">
         {activities.map(({ id, title: label, icon, keys: key, short }) => {
           const n = id === "scm" ? changes.data?.length ?? 0 : 0;
+          // v0.15.4 the tooltip names IntelliJ's key too (⌘1, ⌘9, ⇧⌘9)
+          const ij = IDE_KEYS.find((a) => a.id === id)?.keys[readKeymap()][0];
+          const keys = [key && `${MOD}${key}`, ij && keyLabel(ij)].filter(Boolean);
           return (
             <button key={id} type="button" className={`act${activity === id && sideOpen ? " on" : ""}`} aria-pressed={activity === id && sideOpen}
-              aria-label={label} title={key ? `${label} (${MOD}${key})` : label}
-              onClick={() => {
-                if (!phone && activity === id && sideOpen) setSideOpen(false);
-                else showSide(id);
-              }}>
+              aria-label={label} title={keys.length ? `${label} (${keys.join(", ")})` : label}
+              onClick={() => toggleSide(id)}>
               <Icon name={icon} size={22} />
               {phone && <span className="act-l" aria-hidden="true">{short}</span>}
               {n > 0 && <span className="act-n" aria-label={`${n} changed`}>{n > 99 ? "99+" : n}</span>}
@@ -573,6 +620,7 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
             title={`${helperName}: ask about this project (${MOD}I)`} onClick={() => (helperOpen ? setHelperOpen(false) : askHelper())}>
             <Icon name="helper" size={22} />
             {phone && <span className="act-l" aria-hidden="true">{helperName}</span>}
+            {assistant.count && <assistant.count />}
           </button>
         )}
       </nav>
@@ -624,12 +672,12 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
                     if (e.key === "Enter") setTabs((x) => pinTab(x, t.id));
                   }}>
                   {t.kind === "file" || t.kind === "commit" ? <FileIcon name={nameOf(t.path)} />
-                    : <Icon name={tabKinds.find((k) => k.id === t.kind)?.icon ?? (t.kind === "doctor" ? "refresh" : t.kind === "memory" ? "history" : "keel")} size={15} />}
+                    : <Icon name={tabKinds.find((k) => k.id === t.kind)?.icon ?? (t.kind === "log" ? "commit" : t.kind === "doctor" ? "refresh" : t.kind === "memory" ? "history" : "keel")} size={15} />}
                   <span className="ed-tab-n">{title}</span>
                   {dup && <span className="ed-tab-d">{t.path.split("/").slice(-2, -1)[0]}</span>}
                   {t.kind === "file" && t.view === "diff" && <span className="ed-tab-v">diff</span>}
                   {tdeco && <span className={`ed-tab-m t-${tdeco.tone}`} aria-label={tdeco.title}>{tdeco.letter}</span>}
-                  <button type="button" className="ed-tab-x" aria-label={`Close ${title}`} title="Close (middle-click)"
+                  <button type="button" className="ed-tab-x" aria-label={`Close ${title}`} title={`Close (${CLOSE_KEY}, or middle-click)`}
                     onClick={(e) => {
                       e.stopPropagation();
                       close(t.id);
@@ -712,6 +760,11 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus }: {
         <QuickOpen pid={pid} hasFile={codeActive} onClose={() => setQo(false)}
           onOpen={(p, pin) => openFile(p, pin)}
           onGoto={(line) => active && setTargets((x) => ({ ...x, [active.id]: { line, n: Date.now() } }))} />
+      )}
+      {recentOpen && (
+        <RecentFiles onClose={() => setRecentOpen(false)}
+          items={recent.filter((x) => x.id !== tabs.active).map((x) => ({ tab: x, title: tabTitle(x, tabKinds), open: tabs.tabs.some((t) => t.id === x.id) }))}
+          onPick={(x) => open({ kind: x.kind, path: x.path, sha: x.sha, view: x.view }, { pin: !tabs.tabs.some((t) => t.id === x.id) })} />
       )}
     </div>
   );

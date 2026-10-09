@@ -60,7 +60,7 @@ export const isScreen = (s: string): s is ScreenId =>
 export const groupOf = (id: ScreenId) =>
   menuGroups().find((g) => g.pages.some(([p]) => p === id));
 
-export type Route = { page: ScreenId; arg?: string; screen?: string };
+export type Route = { page: ScreenId; arg?: string; screen?: string; /** v0.15.3 the project a link names (/projects/<id>/…) */ project?: string };
 
 /** "#/flow", "#flow", "#/wiki/kb:architecture" → route. Unknown pages fall back to Flow. */
 export function parseHash(hash: string): Route {
@@ -84,9 +84,12 @@ export const hashForScreen = (screen: string, arg?: string) =>
 export const hashFor = (page: ScreenId, arg?: string) =>
   `#/${page}${arg ? "/" + encodeURIComponent(arg) : ""}`;
 
-/** A notification link ("flow", "#/jobs/j-1", "/jobs") → route. */
+/** A notification link ("flow", "#/jobs/j-1", "/jobs") → route. v0.15.3 also the api's own form,
+ *  "/projects/<id>/flow": that project's page, not the All projects page. */
 export function routeFromLink(link: string | undefined): Route {
   if (!link) return { page: SCREEN.flow };
+  const pm = link.replace(/^#?\/*/, "").match(/^projects\/([^/]+)\/(.+)$/);
+  if (pm) return { ...parseHash("#/" + pm[2]), project: decodeURIComponent(pm[1]) };
   return parseHash(
     link.startsWith("#") ? link : "#" + link.replace(/^\/+/, "/"),
   );

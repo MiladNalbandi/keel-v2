@@ -180,11 +180,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setNotes((ns) => ns.map((x) => (x.id === n.id ? { ...x, read: true } : x)));
         api.readOne(n.id).catch(() => undefined);
       }
-      if (n.project_id && n.project_id !== pidRef.current && projectsRef.current.some((p) => p.id === n.project_id)) {
-        setProjectId(n.project_id);
-      }
       const r = routeFromLink(n.link);
-      go(r.page, r.arg);
+      const project = r.project ?? n.project_id;
+      if (project && project !== pidRef.current && projectsRef.current.some((p) => p.id === project)) {
+        setProjectId(project);
+      }
+      // v0.15.3 a flow's notification opens that flow (its thread), not just the project's newest one
+      go(r.page, r.arg ?? (r.page === "flow" && n.thread_id ? n.thread_id : undefined));
     },
     [setProjectId],
   );

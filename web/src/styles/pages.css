@@ -287,3 +287,19 @@ pre.head.numbered span.at { background: var(--accent-soft); box-shadow: inset 3p
 .mode-opt b { font-size: 13.5px; }
 .mode-opt.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 .mode-opt:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* v0.15.2 Jobs and Live agents: Running / Finished tabs with their counts, and the search */
+.tabs .tab-n { font-size: 11.5px; font-weight: 600; color: var(--faint); }
+.tabs button[aria-selected="true"] .tab-n { color: var(--dim); }
+.run-bar .run-search { width: 300px; }
+.live-bar { display: grid; gap: 8px; min-width: 0; }
+.live-bar .tabs { justify-self: start; }
+.live-bar .run-search { width: 100%; }
+.live-tabbed .live-sec > .btn { justify-self: start; }
+.live-tabbed .live-sec > .hint { margin: 0; }
+/* one column: the tabs and their list stay together above the feed; a long list scrolls in its own box */
+@media (max-width: 900px) {
+  .live-grid > .live-list.live-tabbed { display: grid; }
+  .live-tabbed .recent-list { max-height: 45vh; overflow-y: auto; }
+}
+@media (max-width: 600px) { .run-bar .run-search { flex: 1 1 100%; width: 100%; } }

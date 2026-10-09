@@ -78,6 +78,8 @@ export type RunRow = {
   thread_id: string; title: string; workflow_id: string | null; status: string; phase: string | null; current: string | null;
   waiting: string | null; acs_done: number; acs_total: number; tokens: number; where: "folder" | "worktree"; branch: string | null;
   error: string | null; created_at: string; updated_at: string;
+  /** v0.15.4 what it cost, and whether it is the project's newest flow (only that one, when stopped, can be resumed) */
+  cost_usd?: number; latest?: boolean;
 };
 /** v0.9.0: keel's check of a workflow YAML that is not saved yet (KeelBot's new workflow). */
 export type WorkflowCheck = {
@@ -629,6 +631,8 @@ export type HelperSession = {
   tokens_in: number; tokens_out: number; tokens_cached: number; cost_usd: number; turns: number;
   created_at: string; updated_at: string;
   messages?: HelperMessage[]; busy?: boolean;
+  /** v0.15.2 the folder it is in (one of KeelBot's chat folders, plugins/keelbot), or none */
+  folder?: string | null;
 };
 export type HelperMention = { kind: "file" | "symbol" | "ac" | string; value: string; file?: string; line?: number };
 export type HelperSelection = { path: string; from?: number; to?: number; text: string };
@@ -846,6 +850,8 @@ export const api = {
   flow: (pid: string) => get<FlowView>(`/projects/${e(pid)}/flow`),
   flowOf: (pid: string, tid: string) => get<FlowView>(`/projects/${e(pid)}/flows/${e(tid)}`),
   flowBoard: (pid: string) => get<FlowBoard>(`/projects/${e(pid)}/flows`),
+  /** v0.15.4 delete a flow from the run history (only a mark: its checkpoints, branch and calls stay) */
+  deleteRun: (pid: string, tid: string) => del<{ ok: boolean; thread_id: string }>(`/projects/${e(pid)}/flows/${e(tid)}`),
   quality: () => get<QualityView>("/quality"),
   qualityStart: (body: { flows: string[]; models: Model[]; sets?: string[] }) => post<QualityRun>("/quality/runs", body),
   qualityStop: (id: string) => post<QualityRun>(`/quality/runs/${e(id)}/stop`),
@@ -874,8 +880,12 @@ export const api = {
   estimateYaml: (pid: string, yaml: string, acs: number) => post<Estimate>(`/projects/${e(pid)}/estimate`, { yaml, acs }),
 
   // jobs
-  jobs: (f: { project?: string; status?: string; agent?: string; provider?: string; limit?: number } = {}) =>
+  // v0.15.2 status "finished" = every call that does not run any more; q = search words (agent, model, provider, project, step, AC, status)
+  jobs: (f: { project?: string; status?: string; agent?: string; provider?: string; q?: string; limit?: number } = {}) =>
     get<Job[]>(`/jobs${q({ limit: 50, ...f })}`),
+  /** v0.15.2 how many calls match the same filters as jobs(), without its limit (the Finished tab's count). */
+  jobCount: (f: { project?: string; status?: string; agent?: string; provider?: string; q?: string } = {}) =>
+    get<{ count: number }>(`/jobs/count${q(f)}`),
   job: (id: string) => get<JobDetail>(`/jobs/${e(id)}`),
   jobSteps: (id: string, after = 0) => get<{ steps: JobStep[]; running: boolean }>(`/jobs/${e(id)}/steps${q({ after })}`),
   stopJob: (id: string) => post<void>(`/jobs/${e(id)}/stop`),

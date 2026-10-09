@@ -65,6 +65,12 @@ describe("the Code plugin's web part", () => {
         "FileIcon",
         "askAssistant",
         "get",
+        // 0.15.3–0.15.4: a .md file rendered (copies as Markdown), Focus mode's key and event, keel's key helpers
+        "MarkdownView",
+        "FOCUS_EVENT",
+        "FOCUS_KEYS",
+        "isTyping",
+        "modalOpen",
       ]),
     );
     expect(used.filter((name) => !(name in sdk))).toEqual([]);

@@ -39,6 +39,16 @@ const q = (params: Record<string, string | number | undefined | null>) => {
 };
 const e = encodeURIComponent;
 
+/** v0.15.2 a folder for KeelBot's chats, in one project (the engine keeps them; every browser sees the same). */
+export type HelperFolder = {
+  id: string;
+  project: string;
+  name: string;
+  chats: number;
+  created_at: string;
+  updated_at: string;
+};
+
 export const kb = {
   // KeelBot's own sessions
   sessions: (pid: string) =>
@@ -49,10 +59,27 @@ export const kb = {
   ) => post<HelperSession>(`/projects/${e(pid)}/helper/sessions`, body),
   session: (pid: string, sid: string) =>
     get<HelperSession>(`/projects/${e(pid)}/helper/sessions/${e(sid)}`),
-  patch: (pid: string, sid: string, body: { title?: string; model?: Model }) =>
+  patch: (
+    pid: string,
+    sid: string,
+    body: { title?: string; model?: Model; folder?: string },
+  ) =>
     patch<HelperSession>(`/projects/${e(pid)}/helper/sessions/${e(sid)}`, body),
   remove: (pid: string, sid: string) =>
     del<{ ok: boolean }>(`/projects/${e(pid)}/helper/sessions/${e(sid)}`),
+  // v0.15.2 folders for the chats (a chat moves with patch {folder}; "" takes it out)
+  folders: (pid: string) =>
+    get<HelperFolder[]>(`/projects/${e(pid)}/helper/folders`),
+  folderCreate: (pid: string, name: string) =>
+    post<HelperFolder>(`/projects/${e(pid)}/helper/folders`, { name }),
+  folderRename: (pid: string, fid: string, name: string) =>
+    patch<HelperFolder>(`/projects/${e(pid)}/helper/folders/${e(fid)}`, {
+      name,
+    }),
+  folderDelete: (pid: string, fid: string) =>
+    del<{ ok: boolean; moved: number }>(
+      `/projects/${e(pid)}/helper/folders/${e(fid)}`,
+    ),
   turn: (
     pid: string,
     sid: string,

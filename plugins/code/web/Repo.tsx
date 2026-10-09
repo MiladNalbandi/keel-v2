@@ -37,8 +37,8 @@ export function RepoPage({ pid }: { pid: string }) {
         setFocus((f) => !f);
         return;
       }
-      // only an Esc nothing else used (a popup or the find bar closing keeps Focus)
-      if (e.key !== "Escape" || e.defaultPrevented) { lastEsc = 0; return; }
+      // only an Esc nothing else used (a popup or the find bar closing keeps Focus); v0.15.4 ⇧Esc hides a tool window instead
+      if (e.key !== "Escape" || e.shiftKey || e.defaultPrevented) { lastEsc = 0; return; }
       const now = Date.now();
       if (now - lastEsc < 450) { lastEsc = 0; setFocus(false); } else lastEsc = now;
     };

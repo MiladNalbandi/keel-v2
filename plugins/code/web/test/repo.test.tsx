@@ -132,7 +132,12 @@ describe("Repo IDE", () => {
 
     // a single click on another file replaces the preview tab
     await user.click(screen.getByRole("treeitem", { name: "Open README.md" }));
+    // v0.15.3 a Markdown file opens rendered; Preview switches to the code and back
+    await screen.findByRole("region", { name: "Rendered Markdown" });
+    await user.click(screen.getByRole("button", { name: "Preview" }));
     await screen.findByRole("region", { name: "Code of README.md" });
+    await user.click(screen.getByRole("button", { name: "Preview" }));
+    await screen.findByRole("region", { name: "Rendered Markdown" });
     expect(tabs().map((t) => t.textContent)).toEqual([expect.stringContaining("README.md")]);
 
     // a double click pins it; the next file opens next to it
@@ -356,7 +361,7 @@ describe("Repo IDE", () => {
       await screen.findByRole("treeitem", { name: /^api/ });
       expect(ide()).toHaveClass("phone", "s-side");
       await user.click(screen.getByRole("treeitem", { name: "Open README.md" }));
-      await screen.findByRole("region", { name: "Code of README.md" });
+      await screen.findByRole("region", { name: "Rendered Markdown" });
       expect(ide()).toHaveClass("s-editor");
       await user.click(screen.getByRole("button", { name: "Back to the files" }));
       expect(ide()).toHaveClass("s-side");

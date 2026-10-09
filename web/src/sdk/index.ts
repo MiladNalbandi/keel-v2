@@ -148,12 +148,17 @@ export type {
   KeelbotBlock,
   KeelbotCardItem,
   KeelbotCardProps,
+  KeysAreaItem,
   LauncherSourceItem,
   MapErQueryItem,
+  NavBadgeItem,
+  NotesSettingItem,
   ScmPanelProps,
   SettingKind,
   SettingRow,
+  SettingsBrowserItem,
   SettingsSectionItem,
+  ShellWatchItem,
   ToolsCardItem,
   WorkflowActionsItem,
 } from "./slots";
@@ -208,3 +213,13 @@ export type {
   CiRun, FlowView, HelperChange, HelperCommand, HelperDone, HelperHandover, HelperMention, HelperMessage, HelperMode,
   HelperQuestion, HelperSession, HelperTurnStarted, JobStep, Model, ThreadState, WorkflowCheck,
 } from "../api";
+// 0.15.2–0.15.4 (main's releases, ported to the plugin track): keel's keys for the parts (Focus mode's key and event, the
+// cheat sheet's rows, "is the person typing", "a dialog holds the keys"), Markdown that copies as Markdown (Code's .md
+// preview), the providers' marks (KeelBot's model button), wide screens (KeelBot's chat list as a column), and KeelBot's
+// own sound (core's audio, so it shares the notification volume and "do not disturb")
+export { FOCUS_EVENT, FOCUS_KEYS, isTyping, modalOpen } from "../keys";
+export type { KeyArea, KeyRow } from "../keys";
+export { MarkdownView } from "../components/Markdown";
+export { ProviderIcon } from "../components/ProviderIcon";
+export { useWide } from "../components/useWide";
+export { playKeelBot } from "../notify";

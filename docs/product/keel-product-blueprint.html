@@ -1,0 +1,1067 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>keel Product Blueprint</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column (blueprint text) with wide "screens" that are mockups of keel's own UI.
+   Tokens are keel v2's own (web/src/styles.css), so the mockups look like the real app in both themes. */
+:root{
+  --bg:#f7f6f3;--panel:#ffffff;--panel-2:#f1efea;--fg:#131314;--dim:#6f6b63;--faint:#9b968c;--border:#e3e0d9;--rail:#d9d5cc;
+  --accent:#7a5cff;--accent-soft:#ece6ff;--on-accent:#ffffff;
+  --ok:#1f8a4c;--ok-soft:#e3f3e9;--run:#0b74c4;--run-soft:#e2effa;--warn:#b26a00;--warn-soft:#fbefd9;--bad:#c0392b;--bad-soft:#f8e1de;
+  --dimmer:rgba(19,19,20,.42);
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#131314;--panel:#1a1a1c;--panel-2:#222225;--fg:#f7f6f3;--dim:#9a958c;--faint:#6b675f;--border:#2c2c30;--rail:#333338;
+  --accent:#a48bff;--accent-soft:#2a2342;--on-accent:#131314;
+  --ok:#4ec07c;--ok-soft:#173225;--run:#57aeff;--run-soft:#142a3d;--warn:#e0a13a;--warn-soft:#36290f;--bad:#f0685a;--bad-soft:#3a1d1a;
+  --dimmer:rgba(0,0,0,.55);color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#131314;--panel:#1a1a1c;--panel-2:#222225;--fg:#f7f6f3;--dim:#9a958c;--faint:#6b675f;--border:#2c2c30;--rail:#333338;
+  --accent:#a48bff;--accent-soft:#2a2342;--on-accent:#131314;
+  --ok:#4ec07c;--ok-soft:#173225;--run:#57aeff;--run-soft:#142a3d;--warn:#e0a13a;--warn-soft:#36290f;--bad:#f0685a;--bad-soft:#3a1d1a;
+  --dimmer:rgba(0,0,0,.55);color-scheme:dark}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.6 var(--f-body);padding-inline:16px}
+.page{max-width:1120px;margin:0 auto;padding-block:28px 96px;display:flex;flex-direction:column;gap:56px}
+h1,h2,h3{line-height:1.2;text-wrap:balance;margin:0}
+h1{font-size:clamp(30px,5vw,46px);font-weight:700;letter-spacing:-.02em}
+h2{font-size:clamp(24px,3.4vw,32px);font-weight:700;letter-spacing:-.01em}
+h3{font-size:19px;font-weight:600}
+p{margin:0;max-width:72ch}
+a{color:var(--accent)}
+code,.mono{font-family:var(--f-mono);font-size:.88em}
+.eyebrow{font:600 12px/1 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+.dim{color:var(--dim)}
+section{display:flex;flex-direction:column;gap:20px;scroll-margin-top:72px}
+.intro{display:flex;flex-direction:column;gap:16px}
+.lede{font-size:19px;color:var(--dim);max-width:68ch}
+.toc{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);display:flex;gap:8px;overflow-x:auto;padding-block:10px;border-bottom:1px solid var(--border);scrollbar-width:none}
+.toc a{flex:none;text-decoration:none;color:var(--fg);font:500 13px/1 var(--f-mono);padding:8px 12px;border:1px solid var(--border);border-radius:999px;background:var(--panel)}
+.toc a:hover,.toc a:focus-visible{border-color:var(--accent);color:var(--accent);outline:none}
+
+/* the chain */
+.chain{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:8px}
+.chain div{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:4px;min-width:0}
+.chain b{font-size:15px}
+.chain span{font-size:13px;color:var(--dim);line-height:1.4}
+.chain .po{border-color:var(--accent)}
+.chain .keel{background:var(--accent-soft);border-color:var(--accent)}
+.chain small{font:600 11px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:13px;color:var(--dim)}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;border:1.5px solid var(--border);vertical-align:-1px;margin-right:6px}
+.legend .l-po{border-color:var(--accent)} .legend .l-keel{background:var(--accent-soft);border-color:var(--accent)}
+
+/* screens */
+.screen{display:flex;flex-direction:column;gap:14px}
+.screen-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.screen-head .num{font:600 13px/1 var(--f-mono);color:var(--accent)}
+.shot{overflow-x:auto;border-radius:14px;-webkit-overflow-scrolling:touch}
+.swipe{display:none;font:500 12px/1 var(--f-mono);color:var(--faint)}
+@media (max-width:1080px){.swipe{display:block}}
+.cap{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:20px}
+.cap>div{display:flex;flex-direction:column;gap:6px;min-width:0}
+.cap h4{margin:0;font:600 12px/1 var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
+.cap ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px}
+.cap li{font-size:15px}
+@media (max-width:720px){.cap{grid-template-columns:1fr}.chain{grid-template-columns:1fr 1fr}}
+
+/* mock app (a picture of keel's UI) */
+.mk{width:1040px;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:14px;overflow:hidden;font:13px/1.45 var(--f-body);box-shadow:0 10px 30px rgba(0,0,0,.08);position:relative}
+.mk-top{display:flex;gap:18px;align-items:center;height:32px;padding:0 14px;background:var(--panel-2);border-bottom:1px solid var(--border);font:500 10.5px/1 var(--f-mono);color:var(--dim);letter-spacing:.04em}
+.mk-top b{color:var(--fg)}
+.mk-top .sp{flex:1}
+.mk-app{display:grid;grid-template-columns:184px 1fr;min-height:470px}
+.mk-app.solo{grid-template-columns:1fr}
+.mk-rail{background:var(--panel);border-right:1px solid var(--border);padding:12px 10px;display:flex;flex-direction:column;gap:2px}
+.mk-brand{display:flex;align-items:baseline;gap:6px;padding:2px 6px 10px}
+.mk-brand b{font-size:16px}
+.mk-brand span{font:500 10px var(--f-mono);color:var(--faint)}
+.mk-proj{border:1px solid var(--border);border-radius:8px;padding:6px 8px;margin-bottom:8px;display:flex;justify-content:space-between;font-weight:600}
+.mk-proj span{font-weight:400;color:var(--dim);font-size:11.5px}
+.mk-grp{font:600 10px/1 var(--f-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--faint);padding:12px 6px 4px;display:flex;gap:6px;align-items:center}
+.mk-grp em{font-style:normal;background:var(--accent);color:var(--on-accent);border-radius:4px;padding:2px 4px;letter-spacing:.04em}
+.mk-rail a{display:flex;justify-content:space-between;align-items:center;padding:5px 8px;border-radius:7px;color:var(--fg);text-decoration:none}
+.mk-rail a.on{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.mk-rail a i{font-style:normal;font:600 10px/1 var(--f-mono);background:var(--warn-soft);color:var(--warn);padding:3px 5px;border-radius:5px}
+.mk-main{padding:16px 20px 20px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.mk-crumb{font:600 10.5px/1 var(--f-mono);letter-spacing:.12em;color:var(--accent);text-transform:uppercase}
+.mk-headrow{display:flex;align-items:center;gap:10px}
+.mk-h{font-size:21px;font-weight:700;letter-spacing:-.01em}
+.mk-sub{color:var(--dim);font-size:12.5px}
+.mk-sp{flex:1}
+.mk-btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);background:var(--panel);border-radius:8px;padding:5px 10px;font-weight:500;font-size:12px;white-space:nowrap}
+.mk-btn.pri{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:600}
+.mk-btn.ghost{background:transparent}
+.mk-btn.off{opacity:.45}
+.chip{display:inline-flex;align-items:center;gap:5px;font:600 10px/1 var(--f-mono);letter-spacing:.04em;padding:4px 7px;border-radius:999px;background:var(--panel-2);color:var(--dim);white-space:nowrap}
+.chip.acc{background:var(--accent-soft);color:var(--accent)}
+.chip.ok{background:var(--ok-soft);color:var(--ok)}
+.chip.run{background:var(--run-soft);color:var(--run)}
+.chip.warn{background:var(--warn-soft);color:var(--warn)}
+.chip.bad{background:var(--bad-soft);color:var(--bad)}
+.mk-card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.mk-card.sel{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.mk-id{font:600 10.5px/1 var(--f-mono);color:var(--faint)}
+.mk-t{font-weight:600;font-size:13.5px}
+.mk-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.mk-bar{height:6px;border-radius:9px;background:var(--panel-2);overflow:hidden}
+.mk-bar i{display:block;height:100%;background:var(--accent)}
+.mk-bar.ok i{background:var(--ok)}
+.mk-small{font-size:11.5px;color:var(--dim)}
+.mk-cols{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;align-items:start}
+.mk-col{background:var(--panel-2);border-radius:10px;padding:8px;display:flex;flex-direction:column;gap:8px;min-height:330px}
+.mk-colh{display:flex;justify-content:space-between;font:600 10.5px/1 var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--dim);padding:4px 4px 2px}
+.mk-tracker{display:flex;align-items:center;gap:0;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:8px 12px}
+.mk-tracker span{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--dim);white-space:nowrap}
+.mk-tracker span::before{content:"";width:9px;height:9px;border-radius:50%;border:2px solid var(--faint);flex:none}
+.mk-tracker span.done{color:var(--fg)} .mk-tracker span.done::before{background:var(--ok);border-color:var(--ok)}
+.mk-tracker span.now{color:var(--accent);font-weight:600} .mk-tracker span.now::before{background:var(--accent);border-color:var(--accent)}
+.mk-tracker hr{flex:1;border:0;border-top:1.5px solid var(--border);margin:0 8px;min-width:14px}
+.mk-tabs{display:flex;gap:2px;border-bottom:1px solid var(--border)}
+.mk-tabs span{padding:7px 10px;font-weight:500;color:var(--dim);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap}
+.mk-tabs span.on{color:var(--fg);border-bottom-color:var(--accent);font-weight:600}
+.mk-tabs span i{font-style:normal;font:600 10px var(--f-mono);background:var(--warn-soft);color:var(--warn);padding:2px 5px;border-radius:5px;margin-left:4px}
+.mk-split{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:14px;align-items:start}
+.mk-doc{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:8px}
+.mk-doc h5{margin:0;font-size:13px;font-weight:700}
+.mk-doc p,.mk-doc li{font-size:12.5px;margin:0;max-width:none}
+.mk-doc ul{margin:0;padding-left:16px}
+.mk-q{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:7px}
+.mk-q.wait{border-style:dashed}
+.mk-q p{font-size:12.5px;margin:0;font-weight:500;max-width:none}
+.mk-gate{display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:9px 12px}
+.mk-gate .warn{color:var(--warn);font-size:12px}
+.mk-grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.mk-grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.mk-grid4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.mk-kv{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:12px}
+.mk-kv dt{font:600 10px/1.6 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+.mk-kv dd{margin:0}
+.mk-big{font-size:24px;font-weight:700;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.mk-table{width:100%;border-collapse:collapse;font-size:12px}
+.mk-table th{font:600 10px/1.3 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--faint);text-align:left;padding:6px 8px;border-bottom:1px solid var(--border)}
+.mk-table td{padding:8px;border-bottom:1px solid var(--border);vertical-align:top}
+.mk-table tr.sel td{background:var(--accent-soft)}
+.mk-dim{position:absolute;inset:32px 0 0;background:var(--dimmer);display:flex;align-items:center;justify-content:center}
+.mk-modal{width:560px;background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:11px;box-shadow:0 20px 50px rgba(0,0,0,.3)}
+.mk-field{display:flex;flex-direction:column;gap:4px}
+.mk-field label{font:600 10.5px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+.mk-input{border:1px solid var(--border);border-radius:8px;padding:7px 9px;background:var(--bg);font-size:12.5px}
+.mk-input.area{min-height:52px}
+.mk-check{display:flex;align-items:center;gap:7px;font-size:12.5px}
+.mk-check b{width:14px;height:14px;border-radius:4px;border:1.5px solid var(--faint);display:inline-block;flex:none}
+.mk-check b.on{background:var(--accent);border-color:var(--accent)}
+.mk-ac{font:500 11.5px/1.45 var(--f-mono);background:var(--panel-2);border-radius:6px;padding:5px 7px}
+.mk-ctx{background:var(--accent-soft);border:1px solid var(--accent);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+svg.plan{width:100%;height:auto;display:block}
+.mk-opt{border:1px solid var(--border);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:5px;background:var(--panel)}
+.mk-opt.on{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.mk-radio{display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px}
+.mk-radio b{width:14px;height:14px;border-radius:50%;border:2px solid var(--faint);flex:none}
+.mk-radio b.on{border-color:var(--accent);background:radial-gradient(circle,var(--accent) 0 3px,transparent 3.5px)}
+.mk-mini{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:1px;font-size:12px}
+.mk-mini .h{font:600 11px/1 var(--f-mono);letter-spacing:.06em;color:var(--accent);padding:0 4px 6px}
+.mk-mini .g{font:600 9.5px/1 var(--f-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--faint);padding:8px 4px 3px}
+.mk-mini .g.new{color:var(--accent)}
+.mk-mini .i{padding:2px 6px;border-radius:5px}
+.mk-view{display:inline-flex;gap:2px;border:1px solid var(--border);border-radius:7px;padding:2px;background:var(--panel)}
+.mk-view span{padding:3px 8px;border-radius:5px;font:600 10px/1 var(--f-mono)}
+.mk-view span.on{background:var(--accent-soft);color:var(--accent)}
+.mk-hl{background:var(--warn-soft);border-bottom:2px solid var(--warn)}
+.mk-pop{background:var(--panel);border:1px solid var(--accent);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:7px;box-shadow:0 12px 30px rgba(0,0,0,.18);margin-left:28px}
+.mk-ev{display:grid;grid-template-columns:84px 14px minmax(0,1fr);gap:8px;align-items:start;padding:6px 0;border-bottom:1px solid var(--border)}
+.mk-ev:last-child{border-bottom:0}
+.mk-ev .when{font:600 10.5px/1.5 var(--f-mono);color:var(--faint);text-align:right}
+.mk-ev i{width:10px;height:10px;border-radius:50%;background:var(--accent);margin-top:4px;box-shadow:0 0 0 3px var(--accent-soft)}
+.mk-ev i.ok{background:var(--ok);box-shadow:0 0 0 3px var(--ok-soft)}
+.mk-ev i.warn{background:var(--warn);box-shadow:0 0 0 3px var(--warn-soft)}
+.mk-ev i.run{background:var(--run);box-shadow:0 0 0 3px var(--run-soft)}
+.mk-diff{font:500 11.5px/1.6 var(--f-mono);background:var(--panel-2);border-radius:8px;padding:8px 10px}
+.mk-diff .add{color:var(--ok)} .mk-diff .del{color:var(--bad)}
+.mk-fu{display:flex;gap:8px;align-items:baseline;font-size:12px}
+svg.plan text{font-family:var(--f-body);fill:var(--fg)}
+svg.plan .lane{fill:var(--panel-2)}
+svg.plan .lane-l{font:600 10px var(--f-mono);fill:var(--dim);letter-spacing:.1em}
+svg.plan .box{fill:var(--panel);stroke:var(--border);stroke-width:1.5}
+svg.plan .box.crit{stroke:var(--warn);stroke-width:2.5}
+svg.plan .box.sel{stroke:var(--accent);stroke-width:2.5}
+svg.plan .t{font-size:12px;font-weight:600}
+svg.plan .s{font-size:10.5px;fill:var(--dim)}
+svg.plan .e{stroke:var(--faint);stroke-width:1.6;fill:none}
+svg.plan .e.crit{stroke:var(--warn);stroke-width:2.2}
+svg.plan .ah{fill:var(--faint)} svg.plan .ah.crit{fill:var(--warn)}
+
+/* blueprint parts */
+.tablewrap{overflow-x:auto;border:1px solid var(--border);border-radius:12px;background:var(--panel)}
+table.bp{width:100%;border-collapse:collapse;font-size:14.5px;min-width:720px}
+table.bp th{font:600 11px/1.3 var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--faint);text-align:left;padding:12px 14px;border-bottom:1px solid var(--border);background:var(--panel-2)}
+table.bp td{padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:top}
+table.bp tr:last-child td{border-bottom:0}
+table.bp td.layer{font-weight:600;white-space:nowrap}
+.tag{display:inline-block;font:600 10.5px/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;padding:4px 7px;border-radius:999px;white-space:nowrap}
+.tag.new{background:var(--accent-soft);color:var(--accent)}
+.tag.chg{background:var(--warn-soft);color:var(--warn)}
+.tag.reuse{background:var(--ok-soft);color:var(--ok)}
+pre.code{margin:0;overflow-x:auto;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px 18px;font:13px/1.55 var(--f-mono);color:var(--fg)}
+pre.code .c{color:var(--faint)}
+pre.code .k{color:var(--accent)}
+.codegrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
+.codegrid>div{display:flex;flex-direction:column;gap:8px;min-width:0}
+@media (max-width:860px){.codegrid{grid-template-columns:1fr}}
+.diagram{overflow-x:auto;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px}
+pre.mermaid{margin:0;background:transparent}
+.phases{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+.phase{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.phase.now{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.phase .when{font:600 12px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+.phase ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:5px;font-size:14.5px}
+.phase .done{font-size:14px;color:var(--dim);border-top:1px solid var(--border);padding-top:10px}
+@media (max-width:980px){.phases{grid-template-columns:1fr 1fr}}
+@media (max-width:560px){.phases{grid-template-columns:1fr}}
+.decide{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.decide div{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.decide b{font-size:16px}
+@media (max-width:760px){.decide{grid-template-columns:1fr}}
+.addon{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,.7fr) minmax(0,1fr);gap:14px;align-items:stretch}
+.ab{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.ab ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px;font-size:14.5px}
+.ab.mid{justify-content:center;text-align:center;background:var(--accent-soft);border-color:var(--accent)}
+.ab.mid span{font-size:14px}
+.ab.prod{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+@media (max-width:860px){.addon{grid-template-columns:1fr}}
+.gates{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:10px}
+.gates ol{margin:0;padding-left:22px;display:flex;flex-direction:column;gap:6px;font-size:15px}
+.note{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px 16px;font-size:15px;color:var(--dim)}
+@media (prefers-reduced-motion: reduce){*{scroll-behavior:auto}}
+</style>
+
+<div class="page">
+
+<header class="intro">
+  <span class="eyebrow">keel v2 · proposal · add-on keel Product</span>
+  <h1>keel Product: the screens and the code changes</h1>
+  <p class="lede">A product owner writes an idea. keel asks what it needs to know, then helps them go one step deeper each time: brief, impact on the code, decision, a plan per team, and clear tasks for developers. People approve every step, and they can disagree. It is an add-on with its own versions: the developer part does not change. Below: the modes, 15 screens, the agents, the add-on and its versions, every file that changes, and how we build and release it.</p>
+  <div class="chain" aria-label="The chain from idea to outcome">
+    <div class="po"><small>PO</small><b>Clarify</b><span>keel asks first</span></div>
+    <div class="po"><small>PO</small><b>Brief</b><span>goal, metric, scope</span></div>
+    <div class="po"><small>Leads</small><b>Impact</b><span>repos, APIs, data</span></div>
+    <div class="po"><small>PO</small><b>Decision</b><span>value, cost, options</span></div>
+    <div><small>Leads</small><b>Plan</b><span>epics per team, order</span></div>
+    <div><small>Team</small><b>Stories</b><span>criteria, Jira</span></div>
+    <div class="keel"><small>keel</small><b>Code</b><span>test first, review, PR</span></div>
+    <div class="po"><small>PO</small><b>Outcome</b><span>did the metric move?</span></div>
+  </div>
+  <div class="legend"><span><i class="l-po"></i>the product owner or a lead approves</span><span><i></i>a team approves</span><span><i class="l-keel"></i>keel's existing flows do it</span></div>
+</header>
+
+<nav class="toc" aria-label="On this page">
+  <a href="#modes">Modes</a><a href="#screens">Screens</a><a href="#agents">Agents</a><a href="#addon">Add-on and versions</a><a href="#changes">Code changes</a><a href="#examples">Examples</a><a href="#data">Data and flow</a><a href="#phases">Release</a><a href="#decide">Decisions</a>
+</nav>
+
+<section id="modes">
+  <span class="eyebrow">Modes</span>
+  <h2>Product only, Dev only, or both</h2>
+  <p class="dim">One setting decides what this keel does. A team that only wants the product part never sees code pages. A team that only wants keel for code sees keel exactly as it is today. Turning a part off deletes nothing.</p>
+  <div class="screen" id="s-modes">
+    <span class="swipe">Swipe to see the whole screen →</span>
+    <div class="shot"><div class="mk" role="img" aria-label="Mockup of the mode setting and the menu in each mode">
+      <div class="mk-top"><span>TODAY <b>127k</b></span><span class="sp"></span><span>View</span><span class="mk-view"><span class="on">All</span><span>Product</span><span>Dev</span></span></div>
+      <div class="mk-app solo"><div class="mk-main">
+        <div class="mk-crumb">control › settings</div>
+        <div class="mk-headrow"><span class="mk-h">Settings</span><span class="mk-sp"></span><span class="mk-small">for everyone on this keel</span></div>
+        <div class="mk-card" style="gap:10px"><span class="mk-t">What this keel does</span>
+          <div class="mk-grid3">
+            <div class="mk-opt"><span class="mk-radio"><b></b>Dev only</span><span class="mk-small">Flows, tasks, code, workflows: keel as it is today. No Product menu, no product API.</span></div>
+            <div class="mk-opt"><span class="mk-radio"><b></b>Product only</span><span class="mk-small">Initiatives and teams. keel still reads the code for impact, read only, but code pages are hidden. Stories go to Jira.</span></div>
+            <div class="mk-opt on"><span class="mk-radio"><b class="on"></b>Product and Dev</span><span class="mk-small">Everything. Start on a story runs keel's flow right here. Each person picks a view in the top bar.</span></div>
+          </div></div>
+        <div class="mk-grid3" style="align-items:start">
+          <div class="mk-mini"><span class="h">Dev only</span>
+            <span class="g">Run</span><span class="i">Flow</span><span class="i">Tasks</span><span class="i">Inbox</span><span class="i">Live agents</span><span class="i">Jobs</span>
+            <span class="g">Project</span><span class="i">Code</span><span class="i">KeelBot</span><span class="i">Map</span><span class="i">Wiki</span>
+            <span class="g">Build</span><span class="i">Workflows</span><span class="i">Agents</span>
+            <span class="g">Control</span><span class="i">Budget · Settings · Connections</span></div>
+          <div class="mk-mini"><span class="h">Product only</span>
+            <span class="g new">Product</span><span class="i">Initiatives</span><span class="i">Teams</span>
+            <span class="g">Run</span><span class="i">Inbox</span>
+            <span class="g">Project</span><span class="i">KeelBot</span>
+            <span class="g">Control</span><span class="i">Budget · Settings · Connections</span></div>
+          <div class="mk-mini"><span class="h">Product and Dev · view All</span>
+            <span class="g new">Product</span><span class="i">Initiatives</span><span class="i">Teams</span>
+            <span class="g">Run</span><span class="i">Flow</span><span class="i">Tasks</span><span class="i">Inbox</span><span class="i">Live agents</span><span class="i">Jobs</span>
+            <span class="g">Project</span><span class="i">Code</span><span class="i">KeelBot</span><span class="i">Map</span>
+            <span class="g">Build</span><span class="i">Workflows</span><span class="i">Agents</span>
+            <span class="g">Control</span><span class="i">Budget · Settings · Connections</span></div>
+        </div>
+      </div></div>
+    </div></div>
+    <div class="cap">
+      <div><h4>What happens</h4><ul><li>The setting turns a part on or off for the whole keel: its pages, its workflows, KeelBot's knowledge of it and its API.</li><li>With both on, each person picks a <b>View</b> in the top bar: All, Product or Dev. It only hides menu items; the data stays the same. In team mode the view starts from the person's role: PO and PM see Product, developers see Dev, leads see All.</li><li>Product only still needs the repos added to keel, read only, so the impact step can read the code.</li></ul></div>
+      <div><h4>Code</h4><ul><li><code>GET /api/features</code> and Settings <code>keelMode</code> <span class="tag new">core extension</span></li><li><code>web/src/routes.ts</code>, <code>Shell.tsx</code>: menu from the features, View switch <span class="tag chg">changed</span></li><li>product API answers 409 "Product is off" <span class="tag new">add-on</span></li></ul></div>
+    </div>
+  </div>
+</section>
+
+<section id="screens">
+  <span class="eyebrow">Mockups</span>
+  <h2>The screens, in the order a PO meets them</h2>
+  <p class="dim">These are pictures of keel's real UI style. A new group <b>Product</b> joins the left menu with two pages: <b>Initiatives</b> and <b>Teams</b>. The rest of keel stays as it is.</p>
+
+  <!-- 1 board -->
+  <div class="screen" id="s1">
+    <div class="screen-head"><span class="num">Screen 1</span><h3>Initiatives: every idea, from idea to outcome</h3></div>
+    <span class="swipe">Swipe to see the whole screen →</span>
+    <div class="shot"><div class="mk" role="img" aria-label="Mockup of the Initiatives board">
+      <div class="mk-top"><span>TODAY <b>127k</b></span><span>THIS MONTH <b>657k</b></span><span class="sp"></span><span>Claude · subscription</span></div>
+      <div class="mk-app">
+        <aside class="mk-rail">
+          <div class="mk-brand"><b>keel</b><span>v0.13</span></div>
+          <div class="mk-proj">shop <span>workspace ▾</span></div>
+          <div class="mk-grp">Product <em>NEW</em></div>
+          <a class="on">Initiatives <i>2</i></a><a>Teams</a>
+          <div class="mk-grp">Run</div>
+          <a>Flow</a><a>Tasks</a><a>Inbox <i>3</i></a><a>Live agents</a><a>Jobs</a>
+          <div class="mk-grp">Project</div>
+          <a>Code</a><a>KeelBot</a><a>Map</a><a>Wiki</a>
+          <div class="mk-grp">Build</div>
+          <a>Workflows</a><a>Agents</a>
+        </aside>
+        <div class="mk-main">
+          <div class="mk-crumb">shop › product</div>
+          <div class="mk-headrow"><span class="mk-h">Initiatives</span><span class="mk-sp"></span><span class="mk-btn">Filter: all teams</span><span class="mk-btn pri">+ New initiative</span></div>
+          <div class="mk-cols">
+            <div class="mk-col"><div class="mk-colh"><span>Idea</span><span>2</span></div>
+              <div class="mk-card"><span class="mk-id">INI-15</span><span class="mk-t">Share a wishlist</span><span class="mk-small">Product · no repos yet</span><span class="mk-btn" style="align-self:flex-start">Start discovery</span></div>
+              <div class="mk-card"><span class="mk-id">INI-14</span><span class="mk-t">Gift cards</span><span class="mk-small">Product · 3 repos picked</span><span class="mk-btn" style="align-self:flex-start">Start discovery</span></div>
+            </div>
+            <div class="mk-col"><div class="mk-colh"><span>Discovery</span><span>1</span></div>
+              <div class="mk-card"><span class="mk-id">INI-13</span><span class="mk-t">Faster search</span><div class="mk-row"><span class="chip">Search</span><span class="chip">Web</span></div><span class="chip warn" style="align-self:flex-start">Impact · 2 of 3 leads</span></div>
+            </div>
+            <div class="mk-col"><div class="mk-colh"><span>Decision</span><span>1</span></div>
+              <div class="mk-card sel"><span class="mk-id">INI-12</span><span class="mk-t">Prices in euro for EU shoppers</span><div class="mk-row"><span class="chip">Payments</span><span class="chip">Web</span><span class="chip">Data</span></div><span class="mk-small">18–30 dev days · ~4 weeks</span><span class="chip ok" style="align-self:flex-start">Ready for go / no-go</span></div>
+            </div>
+            <div class="mk-col"><div class="mk-colh"><span>Delivery</span><span>2</span></div>
+              <div class="mk-card"><span class="mk-id">INI-10</span><span class="mk-t">Saved carts</span><div class="mk-bar"><i style="width:62%"></i></div><span class="mk-small">11 of 18 stories · 2 PRs open</span></div>
+              <div class="mk-card"><span class="mk-id">INI-9</span><span class="mk-t">Order tracking</span><div class="mk-bar"><i style="width:88%"></i></div><span class="chip bad" style="align-self:flex-start">1 story blocked</span></div>
+            </div>
+            <div class="mk-col"><div class="mk-colh"><span>Measuring</span><span>1</span></div>
+              <div class="mk-card"><span class="mk-id">INI-7</span><span class="mk-t">Guest checkout</span><span class="mk-small">week 3 of 4</span><span class="mk-small">conversion 2.4% → 2.7% (target 2.8%)</span><div class="mk-bar ok"><i style="width:75%"></i></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div></div>
+    <div class="cap">
+      <div><h4>What the PO does</h4><ul><li>Sees every idea and where it is. A card that waits for them is marked.</li><li>Opens a card to work on it, or presses <b>New initiative</b>.</li></ul></div>
+      <div><h4>Code</h4><ul><li><code>product/web/pages/Initiatives.tsx</code> <span class="tag new">add-on</span></li><li><code>web/src/routes.ts</code>: menu from <code>/api/features</code> <span class="tag chg">core extension</span></li><li><code>GET /api/initiatives</code> <span class="tag new">add-on</span></li></ul></div>
+    </div>
+  </div>
+
+  <!-- 2 new initiative -->
+  <div class="screen" id="s2">
+    <div class="screen-head"><span class="num">Screen 2</span><h3>New initiative: the idea, and the repos keel may read</h3></div>
+    <span class="swipe">Swipe to see the whole screen →</span>
+    <div class="shot"><div class="mk" role="img" aria-label="Mockup of the New initiative dialog" style="height:560px">
+      <div class="mk-top"><span>TODAY <b>127k</b></span><span class="sp"></span><span>Claude · subscription</span></div>
+      <div class="mk-app solo"><div class="mk-main"><div class="mk-cols" style="opacity:.5">
+        <div class="mk-col"></div><div class="mk-col"></div><div class="mk-col"></div><div class="mk-col"></div><div class="mk-col"></div></div></div></div>
+      <div class="mk-dim"><div class="mk-modal">
+        <div class="mk-headrow"><span class="mk-h" style="font-size:17px">New initiative</span><span class="mk-sp"></span><span class="mk-small">INI-12</span></div>
+        <div class="mk-field"><label>The idea</label><div class="mk-input area">EU visitors see prices in US dollars. Show prices in euro, so more of them buy.</div></div>
+        <div class="mk-grid2">
+          <div class="mk-field"><label>Outcome you hope for</label><div class="mk-input">More EU orders</div></div>
+          <div class="mk-field"><label>Why now</label><div class="mk-input">112 tickets last quarter</div></div>
+        </div>
+        <div class="mk-field"><label>Repos keel may read (read only)</label>
+          <div class="mk-grid2">
+            <span class="mk-check"><b class="on"></b>web-shop <span class="chip">Web</span></span>
+            <span class="mk-check"><b class="on"></b>payments-api <span class="chip">Payments</span></span>
+            <span class="mk-check"><b class="on"></b>events <span class="chip">Data</span></span>
+            <span class="mk-check"><b class="on"></b>mobile-app <span class="chip">Mobile</span></span>
+            <span class="mk-check"><b></b>admin <span class="chip">Back office</span></span>
+          </div></div>
+        <div class="mk-row mk-small">Owners come from CODEOWNERS. keel asks these teams' leads about the impact.</div>
+        <div class="mk-row"><span class="mk-btn">Model: claude · sonnet</span><span class="mk-sp"></span><span class="mk-btn ghost">Cancel</span><span class="mk-btn pri">Start discovery</span></div>
+      </div></div>
+    </div></div>
+    <div class="cap">
+      <div><h4>What the PO does</h4><ul><li>Writes the idea in their own words. Ticks the repos that may be touched.</li><li><b>Start discovery</b> runs the first workflow: keel drafts the brief and asks its questions.</li></ul></div>
+      <div><h4>Code</h4><ul><li><code>POST /api/initiatives</code> → starts <code>product-discover</code> <span class="tag new">add-on</span></li><li>Repo owners from <code>Teams.kt</code> (CODEOWNERS) <span class="tag new">add-on</span></li><li>Model picker <span class="tag reuse">reused</span></li></ul></div>
+    </div>
+  </div>
+
+  <!-- clarify -->
+  <div class="screen" id="s-clarify">
+    <div class="screen-head"><span class="num">Screen 3</span><h3>Clarify: keel asks before it writes, and anyone can ask later</h3></div>
+    <span class="swipe">Swipe to see the whole screen →</span>
+    <div class="shot"><div class="mk" role="img" aria-label="Mockup of the Clarify step and the Ask to clarify box">
+      <div class="mk-top"><span>TODAY <b>127k</b></span><span class="sp"></span><span>Claude · subscription</span></div>
+      <div class="mk-app solo"><div class="mk-main">
+        <div class="mk-crumb">initiatives › INI-12</div>
+        <div class="mk-headrow"><span class="mk-h">Prices in euro for EU shoppers</span><span class="chip warn">Clarify · 2 questions left</span></div>
+        <div class="mk-tracker"><span class="done">Idea</span><hr><span class="now">Clarify</span><hr><span>Brief</span><hr><span>Impact</span><hr><span>Decision</span><hr><span>Plan</span><hr><span>Delivery</span><hr><span>Outcome</span></div>
+        <div class="mk-split">
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <div class="mk-card"><span class="mk-small">YOUR IDEA</span><span>EU visitors see prices in US dollars. Show prices in euro, so more of them buy.</span></div>
+            <span class="mk-small"><b>Before it writes the brief, keel asks 5 questions.</b> Pick an answer or write your own.</span>
+            <div class="mk-q"><div class="mk-row"><span class="chip ok">answered</span></div><p>Which visitors count as EU? · <b>By shipping country</b></p></div>
+            <div class="mk-q"><div class="mk-row"><span class="chip ok">answered</span></div><p>Daily rate or live rate? · <b>Daily</b></p></div>
+            <div class="mk-q"><div class="mk-row"><span class="chip acc">open</span></div><p>How will you know it worked?</p><div class="mk-row"><span class="mk-btn">EU checkout conversion</span><span class="mk-btn">Fewer currency tickets</span><span class="mk-btn ghost">Other…</span></div></div>
+            <div class="mk-q"><div class="mk-row"><span class="chip acc">open</span></div><p>Must anything stay exactly the same?</p><div class="mk-row"><span class="mk-btn">US prices</span><span class="mk-btn">Refund rate</span><span class="mk-btn ghost">Other…</span></div></div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <div class="mk-doc"><div class="mk-row"><span class="chip acc">later, on a story</span><span class="mk-small">WEB-391 · select any text</span></div>
+              <p>AC-2 [WEB] The USD price shows <span class="mk-hl">small and struck through</span> next to the euro price.</p>
+              <p>AC-3 [WEB] Without a rate, the page shows USD only.</p></div>
+            <div class="mk-pop">
+              <span class="mk-t">Ask to clarify</span>
+              <span class="mk-small">about: "small and struck through"</span>
+              <div class="mk-input area">Do we need the struck-through USD price on the cart page too?</div>
+              <span class="mk-small">Send to</span>
+              <div class="mk-row"><span class="chip acc">keel: answer from the code and docs</span><span class="chip">PO</span><span class="chip">Web lead</span><span class="chip">a person…</span></div>
+              <div class="mk-row"><span class="mk-sp"></span><span class="mk-btn pri">Ask</span></div>
+            </div>
+            <div class="mk-card"><span class="mk-small">CLARIFY LOG</span><span>9 questions · 7 answered · 2 open</span><span class="mk-small">Each answer changes the brief or the story and makes a new version.</span></div>
+          </div>
+        </div>
+      </div></div>
+    </div></div>
+    <div class="cap">
+      <div><h4>What happens</h4><ul><li>Before keel writes anything, it asks the PO a few short questions with answer buttons, like keel's spec interview today.</li><li>Later, anyone can select a line in the brief, the impact, the plan or a story and press <b>Ask to clarify</b>. keel answers at once from the code and docs, or sends it to the right person's Inbox.</li><li>An answer updates the text and makes a new version, so nobody has to remember it.</li></ul></div>
+      <div><h4>Code</h4><ul><li>the first steps of <code>product/content/workflows/product-discover.yaml</code> <span class="tag new">add-on</span></li><li><code>ClarifyForm.tsx</code> (answer buttons), KeelBot <span class="tag reuse">reused</span></li><li><code>POST /api/initiatives/{id}/clarify</code> <span class="tag new">add-on</span></li></ul></div>
+    </div>
+  </div>
+
+  <!-- 3 brief -->
+  <div class="screen" id="s3">
+    <div class="screen-head"><span class="num">Screen 4</span><h3>Brief, with questions sent to the right person</h3></div>
+    <span class="swipe">Swipe to see the whole screen →</span>
+    <div class="shot"><div class="mk" role="img" aria-label="Mockup of the initiative Brief tab with questions">
+      <div class="mk-top"><span>TODAY <b>131k</b></span><span class="sp"></span><span>Claude · subscription</span></div>
+      <div class="mk-app solo"><div class="mk-main">
+        <div class="mk-crumb">initiatives › INI-12</div>
+        <div class="mk-headrow"><span class="mk-h">Prices in euro for EU shoppers</span><span class="chip warn">Brief · waits for you</span><span class="mk-sp"></span><span class="mk-btn">Ask KeelBot</span></div>
+        <div class="mk-tracker"><span class="done">Idea</span><hr><span class="done">Clarify</span><hr><span class="now">Brief</span><hr><span>Impact</span><hr><span>Decision</span><hr><span>Plan</span><hr><span>Delivery</span><hr><span>Outcome</span></div>
+        <div class="mk-tabs"><span class="on">Brief</span><span>Questions <i>2</i></span><span>Impact</span><span>Decision</span><span>Plan</span><span>Delivery</span><span>Outcome</span><span>Runs</span><span>History</span></div>
+        <div class="mk-split">
+          <div class="mk-doc">
+            <div class="mk-row"><span class="chip acc">brief v2</span><span class="mk-small">keel wrote it from your idea · edit any line</span></div>
+            <h5>Problem</h5><p>EU visitors (38% of traffic) see USD. EU checkout conversion is 2.1%, US is 3.0%.</p>
+            <h5>Outcome metric</h5><p>EU checkout conversion 2.1% → 2.6%, 4 weeks after release.</p>
+            <h5>Guardrails</h5><ul><li>Refund rate under 1.5%</li><li>No change for US shoppers</li></ul>
+            <h5>In scope · not in scope</h5><p>EUR on product, cart, checkout, receipt · not: charging in EUR, VAT, other currencies</p>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <div class="mk-q"><div class="mk-row"><span class="chip acc">To you · PO</span><span class="mk-small">business</span></div><p>Should visitors who are not logged in see euro too?</p><div class="mk-row"><span class="mk-btn">Yes</span><span class="mk-btn">No</span><span class="mk-btn ghost">Answer…</span></div></div>
+            <div class="mk-q"><div class="mk-row"><span class="chip acc">To you · PO</span><span class="mk-small">scope</span></div><p>Is the mobile app part of the first version?</p><div class="mk-row"><span class="mk-btn">Yes</span><span class="mk-btn">Not now</span></div></div>
+            <div class="mk-q wait"><div class="mk-row"><span class="chip">To Legal</span><span class="mk-small">asked 2 days ago</span></div><p>May we show EUR but still charge in USD?</p><span class="mk-small">Waiting for Legal. Does not block the brief.</span></div>
+            <div class="mk-q"><div class="mk-row"><span class="chip ok">Answered</span><span class="mk-small">by PO</span></div><p>Use a daily rate or a live rate? · <b>Daily</b></p></div>
+          </div>
+        </div>
+        <div class="mk-gate"><span class="warn">2 questions for you are open</span><span class="mk-sp"></span><span class="mk-btn ghost">Send back with a note</span><span class="mk-btn pri off">Approve the brief</span></div>
+      </div></div>
+    </div></div>
+    <div class="cap">
+      <div><h4>What happens</h4><ul><li>keel writes the brief and lists what it could not decide as questions, each with an owner role: PO, lead, developer or someone named.</li><li>An answer goes into the brief at once. <b>Approve</b> stays off while the PO's own questions are open.</li></ul></div>
+      <div><h4>Code</h4><ul><li><code>product/content/workflows/product-discover.yaml</code> <span class="tag new">add-on</span></li><li><code>product/engine/keel_product/questions.py</code> <span class="tag new">add-on</span></li><li><code>product/api/…/Questions.kt</code> <span class="tag new">add-on</span></li><li>gate, Inbox <span class="tag reuse">reused</span></li></ul></div>
+    </div>
+  </div>
+
+  <!-- 4 impact -->
+  <div class="screen" id="s4">
+    <div class="screen-head"><span class="num">Screen 5</span><h3>Impact: one analyst per repo, each lead confirms</h3></div>
+    <span class="swipe">Swipe to see the whole screen →</span>
+    <div class="shot"><div class="mk" role="img" aria-label="Mockup of the Impact tab">
+      <div class="mk-top"><span>TODAY <b>212k</b></span><span class="sp"></span><span>4 analysts ran in parallel · 18 min</span></div>
+      <div class="mk-app solo"><div class="mk-main">
+        <div class="mk-crumb">initiatives › INI-12</div>
+        <div class="mk-headrow"><span class="mk-h">Prices in euro for EU shoppers</span><span class="chip warn">Impact · 2 of 3 leads</span></div>
+        <div class="mk-tabs"><span>Brief</span><span>Questions</span><span class="on">Impact</span><span>Decision</span><span>Plan</span><span>Delivery</span><span>Outcome</span><span>Runs</span><span>History</span></div>
+        <div class="mk-row"><span class="chip acc">6 parts</span><span class="chip acc">2 API changes</span><span class="chip warn">1 data migration</span><span class="chip bad">3 unknowns</span><span class="mk-sp"></span><span class="mk-small">read only · knowledge base + code graph</span></div>
+        <div class="mk-grid2">
+          <div class="mk-card"><div class="mk-row"><span class="mk-t">web-shop</span><span class="chip">Web</span><span class="mk-sp"></span><span class="chip ok">confirmed</span></div>
+            <span class="mk-small">Change · risk low</span><span class="mk-ac">src/product/Price.tsx:14 · src/cart/Total.tsx:40 · src/checkout/Summary.tsx</span><span class="mk-small">Formats the amount it gets. No currency logic today.</span></div>
+          <div class="mk-card sel"><div class="mk-row"><span class="mk-t">payments-api</span><span class="chip">Payments</span><span class="mk-sp"></span><span class="chip warn">waits for lead</span></div>
+            <span class="mk-small">Change + new table · risk medium</span><span class="mk-ac">GET /prices (PriceController.kt:31) · new table rates · daily job</span><div class="mk-row"><span class="mk-btn pri">Confirm</span><span class="mk-btn">Correct it</span></div></div>
+          <div class="mk-card"><div class="mk-row"><span class="mk-t">events</span><span class="chip">Data</span><span class="mk-sp"></span><span class="chip ok">confirmed</span></div>
+            <span class="mk-small">Change · risk low</span><span class="mk-ac">price_shown schema v3 → v4 (+ currency)</span></div>
+          <div class="mk-card"><div class="mk-row"><span class="mk-t">mobile-app</span><span class="chip">Mobile</span><span class="mk-sp"></span><span class="chip">no change</span></div>
+            <span class="mk-small">Reads /prices v1. Stays on v1 in the MVP.</span></div>
+        </div>
+        <div class="mk-card" style="border-color:var(--bad)"><span class="mk-t">Unknowns: keel shows them, it never calls them safe</span><span class="mk-small">Which exchange rate provider? (not in the code) · Legal rule for showing EUR · Who owns the receipt template?</span></div>
+      </div></div>
+    </div></div>
+    <div class="cap">
+      <div><h4>What happens</h4><ul><li>keel runs one analyst per repo at the same time. Each one reads only its own repo, with keel's knowledge base and code graph, and cannot change anything.</li><li>Each tech lead confirms or corrects their repo's card. A correction goes back to that analyst.</li></ul></div>
+      <div><h4>Code</h4><ul><li><code>product/content/workflows/product-impact.yaml</code> <span class="tag new">add-on</span></li><li>parallel step with <code>root: item</code> (<code>workflows/model.py</code>, <code>runtime/compiler.py</code>) <span class="tag chg">changed</span></li><li>code graph, knowledge, read-only guard <span class="tag reuse">reused</span></li></ul></div>
+    </div>
+  </div>
+
+  <!-- disagree -->
+  <div class="screen" id="s-disagree">
+    <div class="screen-head"><span class="num">Screen 6</span><h3>When people do not agree</h3></div>
+    <span class="swipe">Swipe to see the whole screen →</span>
+    <div class="shot"><div class="mk" role="img" aria-label="Mockup of a disagreement on the impact, with both views and three ways to settle it">
+      <div class="mk-top"><span>TODAY <b>127k</b></span><span class="sp"></span><span>Claude · subscription</span></div>
+      <div class="mk-app solo"><div class="mk-main">
+        <div class="mk-crumb">initiatives › INI-12</div>
+        <div class="mk-headrow"><span class="mk-h">Prices in euro for EU shoppers</span><span class="chip bad">Impact · 1 disagreement</span></div>
+        <div class="mk-tabs"><span>Brief</span><span>Questions</span><span class="on">Impact</span><span>Decision</span><span>Plan</span><span>Delivery</span><span>Outcome</span><span>Runs</span><span>History</span></div>
+        <div class="mk-grid2">
+          <div class="mk-card"><div class="mk-row"><span class="chip acc">keel's impact v2</span></div><span class="mk-t">payments-api: a new table and API v2</span><span class="mk-small">Rates are stored daily in a new table <b>rates</b>. Estimate 8–12 dev days.</span></div>
+          <div class="mk-card" style="border-color:var(--bad)"><div class="mk-row"><span class="chip bad">Payments lead disagrees</span><span class="mk-small">today 09:40</span></div><span class="mk-t">"We already have a currency service. Use it, no new table."</span><span class="mk-small">Estimate 4–6 dev days · see currency-service/README.md</span></div>
+        </div>
+        <div class="mk-card" style="gap:10px"><span class="mk-t">How to settle it</span>
+          <div class="mk-grid3">
+            <div class="mk-opt on"><span class="mk-radio"><b class="on"></b>Run impact again with the objection</span><span class="mk-small">keel also reads currency-service and writes v3. Both sides see the result.</span></div>
+            <div class="mk-opt"><span class="mk-radio"><b></b>Ask the decider</span><span class="mk-small">Technical questions: the architect or the lead who owns the code. Business: the PO. The reason goes into the decision log.</span></div>
+            <div class="mk-opt"><span class="mk-radio"><b></b>Talk first</span><span class="mk-small">keel writes a short agenda with both views for a 15-minute call.</span></div>
+          </div></div>
+        <div class="mk-gate"><span class="mk-small">The Impact gate stays closed until this is settled. Nobody is overruled without a record.</span><span class="mk-sp"></span><span class="mk-btn pri">Run impact again</span></div>
+      </div></div>
+    </div></div>
+    <div class="cap">
+      <div><h4>What happens</h4><ul><li>At every gate a person can press <b>Disagree</b> and write why, and a better idea. keel never hides it.</li><li>keel shows both views side by side, with three ways to settle it: run the stage again with the objection as input, ask the decider, or prepare a short talk.</li><li>Who decides is set per kind of question: business by the PO, technical by the architect or the code owner, estimates by the team that does the work. The decision and the other view both stay in History.</li></ul></div>
+      <div><h4>Code</h4><ul><li><code>disagreements</code> table, <code>POST …/disagree</code> <span class="tag new">add-on</span></li><li>decider rules in the team settings <span class="tag new">add-on</span></li><li>stage workflows take an <code>objection</code> input <span class="tag new">add-on</span></li><li>gates and re-runs <span class="tag reuse">reused</span></li></ul></div>
+    </div>
+  </div>
+
+  <!-- 5 decision -->
+  <div class="screen" id="s5">
+    <div class="screen-head"><span class="num">Screen 7</span><h3>Decision: value, cost, risk, options, and the presentation</h3></div>
+    <span class="swipe">Swipe to see the whole screen →</span>
+    <div class="shot"><div class="mk" role="img" aria-label="Mockup of the Decision tab">
+      <div class="mk-top"><span>TODAY <b>240k</b></span><span class="sp"></span><span>Claude · subscription</span></div>
+      <div class="mk-app solo"><div class="mk-main">
+        <div class="mk-crumb">initiatives › INI-12</div>
+        <div class="mk-headrow"><span class="mk-h">Prices in euro for EU shoppers</span><span class="chip ok">Ready for go / no-go</span><span class="mk-sp"></span><span class="mk-btn">Open the presentation</span><span class="mk-btn">Share view link</span></div>
+        <div class="mk-tabs"><span>Brief</span><span>Questions</span><span>Impact</span><span class="on">Decision</span><span>Plan</span><span>Delivery</span><span>Outcome</span><span>Runs</span><span>History</span></div>
+        <div class="mk-grid4">
+          <div class="mk-card"><span class="mk-small">VALUE</span><span class="mk-big">2.1 → 2.6%</span><span class="mk-small">EU checkout conversion</span></div>
+          <div class="mk-card"><span class="mk-small">COST</span><span class="mk-big">18–30 days</span><span class="mk-small">confidence medium · 14 similar flows</span></div>
+          <div class="mk-card"><span class="mk-small">TIME</span><span class="mk-big">~4 weeks</span><span class="mk-small">critical path: prices API</span></div>
+          <div class="mk-card" style="border-color:var(--warn)"><span class="mk-small">RISK</span><span class="mk-big">Medium</span><span class="mk-small">1 migration · 1 external service</span></div>
+        </div>
+        <table class="mk-table"><tr><th>Option</th><th>What</th><th>Cost</th><th>Time</th><th>Risk</th><th></th></tr>
+          <tr class="sel"><td><b>A · MVP</b></td><td>EUR on the web shop, daily rate, charge stays USD</td><td>18–30 d</td><td>~4 w</td><td>medium</td><td><span class="chip acc">recommended</span></td></tr>
+          <tr><td><b>B · Full</b></td><td>A + charge in EUR, mobile app, live rates</td><td>60–90 d</td><td>10–12 w</td><td>high</td><td></td></tr>
+          <tr><td><b>C · Not now</b></td><td>Keep USD, look again next quarter</td><td>0</td><td>–</td><td>EU stays low</td><td></td></tr></table>
+        <div class="mk-gate"><span class="mk-small">Decision is yours. keel writes it into the decision log with your name.</span><span class="mk-sp"></span><span class="mk-btn ghost">Send back</span><span class="mk-btn">Not now</span><span class="mk-btn pri">Go with A</span></div>
+      </div></div>
+    </div></div>
+    <div class="cap">
+      <div><h4>What happens</h4><ul><li>keel adds up the impact and the story sizes into ranges, never one number, with a confidence. It compares with keel's history of similar flows.</li><li><b>Open the presentation</b> builds the deck you saw (<a href="https://claude.ai/artifact/6WePS2tiS5AVpBdq3yenVS">example</a>) in the company's style. <b>Go</b> starts the plan.</li></ul></div>
+      <div><h4>Code</h4><ul><li><code>product/content/workflows/product-decide.yaml</code> <span class="tag new">add-on</span></li><li><code>product/engine/keel_product/deck.py</code> + template <span class="tag new">add-on</span></li><li>usage and history of flows <span class="tag reuse">reused</span></li></ul></div>
+    </div>
+  </div>
+
+  <!-- 6 plan -->
+  <div class="screen" id="s6">
+    <div class="screen-head"><span class="num">Screen 8</span><h3>Plan: teams, stories, and what waits for what</h3></div>
+    <span class="swipe">Swipe to see the whole screen →</span>
+    <div class="shot"><div class="mk" role="img" aria-label="Mockup of the Plan tab with a dependency map">
+      <div class="mk-top"><span>TODAY <b>266k</b></span><span class="sp"></span><span>Claude · subscription</span></div>
+      <div class="mk-app solo"><div class="mk-main">
+        <div class="mk-crumb">initiatives › INI-12</div>
+        <div class="mk-headrow"><span class="mk-h">Prices in euro for EU shoppers</span><span class="chip warn">Plan · leads agree</span><span class="mk-sp"></span><span class="mk-btn">Critical path</span><span class="mk-btn pri">Create in Jira · 3 epics, 11 stories, 31 sub-tasks</span></div>
+        <div class="mk-tabs"><span>Brief</span><span>Questions</span><span>Impact</span><span>Decision</span><span class="on">Plan</span><span>Delivery</span><span>Outcome</span><span>Runs</span><span>History</span></div>
+        <div class="mk-split" style="grid-template-columns:minmax(0,1.7fr) minmax(0,1fr)">
+          <svg class="plan" viewBox="0 0 640 300" width="640" height="300" role="img" aria-label="Dependency map: the contract comes first; Payments builds the API while Web and Data work in parallel; Web connects after the API; then release">
+            <defs>
+              <marker id="pa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+              <marker id="pc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="ah crit" d="M0,0 L10,5 L0,10 z"/></marker>
+            </defs>
+            <rect class="lane" x="0" y="4" width="640" height="88" rx="8"/><text class="lane-l" x="10" y="20">PAYMENTS</text>
+            <rect class="lane" x="0" y="100" width="640" height="88" rx="8"/><text class="lane-l" x="10" y="116">WEB</text>
+            <rect class="lane" x="0" y="196" width="640" height="88" rx="8"/><text class="lane-l" x="10" y="212">DATA</text>
+            <path class="e crit" d="M148 50 H176" marker-end="url(#pc)"/>
+            <path class="e crit" d="M296 50 H324" marker-end="url(#pc)"/>
+            <path class="e" d="M120 72 C120 110 140 146 176 146" marker-end="url(#pa)"/>
+            <path class="e" d="M120 72 C120 200 150 242 176 242" marker-end="url(#pa)"/>
+            <path class="e crit" d="M444 64 C470 64 450 140 472 140" marker-end="url(#pc)"/>
+            <path class="e" d="M296 146 H470" marker-end="url(#pa)" stroke-dasharray="5 5"/>
+            <path class="e crit" d="M560 168 C560 196 596 192 596 218" marker-end="url(#pc)"/>
+            <rect class="box crit" x="28" y="28" width="120" height="44" rx="8"/><text class="t" x="38" y="47">Contract</text><text class="s" x="38" y="63">prices API v2</text>
+            <rect class="box crit" x="176" y="28" width="120" height="44" rx="8"/><text class="t" x="186" y="47">Rates table</text><text class="s" x="186" y="63">+ daily job</text>
+            <rect class="box crit sel" x="324" y="28" width="120" height="44" rx="8"/><text class="t" x="334" y="47">Build API v2</text><text class="s" x="334" y="63">PAY-S2 · 3–5 d</text>
+            <rect class="box" x="176" y="124" width="120" height="44" rx="8"/><text class="t" x="186" y="143">EUR screens</text><text class="s" x="186" y="159">on a mock</text>
+            <rect class="box crit" x="472" y="124" width="120" height="44" rx="8"/><text class="t" x="482" y="143">Connect API</text><text class="s" x="482" y="159">after API v2</text>
+            <rect class="box" x="176" y="220" width="120" height="44" rx="8"/><text class="t" x="186" y="239">Event field</text><text class="s" x="186" y="255">+ dashboard</text>
+            <rect class="box crit" x="560" y="220" width="72" height="44" rx="8"/><text class="t" x="568" y="247">Release</text>
+          </svg>
+          <div class="mk-card sel">
+            <div class="mk-row"><span class="mk-id">PAY-S2 · story</span><span class="mk-sp"></span><span class="chip ok">ready · 0 questions</span></div>
+            <span class="mk-t">Build prices API v2</span>
+            <span class="mk-small">Payments · payments-api · 3–5 days · after: Contract, Rates table</span>
+            <span class="mk-ac">AC-1 [API] GET /prices returns currency and amount for an EU visitor</span>
+            <span class="mk-ac">AC-2 [API] Without today's rate, it uses yesterday's rate</span>
+            <span class="mk-ac">AC-3 [API] One rounding rule (half up, 2 places)</span>
+            <span class="mk-small">4 sub-tasks · Jira: created after the leads agree</span>
+          </div>
+        </div>
+        <div class="mk-gate"><span class="mk-small">Payments lead ✓ · Web lead ✓ · Data lead: waiting</span><span class="mk-sp"></span><span class="mk-btn ghost">Change the order</span><span class="mk-btn">Send to teams</span></div>
+      </div></div>
+    </div></div>
+    <div class="cap">
+      <div><h4>What happens</h4><ul><li>keel maps every part from the impact to the team that owns it, cuts epics into stories with keel's tagged acceptance criteria, and draws the order. The contract comes first, so other teams start on day 1 with a mock.</li><li>The leads agree, then <b>Create in Jira</b> makes epics, then stories, then sub-tasks, all linked.</li></ul></div>
+      <div><h4>Code</h4><ul><li><code>product/content/workflows/product-plan.yaml</code> <span class="tag new">add-on</span></li><li><code>product/engine/keel_product/plan.py</code>: schema, cycle check, critical path <span class="tag new">add-on</span></li><li><code>product/api/…/JiraWriter.kt</code>: epics, then stories, then sub-tasks <span class="tag new">add-on</span></li><li><code>product/web/components/PlanMap.tsx</code> <span class="tag new">add-on</span></li></ul></div>
+    </div>
+  </div>
+
+  <!-- 7 teams -->
+  <div class="screen" id="s7">
+    <div class="screen-head"><span class="num">Screen 9</span><h3>Teams: who owns which code, and who is free</h3></div>
+    <span class="swipe">Swipe to see the whole screen →</span>
+    <div class="shot"><div class="mk" role="img" aria-label="Mockup of the Teams page">
+      <div class="mk-top"><span>TODAY <b>127k</b></span><span class="sp"></span><span>Claude · subscription</span></div>
+      <div class="mk-app solo"><div class="mk-main">
+        <div class="mk-crumb">shop › product</div>
+        <div class="mk-headrow"><span class="mk-h">Teams</span><span class="mk-sp"></span><span class="mk-btn">Import CODEOWNERS</span><span class="mk-btn">Import Backstage catalog</span><span class="mk-btn pri">+ Team</span></div>
+        <table class="mk-table">
+          <tr><th>Team</th><th>Lead</th><th>Owns</th><th>Jira</th><th>Free next 2 sprints</th><th>Source</th></tr>
+          <tr class="sel"><td><b>Payments</b></td><td>Payments lead</td><td><span class="mk-ac">payments-api/** · db/migrations/prices/**</span></td><td>PAY</td><td><div class="mk-bar ok" style="width:120px"><i style="width:70%"></i></div><span class="mk-small">14 of 20 days</span></td><td><span class="chip">CODEOWNERS</span></td></tr>
+          <tr><td><b>Web</b></td><td>Web lead</td><td><span class="mk-ac">web-shop/**</span></td><td>WEB</td><td><div class="mk-bar" style="width:120px"><i style="width:40%"></i></div><span class="mk-small">8 of 20 days</span></td><td><span class="chip">catalog-info.yaml</span></td></tr>
+          <tr><td><b>Data</b></td><td>Data lead</td><td><span class="mk-ac">events/** · dashboards/**</span></td><td>DATA</td><td><div class="mk-bar" style="width:120px"><i style="width:30%"></i></div><span class="mk-small">shared</span></td><td><span class="chip">added by hand</span></td></tr>
+          <tr><td><b>Mobile</b></td><td>Mobile lead</td><td><span class="mk-ac">mobile-app/**</span></td><td>MOB</td><td><div class="mk-bar" style="width:120px"><i style="width:10%"></i></div><span class="mk-small">2 of 20 days</span></td><td><span class="chip">CODEOWNERS</span></td></tr>
+        </table>
+        <div class="mk-card"><span class="mk-t">Payments · members</span><span class="mk-small">Lead (approves impact and plan) · 2 developers · sprint length 2 weeks · roles decide who gets which question</span></div>
+      </div></div>
+    </div></div>
+    <div class="cap">
+      <div><h4>What happens</h4><ul><li>keel reads CODEOWNERS or Backstage <code>catalog-info.yaml</code> to know which team owns which folders. A person can fix anything by hand.</li><li>Capacity is a simple number per sprint. It makes the plan honest, it is not a time sheet.</li></ul></div>
+      <div><h4>Code</h4><ul><li><code>product/web/pages/Teams.tsx</code> <span class="tag new">add-on</span></li><li><code>product/api/…/Teams.kt</code> + importers <span class="tag new">add-on</span></li><li>tables <code>teams</code>, <code>team_members</code>, <code>team_paths</code> <span class="tag new">add-on</span></li></ul></div>
+    </div>
+  </div>
+
+  <!-- team knowledge -->
+  <div class="screen" id="s-knowledge">
+    <div class="screen-head"><span class="num">Screen 10</span><h3>Team knowledge: what each team knows, used when keel plans for them</h3></div>
+    <span class="swipe">Swipe to see the whole screen →</span>
+    <div class="shot"><div class="mk" role="img" aria-label="Mockup of a team's knowledge pages and a suggested update">
+      <div class="mk-top"><span>TODAY <b>127k</b></span><span class="sp"></span><span>Claude · subscription</span></div>
+      <div class="mk-app solo"><div class="mk-main">
+        <div class="mk-crumb">product › teams › web</div>
+        <div class="mk-headrow"><span class="mk-h">Web team</span><span class="mk-sp"></span><span class="mk-btn">Open in the product repo</span></div>
+        <div class="mk-tabs"><span>Members</span><span>Owns</span><span class="on">Knowledge</span><span>Capacity</span><span>Decisions</span></div>
+        <div class="mk-split">
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <table class="mk-table"><tr><th>Team page</th><th>Used by</th><th>Changed</th></tr>
+              <tr><td><b>Definition of ready</b></td><td>story-writer</td><td>2 weeks ago</td></tr>
+              <tr><td><b>How we split stories</b></td><td>story-writer</td><td>1 month ago</td></tr>
+              <tr><td><b>How we estimate</b> · 23 stories, planned vs real</td><td>planner</td><td>after INI-9</td></tr>
+              <tr><td><b>Our conventions</b> · UI, tests, reviews</td><td>impact-analyst</td><td>3 weeks ago</td></tr>
+              <tr><td><b>Glossary</b> · product words</td><td>all agents</td><td>last week</td></tr>
+              <tr><td><b>Contacts and rules</b></td><td>question routing</td><td>2 months ago</td></tr></table>
+            <div class="mk-card"><span class="mk-t">Also used for this team</span><span class="mk-small">web-shop/docs/knowledge (keel's notes from the code) · the product glossary · decisions of past initiatives</span></div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <div class="mk-card sel"><div class="mk-row"><span class="chip acc">suggested by keel</span><span class="mk-small">after INI-10 Saved carts</span></div><span class="mk-t">Add to "How we estimate"</span>
+              <div class="mk-diff"><span class="add">+ A UI story that needs a new API took 1.6× its estimate</span><br><span class="add">  (5 of 6 times). Add one day for the mock.</span></div>
+              <div class="mk-row"><span class="mk-btn pri">Accept</span><span class="mk-btn">Edit</span><span class="mk-btn ghost">Reject</span></div></div>
+            <div class="mk-card"><span class="mk-t">The team owns these pages</span><span class="mk-small">keel only suggests. A change goes in when someone from the team accepts it, here or as a pull request.</span></div>
+          </div>
+        </div>
+      </div></div>
+    </div></div>
+    <div class="cap">
+      <div><h4>What happens</h4><ul><li>Each team keeps a few short pages: definition of ready, how they split and estimate, conventions, glossary, contacts. They are Markdown in the product repo.</li><li>When keel plans work for a team, its agents read that team's pages, the repo's knowledge base and past decisions. A story for the Web team follows the Web team's rules.</li><li>After each initiative keel suggests updates, like real time against the estimate. The team accepts or rejects them.</li></ul></div>
+      <div><h4>Code</h4><ul><li><code>teams/&lt;team&gt;/knowledge/*.md</code> in the product repo <span class="tag new">add-on</span></li><li>Teams › Knowledge tab, suggestions <span class="tag new">add-on</span></li><li>agents' <code>knowledge:</code> header: team pages <span class="tag new">add-on</span></li><li>repo knowledge base, librarian <span class="tag reuse">reused</span></li></ul></div>
+    </div>
+  </div>
+
+  <!-- 8 inbox -->
+  <div class="screen" id="s8">
+    <div class="screen-head"><span class="num">Screen 11</span><h3>Inbox: each person sees only their questions and approvals</h3></div>
+    <span class="swipe">Swipe to see the whole screen →</span>
+    <div class="shot"><div class="mk" role="img" aria-label="Mockup of the Inbox with routed questions">
+      <div class="mk-top"><span>TODAY <b>127k</b></span><span class="sp"></span><span>signed in as Payments lead</span></div>
+      <div class="mk-app solo"><div class="mk-main">
+        <div class="mk-headrow"><span class="mk-h">Inbox</span><span class="mk-sp"></span><span class="chip acc">All 4</span><span class="chip">Questions 2</span><span class="chip">Approvals 1</span><span class="chip">Flows 1</span></div>
+        <div class="mk-q"><div class="mk-row"><span class="chip acc">Question · lead</span><span class="mk-small">INI-12 Prices in euro · step Impact</span><span class="mk-sp"></span><span class="mk-small">blocks: Impact gate</span></div><p>Which exchange rate provider should the daily job use?</p><div class="mk-row"><span class="mk-btn">ECB reference rates</span><span class="mk-btn">Our bank's API</span><span class="mk-btn ghost">Answer…</span></div></div>
+        <div class="mk-q"><div class="mk-row"><span class="chip warn">Approval · lead</span><span class="mk-small">INI-12 · Impact on payments-api</span></div><p>Confirm the impact keel found in payments-api: GET /prices v2, new table rates, daily job.</p><div class="mk-row"><span class="mk-btn pri">Confirm</span><span class="mk-btn">Correct it</span><span class="mk-btn ghost">Open</span></div></div>
+        <div class="mk-q"><div class="mk-row"><span class="chip acc">Question · lead</span><span class="mk-small">INI-13 Faster search · step Plan</span></div><p>Can Payments review the search index change? It reads the prices table.</p><div class="mk-row"><span class="mk-btn">Yes, in week 2</span><span class="mk-btn">No</span></div></div>
+        <div class="mk-q"><div class="mk-row"><span class="chip run">Flow · developer</span><span class="mk-small">PAY-213 Build prices API v2 · AC-1</span></div><p>AC-1 is green. Approve the criterion?</p><div class="mk-row"><span class="mk-btn pri">Approve</span><span class="mk-btn ghost">Open the diff</span></div></div>
+      </div></div>
+    </div></div>
+    <div class="cap">
+      <div><h4>What happens</h4><ul><li>The Inbox you know gets two new kinds: <b>question</b> and <b>approval</b> for an initiative, each with a role and the gate it blocks.</li><li>In team mode (phase 2) each person signs in and sees only their items.</li></ul></div>
+      <div><h4>Code</h4><ul><li><code>api/…/inbox/InboxService.kt</code>: kinds open to add-ons <span class="tag chg">core extension</span></li><li><code>web/src/pages/Inbox.tsx</code>: question cards <span class="tag chg">changed</span></li><li>sounds, pop-ups, mascot <span class="tag reuse">reused</span></li></ul></div>
+    </div>
+  </div>
+
+  <!-- 9 developer -->
+  <div class="screen" id="s9">
+    <div class="screen-head"><span class="num">Screen 12</span><h3>Developer: the task already knows why, what, and the answers</h3></div>
+    <span class="swipe">Swipe to see the whole screen →</span>
+    <div class="shot"><div class="mk" role="img" aria-label="Mockup of a developer task with initiative context">
+      <div class="mk-top"><span>TODAY <b>40k</b></span><span class="sp"></span><span>developer's own keel</span></div>
+      <div class="mk-app solo"><div class="mk-main">
+        <div class="mk-crumb">web-shop › tasks</div>
+        <div class="mk-headrow"><span class="mk-h">WEB-391 · Show the EUR price on the product page</span><span class="chip">story</span><span class="chip">To do</span><span class="mk-sp"></span><span class="mk-btn pri">Start</span></div>
+        <div class="mk-ctx">
+          <div class="mk-row"><span class="chip acc">From initiative INI-12</span><span class="mk-small">Prices in euro for EU shoppers · approved by PO on 8 Oct</span></div>
+          <span class="mk-small"><b>Why:</b> EU checkout conversion 2.1% → 2.6%. EU visitors don't know the price in euro.</span>
+          <div class="mk-grid2">
+            <div style="display:flex;flex-direction:column;gap:5px"><span class="mk-small"><b>Acceptance criteria</b></span>
+              <span class="mk-ac">AC-1 [WEB] An EU visitor sees €45,90 under the title</span>
+              <span class="mk-ac">AC-2 [WEB] The USD price shows small and struck through</span>
+              <span class="mk-ac">AC-3 [WEB] Without a rate, the page shows USD only</span></div>
+            <div style="display:flex;flex-direction:column;gap:5px"><span class="mk-small"><b>Answered already</b></span>
+              <span class="mk-small">Logged-out visitors see euro too · PO</span>
+              <span class="mk-small">Daily rate, not live · PO</span>
+              <span class="mk-small"><b>Contract:</b> prices API v2 · mock ready</span>
+              <span class="mk-small"><b>Waits for:</b> nothing (works on the mock)</span></div>
+          </div>
+        </div>
+        <div class="mk-card"><span class="mk-small">Start runs keel's <b>feature</b> flow with these criteria. There is no new interview: the questions were answered during planning. Then test first, code, review, PR, and the Jira ticket moves by itself.</span></div>
+      </div></div>
+    </div></div>
+    <div class="cap">
+      <div><h4>What the developer does</h4><ul><li>Opens the task, reads why it matters and what "done" means, and presses <b>Start</b>.</li><li>keel's feature flow already skips its interview when the criteria are given, so this part is almost ready today.</li></ul></div>
+      <div><h4>Code</h4><ul><li><code>api/…/tasks/TaskService.kt</code>: a task carries context and a flow seed <span class="tag chg">core extension</span></li><li><code>web/src/pages/Tasks.tsx</code>: shows the task context <span class="tag chg">core extension</span></li><li>feature flow, Jira moves <span class="tag reuse">reused</span></li></ul></div>
+    </div>
+  </div>
+
+  <!-- 10 delivery -->
+  <div class="screen" id="s10">
+    <div class="screen-head"><span class="num">Screen 13</span><h3>Delivery: progress rolls up from tasks to the initiative</h3></div>
+    <span class="swipe">Swipe to see the whole screen →</span>
+    <div class="shot"><div class="mk" role="img" aria-label="Mockup of the Delivery tab">
+      <div class="mk-top"><span>TODAY <b>127k</b></span><span class="sp"></span><span>Claude · subscription</span></div>
+      <div class="mk-app solo"><div class="mk-main">
+        <div class="mk-crumb">initiatives › INI-12</div>
+        <div class="mk-headrow"><span class="mk-h">Prices in euro for EU shoppers</span><span class="chip run">Delivery · week 3 of 4 · on track</span></div>
+        <div class="mk-tabs"><span>Brief</span><span>Questions</span><span>Impact</span><span>Decision</span><span>Plan</span><span class="on">Delivery</span><span>Outcome</span><span>Runs</span><span>History</span></div>
+        <div class="mk-grid3">
+          <div class="mk-card"><div class="mk-row"><span class="mk-t">Payments</span><span class="mk-sp"></span><span class="mk-small">3 of 4 stories</span></div><div class="mk-bar"><i style="width:75%"></i></div><span class="mk-small">PAY-213 in review · PR #482 · CI passed</span></div>
+          <div class="mk-card"><div class="mk-row"><span class="mk-t">Web</span><span class="mk-sp"></span><span class="mk-small">2 of 5 stories</span></div><div class="mk-bar"><i style="width:40%"></i></div><span class="chip warn" style="align-self:flex-start">WEB-394 waits for PAY-213</span></div>
+          <div class="mk-card"><div class="mk-row"><span class="mk-t">Data</span><span class="mk-sp"></span><span class="mk-small">2 of 2 stories</span></div><div class="mk-bar ok"><i style="width:100%"></i></div><span class="mk-small">dashboard ready for the outcome check</span></div>
+        </div>
+        <table class="mk-table"><tr><th>Story</th><th>Team</th><th>keel flow</th><th>PR</th><th>CI</th><th>Status</th></tr>
+          <tr><td>PAY-213 Build prices API v2</td><td>Payments</td><td>feature · AC 3/3</td><td>#482</td><td><span class="chip ok">passed</span></td><td><span class="chip run">in review</span></td></tr>
+          <tr><td>WEB-391 EUR on the product page</td><td>Web</td><td>feature · AC 2/3</td><td>–</td><td>–</td><td><span class="chip run">in progress</span></td></tr>
+          <tr><td>WEB-394 Connect to API v2</td><td>Web</td><td>–</td><td>–</td><td>–</td><td><span class="chip warn">waits</span></td></tr>
+          <tr><td>DATA-78 Event field</td><td>Data</td><td>change · done</td><td>#477</td><td><span class="chip ok">passed</span></td><td><span class="chip ok">done</span></td></tr></table>
+      </div></div>
+    </div></div>
+    <div class="cap">
+      <div><h4>What the PO sees</h4><ul><li>Real progress from keel's flows, PRs and CI, not status updates by hand. A story that waits shows what it waits for.</li><li>After release, the <b>Outcome</b> tab reads the metric and closes the loop.</li></ul></div>
+      <div><h4>Code</h4><ul><li><code>product/api/…/Plan.kt</code>: roll-up <span class="tag new">add-on</span></li><li>flows, PR status, CI plugin, Jira sync <span class="tag reuse">reused</span></li><li><code>product/content/workflows/product-outcome.yaml</code> <span class="tag new">add-on</span></li></ul></div>
+    </div>
+  </div>
+  <!-- runs -->
+  <div class="screen" id="s-runs">
+    <div class="screen-head"><span class="num">Screen 14</span><h3>Runs: every stage is a keel run you can open, compare or run again</h3></div>
+    <span class="swipe">Swipe to see the whole screen →</span>
+    <div class="shot"><div class="mk" role="img" aria-label="Mockup of the Runs tab with versions and a compare">
+      <div class="mk-top"><span>TODAY <b>127k</b></span><span class="sp"></span><span>Claude · subscription</span></div>
+      <div class="mk-app solo"><div class="mk-main">
+        <div class="mk-crumb">initiatives › INI-12</div>
+        <div class="mk-headrow"><span class="mk-h">Prices in euro for EU shoppers</span><span class="mk-sp"></span><span class="mk-btn">Re-run impact · 14 commits since v2</span></div>
+        <div class="mk-tabs"><span>Brief</span><span>Questions</span><span>Impact</span><span>Decision</span><span>Plan</span><span>Delivery</span><span>Outcome</span><span class="on">Runs</span><span>History</span></div>
+        <div class="mk-split" style="grid-template-columns:minmax(0,1.65fr) minmax(0,1fr)">
+          <table class="mk-table"><tr><th>Stage</th><th>Workflow</th><th>Made</th><th>Status</th><th>Tokens</th><th>Approved by</th></tr>
+            <tr><td>Clarify</td><td>product-discover</td><td>5 answers</td><td><span class="chip ok">done</span></td><td>18k</td><td>PO</td></tr>
+            <tr><td>Brief</td><td>product-discover</td><td>brief v3</td><td><span class="chip ok">approved</span></td><td>41k</td><td>PO · 3 Oct</td></tr>
+            <tr class="sel"><td>Impact</td><td>product-impact</td><td>impact v2</td><td><span class="chip ok">approved</span></td><td>212k</td><td>3 leads · 6 Oct</td></tr>
+            <tr><td>Impact</td><td>product-impact</td><td>impact v1</td><td><span class="chip">replaced</span></td><td>198k</td><td>corrected</td></tr>
+            <tr><td>Decision</td><td>product-decide</td><td>memo v1 + deck</td><td><span class="chip ok">go · A</span></td><td>36k</td><td>PO · 8 Oct</td></tr>
+            <tr><td>Plan</td><td>product-plan</td><td>plan v1</td><td><span class="chip warn">waits</span></td><td>88k</td><td>2 of 3 leads</td></tr></table>
+          <div class="mk-card sel"><span class="mk-t">Impact v1 → v2</span><span class="mk-small">after the Payments lead's correction</span>
+            <div class="mk-diff"><span class="add">+ rate provider: UNKNOWN (not in the code)</span><br><span class="add">+ payments-api: new table rates</span><br><span class="del">− mobile-app: change the /prices call</span><br><span class="add">+ mobile-app: no change, stays on v1</span></div>
+            <div class="mk-row"><span class="mk-btn">Open the run</span><span class="mk-btn">Open v1</span></div>
+            <span class="mk-small">All runs so far: 593k tokens</span></div>
+        </div>
+      </div></div>
+    </div></div>
+    <div class="cap">
+      <div><h4>What happens</h4><ul><li>Each stage starts a keel workflow run, like a flow today. The Runs tab lists them: what each one made, its tokens and who approved it. <b>Open the run</b> shows every step, as on the Flow page.</li><li>When things change, run a stage again. keel shows how many commits landed in the repos since the last impact. A re-run makes a new version and keeps the old one, so you can compare.</li><li><b>Send back</b> at a gate runs the earlier stage again, with the note as input.</li></ul></div>
+      <div><h4>Code</h4><ul><li>a flow carries its initiative and stage <span class="tag chg">core extension</span></li><li><code>FlowRuns.tsx</code>, flow history <span class="tag reuse">reused</span></li><li><code>POST …/stages/{stage}/rerun</code>, <code>doc_versions</code> <span class="tag new">add-on</span></li></ul></div>
+    </div>
+  </div>
+
+  <!-- history and follow-up -->
+  <div class="screen" id="s-history">
+    <div class="screen-head"><span class="num">Screen 15</span><h3>History and follow-up: what happened, and what comes next</h3></div>
+    <span class="swipe">Swipe to see the whole screen →</span>
+    <div class="shot"><div class="mk" role="img" aria-label="Mockup of the History tab with a timeline and follow-ups">
+      <div class="mk-top"><span>TODAY <b>127k</b></span><span class="sp"></span><span>Claude · subscription</span></div>
+      <div class="mk-app solo"><div class="mk-main">
+        <div class="mk-crumb">initiatives › INI-12</div>
+        <div class="mk-headrow"><span class="mk-h">Prices in euro for EU shoppers</span><span class="chip warn">next: Data lead agrees the plan</span></div>
+        <div class="mk-tabs"><span>Brief</span><span>Questions</span><span>Impact</span><span>Decision</span><span>Plan</span><span>Delivery</span><span>Outcome</span><span>Runs</span><span class="on">History</span></div>
+        <div class="mk-split">
+          <div class="mk-card">
+            <div class="mk-row"><span class="chip acc">All</span><span class="chip">Decisions</span><span class="chip">Questions</span><span class="chip">Versions</span><span class="chip">Runs</span><span class="chip">Jira</span></div>
+            <div>
+              <div class="mk-ev"><span class="when">8 Oct 10:12</span><i class="ok"></i><div><b>PO chose option A</b><div class="mk-small">"Most of the gain, medium risk. B can follow." · decision log #4</div></div></div>
+              <div class="mk-ev"><span class="when">7 Oct 16:40</span><i></i><div><b>Payments and Web leads agreed the plan</b><div class="mk-small">Data lead not yet</div></div></div>
+              <div class="mk-ev"><span class="when">6 Oct 11:05</span><i class="warn"></i><div><b>Payments lead disagreed, impact ran again</b><div class="mk-small">impact v1 → v2 · compare</div></div></div>
+              <div class="mk-ev"><span class="when">5 Oct 09:30</span><i></i><div><b>Legal answered</b><div class="mk-small">"Showing EUR and charging USD is fine with a note."</div></div></div>
+              <div class="mk-ev"><span class="when">3 Oct 14:20</span><i class="ok"></i><div><b>PO approved brief v3</b><div class="mk-small">v2 → v3: target 2.5% → 2.6%</div></div></div>
+              <div class="mk-ev"><span class="when">2 Oct 10:02</span><i class="run"></i><div><b>keel asked 5 clarify questions</b><div class="mk-small">run product-discover · 18k tokens</div></div></div>
+              <div class="mk-ev"><span class="when">1 Oct 17:45</span><i></i><div><b>PO created the idea</b><div class="mk-small">from 112 support tickets</div></div></div>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <div class="mk-card"><div class="mk-row"><span class="mk-t">Follow-ups</span><span class="mk-sp"></span><span class="mk-btn">+ Follow-up</span></div>
+              <div class="mk-fu"><span class="chip warn">tomorrow</span><span>Data lead agrees the plan · reminder sent today</span></div>
+              <div class="mk-fu"><span class="chip">every 2 days</span><span>Open question to Legal · 4 days old</span></div>
+              <div class="mk-fu"><span class="chip acc">8 Nov</span><span>Outcome check, 4 weeks after release (automatic)</span></div>
+              <div class="mk-fu"><span class="chip">6 Dec</span><span>Outcome check, 8 weeks after release</span></div></div>
+            <div class="mk-card"><span class="mk-t">Next step and owner</span><span class="mk-small">PO · the plan waits for the Data lead, then Create in Jira</span></div>
+            <div class="mk-card"><span class="mk-t">Watching</span><span class="mk-small">PM, Payments lead, Web lead · they get every decision</span></div>
+            <div class="mk-card"><span class="mk-t">Ideas parked as "Not now"</span><span class="mk-small">come back on their date, for example INI-6 Loyalty points on 1 Jan</span></div>
+          </div>
+        </div>
+      </div></div>
+    </div></div>
+    <div class="cap">
+      <div><h4>What happens</h4><ul><li><b>History</b> lists every event with who and when: questions, answers, versions with a compare, runs, disagreements, approvals, decisions with their reason, Jira tickets, PRs and the outcome.</li><li><b>Follow-up:</b> every initiative has a next step and an owner. keel reminds people when a question or an approval waits too long, nudges an idea nobody touched for 2 weeks, brings back "Not now" ideas on their date, and runs the outcome check by itself after release.</li><li>The board has a <b>History</b> list of done, parked and stopped initiatives, with their outcome. Estimates learn from it.</li></ul></div>
+      <div><h4>Code</h4><ul><li><code>events</code>, <code>follow_ups</code> tables <span class="tag new">add-on</span></li><li><code>FollowUps.kt</code>: a daily job like the CI watcher <span class="tag new">add-on</span></li><li>bell, sound, pop-up notifications <span class="tag reuse">reused</span></li><li>versions as git history in the product repo <span class="tag new">add-on</span></li></ul></div>
+    </div>
+  </div>
+</section>
+
+<section id="agents">
+  <span class="eyebrow">Agents</span>
+  <h2>4 new agents, plus keel's existing ones</h2>
+  <p class="dim">keel v2 already has 19 agents, and the chain uses most of them as they are. Only the product steps need new ones. Each agent is one Markdown file with its tools, model and limits, so it shows on the Agents page, counts in the budget and goes through keel's guard.</p>
+  <div class="tablewrap"><table class="bp">
+    <tr><th style="width:14%">Step</th><th style="width:34%">New agent (add-on)</th><th>Existing agents, reused</th></tr>
+    <tr><td class="layer">Clarify, Brief</td><td><b>product-manager</b>: questions, brief, outcome metric</td><td><b>helper</b> (KeelBot): answers "Ask keel" and chats about the initiative</td></tr>
+    <tr><td class="layer">Impact</td><td><b>impact-analyst</b>: one per repo, read only</td><td><b>librarian</b> refreshes old knowledge first · <b>arch-surveyor</b> when the architecture is unclear · <b>security-auditor</b> for the security side · <b>bulk-reader</b> for very large files</td></tr>
+    <tr><td class="layer">Decision</td><td><b>product-manager</b>: memo, options, cost and risk</td><td>none: the estimate ranges come from keel's flow history (code)</td></tr>
+    <tr><td class="layer">Plan</td><td><b>planner</b>: teams, epics, order</td><td>none: <code>plan.py</code> checks loops and finds the critical path (code)</td></tr>
+    <tr><td class="layer">Stories</td><td><b>story-writer</b>: stories with keel's tagged criteria</td><td><b>reviewer</b> with one more lens: "can this criterion be tested?"</td></tr>
+    <tr><td class="layer">Developer task</td><td>none</td><td>the whole feature flow, unchanged: explorer, test-author, implementer, ac-reviewer, code-reviewer, security-auditor, dependency-triager, e2e-author</td></tr>
+    <tr><td class="layer">Outcome</td><td><b>product-manager</b>: reads the metric after release</td><td>Database plugin tools, read only</td></tr>
+  </table></div>
+</section>
+
+<section id="addon">
+  <span class="eyebrow">Add-on and versions</span>
+  <h2>keel Product is an add-on, with its own versions</h2>
+  <p class="dim">The developer part must not break and must not grow. So Product lives in its own folder, builds into its own modules, keeps its own database tables and has its own release line. keel v2 core only gets five small, generic extension points.</p>
+  <div class="addon">
+    <div class="ab"><span class="eyebrow">keel v2 core</span><h3>What developers use today</h3><ul><li>engine, API, web, content</li><li>versions v0.12, v0.13, …</li><li>image <code>keel-v2:0.13.0</code> and <code>:latest</code></li><li>tests and releases as today</li></ul></div>
+    <div class="ab mid"><b>+ 5 extension points</b><span class="dim">add-on loader · <code>root: item</code> · features API · task context and Inbox kinds · menu from features</span></div>
+    <div class="ab prod"><span class="eyebrow">keel Product add-on</span><h3>Only where it is installed</h3><ul><li><code>product/</code>: engine package, API module, web pages, content, own tables</li><li>versions <code>product-v0.1.0-beta.1</code>, …</li><li>needs keel 0.13 or newer, below 0.15</li><li>image <code>keel-v2-product:0.1.0-beta.1</code>, built from <code>keel-v2:0.13.0</code></li></ul></div>
+  </div>
+  <div class="tablewrap"><table class="bp">
+    <tr><th style="width:30%">Question</th><th>Answer</th></tr>
+    <tr><td><b>Does a developer's keel change?</b></td><td>No. Without the add-on there is no Product menu, no product API and no product tables. With the add-on and Product off, the same.</td></tr>
+    <tr><td><b>Does the code get bigger for developers?</b></td><td>The core grows only by the five extension points. Product pages are their own web chunk and load only when Product is on.</td></tr>
+    <tr><td><b>Can Product break a flow?</b></td><td>Product never edits core files. It uses the extension points, and those have their own tests in the core suites.</td></tr>
+    <tr><td><b>How do the versions work?</b></td><td>Core keeps v0.13, v0.14 and so on. Product has product-v0.1.0-beta.1 and so on, and says which core it needs. keel refuses to load an add-on made for another core, with a clear message.</td></tr>
+    <tr><td><b>When is it final?</b></td><td>Only after every release gate in Phases. Before that: beta and rc tags only, never <code>:latest</code>, Product off by default.</td></tr>
+  </table></div>
+</section>
+
+<section id="changes">
+  <span class="eyebrow">Code changes</span>
+  <h2>Every file that changes</h2>
+  <p class="dim">Two parts. In keel v2 core only five small extension points change; each one is generic, tested on its own, and does nothing until an add-on uses it. Everything else is new, in the folder <code>product/</code>.</p>
+  <h3>keel v2 core: five extension points</h3>
+  <div class="tablewrap"><table class="bp">
+    <tr><th style="width:11%">Layer</th><th style="width:37%">File</th><th style="width:10%"></th><th>What</th></tr>
+    <tr><td class="layer">Engine</td><td><code>engine/keel_engine/addons.py</code></td><td><span class="tag new">new</span></td><td>Loads an installed add-on: its Python package, its content folder (workflows, agents, skills) and its routes. No add-on installed: nothing happens.</td></tr>
+    <tr><td class="layer">Engine</td><td><code>workflows/model.py</code>, <code>runtime/compiler.py</code></td><td><span class="tag chg">changed</span></td><td><code>root: item</code> on a parallel step: each item runs in its own folder, read only. Useful for developers too, for example one reviewer per service.</td></tr>
+    <tr><td class="layer">API</td><td><code>keel/api/addons/Features.kt</code>, <code>settings/Settings.kt</code></td><td><span class="tag new">new</span></td><td><code>GET /api/features</code>: which parts are on and the menu items they add. Setting <code>keelMode</code>: dev, product or both.</td></tr>
+    <tr><td class="layer">API</td><td><code>tasks/TaskService.kt</code>, <code>inbox/InboxService.kt</code>, <code>flow/FlowService.kt</code></td><td><span class="tag chg">changed</span></td><td>A task can carry a context block and a flow seed (its criteria). Inbox item kinds are open to add-ons. A flow can carry an owner reference (initiative and stage).</td></tr>
+    <tr><td class="layer">Web</td><td><code>web/src/routes.ts</code>, <code>components/Shell.tsx</code></td><td><span class="tag chg">changed</span></td><td>The menu is built from <code>/api/features</code>. Add-on pages load lazily, so the developer bundle does not grow. The View switch in the top bar.</td></tr>
+  </table></div>
+  <h3>keel Product add-on: the new folder <code>product/</code></h3>
+  <div class="tablewrap"><table class="bp">
+    <tr><th style="width:11%">Layer</th><th style="width:37%">Folder or file</th><th style="width:10%"></th><th>What</th></tr>
+    <tr><td class="layer">Content</td><td><code>product/content/workflows/</code> product-discover, -impact, -decide, -plan, -outcome</td><td><span class="tag new">new</span></td><td>The stages as workflows on keel's engine. Discover starts with the clarify questions.</td></tr>
+    <tr><td class="layer">Content</td><td><code>product/content/agents/</code> product-manager, impact-analyst, planner, story-writer</td><td><span class="tag new">new</span></td><td>Four agents, one Markdown file each.</td></tr>
+    <tr><td class="layer">Content</td><td><code>product/content/skills/</code></td><td><span class="tag new">new</span></td><td>Brief template, criteria rules, estimates as ranges, presentation template.</td></tr>
+    <tr><td class="layer">Engine</td><td><code>product/engine/keel_product/</code> docs, questions, plan, deck</td><td><span class="tag new">new</span></td><td>Versioned documents, question routing, plan checks (loops, critical path), the presentation.</td></tr>
+    <tr><td class="layer">API</td><td><code>product/api/</code> Initiatives, Questions, Disagreements, Plan, Teams, FollowUps, JiraWriter</td><td><span class="tag new">new</span></td><td>A Spring module that switches on with <code>keel.product.enabled</code>: board, stages, routing, roll-up, reminders, Jira create.</td></tr>
+    <tr><td class="layer">API</td><td><code>product/api/…/db/product/P1__product.sql</code></td><td><span class="tag new">new</span></td><td>Its own tables with its own migration history, so a developer's database never needs them.</td></tr>
+    <tr><td class="layer">Web</td><td><code>product/web/</code> pages and components</td><td><span class="tag new">new</span></td><td>Initiatives, Initiative (with Runs and History), Teams (with Knowledge), Clarify box, Disagree, Plan map, Timeline.</td></tr>
+    <tr><td class="layer">Data</td><td>product repo: <code>initiatives/INI-12/*.md</code>, <code>teams/web/knowledge/*.md</code></td><td><span class="tag new">new</span></td><td>Documents and team pages as Markdown, reviewed like code, with git history.</td></tr>
+    <tr><td class="layer">Reused</td><td>engine, gates, agents, KeelBot, knowledge base, code graph, guard, Tasks, Jira sync, Inbox, notifications, budgets, plugins, MCP</td><td><span class="tag reuse">as is</span></td><td>What makes the add-on small.</td></tr>
+  </table></div>
+</section>
+
+<section id="examples">
+  <span class="eyebrow">How it looks in code</span>
+  <h2>Four examples</h2>
+  <div class="codegrid">
+    <div><h3>A product workflow (YAML)</h3>
+<pre class="code"><span class="c"># product/content/workflows/product-impact.yaml</span>
+<span class="k">id</span>: product-impact
+<span class="k">scope</span>: product        <span class="c"># runs on an initiative, not in one repo</span>
+<span class="k">steps</span>:
+  - { id: repos, kind: code, action: "product:repos" }
+  - <span class="k">id</span>: analyse
+    <span class="k">kind</span>: parallel
+    <span class="k">from</span>: repos
+    <span class="k">root</span>: item         <span class="c"># each analyst: its own repo, read only</span>
+    <span class="k">agent</span>: impact-analyst
+    <span class="k">instructions</span>: &gt;-
+      Read the brief, and the objection if there is one.
+      Find what this change touches in your repo: files,
+      APIs, data, events. Use the knowledge base, the code
+      graph and the team pages. Write what you do not know
+      as UNKNOWN, never as safe.
+  - { id: merge, kind: code, action: "product:save-doc",
+      with: { doc: impact } }      <span class="c"># a new version</span>
+  - { id: ask, kind: code, action: "product:questions" }
+  - { id: leads, kind: gate,
+      ask: "Each lead confirms, corrects or disagrees" }</pre></div>
+    <div><h3>A story in the plan (JSON)</h3>
+<pre class="code">{
+  <span class="k">"id"</span>: "PAY-S2", <span class="k">"kind"</span>: "story",
+  <span class="k">"team"</span>: "payments", <span class="k">"repo"</span>: "payments-api",
+  <span class="k">"title"</span>: "Build prices API v2",
+  <span class="k">"criteria"</span>: [
+    "AC-1 [API] GET /prices returns currency and amount",
+    "AC-2 [API] Without today's rate, use yesterday's",
+    "AC-3 [API] One rounding rule: half up, 2 places"
+  ],
+  <span class="k">"depends_on"</span>: ["PAY-S0", "PAY-S1"],
+  <span class="k">"estimate_days"</span>: [3, 5],
+  <span class="k">"questions_open"</span>: 0,
+  <span class="k">"jira"</span>: "PAY-213", <span class="k">"task"</span>: null
+}</pre></div>
+    <div><h3>The add-on's own tables (SQL, part)</h3>
+<pre class="code"><span class="c">-- product/api/…/db/product/P1__product.sql</span>
+<span class="c">-- own history table: product_schema_history</span>
+CREATE TABLE initiatives (id TEXT PRIMARY KEY,
+  title TEXT NOT NULL, stage TEXT NOT NULL,
+  owner TEXT, next_step TEXT, created_at TEXT NOT NULL);
+CREATE TABLE doc_versions (initiative_id TEXT NOT NULL,
+  kind TEXT NOT NULL, version INTEGER NOT NULL,
+  path TEXT NOT NULL, commit_sha TEXT, author TEXT,
+  PRIMARY KEY (initiative_id, kind, version));
+CREATE TABLE questions (id TEXT PRIMARY KEY,
+  initiative_id TEXT NOT NULL, stage TEXT NOT NULL,
+  role TEXT NOT NULL, text TEXT NOT NULL, answer TEXT,
+  answered_by TEXT, status TEXT NOT NULL DEFAULT 'open');
+CREATE TABLE disagreements (id TEXT PRIMARY KEY,
+  initiative_id TEXT NOT NULL, stage TEXT NOT NULL,
+  author TEXT NOT NULL, reason TEXT NOT NULL,
+  decider_role TEXT, outcome TEXT, decided_by TEXT);
+CREATE TABLE events (id TEXT PRIMARY KEY,
+  initiative_id TEXT NOT NULL, at TEXT NOT NULL,
+  actor TEXT, kind TEXT NOT NULL, data TEXT);
+CREATE TABLE follow_ups (id TEXT PRIMARY KEY,
+  initiative_id TEXT NOT NULL, due_at TEXT NOT NULL,
+  owner TEXT, repeat_days INTEGER, done_at TEXT);</pre></div>
+    <div><h3>The new API</h3>
+<pre class="code"><span class="c">core</span>
+GET  /api/features                 <span class="c">parts on: dev, product</span>
+<span class="c">add-on</span>
+GET  /api/initiatives              <span class="c">board, history list</span>
+POST /api/initiatives              <span class="c">idea, repos → discover</span>
+GET  /api/initiatives/{id}         <span class="c">docs, questions, plan</span>
+POST /api/initiatives/{id}/clarify <span class="c">keel or a person</span>
+POST /api/initiatives/{id}/questions/{qid}   <span class="c">answer</span>
+POST /api/initiatives/{id}/stages/{s}        <span class="c">approve, send back</span>
+POST /api/initiatives/{id}/stages/{s}/rerun  <span class="c">new version</span>
+POST /api/initiatives/{id}/disagree          <span class="c">view, reason</span>
+GET  /api/initiatives/{id}/runs     <span class="c">stage runs</span>
+GET  /api/initiatives/{id}/history  <span class="c">events, versions</span>
+GET  /api/initiatives/{id}/docs/{kind}/diff?from=1&amp;to=3
+PUT  /api/initiatives/{id}/follow-ups/{fid}  <span class="c">date, owner</span>
+POST /api/initiatives/{id}/jira     <span class="c">epics → stories → subs</span>
+GET  /api/initiatives/{id}/deck     <span class="c">the presentation</span>
+GET  /api/teams/{id}/knowledge      <span class="c">pages, suggestions</span></pre></div>
+  </div>
+</section>
+
+<section id="data">
+  <span class="eyebrow">Data and flow</span>
+  <h2>One thread from idea to commit</h2>
+  <p class="dim">Every story knows its initiative, every task knows its story, and every keel flow knows its task. So progress rolls up, history is complete, and a developer can always see why.</p>
+  <div class="diagram"><pre class="mermaid">
+erDiagram
+  INITIATIVE ||--o{ DOC_VERSION : "brief, impact, memo"
+  INITIATIVE ||--o{ QUESTION : "clarify, ask"
+  INITIATIVE ||--o{ DISAGREEMENT : "when people differ"
+  INITIATIVE ||--o{ EVENT : history
+  INITIATIVE ||--o{ FOLLOW_UP : "next steps"
+  INITIATIVE ||--o{ PLAN_ITEM : plans
+  PLAN_ITEM ||--o{ PLAN_ITEM : "epic has stories"
+  TEAM ||--o{ PLAN_ITEM : owns
+  TEAM ||--o{ TEAM_PAGE : knowledge
+  TEAM ||--o{ TEAM_PATH : "owns code"
+  PLAN_ITEM ||--o| TASK : becomes
+  TASK ||--o{ FLOW : runs
+  </pre></div>
+  <div class="diagram"><pre class="mermaid">
+sequenceDiagram
+  participant PO
+  participant K as keel Product
+  participant L as Tech leads
+  participant J as Jira
+  participant D as Developer keel
+  PO->>K: New initiative (idea, repos)
+  K->>PO: Clarify questions
+  PO->>K: Answers, then approve the brief
+  K->>L: Impact per repo (read only)
+  L->>K: Confirm, correct or disagree
+  K->>PO: Decision memo and presentation
+  PO->>K: Go with option A
+  K->>L: Plan: teams, stories, order
+  L->>K: Agree
+  K->>J: Epics, stories, sub-tasks
+  J->>D: Task with criteria and answers
+  D->>K: Flow progress, PR, CI
+  K->>PO: Roll-up, follow-ups, then the outcome
+  </pre></div>
+  <p class="note">Where things live: documents and team pages as Markdown in a small <b>product repo</b> (for example <code>initiatives/INI-12/brief.md</code>), so changes are reviewed like code and have git history. Jira is the mirror the teams already use. The add-on's own tables hold the state, links, questions, history and follow-ups.</p>
+</section>
+
+<section id="phases">
+  <span class="eyebrow">How we build and release it</span>
+  <h2>Every Product release is a beta until it is fully tested</h2>
+  <div class="phases">
+    <div class="phase now"><span class="when">Phase 0 · about 2 weeks</span><h3>Prototype, no code change</h3>
+      <ul><li>The product workflows and 4 agents as content, in a "product" project</li><li>Clarify questions as the first steps</li><li>The repos added as projects, read only</li><li>Output: Markdown documents; Jira by hand</li></ul>
+      <p class="done"><b>Done when</b> one real feature goes from idea to plan and the leads say the impact is right. Nothing is released.</p></div>
+    <div class="phase"><span class="when">Phase 1 · about 6 weeks</span><h3>Extension points, then the beta</h3>
+      <ul><li>Core v0.13: the 5 extension points, all core tests unchanged and green</li><li><code>product-v0.1.0-beta.1</code>: modes, screens, clarify, questions, disagree, plan, Jira, runs, history, follow-ups, team knowledge, presentation</li></ul>
+      <p class="done"><b>Done when</b> a PO runs one initiative end to end in keel-lab, and the developer suites still pass untouched.</p></div>
+    <div class="phase"><span class="when">Phase 2 · 6–8 weeks</span><h3>Team mode, opt-in</h3>
+      <ul><li>Users and roles: PO, PM, lead, developer, viewer</li><li>Sign-in (OpenID Connect), Postgres</li><li>Each person's own Inbox and View</li><li>A developer's keel links to the shared keel</li><li>Off by default: a one-person keel works as today</li></ul>
+      <p class="done"><b>Done when</b> three teams use one shared keel in the beta. Release: <code>product-v0.2.0-beta.N</code>.</p></div>
+    <div class="phase"><span class="when">Phase 3 · pilot, then final</span><h3>Pilot and outcome loop</h3>
+      <ul><li>One real team for 2–4 weeks</li><li>The outcome check after release</li><li>Estimates learn from history</li><li>Fix what the pilot finds</li></ul>
+      <p class="done"><b>Done when</b> every release gate below passes. Only then <code>product-v1.0.0</code>.</p></div>
+  </div>
+  <div class="gates">
+    <h3>Release gates before product-v1.0.0</h3>
+    <ol>
+      <li><b>Core is untouched:</b> the engine, API and web suites of keel v2 pass without any change to their tests.</li>
+      <li><b>Product suites pass:</b> engine tests with the fake model for every workflow, API tests with the stub engine, web tests.</li>
+      <li><b>Versions match:</b> the add-on is tested against the core version it says it needs.</li>
+      <li><b>Real run:</b> a throw-away keel-lab on 2–3 scratch repos, end to end.</li>
+      <li><b>Pilot:</b> one real team for 2–4 weeks, with no blocking bug open.</li>
+    </ol>
+    <p class="dim">Until all five pass: only <code>-beta.N</code> or <code>-rc.N</code> tags, never <code>:latest</code>, and Product is off by default.</p>
+  </div>
+</section>
+
+<section id="decide">
+  <span class="eyebrow">Next</span>
+  <h2>Three decisions before Phase 0</h2>
+  <div class="decide">
+    <div><b>Extend keel v2</b><span class="dim">My recommendation: one codebase, the product layer as its own module. Fork only for a different product or brand.</span></div>
+    <div><b>One real feature, 2–3 repos</b><span class="dim">A feature with real cross-team work, so the impact and the plan get a real test.</span></div>
+    <div><b>Where plans and owners live</b><span class="dim">Which Jira projects (or Linear), and CODEOWNERS or a Backstage catalog for ownership.</span></div>
+  </div>
+</section>
+
+</div>
+</html>

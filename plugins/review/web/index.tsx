@@ -17,8 +17,10 @@ import {
   type CodeTabRef,
   type ConnectionKindItem,
   type KeelSdk,
+  type KeysAreaItem,
 } from "@keel/web-sdk";
 import { GitLabSection } from "./GitLabConnection";
+import { ACTIONS } from "./keymap";
 import { reviewLauncher } from "./launcher";
 import { ReviewFileTab } from "./ReviewFileTab";
 import { ReviewLayer } from "./ReviewLayer";
@@ -81,8 +83,17 @@ function ReviewEditorTab({ pid, tab, mode }: CodeTabProps) {
   );
 }
 
+/** v0.15.4 the review's keys in the key cheat sheet (⌘/), from the one list its key handler reads. */
+export const REVIEW_KEYS: KeysAreaItem = {
+  id: "review",
+  title: "Code Review (in a review's file tab)",
+  pages: ["repo"],
+  order: 50,
+  rows: (k) => ACTIONS.map((a) => ({ label: a.label, keys: a.keys[k] })),
+};
+
 /** Connections › GitLab, Code › Review, the review tabs and the pull requests in ⌘K: the same ids, titles and places
- *  as keel 0.15.1. */
+ *  as keel 0.15.1; and (0.15.4) its keys in the key cheat sheet. */
 export function setup(sdk: KeelSdk) {
   sdk.registerSlot<ConnectionKindItem>(SLOTS.connectionsKind, {
     id: "gitlab",
@@ -114,6 +125,8 @@ export function setup(sdk: KeelSdk) {
   });
 
   sdk.registerSlot(SLOTS.launcherSource, reviewLauncher);
+
+  sdk.registerSlot<KeysAreaItem>(SLOTS.keysArea, REVIEW_KEYS);
 }
 
 export default definePlugin({ name: "review", setup });

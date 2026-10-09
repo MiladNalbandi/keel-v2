@@ -9,7 +9,7 @@ import { createPortal } from "react-dom";
 import { api, errorParts, type GraphHit, type HelperSession } from "../../api";
 import { navGroups, useFeatures, useView } from "../../addons";
 import { fileLink } from "../../format";
-import { isMac, keyLabel, matches } from "../../keys";
+import { isMac, keyLabel, LAUNCHER, matches } from "../../keys";
 import { go, useApp } from "../../state";
 import { Markdown } from "../Markdown";
 import {
@@ -59,7 +59,7 @@ export function Launcher(props: Props) {
   } | null>(null);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (matches(e, "meta+k")) {
+      if (matches(e, LAUNCHER.open)) {
         e.preventDefault();
         setOpen((o) => (o ? null : { n: Date.now() }));
       }
@@ -354,7 +354,7 @@ function Dialog({
       return;
     }
     if (q.ask) {
-      if (matches(k, "meta+enter") && ask.sid) {
+      if (matches(k, LAUNCHER.ask) && ask.sid) {
         e.preventDefault();
         continueInKeelBot();
       } else if (e.key === "Enter" && !e.shiftKey) {
@@ -363,9 +363,9 @@ function Dialog({
       }
       return;
     }
-    if (e.key === "ArrowDown" || matches(k, "ctrl+n"))
+    if (e.key === "ArrowDown" || matches(k, LAUNCHER.down))
       return move(e.altKey ? groupJump(groups, at, 1) : at + 1);
-    if (e.key === "ArrowUp" || matches(k, "ctrl+p"))
+    if (e.key === "ArrowUp" || matches(k, LAUNCHER.up))
       return move(e.altKey ? groupJump(groups, at, -1) : at - 1);
     if (e.key === "Tab") {
       e.preventDefault();
@@ -376,12 +376,12 @@ function Dialog({
       setPrefix(null);
       return;
     }
-    if (matches(k, "meta+k")) {
+    if (matches(k, LAUNCHER.actions)) {
       e.preventDefault();
       openPanel(sel);
       return;
     }
-    if (matches(k, "meta+enter")) {
+    if (matches(k, LAUNCHER.ask)) {
       e.preventDefault();
       if (sel?.ask && pid) ctx.ask(sel.ask);
       else if (sel)
@@ -392,7 +392,7 @@ function Dialog({
         );
       return;
     }
-    if (matches(k, "meta+shift+c")) {
+    if (matches(k, LAUNCHER.copy)) {
       e.preventDefault();
       if (sel?.copy) void copyText(ctx, sel.copy);
       return;
@@ -440,7 +440,7 @@ function Dialog({
     e.stopPropagation();
     if (!panel) return;
     const k = e.nativeEvent;
-    if (e.key === "Escape" || matches(k, "meta+k")) {
+    if (e.key === "Escape" || matches(k, LAUNCHER.actions)) {
       e.preventDefault();
       if (panel.confirm && panel.item.actions.length > 1)
         setPanel({ ...panel, confirm: null });
@@ -508,6 +508,7 @@ function Dialog({
         role="dialog"
         aria-modal="true"
         aria-label="Launcher"
+        data-own-keys=""
       >
         <div className="lx-top">
           <svg
@@ -687,7 +688,7 @@ function Dialog({
               </span>
               {ask.sid && (
                 <span>
-                  <kbd>{keyLabel("meta+enter")}</kbd> continue in KeelBot
+                  <kbd>{keyLabel(LAUNCHER.ask)}</kbd> continue in KeelBot
                 </span>
               )}
               <span>
@@ -706,10 +707,10 @@ function Dialog({
                 <kbd>↩</kbd> {sel?.actions[0]?.label.toLowerCase() ?? "open"}
               </span>
               <span>
-                <kbd>{keyLabel("meta+k")}</kbd> actions
+                <kbd>{keyLabel(LAUNCHER.actions)}</kbd> actions
               </span>
               <span>
-                <kbd>{keyLabel("meta+enter")}</kbd> ask KeelBot
+                <kbd>{keyLabel(LAUNCHER.ask)}</kbd> ask KeelBot
               </span>
               <span className="lx-right">
                 Prefixes <kbd>&gt;</kbd> <kbd>@</kbd> <kbd>#</kbd> <kbd>!</kbd>{" "}
@@ -1058,7 +1059,7 @@ function AskView({
               className="btn primary sm"
               onClick={onContinue}
             >
-              Continue in KeelBot <kbd>{keyLabel("meta+enter")}</kbd>
+              Continue in KeelBot <kbd>{keyLabel(LAUNCHER.ask)}</kbd>
             </button>
           )}
           {ask.answer && (

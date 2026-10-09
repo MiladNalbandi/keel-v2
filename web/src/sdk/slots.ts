@@ -5,9 +5,13 @@
 //   Workflows ── workflow.actions      Code ─ code.activity, code.tab, assistant        ⌘K ─ launcher.source
 //   Inbox ────── inbox.card (step 3)   Map (the Map plugin's page, step 3) ─ map.er.query
 //   KeelBot ──── keelbot.card (step 3: a plugin's button for its blocks in an answer, ```keel-query```, ```keel-git```)
+//   the shell ── nav.badge, shell.watch (0.15.2: KeelBot's count of new answers on its menu entry, and its watcher)
+//   ⌘/ ───────── keys.area (0.15.4: a part's keys in the key cheat sheet: Code, Code Review, KeelBot)
+//   the bell ─── notes.setting       Settings › This browser ─ settings.browser (0.15.2: KeelBot's own sound)
 
 import type { ComponentType } from "react";
 import type { GraphHit, HelperSelection } from "../api";
+import type { KeyArea } from "../keys";
 import type { InboxItem } from "../inboxApi";
 import type { Item, Query, Recent } from "../components/launcher/model";
 import type { Ctx, LauncherNotes } from "../components/launcher/sources";
@@ -39,6 +43,16 @@ export const SLOTS = {
   /** KeelBot: the card for an answer's blocks of a kind no core card handles (the Database plugin's keel-query, the Git
    *  plugin's keel-git buttons) */
   keelbotCard: "keelbot.card",
+  /** the menu (and the folded menu's icons): a part's count on one page's link (KeelBot's new answers on KeelBot) */
+  navBadge: "nav.badge",
+  /** the shell: a part's component mounted once on every page, that shows nothing (KeelBot watches for new answers) */
+  shellWatch: "shell.watch",
+  /** the key cheat sheet (⌘/): a part's area of keys (Code, Code Review, KeelBot), placed by its order */
+  keysArea: "keys.area",
+  /** the bell's drawer › Settings: a part's field after the sound (KeelBot's own sound) */
+  notesSetting: "notes.setting",
+  /** Settings › This browser: a part's row (KeelBot's own sound) */
+  settingsBrowser: "settings.browser",
 } as const;
 
 /** A part's piece is shown only while this project has the plugin on (Tools › Plugins), when it names one. */
@@ -213,6 +227,8 @@ export type AssistantProps = {
 export type AssistantItem = SlotItem & {
   title: string;
   component: ComponentType<AssistantProps>;
+  /** a count on the assistant's button in the Code page (KeelBot's new answers), or nothing */
+  count?: ComponentType;
 };
 
 // ---------- the Map plugin's page ----------
@@ -234,6 +250,26 @@ export type KeelbotCardItem = SlotItem & {
   kind: string;
   component: ComponentType<KeelbotCardProps>;
 };
+
+// ---------- the shell (0.15.2) and the key cheat sheet (0.15.4) ----------
+
+/** The menu: a count on the link of page `page` (its id: "helper"), in the menu (nav) or on the folded menu's icon
+ *  (rail). It renders nothing when there is nothing to count. */
+export type NavBadgeItem = SlotItem & {
+  page: string;
+  component: ComponentType<{ kind: "nav" | "rail" }>;
+};
+
+/** The shell mounts it once, on every page; it shows nothing (it watches the live events, plays a sound…). */
+export type ShellWatchItem = SlotItem & { component: ComponentType };
+
+/** The key cheat sheet: an area of keys. `order` places it among keel's own areas (Everywhere 10, the menu 20, the
+ *  launcher 30, Flow 70, Workflows 80, the diagrams 90); `pages` are the pages it belongs to (none: every page). */
+export type KeysAreaItem = SlotItem & KeyArea;
+
+/** A field in the notification settings (the bell's drawer), or a row in Settings › This browser. */
+export type NotesSettingItem = SlotItem & { component: ComponentType };
+export type SettingsBrowserItem = SlotItem & { component: ComponentType };
 
 // ---------- the launcher (⌘K) ----------
 

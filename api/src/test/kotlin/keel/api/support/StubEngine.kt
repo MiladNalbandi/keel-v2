@@ -12,7 +12,8 @@ class StubEngine private constructor(private val server: HttpServer) {
     private val mapper = jacksonObjectMapper()
     val url: String get() = "http://127.0.0.1:${server.address.port}"
 
-    data class Call(val method: String, val path: String, val body: JsonNode?)
+    /** query: the URL's query string (v0.15.2: an extra route can answer per project). */
+    data class Call(val method: String, val path: String, val body: JsonNode?, val query: String? = null)
     val calls = CopyOnWriteArrayList<Call>()
 
     fun lastBody(path: String): JsonNode? = calls.lastOrNull { it.path == path }?.body
@@ -326,7 +327,7 @@ class StubEngine private constructor(private val server: HttpServer) {
         val text = ex.requestBody.readAllBytes().toString(Charsets.UTF_8)
         val body = if (text.isBlank()) null else runCatching { mapper.readTree(text) }.getOrNull()
         val path = ex.requestURI.path
-        calls += Call(ex.requestMethod, path, body)
+        calls += Call(ex.requestMethod, path, body, ex.requestURI.query)
         val (code, res) = route(ex.requestMethod, path, body)
         val bytes = mapper.writeValueAsBytes(res)
         ex.responseHeaders.add("Content-Type", "application/json")

@@ -199,7 +199,11 @@ POST   /api/threads/{tid}/rewind  { checkpoint_id }   → ThreadState
 GET    /api/projects/{pid}/estimate?workflow_id=&acs=3 → Estimate     (uses this project's job history)
 
 # jobs / live (Run)
-GET    /api/jobs?project=&status=running|done|failed&agent=&provider=&limit=50 → Job[]
+GET    /api/jobs?project=&status=running|done|failed|finished&agent=&provider=&q=&limit=50 → Job[]
+GET    /api/jobs/count?project=&status=&agent=&provider=&q=  → { count }   (v0.15.2: same filters, no limit)
+       status finished = every call that does not run any more (done also means stopped). q = search words, each
+       one must be in the id, agent, provider (or its web name, e.g. "GPT / Codex"), model, step, phase, AC, status,
+       project id or project name; case does not matter.
 GET    /api/jobs/{id}                                 → Job & { steps: JobStep[] }
 GET    /api/jobs/{id}/steps?after=n                   → { steps: JobStep[], running: bool }
 POST   /api/jobs/{id}/stop
@@ -1285,14 +1289,20 @@ without a hook.
 GET    /api/projects/{pid}/helper/sessions                → HelperSession[] (newest first)
 POST   /api/projects/{pid}/helper/sessions                {mode?: "ask", model?: Model, title?} → HelperSession
 GET    /api/projects/{pid}/helper/sessions/{sid}          → HelperSession & {messages, busy}   (404 for another project's)
-PATCH  /api/projects/{pid}/helper/sessions/{sid}          {title?, model?} → HelperSession   (another provider starts its CLI session fresh)
+PATCH  /api/projects/{pid}/helper/sessions/{sid}          {title?, model?, folder?} → HelperSession   (another provider starts its CLI session fresh;
+                                                          folder: a folder id of this project, "" = no folder; moving keeps updated_at)
 DELETE /api/projects/{pid}/helper/sessions/{sid}          → {ok}
+GET    /api/projects/{pid}/helper/folders                 → HelperFolder[] (by name)                         v0.15.2
+POST   /api/projects/{pid}/helper/folders                 {name} → HelperFolder   (400 no name or > 60 characters, 409 the name exists in any case)
+PATCH  /api/projects/{pid}/helper/folders/{fid}           {name} → HelperFolder   (404 for another project's)
+DELETE /api/projects/{pid}/helper/folders/{fid}           → {ok, moved}   (its chats are kept, with no folder)
 POST   /api/projects/{pid}/helper/sessions/{sid}/turn     {text, model?, mentions?, selection?, open_file?} → {session, call_id, n, command}
 POST   /api/projects/{pid}/helper/sessions/{sid}/stop     → HelperSession
 GET    /api/projects/{pid}/helper/commands                → {name, description, plugin, source: keel|project}[]
 
 HelperSession = {id, project, root, mode, title, model, status: idle|running|failed, error, thread_id, tokens_in, tokens_out,
-                 tokens_cached, cost_usd, turns, created_at, updated_at}
+                 tokens_cached, cost_usd, turns, created_at, updated_at, folder}
+HelperFolder  = {id, project, name, chats, created_at, updated_at}      (engine table helper_folders; helper_sessions.folder)
 HelperMessage = {n, role: user|helper|note, text, call_id, data: {status, provider, model, tokens_in, tokens_out, tokens_cached,
                  cost_usd, ms, command?, mentions?, selection?}, at}
 HelperMention = {kind: file|symbol|ac, value, file?, line?}      HelperSelection = {path, from?, to?, text}
@@ -1315,6 +1325,21 @@ HelperMention = {kind: file|symbol|ac, value, file?, line?}      HelperSelection
   `helper.finished` (a hidden tab pauses the event stream) never leaves it "working".
 - The editor's toolbar has **Ask** (the selected lines, or the file); ⌘I opens the Helper with the selection, and closes it
   when nothing is selected.
+- v0.15.2 chats: leaving the page (or closing the panel) and coming back keeps the open chat (`keel2.helper.<pid>.session`),
+  each chat's draft with its mentions (`keel2.helper.<pid>.drafts`, localStorage) and where it was scrolled to, the new
+  chat's mode and whether the list is open (`keel2.helper.<pid>.tab`, sessionStorage); a chat is forgotten only on a 404.
+  **Chats** (`components/helper/ChatList.tsx`, on the plugin track `plugins/keelbot/web/ChatList.tsx`; the folder
+  routes are the KeelBot plugin's, engine `keel_plugin_keelbot/routes.py` and api `keel.api.helper`, while the table
+  `helper_folders` stays in core's `runtime/migrate.py`; a column on `#/keelbot` of a wide screen, over the conversation in the
+  panel) lists every chat by folder with search, new / rename / delete folder, and per chat rename, move to a folder and
+  delete; every delete asks in the page, never `window.confirm`. A new Ask chat shows how to use KeelBot.
+- v0.15.2 new answers (`components/helper/unread.tsx`; on the plugin track `plugins/keelbot/web/unread.tsx`, through the
+  slots `nav.badge`, `shell.watch`, `notes.setting`, `settings.browser` and the assistant's `count`, so core never imports
+  KeelBot): a `helper.finished` (not `stopped`) for a chat nobody looks at (no
+  panel shows it, or the tab is hidden) counts as new (`keel2.keelbot.unread`: project → chat → call ids) on the menu's
+  KeelBot entry, its folded-menu icon, the Code page's KeelBot button and the chat's row; showing the chat clears it.
+  It also plays KeelBot's own sound (`notify.playKeelBot`: three short rising sine notes), unless Do not disturb is on or
+  the switch in Settings › This browser (or the notification settings) is off (`keel2.keelbot.sound`, on at first).
 - More room (v0.8.x): the Helper's column has a drag edge (300 px up to all but 360 px of the IDE, remembered as
   `keel2.repo.helper.w`); **Focus** hides the Repo page head (`keel2.repo.focus`, the status bar brings it back);
   `#/helper` (menu: Project › Helper, **Helper only**, ⤢ in the panel) shows the Helper alone in one wide column
@@ -1772,10 +1797,86 @@ other projects. The selected result shows a preview (a file around its line, a p
 - keel (the pet by the bell) is off at first; Settings › This browser (or the notification settings) turns it on, kept
   in this browser (`keel2.mascot` = `1`). The logo next to "keel" no longer shrinks away when the row is full.
 
-## v0.15.x: Focus mode in Code
+## v0.15.1: Focus mode in Code
 
 Code's Focus is now the whole window, like an IDE's Zen mode: keel's menu, the usage bar and the Code header go; the IDE
 keeps its activity bar, tabs, editor, KeelBot and status bar. ⇧⌘\ (Ctrl+Shift+\ off a Mac) turns it on and off, Esc
 twice (an Esc nothing else used) leaves it, and so do the status bar's Exit focus and the launcher's "Focus mode in
 Code". While it is on, `<html data-focus="code">` is set (the shell's parts hide by it); leaving the Code page clears it,
 and `keel2.repo.focus` = `1` opens Code in Focus mode next time.
+
+## v0.15.2: the Git log
+
+Code › Source control › **Log** (like JetBrains' Git › Log; read only, no plugin needed) opens one editor tab (`kind:
+log`, id `keel:log`, path = the branch it shows: `""` the current one, `*` all branches, else a branch, remote branch or
+tag). On the left the branches: HEAD, local (the current one marked, ↑↓ against the base), remote (by remote), tags. In
+the middle the commits with a graph, ref badges, author, date and id; filters for branch, author, text (or a commit id)
+and path; "Uncommitted changes (N files)" on top for the current branch; commits the base does not have are marked, the
+ones it has are dimmed. A commit shows its message, its files and one file's diff; a double click opens the file's
+change as a commit tab. A branch in Source control (without the Git plugin) and a branch tab ("Show in the log") open
+the log on that branch. The filters and the chosen commit stay per project in this browser tab (`keel2.repo.log.<pid>`).
+On the plugin track it is the Code plugin's: web `plugins/code/web/Log.tsx`, `gitLog.ts`, `gitLogApi.ts`, api
+`keel.api.repo.RepoLog` / `RepoLogController` in `keel-plugin-code.jar` (on core's `RepoService`).
+
+```
+GET /api/projects/{pid}/repo/refs   → RefsView { head (null when detached), base, local: RefItem[], remote: RefItem[], tags: RefItem[] }
+                                      RefItem { name, sha, date, subject, current, upstream?, ahead?, behind? }  (ahead/behind: a
+                                      local branch against the base; local ≤200, remote ≤300, tags ≤100)
+GET /api/projects/{pid}/repo/log?branch=&all=&author=&q=&path=&limit=100&skip=0
+                                    → GitLog { branch (null = all), head, base, ahead, behind, has_more,
+                                      commits: [{ sha, parents, subject, author, email, at, refs: [{name, kind: head|local|remote|tag,
+                                      current}], in_base, keel }] }
+```
+
+- `branch` blank = HEAD; a local branch, a remote branch or a tag by name, never an option, a range or a revision (400;
+  404 unknown). `all=true`: every branch, remote branch and tag (`--branches --remotes --tags HEAD`, not stashes or
+  keel's review refs).
+- Date order, `limit` ≤ 1000 (+ `skip` for paging). `author` and `q` are fixed strings, any case (both must match);
+  `q` that is a commit id (7–40 hex) the shown branch has returns that commit only. `path` is a file or folder inside
+  the repo (deleted ones too; `.git` and secret files 403); the parents are then rewritten to the shown commits so the
+  graph stays connected.
+- `in_base`: the base (main or master) has the commit; without a base every commit is `false`.
+- `GET …/repo/commit` and `…/repo/diff?sha=` of a merge commit now show what it brought into its first parent (before:
+  no files).
+
+## v0.15.3: Resume a stopped flow, Stop asks first, Markdown, keyboard first
+
+Web only. A stopped or failed flow's card says why and offers **Resume the flow** (after an in-page "Yes, resume": a
+rewind to its newest checkpoint, `POST /api/threads/{tid}/rewind`, so the next step runs again) and **Go back to an
+earlier step…** (the Checkpoints tab). **Stop flow** asks first in a small dialog (Stop the flow / Keep it running, Esc).
+keel's version shows at the menu's foot. In the Flow page the graph scrolls with its panel (no second scroll bar).
+- Markdown in an agent's tool output (a `cat` of a `.md` file, or text that reads like Markdown) and a read `.md` file
+  show rendered; Raw shows the text, and copying whole blocks of the rendered view gives their Markdown (Copy Markdown
+  copies all). A `git diff` / `git show` in tool output shows as a highlighted diff. In Code a `.md` file opens rendered
+  (Preview), and Preview works in every view (code, changes).
+- In Code a panel keeps the wheel at its end (like an IDE); elsewhere nested panels hand it to the parent.
+- Keyboard first: ⌘/ (or ?) opens the key cheat sheet for the page (searchable, IntelliJ or VS Code keymap). Code:
+  ⌘1 / ⌘9 / ⇧⌘9 (also ⌥1 / ⌥9 / ⌥⇧9) show and hide their panel, ⇧Esc hides the active tool window, ⌥W closes the tab,
+  ⌥⇧[ / ⌥⇧] previous / next tab, ⌘E recent files. The menu: F6 or ⌃⌘M jumps in (↑↓, ↩, Esc back), ⌃1–⌃9 open the
+  first pages (Ctrl+Alt+1–9 off a Mac). On the plugin track the sheet's areas for Code, Code Review and KeelBot come from
+  those plugins through the slot `keys.area` (core keeps Everywhere, the menu, the launcher, Flow, Workflows and the
+  diagrams in `src/keys.ts`); Focus mode's key and event are core's (`FOCUS_KEYS`, `FOCUS_EVENT`, through @keel/web-sdk).
+- A notification opens where it came from: the api's `/projects/<id>/<page>` link goes to that project's page (a flow's notification to its own thread), not to All projects.
+
+## v0.15.4: run history
+
+When the project's flow does not run or wait (done, failed, stopped, or none), the Flow page shows **Runs**: every flow
+of the project, newest start first (search, status and workflow filters), each with its status, start, how long it
+took, tokens, cost, result (ACs done x of y, or the error) and branch. The History fold-out above it hides meanwhile
+(it comes back while a flow runs). **Load** opens a run read only under a banner "An earlier run (read only)" with
+"Back to the current flow": its steps (Blocks / Table / Graph), events, checkpoints (no Rewind) and outcome. Opening it
+only reads (`GET /api/projects/{pid}/flows/{tid}`); the current flow and its state do not change. A flow that runs or
+waits elsewhere opens live (Open, `#/flow/<tid>`), as before.
+- **Resume** only for the project's newest flow (`latest`), and only when it was stopped: the v0.15.3 Resume (asked
+  first, then `POST /api/threads/{tid}/rewind` to its newest checkpoint); the page then shows it live. Other stopped or
+  failed runs say "Only the last stopped flow can be resumed". The current flow's own card keeps its Resume (a failed
+  one too).
+- `GET /api/projects/{pid}/runs` rows add `cost_usd` (the flow's usage, else the sum of its agent calls) and `latest`
+  (the project's newest flow by start). Deleted flows are left out, unless they run or wait again.
+- `DELETE /api/projects/{pid}/flows/{tid}` → `{ ok: true, thread_id }` deletes a flow from the history, after an
+  in-page confirm. It is only a mark (`threads.hidden_at`, migration V14): the engine's checkpoints, the branch and
+  commits, the agent calls (budgets) and the events stay, and `GET …/flows/{tid}` still opens it. 409 while it runs
+  or waits, and for a stopped or failed flow that is the project's current flow or its newest one (it can still be
+  resumed); 404 for an unknown or already deleted flow. `GET …/flow` and a workflow's run count skip deleted flows.
+- Saving a finished flow's state again (opening it) no longer moves its `updated_at`, so looking at an old run does
+  not make it the project's current flow.

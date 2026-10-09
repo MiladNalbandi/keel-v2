@@ -1,24 +1,38 @@
 // The Repo IDE's logic, kept free of React so it is easy to test: deep links, editor tabs (preview / pinned),
 // fuzzy file matching, the explorer's rows, highlighted lines, find in file, and side-by-side diff rows.
 
-import { matches, readKeymap, type Keymap } from "@keel/web-sdk";
+import { FOCUS_EVENT, FOCUS_KEYS, keyLabel, matches, readKeymap, type Keymap } from "@keel/web-sdk";
 import type { Change, TreeNode } from "./codeApi";
 
 // ---------- IntelliJ's keys for the Code page ----------
 
-/** IntelliJ's keys for the Code page itself: ⌘1 files, ⌘9 Git, ⇧⌘9 Review, ⇧⌘O go to file, ⌘L go to line (⇧⇧ is the launcher). */
+/** IntelliJ's keys for the Code page itself: ⌘1 files, ⌘9 Git, ⇧⌘9 Review, ⇧⌘O go to file, ⌘L go to line (⇧⇧ is the launcher).
+ * v0.15.4 one table for the handler and the key cheat sheet (the Code area, slot keys.area): ⌘1 / ⌘9 / ⇧⌘9 now show AND
+ * hide their panel, ⇧Esc hides the active tool window, and keys for the editor tabs and Recent files. The browser keeps
+ * ⌘W, ⇧⌘[ ⇧⌘] and ⌃Tab, and macOS keeps ⌃← ⌃→ (Spaces), so the tabs use ⌥W and ⌥⇧[ ⌥⇧]; ⌥1 / ⌥9 work where a browser
+ * keeps ⌘1. */
 export type IdeAction =
-  "explorer" | "scm" | "review" | "quickOpen" | "gotoLine";
+  | "explorer" | "scm" | "review" | "quickOpen" | "gotoLine"
+  | "toggleSide" | "hideSide" | "recentFiles" | "closeTab" | "nextTab" | "prevTab";
+export const IDE_KEYS: { id: IdeAction; label: string; keys: Record<Keymap, string[]>; note?: string }[] = [
+  { id: "explorer", label: "Files: show or hide", keys: { intellij: ["meta+1", "alt+1"], vscode: [] }, note: `${keyLabel("alt+1")} is for a browser that keeps ${keyLabel("meta+1")} for its own tabs` },
+  { id: "scm", label: "Git: show or hide", keys: { intellij: ["meta+9", "alt+9"], vscode: [] } },
+  { id: "review", label: "Review: show or hide", keys: { intellij: ["shift+meta+9", "shift+alt+9"], vscode: [] } },
+  { id: "toggleSide", label: "Show or hide the side bar", keys: { intellij: [], vscode: ["meta+b"] } },
+  { id: "hideSide", label: "Hide the active tool window (the side bar, or KeelBot when you are in it)", keys: { intellij: ["shift+escape"], vscode: ["shift+escape"] } },
+  { id: "quickOpen", label: "Go to file", keys: { intellij: ["shift+meta+o"], vscode: [] } },
+  { id: "gotoLine", label: "Go to line", keys: { intellij: ["meta+l"], vscode: [] } },
+  { id: "recentFiles", label: "Recent files (in a review's file: Recent places)", keys: { intellij: ["meta+e"], vscode: ["meta+e"] } },
+  { id: "closeTab", label: "Close the editor tab", keys: { intellij: ["alt+w"], vscode: ["alt+w"] }, note: `instead of ${keyLabel("meta+w")}, which the browser keeps` },
+  { id: "nextTab", label: "Next editor tab", keys: { intellij: ["shift+alt+]"], vscode: ["shift+alt+]"] }, note: `instead of ${keyLabel("shift+meta+]")} or ${keyLabel("ctrl+tab")}, which the browser keeps` },
+  { id: "prevTab", label: "Previous editor tab", keys: { intellij: ["shift+alt+["], vscode: ["shift+alt+["] } },
+];
+
 export function ideActionFor(
   e: KeyboardEvent,
   k: Keymap = readKeymap(),
 ): IdeAction | null {
-  if (k !== "intellij") return null;
-  if (matches(e, "meta+1")) return "explorer";
-  if (matches(e, "shift+meta+9")) return "review";
-  if (matches(e, "meta+9")) return "scm";
-  if (matches(e, "shift+meta+o")) return "quickOpen";
-  if (matches(e, "meta+l")) return "gotoLine";
+  for (const a of IDE_KEYS) for (const combo of a.keys[k]) if (matches(e, combo)) return a.id;
   return null;
 }
 
@@ -26,9 +40,9 @@ export function ideActionFor(
 
 export type DeepLink = { path: string; line?: number };
 
-/** v0.15.x Focus mode's key: ⇧⌘\ (⌘\ hides the menu, ⇧⌘\ everything but the IDE), and the event that toggles it. */
-export const FOCUS_KEYS = "shift+meta+\\";
-export const FOCUS_EVENT = "keel:focus";
+/** v0.15.x Focus mode's key: ⇧⌘\ (⌘\ hides the menu, ⇧⌘\ everything but the IDE), and the event that toggles it. They
+ *  are keel's own (src/keys.ts, through @keel/web-sdk): keel's menu key (F6) leaves Focus mode with the same event. */
+export { FOCUS_EVENT, FOCUS_KEYS };
 
 /** v0.15.0 a review's link (#/repo/@review/pr:7, made by the Code Review plugin): the Review tool window with that
  *  review open, never a file. */
@@ -60,7 +74,8 @@ export function repoHash(path: string, line?: number): string {
 /** The Code page's own tab kinds are file, commit, docs, memory and doctor; the parts add theirs (slot code.tab: db,
  *  review, branch). */
 export type TabKind = string;
-const OWN_KEEL_TABS = new Set(["docs", "memory", "doctor"]);
+// v0.15.2 "log": the Git log (one tab, id keel:log; its path is the branch it shows, see gitLog.ts)
+const OWN_KEEL_TABS = new Set(["docs", "memory", "doctor", "log"]);
 export type View = "code" | "diff" | "preview";
 export type EditorTab = { id: string; kind: TabKind; path: string; sha?: string; preview: boolean; view: View };
 export type Tabs = { tabs: EditorTab[]; active: string | null };
@@ -103,6 +118,14 @@ export function closeTab(t: Tabs, id: string): Tabs {
   const tabs = t.tabs.filter((x) => x.id !== id);
   const active = t.active !== id ? t.active : (tabs[i] ?? tabs[i - 1])?.id ?? null;
   return { tabs, active };
+}
+
+/** v0.15.4 the next (d = 1) or previous (d = -1) tab, round the row. */
+export function stepTab(t: Tabs, d: number): Tabs {
+  const n = t.tabs.length;
+  if (n < 2) return t;
+  const i = t.tabs.findIndex((x) => x.id === t.active);
+  return { ...t, active: t.tabs[(((i < 0 ? 0 : i + d) % n) + n) % n].id };
 }
 
 export const setView = (t: Tabs, id: string, view: View): Tabs => ({ ...t, tabs: t.tabs.map((x) => (x.id === id ? { ...x, view } : x)) });

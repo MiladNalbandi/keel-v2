@@ -1,6 +1,6 @@
 // v0.3: agent output (StepView), the keel mascot, and model / effort pickers that follow the catalog.
 
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { App } from "../App";
@@ -204,7 +204,8 @@ describe("keel mascot", () => {
 // ---------- model + effort pickers ----------
 
 describe("model pickers follow the catalog", () => {
-  it("Agents drawer: provider → mode → model → effort from the catalog, with the source hint", async () => {
+  // v0.15.2 the model is one dropdown: every provider's models in groups with the company's mark, no typing
+  it("Agents drawer: one model dropdown grouped by provider, then runs on and effort from the catalog, with the source hint", async () => {
     const user = userEvent.setup();
     location.hash = "#/agents";
     render(<App />);
@@ -214,24 +215,36 @@ describe("model pickers follow the catalog", () => {
     // copilot has no effort setting
     await waitFor(() => expect(d.getByTestId("am-source")).toHaveTextContent("built-in list"));
     expect(d.queryByLabelText("Effort")).not.toBeInTheDocument();
+    expect(d.queryByLabelText("Provider")).not.toBeInTheDocument();
     expect([...d.getByLabelText("Runs on").querySelectorAll("option")].map((o) => o.textContent)).toEqual(["Copilot CLI", "OpenCode", "API key (GitHub Models)"]);
+    const button = d.getByTestId("am-model");
+    expect(button).toHaveTextContent("GPT-5 (Copilot)");
+    expect(button.querySelector("svg.pi")).toHaveAttribute("data-brand", "github");
 
-    await user.selectOptions(d.getByLabelText("Provider"), "codex");
+    await user.click(button);
+    const list = d.getByRole("listbox", { name: "Models" });
+    expect(within(list).getAllByRole("group").map((g) => g.getAttribute("data-provider"))).toEqual(["claude", "codex", "copilot", "fake"]);
+    await user.click(within(list).getByRole("option", { name: "GPT-5.6 Sol" }));
+    expect(d.queryByRole("listbox")).not.toBeInTheDocument();
     expect(d.getByLabelText("Runs on")).toHaveValue("subscription");
-    expect(d.getByLabelText("Model")).toHaveValue("gpt-5.6-sol");
+    expect(button).toHaveTextContent("GPT-5.6 Sol");
+    expect(button.querySelector("svg.pi")).toHaveAttribute("data-brand", "openai");
     expect(d.getByLabelText("Effort")).toHaveValue("medium");
     expect([...d.getByLabelText("Effort").querySelectorAll("option")].map((o) => o.getAttribute("value"))).toEqual(["", "low", "medium", "high", "ultra"]);
     expect(d.getByTestId("am-source")).toHaveTextContent("from the CLI (cached)");
 
-    // a model with its own effort list; an effort it does not have is dropped
+    // a model with its own effort list, chosen with the keyboard; an effort it does not have is dropped
     await user.selectOptions(d.getByLabelText("Effort"), "ultra");
-    fireEvent.change(d.getByLabelText("Model"), { target: { value: "gpt-5-mini" } });
+    button.focus();
+    await user.keyboard("{ArrowDown}");
+    expect(d.getByRole("option", { name: "GPT-5.6 Sol" })).toHaveClass("is-active");
+    await user.keyboard("{ArrowDown}{Enter}");
+    expect(button).toHaveTextContent("GPT-5 mini");
     expect([...d.getByLabelText("Effort").querySelectorAll("option")].map((o) => o.getAttribute("value"))).toEqual(["", "low", "medium"]);
     expect(d.getByLabelText("Effort")).toHaveValue("");
 
     await user.selectOptions(d.getByLabelText("Runs on"), "api");
-    expect(d.getByLabelText("Model")).toHaveValue("gpt-5");
-    expect(d.getByTestId("am-models").querySelector('option[value="gpt-5"]')).toHaveAttribute("label", "GPT-5 (API)");
+    expect(button).toHaveTextContent("GPT-5 (API)");
     await user.selectOptions(d.getByLabelText("Effort"), "high");
     await user.click(d.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(calls("PUT", "/api/projects/ludus-engine/agents/implementer")[0]?.body).toEqual({
@@ -239,19 +252,26 @@ describe("model pickers follow the catalog", () => {
     }));
   });
 
-  it("the effort select hides for a model with no efforts; free text keeps the provider's efforts", async () => {
+  it("the effort select hides for a model with no efforts; Other model… takes any id and keeps the provider's efforts", async () => {
     const user = userEvent.setup();
     location.hash = "#/agents";
     render(<App />);
     await user.click(await screen.findByText("Writes the minimum code to make the failing test pass."));
     const d = within(await screen.findByRole("dialog", { name: "implementer" }));
-    await user.selectOptions(d.getByLabelText("Provider"), "claude");
-    expect(d.getByLabelText("Model")).toHaveValue("sonnet");
+    const choose = async (name: string) => {
+      await user.click(d.getByTestId("am-model"));
+      await user.click(d.getByRole("option", { name }));
+    };
+    await choose("Claude Sonnet");
+    expect(d.getByTestId("am-model")).toHaveTextContent("Claude Sonnet");
     expect(d.getByTestId("am-source")).toHaveTextContent("from the CLI");
     expect(d.getByLabelText("Effort")).toBeInTheDocument();
-    fireEvent.change(d.getByLabelText("Model"), { target: { value: "haiku" } });
+    await choose("Claude Haiku");
     expect(d.queryByLabelText("Effort")).not.toBeInTheDocument();
-    fireEvent.change(d.getByLabelText("Model"), { target: { value: "my-own-model" } });
+    await choose("Other model…");
+    await user.type(d.getByLabelText("Model id"), "my-own-model{Enter}");
+    expect(d.queryByLabelText("Model id")).not.toBeInTheDocument();
+    expect(d.getByTestId("am-model")).toHaveTextContent("my-own-model");
     expect(d.getByLabelText("Effort")).toBeInTheDocument();
   });
 
@@ -261,8 +281,12 @@ describe("model pickers follow the catalog", () => {
     render(<App />);
     const picker = await screen.findByTestId("all-claude-picker");
     await waitFor(() => expect(within(picker).getByTestId("all-claude-source")).toHaveTextContent("from the CLI"));
-    expect(within(picker).queryByLabelText("Provider")).not.toBeInTheDocument();
-    fireEvent.change(within(picker).getByLabelText("Model"), { target: { value: "opus" } });
+    expect(within(picker).queryByLabelText("Runs on")).not.toBeInTheDocument();
+    await user.click(within(picker).getByTestId("all-claude-model"));
+    // the place fixes the provider: only Claude's models
+    const list = screen.getByRole("listbox", { name: "Models" });
+    expect(within(list).getAllByRole("group").map((g) => g.getAttribute("data-provider"))).toEqual(["claude"]);
+    await user.click(within(list).getByRole("option", { name: "Claude Opus" }));
     await user.selectOptions(within(picker).getByLabelText("Effort"), "high");
     await user.click(screen.getByRole("button", { name: "Use for all agents" }));
     const m = { provider: "claude", mode: "subscription", model: "opus", effort: "high" };

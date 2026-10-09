@@ -3,7 +3,7 @@
 // and diffs (inline or side by side) against HEAD, the base branch, or one commit. Read-only.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ErrorBox, errorParts, highlight, languageOf, linesOf, Markdown, parseDiff, useLoad, type DiffRow } from "@keel/web-sdk";
+import { ErrorBox, errorParts, highlight, languageOf, linesOf, MarkdownView, parseDiff, useLoad, type DiffRow } from "@keel/web-sdk";
 import { codeApi as api, type RepoFile } from "./codeApi";
 import { Icon, isImage, extOf } from "./icons";
 import {
@@ -391,8 +391,9 @@ export function ImagePane({ pid, path, size, onDims }: { pid: string; path: stri
   );
 }
 
+// v0.15.3 rendered, and a copy gives the Markdown back
 export function MarkdownPane({ text }: { text: string }) {
-  return <div className="md-pane"><div className="md wdoc"><Markdown text={text} fold={0} /></div></div>;
+  return <div className="md-pane" role="region" aria-label="Rendered Markdown"><div className="wdoc"><MarkdownView text={text} fold={0} /></div></div>;
 }
 
 export function Notice({ title, children }: { title: string; children?: ReactNode }) {

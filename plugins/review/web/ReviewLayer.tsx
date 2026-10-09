@@ -45,6 +45,8 @@ export function ReviewLayer({
     if (!active) return;
     const on = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
+      // v0.15.4 a popup with keys of its own (the key cheat sheet, Recent files, the launcher) keeps them, Esc too
+      if (t?.closest?.("[data-own-keys]")) return;
       const typing =
         !!t &&
         (t.tagName === "TEXTAREA" ||

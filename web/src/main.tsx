@@ -17,6 +17,10 @@ import "./styles/diagram.css";
 import "./styles/repo.css";
 import "./styles/plugins.css";
 import "./styles/launcher.css";
+// v0.15.2 the model picker and the providers' marks.
+import "./styles/models.css";
+// v0.15.4 the key cheat sheet and the menu by keyboard.
+import "./styles/keys.css";
 
 // Plugins' web parts load at run time and use this React and @keel/web-sdk: the import map in index.html points their
 // bare imports to small shims that read window.__keel (src/sdk/shared.ts). So it is set before anything renders.

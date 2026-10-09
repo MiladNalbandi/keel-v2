@@ -5,7 +5,7 @@
 // `file:line` in backticks shows as a citation chip. With `breaks`, a single newline inside a paragraph stays a
 // line break (agents write like that).
 
-import { Fragment, type ReactNode } from "react";
+import { Fragment, type ClipboardEvent, type ReactNode } from "react";
 import { CodeBlock, FOLD } from "./Code";
 
 const CITE = /^[\w@./-]+\.[\w]+:\d+(-\d+)?$/;
@@ -53,12 +53,22 @@ const closes = (line: string, open: string) => {
   return t.length >= open.length && t === open[0].repeat(t.length);
 };
 
-export function Markdown({ text, breaks = false, fold = FOLD }: { text: string; breaks?: boolean; fold?: number }) {
+export function Markdown({ text, breaks = false, fold = FOLD, sources = false }: {
+  text: string; breaks?: boolean; fold?: number;
+  /** v0.15.3 each block keeps its own Markdown (data-md), so a copy can give the Markdown back (MarkdownView) */
+  sources?: boolean;
+}) {
   const lines = (text ?? "").replace(/\r\n?/g, "\n").split("\n");
   const blocks: ReactNode[] = [];
+  const srcs: string[] = [];
   let i = 0;
   let key = 0;
+  // the lines a block came from: from where the last iteration began to where it ended
+  let mark = { from: 0, n: 0 };
+  const flush = () => { if (blocks.length > mark.n) srcs.push(lines.slice(mark.from, i).join("\n").trim()); };
   while (i < lines.length) {
+    flush();
+    mark = { from: i, n: blocks.length };
     const line = lines[i];
     if (!line.trim()) { i++; continue; }
     const det = line.match(DETAILS);
@@ -150,5 +160,29 @@ export function Markdown({ text, breaks = false, fold = FOLD }: { text: string; 
     if (!para.length) { para.push(lines[i++]); }
     blocks.push(<p key={key++}>{joined(para, breaks, key)}</p>);
   }
+  flush();
+  if (sources) return <Fragment>{blocks.map((b, j) => <div key={j} className="md-src" data-md={srcs[j] ?? ""}>{b}</div>)}</Fragment>;
   return <Fragment>{blocks}</Fragment>;
+}
+
+/** v0.15.3 Markdown shown nicely that copies as Markdown: a selection over whole blocks (or more than one) copies their
+ *  Markdown source; a few words inside one block copy as text; Copy Markdown copies all of it. */
+export function MarkdownView({ text, fold = FOLD }: { text: string; fold?: number }) {
+  const onCopy = (e: ClipboardEvent<HTMLDivElement>) => {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed) return;
+    // only the blocks the selection really overlaps (a triple click ends at the start of the next block)
+    const r = sel.getRangeAt(0);
+    const els = [...e.currentTarget.querySelectorAll<HTMLElement>(".md-src")].filter((el) => {
+      const b = document.createRange();
+      b.selectNodeContents(el);
+      return r.compareBoundaryPoints(Range.START_TO_END, b) > 0 && r.compareBoundaryPoints(Range.END_TO_START, b) < 0;
+    });
+    if (!els.length) return;
+    const whole = els.length > 1 || sel.containsNode(els[0], false) || sel.toString().trim() === (els[0].textContent ?? "").trim();
+    if (!whole) return;
+    e.preventDefault();
+    e.clipboardData.setData("text/plain", els.map((el) => el.dataset.md ?? "").join("\n\n"));
+  };
+  return <div className="md md-view" onCopy={onCopy}><Markdown text={text} fold={fold} sources /></div>;
 }

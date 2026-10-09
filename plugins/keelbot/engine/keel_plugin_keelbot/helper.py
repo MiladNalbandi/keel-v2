@@ -75,7 +75,9 @@ ASK_PATH = PART_ASK_PATH               # where the guard hook asks (it checks th
 
 FIELDS = ("id", "project", "root", "mode", "title", "model_json", "engine_session", "status", "error", "thread_id",
           "tokens_in", "tokens_out", "tokens_cached", "cost_usd", "turns", "created_at", "updated_at", "grants_json", "phase",
-          "worktree", "branch", "base_sha")
+          "worktree", "branch", "base_sha", "folder")
+FOLDER_FIELDS = ("id", "project", "name", "created_at", "updated_at")
+FOLDER_NAME_MAX = 60
 
 
 class HelperError(Exception):
@@ -127,11 +129,11 @@ def create(project: str, root: str, mode: str = "ask", model: dict | None = None
         conn.execute(f"insert into helper_sessions ({', '.join(FIELDS)}) values ({', '.join('?' * len(FIELDS))})",
                      (sid, project, str(Path(root).resolve()), mode, title.strip()[:120] or "New chat",
                       json.dumps(models.effective(model)), None, "idle", None, thread_id, 0, 0, 0, 0.0, 0, now, now, "[]",
-                      fix_phase(flow) if mode == "fix" else None, wt.get("path"), wt.get("branch"), wt.get("base")))
+                      fix_phase(flow) if mode == "fix" else None, wt.get("path"), wt.get("branch"), wt.get("base"), None))
     return get(sid)
 
 
-def list_sessions(project: str, limit: int = 50) -> list[dict]:
+def list_sessions(project: str, limit: int = 200) -> list[dict]:
     with db.connect() as conn:
         rows = conn.execute(f"select {', '.join(FIELDS)} from helper_sessions where project = ? order by updated_at desc limit ?",
                             (project, limit)).fetchall()
@@ -169,6 +171,83 @@ def set_model(sid: str, model: dict) -> dict:
     m = models.effective(model)
     same = (s["model"] or {}).get("provider") == m.get("provider")
     return update(sid, model_json=json.dumps(m), **({} if same else {"engine_session": None}))
+
+
+def set_folder(sid: str, folder: str | None) -> dict:
+    """v0.15.2 Put a chat into one of its project's folders (None or "": no folder). It keeps its place in the list:
+    moving a chat is not new activity, so updated_at stays."""
+    s = get(sid, messages=False)
+    fid = (folder or "").strip() or None
+    if fid:
+        f = get_folder(fid)
+        if f["project"] != s["project"]:
+            raise HelperError(404, f"No folder {fid} in project {s['project']}.")
+    with db.connect() as conn:
+        conn.execute("update helper_sessions set folder = ? where id = ?", (fid, sid))
+    return get(sid, messages=False)
+
+
+# ------------------------------------------------------------------ v0.15.2 folders for the chats (per project)
+
+def _folder_name(name: str) -> str:
+    clean = " ".join((name or "").split())
+    if not clean:
+        raise HelperError(400, "A folder needs a name.", "Write a short name, for example Payments.")
+    if len(clean) > FOLDER_NAME_MAX:
+        raise HelperError(400, f"The folder name is too long ({len(clean)} characters).", f"Keep it under {FOLDER_NAME_MAX} characters.")
+    return clean
+
+
+def _same_name(conn, project: str, name: str, but: str | None = None) -> bool:
+    rows = conn.execute("select id, name from helper_folders where project = ?", (project,)).fetchall()
+    return any(n.casefold() == name.casefold() and i != but for i, n in rows)
+
+
+def folders(project: str) -> list[dict]:
+    """The project's folders by name, each with how many chats it holds."""
+    with db.connect() as conn:
+        rows = conn.execute(f"select {', '.join('f.' + x for x in FOLDER_FIELDS)}, "
+                            "(select count(*) from helper_sessions s where s.folder = f.id) "
+                            "from helper_folders f where f.project = ? order by lower(f.name)", (project,)).fetchall()
+    return [{**dict(zip(FOLDER_FIELDS, r[:-1])), "chats": r[-1]} for r in rows]
+
+
+def get_folder(fid: str) -> dict:
+    with db.connect() as conn:
+        row = conn.execute(f"select {', '.join(FOLDER_FIELDS)} from helper_folders where id = ?", (fid,)).fetchone()
+    if not row:
+        raise HelperError(404, f"No folder {fid}.")
+    return dict(zip(FOLDER_FIELDS, row))
+
+
+def create_folder(project: str, name: str) -> dict:
+    clean = _folder_name(name)
+    fid = "hf_" + uuid.uuid4().hex[:12]
+    now = db.now()
+    with db.connect() as conn:
+        if _same_name(conn, project, clean):
+            raise HelperError(409, f"A folder named {clean} exists already.", "Pick another name, or use that folder.")
+        conn.execute(f"insert into helper_folders ({', '.join(FOLDER_FIELDS)}) values (?, ?, ?, ?, ?)", (fid, project, clean, now, now))
+    return {**get_folder(fid), "chats": 0}
+
+
+def rename_folder(fid: str, name: str) -> dict:
+    f = get_folder(fid)
+    clean = _folder_name(name)
+    with db.connect() as conn:
+        if _same_name(conn, f["project"], clean, but=fid):
+            raise HelperError(409, f"A folder named {clean} exists already.", "Pick another name.")
+        conn.execute("update helper_folders set name = ?, updated_at = ? where id = ?", (clean, db.now(), fid))
+    return next(x for x in folders(f["project"]) if x["id"] == fid)
+
+
+def delete_folder(fid: str) -> dict:
+    """The folder goes; its chats stay, with no folder. Answers how many chats moved out."""
+    get_folder(fid)
+    with db.connect() as conn:
+        moved = conn.execute("update helper_sessions set folder = null where folder = ?", (fid,)).rowcount
+        conn.execute("delete from helper_folders where id = ?", (fid,))
+    return {"ok": True, "moved": moved}
 
 
 def add_grant(sid: str, command: str) -> list[str]:

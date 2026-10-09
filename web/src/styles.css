@@ -106,7 +106,7 @@ tr.click:hover td { background: var(--panel-2); }
 .zoombar { display: flex; align-items: center; gap: 6px; justify-self: end; }
 .zoombar .btn { min-width: 30px; justify-content: center; }
 .zoomlvl { font: 500 12px var(--f-mono); color: var(--dim); min-width: 42px; text-align: center; }
-.zoombox { overflow: auto; max-height: 78vh; overscroll-behavior: contain; }
+.zoombox { overflow: auto; max-height: 78vh; overscroll-behavior-x: contain; } /* v0.15.3 up/down goes on to the page when the graph has no more to scroll */
 .zoombox > .graph { width: calc(100% * var(--zoom, 1)); min-width: calc(860px * var(--zoom, 1)); }
 .zoombox.pannable { cursor: grab; }
 .zoombox.pannable:active { cursor: grabbing; }
@@ -924,7 +924,7 @@ button.sx-x:hover { box-shadow: 0 0 0 2px var(--ink); }
 /* the Workflows page: list | blocks | panel */
 .wf { display: grid; grid-template-columns: 204px minmax(0,1fr) minmax(300px, 344px); gap: 14px; align-items: stretch; height: max(560px, calc(100vh - var(--wf-top, 150px) - 20px)); }
 .wf-lib { grid-template-columns: 204px minmax(0,1fr); }
-.wf-rail { display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding-right: 2px; }
+.wf-rail { display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow-y: auto; scrollbar-width: thin; padding-right: 2px; }
 .wf-rail-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .wf-rail-actions .btn.is-on { background: var(--accent-soft); border-color: var(--accent); }
 .wf-search { width: 100%; border: 1px solid var(--border); background: var(--panel); border-radius: 8px; padding: 6px 10px; }
@@ -952,10 +952,10 @@ button.sx-x:hover { box-shadow: 0 0 0 2px var(--ink); }
 .wf-save { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
 .wf-dirty { font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
 .wf-dirty::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--warn); }
-.wf-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.wf-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: thin; }
 .wf-canvas { --sx-bg: var(--panel); background: var(--panel) radial-gradient(var(--blk-dots) 1px, transparent 1.2px) 0 0 / 18px 18px; border: 1px solid var(--border); border-radius: 12px; padding: 0 16px 18px; min-height: 100%; }
 .wf-canvas .sx { --sx-bg: var(--panel); }
-.wf-panel { display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.wf-panel { display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow-y: auto; scrollbar-width: thin; }
 .wf-panel > .tabs { align-self: start; }
 .wf-panel-body { display: grid; gap: 12px; align-content: start; }
 .wf-below { margin-top: 12px; }
@@ -1006,8 +1006,9 @@ button.sx-x:hover { box-shadow: 0 0 0 2px var(--ink); }
 .fl { display: grid; grid-template-columns: minmax(0,1fr) minmax(320px, 400px); gap: 16px; align-items: start; }
 .fl-canvas { --sx-bg: var(--panel); min-width: 0; }
 .fl-canvas > .panel-body { background: var(--panel) radial-gradient(var(--blk-dots) 1px, transparent 1.2px) 0 0 / 18px 18px; border-radius: 0 0 10px 10px; }
-.fl-scroll { max-height: max(460px, calc(100vh - 220px)); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
-.fl-side { position: sticky; top: calc(var(--bar-h, 0px) + 12px); display: grid; gap: 12px; align-content: start; max-height: calc(100vh - var(--bar-h, 0px) - 24px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+/* v0.15.3 nested panels hand the wheel on to the parent at their end (no overscroll-behavior: contain) */
+.fl-scroll { max-height: max(460px, calc(100vh - 220px)); overflow-y: auto; scrollbar-width: thin; }
+.fl-side { position: sticky; top: calc(var(--bar-h, 0px) + 12px); display: grid; gap: 12px; align-content: start; max-height: calc(100vh - var(--bar-h, 0px) - 24px); overflow-y: auto; scrollbar-width: thin; }
 .fl-side > .tabs { justify-self: start; max-width: 100%; overflow-x: auto; }
 .fl-waits { gap: 8px; }
 .fl-feed { max-height: 320px; overflow-y: auto; }

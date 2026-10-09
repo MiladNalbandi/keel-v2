@@ -70,6 +70,17 @@ class HelperDone(BaseModel):
 class HelperPatch(BaseModel):
     title: str | None = None
     model: ModelSpec | None = None
+    folder: str | None = None           # v0.15.2 a folder id of the chat's project; "" takes the chat out of its folder
+
+
+class HelperFolder(BaseModel):
+    """v0.15.2 a folder for KeelBot's chats, in one project."""
+    project_id: str
+    name: str = ""
+
+
+class HelperFolderPatch(BaseModel):
+    name: str = ""
 
 
 class HelperTurn(BaseModel):
@@ -132,6 +143,8 @@ async def patch_helper_session(sid: str, body: HelperPatch):
         await asyncio.to_thread(helper.set_model, sid, body.model.model_dump())
     if body.title is not None and body.title.strip():
         await asyncio.to_thread(helper.update, sid, title=body.title.strip()[:120])
+    if body.folder is not None:
+        await asyncio.to_thread(helper_call, helper.set_folder, sid, body.folder)
     return await asyncio.to_thread(helper.get, sid)
 
 
@@ -140,6 +153,27 @@ async def delete_helper_session(sid: str, request: Request):
     await runner(request).stop(sid)
     await asyncio.to_thread(helper_call, helper.delete, sid)
     return {"ok": True}
+
+
+# v0.15.2 folders for KeelBot's chats: a chat's `folder` names one (PATCH the session); deleting one keeps its chats
+@router.get("/helper/folders")
+async def get_helper_folders(project: str):
+    return await asyncio.to_thread(helper.folders, project)
+
+
+@router.post("/helper/folders")
+async def post_helper_folder(body: HelperFolder):
+    return await asyncio.to_thread(helper_call, helper.create_folder, body.project_id, body.name)
+
+
+@router.patch("/helper/folders/{fid}")
+async def patch_helper_folder(fid: str, body: HelperFolderPatch):
+    return await asyncio.to_thread(helper_call, helper.rename_folder, fid, body.name)
+
+
+@router.delete("/helper/folders/{fid}")
+async def delete_helper_folder(fid: str):
+    return await asyncio.to_thread(helper_call, helper.delete_folder, fid)
 
 
 @router.get("/helper/sessions/{sid}/handover")

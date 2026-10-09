@@ -68,6 +68,11 @@ describe("the KeelBot plugin's web part", () => {
         "mergeSteps",
         "rankFiles",
         "DiffView",
+        // 0.15.2: the model button's company mark, the chat list as a column, its own sound, the guide's key
+        "ProviderIcon",
+        "useWide",
+        "playKeelBot",
+        "keyLabel",
       ]),
     );
     expect(used.filter((name) => !(name in sdk))).toEqual([]);

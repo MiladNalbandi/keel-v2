@@ -13,7 +13,7 @@ import { RUN_MODES, runModeAbout } from "../components/RunMode";
 import { ErrorBox, PageHead, Tabs } from "../components/ui";
 import { kfmt, parseTokens, PROV } from "../format";
 import { useSlot } from "../sdk/registry";
-import { SLOTS, type SettingRow, type SettingsSectionItem } from "../sdk/slots";
+import { SLOTS, type SettingRow, type SettingsBrowserItem, type SettingsSectionItem } from "../sdk/slots";
 import { useApp, useLoad } from "../state";
 
 type Key = keyof Settings;
@@ -197,6 +197,8 @@ function KeelModePanel({ onSaved, onError }: { onSaved: (text: string) => void; 
 /** v0.15.0 choices kept in this browser only, whichever scope is shown. */
 function BrowserPanel() {
   const { showMascot, setShowMascot } = useApp();
+  // v0.15.2 the parts' rows (slot settings.browser: KeelBot's own sound)
+  const parts = useSlot<SettingsBrowserItem>(SLOTS.settingsBrowser);
   return (
     <section className="panel sg-sec" id="sg-browser" aria-labelledby="sg-browser-h">
       <header className="sg-sec-h">
@@ -209,6 +211,7 @@ function BrowserPanel() {
         </label>
         <span className="hint">The little hull jumps when something arrives and says what it is. Off at first.</span>
       </div>
+      {parts.map((p) => <p.component key={p.id} />)}
     </section>
   );
 }

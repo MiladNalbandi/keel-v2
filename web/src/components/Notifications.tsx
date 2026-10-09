@@ -5,12 +5,16 @@ import "./inbox.css";
 import type { Notification as Note, NotificationSettings } from "../api";
 import { clock, plainText } from "../format";
 import { askPermission, EVTYPES, NTONE, permission, playSound } from "../notify";
+import { useSlot } from "../sdk/registry";
+import { SLOTS, type NotesSettingItem } from "../sdk/slots";
 import { useApp } from "../state";
 import { Drawer, Tabs } from "./ui";
 
 function NoteSettings() {
   const { nset, saveNset, project, notifyLocal, toast, showMascot, setShowMascot } = useApp();
   const [perm, setPerm] = useState(permission());
+  // v0.15.2 the parts' fields after the sound (slot notes.setting: KeelBot's own sound)
+  const parts = useSlot<NotesSettingItem>(SLOTS.notesSetting);
   const set = (patch: Partial<NotificationSettings>) => saveNset({ ...nset, ...patch });
   return (
     <>
@@ -45,6 +49,7 @@ function NoteSettings() {
         </div>
         <span className="hint">Failures use a lower tone, so you can tell them apart without looking.</span>
       </div>
+      {parts.map((p) => <p.component key={p.id} />)}
       <div className="field">
         <span className="lab">Pop-ups</span>
         <label className="chk"><input type="checkbox" checked={nset.popup} onChange={(e) => set({ popup: e.target.checked })} /> Show a pop-up in keel (top right, with a button to act)</label>

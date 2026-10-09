@@ -65,7 +65,8 @@ class FenceTest {
     @Test
     fun `the Code page's classes are not in core, not even in its package keel_api_repo`() {
         // keel.api.repo stays core (RepoService: Git and Code Review read the repo with it), so look for the names themselves
-        val names = Regex("""\b(RepoController|RepoSearch|SearchMatch|SearchFile|SearchResult|FileList)\b""")
+        // v0.15.2 and the Git log's (RepoLog: the branch list and the log with its graph)
+        val names = Regex("""\b(RepoController|RepoSearch|SearchMatch|SearchFile|SearchResult|FileList|RepoLog|RepoLogController|GitLog|LogCommit|LogRef|RefItem|RefsView)\b""")
         val found = Files.walk(sources).use { paths -> paths.filter { it.extension == "kt" }.sorted().toList() }
             .filter { names.containsMatchIn(Fence.withoutComments(it.readText())) }
         assertThat(found).describedAs("plugins/code/api has them; core never uses them").isEmpty()
@@ -167,8 +168,9 @@ private object Fence {
     // keel.api.tasks (plugins/tasks), keel.api.jira (plugins/jira), keel.api.review (plugins/review), keel.api.graph
     // (plugins/graph: the code graph and its index routes, and the index.done handler), keel.api.helper (KeelBot,
     // plugins/keelbot), the Ci* classes of CI/CD (plugins/ci), the Database* and Db* classes of Database (plugins/db) and
-    // the Git* classes of Git (plugins/git), all in keel's package keel.api.plugins, and the Code page's RepoController
-    // and RepoSearch (with its answers) of plugins/code, in keel's package keel.api.repo.
+    // the Git* classes of Git (plugins/git), all in keel's package keel.api.plugins, and the Code page's RepoController,
+    // RepoSearch (with its answers) and (0.15.2) RepoLog, the Git log (with its answers), of plugins/code, in keel's
+    // package keel.api.repo.
     val FORBIDDEN = listOf(
         "keel.product", "keel.api.map", "keel.api.wiki", "keel.api.tasks", "keel.api.jira", "keel.api.review", "keel.api.graph",
         "keel.api.helper",
@@ -180,6 +182,8 @@ private object Fence {
         "keel.api.plugins.GitPrBody", "keel.api.plugins.GitSwitchBody",
         "keel.api.repo.FileList", "keel.api.repo.RepoController", "keel.api.repo.RepoSearch", "keel.api.repo.SearchFile",
         "keel.api.repo.SearchMatch", "keel.api.repo.SearchResult",
+        "keel.api.repo.GitLog", "keel.api.repo.LogCommit", "keel.api.repo.LogRef", "keel.api.repo.RefItem", "keel.api.repo.RefsView",
+        "keel.api.repo.RepoLog", "keel.api.repo.RepoLogController",
     )
 
     data class Found(val couplings: Set<String>, val forbidden: Set<String>)

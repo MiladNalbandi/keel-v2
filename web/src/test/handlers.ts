@@ -6,6 +6,9 @@ import * as fx from "./fixtures";
 import type { GraphFocus, GraphOverview } from "./fixtures";
 import { createTaskDb, taskHandlers } from "./taskHandlers";
 
+/** v0.15.2 one of KeelBot's chat folders (its type is the KeelBot plugin's, plugins/keelbot/web/keelbotApi.ts) */
+type HelperFolder = { id: string; project: string; name: string; chats: number; created_at: string; updated_at: string };
+
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v));
 
 // ---- the JSON the Database and Git plugins' apis send, as these handlers build it ----
@@ -65,7 +68,9 @@ export function createDb() {
       /** Fix mode: each chat's changed files, the commands that wait for an OK, and what Done answers (null: it commits) */
       changes: {} as Record<string, HelperChange[]>, questions: [] as HelperQuestion[], done: null as HelperDone | null,
       /** side sessions: the commits Keep made on each one's branch */
-      kept: {} as Record<string, { sha: string; subject: string }[]> },
+      kept: {} as Record<string, { sha: string; subject: string }[]>,
+      /** v0.15.2 the chats' folders */
+      folders: [] as HelperFolder[] },
     graph: fx.graphOverview() as GraphOverview,
     graphFocus: fx.graphFocus() as GraphFocus,
     calls: [] as { method: string; path: string; body: unknown }[],
@@ -473,11 +478,33 @@ export function handlers(db: Db) {
       return sess ? HttpResponse.json(sess) : HttpResponse.json({ error: "No KeelBot session" }, { status: 404 });
     }),
     http.patch("/api/projects/:pid/helper/sessions/:sid", async ({ request, params }) => {
-      const b = (await log(request)) as { title?: string; model?: HelperSession["model"] };
+      const b = (await log(request)) as { title?: string; model?: HelperSession["model"]; folder?: string };
       const sess = db.helper.sessions.find((x) => x.id === params.sid)!;
       if (b.title) sess.title = b.title;
       if (b.model) sess.model = b.model;
+      if (b.folder !== undefined) sess.folder = b.folder || null;
       return HttpResponse.json(sess);
+    }),
+    http.get("/api/projects/:pid/helper/folders", ({ params }) => HttpResponse.json(db.helper.folders.filter((f) => f.project === params.pid)
+      .map((f) => ({ ...f, chats: db.helper.sessions.filter((s) => s.folder === f.id).length })))),
+    http.post("/api/projects/:pid/helper/folders", async ({ request, params }) => {
+      const b = (await log(request)) as { name: string };
+      const f: HelperFolder = { id: `hf_${db.helper.folders.length + 1}`, project: String(params.pid), name: b.name, chats: 0, created_at: "", updated_at: "" };
+      db.helper.folders.push(f);
+      return HttpResponse.json(f);
+    }),
+    http.patch("/api/projects/:pid/helper/folders/:fid", async ({ request, params }) => {
+      const b = (await log(request)) as { name: string };
+      const f = db.helper.folders.find((x) => x.id === params.fid)!;
+      f.name = b.name;
+      return HttpResponse.json(f);
+    }),
+    http.delete("/api/projects/:pid/helper/folders/:fid", async ({ request, params }) => {
+      await log(request);
+      const moved = db.helper.sessions.filter((s) => s.folder === params.fid);
+      moved.forEach((s) => { s.folder = null; });
+      db.helper.folders = db.helper.folders.filter((x) => x.id !== params.fid);
+      return HttpResponse.json({ ok: true, moved: moved.length });
     }),
     http.delete("/api/projects/:pid/helper/sessions/:sid", async ({ request, params }) => {
       await log(request);

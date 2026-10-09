@@ -1,13 +1,14 @@
 # Parity e2e
 
 Milad's rule for the plugin track: the plugin-based keel is finished only when it is **the same for people** as the
-released v0.15.1: every page, flow and part. This tool checks that and shows every difference.
+latest release (v0.15.1 when the track began, v0.15.4 since the track took main's 0.15.2–0.15.4): every page, flow and
+part. This tool checks that and shows every difference.
 
 It starts two throw-away keels on the same small project and compares them:
 
 | keel            | port | volume               | image                             |
 | --------------- | ---- | -------------------- | --------------------------------- |
-| `keel-parity-a` | 8094 | `keel-parity-a-data` | `--a`, the released keel (0.15.1) |
+| `keel-parity-a` | 8094 | `keel-parity-a-data` | `--a`, the released keel (0.15.4) |
 | `keel-parity-b` | 8095 | `keel-parity-b-data` | `--b`, the new keel               |
 
 It never touches another keel (`keel-v2`, `keel-product`, `keel-lab`) and removes both containers and volumes at the
@@ -16,7 +17,7 @@ end (unless `--keep`).
 ## Run it
 
 ```sh
-python3 e2e/parity/parity.py --a ghcr.io/miladnalbandi/keel-v2:0.15.1 --b keel-v2:dev
+python3 e2e/parity/parity.py --a ghcr.io/miladnalbandi/keel-v2:0.15.4 --b keel-v2:dev
 python3 e2e/parity/parity.py --a … --b … --only api          # only the api (fast, no browser)
 python3 e2e/parity/parity.py --a … --b … --keep              # leave both keels running to look at them
 python3 e2e/parity/parity.py --a … --b … --verbose           # also print what differs for the allowed differences

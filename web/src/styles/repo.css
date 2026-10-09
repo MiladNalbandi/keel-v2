@@ -360,3 +360,92 @@ button.sb-i:hover { background: color-mix(in srgb, var(--on-accent) 14%, transpa
 :root[data-focus] main:has(> .repo-page) { padding: 0; }
 :root[data-focus] .repo-page .ide { height: 100vh; height: 100dvh; border: 0; border-radius: 0; }
 .sb-k { font: inherit; opacity: .75; margin-left: 2px; }
+
+/* v0.15.2 the Git log (like JetBrains' Git › Log): branches | commits with a graph | the chosen commit's files and its diff */
+.scm-log { display: inline-flex; align-items: center; gap: 4px; }
+.lg { flex: 1; min-height: 0; display: flex; flex-direction: column; --lg-who: minmax(64px, 140px); --lg-when: 84px; --lg-sha: 60px; }
+.lg-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--ide-line); }
+.lg-bar select, .lg-in { border: 1px solid var(--ide-line); background: var(--ide-bg); color: var(--fg); border-radius: 6px; padding: 3px 8px; font-size: 12.5px; min-width: 0; }
+.lg-bar select { max-width: 220px; }
+.lg-in { width: 130px; }
+.lg-q { width: 170px; }
+.lg-bar select:focus, .lg-in:focus { outline: none; border-color: var(--accent); }
+.lg-sum { margin-left: auto; color: var(--dim); font-size: 12px; }
+.lg-main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(160px, 220px) minmax(0, 1fr); }
+.lg-refs { overflow: auto; min-height: 0; border-right: 1px solid var(--ide-line); padding: 6px 0 12px; scrollbar-width: thin; }
+.lg-rg { margin-top: 4px; }
+.lg-rgh { display: flex; align-items: center; gap: 4px; width: 100%; border: 0; background: none; padding: 2px 8px; font-size: 11.5px; font-weight: 700; letter-spacing: .03em; color: var(--dim); cursor: pointer; text-align: left; }
+.lg-rb { display: flex; align-items: center; gap: 5px; width: 100%; min-height: 22px; padding: 2px 8px 2px 24px; border: 1px solid transparent; background: none; color: var(--fg); text-align: left; cursor: pointer; font: 12.5px var(--f-mono); }
+.lg-rb:hover { background: var(--ide-hover); }
+.lg-rb[aria-pressed="true"] { background: var(--ide-sel); }
+.lg-rb:focus-visible { outline: none; border-color: var(--accent); }
+.lg-refs > .lg-rb { padding-left: 10px; font-family: var(--f-body); }
+.lg-rn, .lg-rshort { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.lg-rm { flex: none; color: var(--faint); font: 11px var(--f-body); }
+.lg-cur { flex: none; font: 600 10px/14px var(--f-body); padding: 0 4px; border-radius: 4px; background: var(--accent); color: var(--on-accent); }
+.lg-remote { display: grid; }
+.lg-rname { padding: 2px 8px 0 24px; font-size: 11.5px; color: var(--dim); }
+.lg-remote .lg-rb { padding-left: 34px; }
+.lg-remote .lg-rn { display: none; }
+.lg-center { min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); }
+.lg-center.with-detail { grid-template-rows: auto minmax(0, 1fr) minmax(0, 1.15fr); }
+.lg-head { display: grid; gap: 8px; padding: 4px 10px 4px 7px; border-bottom: 1px solid var(--ide-line); font-size: 11px; font-weight: 700; letter-spacing: .03em; color: var(--dim); }
+.lg-head span { overflow: hidden; white-space: nowrap; }
+.lg-list { overflow: auto; min-height: 0; scrollbar-width: thin; }
+.lg-list:focus-visible { outline: none; box-shadow: inset 0 0 0 1px var(--accent); }
+.lg-row { display: grid; gap: 8px; align-items: center; height: 24px; padding: 0 10px 0 4px; border-left: 3px solid transparent; cursor: pointer; white-space: nowrap; }
+.lg-row:hover { background: var(--ide-hover); }
+.lg-row[aria-selected="true"] { background: var(--ide-sel); }
+.lg-row.out { border-left-color: var(--accent); }
+.lg-row.in .lg-s, .lg-row.in .lg-who, .lg-row.in .lg-when { color: var(--dim); }
+.lg-row.cut { box-shadow: inset 0 1px 0 var(--ide-line); }
+.lg-wt .lg-subj { font-style: italic; color: var(--t-mod); }
+.lg-subj { display: flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; }
+.lg-s { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.lg-subj .scm-keel, .lg-subj .scm-ac { margin-right: 0; flex: none; }
+.lg-who, .lg-when { overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
+.lg-sha { color: var(--faint); font-size: 11.5px; overflow: hidden; }
+.lg-ref { flex: none; max-width: 180px; overflow: hidden; text-overflow: ellipsis; padding: 0 5px; border: 1px solid; border-radius: 4px; font: 600 10.5px/15px var(--f-mono); }
+.lg-ref.k-local { border-color: var(--ok); color: var(--ok); }
+.lg-ref.k-local.cur { background: var(--ok); color: var(--panel); }
+.lg-ref.k-remote { border-color: var(--run); color: var(--run); }
+.lg-ref.k-tag { border-color: var(--warn); color: var(--warn); }
+.lg-ref.k-head { border-color: var(--accent); color: var(--accent); }
+.lg-ref.k-more { border-color: var(--ide-line); color: var(--dim); }
+.lg-graph { display: block; overflow: hidden; }
+.lg-graph path { fill: none; stroke-width: 1.6; }
+.lg-graph .lg-dot { stroke: var(--ide-bg); stroke-width: 1.4; }
+.lg-graph .lg-open { fill: var(--ide-bg); stroke: var(--t-mod); stroke-width: 1.6; }
+.lg-graph path.lg-dash { stroke: var(--t-mod); stroke-dasharray: 2 2; }
+.lg-graph path.lg-c0 { stroke: var(--accent); } .lg-graph circle.lg-c0 { fill: var(--accent); }
+.lg-graph path.lg-c1 { stroke: var(--ok); } .lg-graph circle.lg-c1 { fill: var(--ok); }
+.lg-graph path.lg-c2 { stroke: var(--run); } .lg-graph circle.lg-c2 { fill: var(--run); }
+.lg-graph path.lg-c3 { stroke: var(--warn); } .lg-graph circle.lg-c3 { fill: var(--warn); }
+.lg-graph path.lg-c4 { stroke: var(--bad); } .lg-graph circle.lg-c4 { fill: var(--bad); }
+.lg-graph path.lg-c5 { stroke: var(--dim); } .lg-graph circle.lg-c5 { fill: var(--dim); }
+.lg-detail { min-height: 0; display: grid; grid-template-columns: minmax(220px, 34%) minmax(0, 1fr); border-top: 1px solid var(--ide-line); }
+.lg-dside { overflow: auto; min-height: 0; border-right: 1px solid var(--ide-line); padding-bottom: 10px; scrollbar-width: thin; }
+.lg-dside .scm-row { padding-left: 14px; }
+.lg-dside .scm-row[aria-pressed="true"] { background: var(--ide-hover); border-color: var(--accent); }
+.lg-msg { display: grid; gap: 4px; padding: 10px 14px 4px; }
+.lg-msg b { font-size: 13.5px; overflow-wrap: anywhere; }
+.lg-body { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12.5px; }
+.lg-meta { font-size: 11.5px; color: var(--dim); overflow-wrap: anywhere; }
+.lg-where { justify-self: start; padding: 1px 6px; border-radius: 5px; font-size: 11.5px; }
+.lg-where.out { background: var(--accent-soft); color: var(--fg); }
+.lg-where.in { background: var(--panel-2); color: var(--dim); }
+.lg-diff { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.lg-pad { display: block; padding: 10px 14px; }
+.lg-more { margin: 8px 14px; }
+@media (max-width: 720px) {
+  .lg { --lg-who: 0px; --lg-when: 52px; --lg-sha: 0px; }
+  .lg-who, .lg-sha { visibility: hidden; }
+  .lg-main { grid-template-columns: 1fr; }
+  .lg-refs { display: none; }
+  .lg-in, .lg-q { flex: 1 1 120px; width: auto; }
+  .lg-sum { margin-left: 0; flex-basis: 100%; }
+  .lg-detail { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+  .lg-dside { max-height: 40vh; border-right: 0; border-bottom: 1px solid var(--ide-line); }
+}
+/* v0.15.3 in Code it feels like an IDE: a panel that reaches its end keeps the wheel, the page behind does not move */
+.ide, .ide * { overscroll-behavior: contain; }
