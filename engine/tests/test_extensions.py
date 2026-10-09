@@ -132,6 +132,13 @@ def test_the_guards_hook_stays_light():
 
 # ------------------------------------------------------------------ an add-on part
 
+def test_with_no_plugin_loaded_a_step_with_settings_gets_a_clean_message():
+    """A core-only keel (KEEL_PLUGINS=off) knows no plugin step: the message has no empty brackets."""
+    errs = validate(from_dict({"name": "x", "keel_rules": False, "steps": [
+        {"id": "a", "kind": "code", "name": "a", "action": "commit", "with": {"x": 1}}]}))
+    assert errs == ["Step 'a': only a plugin step takes `with`."]
+
+
 def test_an_addon_part_brings_its_steps_with_their_settings_words_and_switch(acme, repo):
     part = extensions.parts()[-1]
     assert part.name == "acme" and part.title == "Acme" and part.per_project and not part.builtin

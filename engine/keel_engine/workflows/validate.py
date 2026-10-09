@@ -48,7 +48,8 @@ def _with_errors(where: str, s) -> list[str]:
         if s.params and any(extensions.has_action(a) for a in s.actions()):
             return []          # a part's action without declared params (an add-on's) reads its own `with:`
         kinds = ", ".join(f"{p}:..." for p in extensions.param_prefixes())
-        return [f"{where}: only a plugin step ({kinds}) takes `with`."] if s.params else []
+        which = f" ({kinds})" if kinds else ""          # no plugin loaded (a core-only keel): no empty brackets
+        return [f"{where}: only a plugin step{which} takes `with`."] if s.params else []
     errs, known = [], {}
     for a in plugin:
         known.update(_plugin_params()[a])
