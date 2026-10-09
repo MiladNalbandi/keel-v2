@@ -44,7 +44,8 @@ a test image add `--allow e2e/parity/allow-no-clis.yml`. The real check is with 
    - `[flow]`: a `change` flow runs with keel's fake model (no login, no token). It stops at the scope gate, is
      approved as "small", runs the test-first loop and stops at the AC gate. Where it stopped must be the same. (A
      step may run twice on one keel, even on 0.15.1, so in this round lists are compared without their length and
-     order, and Live agents and Jobs, which show each agent call step by step, only by their structure.)
+     order, and Live agents and Jobs, which show each agent call step by step, only by their structure; their tabs
+     too, whatever count a tab's name shows, like "Finished 3" and "Finished 4".)
 3. **api**: about 120 read-only GET endpoints (`ENDPOINTS` and `FLOW_ENDPOINTS` in `parity.py`; from
    `docs/CONTRACT.md` and the controllers; nothing that needs a model or a token, nothing that changes state) on
    both. The **status** and the **JSON shape** must match: the keys and the value types, lists by their first element
@@ -54,6 +55,8 @@ a test image add `--allow e2e/parity/allow-no-clis.yml`. The real check is with 
    answers is **new in B**: listed, not a failure.
 4. **mcp**: in each round, keel's own MCP server inside each container (`python -m keel_engine.mcp`, what agents
    and `keel2 mcp` use) answers `tools/list`, read-only and with `--write`. The same tools must come in the same order.
+   When B keeps A's whole list in its order and only adds tools after it, the difference is one line,
+   `B adds at the end: <tools>` (so an allow entry can name exactly those); else both lists are printed.
 5. **web**: `pages.mjs` (headless Chromium) reads the menu (groups, labels, order, links) and the frame around the
    pages, searches in the launcher (⌘K) in every scope, then opens every menu page, `#/projects`, `#/code`,
    `#/keelbot` and a few deep links, each with a full load. In the main area it records the headings, tabs, views

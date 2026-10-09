@@ -351,11 +351,15 @@ function comparePage(a, b, hash) {
   };
   const structure = STEP_BY_STEP.has(hash);
   merge("", compareSeen(a.top, b.top, structure));
-  const keys = [...new Set([...Object.keys(a.inner), ...Object.keys(b.inner)])];
+  // on a page compared by its structure, a tab is the same tab whatever count its name shows ("Finished 3", "Finished 4":
+  // a step that ran twice on one keel)
+  const keyed = (inner) => Object.fromEntries(Object.entries(inner).map(([k, v]) => [structure ? k.replace(/\d+/g, "#") : k, v]));
+  const [ai, bi] = [keyed(a.inner), keyed(b.inner)];
+  const keys = [...new Set([...Object.keys(ai), ...Object.keys(bi)])];
   for (const k of keys) {
-    if (!(k in b.inner)) out.clicks = [...(out.clicks || []), `${k}: only in A`];
-    else if (!(k in a.inner)) out.clicks = [...(out.clicks || []), `${k}: only in B`];
-    else merge(`${k}: `, compareSeen(a.inner[k], b.inner[k], structure));
+    if (!(k in bi)) out.clicks = [...(out.clicks || []), `${k}: only in A`];
+    else if (!(k in ai)) out.clicks = [...(out.clicks || []), `${k}: only in B`];
+    else merge(`${k}: `, compareSeen(ai[k], bi[k], structure));
   }
   // B must not add console errors or failed requests (the ones A has too are 0.15.1's own)
   const newer = (x, y) => x.filter((e) => !y.includes(e));

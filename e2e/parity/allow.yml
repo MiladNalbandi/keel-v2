@@ -35,3 +35,32 @@
 - what: api GET /api/providers/models
   detail: "$.co*.modes.*: * items in A, * in B"
   why: the agent CLIs are installed at their newest version when an image is built, and codex and Copilot list their own models (models/catalog.py), so a newer CLI may bring a new model (Copilot 1.0.94 added claude-haiku-5.5). Only the number may differ; each model's shape is still compared
+
+# ---- step 4, the marketplace (docs/plugins/13-step4-contract.md): additions only. GET /api/plugins itself stays
+#      0.15.4's answer (the per-project plugins), so it is not here.
+
+- what: api GET /api/plugins/installed
+  why: step 4, the installed plugins of Control › Plugins (version, parts, from, on, status) and what waits for a restart
+
+- what: api GET /api/plugins/sources
+  why: step 4, the plugin catalogs keel reads (the official one and the ones a person adds), Control › Plugins › Sources and rules
+
+- what: api GET /api/plugins/rules
+  why: step 4, the four marketplace rules (agents may ask, unverified publishers, check daily, restart when idle)
+
+- what: api GET /api/plugins/sets
+  why: step 4, the plugin sets a core-only keel offers ("Start with a set")
+
+- what: api GET /api/marketplace*
+  why: step 4, search the plugin catalogs (Control › Plugins › Marketplace, and the agents' keel_marketplace_search)
+
+- what: mcp * tools/list
+  detail: "B adds at the end: keel_marketplace_search, keel_plugin_info, keel_plugins_installed, keel_plugin_request"
+  why: step 4, the four marketplace tools for agents (search, one plugin, installed, ask a person), after every tool 0.15.4 lists, in the same order
+
+- what: web menu
+  detail: 'menu: "Plugins → #/plugins" only in B'
+  why: step 4, the Control › Plugins entry in the menu (group Control, after the pages 0.15.4 has there)
+
+- what: web #/plugins *
+  why: step 4, the Control › Plugins page (Installed, Marketplace, Sources and rules); 0.15.4 has no such page
