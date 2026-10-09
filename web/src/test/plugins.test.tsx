@@ -1,6 +1,7 @@
-// v0.10.0 the Database and Git plugins in the web: install on Tools, Connections › Databases and GitHub (Map › Query:
-// plugins/map/web/test), Code › Git, KeelBot's query and git buttons, a plugin block's settings
-// on the Workflows page, and Claude Code's question in the Inbox.
+// v0.10.0 the Database and Git plugins in the web: install on Tools, Connections › GitHub, Code › Git, KeelBot's git
+// button, and Claude Code's question in the Inbox. The Database plugin's own pieces (Connections › Databases, KeelBot's
+// query button, a db: block's settings on the Workflows page) are tested with it: plugins/db/web/test (Map › Query:
+// plugins/map/web/test).
 
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -40,23 +41,12 @@ describe("Tools › Plugins", () => {
   });
 });
 
-describe("Connections › Databases and GitHub", () => {
-  it("uses a database keel found, saves and tests it, and keeps the GitHub token", async () => {
+describe("Connections › GitHub", () => {
+  it("keeps the GitHub token", async () => {
     const user = userEvent.setup();
-    db.plugins.db = true;
     location.hash = "#/connections";
     render(<App />);
-    const found = await screen.findByRole("group", { name: "Databases keel found in the project" });
-    expect(found).toHaveTextContent("postgres://app:•••@localhost:15432/scores"); // keel:allow-secret
-    await user.click(within(found).getByRole("button", { name: "Use it" }));
-    const form = screen.getByRole("form", { name: "Add a database" });
-    await user.click(within(form).getByRole("button", { name: "Save and test" }));
-    await waitFor(() => expect(calls("POST", "/api/projects/ludus-engine/db/connections")[0]?.body).toMatchObject({
-      name: "local", env: "local", source: "docker-compose.yml (service db)" }));
-    const card = await screen.findByRole("article", { name: "Database local" });
-    expect(card).toHaveTextContent("connected · 23 tables");
-    expect(card).toHaveTextContent("local: changes with your OK");
-    await user.type(screen.getByLabelText("GitHub token"), "ghp_123456789");
+    await user.type(await screen.findByLabelText("GitHub token"), "ghp_123456789");
     await user.click(within(screen.getByLabelText("GitHub token").closest(".gh-row") as HTMLElement).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(calls("PUT", "/api/secrets/GITHUB_REPO_TOKEN")[0]?.body).toEqual({ value: "ghp_123456789" }));
     expect(await screen.findByText("token set …789")).toBeInTheDocument();
@@ -132,37 +122,14 @@ describe("KeelBot's query and git buttons", () => {
     expect(segs.map((x) => x.kind)).toEqual(["text", "query", "git"]);
   });
 
-  it("a change KeelBot gives is counted first, and a commit uses the message the person may edit", async () => {
+  it("a commit uses the message the person may edit (the query button: plugins/db/web/test)", async () => {
     const user = userEvent.setup();
     const p = await chatWith('Zero them:\n```keel-query\n{"sql": "update scores set value = 0", "connection": "local"}\n```\n'
       + '```keel-git\n{"op": "commit", "message": "fix: zero scores"}\n```');
-    const q = await within(p).findByRole("region", { name: "Query on local" });
-    await user.click(within(q).getByRole("button", { name: "Run" }));
-    await user.click(await within(q).findByRole("button", { name: "Run it (3 rows)" }));
-    await waitFor(() => expect(calls("POST", "/api/projects/ludus-engine/db/query").map((c) => (c.body as { confirm: boolean }).confirm)).toEqual([false, true]));
-    const g = within(p).getByRole("region", { name: "Git: Commit" });
+    const g = await within(p).findByRole("region", { name: "Git: Commit" });
     await user.type(within(g).getByRole("textbox", { name: "Commit message" }), " for the reset");
     await user.click(within(g).getByRole("button", { name: "Commit" }));
     await waitFor(() => expect(calls("POST", "/api/projects/ludus-engine/git/commit")[0]?.body).toEqual({ message: "fix: zero scores for the reset" }));
     expect(await within(g).findByRole("status")).toHaveTextContent("Committed abc1234 fix: zero scores for the reset (1 file).");
-  });
-});
-
-describe("Workflows: a plugin block's settings", () => {
-  it("lists the plugin's blocks for a code step and edits its with: settings", async () => {
-    const user = userEvent.setup();
-    db.plugins.db = true;
-    location.hash = "#/workflows/feature";
-    render(<App />);
-    await user.click((await screen.findAllByRole("button", { name: /^verify_red, plain code/ }))[0]);
-    const act = await screen.findByLabelText("What it runs");
-    await user.clear(act);
-    await user.type(act, "db:check");
-    expect(await screen.findByText(/Database plugin: a data check/)).toBeInTheDocument();
-    await user.type(screen.getByLabelText("sql"), "select 1");
-    await user.type(screen.getByLabelText("expect (optional)"), "none");
-    // the suggestions list the project's plugin blocks next to keel's own actions
-    expect(document.querySelector('#wact-list option[value="db:check"]')).toHaveTextContent("Database: a data check");
-    expect(document.querySelector('#wact-list option[value="commit"]')).not.toBeNull();
   });
 });

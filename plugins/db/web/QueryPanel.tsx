@@ -1,11 +1,11 @@
 // v0.10.0 Map › Database › Query (the Database plugin): the live database next to the diagram. Pick a table to see its
 // first 20 rows, or write SQL. A read runs at once (read-only, 200 rows, 15 s); a change of data runs only on a local
 // or test database: keel counts the rows first (a run it rolls back), then you press Run it.
+// The Database plugin's part (plugins/db), in the Map plugin's slot map.er.query: it imports only react and @keel/web-sdk.
 
 import { useEffect, useState } from "react";
-import { api, errorParts, type DbResult } from "../../api";
-import { useLoad } from "../../state";
-import { ErrorBox } from "../ui";
+import { ErrorBox, errorParts, useLoad } from "@keel/web-sdk";
+import { dbApi, type DbResult } from "./dbApi";
 
 export function ResultTable({ r }: { r: DbResult }) {
   if (r.kind === "change") return null;
@@ -49,11 +49,11 @@ export function ResultTable({ r }: { r: DbResult }) {
 export function QueryPanel({ pid }: { pid: string }) {
   const plugins = useLoad(
     pid ? `plugins:${pid}` : null,
-    () => api.plugins(pid),
+    () => dbApi.plugins(pid),
     { live: false },
   );
   const on = !!plugins.data?.find((p) => p.name === "db")?.enabled;
-  const conns = useLoad(on ? `db:${pid}` : null, () => api.dbConnections(pid), {
+  const conns = useLoad(on ? `db:${pid}` : null, () => dbApi.connections(pid), {
     live: false,
   });
   const [conn, setConn] = useState("");
@@ -63,7 +63,7 @@ export function QueryPanel({ pid }: { pid: string }) {
     conns.data?.[0];
   const schema = useLoad(
     on && current ? `db-schema:${pid}:${current.name}` : null,
-    () => api.dbSchema(pid, current!.name),
+    () => dbApi.schema(pid, current!.name),
     { live: false },
   );
   const [sql, setSql] = useState("");
@@ -95,7 +95,7 @@ export function QueryPanel({ pid }: { pid: string }) {
     setErr(null);
     try {
       setResult(
-        await api.dbQuery(pid, {
+        await dbApi.query(pid, {
           connection: current.name,
           sql: text,
           change: current.can_change,

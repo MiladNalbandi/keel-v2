@@ -33,6 +33,8 @@ export { Async, Confirm, Drawer, Empty, ErrorBox, Loading, PageHead, Panel, Pill
 export type { PillTone } from "../components/ui";
 export { EmptyState, SearchBox, Section, Skeleton, useNarrow } from "../components/page";
 export { Markdown } from "../components/Markdown";
+// a code block with keel's highlighting (the Database plugin's KeelBot card shows its SQL with it)
+export { CodeBlock } from "../components/Code";
 export { ClarifyForm, answersOf } from "../components/ClarifyForm";
 export type { ClarifyAnswers } from "../components/ClarifyForm";
 export { clock, kfmt } from "../format";
@@ -68,8 +70,9 @@ export type { PageProps, PageRegistration, SlotItem } from "./registry";
 export { SLOTS } from "./slots";
 export type {
   AssistantItem, AssistantProps, CodeActivityItem, CodeActivityProps, CodeOpen, CodeOpenSpec, CodeTabItem, CodeTabProps,
-  CodeTabRef, CodeView, ConnectionKindItem, InboxCardItem, InboxCardProps, JobsTabItem, LauncherSourceItem, MapErQueryItem,
-  ScmPanelProps, SettingKind, SettingRow, SettingsSectionItem, ToolsCardItem, WorkflowActionsItem,
+  CodeTabRef, CodeView, ConnectionKindItem, InboxCardItem, InboxCardProps, JobsTabItem, KeelbotBlock, KeelbotCardItem,
+  KeelbotCardProps, LauncherSourceItem, MapErQueryItem, ScmPanelProps, SettingKind, SettingRow, SettingsSectionItem,
+  ToolsCardItem, WorkflowActionsItem,
 } from "./slots";
 
 // "ask KeelBot" without importing it: the assistant's part listens

@@ -11,7 +11,6 @@
 
 src/builtins.ts -> src/components/graph/register.tsx
 src/builtins.ts -> src/components/helper/register.tsx
-src/builtins.ts -> src/components/plugins/db/register.tsx
 src/builtins.ts -> src/components/plugins/git/register.tsx
 src/builtins.ts -> src/components/review/register.tsx
 src/builtins.ts -> src/pages/repo/register.tsx

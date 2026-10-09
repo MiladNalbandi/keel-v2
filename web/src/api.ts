@@ -577,21 +577,7 @@ export type Plugin = {
   actions: PluginAction[]; shows_in: string[]; commands: { name: string; description: string }[];
   enabled?: boolean; scope?: "project" | "all" | null;
 };
-export type DbConnection = {
-  name: string; kind: "postgres" | "mysql" | "sqlite"; env: "local" | "test" | "staging" | "prod"; shown: string; source?: string | null;
-  ok?: boolean | null; server?: string | null; tables?: number | null; error?: string | null; checked_at?: string | null;
-  /** a change of data may run here: local and test only */
-  can_change: boolean;
-};
-export type DbSuggestion = { name: string; kind: DbConnection["kind"]; url: string; shown: string; env: "local"; source: string; password: boolean };
-export type LiveTable = { name: string; columns: { name: string; type: string; nullable: boolean; pk: boolean }[]; fks: { column: string; table: string; ref: string }[] };
-export type LiveSchema = { connection: string; kind: string; tables: LiveTable[] };
-/** A query's result: a read (columns, rows) or a change (changed; done: run for real, else counted and rolled back). */
-export type DbResult = {
-  connection: string; env?: string; kind: "read" | "change"; sql: string; ms?: number;
-  columns?: string[]; rows?: unknown[][]; count?: number; truncated?: boolean; masked?: string[];
-  changed?: number; done?: boolean;
-};
+// (the Database plugin's types and calls are its own: plugins/db/web/dbApi.ts)
 export type GitStatus = {
   branch: string | null; base: string | null; upstream: string | null; ahead: number; behind: number; base_ahead: number; base_behind: number;
   pushed: boolean; changes: { path: string; status: string }[];
@@ -1098,18 +1084,6 @@ export const api = {
   setPlugin: (pid: string, name: string, enabled: boolean, scope: "project" | "all" = "project") =>
     put<Plugin[]>(`/projects/${e(pid)}/plugins/${e(name)}`, { enabled, scope }),
   github: () => get<{ set: boolean; hint: string | null; from: "keel" | "env" | null }>("/github"),
-  dbConnections: (pid: string) => get<DbConnection[]>(`/projects/${e(pid)}/db/connections`),
-  dbSuggest: (pid: string) => get<DbSuggestion[]>(`/projects/${e(pid)}/db/suggest`),
-  dbAdd: (pid: string, body: { name: string; url: string; env: string; source?: string }) =>
-    post<{ connection: DbConnection; test: { ok: boolean; error?: string; hint?: string } }>(`/projects/${e(pid)}/db/connections`, body),
-  dbUpdate: (pid: string, name: string, body: { url?: string; env?: string }) =>
-    put<DbConnection>(`/projects/${e(pid)}/db/connections/${e(name)}`, body),
-  dbDelete: (pid: string, name: string) => del(`/projects/${e(pid)}/db/connections/${e(name)}`),
-  dbTest: (pid: string, name: string) =>
-    post<{ connection: DbConnection; test: { ok: boolean; error?: string; hint?: string } }>(`/projects/${e(pid)}/db/connections/${e(name)}/test`),
-  dbSchema: (pid: string, connection?: string) => get<LiveSchema>(`/projects/${e(pid)}/db/schema${q({ connection })}`),
-  dbQuery: (pid: string, body: { connection?: string; sql: string; change?: boolean; confirm?: boolean }) =>
-    post<DbResult>(`/projects/${e(pid)}/db/query`, body),
   // the CI/CD plugin's calls KeelBot's CI button makes (Jobs › Pipelines is the plugin's own page part: plugins/ci/web)
   ciRuns: (pid: string, branch?: string) => get<CiRun[]>(`/projects/${e(pid)}/ci/runs${q({ branch })}`),
   ciRerun: (pid: string, id: number) => post<{ id: number; rerun: boolean }>(`/projects/${e(pid)}/ci/runs/${id}/rerun`),
