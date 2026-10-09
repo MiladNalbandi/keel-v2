@@ -1880,3 +1880,12 @@ waits elsewhere opens live (Open, `#/flow/<tid>`), as before.
   resumed); 404 for an unknown or already deleted flow. `GET …/flow` and a workflow's run count skip deleted flows.
 - Saving a finished flow's state again (opening it) no longer moves its `updated_at`, so looking at an old run does
   not make it the project's current flow.
+
+## v0.15.5: Copilot login, every model easy to find
+
+- A login (Copilot, Codex) is noticed while its CLI still runs: the Copilot CLI can stay open after it saved its token, and the page waited for the 15-minute limit.
+- The model dropdown: a host with several companies' models (Copilot) shows one sub-group per company with its mark; typing filters the list, a count says how many match; the list is taller.
+
+## v0.15.6: the Copilot login finishes
+
+- After the person authorizes, the Copilot CLI finds no keychain in keel's container and asks "Store token in plaintext config file? (y/N)". keel now answers yes (the token goes to the login's own temporary folder; keel saves it encrypted as GH_TOKEN and deletes the folder). If the CLI still says the token was not saved, the login ends as failed with a clear message.

@@ -51,6 +51,8 @@ class LoginService(
         @Volatile var url: String? = null
         @Volatile var code: String? = null
         @Volatile var hint: String? = null
+        /** v0.15.6 the Copilot CLI's "store the token in a plain file?" question was answered */
+        @Volatile var consented = false
         val started: Instant = Instant.now()
     }
 
@@ -141,6 +143,22 @@ class LoginService(
                 .firstOrNull { "device" in it || "oauth" in it || "authorize" in it }
         }
         if (s.provider != "claude" && s.code == null) s.code = Regex("\\b[A-Z0-9]{4}-[A-Z0-9]{4,5}\\b").find(text)?.value
+        // v0.15.6 after the person authorized, the Copilot CLI finds no keychain in keel's container and asks
+        // "System keychain unavailable. Store token in plaintext config file? (y/N)" — nobody saw it, so the login waited
+        // forever. keel answers yes: the token goes to the login's own temporary folder, keel saves it encrypted (GH_TOKEN)
+        // and deletes that folder.
+        if (s.provider == "copilot" && !s.consented && Regex("(?i)store token in plain ?text").containsMatchIn(text)) {
+            s.consented = true
+            s.message = "Authorized. Saving the token…"
+            runCatching {
+                s.stdin.write((if (usePty) "y\r" else "y\n").toByteArray())
+                s.stdin.flush()
+            }
+        }
+        if (s.provider == "copilot" && Regex("(?i)token was not saved").containsMatchIn(text) && s.status !in setOf("done", "failed", "cancelled")) {
+            s.status = "failed"
+            s.message = "GitHub authorized keel, but the Copilot CLI did not save the token. Start the login again, or paste a token."
+        }
         when {
             s.provider == "claude" && s.url != null && s.status == "starting" -> {
                 s.status = "code_needed"
@@ -157,23 +175,18 @@ class LoginService(
     }
 
     private fun finish(s: Session) {
-        val ended = s.proc.waitFor(15, TimeUnit.MINUTES)
-        if (!ended) s.proc.destroyForcibly()
+        // v0.15.5 the CLI can stay open after it saved the login (the Copilot CLI does on some machines): look for the
+        // result every 2 s while it runs, not only when it ends, so the page does not wait for the 15-minute limit
+        val deadline = System.nanoTime() + TimeUnit.MINUTES.toNanos(15)
+        var ended = false
+        while (!ended && System.nanoTime() < deadline && s.status !in setOf("done", "cancelled", "failed")) {
+            ended = s.proc.waitFor(2, TimeUnit.SECONDS)
+            if (!ended) collect(s)
+        }
+        if (!ended && s.status != "done") s.proc.destroyForcibly()
         Thread.sleep(200)
         parse(s)
-        if (s.status !in setOf("done", "cancelled")) {
-            try {
-                when (s.provider) {
-                    "codex" -> {
-                        val f = s.home.resolve(".codex/auth.json")
-                        if (Files.isRegularFile(f)) save(s, "CODEX_AUTH_JSON", Files.readString(f))
-                    }
-                    "copilot" -> findGithubToken(s.home)?.let { save(s, "GH_TOKEN", it) }
-                }
-            } catch (e: Exception) {
-                log.warn("{} login: could not read the result: {}", s.provider, e.javaClass.simpleName)
-            }
-        }
+        collect(s)
         if (s.status !in setOf("done", "cancelled")) {
             s.status = "failed"
             s.message = when {
@@ -182,6 +195,22 @@ class LoginService(
             }
         }
         s.home.toFile().deleteRecursively()
+    }
+
+    /** The login's result, when the CLI wrote it to a file: Codex's auth.json, the Copilot CLI's token. */
+    private fun collect(s: Session) {
+        if (s.status in setOf("done", "cancelled")) return
+        try {
+            when (s.provider) {
+                "codex" -> {
+                    val f = s.home.resolve(".codex/auth.json")
+                    if (Files.isRegularFile(f) && Files.size(f) > 0) save(s, "CODEX_AUTH_JSON", Files.readString(f))
+                }
+                "copilot" -> findGithubToken(s.home)?.let { save(s, "GH_TOKEN", it) }
+            }
+        } catch (e: Exception) {
+            log.warn("{} login: could not read the result: {}", s.provider, e.javaClass.simpleName)
+        }
     }
 
     private fun save(s: Session, name: String, value: String) {

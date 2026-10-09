@@ -9,7 +9,7 @@
 .mp-caret { width: 10px; height: 6px; flex: none; fill: none; stroke: var(--dim); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; transition: transform .12s; }
 .mp-btn[aria-expanded="true"] .mp-caret { transform: rotate(180deg); }
 
-.mp-list { position: fixed; z-index: 80; width: max-content; min-width: 250px; max-width: min(400px, calc(100vw - 16px)); max-height: 380px; overflow-y: auto; overscroll-behavior: contain;
+.mp-list { position: fixed; z-index: 80; width: max-content; min-width: 250px; max-width: min(400px, calc(100vw - 16px)); max-height: 560px; overflow-y: auto; scrollbar-width: auto; overscroll-behavior: contain;
   background: var(--panel); color: var(--fg); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); padding: 4px; font-size: 13.5px; text-align: left; }
 .mp-list:focus, .mp-list:focus-visible { outline: none; }
 .mp-group + .mp-group { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 4px; }
@@ -55,3 +55,8 @@
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .pi-local { --pi-bg: #737e91; } :root:not([data-theme="light"]) .pi-google { --pi-bg: #3b82f0; } }
 :root[data-theme="dark"] .pi-local { --pi-bg: #737e91; }
 :root[data-theme="dark"] .pi-google { --pi-bg: #3b82f0; }
+/* v0.15.5 the filter row on top of the list, and its count */
+.mp-filter { position: sticky; top: -4px; z-index: 1; display: flex; align-items: center; gap: 7px; margin: -4px -4px 4px; padding: 7px 12px; background: var(--panel); border-bottom: 1px solid var(--border); font-size: 12.5px; color: var(--dim); }
+.mp-filter b { color: var(--fg); }
+.mp-ph { color: var(--faint); }
+.mp-count { margin-left: auto; color: var(--faint); font-size: 11.5px; }

@@ -51,10 +51,13 @@ describe("model picker: one dropdown", () => {
     // the groups, in the catalog's order, each with the mark of its company and the mode its list is for
     const groups = within(list).getAllByRole("group");
     expect(groups.map((g) => [g.getAttribute("data-provider"), g.querySelector("svg.pi")?.getAttribute("data-brand")])).toEqual([
-      ["claude", "anthropic"], ["codex", "openai"], ["copilot", "github"], ["fake", "fake"],
+      // v0.15.5 Copilot hosts several companies' models: one sub-group per company, with that company's mark
+      ["claude", "anthropic"], ["codex", "openai"], ["copilot", "openai"], ["copilot", "anthropic"], ["fake", "fake"],
     ]);
     expect(within(list).getByRole("group", { name: "Claude" })).toHaveTextContent("Subscription");
-    expect(within(groups[2]).getAllByRole("option").map((o) => o.getAttribute("aria-label"))).toEqual(["GPT-5 (Copilot)", "Claude Sonnet 4.5 (Copilot)"]);
+    expect(within(groups[2]).getAllByRole("option").map((o) => o.getAttribute("aria-label"))).toEqual(["GPT-5 (Copilot)"]);
+    expect(within(groups[3]).getAllByRole("option").map((o) => o.getAttribute("aria-label"))).toEqual(["Claude Sonnet 4.5 (Copilot)"]);
+    expect(groups[3]).toHaveTextContent("Copilot · Claude");
     // the last item types any id
     expect(within(list).getAllByRole("option").at(-1)).toHaveAccessibleName("Other model…");
   });
@@ -88,6 +91,31 @@ describe("model picker: one dropdown", () => {
     // Enter on the button opens it, as a click does
     await user.keyboard("{Enter}");
     expect(screen.getByRole("listbox")).toBeInTheDocument();
+  });
+
+  it("v0.15.5 typing in the open list filters it, with a count; Backspace and Esc take the filter back first", async () => {
+    const { user, button } = setup();
+    await ready();
+    await user.click(button());
+    const list = screen.getByRole("listbox");
+    const count = () => list.querySelector(".mp-count")!.textContent;
+    const all = Number(count()!.split(" ")[0]);
+    expect(all).toBeGreaterThan(5);
+    expect(within(list).getByText(/Copilot · GPT/)).toBeInTheDocument();
+    await user.keyboard("son");
+    expect(list.querySelector(".mp-filter b")).toHaveTextContent("son");
+    expect(within(list).getAllByRole("option").map((o) => o.getAttribute("aria-label"))).toContain("Claude Sonnet");
+    expect(Number(count()!.split(" ")[0])).toBeLessThan(all);
+    await user.keyboard("{Backspace}{Backspace}{Backspace}");
+    expect(count()).toBe(`${all} models`);
+    await user.keyboard("zzz");
+    expect(count()).toBe("0 models");
+    expect(within(list).getByRole("option", { name: "Other model…" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("listbox")).toBeInTheDocument(); // the first Esc clears the filter
+    expect(count()).toBe(`${all} models`);
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("listbox")).toBeNull();
   });
 
   it("typing a few letters jumps to a match, on the open list and on the closed button", async () => {

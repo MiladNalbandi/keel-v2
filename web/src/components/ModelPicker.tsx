@@ -169,20 +169,37 @@ export function defaultModel(c: Catalog | null, p: string, mode?: Mode): Model {
 // v0.15.2 The dropdown's list: one group per provider (only the current one when the place fixes the provider). The
 // current provider lists the models of its chosen mode, the others those of their default mode, as switching did before.
 type Opt = { key: string; provider: string; mode: Mode; id: string; label: string; custom?: boolean };
-type Group = { provider: string; label: string; mode: Mode; opts: Opt[] };
+type Group = { key: string; provider: string; label: string; mode: Mode; opts: Opt[]; /** v0.15.5 the company's mark, for a sub-group */ icon?: string };
+
+// v0.15.5 a host with many companies' models (Copilot, OpenCode) shows them in one sub-group per company
+const VENDORS: [RegExp, string, string][] = [
+  [/claude|anthropic/, "claude", "Claude"], [/gpt|openai|codex|^o[134]\b/, "openai", "GPT"], [/gemini|google/, "gemini", "Gemini"],
+  [/grok|xai/, "grok", "Grok"], [/llama|meta\//, "meta", "Llama"], [/deepseek/, "deepseek", "DeepSeek"], [/kimi|moonshot/, "kimi", "Kimi"],
+  [/mistral|codestral/, "mistral", "Mistral"], [/^mai-|microsoft|phi-/, "microsoft", "Microsoft"],
+];
+const vendorOf = (id: string) => {
+  const v = VENDORS.find(([re]) => re.test(id.toLowerCase()));
+  return v ? { key: v[1], name: v[2] } : { key: "other", name: "Other" };
+};
 const OTHER: Opt = { key: "other", provider: "", mode: "api", id: "", label: "Other model…" };
 
 function groupsOf(c: Catalog | null, value: Model, all: boolean): Group[] {
   const p = value.provider;
   const ps = all ? providersOf(c) : [p];
   if (!ps.includes(p)) ps.unshift(p);
-  return ps.map((q) => {
+  return ps.flatMap((q) => {
     const md = q === p && modesOf(c, q).includes(value.mode) ? value.mode : defaultModel(c, q).mode;
     const list = modelOptions(c, q, q === p ? value.mode : md);
     const opts: Opt[] = list.map((m) => ({ key: `${q}:${m.id}`, provider: q, mode: md, id: m.id, label: m.label || m.id }));
     // a model the list does not have (typed by hand, or from an older keel) still shows, as the chosen one
     if (q === p && value.model && !list.some((m) => m.id === value.model)) opts.unshift({ key: `${q}:${value.model}`, provider: q, mode: md, id: value.model, label: value.model, custom: true });
-    return { provider: q, label: providerLabel(c, q), mode: md, opts };
+    const base = { provider: q, label: providerLabel(c, q), mode: md };
+    const vendors = [...new Set(opts.map((o) => vendorOf(o.id).key))];
+    if (vendors.length < 2) return [{ ...base, key: q, opts }];
+    return vendors.map((v) => {
+      const vo = opts.filter((o) => vendorOf(o.id).key === v);
+      return { ...base, key: `${q}:${v}`, label: `${base.label} · ${vendorOf(vo[0].id).name}`, icon: v, opts: vo };
+    });
   }).filter((g) => g.opts.length || g.provider === p);
 }
 
@@ -210,9 +227,15 @@ export function ModelPicker({ value, onChange, id, effort = true, provider = tru
   const pLabel = providerLabel(catalog, p);
   // v0.15.2 one dropdown for the model: a button, and a list of models grouped by provider with each company's mark
   const groups = groupsOf(catalog, value, provider);
-  const opts = [...groups.flatMap((g) => g.opts), OTHER];
+  const all = groups.flatMap((g) => g.opts);
+  const current = all.find((o) => o.provider === p && o.id === value.model);
+  // v0.15.5 typing in the open list filters it (a word of the name or id, or any part of it); the count says how many
+  const [filter, setFilter] = useState("");
+  const f = filter.trim().toLowerCase();
+  const fits = (o: Opt) => !f || hits(o, f) || `${o.label} ${o.id}`.toLowerCase().includes(f);
+  const shownGroups = groups.map((g) => ({ ...g, opts: g.opts.filter(fits) })).filter((g) => g.opts.length);
+  const opts = [...shownGroups.flatMap((g) => g.opts), OTHER];
   const chosen = opts.findIndex((o) => o !== OTHER && o.provider === p && o.id === value.model);
-  const current = chosen >= 0 ? opts[chosen] : undefined;
   const shown = current?.label ?? (value.model || "Choose a model");
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
@@ -221,7 +244,6 @@ export function ModelPicker({ value, onChange, id, effort = true, provider = tru
   const btn = useRef<HTMLButtonElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLInputElement>(null);
-  const seek = useRef({ text: "", at: 0 });
   const cancel = useRef(false);
   const act = Math.min(active, opts.length - 1);
   const typing = typed !== null;
@@ -232,7 +254,7 @@ export function ModelPicker({ value, onChange, id, effort = true, provider = tru
   };
   const close = (focus = true) => {
     setOpen(false);
-    seek.current = { text: "", at: 0 };
+    setFilter("");
     if (focus) btn.current?.focus();
   };
   const pick = (o: Opt) => {
@@ -247,47 +269,36 @@ export function ModelPicker({ value, onChange, id, effort = true, provider = tru
       onChange(d.model === o.id ? d : bare({ ...d, model: o.id }));
     }
   };
-  /** A few letters typed quickly jump to the next match; the same letter again steps through the matches. */
-  const seekFrom = (key: string, from: number) => {
-    const s = seek.current;
-    const now = Date.now();
-    s.text = now - s.at < 800 ? s.text + key.toLowerCase() : key.toLowerCase();
-    s.at = now;
-    const q = /^(.)\1+$/.test(s.text) ? s.text[0] : s.text;
-    const start = q.length === 1 ? from + 1 : Math.max(from, 0);
-    for (let k = 0; k < opts.length; k++) {
-      const i = (start + k) % opts.length;
-      if (opts[i] !== OTHER && hits(opts[i], q)) return i;
-    }
-    return -1;
-  };
   const onButtonKey = (e: KeyEvent) => {
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       show(chosen >= 0 ? chosen : e.key === "ArrowUp" ? opts.length - 2 : 0);
     } else if (printable(e)) {
-      const i = seekFrom(e.key, chosen);
-      if (i < 0) return;
       e.preventDefault();
-      show(i);
+      setFilter(e.key);
+      show(0);
     }
   };
   const onListKey = (e: KeyEvent) => {
     const last = opts.length - 1;
     const k = e.key;
     const to = k === "ArrowDown" ? Math.min(act + 1, last) : k === "ArrowUp" ? Math.max(act - 1, 0) : k === "Home" ? 0 : k === "End" ? last
-      : k === "PageDown" ? Math.min(act + 8, last) : k === "PageUp" ? Math.max(act - 8, 0) : printable(e) ? seekFrom(k, act) : null;
-    if (to !== null) {
+      : k === "PageDown" ? Math.min(act + 8, last) : k === "PageUp" ? Math.max(act - 8, 0) : null;
+    if (printable(e) || (k === "Backspace" && filter)) {
+      e.preventDefault();
+      setFilter((x) => (k === "Backspace" ? x.slice(0, -1) : x + k));
+      setActive(0);
+    } else if (to !== null) {
       e.preventDefault();
       if (to >= 0) setActive(to);
     } else if (k === "Enter" || k === " ") {
       e.preventDefault();
       pick(opts[act]);
     } else if (k === "Escape") {
-      // only the list closes, not the drawer or the page mode around it
+      // only the list closes, not the drawer or the page mode around it; a filter is cleared first
       e.preventDefault();
       e.stopPropagation();
-      close();
+      if (filter) { setFilter(""); setActive(Math.max(0, chosen)); } else close();
     } else if (k === "Tab") close(); // back on the button, so Tab goes on from there
   };
 
@@ -314,7 +325,7 @@ export function ModelPicker({ value, onChange, id, effort = true, provider = tru
       const below = vh - b.bottom - gap;
       const above = b.top - gap;
       const up = below < 240 && above > below;
-      const v = { maxHeight: Math.max(120, Math.min(380, (up ? above : below) - 4)), ...(up ? { bottom: vh - b.top + 4 } : { top: b.bottom + 4 }) };
+      const v = { maxHeight: Math.max(120, Math.min(560, (up ? above : below) - 4)), ...(up ? { bottom: vh - b.top + 4 } : { top: b.bottom + 4 }) };
       if (vw <= 600) return setPlace({ ...v, left: gap, width: vw - 2 * gap }); // a phone: the screen's width
       const minWidth = Math.min(Math.max(b.width, 250), vw - 2 * gap);
       setPlace({ ...v, minWidth, left: Math.max(gap, Math.min(b.left, vw - gap - Math.max(l.offsetWidth, minWidth))) });
@@ -365,11 +376,16 @@ export function ModelPicker({ value, onChange, id, effort = true, provider = tru
             const t = e.relatedTarget as Node | null;
             if (!t || (!btn.current?.contains(t) && !list.current?.contains(t))) setOpen(false);
           }}>
-          {groups.map((g) => (
-            <div key={g.provider} className="mp-group" role="group" aria-labelledby={`${id}-g-${g.provider}`} data-provider={g.provider}>
+          <div className="mp-filter" role="presentation">
+            <span aria-hidden="true">⌕</span>
+            {filter ? <b className="mono">{filter}</b> : <span className="mp-ph">Type to filter</span>}
+            <span className="mp-count">{opts.length - 1} {opts.length - 1 === 1 ? "model" : "models"}</span>
+          </div>
+          {shownGroups.map((g) => (
+            <div key={g.key} className="mp-group" role="group" aria-labelledby={`${id}-g-${g.key}`} data-provider={g.provider}>
               <div className="mp-gh" role="presentation">
-                <ProviderIcon provider={g.provider} label={g.label} />
-                <span id={`${id}-g-${g.provider}`}>{g.label}</span>
+                <ProviderIcon provider={g.icon ?? g.provider} label={g.label} />
+                <span id={`${id}-g-${g.key}`}>{g.label}</span>
                 {mode && <span className="mp-gm">{modeLabel(g.provider, g.mode)}</span>}
               </div>
               {g.opts.map(option)}
