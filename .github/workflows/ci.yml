@@ -1,5 +1,5 @@
-# Runs the three test suites (keel's core and every plugin in plugins/) and checks the shell scripts on every push and
-# pull request.
+# Runs the three test suites (keel's core and every plugin in plugins/), the keel-plugin tool's tests, and checks the
+# shell scripts on every push and pull request.
 name: ci
 on:
   push:
@@ -16,6 +16,8 @@ jobs:
       # keel v2 does not depend on keel v1 (0.4.1): any line that still does fails the build
       - run: scripts/no-v1.sh --strict
       - run: shellcheck -S error keel2 install.sh docker/keel-start product/build-plugin.sh docker/tests/keel-start.test.sh scripts/build-plugin.sh scripts/test-plugins.sh
+      # the plugin publishing scripts (docs/plugins/14-publishing.md)
+      - run: shellcheck -S error docs/plugins/tools/setup-signing-keys.sh docs/plugins/marketplace-repo/.github/fetch-releases.sh
       - run: ./keel2 help | grep -q "keel2 start" && ./keel2 version
       # keel-start, the supervisor loop (restart on exit 75, fallback to the last good plugins), with stub commands
       - run: docker/tests/keel-start.test.sh
@@ -25,6 +27,16 @@ jobs:
           ./keel2 mcp --print-config | grep -q "claude mcp add keel-v2 -- $PWD/keel2 mcp$"
           ./keel2 mcp --write --print-config | grep -q '"args": \["mcp", "--write"\]'
           ! ./keel2 start --with-keel-v1 /tmp
+  keel-plugin:
+    # tools/keel-plugin, the publishing tool (docs/plugins/13-step4-contract.md section 10): the signature test vector,
+    # keygen/sign/verify, pack and lint (also against scripts/build-plugin.sh), the catalog index, the template, and
+    # setup-signing-keys.sh --dry-run with a stand-in gh
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv run --with pytest pytest -q
+        working-directory: tools/keel-plugin
   engine:
     runs-on: ubuntu-latest
     # v0.10.0 the Database plugin's tests run against a real PostgreSQL and MySQL

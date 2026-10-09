@@ -1,0 +1,9 @@
+# keel's own plugins: the keel-studio/keel-plugin-* repos.
+name: keel
+title: keel
+verified: true
+contact: https://github.com/MiladNalbandi/keel-v2/issues
+# The minisign public key that signs keel's plugin releases. Only a public key goes here: the secret key is the Actions
+# secret KEEL_PUBLISHER_KEY of MiladNalbandi/keel-v2. docs/plugins/tools/setup-signing-keys.sh (in keel-v2) fills in
+# the line below.
+keys: []

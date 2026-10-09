@@ -1,0 +1,9 @@
+# Code graph: parts engine, api, web (from keel-v2's plugins/graph/keel-plugin.yml)
+name: graph
+title: "Code graph"
+publisher: keel
+repo: https://github.com/keel-studio/keel-plugin-graph
+category: knowledge
+summary: "A local index of the project's symbols, calls and imports - agents look things up in it instead of grep, and the Graph page shows what uses what."
+tags: [code-graph, context]
+trust: code

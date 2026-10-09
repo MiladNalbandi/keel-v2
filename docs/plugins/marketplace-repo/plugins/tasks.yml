@@ -1,0 +1,9 @@
+# Tasks: parts api, web (from keel-v2's plugins/tasks/keel-plugin.yml)
+name: tasks
+title: "Tasks"
+publisher: keel
+repo: https://github.com/keel-studio/keel-plugin-tasks
+category: tickets
+summary: "The work of a project as a board - local tasks or Jira tickets - each started as a flow and walked through review, PP testing and production."
+tags: [tasks, tickets]
+trust: code

@@ -1,0 +1,61 @@
+# Every hour, after a change to main, and by hand: reads the releases of every plugin in plugins/, lints each file and
+# checks its signature with its publisher's keys, builds the catalog index v1/index.json, signs it with the catalog
+# key (the secret KEEL_CATALOG_KEY) and puts it on GitHub Pages:
+#   https://keel-studio.github.io/keel-marketplace/v1/index.json   (+ index.json.minisig)
+# A version that fails a check is left out (the log says why); the rest of the index is built. A new index every hour
+# also moves its expiry date (14 days), so keel knows its copy is fresh.
+name: sync
+on:
+  schedule:
+    - cron: "17 * * * *"
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: pages
+  cancel-in-progress: false
+env:
+  # keel-plugin, from keel-v2's plugin track (tools/keel-plugin)
+  KEEL_PLUGIN: git+https://github.com/MiladNalbandi/keel-v2@plugin-base#subdirectory=tools/keel-plugin
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: The catalog key is set
+        env:
+          HAS_KEY: ${{ secrets.KEEL_CATALOG_KEY != '' }}
+        run: |
+          if [ "$HAS_KEY" != "true" ]; then
+            echo "::error::The secret KEEL_CATALOG_KEY is not set. Milad makes it with docs/plugins/tools/setup-signing-keys.sh in keel-v2 (docs/plugins/14-publishing.md)."
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: The marketplace files are valid
+        run: uvx --from "$KEEL_PLUGIN" keel-plugin index . --check
+      - name: Download the releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/fetch-releases.sh releases
+      - name: Build and sign the index
+        env:
+          KEEL_CATALOG_KEY: ${{ secrets.KEEL_CATALOG_KEY }}
+        run: uvx --from "$KEEL_PLUGIN" keel-plugin index . --releases releases --key-env KEEL_CATALOG_KEY --out site/v1
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}v1/index.json
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

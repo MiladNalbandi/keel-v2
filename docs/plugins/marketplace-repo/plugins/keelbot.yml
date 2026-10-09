@@ -1,0 +1,9 @@
+# KeelBot: parts engine, api, web, content (from keel-v2's plugins/keelbot/keel-plugin.yml)
+name: keelbot
+title: "KeelBot"
+publisher: keel
+repo: https://github.com/keel-studio/keel-plugin-keelbot
+category: other
+summary: "keel's chat about your project, in the Code page and on a page of its own - it answers with file:line links, suggests the right workflow, and fixes things at a gate or in its own worktree."
+tags: [assistant, chat]
+trust: code

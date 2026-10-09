@@ -1,0 +1,24 @@
+[project]
+name = "keel-plugin"
+version = "0.1.0"
+description = "Make, check, pack, sign and list keel plugins (docs/plugins/13-step4-contract.md, section 10)"
+requires-python = ">=3.11"
+license = "MIT"
+# stdlib + cryptography only: this tool never imports keel
+dependencies = ["cryptography>=42"]
+
+[project.scripts]
+keel-plugin = "keel_plugin.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["keel_plugin"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

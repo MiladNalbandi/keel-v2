@@ -1,0 +1,9 @@
+# Jira: parts api, web (from keel-v2's plugins/jira/keel-plugin.yml)
+name: jira
+title: "Jira"
+publisher: keel
+repo: https://github.com/keel-studio/keel-plugin-jira
+category: tickets
+summary: "A Jira connection per project - its tickets become tasks, and keel moves and comments the real ticket as the task moves."
+tags: [jira, tickets]
+trust: code

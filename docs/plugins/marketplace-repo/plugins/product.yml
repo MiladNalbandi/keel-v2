@@ -1,0 +1,9 @@
+# keel Product: parts engine, api, web, content (from keel-v2's product/keel-plugin.yml)
+name: product
+title: "keel Product"
+publisher: keel
+repo: https://github.com/keel-studio/keel-plugin-product
+category: product
+summary: "Initiatives, teams and product docs, from an idea to the teams' stories."
+tags: [product-management]
+trust: code
