@@ -20,6 +20,11 @@
 #   keel2 sql                   open keel's SQLite database
 #   keel2 mcp [--write]         keel's MCP server on stdio, for Claude Code / Claude Desktop to start (read-only;
 #                               --write adds approving gates). keel2 mcp --print-config shows how to add it
+#   keel2 plugins list          the plugins keel has: what loads, what is off, what is left out and why
+#   keel2 plugins install <name>[@version]   install a plugin from the marketplace (and the plugins it needs)
+#   keel2 plugins remove <name> [--delete-data]   remove an installed plugin (its tables stay)
+#   keel2 plugins search [words] | update <name> | rollback <name>
+#   keel2 plugins safe          restart keel in safe mode: only the plugins inside the image load
 #   keel2 uninstall [--all]     remove the container (--all: also keel's data, after you confirm)
 #   keel2 version | help
 #
@@ -463,6 +468,30 @@ cmd_mcp() {
   exec docker exec -i "$NAME" /opt/engine/.venv/bin/python -m keel_engine.mcp "$mode"
 }
 
+# keel2 plugins list | install <name>[@version] | remove <name> [--delete-data] | search [words] | update <name>
+#              | rollback <name> | safe
+# The plugin host's command line inside the container (keel-engine plugins, docs/plugins/13-step4-contract.md §5).
+# What it installs or removes loads at the next start: keel2 restart.
+cmd_plugins() {
+  local sub="${1:-list}"; [ $# -gt 0 ] && shift
+  local engine=(docker exec "$NAME" /opt/engine/.venv/bin/keel-engine plugins)
+  case "$sub" in
+    safe) cmd_restart --safe "$@"; return ;;
+    list|install|remove|search|update|rollback) ;;
+    *) die "Unknown plugins command: $sub" "usage: keel2 plugins list | install <name> | remove <name> | search [words] | update <name> | rollback <name> | safe" ;;
+  esac
+  need_docker
+  container_running || die "keel is not running." "Start it first: keel2 start /path/to/project"
+  case "$sub" in
+    list)     "${engine[@]}" list "$@" ;;
+    search)   "${engine[@]}" search "$@" ;;
+    install)  [ $# -ge 1 ] || die "usage: keel2 plugins install <name>[@version]"; "${engine[@]}" get "$@" ;;
+    remove)   [ $# -ge 1 ] || die "usage: keel2 plugins remove <name> [--delete-data]"; "${engine[@]}" remove "$@" ;;
+    update)   [ $# -ge 1 ] || die "usage: keel2 plugins update <name>"; "${engine[@]}" update "$@" ;;
+    rollback) [ $# -ge 1 ] || die "usage: keel2 plugins rollback <name>"; "${engine[@]}" rollback "$@" ;;
+  esac
+}
+
 print_mcp_config() {  # print_mcp_config <--read-only|--write>
   local self; self="$(cd "$(dirname "$0")" && pwd -P)/$(basename "$0")"
   local write="" jargs='"mcp"' env_cli="" env_json=""
@@ -503,6 +532,7 @@ case "$cmd" in
   backup)           cmd_backup "$@" ;;
   restore)          cmd_restore "$@" ;;
   mcp)              cmd_mcp "$@" ;;
+  plugins)          cmd_plugins "$@" ;;
   sql)              need_docker; container_running || die "keel is not running."; exec docker exec -it "$NAME" sqlite3 -header -column /data/keel.db ;;
   uninstall)        cmd_uninstall "$@" ;;
   version|-v|--version) echo "keel2 $KEEL2_VERSION · image $IMAGE" ;;

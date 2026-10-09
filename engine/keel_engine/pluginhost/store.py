@@ -89,29 +89,61 @@ def _unpack(tar: tarfile.TarFile, members: list[tarfile.TarInfo], m: Manifest, t
         raise
 
 
-def install(file: str | Path, *, on: bool = True, force: bool = False) -> resolver.Plugin:
-    """Unpack a .kplug into store/<name>/<version>/ and add its installed.json entry (source "file")."""
+def _open_package(path: Path):
+    """The members and the manifest of a .kplug, after the member checks (no file is written)."""
+    tar = tarfile.open(path, "r:gz")
+    try:
+        members = tar.getmembers()
+        for member in members:
+            _member_path(member)
+        return tar, members, _read_manifest(tar, members)
+    except BaseException:
+        tar.close()
+        raise
+
+
+def _bad_package(path: Path, exc: Exception) -> PluginError:
+    return PluginError(f"{path.name} is not a .kplug (a tar.gz of the plugin folder): {exc}")
+
+
+def read_package(file: str | Path) -> tuple[Manifest, list[str]]:
+    """A package's manifest and the paths of its files, after the member checks, without unpacking it (the
+    marketplace compares them with the catalog before anything is installed)."""
+    path = Path(file)
+    if not path.is_file():
+        raise PluginError(f"{file} is not a file")
+    try:
+        tar, members, m = _open_package(path)
+        with tar:
+            return m, [_member_path(x).as_posix() for x in members if x.isfile()]
+    except (tarfile.TarError, gzip.BadGzipFile, EOFError, zlib.error) as exc:
+        raise _bad_package(path, exc) from exc
+
+
+def install(file: str | Path, *, on: bool = True, force: bool = False, source: str = "file",
+            meta: dict | None = None) -> resolver.Plugin:
+    """Unpack a .kplug into store/<name>/<version>/ and add its installed.json entry. `source` is where it came from
+    (file, or marketplace); `meta` adds fields to the entry (a marketplace install: catalog, publisher, trust,
+    permissions, previous, by). The entry's version, on, source and sha256 are always this package's."""
     path = Path(file)
     if not path.is_file():
         raise PluginError(f"{file} is not a file")
     data = state.read_installed()   # a broken installed.json stops the install before anything is unpacked
     sha = manifest.file_sha256(path)
     try:
-        with tarfile.open(path, "r:gz") as tar:
-            members = tar.getmembers()
-            for member in members:
-                _member_path(member)
-            m = _read_manifest(tar, members)
+        tar, members, m = _open_package(path)
+        with tar:
             target = state.store_dir() / m.name / m.version
             if target.exists() and not force:
                 raise PluginError(f"{m.name} {m.version} is already installed in {target} (--force replaces it)")
             _unpack(tar, members, m, target)
     except (tarfile.TarError, gzip.BadGzipFile, EOFError, zlib.error) as exc:
-        raise PluginError(f"{path.name} is not a .kplug (a tar.gz of the plugin folder): {exc}") from exc
-    data["plugins"][m.name] = {"version": m.version, "on": on, "source": "file", "sha256": sha,
-                               "installed_at": state.now(), "by": "cli"}
+        raise _bad_package(path, exc) from exc
+    fixed = {"version": m.version, "on": on, "source": source, "sha256": sha}
+    data["plugins"][m.name] = {**fixed, "installed_at": state.now(), "by": "cli",
+                               **{k: v for k, v in (meta or {}).items() if k not in fixed}}
     state.write_installed(data)
-    return resolver.Plugin(m, target, "file")
+    return resolver.Plugin(m, target, source)
 
 
 def set_on(name: str, on: bool) -> None:

@@ -1,4 +1,6 @@
-"""keel-plugin.yml, schema 1 (contract section 2), and files.sha256, the list of file hashes next to it."""
+"""keel-plugin.yml, schema 1 (contract section 2), and files.sha256, the list of file hashes next to it.
+Step 4 also reads `permissions` (what the marketplace shows and compares) and the Python libraries a manifest asks
+for (docs/plugins/13-step4-contract.md)."""
 
 from __future__ import annotations
 
@@ -40,6 +42,9 @@ class Manifest:
     per_project: bool = False
     publisher: str = ""
     summary: str = ""
+    permissions: dict = field(default_factory=dict)   # what it may do (shown before install, docs/plugins/03-security.md)
+    python: tuple[str, ...] = ()                      # extra Python libraries it asks for (requires.python,
+                                                      # parts.engine.requirements); keel does not install them yet
 
     def requires(self) -> dict:
         """requires as resolved.json shows it: sdk, then keel and plugins when the manifest has them."""
@@ -79,6 +84,30 @@ def _mapping(value, where: str) -> dict:
     if not isinstance(value, dict):
         raise ManifestError(f"{where} must be a mapping")
     return value
+
+
+def _python(data: dict) -> tuple[str, ...]:
+    """The extra Python libraries a manifest asks for: requires.python (a list or a mapping) and the
+    parts.engine.requirements file. keel reads them only to refuse them for now (docs/plugins/13-step4-contract.md §0)."""
+    req = data.get("requires") if isinstance(data.get("requires"), dict) else {}
+    asked = req.get("python")
+    if isinstance(asked, dict):
+        out = [f"{k} {v}".strip() if v else str(k) for k, v in asked.items()]
+    else:
+        out = [str(x) for x in (asked if isinstance(asked, list) else [asked] if asked else [])]
+    engine = (data.get("parts") or {}).get("engine") if isinstance(data.get("parts"), dict) else None
+    if isinstance(engine, dict) and engine.get("requirements"):
+        out.append(str(engine["requirements"]))
+    return tuple(out)
+
+
+def _permissions(data: dict) -> dict:
+    perms = data.get("permissions")
+    if perms is None:
+        return {}
+    if not isinstance(perms, dict) or not all(isinstance(k, str) for k in perms):
+        raise ManifestError("permissions must be a mapping (secrets, network, workspace, ...)")
+    return perms
 
 
 def _requires(data: dict) -> tuple[int, str, dict[str, str]]:
@@ -154,7 +183,7 @@ def _check(data) -> Manifest:
     sdk, keel, plugins = _requires(data)
     return Manifest(name=name, version=version, title=_text(data, "title") or name, sdk=sdk, keel=keel, plugins=plugins,
                     per_project=per_project, publisher=_text(data, "publisher"), summary=_text(data, "summary"),
-                    **_parts(data))
+                    permissions=_permissions(data), python=_python(data), **_parts(data))
 
 
 def parse(text: str) -> Manifest:

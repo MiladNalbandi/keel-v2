@@ -95,13 +95,15 @@ def test_with_the_ci_plugin_keelbot_and_validation_name_them_as_keel_0_15_1_did(
 
 def test_keel2_mcp_lists_its_tools_in_keel_0_15_1s_order(with_ci):
     """keel2 mcp's tools/list, exactly as 0.15.1 listed them (it named each tool in mcp_server.py): the read tools
-    Database, Git, CI/CD; the acting tools CI/CD, Database, Git; then keel's own two."""
+    Database, Git, CI/CD; the acting tools CI/CD, Database, Git; then keel's own two. Step 4's four marketplace tools
+    come after all of them, in both modes (docs/plugins/13-step4-contract.md §7)."""
     names = lambda write: [t.name for t in asyncio.run(mcp_server.build_server(write=write, api=object()).list_tools())]
     read = ["keel_status", "keel_projects", "keel_timeline", "keel_next", "keel_explain", "keel_db_schema", "keel_db_query",
             "keel_git_status", "keel_pr_status", "keel_ci_runs", "keel_ci_failure"]
-    assert names(False) == read
+    market = ["keel_marketplace_search", "keel_plugin_info", "keel_plugins_installed", "keel_plugin_request"]
+    assert names(False) == read + market
     assert names(True) == read + ["keel_ci_rerun", "keel_db_change", "keel_git_commit", "keel_git_push", "keel_pr_create",
-                                  "keel_approve_gate", "keel_resume"]
+                                  "keel_approve_gate", "keel_resume"] + market
 
 
 # ------------------------------------------------------------------ its content: Tools › Plugins and its command

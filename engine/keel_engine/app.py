@@ -19,6 +19,7 @@ from . import addons, approvals, config, extensions, models
 from .models import usage as provider_usage
 from .demo import create_demo, workspace_missing
 from .events import EventBus, bus as default_bus
+from .marketplace import MarketError
 from .models import catalog
 from .runtime import evals, hunt, scan
 from .runtime.explain import ExplainError, explain_step
@@ -269,11 +270,15 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
                 log.warning("could not create the demo project: %s", exc)
         bus.start()
         await engine.open(resume_running=resume_running)
+        from .marketplace.routes import refresher   # the marketplace's catalogs, read while keel runs
+
+        catalogs = asyncio.create_task(refresher())
         try:
             # the parts' own lifespans (keel_engine/extensions.py): they start now and stop first, in reverse order
             async with extensions.lifespan(app):
                 yield
         finally:
+            catalogs.cancel()
             await engine.close()
             await bus.stop()
 
@@ -292,6 +297,10 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     @app.exception_handler(EngineError)
     async def engine_error(_req, exc: EngineError):
         return _err(exc.status, exc.error, exc.hint)
+
+    @app.exception_handler(MarketError)
+    async def market_error(_req, exc: MarketError):
+        return JSONResponse(exc.body(), status_code=exc.status)
 
     @app.exception_handler(RequestValidationError)
     async def bad_request(_req, exc: RequestValidationError):
@@ -449,6 +458,8 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
 
     from .approvals_routes import router as approvals_router   # core: ask a person and wait (keel_engine/approvals.py)
     app.include_router(approvals_router)
+    from .marketplace.routes import router as marketplace_router   # core: find, install and update plugins (step 4)
+    app.include_router(marketplace_router)
 
     # v0.8.0 quality runs: the eval sets (content/evals) and a fresh copy of a set's project for one case
     @app.get("/evals")

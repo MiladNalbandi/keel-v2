@@ -14,7 +14,9 @@ from keel_engine.tools import mcp as mcp_tools
 
 # (the CI/CD, Database and Git plugins' keel_ci_*, keel_db_*, keel_git_* and keel_pr_* tools come with them: plugins/ci,
 # plugins/db and plugins/git engine tests)
-READ_TOOLS = {"keel_status", "keel_projects", "keel_timeline", "keel_next", "keel_explain"}
+# the marketplace's four tools come last in both modes (keel_plugin_request only asks: docs/plugins/13-step4-contract.md §7)
+MARKET_TOOLS = ["keel_marketplace_search", "keel_plugin_info", "keel_plugins_installed", "keel_plugin_request"]
+READ_TOOLS = {"keel_status", "keel_projects", "keel_timeline", "keel_next", "keel_explain", *MARKET_TOOLS}
 WRITE_TOOLS = {"keel_approve_gate", "keel_resume"}
 
 PROJECTS = [
@@ -95,6 +97,15 @@ async def test_read_only_lists_only_the_read_tools(stub):
 
 async def test_write_mode_adds_the_write_tools(stub):
     assert await tool_names(mcp_server.build_server(write=True, api=stub.api)) == READ_TOOLS | WRITE_TOOLS
+
+
+def test_the_marketplace_tools_come_after_every_tool_keel_listed_before():
+    import asyncio
+
+    names = lambda write: [t.name for t in asyncio.run(mcp_server.build_server(write=write, api=object()).list_tools())]
+    read = ["keel_status", "keel_projects", "keel_timeline", "keel_next", "keel_explain"]
+    assert names(False) == read + MARKET_TOOLS
+    assert names(True) == read + ["keel_approve_gate", "keel_resume"] + MARKET_TOOLS
 
 
 def test_read_only_flag_beats_the_env(monkeypatch):

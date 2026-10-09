@@ -301,3 +301,137 @@ running flow waits for an install in step 4.
   restart; `agents_may_ask` off → refused.
 - The parity e2e against 0.15.4: 0 differences beyond step 4's listed additions.
 - CI: `ci.yml` also runs on pushes to `plugin-base`, and runs `tools/keel-plugin`'s tests.
+
+## 12 · Engine routes: the shapes
+
+What the engine answers, as built (`engine/keel_engine/marketplace/routes.py`; the tests in
+`engine/tests/test_marketplace_routes.py`). The api proxies these bodies as they are; it adds only what §6 says
+(`restart` on `GET /api/plugins`, `requests` on a `needs_plugins` refusal).
+
+**Every route** needs `X-Keel-Token` like every other engine route. A refusal is `{"error": str, "hint"?: str, ...}`
+in plain words, with these statuses: 400 bad input; 404 an unknown plugin, version or file; 409 keel will not do it
+(revoked, old catalog, unverified publisher, a need, more permissions, an image plugin, needed by another, already
+installed, Python libraries, `needs_plugins`); 502 a download or a check failed (server answer, size, sha256, signature,
+manifest); 500 `installed.json` does not read. Extra keys a refusal may have: `installed` (the version keel has),
+`more` + `installed` + `version` (an update that asks for more permissions), `needed_by` (remove), `libraries`
+(Python libraries), `manifest` + `catalog` (the package's permissions are not the catalog's), `missing` + `workflow`
+(`needs_plugins`).
+
+**Install and update** answer when they are done (the downloads and checks run while the request waits): call them
+with a long timeout, or from a job. Their progress also comes as events on the bus (to the api's `/internal/events`
+like every event): `{"type", "thread_id": "marketplace", "project_id": "", "step": "plugin", "at", "data"}`:
+
+```
+plugin.install.started   {name, version, update: bool, plugins: [names, in install order]}
+plugin.install.done      {name, version, update: bool, installed: [{name, version, from}], turned_on: [names]}
+plugin.install.failed    {name, version | null, why}      (a refusal before the download has no started)
+```
+
+Shapes used below:
+
+```
+Source   {id, title, url, official: bool, on: bool, ok: bool, problem: str|null, old: bool, fetched_at: str|null,
+          built: str|null, expires: str|null, plugins: int, problems: [str]}            (+ key on /marketplace/sources)
+Hit      {name, title, publisher, publisher_title, verified: bool, category, summary, tags: [str], trust, repo,
+          source, latest, version: str|null (the newest that fits), permissions: {}, fits: bool, why_not: str|null,
+          installed: str|null, installed_from: "image"|"marketplace"|"file"|null, update: str|null,
+          revoked: null | {version, why, fixed: str|null}, old: bool}
+Pending  {pending: bool, changes: [{name, now: str|null, next: str|null}]}      (+ problem when installed.json is broken)
+Step     {name, version, title, trust, publisher, publisher_title, verified, permissions, size, needed_by: str|null,
+          source}
+Plan     {name, version, title, source, install: [Step] (needed plugins first), turn_on: [names], checks: [str]}
+```
+
+Routes:
+
+```
+GET  /marketplace/search?q=&category=
+     → {plugins: [Hit], sources: [Source], categories: ["code","knowledge","tickets","review","product","other"]}
+
+GET  /marketplace/plugins/{name}
+     → Hit + {versions: [{version, released, requires: {sdk, keel?, plugins?}, url, sha256, size, permissions,
+                          revoked: str|null, fits: bool, why_not: str|null}],     (newest first)
+              needs: {name: range} (of the newest fitting version), checks: [str],
+              plan: Plan | null, refused: null | {error, hint}}                    404 when no catalog lists it
+
+POST /marketplace/refresh?source=           → {sources: [Source]}              (source: only that one)
+
+GET  /marketplace/installed
+     → {plugins: [{name, title, version, loaded: str|null, parts: ["engine","api","web","content","migrations"],
+                   from: "image"|"marketplace"|"file"|null, on: bool,
+                   status: "loaded"|"restart"|"off"|"left out"|"removed", problems: [str],
+                   revoked: null|{version, why, fixed}, update: str|null, previous: str|null, image_version: str|null,
+                   can_remove: bool, needed_by: [names], needs: {name: range}, trust: str|null, publisher: str,
+                   catalog: str|null, permissions: {}, per_project: bool, installed_at: str|null}],
+        pending_restart: Pending, problems: [{name, version, dir, error}] (the resolver's), mode: "on"|"image"|"off"}
+     status: loaded = runs now and at the next start; restart = loads at the next start; left out = the next start
+     leaves it out (problems say why); removed = runs now, gone at the next start.
+
+POST /marketplace/install {name, version?, by?}
+     → {name, version, title, installed: [{name, version, from: str|null}], turned_on: [names], pending_restart: Pending}
+POST /marketplace/installed/{name}/update {version?, allow_more_permissions?: false, by?}
+     → the same shape (from = the version before)
+     409 {error, hint, more: ["+ secrets: gitlab", ...], installed, version} when it asks for more permissions;
+     the api sends allow_more_permissions: true only after a person approved the request with that difference
+POST /marketplace/installed/{name}/rollback?by=  → {name, version (now), from (before), pending_restart: Pending}
+PUT  /marketplace/installed/{name} {on, by?}      → {name, on, also: [names], pending_restart: Pending}
+     off: the plugins that need it go off too; on: the plugins it needs that are off go on too (also lists them)
+DELETE /marketplace/installed/{name}?data=keep|delete&by=
+     → {name, removed (version), data, back_to_image: str|null, pending_restart: Pending}
+POST /marketplace/install-file {path, force?: false, by?}   path: absolute or relative to $KEEL_DATA, inside it
+     → {name, version, title, installed: [{name, version, from}], source: "file", pending_restart: Pending}
+
+GET  /marketplace/sources                    → {sources: [Source + key]}         (the official one first)
+PUT  /marketplace/sources {sources: [{id, title?, url, key, on?}]}  → the same as GET
+     replaces the added sources; the official one ({id: "keel", on}) may only be turned on or off
+GET  /marketplace/rules                      → {agents_may_ask, allow_unverified, check_daily, restart_when_idle}
+PUT  /marketplace/rules {some of the four: bool}  → all four
+GET  /marketplace/sets                       → {sets: [{id, title, summary, plugins: [names], missing: [names keel
+                                                 does not have], off: [names keel has but are off]}]}
+```
+
+**`needs_plugins`** (§8). The engine checks it where a flow starts (`POST /threads`, and a `start_flow` step's child):
+when a needed plugin is not loaded (not in `run/resolved.json` and not an engine part) it answers 409
+`{"error": "This workflow needs Database.", "hint": "Install it in Control › Plugins, then restart keel.",
+"missing": ["db"], "workflow": "<workflow id>"}` and starts nothing. The engine cannot write the api's approvals, so
+**the api** does the rest: on a 409 with `missing` from `POST /threads` it opens (or joins) a `plugin-install` request
+for each missing plugin, reason "the workflow <name> needs it", source `workflow`, the project, and answers its own
+409 `{error, hint, missing, requests: ["a_…"]}`.
+
+**What the MCP tools call** (they go through the api, like keel's other tools): `keel_marketplace_search` →
+`GET /api/marketplace?q=&category=` (the search shape above); `keel_plugin_info` → `GET /api/marketplace/{name}`
+(the one-plugin shape); `keel_plugins_installed` → `GET /api/plugins` (the installed shape, plus `restart`) and
+`GET /api/projects/{pid}/plugins`; `keel_plugin_request` → `GET /api/plugins/rules`, then
+`POST /api/plugins/requests {name, version?, reason, source: "agent", project?}`, whose answer it reads as
+`{id, joined?: bool}`; a 409 there (agents may not ask) becomes "Ask the person to install it in Control › Plugins".
+
+**What the engine settled or added** (where this contract left a choice open):
+
+- **Versions** (a change to §3's "versions are `x.y.z`"): a catalog version follows keel's manifest version rule
+  (`pluginhost/manifest.py` `VERSION`), so a semver pre-release like `0.1.0-beta.1` (keel Product's) is a version too.
+  Versions sort in semver's order: a pre-release comes before its release (`1.0.0-beta.2` < `1.0.0-beta.10` <
+  `1.0.0`); build metadata after `+` does not count. The newest version that fits may be a pre-release when there is
+  no newer release. (`requires` ranges still compare the release numbers only, as the resolver does.)
+- **Categories**: `code`, `review`, `knowledge`, `tickets`, `product`, `other` (what `tools/keel-plugin` writes); an
+  unknown one reads as `other`.
+- The catalog: each **version** is an entry too: a broken version is left out and listed, a plugin with no good version
+  left is left out. An index **built before** the copy keel has is refused, so
+  nobody can hand keel an old, signed catalog that hides a revoked version.
+- `content/trust/keel.pub` is used as one more key of the publisher `keel` in the official catalog.
+- A manifest asks for Python libraries with `requires.python` (a list or a mapping), `parts.engine.requirements`, or a
+  file `requirements.lock` / `requirements.txt` in its engine folder; any of them is refused (§0, also for
+  install-file). `keel-plugin.yml` now also reads `permissions` (a mapping, compared with the catalog's).
+- Update: `allow_more_permissions` (above). An update or install keeps a plugin on or off as it was.
+- Remove of a marketplace copy over an image plugin goes back to the image's version (`back_to_image`); an image plugin
+  itself is refused. Roll back of such a copy goes back to the image's version too (and forward again).
+- On: the needed plugins that are off go on too.
+- `installed.json`'s `previous` is the entry before (without its own `previous`), or `{version, source: "image"}`.
+- The engine reads each source 30 s after its start and then checks every hour; it reads a source whose copy is older
+  than 6 hours, and only while the rule "check for updates daily" (`check_daily`) is on (and never with
+  `KEEL_API_URL=off`, the tests). Refresh always reads.
+- Changes take a file lock (`$KEEL_DATA/plugins/.lock`), so the engine and a `keel-engine plugins` command never
+  change the store at the same time.
+- CLI: `keel-engine plugins search [words] [--category] [--json]`, `get <name>[@version]`,
+  `update <name> [--version V] [--accept-permissions]`, `rollback <name>`, `remove <name> [--delete-data]`;
+  `keel2 plugins list | install <name>[@version] | remove <name> [--delete-data] | search | update | rollback | safe`
+  (`safe` = `keel2 restart --safe`).
