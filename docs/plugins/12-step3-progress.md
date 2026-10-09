@@ -8,7 +8,7 @@ identical to 0.15.1, and to what `main` adds after it). The normal image (`EDITI
 | ---- | -------------------------- | --------------- | ----- | ------------------------------------- |
 | 0    | Map                        | `plugins/map`   | —     | done                                  |
 | A    | Wiki                       | `plugins/wiki`  | —     | done (the knowledge base stays core)  |
-| A    | CI/CD                      | `plugins/ci`    | —     | done (Git is still core)              |
+| A    | CI/CD                      | `plugins/ci`    | git   | done (needs Git since wave B)         |
 | A    | Tasks                      | `plugins/tasks` | —     | done (core: `TaskSink`, `inbox.card`) |
 | A    | Jira                       | `plugins/jira`  | tasks | done                                  |
 | B    | Database    | `plugins/db`      | — (optional: map) | done (its keys come from its own FlowContributor) |
