@@ -1,4 +1,4 @@
-"""What a part's own MCP server (keel-db, keel-git, a plugin's keel-ci) uses to answer a tool call.
+"""What a plugin's own MCP server (keel-db, keel-git, keel-ci) uses to answer a tool call.
 
 The server runs as its own process for KeelBot or an agent (keel_engine/extensions.py server_specs). Each tool call goes
 back to the engine (KEEL_PLUGIN_URL, POST /plugins/call) with the agent call's key (KEEL_PLUGIN_KEY); the engine holds

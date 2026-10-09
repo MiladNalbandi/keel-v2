@@ -37,19 +37,22 @@ READ_TOOLS = {"ci_runs", "ci_failure"}
 def test_one_version_and_name_everywhere():
     assert MANIFEST["version"] == keel_plugin_ci.VERSION == keel_plugin_ci.ADDON["version"] == "1.0.0"
     assert MANIFEST["name"] == keel_plugin_ci.ADDON["name"] == keel_plugin_ci.PART["name"] == "ci"
-    assert MANIFEST["requires"] == {"sdk": 1} and MANIFEST["per_project"] is True
+    # its ci-fix flow pushes with git:push: it needs the Git plugin (plugins/git)
+    assert MANIFEST["requires"] == {"sdk": 1, "plugins": {"git": ">=1.0.0"}} and MANIFEST["per_project"] is True
     assert MANIFEST["parts"]["engine"] == {"path": "engine", "package": keel_plugin_ci.__name__}
     assert MANIFEST["parts"]["content"] == "content" and keel_plugin_ci.CONTENT == PLUGIN / "content"
     m = manifests.parse((PLUGIN / "keel-plugin.yml").read_text())   # the resolver reads it as it is
     assert m.name == "ci" and m.version == "1.0.0" and m.web == {"entry": "web/index.js", "css": []}
     assert m.api == {"jars": ["api/keel-plugin-ci.jar"], "lib": None} and m.content == "content"
+    assert m.plugins == {"git": ">=1.0.0"}
 
 
 def test_it_is_an_add_on_part_with_the_keys_it_had_as_a_built_in():
     assert "keel_engine.plugins.ci" not in builtins.BUILTINS
     p = extensions.part("ci")
     assert p is not None and not p.builtin and p.source == "keel_plugin_ci" and p.title == "CI/CD" and p.per_project
-    # only this plugin is loaded here: with the Database plugin too, db comes first (plugins/db/engine/tests)
+    # Git is a plugin too (plugins/git, which CI/CD needs); its order (20) puts it first here. With the Database plugin
+    # too, db (10) comes before it, as in keel 0.15.1 (plugins/db/engine/tests)
     assert [x.name for x in extensions.parts()] == ["git", "graph", "keelbot", "ci"]
     assert extensions.servers() == {"git": "keel-git", "ci": "keel-ci"}
     assert extensions.param_prefixes() == ["git", "ci"]          # the order KeelBot and validation name them in

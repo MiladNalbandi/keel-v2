@@ -1,11 +1,12 @@
 // v0.10.0 Connections › GitHub: the token keel's Git plugin pushes and opens pull requests with (its own, not the
-// Copilot login). Saved encrypted; only its last 3 characters are ever shown.
+// Copilot login). Saved encrypted; only its last 3 characters are ever shown. It is keel's core (step 3): a flow's ship
+// step opens the pull request with it too, with or without the Git plugin (corePages.ts puts it in Connections).
 
 import { useState } from "react";
-import { api, errorParts } from "../../api";
-import { useApp, useLoad } from "../../state";
-import { Section } from "../page";
-import { Pill } from "../ui";
+import { api, errorParts } from "../api";
+import { useApp, useLoad } from "../state";
+import { Section } from "./page";
+import { Pill } from "./ui";
 
 export function GitHubSection() {
   const gh = useLoad("github", () => api.github(), { live: false });

@@ -34,6 +34,7 @@ PLUGIN = ROOT / "plugins" / "db"
 MANIFEST = yaml.safe_load((PLUGIN / "keel-plugin.yml").read_text())
 READ_TOOLS = {"db_connections", "db_schema", "db_query"}
 CI_ENGINE = str(ROOT / "plugins" / "ci" / "engine")
+GIT_ENGINE = str(ROOT / "plugins" / "git" / "engine")
 
 
 def test_one_version_and_name_everywhere():
@@ -53,12 +54,12 @@ def test_it_is_an_add_on_part_with_the_keys_and_the_place_it_had_as_a_built_in()
     assert "keel_engine.plugins.db" not in builtins.BUILTINS
     p = extensions.part("db")
     assert p is not None and not p.builtin and p.source == "keel_plugin_db" and p.title == "Database" and p.per_project
-    assert [x.name for x in extensions.parts()] == ["db", "git", "graph", "keelbot"]      # first, as in keel 0.15.1
-    assert extensions.servers() == {"db": "keel-db", "git": "keel-git"}
-    assert extensions.param_prefixes() == ["db", "git"]
+    assert [x.name for x in extensions.parts()] == ["db", "graph", "keelbot"]      # first, as in keel 0.15.1
+    assert extensions.servers() == {"db": "keel-db"}                                  # Git is its own plugin (plugins/git)
+    assert extensions.param_prefixes() == ["db"]
     assert extensions.read_tools()["keel-db"] == READ_TOOLS
     assert extensions.has_action("db:check") and not extensions.has_action("db:drop")
-    assert extensions.enabled({"plugins": ["git", "db"]}) == ["git", "db"] and not extensions.on({}, "db")
+    assert extensions.enabled({"plugins": ["git", "db"]}) == ["db"] and not extensions.on({}, "db")     # git: not loaded
     assert {r.path for r in p.get("router").routes} == {"/plugins/db/{op}"}
     assert extensions.title("db") == "Database" and extensions.allow_entries(["db"]) == ["mcp:keel-db:*"]
     assert {"db:query", "db:check", "db:change", "db:migrate"} <= set(action_docs.dispatch_names())
@@ -67,9 +68,10 @@ def test_it_is_an_add_on_part_with_the_keys_and_the_place_it_had_as_a_built_in()
 
 @pytest.fixture
 def with_ci(monkeypatch):
-    """The Database and CI/CD plugins together, in the order the resolver loads them (name order), as the image has them."""
-    monkeypatch.setenv("KEEL_PLUGIN_PATHS", f"{ENGINE}:{CI_ENGINE}")
-    monkeypatch.setenv("KEEL_PLUGIN_ADDONS", "keel_plugin_ci,keel_plugin_db")
+    """The Database and CI/CD plugins together, with Git that CI/CD needs, in the order the resolver loads them (a plugin
+    after the plugins it needs, else name order), as the image has them."""
+    monkeypatch.setenv("KEEL_PLUGIN_PATHS", f"{ENGINE}:{GIT_ENGINE}:{CI_ENGINE}")
+    monkeypatch.setenv("KEEL_PLUGIN_ADDONS", "keel_plugin_db,keel_plugin_git,keel_plugin_ci")
     extensions.reload()
     yield
     extensions.reload()
@@ -93,14 +95,14 @@ def test_with_the_ci_plugin_keelbot_and_validation_name_them_as_keel_0_15_1_did(
 
 def test_tools_plugins_lists_it_where_it_always_was(client):
     cat = client.get("/plugins").json()
-    assert [p["name"] for p in cat] == ["db", "git"]      # name order, as keel 0.15.1's (Code Review: its own plugin, not loaded here)
+    assert [p["name"] for p in cat] == ["db"]      # name order, as keel 0.15.1's (Code Review, Git: their own plugins, not loaded here)
     db = cat[0]
     assert db["title"] == "Database" and db["installable"] and db["needs"] == ["database"]
     assert db["tools"] == {"server": "keel-db", "read": ["db_connections", "db_schema", "db_query"]}
     assert db["shows_in"] == ["connections", "map", "workflows", "keelbot", "inbox"]
     assert [a["name"] for a in db["actions"]] == ["db:query", "db:check", "db:change", "db:migrate"]
     assert [c["name"] for c in db["commands"]] == ["sql"] and "path" not in db and "source" not in db
-    assert [f.parent.name for f in catalog.keel_files()] == ["core", "db", "git"]   # + review with its plugin
+    assert [f.parent.name for f in catalog.keel_files()] == ["core", "db"]   # + git and review with their plugins
     assert catalog.keel_files()[1] == PLUGIN / "content" / "plugins" / "db" / "plugin.yml"
 
 

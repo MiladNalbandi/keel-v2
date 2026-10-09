@@ -5,10 +5,14 @@
 //   Project  Code 10 · KeelBot 20 · Map 30 · Graph 40 · Wiki 50
 //   Build    Workflows 10 · Agents 20 · Skill hub 30 · Stacks 40 · Tools (MCP) 50 · Quality 60
 //   Control  Budget 10 · Settings 20 · Connections 30
+//
+// And keel's own piece in a part's place: Connections › GitHub (slot connections.kind, order 20: after Jira, before
+// GitLab and Databases). Its token is core: the Git plugin pushes with it, and a flow's ship step opens the pull request.
 
 import { AgentsPage } from "./pages/Agents";
 import { BudgetPage } from "./pages/Budget";
 import { ConnectionsPage } from "./pages/Connections";
+import { GitHubSection } from "./components/GitHubToken";
 import { FlowPage } from "./pages/Flow";
 import { InboxPage } from "./pages/Inbox";
 import { JobsPage } from "./pages/Jobs";
@@ -20,7 +24,8 @@ import { StacksPage } from "./pages/Stacks";
 import { ToolsPage } from "./pages/Tools";
 import { WorkflowsPage } from "./pages/Workflows";
 import { SCREEN } from "./routes";
-import { registerPage } from "./sdk/registry";
+import { registerPage, registerSlot } from "./sdk/registry";
+import { SLOTS, type ConnectionKindItem } from "./sdk/slots";
 
 registerPage({
   id: SCREEN.flow,
@@ -125,4 +130,11 @@ registerPage({
   needsProject: "optional",
   product: true,
   component: ConnectionsPage,
+});
+
+registerSlot<ConnectionKindItem>(SLOTS.connectionsKind, {
+  id: "github",
+  title: "GitHub",
+  order: 20,
+  component: GitHubSection,
 });

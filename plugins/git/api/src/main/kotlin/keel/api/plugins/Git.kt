@@ -21,9 +21,13 @@ data class GitCommitBody(val message: String = "")
 data class GitPrBody(val title: String = "", val body: String = "", val draft: Boolean = false)
 
 /**
- * The Git plugin's actions for the person (Code › Git, KeelBot's buttons). The engine (keel_engine/plugins/git) does
- * them under its rules: never a force push, never a push to main, master or the base branch, a commit only after the
+ * The Git plugin's actions for the person (Code › Git, KeelBot's buttons). The engine (keel_plugin_git) does them
+ * under its rules: never a force push, never a push to main, master or the base branch, a commit only after the
  * secret check and as the author the settings name.
+ *
+ * The Git plugin's api part (plugins/git, keel-plugin-git.jar), in keel's package keel.api.plugins so keel's component
+ * scan finds it on loader.path. It uses keel's core: PluginService (on or off, and the GitHub token of Connections ›
+ * GitHub, which stays core because ship opens the pull request with it) and RepoService (the branch view).
  */
 @Service
 class GitPluginService(

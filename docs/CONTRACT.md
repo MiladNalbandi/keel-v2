@@ -1571,7 +1571,9 @@ shows_in: [connections, map, workflows, keelbot, inbox]
   (memory only, never in the saved settings) get `db:<connection>` → `{name, kind, url, env}` as JSON and `github` → the
   token. A KeelBot turn gets `plugins` and the same keys; `/helper/commands` gets `plugins` (their `/commands`).
 - **Read tools for models.** For one agent call or KeelBot turn the engine opens a key (`plugins.open_call`, memory only)
-  and starts `python -m keel_engine.plugins.server db|git` (stdio MCP) with `KEEL_PLUGIN_URL` and `KEEL_PLUGIN_KEY`
+  and starts `python -m keel_engine.plugins.server db|git` (stdio MCP; since step 3 the Database and Git
+  plugins' own `python -m keel_plugin_db.server` and `python -m keel_plugin_git.server`, with the plugin's folder on
+  `PYTHONPATH`) with `KEEL_PLUGIN_URL` and `KEEL_PLUGIN_KEY`
   only; each tool call comes back as `POST /plugins/call {key, tool, args}` → `{text}`. KeelBot gets the tools of every
   plugin that is on; a flow agent only when it is ticked on Tools › "Who may use what" (`keel-db`, `keel-git`). The
   allow list now also takes a bare server name (the Tools page saves those; before, the engine dropped them).
@@ -1585,12 +1587,15 @@ shows_in: [connections, map, workflows, keelbot, inbox]
   (CREATE, ALTER, DROP TABLE) and `never` (DROP DATABASE, TRUNCATE, GRANT, more than one statement, a read that also
   writes, server functions like pg_terminate_backend) are refused. Columns named like a secret show as `•••` to models.
   In Docker, `localhost` in an address means the person's computer (host.docker.internal).
-- **Git rules** (`plugins/git/core.py`): never force, never push to the base branch, main or master; commit = every
+- **Git rules** (`plugins/git/core.py`; since step 3 the plugin folder `plugins/git`: engine `keel_plugin_git`, content
+  `content/plugins/git`, api `keel-plugin-git.jar`, web `plugins/git/web`): never force, never push to the base branch, main or master; commit = every
   change but keel's files, the secret check, the author and KeelBot line from Settings; a merge of the base that
   conflicts is undone at once; cleanup deletes only merged local branches.
 - **Buttons, not actions.** KeelBot never changes data or git: `keel-query {sql, connection?}` and
   `keel-git {op: commit|push|pr|switch|sync, ...}` blocks become cards the person presses (web
-  `components/helper/Actions.tsx`).
+  `components/helper/Actions.tsx`; since step 3 a block no core card handles is a plugin's card from the slot
+  `keelbot.card`, `{id, kind: "keel-git", component}` with the props `{block: {kind, body}, pid}`: the Git plugin's
+  `plugins/git/web/GitCard.tsx`).
 - **Workflow steps** (`with:` on a code step; `workflows/validate.py` checks required and unknown keys):
   `db:query` (rows to data.<step>), `db:check` (`expect: none | some | <n>`, soft + a branch on RESULT), `db:change`
   (asks: "Change data in local?", once per fingerprint, unless run mode auto on a local database), `db:migrate`

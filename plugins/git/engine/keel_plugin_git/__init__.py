@@ -1,8 +1,26 @@
-"""The Git plugin as a part (keel_engine/extensions.py): its workflow steps (actions.py), its read tools for agents
-(tools.py, the keel-git server), its routes (routes.py), its tools in keel2 mcp (mcp_tools.py), and what KeelBot and
-"explain a step" say about it. Its code loads only when it is used: this module stays light."""
+"""The Git plugin's engine part (plugins/git): its workflow steps (actions.py), its read tools for agents (tools.py,
+the keel-git server in server.py), its routes (routes.py), its tools in keel2 mcp (mcp_tools.py), and what KeelBot and
+"explain a step" say about it. Its code loads only when it is used: this module stays light (the guard's hook reads
+the read tools on each tool call).
+
+keel loads it as an add-on (KEEL_PLUGIN_ADDONS=keel_plugin_git, written by `keel-engine plugins resolve`): ADDON says who
+it is and where its content is, PART holds the keys it had as a built-in part (keel_engine/extensions.py). Its content
+is the per-project plugin of Tools › Plugins: content/plugins/git/plugin.yml (commands, tools, steps).
+
+keel's core keeps what flows need: tools/git.py (the git helper), the GitHub token of Connections › GitHub and "open
+the pull request" in ship (runtime/verdict_actions.py). This part uses them, and keel's commit rules (plugin -> core).
+
+    repo:    plugins/git/engine/keel_plugin_git/   ->  plugins/git/content
+    plugin:  <plugin>/engine/keel_plugin_git/      ->  <plugin>/content   (keel-plugin.yml, scripts/build-plugin.sh)
+"""
 
 from __future__ import annotations
+
+from pathlib import Path
+
+# the same version as ../../keel-plugin.yml (tests/test_git_part.py checks it)
+VERSION = "1.0.0"
+CONTENT = Path(__file__).resolve().parents[2] / "content"
 
 PARAMS = {
     "git:branch": {"name": "optional", "pattern": "optional"},
@@ -87,15 +105,23 @@ def _keel_mcp(server, api, guard, write: bool) -> None:
     register(server, api, guard, write)
 
 
+ADDON = {
+    "name": "git",
+    "title": "Git",
+    "version": VERSION,
+    "content": CONTENT,
+}
+
 PART = {
     "name": "git",
     "title": "Git",
+    "order": 20,            # after Database (10), before CI/CD and the other parts: as keel 0.15.1 named them
     "per_project": True,
     "actions": _actions,
     "params": PARAMS,
     "docs": DOCS,
     "read_tools": ("git_status", "git_diff", "git_log", "git_show", "git_blame", "git_branches", "pr_status"),
-    "mcp": {"server": "keel-git", "module": "keel_engine.plugins.server", "args": ["git"], "call": _call},
+    "mcp": {"server": "keel-git", "module": "keel_plugin_git.server", "call": _call},
     "router": _router,
     "errors": _errors,
     "keelbot": {"prompt": KEELBOT, "actions": KEELBOT_ACTIONS},

@@ -1,10 +1,11 @@
 // v0.9.0 KeelBot's buttons (v0.10.0: keel-query and keel-git from the Database and Git plugins: QueryCard, GitCard).
-// Since step 3 a block of a kind no core card handles is a plugin's card, from the slot keelbot.card (SlotCard below:
-// the Database plugin's keel-query, plugins/db/web/QueryCard.tsx).
 // An answer may end with action blocks (engine runtime/keelbot.py): ```keel-start {json}```
 // becomes a card that starts a flow when the person presses Start; ```keel-workflow <yaml>``` becomes a card that keel
 // checks (POST …/workflows/check) and the person saves (POST …/workflows/import, into a folder if they like). Nothing
 // starts or is saved without a press.
+// Since step 3 a block of a kind no core card handles is a plugin's card, from the slot keelbot.card (SlotCard below):
+// the Database plugin's ```keel-query``` (plugins/db/web/QueryCard.tsx) and the Git plugin's ```keel-git```
+// (plugins/git/web/GitCard.tsx), so KeelBot imports no plugin.
 
 import { useEffect, useState } from "react";
 import { api, errorParts, type Workflow, type WorkflowCheck } from "../../api";
@@ -12,7 +13,6 @@ import { useSlot } from "../../sdk/registry";
 import { SLOTS, type KeelbotBlock, type KeelbotCardItem } from "../../sdk/slots";
 import { go, useLoad } from "../../state";
 import { CodeBlock } from "../Code";
-import { Markdown } from "../Markdown";
 
 export type Segment =
   { kind: "text"; text: string } | { kind: "start" | "workflow" | "query" | "git" | "ci"; body: string };
@@ -368,82 +368,6 @@ function parseJson<T>(body: string): T | null {
   }
 }
 
-/** A block no core card handles (```keel-query```): the card a plugin put in the slot keelbot.card for its kind (the
- *  Database plugin's). Without one (the plugin is not there) the block shows as the code it is. */
-export function SlotCard({ pid, block }: { pid: string; block: KeelbotBlock }) {
-  const card = useSlot<KeelbotCardItem>(SLOTS.keelbotCard).find((c) => c.kind === block.kind);
-  if (!card) return <CodeBlock text={block.body} gutter={false} />;
-  const Card = card.component;
-  return <Card block={block} pid={pid} />;
-}
-
-type GitOp = { op?: string; message?: string; title?: string; body?: string; draft?: boolean; branch?: string; create?: boolean };
-
-/** A git step KeelBot gives as a button (Git plugin): commit, push, open the pull request, switch branch, sync. */
-export function GitCard({ pid, body }: { pid: string; body: string }) {
-  const spec = parseJson<GitOp>(body);
-  const [message, setMessage] = useState(spec?.message ?? "");
-  const [title, setTitle] = useState(spec?.title ?? "");
-  const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState<string | null>(null);
-  const [err, setErr] = useState<{ message: string; hint?: string } | null>(null);
-  const op = spec?.op ?? "";
-  const label: Record<string, string> = {
-    commit: "Commit", push: "Push", pr: "Open the pull request", switch: spec?.create ? "Create and switch" : "Switch",
-    sync: "Update from the base branch",
-  };
-  if (!spec || !label[op]) return <p className="kb-card bad" role="note">KeelBot's git button could not be read. Ask it to give it again.</p>;
-  const go = async () => {
-    setBusy(true);
-    setErr(null);
-    try {
-      if (op === "commit") {
-        const r = await api.gitCommit(pid, message);
-        setDone(`Committed ${r.sha.slice(0, 7)} ${r.subject} (${r.files.length} file${r.files.length === 1 ? "" : "s"}).`);
-      } else if (op === "push") {
-        const r = await api.gitPush(pid);
-        setDone(`Pushed ${r.branch} (${r.sha.slice(0, 7)}).`);
-      } else if (op === "pr") {
-        const r = await api.gitOpenPr(pid, { title, body: spec.body ?? "", draft: !!spec.draft });
-        setDone(`${r.updated ? "Updated" : "Opened"} the pull request${r.url ? `: ${r.url}` : "."}`);
-      } else if (op === "switch") {
-        const r = await api.gitSwitch(pid, spec.branch ?? "", !!spec.create);
-        setDone(`On ${r.branch} now.`);
-      } else {
-        const r = await api.gitSync(pid);
-        setDone(r.merged ? `Merged ${r.from} into ${r.branch}.` : `${r.branch} already has ${r.from}.`);
-      }
-    } catch (e) {
-      setErr(errorParts(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <section className="kb-card" aria-label={`Git: ${label[op]}`}>
-      <div className="kb-card-h"><span className="kb-tag">Git</span><b>{label[op]}{op === "switch" ? ` ${spec.branch ?? ""}` : ""}</b></div>
-      {op === "commit" && !done && (
-        <textarea className="inline-input kb-msg" rows={3} aria-label="Commit message" value={message} onChange={(e) => setMessage(e.target.value)} />
-      )}
-      {op === "pr" && !done && (
-        <>
-          <label className="kb-field"><span>Title</span>
-            <input className="inline-input" aria-label="Pull request title" value={title} onChange={(e) => setTitle(e.target.value)} /></label>
-          {spec.body && <details className="kb-yaml"><summary>Show the body</summary><Markdown text={spec.body} /></details>}
-        </>
-      )}
-      {err && <p className="kb-err" role="alert"><b>{err.message}</b>{err.hint && <span className="sub"> {err.hint}</span>}</p>}
-      {done ? <p className="kb-done" role="status">{done}</p> : (
-        <div className="row">
-          <button type="button" className="btn sm primary" disabled={busy || (op === "commit" && !message.trim()) || (op === "pr" && !title.trim())}
-            onClick={() => void go()}>{busy ? "Working…" : label[op]}</button>
-          <span className="sub">keel never force-pushes or pushes to main.</span>
-        </div>
-      )}
-    </section>
-  );
-}
-
 /** A CI step KeelBot gives as a button (CI/CD plugin): fix starts the ci-fix flow on this branch; rerun runs the failed
  *  jobs of the run again. */
 export function CiCard({ pid, body }: { pid: string; body: string }) {
@@ -491,4 +415,15 @@ export function CiCard({ pid, body }: { pid: string; body: string }) {
       )}
     </section>
   );
+}
+
+/** A block no core card handles (```keel-query```, ```keel-git```: the Database and Git plugins' buttons): the card a
+ *  plugin put in the slot keelbot.card for its kind ({ id, kind: "keel-query", component }), which gets { block, pid }.
+ *  Live: the card shows once the plugin's web part has loaded. Without one (the plugin is not there) the block shows as
+ *  the code it is. */
+export function SlotCard({ pid, block }: { pid: string; block: KeelbotBlock }) {
+  const card = useSlot<KeelbotCardItem>(SLOTS.keelbotCard).find((c) => c.kind === block.kind);
+  if (!card) return <CodeBlock text={block.body} gutter={false} />;
+  const Card = card.component;
+  return <Card block={block} pid={pid} />;
 }

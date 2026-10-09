@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import time
 
-from ...mcp_server import KeelApi, _ask_person, _plugin_on, _project
+from keel_engine.mcp_server import KeelApi, _ask_person, _plugin_on, _project
 
 
 def git_status(api: KeelApi, project: str | None = None) -> str:

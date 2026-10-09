@@ -1,10 +1,12 @@
-"""The Git plugin's read tools for KeelBot and agents (the MCP server keel-git, plugins/server.py). Every answer is text
-for a model; a refusal says why instead of failing the call."""
+"""The Git plugin's read tools for KeelBot and agents (the MCP server keel-git, server.py). Every answer is text for a
+model; a refusal says why instead of failing the call."""
 
 from __future__ import annotations
 
-from .. import PluginError, github_token
+from keel_engine.extensions import PartError as PluginError
+
 from . import core
+from .core import github_token
 
 
 def status_text(st: dict) -> str:

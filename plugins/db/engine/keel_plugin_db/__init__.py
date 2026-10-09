@@ -113,7 +113,8 @@ ADDON = {
 PART = {
     "name": "db",
     "title": "Database",
-    # first in the registry, where it was as a built-in: KeelBot hears about Database, then Git, then CI/CD (keel 0.15.1)
+    # first in the registry, where it was as a built-in: KeelBot hears about Database, then Git (20), then CI/CD
+    # (keel 0.15.1)
     "order": 10,
     "per_project": True,
     "actions": _actions,

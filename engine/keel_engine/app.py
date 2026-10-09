@@ -160,7 +160,8 @@ class HelperCommands(BaseModel):
 
 
 class PluginCall(BaseModel):
-    """A tool call from a plugin's MCP server (plugins/server.py): the agent call's key, the tool, its arguments."""
+    """A tool call from a plugin's MCP server (keel_plugin_<name>.server): the agent call's key, the tool, its
+    arguments."""
     key: str
     tool: str
     args: dict[str, Any] = Field(default_factory=dict)

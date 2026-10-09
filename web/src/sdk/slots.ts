@@ -4,7 +4,7 @@
 //   Connections ─ connections.kind     Jobs ─ jobs.tab          Tools ─ tools.card       Settings ─ settings.section
 //   Workflows ── workflow.actions      Code ─ code.activity, code.tab, assistant        ⌘K ─ launcher.source
 //   Inbox ────── inbox.card (step 3)   Map (the Map plugin's page, step 3) ─ map.er.query
-//   KeelBot ──── keelbot.card (step 3: a plugin's button for its blocks in an answer, ```keel-query```)
+//   KeelBot ──── keelbot.card (step 3: a plugin's button for its blocks in an answer, ```keel-query```, ```keel-git```)
 
 import type { ComponentType } from "react";
 import type { GraphHit, HelperSelection } from "../api";
@@ -36,7 +36,8 @@ export const SLOTS = {
   inboxCard: "inbox.card",
   /** Map › Database (ER): a panel under the diagram (the Database part's Query) — a slot of the Map plugin */
   mapErQuery: "map.er.query",
-  /** KeelBot: the card for an answer's blocks of a kind no core card handles (the Database plugin's keel-query) */
+  /** KeelBot: the card for an answer's blocks of a kind no core card handles (the Database plugin's keel-query, the Git
+   *  plugin's keel-git buttons) */
   keelbotCard: "keelbot.card",
 } as const;
 
@@ -227,7 +228,8 @@ export type MapErQueryItem = SlotItem & {
 export type KeelbotBlock = { kind: string; body: string };
 /** What a KeelBot card gets: the block, and the project the answer is about. */
 export type KeelbotCardProps = { block: KeelbotBlock; pid: string };
-/** KeelBot: the card (a button the person presses) for the blocks of one kind, the fence's word ("keel-query"). */
+/** KeelBot: the card (a button the person presses) for the blocks of one kind, the fence's word ("keel-query",
+ *  "keel-git"). A block no card claims shows as code. */
 export type KeelbotCardItem = SlotItem & {
   kind: string;
   component: ComponentType<KeelbotCardProps>;

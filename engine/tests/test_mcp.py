@@ -10,13 +10,12 @@ import pytest
 from mcp.shared.memory import create_connected_server_and_client_session
 
 from keel_engine import mcp_server
-from keel_engine.plugins.git import mcp_tools as git_mcp
 from keel_engine.tools import mcp as mcp_tools
 
-# (the CI/CD and Database plugins' keel_ci_* and keel_db_* tools come with them: plugins/ci, plugins/db engine tests)
-READ_TOOLS = {"keel_status", "keel_projects", "keel_timeline", "keel_next", "keel_explain",
-              "keel_git_status", "keel_pr_status"}                                               # v0.10.0 plugins
-WRITE_TOOLS = {"keel_approve_gate", "keel_resume", "keel_git_commit", "keel_git_push", "keel_pr_create"}
+# (the CI/CD, Database and Git plugins' keel_ci_*, keel_db_*, keel_git_* and keel_pr_* tools come with them: plugins/ci,
+# plugins/db and plugins/git engine tests)
+READ_TOOLS = {"keel_status", "keel_projects", "keel_timeline", "keel_next", "keel_explain"}
+WRITE_TOOLS = {"keel_approve_gate", "keel_resume"}
 
 PROJECTS = [
     {"id": "shop", "name": "shop", "root": "/workspace/shop", "branch": "feat/scores", "flow": "feature", "phase": "spec",
@@ -320,43 +319,3 @@ def test_with_keel_data_set_the_image_folder_is_not_used(monkeypatch, tmp_path):
     monkeypatch.setattr(mcp_server, "IMAGE_RUN_DIR", image_run)
     mcp_server.plugin_env()
     assert "KEEL_PLUGIN_ADDONS" not in os.environ
-
-
-# ---- v0.10.0 the plugins' tools: through the api, with keel's rules; acting ones wait for the person's Inbox answer
-
-class PluginApi(StubApi):
-    def __init__(self, on=("db", "git"), answer="allow"):
-        super().__init__()
-        self.on, self.answer, self.polls = on, answer, 0
-
-    def __call__(self, req: httpx.Request) -> httpx.Response:
-        path, body = req.url.path, (json.loads(req.content) if req.content else {})
-        if path == "/api/projects/shop/plugins":
-            return httpx.Response(200, json=[{"name": n, "enabled": n in self.on} for n in ("db", "git")])
-        if path == "/api/projects/shop/plugins/ask":
-            self.posts.append((path, body))
-            return httpx.Response(200, json={"id": "p_000000000001"})
-        if path == "/api/plugins/asks/p_000000000001":
-            self.polls += 1
-            done = self.polls > 1
-            return httpx.Response(200, json={"id": "p_000000000001", "waiting": True} if not done else
-                                  {"id": "p_000000000001", "decision": self.answer, "why": "" if self.answer == "allow" else "not now"})
-        if path == "/api/projects/shop/git/push":
-            self.posts.append((path, body))
-            return httpx.Response(200, json={"branch": "feat/scores", "sha": "abc1234def"})
-        return super().__call__(req)
-
-
-def test_plugin_tools_read_through_the_api_and_say_when_a_plugin_is_off(monkeypatch):
-    s = PluginApi(on=("db",))
-    api = mcp_server.KeelApi("http://keel.test", transport=httpx.MockTransport(s))
-    with pytest.raises(mcp_server.ApiError, match="The Git plugin is off for shop"):
-        git_mcp.git_status(api, "shop")
-
-
-def test_an_acting_tool_waits_for_the_persons_inbox_answer(monkeypatch):
-    no = PluginApi(answer="deny")
-    api = mcp_server.KeelApi("http://keel.test", transport=httpx.MockTransport(no))
-    assert git_mcp.git_act(api, "push", "shop", sleep=lambda _s: None) == "The person said no in keel's Inbox: not now"
-    assert not any(p.endswith("/git/push") for p, _ in no.posts)
-

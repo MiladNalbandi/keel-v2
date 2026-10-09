@@ -11,6 +11,11 @@ Reading is free: status, branches, log, diff, show, blame, pr_status. Acting has
     cleanup    deletes local branches already merged into the base (git branch -d refuses anything else)
 
 Never, for anyone: force push, reset --hard, rewriting pushed history, deleting a remote branch or a tag.
+
+    github_token(keys)  the GitHub token an agent call or an api call carries (Connections › GitHub, keel's core)
+
+It uses keel's core as it did inside it: tools/git.py, the rules and the secret check, testcmd for gh, and keel's
+commit rules (runtime/actions.py).
 """
 
 from __future__ import annotations
@@ -22,14 +27,21 @@ import tempfile
 import time
 from pathlib import Path
 
-from ... import rules
-from ...rules import checks
-from ...tools import git, testcmd
-from ...tools.agent_tools import command_env
+from keel_engine import rules
+from keel_engine.rules import checks
+from keel_engine.tools import git, testcmd
+from keel_engine.tools.agent_tools import command_env
 
 DIFF_MAX = 40_000
 PROTECTED = ("main", "master")
 SHA = re.compile(r"^[0-9a-fA-F]{4,64}$")
+
+
+def github_token(keys: dict | None) -> str | None:
+    """The GitHub token a call carries (keys["github"]), read as keel's own ship step reads it."""
+    from keel_engine.runtime.verdict_actions import github_token as token
+
+    return token(keys or {})
 
 
 class GitError(Exception):
@@ -217,7 +229,7 @@ def switch(root: str, branch: str, create: bool = False) -> dict:
 
 def commit(root: str, message: str, settings: dict | None = None) -> dict:
     """keel's commit of every change but keel's own files, as the settings' author, with the secret check."""
-    from ...runtime.actions import COMMIT_EXCLUDES, commit_args
+    from keel_engine.runtime.actions import COMMIT_EXCLUDES, commit_args
 
     _need_repo(root)
     text = (message or "").strip()
@@ -257,7 +269,7 @@ def sync(root: str, token: str | None = None) -> dict:
         _fetch(root, b, token)
         if git.git(root, "rev-parse", "--verify", "-q", f"origin/{b}").returncode == 0:
             ref = f"origin/{b}"
-    from ...runtime.actions import commit_args
+    from keel_engine.runtime.actions import commit_args
 
     ident, _ = commit_args(root, {}, rules.load_config(root))
     r = git.git(root, *ident, "merge", "--no-edit", ref)

@@ -10,8 +10,10 @@ from typing import Any
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
-from .. import PluginError, github_token
+from keel_engine.extensions import PartError as PluginError
+
 from . import core as g
+from .core import github_token
 
 router = APIRouter()
 

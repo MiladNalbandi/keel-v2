@@ -49,7 +49,7 @@ def test_it_is_an_add_on_that_changes_no_flow_and_no_keelbot_prompt():
     # no PART: not per project, no actions, tools, routes or KeelBot text, so a flow's or a turn's plugins stay as before
     assert not p.per_project and not p.actions and not p.params and not p.mcp and not p.read_tools
     assert p.get("router") is None and p.get("keelbot") is None
-    assert extensions.enabled({"plugins": ["db", "review", "git"]}) == ["git"]   # not a per-project part (db: its own plugin, not loaded here)
+    assert extensions.enabled({"plugins": ["db", "review", "git"]}) == []   # not a per-project part (db, git: their own plugins, not loaded here)
     assert "review" not in extensions.servers() and extensions.keelbot(["review"]) == extensions.keelbot([])
 
 
@@ -57,12 +57,12 @@ def test_it_is_an_add_on_that_changes_no_flow_and_no_keelbot_prompt():
 
 def test_tools_plugins_lists_it_where_it_always_was(client):
     cat = client.get("/plugins").json()
-    assert [p["name"] for p in cat] == ["git", "review"]      # name order, as keel 0.15.1's (Database: its own plugin, not loaded here)
+    assert [p["name"] for p in cat] == ["review"]      # name order, as keel 0.15.1's (Database, Git: their own plugins, not loaded here)
     review = cat[-1]
     assert review["title"] == "Code Review" and review["installable"] and review["needs"] == ["github"]
     assert review["shows_in"] == ["code", "keelbot"] and review["description"].startswith("Review the branch you are on")
     assert [c["name"] for c in review["commands"]] == ["review-branch", "explain-pr"]
-    assert [f.parent.name for f in catalog.keel_files()] == ["core", "git", "review"]   # + db with its plugin
+    assert [f.parent.name for f in catalog.keel_files()] == ["core", "review"]   # + db and git with their plugins
 
 
 def test_its_commands_come_only_when_it_is_on(client, repo):

@@ -21,7 +21,7 @@ from keel_plugin_db import mcp_tools as db_mcp
 
 def test_the_catalog_lists_it_with_its_tools_steps_and_settings(client):
     cat = {p["name"]: p for p in client.get("/plugins").json()}
-    assert {"db", "git"} <= set(cat)    # Code Review is its own plugin (not loaded here)
+    assert set(cat) == {"db"}    # Code Review and Git are their own plugins (not loaded here)
     assert cat["db"]["title"] == "Database" and cat["db"]["tools"] == {"server": "keel-db", "read": ["db_connections", "db_schema", "db_query"]}
     check = next(a for a in cat["db"]["actions"] if a["name"] == "db:check")
     assert check["with"] == {"sql": "required", "expect": "optional", "connection": "optional"} and "data check" in check["summary"]
@@ -100,7 +100,7 @@ def test_an_agent_call_reads_through_its_key_with_secrets_hidden_and_changes_ref
     rows = call("db_query", sql="SELECT name, password_hash FROM players ORDER BY id").json()["text"]
     assert rows.startswith("3 rows from local") and "hidden as •••: password_hash" in rows and "| Ada | ••• |" in rows
     assert call("db_query", sql="DELETE FROM scores").json()["text"].startswith("Refused: This query changes data")
-    assert call("git_status").status_code == 403                 # the git plugin is not on for this call
+    assert call("git_status").status_code == 403                 # the git plugin is not on for this call (nor loaded here)
     extensions.close_call(key)
     assert call("db_schema").status_code == 401
 
@@ -175,7 +175,7 @@ def test_validation_knows_its_steps_and_their_settings():
     assert errs({"id": "a", "kind": "code", "name": "a", "action": "db:check", "with": {"sql": "select 1", "expect": "none"}}) == []
     assert errs({"id": "a", "kind": "code", "name": "a", "action": "db:check"}) == ["Step 'a': db:check needs `with: {sql: ...}`."]
     assert errs({"id": "a", "kind": "code", "name": "a", "action": "commit", "with": {"x": 1}}) == \
-        ["Step 'a': only a plugin step (db:..., git:...) takes `with`."]
+        ["Step 'a': only a plugin step (db:...) takes `with`."]
     assert errs({"id": "a", "kind": "code", "name": "a", "action": "db:drop"}) == ["Step 'a': unknown action 'db:drop'."]
 
 

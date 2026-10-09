@@ -1,15 +1,15 @@
 // MSW handlers for every /api route the web uses, backed by a small in-memory db (reset per test).
 
 import { http, HttpResponse } from "msw";
-import type { Cap, CapLeft, CapsLeft, Features, FlowBoard, FlowView, GraphFocus, GraphOverview, CiRun, GitStatus, HelperChange, HelperDone, HelperQuestion, HelperSession, IndexStatus, OnCap, Plugin, PullRequest, RunRow, Settings, Stack, ThreadState, Workflow, WorkflowCheck } from "../api";
+import type { Cap, CapLeft, CapsLeft, Features, FlowBoard, FlowView, GraphFocus, GraphOverview, CiRun, HelperChange, HelperDone, HelperQuestion, HelperSession, IndexStatus, OnCap, Plugin, RunRow, Settings, Stack, ThreadState, Workflow, WorkflowCheck } from "../api";
 import * as fx from "./fixtures";
 import { createTaskDb, taskHandlers } from "./taskHandlers";
 
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v));
 
-// ---- the JSON the Database plugin's api sends, as these handlers build it ----
-// A copy of its types (plugins/db/web/dbApi.ts): keel's own type check runs before plugins/ is there (the image's web
-// stage), so core never imports a plugin, not even in its tests.
+// ---- the JSON the Database and Git plugins' apis send, as these handlers build it ----
+// A copy of their types (plugins/db/web/dbApi.ts, plugins/git/web/gitApi.ts): keel's own type check runs before plugins/
+// is there (the image's web stage), so core never imports a plugin, not even in its tests.
 type DbConnection = {
   name: string; kind: "postgres" | "mysql" | "sqlite"; env: "local" | "test" | "staging" | "prod"; shown: string; source?: string | null;
   ok?: boolean | null; server?: string | null; tables?: number | null; error?: string | null; checked_at?: string | null; can_change: boolean;
@@ -17,6 +17,15 @@ type DbConnection = {
 type DbResult = {
   connection: string; env?: string; kind: "read" | "change"; sql: string; ms?: number;
   columns?: string[]; rows?: unknown[][]; count?: number; truncated?: boolean; masked?: string[]; changed?: number; done?: boolean;
+};
+type GitStatus = {
+  branch: string | null; base: string | null; upstream: string | null; ahead: number; behind: number; base_ahead: number; base_behind: number;
+  pushed: boolean; changes: { path: string; status: string }[];
+};
+type PullRequest = {
+  number: number; title: string; url: string; state: string; draft?: boolean; review?: string | null; base?: string; branch?: string;
+  checks: { name: string; state: string; url: string }[]; checks_done: number; checks_failed: number;
+  comments: { author: string; body: string; path?: string | null; line?: number | null }[];
 };
 
 export function createDb() {

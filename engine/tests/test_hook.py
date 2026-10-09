@@ -25,9 +25,10 @@ from keel_engine.workflows.templates import get_template
 
 PROD = "apps/api/src/main/kotlin/app/Score.kt"
 TEST = "apps/api/src/test/kotlin/app/ScoreTest.kt"
-# the plugins' read tools, as the engine writes them into the guard context (the CI/CD and Database plugins', plugins/ci
-# and plugins/db)
-PLUGIN_READ = {"keel-ci": ["ci_failure", "ci_runs"], "keel-db": ["db_connections", "db_query", "db_schema"]}
+# the plugins' read tools, as the engine writes them into the guard context (the CI/CD, Database and Git plugins',
+# plugins/ci, plugins/db and plugins/git)
+PLUGIN_READ = {"keel-ci": ["ci_failure", "ci_runs"], "keel-db": ["db_connections", "db_query", "db_schema"],
+               "keel-git": ["git_blame", "git_branches", "git_diff", "git_log", "git_show", "git_status", "pr_status"]}
 
 
 def ctx_file(tmp_path, root, phase="red", **kw) -> str:
@@ -127,12 +128,15 @@ def test_a_plugins_read_tools_pass_only_when_the_guard_context_names_them(capsys
     assert guard_ctx.context_for(req)["read_tools"] == {k: sorted(v) for k, v in extensions.read_tools().items()}
 
 
-async def test_the_guards_plugin_read_tools_are_exactly_the_plugin_servers_tools():
-    from keel_engine import extensions
-    from keel_engine.plugins import server
+def test_no_built_in_part_has_read_tools_any_more():
+    """The plugins' servers and read tools moved with them (keel_plugin_ci, keel_plugin_db and keel_plugin_git: each
+    plugin's tests check its read tools against its own server), so core has no plugin server left."""
+    import importlib.util
 
-    have = {name: {t.name for t in await server.build(p).list_tools()} for p, name in extensions.servers().items()}
-    assert have == extensions.read_tools() and set(have) == {"keel-git"}      # keel-ci, keel-db: plugins/ci, plugins/db
+    from keel_engine import extensions
+
+    assert extensions.servers() == {} and extensions.read_tools() == {}
+    assert importlib.util.find_spec("keel_engine.plugins.server") is None
 
 
 def test_absolute_paths_are_judged_relative_to_the_project(capsys, tmp_path, root):

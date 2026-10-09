@@ -14,7 +14,7 @@ import { modelLabel, provLabel } from "../../format";
 import { rankFiles } from "../../pages/repo/model";
 import { go, useApp, useLoad } from "../../state";
 import { Markdown } from "../Markdown";
-import { CiCard, GitCard, SlotCard, splitActions, StartCard, WorkflowCard } from "./Actions";
+import { CiCard, SlotCard, splitActions, StartCard, WorkflowCard } from "./Actions";
 import { ModelPicker } from "../ModelPicker";
 import { mergeSteps } from "../StepFeed";
 import { StepView } from "../StepView";
@@ -97,10 +97,9 @@ function Answer({ text, onOpen, pid, onAsk }: { text: string; onOpen: (path: str
       onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && go(e.target)) e.preventDefault(); }}>
       {splitActions(text).map((seg, i) => seg.kind === "text" ? <Markdown key={i} text={seg.text} breaks />
         : seg.kind === "start" ? <StartCard key={i} pid={pid} body={seg.body} />
-            : seg.kind === "git" ? <GitCard key={i} pid={pid} body={seg.body} />
-              : seg.kind === "ci" ? <CiCard key={i} pid={pid} body={seg.body} />
-              : seg.kind === "workflow" ? <WorkflowCard key={i} pid={pid} body={seg.body} onAsk={onAsk} />
-              // a plugin's block (keel-query): its card from the slot keelbot.card
+          : seg.kind === "ci" ? <CiCard key={i} pid={pid} body={seg.body} />
+            : seg.kind === "workflow" ? <WorkflowCard key={i} pid={pid} body={seg.body} onAsk={onAsk} />
+              // a plugin's block (keel-query, keel-git): its card from the slot keelbot.card
               : <SlotCard key={i} pid={pid} block={{ kind: `keel-${seg.kind}`, body: seg.body }} />)}
     </div>
   );

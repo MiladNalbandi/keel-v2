@@ -7,7 +7,8 @@ built-in parts are named in one place, builtins.py (each module's PART dict); ad
     name, title   its id ("db") and name ("Database"); its actions are "<name>:*"
     order         its place in the registry, lower first (default 100; parts with the same order keep the registry's
                   own order: built-ins, then add-ons). A part that moved out of core into a plugin keeps the place it
-                  had as a built-in this way, so KeelBot hears about the parts in the same order (Database is 10)
+                  had as a built-in this way: Database 10, Git 20, so KeelBot, validation and keel2 mcp name them
+                  before CI/CD, as keel 0.15.1 did
     per_project   True: a project turns it on (Tools › Plugins, the flow's settings["plugins"]); while it is off its
                   actions and its MCP server are refused. Without it the part is on for every project.
     actions       {"<name>:x": fn}: workflow code steps, fn(ActionInput) -> ActionResult, plain or async

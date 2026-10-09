@@ -32,11 +32,12 @@ READ_ONLY = {"Read", "Glob", "Grep", "LS"}
 SERENA_EDIT = re.compile(r"(replace_symbol_body|insert_after_symbol|insert_before_symbol|insert_at_line|delete_lines|"
                          r"replace_lines|replace_regex|create_text_file|rename_symbol|write_memory)", re.I)
 WRITEISH = re.compile(r"(write|create|insert|update|delete|replace|edit|apply|execute|run|commit|merge|push)", re.I)
-# The read tools of keel's parts' servers (each part's read_tools, keel_engine/extensions.py; the plugin servers in
-# keel_engine/plugins/server.py): they change nothing (a change is a button for the person), so they are not judged by
-# name ("ci_runs" lists runs). Only these exact tools of these servers pass. The registry reads only the parts' light
-# declarations, so the hook stays light. tests/test_hook.py checks the list against the servers.
-# A plugin's part (keel-ci) is not loaded in the hook: the guard context names its read tools (`more`, from the engine).
+# The read tools of keel's parts' servers (each part's read_tools, keel_engine/extensions.py; a plugin's server is its
+# own module, keel_plugin_<name>.server): they change nothing (a change is a button for the person), so they are not
+# judged by name ("ci_runs" lists runs). Only these exact tools of these servers pass. The registry reads only the
+# parts' light declarations, so the hook stays light. Each plugin's tests check the list against its server.
+# A plugin's part (keel-ci, keel-db, keel-git) is not loaded in the hook: the guard context names its read tools
+# (`more`, from the engine).
 def plugin_read_tool(name: str, more: dict | None = None) -> bool:
     from .extensions import read_tools
 
