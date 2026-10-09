@@ -77,6 +77,8 @@ keel2 start ~/path/to/your/project
 |---|---|
 | `keel2 start [folder]` | start keel |
 | `keel2 stop` | stop keel |
+| `keel2 add <folder> [<folder> …]` | add more projects (each a git repo, or a folder of repos) |
+| `keel2 folders` | which project folders keel has |
 | `keel2 status` | is keel running? |
 | `keel2 update` | get the newest version |
 | `keel2 doctor` | find problems and say how to fix them |
