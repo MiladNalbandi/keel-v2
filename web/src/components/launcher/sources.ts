@@ -506,6 +506,14 @@ export function actionItems(ctx: Ctx): Item[] {
       undefined,
       "Tasks",
     ),
+    // v0.15.7 the Add projects panel on All projects
+    a(
+      "add-projects",
+      "Add projects…",
+      goHash(ctx, hashFor("projects", "add")),
+      undefined,
+      "repos from your folders",
+    ),
     a(
       "theme",
       ctx.dark ? "Switch to the light theme" : "Switch to the dark theme",

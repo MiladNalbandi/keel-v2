@@ -1,55 +1,18 @@
 // All projects, the home: every repo keel knows, each on one row with what it does now — its flow and phase, what
 // waits for you (Answer opens its Inbox items), the agents that work, its branch and last activity — and the quick
-// actions (Answer, Watch live, Open flow, Start a flow).
+// actions (Answer, Watch live, Open flow, Start a flow). v0.15.7 "Add projects" ticks repos from your folders
+// (components/AddProjects); #/projects/add opens it (the menu's switcher and ⌘K link there).
 
 import { useMemo, useState } from "react";
-import { api, errorParts, type Job, type Project } from "../api";
+import { api, type Job, type Project } from "../api";
+import { AddProjectsDrawer } from "../components/AddProjects";
 import { EmptyState } from "../components/EmptyState";
 import { StartFlowDrawer } from "../components/StartFlow";
 import { agoText } from "../components/UsageStrip";
-import { Drawer, ErrorBox, Loading, PageHead, Pill } from "../components/ui";
+import { ErrorBox, Loading, PageHead, Pill } from "../components/ui";
 import { plural } from "../format";
 import { hashFor } from "../routes";
-import { go, useApp, useLoad } from "../state";
-
-function AddRepoDrawer({ onClose }: { onClose: () => void }) {
-  const { reloadProjects, setProjectId, toast } = useApp();
-  const [root, setRoot] = useState("/workspace/");
-  const [name, setName] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<{ message: string; hint?: string } | null>(null);
-  const add = async () => {
-    setBusy(true);
-    setErr(null);
-    try {
-      const p = await api.addProject(root.trim(), name.trim() || undefined);
-      await reloadProjects();
-      setProjectId(p.id);
-      toast(`${p.name} added.`);
-      onClose();
-    } catch (e) {
-      setErr(errorParts(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <Drawer title="Add repo" onClose={onClose}
-      footer={<><button className="btn" type="button" onClick={onClose}>Cancel</button>
-        <button className="btn primary" type="button" onClick={add} disabled={busy || !root.trim()}>{busy ? "Adding…" : "Add repo"}</button></>}>
-      <div className="field">
-        <label htmlFor="ar-root">Folder inside the container</label>
-        <input type="text" id="ar-root" value={root} onChange={(e) => setRoot(e.target.value)} />
-        <span className="hint">A git repo under <span className="mono">/workspace</span> (the folder you mounted with <span className="mono">-v</span>).</span>
-      </div>
-      <div className="field">
-        <label htmlFor="ar-name">Name (optional)</label>
-        <input type="text" id="ar-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="the folder name" />
-      </div>
-      {err && <ErrorBox error={err} />}
-    </Drawer>
-  );
-}
+import { go, useApp, useLoad, useRoute } from "../state";
 
 type Activity = { at: string; running: boolean };
 
@@ -121,6 +84,13 @@ function ProjectRow({ p, shown, act, onStart }: { p: Project; shown: boolean; ac
 export function ProjectsPage() {
   const { projects, projectsLoaded, projectsError, pid, reloadProjects } = useApp();
   const [drawer, setDrawer] = useState<{ kind: "add" } | { kind: "start"; project?: string } | null>(null);
+  // v0.15.7 #/projects/add opens Add projects; closing it goes back to #/projects
+  const { arg } = useRoute();
+  const adding = drawer?.kind === "add" || arg === "add";
+  const closeDrawer = () => {
+    setDrawer(null);
+    if (arg === "add") go("projects");
+  };
   // the last agent call of every project, for "last activity" (it refetches on every live event)
   const jobs = useLoad("projects:activity", () => api.jobs({ limit: 100 }));
   const acts = useMemo(() => lastActivity(jobs.data), [jobs.data]);
@@ -133,7 +103,7 @@ export function ProjectsPage() {
         title="Projects"
         sub="Every repo keel knows on this machine. Answer what waits for you, watch what runs, or start a flow."
         actions={<>
-          <button className="btn" type="button" onClick={() => setDrawer({ kind: "add" })}>Add repo</button>
+          <button className="btn" type="button" onClick={() => setDrawer({ kind: "add" })}>Add projects</button>
           <button className="btn primary" type="button" id="startFlow" onClick={() => setDrawer({ kind: "start" })} disabled={!projects.length}>Start a flow</button>
         </>}
       />
@@ -141,8 +111,8 @@ export function ProjectsPage() {
         <ErrorBox error={{ message: projectsError }} onRetry={() => void reloadProjects()} />
       ) : !projectsLoaded ? <Loading what="Loading projects" /> : !projects.length ? (
         <div className="panel"><EmptyState title="No project yet"
-          action={<button className="btn primary" type="button" onClick={() => setDrawer({ kind: "add" })}>Add repo</button>}>
-          Mount a repo at /workspace when you start the container, or add a folder here.
+          action={<button className="btn primary" type="button" onClick={() => setDrawer({ kind: "add" })}>Add projects</button>}>
+          Add the repos from your folders, or mount a repo at /workspace when you start the container.
         </EmptyState></div>
       ) : (
         <>
@@ -161,8 +131,8 @@ export function ProjectsPage() {
           </ul>
         </>
       )}
-      {drawer?.kind === "add" && <AddRepoDrawer onClose={() => setDrawer(null)} />}
-      {drawer?.kind === "start" && <StartFlowDrawer projectId={drawer.project} onClose={() => setDrawer(null)} />}
+      {adding && <AddProjectsDrawer onClose={closeDrawer} />}
+      {drawer?.kind === "start" && <StartFlowDrawer projectId={drawer.project} onClose={closeDrawer} />}
     </>
   );
 }

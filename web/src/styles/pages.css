@@ -303,3 +303,49 @@ pre.head.numbered span.at { background: var(--accent-soft); box-shadow: inset 3p
   .live-tabbed .recent-list { max-height: 45vh; overflow-y: auto; }
 }
 @media (max-width: 600px) { .run-bar .run-search { flex: 1 1 100%; width: 100%; } }
+
+/* v0.15.7 Add projects (components/AddProjects): the repos in your folders, grouped by folder, each with a checkbox;
+   a search row on top, Browse… walks a folder with breadcrumbs, and Add by path folds away at the bottom. */
+#add-projects.drawer { width: min(660px, 100%); }
+#add-projects .body { grid-template-columns: minmax(0, 1fr); }
+.ap-tools { display: flex; align-items: center; gap: 8px; }
+.ap-search { flex: 1; min-width: 0; border: 1px solid var(--border); background: var(--bg); color: var(--fg); border-radius: 7px; padding: 7px 9px; font: inherit; }
+.ap-group { display: grid; gap: 4px; }
+.ap-gh { display: flex; align-items: center; gap: 8px; padding-bottom: 5px; border-bottom: 1px solid var(--border); }
+.ap-root { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.ap-gh .sub { white-space: nowrap; font-size: 12px; }
+.ap-gh .btn { margin-left: auto; }
+.ap-repos, .ap-dirs, .ap-skipped { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; }
+.ap-repo { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 6px 8px; border-radius: 7px; cursor: pointer; }
+.ap-repo:hover { background: var(--panel-2); }
+.ap-repo.is-added { cursor: default; color: var(--dim); }
+.ap-repo input { flex: none; margin: 0; accent-color: var(--accent); }
+.ap-name { flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.ap-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font-size: 11.5px; }
+.ap-added { border-color: var(--ok); color: var(--ok); }
+.ap-mark { border-color: var(--accent); color: var(--accent); }
+.ap-none { margin: 4px 8px; font-size: 12.5px; }
+.ap-walk { display: grid; gap: 10px; }
+.ap-walk-head { display: flex; }
+.ap-crumbs { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px; font-size: 12.5px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.ap-crumbs .linkbtn { font-weight: 500; color: var(--accent); }
+.ap-sep { color: var(--faint); margin: 0 3px; }
+.ap-dir { display: block; width: 100%; padding: 6px 8px; border-radius: 7px; font: 500 12.5px var(--f-mono); }
+.ap-dir:hover { background: var(--panel-2); }
+.ap-result { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--panel-2); font-size: 13px; }
+.ap-result p { margin: 0; }
+.ap-result .ok { color: var(--ok); }
+.ap-skipped li { overflow-wrap: anywhere; }
+.ap-empty { margin: 0; color: var(--dim); }
+.ap-empty code { color: var(--fg); background: var(--panel-2); border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; }
+.ap-bypath { border-top: 1px solid var(--border); padding-top: 10px; }
+.ap-bypath summary { cursor: pointer; font-weight: 600; color: var(--dim); }
+.ap-bypath[open] { display: grid; gap: 12px; }
+.ap-picked { margin: 0; }
+@media (max-width: 600px) {
+  .ap-tools { flex-wrap: wrap; }
+  .ap-repo { flex-wrap: wrap; row-gap: 2px; }
+  .ap-name { max-width: none; flex: 1; }
+  .ap-path { flex-basis: 100%; order: 5; padding-left: 26px; }
+  .ap-repo .ap-added, .ap-repo .ap-mark { order: 4; }
+}
