@@ -1,9 +1,11 @@
 // v0.14.0 the Code Review plugin, IDE style: the Review tool window (this branch, the list with filters, one pull
 // request with Approve / Submit / Merge your own and its tabs: the folder tree, commits, keel's overview and findings,
 // threads), each file in an editor tab (the diff with threads, pending comments and findings on their lines), and
-// IntelliJ's keys (F7, ⌥⌘→, ⌘B, ⌥F7, ⌘[, ⇧⌘A).
+// IntelliJ's keys (F7, ⌥⌘→, ⌘B, ⌥F7, ⌘[, ⇧⌘A). Moved from web/src/test with the plugin: it runs inside keel's web,
+// as the full image has it (web/src/test/setup.ts runs every plugin's setup()).
 
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -13,7 +15,14 @@ import {
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
-import { App } from "../App";
+import {
+  registerSlot,
+  slotItems,
+  SLOTS,
+  type CodeActivityItem,
+} from "@keel/web-sdk";
+// keel's own app and test harness: this test runs the Review window inside keel's web, as keel loads it
+import { App } from "../../../../web/src/App";
 import {
   actionFor,
   keyLabel,
@@ -21,9 +30,9 @@ import {
   readKeymap,
   saveKeymap,
   wordAt,
-} from "../components/review/keymap";
+} from "../keymap";
 import type { AiState, Draft, ReviewView } from "../reviewApi";
-import { db, server } from "./setup";
+import { db, server } from "../../../../web/src/test/setup";
 
 const DIFF = [
   "diff --git a/src/Prefs.kt b/src/Prefs.kt",
@@ -876,5 +885,44 @@ describe("Code › Review, IDE style", () => {
         s.calls.find((c) => c.path.endsWith("/ai/findings/f_1"))?.body,
       ).toMatchObject({ decision: "commented" }),
     );
+  });
+
+  it("opens a review's link that came before the plugin's web part had loaded", async () => {
+    reviewServer();
+    db.plugins.review = true;
+    // keel loads a plugin's web part at start; the Code page may open first
+    const view = slotItems<CodeActivityItem>(SLOTS.codeActivity).find(
+      (a) => a.id === "review",
+    )!;
+    registerSlot(SLOTS.codeActivity, view)();
+    try {
+      // a page load with the link (jsdom tells about a new hash with a hashchange; a page load does not)
+      await new Promise<void>((done) => {
+        const on = (e: HashChangeEvent) => {
+          if (!e.newURL.endsWith("#/repo/@review/pr:7")) return;
+          window.removeEventListener("hashchange", on);
+          done();
+        };
+        window.addEventListener("hashchange", on);
+        location.hash = "#/repo/@review/pr:7";
+      });
+      render(<App />);
+      expect(
+        await screen.findByRole("button", { name: "Explorer" }),
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("region", { name: "Review" })).toBeNull();
+      // the part has loaded: the link opens the review in its tool window
+      act(() => {
+        registerSlot(SLOTS.codeActivity, view);
+      });
+      expect(
+        await screen.findByRole("region", { name: "Review" }),
+      ).toBeVisible();
+      expect(sessionStorage.getItem("keel2.review.sel.ludus-engine")).toBe(
+        "pr:7",
+      );
+    } finally {
+      registerSlot(SLOTS.codeActivity, view);
+    }
   });
 });

@@ -28,4 +28,7 @@ interface ConnectionKind {
     val scope: String
     val order: Int get() = 100
     val fields: List<ConnectionField>
+    /** The names of its secrets whose value is one token (GitLab's GITLAB_TOKEN): SecretService removes whitespace from
+     *  them when they are saved, as from keel's own tokens. Not shown at GET /api/connections/kinds. */
+    val tokens: Set<String> get() = emptySet()
 }

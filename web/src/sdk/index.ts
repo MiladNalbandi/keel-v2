@@ -80,3 +80,14 @@ export type { AskAssistantDetail } from "./assistant";
 export { askAction, copyAction, goHash, linkAction } from "../components/launcher/sources";
 export type { Ctx as LauncherCtx } from "../components/launcher/sources";
 export type { Item as LauncherItem } from "../components/launcher/model";
+
+// code and diffs, and keys (the Code Review plugin's diff, file tree and keys use them): a unified diff's rows (and side
+// by side), the syntax colours, the Code page's file and view icons, keel's key chords and the keymap a person picked
+// (IntelliJ or VS Code; src/keys.ts), and the api's commit and diff types
+export { parseDiff, splitRows } from "../components/Code";
+export type { DiffRow, SplitRow } from "../components/Code";
+export { highlight, languageOf } from "../components/highlight";
+export { FileIcon, Icon } from "../components/icons";
+export { keyLabel, matches, readKeymap, saveKeymap } from "../keys";
+export type { Keymap } from "../keys";
+export type { Commit, FileDiff } from "../api";

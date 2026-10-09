@@ -1,18 +1,21 @@
 // Code Review in the launcher (⌘K): the project's pull requests (when the review plugin is on), and the ones that
-// ask for your review on the empty launcher. Registered by ./register.tsx (slot launcher.source).
+// ask for your review on the empty launcher. Registered by ./index.tsx (slot launcher.source).
 
-import { api, errorParts } from "../../api";
 import {
   askAction,
   copyAction,
+  errorParts,
+  get,
   goHash,
   linkAction,
-  type Ctx,
-} from "../launcher/sources";
-import type { Item } from "../launcher/model";
-import { reviewHash } from "../../pages/repo/model";
-import { reviewApi, type PrSummary } from "../../reviewApi";
-import type { LauncherSourceItem } from "../../sdk/slots";
+  type LauncherCtx as Ctx,
+  type LauncherItem as Item,
+  type LauncherSourceItem,
+} from "@keel/web-sdk";
+import { reviewApi, type PrSummary } from "./reviewApi";
+
+/** A review's link (#/repo/@review/pr:7): the Code page opens its Review tool window with that review (onLink). */
+const reviewHash = (key: string) => `#/repo/@review/${encodeURIComponent(key)}`;
 
 type Prs = { prs: PrSummary[]; host: { kind: string; web: string } | null };
 
@@ -96,8 +99,10 @@ export const reviewLauncher: LauncherSourceItem = {
   order: 10,
   load: async (pid, notes) => {
     let out: Prs | null = null;
-    await api
-      .plugins(pid)
+    // the project's plugins, as keel's api.plugins reads them
+    await get<{ name: string; enabled: boolean }[]>(
+      `/projects/${encodeURIComponent(pid)}/plugins`,
+    )
       .then(async (plugins) => {
         if (!plugins.find((p) => p.name === "review")?.enabled) return;
         const list = await reviewApi.prs(pid, "all");

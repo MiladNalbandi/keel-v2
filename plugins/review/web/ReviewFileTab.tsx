@@ -3,15 +3,15 @@
 // declaration). A small bar: viewed, diff or whole file, previous / next file.
 
 import { useEffect, useState } from "react";
-import { Pill } from "../ui";
-import { prLabel } from "../../reviewApi";
+import { Pill } from "@keel/web-sdk";
+import { prLabel } from "./reviewApi";
 import { neighbour } from "./ReviewSide";
 import { FileAtView, ReviewDiff, type Anchor } from "./ReviewDiff";
 import { findingComment, ThreadCard } from "./ReviewPanel";
 import { askAboutFinding } from "./ReviewSide";
 import { keysFor } from "./keymap";
 import * as R from "./store";
-import type { Draft, Finding } from "../../reviewApi";
+import type { Draft, Finding } from "./reviewApi";
 
 export function ReviewFileTab({
   pid,

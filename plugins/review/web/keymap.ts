@@ -1,10 +1,10 @@
 // v0.14.0 the review's keys: IntelliJ's macOS keymap (⌘B, ⌥F7, F7, ⌘[ …) or VS Code's, one list for the key handler
 // and for Find action (⇧⌘A), so a key and its name never disagree. On Windows and Linux ⌘ is Ctrl. The keymap itself,
-// chord names and matching are keel's own (src/keys.ts).
+// chord names and matching are keel's own (src/keys.ts, through @keel/web-sdk).
 
-import { keyLabel, matches, readKeymap, type Keymap } from "../../keys";
+import { keyLabel, matches, readKeymap, type Keymap } from "@keel/web-sdk";
 
-export { isMac, keyLabel, matches, readKeymap, saveKeymap, type Keymap } from "../../keys";
+export { keyLabel, matches, readKeymap, saveKeymap, type Keymap } from "@keel/web-sdk";
 
 export type ReviewAction =
   | "nextChange"

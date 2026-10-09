@@ -55,7 +55,7 @@ def keys(*conns, github=None):
 
 def test_the_catalog_lists_both_plugins_with_their_tools_steps_and_settings(client):
     cat = {p["name"]: p for p in client.get("/plugins").json()}
-    assert set(cat) == {"db", "git", "review"}                  # CI/CD comes with its plugin (plugins/ci)
+    assert set(cat) == {"db", "git"}             # CI/CD and Code Review come with their plugins (plugins/ci, plugins/review)
     assert cat["db"]["title"] == "Database" and cat["db"]["tools"] == {"server": "keel-db", "read": ["db_connections", "db_schema", "db_query"]}
     check = next(a for a in cat["db"]["actions"] if a["name"] == "db:check")
     assert check["with"] == {"sql": "required", "expect": "optional", "connection": "optional"} and "data check" in check["summary"]

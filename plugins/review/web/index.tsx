@@ -1,11 +1,14 @@
-// The Code Review part (web/src/builtins.ts loads this file): the GitLab connection, the Review view in the Code
-// page's activity bar (while the plugin is on) with its keys and popups over the IDE, a review's file as an editor
-// tab, the link #/repo/@review/pr:7, and the pull requests in the launcher.
+// The Code Review plugin's web part (plugins/review): `npm run build:plugin -- review` (in web/) builds this file on its
+// own into plugins/review/web/dist/index.js and style.css (review.css, the look of keel 0.15.1). keel loads both at
+// start from the urls /api/features gives and calls setup() once: it registers what the part registered as a built-in,
+// with the same ids, titles and places. The GitLab connection, the Review view in the Code page's activity bar (while
+// the plugin is on) with its keys and popups over the IDE, a review's file as an editor tab, the link #/repo/@review/pr:7,
+// and the pull requests in the launcher. It imports only @keel/web-sdk and react: keel's page shares its own copies
+// (the import map). The key chords and the keymap are keel's own (src/keys.ts), through @keel/web-sdk.
 
 import { useEffect } from "react";
-import { nameOf } from "../../pages/repo/model";
-import { registerSlot } from "../../sdk/registry";
 import {
+  definePlugin,
   SLOTS,
   type CodeActivityItem,
   type CodeActivityProps,
@@ -13,19 +16,24 @@ import {
   type CodeTabProps,
   type CodeTabRef,
   type ConnectionKindItem,
-} from "../../sdk/slots";
-import { GitLabSection } from "../plugins/GitLabConnection";
+  type KeelSdk,
+} from "@keel/web-sdk";
+import { GitLabSection } from "./GitLabConnection";
 import { reviewLauncher } from "./launcher";
 import { ReviewFileTab } from "./ReviewFileTab";
 import { ReviewLayer } from "./ReviewLayer";
 import { openReview, ReviewSide } from "./ReviewSide";
 import { setOpener } from "./store";
+import "./review.css";
 
 /** A review file tab's path: "<review key>|<file>" (pr:7|src/a.kt, branch:feat/x|src/a.kt). */
 const splitReview = (p: string): [string, string] => {
   const i = p.indexOf("|");
   return i < 0 ? [p, ""] : [p.slice(0, i), p.slice(i + 1)];
 };
+
+/** A path's last name (src/a.kt → a.kt), as the Code page names its tabs. */
+const nameOf = (p: string) => p.slice(p.lastIndexOf("/") + 1);
 
 /** The review file the editor shows now, or null. */
 function reviewOf(
@@ -73,33 +81,39 @@ function ReviewEditorTab({ pid, tab, mode }: CodeTabProps) {
   );
 }
 
-registerSlot<ConnectionKindItem>(SLOTS.connectionsKind, {
-  id: "gitlab",
-  title: "GitLab",
-  order: 30,
-  component: GitLabSection,
-});
+/** Connections › GitLab, Code › Review, the review tabs and the pull requests in ⌘K: the same ids, titles and places
+ *  as keel 0.15.1. */
+export function setup(sdk: KeelSdk) {
+  sdk.registerSlot<ConnectionKindItem>(SLOTS.connectionsKind, {
+    id: "gitlab",
+    title: "GitLab",
+    order: 30,
+    component: GitLabSection,
+  });
 
-registerSlot<CodeActivityItem>(SLOTS.codeActivity, {
-  id: "review",
-  title: "Review",
-  icon: "review",
-  short: "Review",
-  order: 40,
-  plugin: "review",
-  component: ReviewActivity,
-  layer: ReviewKeys,
-  onLink: openReview,
-});
+  sdk.registerSlot<CodeActivityItem>(SLOTS.codeActivity, {
+    id: "review",
+    title: "Review",
+    icon: "review",
+    short: "Review",
+    order: 40,
+    plugin: "review",
+    component: ReviewActivity,
+    layer: ReviewKeys,
+    onLink: openReview,
+  });
 
-registerSlot<CodeTabItem>(SLOTS.codeTab, {
-  id: "review",
-  icon: "review",
-  tabTitle: (path) => {
-    const [key, file] = splitReview(path);
-    return `${nameOf(file)} (${key.startsWith("pr:") ? key.slice(3) : key.slice(7)})`;
-  },
-  component: ReviewEditorTab,
-});
+  sdk.registerSlot<CodeTabItem>(SLOTS.codeTab, {
+    id: "review",
+    icon: "review",
+    tabTitle: (path) => {
+      const [key, file] = splitReview(path);
+      return `${nameOf(file)} (${key.startsWith("pr:") ? key.slice(3) : key.slice(7)})`;
+    },
+    component: ReviewEditorTab,
+  });
 
-registerSlot(SLOTS.launcherSource, reviewLauncher);
+  sdk.registerSlot(SLOTS.launcherSource, reviewLauncher);
+}
+
+export default definePlugin({ name: "review", setup });

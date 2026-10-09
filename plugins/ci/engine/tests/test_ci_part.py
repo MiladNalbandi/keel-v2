@@ -80,7 +80,8 @@ def test_validation_explain_and_keelbot_name_it_as_before():
 
 def test_tools_plugins_lists_it_where_it_always_was(client):
     cat = client.get("/plugins").json()
-    assert [p["name"] for p in cat] == ["ci", "db", "git", "review"]      # name order, as keel 0.15.1's content/plugins
+    # name order, as keel 0.15.1's content/plugins (Code Review comes with its own plugin, plugins/review)
+    assert [p["name"] for p in cat] == ["ci", "db", "git"]
     ci = cat[0]
     assert ci["title"] == "CI/CD" and ci["installable"] and ci["needs"] == ["github"]
     assert ci["tools"] == {"server": "keel-ci", "read": ["ci_runs", "ci_failure"]} and ci["workflows"] == ["ci-fix"]
@@ -101,7 +102,7 @@ def test_the_fix_flow_is_its_own_workflow_after_keels_templates(client):
     tpls = client.get("/templates").json()
     assert tpls[-1]["id"] == "ci-fix" and tpls[-1]["plugin"] == "ci" and "plugin" not in tpls[0]
     assert tpls[-1]["yaml"] == (PLUGIN / "content" / "plugins" / "ci" / "workflows" / "ci-fix.yaml").read_text()
-    assert [f.parent.name for f in catalog.keel_files()] == ["ci", "core", "db", "git", "review"]
+    assert [f.parent.name for f in catalog.keel_files()] == ["ci", "core", "db", "git"]
 
 
 # ------------------------------------------------------------------ MCP: its own server, keel's server, the guard

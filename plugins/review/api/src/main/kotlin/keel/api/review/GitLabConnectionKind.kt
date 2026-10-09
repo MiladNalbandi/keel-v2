@@ -15,4 +15,6 @@ class GitLabConnectionKind : ConnectionKind {
         ConnectionField("url", "Address", "url", required = true),
         ConnectionField("token", "Token", "secret", required = true),
     )
+    // the token is saved without the whitespace a copy from a wrapped line may hold (SecretService)
+    override val tokens = setOf(GitLabConnection.TOKEN)
 }

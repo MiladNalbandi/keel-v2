@@ -83,7 +83,7 @@ class FenceTest {
             }
             """.trimIndent().replace('§', '$'),
         )
-        write(root, "keel/api/review/ReviewService.kt", "package keel.api.review\n\nimport keel.product.X\nimport keel.api.helper.Y\n")
+        write(root, "keel/api/helper/HelperService.kt", "package keel.api.helper\n\nimport keel.product.X\nimport keel.api.plugins.Y\n")
         write(root, "keel/api/KeelApiApplication.kt", "package keel.api\n\nfun main() = Unit\n")
 
         val found = Fence.scan(root)
@@ -91,11 +91,12 @@ class FenceTest {
         assertThat(found.couplings).containsExactlyInAnyOrder(
             "keel.api.flow.FlowService -> keel.api.helper.Helper",
             "keel.api.flow.FlowService -> keel.api.plugins.PluginService",
-            "keel.api.flow.FlowService -> keel.api.review.ReviewAiService",
         )
-        // a plugin part may use anything; only core is checked. Tasks and Jira moved out: core may never use them again.
+        // a plugin part may use anything; only core is checked. Tasks, Jira and Code Review moved out: core may never use
+        // them again.
         assertThat(found.forbidden).containsExactlyInAnyOrder(
             "keel.api.flow.FlowService -> keel.api.jira.*",
+            "keel.api.flow.FlowService -> keel.api.review.ReviewAiService",
             "keel.api.flow.FlowService -> keel.api.tasks.TaskService",
             "keel.api.flow.FlowService -> keel.product.ProductService",
         )
@@ -127,14 +128,14 @@ private object Fence {
     const val GUIDE = "docs/plugins/02-plugin-package.md"
 
     // The packages that become plugins (docs/plugins/01-today.md). keel.api.repo and keel.api.knowledge stay core.
-    val PLUGINS = listOf("keel.api.helper", "keel.api.plugins", "keel.api.review")
+    val PLUGINS = listOf("keel.api.helper", "keel.api.plugins")
 
     // Core never uses these, not even today. They can never be in the allowlist. The parts that moved out keep their
     // package, and core never uses it again (step 3): keel.api.map (plugins/map), keel.api.wiki (plugins/wiki),
-    // keel.api.tasks (plugins/tasks), keel.api.jira (plugins/jira), and the Ci* classes of CI/CD (plugins/ci, in keel's
-    // package keel.api.plugins).
+    // keel.api.tasks (plugins/tasks), keel.api.jira (plugins/jira), keel.api.review (plugins/review), and the Ci*
+    // classes of CI/CD (plugins/ci, in keel's package keel.api.plugins).
     val FORBIDDEN = listOf(
-        "keel.product", "keel.api.map", "keel.api.wiki", "keel.api.tasks", "keel.api.jira",
+        "keel.product", "keel.api.map", "keel.api.wiki", "keel.api.tasks", "keel.api.jira", "keel.api.review",
         "keel.api.plugins.CiController", "keel.api.plugins.CiFixBody", "keel.api.plugins.CiService",
     )
 

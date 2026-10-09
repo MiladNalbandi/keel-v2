@@ -4,6 +4,7 @@ import keel.api.common.BadRequest
 import keel.api.common.KeelProperties
 import keel.api.common.NotFound
 import keel.api.common.Time
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
 import java.nio.file.Files
@@ -20,7 +21,11 @@ import javax.crypto.spec.SecretKeySpec
  * into $KEEL_DATA/master.key (0600). Values are never logged and never returned — only a hint.
  */
 @Service
-class SecretService(private val jdbc: JdbcTemplate, private val props: KeelProperties) {
+class SecretService(
+    private val jdbc: JdbcTemplate,
+    private val props: KeelProperties,
+    private val kinds: ObjectProvider<ConnectionKind>,
+) {
     private val random = SecureRandom()
 
     private val key: SecretKey by lazy {
@@ -42,9 +47,10 @@ class SecretService(private val jdbc: JdbcTemplate, private val props: KeelPrope
 
     fun hint(value: String): String = "…" + value.takeLast(3)
 
-    /** Tokens and API keys never contain whitespace; a copy from a wrapped terminal line often does. */
+    /** Tokens and API keys never contain whitespace; a copy from a wrapped terminal line often does. keel's own tokens,
+     *  and those a part's connection kind names (ConnectionKind.tokens: Code Review's GITLAB_TOKEN). */
     private fun clean(name: String, value: String): String =
-        if (name in TOKEN_NAMES) value.filterNot { it.isWhitespace() } else value
+        if (name in TOKEN_NAMES || kinds.stream().anyMatch { name in it.tokens }) value.filterNot { it.isWhitespace() } else value
 
     fun put(name: String, raw: String): String {
         checkName(name)
@@ -115,7 +121,7 @@ class SecretService(private val jdbc: JdbcTemplate, private val props: KeelPrope
         val KEY_NAMES = mapOf("claude" to "ANTHROPIC_API_KEY", "codex" to "OPENAI_API_KEY", "copilot" to "GITHUB_TOKEN")
         val LOGIN_NAMES = mapOf("claude" to "CLAUDE_CODE_OAUTH_TOKEN", "codex" to "CODEX_AUTH_JSON", "copilot" to "GH_TOKEN")
         /** Secret names whose value is a single token (whitespace is removed); CODEX_AUTH_JSON is a JSON file. */
-        val TOKEN_NAMES = setOf("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GITHUB_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "GH_TOKEN", "GITHUB_REPO_TOKEN", "GITLAB_TOKEN")
+        val TOKEN_NAMES = setOf("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GITHUB_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "GH_TOKEN", "GITHUB_REPO_TOKEN")
         private val ENGINE_LOGIN_KEY = mapOf("claude" to "claude_oauth", "codex" to "codex_auth", "copilot" to "copilot")
     }
 }

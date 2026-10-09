@@ -242,10 +242,10 @@ def test_a_moved_parts_plugin_yml_is_one_of_keels_plugins(monkeypatch, repo):
     monkeypatch.setenv("KEEL_ADDONS", "keel_moved_part")
     try:
         extensions.reload()
-        assert [f.parent.name for f in manifests.keel_files()] == ["core", "db", GIT, "moved", "review"]
+        assert [f.parent.name for f in manifests.keel_files()] == ["core", "db", GIT, "moved"]
         with TestClient(create_app(EventBus())) as client:
             cat = client.get("/plugins").json()
-            assert [p["name"] for p in cat] == ["db", GIT, "moved", "review"]
+            assert [p["name"] for p in cat] == ["db", GIT, "moved"]
             moved = next(p for p in cat if p["name"] == "moved")
             assert moved["title"] == "Moved" and moved["tools"] == {"server": "keel-moved", "read": ["moved_runs"]}
             tpls = client.get("/templates").json()
@@ -257,5 +257,5 @@ def test_a_moved_parts_plugin_yml_is_one_of_keels_plugins(monkeypatch, repo):
         monkeypatch.delenv("KEEL_ADDONS", raising=False)
         sys.modules.pop("keel_moved_part", None)
         extensions.reload()
-    assert [p["name"] for p in manifests.catalog()] == ["db", GIT, "review"]       # gone with the package
+    assert [p["name"] for p in manifests.catalog()] == ["db", GIT]       # gone with the package
     assert not [w for w in manifests.plugin_workflows() if w["id"] == "moved-fix"]

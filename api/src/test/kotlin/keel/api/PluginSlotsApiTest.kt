@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import keel.api.connections.ConnectionField
 import keel.api.connections.ConnectionKind
+import keel.api.connections.SecretService
 import keel.api.flow.FlowContributor
 import keel.api.settings.SettingKey
 import keel.api.settings.SettingsSection
@@ -38,6 +39,7 @@ class PluginSlotsApiTest {
     @Autowired lateinit var mapper: ObjectMapper
     @Autowired lateinit var settings: SettingsService
     @Autowired lateinit var demo: DemoContributor
+    @Autowired lateinit var secrets: SecretService
 
     /** Adds a key and a setting to the flows of the projects it is on for, and claims the "demo" templates. */
     class DemoContributor : FlowContributor {
@@ -63,6 +65,7 @@ class PluginSlotsApiTest {
             override val scope = "keel"
             override val order = 35
             override val fields = listOf(ConnectionField("token", "Token", "secret", required = true))
+            override val tokens = setOf("DEMO_TOKEN")
         }
     }
 
@@ -157,7 +160,7 @@ class PluginSlotsApiTest {
         assertThat(sections.map { it["id"].asText() }.last()).isEqualTo("demo")
         assertThat(sections.last()["keys"][0]["key"].asText()).isEqualTo("plugins.demo.level")
         val kinds = get("/api/connections/kinds").andExpect(status().isOk).json().map { it["kind"].asText() }
-        assertThat(kinds).containsExactly("github", "gitlab", "demo", "database")
+        assertThat(kinds).containsExactly("github", "demo", "database")
 
         val pid = newProject("slots-demo-settings")
         val level = settings.plugin("demo")
@@ -171,5 +174,14 @@ class PluginSlotsApiTest {
         assertThat(get("/api/settings/plugins/demo").json()["effective"]["level"].asInt()).isEqualTo(3)
         put("/api/settings/general", mapOf("plugins.demo.level" to null)).andExpect(status().isOk)
         assertThat(level.get("level")).isEqualTo(1)
+    }
+
+    @Test
+    fun `a token the plugin's connection kind names is saved without whitespace, like keel's own`() {
+        put("/api/secrets/DEMO_TOKEN", mapOf("value" to "demo-first\n   second-half")).andExpect(status().isOk)
+        assertThat(secrets.get("DEMO_TOKEN")).isEqualTo("demo-firstsecond-half")
+        // any other secret keeps its value as it is
+        put("/api/secrets/DEMO_NOTE", mapOf("value" to "two words")).andExpect(status().isOk)
+        assertThat(secrets.get("DEMO_NOTE")).isEqualTo("two words")
     }
 }

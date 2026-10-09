@@ -2,7 +2,14 @@
 // you are on, a review's files, diffs, threads and your pending comments, jumping through the reviewed code, and
 // keel's AI runs (overview, checked findings).
 
-import { del, get, post, put, type Commit, type FileDiff } from "./api";
+import {
+  del,
+  get,
+  post,
+  put,
+  type Commit,
+  type FileDiff,
+} from "@keel/web-sdk";
 
 export type HostRef = {
   kind: "github" | "gitlab";
