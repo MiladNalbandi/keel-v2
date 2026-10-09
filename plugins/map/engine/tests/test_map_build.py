@@ -1,12 +1,18 @@
-"""The map (ER + endpoints), its routes, and the map a project scan builds (the hook on_scan, after the code graph).
-Moved from engine/tests/test_scan_map.py with the map's code."""
+"""The map (ER + endpoints), its routes, and the map a project scan builds (the hook on_scan, after the Graph plugin's
+code index when that plugin is there too). Moved from engine/tests/test_scan_map.py with the map's code."""
 
 import stat
 import subprocess
 import time
 from pathlib import Path
 
+import pytest
+
+from keel_engine import extensions
+from keel_engine.runtime import scan
 from keel_plugin_map import mapper
+
+GRAPH_ENGINE = str(Path(__file__).resolve().parents[3] / "graph" / "engine")
 
 
 def git(repo, *args):
@@ -128,7 +134,25 @@ def scan_and_wait(client, root, project="demo"):
     raise AssertionError("scan did not finish")
 
 
-def test_a_scan_builds_the_map_after_the_code_graph(client, repo, tmp_path, monkeypatch):
+@pytest.fixture
+def with_graph(monkeypatch):
+    """The Graph plugin (plugins/graph) next to this one, as the image has them: its code index runs first."""
+    monkeypatch.setenv("KEEL_PLUGIN_PATHS", GRAPH_ENGINE)
+    monkeypatch.setenv("KEEL_PLUGIN_ADDONS", "keel_plugin_graph")
+    extensions.reload()
+    yield
+    monkeypatch.delenv("KEEL_PLUGIN_ADDONS")
+    extensions.reload()
+
+
+def test_a_scan_without_the_graph_plugin_still_builds_the_map(client, repo):
+    s = scan_and_wait(client, repo)
+    assert s["status"] == "failed" and s["error"] == scan.NO_INDEX["error"] and s["map"]["counts"]["files"] > 0
+    steps = [e["data"].get("step") for e in client.bus.recent if e["type"] == "index.progress"]
+    assert steps == ["stack", "map"]
+
+
+def test_a_scan_builds_the_map_after_the_code_graph(with_graph, client, repo, tmp_path, monkeypatch):
     exe = tmp_path / "bin" / "codegraph"
     exe.parent.mkdir()
     exe.write_text(FAKE_CODEGRAPH)
@@ -141,7 +165,7 @@ def test_a_scan_builds_the_map_after_the_code_graph(client, repo, tmp_path, monk
     assert steps == ["stack", "graph", "map"]
 
 
-def test_a_scan_without_codegraph_fails_clearly_but_builds_the_map(client, repo, monkeypatch):
+def test_a_scan_without_codegraph_fails_clearly_but_builds_the_map(with_graph, client, repo, monkeypatch):
     monkeypatch.setenv("KEEL_CODEGRAPH_BIN", "")
     monkeypatch.setenv("PATH", "/usr/bin:/bin")
     s = scan_and_wait(client, repo)

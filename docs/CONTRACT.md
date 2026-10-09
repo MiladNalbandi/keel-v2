@@ -1200,6 +1200,13 @@ FlowSpend = { thread_id, title, status, tokens, cost_usd, cap_tokens: number|nul
 
 ## v0.5.3: the Graph page
 
+**The code graph since step 3** is the plugin folder `plugins/graph` (id `graph`): engine `keel_plugin_graph` (its
+`codegraph.py`, `codegraph_view.py`, `graph_hints.py` and the hooks on_scan, on_commit, on_thread_start, mcp_specs,
+prompt_context, index_available), api `keel-plugin-graph.jar` (`keel.api.graph`: `/graph`, `/graph/search`,
+`/graph/node`, `/index`, `/index/rebuild` and the `index.done` notification), web `plugins/graph/web` (the page and its
+stylesheet). The urls and the JSON are the same. The project scan and its `project_index` row, each agent's
+`code_graph` setting and the CodeGraph CLI in the image stay keel's.
+
 **Project › Graph** (`web/src/pages/Graph.tsx`, `components/graph/*`) draws the code graph keel keeps for agents (the
 CodeGraph index, `engine/keel_engine/tools/codegraph.py`). The engine reads it read only and rolls it up
 (`engine/keel_engine/runtime/codegraph_view.py`):

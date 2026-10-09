@@ -1,12 +1,8 @@
 package keel.api.knowledge
 
-import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.databind.ObjectMapper
 import keel.api.common.BadRequest
 import keel.api.common.NotFound
 import keel.api.common.Time
-import keel.api.engine.EngineClient
-import keel.api.engine.EngineDown
 import keel.api.projects.ProjectService
 import keel.api.repo.ClassifyConfig
 import keel.api.workspace.Workspace
@@ -21,15 +17,13 @@ data class Fact(val id: String, val title: String, val text: String, val kind: S
 data class KnowledgeSection(val id: String, val status: String, val words: Int, val cites: Int)
 data class Memory(val facts: List<Fact>, val knowledge: List<KnowledgeSection>)
 
-/** keel docs, memory (facts + knowledge base) and the code graph of a project. The Wiki page reads the knowledge base
- *  from here (the Wiki plugin, plugins/wiki). */
+/** keel docs and memory (facts + knowledge base) of a project. The Wiki page reads the knowledge base from here (the
+ *  Wiki plugin, plugins/wiki); the code graph is the Graph plugin's (plugins/graph). */
 @Service
 class KnowledgeService(
     private val jdbc: JdbcTemplate,
     private val projects: ProjectService,
     private val workspace: Workspace,
-    private val engine: EngineClient,
-    private val mapper: ObjectMapper,
 ) {
     // ---- keel docs ------------------------------------------------------------------------
 
@@ -138,27 +132,6 @@ class KnowledgeService(
             val written = workspace.lastCommitTime(root, "docs/knowledge/$s.md")
             val stale = written != null && lastCode != null && written < lastCode
             KnowledgeSection(s, if (stale) "stale" else "written", words, cites)
-        }
-    }
-
-    // ---- the code graph (the Graph page): the engine reads the project's CodeGraph index ---------
-
-    fun graph(pid: String): JsonNode = graphCall(pid) { engine.graph(pid) }
-
-    fun graphSearch(pid: String, q: String): JsonNode = graphCall(pid) { engine.graphSearch(pid, q.take(200)) }
-
-    fun graphNode(pid: String, id: String, depth: Int): JsonNode {
-        if (id.isBlank()) throw BadRequest("id is missing", "Pick a symbol from the search or the graph.")
-        return graphCall(pid) { engine.graphNode(pid, id, depth.coerceIn(1, 2)) }
-    }
-
-    private fun graphCall(pid: String, call: () -> JsonNode): JsonNode {
-        projects.require(pid)
-        return try {
-            call()
-        } catch (e: EngineDown) {
-            mapper.createObjectNode().put("available", false).put("status", "engine")
-                .put("reason", "The engine is not running, so the code graph cannot be read.")
         }
     }
 

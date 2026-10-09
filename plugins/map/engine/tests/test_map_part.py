@@ -32,7 +32,8 @@ def test_it_is_an_add_on_part_not_a_built_in():
     assert "keel_engine.plugins.map" not in builtins.BUILTINS
     p = extensions.part("map")
     assert p is not None and not p.builtin and p.source == "keel_plugin_map" and p.title == "Map"
-    assert [n for n, _fn in extensions.hooks("on_scan")] == ["graph", "map"]     # the index first, then the map
+    # the Graph plugin's index runs first when it is there (plugins/graph/engine/tests, test_map_build.py)
+    assert [n for n, _fn in extensions.hooks("on_scan")] == ["map"]
     assert extensions.on({}, "map") and not p.per_project                       # on for every project
     assert extensions.allow_entries(["map"]) == []                              # no MCP server of its own
     paths = {r.path for r in p.get("router").routes}

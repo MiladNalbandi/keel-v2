@@ -1,8 +1,8 @@
 // The Graph page's data as boxes and lines: packages (folded to a depth) and the uses between them, one package's
 // units with the packages they touch, and the words for kinds. Pure functions, so tests can check them directly.
 
-import type { GraphGroup, GraphLink, GraphOverview, GraphUnit } from "../../api";
-import type { GBox, GEdge } from "../er/BoxDiagram";
+import type { GBox, GEdge } from "@keel/web-sdk";
+import type { GraphGroup, GraphLink, GraphOverview, GraphUnit } from "./graphApi";
 
 export type Depth = number | "all";
 type Overview = Extract<GraphOverview, { available: true }>;

@@ -240,7 +240,7 @@ class ApprovalsApiTest : ApiTest() {
     }
 
     @Test
-    fun `KeelBot's and the index's events still do what they did, through their handlers`() {
+    fun `KeelBot's events still do what they did, through its handler`() {
         val (pid, _) = newProject("appr-handlers")
         send(
             mapOf("type" to "helper.started", "thread_id" to "h_z", "project_id" to pid, "step" to "helper", "call_id" to "c-appr-1",
@@ -249,8 +249,6 @@ class ApprovalsApiTest : ApiTest() {
                 "at" to "2026-10-08T10:00:01Z", "data" to mapOf("n" to 1, "kind" to "tool", "server" to "keel-db", "text" to "db_query")),
             mapOf("type" to "helper.finished", "thread_id" to "h_z", "project_id" to pid, "step" to "helper", "call_id" to "c-appr-1",
                 "at" to "2026-10-08T10:00:02Z", "data" to mapOf("status" to "done", "tokens_in" to 10, "tokens_out" to 2)),
-            mapOf("type" to "index.done", "thread_id" to "", "project_id" to pid, "at" to "2026-10-08T10:00:03Z",
-                "data" to mapOf("status" to "ready", "files" to 3, "symbols" to 7)),
         )
         val row = jdbc.queryForMap("SELECT agent, status, steps_count, mcp_calls, tokens_in, mode FROM agent_calls WHERE id = 'c-appr-1'")
         assertThat(row["agent"]).isEqualTo("helper")
@@ -260,6 +258,6 @@ class ApprovalsApiTest : ApiTest() {
         assertThat((row["tokens_in"] as Number).toInt()).isEqualTo(10)
         assertThat(row["mode"]).isEqualTo("fake")
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM threads WHERE id = 'h_z'", Int::class.java)).isZero()   // never a flow
-        assertThat(get("/api/notifications?limit=500").json().map { it["title"].asText() }).contains("Index ready: 3 files, 7 symbols")
+        // index.done's notification is the Graph plugin's handler (plugins/graph/api, GraphApiTest)
     }
 }

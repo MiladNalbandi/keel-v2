@@ -52,13 +52,13 @@ def knowledge(**k):
 
 def test_the_built_in_parts_come_from_the_one_list_in_its_order():
     have = extensions.parts()
-    # map, ci, db and git are plugins (plugins/map, plugins/ci, plugins/db, plugins/git)
-    assert [p.name for p in have] == ["graph", "keelbot"]
+    # map, ci, db, git and the code graph are plugins (plugins/map, plugins/ci, plugins/db, plugins/git, plugins/graph)
+    assert [p.name for p in have] == ["keelbot"]
     assert [p.source for p in have] == list(builtins.BUILTINS) and all(p.builtin for p in have)
     assert [extensions.title(n) for n in ("db", GIT, "nope")] == ["db", GIT, "nope"]     # a plugin not loaded: its name
     assert extensions.servers() == {}
     assert extensions.param_prefixes() == []
-    assert [n for n, _fn in extensions.hooks("on_scan")] == ["graph"]
+    assert extensions.hooks("on_scan") == [] and not extensions.index_available()     # no code index without plugins/graph
     assert [n for n, _fn in extensions.hooks("pr_body_sections")] == ["keelbot"]
 
 
@@ -70,9 +70,10 @@ def test_parts_come_in_their_order_and_the_same_order_keeps_the_load_order(monke
 
 
 def test_only_per_project_parts_are_switched_and_actions_belong_to_their_prefix():
-    settings = {"plugins": [GIT, "nope", "graph", "db"]}
-    assert extensions.enabled(settings) == []              # a loaded per-project part only; graph is on everywhere
-    assert extensions.on(settings, "graph") and extensions.on({}, "graph") and not extensions.on({}, "db")
+    settings = {"plugins": [GIT, "nope", "keelbot", "db"]}
+    assert extensions.enabled(settings) == []              # a loaded per-project part only; KeelBot is on everywhere
+    assert extensions.on(settings, "keelbot") and extensions.on({}, "keelbot") and not extensions.on({}, "db")
+    assert not extensions.on({}, "graph")                  # the code graph is a plugin (plugins/graph), not loaded here
     # the Database and Git plugins (plugins/db, plugins/git) are not loaded here: their actions have no owner
     assert extensions.owner("db:query") is None and extensions.owner(f"{GIT}:push") is None
     assert extensions.owner("verify_red") is None and extensions.owner("nope:x") is None
@@ -211,8 +212,6 @@ def test_prompts_mcp_servers_and_the_pr_body_get_the_parts_hooks(acme, repo):
 
 
 def test_a_flow_start_a_commit_and_a_scan_call_the_parts(acme, client, repo, monkeypatch):
-    monkeypatch.setenv("KEEL_CODEGRAPH_BIN", "")         # no CodeGraph: the index step fails, the others still run
-    monkeypatch.setenv("PATH", "/usr/bin:/bin")
     tid = start(client, repo, workflow=from_dict({"name": "one", "keel_rules": False, "steps": [
         {"id": "look", "kind": "gate", "name": "look"}]}))
     wait(client, tid)
@@ -228,8 +227,10 @@ def test_a_flow_start_a_commit_and_a_scan_call_the_parts(acme, client, repo, mon
         time.sleep(0.05)
     st = client.get("/projects/demo/index").json()
     assert st["acme"] == {"seen": "demo"} and "map" not in st
+    # no part builds a code index here (the code graph is plugins/graph): the index fails, the others still run
+    assert st["status"] == "failed" and st["error"].startswith("No part of keel builds a code index here")
     steps = [e["data"].get("step") for e in client.bus.recent if e["type"] == "index.progress"]
-    assert steps[-3:] == ["stack", "graph", "acme"]
+    assert steps[-2:] == ["stack", "acme"]
 
 
 def test_a_failing_event_hook_never_stops_keel(acme, monkeypatch):
@@ -254,10 +255,10 @@ def test_a_moved_part_is_an_add_on_with_the_keys_of_its_part_dict(monkeypatch):
         with TestClient(create_app(EventBus())) as client:
             assert client.get("/moved/hello").json() == {"hello": "moved"}
         # its order puts it where it was as a built-in (first here), the others keep theirs
-        assert [x.name for x in extensions.parts()] == ["graph", "keelbot", "moved"]
+        assert [x.name for x in extensions.parts()] == ["keelbot", "moved"]
         monkeypatch.setitem(sys.modules["keel_moved_part"].PART, "order", 10)
         extensions.reload()
-        assert [x.name for x in extensions.parts()] == ["moved", "graph", "keelbot"]
+        assert [x.name for x in extensions.parts()] == ["moved", "keelbot"]
     finally:
         monkeypatch.delenv("KEEL_ADDONS", raising=False)
         sys.modules.pop("keel_moved_part", None)

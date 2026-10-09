@@ -3,12 +3,10 @@
 // its lines; Enter or a double click puts that box in the middle. Zoom, pan and the minimap come from the Map's canvas.
 
 import { memo, useEffect, useId, useMemo, useRef, useState } from "react";
-import type { GraphFocus, GraphNodeRef } from "../../api";
-import { Canvas, type CanvasHandle } from "../er/Canvas";
-import { IconDefs, Ic } from "../er/icons";
-import type { Pt } from "../er/layout";
-import { attr } from "../er/model";
-import { elbow, endMark, pathD, type Rect } from "../er/route";
+import {
+  attr, Canvas, elbow, endMark, Ic, IconDefs, pathD, type CanvasHandle, type Pt, type Rect,
+} from "@keel/web-sdk";
+import type { GraphFocus, GraphNodeRef } from "./graphApi";
 import { iconOf, kindWord, mainUse, usesText } from "./model";
 
 type Focus = Extract<GraphFocus, { focus: unknown }>;

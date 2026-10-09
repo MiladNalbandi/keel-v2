@@ -1,13 +1,14 @@
-package keel.api.projects
+package keel.api.graph
 
 import keel.api.events.EngineEvent
 import keel.api.events.EngineEventHandler
-import keel.api.events.long
-import keel.api.events.str
 import keel.api.notifications.NotificationService
 import org.springframework.stereotype.Component
 
-/** The end of a project's scan (engine runtime/scan.py, index.done): a notification says whether agents get the code graph. */
+/**
+ * The end of a project's scan (engine runtime/scan.py, index.done): a notification says whether agents get the code
+ * graph. The Graph plugin's (plugins/graph), in keel's package keel.api.graph; moved from keel.api.projects.
+ */
 @Component
 class IndexEvents(private val notifications: NotificationService) : EngineEventHandler {
     override val prefix = "index.done"
@@ -24,4 +25,13 @@ class IndexEvents(private val notifications: NotificationService) : EngineEventH
                 "Agents find their way with grep instead. Rebuild it from the Repo page.", repo)
         }
     }
+}
+
+// An event's fields, as keel's own handlers read them (keel.api.events keeps its helpers internal to keel's module).
+private fun Map<String, Any?>.str(key: String): String? = this[key]?.let { if (it is String) it else it.toString() }?.takeIf { it.isNotEmpty() }
+
+private fun Map<String, Any?>.long(key: String): Long? = when (val v = this[key]) {
+    is Number -> v.toLong()
+    is String -> v.toDoubleOrNull()?.toLong()
+    else -> null
 }

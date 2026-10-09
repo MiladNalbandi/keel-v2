@@ -1,4 +1,4 @@
-package keel.api
+package keel.api.graph
 
 import keel.api.events.EngineEvent
 import keel.api.events.EventService
@@ -8,27 +8,16 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 
-/** Plan 5b: a project is scanned when it is added; its code graph index status and rebuild go through the engine. */
-class IndexApiTest : ApiTest() {
+/**
+ * The Graph plugin's api part: the index status and rebuild, index.done as a notification, and the code graph routes
+ * proxy the engine (moved from keel's IndexApiTest and ApprovalsApiTest with the code).
+ */
+class GraphApiTest : ApiTest() {
     @Autowired lateinit var events: EventService
 
-    private fun waitFor(what: String, check: () -> Boolean) {
-        val until = System.currentTimeMillis() + 5000
-        while (System.currentTimeMillis() < until) {
-            if (check()) return
-            Thread.sleep(20)
-        }
-        throw AssertionError("timed out waiting for $what")
-    }
-
     @Test
-    fun `adding a project starts a scan, and the index routes proxy the engine`() {
-        val (pid, root) = newProject("index-scan")
-        waitFor("the scan call") { engine.calls.any { it.path == "/projects/$pid/scan" } }
-        val scan = engine.lastBody("/projects/$pid/scan")!!
-        assertThat(scan["root"].asText()).isEqualTo(root.toString())
-        assertThat(scan["rebuild"].asBoolean()).isFalse()
-
+    fun `the index routes proxy the engine, and a rebuild scans again with a full index`() {
+        val (pid, _) = newProject("index-routes")
         engine.index[pid] = mapOf("project" to pid, "status" to "ready", "files" to 42, "symbols" to 310, "indexed_at" to "2026-10-05T10:00:00Z")
         val idx = get("/api/projects/$pid/index").andExpect(status().isOk).json()
         assertThat(idx["status"].asText()).isEqualTo("ready")
@@ -38,6 +27,7 @@ class IndexApiTest : ApiTest() {
         assertThat(again["status"].asText()).isEqualTo("indexing")
         assertThat(engine.lastBody("/projects/$pid/scan")!!["rebuild"].asBoolean()).isTrue()
         get("/api/projects/nope/index").andExpect(status().isNotFound)
+        post("/api/projects/nope/index/rebuild").andExpect(status().isNotFound)
     }
 
     @Test

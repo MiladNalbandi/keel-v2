@@ -1,13 +1,37 @@
 // Example api data for tests (MSW). Shapes follow docs/CONTRACT.md; values follow docs/mockup.html.
 
 import type {
-  Agent, Budget, BudgetNow, Cap, Catalog, GraphFocus, GraphOverview, Checkpoint, Connections, Estimate, Health, Job, JobStep, KeelDoc, KeelMap, LibraryItem, Limit, McpServer,
+  Agent, Budget, BudgetNow, Cap, Catalog, Checkpoint, Connections, Estimate, Health, Job, JobStep, KeelDoc, KeelMap, LibraryItem, Limit, McpServer,
   Memory, Notification, NotificationSettings, Project, ProjectSettings, ProviderUsage, RepoFile, RepoInfo, Settings, Skill, SkillDetail,
   Stack, StepExplanation, ThreadState, TreeNode, WikiPage, WikiTree, Workflow,
 } from "../api";
 
 const now = Date.now();
 const ago = (s: number) => new Date(now - s * 1000).toISOString();
+
+// ---- the JSON the Graph plugin's api sends (GET /graph, /graph/node), as these fixtures build it ----
+// A copy of its types (plugins/graph/web/graphApi.ts): keel's own type check runs before plugins/ is there (the image's
+// web stage), so core never imports a plugin, not even in its tests.
+type GraphUnavailable = { available: false; status: string; reason: string };
+type GraphLink = { from: string; to: string; n: number; k: Record<string, number> };
+export type GraphOverview = {
+  available: true; status?: string; indexed_at?: string | null;
+  counts: { files: number; symbols: number; units: number; links: number; uses: number };
+  groups: { id: string; kind: "package" | "folder"; name: string; label: string; path: string[] }[];
+  units: { id: string; name: string; kind: string; group: string; file: string; line: number; members: number }[];
+  links: GraphLink[];
+} | GraphUnavailable;
+export type GraphFocus = {
+  available: true; level: "unit" | "member"; depth: number;
+  focus: {
+    id: string; name: string; kind: string; qualified: string; signature?: string | null; docstring?: string | null;
+    file: string; line: number; end_line?: number | null; group: string; unit: { id: string; name: string; kind: string } | null;
+    members: { id: string; name: string; kind: string; line: number; in: number; out: number }[];
+  };
+  nodes: { id: string; name: string; kind: string; unit: string; group: string; file: string; line: number; col: number }[];
+  edges: (GraphLink & { sites: { file: string; line: number }[] })[];
+  more: Record<string, number>; impact: number; impact_capped: boolean;
+} | { available: true; missing: string } | GraphUnavailable;
 
 export const health: Health = { ok: true, engine: true, version: "0.4.1", fake: true };
 

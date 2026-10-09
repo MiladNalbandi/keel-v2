@@ -1,9 +1,11 @@
-"""keel's own "where to look" lookups in the code graph (runtime/graph_hints.py): no model, no tool call."""
+"""keel's own "where to look" lookups in the code graph (graph_hints.py): no model, no tool call. The last test goes
+through keel's prompt, which asks the plugin's prompt_context hook."""
 
 import pytest
 
-from keel_engine.runtime import codegraph_view, graph_hints, prompts
-from keel_engine.runtime.codegraph_view import Graph
+from keel_engine.runtime import prompts
+from keel_plugin_graph import codegraph_view, graph_hints
+from keel_plugin_graph.codegraph_view import Graph
 
 
 def _node(nid, kind, name, file, line, end=None, sig=None):

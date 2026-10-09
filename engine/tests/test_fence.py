@@ -17,11 +17,8 @@ GUIDE = "docs/plugins/02-plugin-package.md"
 # inside one. Everything else in keel_engine is core (the knowledge base too: runtime.knowledge, agent_knowledge, memory).
 PLUGIN_MODULES = (
     "keel_engine.plugins",
-    "keel_engine.runtime.codegraph_view",
-    "keel_engine.runtime.graph_hints",
     "keel_engine.runtime.helper",
     "keel_engine.runtime.keelbot",
-    "keel_engine.tools.codegraph",
 )
 # Core never imports these, not even today. They can never be in the allowlist.
 # A name ending in "*" is a prefix: keel_plugin_* is every plugin's package (keel_plugin_map, ...).
@@ -160,7 +157,7 @@ def test_the_scanner_finds_every_kind_of_import(tmp_path):
     root = _tree(tmp_path, {
         "keel_engine/__init__.py": "",
         "keel_engine/app.py": (
-            "import keel_engine.tools.codegraph as cg\n"
+            "import keel_engine.runtime.keelbot as kb\n"
             "from .runtime import helper\n"
             "from .runtime.service import run\n"
             "from keel_engine import plugins\n"
@@ -170,7 +167,7 @@ def test_the_scanner_finds_every_kind_of_import(tmp_path):
             "    import keel_product\n"
             "    from keel_plugin_map import mapper\n"
         ),
-        "keel_engine/runtime/__init__.py": "from .graph_hints import build\n",
+        "keel_engine/runtime/__init__.py": "from .helper import build\n",
         "keel_engine/runtime/service.py": (
             "from . import plugins\n"  # runtime.plugins is core, not the plugins package
             "from ..plugins import git\n"
@@ -181,10 +178,8 @@ def test_the_scanner_finds_every_kind_of_import(tmp_path):
         ),
         "keel_engine/runtime/plugins.py": "",
         "keel_engine/runtime/helper.py": "from keel_engine.runtime import service\nimport keel_product\n",
-        "keel_engine/runtime/graph_hints.py": "",
         "keel_engine/runtime/keelbot.py": "from .helper import x\n",
         "keel_engine/tools/__init__.py": "",
-        "keel_engine/tools/codegraph.py": "",
         "keel_engine/pluginhost/__init__.py": "",
         "keel_engine/plugins/__init__.py": "",
         "keel_engine/plugins/git.py": "",
@@ -196,8 +191,8 @@ def test_the_scanner_finds_every_kind_of_import(tmp_path):
         "keel_engine.app -> keel_engine.plugins",
         "keel_engine.app -> keel_engine.plugins.db.core",
         "keel_engine.app -> keel_engine.runtime.helper",
-        "keel_engine.app -> keel_engine.tools.codegraph",
-        "keel_engine.runtime -> keel_engine.runtime.graph_hints",
+        "keel_engine.app -> keel_engine.runtime.keelbot",
+        "keel_engine.runtime -> keel_engine.runtime.helper",
         "keel_engine.runtime.service -> keel_engine.plugins.git",
         "keel_engine.runtime.service -> keel_engine.runtime.keelbot",
     }

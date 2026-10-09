@@ -26,7 +26,7 @@ data class EngineEventStored(val event: EngineEvent)
 /**
  * Stores engine events: agent calls become jobs (agent_calls + agent_steps), thread status follows
  * the flow, some events become notifications, and every event fans out over SSE. A part's own events go to its
- * [EngineEventHandler] (by prefix): KeelBot's helper.*, the index's index.done, approval.*.
+ * [EngineEventHandler] (by prefix): KeelBot's helper.*, the Graph plugin's index.done, approval.*.
  */
 @Service
 class EventService(

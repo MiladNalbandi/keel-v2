@@ -21,8 +21,8 @@ import subprocess
 import threading
 from pathlib import Path
 
-from .. import config
-from . import git
+from keel_engine import config
+from keel_engine.tools import git
 
 log = logging.getLogger(__name__)
 
@@ -115,7 +115,7 @@ def server_spec(root: str) -> dict:
 def mcp_spec(root: str) -> dict | None:
     """The code graph's MCP server (`codegraph serve --mcp`, cwd = the project) when keel indexed this folder and the
     index is ready; None otherwise (agents then find their way with grep)."""
-    from ..runtime import scan
+    from keel_engine.runtime import scan
 
     if not root or not binary() or not has_index(root):
         return None
@@ -128,7 +128,7 @@ def mcp_spec(root: str) -> dict | None:
     return server_spec(root)
 
 
-# ------------------------------------------------------------------ the index, at a project scan (runtime/scan.py)
+# ------------------------------------------------------------------ the index, at a project scan (keel's runtime/scan.py)
 
 def _move_index(project: str, root: str) -> str:
     """Keep the index under $KEEL_DATA/index/<project> and link <root>/.codegraph to it."""
