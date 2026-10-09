@@ -54,7 +54,7 @@ def test_it_is_an_add_on_part_with_the_keys_and_the_place_it_had_as_a_built_in()
     assert "keel_engine.plugins.db" not in builtins.BUILTINS
     p = extensions.part("db")
     assert p is not None and not p.builtin and p.source == "keel_plugin_db" and p.title == "Database" and p.per_project
-    assert [x.name for x in extensions.parts()] == ["db", "graph", "keelbot"]      # first, as in keel 0.15.1
+    assert [x.name for x in extensions.parts()] == ["db", "keelbot"]      # first, as in keel 0.15.1
     assert extensions.servers() == {"db": "keel-db"}                                  # Git is its own plugin (plugins/git)
     assert extensions.param_prefixes() == ["db"]
     assert extensions.read_tools()["keel-db"] == READ_TOOLS
@@ -78,7 +78,7 @@ def with_ci(monkeypatch):
 
 
 def test_with_the_ci_plugin_keelbot_and_validation_name_them_as_keel_0_15_1_did(with_ci):
-    assert [x.name for x in extensions.parts()] == ["db", "git", "graph", "keelbot", "ci"]
+    assert [x.name for x in extensions.parts()] == ["db", "git", "keelbot", "ci"]
     assert extensions.param_prefixes() == ["db", "git", "ci"]
     errs = validate(from_dict({"name": "x", "keel_rules": False, "steps": [
         {"id": "a", "kind": "code", "name": "a", "action": "commit", "with": {"x": 1}}]}))

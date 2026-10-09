@@ -89,6 +89,7 @@ class FenceTest {
             import keel.api.tasks.TaskService
             import keel.api.review.ReviewAiService as Review
             import keel.api.jira.*
+            import keel.api.graph.GraphController
             import keel.api.projects.ProjectService
             import keel.api.pluginhost.PluginHost
 
@@ -110,9 +111,10 @@ class FenceTest {
             "keel.api.flow.FlowService -> keel.api.helper.Helper",
             "keel.api.flow.FlowService -> keel.api.plugins.PluginService",
         )
-        // a plugin part may use anything; only core is checked. Tasks, Jira and Code Review moved out: core may never use
-        // them again.
+        // a plugin part may use anything; only core is checked. Tasks, Jira, Code Review and the Graph moved out: core
+        // may never use them again.
         assertThat(found.forbidden).containsExactlyInAnyOrder(
+            "keel.api.flow.FlowService -> keel.api.graph.GraphController",
             "keel.api.flow.FlowService -> keel.api.jira.*",
             "keel.api.flow.FlowService -> keel.api.review.ReviewAiService",
             "keel.api.flow.FlowService -> keel.api.tasks.TaskService",
@@ -150,11 +152,12 @@ private object Fence {
 
     // Core never uses these, not even today. They can never be in the allowlist. The parts that moved out keep their
     // package, and core never uses it again (step 3): keel.api.map (plugins/map), keel.api.wiki (plugins/wiki),
-    // keel.api.tasks (plugins/tasks), keel.api.jira (plugins/jira), keel.api.review (plugins/review), the Ci* classes
+    // keel.api.tasks (plugins/tasks), keel.api.jira (plugins/jira), keel.api.review (plugins/review), keel.api.graph
+    // (plugins/graph: the code graph and its index routes, and the index.done handler), the Ci* classes
     // of CI/CD (plugins/ci), the Database* and Db* classes of Database (plugins/db) and the Git* classes of Git
     // (plugins/git), all in keel's package keel.api.plugins.
     val FORBIDDEN = listOf(
-        "keel.product", "keel.api.map", "keel.api.wiki", "keel.api.tasks", "keel.api.jira", "keel.api.review",
+        "keel.product", "keel.api.map", "keel.api.wiki", "keel.api.tasks", "keel.api.jira", "keel.api.review", "keel.api.graph",
         "keel.api.plugins.CiController", "keel.api.plugins.CiFixBody", "keel.api.plugins.CiService",
         "keel.api.plugins.DatabaseConnectionKind", "keel.api.plugins.DatabaseController", "keel.api.plugins.DatabaseKeys",
         "keel.api.plugins.DatabaseService", "keel.api.plugins.DbConnection", "keel.api.plugins.DbConnectionBody",

@@ -1,6 +1,5 @@
 package keel.api.knowledge
 
-import com.fasterxml.jackson.databind.JsonNode
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -8,7 +7,6 @@ import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.PutMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
-import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 
 data class NewFact(val title: String = "", val text: String = "", val kind: String = "fact", val source: String? = null)
@@ -37,14 +35,4 @@ class KnowledgeController(private val knowledge: KnowledgeService) {
         knowledge.deleteFact(pid, fid)
         return mapOf("ok" to true)
     }
-
-    @GetMapping("/graph")
-    fun graph(@PathVariable pid: String): JsonNode = knowledge.graph(pid)
-
-    @GetMapping("/graph/search")
-    fun graphSearch(@PathVariable pid: String, @RequestParam(defaultValue = "") q: String): JsonNode = knowledge.graphSearch(pid, q)
-
-    @GetMapping("/graph/node")
-    fun graphNode(@PathVariable pid: String, @RequestParam(defaultValue = "") id: String, @RequestParam(defaultValue = "1") depth: Int): JsonNode =
-        knowledge.graphNode(pid, id, depth)
 }

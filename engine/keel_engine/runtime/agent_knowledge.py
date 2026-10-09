@@ -7,7 +7,7 @@ project's value (its override merged over that default) in StartThread.agents. T
 sections that exist; the code graph MCP server is only handed to agents with code_graph on; memory off means a
 repeated step starts fresh; strict makes the guard refuse other sections (rules.check_knowledge), else the agent is
 only told; hints (off by default, see FALLBACK) gives the agent keel's own "where to look" lookups in the code graph
-(runtime/graph_hints.py), which cost no tool call.
+(the Graph plugin, plugins/graph: its prompt_context hook), which cost no tool call.
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""The code graph's engine routes, for the Graph page (runtime/codegraph_view.py)."""
+"""The code graph's engine routes, for the Graph page (codegraph_view.py)."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import asyncio
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from ...runtime import codegraph_view
+from . import codegraph_view
 
 router = APIRouter()
 

@@ -57,11 +57,20 @@ export { StepInfoDrawer } from "../components/StepInfo";
 export { RefreshStaleButton } from "../components/RefreshStale";
 
 // keel's diagram canvas (components/er): the boxes of a map level and the database diagram (the Map plugin draws
-// them; the Graph page uses the same canvas)
+// them; the Graph plugin uses the same canvas)
 export { BoxDiagram, moduleBoxes, systemBoxes } from "../components/er/BoxDiagram";
-export type { GBox } from "../components/er/BoxDiagram";
+export type { GBox, GEdge } from "../components/er/BoxDiagram";
 export { ErDiagram } from "../components/er/ErDiagram";
-export { schemaOf } from "../components/er/model";
+export { attr, schemaOf } from "../components/er/model";
+// the canvas itself (pan, zoom, fit), its icons, a file:line link to the Code page, and the elbow lines between boxes
+// (the Graph plugin draws one symbol with who uses it and what it uses with them)
+export { Canvas } from "../components/er/Canvas";
+export type { CanvasHandle } from "../components/er/Canvas";
+export { Ic, IconDefs } from "../components/er/icons";
+export { fileHref } from "../components/er/Structure";
+export type { Pt } from "../components/er/layout";
+export { elbow, endMark, pathD } from "../components/er/route";
+export type { Rect } from "../components/er/route";
 
 // extension points (step 2, docs/plugins/09-step2-contract.md §5): pages for the menu and the router, and slots — named
 // places in keel's pages where a part puts a piece (live: a page renders again when a piece registers)

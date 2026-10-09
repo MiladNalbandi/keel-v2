@@ -5,8 +5,8 @@ import sqlite3
 
 import pytest
 
-from keel_engine.runtime import codegraph_view as cv
 from keel_engine.runtime import scan
+from keel_plugin_graph import codegraph_view as cv
 
 # id, kind, name, qualified_name, file, line
 NODES = [

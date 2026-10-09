@@ -1,13 +1,20 @@
+// The Graph plugin's page inside keel's web, as the full image has it (web/src/test/setup.ts runs every plugin's
+// setup()): its boxes and lines, the page in the menu under Map, a package, one symbol, the search, and no index yet.
+// Moved from web/src/test/codegraph.test.tsx with the page.
+
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { App } from "../App";
-import type { GraphOverview } from "../api";
-import { fileHref } from "../components/er/Structure";
-import { autoDepth, fold, groupBoxes, isTest, overviewBoxes, usesText } from "../components/graph/model";
-import { parseHash } from "../routes";
-import * as fx from "./fixtures";
-import { db } from "./setup";
+import { fileHref, pageFor } from "@keel/web-sdk";
+// keel's own app and test harness: this test runs the Graph inside keel's web, as keel loads it
+import { App } from "../../../../web/src/App";
+import { parseHash } from "../../../../web/src/routes";
+import * as fx from "../../../../web/src/test/fixtures";
+import { db } from "../../../../web/src/test/setup";
+import { GraphPage } from "../Graph";
+import type { GraphOverview } from "../graphApi";
+import plugin from "../index";
+import { autoDepth, fold, groupBoxes, isTest, overviewBoxes, usesText } from "../model";
 
 type Overview = Extract<GraphOverview, { available: true }>;
 const o = () => fx.graphOverview() as Overview;
@@ -64,6 +71,13 @@ describe("code graph: boxes and lines", () => {
 });
 
 describe("Graph page", () => {
+  it("is the plugin's page, registered by its setup() with keel 0.15.1's id, label and place", () => {
+    expect(plugin.name).toBe("graph");
+    const page = pageFor("graph");
+    expect(page?.component).toBe(GraphPage);
+    expect([page?.label, page?.group, page?.order]).toEqual(["Graph", "know", 40]);
+  });
+
   it("is in the Project group under Map, and draws the packages", async () => {
     location.hash = "#/graph";
     render(<App />);

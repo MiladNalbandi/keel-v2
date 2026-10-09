@@ -53,7 +53,7 @@ def test_it_is_an_add_on_part_with_the_keys_it_had_as_a_built_in():
     assert p is not None and not p.builtin and p.source == "keel_plugin_ci" and p.title == "CI/CD" and p.per_project
     # Git is a plugin too (plugins/git, which CI/CD needs); its order (20) puts it first here. With the Database plugin
     # too, db (10) comes before it, as in keel 0.15.1 (plugins/db/engine/tests)
-    assert [x.name for x in extensions.parts()] == ["git", "graph", "keelbot", "ci"]
+    assert [x.name for x in extensions.parts()] == ["git", "keelbot", "ci"]
     assert extensions.servers() == {"git": "keel-git", "ci": "keel-ci"}
     assert extensions.param_prefixes() == ["git", "ci"]          # the order KeelBot and validation name them in
     assert extensions.read_tools()["keel-ci"] == READ_TOOLS

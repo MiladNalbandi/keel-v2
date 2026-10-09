@@ -2,20 +2,18 @@
 // Three levels on the Map's canvas: the packages and folders (folded to a depth) and the uses between them; one
 // package's classes, functions and the packages they touch; one symbol with who uses it and what it uses.
 //   #/graph                  packages        #/graph/in:<key>   one package       #/graph/<symbol id>   one symbol
+// The Graph plugin's page (plugins/graph): it imports only react, @keel/web-sdk and its own files.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, errorParts, type GraphFocus, type GraphHit, type GraphOverview } from "../api";
-import { BoxDiagram, type GBox } from "../components/er/BoxDiagram";
-import { IconDefs } from "../components/er/icons";
-import { fileHref } from "../components/er/Structure";
-import { FocusDiagram } from "../components/graph/FocusDiagram";
+import {
+  agoText, Async, BoxDiagram, EmptyState, ErrorBox, errorParts, fileHref, go, IconDefs, PageHead, useApp, useLoad, useRoute,
+  type GBox,
+} from "@keel/web-sdk";
+import { FocusDiagram } from "./FocusDiagram";
+import { graphApi as api, type GraphFocus, type GraphHit, type GraphOverview } from "./graphApi";
 import {
   autoDepth, groupBoxes, groupLabel, iconOf, isTest, kindWord, maxDepth, overviewBoxes, usesText, type Depth,
-} from "../components/graph/model";
-import { EmptyState } from "../components/page";
-import { Async, ErrorBox, PageHead } from "../components/ui";
-import { agoText } from "../components/UsageStrip";
-import { go, useApp, useLoad, useRoute } from "../state";
+} from "./model";
 
 type Overview = Extract<GraphOverview, { available: true }>;
 type Focus = Extract<GraphFocus, { focus: unknown }>;

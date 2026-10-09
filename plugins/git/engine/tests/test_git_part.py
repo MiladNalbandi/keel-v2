@@ -51,7 +51,7 @@ def test_it_is_an_add_on_part_with_the_keys_it_had_as_a_built_in():
     assert p is not None and not p.builtin and p.source == "keel_plugin_git" and p.title == "Git" and p.per_project
     # its order (20) puts it before the parts built in, right after Database (10) when that plugin is there too
     # (plugins/db/engine/tests): the registry's order of keel 0.15.1
-    assert p.order == 20 and [x.name for x in extensions.parts()] == ["git", "graph", "keelbot"]
+    assert p.order == 20 and [x.name for x in extensions.parts()] == ["git", "keelbot"]
     assert list(extensions.servers()) == ["git"] and extensions.param_prefixes() == ["git"]
     assert extensions.servers()["git"] == "keel-git"
     assert extensions.read_tools()["keel-git"] == READ_TOOLS

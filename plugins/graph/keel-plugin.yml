@@ -1,0 +1,20 @@
+# The code graph as a plugin (docs/plugins/11-step3-contract.md, wave C). scripts/build-plugin.sh packs it:
+# graph-<version>.kplug. Paths are relative to the plugin folder. The version must equal VERSION in
+# engine/keel_plugin_graph/__init__.py (engine/tests/test_graph_part.py checks it). Each part is written on one line
+# (scripts/build-plugin.sh reads them).
+# The CodeGraph CLI it runs stays in keel's image. The project scan and its index row (project_index) stay keel's: the
+# scan calls this plugin's on_scan. Each agent's code_graph setting stays keel's too: it gives the plugin's MCP server
+# to that agent or not. Its web part brings its own stylesheet (web/style.css, the look of keel 0.15.1's graph.css).
+schema: 1
+name: graph
+title: Code graph
+version: 1.0.0
+publisher: keel
+summary: A local index of the project's symbols, calls and imports - agents look things up in it instead of grep, and the Graph page shows what uses what.
+requires:
+  sdk: 1
+parts:
+  engine: { path: engine, package: keel_plugin_graph }
+  api: { jars: [api/keel-plugin-graph.jar] }
+  web: { entry: web/index.js, css: [web/style.css] }
+per_project: false

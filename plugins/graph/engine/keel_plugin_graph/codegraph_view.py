@@ -1,4 +1,4 @@
-"""The code graph for people (the Graph page): the CodeGraph index (tools/codegraph.py), read only, rolled up into
+"""The code graph for people (the Graph page): the CodeGraph index (codegraph.py), read only, rolled up into
 units and groups.
 
     unit    a top-level class, interface, enum, function, type or constant: methods, fields and nested classes count
@@ -23,8 +23,9 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ..tools import codegraph
-from . import scan
+from keel_engine.runtime import scan
+
+from . import codegraph
 
 USES = ("calls", "instantiates", "implements", "extends", "references")
 UNIT_KINDS = {"class", "interface", "enum", "struct", "trait", "function", "type_alias", "constant", "variable", "route",

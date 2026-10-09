@@ -1,9 +1,9 @@
 """Where to look: keel looks up the names in a question in the code graph itself (no model, no tool call) and gives the
 agent a short list of line ranges to read first.
 
-Agents that explored the graph with its MCP tools spent more tokens, not fewer (tools/codegraph.py): every tool answer
+Agents that explored the graph with its MCP tools spent more tokens, not fewer (codegraph.py): every tool answer
 stays in the conversation and every turn sends the conversation again. Here the lookup costs nothing: keel reads the
-index it already has in memory (runtime/codegraph_view.py) and the agent starts with the places, so it can skip the
+index it already has in memory (codegraph_view.py) and the agent starts with the places, so it can skip the
 search turns and read ranges instead of whole files.
 
     terms(text)          the words of a question that can name code: identifiers, file names, plain words (>= 4)

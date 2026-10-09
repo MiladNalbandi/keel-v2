@@ -1,8 +1,9 @@
 // MSW handlers for every /api route the web uses, backed by a small in-memory db (reset per test).
 
 import { http, HttpResponse } from "msw";
-import type { Cap, CapLeft, CapsLeft, Features, FlowBoard, FlowView, GraphFocus, GraphOverview, CiRun, HelperChange, HelperDone, HelperQuestion, HelperSession, IndexStatus, OnCap, Plugin, RunRow, Settings, Stack, ThreadState, Workflow, WorkflowCheck } from "../api";
+import type { Cap, CapLeft, CapsLeft, Features, FlowBoard, FlowView, CiRun, HelperChange, HelperDone, HelperQuestion, HelperSession, IndexStatus, OnCap, Plugin, RunRow, Settings, Stack, ThreadState, Workflow, WorkflowCheck } from "../api";
 import * as fx from "./fixtures";
+import type { GraphFocus, GraphOverview } from "./fixtures";
 import { createTaskDb, taskHandlers } from "./taskHandlers";
 
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v));

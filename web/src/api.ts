@@ -300,7 +300,8 @@ export type JobStep = {
 };
 export type JobDetail = Job & { steps: JobStep[] };
 
-/** The engine's code graph index of a project (engine runtime/scan.py). */
+/** The engine's code graph index of a project (engine runtime/scan.py), read over http from the Graph plugin's
+ *  /index route (plugins/graph): the Code page's status bar and index row show it. */
 export type IndexStatus = {
   project: string;
   status: "idle" | "indexing" | "ready" | "failed";
@@ -679,30 +680,10 @@ export type HelperSelection = { path: string; from?: number; to?: number; text: 
 export type HelperCommand = { name: string; description: string; plugin: string; source: "keel" | "project" | string };
 export type HelperTurnStarted = { session: string; call_id: string; n: number; command?: string | null };
 
-/** v0.5.3 the code graph (`GET /api/projects/{pid}/graph`): the CodeGraph index rolled up into units and groups. */
-export type GraphGroup = { id: string; kind: "package" | "folder"; name: string; label: string; path: string[] };
-export type GraphUnit = { id: string; name: string; kind: string; group: string; file: string; line: number; members: number };
-/** from uses to: n uses in all, k by kind (calls, instantiates, implements, extends, references). */
-export type GraphLink = { from: string; to: string; n: number; k: Record<string, number> };
-export type GraphUnavailable = { available: false; status: string; reason: string };
-export type GraphOverview = {
-  available: true; status?: string; indexed_at?: string | null;
-  counts: { files: number; symbols: number; units: number; links: number; uses: number };
-  groups: GraphGroup[]; units: GraphUnit[]; links: GraphLink[];
-} | GraphUnavailable;
+/** A symbol the code graph finds by name (`GET /api/projects/{pid}/graph/search`, the Graph plugin's route): the
+ *  launcher, KeelBot's @ and the Code page search with it. The Graph page's own types are the plugin's
+ *  (plugins/graph/web/graphApi.ts). */
 export type GraphHit = { id: string; name: string; kind: string; file: string; line: number; unit: string; group: string };
-export type GraphNodeRef = { id: string; name: string; kind: string; unit: string; group: string; file: string; line: number; col: number };
-export type GraphEdge = GraphLink & { sites: { file: string; line: number }[] };
-export type GraphMember = { id: string; name: string; kind: string; line: number; in: number; out: number };
-export type GraphFocus = {
-  available: true; level: "unit" | "member"; depth: number; missing?: undefined;
-  focus: {
-    id: string; name: string; kind: string; qualified: string; signature?: string | null; docstring?: string | null;
-    file: string; line: number; end_line?: number | null; group: string; unit: { id: string; name: string; kind: string } | null; members: GraphMember[];
-  };
-  /** col -2 / -1: who uses it (two steps, one step); 1 / 2: what it uses */
-  nodes: GraphNodeRef[]; edges: GraphEdge[]; more: Record<string, number>; impact: number; impact_capped: boolean;
-} | { available: true; missing: string } | GraphUnavailable;
 
 /** v0.5.2 `GET /api/projects/{pid}/budget/now`, for the budget bar on every page: caps = the day and month caps. */
 export type BudgetNow = { today: Spend; month: Spend; flows: FlowSpend[]; caps: CapLeft[] };
@@ -1046,9 +1027,8 @@ export const api = {
   helperPermissions: (pid: string) => get<HelperQuestion[]>(`/projects/${e(pid)}/helper/permissions`),
   helperAnswer: (pid: string, qid: string, decision: "once" | "always" | "deny", why = "") =>
     post<{ id: string; decision: string }>(`/projects/${e(pid)}/helper/permissions/${e(qid)}`, { decision, why }),
-  graph: (pid: string) => get<GraphOverview>(`/projects/${e(pid)}/graph`),
+  // the Graph plugin's search (plugins/graph), over http: the launcher, KeelBot's @ and the Code page use it
   graphSearch: (pid: string, q: string) => get<{ available: boolean; reason?: string; results: GraphHit[] }>(`/projects/${e(pid)}/graph/search?q=${e(q)}`),
-  graphNode: (pid: string, id: string, depth = 1) => get<GraphFocus>(`/projects/${e(pid)}/graph/node?id=${e(id)}&depth=${depth}`),
   budgetNow: (pid: string) => get<BudgetNow>(`/projects/${e(pid)}/budget/now`),
   caps: (pid: string) => get<Cap[]>(`/projects/${e(pid)}/caps`),
   capsLeft: (pid: string) => get<CapsLeft>(`/projects/${e(pid)}/caps/left`),

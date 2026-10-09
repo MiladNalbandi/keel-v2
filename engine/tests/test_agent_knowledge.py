@@ -55,7 +55,8 @@ def test_prompt_block_lists_exactly_the_allowed_files_that_exist(tmp_path):
     for other in ("architecture", "conventions", "data", "integrations", "journeys"):
         assert f"{other}.md" not in p
     assert "keel's memory of this project is in docs/knowledge/" not in p   # the generic line is replaced
-    assert "codegraph_search" in p and "Memory:" in p
+    # how to use the code graph's tools comes from its part (plugins/graph, its mcp prompt): not loaded here, no line
+    assert "codegraph_search" not in p and "Memory:" in p
     # no graph server, or the graph turned off: no graph line
     assert "codegraph tools" not in prompts.task_prompt(agent="test-author", phase="red", step_name="red", title="t",
                                                         root=str(root), ac=None, acs=[], feedback=None, knowledge=k, graph=False)
