@@ -1,0 +1,9 @@
+# CI/CD: parts engine, api, web, content (from keel-v2's plugins/ci/keel-plugin.yml)
+name: ci
+title: "CI/CD"
+publisher: keel
+repo: https://github.com/keel-studio/keel-plugin-ci
+category: code
+summary: "Watch the project's pipelines, see why one failed, and fix it with a flow."
+tags: [ci, github-actions]
+trust: code

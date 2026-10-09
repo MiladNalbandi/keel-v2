@@ -1,0 +1,9 @@
+# Code: parts api, web (from keel-v2's plugins/code/keel-plugin.yml)
+name: code
+title: "Code"
+publisher: keel
+repo: https://github.com/keel-studio/keel-plugin-code
+category: code
+summary: "The Code page - a small read-only IDE for the project's files, search, changes and branches. Git, Database, Code Review and KeelBot add their views to it."
+tags: [ide, editor]
+trust: code

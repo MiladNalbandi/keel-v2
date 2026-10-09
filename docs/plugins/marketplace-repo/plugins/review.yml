@@ -1,0 +1,9 @@
+# Code Review: parts engine, api, web, content (from keel-v2's plugins/review/keel-plugin.yml)
+name: review
+title: "Code Review"
+publisher: keel
+repo: https://github.com/keel-studio/keel-plugin-review
+category: review
+summary: "Review the branch you are on or any pull request (GitHub) or merge request (GitLab), with line comments, threads and approve, and keel's explain and checked findings."
+tags: [code-review, github, gitlab]
+trust: code

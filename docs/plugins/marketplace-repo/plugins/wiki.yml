@@ -1,0 +1,9 @@
+# Wiki: parts api, web (from keel-v2's plugins/wiki/keel-plugin.yml)
+name: wiki
+title: "Wiki"
+publisher: keel
+repo: https://github.com/keel-studio/keel-plugin-wiki
+category: knowledge
+summary: "What keel knows about a project - the knowledge base the librarians write, a page for every workflow, the runbook and decisions."
+tags: [knowledge, docs]
+trust: code

@@ -1,0 +1,42 @@
+# A pull request: the publisher, plugin and revoked files must be valid, and the newest release of each new or changed
+# plugin must pass `keel-plugin lint` and carry a signature by one of its publisher's keys. No secret is used here.
+name: check-pr
+on:
+  pull_request:
+permissions:
+  contents: read
+env:
+  # keel-plugin, from keel-v2's plugin track (tools/keel-plugin); never from the pull request
+  KEEL_PLUGIN: git+https://github.com/MiladNalbandi/keel-v2@plugin-base#subdirectory=tools/keel-plugin
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v6
+      # first: names, repos and keys are checked before any of them is used below
+      - name: The marketplace files are valid
+        run: uvx --from "$KEEL_PLUGIN" keel-plugin index . --check
+      - name: Lint the newest release of each new or changed plugin
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          names="$(git diff --name-only --diff-filter=AM "$BASE" HEAD -- 'plugins/*.yml' | sed -n 's|^plugins/\(.*\)\.yml$|\1|p')"
+          if [ -z "$names" ]; then echo "no new or changed plugin"; exit 0; fi
+          # shellcheck disable=SC2086 # one plugin name per word (checked by the step above)
+          bash .github/fetch-releases.sh releases --latest $names
+          missing=0
+          for n in $names; do
+            if ! ls releases/"$n"/*/*.kplug > /dev/null 2>&1; then
+              echo "::error::$n has no release with a .kplug yet: publish a signed release first (keel-plugin pack, keel-plugin sign)"
+              missing=1
+            fi
+          done
+          [ "$missing" = 0 ]
+          uvx --from "$KEEL_PLUGIN" keel-plugin lint releases/*/*/*.kplug
+          uvx --from "$KEEL_PLUGIN" keel-plugin index . --releases releases --only "$(paste -sd, - <<< "$names")" \
+            --no-sign --out checked --strict

@@ -1,0 +1,4 @@
+# Versions keel must never install. keel shows a red warning where one is installed and offers the fixed version.
+# One entry per version, for example:
+#   - { name: db, version: "1.0.1", why: "sent errors to a wrong host" }
+revoked: []

@@ -1,0 +1,9 @@
+# Database: parts engine, api, web, content (from keel-v2's plugins/db/keel-plugin.yml)
+name: db
+title: "Database"
+publisher: keel
+repo: https://github.com/keel-studio/keel-plugin-db
+category: code
+summary: "Connect the project's databases - KeelBot and agents read them, workflows check the data, and you query them in Code and Map."
+tags: [database, sql, er-diagram]
+trust: code

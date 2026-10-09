@@ -1,0 +1,9 @@
+# Map: parts engine, api, web (from keel-v2's plugins/map/keel-plugin.yml)
+name: map
+title: "Map"
+publisher: keel
+repo: https://github.com/keel-studio/keel-plugin-map
+category: knowledge
+summary: "How the project is built, level by level - the system, its modules and endpoints, and the database diagram."
+tags: [architecture, diagram]
+trust: code

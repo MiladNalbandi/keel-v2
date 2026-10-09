@@ -1,0 +1,9 @@
+# Git: parts engine, api, web, content (from keel-v2's plugins/git/keel-plugin.yml)
+name: git
+title: "Git"
+publisher: keel
+repo: https://github.com/keel-studio/keel-plugin-git
+category: code
+summary: "Branches, commits, pushes and pull requests for KeelBot and workflows, with keel's rules."
+tags: [git, pull-requests]
+trust: code
