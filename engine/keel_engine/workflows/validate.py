@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .. import extensions
+from ..addons import NAME
 from ..rules import PHASES
 from ..runtime.findings import REVIEWERS
 from .model import Workflow, WorkflowError, load_yaml
@@ -82,6 +83,9 @@ def validate(wf: Workflow) -> list[str]:
     errors: list[str] = []
     if not wf.steps:
         return ["The workflow has no steps."]
+    bad = [n for n in wf.needs_plugins or [] if not NAME.match(n)]
+    if bad:
+        errors.append(f"needs_plugins: {', '.join(repr(n) for n in bad)} is not a plugin name (a-z, 0-9 and '-').")
     ids = [s.id for s in wf.steps]
     seen: set[str] = set()
     for sid in ids:

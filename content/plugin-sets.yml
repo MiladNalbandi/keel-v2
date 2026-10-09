@@ -1,0 +1,20 @@
+# The sets a core-only keel offers on its Project group ("Start with a set", docs/plugins/13-step4-contract.md §9).
+# The engine lists them (GET /marketplace/sets) with the plugins keel does not have yet (installed from the
+# marketplace) and the ones it has but are off (turned on). Plugin names, in the order they are shown.
+sets:
+  - id: developer
+    title: Developer
+    summary: Code, Git, Code Review, Database, CI/CD, the code graph and KeelBot - everything for working on code.
+    plugins: [code, git, review, db, ci, graph, keelbot]
+  - id: review
+    title: Review
+    summary: Read and review changes - Code, Git, Code Review and KeelBot.
+    plugins: [code, git, review, keelbot]
+  - id: knowledge
+    title: Knowledge
+    summary: The project's wiki, map and code graph.
+    plugins: [wiki, map, graph]
+  - id: tickets
+    title: Tickets
+    summary: Tasks and Jira.
+    plugins: [tasks, jira]

@@ -265,6 +265,10 @@ class Engine:
 
     async def start_thread(self, body: dict) -> str:
         wf: Workflow = body["workflow"]
+        if wf.needs_plugins:
+            from ..marketplace import needs   # a workflow that needs a plugin keel did not load: 409 {error, missing}
+
+            needs.check(wf.id, wf.needs_plugins)
         root = str(Path(body["root"]).resolve())
         if not Path(root).is_dir():
             raise EngineError(400, f"The project folder {root} does not exist.")

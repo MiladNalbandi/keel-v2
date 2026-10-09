@@ -20,6 +20,8 @@ Where it is:
 | `skills/<id>/SKILL.md` | A skill: front matter `name` + `description`, then the text. `references/*.md` are longer pages the skill points at; `examples/` are sample files. | API: the Skill hub and the skill text sent to each agent (`skills/SkillService.kt`). Engine: `references/x.md` in a skill becomes its full path here, so an agent opens it directly. |
 | `stacks/*.yml` | Built-in stacks (`kotlin-spring`, `ts-react`): how to detect them, test layers, commands, tools. | API: the Stacks page and stack detection (`stacks/StackService.kt`). |
 | `packs/<name>/` | Optional stacks that are not used until a project installs one (`django`, `react-js`, `symfony`). | API: listed on the Stacks page as installable. |
+| `plugin-sets.yml` | The plugin sets a core-only keel offers ("Start with a set": Developer, Review, Knowledge, Tickets). | Engine: `GET /marketplace/sets` (`marketplace/routes.py`). |
+| `trust/catalog.pub`, `trust/keel.pub` | Only **public** keys: the official plugin catalog's and the keel publisher's (minisign). Until they exist the official catalog shows "not set up yet". | Engine: the marketplace (`marketplace/sources.py`). |
 | `templates/` | Files keel writes into a project: `knowledge/` (the index and six knowledge-base sections the librarian fills), `config.yml` (`.keel/config.yml`), `spec.md`, compose/devcontainer/smoke/Playwright files, and `starter/` for a new project. | Engine: the librarian is pointed at `templates/knowledge/`. |
 
 ## A pack

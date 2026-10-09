@@ -1,6 +1,7 @@
 """`keel-engine`: serve the engine with uvicorn on KEEL_ENGINE_HOST:KEEL_ENGINE_PORT (127.0.0.1:8090).
 
-`keel-engine plugins <resolve|install|list|set> …` runs the plugin host's command line instead (pluginhost/cli.py).
+`keel-engine plugins <resolve|install|list|set|search|get|update|rollback|remove> …` runs the plugin host's command
+line instead (pluginhost/cli.py).
 It does not import the FastAPI app, so it is fast and starts nothing.
 """
 

@@ -9,6 +9,10 @@ them at all, so a client cannot even see them.
 
 Every tool takes an optional `project` id. Without it: KEEL_PROJECT, else the project whose root holds the
 working directory (an agent runs in its project), else the only (or first) project.
+
+The marketplace's four tools come last, in read-only and write mode alike (docs/plugins/13-step4-contract.md §7):
+keel_marketplace_search, keel_plugin_info, keel_plugins_installed read; keel_plugin_request only opens a request a
+person approves in keel's Inbox. There is no install tool: agents ask, people decide.
 """
 
 from __future__ import annotations
@@ -24,6 +28,7 @@ from typing import Any, Literal
 import httpx
 
 from . import extensions, rules
+from .addons import NAME
 
 API_TIMEOUT = 15
 BUCKETS = ["api-main", "api-test", "web-src", "web-test", "contract", "specs", "migration", "e2e", "smoke", "other"]
@@ -36,7 +41,9 @@ TIMELINE_FILTERS = ("all", "steps", "agents", "failed")
 
 
 class ApiError(Exception):
-    pass
+    def __init__(self, message: str, status: int | None = None):
+        super().__init__(message)
+        self.status = status     # the api's HTTP status, when it answered
 
 
 class KeelApi:
@@ -60,7 +67,7 @@ class KeelApi:
                     msg += f" ({body['hint']})"
             except ValueError:
                 msg = res.text[:300]
-            raise ApiError(f"{method} {path}: {res.status_code} {msg}")
+            raise ApiError(f"{method} {path}: {res.status_code} {msg}", res.status_code)
         return res.json() if res.content else None
 
     def get(self, path: str, **params) -> Any:
@@ -329,6 +336,131 @@ def _resume(api: KeelApi, tid: str, decision: str, why: str | None, payload: dic
     return f"{done}{what} on thread {tid}. The flow is {after}."
 
 
+# ---------------------------------------------------------------- the marketplace (step 4): agents find and ask
+
+ASK_IN_PLUGINS = "Ask the person to install it in Control › Plugins."
+
+
+def _items(body, key: str = "plugins") -> list:
+    return body if isinstance(body, list) else (body or {}).get(key) or []
+
+
+def _perms(perms: dict | None) -> str:
+    parts = [f"{k}: {', '.join(str(x) for x in v) if isinstance(v, list) else v}" for k, v in (perms or {}).items()]
+    return "; ".join(parts) or "none"
+
+
+def _source_lines(body) -> list[str]:
+    srcs = body.get("sources") if isinstance(body, dict) else None
+    return [f"source {s.get('id')}: {s.get('problem') or 'the catalog is old (installs wait for a refresh)'}"
+            for s in srcs or [] if s.get("on", True) and (s.get("problem") or s.get("old"))]
+
+
+def marketplace_search(api: KeelApi, q: str = "", category: str | None = None) -> str:
+    body = api.get("/marketplace", q=q or None, category=category or None)
+    out = _source_lines(body)
+    hits = _items(body)
+    if not hits:
+        out.append("no plugin in the catalogs matches" + (f' "{q}"' if q else "") + ".")
+    for h in hits:
+        have = (f"installed {h['installed']}" + (f", update {h['update']}" if h.get("update") else "")
+                if h.get("installed") else "not installed")
+        fits = f"version {h['version']}" if h.get("version") else f"does not fit: {h.get('why_not') or '?'}"
+        out.append(f"{h.get('name')}  {h.get('title')} · trust {h.get('trust')} · {have} · {fits}")
+        if h.get("summary"):
+            out.append(f"  {h['summary']}")
+    if hits:
+        out.append("More with keel_plugin_info; keel_plugin_request asks a person to install one.")
+    return "\n".join(out)
+
+
+def _name(name: str) -> str:
+    if not isinstance(name, str) or not NAME.match(name):
+        raise ApiError(f"'{name}' is not a plugin name (a-z, 0-9 and '-', like db).")
+    return name
+
+
+def plugin_info(api: KeelApi, name: str) -> str:
+    p = api.get(f"/marketplace/{_name(name)}") or {}
+    pub = f"{p.get('publisher_title') or p.get('publisher')} ({'verified' if p.get('verified') else 'unverified'})"
+    out = [f"{p.get('name')}  {p.get('title')} · publisher {pub} · trust {p.get('trust')} · category {p.get('category')}"]
+    if p.get("summary"):
+        out.append(p["summary"])
+    have = (f"installed {p['installed']}" + (f" ({p['installed_from']})" if p.get("installed_from") else "")
+            if p.get("installed") else "not installed")
+    if p.get("update"):
+        have += f"; update {p['update']}"
+    if p.get("revoked"):
+        have += f"; the installed version is revoked: {p['revoked'].get('why')}"
+    out.append(have)
+    out.append("versions:")
+    for v in p.get("versions") or []:
+        req = v.get("requires") or {}
+        needs = ", ".join(f"{k} {s}".strip() for k, s in (req.get("plugins") or {}).items())
+        state = ("revoked: " + v["revoked"]) if v.get("revoked") else "fits" if v.get("fits") else f"does not fit: {v.get('why_not')}"
+        out.append(f"  {v.get('version')}  {v.get('released') or ''} · keel {req.get('keel') or 'any'}"
+                   + (f" · needs {needs}" if needs else "") + f" · permissions {_perms(v.get('permissions'))} · {state}")
+    plan = p.get("plan")
+    if plan:
+        steps = ", ".join(f"{s['name']} {s['version']}" + (f" (needed by {s['needed_by']})" if s.get("needed_by") else "")
+                          for s in plan.get("install") or [])
+        out.append(f"an install adds: {steps}" + (f"; turns on {', '.join(plan['turn_on'])}" if plan.get("turn_on") else ""))
+    elif p.get("refused"):
+        r = p["refused"]
+        out.append(f"keel would refuse an install: {r.get('error')}" + (f" ({r['hint']})" if r.get("hint") else ""))
+    out.append("Agents cannot install plugins: keel_plugin_request asks a person.")
+    return "\n".join(out)
+
+
+def plugins_installed(api: KeelApi, project: str | None = None) -> str:
+    body = api.get("/plugins") or {}
+    out = ["keel has:"]
+    for p in _items(body):
+        out.append(f"  {p.get('name')} {p.get('version')}  {p.get('title')} · from {p.get('from')} · "
+                   f"{'on' if p.get('on') else 'off'} · {p.get('status')}"
+                   + (f" · update {p['update']}" if p.get("update") else "")
+                   + (f" · problem: {'; '.join(p['problems'])}" if p.get("problems") else ""))
+    if len(out) == 1:
+        out = ["keel has no plugins (a core-only keel)."]
+    if isinstance(body, dict) and any((body.get(k) or {}).get("pending") for k in ("restart", "pending_restart")):
+        out.append("changes wait for a restart of keel.")
+    try:
+        p = _project(api, project)
+        on = [x["name"] for x in api.get(f"/projects/{p['id']}/plugins") or [] if x.get("enabled")]
+        out.append(f"on in {p['id']}: {', '.join(on) or 'none of the per-project plugins'}")
+    except ApiError:
+        pass
+    return "\n".join(out)
+
+
+def plugin_request(api: KeelApi, name: str, reason: str, version: str | None = None, project: str | None = None) -> str:
+    _name(name)
+    if not (reason or "").strip():
+        return "Give a reason: the person reads it on the request card in keel's Inbox."
+    try:
+        if (api.get("/plugins/rules") or {}).get("agents_may_ask") is False:
+            return ASK_IN_PLUGINS
+    except ApiError:
+        pass
+    body: dict[str, Any] = {"name": name, "reason": reason.strip()[:2000], "source": "agent"}
+    if version:
+        body["version"] = version
+    try:
+        body["project"] = _project(api, project)["id"]
+    except ApiError:
+        pass
+    try:
+        r = api.post("/plugins/requests", body) or {}
+    except ApiError as exc:
+        if exc.status == 409:
+            return f"{ASK_IN_PLUGINS} (keel did not open a request: {exc})"
+        raise
+    joined = " (it joined the request that already waits)" if r.get("joined") else ""
+    return (f"Asked a person to install {name}{' ' + version if version else ''}: request {r.get('id')}{joined}. It "
+            "waits in keel's Inbox. The plugin can be used only after a person approves it and keel restarts, so go on "
+            "without it.")
+
+
 # ---------------------------------------------------------------- server
 
 # ---- v0.10.0 plugins (Tools › Plugins): each part adds its tools (its `keel_mcp`, keel_engine/extensions.py), through
@@ -421,6 +553,33 @@ def build_server(write: bool = False, api: KeelApi | None = None):
             """Resume a waiting flow thread as the dashboard does (POST /api/threads/{id}/resume with decision, why,
             payload). thread_id defaults to the project's current flow."""
             return guard(resume, api, decision, thread_id, project, why, payload)
+
+    # the marketplace's tools, last in both modes (keel 0.15.4's list keeps its order); asking is allowed read-only
+    @srv.tool(annotations=ro, structured_output=False)
+    def keel_marketplace_search(q: str = "", category: str | None = None) -> str:
+        """Search the plugin catalogs keel reads: each plugin's name, title, trust level (content, web or code),
+        summary, and whether this keel has it. category: code, knowledge, tickets, review, product or other."""
+        return guard(marketplace_search, api, q, category)
+
+    @srv.tool(annotations=ro, structured_output=False)
+    def keel_plugin_info(name: str) -> str:
+        """One plugin of the catalogs: its versions, the permissions each asks for, the plugins it needs, and what an
+        install would add."""
+        return guard(plugin_info, api, name)
+
+    @srv.tool(annotations=ro, structured_output=False)
+    def keel_plugins_installed(project: str | None = None) -> str:
+        """The plugins this keel has (version, from the image or the marketplace, on or off, loaded or waiting for a
+        restart) and the ones that are on in the project."""
+        return guard(plugins_installed, api, project)
+
+    ask = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=False)
+
+    @srv.tool(annotations=ask, structured_output=False)
+    def keel_plugin_request(name: str, reason: str, version: str | None = None, project: str | None = None) -> str:
+        """Ask a person to install a plugin: it opens a request in keel's Inbox with your reason (required, in your
+        own words) and never installs anything itself. One request per plugin; a second one joins it."""
+        return guard(plugin_request, api, name, reason, version, project)
 
     return srv
 

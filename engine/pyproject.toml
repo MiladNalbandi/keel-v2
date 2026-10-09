@@ -19,6 +19,7 @@ dependencies = [
     "sqlglot>=26",
     "psycopg[binary]>=3.2",
     "pymysql>=1.1",
+    "cryptography>=44",
 ]
 
 [project.scripts]

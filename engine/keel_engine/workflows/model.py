@@ -6,7 +6,7 @@ import re
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 
 StepKind = Literal["agent", "code", "gate", "branch", "parallel"]
 OnLimit = Literal["pause", "cheaper", "stop"]
@@ -208,6 +208,17 @@ class Workflow(BaseModel):
     yaml: str = ""
     # Set by the loader for a workflow that comes from an add-on (keel_engine/addons.py): its name, e.g. "product".
     addon: str | None = None
+    # The plugins it needs (plugin names): keel refuses to start it while one of them is not loaded, and the api asks a
+    # person to install it (docs/plugins/13-step4-contract.md §8).
+    needs_plugins: list[str] | None = None
+
+    @model_serializer(mode="wrap")
+    def _without_empty_needs(self, handler):
+        """needs_plugins only when a workflow has it: every other workflow's JSON stays as it was."""
+        data = handler(self)
+        if isinstance(data, dict) and not data.get("needs_plugins"):
+            data.pop("needs_plugins", None)
+        return data
 
     @model_validator(mode="before")
     @classmethod
@@ -276,6 +287,8 @@ def to_dict(wf: Workflow) -> dict:
     data["version"] = wf.version
     if wf.budget and (wf.budget.max_tokens or wf.budget.on_limit):
         data["budget"] = wf.budget.model_dump(exclude_none=True)
+    if wf.needs_plugins:
+        data["needs_plugins"] = list(wf.needs_plugins)
     data["steps"] = [s.model_dump(exclude_none=True) for s in wf.steps]
     return data
 
