@@ -312,55 +312,10 @@ export type IndexStatus = {
   available?: boolean;
 };
 
-export type RepoInfo = {
-  branch: string;
-  base: string;
-  ahead: number;
-  behind: number;
-  remote: string;
-  worktrees: { branch: string; path: string }[];
-  branches: { name: string; note: string }[];
-};
-export type TreeNode = {
-  path: string;
-  name: string;
-  depth: number;
-  kind: "dir" | "file";
-  mark?: "A" | "M" | "D";
-  keel: boolean;
-  frozen: boolean;
-  ac?: string;
-};
-export type RepoFile = {
-  path: string;
-  size: number;
-  mark?: "A" | "M" | "D";
-  frozen: boolean;
-  keel: boolean;
-  ac?: string | null;
-  head: string;
-  last_commit?: Commit | null;
-  /** v0.5.1: a NUL byte in the first 8 KB; mtime; the keel rule that applies in the active phase. */
-  binary?: boolean;
-  modified?: number;
-  phase?: string;
-  bucket?: string;
-  verdict?: string;
-};
+// (the Code page's repo types and calls are its own since step 3: plugins/code/web/codeApi.ts)
 export type Commit = { sha: string; message: string; author: string; at: string; keel?: boolean };
-/** v0.5.1 Repo IDE: git status, diffs, a commit's files, search (git grep), the quick-open file list. */
-export type Change = { path: string; from?: string; staged?: string; unstaged?: string; untracked?: boolean; conflict?: boolean };
+/** A file's diff (the Code plugin's GET /repo/diff; the Code Review plugin's diffs have the same shape). */
 export type FileDiff = { path: string; against: string; ref: string; diff: string; binary: boolean; truncated: boolean };
-export type CommitView = Commit & { body: string; keel: boolean; files: { path: string; status: string; from?: string }[] };
-/** v0.12.0 one local branch against the base (Git plugin): its own commits and the files it changed since it left the base. */
-export type BranchView = {
-  name: string; base: string | null; current: boolean; ahead: number; behind: number;
-  commits: Commit[]; files: { path: string; status: string; from?: string }[]; truncated?: boolean;
-};
-export type SearchMatch = { line: number; column: number; length: number; text: string; ranges: [number, number][] };
-export type SearchResult = { results: { path: string; matches: SearchMatch[] }[]; matches: number; files: number; truncated: boolean; timed_out: boolean; took_ms: number };
-export type SearchQuery = { q: string; regex?: boolean; case?: boolean; word?: boolean; include?: string; exclude?: string; max?: number };
-export type UpdateFromBase = { ok: boolean; merged: boolean; conflicts: string[]; output: string };
 export type Unlock = { path: string; phase: string };
 export type KeelDoc = { path: string; what: string; by: string; updated: string; status: "ok" | "live" | "check" };
 export type FactKind = "fact" | "rule" | "flaky" | "unlock";
@@ -925,24 +880,12 @@ export const api = {
   jobSteps: (id: string, after = 0) => get<{ steps: JobStep[]; running: boolean }>(`/jobs/${e(id)}/steps${q({ after })}`),
   stopJob: (id: string) => post<void>(`/jobs/${e(id)}/stop`),
 
-  // repo
-  repo: (pid: string) => get<RepoInfo>(`/projects/${e(pid)}/repo`),
-  tree: (pid: string, depth = 4, dir?: string) => get<TreeNode[]>(`/projects/${e(pid)}/repo/tree${q({ depth, dir })}`),
-  file: (pid: string, path: string) => get<RepoFile>(`/projects/${e(pid)}/repo/file${q({ path })}`),
-  commits: (pid: string, limit = 30, range?: "branch") => get<Commit[]>(`/projects/${e(pid)}/repo/commits${q({ limit, range })}`),
-  rawUrl: (pid: string, path: string) => `/api/projects/${e(pid)}/repo/raw${q({ path })}`,
+  // repo: the Code plugin's endpoints (its own calls are in plugins/code/web/codeApi.ts); keel's core reads a file
+  // for the launcher's preview and the file list for KeelBot's @ mentions
   raw: (pid: string, path: string) => getText(`/projects/${e(pid)}/repo/raw${q({ path })}`),
   repoFiles: (pid: string) => get<{ files: string[]; truncated: boolean }>(`/projects/${e(pid)}/repo/files`),
-  search: (pid: string, s: SearchQuery) =>
-    get<SearchResult>(`/projects/${e(pid)}/repo/search${q({ q: s.q, regex: s.regex ? "true" : null, case: s.case ? "true" : null, word: s.word ? "true" : null, include: s.include, exclude: s.exclude, max: s.max })}`),
-  changes: (pid: string) => get<Change[]>(`/projects/${e(pid)}/repo/changes`),
-  diff: (pid: string, path: string, against: "head" | "base", sha?: string, branch?: string) =>
-    get<FileDiff>(`/projects/${e(pid)}/repo/diff${q({ path, against: sha || branch ? null : against, sha, branch })}`),
-  commit: (pid: string, sha: string) => get<CommitView>(`/projects/${e(pid)}/repo/commit${q({ sha })}`),
-  updateFromBase: (pid: string) => post<UpdateFromBase>(`/projects/${e(pid)}/repo/update-from-base`),
   index: (pid: string) => get<IndexStatus>(`/projects/${e(pid)}/index`),
   rebuildIndex: (pid: string) => post<IndexStatus>(`/projects/${e(pid)}/index/rebuild`),
-  fileHistory: (pid: string, path: string) => get<Commit[]>(`/projects/${e(pid)}/repo/history${q({ path })}`),
   unlock: (pid: string, path: string, phase?: string) =>
     post<{ unlocks: Unlock[] }>(`/projects/${e(pid)}/unlock`, phase ? { path, phase } : { path }),
   keelDocs: (pid: string) => get<KeelDoc[]>(`/projects/${e(pid)}/keel-docs`),
@@ -1057,10 +1000,6 @@ export const api = {
   ciRuns: (pid: string, branch?: string) => get<CiRun[]>(`/projects/${e(pid)}/ci/runs${q({ branch })}`),
   ciRerun: (pid: string, id: number) => post<{ id: number; rerun: boolean }>(`/projects/${e(pid)}/ci/runs/${id}/rerun`),
   ciFix: (pid: string, run?: number) => post<ThreadState>(`/projects/${e(pid)}/ci/fix`, run ? { run } : {}),
-  // the Code page's branch tab (pages/repo/Branch.tsx) reads a branch and switches with the Git plugin's api; the Git
-  // plugin's panel and KeelBot buttons have their own calls (plugins/git/web/gitApi.ts)
-  gitSwitch: (pid: string, branch: string, create = false) => post<{ branch: string }>(`/projects/${e(pid)}/git/switch`, { branch, create }),
-  gitBranch: (pid: string, name: string) => get<BranchView>(`/projects/${e(pid)}/git/branch${q({ name })}`),
   testConnection: (provider: string) => post<TestResult>(`/connections/${e(provider)}/test`),
 
   // notifications

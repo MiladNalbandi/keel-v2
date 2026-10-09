@@ -2,12 +2,11 @@
 // and keel's own pages — the files keel wrote and what agents remember (Memory) — which open as editor tabs.
 
 import { Fragment, useState } from "react";
-import { api, errorParts, type Commit, type Fact, type FactKind, type Memory, type RepoFile } from "../../api";
-import { RefreshStaleButton } from "../../components/RefreshStale";
-import { EmptyState } from "../../components/page";
-import { Async, Confirm, Drawer, ErrorBox, Panel, Pill, type PillTone } from "../../components/ui";
-import { clock, kfmt, plural } from "../../format";
-import { useApp, useLoad } from "../../state";
+import {
+  Async, clock, Confirm, Drawer, EmptyState, ErrorBox, errorParts, kfmt, Panel, Pill, plural, RefreshStaleButton, useApp, useLoad,
+  type Commit, type Fact, type FactKind, type Memory, type PillTone,
+} from "@keel/web-sdk";
+import { codeApi as api, type RepoFile } from "./codeApi";
 import { Icon } from "./icons";
 import { acOf } from "./model";
 

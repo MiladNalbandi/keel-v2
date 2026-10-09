@@ -5,16 +5,11 @@
 // tab kinds (code.tab: a table, a review file, a branch) and the assistant's column (assistant: KeelBot, ⌘I).
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as RPointerEvent } from "react";
-import { api, type HelperSelection, type RepoInfo } from "../../api";
-import { useNarrow } from "../../components/page";
-import { ErrorBox } from "../../components/ui";
-import { WorkspaceDoctor } from "../../components/WorkspaceDoctor";
-import { doubleShift, keyLabel } from "../../keys";
-import { parseHash } from "../../routes";
-import { ASK_ASSISTANT_EVENT, type AskAssistantDetail } from "../../sdk/assistant";
-import { slotItems, useSlot } from "../../sdk/registry";
-import { SLOTS, type AssistantItem, type CodeActivityItem, type CodeTabItem } from "../../sdk/slots";
-import { useApp, useLoad, useRoute } from "../../state";
+import {
+  ASK_ASSISTANT_EVENT, doubleShift, ErrorBox, keyLabel, openLauncher, parseHash, slotItems, SLOTS, useApp, useLoad, useNarrow, useRoute,
+  useSlot, WorkspaceDoctor, type AskAssistantDetail, type AssistantItem, type CodeActivityItem, type CodeTabItem, type HelperSelection,
+} from "@keel/web-sdk";
+import { codeApi as api, type RepoInfo } from "./codeApi";
 import {
   CodeView, DiffPane, ImagePane, MarkdownPane, Notice, TEXT_MAX, WRAP_MAX, canPreview, kindOf, useFileText,
   type Cmd, type Cursor, type DiffMode, type Target,
@@ -29,7 +24,6 @@ import {
 import { QuickOpen } from "./QuickOpen";
 import { ScmView } from "./Scm";
 import { SearchView } from "./Search";
-import { openLauncher } from "../../components/launcher/Launcher";
 
 /** A view in the activity bar: its id, name, icon, key (after ⌘) and phone label; `order` places it. */
 type Activity = string;

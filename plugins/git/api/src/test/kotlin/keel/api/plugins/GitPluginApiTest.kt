@@ -30,7 +30,7 @@ class GitPluginApiTest : ApiTest() {
     }
 
     @Test
-    fun `a branch shows its own commits and files against the base, and a file's diff, with the Git plugin on`() {
+    fun `a branch shows its own commits and files against the base, with the Git plugin on`() {
         val (pid, root) = newProject("plug-branch", mapOf("README.md" to "# demo\n", "Score.kt" to "class Score(val v: Int)\n"))
         git(root, "checkout", "-q", "-b", "feat/test")
         java.nio.file.Files.writeString(root.resolve("Score.kt"), "class Score(val v: Long)\n")
@@ -50,13 +50,7 @@ class GitPluginApiTest : ApiTest() {
         assertThat(b["commits"].map { it["message"].asText() }).containsExactly("feat: scores are Long")
         assertThat(b["files"].map { it["path"].asText() + " " + it["status"].asText() }).containsExactly("Score.kt M", "new.txt A")
 
-        val d = get("/api/projects/$pid/repo/diff?path=Score.kt&branch=feat/test").andExpect(status().isOk).json()
-        assertThat(d["against"].asText()).isEqualTo("branch")
-        assertThat(d["ref"].asText()).isEqualTo("main…feat/test")
-        assertThat(d["diff"].asText()).contains("-class Score(val v: Int)", "+class Score(val v: Long)")
-        // a file only the branch has, and a file the branch did not touch
-        assertThat(get("/api/projects/$pid/repo/diff?path=new.txt&branch=feat/test").json()["diff"].asText()).contains("+hello")
-        assertThat(get("/api/projects/$pid/repo/diff?path=README.md&branch=feat/test").json()["diff"].asText()).isEmpty()
+        // a file's diff on the branch (GET /repo/diff?branch=) is the Code page's: plugins/code/api, RepoApiTest
 
         val main = get("/api/projects/$pid/git/branch?name=main").json()
         assertThat(main["current"].asBoolean()).isTrue()
@@ -65,6 +59,5 @@ class GitPluginApiTest : ApiTest() {
         get("/api/projects/$pid/git/branch?name=nope").andExpect(status().isNotFound)
         get("/api/projects/$pid/git/branch?name=-p").andExpect(status().isBadRequest)
         get("/api/projects/$pid/git/branch?name=main..feat/test").andExpect(status().isBadRequest)
-        get("/api/projects/$pid/repo/diff?path=Score.kt&branch=HEAD~1").andExpect(status().isNotFound)
     }
 }

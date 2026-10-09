@@ -103,3 +103,17 @@ export { FileIcon, Icon } from "../components/icons";
 export { keyLabel, matches, readKeymap, saveKeymap } from "../keys";
 export type { Keymap } from "../keys";
 export type { Commit, FileDiff } from "../api";
+
+// the Code page (a plugin since step 3, plugins/code): what it shares with keel and the other parts. Fuzzy file
+// matching (quick open; KeelBot's @ mentions rank files with it too), the rest of keel's file icons, the code renderer's
+// lines, keel's keys (⇧⇧ opens the launcher), a link read like the router reads it, plural words, and the core api's
+// types it shows (the code graph index, keel's files and Memory, the lines a person asks the assistant about)
+export { fuzzy, rankFiles } from "../components/fuzzy";
+export type { Fuzzy } from "../components/fuzzy";
+export { Chevron, extOf, FolderIcon, isImage, languageName } from "../components/icons";
+export { linesOf } from "../components/Code";
+export { openLauncher } from "../components/launcher/open";
+export { doubleShift, isMac } from "../keys";
+export { parseHash } from "../routes";
+export { plural } from "../format";
+export type { Fact, FactKind, GraphHit, HelperSelection, IndexStatus, KeelDoc, Memory } from "../api";

@@ -2,8 +2,8 @@
 // The api runs git grep; results come grouped by file with the matching lines, and a click opens the file at the line.
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { api, errorParts, type SearchResult } from "../../api";
-import { ErrorBox } from "../../components/ui";
+import { ErrorBox, errorParts } from "@keel/web-sdk";
+import { codeApi as api, type SearchResult } from "./codeApi";
 import { Chevron, FileIcon, Icon } from "./icons";
 import { nameOf, parentOf } from "./model";
 

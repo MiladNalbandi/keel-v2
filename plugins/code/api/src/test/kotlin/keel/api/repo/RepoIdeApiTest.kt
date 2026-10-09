@@ -1,4 +1,4 @@
-package keel.api
+package keel.api.repo
 
 import keel.api.support.ApiTest
 import org.assertj.core.api.Assertions.assertThat

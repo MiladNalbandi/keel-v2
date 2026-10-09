@@ -11,7 +11,7 @@ import {
   type HelperSelection, type HelperSession, type JobStep, type Model,
 } from "../../api";
 import { modelLabel, provLabel } from "../../format";
-import { rankFiles } from "../../pages/repo/model";
+import { rankFiles } from "../fuzzy";
 import { go, useApp, useLoad } from "../../state";
 import { Markdown } from "../Markdown";
 import { CiCard, SlotCard, splitActions, StartCard, WorkflowCard } from "./Actions";

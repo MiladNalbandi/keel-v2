@@ -1,16 +1,17 @@
 // The Code page in the launcher (⌘K): the project's files (matched by path), the code graph's hits, Focus mode, and
-// the link that opens a file at a line. Registered by ./register.tsx (slot launcher.source).
+// the link that opens a file at a line. Registered by ./index.tsx (slot launcher.source).
 
-import { api, type GraphHit } from "../../api";
 import {
   askAction,
   copyAction,
   goHash,
-  type Ctx,
-} from "../../components/launcher/sources";
-import type { Item } from "../../components/launcher/model";
-import { hashFor } from "../../routes";
-import type { LauncherSourceItem } from "../../sdk/slots";
+  hashForScreen,
+  type GraphHit,
+  type LauncherCtx as Ctx,
+  type LauncherItem as Item,
+  type LauncherSourceItem,
+} from "@keel/web-sdk";
+import { codeApi as api } from "./codeApi";
 import { FOCUS_EVENT, FOCUS_KEYS, rankFiles, repoHash } from "./model";
 
 export function fileItem(
@@ -91,7 +92,7 @@ function focusItem(ctx: Ctx): Item {
       } catch {
         /* private window */
       }
-      location.hash = hashFor("repo");
+      location.hash = hashForScreen("repo");
     }
   };
   return {

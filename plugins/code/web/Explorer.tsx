@@ -3,8 +3,8 @@
 // lazy loading (a folder's subtree is fetched when it opens). Long lists render only the rows on screen.
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { api, ApiError, errorParts, type Change, type TreeNode } from "../../api";
-import { ErrorBox } from "../../components/ui";
+import { ApiError, ErrorBox, errorParts } from "@keel/web-sdk";
+import { codeApi as api, type Change, type TreeNode } from "./codeApi";
 import { Chevron, FileIcon, FolderIcon, Icon } from "./icons";
 import { ancestors, changedFolders, decoOf, depthOf, indexTree, parentOf, visibleRows, type Row } from "./model";
 

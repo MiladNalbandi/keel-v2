@@ -1,4 +1,4 @@
-package keel.api
+package keel.api.repo
 
 import keel.api.support.ApiTest
 import org.assertj.core.api.Assertions.assertThat
@@ -8,6 +8,9 @@ import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import java.nio.file.Files
 
+/** The Code page's endpoints (plugins/code/api, keel.api.repo.RepoController): the repo's info, tree, files, commits,
+ *  update from base, a file's history and a branch's diffs, on a real git repo. Moved from keel's api tests with the
+ *  plugin; keel's files and Memory stay core (KeelDocsApiTest). */
 class RepoApiTest : ApiTest() {
     @Autowired lateinit var jdbc: JdbcTemplate
 
@@ -111,31 +114,87 @@ class RepoApiTest : ApiTest() {
     }
 
     @Test
-    fun `keel docs and memory`() {
-        val (pid, _) = newProject("repo-knowledge", files)
+    fun `update from base merges main into the branch`() {
+        val (pid, root) = newProject("v2-merge", mapOf("README.md" to "# demo\n", "a.txt" to "a\n"))
+        git(root, "checkout", "-q", "-b", "feat/x")
+        Files.writeString(root.resolve("b.txt"), "b\n")
+        git(root, "add", "-A"); git(root, "commit", "-q", "-m", "b on feat")
+        git(root, "checkout", "-q", "main")
+        Files.writeString(root.resolve("c.txt"), "c\n")
+        git(root, "add", "-A"); git(root, "commit", "-q", "-m", "c on main")
+        git(root, "checkout", "-q", "feat/x")
 
-        val docs = get("/api/projects/$pid/keel-docs").andExpect(status().isOk).json()
-        val byPath = docs.associateBy { it["path"].asText() }
-        assertThat(byPath["docs/specs/scores.md"]!!["what"].asText()).isEqualTo("Spec — 2 ACs")
-        assertThat(byPath[".keel/config.yml"]!!["what"].asText()).isEqualTo("Project config")
-        assertThat(byPath.keys).contains("docs/knowledge/", "docs/adr/ADR-001-graph.md")
+        val r = post("/api/projects/$pid/repo/update-from-base").andExpect(status().isOk).json()
+        assertThat(r["ok"].asBoolean()).isTrue()
+        assertThat(r["merged"].asBoolean()).isTrue()
+        assertThat(r["conflicts"].size()).isEqualTo(0)
+        assertThat(Files.exists(root.resolve("c.txt"))).isTrue()
+        assertThat(get("/api/projects/$pid/repo").json()["behind"].asInt()).isEqualTo(0)
 
-        val memory = get("/api/projects/$pid/memory").json()
-        val arch = memory["knowledge"].first { it["id"].asText() == "architecture" }
-        assertThat(arch["status"].asText()).isEqualTo("written")
-        assertThat(arch["cites"].asInt()).isEqualTo(2)
-        assertThat(memory["knowledge"].first { it["id"].asText() == "domain" }["status"].asText()).isEqualTo("missing")
+        val again = post("/api/projects/$pid/repo/update-from-base").json()
+        assertThat(again["ok"].asBoolean()).isTrue()
+        assertThat(again["merged"].asBoolean()).isFalse()
 
-        val fact = post("/api/projects/$pid/memory", mapOf("title" to "Test needs Docker", "text" to "Start Docker first.", "kind" to "fact"))
-            .andExpect(status().isOk).json()
-        assertThat(fact["source"].asText()).isEqualTo("you")
-        val fid = fact["id"].asText()
-        put("/api/projects/$pid/memory/$fid", mapOf("kind" to "rule")).andExpect(status().isOk)
-        assertThat(get("/api/projects/$pid/memory").json()["facts"][0]["kind"].asText()).isEqualTo("rule")
-        post("/api/projects/$pid/memory", mapOf("title" to "x", "text" to "y", "kind" to "gossip")).andExpect(status().isBadRequest)
-        delete("/api/projects/$pid/memory/$fid").andExpect(status().isOk)
-        assertThat(get("/api/projects/$pid/memory").json()["facts"].size()).isEqualTo(0)
+        git(root, "checkout", "-q", "main")
+        post("/api/projects/$pid/repo/update-from-base").andExpect(status().isBadRequest)
+    }
 
-        // the wiki is the Wiki plugin's (plugins/wiki/api: WikiApiTest), the map the Map plugin's (plugins/map/api: MapApiTest)
+    @Test
+    fun `a conflict aborts the merge and names the files`() {
+        val (pid, root) = newProject("v2-conflict", mapOf("README.md" to "# demo\n"))
+        git(root, "checkout", "-q", "-b", "feat/y")
+        Files.writeString(root.resolve("README.md"), "# feature\n")
+        git(root, "commit", "-q", "-am", "feature readme")
+        git(root, "checkout", "-q", "main")
+        Files.writeString(root.resolve("README.md"), "# main\n")
+        git(root, "commit", "-q", "-am", "main readme")
+        git(root, "checkout", "-q", "feat/y")
+
+        val r = post("/api/projects/$pid/repo/update-from-base").andExpect(status().isOk).json()
+        assertThat(r["ok"].asBoolean()).isFalse()
+        assertThat(r["merged"].asBoolean()).isFalse()
+        assertThat(r["conflicts"].map { it.asText() }).containsExactly("README.md")
+        assertThat(r["output"].asText()).contains("CONFLICT")
+        assertThat(Files.exists(root.resolve(".git/MERGE_HEAD"))).isFalse()
+        assertThat(Files.readString(root.resolve("README.md"))).isEqualTo("# feature\n")
+        assertThat(git(root, "status", "--porcelain")).isBlank()
+    }
+
+    @Test
+    fun `file history follows renames and refuses outside paths`() {
+        val (pid, root) = newProject("v2-history", mapOf("old.txt" to "one\n"))
+        git(root, "mv", "old.txt", "new.txt")
+        git(root, "commit", "-q", "-m", "rename")
+        Files.writeString(root.resolve("new.txt"), "two\n")
+        git(root, "commit", "-q", "-am", "edit")
+
+        val h = get("/api/projects/$pid/repo/history?path=new.txt").andExpect(status().isOk).json()
+        assertThat(h.map { it["message"].asText() }).containsExactly("edit", "rename", "first commit")
+        assertThat(h[0]["author"].asText()).isEqualTo("Test")
+        assertThat(h[0]["sha"].asText()).hasSize(40)
+        get("/api/projects/$pid/repo/history?path=../x").andExpect(status().isForbidden)
+        assertThat(get("/api/projects/$pid/repo/history?path=never.txt").json().size()).isEqualTo(0)
+    }
+
+    @Test
+    fun `a branch's file diff is against its base, never another ref`() {
+        val (pid, root) = newProject("repo-branch", mapOf("README.md" to "# demo\n", "Score.kt" to "class Score(val v: Int)\n"))
+        git(root, "checkout", "-q", "-b", "feat/test")
+        Files.writeString(root.resolve("Score.kt"), "class Score(val v: Long)\n")
+        Files.writeString(root.resolve("new.txt"), "hello\n")
+        git(root, "add", "-A")
+        git(root, "commit", "-q", "-m", "feat: scores are Long")
+        git(root, "checkout", "-q", "main")
+        Files.writeString(root.resolve("README.md"), "# demo 2\n")
+        git(root, "commit", "-q", "-am", "docs: readme")      // on main only: not part of the branch's changes
+
+        val d = get("/api/projects/$pid/repo/diff?path=Score.kt&branch=feat/test").andExpect(status().isOk).json()
+        assertThat(d["against"].asText()).isEqualTo("branch")
+        assertThat(d["ref"].asText()).isEqualTo("main…feat/test")
+        assertThat(d["diff"].asText()).contains("-class Score(val v: Int)", "+class Score(val v: Long)")
+        // a file only the branch has, and a file the branch did not touch
+        assertThat(get("/api/projects/$pid/repo/diff?path=new.txt&branch=feat/test").json()["diff"].asText()).contains("+hello")
+        assertThat(get("/api/projects/$pid/repo/diff?path=README.md&branch=feat/test").json()["diff"].asText()).isEmpty()
+        get("/api/projects/$pid/repo/diff?path=Score.kt&branch=HEAD~1").andExpect(status().isNotFound)
     }
 }

@@ -3,12 +3,8 @@
 // and diffs (inline or side by side) against HEAD, the base branch, or one commit. Read-only.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { api, errorParts, type RepoFile } from "../../api";
-import { linesOf, parseDiff, type DiffRow } from "../../components/Code";
-import { highlight, languageOf } from "../../components/highlight";
-import { Markdown } from "../../components/Markdown";
-import { ErrorBox } from "../../components/ui";
-import { useLoad } from "../../state";
+import { ErrorBox, errorParts, highlight, languageOf, linesOf, Markdown, parseDiff, useLoad, type DiffRow } from "@keel/web-sdk";
+import { codeApi as api, type RepoFile } from "./codeApi";
 import { Icon, isImage, extOf } from "./icons";
 import {
   bytes, escapeHtml, findAll, findRegExp, markHtml, parseGoto, splitHtmlLines, splitRows,

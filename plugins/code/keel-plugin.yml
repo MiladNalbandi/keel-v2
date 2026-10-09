@@ -1,0 +1,19 @@
+# The Code page as a plugin (docs/plugins/11-step3-contract.md, wave C). scripts/build-plugin.sh packs it:
+# code-<version>.kplug. Paths are relative to the plugin folder. Each part is written on one line (scripts/build-plugin.sh
+# reads them).
+# It is a host: Git, Database, Code Review and KeelBot put their views, tabs and the assistant's column in it (slots
+# code.activity, code.tab, assistant). What flows and the other parts need stays in keel's core: the git helper
+# (Workspace, RepoService: Git and Code Review read the repo with it), keel's files and Memory (the knowledge base), the
+# code graph index, and the IDE's look (repo.css: the Review and Database views use it too).
+schema: 1
+name: code
+title: Code
+version: 1.0.0
+publisher: keel
+summary: The Code page - a small read-only IDE for the project's files, search, changes and branches. Git, Database, Code Review and KeelBot add their views to it.
+requires:
+  sdk: 1
+parts:
+  api: { jars: [api/keel-plugin-code.jar] }
+  web: { entry: web/index.js }
+per_project: false

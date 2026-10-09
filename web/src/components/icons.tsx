@@ -1,6 +1,6 @@
 // A small built-in icon set for the Repo IDE: file types by extension (a coloured monogram), folders, and the
-// activity bar. No icon font or package — the whole set is this file. It is keel's own (core): the Code page uses it
-// (pages/repo/icons.tsx), and the parts' views through @keel/web-sdk (FileIcon, Icon: the Code Review plugin's files).
+// activity bar. No icon font or package — the whole set is this file. It is keel's own (core): the Code page (a plugin,
+// plugins/code) and the parts' views use it through @keel/web-sdk (FileIcon, Icon: the Code Review plugin's files).
 
 import type { CSSProperties, ReactNode } from "react";
 

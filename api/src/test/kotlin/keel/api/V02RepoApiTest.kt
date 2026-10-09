@@ -6,71 +6,9 @@ import org.junit.jupiter.api.Test
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import java.nio.file.Files
 
-/** v0.2: update from base, file history, unlocks, stacks (the wiki refresh: plugins/wiki/api, WikiApiTest). */
+/** v0.2: unlocks, stacks (the wiki refresh: plugins/wiki/api, WikiApiTest; update from base and file history: the Code
+ *  plugin's RepoApiTest, plugins/code/api). */
 class V02RepoApiTest : ApiTest() {
-
-    @Test
-    fun `update from base merges main into the branch`() {
-        val (pid, root) = newProject("v2-merge", mapOf("README.md" to "# demo\n", "a.txt" to "a\n"))
-        git(root, "checkout", "-q", "-b", "feat/x")
-        Files.writeString(root.resolve("b.txt"), "b\n")
-        git(root, "add", "-A"); git(root, "commit", "-q", "-m", "b on feat")
-        git(root, "checkout", "-q", "main")
-        Files.writeString(root.resolve("c.txt"), "c\n")
-        git(root, "add", "-A"); git(root, "commit", "-q", "-m", "c on main")
-        git(root, "checkout", "-q", "feat/x")
-
-        val r = post("/api/projects/$pid/repo/update-from-base").andExpect(status().isOk).json()
-        assertThat(r["ok"].asBoolean()).isTrue()
-        assertThat(r["merged"].asBoolean()).isTrue()
-        assertThat(r["conflicts"].size()).isEqualTo(0)
-        assertThat(Files.exists(root.resolve("c.txt"))).isTrue()
-        assertThat(get("/api/projects/$pid/repo").json()["behind"].asInt()).isEqualTo(0)
-
-        val again = post("/api/projects/$pid/repo/update-from-base").json()
-        assertThat(again["ok"].asBoolean()).isTrue()
-        assertThat(again["merged"].asBoolean()).isFalse()
-
-        git(root, "checkout", "-q", "main")
-        post("/api/projects/$pid/repo/update-from-base").andExpect(status().isBadRequest)
-    }
-
-    @Test
-    fun `a conflict aborts the merge and names the files`() {
-        val (pid, root) = newProject("v2-conflict", mapOf("README.md" to "# demo\n"))
-        git(root, "checkout", "-q", "-b", "feat/y")
-        Files.writeString(root.resolve("README.md"), "# feature\n")
-        git(root, "commit", "-q", "-am", "feature readme")
-        git(root, "checkout", "-q", "main")
-        Files.writeString(root.resolve("README.md"), "# main\n")
-        git(root, "commit", "-q", "-am", "main readme")
-        git(root, "checkout", "-q", "feat/y")
-
-        val r = post("/api/projects/$pid/repo/update-from-base").andExpect(status().isOk).json()
-        assertThat(r["ok"].asBoolean()).isFalse()
-        assertThat(r["merged"].asBoolean()).isFalse()
-        assertThat(r["conflicts"].map { it.asText() }).containsExactly("README.md")
-        assertThat(r["output"].asText()).contains("CONFLICT")
-        assertThat(Files.exists(root.resolve(".git/MERGE_HEAD"))).isFalse()
-        assertThat(Files.readString(root.resolve("README.md"))).isEqualTo("# feature\n")
-        assertThat(git(root, "status", "--porcelain")).isBlank()
-    }
-
-    @Test
-    fun `file history follows renames and refuses outside paths`() {
-        val (pid, root) = newProject("v2-history", mapOf("old.txt" to "one\n"))
-        git(root, "mv", "old.txt", "new.txt")
-        git(root, "commit", "-q", "-m", "rename")
-        Files.writeString(root.resolve("new.txt"), "two\n")
-        git(root, "commit", "-q", "-am", "edit")
-
-        val h = get("/api/projects/$pid/repo/history?path=new.txt").andExpect(status().isOk).json()
-        assertThat(h.map { it["message"].asText() }).containsExactly("edit", "rename", "first commit")
-        assertThat(h[0]["author"].asText()).isEqualTo("Test")
-        assertThat(h[0]["sha"].asText()).hasSize(40)
-        get("/api/projects/$pid/repo/history?path=../x").andExpect(status().isForbidden)
-        assertThat(get("/api/projects/$pid/repo/history?path=never.txt").json().size()).isEqualTo(0)
-    }
 
     @Test
     fun `unlock goes to the project's flow through the engine and is refused without one`() {

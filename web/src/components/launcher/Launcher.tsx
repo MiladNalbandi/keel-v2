@@ -38,13 +38,10 @@ import {
   type Ctx,
   type Data,
 } from "./sources";
+import { LAUNCHER_EVENT } from "./open";
 
-export const LAUNCHER_EVENT = "keel:launcher";
-
-/** Open the launcher from anywhere (⇧⇧ in Code), in a scope or with text already typed. */
-export function openLauncher(detail: { scope?: Scope; text?: string } = {}) {
-  window.dispatchEvent(new CustomEvent(LAUNCHER_EVENT, { detail }));
-}
+// open the launcher from anywhere (the shell's button; ⇧⇧ in Code, a plugin, through @keel/web-sdk)
+export { LAUNCHER_EVENT, openLauncher } from "./open";
 
 type Props = {
   dark: boolean;

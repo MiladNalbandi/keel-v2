@@ -5,12 +5,8 @@
 // request) comes from its part (slot code.activity, place "scm").
 
 import { useState, type ReactNode } from "react";
-import { api, errorParts, type Change, type CommitView, type RepoInfo } from "../../api";
-import { ErrorBox } from "../../components/ui";
-import { clock } from "../../format";
-import { useSlot } from "../../sdk/registry";
-import { SLOTS, type CodeActivityItem } from "../../sdk/slots";
-import { useLoad } from "../../state";
+import { clock, ErrorBox, errorParts, SLOTS, useLoad, useSlot, type CodeActivityItem } from "@keel/web-sdk";
+import { codeApi as api, type Change, type CommitView, type RepoInfo } from "./codeApi";
 import { Chevron, FileIcon, Icon } from "./icons";
 import { acOf, decoOf, nameOf, parentOf } from "./model";
 

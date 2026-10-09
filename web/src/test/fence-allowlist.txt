@@ -10,4 +10,3 @@
 # Format: "core file -> plugin file", paths relative to web/, one per line, sorted. '#' starts a comment.
 
 src/builtins.ts -> src/components/helper/register.tsx
-src/builtins.ts -> src/pages/repo/register.tsx
