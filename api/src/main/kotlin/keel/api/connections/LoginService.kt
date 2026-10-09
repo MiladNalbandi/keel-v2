@@ -51,6 +51,8 @@ class LoginService(
         @Volatile var url: String? = null
         @Volatile var code: String? = null
         @Volatile var hint: String? = null
+        /** v0.15.6 the Copilot CLI's "store the token in a plain file?" question was answered */
+        @Volatile var consented = false
         val started: Instant = Instant.now()
     }
 
@@ -141,6 +143,22 @@ class LoginService(
                 .firstOrNull { "device" in it || "oauth" in it || "authorize" in it }
         }
         if (s.provider != "claude" && s.code == null) s.code = Regex("\\b[A-Z0-9]{4}-[A-Z0-9]{4,5}\\b").find(text)?.value
+        // v0.15.6 after the person authorized, the Copilot CLI finds no keychain in keel's container and asks
+        // "System keychain unavailable. Store token in plaintext config file? (y/N)" — nobody saw it, so the login waited
+        // forever. keel answers yes: the token goes to the login's own temporary folder, keel saves it encrypted (GH_TOKEN)
+        // and deletes that folder.
+        if (s.provider == "copilot" && !s.consented && Regex("(?i)store token in plain ?text").containsMatchIn(text)) {
+            s.consented = true
+            s.message = "Authorized. Saving the token…"
+            runCatching {
+                s.stdin.write((if (usePty) "y\r" else "y\n").toByteArray())
+                s.stdin.flush()
+            }
+        }
+        if (s.provider == "copilot" && Regex("(?i)token was not saved").containsMatchIn(text) && s.status !in setOf("done", "failed", "cancelled")) {
+            s.status = "failed"
+            s.message = "GitHub authorized keel, but the Copilot CLI did not save the token. Start the login again, or paste a token."
+        }
         when {
             s.provider == "claude" && s.url != null && s.status == "starting" -> {
                 s.status = "code_needed"
