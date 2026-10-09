@@ -306,6 +306,8 @@ describe("the menu and the links stay as they were", () => {
         ["budget", "Budget"],
         ["settings", "Settings"],
         ["connections", "Connections"],
+        // v0.16.0 step 4's one new page: the plugins and the marketplace
+        ["plugins", "Plugins"],
       ],
     },
   ];
@@ -334,7 +336,7 @@ describe("the menu and the links stay as they were", () => {
     ).toEqual([
       ["run", ["inbox"]],
       ["know", ["helper"]],
-      ["control", ["budget", "settings", "connections"]],
+      ["control", ["budget", "settings", "connections", "plugins"]],
     ]);
   });
 

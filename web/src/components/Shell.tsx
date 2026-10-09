@@ -2,7 +2,7 @@
 // that scrolls on its own, then the plan usage, engine + live status and the theme switch). Phones (≤ 900px): one compact bar — menu,
 // project picker, bell — over one horizontally scrollable row of every screen; Theme and the status live in the menu.
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { navGroups, saveView, useFeatures, useView, type View } from "../addons";
 import { FOCUS_EVENT, isMac, isTyping, KEYS, keyLabel, matchesAny, menuPageKey, menuPageOf } from "../keys";
@@ -16,6 +16,7 @@ import { Launcher, openLauncher } from "./launcher/Launcher";
 import { KeySheet } from "./KeySheet";
 import { NavIcon } from "./NavIcons";
 import { NotificationDrawer, Popups } from "./Notifications";
+import { isCoreOnly, StartWithSet } from "./StartWithSet";
 
 const THEME_KEY = "keel2.theme";
 
@@ -162,7 +163,9 @@ function NavLinks({ onPick, hints }: { onPick?: () => void; hints?: boolean }) {
   const features = useFeatures();
   const view = useView();
   // the menu follows the page registry (a plugin's page shows when it registers)
-  usePages();
+  const pages = usePages();
+  // v0.16.0 a keel with only its core has no Project pages: the group offers the sets of plugins instead
+  const coreOnly = isCoreOnly(features, view, pages);
   const current = page === "addon" ? route.screen : page;
   const { project, projects } = useApp();
   const running = project?.running ?? 0;
@@ -180,17 +183,20 @@ function NavLinks({ onPick, hints }: { onPick?: () => void; hints?: boolean }) {
         {waitingAll > 0 && <span className="count" title="waiting for you in all projects">◆ {waitingAll}</span>}
       </a>
       {navGroups(features, view).map((g) => (
-        <div key={g.id} className={`nav-sec ${g.pages.some((p) => p.id === current) ? "cur" : ""}`}>
-          <div className="nav-h" title={g.hint}><span>{g.label}</span>{hints && g.hint && <small>{g.hint}</small>}</div>
-          {g.pages.map((p) => (
-            <a key={p.id} href={p.addon ? hashForScreen(p.id) : hashFor(p.id)} aria-current={current === p.id ? "page" : undefined}
-              onClick={onPick} title={keyTip(p.label, ++n)}>
-              <span className="nav-l">{p.label}</span>
-              {p.addon ? null : badge(p.id)}
-              <PartBadges page={p.id} kind="nav" />
-            </a>
-          ))}
-        </div>
+        <Fragment key={g.id}>
+          <div className={`nav-sec ${g.pages.some((p) => p.id === current) ? "cur" : ""}`}>
+            <div className="nav-h" title={g.hint}><span>{g.label}</span>{hints && g.hint && <small>{g.hint}</small>}</div>
+            {g.pages.map((p) => (
+              <a key={p.id} href={p.addon ? hashForScreen(p.id) : hashFor(p.id)} aria-current={current === p.id ? "page" : undefined}
+                onClick={onPick} title={keyTip(p.label, ++n)}>
+                <span className="nav-l">{p.label}</span>
+                {p.addon ? null : badge(p.id)}
+                <PartBadges page={p.id} kind="nav" />
+              </a>
+            ))}
+          </div>
+          {coreOnly && g.id === "run" && <StartWithSet onPick={onPick} />}
+        </Fragment>
       ))}
     </>
   );

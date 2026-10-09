@@ -24,6 +24,8 @@ export const SCREEN = {
   budget: "budget",
   settings: "settings",
   connections: "connections",
+  /** v0.16.0 Control › Plugins: installed plugins, the marketplace, sources and rules */
+  plugins: "plugins",
   /** v0.13.0 a page of an add-on (keel Product): the route's `screen` names it. */
   addon: "addon",
 } as const;
@@ -60,20 +62,36 @@ export const isScreen = (s: string): s is ScreenId =>
 export const groupOf = (id: ScreenId) =>
   menuGroups().find((g) => g.pages.some(([p]) => p === id));
 
-export type Route = { page: ScreenId; arg?: string; screen?: string; /** v0.15.3 the project a link names (/projects/<id>/…) */ project?: string };
+export type Route = {
+  page: ScreenId;
+  arg?: string;
+  screen?: string;
+  /** v0.15.3 the project a link names (/projects/<id>/…) */ project?: string;
+  /** v0.16.0 what follows "?" in the link (#/plugins?set=developer), when there is something */
+  query?: string;
+};
 
-/** "#/flow", "#flow", "#/wiki/kb:architecture" → route. Unknown pages fall back to Flow. */
+/** "#/flow", "#flow", "#/wiki/kb:architecture", "#/plugins?set=developer" → route. Unknown pages fall back to Flow. */
 export function parseHash(hash: string): Route {
-  const raw = hash.replace(/^#\/?/, "");
+  const full = hash.replace(/^#\/?/, "");
+  const q = full.indexOf("?");
+  const raw = q < 0 ? full : full.slice(0, q);
+  const query = q < 0 ? "" : full.slice(q + 1);
+  const withQuery = (r: Route): Route => (query ? { ...r, query } : r);
   const [first, ...rest] = raw.split("/");
   // a page by the name it shows: #/code is the Code page (id repo), #/keelbot is KeelBot's own page (id helper)
   const page = pageFor(first)?.id ?? first;
   const arg = rest.length ? decodeURIComponent(rest.join("/")) : undefined;
-  if (isScreen(page)) return { page, arg };
+  if (isScreen(page)) return withQuery({ page, arg });
   // maybe an add-on's page (#/initiatives); the router shows Flow when no add-on has it
-  if (ADDON_SCREEN.test(page)) return { page: SCREEN.addon, screen: page, arg };
-  return { page: SCREEN.flow, arg };
+  if (ADDON_SCREEN.test(page))
+    return withQuery({ page: SCREEN.addon, screen: page, arg });
+  return withQuery({ page: SCREEN.flow, arg });
 }
+
+/** One value of the link's query (#/plugins?set=developer → "developer"), or "". */
+export const queryValue = (r: Route, key: string): string =>
+  new URLSearchParams(r.query ?? "").get(key) ?? "";
 
 const ADDON_SCREEN = /^[a-z][a-z0-9-]{1,31}$/;
 

@@ -5,6 +5,7 @@ import type { Cap, CapLeft, CapsLeft, Features, FlowBoard, FlowView, CiRun, Help
 import * as fx from "./fixtures";
 import type { GraphFocus, GraphOverview } from "./fixtures";
 import { createTaskDb, taskHandlers } from "./taskHandlers";
+import { createMarket, marketHandlers } from "./marketHandlers";
 
 /** v0.15.2 one of KeelBot's chat folders (its type is the KeelBot plugin's, plugins/keelbot/web/keelbotApi.ts) */
 type HelperFolder = { id: string; project: string; name: string; chats: number; created_at: string; updated_at: string };
@@ -91,6 +92,8 @@ export function createDb() {
     ciRuns: [] as CiRun[],
     /** v0.5.0: tasks, Jira connections, the MCP catalog */
     tk: createTaskDb(),
+    /** v0.16.0 the marketplace: the catalog, what is installed, sources, rules and sets */
+    market: createMarket(),
   };
 }
 export type Db = ReturnType<typeof createDb>;
@@ -645,6 +648,7 @@ export function handlers(db: Db) {
     http.get("/api/notification-settings", () => HttpResponse.json(db.nset)),
     http.put("/api/notification-settings", async ({ request }) => { const b = await log(request); Object.assign(db.nset, b); return HttpResponse.json(db.nset); }),
     ...taskHandlers(db.tk, log),
+    ...marketHandlers(db.market, log),
   ];
 }
 
