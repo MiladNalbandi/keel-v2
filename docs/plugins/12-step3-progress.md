@@ -116,3 +116,65 @@ web) are empty.
 The first parity run with the CLIs found one difference: Copilot's model list had 29 models on 0.15.1 and 30 on the new
 image. Copilot CLI 1.0.94 (installed at build time) added `claude-haiku-5.5`; keel reads the list from the CLI. The
 allow list now has one narrow entry for it: only the number of models from a CLI may differ.
+
+## Port of 0.15.2–0.15.4 (main merged into the track)
+
+The track forked from 0.15.1 (`eabb525`); `main` released 0.15.2, 0.15.3 and 0.15.4 after it (29 commits, up to
+`0048f6b`). They are merged **into** the track (never the other way), and each change went where that code lives now:
+
+| main's change                                                                  | on the track                                                                                                                                                         |
+| ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| KeelBot: chats kept, the chat list with folders, new answers, its own sound    | `plugins/keelbot`: engine `routes.py` (the `/helper/folders` routes) and `helper.py`, api `Helper.kt`, web `ChatList.tsx`, `chats.ts`, `unread.tsx`, `HelperPanel.tsx`, `helper.css`; tests too |
+| the engine tables `helper_folders` and `helper_sessions.folder`                | core `runtime/migrate.py` (the track keeps KeelBot's old tables core); its migration test stays core                                                                 |
+| the Git log, Recent files (⌘E), more IntelliJ keys, a branch's "Show in the log" | `plugins/code`: api `RepoLog` / `RepoLogController` (in `keel.api.repo`, on core's `RepoService`), web `Log.tsx`, `gitLog.ts`, `gitLogApi.ts`, `Recent.tsx`, the `IDE_KEYS` table in `model.ts` |
+| Code Review's keys                                                             | stay in `plugins/review/web/keymap.ts`; the chord names (Tab, Home, End, Delete, ⌫) are core's `src/keys.ts`                                                         |
+| Flow (step details, Resume, Stop asks, run history), Jobs and Live agents (Finished, search), the model picker, the key cheat sheet, the menu by keyboard, Markdown, notifications, scrolling | core, as on main (`FlowService` / `FlowController`, `Jobs.kt`, `WorkflowService`, `RunHistory.tsx`, `KeySheet.tsx`, `keys.ts`, `ModelPicker.tsx`, `ProviderIcon.tsx`, …) |
+| versions                                                                        | 0.15.4 everywhere (also `web/package.json`, which the track's version test checks)                                                                                   |
+
+**The Flyway clash.** 0.15.4 shipped `V14__thread_hidden.sql`; the track had `V14__approvals.sql` (never released). main's
+V14 stays exactly as released, and the track's became `V15__approvals.sql`. `MigrationUpgradeTest` (api) migrates a
+database with 0.15.4's history (V1–V14) to the track: only V15 runs, the rows stay, a second start changes nothing. A
+real check did the same with the images: keel 0.15.4 started on a fresh volume, then `keel-v2:port` on that volume
+started, applied V15, and `/api/approvals` answered.
+
+**Core never imports a plugin.** main's core files imported KeelBot (`Shell.tsx`, `Notifications.tsx`, `Settings.tsx`:
+`helper/unread`) and the Code page (`Shell.tsx`, `keys.ts`: `pages/repo/model`, `review/keymap`). They use extension
+points instead; the new slots are in the SDK and in [09-step2-contract.md](09-step2-contract.md#5-web-page-registry-and-slots):
+
+| slot / SDK                       | core's place                                          | KeelBot / Code / Code Review put there                                          |
+| -------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `nav.badge`                      | a menu link and its folded-menu icon                  | KeelBot: its count of new answers on KeelBot                                    |
+| `shell.watch`                    | mounted once by the shell, shows nothing              | KeelBot: watches `helper.finished`, plays its sound                             |
+| `keys.area`                      | the key cheat sheet, by order                         | Code (40), Code Review (50), KeelBot (60)                                       |
+| `notes.setting`                  | the bell's drawer › Settings                          | KeelBot: its sound's switch and test                                            |
+| `settings.browser`               | Settings › This browser                               | KeelBot: its sound's switch                                                     |
+| the assistant's `count`          | the Code page's assistant button                      | KeelBot: the same count                                                         |
+| `FOCUS_KEYS`, `FOCUS_EVENT`      | `src/keys.ts` (F6 leaves Focus mode)                  | Code: Focus mode                                                                |
+| `isTyping`, `modalOpen`, `MarkdownView`, `ProviderIcon`, `useWide`, `playKeelBot`, `KeyArea`, `KeyRow` | SDK exports                     | Code, KeelBot                                                                   |
+
+The fence: all three allowlists (engine, api, web) stay **empty**; the api fence also forbids the Git log's classes in
+core (`RepoLog`, `RepoLogController`, `GitLog`, `LogCommit`, `LogRef`, `RefItem`, `RefsView`).
+
+**Tests moved with the code:** `test_helper_folders.py` (the folder routes: the KeelBot plugin; the table's migration:
+core), `HelperFoldersApiTest` (keelbot), `RepoLogApiTest` (code), `keelbot-chats.test.tsx` (keelbot), `gitlog.test.tsx`
+(code), and the Code keys of main's `keys.test.tsx` (code). New: `shellslots.test.tsx` and a part's `keys.area` (core),
+KeelBot's keys in the sheet (keelbot), `MigrationUpgradeTest` (api).
+
+**The parity e2e** now also asks main's new read-only GETs (Finished and the search on `/api/jobs`, `/api/jobs/count`,
+`/repo/refs`, `/repo/log` with its filters and errors, `/helper/folders`, a deleted or unknown flow, the run history's
+new fields), 122 endpoints per round (132 in the flow round), and compares with **0.15.4**.
+
+### Check (on the port, the full image built the normal way: with the agent CLIs and CodeGraph)
+
+| what                                         | result                                                                                   |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| engine core / plugin engines / Product       | 827 · ci 17, db 25 (+8 skipped), git 22, graph 28, keelbot 43, map 36, review 15, wiki 4 · 15 |
+| api, all source sets                         | 258 passed                                                                               |
+| web (tsc, vitest, build, plugins, product)   | 486 of 486 passed, all builds ok                                                         |
+| no-v1                                        | clean                                                                                    |
+| e2e: Code Review / Product / plugin host     | 23 / 27 / 36 checks passed                                                               |
+| **parity e2e: 0.15.4 vs the port's image**   | **0 differences** (api 122 / 122 / 132 same, mcp 2 / 2 / 2, web 28 pages same in each round, the flow round same) |
+
+The only allowed difference is `/api/features.plugins` (the plugin host). The Copilot model count entry matched nothing
+this time (0.15.4's image has the same CLI); it stays, because the CLIs are installed at their newest version when an
+image is built.
