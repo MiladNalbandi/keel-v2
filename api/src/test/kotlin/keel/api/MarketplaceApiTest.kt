@@ -352,6 +352,34 @@ class MarketplaceApiTest : ApiTest() {
         assertThat(other.fieldNames().asSequence().toList()).containsExactly("error", "hint")
     }
 
+    @Test
+    fun `a workflow's needs_plugins reaches the engine when it starts, and only a workflow that has it shows the key`() {
+        val (pid, _) = newProject("mkt-needs-body")
+        val yaml = "name: needs db\nkeel_rules: false\nneeds_plugins: [db]\nsteps:\n  - { id: wait, kind: gate, name: wait here, phase: review }\n"
+        val wf = post("/api/projects/$pid/workflows/import", mapOf("yaml" to yaml)).andExpect(status().isOk).json()["workflow"]
+        assertThat(wf["needs_plugins"].map { it.asText() }).containsExactly("db")
+        post("/api/projects/$pid/flows", mapOf("workflow_id" to wf["id"].asText(), "title" to "Needs db")).andExpect(status().isOk)
+        assertThat(engine.lastBody("/threads")!!["workflow"]["needs_plugins"].map { it.asText() }).containsExactly("db")
+        // a plugin's template that needs plugins (the engine lists it with needs_plugins) keeps them too
+        val added = mapOf("id" to "needs-git", "name" to "needs git", "keel_rules" to false, "needs_plugins" to listOf("git"),
+            "steps" to listOf(mapOf("id" to "wait", "kind" to "gate", "name" to "wait here", "phase" to "review")))
+        engine.extraTemplates += added
+        try {
+            assertThat(get("/api/workflows/needs-git").json()["needs_plugins"].map { it.asText() }).containsExactly("git")
+            val (other, _) = newProject("mkt-needs-template")
+            post("/api/projects/$other/flows", mapOf("workflow_id" to "needs-git", "title" to "Needs git")).andExpect(status().isOk)
+            assertThat(engine.lastBody("/threads")!!["workflow"]["needs_plugins"].map { it.asText() }).containsExactly("git")
+        } finally {
+            engine.extraTemplates -= added
+        }
+        // every other workflow's answer and start body stay as they were: no needs_plugins key
+        assertThat(get("/api/workflows/feature").json().has("needs_plugins")).isFalse()
+        assertThat(get("/api/projects/$pid/workflows").json().none { it.has("needs_plugins") && it["id"].asText() != wf["id"].asText() }).isTrue()
+        val (plain, _) = newProject("mkt-needs-none")
+        post("/api/projects/$plain/flows", mapOf("workflow_id" to "feature", "title" to "Scores")).andExpect(status().isOk)
+        assertThat(engine.lastBody("/threads")!!["workflow"].has("needs_plugins")).isFalse()
+    }
+
     // ---------- restart
 
     @Test

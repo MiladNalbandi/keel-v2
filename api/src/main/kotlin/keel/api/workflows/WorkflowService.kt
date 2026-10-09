@@ -52,7 +52,8 @@ class WorkflowService(
         val yaml = node.get("yaml")?.asText()?.takeIf { it.isNotBlank() }
             ?: WorkflowDoc(name = name, basedOn = node.get("based_on")?.asText(), keelRules = keelRules, steps = steps).toYaml()
         return Workflow(id, name, node.get("based_on")?.takeIf { !it.isNull }?.asText(), keelRules, node.get("version")?.asInt(1) ?: 1, steps, yaml, "keel",
-            plugin = node.get("plugin")?.takeIf { !it.isNull }?.asText(), addon = node.get("addon")?.takeIf { !it.isNull }?.asText())
+            plugin = node.get("plugin")?.takeIf { !it.isNull }?.asText(), addon = node.get("addon")?.takeIf { !it.isNull }?.asText(),
+            needsPlugins = node.get("needs_plugins")?.takeIf { it.isArray }?.map { it.asText() }?.takeIf { it.isNotEmpty() })
     }
 
     // ---- stored workflows -----------------------------------------------------------------
@@ -64,7 +65,8 @@ class WorkflowService(
 
     private fun toWorkflow(r: WorkflowRow): Workflow {
         val doc = runCatching { WorkflowDoc.parse(r.yaml) }.getOrElse { WorkflowDoc(name = r.id) }
-        return Workflow(r.id, doc.name, doc.basedOn, doc.keelRules, r.version, doc.steps, r.yaml, r.source)
+        return Workflow(r.id, doc.name, doc.basedOn, doc.keelRules, r.version, doc.steps, r.yaml, r.source,
+            needsPlugins = doc.needsPlugins?.takeIf { it.isNotEmpty() })
     }
 
     /**
@@ -157,7 +159,7 @@ class WorkflowService(
             from == "blank" -> WorkflowDoc(name = name, keelRules = keelRules ?: false, steps = emptyList())
             from.startsWith("template:") -> {
                 val t = get(from.removePrefix("template:"))
-                WorkflowDoc(name = name, basedOn = "keel/${t.id}", keelRules = keelRules ?: t.keelRules, steps = t.steps)
+                WorkflowDoc(name = name, basedOn = "keel/${t.id}", keelRules = keelRules ?: t.keelRules, needsPlugins = t.needsPlugins, steps = t.steps)
             }
             from.startsWith("library:") -> {
                 val lib = libraryDoc(from.removePrefix("library:"))

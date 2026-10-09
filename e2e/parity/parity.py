@@ -421,6 +421,9 @@ ENDPOINTS = [
     # added by the plugin track (steps 1 and 2): "new in B"
     "/api/approvals", "/api/plugin-host", "/api/connections/kinds", "/api/settings/sections", "/api/settings/plugins/git",
     "/api/projects/{pid}/settings/plugins/git",
+    # added by step 4 (the marketplace): "new in B"
+    "/api/plugins/installed", "/api/plugins/sources", "/api/plugins/rules", "/api/plugins/sets", "/api/marketplace",
+    "/api/marketplace?q=db&category=code",
     # the project
     "/api/projects/{pid}", "/api/projects/{pid}/index", "/api/projects/{pid}/flow", "/api/projects/{pid}/flows",
     "/api/projects/{pid}/runs", "/api/projects/{pid}/runs?workflow={wid}", "/api/projects/{pid}/estimate?workflow_id={wid}&acs=3",
@@ -669,7 +672,13 @@ def mcp_parity(a: Keel, b: Keel, phase: str) -> list[dict]:
     for write in (False, True):
         ta, tb = mcp_tools(a, write), mcp_tools(b, write)
         ident = f"mcp {'--write' if write else '--read-only'} tools/list [{phase}]"
-        details = [] if ta == tb else [f"A: {', '.join(ta)}", f"B: {', '.join(tb)}"]
+        if ta == tb:
+            details = []
+        elif tb[:len(ta)] == ta:
+            # A's list kept whole and in its order: only what B adds after it (an allow entry can name exactly that)
+            details = [f"B adds at the end: {', '.join(tb[len(ta):])}"]
+        else:
+            details = [f"A: {', '.join(ta)}", f"B: {', '.join(tb)}"]
         rows.append({"id": ident, "verdict": "same" if not details else "different", "details": details})
     return rows
 

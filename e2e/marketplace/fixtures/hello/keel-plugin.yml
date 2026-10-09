@@ -1,0 +1,18 @@
+# hello: the test plugin of the marketplace e2e (e2e/marketplace/e2e.py). Content (a workflow and an agent), a web
+# part (a page "Hello") and an engine part (one route, /hello/ping). The e2e packs it as 1.0.0, 1.1.0 and 1.2.0: it
+# writes the version here and in engine/keel_plugin_hello/__init__.py, and 1.2.0 asks for one more permission.
+schema: 1
+name: hello
+title: Hello
+version: 1.0.0
+publisher: e2e
+summary: A test plugin of the marketplace e2e - a workflow, an agent, a page and one engine route.
+requires:
+  sdk: 1
+parts:
+  engine: { path: engine, package: keel_plugin_hello }
+  web: { entry: web/index.js }
+  content: content
+permissions:
+  workspace: read
+per_project: false
