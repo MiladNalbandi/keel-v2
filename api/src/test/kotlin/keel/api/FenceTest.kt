@@ -91,28 +91,30 @@ class FenceTest {
             import keel.api.jira.*
             import keel.api.projects.ProjectService
             import keel.api.pluginhost.PluginHost
+            import keel.api.helper.HelperService
 
-            // keel.api.helper.InComment is only named in a comment
-            /* keel.api.helper.InBlock /* nested */ keel.api.helper.StillInBlock */
+            // keel.api.plugins.InComment is only named in a comment
+            /* keel.api.plugins.InBlock /* nested */ keel.api.plugins.StillInBlock */
             class FlowService(private val plugins: keel.api.plugins.PluginService) {
-                val s = "http://x // not a comment §{keel.api.helper.Helper.NAME} and §{listOf("a").map { "§it" }}"
+                val s = "http://x // not a comment §{keel.api.plugins.Git.NAME} and §{listOf("a").map { "§it" }}"
                 val c = '"'
                 fun f() = keel.product.ProductService.X
             }
             """.trimIndent().replace('§', '$'),
         )
-        write(root, "keel/api/helper/HelperService.kt", "package keel.api.helper\n\nimport keel.product.X\nimport keel.api.plugins.Y\n")
+        write(root, "keel/api/plugins/GitPluginService.kt", "package keel.api.plugins\n\nimport keel.product.X\nimport keel.api.helper.Y\n")
         write(root, "keel/api/KeelApiApplication.kt", "package keel.api\n\nfun main() = Unit\n")
 
         val found = Fence.scan(root)
 
         assertThat(found.couplings).containsExactlyInAnyOrder(
-            "keel.api.flow.FlowService -> keel.api.helper.Helper",
+            "keel.api.flow.FlowService -> keel.api.plugins.Git",
             "keel.api.flow.FlowService -> keel.api.plugins.PluginService",
         )
-        // a plugin part may use anything; only core is checked. Tasks, Jira and Code Review moved out: core may never use
-        // them again.
+        // a plugin part may use anything; only core is checked. Tasks, Jira, Code Review and KeelBot moved out: core may
+        // never use them again.
         assertThat(found.forbidden).containsExactlyInAnyOrder(
+            "keel.api.flow.FlowService -> keel.api.helper.HelperService",
             "keel.api.flow.FlowService -> keel.api.jira.*",
             "keel.api.flow.FlowService -> keel.api.review.ReviewAiService",
             "keel.api.flow.FlowService -> keel.api.tasks.TaskService",
@@ -146,15 +148,15 @@ private object Fence {
     const val GUIDE = "docs/plugins/02-plugin-package.md"
 
     // The packages that become plugins (docs/plugins/01-today.md). keel.api.repo and keel.api.knowledge stay core.
-    val PLUGINS = listOf("keel.api.helper", "keel.api.plugins")
+    val PLUGINS = listOf("keel.api.plugins")
 
     // Core never uses these, not even today. They can never be in the allowlist. The parts that moved out keep their
     // package, and core never uses it again (step 3): keel.api.map (plugins/map), keel.api.wiki (plugins/wiki),
-    // keel.api.tasks (plugins/tasks), keel.api.jira (plugins/jira), keel.api.review (plugins/review), the Ci* classes
-    // of CI/CD (plugins/ci), the Database* and Db* classes of Database (plugins/db) and the Git* classes of Git
-    // (plugins/git), all in keel's package keel.api.plugins.
+    // keel.api.tasks (plugins/tasks), keel.api.jira (plugins/jira), keel.api.review (plugins/review), keel.api.helper
+    // (KeelBot, plugins/keelbot), the Ci* classes of CI/CD (plugins/ci), the Database* and Db* classes of Database
+    // (plugins/db) and the Git* classes of Git (plugins/git), all in keel's package keel.api.plugins.
     val FORBIDDEN = listOf(
-        "keel.product", "keel.api.map", "keel.api.wiki", "keel.api.tasks", "keel.api.jira", "keel.api.review",
+        "keel.product", "keel.api.map", "keel.api.wiki", "keel.api.tasks", "keel.api.jira", "keel.api.review", "keel.api.helper",
         "keel.api.plugins.CiController", "keel.api.plugins.CiFixBody", "keel.api.plugins.CiService",
         "keel.api.plugins.DatabaseConnectionKind", "keel.api.plugins.DatabaseController", "keel.api.plugins.DatabaseKeys",
         "keel.api.plugins.DatabaseService", "keel.api.plugins.DbConnection", "keel.api.plugins.DbConnectionBody",

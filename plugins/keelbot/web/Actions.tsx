@@ -1,5 +1,5 @@
 // v0.9.0 KeelBot's buttons (v0.10.0: keel-query and keel-git from the Database and Git plugins: QueryCard, GitCard).
-// An answer may end with action blocks (engine runtime/keelbot.py): ```keel-start {json}```
+// An answer may end with action blocks (the plugin's engine, keel_plugin_keelbot/keelbot.py): ```keel-start {json}```
 // becomes a card that starts a flow when the person presses Start; ```keel-workflow <yaml>``` becomes a card that keel
 // checks (POST …/workflows/check) and the person saves (POST …/workflows/import, into a folder if they like). Nothing
 // starts or is saved without a press.
@@ -8,11 +8,19 @@
 // (plugins/git/web/GitCard.tsx), so KeelBot imports no plugin.
 
 import { useEffect, useState } from "react";
-import { api, errorParts, type Workflow, type WorkflowCheck } from "../../api";
-import { useSlot } from "../../sdk/registry";
-import { SLOTS, type KeelbotBlock, type KeelbotCardItem } from "../../sdk/slots";
-import { go, useLoad } from "../../state";
-import { CodeBlock } from "../Code";
+import {
+  CodeBlock,
+  errorParts,
+  go,
+  SLOTS,
+  useLoad,
+  useSlot,
+  type KeelbotBlock,
+  type KeelbotCardItem,
+  type Workflow,
+  type WorkflowCheck,
+} from "@keel/web-sdk";
+import { kb } from "./keelbotApi";
 
 export type Segment =
   { kind: "text"; text: string } | { kind: "start" | "workflow" | "query" | "git" | "ci"; body: string };
@@ -79,7 +87,7 @@ function parseStart(body: string): StartSpec | null {
 /** "Start a flow": the workflow KeelBot suggests, a title the person can change, and the request every agent gets. */
 export function StartCard({ pid, body }: { pid: string; body: string }) {
   const spec = parseStart(body);
-  const wfs = useLoad(pid ? `wfs:${pid}` : null, () => api.workflows(pid), {
+  const wfs = useLoad(pid ? `wfs:${pid}` : null, () => kb.workflows(pid), {
     live: false,
   });
   const [title, setTitle] = useState(spec?.title ?? "");
@@ -105,7 +113,7 @@ export function StartCard({ pid, body }: { pid: string; body: string }) {
     setBusy(true);
     setErr(null);
     try {
-      const t = await api.startFlow(pid, {
+      const t = await kb.startFlow(pid, {
         workflow_id: spec.workflow,
         title: title.trim(),
         request: spec.request,
@@ -224,7 +232,7 @@ export function WorkflowCard({
   );
   useEffect(() => {
     let live = true;
-    api.checkWorkflow(pid, body).then(
+    kb.checkWorkflow(pid, body).then(
       (c) => live && setCheck(c),
       (e) => live && setCheckErr(errorParts(e).message),
     );
@@ -236,7 +244,7 @@ export function WorkflowCard({
     setBusy(true);
     setErr(null);
     try {
-      const r = await api.importWorkflow(pid, {
+      const r = await kb.importWorkflow(pid, {
         yaml: body,
         ...(folder.trim() ? { folder: folder.trim() } : {}),
       });
@@ -382,14 +390,14 @@ export function CiCard({ pid, body }: { pid: string; body: string }) {
     setErr(null);
     try {
       if (op === "fix") {
-        const t = await api.ciFix(pid, spec.run);
+        const t = await kb.ciFix(pid, spec.run);
         setDone({ text: "The fix flow started: it reads the failure, fixes it, commits, pushes and waits for CI.", tid: t.thread_id });
       } else {
-        const run = spec.run ?? (await api.ciRuns(pid)).find((r) => r.failed)?.id;
+        const run = spec.run ?? (await kb.ciRuns(pid)).find((r) => r.failed)?.id;
         if (!run) {
           setDone({ text: "No failed run to start again." });
         } else {
-          await api.ciRerun(pid, run);
+          await kb.ciRerun(pid, run);
           setDone({ text: `The failed jobs of run #${run} run again.` });
         }
       }

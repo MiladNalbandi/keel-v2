@@ -265,7 +265,11 @@ its own plugins" works.
 
 **Engine hooks** (in the `ADDON` dict): `actions`, `router`, `fake`, `mcp` (an MCP server for agents, reached through
 the existing per-call key and `/plugins/call`), `on_scan`, `on_commit`, `on_thread_start`, `prompt_context` (Graph uses
-it for hints and the code-graph server), `pr_body_sections` (KeelBot uses it for its commits), `listens`.
+it for hints and the code-graph server), `pr_body_sections` (KeelBot uses it for its commits), `listens`. Since step 3
+(KeelBot, wave C) also `lifespan` (what runs as long as keel's engine runs, KeelBot's runner: `fn(app)` that returns an
+async context manager, or `{start, stop}`; keel starts them in the registry's order and stops them in reverse, before
+its engine and its event bus) and `open_paths` (routes that check a key of their own and need no internal token:
+KeelBot's `/helper/permissions/ask`). The full list is in `engine/keel_engine/extensions.py`.
 
 ## 2.7 Names: a plugin stays in its own box
 

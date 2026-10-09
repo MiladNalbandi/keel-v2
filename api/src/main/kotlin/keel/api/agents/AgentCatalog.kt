@@ -2,6 +2,7 @@ package keel.api.agents
 
 import keel.api.common.KeelProperties
 import keel.api.common.Yaml
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.stereotype.Component
 import java.nio.file.Files
 import java.nio.file.Path
@@ -79,15 +80,29 @@ object FrontMatter {
     }
 }
 
-/** keel's agents (one markdown file per agent in content/agents) and which keel phases each one works in. */
+/**
+ * A part's own agent files (`<id>.md` in its plugin's content/agents), listed with keel's on the Agents page and used
+ * like them: KeelBot's `helper` agent (plugins/keelbot). keel's own file wins when both have a name.
+ */
+fun interface AgentFiles {
+    fun files(): List<Path>
+}
+
+/** keel's agents (one markdown file per agent in content/agents, plus the parts' [AgentFiles]) and which keel phases
+ *  each one works in. */
 @Component
-class AgentCatalog(private val props: KeelProperties) {
+class AgentCatalog(private val props: KeelProperties, private val parts: ObjectProvider<AgentFiles>) {
 
     fun defaults(): List<AgentDef> {
         val dir = props.contentDir.resolve("agents")
-        if (!Files.isDirectory(dir)) return emptyList()
-        return Files.list(dir).use { s -> s.filter { it.toString().endsWith(".md") }.sorted().toList() }
-            .mapNotNull { read(it) }
+        val own = if (Files.isDirectory(dir)) Files.list(dir).use { s -> s.filter { it.toString().endsWith(".md") }.toList() } else emptyList()
+        val names = own.map { it.fileName.toString() }.toSet()
+        val more = parts.orderedStream().toList()
+            .flatMap { runCatching { it.files() }.getOrDefault(emptyList()) }
+            .filter { it.fileName.toString().endsWith(".md") && it.fileName.toString() !in names && Files.isRegularFile(it) }
+            .distinctBy { it.fileName.toString() }
+        // one list in file-name order, as keel's own folder listed them
+        return (own + more).sortedBy { it.fileName.toString() }.mapNotNull { read(it) }
     }
 
     fun find(id: String): AgentDef? = defaults().firstOrNull { it.id == id }

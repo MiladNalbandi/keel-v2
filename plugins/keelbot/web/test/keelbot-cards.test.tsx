@@ -1,17 +1,17 @@
-// KeelBot's slot keelbot.card (step 3): a block of a kind no core card handles is the card a plugin put in the slot for
-// that kind (the Database plugin's keel-query: plugins/db/web/test); without one, the block shows as its code.
+// KeelBot's slot keelbot.card (step 3): a block of a kind no KeelBot card handles is the card a plugin put in the slot
+// for that kind (the Database plugin's keel-query: plugins/db/web/test); without one, the block shows as its code.
 
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { SlotCard } from "../components/helper/Actions";
-import { registerSlot } from "../sdk/registry";
-import {
-  SLOTS,
-  type KeelbotCardItem,
-  type KeelbotCardProps,
-} from "../sdk/slots";
+import { registerSlot, SLOTS, type KeelbotCardItem, type KeelbotCardProps } from "@keel/web-sdk";
+import { SlotCard, splitActions } from "../Actions";
 
 describe("KeelBot's cards from plugins (keelbot.card)", () => {
+  it("reads the plugins' blocks (keel-query, keel-git) among the others", () => {
+    const segs = splitActions('Here:\n```keel-query\n{"sql": "select 1"}\n```\n```keel-git\n{"op": "push"}\n```');
+    expect(segs.map((x) => x.kind)).toEqual(["text", "query", "git"]);
+  });
+
   it("a plugin's card for the block's kind gets the block and the project", () => {
     const off = registerSlot<KeelbotCardItem>(SLOTS.keelbotCard, {
       id: "test",

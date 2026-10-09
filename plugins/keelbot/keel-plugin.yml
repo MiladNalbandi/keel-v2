@@ -1,0 +1,21 @@
+# KeelBot as a plugin (docs/plugins/11-step3-contract.md, wave C). scripts/build-plugin.sh packs it:
+# keelbot-<version>.kplug. Paths are relative to the plugin folder. The version must equal VERSION in
+# engine/keel_plugin_keelbot/__init__.py (engine/tests/test_keelbot_part.py checks it). Each part is written on one line
+# (scripts/build-plugin.sh reads them).
+# What stays in keel's core: "ask a person and wait" (approvals, the Inbox, keel2 mcp --write) and KeelBot's old tables
+# (the engine DB's helper_sessions, helper_messages, helper_files). Its web part brings its own stylesheet (web/style.css,
+# the look of keel 0.15.1's helper.css). Code Review needs it (plugins/review: its AI runs in KeelBot's sessions).
+schema: 1
+name: keelbot
+title: KeelBot
+version: 1.0.0
+publisher: keel
+summary: keel's chat about your project, in the Code page and on a page of its own - it answers with file:line links, suggests the right workflow, and fixes things at a gate or in its own worktree.
+requires:
+  sdk: 1
+parts:
+  engine: { path: engine, package: keel_plugin_keelbot }
+  api: { jars: [api/keel-plugin-keelbot.jar] }
+  web: { entry: web/index.js, css: [web/style.css] }
+  content: content
+per_project: false

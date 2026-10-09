@@ -22,11 +22,12 @@ import { App } from "../App";
 import { navGroups } from "../addons";
 import "../corePages";
 import { NavIcon } from "../components/NavIcons";
-import { PREFILL_KEY } from "../components/helper/model";
 import { GROUP_HEADS, hashFor, menuGroups, parseHash } from "../routes";
 import type { Features } from "../api";
 
 const nav = () => screen.getByRole("navigation", { name: "Screens" });
+// where KeelBot's own page finds the text another part handed over (its plugin: plugins/keelbot/web/model.ts)
+const PREFILL_KEY = "keel2.keelbot.prefill";
 
 describe("registerPage", () => {
   it("adds a page, finds it by id or alias, and takes it away again", () => {

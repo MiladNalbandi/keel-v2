@@ -1023,29 +1023,12 @@ export const api = {
 
   // control
   budget: (pid: string) => get<Budget>(`/projects/${e(pid)}/budget`),
-  helperSessions: (pid: string) => get<HelperSession[]>(`/projects/${e(pid)}/helper/sessions`),
+  // KeelBot (plugins/keelbot, its own calls: keelbotApi.ts): the launcher's read-only question (⌘K, Ask)
   helperCreate: (pid: string, body: { mode?: HelperMode; model?: Model; title?: string } = {}) =>
     post<HelperSession>(`/projects/${e(pid)}/helper/sessions`, body),
   helperSession: (pid: string, sid: string) => get<HelperSession>(`/projects/${e(pid)}/helper/sessions/${e(sid)}`),
-  helperPatch: (pid: string, sid: string, body: { title?: string; model?: Model }) =>
-    patch<HelperSession>(`/projects/${e(pid)}/helper/sessions/${e(sid)}`, body),
-  helperDelete: (pid: string, sid: string) => del<{ ok: boolean }>(`/projects/${e(pid)}/helper/sessions/${e(sid)}`),
   helperTurn: (pid: string, sid: string, body: { text: string; model?: Model; mentions?: HelperMention[]; selection?: HelperSelection; open_file?: string }) =>
     post<HelperTurnStarted>(`/projects/${e(pid)}/helper/sessions/${e(sid)}/turn`, body),
-  helperStop: (pid: string, sid: string) => post<HelperSession>(`/projects/${e(pid)}/helper/sessions/${e(sid)}/stop`),
-  helperCommands: (pid: string) => get<HelperCommand[]>(`/projects/${e(pid)}/helper/commands`),
-  helperChanges: (pid: string, sid: string) => get<HelperChange[]>(`/projects/${e(pid)}/helper/sessions/${e(sid)}/changes`),
-  helperUndo: (pid: string, sid: string, path?: string) => post<HelperChange[]>(`/projects/${e(pid)}/helper/sessions/${e(sid)}/undo`, path ? { path } : {}),
-  helperDone: (pid: string, sid: string, message = "") =>
-    post<HelperDone>(`/projects/${e(pid)}/helper/sessions/${e(sid)}/done`, message.trim() ? { message: message.trim() } : {}),
-  helperHandover: (pid: string, sid: string) => get<HelperHandover>(`/projects/${e(pid)}/helper/sessions/${e(sid)}/handover`),
-  helperToTask: (pid: string, sid: string, body: { title?: string; type?: string } = {}) =>
-    post<{ id: string; title: string }>(`/projects/${e(pid)}/helper/sessions/${e(sid)}/task`, body),
-  helperToFlow: (pid: string, sid: string, body: { title?: string; workflow_id?: string } = {}) =>
-    post<ThreadState>(`/projects/${e(pid)}/helper/sessions/${e(sid)}/flow`, body),
-  helperPermissions: (pid: string) => get<HelperQuestion[]>(`/projects/${e(pid)}/helper/permissions`),
-  helperAnswer: (pid: string, qid: string, decision: "once" | "always" | "deny", why = "") =>
-    post<{ id: string; decision: string }>(`/projects/${e(pid)}/helper/permissions/${e(qid)}`, { decision, why }),
   graph: (pid: string) => get<GraphOverview>(`/projects/${e(pid)}/graph`),
   graphSearch: (pid: string, q: string) => get<{ available: boolean; reason?: string; results: GraphHit[] }>(`/projects/${e(pid)}/graph/search?q=${e(q)}`),
   graphNode: (pid: string, id: string, depth = 1) => get<GraphFocus>(`/projects/${e(pid)}/graph/node?id=${e(id)}&depth=${depth}`),
@@ -1073,10 +1056,6 @@ export const api = {
   setPlugin: (pid: string, name: string, enabled: boolean, scope: "project" | "all" = "project") =>
     put<Plugin[]>(`/projects/${e(pid)}/plugins/${e(name)}`, { enabled, scope }),
   github: () => get<{ set: boolean; hint: string | null; from: "keel" | "env" | null }>("/github"),
-  // the CI/CD plugin's calls KeelBot's CI button makes (Jobs › Pipelines is the plugin's own page part: plugins/ci/web)
-  ciRuns: (pid: string, branch?: string) => get<CiRun[]>(`/projects/${e(pid)}/ci/runs${q({ branch })}`),
-  ciRerun: (pid: string, id: number) => post<{ id: number; rerun: boolean }>(`/projects/${e(pid)}/ci/runs/${id}/rerun`),
-  ciFix: (pid: string, run?: number) => post<ThreadState>(`/projects/${e(pid)}/ci/fix`, run ? { run } : {}),
   // the Code page's branch tab (pages/repo/Branch.tsx) reads a branch and switches with the Git plugin's api; the Git
   // plugin's panel and KeelBot buttons have their own calls (plugins/git/web/gitApi.ts)
   gitSwitch: (pid: string, branch: string, create = false) => post<{ branch: string }>(`/projects/${e(pid)}/git/switch`, { branch, create }),

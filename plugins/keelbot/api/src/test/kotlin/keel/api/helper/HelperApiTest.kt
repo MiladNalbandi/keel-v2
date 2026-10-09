@@ -1,4 +1,4 @@
-package keel.api
+package keel.api.helper
 
 import keel.api.support.ApiTest
 import org.assertj.core.api.Assertions.assertThat
@@ -9,7 +9,11 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders
 import org.springframework.http.MediaType
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 
-/** v0.6.0 KeelBot: the api's sessions proxy the engine, a turn carries what the engine needs, and its events are agent calls. */
+/**
+ * v0.6.0 KeelBot: the api's sessions proxy the engine, a turn carries what the engine needs (the project's workflows and
+ * flows too, v0.9.0), its events are agent calls, and its old permission routes answer through core approvals. Moved
+ * with the plugin (plugins/keelbot); it runs with keel's test support (ApiTest, StubEngine).
+ */
 class HelperApiTest : ApiTest() {
     @Autowired lateinit var jdbc: JdbcTemplate
 
@@ -208,5 +212,88 @@ class HelperApiTest : ApiTest() {
         assertThat(engine.lastBody("/threads")!!["request"].asText()).contains("branch `keel/helper/abc`")
         // and not twice: a flow now runs in the folder
         post("/api/projects/$pid/helper/sessions/$sid/flow", mapOf("workflow_id" to "feature")).andExpect(status().isConflict)
+    }
+
+    private fun startFlow(pid: String, title: String) =
+        post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to title, "allow_fake" to true, "allow_dirty" to true,
+            "where" to "worktree")).andExpect(status().isOk)
+
+    @Test
+    fun `every KeelBot message carries the workflows it can suggest and the project's flows`() {
+        val (pid, _) = newProject("keelbot-context")
+        engine.nextThreadIds.addAll(listOf("t-kb-1", "t-kb-2"))
+        startFlow(pid, "Euro prices")
+        startFlow(pid, "Score ranks")
+        val sid = post("/api/projects/$pid/helper/sessions", emptyMap<String, Any>()).andExpect(status().isOk).json()["id"].asText()
+        post("/api/projects/$pid/helper/sessions/$sid/turn", mapOf("text" to "Which workflow for a new report page?")).andExpect(status().isOk)
+        val keel = engine.lastBody("/helper/sessions/$sid/turn")!!["keel"]
+        val feature = keel["workflows"].first { it["id"].asText() == "feature" }
+        assertThat(feature["source"].asText()).isEqualTo("keel")
+        assertThat(feature["steps"].size()).isGreaterThan(0)
+        assertThat(feature["last_run"]["title"].asText()).isEqualTo("Score ranks")
+        assertThat(keel["flows"].map { it["title"].asText() }).containsExactly("Score ranks", "Euro prices")
+        assertThat(keel["flows"][0]["workflow"].asText()).isEqualTo("feature")
+        assertThat(keel["flows"][0]["thread_id"].asText()).isEqualTo("t-kb-2")
+    }
+
+    @Test
+    fun `KeelBot's old answer route delegates to approvals, for this project's questions only`() {
+        val (pid, _) = newProject("appr-old")
+        val (other, _) = newProject("appr-other")
+        val q = mapOf("id" to "p_d00000000001", "kind" to "command", "project" to pid, "title" to "Fix the totals",
+            "command" to "npm install left-pad", "path" to "", "source" to "keelbot", "thread_id" to null, "session" to "h_1",
+            "at" to java.time.Instant.now().toString())
+        engine.helperQuestions += q
+        post("/internal/events", listOf(mapOf("type" to "approval.asked", "thread_id" to "h_1", "project_id" to pid, "step" to "approval",
+            "at" to java.time.Instant.now().toString(), "data" to q)), mapOf("X-Keel-Token" to TOKEN)).andExpect(status().isOk)
+        assertThat(get("/api/projects/$pid/helper/permissions").json().map { it["id"].asText() }).containsExactly("p_d00000000001")
+        // another project cannot answer it
+        post("/api/projects/$other/helper/permissions/p_d00000000001", mapOf("decision" to "once")).andExpect(status().isNotFound)
+        val r = post("/api/projects/$pid/helper/permissions/p_d00000000001", mapOf("decision" to "once")).andExpect(status().isOk).json()
+        assertThat(r["decision"].asText()).isEqualTo("once")
+        assertThat(engine.lastBody("/approvals/p_d00000000001")!!["decision"].asText()).isEqualTo("once")
+        assertThat(get("/api/projects/$pid/helper/permissions").json().size()).isZero()
+    }
+
+    @Test
+    fun `its turns are agent calls through its event handler, never a flow`() {
+        val (pid, _) = newProject("appr-handlers")
+        fun ev(type: String, at: String, data: Map<String, Any?>) = mapOf("type" to type, "thread_id" to "h_z", "project_id" to pid,
+            "step" to "helper", "call_id" to "c-appr-1", "at" to at, "data" to data)
+        post("/internal/events", listOf(
+            ev("helper.started", "2026-10-08T10:00:00Z", mapOf("provider" to "fake", "mode" to "api", "phase" to "helper-ask")),
+            ev("helper.step", "2026-10-08T10:00:01Z", mapOf("n" to 1, "kind" to "tool", "server" to "keel-db", "text" to "db_query")),
+            ev("helper.finished", "2026-10-08T10:00:02Z", mapOf("status" to "done", "tokens_in" to 10, "tokens_out" to 2)),
+        ), mapOf("X-Keel-Token" to TOKEN)).andExpect(status().isOk)
+        val row = jdbc.queryForMap("SELECT agent, status, steps_count, mcp_calls, tokens_in, mode FROM agent_calls WHERE id = 'c-appr-1'")
+        assertThat(row["agent"]).isEqualTo("helper")
+        assertThat(row["status"]).isEqualTo("done")
+        assertThat((row["steps_count"] as Number).toInt()).isEqualTo(1)
+        assertThat((row["mcp_calls"] as Number).toInt()).isEqualTo(1)
+        assertThat((row["tokens_in"] as Number).toInt()).isEqualTo(10)
+        assertThat(row["mode"]).isEqualTo("fake")
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM threads WHERE id = 'h_z'", Int::class.java)).isZero()   // never a flow
+    }
+
+    @Test
+    fun `a turn carries the project's plugins and their secrets, and the commands come with its plugins`() {
+        val (pid, _) = newProject("plug-flow")
+        put("/api/projects/$pid/plugins/db", mapOf("enabled" to true)).andExpect(status().isOk)
+        put("/api/projects/$pid/plugins/git", mapOf("enabled" to true)).andExpect(status().isOk)
+        put("/api/secrets/GITHUB_REPO_TOKEN", mapOf("value" to " ghp_example token ")).andExpect(status().isOk)
+        val sid = post("/api/projects/$pid/helper/sessions", emptyMap<String, Any>()).json()["id"].asText()
+        post("/api/projects/$pid/helper/sessions/$sid/turn", mapOf("text" to "How many scores?")).andExpect(status().isOk)
+        val turn = engine.lastBody("/helper/sessions/$sid/turn")!!
+        assertThat(turn["plugins"].map { it.asText() }).containsExactly("db", "git")
+        assertThat(turn["keys"]["github"].asText()).isEqualTo("ghp_exampletoken")
+        get("/api/projects/$pid/helper/commands").andExpect(status().isOk)
+        assertThat(engine.lastBody("/helper/commands")!!["plugins"].map { it.asText() }).containsExactly("db", "git")
+        mvc.perform(MockMvcRequestBuilders.delete("/api/secrets/GITHUB_REPO_TOKEN")).andExpect(status().isOk)
+    }
+
+    @Test
+    fun `KeelBot uses the Workspace, not the Code page's RepoService`() {
+        val needs = HelperService::class.java.constructors.flatMap { it.parameterTypes.toList() }
+        assertThat(needs).contains(keel.api.workspace.Workspace::class.java).doesNotContain(keel.api.repo.RepoService::class.java)
     }
 }

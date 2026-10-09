@@ -1,6 +1,7 @@
 """keel's registry of parts (keel_engine/extensions.py): the built-in parts named in keel_engine/builtins.py, an add-on
-that brings every kind of piece (actions, params, docs, read tools, MCP server, routes, errors, KeelBot's words, keel2
-mcp tools, hooks), and the places core calls the hooks instead of importing a part."""
+that brings every kind of piece (actions, params, docs, read tools, MCP server, routes, open paths, a lifespan, errors,
+KeelBot's words, keel2 mcp tools, hooks), and the places core calls the hooks instead of importing a part. What KeelBot
+does with the parts' words is tested with it (plugins/keelbot/engine/tests)."""
 
 import os
 import subprocess
@@ -14,7 +15,7 @@ from conftest import start, wait
 from keel_engine import builtins, extensions, hook, mcp_server
 from keel_engine.app import create_app
 from keel_engine.events import EventBus
-from keel_engine.runtime import action_docs, keelbot, prompts, verdict_actions
+from keel_engine.runtime import action_docs, prompts, verdict_actions
 from keel_engine.runtime.actions import ActionInput, run_action
 from keel_engine.workflows.model import from_dict
 from keel_engine.workflows.validate import validate
@@ -52,14 +53,15 @@ def knowledge(**k):
 
 def test_the_built_in_parts_come_from_the_one_list_in_its_order():
     have = extensions.parts()
-    # map, ci, db and git are plugins (plugins/map, plugins/ci, plugins/db, plugins/git)
-    assert [p.name for p in have] == ["graph", "keelbot"]
+    # map, ci, db, git and keelbot are plugins (plugins/map, plugins/ci, plugins/db, plugins/git, plugins/keelbot)
+    assert [p.name for p in have] == ["graph"]
     assert [p.source for p in have] == list(builtins.BUILTINS) and all(p.builtin for p in have)
     assert [extensions.title(n) for n in ("db", GIT, "nope")] == ["db", GIT, "nope"]     # a plugin not loaded: its name
     assert extensions.servers() == {}
     assert extensions.param_prefixes() == []
     assert [n for n, _fn in extensions.hooks("on_scan")] == ["graph"]
-    assert [n for n, _fn in extensions.hooks("pr_body_sections")] == ["keelbot"]
+    assert [n for n, _fn in extensions.hooks("pr_body_sections")] == []        # KeelBot's comes with its plugin
+    assert extensions.open_paths() == ()
 
 
 def test_parts_come_in_their_order_and_the_same_order_keeps_the_load_order(monkeypatch):
@@ -89,7 +91,7 @@ def test_lazy_values_load_once_and_a_broken_built_in_is_left_out(monkeypatch):
     assert part.get("errors") == (KeyError,) and part.get("router") is None and part.params == {}
     monkeypatch.setattr(builtins, "BUILTINS", (*builtins.BUILTINS, "keel_engine.no_such_part"))
     try:
-        assert [p.name for p in extensions.reload()][-1] == "keelbot"      # keel still starts without it
+        assert [p.name for p in extensions.reload()][-1] == "graph"        # keel still starts without it
     finally:
         monkeypatch.undo()
         extensions.reload()
@@ -121,7 +123,7 @@ def test_the_guards_hook_stays_light():
             "more = {'keel-git': ['git_status']}\n"
             "assert h.plugin_read_tool('mcp__keel-git__git_status', more) and not h.plugin_read_tool('mcp__keel-git__git_push', more)\n"
             "assert not h.plugin_read_tool('mcp__keel-git__git_status')\n"
-            "heavy = ('fastapi', 'langgraph', 'sqlglot', 'httpx', 'keel_engine.app', 'keel_engine.runtime.helper',\n"
+            "heavy = ('fastapi', 'langgraph', 'sqlglot', 'httpx', 'keel_engine.app', 'keel_plugin_keelbot',\n"
             "         'keel_plugin_map', 'keel_engine.runtime.scan', 'keel_plugin_db', 'keel_plugin_git')\n"
             "print(sorted(n for n in sys.modules if n.startswith(heavy)))")
     env = {k: v for k, v in os.environ.items() if k not in ("KEEL_ADDONS", "KEEL_PLUGIN_ADDONS")}
@@ -184,10 +186,52 @@ def test_an_addon_parts_tools_routes_and_errors(acme, repo):
         extensions.close_call(other)
 
 
-def test_keelbot_and_keel_mcp_hear_about_an_addon_part(acme):
-    assert "The Acme plugin is on." in keelbot.keel_block({"plugins": ["acme"]}, "hello")
-    assert "The Acme plugin is on." not in keelbot.keel_block({"plugins": []}, "hello")
-    assert "- acme:ping  {say}" in keelbot.format_block(["acme"])
+def test_an_addon_parts_lifespan_runs_with_the_app_and_its_open_path_needs_no_token(acme, monkeypatch):
+    assert extensions.open_paths() == ("/acme/open",)
+    monkeypatch.setenv("KEEL_INTERNAL_TOKEN", "secret-token")
+    with TestClient(create_app(EventBus())) as client:
+        assert acme.SEEN == [("start",)] and client.app.state.acme == "running"
+        assert client.get("/acme/open").json() == {"open": True}                  # its own key would be checked here
+        assert client.get("/acme/boom").status_code == 401                        # the others need keel's token
+        assert client.get("/acme/boom", headers={"X-Keel-Token": "secret-token"}).status_code == 409
+    assert acme.SEEN == [("start",), ("stop", "running")]
+
+
+def test_the_parts_lifespans_start_in_order_stop_in_reverse_and_a_broken_one_is_left_out(monkeypatch):
+    import asyncio
+    from contextlib import asynccontextmanager
+
+    seen = []
+
+    @asynccontextmanager
+    async def runner(app):
+        seen.append("b up")
+        yield
+        seen.append("b down")
+
+    def broken(app):
+        raise RuntimeError("no")
+
+    async def bad_stop(app):
+        raise RuntimeError("stuck")
+
+    made = lambda name, **kw: extensions.Part({"name": name, **kw}, name, True)
+    monkeypatch.setattr(extensions, "_builtins", lambda: (
+        made("a", lifespan={"start": lambda app: seen.append("a up"), "stop": bad_stop}),
+        made("b", lifespan=runner), made("c", lifespan={"start": broken, "stop": lambda app: seen.append("c down")}),
+        made("d", lifespan="not a lifespan")))
+
+    async def run():
+        async with extensions.lifespan(object()):
+            seen.append("app")
+
+    asyncio.run(run())        # a start that fails and a stop that fails are logged, never raised
+    assert seen == ["a up", "b up", "app", "b down"]
+
+
+def test_keel_mcp_and_keelbots_words_hear_about_an_addon_part(acme):
+    assert extensions.keelbot(["acme"]) == [{"prompt": "The Acme plugin is on.", "actions": ["acme:ping  {say}"]}]
+    assert extensions.keelbot([]) == [] and extensions.keelbot_actions(["acme"]) == ["acme:ping  {say}"]
     import asyncio
 
     tools = lambda write: {t.name for t in asyncio.run(mcp_server.build_server(write=write, api=object()).list_tools())}
@@ -254,10 +298,10 @@ def test_a_moved_part_is_an_add_on_with_the_keys_of_its_part_dict(monkeypatch):
         with TestClient(create_app(EventBus())) as client:
             assert client.get("/moved/hello").json() == {"hello": "moved"}
         # its order puts it where it was as a built-in (first here), the others keep theirs
-        assert [x.name for x in extensions.parts()] == ["graph", "keelbot", "moved"]
+        assert [x.name for x in extensions.parts()] == ["graph", "moved"]
         monkeypatch.setitem(sys.modules["keel_moved_part"].PART, "order", 10)
         extensions.reload()
-        assert [x.name for x in extensions.parts()] == ["moved", "graph", "keelbot"]
+        assert [x.name for x in extensions.parts()] == ["moved", "graph"]
     finally:
         monkeypatch.delenv("KEEL_ADDONS", raising=False)
         sys.modules.pop("keel_moved_part", None)
@@ -274,7 +318,7 @@ def test_a_moved_parts_plugin_yml_is_one_of_keels_plugins(monkeypatch, repo):
     monkeypatch.setenv("KEEL_ADDONS", "keel_moved_part")
     try:
         extensions.reload()
-        assert [f.parent.name for f in manifests.keel_files()] == ["core", "moved"]
+        assert [f.parent.name for f in manifests.keel_files()] == ["moved"]     # keel's own commands: plugins/keelbot
         with TestClient(create_app(EventBus())) as client:
             cat = client.get("/plugins").json()
             assert [p["name"] for p in cat] == ["moved"]
@@ -282,7 +326,7 @@ def test_a_moved_parts_plugin_yml_is_one_of_keels_plugins(monkeypatch, repo):
             assert moved["title"] == "Moved" and moved["tools"] == {"server": "keel-moved", "read": ["moved_runs"]}
             tpls = client.get("/templates").json()
             assert tpls[-1]["id"] == "moved-fix" and tpls[-1]["plugin"] == "moved" and "look at it" in tpls[-1]["yaml"]
-            names = lambda on: {c["name"] for c in client.post("/helper/commands", json={"root": str(repo), "plugins": on}).json()}
+            names = lambda on: {c["name"] for c in manifests.commands(str(repo), on)}
             assert "moved" in names(["moved"]) and "moved" not in names([])
         assert manifests.expand(str(repo), "/moved the part", ["moved"]) == ("Tell me about the part.", "moved")
     finally:

@@ -17,6 +17,8 @@ from keel_engine.events import EventBus
 from keel_engine.models import usage
 
 ENGINE = str(Path(__file__).resolve().parents[1])          # plugins/review/engine: the folder that holds keel_plugin_review
+# Code Review needs KeelBot (keel-plugin.yml requires.plugins): the resolver puts its engine first, as the image does
+KEELBOT_ENGINE = str(Path(__file__).resolve().parents[3] / "keelbot" / "engine")
 
 
 @pytest.fixture(autouse=True)
@@ -25,8 +27,8 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setenv("KEEL_FAKE", "1")
     monkeypatch.setenv("KEEL_API_URL", "off")
     monkeypatch.setenv("KEEL_DEMO", "0")
-    monkeypatch.setenv("KEEL_PLUGIN_PATHS", ENGINE)
-    monkeypatch.setenv("KEEL_PLUGIN_ADDONS", "keel_plugin_review")
+    monkeypatch.setenv("KEEL_PLUGIN_PATHS", f"{KEELBOT_ENGINE}:{ENGINE}")
+    monkeypatch.setenv("KEEL_PLUGIN_ADDONS", "keel_plugin_keelbot,keel_plugin_review")
     monkeypatch.delenv("KEEL_ADDONS", raising=False)
     monkeypatch.delenv("KEEL_INTERNAL_TOKEN", raising=False)
     monkeypatch.delenv("KEEL_FAKE_DELAY", raising=False)

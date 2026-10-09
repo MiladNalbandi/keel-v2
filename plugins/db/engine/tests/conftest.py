@@ -21,6 +21,8 @@ from keel_engine.models import usage
 from keel_engine.workflows.templates import get_template
 
 ENGINE = str(Path(__file__).resolve().parents[1])          # plugins/db/engine: the folder that holds keel_plugin_db
+# KeelBot too (plugins/keelbot): the tests check what it is told about this part, as the image has it
+KEELBOT_ENGINE = str(Path(__file__).resolve().parents[3] / "keelbot" / "engine")
 IDENT = ["-c", "user.name=t", "-c", "user.email=t@t"]
 
 
@@ -30,8 +32,8 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setenv("KEEL_FAKE", "1")
     monkeypatch.setenv("KEEL_API_URL", "off")
     monkeypatch.setenv("KEEL_DEMO", "0")
-    monkeypatch.setenv("KEEL_PLUGIN_PATHS", ENGINE)
-    monkeypatch.setenv("KEEL_PLUGIN_ADDONS", "keel_plugin_db")
+    monkeypatch.setenv("KEEL_PLUGIN_PATHS", f"{KEELBOT_ENGINE}:{ENGINE}")
+    monkeypatch.setenv("KEEL_PLUGIN_ADDONS", "keel_plugin_keelbot,keel_plugin_db")
     monkeypatch.delenv("KEEL_ADDONS", raising=False)
     monkeypatch.delenv("KEEL_INTERNAL_TOKEN", raising=False)
     monkeypatch.delenv("KEEL_FAKE_DELAY", raising=False)

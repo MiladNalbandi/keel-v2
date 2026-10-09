@@ -131,21 +131,33 @@ class ApprovalsApiTest : ApiTest() {
     }
 
     @Test
-    fun `KeelBot's old answer route and keel2 mcp's poll delegate to approvals`() {
+    fun `keel2 mcp's poll delegates to approvals`() {
         val (pid, _) = newProject("appr-old")
-        val (other, _) = newProject("appr-other")
         val q = question("p_d00000000001", pid)
         engine.helperQuestions += q
         send(ev("approval.asked", pid, q))
-        assertThat(get("/api/projects/$pid/helper/permissions").json().map { it["id"].asText() }).containsExactly("p_d00000000001")
         assertThat(get("/api/plugins/asks/p_d00000000001").json()["waiting"].asBoolean()).isTrue()
-        // another project cannot answer it
-        post("/api/projects/$other/helper/permissions/p_d00000000001", mapOf("decision" to "once")).andExpect(status().isNotFound)
-        val r = post("/api/projects/$pid/helper/permissions/p_d00000000001", mapOf("decision" to "once")).andExpect(status().isOk).json()
-        assertThat(r["decision"].asText()).isEqualTo("once")
+        post("/api/approvals/p_d00000000001/decide", mapOf("decision" to "once")).andExpect(status().isOk)
         assertThat(engine.lastBody("/approvals/p_d00000000001")!!["decision"].asText()).isEqualTo("once")
         assertThat(get("/api/plugins/asks/p_d00000000001").json()["decision"].asText()).isEqualTo("allow")
-        assertThat(get("/api/projects/$pid/helper/permissions").json().size()).isZero()
+        // KeelBot's old answer route is its plugin's (plugins/keelbot/api tests it): core has none
+        get("/api/projects/$pid/helper/permissions").andExpect(status().isNotFound)
+    }
+
+    @Test
+    fun `keel2 mcp's question notifies the person, and its answer clears the notification`() {
+        val (pid, _) = newProject("appr-mcp-note")
+        val q = mapOf("id" to "p_g00000000001", "kind" to "plugin", "project" to pid, "title" to "Claude Code: push the branch?",
+            "command" to "push the branch", "source" to "mcp", "session" to "mcp")
+        fun hev(type: String, data: Map<String, Any?>) = mapOf("type" to type, "thread_id" to "mcp", "project_id" to pid,
+            "step" to "helper", "at" to Instant.now().toString(), "data" to data)
+        send(hev("helper.permission", q))
+        val note = get("/api/notifications?limit=500").json().first { it["title"].asText() == "Claude Code: push the branch?" }
+        assertThat(note["body"].asText()).isEqualTo("push the branch")
+        assertThat(note["link"].asText()).isEqualTo("/inbox")
+        send(hev("helper.permission.answered", mapOf("id" to "p_g00000000001", "decision" to "allow")))
+        val done = get("/api/notifications?limit=500").json().first { it["title"].asText() == "Claude Code: push the branch?" }
+        assertThat(done["done"].asBoolean()).isTrue()
     }
 
     @Test
@@ -240,26 +252,12 @@ class ApprovalsApiTest : ApiTest() {
     }
 
     @Test
-    fun `KeelBot's and the index's events still do what they did, through their handlers`() {
+    fun `the index's events still do what they did, through their handler`() {
         val (pid, _) = newProject("appr-handlers")
         send(
-            mapOf("type" to "helper.started", "thread_id" to "h_z", "project_id" to pid, "step" to "helper", "call_id" to "c-appr-1",
-                "at" to "2026-10-08T10:00:00Z", "data" to mapOf("provider" to "fake", "mode" to "api", "phase" to "helper-ask")),
-            mapOf("type" to "helper.step", "thread_id" to "h_z", "project_id" to pid, "step" to "helper", "call_id" to "c-appr-1",
-                "at" to "2026-10-08T10:00:01Z", "data" to mapOf("n" to 1, "kind" to "tool", "server" to "keel-db", "text" to "db_query")),
-            mapOf("type" to "helper.finished", "thread_id" to "h_z", "project_id" to pid, "step" to "helper", "call_id" to "c-appr-1",
-                "at" to "2026-10-08T10:00:02Z", "data" to mapOf("status" to "done", "tokens_in" to 10, "tokens_out" to 2)),
             mapOf("type" to "index.done", "thread_id" to "", "project_id" to pid, "at" to "2026-10-08T10:00:03Z",
                 "data" to mapOf("status" to "ready", "files" to 3, "symbols" to 7)),
         )
-        val row = jdbc.queryForMap("SELECT agent, status, steps_count, mcp_calls, tokens_in, mode FROM agent_calls WHERE id = 'c-appr-1'")
-        assertThat(row["agent"]).isEqualTo("helper")
-        assertThat(row["status"]).isEqualTo("done")
-        assertThat((row["steps_count"] as Number).toInt()).isEqualTo(1)
-        assertThat((row["mcp_calls"] as Number).toInt()).isEqualTo(1)
-        assertThat((row["tokens_in"] as Number).toInt()).isEqualTo(10)
-        assertThat(row["mode"]).isEqualTo("fake")
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM threads WHERE id = 'h_z'", Int::class.java)).isZero()   // never a flow
         assertThat(get("/api/notifications?limit=500").json().map { it["title"].asText() }).contains("Index ready: 3 files, 7 symbols")
     }
 }

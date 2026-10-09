@@ -4,6 +4,9 @@
 # (scripts/build-plugin.sh reads them).
 # Its tables (review_drafts, review_viewed, review_runs, review_decisions) stay in keel's core history (V13). Its web
 # part brings its own stylesheet (web/style.css, the look of keel 0.15.1's review.css).
+# Its AI (explain, findings, the check of findings) runs in KeelBot's sessions, so it needs the KeelBot plugin
+# (plugins/keelbot): the resolver loads KeelBot first and leaves Code Review out without it. requires.plugins is on one
+# line (api/build.gradle.kts reads it: Code Review's api compiles against KeelBot's).
 schema: 1
 name: review
 title: Code Review
@@ -12,6 +15,7 @@ publisher: keel
 summary: Review the branch you are on or any pull request (GitHub) or merge request (GitLab), with line comments, threads and approve, and keel's explain and checked findings.
 requires:
   sdk: 1
+  plugins: { keelbot: ">=1.0.0" }
 parts:
   engine: { path: engine, package: keel_plugin_review }
   api: { jars: [api/keel-plugin-review.jar] }

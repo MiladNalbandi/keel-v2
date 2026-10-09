@@ -1,10 +1,10 @@
 // KeelBot panel's pure helpers: file:line links in answers, what the person is typing (@ or /), and the words for
 // a session. Kept apart from the component so tests can check them directly.
 
-import type { HelperMessage, HelperSession } from "../../api";
+import type { HelperMessage, HelperSession } from "@keel/web-sdk";
 
 // file:line links are keel's own (the launcher reads them in answers too)
-export { fileLink } from "../../format";
+export { fileLink } from "@keel/web-sdk";
 
 /** KeelBot's own page (#/keelbot) reads this once when it opens: text another page handed over (askAssistant). */
 export const PREFILL_KEY = "keel2.keelbot.prefill";

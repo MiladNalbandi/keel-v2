@@ -21,7 +21,7 @@ from keel_engine.models.base import AgentRequest
 from keel_engine.models.cli import project_env
 from keel_engine.pluginhost import manifest as manifests
 from keel_engine.pluginhost import resolver, state
-from keel_engine.runtime import action_docs, guard_ctx, keelbot
+from keel_engine.runtime import action_docs, guard_ctx
 from keel_engine.runtime import plugins as catalog
 from keel_engine.tools import mcp as mcp_tools
 from keel_engine.tools.agent_tools import ToolBox
@@ -64,6 +64,8 @@ def test_it_is_an_add_on_part_with_the_keys_it_had_as_a_built_in():
 
 
 def test_validation_explain_and_keelbot_name_it_as_before():
+    from keel_plugin_keelbot import keelbot        # KeelBot's plugin, loaded as an add-on (conftest)
+
     errs = validate(from_dict({"name": "x", "keel_rules": False, "steps": [
         {"id": "a", "kind": "code", "name": "a", "action": "commit", "with": {"x": 1}}]}))
     assert errs == ["Step 'a': only a plugin step (git:..., ci:...) takes `with`."]

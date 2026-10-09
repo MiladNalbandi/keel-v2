@@ -16,13 +16,13 @@ import pytest
 import yaml
 
 import keel_plugin_db
-from conftest import ENGINE
+from conftest import ENGINE, KEELBOT_ENGINE
 from keel_engine import builtins, extensions, mcp_server
 from keel_engine.models.base import AgentRequest
 from keel_engine.models.cli import project_env
 from keel_engine.pluginhost import manifest as manifests
 from keel_engine.pluginhost import resolver, state
-from keel_engine.runtime import action_docs, guard_ctx, keelbot
+from keel_engine.runtime import action_docs, guard_ctx
 from keel_engine.runtime import plugins as catalog
 from keel_engine.tools import mcp as mcp_tools
 from keel_engine.tools.agent_tools import ToolBox
@@ -70,14 +70,16 @@ def test_it_is_an_add_on_part_with_the_keys_and_the_place_it_had_as_a_built_in()
 def with_ci(monkeypatch):
     """The Database and CI/CD plugins together, with Git that CI/CD needs, in the order the resolver loads them (a plugin
     after the plugins it needs, else name order), as the image has them."""
-    monkeypatch.setenv("KEEL_PLUGIN_PATHS", f"{ENGINE}:{GIT_ENGINE}:{CI_ENGINE}")
-    monkeypatch.setenv("KEEL_PLUGIN_ADDONS", "keel_plugin_db,keel_plugin_git,keel_plugin_ci")
+    monkeypatch.setenv("KEEL_PLUGIN_PATHS", f"{KEELBOT_ENGINE}:{ENGINE}:{GIT_ENGINE}:{CI_ENGINE}")
+    monkeypatch.setenv("KEEL_PLUGIN_ADDONS", "keel_plugin_keelbot,keel_plugin_db,keel_plugin_git,keel_plugin_ci")
     extensions.reload()
     yield
     extensions.reload()
 
 
 def test_with_the_ci_plugin_keelbot_and_validation_name_them_as_keel_0_15_1_did(with_ci):
+    from keel_plugin_keelbot import keelbot        # KeelBot's plugin, loaded as an add-on (conftest)
+
     assert [x.name for x in extensions.parts()] == ["db", "git", "graph", "keelbot", "ci"]
     assert extensions.param_prefixes() == ["db", "git", "ci"]
     errs = validate(from_dict({"name": "x", "keel_rules": False, "steps": [

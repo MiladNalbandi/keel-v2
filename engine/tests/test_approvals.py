@@ -160,16 +160,20 @@ def test_the_routes_need_the_internal_token(client, monkeypatch):
     assert client.get("/approvals", headers={"X-Keel-Token": "secret-token"}).status_code == 200
 
 
-def test_keelbots_old_routes_and_plugin_asks_reach_the_same_broker(client):
+def test_plugin_asks_reach_the_broker_with_the_events_keel_sent_before(client):
+    """keel2 mcp --write asks through core (no KeelBot needed); KeelBot's old routes reach the same broker
+    (plugins/keelbot/engine/tests)."""
     q = client.post("/plugins/ask", json={"project": "demo", "title": "Claude Code: push the branch?", "command": "push"}).json()
-    assert q["source"] == "mcp"
+    assert q["source"] == "mcp" and q["session"] == approvals.MCP_SESSION == "mcp"
     assert [x["id"] for x in client.get("/approvals").json()] == [q["id"]]
-    assert [x["id"] for x in client.get("/helper/permissions").json()] == [q["id"]]
+    assert client.get("/helper/permissions").status_code == 404             # KeelBot's route: its plugin is not here
     assert client.post(f"/approvals/{q['id']}", json={"decision": "once"}).status_code == 200
     assert client.get(f"/plugins/ask/{q['id']}").json() == {"id": q["id"], "decision": "allow", "why": ""}
-    # KeelBot's own events still go out for its panel and the notification, next to approval.*
+    # the events keel 0.15.1 sent for it still go out (the api's notification), next to approval.*
     types = [e["type"] for e in client.bus.recent]
     assert types == ["approval.asked", "helper.permission", "helper.permission.answered", "approval.answered"]
+    asked = next(e for e in client.bus.recent if e["type"] == "helper.permission")
+    assert asked["thread_id"] == "mcp" and asked["step"] == "helper" and asked["data"]["id"] == q["id"]
 
 
 # ------------------------------------------------------------------ the hook's ask path
@@ -206,27 +210,3 @@ def test_the_hook_asks_at_the_url_its_context_names(repo):
             ("/helper/permissions/ask", "mkdir -p notes", "k1", "h_1", "command")]
     finally:
         srv.shutdown()
-
-
-def test_keelbots_turn_names_its_ask_route_in_full(client, repo, monkeypatch):
-    from keel_engine.runtime import helper
-
-    seen = {}
-    real = helper.ToolBox
-
-    def spy(*a, **k):
-        seen.update(k.get("ask") or {})
-        return real(*a, **k)
-
-    monkeypatch.setattr(helper, "ToolBox", spy)
-    s = client.post("/helper/sessions", json={"project_id": "demo", "root": str(repo), "mode": "side",
-                                              "model": {"provider": "fake", "mode": "api", "model": "fake"}}).json()
-    assert client.post(f"/helper/sessions/{s['id']}/turn", json={"text": "hello"}).status_code == 200
-    deadline = time.time() + 20
-    while time.time() < deadline:
-        now = client.get(f"/helper/sessions/{s['id']}").json()
-        if not now["busy"] and now["status"] != "running":
-            break
-        time.sleep(0.02)
-    assert seen["url"].endswith(helper.ASK_PATH) and helper.ASK_PATH == "/helper/permissions/ask"
-    assert seen["session"] == s["id"] and seen["key"]

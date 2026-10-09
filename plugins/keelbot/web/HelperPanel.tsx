@@ -7,18 +7,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import {
-  api, errorParts, type GraphHit, type HelperCommand, type HelperDone, type HelperMention, type HelperMessage, type HelperMode,
+  errorParts, go, Markdown, mergeSteps, ModelPicker, modelLabel, provLabel, rankFiles, StepView, useApp, useLoad,
+  type GraphHit, type HelperCommand, type HelperDone, type HelperMention, type HelperMessage, type HelperMode,
   type HelperSelection, type HelperSession, type JobStep, type Model,
-} from "../../api";
-import { modelLabel, provLabel } from "../../format";
-import { rankFiles } from "../../pages/repo/model";
-import { go, useApp, useLoad } from "../../state";
-import { Markdown } from "../Markdown";
+} from "@keel/web-sdk";
 import { CiCard, SlotCard, splitActions, StartCard, WorkflowCard } from "./Actions";
-import { ModelPicker } from "../ModelPicker";
-import { mergeSteps } from "../StepFeed";
-import { StepView } from "../StepView";
 import { ChangesBox, DoneFailed, fixRequest, PermissionCard, SideBar } from "./FixParts";
+import { kb } from "./keelbotApi";
 import { fileLink, messageTokens, PREFILL_KEY, replaceTyping, sessionTokens, starters, typingAt, usageText, type Typing } from "./model";
 
 type Props = {
@@ -56,7 +51,7 @@ function TurnSteps({ callId, live, running }: { callId: string; live: JobStep[];
   useEffect(() => {
     if (!open || running || stored) return;
     let live = true;
-    api.jobSteps(callId).then((r) => live && setStored(r.steps), () => live && setStored([]));
+    kb.jobSteps(callId).then((r) => live && setStored(r.steps), () => live && setStored([]));
     return () => { live = false; };
   }, [open, running, stored, callId]);
   const steps = mergeSteps(stored ?? [], live).filter((s) => s.kind !== "answer");
@@ -124,10 +119,10 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   const { recent, liveSteps, toast, tick } = useApp();
   const [sid, setSidState] = useState<string | null>(() => read(sidKey(pid)));
   const setSid = useCallback((v: string | null) => { setSidState(v); write(sidKey(pid), v); }, [pid]);
-  const list = useLoad(`helper:${pid}:list`, () => api.helperSessions(pid), { live: false });
-  const sess = useLoad(sid ? `helper:${pid}:${sid}` : null, () => api.helperSession(pid, sid!), { live: false });
-  const cmds = useLoad(`helper:${pid}:commands`, () => api.helperCommands(pid), { live: false });
-  const flow = useLoad(`helper:${pid}:flow`, () => api.flow(pid), { live: false });
+  const list = useLoad(`helper:${pid}:list`, () => kb.sessions(pid), { live: false });
+  const sess = useLoad(sid ? `helper:${pid}:${sid}` : null, () => kb.session(pid, sid!), { live: false });
+  const cmds = useLoad(`helper:${pid}:commands`, () => kb.commands(pid), { live: false });
+  const flow = useLoad(`helper:${pid}:flow`, () => kb.flow(pid), { live: false });
   const flowWaits = flow.data?.thread?.status === "waiting";
   // Fix needs a flow that waits at a gate and does not run read-only (the api refuses it otherwise)
   const readonlyRun = flow.data?.thread?.run_mode === "readonly";
@@ -175,10 +170,10 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   const side = mode === "side";
   const edits = fix || side;                 // a chat that changes files: its changes, Undo, Done / Keep
   const handed = side && !!s && !s.worktree;  // a side session handed over: its worktree is gone
-  const changes = useLoad(sid && edits && !handed ? `helper:${pid}:${sid}:changes` : null, () => api.helperChanges(pid, sid!), { live: false });
-  const handover = useLoad(sid && side && !handed ? `helper:${pid}:${sid}:handover` : null, () => api.helperHandover(pid, sid!), { live: false });
+  const changes = useLoad(sid && edits && !handed ? `helper:${pid}:${sid}:changes` : null, () => kb.changes(pid, sid!), { live: false });
+  const handover = useLoad(sid && side && !handed ? `helper:${pid}:${sid}:handover` : null, () => kb.handover(pid, sid!), { live: false });
   // commands that wait for the person's OK (this project's; the cards show this chat's)
-  const perms = useLoad(`helper:${pid}:perms`, () => api.helperPermissions(pid), { live: false });
+  const perms = useLoad(`helper:${pid}:perms`, () => kb.permissions(pid), { live: false });
   const asks = (perms.data ?? []).filter((q) => q.session === sid);
   // the running answer: the one this page started, else the one an earlier page started (helper.started event)
   const runningCall = useMemo(() => {
@@ -241,14 +236,14 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   const typing: Typing = useMemo(() => typingAt(text, caret), [text, caret]);
   useEffect(() => {
     if (typing?.kind === "mention" && files === null) {
-      api.repoFiles(pid).then((r) => setFiles(r.files), () => setFiles([]));
+      kb.repoFiles(pid).then((r) => setFiles(r.files), () => setFiles([]));
     }
   }, [typing, files, pid]);
   useEffect(() => {
     if (typing?.kind !== "mention" || typing.query.length < 2) { setSymbols([]); return; }
     let live = true;
     const t = window.setTimeout(() => {
-      api.graphSearch(pid, typing.query).then((r) => live && setSymbols(r.results ?? []), () => live && setSymbols([]));
+      kb.graphSearch(pid, typing.query).then((r) => live && setSymbols(r.results ?? []), () => live && setSymbols([]));
     }, 180);
     return () => { live = false; window.clearTimeout(t); };
   }, [typing, pid]);
@@ -290,7 +285,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
 
   const ensureSession = async (): Promise<string> => {
     if (sid && s) return sid;
-    const created = await api.helperCreate(pid, { mode });
+    const created = await kb.create(pid, { mode });
     setSid(created.id);
     void list.reload();
     return created.id;
@@ -303,7 +298,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
     try {
       const id = await ensureSession();
       const used = mentions.filter((m) => body.includes(`@${m.value}`));
-      const started = await api.helperTurn(pid, id, {
+      const started = await kb.turn(pid, id, {
         text: body, mentions: used.length ? used : undefined, selection: selection ?? undefined, open_file: openFile ?? undefined,
       });
       setPending({ call: started.call_id, n: started.n });
@@ -324,7 +319,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   const stop = async () => {
     if (!sid) return;
     try {
-      await api.helperStop(pid, sid);
+      await kb.stop(pid, sid);
     } catch (e) {
       toast(`Not stopped: ${errorParts(e).message}`);
     }
@@ -349,7 +344,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   const undo = async (path?: string) => {
     if (!sid) return;
     try {
-      changes.setData(await api.helperUndo(pid, sid, path));
+      changes.setData(await kb.undo(pid, sid, path));
     } catch (e) {
       toast(`Not undone: ${errorParts(e).message}`);
     }
@@ -360,7 +355,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
     setDoneBusy(true);
     setFailed(null);
     try {
-      const res = await api.helperDone(pid, sid, message);
+      const res = await kb.done(pid, sid, message);
       const n = res.ok ? `${res.files.length} file${res.files.length === 1 ? "" : "s"}` : "";
       if (res.ok) toast(side ? `Kept on ${s?.branch}: keel committed ${n} (${res.sha.slice(0, 7)}).` : `keel committed ${n} (${res.sha.slice(0, 7)}).`);
       else setFailed(res);
@@ -377,7 +372,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   const toTask = async () => {
     if (!sid) return;
     try {
-      const t = await api.helperToTask(pid, sid);
+      const t = await kb.toTask(pid, sid);
       toast(`Task created: ${t.title}. It names the branch ${s?.branch}.`);
     } catch (e) {
       const p = errorParts(e);
@@ -389,7 +384,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
     if (!sid || !s?.branch) return;
     if (!window.confirm(`keel removes this side session's worktree, checks out ${s.branch} in the project folder and starts a change flow on it. Go on?`)) return;
     try {
-      await api.helperToFlow(pid, sid);
+      await kb.toFlow(pid, sid);
       toast(`A change flow started on ${s.branch}.`);
       await sess.reload();
       go("flow");
@@ -407,7 +402,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   const remove = async () => {
     if (!sid) return;
     try {
-      await api.helperDelete(pid, sid);
+      await kb.remove(pid, sid);
       newChat();
       void list.reload();
     } catch (e) {
@@ -418,7 +413,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   const setModel = async (m: Model) => {
     try {
       const id = await ensureSession();
-      await api.helperPatch(pid, id, { model: m });
+      await kb.patch(pid, id, { model: m });
       await sess.reload();
     } catch (e) {
       toast(`Not changed: ${errorParts(e).message}`);

@@ -3,7 +3,6 @@ package keel.api
 import keel.api.common.ProcResult
 import keel.api.doctor.WorkspaceDoctor
 import keel.api.flow.FlowService
-import keel.api.helper.HelperService
 import keel.api.knowledge.KnowledgeService
 import keel.api.projects.ProjectService
 import keel.api.repo.KeelRules
@@ -100,8 +99,9 @@ class WorkspaceApiTest : ApiTest() {
     }
 
     @Test
-    fun `flows, the Doctor, the knowledge base and KeelBot use the Workspace, not the Code page's RepoService`() {
-        for (c in listOf(FlowService::class.java, WorkspaceDoctor::class.java, KnowledgeService::class.java, HelperService::class.java)) {
+    fun `flows, the Doctor and the knowledge base use the Workspace, not the Code page's RepoService`() {
+        // KeelBot too (plugins/keelbot/api tests its HelperService)
+        for (c in listOf(FlowService::class.java, WorkspaceDoctor::class.java, KnowledgeService::class.java)) {
             val needs = c.constructors.flatMap { it.parameterTypes.toList() }
             assertThat(needs).describedAs(c.simpleName).contains(Workspace::class.java).doesNotContain(RepoService::class.java)
         }

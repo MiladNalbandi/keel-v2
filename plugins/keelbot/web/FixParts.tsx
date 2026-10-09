@@ -3,8 +3,11 @@
 // and commits only those files, and a side session's hand-overs (a task, a flow on its branch, throw away).
 
 import { useState } from "react";
-import { api, errorParts, type HelperChange, type HelperDone, type HelperHandover, type HelperQuestion, type HelperSession } from "../../api";
-import { DiffView, FoldedText } from "../Code";
+import {
+  DiffView, errorParts, FoldedText, type HelperChange, type HelperDone, type HelperHandover, type HelperQuestion,
+  type HelperSession,
+} from "@keel/web-sdk";
+import { kb } from "./keelbotApi";
 
 /** "May KeelBot run this?" Allow once, Always (this command, for the rest of the chat), or Deny with a reason. */
 export function PermissionCard({ pid, q, onAnswered }: { pid: string; q: HelperQuestion; onAnswered: () => void }) {
@@ -15,7 +18,7 @@ export function PermissionCard({ pid, q, onAnswered }: { pid: string; q: HelperQ
     setBusy(true);
     setErr(null);
     try {
-      await api.helperAnswer(pid, q.id, decision, why.trim());
+      await kb.answer(pid, q.id, decision, why.trim());
       onAnswered();
     } catch (e) {
       setErr(errorParts(e).message);

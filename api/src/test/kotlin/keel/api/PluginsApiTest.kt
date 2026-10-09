@@ -6,8 +6,8 @@ import org.junit.jupiter.api.Test
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 
-/** v0.10.0: the Database and Git plugins. On per project (or for all), their secrets ride along with every flow and
- *  KeelBot turn, and nothing works while a plugin is off. The person's own database and git calls are the plugins' own
+/** v0.10.0: the Database and Git plugins. On per project (or for all), their secrets ride along with every flow (and
+ *  KeelBot turn: plugins/keelbot/api), and nothing works while a plugin is off. The person's own database and git calls are the plugins' own
  *  tests (plugins/db/api: DatabaseApiTest, plugins/git/api: GitPluginApiTest). */
 class PluginsApiTest : ApiTest() {
     private fun del(url: String) = mvc.perform(MockMvcRequestBuilders.delete(url))
@@ -32,7 +32,7 @@ class PluginsApiTest : ApiTest() {
     }
 
     @Test
-    fun `flows and KeelBot turns carry the plugins and their secrets, and KeelBot gets their commands`() {
+    fun `flows carry the plugins and their secrets`() {
         val (pid, _) = newProject("plug-flow")
         put("/api/projects/$pid/plugins/db", mapOf("enabled" to true)).andExpect(status().isOk)
         put("/api/projects/$pid/plugins/git", mapOf("enabled" to true)).andExpect(status().isOk)
@@ -47,14 +47,7 @@ class PluginsApiTest : ApiTest() {
         assertThat(body["settings"]["push_pr"].asText()).isEqualTo("ask")
         assertThat(body["keys"]["github"].asText()).isEqualTo("ghp_exampletoken")
         assertThat(body["settings"].toString()).doesNotContain("ghp_exampletoken")    // secrets never in the saved settings
-
-        val sid = post("/api/projects/$pid/helper/sessions", emptyMap<String, Any>()).json()["id"].asText()
-        post("/api/projects/$pid/helper/sessions/$sid/turn", mapOf("text" to "How many scores?")).andExpect(status().isOk)
-        val turn = engine.lastBody("/helper/sessions/$sid/turn")!!
-        assertThat(turn["plugins"].map { it.asText() }).containsExactly("db", "git")
-        assertThat(turn["keys"]["github"].asText()).isEqualTo("ghp_exampletoken")
-        get("/api/projects/$pid/helper/commands").andExpect(status().isOk)
-        assertThat(engine.lastBody("/helper/commands")!!["plugins"].map { it.asText() }).containsExactly("db", "git")
+        // KeelBot's turns carry them too (plugins/keelbot/api tests that)
         del("/api/secrets/GITHUB_REPO_TOKEN").andExpect(status().isOk)
     }
 

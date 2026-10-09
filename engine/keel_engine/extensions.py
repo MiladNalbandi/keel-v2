@@ -20,8 +20,15 @@ built-in parts are named in one place, builtins.py (each module's PART dict); ad
                   a server the part hands out itself (hook mcp_specs) has no module. "prompt": what an agent that has
                   this server is told (runtime/agent_knowledge.py)
     router        a FastAPI router: its engine routes, mounted after keel's own
+    open_paths    paths of its routes that need no internal token (X-Keel-Token): only for a route that checks a key of
+                  its own (KeelBot's /helper/permissions/ask: the guard's hook asks there with the turn's ask key)
+    lifespan      what runs as long as keel's app does (KeelBot's runner): fn(app) that returns an async context
+                  manager (an @asynccontextmanager function), or {"start": fn(app), "stop": fn(app)} (plain or async).
+                  keel starts the parts' lifespans in the registry's order once the app is up (app.state.bus and
+                  app.state.engine are there), and stops them in the reverse order before the engine and the bus
+                  stop. A part whose start fails is logged and left out; a failing stop is logged too.
     errors        exception types (with .status and .hint) its routes raise; the app answers them as 4xx
-    keelbot       {"prompt": str, "actions": [str]}: what KeelBot is told while the part is on (runtime/keelbot.py)
+    keelbot       {"prompt": str, "actions": [str]}: what KeelBot is told while the part is on (plugins/keelbot)
     keel_mcp      fn(server, api, guard, write): adds its tools to keel's own MCP server (keel2 mcp, mcp_server.py)
     hooks         {name: fn}, called by core:
                     on_scan(root, pid, rebuild=False) -> dict   a project scan (runtime/scan.py): fields for its index row
@@ -45,6 +52,7 @@ import logging
 import secrets
 import sys
 import time
+from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -429,6 +437,64 @@ def mount(app) -> None:
         router = p.get("router")
         if router is not None:
             app.include_router(router)
+
+
+def open_paths() -> tuple[str, ...]:
+    """The paths of the parts' routes that need no internal token (each part's open_paths)."""
+    return tuple(str(path) for p in parts() for path in (p.spec.get("open_paths") or ()))
+
+
+async def _done(value) -> None:
+    if inspect.isawaitable(value):
+        await value
+
+
+@asynccontextmanager
+async def _one_lifespan(name: str, spec, app):
+    """One part's lifespan as an async context manager: {"start", "stop"} or fn(app) -> an async context manager. What
+    its stop raises is logged, never raised: the other parts, the engine and the bus still stop."""
+    if isinstance(spec, dict):
+        start, stop = spec.get("start"), spec.get("stop")
+        if callable(start):
+            await _done(start(app))
+        try:
+            yield
+        finally:
+            if callable(stop):
+                try:
+                    await _done(stop(app))
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("the %s part did not stop cleanly: %s", name, exc)
+        return
+    cm = spec(app)
+    await cm.__aenter__()
+    raised: tuple = (None, None, None)
+    try:
+        yield
+    except BaseException as exc:
+        raised = (type(exc), exc, exc.__traceback__)
+        raise
+    finally:
+        try:
+            await cm.__aexit__(*raised)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("the %s part did not stop cleanly: %s", name, exc)
+
+
+@asynccontextmanager
+async def lifespan(app):
+    """Every part's lifespan while keel's app runs (app.py): started in the registry's order, stopped in the reverse
+    order. A part whose start fails is logged and left out, so keel still starts."""
+    async with AsyncExitStack() as stack:
+        for p in parts():
+            spec = p.spec.get("lifespan")
+            if not (isinstance(spec, dict) or callable(spec)):
+                continue
+            try:
+                await stack.enter_async_context(_one_lifespan(p.name, spec, app))
+            except Exception as exc:  # noqa: BLE001 - keel starts without the part's lifespan
+                log.warning("the %s part did not start: %s", p.name, str(exc)[:300])
+        yield
 
 
 def keelbot(names: list[str] | None) -> list[dict]:

@@ -1,13 +1,15 @@
 // v0.6.0 KeelBot in the Code page: open it (button, ⌘I), ask, watch the steps live, follow its file:line links,
-// commands with /, mentions with @, the selected lines, stop, the model — and the panel's pure helpers.
+// commands with /, mentions with @, the selected lines, stop, the model — and the panel's pure helpers. Inside keel's
+// web as the full image has it (web/src/test/setup.ts runs every plugin's setup()); moved with the plugin.
 
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { App } from "../App";
-import { eventLine } from "../components/events";
-import { fileLink, replaceTyping, starters, typingAt, usageText } from "../components/helper/model";
-import { db, FakeEventSource } from "./setup";
+// keel's own app and test harness: the panel runs inside keel's web, as keel loads it
+import { App } from "../../../../web/src/App";
+import { eventLine } from "../../../../web/src/components/events";
+import { db, FakeEventSource } from "../../../../web/src/test/setup";
+import { fileLink, replaceTyping, starters, typingAt, usageText } from "../model";
 
 const panel = () => screen.findByRole("complementary", { name: "KeelBot" });
 const turns = () => db.calls.filter((c) => c.method === "POST" && /\/helper\/sessions\/[^/]+\/turn$/.test(c.path));

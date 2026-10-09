@@ -1,10 +1,10 @@
-"""KeelBot's view of keel (runtime/keelbot.py): the workflows it suggests, the flows it answers about, the buttons it
-gives, and the workflow format only when the person wants a workflow of their own."""
+"""KeelBot's view of keel (keel_plugin_keelbot.keelbot): the workflows it suggests, the flows it answers about, the
+buttons it gives, and the workflow format only when the person wants a workflow of their own."""
 
 import re
 
-from keel_engine.runtime import helper, keelbot
 from keel_engine.workflows.validate import validate_yaml
+from keel_plugin_keelbot import helper, keelbot
 
 KEEL = {
     "workflows": [

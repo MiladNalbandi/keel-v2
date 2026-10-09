@@ -1,15 +1,16 @@
 """Approvals: keel's one place to ask a person and wait for the answer (core).
 
-Who asks today: KeelBot's commands that change something (runtime/helper.py: the guard hook and the ToolBox ask
-through it) and the acting tools of `keel2 mcp --write` (`/plugins/ask`). A question waits in memory until the person
-answers (the Inbox, KeelBot's panel), its time is up (permissions.ASK_TIMEOUT) or its asker closes it. The api keeps a
-row per question in its `approvals` table, from the events below.
+Who asks today: KeelBot's commands that change something (the KeelBot plugin, plugins/keelbot: the guard hook and the
+ToolBox ask through it) and the acting tools of `keel2 mcp --write` (`/plugins/ask`, ask_person). A question waits in
+memory until the person answers (the Inbox, KeelBot's panel), its time is up (permissions.ASK_TIMEOUT) or its asker
+closes it. The api keeps a row per question in its `approvals` table, from the events below.
 
     ask(kind, project, title, command, *, source, ...)   waits for the answer (async)
     ask_blocking(...)                                     the same, from a worker thread (the ToolBox)
     open(...) + wait(id) / wait_blocking(id)              the two halves, for an asker that tells others in between
     answer(id, decision, why)                             the person's answer: once | always | deny
     pending(project), asked(id), close(...)
+    ask_person(project, title, command)                   keel2 mcp --write's question; it polls with asked(id)
 
 An answer is {"decision": "allow" | "deny", "why": str}. `asked(id)` is for an asker that polls (`keel2 mcp`).
 
@@ -18,6 +19,8 @@ Events (thread_id = the asker's session, else the question's id; step "approval"
     approval.answered   the same, plus {decision: once | always | deny | null, why, status, by}
                         status: approved | denied | expired (nobody answered in time) | closed (its asker ended)
                         by: person | keel
+keel2 mcp's questions (session "mcp") also send helper.permission and helper.permission.answered, as keel 0.15.1 did:
+the api makes the "Claude Code asks" notification from them.
 
 One broker per event bus (`of(bus)`): the app and its tests each have their own bus.
 """
@@ -41,6 +44,7 @@ DECISIONS = ("once", "always", "deny")
 TIMEOUT_WHY = "Nobody answered in 10 minutes, so the command did not run."
 DENY_WHY = "The person said no to this command."
 KEEP_DECIDED = 200          # answers kept for asked() until the asker reads them
+MCP_SESSION = "mcp"         # keel2 mcp --write's questions (Claude Code): no KeelBot chat behind them
 
 # called once when a question ends: (question, the person's word or "" when nobody answered, the answer)
 OnAnswer = Callable[[dict, str, dict], None]
@@ -137,6 +141,19 @@ class Approvals:
         with self._lock:
             ids = [k for k, q in self.questions.items() if k == qid or (session is not None and q["session"] == session)]
         return sum(1 for k in ids if self._settle(k, "", {"decision": "deny", "why": why}, "closed", "keel"))
+
+    # ---- v0.10.0: keel2 mcp --write (Claude Code): an acting plugin tool asks the person in the Inbox, then polls
+
+    def ask_person(self, project: str, title: str, command: str) -> dict:
+        """A question with no KeelBot chat behind it: the Inbox shows it like KeelBot's commands. It also sends the
+        events keel 0.15.1 sent for it (helper.permission, then helper.permission.answered), for the notification."""
+        def answered(q: dict, _said: str, ans: dict):
+            self.bus.emit("helper.permission.answered", MCP_SESSION, project, step="helper",
+                          data={"id": q["id"], "decision": ans.get("decision"), "why": ans.get("why", "")})
+
+        q = self.open("plugin", project, title, command, source="mcp", session=MCP_SESSION, on_answer=answered)
+        self.bus.emit("helper.permission", MCP_SESSION, project, step="helper", data=q)
+        return q
 
     # ---- reading -------------------------------------------------------------------------------------------------
 

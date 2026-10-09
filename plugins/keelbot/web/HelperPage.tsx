@@ -2,8 +2,8 @@
 // wide chat column. A file:line link opens the Code page at that line; "Back to the code" goes to the Code page.
 
 import { useLayoutEffect, useRef } from "react";
-import { HelperPanel } from "../components/helper/HelperPanel";
-import { go } from "../state";
+import { go } from "@keel/web-sdk";
+import { HelperPanel } from "./HelperPanel";
 
 export function HelperPage({ pid }: { pid: string }) {
   const root = useRef<HTMLDivElement>(null);

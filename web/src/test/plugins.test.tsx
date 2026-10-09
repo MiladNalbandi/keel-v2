@@ -7,7 +7,6 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { App } from "../App";
-import { splitActions } from "../components/helper/Actions";
 import { db } from "./setup";
 
 const calls = (method: string, path: string) => db.calls.filter((c) => c.method === method && c.path === path);
@@ -95,11 +94,7 @@ describe("Code › Source control › a branch", () => {
 });
 
 describe("KeelBot's query and git buttons", () => {
-  it("reads the plugin blocks among the others", () => {
-    const segs = splitActions('Here:\n```keel-query\n{"sql": "select 1"}\n```\n```keel-git\n{"op": "push"}\n```');
-    expect(segs.map((x) => x.kind)).toEqual(["text", "query", "git"]);
-  });
-
+  // KeelBot reads them among its other blocks: plugins/keelbot/web/test (keelbot-cards.test.tsx)
   it("a plugin's block shows its card (slot keelbot.card; their buttons: plugins/db/web/test, plugins/git/web/test)", async () => {
     const p = await chatWith('Zero them:\n```keel-query\n{"sql": "update scores set value = 0", "connection": "local"}\n```\n'
       + '```keel-git\n{"op": "commit", "message": "fix: zero scores"}\n```');

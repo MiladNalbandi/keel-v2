@@ -19,8 +19,6 @@ PLUGIN_MODULES = (
     "keel_engine.plugins",
     "keel_engine.runtime.codegraph_view",
     "keel_engine.runtime.graph_hints",
-    "keel_engine.runtime.helper",
-    "keel_engine.runtime.keelbot",
     "keel_engine.tools.codegraph",
 )
 # Core never imports these, not even today. They can never be in the allowlist.
@@ -191,7 +189,8 @@ def test_the_scanner_finds_every_kind_of_import(tmp_path):
         "keel_engine/plugins/db/__init__.py": "from ...runtime import service\n",
         "keel_engine/plugins/db/core.py": "",
     })
-    couplings, bad = scan(root)
+    # helper and keelbot stand for parts here (KeelBot itself moved to plugins/keelbot)
+    couplings, bad = scan(root, plugins=(*PLUGIN_MODULES, "keel_engine.runtime.helper", "keel_engine.runtime.keelbot"))
     assert couplings == {
         "keel_engine.app -> keel_engine.plugins",
         "keel_engine.app -> keel_engine.plugins.db.core",

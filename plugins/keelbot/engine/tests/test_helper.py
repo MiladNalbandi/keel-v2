@@ -1,11 +1,14 @@
-"""KeelBot (runtime/helper.py, runtime/plugins.py): sessions, turns on the fake model, read-only Ask, plugins."""
+"""KeelBot (keel_plugin_keelbot.helper, keel's runtime/plugins.py): sessions, turns on the fake model, read-only Ask,
+slash commands, Fix mode and side sessions. What core keeps for them (the hook, runtime/permissions.py, the helper
+tables) is tested in engine/tests."""
 
 import time
 from pathlib import Path
 
 import pytest
 
-from keel_engine.runtime import helper, plugins
+from keel_engine.runtime import plugins
+from keel_plugin_keelbot import helper
 
 FAKE = {"provider": "fake", "mode": "api", "model": "fake"}
 
@@ -154,9 +157,6 @@ def test_which_engines_continue_their_own_session(provider, resumes):
 import threading
 import subprocess as _sp
 
-from keel_engine import hook
-from keel_engine.runtime import permissions
-
 FLOW = {"thread_id": "t-gate", "phase": "green", "ac": {"id": "AC-1", "layer": "API", "title": "the main case works"},
         "acs": [{"id": "AC-1", "layer": "API", "title": "the main case works", "status": "green"}], "unlocks": [],
         "workflow": "feature", "run_mode": "manual", "status": "waits", "title": "Player ranks"}
@@ -262,25 +262,6 @@ def test_a_permission_card_waits_for_the_person(client, repo):
     assert client.post(f"/helper/permissions/{q['id']}", json={"decision": "once"}).status_code == 404
 
 
-def test_the_hook_asks_only_for_commands_that_change_something(repo, monkeypatch):
-    asked = []
-    monkeypatch.setattr(permissions, "ask_engine", lambda a, kind, cmd, path="": (asked.append(cmd) or (False, "said no")))
-    ctx = {"root": str(repo), "phase": "green", "unlocks": [], "ask": {"url": "http://x", "key": "k", "session": "h_1"}}
-    assert hook.decide("Bash", {"command": "ls src && git status"}, dict(ctx)) is None
-    assert hook.decide("Bash", {"command": "python -m pytest -q"}, dict(ctx)) is None              # tests need no OK
-    assert hook.decide("Bash", {"command": "rm -rf build"}, dict(ctx)) == "said no"
-    assert asked == ["rm -rf build"]
-    no_ask = {k: v for k, v in ctx.items() if k != "ask"}
-    assert hook.decide("Bash", {"command": "rm -rf build"}, no_ask) is None                         # a flow's agent: rules alone
-
-
-def test_permission_rules():
-    assert not permissions.needs_ask("grep -rn score src")
-    assert permissions.needs_ask("npm install x") and permissions.needs_ask("echo hi > out.txt")
-    assert permissions.granted("npm test -- --watch=false", ["npm test *"])
-    assert permissions.granted("git status", ["git status"]) and not permissions.granted("git push", ["git status"])
-
-
 def test_at_a_gate_fix_works_in_the_phase_of_the_work_under_review(client, repo):
     from keel_engine import rules
     assert not rules.edits_code("gate") and rules.edits_code("green") and rules.edits_code("spec")
@@ -292,24 +273,6 @@ def test_at_a_gate_fix_works_in_the_phase_of_the_work_under_review(client, repo)
     assert s["phase"] == "green"
     _, s = ask(client, s["id"], "Fix it at the AC gate.", flow=gate)
     assert (Path(repo) / "src" / "scores" / "helper_fix.py").exists()     # green lets source change; "gate" would not
-
-
-async def test_an_older_helper_table_gets_its_new_columns(tmp_path):
-    import aiosqlite
-    from keel_engine.runtime import migrate
-    async with aiosqlite.connect(tmp_path / "m.db") as conn:
-        # the table as the first Helper build made it: no grants_json, no phase
-        await conn.execute("""create table helper_sessions (
-          id text primary key, project text not null, root text not null, mode text not null, title text not null,
-          model_json text not null, engine_session text, status text not null, error text, thread_id text,
-          tokens_in integer not null default 0, tokens_out integer not null default 0, tokens_cached integer not null default 0,
-          cost_usd real not null default 0, turns integer not null default 0, created_at text not null, updated_at text not null)""")
-        await conn.execute("insert into helper_sessions (id, project, root, mode, title, model_json, status, created_at, updated_at) "
-                           "values ('h_old', 'p', '/w', 'ask', 't', '{}', 'idle', 'x', 'x')")
-        await migrate.migrate(conn)
-        await migrate.migrate(conn)
-        async with conn.execute("select grants_json, phase from helper_sessions where id = 'h_old'") as cur:
-            assert await cur.fetchone() == ("[]", None)
 
 
 # ------------------------------------------------------------------ side sessions (their own worktree and branch)
@@ -348,16 +311,6 @@ def test_a_side_session_works_in_its_own_worktree_and_never_touches_the_main_fol
     assert "on branch keel/helper/" in client.get(f"/helper/sessions/{s['id']}").json()["messages"][-1]["text"]
     h = client.get(f"/helper/sessions/{s['id']}/handover").json()
     assert [c["subject"] for c in h["commits"]] == ["fix(helper): a helper for ranks"] and h["uncommitted"] == []
-
-
-def test_the_hook_keeps_a_side_session_inside_its_worktree(repo, tmp_path):
-    from keel_engine import hook
-    wt = tmp_path / "wt"
-    wt.mkdir()
-    ctx = {"root": str(wt), "phase": "none", "unlocks": [], "confine": True}
-    assert "outside" in hook.decide("Write", {"file_path": str(Path(repo) / "src" / "x.py")}, ctx)
-    assert hook.decide("Write", {"file_path": str(wt / "src" / "x.py")}, ctx) is None
-    assert hook.decide("Write", {"file_path": str(Path(repo) / "src" / "x.py")}, {**ctx, "confine": False}) is None
 
 
 def test_undo_hand_over_and_throw_away(client, repo):
@@ -411,31 +364,3 @@ def test_a_chat_title_is_cut_at_a_word():
     t = helper.short_title(long)
     assert t == "Add formatUsd(cents) next to formatEuro in src/domain/money.js (returns $12.50…" and len(t) <= 80
     assert helper.short_title("x" * 120) == "x" * 79 + "…"
-
-
-def test_a_flow_worktree_starts_from_the_base_branch_and_goes_with_or_without_its_branch(client, repo):
-    _git(repo, "checkout", "-q", "-b", "feat/other")
-    (Path(repo) / "other.txt").write_text("another flow's work\n")
-    _git(repo, "add", "other.txt")
-    _sp.run(["git", "-c", "user.name=t", "-c", "user.email=t@x", "commit", "-qm", "other"], cwd=repo, check=True)
-    base = _git(repo, "rev-parse", "main").strip() or _git(repo, "rev-parse", "master").strip()
-    start = "main" if _git(repo, "rev-parse", "--verify", "--quiet", "main").strip() else "master"
-    w = client.post("/worktrees", json={"root": str(repo), "name": "flow-ranks-1", "branch": "feat/ranks", "start": start}).json()
-    assert w["branch"] == "feat/ranks" and w["base"] == base and not (Path(w["path"]) / "other.txt").exists()
-    again = client.post("/worktrees", json={"root": str(repo), "name": "flow-ranks-2", "branch": "feat/ranks", "start": start})
-    assert again.status_code == 409 and "exists already" in again.json()["error"]
-    assert client.post("/worktrees/remove", json={"root": str(repo), "name": "flow-ranks-1"}).json() == {"ok": True}
-    assert not Path(w["path"]).exists() and _git(repo, "branch", "--list", "feat/ranks").strip()     # the branch stays
-    bad = client.post("/worktrees/remove", json={"root": str(repo), "name": "../../etc"})
-    assert bad.status_code >= 400
-
-
-def test_a_spec_extract_with_its_own_code_block_stays_inside_the_pr_bodys_fold(repo):
-    from keel_engine.runtime import tools, verdict_actions
-    assert tools.fenced("a\n```\nb\n```", "markdown") == ["````markdown", "a\n```\nb\n```", "````"]
-    assert tools.fenced("plain") == ["```", "plain", "```"]
-    spec = Path(repo) / "docs" / "specs" / "euro.md"
-    spec.parent.mkdir(parents=True, exist_ok=True)
-    spec.write_text("# Euro\n\n## Request path\n```\ntest -> formatEuro(cents)\n```\n")
-    body = verdict_actions.pr_body(str(repo), "demo", {"spec": "docs/specs/euro.md"}, "Euro", None)
-    assert "````markdown" in body and body.index("</details>") > body.index("formatEuro") and body.count("````") == 2
