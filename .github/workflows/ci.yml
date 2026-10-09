@@ -27,7 +27,8 @@ jobs:
           ! ./keel2 start --with-keel-v1 /tmp
   engine:
     runs-on: ubuntu-latest
-    # v0.10.0 the Database plugin's tests run against a real PostgreSQL and MySQL (tests/test_plugins_servers.py)
+    # v0.10.0 the Database plugin's tests run against a real PostgreSQL and MySQL
+    # (plugins/db/engine/tests/test_plugins_servers.py, in scripts/test-plugins.sh below)
     services:
       postgres:
         image: postgres:16-alpine

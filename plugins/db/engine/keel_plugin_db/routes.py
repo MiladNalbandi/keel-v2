@@ -11,8 +11,8 @@ from typing import Any
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
-from .. import PluginError
 from . import core as db
+from .core import PluginError
 
 router = APIRouter()
 

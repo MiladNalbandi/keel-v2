@@ -5,14 +5,17 @@ built-in parts are named in one place, builtins.py (each module's PART dict); ad
 (KEEL_PLUGIN_ADDONS, KEEL_ADDONS: each package's ADDON dict). A part's dict may have these keys (only name is needed):
 
     name, title   its id ("db") and name ("Database"); its actions are "<name>:*"
+    order         its place in the registry, lower first (default 100; parts with the same order keep the registry's
+                  own order: built-ins, then add-ons). A part that moved out of core into a plugin keeps the place it
+                  had as a built-in this way, so KeelBot hears about the parts in the same order (Database is 10)
     per_project   True: a project turns it on (Tools › Plugins, the flow's settings["plugins"]); while it is off its
                   actions and its MCP server are refused. Without it the part is on for every project.
     actions       {"<name>:x": fn}: workflow code steps, fn(ActionInput) -> ActionResult, plain or async
     params        {"<name>:x": {"sql": "required", "connection": "optional"}}: what each takes in `with:`
     docs          {"<name>:x": {"summary": str, "steps": [str]}}: each action in plain words (explain a step)
     read_tools    the tools of its MCP server; agents may call them without asking (the guard's hook)
-    mcp           its MCP server for agents: {"server": "keel-db", "module": "keel_engine.plugins.server", "args":
-                  ["db"], "call": fn(call, tool, args) -> str} runs with one key per agent call (open_call below);
+    mcp           its MCP server for agents: {"server": "keel-db", "module": "keel_plugin_db.server", "args": [...],
+                  "call": fn(call, tool, args) -> str} runs with one key per agent call (open_call below);
                   a server the part hands out itself (hook mcp_specs) has no module. "prompt": what an agent that has
                   this server is told (runtime/agent_knowledge.py)
     router        a FastAPI router: its engine routes, mounted after keel's own
@@ -50,6 +53,7 @@ from . import addons, builtins, config
 log = logging.getLogger("keel.extensions")
 LAZY = ("actions", "params", "docs", "router", "errors", "keelbot")
 CALL_TTL = 4 * 3600
+DEFAULT_ORDER = 100
 
 
 class PartError(Exception):
@@ -82,6 +86,8 @@ class Part:
         self.name = str(spec["name"])
         self.title = str(spec.get("title") or self.name)
         self.per_project = bool(spec.get("per_project"))
+        order = spec.get("order")
+        self.order = order if isinstance(order, int) and not isinstance(order, bool) else DEFAULT_ORDER
         self.source = source            # the module or package it comes from
         self.builtin = builtin
         self._got: dict = {}
@@ -151,14 +157,15 @@ def _addon_part(a) -> Part:
 
 
 def parts() -> tuple[Part, ...]:
-    """The built-in parts, then the loaded add-ons and plugins; each name once (the first one wins)."""
+    """The built-in parts, then the loaded add-ons and plugins; each name once (the first one wins). A part's `order`
+    moves it (lower first); parts with the same order keep this order."""
     out = list(_builtins())
     seen = {p.name for p in out}
     for a in addons.loaded():
         if a.name not in seen:
             out.append(_addon_part(a))
             seen.add(a.name)
-    return tuple(out)
+    return tuple(sorted(out, key=lambda p: p.order))
 
 
 def reload() -> tuple[Part, ...]:

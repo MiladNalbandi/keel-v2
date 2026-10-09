@@ -49,9 +49,10 @@ def test_it_is_an_add_on_part_with_the_keys_it_had_as_a_built_in():
     assert "keel_engine.plugins.ci" not in builtins.BUILTINS
     p = extensions.part("ci")
     assert p is not None and not p.builtin and p.source == "keel_plugin_ci" and p.title == "CI/CD" and p.per_project
-    assert [x.name for x in extensions.parts()] == ["db", "git", "graph", "keelbot", "ci"]
-    assert extensions.servers() == {"db": "keel-db", "git": "keel-git", "ci": "keel-ci"}
-    assert extensions.param_prefixes() == ["db", "git", "ci"]          # the order KeelBot and validation name them in
+    # only this plugin is loaded here: with the Database plugin too, db comes first (plugins/db/engine/tests)
+    assert [x.name for x in extensions.parts()] == ["git", "graph", "keelbot", "ci"]
+    assert extensions.servers() == {"git": "keel-git", "ci": "keel-ci"}
+    assert extensions.param_prefixes() == ["git", "ci"]          # the order KeelBot and validation name them in
     assert extensions.read_tools()["keel-ci"] == READ_TOOLS
     assert extensions.has_action("ci:wait") and not extensions.has_action("ci:nope")
     assert extensions.enabled({"plugins": ["ci", "git"]}) == ["ci", "git"] and not extensions.on({}, "ci")
@@ -62,17 +63,17 @@ def test_it_is_an_add_on_part_with_the_keys_it_had_as_a_built_in():
 def test_validation_explain_and_keelbot_name_it_as_before():
     errs = validate(from_dict({"name": "x", "keel_rules": False, "steps": [
         {"id": "a", "kind": "code", "name": "a", "action": "commit", "with": {"x": 1}}]}))
-    assert errs == ["Step 'a': only a plugin step (db:..., git:..., ci:...) takes `with`."]
+    assert errs == ["Step 'a': only a plugin step (git:..., ci:...) takes `with`."]
     assert validate(from_dict({"name": "x", "keel_rules": False, "steps": [
         {"id": "a", "kind": "code", "name": "a", "action": "ci:wait", "with": {"minutes": 5}}]})) == []
     assert "ci:wait" in action_docs.dispatch_names()
     assert action_docs.describe("ci:wait")["summary"].startswith("CI/CD plugin: waits for the pipelines")
     block = keelbot.keel_block({"plugins": ["git", "ci", "db"]}, "hello")
     assert "The CI/CD plugin is on." in block and "The CI/CD plugin is on." not in keelbot.keel_block({"plugins": []}, "hi")
-    # Database, Git, then CI/CD: the order KeelBot heard them in keel 0.15.1
+    # Git, then CI/CD: the order KeelBot heard them in keel 0.15.1 (Database before both: plugins/db/engine/tests)
     heads = [line.split(".")[0] for line in block.split("\n\n") if line.startswith("The ") and " plugin is on" in line]
     assert [h for h in heads if h in ("The Database plugin is on", "The Git plugin is on", "The CI/CD plugin is on")] == [
-        "The Database plugin is on", "The Git plugin is on", "The CI/CD plugin is on"]
+        "The Git plugin is on", "The CI/CD plugin is on"]
     assert "- ci:wait  {minutes?}: wait for CI after a push" in keelbot.format_block(["ci"])
 
 
@@ -80,7 +81,7 @@ def test_validation_explain_and_keelbot_name_it_as_before():
 
 def test_tools_plugins_lists_it_where_it_always_was(client):
     cat = client.get("/plugins").json()
-    assert [p["name"] for p in cat] == ["ci", "db", "git", "review"]      # name order, as keel 0.15.1's content/plugins
+    assert [p["name"] for p in cat] == ["ci", "git", "review"]      # name order, as keel 0.15.1's (db: with plugins/db)
     ci = cat[0]
     assert ci["title"] == "CI/CD" and ci["installable"] and ci["needs"] == ["github"]
     assert ci["tools"] == {"server": "keel-ci", "read": ["ci_runs", "ci_failure"]} and ci["workflows"] == ["ci-fix"]
@@ -101,7 +102,7 @@ def test_the_fix_flow_is_its_own_workflow_after_keels_templates(client):
     tpls = client.get("/templates").json()
     assert tpls[-1]["id"] == "ci-fix" and tpls[-1]["plugin"] == "ci" and "plugin" not in tpls[0]
     assert tpls[-1]["yaml"] == (PLUGIN / "content" / "plugins" / "ci" / "workflows" / "ci-fix.yaml").read_text()
-    assert [f.parent.name for f in catalog.keel_files()] == ["ci", "core", "db", "git", "review"]
+    assert [f.parent.name for f in catalog.keel_files()] == ["ci", "core", "git", "review"]
 
 
 # ------------------------------------------------------------------ MCP: its own server, keel's server, the guard

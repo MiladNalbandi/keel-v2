@@ -1,10 +1,10 @@
-"""The Database plugin's read tools for KeelBot and agents (the MCP server keel-db, plugins/server.py). Every answer is
-text for a model: a refusal says why instead of failing the call. Columns named like a secret show as •••."""
+"""The Database plugin's read tools for KeelBot and agents (the MCP server keel-db, server.py). Every answer is text
+for a model: a refusal says why instead of failing the call. Columns named like a secret show as •••."""
 
 from __future__ import annotations
 
-from .. import PluginError, connections
 from . import core
+from .core import PluginError, connections
 
 ROWS_SHOWN = 50
 CELL = 200

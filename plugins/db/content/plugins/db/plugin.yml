@@ -1,6 +1,6 @@
-# The Database plugin (engine keel_engine/plugins/db). Installed per project on Tools › Plugins. KeelBot and flow agents
-# read the project's database through its tools; a change of data is a button the person presses (keel-query), and
-# a workflow changes data only in a db:change step that asks first.
+# The Database plugin (plugins/db, engine keel_plugin_db). Installed per project on Tools › Plugins. KeelBot and flow
+# agents read the project's database through its tools; a change of data is a button the person presses (keel-query),
+# and a workflow changes data only in a db:change step that asks first.
 #
 #   installable   off until a project turns it on (keel's core plugin is always on)
 #   needs         what the person sets up: Connections › Databases
