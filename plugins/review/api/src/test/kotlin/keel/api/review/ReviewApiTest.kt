@@ -227,7 +227,7 @@ class ReviewApiTest : ApiTest() {
     fun `Connections › GitLab comes with the plugin, and its token is saved without whitespace`() {
         // keel's core has GitHub and Database; GitLab is this plugin's kind, at its place between them
         val kinds = get("/api/connections/kinds").andExpect(status().isOk).json()
-        assertThat(kinds.map { it["kind"].asText() }).containsExactly("github", "gitlab", "database")
+        assertThat(kinds.map { it["kind"].asText() }).containsExactly("github", "gitlab")   // Databases: the Database plugin
         val gitlab = kinds.first { it["kind"].asText() == "gitlab" }
         assertThat(gitlab["scope"].asText()).isEqualTo("keel")
         assertThat(gitlab["fields"].map { it["key"].asText() + ":" + it["type"].asText() }).containsExactly("url:url", "token:secret")

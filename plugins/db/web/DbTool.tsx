@@ -3,18 +3,17 @@
 // console, a table opens its data. The editor tab (DbTab) is a console (SQL, ⌘↵ runs the statement under the cursor or
 // the selection, a history) or a table (its first 100 rows, and its structure). Reads run at once; a change of data is
 // counted first and runs after Run it, on a local or test database only.
+// The Database plugin's part (plugins/db): it imports only react and @keel/web-sdk.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ErrorBox, errorParts, go, Pill, useLoad } from "@keel/web-sdk";
 import {
-  api,
-  errorParts,
+  dbApi,
   type DbConnection,
   type DbResult,
   type LiveTable,
-} from "../../api";
-import { go, useLoad } from "../../state";
-import { Icon } from "../../pages/repo/icons";
-import { ErrorBox, Pill } from "../ui";
+} from "./dbApi";
+import { Icon } from "./icons";
 import { ResultTable } from "./QueryPanel";
 
 const KIND: Record<string, string> = {
@@ -94,7 +93,7 @@ export function DbExplorer({
   onConsole: (conn: string) => void;
   onTable: (conn: string, table: string, pin: boolean) => void;
 }) {
-  const conns = useLoad(`db:${pid}`, () => api.dbConnections(pid), {
+  const conns = useLoad(`db:${pid}`, () => dbApi.connections(pid), {
     live: false,
   });
   const [open, setOpen] = useState<Record<string, boolean>>({});
@@ -188,7 +187,7 @@ function ConnNode({
 }) {
   const schema = useLoad(
     open ? `db-schema:${pid}:${c.name}` : null,
-    () => api.dbSchema(pid, c.name),
+    () => dbApi.schema(pid, c.name),
     { live: false },
   );
   const [tableOpen, setTableOpen] = useState<Record<string, boolean>>({});
@@ -381,7 +380,7 @@ function useRun(pid: string) {
     setBusy(true);
     setErr(null);
     try {
-      const r = await api.dbQuery(pid, {
+      const r = await dbApi.query(pid, {
         connection: conn.name,
         sql,
         change: conn.can_change,
@@ -456,7 +455,7 @@ function ConsoleTab({
   initial: string;
   onConn?: (conn: string) => void;
 }) {
-  const conns = useLoad(`db:${pid}`, () => api.dbConnections(pid), {
+  const conns = useLoad(`db:${pid}`, () => dbApi.connections(pid), {
     live: false,
   });
   const [name, setName] = useState(initial);
@@ -595,12 +594,12 @@ function TableTab({
   conn: string;
   table: string;
 }) {
-  const conns = useLoad(`db:${pid}`, () => api.dbConnections(pid), {
+  const conns = useLoad(`db:${pid}`, () => dbApi.connections(pid), {
     live: false,
   });
   const schema = useLoad(
     `db-schema:${pid}:${conn}`,
-    () => api.dbSchema(pid, conn),
+    () => dbApi.schema(pid, conn),
     { live: false },
   );
   const c = conns.data?.find((x) => x.name === conn);

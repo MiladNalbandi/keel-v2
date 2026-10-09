@@ -1,0 +1,22 @@
+# The Database plugin (docs/plugins/11-step3-contract.md, wave B). scripts/build-plugin.sh packs it: db-<version>.kplug.
+# Paths are relative to the plugin folder. The version must equal VERSION in engine/keel_plugin_db/__init__.py
+# (engine/tests/test_db_part.py checks it). Each part is written on one line (scripts/build-plugin.sh reads them).
+# Its Python libraries (sqlglot, psycopg, pymysql) stay in keel's engine until 1.0. Its connections stay in core's
+# table db_connections (V11), their addresses in keel's secret store (db.<id>).
+# optional: works better with the Map plugin, whose database diagram shows its Query panel (the slot map.er.query).
+schema: 1
+name: db
+title: Database
+version: 1.0.0
+publisher: keel
+summary: Connect the project's databases - KeelBot and agents read them, workflows check the data, and you query them in Code and Map.
+requires:
+  sdk: 1
+optional:
+  map: ">=1.0.0"
+parts:
+  engine: { path: engine, package: keel_plugin_db }
+  api: { jars: [api/keel-plugin-db.jar] }
+  web: { entry: web/index.js }
+  content: content
+per_project: true

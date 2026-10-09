@@ -160,7 +160,7 @@ class PluginSlotsApiTest {
         assertThat(sections.map { it["id"].asText() }.last()).isEqualTo("demo")
         assertThat(sections.last()["keys"][0]["key"].asText()).isEqualTo("plugins.demo.level")
         val kinds = get("/api/connections/kinds").andExpect(status().isOk).json().map { it["kind"].asText() }
-        assertThat(kinds).containsExactly("github", "demo", "database")
+        assertThat(kinds).containsExactly("github", "demo")          // GitLab and Databases come with their plugins
 
         val pid = newProject("slots-demo-settings")
         val level = settings.plugin("demo")

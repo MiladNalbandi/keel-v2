@@ -29,7 +29,8 @@ data class PluginAskBody(val title: String = "", val command: String = "")
 /**
  * keel's installable plugins (engine `GET /plugins`, content/plugins/<name>/plugin.yml): Database and Git. A project turns
  * one on (or every project does, `*`); a project's own row wins. Flows and KeelBot get the list and the plugins' secrets
- * (keysFor) with every call: `db:<name>` → the connection as JSON, `github` → the GitHub token.
+ * with every call: `github` → the GitHub token (keysFor), and what each plugin's FlowContributor adds (the Database
+ * plugin: `db:<name>` → the connection as JSON).
  */
 @Service
 class PluginService(
@@ -103,19 +104,13 @@ class PluginService(
         return forProject(pid)
     }
 
-    /** The secrets a flow or KeelBot turn of this project carries for its plugins (the engine keeps them in memory). */
+    /**
+     * The secrets a flow or KeelBot turn of this project carries for its plugins (the engine keeps them in memory). A
+     * plugin brings its own as a FlowContributor bean (the Database plugin: DatabaseKeys, `db:<name>`).
+     */
     fun keysFor(pid: String): Map<String, String> {
         val out = linkedMapOf<String, String>()
         githubToken()?.let { out["github"] = it }
-        if (on(pid, "db")) {
-            jdbc.query("SELECT id, name, kind, env FROM db_connections WHERE project_id = ? ORDER BY name",
-                { rs, _ -> listOf(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4)) }, pid,
-            ).forEach { (id, name, kind, env) ->
-                secrets.get("db.$id")?.let { url ->
-                    out["db:$name"] = mapper.writeValueAsString(mapOf("name" to name, "kind" to kind, "url" to url, "env" to env))
-                }
-            }
-        }
         return out
     }
 

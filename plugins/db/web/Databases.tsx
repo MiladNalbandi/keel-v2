@@ -1,23 +1,21 @@
 // v0.10.0 Connections › Databases (the Database plugin): the project's databases. keel suggests what the project names
 // (docker compose, .env.example, Spring's config, a SQLite file); you confirm, keel tests it, and the password is saved
 // encrypted. local and test databases may get changes of data (always after your OK); staging and prod are read only.
+// The Database plugin's part (plugins/db): it imports only react and @keel/web-sdk.
 
 import { useState } from "react";
-import { api, errorParts, type DbConnection, type DbSuggestion } from "../../api";
-import { clock } from "../../format";
-import { useApp, useLoad } from "../../state";
-import { Section } from "../page";
-import { ErrorBox, Pill } from "../ui";
+import { clock, ErrorBox, errorParts, Pill, Section, useApp, useLoad } from "@keel/web-sdk";
+import { dbApi, type DbConnection, type DbSuggestion } from "./dbApi";
 
 const KIND: Record<string, string> = { postgres: "PostgreSQL", mysql: "MySQL", sqlite: "SQLite" };
 const ENVS = ["local", "test", "staging", "prod"] as const;
 const EXAMPLE = "postgres://user:password@localhost:5432/app"; // keel:allow-secret
 
 export function DatabasesSection({ pid }: { pid: string }) {
-  const plugins = useLoad(pid ? `plugins:${pid}` : null, () => api.plugins(pid), { live: false });
+  const plugins = useLoad(pid ? `plugins:${pid}` : null, () => dbApi.plugins(pid), { live: false });
   const on = !!plugins.data?.find((p) => p.name === "db")?.enabled;
-  const conns = useLoad(on ? `db:${pid}` : null, () => api.dbConnections(pid), { live: false });
-  const sugg = useLoad(on ? `db-suggest:${pid}` : null, () => api.dbSuggest(pid), { live: false });
+  const conns = useLoad(on ? `db:${pid}` : null, () => dbApi.connections(pid), { live: false });
+  const sugg = useLoad(on ? `db-suggest:${pid}` : null, () => dbApi.suggest(pid), { live: false });
   const { toast } = useApp();
   const [form, setForm] = useState<{ name: string; url: string; env: string; source?: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -30,7 +28,7 @@ export function DatabasesSection({ pid }: { pid: string }) {
     setBusy(true);
     setErr(null);
     try {
-      const r = await api.dbAdd(pid, form);
+      const r = await dbApi.add(pid, form);
       toast(r.test.ok ? `${r.connection.name} is connected: ${r.connection.server}, ${r.connection.tables} tables.`
         : `${r.connection.name} is saved, but keel could not connect. ${r.test.error ?? ""}`);
       setForm(null);
@@ -59,9 +57,9 @@ export function DatabasesSection({ pid }: { pid: string }) {
       {conns.error && <ErrorBox error={conns.error} onRetry={reload} />}
       <div className="db-list">
         {(conns.data ?? []).map((c) => <ConnectionCard key={c.name} c={c}
-          onTest={() => void act(`Tested ${c.name}.`, () => api.dbTest(pid, c.name))}
-          onEnv={(env) => void act(`${c.name} is now ${env}.`, () => api.dbUpdate(pid, c.name, { env }))}
-          onRemove={() => void act(`${c.name} removed.`, () => api.dbDelete(pid, c.name))} />)}
+          onTest={() => void act(`Tested ${c.name}.`, () => dbApi.test(pid, c.name))}
+          onEnv={(env) => void act(`${c.name} is now ${env}.`, () => dbApi.update(pid, c.name, { env }))}
+          onRemove={() => void act(`${c.name} removed.`, () => dbApi.remove(pid, c.name))} />)}
         {conns.data && !conns.data.length && !form && <p className="sub">No database yet. Add one, or use one keel found below.</p>}
       </div>
       {!form && !!sugg.data?.length && (

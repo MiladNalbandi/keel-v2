@@ -150,7 +150,7 @@ class HelperService(
         val payload = linkedMapOf<String, Any?>(
             "text" to text,
             "model" to body.model,
-            "keys" to (secrets.engineKeys(model.provider, model.mode) + plugins.keysFor(pid)).takeIf { it.isNotEmpty() },
+            "keys" to (secrets.engineKeys(model.provider, model.mode) + flows.contributedKeys(pid)).takeIf { it.isNotEmpty() },
             "plugins" to plugins.enabled(pid),
             "mcp" to mcp.specsFor(eff.mcp),
             "tools_allow" to (mcp.allow(pid)[AGENT] ?: emptyList()),

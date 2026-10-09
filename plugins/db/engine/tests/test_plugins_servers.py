@@ -1,12 +1,13 @@
 """The Database plugin against real servers: PostgreSQL and MySQL. Runs when KEEL_TEST_PG / KEEL_TEST_MYSQL name one
-(CI starts both as service containers); skipped otherwise. Each test makes its own tables and drops them."""
+(CI starts both as service containers); skipped otherwise. Each test makes its own tables and drops them. Moved from
+engine/tests with the plugin (plugins/db, keel_plugin_db)."""
 
 import os
 import uuid
 
 import pytest
 
-from keel_engine.plugins.db import core as db
+from keel_plugin_db import core as db
 
 SERVERS = [("postgres", os.environ.get("KEEL_TEST_PG")), ("mysql", os.environ.get("KEEL_TEST_MYSQL"))]
 

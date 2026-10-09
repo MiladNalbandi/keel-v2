@@ -1575,6 +1575,10 @@ shows_in: [connections, map, workflows, keelbot, inbox]
   only; each tool call comes back as `POST /plugins/call {key, tool, args}` → `{text}`. KeelBot gets the tools of every
   plugin that is on; a flow agent only when it is ticked on Tools › "Who may use what" (`keel-db`, `keel-git`). The
   allow list now also takes a bare server name (the Tools page saves those; before, the engine dropped them).
+- **The Database plugin since step 3** is the plugin folder `plugins/db`: engine `keel_plugin_db` (its MCP server
+  `python -m keel_plugin_db.server`), content `plugins/db/content/plugins/db`, api `keel-plugin-db.jar` (the keys
+  `db:<connection>` come from its FlowContributor), web `plugins/db/web` (KeelBot's `keel-query` card is its item in
+  the slot `keelbot.card`). Its table `db_connections` and the secrets `db.<id>` stay in core.
 - **Database rules** (`plugins/db/core.py`): sqlglot reads the SQL: `read` (SELECT, EXPLAIN without ANALYZE, SHOW,
   DESCRIBE, PRAGMA) runs in a read-only transaction, 200 rows, 15 s; `change` (INSERT, UPDATE, DELETE, MERGE) only on
   a `local` or `test` connection, first run and rolled back to count the rows, then for real with `confirm`; `schema`

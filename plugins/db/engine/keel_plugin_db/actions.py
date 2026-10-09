@@ -14,16 +14,17 @@ from __future__ import annotations
 import asyncio
 import hashlib
 
-from ... import rules
-from ...runtime import run_mode as run_modes
-from .. import PluginError
+from keel_engine import rules
+from keel_engine.runtime import run_mode as run_modes
+
 from . import core, tools
+from .core import PluginError
 
 SHOWN = 20
 
 
 def _result(ok: bool, note: str, detail: str = "", update: dict | None = None, ask: dict | None = None):
-    from ...runtime.actions import ActionResult
+    from keel_engine.runtime.actions import ActionResult
 
     return ActionResult(ok, note, detail, update or {}, ask=ask)
 
@@ -124,7 +125,7 @@ async def db_change(a):
 
 
 async def db_migrate(a):
-    from ...runtime.actions import run_command
+    from keel_engine.runtime.actions import run_command
 
     cmd = str(((rules.load_config(a.root).get("commands") or {}).get("migrate")) or "").strip()
     if not cmd:

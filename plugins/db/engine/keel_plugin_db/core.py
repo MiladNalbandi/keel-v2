@@ -10,6 +10,9 @@ the url (with its password) encrypted; it reaches the engine in a call's keys an
     test(conn)               can keel connect, which server, how many tables
     suggest(root)            connections the project names: docker compose, .env.example, Spring's config, SQLite files
 
+    connections(keys)        the connections a call carries (the api sends each as the key `db:<name>`)
+    PluginError              keel's refusal of a part (status, message, hint): the app answers it as a 4xx
+
 keel runs in Docker: `localhost` in a url means the person's computer, so the engine connects to host.docker.internal.
 """
 
@@ -17,6 +20,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import decimal
+import json
 import logging
 import re
 import sqlite3
@@ -29,6 +33,8 @@ from urllib.parse import unquote, urlsplit, urlunsplit
 import sqlglot
 import yaml
 from sqlglot import exp
+
+from keel_engine.extensions import PartError as PluginError
 
 logging.getLogger("sqlglot").setLevel(logging.ERROR)
 
@@ -47,6 +53,20 @@ DANGER_FN = re.compile(r"^(pg_(terminate|cancel)_backend|pg_reload_conf|pg_rotat
 COMPOSE = ("docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml")
 ADDRESS_HINT = ("Use postgres://user:password@host:5432/db, mysql://user:password@host:3306/db "  # keel:allow-secret
                 "or sqlite:path/to/file.db.")
+
+
+def connections(keys: dict | None) -> dict[str, dict]:
+    """{name: {name, kind, url, env}} from the call's keys `db:<name>` (the api sends each connection as JSON)."""
+    out = {}
+    for k, v in (keys or {}).items():
+        if k.startswith("db:") and v:
+            try:
+                d = json.loads(v)
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if isinstance(d, dict) and d.get("url"):
+                out[k[3:]] = {**d, "name": d.get("name") or k[3:]}
+    return out
 
 
 class DbError(Exception):
