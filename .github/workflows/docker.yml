@@ -23,23 +23,23 @@ jobs:
       HAS_DOCKERHUB: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
       HAS_LEGACY: ${{ secrets.LEGACY_GHCR_TOKEN != '' }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
+      - uses: actions/checkout@v7
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
       # one login per registry: the legacy token can push both names, the workflow's token only the repo's own
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         if: env.HAS_LEGACY != 'true'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         if: env.HAS_LEGACY == 'true'
         with:
           registry: ghcr.io
           username: ${{ env.LEGACY_USER }}
           password: ${{ secrets.LEGACY_GHCR_TOKEN }}
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         if: env.HAS_DOCKERHUB == 'true'
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -50,7 +50,7 @@ jobs:
           if [ "$HAS_LEGACY" = "true" ] && [ "$images" != "$LEGACY_IMAGE" ]; then images="${images}"$'\n'"${LEGACY_IMAGE}"; fi
           if [ "$HAS_DOCKERHUB" = "true" ]; then images="${images}"$'\n'"docker.io/${{ secrets.DOCKERHUB_USERNAME }}/keel-v2"; fi
           { echo "images<<EOF"; echo "$images"; echo "EOF"; } >> "$GITHUB_OUTPUT"
-      - uses: docker/metadata-action@v5
+      - uses: docker/metadata-action@v6
         id: meta
         with:
           images: ${{ steps.names.outputs.images }}
@@ -63,7 +63,7 @@ jobs:
             org.opencontainers.image.title=keel v2
             org.opencontainers.image.description=keel's test-first flow as a LangGraph graph, with a dashboard, in one image
             org.opencontainers.image.licenses=MIT
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -80,16 +80,16 @@ jobs:
     env:
       HAS_LEGACY: ${{ secrets.LEGACY_GHCR_TOKEN != '' }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: actions/checkout@v7
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
         if: env.HAS_LEGACY != 'true'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         if: env.HAS_LEGACY == 'true'
         with:
           registry: ghcr.io
@@ -102,7 +102,7 @@ jobs:
           if [ "$HAS_LEGACY" = "true" ] && [ "$image" != "$LEGACY_IMAGE" ]; then images="$image $LEGACY_IMAGE"; fi
           version="${GITHUB_REF_NAME#v}"
           { echo "tags<<EOF"; for i in $images; do echo "$i:${version}-product-beta"; echo "$i:product-beta"; done; echo "EOF"; } >> "$GITHUB_OUTPUT"
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64
