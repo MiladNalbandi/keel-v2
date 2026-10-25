@@ -25,8 +25,8 @@ jobs:
       vscode: ${{ steps.f.outputs.vscode }}
       shell: ${{ steps.f.outputs.shell }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v4
         id: f
         with:
           filters: |
@@ -45,7 +45,7 @@ jobs:
     if: needs.changes.outputs.shell == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: |
           for f in keel2 install.sh docker/keel-start docker/keel-native-start docker/keel-stack-setup scripts/*.sh docker/tests/*.sh; do
             bash -n "$f" || exit 1
@@ -75,7 +75,7 @@ jobs:
       # plugins.lock's lines (PLUGINS=lock reads them; the keel-plugin job tests the download and its refusals)
       - run: scripts/fetch-locked-plugins.sh --check plugins.lock
       # keel2 update / update --rollback in native mode, with fake releases (no network, no Java)
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
         with: { enable-cache: true }
       - run: scripts/test-keel2-native.sh
       # start keeps the running keel until the new one can start; update does not pull a local image or restart for nothing;
@@ -110,8 +110,8 @@ jobs:
     # setup-signing-keys.sh --dry-run with a stand-in gh
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
         with: { enable-cache: true }
       - run: uv run --with pytest pytest -q
         working-directory: tools/keel-plugin
@@ -126,12 +126,12 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
         with: { distribution: temurin, java-version: "21" }
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with: { node-version: "20", cache: npm, cache-dependency-path: "web/package-lock.json\ncli/package-lock.json" }
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
         with: { enable-cache: true }
       - run: scripts/build-native.sh "$RUNNER_TEMP/dist"
       - name: start, a flow to its gate, stop
@@ -185,10 +185,10 @@ jobs:
       KEEL_TEST_PG: postgres://app:app@127.0.0.1:55432/scores  # keel:allow-secret
       KEEL_TEST_MYSQL: mysql://app:app@127.0.0.1:53306/shop  # keel:allow-secret
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
         with: { enable-cache: true }
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with: { node-version: 20 }
       # Like the image: projects run their tests with the system Python (keel keeps its own venv off their PATH),
       # and the demo project's checks run `python -m pytest` for real.
@@ -202,8 +202,8 @@ jobs:
     if: needs.changes.outputs.api == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
         with: { distribution: temurin, java-version: 21, cache: gradle }
       - run: git config --global user.name ci && git config --global user.email ci@localhost
       # keel's tests, then every plugin's api tests and jars (plugins/<name>/api)
@@ -216,10 +216,10 @@ jobs:
     # product/build-plugin.sh), its api part with keel's api and as a plugin jar (its web pages are tested in the web job)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
         with: { enable-cache: true }
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with: { distribution: temurin, java-version: 21, cache: gradle }
       - run: git config --global user.name ci && git config --global user.email ci@localhost
       - run: uv sync && PYTHONPATH=../product/engine uv run pytest -q ../product/engine/tests
@@ -231,8 +231,8 @@ jobs:
     if: needs.changes.outputs.cli == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with: { node-version: 20, cache: npm, cache-dependency-path: cli/package-lock.json }
       # keel TUI: imports web/src/api.ts and KeelBot's client as they are, so it typechecks against them
       - run: npm ci && npx tsc --noEmit && npm test -- --run && npm run build && node dist/keel-tui.mjs --version
@@ -243,8 +243,8 @@ jobs:
     # keel as an xal plugin (clients/xal): no dependencies at run time, Node's own test runner on the .ts files
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with: { node-version: 24 }
       - run: node --test test/*.test.ts && npm install --no-save --no-audit --no-fund typescript@5.9.3 @types/node@24 && npx tsc --noEmit -p .
         working-directory: clients/xal
@@ -254,12 +254,12 @@ jobs:
     if: needs.changes.outputs.vscode == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with: { node-version: 20, cache: npm, cache-dependency-path: vscode/package-lock.json }
       - run: npm ci && npm run typecheck && npm test && npm run package
         working-directory: vscode
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: keel-vscode
           path: vscode/keel-vscode-*.vsix
@@ -269,8 +269,8 @@ jobs:
     if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with: { node-version: 20, cache: npm, cache-dependency-path: web/package-lock.json }
       # vitest runs the plugins' web tests too (../plugins/*/web); each plugin's web part builds on its own
       - run: npm ci && npx tsc --noEmit && npm test -- --run && npm run build && npm run build:plugins && npm run build:product
