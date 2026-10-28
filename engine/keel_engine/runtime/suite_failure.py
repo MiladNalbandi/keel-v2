@@ -165,6 +165,10 @@ def suspects(root: str, base: str | None) -> list[dict]:
 
 # ------------------------------------------------------------------ alone: does a failing test pass on its own?
 
+# the characters a test name keel puts into a command may have (test_x[1], tests/a.py::t, Foo.bar-baz)
+TEST_NAME = re.compile(r"^(?!-)[A-Za-z0-9_:./\[\]-]+$")
+
+
 def _short(name: str) -> str:
     """The method part of a test name, as a filter takes it ("App\\Tests\\FooTest::testBar" -> "testBar")."""
     for sep in ("::", "->", " > ", "."):
@@ -180,13 +184,18 @@ def one_test_command(root: str, layer: str, name: str) -> tuple[str | None, str]
     key = "web_test_one" if layer == "WEB" else "api_test_one"
     rel = testcmd.part_dir(root, "frontend" if layer == "WEB" else "backend")
     short = _short(name)
+    if not TEST_NAME.match(short):
+        return None, ""          # 0.18.64 (security audit F14) a name from the test output is never shell code
     if cmds.get(key):
-        return str(cmds[key]).replace("{TEST}", short), rel
+        return testcmd.put(str(cmds[key]), "{TEST}", short), rel
     raw = cmds.get("web_test_ac" if layer == "WEB" else "api_test_ac")
     if raw:
-        return testcmd.widen(str(raw)).replace("{AC_KEY}", short).replace("{AC_ID}", short).replace("{AC}", short), rel
+        cmd = testcmd.widen(str(raw))
+        for mark in ("{AC_KEY}", "{AC_ID}", "{AC}"):
+            cmd = testcmd.put(cmd, mark, short)
+        return cmd, rel
     cmd = testcmd.detected(root, "ZZKEELZZ")
-    return (cmd.replace("ZZKEELZZ", short).replace("zzkeelzz", short) if cmd else None), ""
+    return (testcmd.put(testcmd.put(cmd, "ZZKEELZZ", short), "zzkeelzz", short) if cmd else None), ""
 
 
 def alone(root: str, names: list[str], env: dict | None, layer: str = "API") -> list[dict]:
