@@ -112,13 +112,23 @@ COLUMNS = [
 ]
 
 
+def duplicate_column(exc: Exception) -> bool:
+    """0.18.66 two openers (the engine's migrate and a short connection, or two workers) both saw the column missing
+    and both added it: the second one's "duplicate column name" means it is there, which is what both wanted."""
+    return "duplicate column name" in str(exc).lower()
+
+
 async def migrate(conn) -> None:
     for sql in MIGRATIONS:
         await conn.execute(sql)
     for table, column, decl in COLUMNS:
         cur = await conn.execute(f"pragma table_info({table})")
         if column not in {row[1] for row in await cur.fetchall()}:
-            await conn.execute(f"alter table {table} add column {column} {decl}")
+            try:
+                await conn.execute(f"alter table {table} add column {column} {decl}")
+            except Exception as exc:  # noqa: BLE001 - sqlite3 and aiosqlite raise the same OperationalError
+                if not duplicate_column(exc):
+                    raise
     await conn.commit()
 
 

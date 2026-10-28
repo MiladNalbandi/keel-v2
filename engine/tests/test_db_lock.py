@@ -64,3 +64,49 @@ def test_a_short_connection_adds_the_columns_added_later(tmp_path, monkeypatch):
     with db.connect() as conn:
         for table, column, _decl in migrate.COLUMNS:
             assert column in {row[1] for row in conn.execute(f"pragma table_info({table})")}, (table, column)
+
+
+def test_a_column_another_opener_added_a_moment_ago_is_not_an_error(tmp_path, monkeypatch):
+    # 0.18.66 CI: two openers both saw helper_sessions without ctx_tokens and both added it ("duplicate column name")
+    import asyncio
+    import sqlite3
+
+    import aiosqlite
+
+    from keel_engine.runtime import migrate
+
+    f = tmp_path / "race.db"
+    with sqlite3.connect(f) as c:
+        for sql in migrate.MIGRATIONS:
+            c.execute(sql)
+    real = migrate.COLUMNS
+
+    async def run():
+        async with aiosqlite.connect(f) as conn:
+            # the other opener adds every column right after this one looked: each add here meets a duplicate
+            orig = conn.execute
+
+            async def racing(sql, *a):
+                if sql.startswith("pragma table_info"):
+                    cur = await orig(sql, *a)
+                    rows = await cur.fetchall()
+                    table = sql.split("(")[1].rstrip(")")
+                    for t, col, decl in real:
+                        if t == table and col not in {r[1] for r in rows}:
+                            with sqlite3.connect(f) as other:
+                                other.execute(f"alter table {t} add column {col} {decl}")
+                    return _Rows(rows)
+                return await orig(sql, *a)
+            conn.execute = racing
+            await migrate.migrate(conn)
+
+    class _Rows:
+        def __init__(self, rows):
+            self.rows = rows
+
+        async def fetchall(self):
+            return self.rows
+
+    asyncio.run(run())
+    assert migrate.duplicate_column(sqlite3.OperationalError("duplicate column name: ctx_tokens"))
+    assert not migrate.duplicate_column(sqlite3.OperationalError("no such table: x"))
