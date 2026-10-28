@@ -170,7 +170,7 @@ class AgentMixin:
             evidence = prompts.evidence_block((state.get("data") or {}).get("seed"))
             if evidence:
                 prompt = f"{prompt}\n\n{evidence}"
-        if phase == "spec" and not item and prompts.spec_writer(step):
+        if phase == "spec" and not item and self._spec_step(step):
             # 0.18.64 a spec handed over (the clarify hand-over, a spec pasted into the request, the spec it started
             # from) is kept whole: the spec writer fills its gaps, and the spec check names what it dropped
             named = {"the handed-over document": "the document handed over by the flow that started this one",
@@ -658,7 +658,7 @@ class AgentMixin:
                 upd["clarify"] = {"questions": asked[:clarify.MAX_QUESTIONS]} if asked else {}
             if spec:
                 upd["spec"] = spec
-        elif state["phase"] == "spec" and state.get("acs") and prompts.spec_writer(step) \
+        elif state["phase"] == "spec" and state.get("acs") and self._spec_step(step) \
                 and spec_check.seeded(ctx.request, state.get("data")):
             # 0.18.64 criteria handed over (clarify, change): the spec written around them must still hold what the
             # handed-over spec named; a lost risk sends it back once, like the spec check above
@@ -724,6 +724,12 @@ class AgentMixin:
                     return upd, self.nav.jump(step.back, i)
                 return upd, _c.fix_id(step.id)
         return upd, self.nav.after(i)
+
+    def _spec_step(self, step: Step) -> bool:
+        """0.18.64 the step that writes the flow's spec: the workflow's first spec writer in a spec or triage phase
+        (feature's spec, change's triage). The plan under the criteria and a gate's edit change a spec that exists."""
+        first = next((s for s in self.wf.steps if s.phase in ("spec", "triage") and prompts.spec_writer(s)), None)
+        return first is not None and first.id == step.id
 
     def _renumbered(self, state: FlowState, spec: str | None) -> str | None:
         """0.18.64 the spec this flow wrote first: a number another spec has already (in any spec folder, keel v1's
