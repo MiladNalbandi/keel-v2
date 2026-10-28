@@ -75,6 +75,8 @@ class ThreadContext:
     mcp: list[dict] = field(default_factory=list)
     skills: dict[str, str] = field(default_factory=dict)
     agents: dict[str, dict] = field(default_factory=dict)   # per agent: {knowledge: {...}} (agent_knowledge.py)
+    # keel 0.18.64 the other projects registered in this keel [{id, name, root}]: the agents read them, never change them
+    other_projects: list[dict] = field(default_factory=list)
     keys: dict[str, str] = field(default_factory=dict)   # memory only, never stored
     bus: EventBus | None = None
     # Agent results of a parallel step whose other agents failed: "try again" re-runs the node from the top

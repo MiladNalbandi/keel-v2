@@ -170,6 +170,7 @@ class Engine:
         ctx = ThreadContext(thread_id=tid, project_id=row["project_id"], root=row["root"], workflow=wf, title=row["title"],
                             request=(body.get("request") or "").strip(), models=body.get("models") or {}, settings=body.get("settings") or {}, mcp=body.get("mcp") or [],
                             skills=body.get("skills") or {}, agents=body.get("agents") or {}, keys=self.keys.get(tid, {}), bus=self.bus,
+                            other_projects=list(body.get("other_projects") or []),
                             memory=memory_mod.AgentMemory(self.conn, tid))
         ctx.spawn = lambda workflow_id, seed, link, tid=tid: self.start_child(tid, workflow_id, seed, link)
         async with self.conn.execute("select path, phase, by, reason, at from thread_unlocks where thread_id = ? order by rowid",
@@ -417,7 +418,7 @@ class Engine:
             a = a if isinstance(a, dict) else {"title": str(a)}
             acs.append({"id": str(a.get("id") or f"AC-{n + 1}"), "layer": a.get("layer") or "API", "title": str(a.get("title") or ""),
                         **({"status": a["status"]} if a.get("status") else {}), **({"kind": a["kind"]} if a.get("kind") else {})})
-        child = {k: body[k] for k in ("project_id", "models", "settings", "mcp", "skills", "agents") if k in body}
+        child = {k: body[k] for k in ("project_id", "models", "settings", "mcp", "skills", "agents", "other_projects") if k in body}
         request = request.strip()
         if len(request) > prompts.REQUEST_MAX:
             # every agent of the flow reads the request; the whole evidence (data.seed) goes to the steps that write

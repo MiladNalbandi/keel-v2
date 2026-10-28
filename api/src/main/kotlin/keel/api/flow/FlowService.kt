@@ -100,7 +100,12 @@ data class StartThread(
     /** B14 the tokens the estimate gave at the start (threads.estimate: the Budget page's estimate column); never sent. */
     @get:com.fasterxml.jackson.annotation.JsonIgnore
     val estimate: Long? = null,
+    /** keel 0.18.64 every other project registered in this keel: the flow's agents may read them, never change them. */
+    val otherProjects: List<OtherProject> = emptyList(),
 )
+
+/** One entry of StartThread.other_projects. */
+data class OtherProject(val id: String, val name: String, val root: String)
 
 /** One agent's entry in StartThread.agents. */
 data class AgentStart(val knowledge: Knowledge)
@@ -254,6 +259,7 @@ class FlowService(
             agents = all.filter { it.enabled }.associate { it.id to AgentStart(it.knowledge) },
             capNote = notes.takeIf { it.isNotEmpty() }?.joinToString(" "),
             estimate = est?.path("tokens")?.asLong(0)?.takeIf { it > 0 },
+            otherProjects = projects.rows().filter { it.id != pid }.map { OtherProject(it.id, it.name, it.root) },
         )
     }
 

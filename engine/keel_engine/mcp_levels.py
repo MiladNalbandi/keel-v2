@@ -59,6 +59,8 @@ TOOLS: dict[str, tuple[str, ...]] = {
     "read": ("keel_status", "keel_read_gate", "keel_projects", "keel_timeline", "keel_next", "keel_explain", "keel_dashboard",
              "keel_flows", "keel_inbox", "keel_live", "keel_budget", "keel_specs", "keel_knowledge", "keel_search",
              "keel_read_file", "keel_actions", "keel_run_action", "keel_rules",
+             # 0.18.64 a file of another registered project, read only, under an agent's read rules
+             "keel_read_project_file",
              # 0.18.5 what keel TUI shows: the workflows, the agents, one agent, KeelBot's chats and changes, diagrams
              "keel_workflows", "keel_agents", "keel_agent", "keel_keelbot_chats", "keel_keelbot_changes", "keel_diagram",
              # 0.18.5 a new workflow, rule pack or agent: the format, a check that saves nothing, the agents there are

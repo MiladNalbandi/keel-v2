@@ -464,7 +464,8 @@ keel checks every agent with rules. **Build › Rules** shows all of them in pla
   `--no-verify`, commits and history rewrites inside a flow, secrets and switched-off tests in an edit, and keel's
   own sign-in keys. These never switch off.
 - **You can switch off**: generated files, build output, `-x test`, new packages, reading a file twice, big-file
-  reads, the push gate, MCP tools that change things. Off is saved in `.keel/config.yml` (`rules.off`).
+  reads, the push gate, MCP tools that change things, reading other projects (`other-projects`). Off is saved in
+  `.keel/config.yml` (`rules.off`).
 - **Your lists** (`.keel/config.yml`): protected files, generated files, build output, shell commands, `mcp.allow`,
   the big-file limit (`read_guard_max_lines`, default 2000 lines; 0 = off), the push gate, architecture boundaries.
   The page edits them in place; only the `guards`, `mcp`, `rules` and `boundaries` parts are rewritten.
@@ -1104,7 +1105,7 @@ keel has an MCP server with three levels; each includes the one below:
 
 | level | how | adds |
 |---|---|---|
-| read (default) | `keel2 mcp` | status, timeline, next step, phase rules, dashboard links, flows, Inbox, live agents, budget, specs (with history), knowledge, search, read a file, engine actions, keel's rules, workflows, agents (one agent's steps live), KeelBot's chats and changes, diagrams in ASCII (`keel_diagram`), skills, stacks, the formats and checks that save nothing (`keel_format`, `keel_workflow_check`, `keel_rule_check`, `keel_stack_check`), keel's spec check on a spec or clarify file (`keel_spec_check`) and the check of every `path:line` it cites (`keel_citations_check`, also on a text), the marketplace search, the Database, Git and CI/CD read tools |
+| read (default) | `keel2 mcp` | status, timeline, next step, phase rules, dashboard links, flows, Inbox, live agents, budget, specs (with history), knowledge, search, read a file, read a file of any registered project (`keel_read_project_file`), engine actions, keel's rules, workflows, agents (one agent's steps live), KeelBot's chats and changes, diagrams in ASCII (`keel_diagram`), skills, stacks, the formats and checks that save nothing (`keel_format`, `keel_workflow_check`, `keel_rule_check`, `keel_stack_check`), keel's spec check on a spec or clarify file (`keel_spec_check`) and the check of every `path:line` it cites (`keel_citations_check`, also on a text), the marketplace search, the Database, Git and CI/CD read tools |
 | write | `keel2 mcp --write` | decide or send back a gate, answer the Inbox (several answers, a choice and a reason; questions in a form when the client can show one), start a flow (no type: every flow with what it is for and its inputs, like ticket or pr for review-pr), stop and resume flows, set a run mode, start an agent, ask KeelBot (`keel_keelbot_ask`, also `mode=edit`) and keep or undo its changes, create workflows, rule packs, agents, skills and stacks, attach skills, set an agent's model and effort, restore a spec, git / PR / CI / database writes, Code Review comments and submits |
 | admin | `keel2 mcp --admin` | delete flows, pause (`keel_pause`; `keel_resume` goes on), add and remove projects, switch the project the dashboard and keel TUI show (`keel_focus`), connect GitHub with a one-time code (`keel_connect_github`: it returns the code and the link, never the token), change workflows, install and change rules |
 
@@ -1274,6 +1275,23 @@ that no longer exists is skipped (`keel2 folders` marks it).
   **Start anyway**. Nothing is blocked.
 - keel TUI: the start box says `/flow init`, `/flow` lists init first, and another flow asks the same. `/flow init`
   needs no idea. MCP: `keel_start_flow` puts a line about init first for such a project.
+
+**Agents read the other projects** (0.18.64). A flow's agents may read every other project registered in the same
+keel, for example the upstream service whose contract a change depends on. They never change it.
+
+```
+ flow in shop-web                       shop-api (registered in the same keel)
+ read, write (phase rules)   ───────►   read only: read a file, cat, grep, ls, git log, git show
+                                        no edit, no write, no .env, no build or install commands
+```
+
+- Each agent's prompt names the other projects and their folders (one line each), only when there are any.
+- Its secrets stay out there too (its `.env`, keel's keys), judged with that project's own `.keel/config.yml`.
+- A folder that is no registered project is refused in plain words: "<path> is outside this project and is not another
+  project registered in keel; ask the person to add it (keel2 add) or to paste what you need".
+- To keep a project to itself, switch off the rule **other-projects** on its Rules page: its agents read only it, and
+  other projects' agents do not read it.
+- From an MCP client: `keel_read_project_file(project, path, offset, limit)` reads one file of any project the same way.
 
 **A second keel** (`KEEL_NAME=keel-lab PORT=8097 ./keel2 start …`) gets its own data: the volume is `<KEEL_NAME>-data` (`keel-data` only for the default `keel-v2`; `KEEL_VOLUME` sets another). keel2 refuses to start a keel, restore a backup or delete data on a volume another running keel uses: two keels on one volume would write one database at the same time.
 

@@ -24,7 +24,7 @@ from pathlib import Path
 
 from . import rules
 from .rules import checks as _checks  # noqa: F401  (rules.checks for the content check)
-from .runtime import permissions, run_mode
+from .runtime import other_projects, permissions, run_mode
 from .runtime.guard_ctx import ENV
 
 MARKER = "[keel guard]"
@@ -239,17 +239,34 @@ def decide(tool: str, ti: dict, ctx: dict) -> str | None:
         return rules.ENGINE_REFUSAL
     if tool == "Bash" and rules.keel_engine_words(str(ti.get("command") or ""), root):
         return rules.ENGINE_REFUSAL
+    # keel 0.18.64 the other projects registered in this keel (runtime/other_projects.py): read only, their secrets
+    # stay out. `others` is absent when the run was not told (KeelBot): then nothing changes here.
+    others = ctx.get("others") if isinstance(ctx.get("others"), list) else None
     if readonly and tool in WRITE_TOOLS:
         return ro(run_mode.READONLY_EDIT)
     if tool in WRITE_TOOLS:
         path = _path_arg(ti)
+        got = other_projects.find(others, _locate(root, path)[1]) if path and others else None
+        if got and Path(_locate(root, path)[0]).is_absolute():
+            return other_projects.read_only(path, got[0])
         return (edit(path) or content(path)) if path else None
     if tool == "Read":
         path = _path_arg(ti)
         if not path:
             return None
         rel, full = _locate(root, path)
-        v = rules.check_read(rel, cfg, full=full, ranged=ti.get("offset") is not None or ti.get("limit") is not None, phase=phase)
+        ranged = ti.get("offset") is not None or ti.get("limit") is not None
+        if others is not None and Path(rel).is_absolute():
+            got = other_projects.find(others, full)
+            if got:
+                refused = other_projects.check_read(got[0], got[1], full, ranged=ranged)
+                if refused or rules.is_off(cfg, "read-twice"):
+                    return refused
+                return already_read(ctx.get("_path"), str(full), full, ti.get("offset"), ti.get("limit"))
+            # claude -p refuses a path outside its folders with no reason the model can use: keel says it first
+            if ctx.get("outside_refused") and not other_projects.allowed_outside(os.path.realpath(full), _scratch(ctx)):
+                return other_projects.outside(path, bool(ctx.get("others_off")))
+        v = rules.check_read(rel, cfg, full=full, ranged=ranged, phase=phase)
         refused = knowledge(rel) if v.ok else v.reason
         if refused or rules.is_off(cfg, "read-twice"):
             return refused
@@ -263,6 +280,10 @@ def decide(tool: str, ti: dict, ctx: dict) -> str | None:
             # keel 0.18.18 KeelBot: the same failing command, again, while nothing changed (runtime/repeats.py)
             from .runtime import repeats
             refused = repeats.refusal(Path(ctx["_path"]).parent, root, str(ti.get("command") or ""))
+        if not refused and others is not None:
+            refused = other_projects.check_command(str(ti.get("command") or ""), root, others, cwd=ctx.get("_cwd"),
+                                                   outside_refused=bool(ctx.get("outside_refused")),
+                                                   off=bool(ctx.get("others_off")), extra=_scratch(ctx))
         if refused:
             return refused
         v = rules.check_bash(phase, str(ti.get("command") or ""), cfg, root=root,
@@ -283,6 +304,13 @@ def decide(tool: str, ti: dict, ctx: dict) -> str | None:
             return ro(run_mode.READONLY_MCP)
         return check_mcp(tool, ti, phase, cfg, edit)
     return None
+
+
+def _scratch(ctx: dict) -> list[str]:
+    """The run's own folder (its guard context is there) and claude's config home (it saves a long tool output there
+    and reads it back): a read there is no read outside the project."""
+    return ([str(Path(ctx["_path"]).parent)] if ctx.get("_path") else []) + \
+        ([os.environ["CLAUDE_CONFIG_DIR"]] if os.environ.get("CLAUDE_CONFIG_DIR") else [])
 
 
 def already_read(ctx_path: str | None, rel: str, full: Path, offset, limit) -> str | None:
@@ -341,6 +369,8 @@ def pre_tool(raw: str, ctx_path: str | None) -> int:
     except NoContext as exc:
         reason = fail_closed(tool, ti, str(exc))
         return deny(reason) if reason else 0
+    if isinstance(call.get("cwd"), str):
+        ctx["_cwd"] = call["cwd"]     # where the agent's shell is now (a cd stays for its next commands)
     try:
         reason = decide(tool, ti, ctx)
     except Exception as exc:  # a broken guard refuses; it never waves a call through
