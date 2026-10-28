@@ -26,7 +26,7 @@ from .rules.packs import normalize as packs_normalize
 from .runtime.explain import ExplainError, explain_step
 from .runtime.service import Engine, EngineError
 from .runtime.stack_edit import StackError
-from .tools import mcp, worktrees
+from .tools import git, mcp, worktrees
 from .workflows import editor as wf_editor
 from .workflows.estimate import estimate
 from .workflows.model import WorkflowError, from_dict
@@ -199,6 +199,21 @@ class WorktreeAdd(BaseModel):
     name: str
     branch: str
     start: str | None = None            # the commit or branch it starts from (default: the folder's HEAD)
+
+
+class RemotesFetch(BaseModel):
+    """0.18.64 fetch every remote of a project (keel_fetch_remotes, the api's flow start)."""
+    root: str
+    keys: dict[str, str] | None = None   # keel's GitHub login, for a remote on its host only (tools/git_auth.py)
+    start: str | None = None             # a ref: the report says whether it is the newest copy of the base
+
+
+class BranchSync(BaseModel):
+    """0.18.64 keel merges or rebases a flow's branch onto a base (runtime/branch_sync.py)."""
+    onto: str | None = None              # default: the base branch's remote copy (origin/main), else the local base
+    mode: Literal["merge", "rebase"] = "merge"
+    action: Literal["start", "continue", "abort"] = "start"
+    root: str | None = None              # the project's folder now (it moves when keel is started another way)
 
 
 class WorktreeRemove(BaseModel):
@@ -495,7 +510,8 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
         provider_usage.absorb(data["settings"].pop("provider_windows", None))
         tid = await engine(request).start_thread(data)
         source = engine(request).sources.pop(tid, None)
-        return {"thread_id": tid, **({"source": source} if source else {})}
+        note = engine(request).base_notes.pop(tid, None)
+        return {"thread_id": tid, **({"source": source} if source else {}), **({"base_note": note} if note else {})}
 
     @app.get("/threads/{tid}")
     async def get_thread(tid: str, request: Request):
@@ -531,6 +547,12 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
             await engine(request).set_keys(tid, body.keys)
         await engine(request).set_root(tid, body.root)
         return await engine(request).rewind(tid, body.checkpoint_id)
+
+    # 0.18.64 keel brings the flow's branch up to a base: merge (default) or rebase; a conflict stops with the files
+    @app.post("/threads/{tid}/sync")
+    async def post_sync(tid: str, body: BranchSync, request: Request):
+        await engine(request).set_root(tid, body.root)
+        return await engine(request).sync_branch(tid, body.onto, body.mode, body.action)
 
     @app.get("/threads/{tid}/unlocks")
     async def get_unlocks(tid: str, request: Request):
@@ -708,6 +730,17 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
             return await asyncio.to_thread(worktrees.add, project_root(body.root), body.name, body.branch, body.start)
         except worktrees.WorktreeError as exc:
             raise EngineError(409, str(exc), exc.hint) from exc
+
+    # 0.18.64 fetch every remote at once (git.FETCH_EACH s each at most): one result per remote, and how far the base
+    # branch is behind each remote's copy (runtime/branch_sync.py). Never fails because a remote cannot be reached.
+    @app.post("/remotes/fetch")
+    async def post_remotes_fetch(body: RemotesFetch):
+        from .runtime import branch_sync
+
+        root = project_root(body.root)
+        fetched = await asyncio.to_thread(branch_sync.fetch_all, root, body.keys)
+        start = await asyncio.to_thread(git.rev, root, body.start) if body.start else None
+        return {**await asyncio.to_thread(branch_sync.report, root, fetched, start), "fetched": fetched}
 
     # 0.18.57 what Start a flow says before a start: can a worktree flow run the tests, is the base behind its remote
     @app.get("/start-check")

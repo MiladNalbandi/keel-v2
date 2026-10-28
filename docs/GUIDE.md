@@ -822,6 +822,30 @@ does not ask about them again); a plain retry of a history check says it finds t
 another flow or side agent of the project works on the same ticket, branch or files, and say who ("flow SHOPS-1234:
 Euro prices at red", "side agent h_..."). *Start anyway* (`force`) starts it all the same.
 
+**The base and the remotes (0.18.64).** Before a flow gets its branch, keel fetches every remote of the project, all
+at once and at most 20 seconds each, so the branch starts from the newest code it can see (`origin/main` when the
+local `main` is only behind it). The flow's first timeline line and the start's answer say how far the base branch is
+behind each remote's branch of the same name, and behind a remote's default branch when its name differs (a local
+`master` against another remote's `main`). A fetch that fails or times out is said plainly ("fetch from mirror
+failed: …; the base may be stale"); it never stops the start. To start from another branch, name it: Start a flow's
+`base` (API `POST /api/projects/{pid}/flows {base}`, MCP `keel_start_flow(base="upstream/main")`), a local branch or
+`<remote>/<branch>`. MCP `keel_fetch_remotes` fetches and reports without starting anything.
+
+```
+ start ──► fetch every remote (20 s each, together) ──► branch from base ──► "main is 3 commits behind upstream/main"
+               └─ a remote that fails: "fetch from <remote> failed: <why>; the base may be stale" (the start goes on)
+```
+
+**Bring a flow's branch up to its base (0.18.64).** Agents may not merge, reset or commit by hand during a flow, so
+keel does it: `POST /api/threads/{id}/sync {onto?, mode: merge | rebase, action: start | continue | abort}`, MCP
+`keel_branch_sync` (write). keel merges (or rebases) the flow's branch onto `onto` (default: the base branch's remote
+copy, else the local base) in the folder or worktree the flow works in, while the flow waits or is paused, never while
+a step runs, and never over uncommitted changes. A conflict stops with the list of files and leaves them for you or an
+agent: remove the conflict markers, then `action=continue` and keel stages exactly those files and commits the
+resolution with its usual commit identity (KeelBot co-authors); `action=abort` puts the branch back. The flow's next
+step compares its own work with the new merge base, so the base's commits it brought in do not count as its work.
+A rebase gives the branch's commits new ids: a branch pushed before needs a push with `--force-with-lease`.
+
 **Stale configuration.** `keel2 doctor <project>`, the project's doctor (`GET /api/projects/{pid}/doctor/config`) and
 knowledge-refresh check that the configured commands can still run: a compose service a command execs into is in the
 compose files, a composer / npm script is in composer.json / package.json, a make target is in the Makefile. Each stale
@@ -1100,8 +1124,8 @@ keel has an MCP server with three levels; each includes the one below:
 
 | level | how | adds |
 |---|---|---|
-| read (default) | `keel2 mcp` | status, timeline, next step, phase rules, dashboard links, flows, Inbox, live agents, budget, specs (with history), knowledge, search, read a file, engine actions, keel's rules, workflows, agents (one agent's steps live), KeelBot's chats and changes, diagrams in ASCII (`keel_diagram`), skills, stacks, the formats and checks that save nothing (`keel_format`, `keel_workflow_check`, `keel_rule_check`, `keel_stack_check`), the marketplace search, the Database, Git and CI/CD read tools |
-| write | `keel2 mcp --write` | decide or send back a gate, answer the Inbox (several answers, a choice and a reason; questions in a form when the client can show one), start a flow (no type: every flow with what it is for and its inputs, like ticket or pr for review-pr), stop and resume flows, set a run mode, start an agent, ask KeelBot (`keel_keelbot_ask`, also `mode=edit`) and keep or undo its changes, create workflows, rule packs, agents, skills and stacks, attach skills, set an agent's model and effort, restore a spec, git / PR / CI / database writes, Code Review comments and submits |
+| read (default) | `keel2 mcp` | status, timeline, next step, phase rules, dashboard links, flows, Inbox, live agents, budget, specs (with history), knowledge, search, read a file, engine actions, keel's rules, workflows, agents (one agent's steps live), KeelBot's chats and changes, diagrams in ASCII (`keel_diagram`), skills, stacks, the formats and checks that save nothing (`keel_format`, `keel_workflow_check`, `keel_rule_check`, `keel_stack_check`), fetch every remote and say how far the base is behind (`keel_fetch_remotes`), the marketplace search, the Database, Git and CI/CD read tools |
+| write | `keel2 mcp --write` | decide or send back a gate, answer the Inbox (several answers, a choice and a reason; questions in a form when the client can show one), start a flow (no type: every flow with what it is for and its inputs, like ticket or pr for review-pr; `base`: the branch it starts from), bring a flow's branch up to its base (`keel_branch_sync`: merge or rebase, conflicts resolved and committed by keel), stop and resume flows, set a run mode, start an agent, ask KeelBot (`keel_keelbot_ask`, also `mode=edit`) and keep or undo its changes, create workflows, rule packs, agents, skills and stacks, attach skills, set an agent's model and effort, restore a spec, git / PR / CI / database writes, Code Review comments and submits |
 | admin | `keel2 mcp --admin` | delete flows, pause (`keel_pause`; `keel_resume` goes on), add and remove projects, switch the project the dashboard and keel TUI show (`keel_focus`), connect GitHub with a one-time code (`keel_connect_github`: it returns the code and the link, never the token), change workflows, install and change rules |
 
 ```bash

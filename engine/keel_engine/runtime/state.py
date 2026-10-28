@@ -98,6 +98,9 @@ class ThreadContext:
     # graph state) and the guards of the agents running now (guard context files, ToolBoxes), which get them at once.
     api_unlocks: list[dict] = field(default_factory=list)
     guards: list = field(default_factory=list)
+    # 0.18.64 keel_branch_sync brought the base into the flow's branch: where the branch's own work starts now (the
+    # merge base). Stored with the thread (body.synced_base); the next step writes it into the state's base_head.
+    synced_base: str | None = None
     # start_flow: async (workflow id, seed, link to this thread) -> the new thread's id (set by the Engine)
     spawn: Any = None
     # Run modes (runtime/run_mode.py): the id of the question a resume answers (the user's answer wins over the mode),

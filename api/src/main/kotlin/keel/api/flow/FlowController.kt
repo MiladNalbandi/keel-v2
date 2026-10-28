@@ -34,7 +34,11 @@ data class StartFlow(
     val branch: String? = null,
     /** 0.18.57 start although another flow or side agent works on the same ticket, branch or files. */
     val force: Boolean = false,
+    /** 0.18.64 the branch the flow's new branch starts from: a local branch or <remote>/<branch> (default: the base). */
+    val base: String? = null,
 )
+/** 0.18.64 keel brings a flow's branch up to a base: merge (default) or rebase; start (default), continue or abort. */
+data class SyncBody(val onto: String? = null, val mode: String? = null, val action: String? = null)
 data class EstimateYaml(val yaml: String = "", val acs: JsonNode? = null)
 data class UnlockBody(val path: String = "", val phase: String? = null, val reason: String? = null)
 data class Resume(val decision: String = "", val why: String? = null, val payload: Map<String, Any?>? = null)
@@ -51,7 +55,17 @@ class FlowController(private val flows: FlowService) {
     @PostMapping("/projects/{pid}/flows")
     fun start(@PathVariable pid: String, @RequestBody body: StartFlow): JsonNode =
         flows.start(pid, body.workflowId, body.title, body.acs, FlowCap(body.capTokens, body.onCap, body.runMode), body.allowFake, body.allowDirty,
-            body.request, body.options, body.where, branch = when (body.branch) { "continue", "new" -> body.branch; else -> DEFAULT_BRANCH }, force = body.force)
+            body.request, body.options, body.where, branch = when (body.branch) { "continue", "new" -> body.branch; else -> DEFAULT_BRANCH },
+            force = body.force, base = body.base)
+
+    /** 0.18.64 every remote of the project fetched (20 s each at most): one result per remote, how far the base is behind. */
+    @PostMapping("/projects/{pid}/remotes/fetch")
+    fun fetchRemotes(@PathVariable pid: String): JsonNode = flows.fetchRemotes(pid)
+
+    /** 0.18.64 keel merges or rebases the flow's branch onto a base; a conflict answers ok false with the files. */
+    @PostMapping("/threads/{tid}/sync")
+    fun sync(@PathVariable tid: String, @RequestBody(required = false) body: SyncBody?): JsonNode =
+        flows.syncBranch(tid, body?.onto, body?.mode, body?.action)
 
     /** 0.18.57 what Start a flow shows first: whether a worktree flow can run the tests, and the base branch's drift. */
     @GetMapping("/projects/{pid}/start-check")

@@ -51,6 +51,13 @@ class McpLevelsApiTest : ApiTest() {
     }
 
     @Test
+    fun `0_18_64 a fetch of the remotes is read, a flow branch's sync is write`() {
+        val (pid, _) = newProject("lv-fetch")
+        post("/api/projects/$pid/remotes/fetch", null, mcp("read")).andExpect(status().isOk)
+        post("/api/threads/t-stub-1/sync", mapOf("onto" to "main"), mcp("read")).andExpect(status().isForbidden)
+    }
+
+    @Test
     fun `keel's own requests (the internal token) are not limited by MCP levels`() {
         val (pid, _) = newProject("lv-web")
         post("/api/projects/$pid/flows", flow).andExpect(status().isOk)

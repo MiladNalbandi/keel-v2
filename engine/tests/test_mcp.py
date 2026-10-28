@@ -25,6 +25,7 @@ READ_TOOLS = {"keel_status", "keel_read_gate", "keel_projects", "keel_timeline",
               "keel_format", "keel_workflow_check", "keel_rule_check", "keel_agent_definitions",          # 0.18.5 create
               "keel_skills", "keel_skill",                                                                 # 0.18.6 skills
               "keel_stacks", "keel_stack", "keel_stack_suggest", "keel_stack_check",                       # 0.18.9 stacks
+              "keel_fetch_remotes",                                                                        # 0.18.64 remotes
               *MARKET_TOOLS}
 WRITE_TOOLS = {"keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc",
                # 0.18.5 what keel TUI does
@@ -35,7 +36,9 @@ WRITE_TOOLS = {"keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answ
                # 0.18.9 an agent's or KeelBot's model and thinking effort
                "keel_agent_model",
                # 0.18.9 stacks
-               "keel_stack_create", "keel_stack_remove", "keel_stack_off", "keel_stack_market_install"}
+               "keel_stack_create", "keel_stack_remove", "keel_stack_off", "keel_stack_market_install",
+               # 0.18.64 keel syncs a flow's branch onto a base
+               "keel_branch_sync"}
 ADMIN_TOOLS = {"keel_delete_run", "keel_add_project", "keel_remove_project", "keel_pause", "keel_focus", "keel_connect_github",  # 0.19.x
                "keel_edit_workflow", "keel_rule_install", "keel_rule_edit"}                         # v0.17.2 rules
 
@@ -94,6 +97,22 @@ class StubApi:
                 return httpx.Response(409, json={"error": "These agents would use the fake model: explorer. It writes example "
                                                           "files, not real code.", "hint": "Pick a real model."})
             return httpx.Response(200, json={**self.thread, "thread_id": "t-9", "title": body["title"]})
+        if req.method == "POST" and path == "/api/projects/shop/remotes/fetch":
+            self.posts.append((path, json.loads(req.content or b"{}")))
+            return httpx.Response(200, json={
+                "base": "main", "note": "fetch from mirror failed: timed out after 20 s; the base may be stale; "
+                                        "main is 2 commits behind upstream/main",
+                "remotes": [{"remote": "upstream", "ok": True, "branch": "upstream/main", "ahead": 0, "behind": 2},
+                            {"remote": "mirror", "ok": False, "error": "timed out after 20 s"}]})
+        if req.method == "POST" and path == "/api/threads/t-1/sync":
+            body = json.loads(req.content)
+            self.posts.append((path, body))
+            if body.get("action") == "start" and body.get("onto") == "upstream/main":
+                return httpx.Response(200, json={"ok": False, "conflicts": ["src/app.txt"], "state": "merge",
+                                                 "note": "the merge of upstream/main into feat/scores stopped: 1 file(s) have conflicts: src/app.txt",
+                                                 "next": "Resolve each file, then sync again with action=continue."})
+            return httpx.Response(200, json={"ok": True, "synced": True, "base_head": "abc1234def",
+                                             "note": "merged 2 commits of upstream/main into feat/scores (merge commit abc1234)"})
         if req.method == "POST" and path == "/api/projects/shop/doctor/workspace/exclude":
             body = json.loads(req.content)
             self.posts.append((path, body))
@@ -166,9 +185,10 @@ def test_the_marketplace_tools_come_after_every_tool_keel_listed_before_at_each_
            "keel_stack_off", "keel_stack_market_install",
            "keel_diagram"]
     rules = ["keel_edit_workflow", "keel_rule_install", "keel_rule_edit"]
-    assert names("read") == read + ["keel_workflows"] + tui_read + MARKET_TOOLS
-    assert names("write") == read + write + tui + MARKET_TOOLS
-    assert names("admin") == read + write + admin + tui + rules + MARKET_TOOLS
+    sync = ["keel_fetch_remotes", "keel_branch_sync"]          # 0.18.64 after every tool before, before the marketplace's
+    assert names("read") == read + ["keel_workflows"] + tui_read + sync[:1] + MARKET_TOOLS
+    assert names("write") == read + write + tui + sync + MARKET_TOOLS
+    assert names("admin") == read + write + admin + tui + rules + sync + MARKET_TOOLS
 
 
 async def test_allow_covers_the_marketplace_tools(stub):
@@ -522,6 +542,34 @@ async def test_start_flow_leaves_the_branch_to_the_api_unless_one_is_named(stub)
     assert "branch" not in stub.posts[-1][1]
     await call(srv, "keel_start_flow", {"type": "feature", "idea": "Player scores", "branch": "continue"})
     assert stub.posts[-1][1]["branch"] == "continue"
+
+
+async def test_start_flow_takes_a_base_and_says_how_far_it_is_behind(stub):
+    """0.18.64 field report bug 4: start from a given branch, and the start's answer says how far the base is behind."""
+    stub.thread = {**THREAD, "base_note": "main is 2 commits behind upstream/main"}
+    srv = mcp_server.build_server(write=True, api=stub.api)
+    text = await call(srv, "keel_start_flow", {"type": "feature", "idea": "Player scores", "base": "upstream/main"})
+    assert stub.posts[-1][1]["base"] == "upstream/main"
+    assert "Base: main is 2 commits behind upstream/main." in text
+    refused = await call(srv, "keel_start_flow", {"type": "feature", "idea": "x", "base": "upstream/main", "branch": "continue"})
+    assert "base starts a new branch" in refused
+
+
+async def test_fetch_remotes_reads_one_line_per_remote(stub):
+    text = await call(mcp_server.build_server(api=stub.api), "keel_fetch_remotes")
+    assert "- upstream: fetched; main is 2 behind upstream/main" in text
+    assert "- mirror: fetch failed: timed out after 20 s (the base may be stale)" in text
+    assert "keel_start_flow(..., base='upstream/main')" in text
+
+
+async def test_branch_sync_reports_a_conflict_and_continues(stub):
+    srv = mcp_server.build_server(write=True, api=stub.api)
+    text = await call(srv, "keel_branch_sync", {"onto": "upstream/main"})
+    assert stub.posts[-1] == ("/api/threads/t-1/sync", {"mode": "merge", "action": "start", "onto": "upstream/main"})
+    assert "- src/app.txt" in text and "action='continue'" in text
+    done = await call(srv, "keel_branch_sync", {"thread_id": "t-1", "action": "continue"})
+    assert stub.posts[-1][1] == {"mode": "merge", "action": "continue"}
+    assert "merged 2 commits of upstream/main" in done and "abc1234" in done
 
 
 # ---------------------------------------------------------------- v0.16.0 levels, allowlist, confirm, audit

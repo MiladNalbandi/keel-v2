@@ -518,6 +518,10 @@ class Compiler(AgentMixin, FindingsMixin, CodeMixin, GateMixin):
             merged = merge_unlocks(have, ctx.api_unlocks)
             if len(merged) != len(have):
                 state = {**state, "unlocks": merged}
+            # 0.18.64 the branch was synced onto its base (keel_branch_sync): the flow's own work starts at the merge base
+            synced = ctx.synced_base if ctx.synced_base and state.get("base_head") != ctx.synced_base else None
+            if synced:
+                state = {**state, "base_head": synced}
             prev = state.get("phase") or "none"
             phase = step.phase or prev
             ac = state.get("ac") if step.per_ac else None
@@ -530,7 +534,8 @@ class Compiler(AgentMixin, FindingsMixin, CodeMixin, GateMixin):
                 ctx.emit("step.finished", step=step.id, data={"name": step.name, "kind": step.kind, "phase": prev, "ac": ac,
                                                               "ok": True, "note": why, "skipped": True})
                 return Command(update={"note": why, "current": step.id, **(more[0] if more else {}),
-                                       **({"unlocks": merged} if len(merged) != len(have) else {})}, goto=goto)
+                                       **({"unlocks": merged} if len(merged) != len(have) else {}),
+                                       **({"base_head": synced} if synced else {})}, goto=goto)
             started = {"name": step.name, "kind": step.kind, "phase": phase, "ac": ac, "from": prev, "flow": self.wf.flow,
                        "phase_changed": prev != phase, "transition_ok": rules.can_transition(prev, phase)}
             if item:
@@ -544,6 +549,8 @@ class Compiler(AgentMixin, FindingsMixin, CodeMixin, GateMixin):
                                    (state.get("data") or {}).get("started_via"))
             if len(merged) != len(have):
                 update.setdefault("unlocks", merged)
+            if synced:
+                update.setdefault("base_head", synced)
             update.setdefault("phase", phase)
             update.setdefault("current", step.id)
             failed = update.get("status") in ("stopped", "failed")

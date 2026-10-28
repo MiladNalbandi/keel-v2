@@ -179,6 +179,61 @@ def read_file(api: KeelApi, path: str, project: str | None = None, start: int = 
     return "\n".join(f"{start + i:>5}  {line}" for i, line in enumerate(part)) + more
 
 
+def _vs(name: str | None, ahead: int | None, behind: int | None) -> str:
+    if not name or behind is None:
+        return ""
+    if not ahead and not behind:
+        return f"same as {name}"
+    return f"{behind} behind {name}" + (f", {ahead} ahead" if ahead else "")
+
+
+def fetch_remotes(api: KeelApi, project: str | None = None) -> str:
+    """0.18.64 (field report bug 4) every remote of the project fetched (POST /projects/{pid}/remotes/fetch): one line
+    per remote, ok or failed with why, and how far the base branch is behind the remote's copy of it."""
+    p = _project(api, project)
+    res = api.post(f"/projects/{p['id']}/remotes/fetch", {}) or {}
+    rows = res.get("remotes") or []
+    if not rows:
+        return f"{p['id']} has no git remote: nothing to fetch."
+    base = res.get("base") or "the base branch"
+    out = [f"remotes of {p['id']} (base {base}):"]
+    for r in rows:
+        said = "fetched" if r.get("ok") else f"fetch failed: {r.get('error')} (the base may be stale)"
+        vs = [x for x in (_vs(r.get("branch"), r.get("ahead"), r.get("behind")),
+                          _vs(f"{r.get('default')} (its default branch)" if r.get("default") else None,
+                              r.get("default_ahead"), r.get("default_behind"))) if x]
+        out.append(f"- {r.get('remote')}: {said}" + (f"; {base} is " + "; ".join(vs) if vs else ""))
+    if res.get("note"):
+        out.append(str(res["note"]))
+    behind = [r.get("branch") for r in rows if r.get("behind")] + [r.get("default") for r in rows if r.get("default_behind")]
+    if behind:
+        out.append(f"A new flow can start from the newer code: keel_start_flow(..., base={behind[0]!r}). A flow that runs "
+                   f"already: keel_branch_sync(onto={behind[0]!r}).")
+    return "\n".join(out)
+
+
+def branch_sync(api: KeelApi, project: str | None = None, thread_id: str | None = None, onto: str | None = None,
+                mode: str = "merge", action: str = "start") -> str:
+    """0.18.64 (field report bug 6) keel merges or rebases a flow's branch onto a base (POST /threads/{id}/sync). The
+    flow: thread_id, else the project folder's flow. A conflict comes back with its files and the way on."""
+    if not thread_id:
+        thread, _ = _flow(api, _project(api, project)["id"])
+        if not thread:
+            return "no flow on this project: pass thread_id (keel_flows lists them)."
+        thread_id = thread["thread_id"]
+    body = {"mode": mode, "action": action, **({"onto": onto} if onto else {})}
+    res = api.post(f"/threads/{_q(thread_id)}/sync", body) or {}
+    if res.get("ok"):
+        out = [f"flow {thread_id}: {res.get('note')}."]
+        if res.get("synced") and res.get("base_head"):
+            out.append(f"Its next step compares its own work with {str(res['base_head'])[:7]} (where the branch's work starts now).")
+        return "\n".join(out)
+    files = res.get("conflicts") or []
+    return "\n".join([f"flow {thread_id}: {res.get('note')}.", *(f"- {f}" for f in files[:50]),
+                      str(res.get("next") or "Resolve the files, then sync again with action=continue."),
+                      f"Then: keel_branch_sync(thread_id={thread_id!r}, action='continue'); or action='abort' to go back."])
+
+
 def actions(level: str) -> str:
     from .runtime import action_docs
 

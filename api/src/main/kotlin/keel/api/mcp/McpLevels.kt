@@ -180,6 +180,9 @@ class McpLevelGuard(private val tokens: McpTokens, private val mapper: ObjectMap
             // 0.18.9 a stack's check (keel_stack_check): it saves nothing. Saving, removing, turning off and a marketplace
             // install are write (keel_stack_create, _remove and _market_install ask the person first)
             Regex("^/api/projects/[^/]+/stacks/check$"),
+            // 0.18.64 a fetch of the project's remotes (keel_fetch_remotes): it updates only the remote-tracking refs, no
+            // branch and no file. A flow branch's sync (POST /api/threads/{id}/sync, keel_branch_sync) is write.
+            Regex("^/api/projects/[^/]+/remotes/fetch$"),
         )
     }
 }
