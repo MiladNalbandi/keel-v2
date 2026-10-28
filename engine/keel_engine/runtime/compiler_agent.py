@@ -76,6 +76,10 @@ class AgentMixin:
         # keel 0.18.64 the other projects registered in this keel: read only (runtime/other_projects.py)
         toolbox.others_off = other_projects.is_off(cfg)
         toolbox.others = await asyncio.to_thread(other_projects.usable, ctx.other_projects, root, ctx.project_id, cfg)
+        # 0.18.64 keel's own MCP server reads only this flow's project (and the ones it may read): keel_read_file,
+        # keel_search, keel_knowledge, keel_agent_prompt ... on another project are refused there (mcp_api.KeelApi)
+        if ctx.project_id:
+            mcp_specs = mcp.scoped(mcp_specs, tools_allow, [ctx.project_id, *(o["id"] for o in toolbox.others if o.get("id"))])
         toolbox.flow = f'"{ctx.title}" (thread {ctx.thread_id})'     # 0.18.64 a refused commit names this flow
         # keel v1's push gate for the agent's own `git push` / `gh pr create` (rules.push_gate)
         toolbox.push_blockers = await asyncio.to_thread(push_gates.for_agents, root, state.get("base_head"), ctx.project_id or None)

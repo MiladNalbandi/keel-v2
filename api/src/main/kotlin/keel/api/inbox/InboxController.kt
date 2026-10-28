@@ -1,6 +1,9 @@
 package keel.api.inbox
 
 import com.fasterxml.jackson.databind.JsonNode
+import jakarta.servlet.http.HttpServletRequest
+import keel.api.auth.LocalAuth
+import keel.api.mcp.McpLevelGuard
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
@@ -21,7 +24,13 @@ class InboxController(private val inbox: InboxService) {
     @GetMapping("/count")
     fun count(): InboxCount = inbox.count()
 
-    /** Approve, send back (why), pick a choice or answer questions (payload) — the same resume as the Flow page. */
+    /**
+     * Approve, send back (why), pick a choice or answer questions (payload) — the same resume as the Flow page.
+     * 0.18.64 an approval the api asked itself (a plugin install, a send to Jira) is answered here only by a person or
+     * the MCP admin level, as on POST /api/approvals/{id}/decide: an MCP write token answers flows only.
+     */
     @PostMapping("/{tid}/act")
-    fun act(@PathVariable tid: String, @RequestBody body: InboxAct): JsonNode = inbox.act(tid, body)
+    fun act(@PathVariable tid: String, @RequestBody body: InboxAct, request: HttpServletRequest): JsonNode =
+        inbox.act(tid, body, mayDecide = request.getAttribute(LocalAuth.WHO_ATTR) != "mcp" ||
+            request.getAttribute(McpLevelGuard.LEVEL_ATTR) == "admin")
 }

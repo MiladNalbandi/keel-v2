@@ -205,6 +205,9 @@ class ToolBox:
         return f"exit {code}\n{out[-8000:]}"
 
     def run_tests(self, ac: str | None = None) -> str:
+        if ac and not testcmd.valid_ac(ac):
+            # 0.18.64 (security audit F14) the id goes into a shell command: only keel's ids (AC-6, CHG-1.2)
+            return self._refuse("run_tests", "", f"{ac[:60]!r} is not a criterion id (AC-6, CHG-1.2).")
         cmd = testcmd.command_for(self.root, ac or self.ac, self.ac_layer)
         if not cmd:
             return "ERROR: no test command found. Add commands to .keel/config.yml."

@@ -73,7 +73,7 @@
 # data volume, so they survive restarts and new images. Nothing from your computer is copied into the container.
 set -euo pipefail
 
-KEEL2_VERSION="0.18.63"
+KEEL2_VERSION="0.18.64"
 IMAGE="${KEEL_IMAGE:-ghcr.io/miladnalbandi/keel-v2:latest}"
 # keel's core only (docs/plugins/16-steps5-7-contract.md, step 6): keel2 start --core, unless KEEL_IMAGE is set
 CORE_IMAGE="ghcr.io/miladnalbandi/keel-v2:core"
@@ -700,7 +700,7 @@ cmd_state() {  # keel2 state [close] [folder]
   dir="${1:-$PWD}"
   [ -d "$dir" ] || die "There is no folder $dir." "usage: keel2 state [close] [folder]"
   dir="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null || (cd "$dir" && pwd))"
-  f="$dir/.keel/state.json"
+  f="$dir/.keel/state.json"   # the state file keel v1 left
   if [ ! -f "$f" ]; then info "No keel v1 state file in $dir (.keel/state.json): no keel v1 flow blocks commits there."; return 0; fi
   flow="$(sed -n 's/.*"flow"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$f" | head -1)"
   phase="$(sed -n 's/.*"phase"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$f" | head -1)"
@@ -2194,7 +2194,8 @@ print_mcp_config() {  # print_mcp_config <--read-only|--write|--admin> [extra ar
     info "  Claude Desktop: \"mcpServers\": { \"$name\": { \"command\": \"$jself\", \"args\": [$jargs$jmore]$env_json } }"
     info ""
   done
-  info "${D}Push, DB changes, deletes and stops ask you first in the client; a client without forms gets a one-time token to call again with (--yes skips every question).${N}"
+  info "${D}Push, DB changes, deletes and stops ask you first in the client; a client without forms: you confirm in keel's Inbox.${N}"
+  info "${D}Danger: --yes skips every question: the model's acting tools then run with no question to you.${N}"
   info "${D}--allow keel_status,keel_approve_gate keeps only those tools. keel's own agents always get it read-only.${N}"
 }
 

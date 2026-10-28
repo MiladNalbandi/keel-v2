@@ -462,12 +462,42 @@ keel checks every agent with rules. **Build › Rules** shows all of them in pla
                                                         and puts back what the phase does not allow
 ```
 
-- **Always on**: `.env` files, keel's own rule files (`.keel/config.yml`, `.keel/rules/`), old migrations, force push,
-  `--no-verify`, commits and history rewrites inside a flow, secrets and switched-off tests in an edit, and keel's
-  own sign-in keys. These never switch off.
+- **Always on**: secret files (`.env`, SSH and TLS keys, `credentials.json`, `.npmrc` ...), keel's own rule files
+  (`.keel/config.yml`, `.keel/rules/`, `.keel/stacks/`), old migrations, force push, `--no-verify`, commits and history rewrites inside
+  a flow, secrets and switched-off tests in an edit, and keel's own sign-in keys. These never switch off.
+- **Git settings** (0.18.64): agents never change the repo's git settings (`git config` that writes, `git remote add`
+  or `set-url`, `git -c`) and never write inside `.git/`; reading them (`git config --get`, `git remote -v`) is fine.
+  keel runs git there with your GitHub login. keel's own git runs no hook, no fsmonitor and no `ext::` remote of the
+  repo, with no keys in its environment, and with the login it speaks https only (so a git hook of the project does
+  not run on keel's commits: its checks belong in the project's `pre-commit` tools, which keel runs itself; or
+  set `git: {hooks: on}` in `.keel/config.yml` and the project's own hooks run on keel's local commits, merges and
+  checkouts, with no keys in their environment, never on a push or a fetch). A container an agent starts (with
+  `keel2 --docker`) gets no bind mount outside the project, no Docker socket, no `--privileged`, `--cap-add` or host
+  namespaces.
 - **You can switch off**: generated files, build output, `-x test`, new packages, reading a file twice, big-file
-  reads, the push gate, MCP tools that change things, reading other projects (`other-projects`). Off is saved in
-  `.keel/config.yml` (`rules.off`).
+  reads, the push gate, MCP tools that change things. Off is saved in `.keel/config.yml` (`rules.off`).
+- **You can switch on**: reading other projects (`other-projects`), off until you turn it on. On is saved in
+  `.keel/config.yml` (`rules.on`).
+
+**Secret files** (0.18.64). keel keeps one list of files that hold secrets: `.env` and `.env.*` (not `.env.example`,
+`.env.sample`, `.env.template`, `.env.dist`), SSH keys (`id_rsa`, `id_ed25519` ...), `*.pem`, `*.key`, `*.p12`,
+`*.pfx`, `credentials.json`, `.npmrc`, `.netrc`, `.pgpass`, `secrets.yml` and a few more. Your `guards.protected` adds
+to it. An agent never reads, searches, prints, copies or changes them:
+
+```
+ Read .env / Grep in .env / Grep over a folder that has one     refused (a glob like "*.py" leaves it out)
+ cat .env, sort .env, python -c "open('.env')", git show HEAD:.env, grep -r KEY .      refused
+ ls -la .env, test -f .env, git status .env                      fine: they only name it
+```
+
+Some honest uses are refused too (`source .env`, `docker compose --env-file .env`): run those yourself.
+
+**What keel cannot stop.** keel reads each command before it runs; it does not run agents as another user or in a
+sandbox. So a determined agent can still get around a rule: a file name built at run time (`f=.en; cat ${f}v`), a
+script file that opens `.env` itself, `find . -exec cat {} +`, an archive of a whole folder, a command that prints
+many files at once when a secret file is committed (`git show`, `git log -p`). keel also checks its own run files
+when an agent ends (a changed guard file fails the step) and checks every commit again, but the strong fix is to keep
+real secrets out of the folders agents work in.
 - **Your lists** (`.keel/config.yml`): protected files, generated files, build output, shell commands, `mcp.allow`,
   the big-file limit (`read_guard_max_lines`, default 2000 lines; 0 = off), the push gate, architecture boundaries.
   The page edits them in place; only the `guards`, `mcp`, `rules` and `boundaries` parts are rewritten.
@@ -1266,10 +1296,16 @@ in between answers "keel is restarting, try again in a few seconds". `keel_healt
 often the connection reconnected; `keel_reconnect` starts the connection's server again now (after an update, for the
 newest tools). Times (`keel_timeline`) are in your computer's time zone, with its name: `10-28 14:14:02 CET`.
 
-Pushes, database changes, deletes, stops and saves ask you first in the client. A client that cannot show that form
-does nothing yet and answers "This needs your OK: <what>" with a one-time token: when you say yes, it calls the same
-tool again with the same arguments and `confirm: "<token>"` within 5 minutes (the token works once, for that call
-only). `--yes` still skips every question. `--allow keel_status,keel_approve_gate` keeps only those tools.
+Pushes, database changes, deletes, stops and saves ask you first in the client. **A client without forms: you confirm
+in keel's Inbox** (0.18.64). A client that cannot show that form does nothing yet and answers "This needs the person's
+OK: <what>" with a one-time token, and keel puts the same question in its Inbox (the dashboard, keel TUI, the phone
+app). The model reads that answer, so it could send the token back by itself; for the dangerous kinds (deletes,
+pushes, stops, a model change, a data change, a pull request) the token alone does nothing: you approve the question
+in keel's Inbox, then the client calls the tool again with `confirm: "<token>"`. For the other kinds the token works
+when you say yes in the chat (within 5 minutes, once, for that call only), and an approval in the Inbox counts too.
+`KEEL_MCP_CONFIRM=token` lets the token alone confirm every kind again. If keel cannot put the question in its Inbox,
+a dangerous kind is not done: do it in keel's dashboard. **Danger:** `keel2 mcp --yes` skips every question: the
+model's acting tools then run with no question to you. `--allow keel_status,keel_approve_gate` keeps only those tools.
 `keel_start_flow` answers at once with the flow's thread id, its status (starting, running or waiting) and how to
 follow it; `wait` (seconds, at most 60) waits for its first gate first. `keel_answer` and `keel_approve_gate` say what
 really ran: a reject with the choice **edit** says the edit choice ran. `keel_answer(ask_person=true)`
@@ -1458,8 +1494,10 @@ that no longer exists is skipped (`keel2 folders` marks it).
 - keel TUI: the start box says `/flow init`, `/flow` lists init first, and another flow asks the same. `/flow init`
   needs no idea. MCP: `keel_start_flow` puts a line about init first for such a project.
 
-**Agents read the other projects** (0.18.64). A flow's agents may read every other project registered in the same
-keel, for example the upstream service whose contract a change depends on. They never change it.
+**Agents read the other projects** (0.18.64). A flow's agents may read the other projects registered in the same
+keel, for example the upstream service whose contract a change depends on. They never change it. This is **off until
+you turn it on**: switch on the rule **other-projects** on the Rules page (it saves `rules.on: [other-projects]` in
+`.keel/config.yml`). Both projects must have it on: the agents read only the other projects that turned it on too.
 
 ```
  flow in shop-web                       shop-api (registered in the same keel)
@@ -1468,11 +1506,12 @@ keel, for example the upstream service whose contract a change depends on. They 
 ```
 
 - Each agent's prompt names the other projects and their folders (one line each), only when there are any.
-- Its secrets stay out there too (its `.env`, keel's keys), judged with that project's own `.keel/config.yml`.
+- Its secrets stay out there too (its `.env`, keys, keel's keys), judged with that project's own `.keel/config.yml`,
+  whatever the command: `cat`, `grep -r`, `python -c`, `git -C <it> show HEAD:.env` and a Grep are all refused.
 - A folder that is no registered project is refused in plain words: "<path> is outside this project and is not another
   project registered in keel; ask the person to add it (keel2 add) or to paste what you need".
-- To keep a project to itself, switch off the rule **other-projects** on its Rules page: its agents read only it, and
-  other projects' agents do not read it.
+- Off (the default), a project keeps to itself: its agents read only it, other projects' agents do not read it, and
+  keel's MCP server for its flows answers only for it.
 - From an MCP client: `keel_read_project_file(project, path, offset, limit)` reads one file of any project the same way.
 
 **A second keel** (`KEEL_NAME=keel-lab PORT=8097 ./keel2 start …`) gets its own data: the volume is `<KEEL_NAME>-data` (`keel-data` only for the default `keel-v2`; `KEEL_VOLUME` sets another). keel2 refuses to start a keel, restore a backup or delete data on a volume another running keel uses: two keels on one volume would write one database at the same time.

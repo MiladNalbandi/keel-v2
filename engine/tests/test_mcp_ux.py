@@ -1,5 +1,6 @@
 """0.18.64 the field report's MCP findings (bugs 12 and 13): keel_answer says the choice that ran, keel_start_flow
-answers at once, and a client without forms confirms with a one-time token instead of `keel2 mcp --yes`."""
+answers at once, and a client without forms confirms with a one-time token instead of `keel2 mcp --yes` (a dangerous
+kind: in keel's Inbox)."""
 
 import copy
 import json
@@ -22,11 +23,31 @@ class Api(StubApi):
         super().__init__(thread or {**copy.deepcopy(THREAD), **({"current": waiting["step"], "waiting": waiting} if waiting else {})})
         self.answered = answered
         self.gets: list[str] = []
+        # 0.18.64 the confirmations in keel's Inbox: id -> None (waiting) or the person's answer (read once)
+        self.asks: dict[str, dict | None] = {}
+        self.inbox = True
 
     def __call__(self, req: httpx.Request) -> httpx.Response:
         path = req.url.path
         if req.method == "GET":
             self.gets.append(path)
+        if req.method == "POST" and path == "/api/projects/shop/plugins/ask":
+            if not self.inbox:
+                return httpx.Response(403, json={"error": "This needs the MCP write level: run keel2 mcp --write"})
+            self.asked = getattr(self, "asked", 0) + 1
+            qid = f"p_{self.asked:012x}"
+            self.asks[qid] = None
+            self.posts.append((path, json.loads(req.content)))
+            return httpx.Response(200, json={"id": qid, "title": "t"})
+        if req.method == "GET" and path.startswith("/api/plugins/asks/"):
+            qid = path.rsplit("/", 1)[1]
+            if qid not in self.asks:
+                return httpx.Response(404, json={"error": "keel knows no such question."})
+            got = self.asks[qid]
+            if got is None:
+                return httpx.Response(200, json={"id": qid, "waiting": True})
+            del self.asks[qid]
+            return httpx.Response(200, json={"id": qid, **got})
         if req.method == "GET" and path == "/api/inbox":
             return httpx.Response(200, json={"items": []})
         if req.method == "POST" and path in ("/api/inbox/t-1/act", "/api/threads/t-1/stop"):
@@ -108,35 +129,107 @@ def test_start_flow_waits_only_when_asked_and_a_slow_start_is_not_keel_is_down(m
 
 # ---------------------------------------------------------------- confirmations without forms (bug 13)
 
-async def test_a_client_without_forms_confirms_with_a_one_time_token():
+def token_of(text: str) -> str:
+    return text.split('confirm: "', 1)[1].split('"', 1)[0]
+
+
+def acted(api: Api) -> list:
+    return [p for p in api.posts if not p[0].endswith("/plugins/ask")]
+
+
+async def test_a_client_without_forms_gets_a_one_time_token():
+    api = Api()
+    first = await call(server(api, level="admin"), "keel_stop_flow", {"thread_id": "t-1"})
+    assert "cannot ask you to confirm stop the flow" in first and "--yes" not in first    # 0.16.0's opening words stay
+    assert token_of(first).startswith("ok-") and not acted(api)
+
+
+async def test_the_confirm_text_tells_the_model_never_to_confirm_by_itself():
+    for inbox_only in (False, True):
+        text = mcp_confirm.ask_text("keel_stop_flow", "stop the flow", "ok-x", "p_1" if inbox_only else None, inbox_only)
+        assert "never confirm by yourself" in text and "--yes" not in text
+    assert "--yes" not in mcp_confirm.bad_text("keel_stop_flow", "stop the flow", "ok-x")
+
+
+async def test_a_token_for_a_kind_that_is_not_dangerous_still_works_once(monkeypatch):
+    monkeypatch.setattr(mcp_confirm, "OUT_OF_BAND", set())       # stop the flow as a plain kind here
     api = Api()
     srv = server(api, level="admin")
     first = await call(srv, "keel_stop_flow", {"thread_id": "t-1"})
-    assert "This needs your OK: stop the flow. Ask the person" in first and not api.posts
-    assert "cannot ask you to confirm stop the flow" in first and "--yes" in first      # 0.16.0's words stay
-    token = first.split('confirm: "', 1)[1].split('"', 1)[0]
-    assert token.startswith("ok-")
+    assert "This needs the person's OK: stop the flow. Ask the person" in first and not acted(api)
+    assert "keel also put the question in its Inbox" in first and api.posts[-1][0] == "/api/projects/shop/plugins/ask"
+    token = token_of(first)
     # another call's arguments do not take it, and it is used up
     other = await call(srv, "keel_stop_flow", {"thread_id": "t-2", "confirm": token})
-    assert "not valid for this call" in other and not api.posts
-    first = await call(srv, "keel_stop_flow", {"thread_id": "t-1"})
-    token = first.split('confirm: "', 1)[1].split('"', 1)[0]
+    assert "not valid for this call" in other and not acted(api)
+    token = token_of(await call(srv, "keel_stop_flow", {"thread_id": "t-1"}))
     done = await call(srv, "keel_stop_flow", {"thread_id": "t-1", "confirm": token})
-    assert api.posts == [("/api/threads/t-1/stop", {})] and "not valid" not in done
+    assert acted(api) == [("/api/threads/t-1/stop", {})] and "not valid" not in done
     again = await call(srv, "keel_stop_flow", {"thread_id": "t-1", "confirm": token})
-    assert "not valid for this call" in again and len(api.posts) == 1
+    assert "not valid for this call" in again and len(acted(api)) == 1
 
 
-async def test_a_token_ends_after_five_minutes_and_only_asking_tools_take_one(monkeypatch):
+async def test_a_dangerous_kind_waits_for_the_persons_ok_in_keels_inbox(monkeypatch):
+    monkeypatch.delenv("KEEL_MCP_CONFIRM", raising=False)
+    api = Api()
+    srv = server(api, level="admin")
+    first = await call(srv, "keel_stop_flow", {"thread_id": "t-1"})
+    assert "keel put the question in its Inbox (p_000000000001)" in first and "The token alone does not do it" in first
+    ask = api.posts[-1][1]
+    assert ask["title"].endswith(": stop the flow?") and "keel_stop_flow(" in ask["command"] and "thread_id='t-1'" in ask["command"]
+    token = token_of(first)
+    # the model sends the token back by itself: nothing happens while the question waits, and the token stays open
+    early = await call(srv, "keel_stop_flow", {"thread_id": "t-1", "confirm": token})
+    assert "has not approved stop the flow in keel's Inbox yet" in early and not acted(api)
+    api.asks["p_000000000001"] = {"decision": "allow", "why": ""}       # the person approves it in the Inbox
+    done = await call(srv, "keel_stop_flow", {"thread_id": "t-1", "confirm": token})
+    assert acted(api) == [("/api/threads/t-1/stop", {})] and "not done" not in done
+    # a no in the Inbox is a no
+    token = token_of(await call(srv, "keel_stop_flow", {"thread_id": "t-1"}))
+    api.asks["p_000000000002"] = {"decision": "deny", "why": "not now"}
+    no = await call(srv, "keel_stop_flow", {"thread_id": "t-1", "confirm": token})
+    assert "said no to stop the flow in keel's Inbox (not now)" in no and len(acted(api)) == 1
+
+
+async def test_a_dangerous_kind_with_no_inbox_is_refused(monkeypatch):
+    monkeypatch.delenv("KEEL_MCP_CONFIRM", raising=False)
+    api = Api()
+    api.inbox = False
+    text = await call(server(api, level="admin"), "keel_stop_flow", {"thread_id": "t-1"})
+    assert "could not put the question in its Inbox" in text and "confirm it in keel's dashboard" in text
+    assert 'confirm: "' not in text and not acted(api)
+
+
+async def test_keel_mcp_confirm_token_lets_the_token_alone_confirm_again(monkeypatch):
+    monkeypatch.setenv("KEEL_MCP_CONFIRM", "token")
+    api = Api()
+    srv = server(api, level="admin")
+    first = await call(srv, "keel_stop_flow", {"thread_id": "t-1"})
+    assert "The token alone does not do it" not in first
+    await call(srv, "keel_stop_flow", {"thread_id": "t-1", "confirm": token_of(first)})
+    assert acted(api) == [("/api/threads/t-1/stop", {})]
+
+
+def test_the_dangerous_kinds():
+    for name in ("keel_delete_run", "keel_remove_project", "keel_stop_flow", "keel_stop_flows", "keel_pause",
+                 "keel_agent_model", "keel_git_push", "keel_db_change", "keel_stack_remove", "keel_keelbot_undo"):
+        assert mcp_confirm.out_of_band(name), name
+    assert mcp_confirm.out_of_band("keel_run_action", "open_pr") and not mcp_confirm.out_of_band("keel_run_action", "verify_fast")
+    assert not mcp_confirm.out_of_band("keel_rule_create")
+
+
+async def test_a_token_ends_after_its_time_and_only_asking_tools_take_one(monkeypatch):
+    monkeypatch.setenv("KEEL_MCP_CONFIRM", "token")
     now = [1000.0]
     monkeypatch.setattr(mcp_confirm.time, "monotonic", lambda: now[0])
     api = Api()
     srv = server(api, level="admin")
     first = await call(srv, "keel_stop_flow", {"thread_id": "t-1"})
-    token = first.split('confirm: "', 1)[1].split('"', 1)[0]
-    now[0] += mcp_confirm.TTL + 1
+    token = token_of(first)
+    assert "within 10 minutes" in first                       # it has a question in the Inbox: as long as that waits
+    now[0] += mcp_confirm.INBOX_TTL + 1
     late = await call(srv, "keel_stop_flow", {"thread_id": "t-1", "confirm": token})
-    assert "older than 5 minutes" in late and not api.posts
+    assert "too old" in late and not acted(api)
     async with create_connected_server_and_client_session(srv) as s:
         tools = {t.name: t.inputSchema for t in (await s.list_tools()).tools}
     assert "confirm" in tools["keel_stop_flow"]["properties"] and "confirm" in tools["keel_agent_model"]["properties"]

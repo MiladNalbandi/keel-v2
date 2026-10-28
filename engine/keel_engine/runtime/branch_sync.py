@@ -14,7 +14,6 @@ keel runs these git commands itself (never an agent), so the guards that refuse 
 
 from __future__ import annotations
 
-import os
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -39,11 +38,17 @@ def fetch_one(root: str, name: str, keys=None, timeout: float = git.FETCH_EACH) 
     remote is on its host. Never asks for a password or an ssh host key (BatchMode) and never waits longer than
     `timeout`. {remote, ok, error?}; the error is git's first line, the token masked."""
     login = git_auth.as_login(keys or {})
-    with git_auth.remote(root, login, name) as r:
-        env = dict(r.env)
-        env.setdefault("GIT_SSH_COMMAND", "ssh -o BatchMode=yes -o ConnectTimeout=10")
-        f = git.git(root, *r.args, "fetch", "-q", "--no-tags", r.target, f"+refs/heads/*:refs/remotes/{name}/*",
-                    env=env, timeout=timeout)
+    if not git.plain_name(name):
+        # 0.18.64 (security audit F14) a remote name from the repo is never read as an option (`--upload-pack=...`)
+        return {"remote": name, "ok": False, "error": "not a remote name keel fetches"}
+    try:
+        with git_auth.remote(root, login, name) as r:
+            env = dict(r.env)
+            env.setdefault("GIT_SSH_COMMAND", "ssh -o BatchMode=yes -o ConnectTimeout=10")
+            f = git.git(root, *r.args, "fetch", "-q", "--no-tags", "--end-of-options", r.target,
+                        f"+refs/heads/*:refs/remotes/{name}/*", env=env, timeout=timeout)
+    except git_auth.UnsafeRemote as exc:
+        return {"remote": name, "ok": False, "error": str(exc)}
     if f.returncode == 0:
         return {"remote": name, "ok": True}
     why = f"timed out after {int(timeout)} s" if f.returncode == 124 else \
@@ -227,7 +232,7 @@ def sync(root: str, onto: str | None = None, mode: str = "merge", action: str = 
     going = git.in_progress(root)
     branch = git.branch(root) or ""
     ident, trailer = commit_args(root, settings, cfg)
-    editor = {**os.environ, "GIT_EDITOR": "true", "GIT_TERMINAL_PROMPT": "0"}
+    editor = {**git.scrubbed(), "GIT_EDITOR": "true", "GIT_TERMINAL_PROMPT": "0"}
     if action == "abort":
         if not going:
             raise SyncError(409, "No merge or rebase waits here: nothing to abort.")
@@ -274,6 +279,8 @@ def sync(root: str, onto: str | None = None, mode: str = "merge", action: str = 
     target = (onto or "").strip() or default_onto(root, cfg)
     if not target:
         raise SyncError(400, "No base to sync onto: this repo has no main or master.", "Name one: onto=<remote>/<branch> or a local branch.")
+    if not git.plain_name(target):
+        raise SyncError(400, f"{target!r} is not a branch name.", "Name a local branch or <remote>/<branch>.")
     target_sha = git.rev(root, target)
     if not target_sha:
         raise SyncError(400, f"There is no branch {target} here.",

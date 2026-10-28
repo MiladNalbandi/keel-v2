@@ -74,7 +74,7 @@ BUCKETS = [
     ("web-test", "frontend tests"), ("migration", "database migrations"), ("contract", "the API contract (openapi)"),
     ("specs", "specs"), ("e2e", "end-to-end tests"), ("smoke", "smoke checks"),
     ("other", "everything else: docs, config, build files"), ("protected-env", ".env files (secrets)"),
-    ("generated", "generated code"), ("keel-rules", "keel's rules: .keel/config.yml and .keel/rules/"),
+    ("generated", "generated code"), ("keel-rules", "keel's rules: .keel/config.yml, .keel/rules/ and .keel/stacks/"),
 ]
 MAY = {"allow": ("edit", "edit"), "new-only": ("new-only", "create new files only"),
        "delete-only": ("delete-only", "delete lines only"), "deny": ("read-only", "read only")}

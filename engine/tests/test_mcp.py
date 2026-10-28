@@ -744,7 +744,7 @@ async def test_allow_registers_only_the_named_tools(stub):
 async def test_a_risky_tool_is_refused_when_the_client_cannot_confirm(stub):
     stub.thread = {**THREAD, "status": "running", "waiting": None}
     text = await call(mcp_server.build_server(level="admin", api=stub.api), "keel_stop_flow")
-    assert "cannot ask you to confirm stop the flow" in text and "--yes" in text
+    assert "cannot ask you to confirm stop the flow" in text and "--yes" not in text      # 0.18.64 no way around the person
     assert not [p for p, _ in stub.posts if p.endswith("/stop")]
 
 

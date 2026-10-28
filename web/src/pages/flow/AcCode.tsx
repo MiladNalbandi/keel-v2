@@ -28,7 +28,8 @@ const NOTE: Record<AcCodeFile["status"], string> = { added: "new file", deleted:
 
 function noteOf(f: AcCodeFile): string {
   const parts = [f.status === "renamed" && f.old_path ? `renamed from ${f.old_path}` : NOTE[f.status]];
-  if (f.binary) parts.push("binary, no diff");
+  if (f.bucket === "secret") parts.push(f.note ?? "secret file: not shown");
+  else if (f.binary) parts.push("binary, no diff");
   else if (f.bucket === "lock") parts.push("lock file · folded");
   else if (f.bucket === "generated") parts.push("generated · folded");
   else if (f.diff === null) parts.push("left out: the diffs are long · folded");
@@ -62,7 +63,7 @@ function FileDiff({ pid, tid, ac, sha, f }: { pid: string; tid: string; ac: stri
         <span className="acc-add" aria-label={`${f.added} added`}>+{f.added}</span>
         <span className="acc-del" aria-label={`${f.removed} removed`}>−{f.removed}</span>
         {note && <span className="acc-note">{note}</span>}
-        {shown === null && !f.binary && (
+        {shown === null && !f.binary && f.bucket !== "secret" && (
           <button type="button" className="btn sm acc-show" disabled={busy} onClick={() => void show()}
             aria-label={`Show the diff of ${f.path}`}>{busy ? "Loading…" : "Show"}</button>
         )}

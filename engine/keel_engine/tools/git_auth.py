@@ -142,16 +142,52 @@ def helper_command() -> str:
     return f"!{shlex.quote(sys.executable)} -I {shlex.quote(str(HELPER))}"
 
 
+class UnsafeRemote(Exception):
+    """The repo's own config would put keel's login at risk; nothing was run."""
+
+
+# 0.18.64 the repo's own config (local or worktree scope) that lets a program in the middle read an https request:
+# certificate checks off, or another certificate authority. keel does not send the login with it.
+_RISKY_HTTP = {"http.sslverify": "false", "http.sslcainfo": "", "http.sslcapath": ""}
+
+
+def risky_config(root: str, url: str) -> list[str]:
+    """The repo's own http settings for `url` that would expose the login ("http.sslverify false"), else []."""
+    r = git.git(root, "config", "--show-scope", "--includes", "--get-urlmatch", "http", url)
+    out = []
+    for line in r.stdout.splitlines() if r.returncode == 0 else []:
+        scope, _, kv = line.partition("\t")
+        key, _, value = kv.partition(" ")
+        bad = _RISKY_HTTP.get(key.lower())
+        if scope in ("local", "worktree") and bad is not None and (not bad or value.strip().lower() in
+                                                                   ("false", "no", "off", "0")):
+            out.append(f"{key} {value}".strip())
+    return out
+
+
 @contextmanager
 def remote(root: str, keys_or_login, name: str = "origin"):
-    """A Remote for one git fetch or push to `name`. The token file exists only inside the `with`."""
+    """A Remote for one git fetch or push to `name`. The token file exists only inside the `with`.
+
+    0.18.64 (security audit F2) with the login, git may only speak https (GIT_ALLOW_PROTOCOL: an `ext::` or a local
+    remote that insteadOf put in place of github.com would run a program that reads the token file) and asks no askpass
+    program (GIT_ASKPASS empty: the environment wins over core.askPass). UnsafeRemote when the repo's own config turns
+    off certificate checks for the host."""
     tok = as_login(keys_or_login)
     base = {**command_env(), "GIT_TERMINAL_PROMPT": "0"}
+    if name.startswith("-"):
+        raise UnsafeRemote(f"{name!r} is not a remote name keel uses")
     url = git.git(root, "config", "--get", f"remote.{name}.url").stdout.strip()
     https = https_url(url, tok.host) if tok else None
     if not https:
         yield Remote(name, [], base, None)
         return
+    risky = risky_config(root, https)
+    if risky:
+        raise UnsafeRemote(f"the repo's own git config changes how https is checked ({'; '.join(risky)}), so keel does "
+                           "not send its GitHub login; remove it with git config --unset")
+    base = {**base, "GIT_ALLOW_PROTOCOL": "https", "GIT_ASKPASS": ""}
+    base.pop("SSH_ASKPASS", None)
     folder = tempfile.mkdtemp(prefix="keel-git-")
     try:
         path = os.path.join(folder, "t")
@@ -169,7 +205,8 @@ def remote(root: str, keys_or_login, name: str = "origin"):
 def gh_env(root: str | None, keys_or_login) -> dict:
     """The environment for gh: the login for its own host only, never a token for a host keel was not told about."""
     tok = as_login(keys_or_login)
-    env = {**command_env(), "GH_PROMPT_DISABLED": "1"}
+    # 0.18.64 (security audit F2, F3) the git gh runs (its remotes, the status) runs no hook, fsmonitor or ext:: of the repo
+    env = {**command_env(), "GH_PROMPT_DISABLED": "1", **git.SAFE_ENV}
     if not tok:
         return env
     if tok.host == GITHUB:

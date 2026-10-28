@@ -230,7 +230,9 @@ export type StepRunFacts = {
  *  or 60 KB (`truncated`); lock, generated and binary files come `folded`, without text (ask for it with sha + path). */
 export type AcCodeFile = {
   path: string; old_path?: string; status: "added" | "modified" | "deleted" | "renamed"; added: number; removed: number;
-  bucket: "test" | "prod" | "generated" | "lock"; binary?: boolean; diff: string | null; lines?: number; truncated?: boolean; folded?: boolean;
+  bucket: "test" | "prod" | "generated" | "lock" | "secret"; binary?: boolean; diff: string | null; lines?: number; truncated?: boolean; folded?: boolean;
+  /** 0.18.64 a secret file (a .env, a key): never with its diff */
+  note?: string;
 };
 export type AcCodeCommit = { sha: string; short: string; subject: string; files: AcCodeFile[]; added: number; removed: number; more_files?: number };
 /** 0.18.64 the criterion's code at its AC gate: its RED and GREEN commits (null: none found), and the totals */
@@ -1143,6 +1145,8 @@ export type PluginInfo = { name: string; title: string; version: string; web: Pl
 
 export const api = {
   health: () => get<Health>("/health"),
+  /** keel 0.18.64 sign this browser out (its session ends), or every browser (each one's session ends) */
+  webSignOut: (everywhere = false) => post<{ ok: boolean; ended?: number }>(everywhere ? "/web/sign-out-everywhere" : "/web/sign-out"),
   /** keel 0.18.22 what keel installs for the projects' stacks (setup.apt), and how far it is */
   stackSetup: () => get<StackSetup>("/setup"),
   features: () => get<Features>("/features"),

@@ -227,6 +227,26 @@ describe("useAnswerDraft", () => {
     expect(() => { clearDraft(place); dropOtherDrafts("p1", "t1", null); pruneDrafts(); }).not.toThrow();
   });
 
+  it("keel 0.18.64 sign-out forgets every unsent answer and KeelBot's chat drafts, nothing else", async () => {
+    const place = { project: "p1", thread: "t1", question: "q1" };
+    localStorage.setItem(draftKey(place, "why"), JSON.stringify({ v: "half a reason", at: Date.now() }));
+    localStorage.setItem("keel2.helper.p1.drafts", JSON.stringify({ new: { text: "half a question", mentions: [] } }));
+    localStorage.setItem("keel2.helper.p1.folded", JSON.stringify(["f1"]));
+    let called = "";
+    server.use(http.post("*/api/web/sign-out", () => {
+      called = "this";
+      return HttpResponse.json({ ok: true });
+    }));
+    const { signOut } = await import("../pages/settings/DevicesTab");
+    await signOut(false);
+    expect(called).toBe("this");
+    expect(draftKeys()).toEqual([]);
+    expect(localStorage.getItem("keel2.helper.p1.drafts")).toBeNull();
+    expect(localStorage.getItem("keel2.helper.p1.folded")).not.toBeNull();
+    const { signInDone } = await import("../signIn");
+    signInDone();
+  });
+
   it("questionKey: the question's id, else its step and criterion", () => {
     expect(questionKey({ id: "q-9", step: "s8", ac: "AC-1" })).toBe("q-9");
     expect(questionKey({ id: null, step: "s8", ac: "AC-1" })).toBe("s8|AC-1");

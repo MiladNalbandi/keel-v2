@@ -206,6 +206,12 @@ on gate.waiting(thread, question):
 
 The `never` row is a constant in code, not a setting. A setting, a prompt or a file in the repo cannot change it.
 
+**Danger: `rung: may` runs commands with no person.** On a failing setup rung the Supervisor's answer `own_fix` names
+commands, and keel runs them on this machine. With `rung: may` nobody reads them first. keel 0.18.64 takes it only when
+the request says so out loud: `POST /api/projects/{pid}/flows/{tid}/supervisor` with `"policy": {"rung": "may"}` must
+also send `"i_understand": "commands run without you"`, else it is refused (400). An MCP client below the admin level
+never changes the policy (403); `keel_supervisor_set` does not send one.
+
 ### What it may do by itself (when `may`)
 
 1. Approve (only when `approve` is offered).

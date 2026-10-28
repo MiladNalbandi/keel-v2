@@ -7,7 +7,9 @@ gates, answer the Inbox, start flows, git / PR / CI / DB writes), admin (stop an
 A tool above the level, or not in --allow, is not registered at all, so a client cannot even see it. Agents get
 --read-only (the builtin `keel` server in tools/mcp.py and the api's McpService), which always wins over the env.
 Push, DB changes, deletes and stops ask the person through the client first (MCP elicitation); 0.18.64 a client that
-cannot ask gets a one-time token to call again with (mcp_confirm.py), and --yes skips every question. Every write
+cannot ask gets a one-time token to call again with, and the question waits in keel's Inbox: a dangerous kind needs the
+person's approval there (mcp_confirm.py). --yes skips every question (danger: the model's acting tools then run with
+no question to you). Every write
 says who acted (X-Keel-Via / X-Keel-Client / X-Keel-Tool; api McpAudit).
 v0.16.1 the api checks the level too: with the internal token this server asks POST /api/mcp/token for its level's
 token and sends it as X-Keel-Mcp-Token (api McpLevelGuard); without it (agents) the api treats it as read.
@@ -399,6 +401,41 @@ def _plugin_on(api: KeelApi, pid: str, name: str):
         raise ApiError(f"The {extensions.title(name)} plugin is off for {pid}: turn it on in keel (Control › Plugins).")
 
 
+def _bound(fn, a: tuple, kw: dict) -> dict:
+    """A tool call's arguments by name (its `project`, a keel_run_action's `action`); {} when they cannot be bound."""
+    try:
+        return dict(inspect.signature(fn).bind_partial(*a, **kw).arguments)
+    except (TypeError, ValueError):
+        return {}
+
+
+def _confirm_question(api: KeelApi, bound: dict, name: str, what: str, client: str) -> tuple[str | None, str]:
+    """0.18.64 a confirmation a client without forms needs, as a question in keel's Inbox (the person approves it there,
+    out of the model's reach; mcp_confirm.py): (its id, or None and why it could not be asked)."""
+    try:
+        pid = _project(api, bound.get("project"))["id"]
+    except ApiError as exc:
+        return None, str(exc)
+    shown = ", ".join(f"{k}={v!r}" for k, v in bound.items() if not isinstance(v, KeelApi) and v not in (None, "", [], {}))
+    try:
+        q = api.post(f"/projects/{pid}/plugins/ask", {"title": f"{client}: {what}?"[:200], "command": f"{name}({shown})"[:4000]})
+    except ApiError as exc:
+        return None, str(exc)
+    return ((q or {}).get("id") or None), "keel's Inbox gave no question id"
+
+
+def _inbox_answer(api: KeelApi, qid: str) -> tuple[str, str]:
+    """The person's answer to a confirmation in keel's Inbox: (allow | deny | waiting | gone, why). An answer is read
+    once (the engine's approvals); gone: answered and read already, its time ended, or keel restarted."""
+    try:
+        a = api.get(f"/plugins/asks/{qid}") or {}
+    except ApiError as exc:
+        return "gone", str(exc)
+    if a.get("waiting"):
+        return "waiting", ""
+    return ("allow" if a.get("decision") == "allow" else "deny"), a.get("why") or ""
+
+
 def _ask_person(api: KeelApi, pid: str, title: str, command: str, sleep=time.sleep) -> tuple[bool, str]:
     """Ask the person in keel's Inbox and wait for the answer (Claude Code cannot show keel's card)."""
     q = api.post(f"/projects/{pid}/plugins/ask", {"title": title, "command": command})
@@ -521,20 +558,47 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         mine = api.acting(client, name)
         a = tuple(mine if x is api else x for x in a)
         if (name in CONFIRM if confirm is None else confirm) and not yes:
-            # 0.18.64 a client without forms gets a one-time token for this call instead of only "use --yes"
+            # 0.18.64 a client without forms gets a one-time token for this call instead of only "use --yes", and the
+            # question waits in keel's Inbox too: a dangerous kind needs the person's approval there (mcp_confirm.py)
             key = confirm_mod.Tokens.key(name, a, kw, KeelApi)
+            bound = _bound(fn, a, kw)
+            strict = confirm_mod.out_of_band(name, bound.get("action"))
+
+            def no_form(bad: bool = False) -> str:
+                qid, why = _confirm_question(mine, bound, name, what, client)
+                if strict and not qid:
+                    return confirm_mod.no_inbox_text(what, why)
+                text = confirm_mod.bad_text if bad else confirm_mod.ask_text
+                return text(name, what, tokens.issue(name, key, qid), qid, strict)
+
             given = confirm_mod.GIVEN.get()
             if given:
-                if not tokens.take(given, name, key):
-                    return confirm_mod.bad_text(name, what, tokens.issue(name, key))
+                ok, qid = tokens.look(given, name, key)
+                if not ok:
+                    tokens.take(given, name, key)
+                    return await anyio.to_thread.run_sync(lambda: no_form(bad=True))
+                if qid:
+                    said, why = await anyio.to_thread.run_sync(lambda: _inbox_answer(mine, qid))
+                    if said == "waiting" and strict:
+                        return confirm_mod.waiting_text(name, what, qid)       # the token stays open
+                    if said == "deny":
+                        tokens.take(given, name, key)
+                        return confirm_mod.denied_text(what, why)
+                    if said == "gone" and strict:
+                        tokens.take(given, name, key)
+                        return await anyio.to_thread.run_sync(lambda: no_form(bad=True))
+                elif strict:
+                    tokens.take(given, name, key)
+                    return await anyio.to_thread.run_sync(no_form)
+                tokens.take(given, name, key)
             elif not ask_mod.can_elicit(ctx):
-                return confirm_mod.ask_text(name, what, tokens.issue(name, key))
+                return await anyio.to_thread.run_sync(no_form)
             else:
                 try:
                     res = await ctx.elicit(message=f"keel: {what}?", schema=Confirm)
                 except Exception:  # noqa: BLE001 - a client that says it has forms and then shows none: the token way
                     log.info("keel mcp: the client's form failed for %s", name, exc_info=True)
-                    return confirm_mod.ask_text(name, what, tokens.issue(name, key))
+                    return await anyio.to_thread.run_sync(no_form)
                 if res.action != "accept" or not getattr(res.data, "confirm", False):
                     return f"keel: not done — you said no to {what}."
         return await anyio.to_thread.run_sync(lambda: guard(fn, *a, **kw))
@@ -1176,7 +1240,7 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
     async def keel_state(action: Literal["show", "close"] = "show", project: str | None = None,
                          ctx: Context | None = None) -> str:
         """keel's flow state on the project: the keel v2 flows that run or wait there, and a state file keel v1 left
-        (.keel/state.json: its flow and phase, and that keel v1's hooks refuse commits while it is there). close
+        (.keel/state.json, left by keel v1: its flow and phase; keel v1's hooks refuse commits while it is there). close
         (needs --write) archives that file to .keel/archive/state-<date>.json; nothing is deleted."""
         if action == "show":
             return await anyio.to_thread.run_sync(lambda: guard(more.state, api, project, lvl != "read"))
@@ -1331,7 +1395,8 @@ def main(argv: list[str] | None = None) -> None:
     group.add_argument("--write", action="store_true", help="also deciding gates, answering, starting flows, git / PR / CI / DB writes")
     group.add_argument("--admin", action="store_true", help="also stopping and deleting flows, projects and workflows")
     parser.add_argument("--allow", help="only these tools, comma-separated (within the level)")
-    parser.add_argument("--yes", action="store_true", help="no confirm question for push, DB change, delete, stop (when the client cannot ask)")
+    parser.add_argument("--yes", action="store_true", help="no confirm question for push, DB change, delete, stop. Danger: the "
+                                                           "model's acting tools then run with no question to you")
     args = parser.parse_args(argv)
     plugin_env()                    # before allowed(): --allow may name a plugin's tool
     run_stdio(build_server(level=level(argv), allow=allowed(argv), yes=bool(args.yes)))

@@ -207,8 +207,10 @@ class DatabaseScopesApiTest : ApiTest() {
             post("/api/databases/test", g, write).andExpect(status().isForbidden)
 
             put("/api/projects/$pid/plugins/db", mapOf("enabled" to true)).andExpect(status().isOk)
-            post("/api/projects/$pid/databases", mapOf("name" to "hidden", "driver" to "sqlite", "default_db" to "h.db", "agent_access" to "none"), write)
-                .andExpect(status().isOk)
+            // 0.18.64 a project's connection too is admin for MCP (no MCP tool adds one; a route no list names needs admin)
+            val hidden = mapOf("name" to "hidden", "driver" to "sqlite", "default_db" to "h.db", "agent_access" to "none")
+            post("/api/projects/$pid/databases", hidden, write).andExpect(status().isForbidden)
+            post("/api/projects/$pid/databases", hidden, admin).andExpect(status().isOk)
             post("/api/projects/$pid/databases", mapOf("name" to "ro", "env" to "local", "driver" to "sqlite", "default_db" to "r.db"))
                 .andExpect(status().isOk)
             val prod = post("/api/projects/$pid/databases", mapOf("name" to "live", "env" to "prod", "driver" to "sqlite", "default_db" to "p.db",

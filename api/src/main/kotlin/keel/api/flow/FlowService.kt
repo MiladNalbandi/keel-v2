@@ -812,8 +812,15 @@ class FlowService(
         val pid = threadProject(tid) ?: return emptyMap()
         val s = settings.effective(pid)
         val models = listOf(s.defaultModel, s.cheaperModel) + agents.list(pid).filter { it.enabled }.map { it.model }
-        return keysFor(models) + contributedKeys(pid)
+        return keysFor(models) + contributedKeys(pid) + mcpEnvKeys(s.mcp)
     }
+
+    /**
+     * 0.18.64 the env values of the project's MCP servers, as "mcp_env:<server>:<NAME>": the engine keeps them in memory
+     * only (its stored flow has the names, never the values), so after an engine restart they come again with the logins.
+     */
+    private fun mcpEnvKeys(names: List<String>): Map<String, String> =
+        mcp.specsFor(names).flatMap { spec -> spec.env.orEmpty().map { (k, v) -> "mcp_env:${spec.name}:$k" to v } }.toMap()
 
     /**
      * After a keel restart: the engine waits with the threads that were running until it has their logins (it keeps

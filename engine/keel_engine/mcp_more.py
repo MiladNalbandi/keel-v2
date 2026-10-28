@@ -16,20 +16,16 @@ from . import mcp_ask as ask_mod
 from .mcp_api import q, waiting_thread
 from .mcp_server import ApiError, KeelApi, _flow, _n, _project
 
-SECRET_NAMES = {".env", ".npmrc", ".pypirc", ".netrc", "credentials", "credentials.json", "master.key", "secrets.yml", "secrets.yaml",
-                ".git-credentials", ".htpasswd", "terraform.tfvars"}
-SECRET_SUFFIX = (".pem", ".key", ".p12", ".pfx", ".keystore", ".jks", ".p8", ".kdbx")
 READ_MAX_LINES = 400
 ACTION_TIMEOUT = 900
 
 
 def is_secret(path: str) -> bool:
-    """The same names the api treats as secrets (RepoService.isSecret): never read through MCP."""
-    n = posixpath.basename(str(path)).lower()
-    if n in (".env.example", ".env.sample", ".env.template"):
-        return False
-    return (n in SECRET_NAMES or n.startswith(".env.") or n.endswith(SECRET_SUFFIX)
-            or n.startswith(("id_rsa", "id_ed25519", "id_ecdsa", "id_dsa")))
+    """The same names the guard and the api treat as secrets (rules.SECRET_FILES, keel_rules.json; the api's
+    RepoService.isSecret reads that list too): never read through MCP."""
+    from . import rules
+
+    return rules.secret_name(posixpath.basename(str(path)))
 
 
 _q = q
@@ -676,7 +672,16 @@ def rule_edit(api: KeelApi, op: str, pack: str | None = None, yaml_text: str | N
         if not rule:
             return "keel: name the rule (a built-in id like read-twice, or pack/<id>)."
         v = api.get(f"/projects/{pid}/rules") or {}
-        off = {b["id"] for b in v.get("builtins") or [] if b.get("off")} | {f"pack/{x['id']}" for x in v.get("packs") or [] if x.get("off")}
+        builtins = v.get("builtins") or []
+        # 0.18.64 an opt-in rule (other-projects) is off until rules.on names it: it never goes into rules.off
+        opt_in = {b["id"] for b in builtins if b.get("opt_in")}
+        off = {b["id"] for b in builtins if b.get("off") and b["id"] not in opt_in} | \
+            {f"pack/{x['id']}" for x in v.get("packs") or [] if x.get("off")}
+        if rule in opt_in:
+            on = {b["id"] for b in builtins if b["id"] in opt_in and not b.get("off")}
+            on = on | {rule} if op == "on" else on - {rule}
+            api.put(f"/projects/{pid}/rules/config", {"rules": {"off": sorted(off), "on": sorted(on)}})
+            return f"{rule} is {op}."
         off = off | {rule} if op == "off" else off - {rule}
         api.put(f"/projects/{pid}/rules/config", {"rules": {"off": sorted(off)}})
         return f"{rule} is {op}."

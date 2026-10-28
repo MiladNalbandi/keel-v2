@@ -313,6 +313,11 @@ class ReviewApiTest : ApiTest() {
         assertThat(conn["set"].asBoolean()).isTrue()
         assertThat(conn["host"].asText()).isEqualTo("gitlab.test")
         assertThat(conn.toString()).doesNotContain(hosts.gitlabToken)
+        // 0.18.64 the saved token goes only to the server it was saved for, and never over plain http to another machine
+        put("/api/gitlab", mapOf("url" to "https://gitlab.elsewhere.example")).andExpect(status().isBadRequest)
+        assertThat(get("/api/gitlab").json()["host"].asText()).isEqualTo("gitlab.test")
+        put("/api/gitlab", mapOf("url" to "http://gitlab.test", "token" to hosts.gitlabToken)).andExpect(status().isBadRequest)
+        put("/api/gitlab", mapOf("url" to "https://gitlab.test/")).andExpect(status().isOk)
         val mr = StubCodeHost.Pr(3, "Save the page size", "ana", "feat/paging", "main", head, reviewers = listOf("me"))
         hosts.gitlab["group/shop"] = mutableMapOf(3 to mr)
 

@@ -17,7 +17,7 @@ data class StateFlow(val id: String, val title: String, val workflow: String?, v
 
 /**
  * 0.18.64 keel's flow state for a project, keel v1's leftover too (MCP `keel_state`): the keel v2 flows that run or
- * wait there, and keel v1's `.keel/state.json` as the engine reads it (engine GET /keel-state; null when there is
+ * wait there, and the state file keel v1 left (`.keel/state.json`) as the engine reads it (engine GET /keel-state; null when there is
  * none). A v1 flow nobody runs any more still blocks commits through keel v1's hooks; close archives its file to
  * `.keel/archive/state-<date>.json` (engine POST /keel-state/close), never deletes it. MCP: close is a write.
  */
