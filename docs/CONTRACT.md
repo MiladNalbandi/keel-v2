@@ -3209,3 +3209,56 @@ From the field report (docs/plans/field-report-clarify.md, bugs 8, 9 and 11).
     worktree}], v1}` (the flows that run or wait there); `POST /api/projects/{pid}/keel-state/close` (an MCP write).
   - MCP `keel_state {action: show | close, project?}`: a read tool; `close` needs `--write` (read says so and does
     nothing). keel2: `keel2 state [close] [folder]` does the same on the folder, without keel running.
+
+## keel 0.18.65: the canonical remote, the review's base, init's setup branch (feat/review-base)
+
+The stale-base field report (docs/plans/field-report-clarify.md R2-R5): two remotes that disagree, a local base behind
+one and ahead of the other; the Review panel diffed `master...HEAD` and showed another change's files as the branch's.
+
+```
+.keel/config.yml   base_branch: <branch> | <remote>/<branch>      git: { remote: <name> }   (the canonical remote)
+GET  /api/projects/{pid}/base  → BaseView                          (engine GET /base?root=, runtime/bases.py view)
+PUT  /api/projects/{pid}/base  { choice: remote|track|pick|canonical, branch?, remote? } → BaseView   (engine POST /base)
+GET  /api/projects/{pid}/start-check → + base_missing?: BaseMissing | null
+POST /api/projects/{pid}/flows → 409 "base_branch <b> in .keel/config.yml names no local branch here; <remote>/<b> has it"
+                                 when no base is named, the flow makes a branch and a remote has that branch
+PUT  /api/projects/{pid}/review/base { key: branch:<name>, base: remote|local|"" } → ReviewView
+ReviewView      + base_warning?, base_options: [{id: remote|local, ref, label}], base_choice?, setup_left_out: string[]
+BranchSummary   + base_warning?
+type BaseView    = { name, local, remote, canonical, ref, ahead, behind, warning, explicit, configured, setting,
+                     remotes, branches, missing: BaseMissing | null, configured_file }
+type BaseMissing = { name, remote, remotes, branches, text, choices: [{id: remote|track|pick, label, about, ref?, branches?}] }
+```
+- **Canonical remote** (`bases.canonical_remote`, the api's `GitWorkspace.baseInfo`): `git.remote` when the repo has
+  it, else the remote `base_branch` names (`github/main`), else the remote of the base branch's upstream, else a remote
+  that has the base branch (origin first), else origin, else the only remote. Only a real remote's name is cut off a
+  `base_branch` (`feat/x` stays a local branch).
+- **The base** (`bases.resolve`): `remote` = `<canonical>/<name>`, else (git.remote set, or no local base) the canonical
+  remote's default branch, else the local branch's upstream; `ref` (what work is compared with) = the remote copy when
+  there is one, else the local branch; `warning` = "the local master is 3 commits behind and 2 ahead of github/main;
+  keel compares with github/main". `verdict_actions.base_ref` asks it first (a full ref `refs/heads/x` stays the
+  person's), and so the audit, the fetch before ship, the drift line, the start report ("start it with base
+  <canonical copy>"), branch sync's default `onto`, the Git part (`core.base`: the remote copy when the local base is
+  behind it; `core.base_name` for the PR's `--base` and the branches keel never pushes to; Update from main fetches the
+  canonical remote's copy) and the api (a flow's new branch from the canonical copy when the local base is only behind
+  it, or from it when there is no local base; the board's and the owners' changed files).
+- **Review** (R3): a branch review's base is `merge-base(<remote copy>, head)` (the local base when there is no remote
+  copy, or when the panel picked it); the Review page and Code › Review show the warning ("Your local master is …: this
+  review compares against github/main.") and "Compare with" (remote | local, kept per review while keel runs). The
+  full-diff review (branch-reviewer without an item), ship's lenses and the review flow read `bases.branch_scope`: the
+  same base, init's setup commits left out, the drift said.
+- **Init's setup** (R4): init's own branch is `keel/setup` (`-2` … when taken), for a setup PR. A flow started while the
+  folder is on an unmerged `keel/setup` branches from it. keel init's setup commits at the bottom of a branch
+  (`chore(setup): …`, or `Keel-Ref: chore(setup)`) are not its change: the review, the PR body (a "keel setup (not this
+  change)" section with the files) and the review scopes start after them; a branch that is only setup keeps its base.
+  keel never runs `git add -f`: init's summary lists the setup files the project's .gitignore ignores
+  (`init_actions.ignored_setup_files`; .git/info/exclude is keel's own and not listed).
+- **R5**: `bases.missing` when base_branch names no local branch (not when it names `<remote>/<branch>`); the start
+  dialog and Settings › General › Base branch ask (Use <remote>/<branch> · Create a local <branch> that tracks it ·
+  Pick another branch); `bases.choose` writes only the `base_branch` line or the `git` block. MCP `keel_base_branch
+  (choice?, branch?, remote?, project?)` (write; a choice asks the person first) after `keel_branch_sync`.
+- **Agents never change keel's rules through the shell** (`rules.rule_file_write`, in `check_bash` before the phase
+  check, so also outside a flow: KeelBot, a side session): a command that names `.keel/config.yml` or `.keel/rules/`
+  may only read it (cat, grep, sed without -i, git log/show/diff, yq without -i, find without -delete/-exec, …); a
+  redirect or tee to one, sed/perl/awk in place, cp, mv, rm, python, … are refused (bucket keel-rules). Phase setup
+  (init) may write the config, as the Edit tool already allowed.
