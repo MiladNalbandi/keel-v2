@@ -183,7 +183,8 @@ async def test_keelbot_and_one_of_its_chats(stub):
 
 async def test_agent_model_asks_first_and_is_a_write_tool(stub):
     text = await call(server(stub, yes=False), "keel_agent_model", {"agent": "implementer", "effort": "low"})
-    assert "cannot ask you to confirm" in text and puts(stub) == []
+    # 0.18.64 only the question in keel's Inbox is sent (a model change is a dangerous kind: the person approves it there)
+    assert "cannot ask you to confirm" in text and [p for p in puts(stub) if not p[0].endswith("/plugins/ask")] == []
     assert mcp_server.tool_level("keel_agent_model") == "write" and "keel_agent_model" in mcp_server.CONFIRM
 
 
