@@ -200,6 +200,16 @@ export function plainWhy(why: string): string {
   return why;
 }
 
+/** keel 0.18.66 a run's note or gate log line with keel's reason in plain words: "gate git_repo approve: not asked,
+ *  git_question: not given" → "approved: Not asked: the folder is …"; "not a git repository: not asked, …" keeps its
+ *  step name. */
+export function plainLine(line: string): string {
+  const d = logDecision(line);
+  if (d?.note && /^(Not asked|Waived|No gate here)\b/.test(d.note)) return `${d.decision.label}: ${d.note}`;
+  const at = line.indexOf("not asked, ");
+  return at > 0 ? line.slice(0, at) + plainWhy(line.slice(at)) : at === 0 ? plainWhy(line) : line;
+}
+
 /** A gate.decided event's parts: its decision, who, its gate's name, its answers (or its reason). */
 export function gateParts(
   ev: EngineEvent,

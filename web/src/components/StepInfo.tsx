@@ -11,6 +11,7 @@ import { kfmt } from "../format";
 import { Markdown } from "./Markdown";
 import { PreBox } from "./PreBox";
 import { listify } from "./prose";
+import { plainLine } from "./eventRows";
 import { Drawer, ErrorBox, Loading, Pill } from "./ui";
 import { KIND } from "./workflow";
 
@@ -183,14 +184,29 @@ export function RefusedList({ x }: { x: StepExplanation }) {
   );
 }
 
+/** keel 0.18.66 a gate's `when` in plain words, for the ones keel's own flows use (the engine says "data.git_question
+ *  is set": runtime/explain.py when_text); any other stays as the engine says it. */
+const ASKS_WHEN: Record<string, string> = {
+  "data.git_question is set": "the folder is not a git repository with a first commit",
+  "data.rung_question is set": "a setup rung fails",
+  "clarify.questions is set": "the agent has questions for you",
+  "data.clarify.ask is yes": "something is unclear enough to ask about",
+  "data.coverage_error is set": "the coverage cannot be measured",
+  "data.coverage_no_reports is set": "the coverage reports are not set",
+  "data.hunt.stack_down is set": "the stack is down",
+  "data.hunt.mode is semi": "the hunt stops for you (mode semi)",
+  "data.contract is yes": "the change touches the API contract",
+};
+
 /** keel 0.18.66 what the step does, in one or two plain sentences. */
 export function stepWhat(x: StepExplanation): string {
   if (x.agent?.about) return x.agent.about;
   if (x.code) return x.code.text || x.code.actions[0]?.summary || "Plain code: it runs without a model.";
   if (x.branch) return `It checks: ${x.branch.condition}.`;
   if (x.gate) {
-    const when = x.gate.notes.find((n) => n.startsWith("Pauses only when"));
-    return when ? `It waits for your answer, but only when ${when.slice("Pauses only when ".length).replace(/;.*$/, "")}. Otherwise keel goes on without asking.`
+    const note = x.gate.notes.find((n) => n.startsWith("Pauses only when"));
+    const when = note?.slice("Pauses only when ".length).replace(/;.*$/, "");
+    return when ? `It waits for your answer, but only when ${ASKS_WHEN[when] ?? when}. Otherwise keel goes on without asking.`
       : "It waits for your answer before the flow goes on.";
   }
   return "";
@@ -250,10 +266,10 @@ export function LastRun({ x }: { x: StepExplanation }) {
             <span>{r.ac ? <b>{r.ac} · </b> : null}{r.item ? <b>{r.item} · </b> : null}<Pill tone={r.ok ? "ok" : "bad"}>{r.ok ? "ok" : "failed"}</Pill></span>
             <span className="sub">{new Date(r.at).toLocaleString()}</span>
           </div>
-          {r.note && <p className="sub">{r.note}</p>}
+          {r.note && <p className="sub">{plainLine(r.note)}</p>}
           {r.commit && <p>Commit <span className="mono">{r.commit.sha.slice(0, 7)}</span> {r.commit.subject}</p>}
           {r.tokens && <p className="sub">{kfmt(r.tokens.in)} in · {kfmt(r.tokens.out)} out</p>}
-          {r.decided && <p className="sub">{r.decided.join(" · ")}</p>}
+          {r.decided && <p className="sub">{r.decided.map(plainLine).join(" · ")}</p>}
           {r.went_to && <p className="sub">Then: {r.went_to}</p>}
           {(r.answer || r.output) && <PreBox text={r.answer || r.output || ""} label={r.answer ? "What the agent answered" : "What the step printed"} />}
         </div>

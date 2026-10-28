@@ -9,7 +9,7 @@ import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 import type { StepExplanation, ThreadState } from "../api";
 import { App } from "../App";
-import { logDecision, plainWhy } from "../components/eventRows";
+import { logDecision, plainLine, plainWhy } from "../components/eventRows";
 import { StepInfoBody } from "../components/StepInfo";
 import * as fx from "./fixtures";
 import { db, server } from "./setup";
@@ -68,7 +68,7 @@ describe("The docked step panel", () => {
 
     // Overview: the step in plain words, its choices in one box, one line of facts
     const about = await within(panel).findByTestId("step-about");
-    expect(about).toHaveTextContent("It waits for your answer, but only when data.git_question is set. Otherwise keel goes on without asking.");
+    expect(about).toHaveTextContent("It waits for your answer, but only when the folder is not a git repository with a first commit. Otherwise keel goes on without asking.");
     const choices = within(panel).getByTestId("step-choices");
     expect(choices).toHaveTextContent("Your choices here");
     expect(choices).toHaveTextContent("initgoes to git init and the first commit");
@@ -248,6 +248,13 @@ describe("Plain words", () => {
     expect(plainWhy("AC-2 misses the empty cart")).toBe("AC-2 misses the empty cart");
     expect(logDecision("gate git_repo approve: not asked, git_question: not given"))
       .toMatchObject({ note: "Not asked: the folder is already a git repository with a first commit." });
+    // the last run's note and its gate log lines too
+    expect(plainLine("not a git repository: not asked, git_question: not given"))
+      .toBe("not a git repository: Not asked: the folder is already a git repository with a first commit.");
+    expect(plainLine("gate git_repo approve: not asked, git_question: not given"))
+      .toBe("approved: Not asked: the folder is already a git repository with a first commit.");
+    expect(plainLine("gate interview_gate answered the explorer's 2 question(s)")).toBe("gate interview_gate answered the explorer's 2 question(s)");
+    expect(plainLine("test-author · RED done")).toBe("test-author · RED done");
   });
 
   it("says Waits for you once in the builder's explanation of a gate", () => {
