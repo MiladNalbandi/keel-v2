@@ -145,6 +145,7 @@ type StartThread = {
   mcp: McpServerSpec[];                        // servers this flow may use; per-agent allowlist inside Step.tools
   skills: Record<string, string>;              // agent id → concatenated SKILL.md text to add to its prompt
   agents?: Record<string, { knowledge: Knowledge }>;   // v0.4: what each agent uses (missing → its front matter default)
+  other_projects?: { id: string; name: string; root: string }[];   // 0.18.64 every other registered project: read only for the agents
 };
 type ThreadState = {
   thread_id: string; project_id: string; workflow_id: string; title: string;
@@ -404,6 +405,9 @@ POST /api/projects/{pid}/flows       409 for uncommitted files            (0.18.
 GET  /api/projects/{pid}/start-check                                      (0.18.57: { worktree: {ok, reason, service}, base: drift line | null }; engine GET /start-check?root=)
 POST /api/projects/{pid}/doctor/workspace/exclude { path }               (0.18.57: one untracked path → .git/info/exclude → Applied)
 GET  /api/projects/{pid}/doctor/config                                    (0.18.57: { stale: [{key, command, problem, file, line, missing_in}], lines }; engine GET /config-check?root=)
+GET  /api/projects/{pid}/keel-state                                       (0.18.64: { project, flows: [StateFlow], v1: V1State | null }; engine GET /keel-state?root=)
+POST /api/projects/{pid}/keel-state/close                                 (0.18.64: archive keel v1's .keel/state.json → { archived, flow, was_active }; 404 when none; engine POST /keel-state/close { root })
+GET  /api/projects/{pid}/start-check                                      + v1_state: line | null (0.18.64)
 POST /api/projects/{pid}/helper/sessions + { force? }                     (0.18.57: a side session on a task someone works on is 409 with owners unless force)
 POST /api/tasks/{id}/start           + { force? }                         (0.18.57: as above)
 GET  /api/projects/{pid}/estimate    + POST variant { yaml, acs }         (estimate unsaved workflow YAML)
@@ -563,7 +567,9 @@ longer built in.
 | `keel_resume` | write | the raw resume: `decision`, `thread_id?` (default the project's flow), `why?`, `payload?` | same |
 
 - Every tool takes an optional `project` (id or name). Without it: `KEEL_PROJECT`, else the project whose root holds
-  the server's working folder (an agent runs in its project), else the first project.
+  the server's working folder (an agent runs in its project), else the first project. 0.18.64: else the only project,
+  else the client's folder (`KEEL_CLIENT_CWD`), else none: the answer names the projects to pick from (see "keel
+  0.18.64" below).
 - **Read-only vs write:** the write tools are registered only with `--write` (or `KEEL_MCP_WRITE=1` without
   `--read-only`); `--read-only` always wins. In read-only mode `tools/list` does not show them at all.
 - **Agents** get the builtin `keel` server read-only (an agent never approves its own gate): the api seeds
@@ -2306,11 +2312,13 @@ keel's key signs them); `keel-plugin index` builds the `stacks` list.
 ## v0.16.0: full MCP (read, --write, --admin)
 
 - `keel2 mcp [--write | --admin] [--allow t1,t2] [--yes] [--print-config]` → `python -m keel_engine.mcp` with the same flags. Each level includes the one below; a tool above the level, or not in `--allow`, is not registered. `--read-only` (what agents get: engine `tools/mcp.py`, api `McpService`) always wins over `--write`, `--admin`, `KEEL_MCP_WRITE` and `KEEL_MCP_LEVEL`. `--allow` (or `KEEL_MCP_ALLOW`) with an unknown tool name stops the server with the list of tools.
-- **read**: `keel_status`, `keel_projects`, `keel_timeline`, `keel_next`, `keel_explain`, `keel_dashboard`, the plugins' `keel_db_schema`, `keel_db_query`, `keel_git_status`, `keel_pr_status`, `keel_ci_runs`, `keel_ci_failure`, and new `keel_flows` (`GET /projects/{pid}/runs`), `keel_inbox` (`GET /inbox`), `keel_live` (`GET /jobs?status=running`, each job's last step), `keel_budget` (`GET /projects/{pid}/budget/now`), `keel_specs` (keel docs, `spec:` wiki pages, `history: true` → `/docs/history/versions`), `keel_knowledge` (`/memory`, `kb:` pages), `keel_search` (`kind: text` → `/repo/search`, `symbol` → `/graph/search`), `keel_read_file` (`/repo/raw`, numbered lines, at most 400, secret files refused before the api is asked), `keel_actions` (every engine action with its level), `keel_run_action`.
+- **read**: `keel_status`, `keel_projects`, `keel_timeline`, `keel_next`, `keel_explain`, `keel_dashboard`, the plugins' `keel_db_schema`, `keel_db_query`, `keel_git_status`, `keel_pr_status`, `keel_ci_runs`, `keel_ci_failure`, and new `keel_flows` (`GET /projects/{pid}/runs`), `keel_inbox` (`GET /inbox`), `keel_live` (`GET /jobs?status=running`, each job's last step), `keel_budget` (`GET /projects/{pid}/budget/now`), `keel_specs` (keel docs, `spec:` wiki pages, `history: true` → `/docs/history/versions`), `keel_knowledge` (`/memory`, `kb:` pages), `keel_search` (`kind: text` → `/repo/search`, `symbol` → `/graph/search`), `keel_read_file` (`/repo/raw`, numbered lines, at most 400, secret files refused before the api is asked), `keel_read_project_file` (0.18.64: any registered project, read from its folder under an agent's read rules), `keel_actions` (every engine action with its level), `keel_run_action`.
 - **write**: `keel_approve_gate`, `keel_resume`, `keel_start_flow`, the plugins' `keel_git_commit`, `keel_git_push`, `keel_pr_create`, `keel_ci_rerun`, `keel_db_change`, and new `keel_answer` (`POST /inbox/{tid}/act { decision, why, payload: { answers, choice } }`, or `POST /inbox/tasks/{id}/act`), `keel_edit_gate` (send back with notes), `keel_restore_doc` (0.15.9 restore).
 - **admin**: `keel_stop_flow` (`POST /threads/{tid}/stop`), `keel_delete_run` (`DELETE /projects/{pid}/flows/{tid}`), `keel_add_project` (only a folder `GET /folders` lists), `keel_remove_project` (`DELETE /api/projects/{pid}`, new: the project is hidden, its history kept; 409 while a flow runs or waits there; `POST /api/projects` with its folder shows it again), `keel_workflows` (list, or one workflow's YAML), `keel_edit_workflow` (`POST /projects/{pid}/workflows/check`, then `PUT /workflows/{wid} { yaml }`; nothing saved when the check has errors).
 - **Engine actions**: `action_docs.ACTION_LEVELS` gives an action its level (read: audit, trace, arch, reports …; write: verify_release, verify_coverage, verify_fast, verify_deps, verify_lint, lint_run, knowledge_check, memory_check, push_check, pr; admin: arch_set, open_pr); every other action is `flow-only`. `POST /api/projects/{pid}/actions/{name} { args }` → engine `POST /projects/{pid}/actions/{name} { root, args, settings }` → `{ ok, note, detail }` (404 unknown, 409 flow-only).
-- **Confirm**: `keel_git_push`, `keel_db_change`, `keel_delete_run`, `keel_stop_flow`, `keel_remove_project`, `keel_edit_workflow` and `keel_restore_doc` ask the person through the client (MCP elicitation, `{ confirm: bool }`); a client without elicitation is refused ("…run keel2 mcp with --yes…"); `--yes` skips the question. The plugins' "ask in keel's Inbox" stays as a second check.
+- **Confirm**: `keel_git_push`, `keel_db_change`, `keel_delete_run`, `keel_stop_flow`, `keel_remove_project`, `keel_edit_workflow` and `keel_restore_doc` ask the person through the client (MCP elicitation, `{ confirm: bool }`); a client without elicitation gets a one-time token and, 0.18.64, a question in keel's Inbox (below: "A client without
+forms: you confirm in keel's Inbox"); `--yes` skips the question (danger: the model's acting tools then run with no
+question to the person). The plugins' "ask in keel's Inbox" stays as a second check.
 - **Audit**: every non-GET request from the MCP server carries `X-Keel-Via: mcp`, `X-Keel-Client: <the client's name>` and `X-Keel-Tool: <tool>`. The api (`mcp/McpAudit.kt`) records each as an event `mcp.call { via, client, tool, method, path, ok, status }` on the project (and thread); the web timeline shows "via MCP · <client>: <tool>". Reads are not recorded.
 - No tool calls keel's login, key or connection-secret routes; `repo/file` and `repo/raw` already refuse secret files (`.env`, keys, certificates; `RepoService.safePath`).
 
@@ -2334,7 +2342,7 @@ keel's key signs them); `keel-plugin index` builds the `stacks` list.
 - The api makes three random tokens at start (read, write, admin; 64 hex characters each), kept only in memory (`mcp/McpLevels.kt` `McpTokens`); a restart makes new ones.
 - `POST /api/mcp/token { level: read | write | admin }` → `{ level, token }`, only with `X-Keel-Token` equal to the internal token (`KEEL_INTERNAL_TOKEN`, compared in constant time); 403 otherwise (also when keel has no internal token), 400 for an unknown level. keel2 and the engine have the internal token; agents never do (engine `models/cli.py` `SECRET_VARS`).
 - keel's MCP server (`python -m keel_engine.mcp`) asks for its level's token on its first request when it has the internal token (`KEEL_INTERNAL_TOKEN`, else the file `KEEL_INTERNAL_TOKEN_FILE` names) and sends it as `X-Keel-Mcp-Token` on every request; it no longer sends `X-Keel-Token` on ordinary requests. `keel2 mcp` natively passes `KEEL_INTERNAL_TOKEN` from `run/token`; in Docker it passes `KEEL_INTERNAL_TOKEN_FILE=/data/run/internal-token`, which `docker/keel-start` writes (mode 600). Agents' builtin `keel` server gets neither, so it sends no token.
-- `McpLevelGuard` checks requests under `/api/` that carry `X-Keel-Via: mcp` or `X-Keel-Mcp-Token`, and every `POST /api/projects/{pid}/actions/{name}` (only MCP calls it). Without a valid token such a request is at the **read** level. GET is fine at read; `POST /api/projects/{pid}/db/query` is fine at read, but `change: true` needs write; other methods need **write**; **admin**: `POST /api/threads/{tid}/stop`, `DELETE /api/projects/{pid}/flows/{tid}`, `POST /api/projects`, `POST /api/projects/bulk`, `DELETE /api/projects/{pid}`, `PUT` / `DELETE /api/workflows/{wid}`. An action needs its engine level: `McpLevelGuard.READ_ACTIONS` and `ADMIN_ACTIONS` mirror `action_docs.ACTION_LEVELS` (a Kotlin and a Python test pin both lists); any other action needs write. A refused call → 403 `{ error: "This needs the MCP <level> level: run keel2 mcp --write | --admin", hint }`, still recorded by `McpAudit` (`ok: false, status: 403`).
+- `McpLevelGuard` checks requests under `/api/` that carry `X-Keel-Via: mcp` or `X-Keel-Mcp-Token`, and every `POST /api/projects/{pid}/actions/{name}` (only MCP calls it). Without a valid token such a request is at the **read** level. GET is fine at read; `POST /api/projects/{pid}/db/query` is fine at read, but `change: true` needs write; other methods need **write** (0.18.64: only the routes `McpLevelGuard.WRITE` or a plugin's `McpRouteLevels` names; any other non-GET route needs **admin**, see the 0.18.64 security addendum); **admin**: `POST /api/threads/{tid}/stop`, `DELETE /api/projects/{pid}/flows/{tid}`, `POST /api/projects`, `POST /api/projects/bulk`, `DELETE /api/projects/{pid}`, `PUT` / `DELETE /api/workflows/{wid}`. An action needs its engine level: `McpLevelGuard.READ_ACTIONS` and `ADMIN_ACTIONS` mirror `action_docs.ACTION_LEVELS` (a Kotlin and a Python test pin both lists); any other action needs write. A refused call → 403 `{ error: "This needs the MCP <level> level: run keel2 mcp --write | --admin", hint }`, still recorded by `McpAudit` (`ok: false, status: 403`).
 - The web app sends neither header and never calls `/actions`, so it works as before. The guard binds only callers that say they are MCP: it is not a login for the api.
 
 ## v0.17.2: rules
@@ -2343,7 +2351,7 @@ Plan and decisions: `docs/plans/0.17.2.md`.
 
 - **Where rules live** (all files in the project, read by the guard on every tool call): `.keel/config.yml` blocks `guards` (`protected`, `generated`, `read_block`, `bash_deny_always`, `bash_deny_in_flow`, `read_guard_max_lines`, default 2000, 0 = off), `mcp.allow`, `rules` (`off: [<built-in id> | pack/<id>]`, `push_gate: true`, `push_gate_commands: ["git push", "gh pr create"]`), `boundaries.rules`; and rule packs `.keel/rules/<id>.yaml`. `rules.load_config(root)` adds `configured` (the config file exists), `packs` and `pack_errors` (files that could not be used, with why).
 - **Rule pack** (`engine/keel_engine/rules/packs.py`, final format: `docs/rules/pack-format.md`): one YAML file `{schema: 1, kind?: rules, name, title, version, publisher? (local), summary?, stack?, requires?: {keel: range, plugins: {name: range}}, rules: [{id, kind: bash|edit|read|mcp, match: [text], how?: contains|glob|name|regex (default per kind: contains, glob, glob, name), phases?: all|in-flow|none|[phase], lanes?: [api|web], except?: [glob], reason}]}`; `name` is the id and the file name; at most 64 KB; a pack whose `requires.keel` this keel does not meet is not used. A pack rule only refuses; it runs inside `check_edit` (after the always-deny buckets, after unlocks), `check_read`, `check_bash` and `hook.check_mcp`, so the hook, the ToolBox and the diff guard all apply it. The refusal reason ends with `(rule <pack>/<rule>)`. The library is `content/rules/*.yaml` (strict-secrets, no-new-dependencies, migrations-only-in-flow, frontend-not-api, stack-spring, stack-node, stack-python), each `version: 1.0.0`, `publisher: keel`. `.keel/rules/.installed.json` records `{name: {version, source: library|file|marketplace, at, edited?}}`; the pack file stays as published.
-- **Built-in rules** (`rules.BUILTINS`, `can_off`): never off — phase-matrix, env-files, keel-rules-files, migrations-immutable, force-push, no-verify, commit-in-flow, history-rewrite, secrets-at-write, disabled-tests; may be off (`rules.off`) — generated, read-build-output, skip-test-flags, new-dependency, read-twice, big-file-read, push-gate, mcp-writes. The force-push commands and `--no-verify` (always) and `git reset --hard`, `git rebase -i` (in a flow) are refused even when the config's lists drop them (`rules.NEVER_DENY_ALWAYS`, `NEVER_DENY_IN_FLOW`).
+- **Built-in rules** (`rules.BUILTINS`, `can_off`): never off — phase-matrix, env-files, keel-rules-files, migrations-immutable, force-push, no-verify, commit-in-flow, history-rewrite, secrets-at-write, disabled-tests; may be off (`rules.off`) — generated, read-build-output, skip-test-flags, new-dependency, read-twice, big-file-read, push-gate, mcp-writes, other-projects (0.18.64: off, the project keeps to itself both ways; opt-in, `rules.OPT_IN`: off until `rules.on` names it). The force-push commands and `--no-verify` (always) and `git reset --hard`, `git rebase -i` (in a flow) are refused even when the config's lists drop them (`rules.NEVER_DENY_ALWAYS`, `NEVER_DENY_IN_FLOW`).
 - **New bucket `keel-rules`**: `.keel/config.yml` and `.keel/rules/**`; always refused to agents (phase `setup` may write `.keel/config.yml`). The api's `KeelRules.classify` has it too.
 - **keel v1 hook gaps closed**: the push gate (`push_blockers` in the guard context, from `runtime/blockers.py for_agents` when the agent starts; only in a project with `.keel/config.yml`); secrets and disabled-test markers in the text an edit adds (Write `content`, Edit `new_string`, MultiEdit, NotebookEdit, a patch's `+` lines; `rules.check_content`) refused before the write, and the diff guard puts back a changed file whose new lines hold one (`bucket: "content"`); big files read with offset/limit; an agent's last failed shell command in `data.last_command_failure {command, output, step, agent}` (not `state.last_failure`); an agent whose answer has none of the step's registered result markers is asked once more (event `agent.reask {agent, missing}`).
 - **Guard context** gains `push_blockers: [{gate, why, fix}]`.
@@ -2397,10 +2405,12 @@ any local program, or a web page through the browser, could approve a gate, star
   `X-Keel-Via: mcp`). keel never answers CORS (no `Access-Control-Allow-*`, a preflight gets 401).
 - **Web key** (`auth/WebSignIn.kt WebKey`): 32 random bytes, hex, in `$KEEL_DATA/run/web-key` (0600), made once, kept
   across restarts. The cookie is `keel_<first 8 hex of sha256(key)>` (two keels on localhost keep theirs apart),
-  value the key, `HttpOnly; SameSite=Strict; Path=/; Max-Age=400 days`.
+  `HttpOnly; SameSite=Strict; Path=/`. 0.18.64: its value is the browser's own session id (`ks_` + 64 hex), never the
+  key; `Max-Age` 30 days; over https the name is `__Host-keel_<8 hex>` with `Secure` (see the 0.18.64 security addendum).
 - **Sign-in**: `POST /api/web/code` (internal token only) → `{code, path: "/web/login?code=…", expires_in: 60}`; a code
   works once. `GET /web/login?code=&next=` sets the cookie and redirects to `next` (a path on this keel only) or `/`; a
-  used or old code redirects to `/?signin=expired`. `POST /api/web/sign-out` clears this browser's cookie.
+  used or old code redirects to `/?signin=expired`. `POST /api/web/sign-out` ends this browser's session and clears
+  its cookie; 0.18.64 `POST /api/web/sign-out-everywhere` → `{ok, ended}` ends every browser's session.
   `GET /api/web/me` → `{signed_in: true, via}`.
 - **MCP level tokens** (`McpTokens`) are `HMAC-SHA256(internal token, "keel-mcp:<level>")`: the same while the
   container runs, also across an api restart (exit 75). The engine computes the read one (`config.mcp_token`) and hands
@@ -2902,3 +2912,405 @@ keel TUI (tui.json)  { "follow": false }             (KEEL_TUI_SETTINGS, else ~/
   and chat the following windows share (a window that keeps its own is not in it); with `project` it moves only the
   windows that follow. `McpAudit` leaves `/api/ui/focus` out of the audit as before. Notifications do not read the focus:
   opening one picks its project in that window, shared only when the window follows.
+
+## keel 0.18.64: the spec check checks citations; keel_spec_check and keel_citations_check (fix/spec-citations)
+
+A field report (docs/plans/field-report-clarify.md, bug 3): a spec cited lines 235-245 of a 38-line file and passed
+keel's spec check.
+
+```
+ spec text ──► citations.find ──► each path:line that names a project file ──► the file? its line count?
+                                                                                │
+                      spec_check.check(..., root=) ◄── "fix" findings ◄─────────┘
+                      knowledge.check            ◄── the same parser, backticked citations only
+```
+- **One parser** (`engine/keel_engine/runtime/citations.py`), shared by the knowledge check (`keel memory check`:
+  backticked citations only, as before) and the spec check (every form): `path:88`, `path:88-95`, `path#L88`,
+  `path#L88-L95`, bare or in backticks; `path:88:5` reads line 88. Not citations: URLs (masked first, so
+  `http://host:8080/a.py:3` is none), host:port and times (no extension), versions like `1.2:3` (an extension starts
+  with a letter). In the spec check a citation names a project file when that file exists, or when the project's files
+  (git ls-files, else the folder) have its extension; an absolute path outside the project and a `../` path are not
+  checked. A bare name or a shorthand (`.../billing/Invoice.java:7`) is the one file that ends with it (the knowledge
+  check's rule).
+- **Findings** (level `fix`, so a flow sends the spec back once): `src/orders.py:88-95 does not exist: the file has 40
+  lines.`, `src/gone.py:3 does not exist: no such file.`; a bare name that matches two files is a `note`. At most 10
+  are named, then one line counts the rest. A file's line count is now exact in both checks (a last newline ends a line;
+  the knowledge check counted one more before).
+- **Where**: `spec_check.check(text, acs, outside, root)` checks citations when it gets the project's root: the
+  clarify flow's write_doc, the feature flow's spec step (its one send-back), the spec gate's text and spec_sync's
+  report all pass it.
+- **Engine** (`runtime/spec_routes.py`): `POST /specs/check {root, path}` → `{path, criteria: [ids], findings: [{level,
+  text}], fix, summary}`; `POST /citations/check {root, path? | text?}` → `{path, checked, bad: [{cite, path, problem,
+  level}]}`. A path is relative to the project (400 for `../` or an absolute path, 404 for a missing file); a file or
+  a text over 2 MB is refused.
+- **api** (`knowledge/SpecCheckController.kt`): `POST /api/projects/{pid}/specs/check {path}` and
+  `POST /api/projects/{pid}/citations/check {path | text}` add the project's folder and ask the engine (400 for no path,
+  or for both or neither of path and text). Both are reads for MCP (`McpLevels` READ_POSTS).
+- **MCP** (read, after `keel_read_file`): `keel_spec_check {path}` — the criteria, how many findings a flow would send
+  back, each finding; `keel_citations_check {path | text}` — how many citations of project files were checked and each
+  one that does not resolve. A secret file's path is refused before the api is asked.
+
+## keel 0.18.64: a flow's agents read the other registered projects (feat/read-other-projects)
+
+A flow's agent may read every other project registered in the same keel, and never change it. Field report bug 5
+(docs/plans/field-report-clarify.md): an agent's `cat` of an upstream project was refused by claude -p with "no
+interactive user response was available".
+
+```
+ api FlowService.buildStart ── StartThread.other_projects [{id, name, root}] (every project but the flow's own)
+ engine thread body ── ThreadContext.other_projects (a flow it starts with start_flow copies it)
+ each agent run ── other_projects.usable(...) ── ToolBox.others, guard context `others`, claude --add-dir <root>
+```
+- **Read**: read_file (ToolBox) and Read (hook) of an absolute path in another project, judged with that project's own
+  `.keel/config.yml` (`rules.check_read`: protected-env, keel's keys, build output, a big file in parts). Shell: a
+  command that names that project's path, changes into it (`cd`, `git -C`) or runs where the shell already is there
+  (the hook call's `cwd`) may use only read-only commands in every part (cat, head, grep, rg, ls, find without
+  -delete/-exec, sed without -i, git log/show/diff/status/blame/grep/ls-files ...), no redirect into it, and its
+  protected-env files are not printed (`runtime/other_projects.py check_command`).
+- **Never write**: Edit/Write (hook) and write_file (ToolBox) there are refused: "<path> is in <name>, another project
+  registered in keel: agents may read it but never change it."
+- **Prompt**: one line per other project after the task ("Other projects registered in keel (read only ...):" then
+  "- name: root"), only when there are any.
+- **Outside**: read_file of a path outside the project and every other project says "<path> is outside this project and
+  is not another project registered in keel; ask the person to add it (keel2 add) or to paste what you need". For a
+  claude agent (guard context `outside_refused`) the hook says it first, for Read and for read commands (cat, ls, grep,
+  ... naming an existing path), so claude's own permission text never reaches the model. The temp folder, /dev and the
+  run's scratch folder stay readable. codex, copilot and opencode read outside the project as before.
+- **Guard context**: `others`, `others_off`, `outside_refused`; absent for KeelBot (it is not told, nothing changes).
+- **Opt-in** (security audit F6): the built-in rule `other-projects` is off until the project turns it on
+  (`rules.on: [other-projects]` in `.keel/config.yml`; `rules.OPT_IN`, `rules.is_off`). The Rules page and `keel_rule`
+  still send the whole `rules.off` list: `rules_view.set_config` saves an opt-in rule that is not in it as `rules.on`.
+  It works both ways: the agents read only the other projects that turned it on too. Off, the project's agents get no
+  other projects (no `others`, no claude `--add-dir`, no prompt line), and other projects' agents (and
+  `keel_read_project_file`) do not get it.
+- **Every word** (F6): a command that can reach another project (it names its folder, or the shell is there) has every
+  word checked against that project's secret files (`rules.shell_secret` with `others`): `grep -r X <other>`,
+  `cat <other>/.en?`, `git -C <other> show HEAD:.env`, `python -c "open('<other>/.env')"` are refused. A Grep on
+  `<other>/.env`, or on a folder of it that holds a secret file, too (`hook.search`).
+- **MCP** (read): `keel_read_project_file {project, path, offset?, limit?}` → the file's text, read from the folder keel
+  sees (no plugin route), under the same rules (and `mcp_more.is_secret`), at most 60,000 characters, with a note on how
+  to read on.
+
+## keel 0.18.64: secret files stay out of an agent's reach (sec/secret-reads)
+
+From a security audit (F5, F6, F7, F16, F21). Tests: `engine/tests/test_secret_reads.py`.
+
+- **One list of secret files** (F5): `keel_rules.json` `SECRET_FILES` (names, prefixes, suffixes, readable), read by
+  `rules.secret_name`, `rules.classify` (protected-env, for edit, read and shell), `mcp_more.is_secret` and the api's
+  `RepoService.isSecret`: `.env`, `.env.*`, `id_rsa*`, `id_ed25519*`, `id_ecdsa*`, `id_dsa*`, `*.pem`, `*.key`, `*.p12`,
+  `*.pfx`, `*.keystore`, `*.jks`, `*.p8`, `*.kdbx`, `.npmrc`, `.pypirc`, `.netrc`, `.pgpass`, `.git-credentials`,
+  `.htpasswd`, `credentials`, `credentials.json`, `master.key`, `secrets.yml`, `secrets.yaml`, `terraform.tfvars`.
+  `.env.example`, `.env.sample`, `.env.template`, `.env.dist` stay readable. A project's `guards.protected` adds to it;
+  a `!` pattern there takes a file out. keel's own keys (`master.key` in keel's data folder) stay `keel-keys`.
+- **Search tools** (F5a, F5b): the hook's matcher is `Edit|Write|MultiEdit|NotebookEdit|Bash|Read|Grep|Glob|LS|mcp__.*`;
+  opencode's plugin sends grep, glob and list as Grep, Glob and LS. `hook.search`: a Grep whose path is a secret file is
+  refused in every output mode (files_with_matches and count answer "does it match", one guess at a time); a Grep over a
+  folder that holds a secret file it would read is refused unless its `glob` or `type` leaves it out (claude's and
+  opencode's ripgrep read hidden files but skip what git ignores, so an ignored `.env` is fine). Glob and LS list names
+  only (like `ls`): judged only for where they look (keel's keys, other projects, keel's run files).
+- **Shell** (F5c, `rules/secrets.py shell_secret`, from `rules.check_bash`): every word of every command, also inside
+  quotes (`bash -c`, `python -c`, `node -e`, a heredoc fed to an interpreter), after `=` (`--file=.env`, `if=.env`),
+  after `:` (`git show HEAD:.env`), `@` (`curl -d @.env`), with globs and `{a,b}` expanded in the shell's folder. A
+  statement that names a secret file may use only commands that never print content: `ls`, `stat`, `test`, `[`, `echo`,
+  `printf`, `file`, `realpath`, `readlink`, `basename`, `dirname`, `tee`, and `git status / ls-files / check-ignore`
+  (not with `-c`). A copy whose source is a secret file is refused; `cp .env.example .env.local` is a write (the edit
+  rules: setup may write the env file). A recursive grep, `rg`, `ag` or `git grep` over a folder holding a secret file is
+  refused unless `--exclude` / `-g '!..'` / `--include` / `-g` / `-t` leave it out. Refusal: "<file> holds secrets: no
+  shell command reads, prints, copies or searches it ...". Legit uses that name the file are refused too
+  (`docker compose --env-file .env`, `source .env`): the person runs those.
+- **Guard context** (F7, `runtime/guard_ctx.py`): the agent runs as keel's user, so it could rewrite `$KEEL_GUARD_CTX`.
+  (1) the hook refuses a write anywhere in the run's folder, a read of keel's files there (`guard.json`,
+  `guard.json.sum`, `keel-guard.json`, `mcp.json`, `keel-bin/`, `opencode/`) and any shell command that names them, the
+  folder, `$KEEL_GUARD_CTX`, `$KEEL_SHIM_DIR` or `$OPENCODE_CONFIG_DIR`; (2) `write_context` writes the context's sha256
+  to `guard.json.sum` and `load_context` refuses a context that does not match (the hook fails closed: reads only);
+  (3) the engine keeps the sha256 of every file it wrote there (`guard_ctx.seal`) and `models/cli.py run_cli` checks
+  them when the CLI ends: a changed file fails the step ("the agent changed keel's own files for this run ..."). No key
+  the agent cannot read exists within one user: the hook is the CLI's child, and its environment, arguments and files
+  are readable by the agent's shell too (`/proc/<pid>/environ`). So (2) only catches a careless rewrite; (1) and (3)
+  are the protection, and keel's commit step judges every commit's files again (`rules.check_commit`).
+- **MCP scope** (F16): a flow's agents get keel's MCP server with `KEEL_MCP_PROJECTS=<the flow's project>[,<the other
+  projects it may read>]` and `KEEL_PROJECT` (`tools/mcp.py scoped`, from `compiler_agent`). `mcp_api.KeelApi` then
+  refuses a route of another project (`/projects/{pid}/...`), an agent call (`/jobs/{id}...`) or a flow
+  (`/threads/{tid}/...`) of another project, and `/folders`; `/inbox` and `/jobs` default to the flow's project, and
+  `keel_projects` lists only the scope. KeelBot's and a person's own MCP server are not scoped. The api's read token is
+  not scoped by project: this is the MCP server's own check.
+- **AC gate code** (F21, `flow_actions.ac_code`): a committed file that `rules.classify` puts in protected-env comes with
+  bucket `secret`, `folded`, `diff: null`, `note: "secret file: not shown"` (counts only); asking for it by sha and
+  path gives `file: null`. The web shows the note and no Show button.
+
+## keel 0.18.64: the clarify document is the source of truth (fix/clarify-doc)
+
+From the field report (docs/plans/field-report-clarify.md, bugs 1 and 2) and its missed MCP tools.
+
+- **A send-back patches the last draft**: the assemble step's instructions have `{{data.clarify.draft}}` ("Your last
+  draft", `(nothing yet)` on the first pass). The spec check's send-back sets it to the document keel just wrote; a
+  reject at the result gate (choice `reject` → new code step `redraft`, action `clarify_redraft`, `then: checked`)
+  sets it to the file as it is then (the person's edits in it). The feedback asks to patch it: keep what is right,
+  change only what the note or the findings ask, give every `## ` section again. Every reject note still applies
+  (`data.clarify.notes`). A draft over 11,000 characters is cut with a pointer to its file.
+- **The result gate reads the file**: `clarify_doc` stores `data.result_doc = "clarify"` (no `result_detail`); a gate
+  whose `data["<gate>_doc"]` is set builds its text with `flow_doc.gate_text` when it runs, and the question carries
+  `doc`, so engine `GET /threads/{id}` builds `waiting.detail` again from the file each time. Its second line says
+  which copy a hand-over uses: the file as it is when you choose; `You edited <path> at <local time with zone>; the
+  hand-over uses this file …` when the file differs from keel's copy (`data.clarify.evidence`); `This is your own draft
+  (sent with the reject at <time>)`; or, the file gone, keel's copy.
+- **The hand-over reads the file**: `to_feature` … `to_spike` run `clarify_hand+start_flow`, `prompt_only`
+  `clarify_hand+clarify_prompt`. `clarify_hand` reads the document at the choice: the criteria parsed again from its
+  Acceptance criteria, the prompt from its appendix (````text), the request (the flow's own while the file still holds
+  it word for word, else the file's Request section), the evidence = the file. The link both ways was already there:
+  the clarify flow's `children [{thread_id, workflow, step, title}]`, the new flow's `parent {thread_id, workflow,
+  step}` (engine `GET /threads/{id}`; a test pins it).
+- **A replacement draft with the reject**: resume payload `{choice: "reject", document: "<whole text>"}`. `redraft`
+  writes it to the file, keeps `"(written to <path>)"` in `data.result_answer.payload.document`, and runs the spec
+  check: pass → marker `SPEC-CHECK: pass` on `write_doc` → the result gate again, no assemble pass; fail →
+  `SPEC-CHECK: fix`, the assemble step patches the draft (the check's one send-back is used).
+- **Engine** `GET /threads/{id}/document` → `{thread_id, path, kind: clarify|spec, exists, text, edited, edited_at?,
+  waiting: <gate step> | null}` (the clarify document, else the flow's spec; 404 when it has none).
+  `PUT /threads/{id}/document {text, root?}`: only while the flow waits at a gate (409 running or not waiting, 400
+  empty); writes the file (a `.md` inside the project or the folder `.keel` links to, never through a symlink) and
+  emits `doc.version` with `by_kind: user`, `by_name: "edited while the flow waited"`, `via: api`.
+- **api** `GET` / `PUT /api/threads/{tid}/document {text}` pass through to the engine (`FlowService.document`,
+  `writeDocument`: the project folder as `root`, the saved state refreshed). `PUT` is the MCP write level.
+- **History**: engine `doc_history.files` also lists `<specs>/clarify/*.md` (kind spec); api
+  `DocHistoryService.known` lets them be restored.
+- **MCP**: `keel_flow_document(project?, thread_id?, text?)` (read; `text` needs `--write`), `keel_reject_with_document
+  (text, why?, project?, thread_id?)` (write; only at a clarify result gate; no `why` sends a note that says to keep
+  the draft), `keel_handover(flow, text?, why?, project?, thread_id?)` (write; only a flow the gate offers; with `text`
+  it `PUT`s the document first; answers with the new flow's thread id and the link). They come after `keel_diagram`.
+
+## keel 0.18.64: the base against the remotes, and keel's branch sync (feat/base-sync)
+
+Field report bugs 4 and 6 (docs/plans/field-report-clarify.md): a flow branched from a local base behind a second
+remote while a timed-out fetch went unsaid, and nothing could bring a flow's branch up to its base.
+
+```
+POST /api/projects/{pid}/flows        + { base? }   a local branch or <remote>/<branch>: the flow's new branch (folder or
+                                                     worktree) starts from it; 400 when it does not resolve, with
+                                                     branch: continue, for a read-only flow or one with own_branch: false
+                                      → ThreadState + base_note?   (the engine's start note, below)
+POST /api/projects/{pid}/remotes/fetch → { base, remotes: RemoteRow[], lines: string[], note, fetched: [{remote, ok, error?}] }
+                                                     (MCP read level: a fetch moves remote-tracking refs only)
+POST /api/threads/{tid}/sync  { onto?, mode?: merge|rebase, action?: start|continue|abort }
+                                      → SyncResult + thread   (write level; 404 unknown flow, 400 bad mode or action)
+type RemoteRow  = { remote, ok, error?, branch?: "<remote>/<base>", ahead?, behind?, default?: "<remote>/<default>",
+                    default_ahead?, default_behind? }
+type SyncResult = { ok, synced, mode, onto, branch, before, head, base_head?, commit?, behind?, conflicts: string[],
+                    state?: merge|rebase (a conflict waits), note, next? }
+
+engine POST /remotes/fetch  { root, keys?, start? }   → as the api's (runtime/branch_sync.py fetch_all + report)
+engine POST /threads/{tid}/sync { onto?, mode, action, root? } → SyncResult + thread (Engine.sync_branch)
+engine POST /threads            + data.remotes_fetched?  → { thread_id, source?, base_note? }
+```
+- **Fetch**: every remote at once (`git fetch -q --no-tags <remote> +refs/heads/*:refs/remotes/<remote>/*`), at most
+  `git.FETCH_EACH` = 20 s each, no password or ssh host-key prompt (BatchMode), keel's GitHub login only for a remote on
+  its host (tools/git_auth.py). A failure or a timeout is a row with `ok: false` and git's first line (the token masked).
+- **Report** (`branch_sync.report`): the base is base_branch (origin/main counts as main), else main, else master. Per
+  remote: ahead / behind of the base against `<remote>/<base>`, and against the remote's default branch
+  (refs/remotes/<remote>/HEAD, else its main or master) when that is another branch. Lines: "fetch from <remote> failed:
+  <why>; the base may be stale", "<base> is N commits behind <remote>/<base>" (+ "and M ahead" when they diverged),
+  "<base> is N commits behind <remote>/<default> (<remote>'s default branch)", else "<base> is up to date with …"; with
+  the flow's start commit: "the flow's branch starts from <ref>", or "the flow starts from the local <base>: to start
+  from the newer code, start it with base <ref>".
+- **Start**: the api fetches (engine `/remotes/fetch`, keys = the contributors' keys) before it makes the branch, so
+  B7's freshBase sees the fetched `origin/<base>`; it sends the rows as `data.remotes_fetched` (`[]` for a read-only
+  flow, which fetches what it reads itself; nothing for a project without a remote). The engine's start_thread fetches
+  itself only when `remotes_fetched` is missing and the flow has no parent. The report is `state.data.base_check`,
+  `thread.started` carries `note` and `remotes`, and `POST /threads` answers `base_note`. Nothing here fails a start.
+- **Sync** (`branch_sync.sync`, run by keel, not an agent: the guards that refuse an agent's merge, reset or commit do
+  not apply). Refused (409) while a step runs, when the checkout is not on the flow's branch (state.branch), on a
+  detached HEAD, with changed tracked files, or while a merge or rebase waits (start). `onto` default:
+  `verdict_actions.base_ref` (the base's remote copy, else the local base); 400 when it does not resolve or is the
+  branch itself. merge: `git merge --no-edit -m "Merge <onto> into <branch>" -m <co-author>` with keel's commit
+  identity (`actions.commit_args`); rebase: `git rebase <onto>` with that committer. A conflict: `ok: false`,
+  `conflicts`, `state`, `next`; the merge or rebase waits. continue: the conflicted files must be free of markers
+  (else `ok: false` with them); keel stages exactly them and commits (MERGE_MSG without its # lines) or runs
+  `rebase --continue`. abort: `git merge|rebase --abort`. When the branch moved: the thread body's `synced_base` and
+  `ThreadContext.synced_base` = the merge base with `onto`; the compiler's next step writes it into `state.base_head`.
+  Events `branch.synced {ok, synced, mode, onto, branch, head, note, conflicts}` and, for a merge commit,
+  `keel.applied {kind: commit, …}`.
+- **MCP**: `keel_fetch_remotes(project?)` (read) — one line per remote, then the note and the way to use the newer
+  branch; `keel_branch_sync(thread_id?, onto?, mode, action, project?)` (write) — the project folder's flow by
+  default; a conflict lists the files and the continue call. `keel_start_flow(base=…)` sends `base` (refused with
+  `branch=continue`) and its answer ends with "Base: <note>." Both new tools come after keel's earlier tools and
+  before the marketplace's four. The older `POST /api/projects/{pid}/repo/update-from-base` (project folder, merge
+  only, aborts on a conflict) stays as it was.
+
+## keel 0.18.64: MCP after a restart, the project a tool means, keel's own files, what really happened
+
+From a field report (docs/plans/field-report-clarify.md: bug 7 and the smaller ones).
+
+- **keel2 add** restarts keel only for a folder it must mount, and says so first (`keel restarts once now …`, `Open MCP
+  sessions (keel2 mcp) reconnect by themselves …`). A folder keel sees already (inside the main project, or inside a
+  mounted folder; `in_container` maps it: the main project is `/workspace/…` in the plain mode) is registered at once
+  (`POST /api/projects` with the container path), no restart. A listed folder keel has not mounted yet restarts it.
+- **keel_add_project** maps a path on the person's computer inside the main project to keel's (`KEEL_HOST_WORKSPACE` →
+  `KEEL_WORKSPACE`, `mcp_more.seen_as`), so a repo keel sees needs no terminal; only a folder outside every folder keel
+  has still needs `keel2 add` (the answer says keel restarts once and keel2 mcp reconnects).
+- **keel2 mcp** waits up to `KEEL_MCP_START_WAIT` (20 s) for a container that is restarting, with a growing pause. Its
+  relay (0.18.51) now: answers a `tools/call` that waits while keel is down after `KEEL_MCP_RELAY_HOLD` (10 s) as a tool
+  error `keel: keel is restarting: try again in a few seconds …` (a result with `isError`, which clients show and go on
+  from, not a JSON-RPC error after minutes); answers `ping` at once; looks for keel with a pause from 0.5 s up to 5 s;
+  sends `notifications/tools/list_changed` after a reconnect; answers `keel_reconnect` itself (closes the server, waits
+  for the new one); gives the server `KEEL_MCP_RELAY_N` (its start count, `-e KEEL_MCP_RELAY_N` on docker exec).
+  The api client's "does not answer" error says keel is restarting or stopped and to try again in a few seconds.
+- **Which project**: `docker exec -e KEEL_CLIENT_CWD=<the client's folder as keel sees it, empty when keel cannot see
+  it>`. `mcp_api._project`: the named one (or `KEEL_PROJECT`), else the only project, else the project whose root holds
+  `KEEL_CLIENT_CWD` (without the variable: the server's own folder, as agents and native keel have it), else an error
+  naming the projects (`Pass project (one of: …)`). Before, a read answered for the first project: the server's folder
+  in the container is `/workspace`, the main project, whatever folder the client was in.
+- **Time zones**: keel2 passes the computer's zone (`TZ`, else `/etc/localtime`'s link, else `/etc/timezone`) to
+  keel2 mcp's server and to keel TUI in the container. `_clock` shows local time with the zone's short name
+  (`10-05 12:04:00 CEST`; an offset `UTC+05:30` when the zone has no name); `keel_timeline` uses it. The web shows the
+  browser's local time as before.
+- **Dirty tree**: `FlowService.refuseDirty` leaves out keel's own output under `.keel/` in every layout
+  (`WorkspaceDoctor.isKeelOutput`): `.keel/specs/`, `knowledge/`, `adr/`, `docs/`, `hunts/`, `hunt/`, `chats/`,
+  `worktrees/`, `RUNNING.md`, `CLAUDE.md`, `memory.json`, and the layout's folders under `.keel/` (a `memory.dir` such as
+  `.keel/docs/knowledge`). The person's settings there (`config.yml`, `rules/`, `stacks/`, `dod.md`, `lenses/`,
+  `plugins/`, `project-rules.json`) still refuse a start. They stay out of keel's commits like any file dirty at the
+  start (`preexisting`).
+- **Knowledge on a branch**: the knowledge check reads the sections from disk whatever git says. A worktree
+  (`tools/worktrees.seed_keel_files`) gets, in layout repo too, the layout's files the branch's `.gitignore` ignores
+  (`git check-ignore`); `keep_keel_files` brings back only those. In one of keel's worktrees a section that is not there
+  is read from the project folder (`knowledge.source`), and a cited file too (`on_disk`). A shorthand citation that no
+  tracked file matches looks at the files on disk (`knowledge.Files.disk`, walked once, `node_modules` and the like
+  left out).
+- **New read tools** (after `keel_diagram`, `mcp_diag.py`):
+
+| Tool | What it returns | api |
+|---|---|---|
+| `keel_agent_prompt(agent_id, page)` | the system and task prompt one agent call of a flow got, each cut at 60,000 characters (`system_cut` / `prompt_cut`), 20,000 characters a page | `GET /api/jobs/{id}/prompt` |
+| `keel_flow_diff(step?, thread_id?, ac?, project?)` | what a step's last run changed against the run before: its document (the two newest versions keel kept in this flow), else its agent's answer (the newest call and the same agent's call before); no step: the steps that ran more than once | `GET /api/projects/{pid}/flows/{tid}/step-diff?step=&ac=` → `{kind: document \| answer \| none \| list, runs, path, before, after, diff, why, steps}` |
+| `keel_health()` | keel's api and engine, keel's version against the server's, when this connection's server started, whether keel2 mcp's relay reconnects it and how often it did, the time zone | `GET /api/health` |
+| `keel_reconnect()` | the relay starts the server again and answers when the new one is ready; without a relay: how to reconnect | — |
+
+- **The prompt is kept**: the engine emits `agent.prompt` (`{agent, ac, system, prompt, system_cut, prompt_cut}`,
+  `compiler.PROMPT_RECORD_MAX` = 60,000 characters each) once per agent call, before it runs. The api stores it in
+  `events` like every event and sends it to no screen (`RECORD_ONLY`). `agent.finished`'s `result` keeps up to
+  `compiler.RESULT_MAX` (20,000) characters of the answer (2,000 before), so keel_flow_diff compares whole answers.
+
+## keel 0.18.64: MCP answers, starts, models and confirmations (fix/mcp-ux)
+
+The field report's bugs 12 and 13 (`docs/plans/field-report-clarify.md`).
+
+- **What an answer ran**: engine `POST /threads/{id}/resume` adds `answered { decision, choice?, does }` to the state it
+  returns (`runtime/choices.answered`: a named choice runs whatever the decision says, as `Compiler._choice` does; no
+  choice: the plain approve's or reject's effect). The api passes it through (`/threads/{id}/resume`, `/inbox/{id}/act`).
+  `keel_answer` says `answered thread <id>: ran the choice "edit" (…) (the choice decides: "edit" ran, not a plain
+  reject)`, no longer `(reject)`; `keel_approve_gate` and `keel_edit_gate` say `<gate> on thread <id>: ran the choice …`
+  when a choice ran. An older engine (no `answered`): the choice that was sent, else the default choice.
+- **`keel_start_flow` answers at once**: no wait for the first gate by default (it polled for 20 s and outlasted a
+  client's timeout). The answer has the thread id, `Status: starting|running|waiting` and how to follow it
+  (`keel_status`, `keel_flows`; `keel_read_gate(flow=…)` and `keel_answer(thread_id=…)` when it waits). New `wait`
+  (seconds, at most 60) waits for the first gate, polling `GET /projects/{pid}/flows/{tid}`. The start POST may take 30 s
+  (branch, worktree, estimate); a timeout says the flow may still start and to look with `keel_flows` before a retry.
+- **Models**: new read tool `keel_models`: `GET /providers/models` and `GET /connections`: per provider its default, each
+  mode with `[set up]` / `[not set up: <detail>]` (a mode's `ready`; no key or login is printed), its models grouped by
+  the efforts they take (`effort none` for a model without one), and the role words. `keel_agent_model` (and
+  `keel_agent_create`) refuse with the choices: `<model> is not a model of <provider> in the <mode> mode; pick one of:
+  …`, `<provider> is not a provider keel knows; pick one of: …`, `<mode> is not a mode of <provider>; pick one of: …`,
+  `<provider>/<model> has no effort setting "<e>"; it takes: …, or default.`, `<provider>/<model> has no effort
+  setting; it has none.` A model is checked only when provider, mode or model changes (an id set under the dashboard's
+  Other model keeps working for an effort change).
+- **Role words** (`agent_names.ROLES`, MCP only; workflows and settings keep agent ids): planning, planner, spec →
+  explorer in the spec phase; triage → explorer in the triage phase; coding, coder, implementation → implementer;
+  testing, tests → test-author; contract → contract-author; debugging → investigator; research → web-researcher; docs →
+  librarian; security → security-auditor; final-review → branch-reviewer. A project agent of that id wins over a role.
+  Project-wide, a role with a phase changes the whole agent and the answer says so.
+- **A model for one flow or one step**: `keel_agent_model(..., thread_id?, step?)`. api `GET /api/threads/{tid}/models`
+  and `POST /api/threads/{tid}/models { agent?, step?, phase?, model? }` (`FlowService.setThreadModels`: the model is
+  `Model.checked()`, `LocalOnly` applies, its login or key goes along as `keys`, memory only) → engine
+  `GET|POST /threads/{tid}/models` (`Engine.models_of`, `Engine.set_models`, `runtime/thread_models.py`). The flow's start
+  body keeps `models` (`default`, one per agent, now `step:<step id>`) and `model_picks { key: what was there before }`;
+  `model: null` takes a pick back. `agent` replaces that agent's entry in this flow; `step` adds `step:<id>`; `agent` +
+  `phase` adds `step:<id>` for each of the agent's steps in that phase. 400 for a step that runs no agent, an agent the
+  flow does not run, a step of another agent; 404 for an unknown thread. Event `thread.models { changed, model }`. The
+  answer: `{ thread_id, changed, models, picks, steps: [{ id, name, agent, phase, model, picked }] }`.
+  `Compiler._model` order: the cap's cheaper model, the step's pick, escalate_model's stronger model, the step's own
+  `model:`, the agent's entry, the default (`explain.model_info` the same). Other flows and the Agents page never change.
+- **Confirmations without forms** (`mcp_confirm.py`): a tool that asks first (`CONFIRM`, a part's `confirm=True`, a
+  publishing action) and a client without elicitation (or whose form fails): nothing is done and the answer is `keel:
+  this MCP client cannot ask you to confirm <what> in a form, so nothing was done yet. This needs the person's OK:
+  <what>. Ask the person; never confirm by yourself. …` with a one-time token `ok-…`. The token is bound to the tool and
+  a hash of its arguments, ends after 300 s (600 s when it has an Inbox question), and a bad or late one answers `that
+  confirm token is not valid for this call …` with a new one. Those tools (and keel_run_action and the parts' write
+  tools) take an optional `confirm: string`. Elicitation where it works and `--yes` are unchanged; 0.18.64 the answer no
+  longer names `--yes`.
+- **A client without forms: you confirm in keel's Inbox** (0.18.64, security audit F13). The model reads the token, so
+  it could confirm by itself. With the token keel also asks in its Inbox: `POST /api/projects/{pid}/plugins/ask
+  {title: "<client>: <what>?", command: "<tool>(<arguments>)"}` (engine approvals, kind `plugin`, session `mcp`: the
+  Inbox's "Claude Code asks" card; the project is the tool's `project`, else the only one or the client's folder's).
+  The call with the token reads `GET /api/plugins/asks/{id}`: approved → done; denied → `keel: not done — the person said
+  no to <what> in keel's Inbox`; still waiting → `keel: the person has not approved <what> in keel's Inbox yet …` (the
+  token stays open). The dangerous kinds (`mcp_confirm.OUT_OF_BAND`: keel_delete_run, keel_remove_project,
+  keel_stack_remove, keel_keelbot_undo, keel_git_push, keel_stop_flow, keel_stop_flows, keel_pause, keel_agent_model,
+  keel_db_change, and keel_run_action's open_pr / pr) need the Inbox's approval: the token alone does nothing, and
+  when keel cannot ask in its Inbox (no project, no write level) the answer is `… keel could not put the question in
+  its Inbox (…), so nothing was done … they confirm it in keel's dashboard` with no token. The other kinds act on the
+  token (the Inbox's approval counts too; a denial there wins). `KEEL_MCP_CONFIRM=token`: the token alone confirms
+  every kind (as before).
+
+## keel 0.18.64: a spec handed over is kept, spec numbers, keel v1's leftover state (fix/spec-seed-v1-state)
+
+From the field report (docs/plans/field-report-clarify.md, bugs 8, 9 and 11).
+
+- **A spec handed over is kept** (`runtime/spec_check.py` `seeded`, `kept_items`, `lost`). What a flow was handed: the
+  spec file it started from (its text at the start, `data.spec_at_start`), a parent flow's document that is a spec
+  (`data.seed.evidence` with front matter or an Acceptance criteria section: the clarify hand-over), and the request
+  when it names risks, out-of-scope items or criteria itself (a spec pasted into it). The spec writer is told to keep
+  all of it and only fill the gaps (`prompts.seeded_block`). After it writes, every item under a Risks or Out of scope
+  heading (or a `Risks:` label) and every criterion line must still be in the spec, in its words or close (at least
+  `KEEP_MIN` of its words in one line); a lost one is a `fix` finding ("Lost from the request: the risk “…” is not in
+  the spec"), sent back once like the other spec check findings, also when the criteria were handed over, and shown on
+  the spec gate. The check is additive: `check()` is unchanged, the callers add `lost()`.
+- **A send-back patches the last draft** (`prompts.draft_block`): the spec writer gets the draft whole (up to
+  `DRAFT_MAX`) and is told to change only what the note names; it is not told to write a new numbered file.
+- **Spec numbers** (`prompts.spec_folders`, `next_spec_number`, `renumber_spec`): the next free number counts every spec
+  folder keel knows (the layout's, keel v1's `docs/specs`, `specs`, `.keel/specs`, the config's `specs.dir`), files and
+  folders named `NNN-…`. The spec writer gets the number also when the criteria were handed over. A spec this flow
+  wrote first (not committed, not the one it started from) whose number another spec has moves to the next free one,
+  its front matter's `id` with it.
+- **keel v1's leftover state** (`runtime/v1_state.py`). `.keel/state.json` naming a flow in an active phase is said
+  where a commit fails (keel's commit step, the Git plugin's commit, the workspace Doctor's commit), in the preflight
+  warnings and in `GET /start-check` (`v1_state`: the line or null): "a keel v1 flow (feature 012-prices, phase
+  full-review) left .keel/state.json: it blocks commits; archive it with keel_state close or `keel2 state close`".
+  A commit keel's guard refuses during a flow names that flow ("The flow that blocks this commit: the keel v2 flow
+  "Prices in euros" (thread t-1), phase green."; the guard context's `flow`, `ToolBox.flow`).
+  - engine `GET /keel-state?root=` → `{v1: {path, flow, phase, id, title, ac, updated, active, thread, line, name,
+    error?} | null}`; `POST /keel-state/close {root}` → `{archived, flow, was_active}` (404 when there is no file). The
+    file moves to `.keel/archive/state-<date>.json` (`-2`, `-3` … when taken); nothing is deleted.
+  - api `GET /api/projects/{pid}/keel-state` → `{project, flows: [{id, title, workflow, status, step, phase,
+    worktree}], v1}` (the flows that run or wait there); `POST /api/projects/{pid}/keel-state/close` (an MCP write).
+  - MCP `keel_state {action: show | close, project?}`: a read tool; `close` needs `--write` (read says so and does
+    nothing). keel2: `keel2 state [close] [folder]` does the same on the folder, without keel running.
+
+## 0.18.64 security addendum: MCP levels, MCP server secrets, sign-in sessions, connections
+
+- **MCP levels by name** (`mcp/McpLevels.kt`): a non-GET `/api/` route needs the level of the list that names it:
+  `READ_POSTS` (POSTs that change nothing), `WRITE` (what keel's MCP write tools send: start, stop, resume, answer a
+  flow, agents, skills, stacks, workflow import, rule pack create, `plugins/ask`…), `ADMIN`, `ADMIN_PREFIXES`; a
+  plugin names its own read and write routes with an `McpRouteLevels` bean. **A route no list names needs admin**
+  (until 0.18.63 it was write). Admin now also: `POST/PUT/DELETE /api/mcp-servers…`, `POST /api/mcp-servers/{name}/test`,
+  `PUT /api/projects/{pid}/mcp-allow`, `POST /api/plugin-host/restart`, Jira's and GitLab's connection routes, the local
+  model servers. `McpRouteLevelsApiTest` lists every mapped route and fails on one that no list names.
+- **MCP audit**: a call with an MCP level token is recorded (`mcp.call`) with or without `X-Keel-Via: mcp`.
+- **Inbox**: `POST /api/inbox/{tid}/act` on an approval the api asked itself (a plugin install, a send to Jira) → 403
+  for an MCP token below admin; a person, keel itself or the admin level may.
+- **MCP server env** (`mcp/McpService.kt`): `GET /api/mcp-servers` never shows a value: a `secret:<name>` reference as
+  it is, any other value as `"set"` (sent back on PUT, `"set"` keeps the saved value). On save a typed value goes into
+  the secrets as `<server>_<NAME>` and the env keeps `secret:<server>_<NAME>`. A reference resolves (for a flow or a
+  test) only when it is attached to that server: saved with it through these routes, or attached by the plugin that
+  made it (Jira's `jira.<pid>`); never keel's own logins (`SecretService.keelOwn`: model keys and logins, the GitHub
+  token and sign-in, Vertex AI, `local.*`, GitLab). Naming one of those on save → 400. Servers saved before 0.18.64
+  keep their references once. The engine's stored flow keeps the env names only; the values come in `keys` as
+  `mcp_env:<server>:<NAME>` on continue, resume, rewind and a model change.
+- **Sign-in sessions** (`auth/WebSessions`, table `web_sessions`, `V27`): `/web/login` opens a random session per browser
+  (only its SHA-256 is stored). It ends 30 days after its last use (each use moves the end, written at most once an
+  hour, and then the cookie is sent again), at sign-out, or at sign-out-everywhere. A cookie from before 0.18.64 (the
+  web key itself) is swapped for a session once. The web key stays for `Authorization: Bearer`.
+- **Connections and new hosts** (`common/Hosts.kt`): a Jira or GitLab save that moves the address to another scheme,
+  host or port without a new token → 400 (the saved token never goes there); a local model server's saved key is
+  dropped when its host changes. http:// is refused for a token unless the host is this machine (Jira, GitLab) or, for a
+  local model server, the local network (`host.docker.internal`, `*.local`, 10/8, 172.16/12, 192.168/16, 169.254/16,
+  fc00::/7, fe80::/10).
+- **Supervisor**: `POST /api/projects/{pid}/flows/{tid}/supervisor` (and `/supervisor/flow`) with `policy: {rung: may}`
+  needs `"i_understand": "commands run without you"` (else 400); an MCP token below admin never sends `policy` (403).

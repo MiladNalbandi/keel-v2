@@ -57,6 +57,43 @@ class FlowApiTest : ApiTest() {
     }
 
     @Test
+    fun `a flow's document is read and replaced through the engine`() {
+        // 0.18.64 keel_flow_document: the engine reads the file, and replaces it while the flow waits at a gate
+        val (pid, root) = newProject("flow-document")
+        post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "Ranks")).andExpect(status().isOk)
+        val doc = get("/api/threads/t-stub-1/document").andExpect(status().isOk).json()
+        assertThat(doc["kind"].asText()).isEqualTo("clarify")
+        assertThat(doc["path"].asText()).isEqualTo(".keel/specs/clarify/2026-10-28-t.md")
+        val put = put("/api/threads/t-stub-1/document", mapOf("text" to "# Ranks\n")).andExpect(status().isOk).json()
+        assertThat(put["edited"].asBoolean()).isTrue()
+        val sent = engine.lastBody("/threads/t-stub-1/document")!!
+        assertThat(sent["text"].asText()).isEqualTo("# Ranks\n")
+        assertThat(sent["root"].asText()).isEqualTo(root.toString())
+        put("/api/threads/t-stub-1/document", mapOf("text" to " ")).andExpect(status().isBadRequest)
+    }
+
+    @Test
+    fun `the AC gate's code comes from the engine, only for a flow of the project`() {
+        // 0.18.64 the web's AC gate loads the criterion's commits and diffs: the engine reads git, the api passes it on
+        val (pid, _) = newProject("flow-ac-code")
+        post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "Orders")).andExpect(status().isOk)
+        val code = get("/api/projects/$pid/flows/t-stub-1/ac-code?ac=AC-1").andExpect(status().isOk).json()
+        assertThat(code["red"]["subject"].asText()).isEqualTo("test(AC-1): an order keeps its lines")
+        assertThat(code["red"]["files"][0]["bucket"].asText()).isEqualTo("test")
+        assertThat(code["green"].isNull).isTrue()
+        assertThat(engine.calls.last { it.path == "/threads/t-stub-1/ac-code" }.query).contains("ac=AC-1")
+
+        // one file for the gate's Show: the commit and the path go to the engine, encoded
+        get("/api/projects/$pid/flows/t-stub-1/ac-code?ac=AC-1&sha=a1b2c3d&path=package-lock.json").andExpect(status().isOk)
+        val q = engine.calls.last { it.path == "/threads/t-stub-1/ac-code" }.query!!
+        assertThat(q).contains("sha=a1b2c3d").contains("path=package-lock.json")
+
+        get("/api/projects/$pid/flows/t-stub-1/ac-code").andExpect(status().isBadRequest)
+        val (other, _) = newProject("flow-ac-code-other")
+        get("/api/projects/$other/flows/t-stub-1/ac-code?ac=AC-1").andExpect(status().isNotFound)
+    }
+
+    @Test
     fun `flow options reach the engine as the thread's data`() {
         val (pid, _) = newProject("flow-options")
         post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "Review it",
@@ -64,6 +101,18 @@ class FlowApiTest : ApiTest() {
         val data = engine.lastBody("/threads")!!["data"]
         assertThat(data["lens"].asText()).isEqualTo("all")
         assertThat(data["base"].asText()).isEqualTo("main")
+    }
+
+    @Test
+    fun `a flow gets the other registered projects, read only for its agents, never its own`() {
+        val (pid, _) = newProject("reads-others")
+        val (other, otherRoot) = newProject("upstream-service")
+        post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "Take the new payload")).andExpect(status().isOk)
+        val others = engine.lastBody("/threads")!!["other_projects"]
+        assertThat(others.map { it["id"].asText() }).contains(other).doesNotContain(pid)
+        val row = others.first { it["id"].asText() == other }
+        assertThat(row["root"].asText()).isEqualTo(otherRoot.toString())
+        assertThat(row["name"].asText()).isNotBlank()
     }
 
     @Test

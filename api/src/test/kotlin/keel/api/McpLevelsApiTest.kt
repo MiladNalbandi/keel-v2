@@ -51,6 +51,13 @@ class McpLevelsApiTest : ApiTest() {
     }
 
     @Test
+    fun `0_18_64 a fetch of the remotes is read, a flow branch's sync is write`() {
+        val (pid, _) = newProject("lv-fetch")
+        post("/api/projects/$pid/remotes/fetch", null, mcp("read")).andExpect(status().isOk)
+        post("/api/threads/t-stub-1/sync", mapOf("onto" to "main"), mcp("read")).andExpect(status().isForbidden)
+    }
+
+    @Test
     fun `keel's own requests (the internal token) are not limited by MCP levels`() {
         val (pid, _) = newProject("lv-web")
         post("/api/projects/$pid/flows", flow).andExpect(status().isOk)
@@ -104,6 +111,22 @@ class McpLevelsApiTest : ApiTest() {
         // what the write tools need still works at write
         val (pid, _) = newProject("lv-still-write")
         post("/api/projects/$pid/flows", flow, mcp("write")).andExpect(status().isOk)
+    }
+
+    @Test
+    fun `0_18_64 an MCP write token answers flows in the Inbox, never an approval keel asked itself`(
+        @org.springframework.beans.factory.annotation.Autowired approvals: keel.api.approvals.ApprovalService,
+    ) {
+        val a = approvals.create("plugin-install", "", "Install lv-inbox?", "lv-inbox 1.0.0", mapOf("plugin" to "lv-inbox"),
+            requestedBy = "agent")
+        val res = post("/api/inbox/${a.id}/act", mapOf("decision" to "approve"), mcp("write")).andExpect(status().isForbidden).json()
+        assertThat(res["error"].asText()).contains("admin")
+        assertThat(approvals.find(a.id)!!.status).isEqualTo("waiting")
+        // the person (here keel's own token, as the web's) or the admin level may
+        post("/api/inbox/${a.id}/act", mapOf("decision" to "reject"), mcp("admin")).andExpect(status().isOk)
+        assertThat(approvals.find(a.id)!!.status).isEqualTo("denied")
+        val b = approvals.create("plugin-install", "", "Install lv-inbox2?", "lv-inbox2 1.0.0", mapOf("plugin" to "lv-inbox2"))
+        post("/api/inbox/${b.id}/act", mapOf("decision" to "reject")).andExpect(status().isOk)
     }
 
     @Test

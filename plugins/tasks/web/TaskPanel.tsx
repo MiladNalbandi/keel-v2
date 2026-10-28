@@ -3,11 +3,15 @@
 // steps; Start / another flow / how it runs / Not now) or keel's own proposal, the running flow with how far it is, the
 // pull request, the description, the history, and More actions. The same api calls as the classic drawer (Tasks.tsx).
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   answersOf,
   clock,
   ClarifyForm,
+  clearDraft,
+  DraftKept,
+  noKeys,
+  useAnswerDraft,
   Confirm,
   Drawer,
   ErrorBox,
@@ -36,7 +40,7 @@ import {
   type TaskItem,
   type TaskStatus,
 } from "./tasksApi";
-import { AutomationItem, questionsOf } from "./Automations";
+import { AutomationItem, proposalDraft, questionsOf } from "./Automations";
 import {
   answerItems,
   flowTone,
@@ -223,8 +227,10 @@ function ProposalCard({
 }) {
   const d = it.data ?? {};
   const questions = questionsOf(d.questions);
-  const [picked, setPicked] = useState<ClarifyAnswers>({});
-  const [typed, setTyped] = useState<ClarifyAnswers>({});
+  // 0.18.64 the unsent answers are kept (the same draft as the Inbox card's), until the flow starts
+  const place = useMemo(() => proposalDraft(it.project_id, it.id), [it.project_id, it.id]);
+  const [picked, setPicked, keptPicked] = useAnswerDraft<ClarifyAnswers>(place, "picked", {}, noKeys);
+  const [typed, setTyped, keptTyped] = useAnswerDraft<ClarifyAnswers>(place, "typed", {});
   const [other, setOther] = useState(false);
   const proposed = String(d.workflow_id ?? "");
   const [wid, setWid] = useState("");
@@ -247,6 +253,7 @@ function ProposalCard({
           : {}),
         ...(allowDirty ? { allow_dirty: true } : {}),
       });
+      if (action === "start" || action === "other") clearDraft(place);
     } catch (e) {
       setErr(errorParts(e));
       setBusy(false);
@@ -392,6 +399,7 @@ function ProposalCard({
             </button>
           </>
         )}
+        <DraftKept shown={keptPicked || keptTyped} />
       </div>
     </section>
   );
@@ -1105,6 +1113,7 @@ export function TaskPanel({
                 kind={it.kind}
                 data={it.data ?? {}}
                 idBase={`tkn-item-${it.id}`}
+                itemId={it.id}
                 actions={[
                   ...((it.data ?? {}).reply
                     ? [{ id: "reply", label: "Use keel's reply" }]

@@ -152,14 +152,16 @@ CATALOGUE: dict[tuple[str, str], tuple[str, str, str]] = {
     ("hunt-next:next_gate", "take"): ("Take this one", NONE, "hand the finding shown to a fix or feature flow"),
     ("hunt-next:next_gate", "pick"): ("Take the one I picked", NONE, "hand the finding or group picked in the question over instead"),
     ("hunt-next:next_gate", "stop"): ("Stop here", NONE, "end here; nothing is handed over"),
-    # clarify: the gate's own text names the flow that fits the task type first (clarify_flow.clarify_doc)
+    # clarify: the gate's own text names the flow that fits the task type first (clarify_flow.gate_detail); a hand-over
+    # reads the document again from its file (0.18.64)
     ("clarify:result", "feature"): ("Hand over to feature", NONE, "start the feature flow with the criteria and the answers"),
     ("clarify:result", "fix"): ("Hand over to fix", NONE, "start the fix flow with the bug report"),
     ("clarify:result", "change"): ("Hand over to change", NONE, "start the change flow with the prompt and the criteria"),
     ("clarify:result", "small"): ("Hand over to small", NONE, "start the small flow with the criteria"),
     ("clarify:result", "spike"): ("Hand over to spike", NONE, "start the spike flow: research the options first"),
     ("clarify:result", "prompt"): ("Copy the prompt only", NONE, "the prompt is shown to copy; no flow starts"),
-    ("clarify:result", "reject"): ("Send it back", REQUIRED, "the outputs are written again with your note"),
+    ("clarify:result", "reject"): ("Send it back", REQUIRED, "the outputs are patched with your note: the document as its "
+                                                          "file is then is the draft (0.18.64)"),
     ("clarify:result", "stop"): ("Stop here", NONE, "end here; the document stays"),
 }
 
@@ -296,6 +298,26 @@ def plain_effects(question: dict) -> dict:
         if k in ("approve", "reject") and isinstance(v, dict):
             out[k] = {**out.get(k, {}), **v}
     return out
+
+
+def answered(question: dict | None, decision: str, payload: dict | None) -> dict:
+    """0.18.64 what an answer does at this question, for the one who sent it: {decision, choice?, does}. A named choice
+    runs whatever the decision says (reject + choice edit runs edit, as Compiler._choice does); no choice: a plain
+    approve or reject's effect (plain_effects)."""
+    q = question or {}
+    names = [str(c) for c in q.get("choices") or []]
+    name = (payload or {}).get("choice")
+    if name is None and (payload or {}).get("skip") is True:
+        name = "skip"
+    out: dict = {"decision": decision}
+    if name is not None and str(name) in names:
+        info = list(q.get("choice_info") or for_question(q, q.get("step")).get("choice_info") or [])
+        c = next((x for x in info if x.get("name") == str(name)), {"name": str(name)})
+        return {**out, "choice": str(name), "does": _effect(c)["does"]}
+    plain = plain_effects(q).get(decision) or {}
+    if plain.get("choice"):
+        out["choice"] = plain["choice"]
+    return {**out, "does": plain.get("does") or ("approves and goes on" if decision == "approve" else "sends it back")}
 
 
 def how_to(*, note: bool = True, plain: str | None = None) -> str:

@@ -1,3 +1,5 @@
+import pytest
+
 from keel_engine.runtime import spec_check
 from conftest import decide, start, wait
 
@@ -159,8 +161,8 @@ def test_cases_of_one_rule_split_into_criteria_are_sent_back_to_be_merged():
     assert found[0]["text"].startswith("AC-5, AC-6, AC-7 differ only in their values")
 
 
-def fixes(text, acs=ACS, outside=False):
-    return [f["text"] for f in spec_check.check(text, acs, outside) if f["level"] == "fix"]
+def fixes(text, acs=ACS, outside=False, root=None):
+    return [f["text"] for f in spec_check.check(text, acs, outside, root) if f["level"] == "fix"]
 
 
 def test_a_spec_without_the_templates_sections_is_sent_back():
@@ -233,3 +235,116 @@ def test_an_amendment_can_retag_a_criterion_as_e2e():
 
     block = "### 2026-10-19 — AC-2\nWas: - **AC-2** [WEB] the board shows\nNow:\n- **AC-2** [E2E] the board shows after sign-in\nWhy: a journey."
     assert feature_actions.amended_criteria(block) == {"AC-2": {"layer": "E2E", "title": "the board shows after sign-in"}}
+
+
+# ---------------------------------------------------------------- 0.18.64 citations (field report: a spec cited lines
+# 235-245 of a 38-line file and passed)
+
+def _project(tmp_path, repo=True):
+    import subprocess
+
+    root = tmp_path / "shop"
+    (root / "src" / "billing").mkdir(parents=True)
+    (root / "src" / "orders.py").write_text("".join(f"line {n}\n" for n in range(1, 41)))      # 40 lines
+    (root / "src" / "billing" / "Invoice.java").write_text("class Invoice {}\n")
+    (root / "src" / "scores").mkdir()
+    (root / "src" / "scores" / "store.py").write_text("".join(f"x = {n}\n" for n in range(20)))  # 20 lines
+    if repo:
+        subprocess.run(["git", "init", "-q", "-b", "main"], cwd=root, check=True)
+        subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    return root
+
+
+def test_citations_are_found_in_every_form_and_urls_times_and_versions_are_not():
+    from keel_engine.runtime import citations
+
+    text = ("See `src/orders.py:88`, src/orders.py:10-12, src/orders.py#L5 and src/orders.py#L5-L9 (also src/orders.py:3:7).\n"
+            "Not: https://example.com/a.py:3, http://localhost:8080, at 13:14, version 1.2:3, host:5432, `v2.1:4`.")
+    got = [(c["rel"], c["line"], c["end"], c["quoted"]) for c in citations.find(text)]
+    assert got == [("src/orders.py", 88, None, True), ("src/orders.py", 10, 12, False), ("src/orders.py", 5, None, False),
+                   ("src/orders.py", 5, 9, False), ("src/orders.py", 3, None, False)]
+    assert [c["rel"] for c in citations.find(text, quoted=True)] == ["src/orders.py"]
+
+
+def test_a_missing_file_and_a_line_past_the_end_are_found_against_the_project(tmp_path):
+    from keel_engine.runtime import citations
+
+    root = str(_project(tmp_path))
+    r = citations.check(root, "Fine: src/orders.py:40, `src/orders.py:1-40`, Invoice.java:1. Bad: `src/orders.py:88-95`, "
+                              "src/gone.py:3, .../billing/Invoice.java:7. Not ours: example.com:8080, /etc/hosts.txt:1.")
+    assert r["checked"] == 6
+    assert [b["problem"] for b in r["bad"]] == [
+        "src/orders.py:88-95 does not exist: the file has 40 lines",
+        "src/gone.py:3 does not exist: no such file",
+        ".../billing/Invoice.java:7 does not exist: the file has 1 line (src/billing/Invoice.java)"]
+    assert {b["level"] for b in r["bad"]} == {"fix"}
+    # not a git repo: the folder's files are read instead
+    plain = str(_project(tmp_path / "plain", repo=False))
+    assert [b["cite"] for b in citations.check(plain, "src/orders.py:41 and src/orders.py:40")["bad"]] == ["src/orders.py:41"]
+
+
+def test_the_spec_check_sends_back_a_spec_whose_citations_do_not_exist(tmp_path):
+    root = str(_project(tmp_path))
+    assert fixes(GOOD, root=root) == []
+    bad = GOOD.replace("`src/scores/store.py:12`", "`src/scores/store.py:235-245`")
+    assert fixes(bad, root=root) == ["src/scores/store.py:235-245 does not exist: the file has 20 lines."]
+    assert fixes(bad) == []                                       # without the project's root nothing is checked
+    many = GOOD + "\n".join(f"- src/orders.py:{100 + n}" for n in range(12))
+    texts = fixes(many, root=root)
+    assert len(texts) == 11 and texts[-1].startswith("2 more citations do not resolve")
+
+
+def test_the_spec_check_of_one_file_reads_its_criteria(tmp_path):
+    root = _project(tmp_path)
+    (root / "docs").mkdir()
+    (root / "docs" / "orders.md").write_text(GOOD.replace("`src/scores/store.py:12`", "src/orders.py:50"))
+    r = spec_check.check_file(str(root), "docs/orders.md")
+    assert r["criteria"] == ["AC-1", "AC-2"] and r["fix"] == 1
+    assert "src/orders.py:50 does not exist: the file has 40 lines." in r["summary"]
+
+
+class _Api:
+    """keel's api as keel_spec_check and keel_citations_check call it: here straight on to the engine's routes, with
+    the project's folder the way the api adds it (SpecCheckController)."""
+
+    def __init__(self, client, root):
+        self.client, self.root = client, str(root)
+
+    def get(self, path, **_):
+        assert path == "/projects"
+        return [{"id": "shop", "root": self.root}]
+
+    def post(self, path, body):
+        from keel_engine.mcp_api import ApiError
+
+        r = self.client.post(path.replace("/projects/shop", ""), json={"root": self.root, **body})
+        if r.status_code != 200:
+            raise ApiError(r.json().get("error") or r.text, r.status_code)
+        return r.json()
+
+
+def test_the_mcp_tools_check_a_spec_and_the_citations_of_a_file_or_a_text(client, tmp_path):
+    from keel_engine import mcp_more
+    from keel_engine.mcp_api import ApiError
+
+    root = _project(tmp_path)
+    (root / "docs").mkdir()
+    (root / "docs" / "orders.md").write_text(GOOD.replace("`src/scores/store.py:12`", "`src/orders.py:88-95`"))
+    api = _Api(client, root)
+    out = mcp_more.spec_check(api, "docs/orders.md", "shop")
+    assert out.startswith("docs/orders.md: 2 acceptance criteria (AC-1, AC-2) · 1 to fix")
+    assert "fix   src/orders.py:88-95 does not exist: the file has 40 lines." in out
+    out = mcp_more.citations_check(api, path="docs/orders.md", project="shop")
+    assert out == ("docs/orders.md: 1 citations of project files checked, 1 do not resolve:\n"
+                   "fix   src/orders.py:88-95 does not exist: the file has 40 lines")
+    assert mcp_more.citations_check(api, text="src/orders.py:40", project="shop").endswith("0 do not resolve.")
+    # refused: a path outside the project, a file that is not there, a secret file, both a path and a text
+    for path in ("../x.md", "/etc/passwd"):
+        with pytest.raises(ApiError, match="not a path inside the project"):
+            mcp_more.spec_check(api, path, "shop")
+    with pytest.raises(ApiError, match="No file docs/gone.md"):
+        mcp_more.spec_check(api, "docs/gone.md", "shop")
+    with pytest.raises(ApiError, match="holds secrets"):
+        mcp_more.citations_check(api, path=".env", project="shop")
+    with pytest.raises(ApiError, match="one of them"):
+        mcp_more.citations_check(api, path="docs/orders.md", text="x", project="shop")

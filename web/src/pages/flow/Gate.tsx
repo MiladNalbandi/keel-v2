@@ -1,18 +1,20 @@
 import { copyText } from "../../clipboard";
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, errorParts, type Blocker, type Step, type ThreadState, type Workflow } from "../../api";
 import { CodeBlock, FoldedText } from "../../components/Code";
 import { ClarifyForm, type ClarifyAnswers } from "../../components/ClarifyForm";
 import { questionsPayload, reasonsMissing } from "../../questions";
 import { ChoiceForm } from "../../components/ChoiceForm";
+import { clearDraft, DraftKept, dropOtherDrafts, noKeys, questionKey, useAnswerDraft } from "../../drafts";
 import { Markdown, type FoldLabels } from "../../components/Markdown";
 import { autoLines, RunModeNote } from "../../components/RunMode";
 import { ErrorBox, Panel, Pill, Ticks } from "../../components/ui";
 import { kfmt, usd } from "../../format";
-import { go, useApp } from "../../state";
+import { go, useApp, useLoad } from "../../state";
 import { useHasPage } from "../../sdk/registry";
 import { askAssistant } from "../../sdk/assistant";
 import { fixRequest } from "../../askFix";
+import { AcCodeSection, dropSection } from "./AcCode";
 
 type GateLabels = {
   approve: string; reject: string; needWhy: boolean; whyLabel?: string; explain?: string;
@@ -141,9 +143,15 @@ export function CopyId({ id }: { id: string }) {
 export function GateCard({ thread, workflow, onDone }: { thread: ThreadState; workflow: Workflow; onDone: () => Promise<void> }) {
   const { toast, reloadProjects } = useApp();
   const w = thread.waiting!;
-  const [why, setWhy] = useState("");
-  const [picked, setPicked] = useState<ClarifyAnswers>({});
-  const [typed, setTyped] = useState<ClarifyAnswers>({});
+  // keel 0.18.64 what the person typed or picked is kept until it is sent (another project or page and back: still
+  // there); a new question of this flow forgets the old one's
+  const pid = thread.project_id;
+  const qkey = questionKey({ id: w.id, step: w.step, ac: thread.ac });
+  const place = useMemo(() => ({ project: pid, thread: thread.thread_id, question: qkey }), [pid, thread.thread_id, qkey]);
+  useEffect(() => dropOtherDrafts(pid, thread.thread_id, qkey), [pid, thread.thread_id, qkey]);
+  const [why, setWhy, keptWhy] = useAnswerDraft<string>(place, "why", "");
+  const [picked, setPicked, keptPicked] = useAnswerDraft<ClarifyAnswers>(place, "picked", {}, noKeys);
+  const [typed, setTyped, keptTyped] = useAnswerDraft<ClarifyAnswers>(place, "typed", {});
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
   const [err, setErr] = useState<{ message: string; hint?: string } | null>(null);
@@ -152,6 +160,12 @@ export function GateCard({ thread, workflow, onDone }: { thread: ThreadState; wo
   const ac = thread.acs.find((a) => a.id === thread.ac);
   const labels = gateLabels(w, ac?.id, back?.name);
   const keelbot = useHasPage("helper");
+  // 0.18.64 an AC gate shows its criterion's code, the RED and GREEN commits as diffs. Once it is here the card drops the
+  // Markdown's Commits section (the same commits as text; keel's TUI and MCP keep it).
+  const acId = w.kind === "gate" ? w.ac : undefined;
+  const code = useLoad(acId ? `ac-code:${pid}:${thread.thread_id}:${acId}:${w.id ?? w.title}` : null,
+    () => api.acCode(pid, thread.thread_id, acId!), { live: false });
+  const detail = acId && code.data ? dropSection(w.detail, "Commits") : w.detail;
 
   const showAc = w.kind === "gate" && !labels.special;
   // keel 0.18.13 the engine says what each named choice means: one card each (ChoiceForm), its own reason box
@@ -199,6 +213,7 @@ export function GateCard({ thread, workflow, onDone }: { thread: ThreadState; wo
       setTyped({});
       toast(decision === "approve" ? labels.approved : labels.rejected);
       setWhy("");
+      clearDraft(place);
       await Promise.all([onDone(), reloadProjects()]);
     } catch (e) {
       setErr(errorParts(e));
@@ -210,7 +225,8 @@ export function GateCard({ thread, workflow, onDone }: { thread: ThreadState; wo
 
   return (
     <div className="interrupt" role="region" aria-label="Gate waits for you" onKeyDown={onKey}>
-      <h3><Pill tone="warn">◆ waits for you</Pill> <Ticks text={w.title} />{showAc && ac ? <> — {ac.id} [{ac.layer}] <Ticks text={ac.title} /></> : null}</h3>
+      {/* 0.18.64 one span for the title: in the flex row each text and `code` piece of it was its own column */}
+      <h3><Pill tone="warn">◆ waits for you</Pill> <span className="gate-title"><Ticks text={w.title} />{showAc && ac ? <> — {ac.id} [{ac.layer}] <Ticks text={ac.title} /></> : null}</span></h3>
       <RunModeNote mode={thread.run_mode} kind={w.kind === "fix" && /dependenc/i.test(w.title) ? "dependency" : w.kind} title={w.title}
         auto={{ count: autoLines(thread.gate_log).length, last: autoLines(thread.gate_log).at(-1) }} />
       {labels.explain && <p className="sub" style={{ margin: 0 }}>{labels.explain}</p>}
@@ -222,10 +238,13 @@ export function GateCard({ thread, workflow, onDone }: { thread: ThreadState; wo
           <div><dt>After send back</dt><dd>{sentBack}</dd></div>
         </dl>
       )}
+      {acId && (code.data ? <AcCodeSection key={`${acId}:${w.id ?? ""}`} pid={pid} tid={thread.thread_id} code={code.data} />
+        : code.loading ? <p className="sub" style={{ margin: 0 }}>Loading the criterion's code…</p>
+        : code.error ? <p className="sub" style={{ margin: 0 }}>The criterion's code could not be loaded: {code.error.message}</p> : null)}
       {w.kind === "clarify" && w.questions
         ? <ClarifyForm questions={w.questions} picked={picked} typed={typed}
             onPick={(id, value) => setPicked((p) => ({ ...p, [id]: value }))} onType={(id, text) => setTyped((p) => ({ ...p, [id]: text }))} />
-        : w.detail && (plain ? <div className="gc-proof"><span className="gc-k">Proof</span><GateDetail text={w.detail} /></div> : <GateDetail text={w.detail} />)}
+        : detail && (plain ? <div className="gc-proof"><span className="gc-k">Proof</span><GateDetail text={detail} /></div> : <GateDetail text={detail} />)}
       {w.kind !== "clarify" && w.questions?.length ? (
         <ClarifyForm questions={w.questions} picked={picked} typed={typed}
           onPick={(id, value) => setPicked((p) => ({ ...p, [id]: value }))} onType={(id, text) => setTyped((p) => ({ ...p, [id]: text }))} />
@@ -237,7 +256,7 @@ export function GateCard({ thread, workflow, onDone }: { thread: ThreadState; wo
         </div>
       )}
       {info ? (
-        <ChoiceForm key={w.id ?? w.title} id={`gate-${thread.thread_id}`} choices={info} busy={busy} onSend={(choice, said) => decide("approve", { choice }, said)} />
+        <ChoiceForm key={w.id ?? w.title} id={`gate-${thread.thread_id}`} choices={info} busy={busy} draft={place} onSend={(choice, said) => decide("approve", { choice }, said)} />
       ) : w.kind === "usage" && w.choices ? (
         <div className="row">
           {w.choices.includes("continue") && <button className="btn warn" type="button" id="approve" disabled={busy} onClick={() => decide("approve", { choice: "continue" })}>Continue anyway</button>}
@@ -265,6 +284,7 @@ export function GateCard({ thread, workflow, onDone }: { thread: ThreadState; wo
           </button>
         )}
       </div>}
+      <DraftKept shown={keptWhy || keptPicked || keptTyped} />
       {err && <ErrorBox error={err} />}
       {err && keelbot && (
         <div className="row">

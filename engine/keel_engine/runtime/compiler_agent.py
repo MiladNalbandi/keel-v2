@@ -7,7 +7,7 @@ import tempfile
 import time
 import uuid
 
-from . import agent_knowledge, blockers as push_gates, choices as choices_mod, clarify, flow_actions, guard_ctx, markers, memory as memory_mod, prompts, security_actions, spec_check, stacks, test_scope, tools as tool_runner
+from . import agent_knowledge, blockers as push_gates, choices as choices_mod, clarify, flow_actions, guard_ctx, markers, memory as memory_mod, other_projects, prompts, security_actions, spec_check, stacks, test_scope, tools as tool_runner
 from .. import addons, agent_names, extensions, models, rules
 from ..models import catalog, usage as provider_usage
 from ..models.base import AgentRequest, AgentResult
@@ -73,6 +73,14 @@ class AgentMixin:
                           unlocks=state.get("unlocks") or [], agent=agent, knowledge=know,
                           readonly=self._readonly() or item_root)
         toolbox.refused_paths = refused_paths
+        # keel 0.18.64 the other projects registered in this keel: read only (runtime/other_projects.py)
+        toolbox.others_off = other_projects.is_off(cfg)
+        toolbox.others = await asyncio.to_thread(other_projects.usable, ctx.other_projects, root, ctx.project_id, cfg)
+        # 0.18.64 keel's own MCP server reads only this flow's project (and the ones it may read): keel_read_file,
+        # keel_search, keel_knowledge, keel_agent_prompt ... on another project are refused there (mcp_api.KeelApi)
+        if ctx.project_id:
+            mcp_specs = mcp.scoped(mcp_specs, tools_allow, [ctx.project_id, *(o["id"] for o in toolbox.others if o.get("id"))])
+        toolbox.flow = f'"{ctx.title}" (thread {ctx.thread_id})'     # 0.18.64 a refused commit names this flow
         # keel v1's push gate for the agent's own `git push` / `gh pr create` (rules.push_gate)
         toolbox.push_blockers = await asyncio.to_thread(push_gates.for_agents, root, state.get("base_head"), ctx.project_id or None)
         ctx.emit("agent.started", step=step.id, call_id=call_id, data={
@@ -169,11 +177,21 @@ class AgentMixin:
             evidence = prompts.evidence_block((state.get("data") or {}).get("seed"))
             if evidence:
                 prompt = f"{prompt}\n\n{evidence}"
+        if phase == "spec" and not item and self._spec_step(step):
+            # 0.18.64 a spec handed over (the clarify hand-over, a spec pasted into the request, the spec it started
+            # from) is kept whole: the spec writer fills its gaps, and the spec check names what it dropped
+            named = {"the handed-over document": "the document handed over by the flow that started this one",
+                     "the request": "what the user asked for"}
+            for where, _doc in spec_check.seeded(ctx.request, state.get("data")):
+                prompt += "\n\n" + prompts.seeded_block(named.get(where, where))
         started_from = (state.get("data") or {}).get("spec")
         if phase == "spec" and started_from and started_from == state.get("spec") and not state.get("feedback"):
             # 0.17.3 started from a spec (the Wiki): the agents change that file instead of writing another one
             prompt += (f"\nThis flow starts from the spec {started_from}: change that file (keep its criteria ids and words), "
                        "do not write a new spec file.")
+        others_note = other_projects.prompt_note(toolbox.others)
+        if others_note:
+            prompt += "\n\n" + others_note
         lint_notes = (state.get("data") or {}).get("lint_notes") or []
         if lint_notes:
             why = "know them while you review" if rules.read_only(phase) else "fix them when they are in your scope"
@@ -192,6 +210,14 @@ class AgentMixin:
                                keys=dict(ctx.keys), section=section, session=session, resume=resuming,
                                on_session=(lambda sid: mem.set_session(key, sid)) if mem else None, thread=ctx.thread_id,
                                knowledge=know, item=item)
+            # 0.18.64 the exact prompt this call got, kept with the job (api events, GET /jobs/{id}/prompt, the MCP tool
+            # keel_agent_prompt): a field report could not tell whether a retry's prompt still had the reject note.
+            # A record, not a live view: the api stores it and sends it to no screen.
+            system_text, task_text = str(req.system or ""), str(req.prompt or "")
+            ctx.emit("agent.prompt", step=step.id, call_id=call_id, data={
+                "agent": agent, "ac": (ac or {}).get("id"),
+                "system": system_text[:_c.PROMPT_RECORD_MAX], "system_cut": len(system_text) > _c.PROMPT_RECORD_MAX,
+                "prompt": task_text[:_c.PROMPT_RECORD_MAX], "prompt_cut": len(task_text) > _c.PROMPT_RECORD_MAX})
             # The guard context keel's hook reads on every tool call (CLI agents). It sits in this run's scratch folder,
             # outside the project; an unlock granted while the agent runs rewrites it (ThreadContext.add_unlocks).
             gfile = guard_ctx.GuardFile(Path(tmp) / guard_ctx.FILE, **guard_ctx.context_for(req))
@@ -237,7 +263,9 @@ class AgentMixin:
             res.cost_usd = catalog.premium_cost(model["provider"], model.get("model", ""), res.premium_requests)
         ctx.emit("agent.finished", step=step.id, call_id=call_id, data={
             "agent": agent, "status": "done", "tokens_in": res.tokens_in, "tokens_out": res.tokens_out, "tokens_cached": res.tokens_cached,
-            "cost_usd": round(res.cost_usd, 6), "premium_requests": res.premium_requests, "result": res.text[:2000]})
+            # 0.18.64 the whole answer up to RESULT_MAX (it was 2,000 characters): keel_flow_diff compares a step's last
+            # two answers (a spec assembled again after a reject), and a cut answer hid what changed
+            "cost_usd": round(res.cost_usd, 6), "premium_requests": res.premium_requests, "result": res.text[:_c.RESULT_MAX]})
         return res, model, toolbox
 
     # ------------------------------------------------------------ budget
@@ -613,6 +641,7 @@ class AgentMixin:
         # 0.18.21 only the spec writer's answer holds criteria (a `keep` step's answer is text for the next steps)
         if state["phase"] in ("spec", "triage") and not state.get("acs") and prompts.spec_writer(step):
             acs, spec = await asyncio.to_thread(self._acs_from, agent_results, started, state.get("spec"))
+            spec = await asyncio.to_thread(self._renumbered, state, spec)
             if not acs and ctx.request:
                 # 0.18.17 the agent wrote its criteria in another form ("1. ..."), but the request lists them as AC
                 # lines: those are the person's own criteria, not "no acceptance criteria yet"
@@ -620,8 +649,12 @@ class AgentMixin:
             if acs:
                 # keel's spec check: something clear is missing (a screen with no mockup, an API with no request path)
                 # → send the spec back to the explorer ONCE, in the same session. Otherwise the gate shows the warnings.
-                found = spec_check.check(await asyncio.to_thread(spec_check.read_spec, ctx.root, spec or state.get("spec")), acs,
-                                         spec_check.outside_facts(ctx.request, state.get("data")))
+                # 0.18.64 with the project's root: its citations are checked against the files (git ls-files, reads); and
+                # what a handed-over spec named and this one lost (a risk, a criterion, an out-of-scope item)
+                text = await asyncio.to_thread(spec_check.read_spec, ctx.root, spec or state.get("spec"))
+                found = await asyncio.to_thread(spec_check.check, text, acs,
+                                                spec_check.outside_facts(ctx.request, state.get("data")), ctx.root) \
+                    + spec_check.lost(text, ctx.request, state.get("data"))
                 if any(f["level"] == "fix" for f in found) and not state.get("spec_revisions") \
                         and ctx.settings.get("spec_check", not ctx.fake):
                     upd.update(spec_revisions=1, feedback=spec_check.revision_note(found), clarify={},
@@ -647,6 +680,20 @@ class AgentMixin:
                 upd["clarify"] = {"questions": asked[:clarify.MAX_QUESTIONS]} if asked else {}
             if spec:
                 upd["spec"] = spec
+        elif state["phase"] == "spec" and state.get("acs") and self._spec_step(step) \
+                and spec_check.seeded(ctx.request, state.get("data")):
+            # 0.18.64 criteria handed over (clarify, change): the spec written around them must still hold what the
+            # handed-over spec named; a lost risk sends it back once, like the spec check above
+            _acs, spec = await asyncio.to_thread(self._acs_from, agent_results, started, state.get("spec"))
+            spec = await asyncio.to_thread(self._renumbered, state, spec)
+            text = await asyncio.to_thread(spec_check.read_spec, ctx.root, spec)
+            gone = spec_check.lost(text, ctx.request, state.get("data"))
+            if spec:
+                upd["spec"] = spec
+            if gone and not state.get("spec_revisions") and ctx.settings.get("spec_check", not ctx.fake):
+                upd.update(spec_revisions=1, feedback=spec_check.revision_note(gone),
+                           note=upd["note"] + " · spec check: sent back once (lost what was handed over)")
+                return upd, self.nav.jump(step.id, i)
         if step.asks:
             # keel's clarify loop for any agent step: its keel-questions go to the next gate as buttons, the answers back
             # to this agent (at most clarify.MAX_ROUNDS rounds; then it must decide with the recommended options).
@@ -699,6 +746,22 @@ class AgentMixin:
                     return upd, self.nav.jump(step.back, i)
                 return upd, _c.fix_id(step.id)
         return upd, self.nav.after(i)
+
+    def _spec_step(self, step: Step) -> bool:
+        """0.18.64 the step that writes the flow's spec: the workflow's first spec writer in a spec or triage phase
+        (feature's spec, change's triage). The plan under the criteria and a gate's edit change a spec that exists."""
+        first = next((s for s in self.wf.steps if s.phase in ("spec", "triage") and prompts.spec_writer(s)), None)
+        return first is not None and first.id == step.id
+
+    def _renumbered(self, state: FlowState, spec: str | None) -> str | None:
+        """0.18.64 the spec this flow wrote first: a number another spec has already (in any spec folder, keel v1's
+        too) moves to the next free one. A spec the flow knew before, or started from, or one committed already keeps
+        its name."""
+        if not spec or state.get("spec") or spec == (state.get("data") or {}).get("spec"):
+            return spec
+        if git.is_repo(self.ctx.root) and git.tracked_in_head(self.ctx.root, spec):
+            return spec
+        return prompts.renumber_spec(self.ctx.root, spec)
 
     def _addon_event(self, step_id: str):
         """An add-on action's own events: kind "<addon>.<what>" only (keel's own kinds stay keel's)."""

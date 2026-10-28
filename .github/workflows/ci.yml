@@ -67,6 +67,8 @@ jobs:
       # phone access: start --wifi, share tailscale | tunnel | off (fake docker, curl, tailscale, cloudflared; nothing real)
       - run: shellcheck -S warning scripts/test-keel2-remote.sh && bash scripts/test-keel2-remote.sh
       - run: shellcheck -S warning scripts/test-keel2-mcp-relay.sh && bash scripts/test-keel2-mcp-relay.sh
+      # 0.18.64 keel2 add: no restart for a folder keel sees, a restart said first; keel2 mcp's folder and zone (fake docker, curl)
+      - run: shellcheck -S warning scripts/test-keel2-add.sh && bash scripts/test-keel2-add.sh
       # keel2 muxy hook | workspace: Muxy notifications from keel's events, read-only (fake docker, curl, Muxy socket, muxy CLI)
       - run: shellcheck -S warning scripts/test-keel2-muxy.sh && bash scripts/test-keel2-muxy.sh
       # the plugin publishing scripts (docs/plugins/14-publishing.md), and step 5's: the plugin repos and plugins.lock

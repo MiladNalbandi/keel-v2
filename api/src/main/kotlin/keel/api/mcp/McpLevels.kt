@@ -8,6 +8,7 @@ import keel.api.common.BadRequest
 import keel.api.common.ErrorBody
 import keel.api.common.Hash
 import keel.api.common.KeelProperties
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.core.Ordered
 import org.springframework.core.annotation.Order
 import org.springframework.http.MediaType
@@ -54,18 +55,39 @@ class McpTokens(props: KeelProperties) {
 
 data class McpTokenRequest(val level: String = "")
 
+
+/**
+ * 0.18.64 a plugin's own routes an MCP server may call below the admin level: the routes its read and acting MCP tools
+ * use. Any other non-GET route of a plugin needs admin ([McpLevelGuard]: what no list names is admin).
+ */
+interface McpRouteLevels {
+    /** (method, path) a read token may call: a POST that changes nothing. */
+    val read: List<Pair<String, Regex>> get() = emptyList()
+
+    /** (method, path) a write token may call: what the plugin's acting MCP tools send. */
+    val write: List<Pair<String, Regex>> get() = emptyList()
+}
+
 /**
  * v0.16.1 the api refuses an MCP call above the level its token proves. It only looks at requests that say they come
  * from MCP (X-Keel-Via: mcp, or an X-Keel-Mcp-Token header) and at the MCP-only route POST /api/projects/{pid}/actions/{name};
  * the web app sends neither header, so it works as before. Without a valid token a request is at the read level.
  * v0.18.1: [keel.api.auth.LocalAuth] runs first: a request reaches this guard only with a credential; this guard
  * keeps an MCP call within its level, and a person (browser, TUI) or keel itself (internal token) is not limited here.
- * GET is fine at read; other methods need write; [admin] routes need admin; an action needs the level the engine gives
- * it ([READ_ACTIONS], [ADMIN_ACTIONS], others write). It runs inside [McpAudit], so a refused call is still recorded.
+ * GET is fine at read; [READ_POSTS] are read, [WRITE] routes write, [ADMIN] routes admin; an action needs the level
+ * the engine gives it ([READ_ACTIONS], [ADMIN_ACTIONS], others write). It runs inside [McpAudit], so a refused call is
+ * still recorded.
+ * 0.18.64 a non-GET route no list names needs admin (until 0.18.63 it was write: a new route, such as adding an MCP
+ * server that runs any command, was open to every write token). McpRouteLevelsApiTest fails on a core route no list
+ * names; a plugin names its own read and write routes ([McpRouteLevels]).
  */
 @Component
 @Order(Ordered.LOWEST_PRECEDENCE)
-class McpLevelGuard(private val tokens: McpTokens, private val mapper: ObjectMapper) : OncePerRequestFilter() {
+class McpLevelGuard(
+    private val tokens: McpTokens,
+    private val mapper: ObjectMapper,
+    private val plugins: ObjectProvider<McpRouteLevels>,
+) : OncePerRequestFilter() {
 
     override fun shouldNotFilter(request: HttpServletRequest): Boolean {
         val path = keel.api.common.ApiPath.of(request)
@@ -97,15 +119,22 @@ class McpLevelGuard(private val tokens: McpTokens, private val mapper: ObjectMap
         action(request)?.let { name ->
             return when (name) { in READ_ACTIONS -> "read"; in ADMIN_ACTIONS -> "admin"; else -> "write" }
         }
-        val path = keel.api.common.ApiPath.of(request).trimEnd('/')
-        if (method == "POST" && DB_QUERY.matches(path)) return "read"     // a change needs write: DatabaseController checks the body
-        // step 4: keel_plugin_request is a read-level tool (agents run keel2 mcp --read-only); it only opens an Inbox
-        // request a person approves, and the marketplace rule "agents may ask" still decides (PluginRequests)
-        if (method == "POST" && path == PLUGIN_REQUESTS) return "read"
-        if (method == "POST" && READ_POSTS.any { it.matches(path) }) return "read"
-        if (ADMIN.any { (m, re) -> m == method && re.matches(path) }) return "admin"
-        if (ADMIN_PREFIXES.any { path == it || path.startsWith("$it/") }) return "admin"
-        return "write"
+        return levels(method, keel.api.common.ApiPath.of(request)).firstOrNull() ?: "admin"
+    }
+
+    /**
+     * 0.18.64 the levels the lists give a non-GET route (none: no list names it, so it needs admin). The read lists come
+     * first, then admin, then write: a route in two lists gets the first (McpRouteLevelsApiTest wants one list each).
+     */
+    fun levels(method: String, path: String): List<String> {
+        val p = path.trimEnd('/')
+        fun on(list: List<Pair<String, Regex>>) = list.any { (m, re) -> m == method && re.matches(p) }
+        val mine = plugins.orderedStream().toList()
+        val out = mutableListOf<String>()
+        if (on(READ_POSTS) || mine.any { on(it.read) }) out += "read"
+        if (on(ADMIN) || ADMIN_PREFIXES.any { p == it || p.startsWith("$it/") }) out += "admin"
+        if (on(WRITE) || mine.any { on(it.write) }) out += "write"
+        return out
     }
 
     private fun action(request: HttpServletRequest): String? =
@@ -126,60 +155,166 @@ class McpLevelGuard(private val tokens: McpTokens, private val mapper: ObjectMap
         /** The engine actions that need the admin level. Twin of the "admin" names in engine action_docs.ACTION_LEVELS. */
         val ADMIN_ACTIONS = setOf("arch_set", "open_pr")
 
-        private val ACTION = Regex("^/api/projects/[^/]+/actions/([^/]+)$")
-        private val DB_QUERY = Regex("^/api/projects/[^/]+/db/query$")
-        private const val PLUGIN_REQUESTS = "/api/plugins/requests"
-        private val ADMIN = listOf(
-            // 0.18.5 stopping a flow is write (keel TUI and the dashboard let the person do it; the MCP tool asks first)
-            "DELETE" to Regex("^/api/projects/[^/]+/flows/[^/]+$"),
-            "POST" to Regex("^/api/projects$"),
-            "POST" to Regex("^/api/projects/bulk$"),
-            "DELETE" to Regex("^/api/projects/[^/]+$"),
-            "PUT" to Regex("^/api/workflows/[^/]+$"),
-            "DELETE" to Regex("^/api/workflows/[^/]+$"),
+        /** The MCP-only route of the engine's actions: its level is the action's ([need]). */
+        val ACTION = Regex("^/api/projects/[^/]+/actions/([^/]+)$")
+        private fun post(re: String) = "POST" to Regex(re)
+        private fun put(re: String) = "PUT" to Regex(re)
+        private fun delete(re: String) = "DELETE" to Regex(re)
+
+        /** Reads that are POSTs (they change nothing). */
+        val READ_POSTS = listOf(
+            // a rule pack's check and dry-run
+            post("^/api/projects/[^/]+/rules/check$"),
+            // keel's ASCII diagrams (keel TUI, keel2 mcp's diagram tools): drawing changes nothing
+            post("^/api/diagrams/ascii$"),
+            // 0.18.5 a workflow's check (keel_workflow_check): it saves nothing
+            post("^/api/projects/[^/]+/workflows/check$"),
+            // 0.18.9 a stack's check (keel_stack_check): it saves nothing
+            post("^/api/projects/[^/]+/stacks/check$"),
+            // 0.18.64 keel's spec check and citation check on a file of the project (keel_spec_check, keel_citations_check)
+            post("^/api/projects/[^/]+/(specs|citations)/check$"),
+            // 0.18.64 a fetch of the project's remotes (keel_fetch_remotes): it updates only the remote-tracking refs, no
+            // branch and no file. A flow branch's sync (POST /api/threads/{id}/sync, keel_branch_sync) is write.
+            post("^/api/projects/[^/]+/remotes/fetch$"),
+            // step 4: keel_plugin_request is a read-level tool (agents run keel2 mcp --read-only); it only opens an Inbox
+            // request a person approves, and the marketplace rule "agents may ask" still decides (PluginRequests)
+            post("^/api/plugins/requests$"),
+            // the Database plugin's query: a change needs write (DatabaseController checks the body)
+            post("^/api/projects/[^/]+/db/query$"),
+            // 0.18.64 an estimate of unsaved workflow YAML, and the look at the uncommitted files: both change nothing
+            post("^/api/projects/[^/]+/estimate$"),
+            post("^/api/projects/[^/]+/doctor/workspace$"),
+        )
+
+        /**
+         * 0.18.64 what keel's MCP write tools send (engine keel_engine/mcp_*.py), and what is like it (a new workflow
+         * written in the editor, as keel_workflow_create imports one). Each acting tool asks the person first where it
+         * changes something hard to undo (mcp_levels.CONFIRM).
+         */
+        val WRITE = listOf(
+            // flows: start one (keel_start_flow; its "ignore this path" is the doctor's exclude), stop, go on, answer
+            post("^/api/projects/[^/]+/flows$"),
+            post("^/api/projects/[^/]+/doctor/workspace/exclude$"),
+            post("^/api/threads/[^/]+/(stop|resume|mode|models|rewind|sync)$"),
+            put("^/api/threads/[^/]+/document$"),
+            // keel_answer and keel_approve_gate answer a flow's question (an approval the api asked itself needs more:
+            // InboxService.act)
+            post("^/api/inbox/[^/]+/act$"),
+            post("^/api/projects/[^/]+/docs/history/restore$"),
+            // keel_state's close of keel v1's leftover state file
+            post("^/api/projects/[^/]+/keel-state/close$"),
+            // an acting tool asks the person in the Inbox (0.18.64: also the confirmation of a client without forms)
+            post("^/api/projects/[^/]+/plugins/ask$"),
+            // agents: a new one (keel_agent_create), its model and its skills (keel_agent_model, keel_skill_attach)
+            post("^/api/projects/[^/]+/agents$"),
+            put("^/api/projects/[^/]+/agents/[^/]+$"),
+            // 0.18.5 a new workflow and a new rule pack (keel_workflow_create, keel_rule_create)
+            post("^/api/projects/[^/]+/workflows(/import)?$"),
+            post("^/api/projects/[^/]+/rules/packs$"),
+            // 0.18.6 skills: a new one, an import, the agents it is on and a marketplace install
+            post("^/api/projects/[^/]+/skills(/import|/market/install)?$"),
+            put("^/api/projects/[^/]+/skills/(?!repo$)[^/]+$"),
+            // 0.18.9 stacks: saving, removing, turning off and a marketplace install
+            post("^/api/projects/[^/]+/stacks(/save|/market/install)?$"),
+            put("^/api/projects/[^/]+/stacks/[^/]+/off$"),
+            delete("^/api/projects/[^/]+/stacks/[^/]+$"),
+        )
+
+        /**
+         * Routes that need admin, named so McpRouteLevelsApiTest knows each was looked at (what no list names needs admin
+         * too). keel's own configuration and what can reach the machine or the account: an agent with MCP write must not
+         * install a plugin, store a secret, sign in somewhere, add an MCP server (it runs any command), change a setting
+         * or approve a plugin install.
+         */
+        val ADMIN = listOf(
+            // a flow's run removed (keel_delete_run), its worktree removed, a project unlocked
+            delete("^/api/projects/[^/]+/flows/[^/]+$"),
+            post("^/api/threads/[^/]+/worktree/remove$"),
+            post("^/api/projects/[^/]+/unlock$"),
+            post("^/api/projects$"),
+            post("^/api/projects/bulk$"),
+            delete("^/api/projects/[^/]+$"),
+            put("^/api/projects/[^/]+/settings$"),
+            put("^/api/projects/[^/]+/plugins/[^/]+$"),
+            put("^/api/workflows/[^/]+$"),
+            delete("^/api/workflows/[^/]+$"),
+            put("^/api/projects/[^/]+/workflows/[^/]+/folder$"),
+            post("^/api/projects/[^/]+/library/[^/]+/install$"),
+            post("^/api/projects/[^/]+/workflows/market/(install|[^/]+/update)$"),
             // v0.17.2 keel's rules: a change decides what agents may do
-            "PUT" to Regex("^/api/projects/[^/]+/rules/config$"),
-            "POST" to Regex("^/api/projects/[^/]+/rules/library/[^/]+/install$"),
+            put("^/api/projects/[^/]+/rules/config$"),
+            post("^/api/projects/[^/]+/rules/library/[^/]+/install$"),
             // 0.18.5 a new rule pack is write (it only refuses; keel_rule_create asks the person first); changing or
             // removing one stays admin
-            "PUT" to Regex("^/api/projects/[^/]+/rules/packs/[^/]+$"),
-            "DELETE" to Regex("^/api/projects/[^/]+/rules/packs/[^/]+$"),
-            "POST" to Regex("^/api/projects/[^/]+/rule-packs/(install|uninstall|market/install)$"),
-            // 0.18.6 skills: a new one, an import, the agents it is on and a marketplace install are write (each MCP tool
-            // asks the person first); removing one is admin
-            "DELETE" to Regex("^/api/projects/[^/]+/skills/[^/]+$"),
-            // keel's own configuration and what can reach the machine or the account: an agent with MCP write must not
-            // install a plugin, store a secret, sign in somewhere, change a setting or approve a plugin install. No MCP
-            // tool calls these except keel_connect_github, which is an admin tool.
-            "POST" to Regex("^/api/plugins/(install|install-file|restart)$"),
-            "POST" to Regex("^/api/plugins/[^/]+/(update|rollback)$"),
-            "PUT" to Regex("^/api/plugins/(sources|rules)$"),
-            "PUT" to Regex("^/api/plugins/[^/]+$"),
-            "DELETE" to Regex("^/api/plugins/[^/]+$"),
-            "POST" to Regex("^/api/marketplace/refresh$"),
-            "PUT" to Regex("^/api/secrets/[^/]+$"),
-            "DELETE" to Regex("^/api/secrets/[^/]+$"),
-            "PUT" to Regex("^/api/settings/general$"),
-            "PUT" to Regex("^/api/connections/[^/]+$"),
-            "POST" to Regex("^/api/connections/[^/]+/test$"),
-            "POST" to Regex("^/api/logins$"),
-            "POST" to Regex("^/api/logins/[^/]+/code$"),
-            "DELETE" to Regex("^/api/logins/[^/]+$"),
-            "POST" to Regex("^/api/approvals/[^/]+/decide$"),
+            put("^/api/projects/[^/]+/rules/packs/[^/]+$"),
+            delete("^/api/projects/[^/]+/rules/packs/[^/]+$"),
+            post("^/api/projects/[^/]+/rule-packs/(install|uninstall|market/install)$"),
+            // 0.18.6 removing a skill, and the repo's own skills on or off
+            delete("^/api/projects/[^/]+/skills/[^/]+$"),
+            put("^/api/projects/[^/]+/skills/repo$"),
+            // a stack's setup commands run on the machine
+            post("^/api/projects/[^/]+/stacks/(?!market/)[^/]+/install$"),
+            // agents: removing one, and a test (it runs a model); a step explained by a model
+            delete("^/api/projects/[^/]+/agents/[^/]+$"),
+            post("^/api/agents/[^/]+/test$"),
+            post("^/api/projects/[^/]+/workflows/explain-step$"),
+            // what keel remembers about a project
+            post("^/api/projects/[^/]+/memory$"),
+            put("^/api/projects/[^/]+/memory/[^/]+$"),
+            delete("^/api/projects/[^/]+/memory/[^/]+$"),
+            // budget caps and limits, the workspace doctor's apply, a hunt's close, jobs and quality runs
+            post("^/api/projects/[^/]+/caps$"),
+            put("^/api/projects/[^/]+/caps/[^/]+$"),
+            delete("^/api/projects/[^/]+/caps/[^/]+$"),
+            put("^/api/limits$"),
+            post("^/api/projects/[^/]+/doctor/workspace/apply$"),
+            post("^/api/projects/[^/]+/hunts/[^/]+/close$"),
+            post("^/api/jobs/[^/]+/stop$"),
+            post("^/api/quality/runs(/[^/]+/stop)?$"),
+            put("^/api/quality/schedule$"),
+            post("^/api/usage/providers/[^/]+/refresh$"),
+            // which project the dashboard and keel TUI look at (keel_focus is an admin tool)
+            put("^/api/ui/focus$"),
+            // plugins, the marketplace and the plugin host (0.18.64: its restart, like /api/plugins/restart)
+            post("^/api/plugins/(install|install-file|restart)$"),
+            post("^/api/plugins/[^/]+/(update|rollback)$"),
+            put("^/api/plugins/(sources|rules)$"),
+            put("^/api/plugins/[^/]+$"),
+            delete("^/api/plugins/[^/]+$"),
+            post("^/api/plugin-host/restart$"),
+            post("^/api/marketplace/refresh$"),
+            // 0.18.64 MCP servers: each runs any command with the secrets it names; which agent may use which tool
+            post("^/api/mcp-servers$"),
+            put("^/api/mcp-servers/[^/]+$"),
+            delete("^/api/mcp-servers/[^/]+$"),
+            post("^/api/mcp-servers/[^/]+/test$"),
+            put("^/api/projects/[^/]+/mcp-allow$"),
+            // secrets, sign-ins, settings, connections and model servers (0.18.64: a changed host must not get a saved token)
+            put("^/api/secrets/[^/]+$"),
+            delete("^/api/secrets/[^/]+$"),
+            put("^/api/settings/general$"),
+            put("^/api/connections/[^/]+$"),
+            post("^/api/connections/[^/]+/test$"),
+            post("^/api/logins$"),
+            post("^/api/logins/[^/]+/code$"),
+            delete("^/api/logins/[^/]+$"),
+            put("^/api/providers/(local|vertex)$"),
+            put("^/api/providers/local/endpoints/[^/]+$"),
+            delete("^/api/providers/local/endpoints/[^/]+$"),
+            post("^/api/providers/local/endpoints/[^/]+/test$"),
+            post("^/api/approvals/[^/]+/decide$"),
+            // devices (pairing a phone), the web sign-in, notifications
+            post("^/api/devices/(pair|pairing)$"),
+            put("^/api/devices/addresses$"),
+            delete("^/api/devices/[^/]+$"),
+            post("^/api/web/(code|sign-out|sign-out-everywhere)$"),
+            put("^/api/notification-settings$"),
+            post("^/api/notifications/(read-all|[^/]+/read)$"),
+            delete("^/api/notifications(/[^/]+)?$"),
         )
+
         /** Every method under these prefixes needs admin (all of /api/github: sign-in, sign-out, tokens; the Database
          *  plugin's /api/databases: a connection every project sees, its test and its server's databases). */
-        private val ADMIN_PREFIXES = listOf("/api/github", "/api/databases")
-        /** Reads that are POSTs (they change nothing): a rule pack's check and dry-run. */
-        private val READ_POSTS = listOf(
-            Regex("^/api/projects/[^/]+/rules/check$"),
-            // keel's ASCII diagrams (keel TUI, keel2 mcp's diagram tools): drawing changes nothing
-            Regex("^/api/diagrams/ascii$"),
-            // 0.18.5 a workflow's check (keel_workflow_check): it saves nothing
-            Regex("^/api/projects/[^/]+/workflows/check$"),
-            // 0.18.9 a stack's check (keel_stack_check): it saves nothing. Saving, removing, turning off and a marketplace
-            // install are write (keel_stack_create, _remove and _market_install ask the person first)
-            Regex("^/api/projects/[^/]+/stacks/check$"),
-        )
+        val ADMIN_PREFIXES = listOf("/api/github", "/api/databases")
     }
 }

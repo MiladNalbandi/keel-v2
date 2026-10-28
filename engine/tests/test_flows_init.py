@@ -179,7 +179,7 @@ def test_a_fix_that_failed_is_not_offered_again_and_a_plain_approve_stops(client
     s = decide(client, tid, "approve", payload={"choice": "apply_fix"})
     w = s["waiting"]
     assert w["step"] == "rung_gate" and "apply_fix" not in w["choices"] and w["choices"][0] == "stop"
-    assert "## keel stops the loop" in w["detail"] and "already ran, and it failed" in w["detail"]
+    assert "## keel stops the loop" in w["detail"] and "already ran, and it failed, came again" in w["detail"]
     doctors = [r for r in seen if r.agent == "setup-doctor"]
     tried = doctors[-1].item["fixes_tried"]
     assert len(doctors) == 2 and tried[0]["commands"] == ["test -f __pycache__/never.flag"] and not tried[0]["ok"]
@@ -203,6 +203,9 @@ def test_after_three_failed_fixes_the_gate_offers_no_apply_fix(tmp_path):
     a.data["rung_fixes_tried"] = tried[:1]
     data = init_actions._rung_report(a).update["data"]
     assert data["rung_gate_without"] == [] and data["rung_gate_order"] == []
+    a.data["rung_fixes_tried"] = [tried[0], tried[0]]          # the same own_fix failed twice: no third round
+    data = init_actions._rung_report(a).update["data"]
+    assert data["rung_gate_order"] == ["stop"] and "already ran, and it failed, came again" in data["rung_gate_detail"]
     assert init_actions.own_commands({"why": "$ composer update -W\n# then\n\nphp -v"}) == ["composer update -W", "php -v"]
     assert init_actions.own_commands({"why": "x", "payload": {"commands": ["a", "b"]}}) == ["a", "b"]
 
@@ -235,6 +238,17 @@ def test_the_fix_runs_where_init_says_the_tools_live(tmp_path):
     _devcontainer(tmp_path, '{"image": "php:8.5-cli"}')
     assert init_gates.run_prefix(str(tmp_path), {"runs_on": "dev container"}) == "devcontainer exec --workspace-folder ."
     assert init_gates.run_prefix(str(tmp_path), {"runs_on": "this machine"}) is None
+
+
+def test_keel_simulate_checks_0_runs_the_rungs_on_the_fake_model(client, repo, monkeypatch):
+    # 0.18.64 an e2e on the fake model (KEEL_FAKE=1) sees a real setup rung fail: the api has no simulate_checks setting
+    (Path(repo) / ".keel").mkdir(exist_ok=True)
+    (Path(repo) / ".keel" / "config.yml").write_text("commands:\n  api_compile: 'false'\n  unit_tests: 'true'\n")
+    answers(monkeypatch, {"setup-doctor": lambda r: "Nothing to run.\nDIAGNOSIS: needs-you"})
+    monkeypatch.setenv("KEEL_SIMULATE_CHECKS", "0")
+    tid = start(client, repo, workflow="init", title="keel init", settings=SETTINGS)
+    s = to(client, tid, wait(client, tid), "rung_gate")
+    assert s["waiting"]["step"] == "rung_gate" and "Rung 4" in s["waiting"]["detail"]
 
 
 def test_audit_now_can_start_a_hunt(client, repo, monkeypatch):

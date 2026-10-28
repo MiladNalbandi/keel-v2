@@ -36,10 +36,53 @@ def widen(cmd: str) -> str:
     return _GRADLE_FILTER.sub(lambda m: f"{m[0]} {m[1]}{m[2]}{m[3].replace('{AC}', '{AC_ID}')}{m[2]}", cmd)
 
 
+# 0.18.64 (security audit F14) the criterion ids keel uses: AC-6, CHG-1.2 (a change flow's inline criteria), BUG-3 and
+# the like. Only these go into a shell command; they hold no character the shell reads.
+AC_IDS = re.compile(r"^(?:AC-\d+|CHG-\d+\.\d+|[A-Z]+-\d+)$", re.I)
+
+
+def valid_ac(ac: str | None) -> bool:
+    return bool(AC_IDS.match(str(ac or "")))
+
+
+def _safe(text: str) -> str:
+    """Only letters, digits, `.`, `_` and `-`, never a leading `-`: safe inside or outside quotes in any shell command."""
+    return re.sub(r"[^A-Za-z0-9_.-]", "", text or "").lstrip("-")
+
+
+def put(cmd: str, mark: str, value: str) -> str:
+    """`cmd` with each `mark` replaced by `value`: as it is inside quotes ('*{AC}*'), shell-quoted outside them. The
+    caller keeps `value` free of quotes (valid_ac, suite_failure's test names)."""
+    out, i, quote = [], 0, ""
+    while i < len(cmd):
+        if cmd.startswith(mark, i):
+            out.append(value if quote or not value else shlex.quote(value))
+            i += len(mark)
+            continue
+        c = cmd[i]
+        if quote == "'" and c == "'" or quote == '"' and c == '"':
+            quote = ""
+        elif not quote and c in ("'", '"'):
+            quote = c
+        elif c == "\\" and quote != "'" and i + 1 < len(cmd):
+            out.append(cmd[i:i + 2])
+            i += 2
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
 def fill(cmd: str, ac: str | None) -> str:
-    """A command with its placeholders filled: {AC} (AC-006), {AC_ID} (AC006), {AC_KEY} (ac_006)."""
+    """A command with its placeholders filled: {AC} (AC-006), {AC_ID} (AC006), {AC_KEY} (ac_006). An id that is not
+    one of keel's (valid_ac) keeps only its safe characters."""
     a = ac or ""
-    return widen(cmd).replace("{AC_KEY}", _pytest_key(a)).replace("{AC_ID}", ac_id(a)).replace("{AC}", a)
+    if a and not valid_ac(a):
+        a = _safe(a)
+    cmd = widen(cmd)
+    for mark, value in (("{AC_KEY}", _pytest_key(a)), ("{AC_ID}", ac_id(a)), ("{AC}", a)):
+        cmd = put(cmd, mark, value)
+    return cmd
 
 
 def jvm(root: str) -> bool:

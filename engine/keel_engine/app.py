@@ -26,7 +26,7 @@ from .rules.packs import normalize as packs_normalize
 from .runtime.explain import ExplainError, explain_step
 from .runtime.service import Engine, EngineError
 from .runtime.stack_edit import StackError
-from .tools import mcp, worktrees
+from .tools import git, mcp, worktrees
 from .workflows import editor as wf_editor
 from .workflows.estimate import estimate
 from .workflows.model import WorkflowError, from_dict
@@ -138,6 +138,13 @@ class AgentSettings(BaseModel):
     knowledge: AgentKnowledge | None = None
 
 
+class OtherProject(BaseModel):
+    """keel 0.18.64 another project registered in this keel: the flow's agents may read it, never change it."""
+    id: str
+    name: str = ""
+    root: str
+
+
 class StartThread(BaseModel):
     project_id: str
     root: str
@@ -153,6 +160,8 @@ class StartThread(BaseModel):
     request: str | None = None           # what the user asked for, in their words (every agent gets it)
     data: dict[str, Any] | None = None   # lists a workflow reads with from: / for_each: (state.data), e.g. a seed
     parent: dict[str, Any] | None = None # the thread that started this one (start_flow sets it)
+    # keel 0.18.64 every other project registered in this keel (runtime/other_projects.py): read only for the agents
+    other_projects: list[OtherProject] = Field(default_factory=list)
 
 
 class Ask(BaseModel):
@@ -201,10 +210,29 @@ class WorktreeAdd(BaseModel):
     start: str | None = None            # the commit or branch it starts from (default: the folder's HEAD)
 
 
+class RemotesFetch(BaseModel):
+    """0.18.64 fetch every remote of a project (keel_fetch_remotes, the api's flow start)."""
+    root: str
+    keys: dict[str, str] | None = None   # keel's GitHub login, for a remote on its host only (tools/git_auth.py)
+    start: str | None = None             # a ref: the report says whether it is the newest copy of the base
+
+
+class BranchSync(BaseModel):
+    """0.18.64 keel merges or rebases a flow's branch onto a base (runtime/branch_sync.py)."""
+    onto: str | None = None              # default: the base branch's remote copy (origin/main), else the local base
+    mode: Literal["merge", "rebase"] = "merge"
+    action: Literal["start", "continue", "abort"] = "start"
+    root: str | None = None              # the project's folder now (it moves when keel is started another way)
+
+
 class WorktreeRemove(BaseModel):
     root: str
     name: str
     branch: str | None = None           # also delete this branch (a flow's is kept for its PR)
+
+
+class RootBody(BaseModel):
+    root: str
 
 
 class Resume(BaseModel):
@@ -220,9 +248,23 @@ class ModeBody(BaseModel):
     mode: Literal["manual", "important", "auto", "readonly"]
 
 
+class ModelsBody(BaseModel):
+    """0.18.64 a model for this flow only: an agent, a step, or an agent's steps in one phase (runtime/thread_models.py)."""
+    agent: str | None = None
+    step: str | None = None
+    phase: str | None = None
+    model: dict[str, Any] | None = None   # {provider, mode, model, effort?}; null takes the pick back
+    keys: dict[str, str] | None = None    # the new model's login or API key (memory only, like a start's keys)
+
+
 class Continue(BaseModel):
     keys: dict[str, str] | None = None   # the thread's logins (the engine keeps them in memory only)
     root: str | None = None
+
+
+class DocumentBody(BaseModel):
+    text: str
+    root: str | None = None              # the project's folder now (as Resume)
 
 
 class Rewind(BaseModel):
@@ -495,7 +537,8 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
         provider_usage.absorb(data["settings"].pop("provider_windows", None))
         tid = await engine(request).start_thread(data)
         source = engine(request).sources.pop(tid, None)
-        return {"thread_id": tid, **({"source": source} if source else {})}
+        note = engine(request).base_notes.pop(tid, None)
+        return {"thread_id": tid, **({"source": source} if source else {}), **({"base_note": note} if note else {})}
 
     @app.get("/threads/{tid}")
     async def get_thread(tid: str, request: Request):
@@ -512,6 +555,16 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     async def post_mode(tid: str, body: ModeBody, request: Request):
         """The run mode from the next pause on (manual | important | auto | readonly)."""
         return await engine(request).set_mode(tid, body.mode)
+
+    @app.get("/threads/{tid}/models")
+    async def get_models(tid: str, request: Request):
+        """0.18.64 the flow's models: the default, each agent's, each agent step's model now, the person's picks."""
+        return await engine(request).models_of(tid)
+
+    @app.post("/threads/{tid}/models")
+    async def post_models(tid: str, body: ModelsBody, request: Request):
+        """0.18.64 a model for this flow only (an agent, a step, an agent's steps in a phase), from its next agent call."""
+        return await engine(request).set_models(tid, body.model, body.agent, body.step, body.phase, body.keys)
 
     @app.post("/threads/{tid}/continue")
     async def post_continue(tid: str, body: Continue, request: Request):
@@ -532,9 +585,30 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
         await engine(request).set_root(tid, body.root)
         return await engine(request).rewind(tid, body.checkpoint_id)
 
+    # 0.18.64 keel brings the flow's branch up to a base: merge (default) or rebase; a conflict stops with the files
+    @app.post("/threads/{tid}/sync")
+    async def post_sync(tid: str, body: BranchSync, request: Request):
+        await engine(request).set_root(tid, body.root)
+        return await engine(request).sync_branch(tid, body.onto, body.mode, body.action)
+
     @app.get("/threads/{tid}/unlocks")
     async def get_unlocks(tid: str, request: Request):
         return await engine(request).unlocks(tid)
+
+    # ---- 0.18.64 a flow's document (its clarify document or spec), from its file; replaced while the flow waits
+    @app.get("/threads/{tid}/document")
+    async def get_document(tid: str, request: Request):
+        return await engine(request).document(tid)
+
+    # 0.18.64 the AC gate's code for the web: the criterion's RED and GREEN commits with each file's diff (cut)
+    @app.get("/threads/{tid}/ac-code")
+    async def get_ac_code(tid: str, request: Request, ac: str = "", sha: str = "", path: str = ""):
+        return await engine(request).ac_code(tid, ac, sha or None, path or None)
+
+    @app.put("/threads/{tid}/document")
+    async def put_document(tid: str, body: DocumentBody, request: Request):
+        await engine(request).set_root(tid, body.root)
+        return await engine(request).set_document(tid, body.text)
 
     # ---- v0.17.2 rules: the Rules page and "Rules now" (runtime/rules_view.py)
     @app.get("/threads/{tid}/rules-now")
@@ -684,6 +758,8 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     app.include_router(marketplace_router)
     from .runtime.stack_routes import router as stack_router   # keel 0.18.9 a project's own stacks (runtime/stack_edit.py)
     app.include_router(stack_router)
+    from .runtime.spec_routes import router as spec_router   # keel 0.18.64 the spec check and the citation check on a file
+    app.include_router(spec_router)
 
     # v0.8.0 quality runs: the eval sets (content/evals) and a fresh copy of a set's project for one case
     @app.get("/evals")
@@ -709,6 +785,17 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
         except worktrees.WorktreeError as exc:
             raise EngineError(409, str(exc), exc.hint) from exc
 
+    # 0.18.64 fetch every remote at once (git.FETCH_EACH s each at most): one result per remote, and how far the base
+    # branch is behind each remote's copy (runtime/branch_sync.py). Never fails because a remote cannot be reached.
+    @app.post("/remotes/fetch")
+    async def post_remotes_fetch(body: RemotesFetch):
+        from .runtime import branch_sync
+
+        root = project_root(body.root)
+        fetched = await asyncio.to_thread(branch_sync.fetch_all, root, body.keys)
+        start = await asyncio.to_thread(git.rev, root, body.start) if body.start else None
+        return {**await asyncio.to_thread(branch_sync.report, root, fetched, start), "fetched": fetched}
+
     # 0.18.57 what Start a flow says before a start: can a worktree flow run the tests, is the base behind its remote
     @app.get("/start-check")
     async def get_start_check(root: str):
@@ -723,6 +810,22 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
 
         found = await asyncio.to_thread(config_check.stale, project_root(root))
         return {"stale": found, "lines": config_check.lines(found)}
+
+    # 0.18.64 keel v1's leftover state file (.keel/state.json): what it says, and archiving it (runtime/v1_state.py)
+    @app.get("/keel-state")
+    async def get_keel_state(root: str):
+        from .runtime import v1_state
+
+        return await asyncio.to_thread(v1_state.show, project_root(root))
+
+    @app.post("/keel-state/close")
+    async def post_keel_state_close(body: RootBody):
+        from .runtime import v1_state
+
+        try:
+            return await asyncio.to_thread(v1_state.close, project_root(body.root))
+        except FileNotFoundError as exc:
+            raise EngineError(404, str(exc), "Nothing to archive: keel_state shows what keel knows.") from exc
 
     @app.post("/worktrees/remove")
     async def post_worktree_remove(body: WorktreeRemove):

@@ -528,8 +528,12 @@ def _fetch(a, refspecs: list[str]) -> tuple[bool, str]:
     """`git fetch` of these refspecs from origin, with keel's GitHub login when origin is on its host (an ssh remote
     there is fetched over https). (ok, what git said, the token masked)."""
     login = va.github_token(a.keys)
-    with git_auth.remote(a.root, login) as r:
-        f = git.git(a.root, *r.args, "fetch", "-q", "--no-tags", r.target, "--", *refspecs, env=r.env, timeout=FETCH_TIMEOUT)
+    try:
+        with git_auth.remote(a.root, login) as r:
+            f = git.git(a.root, *r.args, "fetch", "-q", "--no-tags", "--end-of-options", r.target, *refspecs, env=r.env,
+                        timeout=FETCH_TIMEOUT)
+    except git_auth.UnsafeRemote as exc:
+        return False, str(exc)
     said = (f.stderr or f.stdout or "").strip()
     return f.returncode == 0, git_auth.mask(said, login)
 

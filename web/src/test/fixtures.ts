@@ -1,7 +1,7 @@
 // Example api data for tests (MSW). Shapes follow docs/CONTRACT.md; values follow docs/mockup.html.
 
 import type {
-  Agent, Budget, BudgetNow, Cap, Catalog, Commit, Checkpoint, Connections, Estimate, Health, StackSetup, Job, JobStep, KeelDoc, KeelMap, LibraryItem, Limit,
+  AcCode, Agent, Budget, BudgetNow, Cap, Catalog, Commit, Checkpoint, Connections, Estimate, Health, StackSetup, Job, JobStep, KeelDoc, KeelMap, LibraryItem, Limit,
   McpServer, Memory, Notification, NotificationSettings, Project, ProjectSettings, ProviderUsage, Settings, Skill, SkillDetail,
   Stack, StepExplanation, StepRunFacts, ThreadState, WikiPage, WikiTree, Workflow,
 } from "../api";
@@ -106,7 +106,7 @@ export const thread: ThreadState = {
     { id: "AC-002", layer: "API", title: "Refuse a negative score with 400", status: "green" },
     { id: "AC-003", layer: "WEB", title: "Show the top 10 scores", status: "todo" },
   ],
-  waiting: { step: "s8", kind: "gate", title: "AC gate", detail: "RED 4be12d9 · GREEN a81c3f0 · tests 2/2 pass · criterion-reviewer: PASS", options: ["approve", "reject"] },
+  waiting: { step: "s8", kind: "gate", title: "AC gate", detail: "RED 4be12d9 · GREEN a81c3f0 · tests 2/2 pass · criterion-reviewer: PASS", options: ["approve", "reject"], ac: "AC-002" },
   usage: { tokens_in: 160000, tokens_out: 22000, cost_usd: 2.86, premium_requests: 41, cap_tokens: 600000 },
   checkpoints: 31, updated_at: ago(30),
   blockers: [
@@ -114,6 +114,27 @@ export const thread: ThreadState = {
     { gate: "deps", why: "build.gradle.kts adds io.ktor:ktor-server-core.", fix: "Approve the new dependency at the next commit." },
   ],
 };
+
+/** 0.18.64 the AC gate's code (GET .../flows/:tid/ac-code): a RED commit with a 40-line test, a GREEN commit with one
+ *  changed controller and a folded lock file */
+const testLines = Array.from({ length: 39 }, (_, i) => `+    assertEquals(400, post("/scores", score(-${i + 1})).status)`);
+export const acCode: AcCode = {
+  ac: "AC-002", commits: 2, files: 3, added: 46, removed: 2, truncated: false, branch: "feat/scores",
+  red: {
+    sha: "4be12d9aa0c1d2e3f4a5b6c7d8e9f00112233445", short: "4be12d9", subject: "test(AC-002): refuse a negative score", added: 40, removed: 0,
+    files: [{ path: "api/src/test/kotlin/ScoreApiTest.kt", status: "added", added: 40, removed: 0, bucket: "test", lines: 41, truncated: false,
+      diff: ["@@ -0,0 +1,40 @@", "+class ScoreApiTest {", ...testLines].join("\n") }],
+  },
+  green: {
+    sha: "a81c3f0bb1c2d3e4f5a6b7c8d9e0f11223344556", short: "a81c3f0", subject: "feat(AC-002): refuse a negative score with 400", added: 6, removed: 2,
+    files: [
+      { path: "api/ScoreController.kt", status: "modified", added: 4, removed: 1, bucket: "prod", lines: 7, truncated: false,
+        diff: "@@ -10,3 +10,6 @@ class ScoreController {\n   fun save(score: Score): Response {\n-    return store(score)\n+    if (score.value < 0) {\n+      return Response.badRequest(\"a score is never negative\")\n+    }\n+    return store(score)" },
+      { path: "gradle.lockfile", status: "modified", added: 2, removed: 1, bucket: "lock", diff: null, folded: true },
+    ],
+  },
+};
+export const acLockDiff = "@@ -1,2 +1,3 @@\n # gradle lock\n-org.example:shop-core:1.0=compileClasspath\n+org.example:shop-core:1.1=compileClasspath\n+org.example:shop-money:1.0=compileClasspath";
 
 export const checkpoints: Checkpoint[] = [
   { id: "cp31", n: 31, step: "commit", at: ago(120), note: "feat(AC-002) a81c3f0 — 1 file, +14" },

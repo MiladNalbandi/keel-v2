@@ -93,7 +93,7 @@ async def test_edit_gate_takes_the_spec_gates_edit_choice_with_its_notes():
     text = await call(server(api, write=True), "keel_edit_gate", {"notes": "AC-3 must say 400, not 422"})
     path, body = api.posts[-1]
     assert body == {"decision": "approve", "why": "AC-3 must say 400, not 422", "payload": {"choice": "edit", "question_id": "q-spec"}}
-    assert text.startswith("approved spec approval on thread t-1")
+    assert text.startswith("spec approval on thread t-1: ran the choice \"edit\"")      # 0.18.64 the choice that ran
     # a gate that only takes a send-back still gets one
     api = Api({**THREAD["waiting"]})
     await call(server(api, write=True), "keel_edit_gate", {"notes": "say why"})

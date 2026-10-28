@@ -124,7 +124,9 @@ class KeelRules(mapper: ObjectMapper) {
 
             if (matchGlob(rel, cfg.protected) && !negated(rel, cfg.protected)) return "protected-env"
             // keel's rules for the project (v0.17.2): agents never change them (engine rules.RULE_FILES)
-            if (Regex("^\\.keel/config\\.ya?ml$").containsMatchIn(rel) || rel.startsWith(".keel/rules/")) return "keel-rules"
+            // 0.18.64 and .keel/stacks/ (the test commands keel runs)
+            if (Regex("^\\.keel/config\\.ya?ml$").containsMatchIn(rel) || rel.startsWith(".keel/rules/") ||
+                rel.startsWith(".keel/stacks/")) return "keel-rules"
             if (matchGlob(rel, cfg.generated)) return "generated"
             if (cfg.contractFile.isNotEmpty() && rel == cfg.contractFile) return "contract"
             if (Regex("openapi\\.(ya?ml|json)$").containsMatchIn(rel)) return "contract"

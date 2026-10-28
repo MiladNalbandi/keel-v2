@@ -4,7 +4,6 @@ import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
 import keel.api.common.Forbidden
 import org.springframework.http.HttpHeaders
-import org.springframework.http.ResponseCookie
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestParam
@@ -12,7 +11,12 @@ import org.springframework.web.bind.annotation.RestController
 import java.time.Duration
 
 @RestController
-class WebSignInController(private val key: WebKey, private val codes: SignInCodes, private val limiter: AuthLimiter) {
+class WebSignInController(
+    private val key: WebKey,
+    private val codes: SignInCodes,
+    private val limiter: AuthLimiter,
+    private val sessions: WebSessions,
+) {
 
     /** A one-time sign-in code, only for keel2 and keel's scripts (the internal token; [LocalAuth] checked it). */
     @PostMapping("/api/web/code")
@@ -44,27 +48,33 @@ class WebSignInController(private val key: WebKey, private val codes: SignInCode
             response.setHeader(HttpHeaders.LOCATION, "/?signin=expired")
             return
         }
-        response.addHeader(HttpHeaders.SET_COOKIE, cookie(key.value, MAX_AGE).toString())
+        // 0.18.64 a session of this browser's own, never the web key
+        response.addHeader(HttpHeaders.SET_COOKIE, sessions.cookie(request, sessions.open()).toString())
         response.status = HttpServletResponse.SC_FOUND
         response.setHeader(HttpHeaders.LOCATION, safeNext(next))
     }
 
-    /** Signs this browser out (the cookie goes; the key stays, so other browsers stay signed in). */
+    /** Signs this browser out: its session ends and the cookie goes; other browsers stay signed in. */
     @PostMapping("/api/web/sign-out")
-    fun signOut(response: HttpServletResponse): Map<String, Boolean> {
-        response.addHeader(HttpHeaders.SET_COOKIE, cookie("", Duration.ZERO).toString())
+    fun signOut(request: HttpServletRequest, response: HttpServletResponse): Map<String, Boolean> {
+        sessions.end(key.cookieOf(request))
+        response.addHeader(HttpHeaders.SET_COOKIE, sessions.cookie(request, "", Duration.ZERO).toString())
         return mapOf("ok" to true)
+    }
+
+    /** 0.18.64 signs every browser out (each session ends); a terminal app's web key and paired phones stay. */
+    @PostMapping("/api/web/sign-out-everywhere")
+    fun signOutEverywhere(request: HttpServletRequest, response: HttpServletResponse): Map<String, Any> {
+        val n = sessions.endAll()
+        response.addHeader(HttpHeaders.SET_COOKIE, sessions.cookie(request, "", Duration.ZERO).toString())
+        return mapOf("ok" to true, "ended" to n)
     }
 
     /** Who this request is (internal, mcp, person, browser): the web asks once to know it is signed in. */
     @GetMapping("/api/web/me")
     fun me(request: HttpServletRequest): Map<String, Any?> = mapOf("signed_in" to true, "via" to request.getAttribute(LocalAuth.WHO_ATTR))
 
-    private fun cookie(value: String, maxAge: Duration): ResponseCookie =
-        ResponseCookie.from(key.cookieName, value).httpOnly(true).sameSite("Strict").path("/").maxAge(maxAge).build()
-
     companion object {
-        val MAX_AGE: Duration = Duration.ofDays(400)
 
         /** Only a path on this keel ("/flow?x=1"), never another site ("//evil", "https://…"). */
         fun safeNext(next: String?): String {

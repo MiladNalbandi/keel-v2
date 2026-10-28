@@ -16,8 +16,15 @@ structured questions (runtime/clarify.py) and turns the result into criteria kee
                       step and the assembled prompt; the result gate's text, its choices (the matching keel flow first)
                       and the hand-over seed
     clarify_prompt    "copy the prompt only": the prompt is shown and the flow ends, no child flow
+    clarify_redraft   a send-back from the result gate (0.18.64): the file as it is now becomes the draft the assemble
+                      step patches; a replacement draft sent with the reject (keel_reject_with_document) is written to
+                      the file and checked, and shown at the gate again when the spec check passes
+    clarify_hand      before a hand-over or the prompt (0.18.64): the request, the criteria and the prompt are read again
+                      from the file on disk, so an edit the person made while the gate waited is what the next flow gets
 
-Every value lives in data.clarify: type, sections, brief, template, doc, acs, prompt, request, evidence, flows.
+Every value lives in data.clarify: type, sections, brief, template, doc, acs, prompt, request, evidence, flows, notes,
+draft. The document on disk is the source of truth (0.18.64): evidence is the text keel wrote; the result gate's text
+and the hand-over read the file again.
 """
 
 from __future__ import annotations
@@ -514,10 +521,139 @@ async def clarify_doc(a):
     return await asyncio.to_thread(_doc, a)
 
 
+def notes_of(a) -> list[str]:
+    """The person's notes from the clarify result's reject, oldest first (0.18.64). Each one stays in the assemble step's
+    prompt ({{data.clarify.notes}}): a send-back by the spec check, or a later reject, used to replace the note in the
+    feedback, and the outputs were written again from the request and the answers alone."""
+    notes = [str(x) for x in _state(a).get("notes") or [] if str(x).strip()]
+    ans = a.data.get("result_answer") or {}
+    why = str(ans.get("why") or "").strip()
+    if ans.get("choice") == "reject" and why and why not in notes:
+        notes.append(why)
+    return notes
+
+
+DRAFT_MAX = 11000       # the last draft in the assemble prompt (prompts._shown cuts any value at 12000 characters)
+# 0.18.64 what a send-back asks of the assemble step: patch the last draft, not a new answer from the answers alone
+PATCH = ("Patch your last draft (in your instructions, under \"Your last draft\"): keep every part that is right as it "
+         "is, change only what {what} ask, and give your whole answer again with every \"## \" section.")
+_TEXT = re.compile(r"^(`{4,})[ \t]*text[^\n]*\n(.*?)\n\1[ \t]*$", re.S | re.M)
+NO_PROMPT = "(the outputs held no prompt)"
+
+
+def read_doc(root: str, rel: str | None) -> str | None:
+    """The document's text on disk now; None when it is gone, unreadable or a symlink."""
+    if not rel:
+        return None
+    p = Path(root) / rel
+    try:
+        return p.read_text(errors="replace") if p.is_file() and not p.is_symlink() else None
+    except OSError:
+        return None
+
+
+def _local(t: datetime.datetime) -> str:
+    return t.astimezone().strftime("%Y-%m-%d %H:%M %Z").strip()
+
+
+def changed_at(root: str, rel: str) -> str:
+    """When the file was written last, in local time with its zone ("2026-10-28 14:05 CET")."""
+    try:
+        return _local(datetime.datetime.fromtimestamp((Path(root) / rel).stat().st_mtime))
+    except OSError:
+        return "an unknown time"
+
+
+def draft_of(text: str, rel: str) -> str:
+    """The last draft for the assemble prompt ({{data.clarify.draft}}): the document, cut with a pointer to its file when
+    it is long."""
+    if len(text) <= DRAFT_MAX:
+        return text
+    return text[:DRAFT_MAX].rstrip() + f"\n\n[cut at {DRAFT_MAX} of {len(text)} characters: read the whole draft in {rel}]"
+
+
+def acs_of(text: str) -> list[dict]:
+    """The criteria of an answer or a document: its Acceptance criteria section, parsed again."""
+    return prompts.parse_acs(_part(split_answer(text), "acceptance criteria") or text.split("````", 1)[0])
+
+
+def doc_prompt(text: str) -> str:
+    """The ready-to-send prompt in a document's appendix (between ````text and ````), or ""."""
+    at = text.find("## Appendix: ready-to-send prompt")
+    m = _TEXT.search(text, at) if at >= 0 else None
+    got = m.group(2).strip() if m else ""
+    return "" if got == NO_PROMPT else got
+
+
+def doc_request(text: str, asked: str) -> str:
+    """The request a hand-over carries: the one the flow was started with while the document still holds it word for
+    word, else the document's Request section as the person changed it."""
+    if asked and asked in text:
+        return asked
+    body = split_answer(text).get("request") or ""
+    return re.split(r"^Clarified with keel's clarify flow", body, maxsplit=1, flags=re.M)[0].strip() or asked
+
+
+def _handed(request: str, prompt: str, acs: list[dict], rel: str) -> str:
+    """The hand-over's request: what the person reported, the criteria as AC lines (change and small read them from it)."""
+    ac_lines = "\n".join(f"- **{x['id']}** [{x['layer']}] {x['title']}" for x in acs)
+    return "\n\n".join(x for x in [request, _report_part(prompt),
+                                   f"Acceptance criteria (from the clarify flow, {rel}):\n{ac_lines}" if ac_lines else ""] if x)
+
+
+ABOUT_MORE = {"prompt": "copy the prompt only: it is shown here and in the document; no flow starts",
+              "reject": "send it back with a note: the assemble step patches this document (the file as it is then) "
+                        "with it",
+              "stop": "stop here: the document stays, nothing else happens"}
+
+
+def gate_detail(root: str, data: dict) -> str:
+    """The result gate's text (0.18.64), from the file as it is now. The gate showed the copy keel wrote, so an edit the
+    person made while it waited was not on it, and nothing said which copy a hand-over would use. The file is the
+    source of truth: the gate shows it, says when the person edited it, and that the hand-over uses it."""
+    from . import spec_check
+
+    st = data.get("clarify") or {}
+    rel = str(st.get("doc") or "")
+    kept = str(st.get("evidence") or "")
+    now = read_doc(root, rel)
+    text = kept if now is None else now
+    acs = acs_of(text)
+    found = spec_check.check(text, acs, bool(st.get("outside")))
+    flows = list(st.get("flows") or FLOWS["feature"])
+    if now is None:
+        source = f"The file {rel} is gone: this is keel's copy, and a hand-over uses it."
+    elif now != kept:
+        source = (f"You edited {rel} at {changed_at(root, rel)}; the hand-over uses this file as it is (shown below), "
+                  "not the copy keel wrote.")
+    elif st.get("given_at"):
+        source = f"This is your own draft (sent with the reject at {st['given_at']}); the hand-over uses this file."
+    else:
+        source = f"The hand-over uses this file as it is when you choose: edit {rel} first and the next flow gets your edit."
+    order = list(data.get("result_order") or flows + ["prompt", "reject", "stop"])
+    without = set(data.get("result_without") or [])
+    about = {**ABOUT_FLOW, **ABOUT_MORE}
+    lines = [f"- {name}: {about[name]}" + (" (recommended)" if name == flows[0] else "")
+             for name in order if name not in without and name in about]
+    return "\n".join([f"Clarify document: {rel} ({len(acs)} acceptance criteria)", source, "", "Choose one:", *lines, "",
+                      spec_check.describe(found), "", "---", "", text])
+
+
+def _fix_note(spec_check, fixes: list[dict], notes: list[str]) -> str:
+    """The spec check's send-back: its findings, the person's notes (all still apply) and the ask to patch the draft."""
+    note = spec_check.revision_note(fixes).replace(
+        "Change the existing file to fix them", PATCH.format(what="these findings and the notes below").rstrip(".") + ". Fix them")
+    if notes:
+        note += ("\n\nThe person's notes on the outputs still apply, all of them: keep every correction your last "
+                 "answer made for them.\n" + "\n".join(f"- {x}" for x in notes))
+    return note
+
+
 def _doc(a):
     from . import spec_check
 
     st = _state(a)
+    notes = notes_of(a)
     kind = st.get("type") or "feature"
     chosen = st.get("sections") or list(range(1, 7))
     said = str(a.data.get("assemble_text") or a.state.get("last_answer") or "")
@@ -552,7 +688,7 @@ def _doc(a):
         lines += ["## Appendix: questions and answers", "", *([record, ""] if record else []), *([answers, ""] if answers else [])]
     if 5 in chosen:
         lines += ["## Appendix: ready-to-send prompt", "", "Paste it into any AI coding tool.", "", "````text",
-                  prompt or "(the outputs held no prompt)", "````", ""]
+                  prompt or NO_PROMPT, "````", ""]
         if UPGRADE.get(kind):
             lines += [f"> {UPGRADE[kind]}", ""]
     text = "\n".join(lines)
@@ -561,37 +697,106 @@ def _doc(a):
     path.write_text(text)
 
     # keel's spec check: something clear missing -> the outputs are written again once, then the gate shows the rest
-    found = spec_check.check(text, acs, spec_check.outside_facts(a.request, a.data))
+    outside = spec_check.outside_facts(a.request, a.data)
+    found = spec_check.check(text, acs, outside, root=a.root)
     fixes = [f for f in found if f["level"] == "fix"]
     if fixes and not st.get("checked"):
-        data = _data(a, doc=rel, checked=True)
+        # 0.18.64 the retry patches this draft (data.clarify.draft): written again from the answers, it lost what the
+        # draft before it had fixed for a note
+        data = _data(a, doc=rel, checked=True, notes=notes, draft=draft_of(text, rel), outside=outside)
         mk = dict(a.state.get("markers") or {})
         mk[a.step or "write_doc"] = {"SPEC-CHECK": "fix"}
         return _result(True, f"{rel}: the spec check sends the outputs back once ({len(fixes)} missing)",
-                       update={"data": data, "markers": mk, "feedback": spec_check.revision_note(fixes)
-                               .replace("Change the existing file to fix them", "Write your whole answer again with them fixed")})
+                       update={"data": data, "markers": mk, "feedback": _fix_note(spec_check, fixes, notes)})
 
-    # the hand-over: what the person reported, the criteria as AC lines (change and small read them from the request)
-    ac_lines = "\n".join(f"- **{x['id']}** [{x['layer']}] {x['title']}" for x in acs)
-    handed = "\n\n".join(x for x in [request, _report_part(prompt),
-                                     f"Acceptance criteria (from the clarify flow, {rel}):\n{ac_lines}" if ac_lines else ""] if x)
+    # the hand-over: what the person reported, the criteria as AC lines (change and small read them from the request);
+    # clarify_hand builds it again from the file when the person chooses (0.18.64)
+    handed = _handed(request, prompt, acs, rel)
     flows = list(FLOWS[kind])
     without = [f for f in HANDS if f not in flows] + ([] if prompt else ["prompt"])
     order = flows + ["prompt", "reject", "stop"]
-    about = {**ABOUT_FLOW, "prompt": "copy the prompt only: it is shown here and in the document; no flow starts",
-             "reject": "send it back with a note: the outputs are written again with it",
-             "stop": "stop here: the document stays, nothing else happens"}
-    choice_lines = [f"- {name}: {about[name]}" + (" (recommended)" if name == flows[0] else "")
-                    for name in order if name not in without]
-    detail = "\n".join([f"Clarify document: {rel} ({len(acs)} acceptance criteria)", "", "Choose one:", *choice_lines, "",
-                        spec_check.describe(found), "", "---", "", text])
     data = _data(a, doc=rel, acs=acs or None, prompt=prompt, request=handed, evidence=text, flows=flows, checked=False,
-                 spec_check=[f["text"] for f in found])
-    data.update(result_detail=detail, result_without=without, result_order=order)
+                 spec_check=[f["text"] for f in found], notes=notes, outside=outside, given_at=None)
+    # 0.18.64 the gate's text is built from the file each time it is shown (gate_detail), not stored here
+    data.pop("result_detail", None)
+    data.update(result_doc="clarify", result_without=without, result_order=order)
     mk = dict(a.state.get("markers") or {})
     mk[a.step or "write_doc"] = {"SPEC-CHECK": "pass"}
     return _result(True, f"{rel}: {len(acs)} criteria" + (", a prompt" if prompt else "") + f"; next: the {flows[0]} flow",
                    update={"data": data, "markers": mk, "feedback": None})
+
+
+async def clarify_redraft(a):
+    return await asyncio.to_thread(_redraft, a)
+
+
+def _redraft(a):
+    """A send-back from the result gate (0.18.64). The assemble step patches a draft instead of writing the outputs
+    again: the file as it is now (the person may have edited it), or the replacement draft sent with the reject
+    (payload.document: keel_reject_with_document). keel writes that one to the file and checks it first: it passes, and
+    the gate shows it again with no assemble pass; it fails, and the assemble step patches it. The way on is the spec
+    check's marker on write_doc, as write_doc sets it: the branch after write_doc (checked) reads it."""
+    from . import spec_check
+
+    st = _state(a)
+    rel = st.get("doc") or doc_path(a.root, a.title)
+    notes = notes_of(a)
+    ans = dict(a.data.get("result_answer") or {})
+    payload = dict(ans.get("payload") or {})
+    why = str(ans.get("why") or "").strip()
+    given = payload.get("document")
+    mk = dict(a.state.get("markers") or {})
+    if isinstance(given, str) and given.strip():
+        text = given if given.endswith("\n") else given + "\n"
+        path = Path(a.root) / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+        payload["document"] = f"(written to {rel})"     # the flow state keeps every checkpoint: no second copy of it
+        acs = acs_of(text)
+        outside = spec_check.outside_facts(a.request, a.data)
+        found = spec_check.check(text, acs, outside)
+        fixes = [f for f in found if f["level"] == "fix"]
+        data = _data(a, doc=rel, notes=notes, draft=draft_of(text, rel), evidence=text, acs=acs or None, outside=outside,
+                     given_at=_local(datetime.datetime.now()), spec_check=[f["text"] for f in found], checked=bool(fixes))
+        data["result_answer"] = {**ans, "payload": payload}
+        if not fixes:
+            mk["write_doc"] = {"SPEC-CHECK": "pass"}
+            return _result(True, f"{rel}: your draft passed the spec check; the result gate shows it again",
+                           update={"data": data, "markers": mk, "feedback": None})
+        # the spec check's one send-back is this one: the patched draft goes to the gate with what is still missing
+        mk["write_doc"] = {"SPEC-CHECK": "fix"}
+        return _result(True, f"{rel}: your draft misses {len(fixes)} thing(s) the spec check asks for; the assemble "
+                             "step patches it", update={"data": data, "markers": mk, "feedback": _fix_note(spec_check, fixes, notes)})
+    now = read_doc(a.root, rel)
+    text = now if now is not None else str(st.get("evidence") or "")
+    edited = now is not None and now != st.get("evidence")
+    mk["write_doc"] = {"SPEC-CHECK": "reject"}
+    feedback = "\n\n".join(x for x in [why, PATCH.format(what="the note above and the person's other notes")] if x)
+    data = _data(a, doc=rel, notes=notes, draft=draft_of(text, rel))
+    return _result(True, f"sent back: the assemble step patches {rel}" + (" with your edits in it" if edited else ""),
+                   update={"data": data, "markers": mk, "feedback": feedback})
+
+
+async def clarify_hand(a):
+    return await asyncio.to_thread(_hand, a)
+
+
+def _hand(a):
+    """Before a hand-over or the prompt (0.18.64): the document on disk is the source of truth. The request, the criteria
+    (parsed again), the prompt and the evidence the next flow gets come from the file as it is at the choice; keel's
+    copy only when the file is gone."""
+    st = _state(a)
+    rel = str(st.get("doc") or "")
+    now = read_doc(a.root, rel)
+    if now is None:
+        return _result(True, f"{rel or 'the clarify document'} is gone: the hand-over uses keel's copy")
+    acs = acs_of(now)
+    prompt = doc_prompt(now)
+    handed = _handed(doc_request(now, (a.request or a.title).strip()), prompt, acs, rel)
+    edited = now != st.get("evidence")
+    data = _data(a, acs=acs or None, prompt=prompt, request=handed, evidence=now, handed_from=rel)
+    return _result(True, f"the hand-over uses {rel} as it is now ({len(acs)} criteria"
+                   + (f"; you edited it at {changed_at(a.root, rel)})" if edited else ")"), update={"data": data})
 
 
 async def clarify_prompt(a):
@@ -608,4 +813,5 @@ def _prompt(a):
 
 
 ACTIONS = {"clarify_start": clarify_start, "clarify_type": clarify_type, "clarify_sections": clarify_sections,
-           "clarify_doc": clarify_doc, "clarify_prompt": clarify_prompt}
+           "clarify_doc": clarify_doc, "clarify_redraft": clarify_redraft, "clarify_hand": clarify_hand,
+           "clarify_prompt": clarify_prompt}

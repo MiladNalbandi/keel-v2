@@ -36,7 +36,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
 from .. import addons, agent_names, extensions, models, rules
-from . import doc_history, md, test_scope
+from . import doc_history, md, test_scope, thread_models
 from ..models import catalog
 from ..models import usage as provider_usage
 from ..models.base import AgentRequest, AgentResult, ModelError
@@ -94,6 +94,8 @@ ITEM_DONE = ("done", "skipped", "failed")   # item statuses a for_each loop is f
 # Where a review fix goes (findings_step, payload.route) and the actions that follow the fixing agent.
 ROUTES = {"review-fix": ("verify_green", "commit"), "coverage-fix": ("verify_green", "commit"), "red": ("commit",)}
 STEP_FIELD_MAX = 24_000          # per string field of an agent.step (runners already cap at 20 KB plus a note)
+PROMPT_RECORD_MAX = 60_000       # 0.18.64 per prompt (system, task) kept with an agent call (agent.prompt)
+RESULT_MAX = 20_000              # 0.18.64 an agent call's answer as the job keeps it (agent.finished result)
 USAGE_EVERY = 15.0               # 0.18.17 seconds between two agent.usage events of one running call (the usage so far)
 
 
@@ -518,6 +520,10 @@ class Compiler(AgentMixin, FindingsMixin, CodeMixin, GateMixin):
             merged = merge_unlocks(have, ctx.api_unlocks)
             if len(merged) != len(have):
                 state = {**state, "unlocks": merged}
+            # 0.18.64 the branch was synced onto its base (keel_branch_sync): the flow's own work starts at the merge base
+            synced = ctx.synced_base if ctx.synced_base and state.get("base_head") != ctx.synced_base else None
+            if synced:
+                state = {**state, "base_head": synced}
             prev = state.get("phase") or "none"
             phase = step.phase or prev
             ac = state.get("ac") if step.per_ac else None
@@ -530,7 +536,8 @@ class Compiler(AgentMixin, FindingsMixin, CodeMixin, GateMixin):
                 ctx.emit("step.finished", step=step.id, data={"name": step.name, "kind": step.kind, "phase": prev, "ac": ac,
                                                               "ok": True, "note": why, "skipped": True})
                 return Command(update={"note": why, "current": step.id, **(more[0] if more else {}),
-                                       **({"unlocks": merged} if len(merged) != len(have) else {})}, goto=goto)
+                                       **({"unlocks": merged} if len(merged) != len(have) else {}),
+                                       **({"base_head": synced} if synced else {})}, goto=goto)
             started = {"name": step.name, "kind": step.kind, "phase": phase, "ac": ac, "from": prev, "flow": self.wf.flow,
                        "phase_changed": prev != phase, "transition_ok": rules.can_transition(prev, phase)}
             if item:
@@ -544,6 +551,8 @@ class Compiler(AgentMixin, FindingsMixin, CodeMixin, GateMixin):
                                    (state.get("data") or {}).get("started_via"))
             if len(merged) != len(have):
                 update.setdefault("unlocks", merged)
+            if synced:
+                update.setdefault("base_head", synced)
             update.setdefault("phase", phase)
             update.setdefault("current", step.id)
             failed = update.get("status") in ("stopped", "failed")
@@ -684,6 +693,8 @@ class Compiler(AgentMixin, FindingsMixin, CodeMixin, GateMixin):
         m = None
         if state.get("model_override"):
             m = state["model_override"]
+        elif self.ctx.models.get(thread_models.step_key(step.id)):
+            m = self.ctx.models[thread_models.step_key(step.id)]     # 0.18.64 the person's model for this step of this flow
         elif agent_names.lookup(state.get("agent_models"), agent):
             m = agent_names.lookup(state.get("agent_models"), agent)    # a flow from before a rename: its old key
         elif step.model and step.model != "default" and step.model in self.ctx.models:

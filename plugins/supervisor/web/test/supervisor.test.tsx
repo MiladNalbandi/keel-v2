@@ -85,6 +85,26 @@ describe("the Supervisor plugin's web part", () => {
     expect(within(table).getByText("Spec says 410, test 404.")).toBeInTheDocument();
   });
 
+  it("shows a suggested own_fix's commands and sends them as your answer", async () => {
+    // 0.18.64 a setup rung whose fix failed: the Supervisor's better fix is one click away
+    const resumed: unknown[] = [];
+    api([row({ id: "d3", step: "rung_gate", ac: null, kind: "rung", outcome: "escalated", code: "policy-escalate",
+      choice: "own_fix", commands: ["tools/lock.py --all"], summary: "The lock is older than the manifest." })]);
+    server.use(http.post("/api/threads/:tid/resume", async ({ request, params }) => {
+      resumed.push({ tid: params.tid, ...((await request.json()) as object) });
+      return HttpResponse.json({ ok: true });
+    }));
+    const user = userEvent.setup();
+    location.hash = "#/jobs/supervisor";
+    render(<App />);
+    const table = await screen.findByRole("table", { name: "Supervisor decisions" });
+    expect(within(table).getByLabelText("Suggested commands")).toHaveTextContent("$ tools/lock.py --all");
+    await user.click(within(table).getByRole("button", { name: "Run these commands" }));
+    await waitFor(() => expect(resumed).toEqual([{ tid: "t-sup", decision: "approve", why: "the Supervisor's commands",
+      payload: { choice: "own_fix", commands: ["tools/lock.py --all"] } }]));
+    expect(await within(table).findByText(/Sent: keel runs them/)).toBeInTheDocument();
+  });
+
   it("is off until you turn it on keel-wide; then a project and a flow may say otherwise", async () => {
     const posted: unknown[] = [];
     api([], posted);

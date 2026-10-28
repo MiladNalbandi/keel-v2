@@ -395,10 +395,12 @@ def _rung_report(a: ActionInput) -> ActionResult:
            "**stop**: end init here; nothing after the ladder runs (no knowledge check, no commit)."])))
     tried = [x for x in a.data.get("rung_fixes_tried") or [] if isinstance(x, dict)]
     failed_fixes = [x for x in tried if not x.get("ok")]
-    again = bool(cmds or sets) and any(x.get("key") == _fix_key(cmds, sets) for x in failed_fixes)
+    keys = [x.get("key") for x in failed_fixes]
+    # the doctor proposes a fix that failed before, or the same fix (yours, the Supervisor's) failed twice
+    again = (bool(cmds or sets) and _fix_key(cmds, sets) in keys) or len(keys) != len(set(keys))
     stuck = again or len(failed_fixes) >= FIX_ROUNDS
     if stuck:
-        why = ("The doctor proposed a fix that keel already ran, and it failed." if again else
+        why = ("A fix that keel already ran, and it failed, came again." if again else
                f"{len(failed_fixes)} fixes failed on this rung.")
         parts.insert(1, md.section("keel stops the loop", f"**{why}** keel does not run it again. Fix it yourself and "
                                    "choose retry, give your own commands with own_fix, skip the rung, or stop. A plain "

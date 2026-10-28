@@ -36,7 +36,7 @@ function AutomationCard({ item: it, cardKey, kindLabel, onDone }: InboxCardProps
       </div>
       <h2 id={hid} className="inbox-title"><Ticks text={it.title} /></h2>
       {it.detail && <p className="sub" style={{ margin: 0 }}><Ticks text={it.detail} /></p>}
-      <AutomationItem pid={it.project_id} kind={it.kind} data={data} actions={t.actions} idBase={hid}
+      <AutomationItem pid={it.project_id} kind={it.kind} data={data} actions={t.actions} idBase={hid} itemId={t.item_id}
         onAct={async (action, b) => {
           await tasksApi.actWith(t.item_id, action, b);
           await onDone(`${t.key ?? t.title}: ${done[action] ?? "done"}.`);

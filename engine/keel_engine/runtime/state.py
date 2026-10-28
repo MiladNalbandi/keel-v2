@@ -75,6 +75,8 @@ class ThreadContext:
     mcp: list[dict] = field(default_factory=list)
     skills: dict[str, str] = field(default_factory=dict)
     agents: dict[str, dict] = field(default_factory=dict)   # per agent: {knowledge: {...}} (agent_knowledge.py)
+    # keel 0.18.64 the other projects registered in this keel [{id, name, root}]: the agents read them, never change them
+    other_projects: list[dict] = field(default_factory=list)
     keys: dict[str, str] = field(default_factory=dict)   # memory only, never stored
     bus: EventBus | None = None
     # Agent results of a parallel step whose other agents failed: "try again" re-runs the node from the top
@@ -98,6 +100,9 @@ class ThreadContext:
     # graph state) and the guards of the agents running now (guard context files, ToolBoxes), which get them at once.
     api_unlocks: list[dict] = field(default_factory=list)
     guards: list = field(default_factory=list)
+    # 0.18.64 keel_branch_sync brought the base into the flow's branch: where the branch's own work starts now (the
+    # merge base). Stored with the thread (body.synced_base); the next step writes it into the state's base_head.
+    synced_base: str | None = None
     # start_flow: async (workflow id, seed, link to this thread) -> the new thread's id (set by the Engine)
     spawn: Any = None
     # Run modes (runtime/run_mode.py): the id of the question a resume answers (the user's answer wins over the mode),
@@ -115,8 +120,11 @@ class ThreadContext:
 
     @property
     def simulate_checks(self) -> bool:
-        """Simulate test runs? Default: when every model is fake. settings.simulate_checks overrides."""
+        """Simulate test runs? Default: when every model is fake. settings.simulate_checks overrides, then
+        KEEL_SIMULATE_CHECKS (config.simulate_checks)."""
         v = self.settings.get("simulate_checks")
+        if v is None:
+            v = config.simulate_checks()
         return self.fake if v is None else bool(v)
 
     def add_unlocks(self, new: list[dict]) -> list[dict]:

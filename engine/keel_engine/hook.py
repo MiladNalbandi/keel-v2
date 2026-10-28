@@ -1,7 +1,8 @@
 """keel's PreToolUse hook: `python -m keel_engine.hook pre-tool`.
 
 Claude Code, codex (its hooks, 0.150+) and the opencode plugin keel generates run it before Edit, Write, MultiEdit,
-NotebookEdit, Bash, Read and MCP tool calls, with the call as JSON on stdin ({tool_name, tool_input, cwd}); codex's
+NotebookEdit, Bash, Read, Grep, Glob, LS (0.18.64) and MCP tool calls, with the call as JSON on stdin ({tool_name,
+tool_input, cwd}); codex's
 own tool names (shell, exec_command, apply_patch) are read as Bash and Edit. The command wrappers keel puts on codex's
 and copilot's PATH (keel_engine/shim.py) ask the same `decide` as Bash. What the
 phase allows comes from the guard context named by KEEL_GUARD_CTX (runtime/guard_ctx.py) and the
@@ -24,12 +25,16 @@ from pathlib import Path
 
 from . import rules
 from .rules import checks as _checks  # noqa: F401  (rules.checks for the content check)
-from .runtime import permissions, run_mode
+from .runtime import guard_ctx, other_projects, permissions, run_mode
 from .runtime.guard_ctx import ENV
 
 MARKER = "[keel guard]"
 WRITE_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 READ_ONLY = {"Read", "Glob", "Grep", "LS"}
+# 0.18.64 the search tools (claude's Grep, Glob, LS; opencode's grep, glob, list): Grep reads files, the others list names
+SEARCH_TOOLS = {"Grep", "Glob", "LS"}
+CONTROL_REFUSAL = ("{what} is keel's own file for this run (its guard context, hook settings or MCP config): agents never "
+                   "read, change or name it. If a rule blocks you, stop and ask the person.")
 
 # Serena's editing tools change files, so they follow the same phase rules as Edit (keel v1 checkMcp).
 SERENA_EDIT = re.compile(r"(replace_symbol_body|insert_after_symbol|insert_before_symbol|insert_at_line|delete_lines|"
@@ -61,9 +66,14 @@ def load_context(path: str | None) -> dict:
     if not path:
         raise NoContext(f"{ENV} is not set")
     try:
-        ctx = json.loads(Path(path).read_text())
+        raw = guard_ctx.read_checked(path)
     except OSError as exc:
         raise NoContext(f"the guard context {path} cannot be read ({exc.strerror or exc})") from None
+    except ValueError:
+        # 0.18.64 changed by someone else than keel (an agent's own write): not used, so only reads pass
+        raise NoContext(f"the guard context {path} was changed outside keel (its checksum does not match)") from None
+    try:
+        ctx = json.loads(raw)
     except ValueError:
         raise NoContext(f"the guard context {path} is not valid JSON") from None
     if not isinstance(ctx, dict) or not isinstance(ctx.get("phase"), str) or not isinstance(ctx.get("root"), str):
@@ -175,6 +185,118 @@ def check_mcp(name: str, ti: dict, phase: str, cfg: dict, edit) -> str | None:
     return None
 
 
+def _words(text: str) -> list[str]:
+    import shlex
+
+    try:
+        return shlex.split(text)
+    except ValueError:
+        return text.split()
+
+
+def control_refusal(tool: str, ti: dict, ctx: dict) -> str | None:
+    """0.18.64 keel's own files in the run's folder (guard_ctx.CONTROL_FILES: the guard context, its checksum, the hook's
+    settings, mcp.json, the command wrappers): a write anywhere in that folder, a read or search of those files, and a
+    shell command that names them, the folder or $KEEL_GUARD_CTX are refused. An agent that rewrote its context could
+    switch its phase rules off."""
+    ctx_path = ctx.get("_path")
+    if not ctx_path:
+        return None
+    home = os.path.realpath(os.path.dirname(ctx_path))
+    root = ctx["root"]
+    # the whole folder is keel's, unless the project itself is in it (a test's tmp folder)
+    whole = not guard_ctx.run_folder(ctx_path, root)
+    if tool == "Bash":
+        cmd = str(ti.get("command") or "")
+        named = next((v for v in guard_ctx.CONTROL_VARS if v in cmd), "")
+        if named:
+            return CONTROL_REFUSAL.format(what=f"${named}")
+        names = "|".join(re.escape(n) for n in (*guard_ctx.CONTROL_FILES, *guard_ctx.CONTROL_DIRS))
+        for folder in {home, os.path.dirname(ctx_path)}:
+            tail = r"(?:/|(?=[\s'\";|&)]|$))" if whole else rf"/(?:{names})(?![\w.-])"
+            if re.search(re.escape(folder) + tail, cmd):
+                return CONTROL_REFUSAL.format(what=os.path.dirname(ctx_path))
+        cwd = ctx.get("_cwd") or root
+        if whole and guard_ctx.run_folder(ctx_path, cwd):
+            return CONTROL_REFUSAL.format(what=cwd) + " Change back to the project folder (cd)."
+        import glob as _glob
+
+        for w in _words(cmd):
+            for part in [w, *w.split("=", 1)[1:]]:
+                full = os.path.join(cwd, os.path.expanduser(part))
+                hits = _glob.glob(full)[:200] if any(c in part for c in "*?[") else [full]
+                if any((whole and os.path.realpath(h) == home) or guard_ctx.control_path(ctx_path, h) for h in hits):
+                    return CONTROL_REFUSAL.format(what=part)
+        return None
+    path = _path_arg(ti) or (str(ti.get("relative_path") or "") if tool.startswith("mcp__") else "")
+    if not path:
+        return None
+    full = _locate(root, path)[1]
+    if tool in WRITE_TOOLS or tool.startswith("mcp__"):
+        bad = guard_ctx.run_folder(ctx_path, full) if whole else guard_ctx.control_path(ctx_path, full)
+        return CONTROL_REFUSAL.format(what=path) if bad else None
+    if guard_ctx.control_path(ctx_path, full) or (tool in SEARCH_TOOLS and os.path.realpath(full) == home):
+        return CONTROL_REFUSAL.format(what=path)
+    return None
+
+
+def _globs(ti: dict) -> list[str]:
+    """Claude's Grep `glob` (several, split on spaces and commas outside braces) or opencode's `include`."""
+    out = []
+    for g in str(ti.get("glob") or ti.get("include") or "").split():
+        out += [g] if "{" in g and "}" in g else [x for x in g.split(",") if x]
+    return out
+
+
+def search(tool: str, ti: dict, ctx: dict, cfg: dict, others: list[dict] | None, knowledge) -> str | None:
+    """0.18.64 Grep, Glob and LS. Glob and LS list names only (like ls): judged only for where they look. A Grep reads:
+
+        a file that is a secret (.env, a key ...)                         refused, whatever its output mode
+        a folder holding a secret file the Grep would read                refused, unless its glob leaves it out
+          (claude's and opencode's ripgrep read hidden files but skip what git ignores, so an ignored .env is safe)
+
+    files_with_matches and count are refused too: matching a guessed value one try at a time is reading it."""
+    root, phase = ctx["root"], ctx.get("phase") or "none"
+    path = _path_arg(ti)
+    base = path or ctx.get("_cwd") or root
+    rel, full = _locate(root, base)
+    home, hcfg, label = root, cfg, ""
+    if Path(rel).is_absolute():
+        got = other_projects.find(others, full) if others else None
+        if got:
+            home, rel, label = got[0]["root"], got[1], f"{got[0]['name']}: "
+            hcfg = rules.load_config(home)
+        elif others is not None and ctx.get("outside_refused") and \
+                not other_projects.allowed_outside(os.path.realpath(full), _scratch(ctx)):
+            return other_projects.outside(base, bool(ctx.get("others_off")))
+        else:
+            home, hcfg = None, None
+    if tool != "Grep":
+        return None
+    if not full.is_dir():
+        v = rules.check_read(rel, hcfg or rules.make_config(), ranged=True, phase=phase)
+        if not v.ok and v.bucket in ("protected-env", "keel-keys"):
+            return label + v.reason
+        return knowledge(rel) if home == root else None
+    found, complete = rules.secret_files(full, hcfg, home, hidden=True)
+    if found:
+        gone = rules.git_ignored(str(full), found)
+        found = [f for f in found if f not in gone]
+    globs = _globs(ti)
+    inc = [g for g in globs if not g.startswith("!")] + (["\0type"] if ti.get("type") else [])
+    exc = [g[1:] for g in globs if g.startswith("!")]
+    found = rules.glob_hits(found, inc, exc)
+    if found:
+        name = found[0].rsplit("/", 1)[-1]
+        return (f"{label}{os.path.join(path or '.', found[0]) if path else found[0]} holds secrets, and this Grep over "
+                f"{path or 'the project'} would search it too. Search the files you mean: give a glob (glob: \"*.py\") "
+                f"or a type, leave it out (glob: \"!{name}\"), or search a folder without it.")
+    if not complete and not inc:
+        return (f"{label}{path or 'the project'} has too many files for keel to check for secret files. Search a smaller "
+                "folder, or give a glob or a type.")
+    return None
+
+
 def decide(tool: str, ti: dict, ctx: dict) -> str | None:
     """None to allow the call, else the reason it is refused."""
     calls = normalize(tool, ti)
@@ -186,6 +308,9 @@ def decide(tool: str, ti: dict, ctx: dict) -> str | None:
             if refused:
                 return refused
         return None
+    refused = control_refusal(tool, ti, ctx)
+    if refused:
+        return refused
     root, phase = ctx["root"], ctx.get("phase") or "none"
     lane, unlocks = ctx.get("lane"), list(ctx.get("unlocks") or [])
     cfg = rules.load_config(root)
@@ -239,17 +364,36 @@ def decide(tool: str, ti: dict, ctx: dict) -> str | None:
         return rules.ENGINE_REFUSAL
     if tool == "Bash" and rules.keel_engine_words(str(ti.get("command") or ""), root):
         return rules.ENGINE_REFUSAL
+    # keel 0.18.64 the other projects registered in this keel (runtime/other_projects.py): read only, their secrets
+    # stay out. `others` is absent when the run was not told (KeelBot): then nothing changes here.
+    others = ctx.get("others") if isinstance(ctx.get("others"), list) else None
     if readonly and tool in WRITE_TOOLS:
         return ro(run_mode.READONLY_EDIT)
     if tool in WRITE_TOOLS:
         path = _path_arg(ti)
+        got = other_projects.find(others, _locate(root, path)[1]) if path and others else None
+        if got and Path(_locate(root, path)[0]).is_absolute():
+            return other_projects.read_only(path, got[0])
         return (edit(path) or content(path)) if path else None
+    if tool in SEARCH_TOOLS:
+        return search(tool, ti, ctx, cfg, others, knowledge)
     if tool == "Read":
         path = _path_arg(ti)
         if not path:
             return None
         rel, full = _locate(root, path)
-        v = rules.check_read(rel, cfg, full=full, ranged=ti.get("offset") is not None or ti.get("limit") is not None, phase=phase)
+        ranged = ti.get("offset") is not None or ti.get("limit") is not None
+        if others is not None and Path(rel).is_absolute():
+            got = other_projects.find(others, full)
+            if got:
+                refused = other_projects.check_read(got[0], got[1], full, ranged=ranged)
+                if refused or rules.is_off(cfg, "read-twice"):
+                    return refused
+                return already_read(ctx.get("_path"), str(full), full, ti.get("offset"), ti.get("limit"))
+            # claude -p refuses a path outside its folders with no reason the model can use: keel says it first
+            if ctx.get("outside_refused") and not other_projects.allowed_outside(os.path.realpath(full), _scratch(ctx)):
+                return other_projects.outside(path, bool(ctx.get("others_off")))
+        v = rules.check_read(rel, cfg, full=full, ranged=ranged, phase=phase)
         refused = knowledge(rel) if v.ok else v.reason
         if refused or rules.is_off(cfg, "read-twice"):
             return refused
@@ -263,11 +407,16 @@ def decide(tool: str, ti: dict, ctx: dict) -> str | None:
             # keel 0.18.18 KeelBot: the same failing command, again, while nothing changed (runtime/repeats.py)
             from .runtime import repeats
             refused = repeats.refusal(Path(ctx["_path"]).parent, root, str(ti.get("command") or ""))
+        if not refused and others is not None:
+            refused = other_projects.check_command(str(ti.get("command") or ""), root, others, cwd=ctx.get("_cwd"),
+                                                   outside_refused=bool(ctx.get("outside_refused")),
+                                                   off=bool(ctx.get("others_off")), extra=_scratch(ctx))
         if refused:
             return refused
         v = rules.check_bash(phase, str(ti.get("command") or ""), cfg, root=root,
                              exists=lambda rel: (Path(root) / rel).exists(), unlocks=unlocks,
-                             push_blockers=ctx.get("push_blockers"))
+                             push_blockers=ctx.get("push_blockers"), flow=str(ctx.get("flow") or ""),
+                             cwd=ctx.get("_cwd") if isinstance(ctx.get("_cwd"), str) and os.path.isdir(ctx["_cwd"]) else None)
         if not v.ok:
             return v.reason
         # a run that may ask (KeelBot's Fix and side modes): a command that changes something waits for the person's OK
@@ -283,6 +432,13 @@ def decide(tool: str, ti: dict, ctx: dict) -> str | None:
             return ro(run_mode.READONLY_MCP)
         return check_mcp(tool, ti, phase, cfg, edit)
     return None
+
+
+def _scratch(ctx: dict) -> list[str]:
+    """The run's own folder (its guard context is there) and claude's config home (it saves a long tool output there
+    and reads it back): a read there is no read outside the project."""
+    return ([str(Path(ctx["_path"]).parent)] if ctx.get("_path") else []) + \
+        ([os.environ["CLAUDE_CONFIG_DIR"]] if os.environ.get("CLAUDE_CONFIG_DIR") else [])
 
 
 def already_read(ctx_path: str | None, rel: str, full: Path, offset, limit) -> str | None:
@@ -317,8 +473,17 @@ def fail_closed(tool: str, ti: dict, why: str) -> str | None:
         path = _path_arg(ti)
         if path and rules.keel_key_file(path):
             return "This is keel's own key folder: agents never read, search or change it."
-        v = rules.check_read(path, rules.make_config()) if tool == "Read" and path else None
-        return None if v is None or v.ok else v.reason
+        v = rules.check_read(path, rules.make_config()) if tool in ("Read", "Grep") and path else None
+        if v is not None and not v.ok and (tool == "Read" or v.bucket in ("protected-env", "keel-keys")):
+            return v.reason
+        if tool == "Grep" and os.path.isdir(path or "."):
+            # 0.18.64 a folder-wide Grep with no context: secret files by name, those git ignores left out
+            found = rules.secret_files(path or ".", None, None)[0]
+            found = [f for f in found if f not in rules.git_ignored(path or ".", found)]
+            if rules.glob_hits(found, [g for g in _globs(ti) if not g.startswith("!")],
+                               [g[1:] for g in _globs(ti) if g.startswith("!")]):
+                return f"{why}, and this Grep would search a secret file ({found[0]}). Give a glob or name the files."
+        return None
     return f"{why}, so keel cannot check {tool or 'this tool'} against the flow's phase. Only reads are allowed until it is fixed."
 
 
@@ -341,6 +506,8 @@ def pre_tool(raw: str, ctx_path: str | None) -> int:
     except NoContext as exc:
         reason = fail_closed(tool, ti, str(exc))
         return deny(reason) if reason else 0
+    if isinstance(call.get("cwd"), str):
+        ctx["_cwd"] = call["cwd"]     # where the agent's shell is now (a cd stays for its next commands)
     try:
         reason = decide(tool, ti, ctx)
     except Exception as exc:  # a broken guard refuses; it never waves a call through

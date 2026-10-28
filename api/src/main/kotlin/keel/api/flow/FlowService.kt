@@ -28,6 +28,7 @@ import keel.api.projects.ProjectService
 import keel.api.budget.CapPlanner
 import keel.api.budget.CapText
 import keel.api.budget.ProviderUsageService
+import keel.api.settings.LocalOnly
 import keel.api.settings.Model
 import keel.api.settings.SettingsService
 import keel.api.skills.SkillService
@@ -100,7 +101,12 @@ data class StartThread(
     /** B14 the tokens the estimate gave at the start (threads.estimate: the Budget page's estimate column); never sent. */
     @get:com.fasterxml.jackson.annotation.JsonIgnore
     val estimate: Long? = null,
+    /** keel 0.18.64 every other project registered in this keel: the flow's agents may read them, never change them. */
+    val otherProjects: List<OtherProject> = emptyList(),
 )
+
+/** One entry of StartThread.other_projects. */
+data class OtherProject(val id: String, val name: String, val root: String)
 
 /** One agent's entry in StartThread.agents. */
 data class AgentStart(val knowledge: Knowledge)
@@ -254,6 +260,7 @@ class FlowService(
             agents = all.filter { it.enabled }.associate { it.id to AgentStart(it.knowledge) },
             capNote = notes.takeIf { it.isNotEmpty() }?.joinToString(" "),
             estimate = est?.path("tokens")?.asLong(0)?.takeIf { it > 0 },
+            otherProjects = projects.rows().filter { it.id != pid }.map { OtherProject(it.id, it.name, it.root) },
         )
     }
 
@@ -285,7 +292,7 @@ class FlowService(
     fun start(pid: String, workflowId: String, title: String, acs: List<Ac>?, cap: FlowCap? = null,
               allowFake: Boolean = false, allowDirty: Boolean = false, request: String? = null,
               options: Map<String, Any?>? = null, where: String? = null, model: Model? = null,
-              ownBranch: Boolean = true, branch: String? = null, force: Boolean? = null): JsonNode {
+              ownBranch: Boolean = true, branch: String? = null, force: Boolean? = null, base: String? = null): JsonNode {
         if (title.isBlank()) throw BadRequest("Give the flow a title", "One short line: what should this flow build or fix?")
         cap?.check()
         var start = buildStart(pid, workflowId, title, acs, cap, model)
@@ -299,8 +306,28 @@ class FlowService(
         // anything out in the person's folder and does not mind their uncommitted files (keel 0.18.56 made and checked
         // out feat/review-<title> in the folder of a PR review)
         val readOnly = readOnly(start.workflow)
+        // 0.18.64 (field report bug 4) the branch the flow's new branch starts from, when the person named one
+        val from = base?.trim()?.takeIf { it.isNotEmpty() }
+        if (from != null) {
+            if (readOnly) throw BadRequest("A read-only flow gets no branch of its own: base does not apply to it")
+            if (mode == "continue") throw BadRequest("base starts a new branch from it; branch continue stays on the folder's branch",
+                "Pass one of them.")
+            if (!ownBranch || !wantsOwnBranch(start.workflow))
+                throw BadRequest("This flow works on the branch the folder is on: it takes no base")
+        }
+        // 0.18.64 every remote fetched before the flow's branch is made, so the branch can start from the newer code; the
+        // engine's start note says how far the base is behind each remote and which fetch failed. Never fails the start.
+        // A read-only flow fetches the refs it reads itself: none here, and [] tells the engine not to either.
+        val fetched: Any? = when {
+            isDemo(root) || workspace.gitOut(root, "remote").isNullOrBlank() -> null
+            readOnly -> emptyList<Any>()
+            else -> fetchForStart(pid, root)
+        }
+        if (from != null && !workspace.git(root, "rev-parse", "--verify", "--quiet", "$from^{commit}").ok)
+            throw BadRequest("There is no branch $from to start from",
+                "Name a local branch or <remote>/<branch>; keel_fetch_remotes fetches the remotes and lists them.")
         // the project folder, or (v0.7.x) a worktree of its own next to the flow that runs or waits there
-        val wt = if (!readOnly && inWorktree(pid, where, root)) worktreeFor(pid, root, title, workflowId) else null
+        val wt = if (!readOnly && inWorktree(pid, where, root)) worktreeFor(pid, root, title, workflowId, from) else null
         var madeBranch: MadeBranch? = null
         if (readOnly) {
             // nothing to do: the folder keeps its branch, its HEAD and its files
@@ -308,16 +335,18 @@ class FlowService(
             refuseDirty(root, allowDirty)
             // an add-on's flow that only writes its own documents (keel Product) stays on the branch it is on, and so
             // does a workflow that says `own_branch: false` (0.18.57 hunt: a report needs no branch; hunt-next hands over)
-            if (ownBranch && wantsOwnBranch(start.workflow)) madeBranch = ownBranch(pid, root, title, workflowId, mode)
+            if (ownBranch && wantsOwnBranch(start.workflow)) madeBranch = ownBranch(pid, root, title, workflowId, mode, from)
         } else {
             start = start.copy(root = wt.path)
         }
+        // what the start fetched goes to the engine, which then does not fetch again (null: no remote, or no answer)
+        val data = if (fetched == null) options?.takeIf { it.isNotEmpty() } else options.orEmpty() + ("remotes_fetched" to fetched)
         // API keys for "api" models and CLI logins for subscription models, from the encrypted secrets table; the
         // cheaper model's too, so a cap that switches to it mid-flow can run it.
         val body = try {
             val keys = keysFor(start.models.values + listOfNotNull(start.settings.cheaperModel)) + contributedKeys(pid)
             val withRequest = start.copy(request = request?.trim()?.takeIf { it.isNotEmpty() }?.take(8000),
-                data = options?.takeIf { it.isNotEmpty() })
+                data = data)
             if (keys.isEmpty()) withRequest else withRequest.copy(keys = keys)
         } catch (e: Exception) {
             wt?.let { removeWorktreeAt(root, it.name) }
@@ -354,7 +383,47 @@ class FlowService(
         save(tid, state)
         hub.publish(pid, "project.changed", mapOf("id" to pid))
         val note = start.capNote
-        return if (note != null && state is com.fasterxml.jackson.databind.node.ObjectNode) state.deepCopy().put("cap_note", note) else state
+        // 0.18.64 how far the base is behind each remote, a failed fetch said plainly (the engine's start note)
+        val baseNote = res.get("base_note")?.asText()?.takeIf { it.isNotBlank() }
+        if ((note == null && baseNote == null) || state !is com.fasterxml.jackson.databind.node.ObjectNode) return state
+        return state.deepCopy().also { s -> note?.let { s.put("cap_note", it) }; baseNote?.let { s.put("base_note", it) } }
+    }
+
+    /** 0.18.64 every remote of the project fetched before a start (engine POST /remotes/fetch: all at once, at most 20 s
+     *  each), with keel's GitHub login for a remote on its host: the result per remote, or null when the engine could
+     *  not answer. Never fails the start. */
+    private fun fetchForStart(pid: String, root: Path): JsonNode? =
+        runCatching { engine.post("/remotes/fetch", mapOf("root" to root.toString(), "keys" to contributedKeys(pid).takeIf { it.isNotEmpty() }), long = true) }
+            .onFailure { log.warn("no fetch before the start in {}: {}", pid, it.message) }
+            .getOrNull()?.get("fetched")?.takeIf { it.isArray }
+
+    /** 0.18.64 keel_fetch_remotes: every remote of the project fetched, one result per remote (ok, or failed and why), and
+     *  how far the base branch is behind each remote's copy and default branch (the engine's report). */
+    fun fetchRemotes(pid: String): JsonNode {
+        val root = projects.root(pid)
+        if (!workspace.git(root, "rev-parse", "--git-dir").ok) throw BadRequest("This project is not a git repository: it has no remotes")
+        val res = engine.post("/remotes/fetch", mapOf("root" to root.toString(), "keys" to contributedKeys(pid).takeIf { it.isNotEmpty() }), long = true)
+        hub.publish(pid, "project.changed", mapOf("id" to pid))
+        return res
+    }
+
+    /**
+     * 0.18.64 (field report bug 6) keel merges ([mode] merge, the default) or rebases a flow's branch onto [onto] (default:
+     * the base branch's remote copy, else the local base), in the folder or the worktree the flow works in (engine POST
+     * /threads/{id}/sync). [action] start, continue (after the conflicts were resolved: keel commits the resolution) or
+     * abort. A conflict answers ok false with the files; the engine refuses while a step runs.
+     */
+    fun syncBranch(tid: String, onto: String?, mode: String?, action: String?): JsonNode {
+        val m = mode?.trim()?.ifBlank { null } ?: "merge"
+        val a = action?.trim()?.ifBlank { null } ?: "start"
+        if (m !in setOf("merge", "rebase")) throw BadRequest("mode cannot be \"$m\"", "Pick one of: merge, rebase")
+        if (a !in setOf("start", "continue", "abort")) throw BadRequest("action cannot be \"$a\"", "Pick one of: start, continue, abort")
+        val pid = threadProject(tid) ?: throw NotFound("No flow $tid")
+        val res = engine.post("/threads/$tid/sync", mapOf("onto" to onto?.trim()?.ifBlank { null }, "mode" to m, "action" to a,
+            "root" to rootNow(tid)).filterValues { it != null }, long = true)
+        res.get("thread")?.takeIf { it.isObject }?.let { save(tid, it) }
+        hub.publish(pid, "project.changed", mapOf("id" to pid))
+        return res
     }
 
     /**
@@ -443,9 +512,13 @@ class FlowService(
         val r = workspace.git(root, "status", "--porcelain", "--untracked-files=all")
         if (!r.ok) return
         // v0.15.8 layout keel / external: .keel/ holds keel's own files, outside git (the engine hides it at flow start)
-        val hidden = keel.api.knowledge.Layout.resolve(root).hidden
+        val layout = keel.api.knowledge.Layout.resolve(root)
+        val hidden = layout.hidden
+        // 0.18.64 nor keel's own output under .keel/ (specs, knowledge, docs …) in any layout: keel's files never block keel
+        val keelFolders = layout.folders() + layout.runbooks
         val files = r.out.lines().filter { it.length > 3 }.map { it.substring(3).trim().removeSurrounding("\"") }
-            .filterNot { WorkspaceDoctor.isEngineFile(it) || WorkspaceDoctor.isToolFile(it) || (hidden && (it == ".keel" || it.startsWith(".keel/"))) }
+            .filterNot { WorkspaceDoctor.isEngineFile(it) || WorkspaceDoctor.isToolFile(it) || (hidden && (it == ".keel" || it.startsWith(".keel/"))) ||
+                WorkspaceDoctor.isKeelOutput(it, keelFolders) }
         if (files.isEmpty()) return
         // the untracked entries as git shows them by default (a new folder once, not every file in it); a folder only
         // when a file that blocks is in it (.claude/ holding only settings.local.json is a tool's folder)
@@ -532,8 +605,9 @@ class FlowService(
 
     private data class FlowWorktree(val name: String, val branch: String, val path: String)
 
-    /** A worktree for a flow, on its own branch (the branch pattern) from the base branch, not from what the folder has. */
-    private fun worktreeFor(pid: String, root: Path, title: String, workflowId: String): FlowWorktree {
+    /** A worktree for a flow, on its own branch (the branch pattern) from the base branch, not from what the folder has;
+     *  0.18.64 from [from] when the start named a base. */
+    private fun worktreeFor(pid: String, root: Path, title: String, workflowId: String, from: String? = null): FlowWorktree {
         if (!workspace.git(root, "rev-parse", "--git-dir").ok)
             throw Conflict("This project is not a git repository", "A flow next to another one needs git: its own worktree and branch.")
         val first = branchName(settings.effective(pid).branchPattern, title, workflowId)
@@ -543,7 +617,7 @@ class FlowService(
         val name = "flow-${Slug.of(title).take(30)}-${java.util.UUID.randomUUID().toString().take(6)}"
         // B7 from origin/<base> when the local base is behind it
         val res = engine.post("/worktrees", mapOf("root" to root.toString(), "name" to name, "branch" to branch,
-            "start" to workspace.base(root)?.let { freshBase(root, it) }))
+            "start" to (from ?: workspace.base(root)?.let { freshBase(root, it) })))
         return FlowWorktree(name, res.path("branch").asText(branch), res.path("path").asText())
     }
 
@@ -601,17 +675,19 @@ class FlowService(
      * [mode] decides: "new" (Tasks, and by default the start dialog, MCP and the TUI for a flow that builds something)
      * makes one from the base branch, so a flow never stacks its commits on what another flow (or init) left checked
      * out; "continue" (the person picked "Continue this branch", or B7 by default ship, cover, review, lint, address)
-     * and null (a caller that put the branch there itself: CI fix, review address) stay.
+     * and null (a caller that put the branch there itself: CI fix, review address) stay. 0.18.64 [start]: the base the
+     * start named (a local branch or <remote>/<branch>): always a new branch from it.
      */
-    private fun ownBranch(pid: String, root: Path, title: String, workflowId: String, mode: String? = null): MadeBranch? {
+    private fun ownBranch(pid: String, root: Path, title: String, workflowId: String, mode: String? = null, start: String? = null): MadeBranch? {
         if (isDemo(root)) return null
         val current = workspace.git(root, "rev-parse", "--abbrev-ref", "HEAD").takeIf { it.ok }?.out?.trim() ?: return null
-        val base = workspace.base(root) ?: return null
+        val base = workspace.base(root)
+        if (base == null && start == null) return null
         val offBase = current != base
-        if (offBase && mode != "new") return null
+        if (offBase && mode != "new" && start == null) return null
         // B7 a new branch starts from the base, and never from a local base that is behind origin's (a pull not made
         // yet): on the base itself too, unless the flow continues the base's own commits ("continue")
-        val from = if (offBase || mode == "new") freshBase(root, base) else null
+        val from = start ?: if (base != null && (offBase || mode == "new")) freshBase(root, base) else null
         val tip = workspace.git(root, "rev-parse", from?.let { "$it^{commit}" } ?: "HEAD").takeIf { it.ok }?.out?.trim() ?: return null
         val first = branchName(settings.effective(pid).branchPattern, title, workflowId)
         var name = first
@@ -696,8 +772,15 @@ class FlowService(
         val pid = threadProject(tid) ?: return emptyMap()
         val s = settings.effective(pid)
         val models = listOf(s.defaultModel, s.cheaperModel) + agents.list(pid).filter { it.enabled }.map { it.model }
-        return keysFor(models) + contributedKeys(pid)
+        return keysFor(models) + contributedKeys(pid) + mcpEnvKeys(s.mcp)
     }
+
+    /**
+     * 0.18.64 the env values of the project's MCP servers, as "mcp_env:<server>:<NAME>": the engine keeps them in memory
+     * only (its stored flow has the names, never the values), so after an engine restart they come again with the logins.
+     */
+    private fun mcpEnvKeys(names: List<String>): Map<String, String> =
+        mcp.specsFor(names).flatMap { spec -> spec.env.orEmpty().map { (k, v) -> "mcp_env:${spec.name}:$k" to v } }.toMap()
 
     /**
      * After a keel restart: the engine waits with the threads that were running until it has their logins (it keeps
@@ -748,6 +831,25 @@ class FlowService(
         return state
     }
 
+    fun threadModels(tid: String): JsonNode = engine.threadModels(tid)
+
+    /**
+     * 0.18.64 a model for one flow (an agent in it, one step, or an agent's steps in one phase) without changing the
+     * project's Agents page or any other flow. The model is checked as the Agents page checks one (its effort, local
+     * models only), and its login or API key goes to the engine with it (memory only, as at the start).
+     */
+    fun setThreadModels(tid: String, body: ThreadModelBody): JsonNode {
+        val pid = threadProject(tid) ?: throw NotFound("No flow $tid")
+        if (body.agent.isNullOrBlank() && body.step.isNullOrBlank()) throw BadRequest("Say which agent or which step", "Send { agent } or { step }, and model.")
+        val model = body.model?.checked()
+        if (model != null) LocalOnly.check(settings.effective(pid), listOf(model), "this flow's ${body.step ?: body.agent}")
+        val keys = model?.let { keysForThread(tid) + keysFor(listOf(it)) }?.takeIf { it.isNotEmpty() }
+        val state = engine.setThreadModels(tid, mapOf("agent" to body.agent, "step" to body.step, "phase" to body.phase,
+            "model" to model, "keys" to keys).filterValues { it != null })
+        threadProject(tid)?.let { hub.publish(it, "project.changed", mapOf("id" to it)) }
+        return state
+    }
+
     fun stop(tid: String): JsonNode {
         val state = engine.stop(tid)
         save(tid, state)
@@ -758,6 +860,33 @@ class FlowService(
     }
 
     fun history(tid: String): JsonNode = engine.history(tid)
+
+    /** 0.18.64 the flow's document (its clarify document, else its spec) from its file: path, kind, text, whether the
+     *  person edited it after keel wrote it (and when), and the gate the flow waits at. */
+    fun document(tid: String): JsonNode = engine.document(tid)
+
+    /**
+     * 0.18.64 replaces the flow's document while it waits at a gate (keel_flow_document). The engine writes the file and
+     * records it in keel's file history as the person's edit; the gate's text shows it from then on, and a clarify
+     * hand-over uses it. The saved state follows, so the run history and keel TUI show the new gate text.
+     */
+    /** 0.18.64 the AC gate's code for the web: the criterion's RED and GREEN commits, each file with its status, +/-
+     *  counts, bucket (test, prod, generated, lock) and diff, cut; lock, generated and binary files folded. With [sha] and
+     *  [path] one file with its diff (the gate's Show). Only a flow of this project. */
+    fun acCode(pid: String, tid: String, ac: String?, sha: String?, path: String?): JsonNode {
+        projects.require(pid)
+        if (threadProject(tid) != pid) throw NotFound("No flow $tid in this project")
+        if (ac.isNullOrBlank()) throw BadRequest("ac is missing", "Say which criterion: ac=AC-1.")
+        return engine.acCode(tid, ac.trim(), sha?.trim()?.takeIf { it.isNotEmpty() }, path?.takeIf { it.isNotBlank() })
+    }
+
+    fun writeDocument(tid: String, text: String?): JsonNode {
+        if (text.isNullOrBlank()) throw BadRequest("text is empty", "Send the document's whole new text.")
+        val doc = engine.writeDocument(tid, mapOf("text" to text, "root" to rootNow(tid)).filterValues { it != null })
+        runCatching { save(tid, engine.thread(tid)) }
+        threadProject(tid)?.let { hub.publish(it, "project.changed", mapOf("id" to it)) }
+        return doc
+    }
 
     fun rewind(tid: String, checkpointId: String): JsonNode {
         if (checkpointId.isBlank()) throw BadRequest("checkpoint_id is missing")

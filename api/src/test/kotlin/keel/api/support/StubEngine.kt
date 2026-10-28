@@ -109,6 +109,9 @@ class StubEngine private constructor(private val server: HttpServer) {
     /** v0.16.0 what POST /threads answers instead of a thread (a workflow that needs plugins: 409 {error, missing}). */
     @Volatile var threadRefusal: Pair<Int, Map<String, Any?>>? = null
 
+    /** 0.18.64 the start note POST /threads answers with (how far the base is behind each remote); null: none. */
+    @Volatile var baseNote: String? = null
+
     /** v0.16.0 the engine's marketplace (keel_engine/marketplace): its catalog, what is installed, sources and rules. */
     val market = StubMarket()
 
@@ -289,10 +292,40 @@ class StubEngine private constructor(private val server: HttpServer) {
             git(root, "worktree", "remove", "--force", root.resolve(".keel/worktrees").resolve(body["name"].asText()).toString())
             200 to mapOf("ok" to true)
         }
+        // 0.18.64 every remote fetched for real (`git fetch <name>`), one result each, as the engine answers
+        path == "/remotes/fetch" && method == "POST" -> {
+            val root = java.nio.file.Paths.get(body!!["root"].asText())
+            val names = ProcessBuilder("git", "remote").directory(root.toFile()).start().inputStream.bufferedReader().readText()
+                .lines().filter { it.isNotBlank() }
+            val fetched = names.map { n -> if (git(root, "fetch", "-q", n)) mapOf("remote" to n, "ok" to true)
+                else mapOf("remote" to n, "ok" to false, "error" to "fetch failed") }
+            200 to mapOf("base" to "main", "remotes" to fetched, "fetched" to fetched,
+                "note" to fetched.filter { it["ok"] == false }.joinToString("; ") { "fetch from ${it["remote"]} failed: fetch failed; the base may be stale" })
+        }
+        path.matches(Regex("/threads/[^/]+/sync")) && method == "POST" -> {
+            val id = path.split('/')[2]
+            200 to mapOf("ok" to true, "synced" to true, "mode" to (body?.get("mode")?.asText() ?: "merge"),
+                "onto" to (body?.get("onto")?.asText() ?: "origin/main"), "note" to "merged", "thread" to state(id))
+        }
         path == "/threads" && method == "POST" -> (nextThreadIds.poll() ?: "t-stub-1").let { id ->
-            200 to (mapOf("thread_id" to id) + (threadSources[id]?.let { mapOf("source" to it) } ?: emptyMap()))
+            200 to (mapOf("thread_id" to id) + (threadSources[id]?.let { mapOf("source" to it) } ?: emptyMap()) +
+                (baseNote?.let { mapOf("base_note" to it) } ?: emptyMap()))
         }
         path.matches(Regex("/threads/[^/]+")) -> 200 to state(path.removePrefix("/threads/"))
+        // 0.18.64 a flow's document: GET reads it, PUT replaces it (a test reads what was sent with lastBody)
+        path.matches(Regex("/threads/[^/]+/document")) -> 200 to mapOf("thread_id" to path.split('/')[2],
+            "path" to ".keel/specs/clarify/2026-10-28-t.md", "kind" to "clarify", "exists" to true, "waiting" to "result",
+            "text" to (if (method == "PUT") body?.get("text")?.asText() else "# t\n"), "edited" to (method == "PUT"))
+        // 0.18.64 the AC gate's code: one RED commit with one test file (a test reads the query it got from calls)
+        path.matches(Regex("/threads/[^/]+/ac-code")) -> 200 to mapOf("thread_id" to path.split('/')[2], "ac" to "AC-1",
+            "red" to mapOf("sha" to "a1b2c3d4", "short" to "a1b2c3d", "subject" to "test(AC-1): an order keeps its lines",
+                "files" to listOf(mapOf("path" to "tests/test_orders.py", "status" to "added", "added" to 2, "removed" to 0,
+                    "bucket" to "test", "diff" to "@@ -0,0 +1,2 @@\n+a\n+b", "lines" to 3, "truncated" to false))),
+            "green" to null, "commits" to 1, "files" to 1, "added" to 2, "removed" to 0, "truncated" to false)
+        // 0.18.64 a model for one flow: echoes what it got as the engine's view
+        path.matches(Regex("/threads/[^/]+/models")) -> 200 to mapOf("thread_id" to path.split('/')[2],
+            "changed" to listOfNotNull(body?.get("step")?.asText()?.let { "step:$it" } ?: body?.get("agent")?.asText()),
+            "models" to (body?.get("model")?.let { mapOf("picked" to mapper.convertValue(it, Map::class.java)) } ?: emptyMap<String, Any>()))
         path.endsWith("/mode") && method == "POST" -> {
             val id = path.split('/')[2]
             val mode = body?.get("mode")?.asText() ?: ""

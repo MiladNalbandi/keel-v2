@@ -381,7 +381,7 @@ function TaskDrawer({ id, pid, onClose, onChanged }: { id: string; pid: string; 
             <section key={it.id} className="tk-sec tk-item" aria-label={it.title}>
               <h3>{it.title}</h3>
               {it.detail && <p className="sub"><Ticks text={it.detail} /></p>}
-              <AutomationItem pid={t.project_id} kind={it.kind} data={it.data ?? {}} actions={itemActions(it)} idBase={`tk-item-${it.id}`}
+              <AutomationItem pid={t.project_id} kind={it.kind} data={it.data ?? {}} actions={itemActions(it)} idBase={`tk-item-${it.id}`} itemId={it.id}
                 onAct={async (action, b) => {
                   const next = await tasksApi.actWith(it.id, action, b);
                   r.setData(next);

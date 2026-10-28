@@ -72,7 +72,10 @@ class McpService(
     private val labels: ObjectProvider<McpServerLabel>,
 ) : ApplicationRunner {
 
-    override fun run(args: ApplicationArguments?) = seed()
+    override fun run(args: ApplicationArguments?) {
+        seed()
+        attachOnce()
+    }
 
     fun seed() {
         // The keel server is always keel v2's own, read-only (an older install pointed it at keel v1's server.js).
@@ -98,6 +101,18 @@ class McpService(
         }
     }
 
+    /**
+     * 0.18.64 the servers as GET /api/mcp-servers shows them: an env value is never shown (until 0.18.63 a typed value
+     * came back in plain text at the MCP read level). A `secret:<name>` reference shows as it is (a name, no value);
+     * any other value as [SET].
+     */
+    fun view(): List<McpServer> = list().map { s -> s.copy(env = s.env?.mapValues { (_, v) -> masked(v) }) }
+
+    fun viewOf(name: String): McpServer = view().firstOrNull { it.name == name } ?: throw NotFound("No MCP server called \"$name\"")
+
+    private fun masked(v: String): String = if (v.startsWith(SECRET_REF) || v.isEmpty()) v else SET
+
+    /** The servers with their real env (keel's own use: a flow, a test). */
     fun list(): List<McpServer> =
         jdbc.query("SELECT name, command, args_json, env_json, cwd, enabled, builtin, status, tools_json FROM mcp_servers ORDER BY builtin DESC, name") { rs, _ ->
             McpServer(
@@ -113,11 +128,13 @@ class McpService(
         if (!Regex("^[a-z0-9][a-z0-9_-]{0,40}$").matches(spec.name)) throw BadRequest("Name the server with lowercase letters, digits, - or _")
         if (spec.command.isBlank()) throw BadRequest("command is empty", "For example: npx, node, uvx, docker.")
         if (list().any { it.name == spec.name }) throw Conflict("A server called \"${spec.name}\" already exists")
+        val env = spec.env?.let { kept(spec.name, it, emptyMap()) }
         jdbc.update(
             "INSERT INTO mcp_servers(name, command, args_json, env_json, cwd, enabled, builtin, status) VALUES (?, ?, ?, ?, ?, 1, 0, 'off')",
-            spec.name, spec.command, Json.write(spec.args), spec.env?.let { Json.write(it) }, spec.cwd,
+            spec.name, spec.command, Json.write(spec.args), env?.let { Json.write(it) }, spec.cwd,
         )
-        return get(spec.name)
+        attach(spec.name, refs(env.orEmpty()))
+        return viewOf(spec.name)
     }
 
     fun update(name: String, body: McpUpdate): McpServer {
@@ -125,17 +142,64 @@ class McpService(
         if (cur.builtin && (body.command != null || body.args != null)) {
             throw Conflict("The keel server's command is fixed: it is keel v2's own MCP server, read-only for agents", "You can turn it off or give it env values.")
         }
+        val env = body.env?.let { kept(name, it, cur.env.orEmpty()) }
         jdbc.update(
             "UPDATE mcp_servers SET command = ?, args_json = ?, env_json = ?, cwd = ?, enabled = ? WHERE name = ?",
-            body.command ?: cur.command, Json.write(body.args ?: cur.args), (body.env ?: cur.env)?.let { Json.write(it) },
+            body.command ?: cur.command, Json.write(body.args ?: cur.args), (env ?: cur.env)?.let { Json.write(it) },
             body.cwd ?: cur.cwd, if (body.enabled ?: cur.enabled) 1 else 0, name,
         )
-        return get(name)
+        env?.let { attach(name, refs(it)) }
+        return viewOf(name)
+    }
+
+    /**
+     * 0.18.64 the env as it is saved: a typed value goes into keel's secrets as `<server>_<NAME>` and the env keeps
+     * `secret:<server>_<NAME>` (GET never shows a value); [SET] keeps the value saved before. A reference to one of
+     * keel's own logins (a model key, the GitHub token) is refused: an MCP server never gets them.
+     */
+    private fun kept(server: String, env: Map<String, String>, before: Map<String, String>): Map<String, String> =
+        env.mapValues { (k, sent) ->
+            val v = if (sent == SET) before[k] ?: throw BadRequest("$k has no saved value to keep", "Type its value again.") else sent
+            when {
+                v.startsWith(SECRET_REF) -> v.also {
+                    val n = it.removePrefix(SECRET_REF)
+                    if (secrets.keelOwn(n)) throw BadRequest("$k names one of keel's own logins ($n)",
+                        "keel never gives its model keys or GitHub token to an MCP server. Save a token for this server instead.")
+                }
+                v.isEmpty() -> v
+                else -> {
+                    val secret = "${server}_$k"
+                    secrets.put(secret, v)
+                    SECRET_REF + secret
+                }
+            }
+        }
+
+    private fun refs(env: Map<String, String>): List<String> =
+        env.values.filter { it.startsWith(SECRET_REF) }.map { it.removePrefix(SECRET_REF) }.distinct()
+
+    /** The secrets attached to this server (saved with it by the person, or by the plugin that made it): only these resolve. */
+    fun attached(server: String): List<String> = kv.get<List<String>>(ATTACHED + server).orEmpty()
+
+    /** 0.18.64 attaches these secrets to the server (a plugin that writes its own server, as Jira, calls it too). */
+    fun attach(server: String, names: List<String>) {
+        kv.put(ATTACHED + server, names.filterNot { secrets.keelOwn(it) }.distinct().sorted())
+    }
+
+    /**
+     * 0.18.64 once, on the first start of a keel that checks attachments: each server keeps the references it had (they
+     * were saved before this check), except keel's own logins.
+     */
+    fun attachOnce() {
+        if (kv.get<Boolean>(ATTACHED_ONCE) == true) return
+        for (s in list()) if (kv.get<List<String>>(ATTACHED + s.name) == null) attach(s.name, refs(s.env.orEmpty()))
+        kv.put(ATTACHED_ONCE, true)
     }
 
     fun delete(name: String) {
         if (get(name).builtin) throw Conflict("The keel server is built in and cannot be deleted", "Turn it off instead.")
         jdbc.update("DELETE FROM mcp_servers WHERE name = ?", name)
+        kv.delete(ATTACHED + name)
         if (name == KEEL_V1) kv.put(KEEL_V1_DISMISSED, true)     // removed on purpose: do not offer it again
     }
 
@@ -160,11 +224,17 @@ class McpService(
      * v0.5.0: an env value `secret:<name>` names a secret (Connections, AES-GCM); it is read only here, when a flow or a
      * test starts the server, so GET /api/mcp-servers never shows it (a plugin's catalog entry, like Jira's, keeps its
      * token this way).
+     * 0.18.64 only a secret attached to this server resolves ([attached]), and never one of keel's own logins: until
+     * 0.18.63 any server could name any secret, the model keys and the GitHub token too. Any other stays empty.
      */
     private fun resolved(spec: McpServerSpec): McpServerSpec {
         val env = spec.env ?: return spec
         if (env.values.none { it.startsWith(SECRET_REF) }) return spec
-        return spec.copy(env = env.mapValues { (_, v) -> if (v.startsWith(SECRET_REF)) secrets.get(v.removePrefix(SECRET_REF)).orEmpty() else v })
+        val mine = attached(spec.name).toSet()
+        return spec.copy(env = env.mapValues { (_, v) ->
+            if (!v.startsWith(SECRET_REF)) v
+            else v.removePrefix(SECRET_REF).let { n -> if (n in mine && !secrets.keelOwn(n)) secrets.get(n).orEmpty() else "" }
+        })
     }
 
     /** keel's own label, else the first a plugin gives ([McpServerLabel]). */
@@ -186,6 +256,10 @@ class McpService(
         val KEEL_ARGS = listOf("-m", "keel_engine.mcp", "--read-only")
         const val KEEL_V1 = "keel-v1"
         const val SECRET_REF = "secret:"
+        /** 0.18.64 what GET shows for an env value that is not a secret reference; sent back, it keeps the value. */
+        const val SET = "set"
+        private const val ATTACHED = "mcp-secrets:"
+        private const val ATTACHED_ONCE = "mcp-secrets-attached"
         private const val KEEL_V1_DISMISSED = "mcp-keel-v1-dismissed"
         private val LABELS = mapOf("keel" to "keel v2 (read-only)", KEEL_V1 to "keel v1 (optional)")
     }

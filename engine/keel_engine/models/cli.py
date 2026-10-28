@@ -43,14 +43,13 @@ def claude_login_env(keys: dict | None = None) -> dict:
 
 
 def copilot_login_env(keys: dict | None = None) -> dict:
-    """GitHub token for the Copilot CLI child only: keys["copilot"], else GH_TOKEN / COPILOT_GITHUB_TOKEN (GITHUB_TOKEN last)."""
+    """GitHub token for the Copilot CLI child only: keys["copilot"], else GH_TOKEN / COPILOT_GITHUB_TOKEN (keel2 token
+    copilot sets GH_TOKEN). 0.18.64 never GITHUB_TOKEN: that is keel's GitHub connection (repo access), not a Copilot
+    login, and a model's child must not get it."""
     tok = (keys or {}).get("copilot")
     if tok:
         return {"GH_TOKEN": tok, "COPILOT_GITHUB_TOKEN": tok}
-    out = {k: os.environ[k] for k in ("GH_TOKEN", "COPILOT_GITHUB_TOKEN") if os.environ.get(k)}
-    if not out and os.environ.get("GITHUB_TOKEN"):
-        out["GH_TOKEN"] = os.environ["GITHUB_TOKEN"]
-    return out
+    return {k: os.environ[k] for k in ("GH_TOKEN", "COPILOT_GITHUB_TOKEN") if os.environ.get(k)}
 
 def codex_login_env(keys: dict | None = None) -> dict:
     """ChatGPT login for the codex child: keys["codex_auth"] is the content of ~/.codex/auth.json (saved in keel's
@@ -63,9 +62,17 @@ def codex_login_env(keys: dict | None = None) -> dict:
     os.chmod(home, 0o700)
     f = home / "auth.json"
     if not f.exists() or f.read_text() != auth:
-        f.write_text(auth)
-        os.chmod(f, 0o600)
+        write_private(f, auth)
     return {"CODEX_HOME": str(home)}
+
+
+def write_private(path: Path | str, text: str) -> None:
+    """0.18.64 a file only its owner reads (a login, an MCP server's secrets): created 0600, never world-readable for a
+    moment (write then chmod left a window). An older file keeps its inode: it is made 0600 before it is written."""
+    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        os.fchmod(fd, 0o600)
+        f.write(text)
 
 
 INSTALL_HINT = {
@@ -218,6 +225,22 @@ def _classify(tool: str, stdout: str, stderr: str, code) -> ModelError:
     return ModelError(f"`{tool}` exited with code {code}: {short}")
 
 
+def guard_intact(env: dict | None) -> None:
+    """0.18.64 after an agent CLI ends: keel's files in its run folder (the guard context, the hook's settings, mcp.json,
+    the command wrappers) must be what the engine wrote (runtime/guard_ctx.py SEALED). One that changed means the agent
+    got around the hook's refusal and could have turned its rules off: the step fails, its work is not taken."""
+    from ..runtime import guard_ctx
+
+    ctx = (env or {}).get(guard_ctx.ENV)
+    if not ctx:
+        return
+    bad = guard_ctx.broken(os.path.dirname(ctx))
+    if bad:
+        raise ModelError(f"the agent changed keel's own files for this run ({', '.join(Path(b).name for b in bad)}), so "
+                         "keel's guard could not be trusted during it. This step's work is not taken.",
+                         hint="Run the step again; if it happens again, look at the agent's shell commands in its steps.")
+
+
 async def run_cli(tool: str, argv: list[str], *, stdin: str = "", cwd: str | None = None, env: dict | None = None,
                   timeout: int = 1800, on_line: Callable[[str], None] | None = None) -> tuple[str, str]:
     proc = await asyncio.create_subprocess_exec(
@@ -267,6 +290,7 @@ async def run_cli(tool: str, argv: list[str], *, stdin: str = "", cwd: str | Non
         asyncio.get_running_loop().call_later(KILL_GRACE, kill, signal.SIGKILL)
         raise
     stdout, stderr = "\n".join(out_lines), b"".join(err_chunks).decode(errors="replace")
+    guard_intact(env)
     if proc.returncode != 0:
         raise classify_failure(tool, stdout, stderr, proc.returncode)
     return stdout, stderr

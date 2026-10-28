@@ -426,6 +426,8 @@ for (const [name, tool, args] of [
   ['task', 'task', {{ subagent_type: 'implementer' }}],
   ['mcp', 'github_create_issue', {{ title: 'x' }}],
   ['glob', 'glob', {{ pattern: '*' }}],
+  ['grep_env', 'grep', {{ pattern: 'TOKEN', path: {json.dumps(str(root / '.env'))} }}],
+  ['grep_src', 'grep', {{ pattern: 'TOKEN', path: {json.dumps(str(root))}, include: '*.py' }}],
 ]) {{
   try {{ await before({{ tool }}, {{ args }}); out[name] = 'allowed'; }} catch (e) {{ out[name] = String(e.message); }}
 }}
@@ -439,6 +441,8 @@ console.log(JSON.stringify(out));
     assert "dependency" in out["dep"] and "blocked in phase" in out["patch"]
     assert "no file could be read" in out["nopatch"] and "sub-agents are off" in out["task"]
     assert "allowlist" in out["mcp"]
+    # 0.18.64 opencode's grep goes through the hook too (it said "nothing to guard" before)
+    assert "Reading .env is blocked" in out["grep_env"] and out["grep_src"] == "allowed"
     r = subprocess.run(["node", str(probe)], capture_output=True, text=True,
                        env={k: v for k, v in os.environ.items() if k != guard_ctx.ENV}, timeout=60)
     assert "Only reads are allowed" in json.loads(r.stdout)["test"]          # no context: fails closed
@@ -535,9 +539,10 @@ def test_a_second_read_of_an_unchanged_file_is_refused_but_a_changed_file_or_oth
     import json as _json
     from keel_engine import hook
     root = tmp_path / "p"; root.mkdir()
+    from keel_engine.runtime.guard_ctx import write_context
     f = root / "schema.json"; f.write_text('{"a": 1}\n' * 50)
-    ctx = tmp_path / "run" / "guard.json"; ctx.parent.mkdir()
-    ctx.write_text(_json.dumps({"root": str(root), "phase": "spec", "agent": "explorer"}))
+    # 0.18.64 a context keel did not write (no checksum) is not used: write it as the engine does
+    ctx = Path(write_context(tmp_path / "run" / "guard.json", root=str(root), phase="spec", agent="explorer"))
 
     def read(**ti):
         return hook.pre_tool(_json.dumps({"tool_name": "Read", "tool_input": {"file_path": str(f), **ti}, "cwd": str(root)}), str(ctx))
@@ -547,7 +552,7 @@ def test_a_second_read_of_an_unchanged_file_is_refused_but_a_changed_file_or_oth
     assert read(offset=10, limit=5) == 0, "another range is fine"
     f.write_text('{"a": 2}\n')
     assert read() == 0, "the file changed since"
-    other = tmp_path / "run2" / "guard.json"; other.parent.mkdir(); other.write_text(ctx.read_text())
+    other = Path(write_context(tmp_path / "run2" / "guard.json", root=str(root), phase="spec", agent="explorer"))
     assert hook.pre_tool(_json.dumps({"tool_name": "Read", "tool_input": {"file_path": str(f)}, "cwd": str(root)}), str(other)) == 0, \
         "a new run starts with an empty list"
 

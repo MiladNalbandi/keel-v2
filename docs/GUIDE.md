@@ -314,6 +314,10 @@ The rule: never start any coding task without answering these questions first.
   for a new feature or an API integration, fix for a bug, change or small for a refactor, change or spike for
   performance, spike or feature for architecture): the criteria and the answers are its seed. Or copy the prompt
   only (no flow starts), send it back with a note, or stop.
+- **Citations** (0.18.64): the spec check (here and in the feature flow) also reads every `path:line`, `path:10-20`
+  or `path#L10` the document cites. A file that does not exist, or a line past its end ("src/orders.py:88-95 does
+  not exist: the file has 40 lines"), sends the document back once like any missing section. From an MCP client:
+  `keel_spec_check(path)` and `keel_citations_check(path or text)`.
 
 ### review
 
@@ -456,11 +460,42 @@ keel checks every agent with rules. **Build › Rules** shows all of them in pla
                                                         and puts back what the phase does not allow
 ```
 
-- **Always on**: `.env` files, keel's own rule files (`.keel/config.yml`, `.keel/rules/`), old migrations, force push,
-  `--no-verify`, commits and history rewrites inside a flow, secrets and switched-off tests in an edit, and keel's
-  own sign-in keys. These never switch off.
+- **Always on**: secret files (`.env`, SSH and TLS keys, `credentials.json`, `.npmrc` ...), keel's own rule files
+  (`.keel/config.yml`, `.keel/rules/`, `.keel/stacks/`), old migrations, force push, `--no-verify`, commits and history rewrites inside
+  a flow, secrets and switched-off tests in an edit, and keel's own sign-in keys. These never switch off.
+- **Git settings** (0.18.64): agents never change the repo's git settings (`git config` that writes, `git remote add`
+  or `set-url`, `git -c`) and never write inside `.git/`; reading them (`git config --get`, `git remote -v`) is fine.
+  keel runs git there with your GitHub login. keel's own git runs no hook, no fsmonitor and no `ext::` remote of the
+  repo, with no keys in its environment, and with the login it speaks https only (so a git hook of the project does
+  not run on keel's commits: its checks belong in the project's `pre-commit` tools, which keel runs itself; or
+  set `git: {hooks: on}` in `.keel/config.yml` and the project's own hooks run on keel's local commits, merges and
+  checkouts, with no keys in their environment, never on a push or a fetch). A container an agent starts (with
+  `keel2 --docker`) gets no bind mount outside the project, no Docker socket, no `--privileged`, `--cap-add` or host
+  namespaces.
 - **You can switch off**: generated files, build output, `-x test`, new packages, reading a file twice, big-file
   reads, the push gate, MCP tools that change things. Off is saved in `.keel/config.yml` (`rules.off`).
+- **You can switch on**: reading other projects (`other-projects`), off until you turn it on. On is saved in
+  `.keel/config.yml` (`rules.on`).
+
+**Secret files** (0.18.64). keel keeps one list of files that hold secrets: `.env` and `.env.*` (not `.env.example`,
+`.env.sample`, `.env.template`, `.env.dist`), SSH keys (`id_rsa`, `id_ed25519` ...), `*.pem`, `*.key`, `*.p12`,
+`*.pfx`, `credentials.json`, `.npmrc`, `.netrc`, `.pgpass`, `secrets.yml` and a few more. Your `guards.protected` adds
+to it. An agent never reads, searches, prints, copies or changes them:
+
+```
+ Read .env / Grep in .env / Grep over a folder that has one     refused (a glob like "*.py" leaves it out)
+ cat .env, sort .env, python -c "open('.env')", git show HEAD:.env, grep -r KEY .      refused
+ ls -la .env, test -f .env, git status .env                      fine: they only name it
+```
+
+Some honest uses are refused too (`source .env`, `docker compose --env-file .env`): run those yourself.
+
+**What keel cannot stop.** keel reads each command before it runs; it does not run agents as another user or in a
+sandbox. So a determined agent can still get around a rule: a file name built at run time (`f=.en; cat ${f}v`), a
+script file that opens `.env` itself, `find . -exec cat {} +`, an archive of a whole folder, a command that prints
+many files at once when a secret file is committed (`git show`, `git log -p`). keel also checks its own run files
+when an agent ends (a changed guard file fails the step) and checks every commit again, but the strong fix is to keep
+real secrets out of the folders agents work in.
 - **Your lists** (`.keel/config.yml`): protected files, generated files, build output, shell commands, `mcp.allow`,
   the big-file limit (`read_guard_max_lines`, default 2000 lines; 0 = off), the push gate, architecture boundaries.
   The page edits them in place; only the `guards`, `mcp`, `rules` and `boundaries` parts are rewritten.
@@ -727,6 +762,14 @@ effort is slower and uses more tokens; less is quicker and cheaper. **default** 
 
 A model without an effort setting shows "no effort setting", and keel ignores an effort it cannot pass on.
 
+**From MCP** (0.18.64): `keel_models` lists every provider, its modes, their models and the efforts each model takes,
+and which modes are set up (keel has the login or the key; no secret is shown). `keel_agent_model` refuses a wrong
+provider, mode, model or effort with the ones there are. It takes role words too: **planning** is the explorer in
+the spec phase, **coding** the implementer, **testing** the test-author (`keel_models` lists them). The explorer also
+triages, sets up and asks clarify's questions, so a project-wide change of it changes all of those: pass `thread_id`
+to change only that flow (with a role word, only its steps in that phase), or `step` for one step of it. The project's
+Agents page and the other flows keep their models.
+
 ## Plugins and the Marketplace
 
 From 0.17.0 keel is a small **core** with **plugins**. The core runs flows, workflows, agents, gates, the Inbox,
@@ -821,6 +864,30 @@ does not ask about them again); a plain retry of a history check says it finds t
 **One owner per task.** Start a flow, MCP `keel_start_flow`, Tasks › Start and KeelBot side sessions refuse while
 another flow or side agent of the project works on the same ticket, branch or files, and say who ("flow SHOPS-1234:
 Euro prices at red", "side agent h_..."). *Start anyway* (`force`) starts it all the same.
+
+**The base and the remotes (0.18.64).** Before a flow gets its branch, keel fetches every remote of the project, all
+at once and at most 20 seconds each, so the branch starts from the newest code it can see (`origin/main` when the
+local `main` is only behind it). The flow's first timeline line and the start's answer say how far the base branch is
+behind each remote's branch of the same name, and behind a remote's default branch when its name differs (a local
+`master` against another remote's `main`). A fetch that fails or times out is said plainly ("fetch from mirror
+failed: …; the base may be stale"); it never stops the start. To start from another branch, name it: Start a flow's
+`base` (API `POST /api/projects/{pid}/flows {base}`, MCP `keel_start_flow(base="upstream/main")`), a local branch or
+`<remote>/<branch>`. MCP `keel_fetch_remotes` fetches and reports without starting anything.
+
+```
+ start ──► fetch every remote (20 s each, together) ──► branch from base ──► "main is 3 commits behind upstream/main"
+               └─ a remote that fails: "fetch from <remote> failed: <why>; the base may be stale" (the start goes on)
+```
+
+**Bring a flow's branch up to its base (0.18.64).** Agents may not merge, reset or commit by hand during a flow, so
+keel does it: `POST /api/threads/{id}/sync {onto?, mode: merge | rebase, action: start | continue | abort}`, MCP
+`keel_branch_sync` (write). keel merges (or rebases) the flow's branch onto `onto` (default: the base branch's remote
+copy, else the local base) in the folder or worktree the flow works in, while the flow waits or is paused, never while
+a step runs, and never over uncommitted changes. A conflict stops with the list of files and leaves them for you or an
+agent: remove the conflict markers, then `action=continue` and keel stages exactly those files and commits the
+resolution with its usual commit identity (KeelBot co-authors); `action=abort` puts the branch back. The flow's next
+step compares its own work with the new merge base, so the base's commits it brought in do not count as its work.
+A rebase gives the branch's commits new ids: a branch pushed before needs a push with `--force-with-lease`.
 
 **Stale configuration.** `keel2 doctor <project>`, the project's doctor (`GET /api/projects/{pid}/doctor/config`) and
 knowledge-refresh check that the configured commands can still run: a compose service a command execs into is in the
@@ -1100,8 +1167,8 @@ keel has an MCP server with three levels; each includes the one below:
 
 | level | how | adds |
 |---|---|---|
-| read (default) | `keel2 mcp` | status, timeline, next step, phase rules, dashboard links, flows, Inbox, live agents, budget, specs (with history), knowledge, search, read a file, engine actions, keel's rules, workflows, agents (one agent's steps live), KeelBot's chats and changes, diagrams in ASCII (`keel_diagram`), skills, stacks, the formats and checks that save nothing (`keel_format`, `keel_workflow_check`, `keel_rule_check`, `keel_stack_check`), the marketplace search, the Database, Git and CI/CD read tools |
-| write | `keel2 mcp --write` | decide or send back a gate, answer the Inbox (several answers, a choice and a reason; questions in a form when the client can show one), start a flow (no type: every flow with what it is for and its inputs, like ticket or pr for review-pr), stop and resume flows, set a run mode, start an agent, ask KeelBot (`keel_keelbot_ask`, also `mode=edit`) and keep or undo its changes, create workflows, rule packs, agents, skills and stacks, attach skills, set an agent's model and effort, restore a spec, git / PR / CI / database writes, Code Review comments and submits |
+| read (default) | `keel2 mcp` | status, timeline, next step, phase rules, dashboard links, flows, Inbox, live agents, budget, specs (with history), knowledge, search, read a file, read a file of any registered project (`keel_read_project_file`), engine actions, keel's rules, workflows, agents (one agent's steps live), KeelBot's chats and changes, diagrams in ASCII (`keel_diagram`), skills, stacks, the formats and checks that save nothing (`keel_format`, `keel_workflow_check`, `keel_rule_check`, `keel_stack_check`), keel's spec check on a spec or clarify file (`keel_spec_check`) and the check of every `path:line` it cites (`keel_citations_check`, also on a text), a flow's document or spec from its file (`keel_flow_document`), fetch every remote and say how far the base is behind (`keel_fetch_remotes`), the prompt an agent call really got (`keel_agent_prompt`), what a step's retry changed (`keel_flow_diff`), keel's and the connection's health (`keel_health`, `keel_reconnect`), keel's flow state with a state file keel v1 left (`keel_state`; its `close` needs `--write`), the marketplace search, the Database, Git and CI/CD read tools |
+| write | `keel2 mcp --write` | decide or send back a gate, answer the Inbox (several answers, a choice and a reason; questions in a form when the client can show one), start a flow (no type: every flow with what it is for and its inputs, like ticket or pr for review-pr; `base`: the branch it starts from), bring a flow's branch up to its base (`keel_branch_sync`: merge or rebase, conflicts resolved and committed by keel), stop and resume flows, set a run mode, start an agent, ask KeelBot (`keel_keelbot_ask`, also `mode=edit`) and keep or undo its changes, create workflows, rule packs, agents, skills and stacks, attach skills, set an agent's model and effort, restore a spec, replace a waiting flow's document (`keel_flow_document` with `text`), send a clarify result back with your own draft (`keel_reject_with_document`) or hand it over to the next flow (`keel_handover`), archive keel v1's leftover state (`keel_state action=close`), git / PR / CI / database writes, Code Review comments and submits |
 | admin | `keel2 mcp --admin` | delete flows, pause (`keel_pause`; `keel_resume` goes on), add and remove projects, switch the project the dashboard and keel TUI show (`keel_focus`), connect GitHub with a one-time code (`keel_connect_github`: it returns the code and the link, never the token), change workflows, install and change rules |
 
 ```bash
@@ -1109,8 +1176,26 @@ keel2 mcp --print-config                                 # the Claude Code line 
 claude mcp add keel-v2 -- "$(command -v keel2)" mcp --write
 ```
 
-Pushes, database changes, deletes, stops and saves ask you first in the client; a client that cannot ask is refused
-unless you add `--yes`. `--allow keel_status,keel_approve_gate` keeps only those tools. `keel_answer(ask_person=true)`
+**Which project** (0.18.64). A tool you give no `project` uses the only project, else the project that holds the
+folder the client runs in; else it names the projects and asks you to pick one (it no longer answers for the first
+one). **When keel restarts** (`keel2 add`, `keel2 update`), `keel2 mcp` waits for it and reconnects by itself; a call
+in between answers "keel is restarting, try again in a few seconds". `keel_health` says whether keel is up and how
+often the connection reconnected; `keel_reconnect` starts the connection's server again now (after an update, for the
+newest tools). Times (`keel_timeline`) are in your computer's time zone, with its name: `10-28 14:14:02 CET`.
+
+Pushes, database changes, deletes, stops and saves ask you first in the client. **A client without forms: you confirm
+in keel's Inbox** (0.18.64). A client that cannot show that form does nothing yet and answers "This needs the person's
+OK: <what>" with a one-time token, and keel puts the same question in its Inbox (the dashboard, keel TUI, the phone
+app). The model reads that answer, so it could send the token back by itself; for the dangerous kinds (deletes,
+pushes, stops, a model change, a data change, a pull request) the token alone does nothing: you approve the question
+in keel's Inbox, then the client calls the tool again with `confirm: "<token>"`. For the other kinds the token works
+when you say yes in the chat (within 5 minutes, once, for that call only), and an approval in the Inbox counts too.
+`KEEL_MCP_CONFIRM=token` lets the token alone confirm every kind again. If keel cannot put the question in its Inbox,
+a dangerous kind is not done: do it in keel's dashboard. **Danger:** `keel2 mcp --yes` skips every question: the
+model's acting tools then run with no question to you. `--allow keel_status,keel_approve_gate` keeps only those tools.
+`keel_start_flow` answers at once with the flow's thread id, its status (starting, running or waiting) and how to
+follow it; `wait` (seconds, at most 60) waits for its first gate first. `keel_answer` and `keel_approve_gate` say what
+really ran: a reject with the choice **edit** says the edit choice ran. `keel_answer(ask_person=true)`
 asks you through the client's own form when it has one. Everything the client changes shows on the flow's timeline as
 "via MCP · <client>: <tool>". keel's own agents always get the read level.
 
@@ -1125,6 +1210,17 @@ whole gate (findings, the failing output, at a spec gate the spec), page by page
 call). `keel_edit_gate(notes)` takes the gate's edit choice (the spec gate's **edit**, the contract's **change**) or
 sends it back where the gate takes that.
 
+A clarify flow's document on disk is the source of truth (0.18.64). Its result gate shows the file as it is now; when
+you edited it after keel wrote it, the gate says so ("You edited … at <time>; the hand-over uses this file"), and the
+hand-over to feature, fix, change, small or spike reads the request, the criteria and the prompt from the file at
+the moment you choose. `keel_flow_document` reads it (and with `text`, at the write level, replaces it while the flow
+waits; keel's file history records that as your edit). `keel_reject_with_document(text, why)` sends the result back
+with your own draft: keel writes it and runs the spec check; it passes, and the gate shows it again with no new
+assemble pass; it fails, and the assemble step patches your draft. Any send-back patches the last draft (keep what is
+right, change only what the note asks) instead of writing the document again. `keel_handover(flow, text?)` chooses
+the next flow (with a replacement document written first when you give one) and answers with the new flow's thread
+id and the link both ways (the clarify flow's `children`, the new flow's `parent`).
+
 keel's MCP server runs every tool off its event loop, keeps stdout for the protocol only (a stray print goes to
 stderr) and answers a tool's own error as text, so a slow call never makes a client drop keel's tools (0.18.28).
 
@@ -1132,7 +1228,7 @@ stderr) and answers a tool's own error as text, so a slow call never makes a cli
 |---|---|
 | keel_status, keel_projects, keel_timeline, keel_next, keel_explain | the same names |
 | keel_dashboard (flow, map, er) | keel_dashboard (flow, map, er) |
-| — | keel_flows, keel_inbox, keel_live, keel_budget, keel_specs, keel_knowledge, keel_search, keel_read_file, keel_actions (read); write and admin tools (v1 has none) |
+| — | keel_flows, keel_inbox, keel_live, keel_budget, keel_specs, keel_knowledge, keel_search, keel_read_file, keel_spec_check, keel_citations_check, keel_actions (read); write and admin tools (v1 has none) |
 
 keel v1 is a separate project; its MCP server can be added like any other: `keel2 start --with-keel-v1 <keel
 checkout>`, then turn on "keel v1 (optional)" in Tools.
@@ -1246,8 +1342,22 @@ keel2 folders                                            # the main folder and t
 keel2 remove ~/Work/web                                  # off the list; keel keeps its history
 ```
 
+**A state file keel v1 left** (0.18.64). A project that ran keel v1 may still hold `.keel/state.json`. While it names
+a flow, keel v1's hooks (when they are still installed) refuse every commit, also after you moved to keel v2. keel v2
+says so where a commit fails and before a flow starts ("a keel v1 flow (feature 012-prices, phase full-review) left
+.keel/state.json: it blocks commits"), and a commit keel v2 itself refuses names its flow. Archive the file (it moves
+to `.keel/archive/state-<date>.json`, nothing is deleted):
+
+```bash
+keel2 state                                              # what keel v1 left in this folder
+keel2 state close                                        # archive it (MCP: keel_state action=close, with --write)
+```
+
 The list is kept per keel in `~/.config/keel2/<KEEL_NAME>.folders`. If keel runs, `add` and `remove` restart it once
-(they ask first when agents are working), with the image keel runs now (only `keel2 update` takes a new one). Each
+(they ask first when agents are working), with the image keel runs now (only `keel2 update` takes a new one). From
+0.18.64 `keel2 add` says so before the restart, and open MCP sessions (`keel2 mcp`) reconnect by themselves. A folder
+keel sees already (inside the main project, or inside a folder added before) needs no restart: its repos become
+projects at once, and `keel_add_project` (MCP, admin) adds them too, with no terminal. Each
 added folder is mounted at the **same path** as on your computer, and every git repo in it becomes a project (a folder
 of repos: each repo directly inside it). More repos later? All projects › Add projects lets you pick them. A folder
 that no longer exists is skipped (`keel2 folders` marks it).
@@ -1270,6 +1380,26 @@ that no longer exists is skipped (`keel2 folders` marks it).
   **Start anyway**. Nothing is blocked.
 - keel TUI: the start box says `/flow init`, `/flow` lists init first, and another flow asks the same. `/flow init`
   needs no idea. MCP: `keel_start_flow` puts a line about init first for such a project.
+
+**Agents read the other projects** (0.18.64). A flow's agents may read the other projects registered in the same
+keel, for example the upstream service whose contract a change depends on. They never change it. This is **off until
+you turn it on**: switch on the rule **other-projects** on the Rules page (it saves `rules.on: [other-projects]` in
+`.keel/config.yml`). Both projects must have it on: the agents read only the other projects that turned it on too.
+
+```
+ flow in shop-web                       shop-api (registered in the same keel)
+ read, write (phase rules)   ───────►   read only: read a file, cat, grep, ls, git log, git show
+                                        no edit, no write, no .env, no build or install commands
+```
+
+- Each agent's prompt names the other projects and their folders (one line each), only when there are any.
+- Its secrets stay out there too (its `.env`, keys, keel's keys), judged with that project's own `.keel/config.yml`,
+  whatever the command: `cat`, `grep -r`, `python -c`, `git -C <it> show HEAD:.env` and a Grep are all refused.
+- A folder that is no registered project is refused in plain words: "<path> is outside this project and is not another
+  project registered in keel; ask the person to add it (keel2 add) or to paste what you need".
+- Off (the default), a project keeps to itself: its agents read only it, other projects' agents do not read it, and
+  keel's MCP server for its flows answers only for it.
+- From an MCP client: `keel_read_project_file(project, path, offset, limit)` reads one file of any project the same way.
 
 **A second keel** (`KEEL_NAME=keel-lab PORT=8097 ./keel2 start …`) gets its own data: the volume is `<KEEL_NAME>-data` (`keel-data` only for the default `keel-v2`; `KEEL_VOLUME` sets another). keel2 refuses to start a keel, restore a backup or delete data on a volume another running keel uses: two keels on one volume would write one database at the same time.
 

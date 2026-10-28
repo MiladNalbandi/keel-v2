@@ -23,6 +23,17 @@ class KeelRulesTest {
     }
 
     @Test
+    fun `secret files come from the shared list the engine's guard reads`() {
+        val list = fixture["SECRET_FILES"]
+        list["names"].forEach { assertThat(keel.api.repo.RepoService.isSecret(it.asText())).describedAs(it.asText()).isTrue() }
+        list["readable"].forEach { assertThat(keel.api.repo.RepoService.isSecret(it.asText())).describedAs(it.asText()).isFalse() }
+        assertThat(keel.api.repo.RepoService.isSecret("deploy/server.PEM")).isTrue()
+        assertThat(keel.api.repo.RepoService.isSecret(".pgpass")).isTrue()
+        assertThat(keel.api.repo.RepoService.isSecret("id_ed25519")).isTrue()
+        assertThat(keel.api.repo.RepoService.isSecret("README.md")).isFalse()
+    }
+
+    @Test
     fun `matrix verdicts`() {
         val cfg = ClassifyConfig()
         assertThat(rules.frozen("red", cfg, "apps/api/src/main/kotlin/A.kt")).isTrue()

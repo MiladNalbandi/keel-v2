@@ -84,6 +84,11 @@ def test_the_configured_template_with_the_branch_ticket_and_keel_ref(tmp_path):
     # the trace still links the criterion through Keel-Ref
     shas = va.ac_commits(str(root), "AC-1", "main")
     assert shas["red"] and shas["green"] and shas["red"] != shas["green"]
+    # 0.18.64 and so does the AC gate (it said "no test(AC-1) commit found" for these two)
+    from keel_engine.runtime import flow_actions
+    gate = flow_actions.ac_evidence(str(root), {"id": "AC-1", "title": "prices show in euros"}, [], None)
+    assert "no `test(AC-1)` commit found" not in gate and "no `feat(AC-1)` commit found" not in gate
+    assert "SHOPS-1234: test: prices show in euros" in gate and "tests/PriceTest.php" in gate
     # ship's doc commit follows it too (item C), with the flow's ticket from data
     write(root, "README.md", "euros\n")
     subject, _ = keel_commit(root, "close", title="Show prices in euros", data={"ticket": "SHOPS-1234"})
@@ -110,3 +115,18 @@ def test_keels_own_form_stays_without_a_style_and_a_cut_subject_never_repeats_in
     assert "Keel-Ref" not in body
     first = body.strip().splitlines()[0]
     assert first.startswith("…") and subject[len("feat(AC-2): "):-1] not in first
+
+
+def test_init_commits_its_own_files_and_leaves_a_fixs_changes_for_the_person(tmp_path):
+    # 0.18.64 a rung fix changed a lock file: the whole setup commit was refused, again on every "try again"
+    root = project(tmp_path)
+    write(root, "deps.lock", "widget = 1\n")
+    commit_all(root, "chore: the lock")
+    write(root, "deps.lock", "widget = 2\n")
+    write(root, "docs/RUNNING.md", "# Running\n")
+    a = ActionInput(root=str(root), phase="setup", title="keel init", ac=None, acs=[], fake=False, flow="init")
+    r = commit(a)
+    assert r.ok and "left uncommitted for you (not init's files): deps.lock" in r.note, (r.note, r.detail)
+    assert git(root, "show", "--name-only", "--format=", "HEAD").stdout.split() == ["docs/RUNNING.md"]
+    assert "deps.lock" in git(root, "status", "--porcelain").stdout
+

@@ -26,6 +26,26 @@ class LocalModelsApiTest : ApiTest() {
     }
 
     @Test
+    fun `0_18_64 a key goes over http only inside the network, and a new host drops the saved key`() {
+        // plain http to a machine on the internet: refused; https, this machine and the local network: fine
+        put("/api/providers/local/endpoints/far", mapOf("kind" to "ollama", "url" to "http://models.example.com:11434", "key" to key))
+            .andExpect(status().isBadRequest)
+        for (url in listOf("https://models.example.com", "http://127.0.0.1:11434", "http://host.docker.internal:11434",
+                "http://gpu-box.local:8000/v1", "http://192.168.1.20:1234/v1", "http://172.20.0.3:8000/v1")) {
+            put("/api/providers/local/endpoints/near", mapOf("kind" to "ollama", "url" to url)).andExpect(status().isOk)
+        }
+        put("/api/providers/local/endpoints/lab", mapOf("kind" to "ollama", "url" to "http://10.0.0.5:11434", "key" to key)).andExpect(status().isOk)
+        // the same host (another path): the key stays; another host: the key is dropped, not sent there
+        put("/api/providers/local/endpoints/lab", mapOf("kind" to "ollama", "url" to "http://10.0.0.5:11434/v1")).andExpect(status().isOk)
+        assertThat(get("/api/providers/local").json()["endpoints"].first { it["name"].asText() == "lab" }["key_set"].asBoolean()).isTrue()
+        put("/api/providers/local/endpoints/lab", mapOf("kind" to "ollama", "url" to "https://other.example.com")).andExpect(status().isOk)
+        assertThat(get("/api/providers/local").json()["endpoints"].first { it["name"].asText() == "lab" }["key_set"].asBoolean()).isFalse()
+        // with a new key for the new host, it is kept
+        put("/api/providers/local/endpoints/lab", mapOf("kind" to "ollama", "url" to "https://third.example.com", "key" to key)).andExpect(status().isOk)
+        assertThat(get("/api/providers/local").json()["endpoints"].first { it["name"].asText() == "lab" }["key_set"].asBoolean()).isTrue()
+    }
+
+    @Test
     fun `a local model server is saved, its key never comes back, and the engine gets it as the provider's key`() {
         val empty = get("/api/providers/local").andExpect(status().isOk).json()
         assertThat(empty["enabled"].asBoolean()).isFalse()

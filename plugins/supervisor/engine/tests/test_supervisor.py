@@ -126,6 +126,18 @@ def test_act_mode_answers_as_the_supervisor(client, repo, script):
     assert lines[0] == "Supervisor answered 1 gate(s) in this flow:" and "check passed" in lines[1]
 
 
+def test_switching_shadow_to_act_while_a_gate_waits_answers_it(client, repo, script):
+    # 0.18.64 the gate was looked at in shadow mode, so act never looked at it again
+    script(GOOD)
+    tid, s = run(client, repo, sup={"on": True})
+    assert s["waiting"]["step"] == "g1" and rows(tid)[0]["outcome"] == "suggested"
+    r = client.post(f"/threads/{tid}/supervisor", json={"mode": "act"})
+    assert r.status_code == 200, r.text
+    idle(client)
+    assert wait(client, tid)["status"] == "done"
+    assert [x["outcome"] for x in rows(tid)] == ["applied", "suggested"]
+
+
 def test_turning_it_on_while_a_gate_waits_looks_at_once(client, repo, script):
     script(GOOD)
     tid, s = run(client, repo)
@@ -265,3 +277,28 @@ def test_a_verdict_can_name_the_commands_of_an_own_fix():
     assert v["commands"] == ["composer update -W", "php -v"]
     assert verdict.to_answer(v)[2] == {"choice": "own_fix", "commands": ["composer update -W", "php -v"]}
     assert "commands" not in verdict.to_answer(verdict.normalize({"action": "answer"}))[2]
+
+
+def test_without_its_own_model_it_looks_one_step_above_the_projects_default():
+    # 0.18.64 it judges what the other agents could not settle: not the same model that wrote the work
+    from keel_plugin_supervisor.supervisor import model_for
+
+    sonnet = {"provider": "claude", "model": "sonnet"}
+    assert model_for({}, {"default": sonnet})["model"] == "opus"
+    assert model_for({}, {"default": {"provider": "codex", "model": "gpt-5", "effort": "medium"}})["effort"] == "high"
+    assert model_for({}, {"default": sonnet, "supervisor": {"provider": "claude", "model": "haiku"}})["model"] == "haiku"
+    assert model_for({"model": {"provider": "fake", "model": "fake"}}, {"default": sonnet})["model"] == "fake"
+
+
+def test_its_log_keeps_the_commands_of_an_own_fix_and_an_old_table_gets_the_column():
+    from keel_engine.runtime import db
+
+    with db.connect() as conn:
+        conn.execute("drop table if exists supervisor_decisions")
+        conn.execute(ledger._TABLE.replace(", commands_json text", ""))
+    ledger._ready.clear()
+    r = ledger.record(project_id="p", thread_id="t-old", trigger="gate.waiting", action="escalate", outcome="escalated",
+                      choice="own_fix", commands=["tools/lock.py --all"])
+    assert r["commands"] == ["tools/lock.py --all"]
+    assert ledger.list_rows(thread_id="t-old")[0]["commands"] == ["tools/lock.py --all"]
+

@@ -1,10 +1,12 @@
 package keel.api.flow
 
 import com.fasterxml.jackson.databind.JsonNode
+import keel.api.settings.Model
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
+import org.springframework.web.bind.annotation.PutMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
@@ -34,12 +36,20 @@ data class StartFlow(
     val branch: String? = null,
     /** 0.18.57 start although another flow or side agent works on the same ticket, branch or files. */
     val force: Boolean = false,
+    /** 0.18.64 the branch the flow's new branch starts from: a local branch or <remote>/<branch> (default: the base). */
+    val base: String? = null,
 )
+/** 0.18.64 keel brings a flow's branch up to a base: merge (default) or rebase; start (default), continue or abort. */
+data class SyncBody(val onto: String? = null, val mode: String? = null, val action: String? = null)
 data class EstimateYaml(val yaml: String = "", val acs: JsonNode? = null)
 data class UnlockBody(val path: String = "", val phase: String? = null, val reason: String? = null)
 data class Resume(val decision: String = "", val why: String? = null, val payload: Map<String, Any?>? = null)
 data class Rewind(val checkpointId: String = "")
 data class ModeBody(val mode: String = "")
+data class DocumentBody(val text: String? = null)
+/** 0.18.64 a model for this flow only: `agent` everywhere in it, one `step`, or `agent` + `phase` (its steps there).
+ *  model null takes the pick back. */
+data class ThreadModelBody(val agent: String? = null, val step: String? = null, val phase: String? = null, val model: Model? = null)
 
 @RestController
 @RequestMapping("/api")
@@ -51,7 +61,17 @@ class FlowController(private val flows: FlowService) {
     @PostMapping("/projects/{pid}/flows")
     fun start(@PathVariable pid: String, @RequestBody body: StartFlow): JsonNode =
         flows.start(pid, body.workflowId, body.title, body.acs, FlowCap(body.capTokens, body.onCap, body.runMode), body.allowFake, body.allowDirty,
-            body.request, body.options, body.where, branch = when (body.branch) { "continue", "new" -> body.branch; else -> DEFAULT_BRANCH }, force = body.force)
+            body.request, body.options, body.where, branch = when (body.branch) { "continue", "new" -> body.branch; else -> DEFAULT_BRANCH },
+            force = body.force, base = body.base)
+
+    /** 0.18.64 every remote of the project fetched (20 s each at most): one result per remote, how far the base is behind. */
+    @PostMapping("/projects/{pid}/remotes/fetch")
+    fun fetchRemotes(@PathVariable pid: String): JsonNode = flows.fetchRemotes(pid)
+
+    /** 0.18.64 keel merges or rebases the flow's branch onto a base; a conflict answers ok false with the files. */
+    @PostMapping("/threads/{tid}/sync")
+    fun sync(@PathVariable tid: String, @RequestBody(required = false) body: SyncBody?): JsonNode =
+        flows.syncBranch(tid, body?.onto, body?.mode, body?.action)
 
     /** 0.18.57 what Start a flow shows first: whether a worktree flow can run the tests, and the base branch's drift. */
     @GetMapping("/projects/{pid}/start-check")
@@ -86,6 +106,14 @@ class FlowController(private val flows: FlowService) {
     @PostMapping("/threads/{tid}/mode")
     fun mode(@PathVariable tid: String, @RequestBody body: ModeBody): JsonNode = flows.setMode(tid, body.mode)
 
+    /** 0.18.64 the flow's models: the default, each agent's, each agent step's model now, the person's picks. */
+    @GetMapping("/threads/{tid}/models")
+    fun models(@PathVariable tid: String): JsonNode = flows.threadModels(tid)
+
+    /** 0.18.64 a model for this flow only, from its next agent call; the project and other flows keep theirs. */
+    @PostMapping("/threads/{tid}/models")
+    fun setModels(@PathVariable tid: String, @RequestBody body: ThreadModelBody): JsonNode = flows.setThreadModels(tid, body)
+
     @PostMapping("/threads/{tid}/stop")
     fun stop(@PathVariable tid: String): JsonNode = flows.stop(tid)
 
@@ -94,6 +122,20 @@ class FlowController(private val flows: FlowService) {
 
     @PostMapping("/threads/{tid}/rewind")
     fun rewind(@PathVariable tid: String, @RequestBody body: Rewind): JsonNode = flows.rewind(tid, body.checkpointId)
+
+    /** 0.18.64 the flow's document (its clarify document or spec) from its file, and whether the person edited it. */
+    @GetMapping("/threads/{tid}/document")
+    fun document(@PathVariable tid: String): JsonNode = flows.document(tid)
+
+    /** 0.18.64 the AC gate's code: the criterion's RED and GREEN commits with each file's diff; sha + path: one file. */
+    @GetMapping("/projects/{pid}/flows/{tid}/ac-code")
+    fun acCode(@PathVariable pid: String, @PathVariable tid: String, @RequestParam(required = false) ac: String?,
+               @RequestParam(required = false) sha: String?, @RequestParam(required = false) path: String?): JsonNode =
+        flows.acCode(pid, tid, ac, sha, path)
+
+    /** 0.18.64 replace the flow's document while it waits at a gate (keel_flow_document): the person's edit. */
+    @PutMapping("/threads/{tid}/document")
+    fun writeDocument(@PathVariable tid: String, @RequestBody body: DocumentBody): JsonNode = flows.writeDocument(tid, body.text)
 
     /** 0.18.57 who else reads the project folder (KeelBot's Ask and Edit chats, the folder's flow): Start a flow warns. */
     @GetMapping("/projects/{pid}/folder-activity")

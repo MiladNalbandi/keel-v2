@@ -14,9 +14,12 @@
 #                               when agents are working; --force does not ask; restart --safe: in safe mode)
 #   keel2 add <folder> [<folder> …]
 #                               add more project folders (each a git repo, or a folder of repos); keel restarts once
+#                               (it says so first), unless it sees the folder already
 #   keel2 remove <folder> [<folder> …]
 #                               take added folders off the list (keel keeps their projects' history)
 #   keel2 folders               the main project folder and the added ones
+#   keel2 state [close] [dir]   a state file keel v1 left in the project (.keel/state.json; its hooks refuse commits while
+#                               it names a flow): show it, or close = archive it to .keel/archive/ (never deleted)
 #   keel2 status                is keel running, for which project, on which port, which edition (core or full)
 #   keel2 tui                   keel in the terminal (keel TUI): KeelBot, slash commands, the live flow, agents and the
 #                               inbox. Plain `keel2` opens it too, in a terminal while keel runs (KEEL_TUI_DEFAULT=0: help)
@@ -330,6 +333,26 @@ container_folders() {  # the KEEL_FOLDERS the running container got, one per lin
   command -v docker >/dev/null 2>&1 || return 0
   docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$NAME" 2>/dev/null | sed -n 's/^KEEL_FOLDERS=//p' | tr ':' '\n' || true
 }
+in_container() {  # in_container <host folder> — the path keel's container sees it at, or nothing when keel cannot see it
+  # the main project is at /workspace (at its own path with --docker); added folders are at their own path
+  local p="$1" project f
+  project="$(label project)"
+  [ -n "$project" ] || return 0
+  if [ "$(label docker)" = 1 ]; then case "$p/" in "$project"/*) echo "$p"; return 0 ;; esac
+  else case "$p/" in "$project"/*) echo "/workspace${p#"$project"}"; return 0 ;; esac; fi
+  while IFS= read -r f; do
+    [ -n "$f" ] && [ "$f" != /workspace ] || continue
+    case "$p/" in "$f"/*) echo "$p"; return 0 ;; esac
+  done < <(container_folders)
+  return 0
+}
+host_tz() {  # 0.18.64 this computer's time zone (Europe/Berlin), for the times keel's container shows; nothing when unknown
+  if [ -n "${TZ:-}" ]; then printf '%s\n' "${TZ#:}"; return 0; fi
+  local l; l="$(readlink /etc/localtime 2>/dev/null || true)"
+  case "$l" in *zoneinfo/*) printf '%s\n' "${l##*zoneinfo/}"; return 0 ;; esac
+  if [ -f /etc/timezone ]; then head -1 /etc/timezone; fi
+  return 0
+}
 abs_path() {  # like project_path, but the folder may be gone (for keel2 remove)
   local p="$1"
   case "$p" in "~"*) p="$HOME${p#\~}" ;; esac
@@ -351,8 +374,11 @@ register_added() {  # register_added <port> <folder>… — every git repo in th
       if [ -d "$r" ] && is_repo "$r"; then roots+=("$r"); fi
     done
   done
+  local seen
   for r in ${roots[@]+"${roots[@]}"}; do
-    j="$(json_str "$r")"
+    # 0.18.64 the path keel sees: a repo inside the main project is at /workspace/… there (keel2 add registers it now)
+    seen="$(in_container "$r")"
+    j="$(json_str "${seen:-$r}")"
     if printf '%s' "$known" | grep -qF "\"root\":\"$j\""; then continue; fi
     if out="$(kcurl -fsS -m 30 -X POST "$(api "$port")/projects" -H 'content-type: application/json' \
                 --data-binary "{\"root\":\"$j\"}" 2>&1)"; then
@@ -563,27 +589,48 @@ cmd_restart() {  # keel2 restart [--safe] [--force]; safe mode lasts until the n
 }
 
 cmd_add() {  # keel2 add <folder>… — saves the folders in the list, then restarts keel once
+  # 0.18.64 a folder keel sees already (inside the main project, or inside a folder it has mounted) becomes a project
+  # with no restart; a restart (only for a folder keel must mount) is announced first, with what it does to MCP clients
+  # (a field report: keel2 add restarted keel without a word and the MCP session was lost).
   [ $# -gt 0 ] || die "usage: keel2 add <folder> [<folder> …]" "For example: keel2 add ~/Projects/api ~/Projects/web"
-  local main a p new=() list; main="$(main_project)"; list="$(list_folders)"
+  local main a p new=() seen=() unmounted=() list running=0 mounted=""
+  main="$(main_project)"; list="$(list_folders)"
+  if keel_running; then running=1; mounted="$(container_folders)"; fi
   for a in "$@"; do
     case "$a" in --force) KEEL_FORCE=1; continue ;; -*) die "Unknown option $a" "See: keel2 help" ;; esac
     p="$(project_path "$a")"
     case "$p" in *:*) die "keel cannot add a folder with ':' in its path: $p" "Rename or move the folder, then add it." ;; esac
     if [ -n "$main" ] && [ "$p" = "$main" ]; then info "  $p is keel's main project already."; continue; fi
+    if [ "$running" = 1 ] && [ -n "$(in_container "$p")" ]; then
+      info "  $p is in a folder keel has already: no restart needed."
+      seen+=("$p"); continue
+    fi
     if [ -n "$main" ]; then case "$p" in "$main"/*) info "  $p is inside the main project ($main), so keel has it already."; continue ;; esac; fi
-    if printf '%s\n' "$list" ${new[@]+"${new[@]}"} | grep -qxF "$p"; then info "  $p is in the list already."; continue; fi
+    if printf '%s\n' "$list" ${new[@]+"${new[@]}"} | grep -qxF "$p"; then
+      # listed before while keel was stopped (or by hand): it is mounted at the next start
+      if [ "$running" = 1 ] && [ -n "$mounted" ]; then unmounted+=("$p"); info "  $p is in the list already, but keel has not mounted it yet."
+      else info "  $p is in the list already."; fi
+      continue
+    fi
     check_git "$p"
     check_shared "$p"
     new+=("$p")
   done
-  if [ ${#new[@]} = 0 ]; then info "Nothing new to add. See the list: keel2 folders"; return 0; fi
-  warn_external_layouts "$main" ${new[@]+"${new[@]}"}
-  local file; file="$(folders_file)"
-  mkdir -p "$(dirname "$file")"
-  printf '%s\n' "${new[@]}" >> "$file"
-  for p in "${new[@]}"; do ok "added $p"; done
-  if keel_running; then
-    info "Restarting keel once, so it gets the new folder(s)…"
+  if [ ${#seen[@]} -gt 0 ]; then register_added "$(running_port)" "${seen[@]}"; fi
+  if [ ${#new[@]} = 0 ] && [ ${#unmounted[@]} = 0 ]; then
+    [ ${#seen[@]} -gt 0 ] || info "Nothing new to add. See the list: keel2 folders"
+    return 0
+  fi
+  if [ ${#new[@]} -gt 0 ]; then
+    warn_external_layouts "$main" ${new[@]+"${new[@]}"}
+    local file; file="$(folders_file)"
+    mkdir -p "$(dirname "$file")"
+    printf '%s\n' "${new[@]}" >> "$file"
+    for p in "${new[@]}"; do ok "added $p"; done
+  fi
+  if [ "$running" = 1 ]; then
+    warn "keel restarts once now to mount the new folder(s): about half a minute."
+    info "  ${D}Open MCP sessions (keel2 mcp) reconnect by themselves; a call in between answers \"keel is restarting\".${N}"
     cmd_restart
   else
     info "  ${D}keel is not running. The folders are mounted when it starts: keel2 start /path/to/project (or keel2 restart)${N}"
@@ -642,6 +689,32 @@ cmd_folders() {
   done < <(list_folders)
   [ "$n" -gt 0 ] || info "  ${D}No added folders. Add some: keel2 add <folder> [<folder> …]${N}"
   info "  ${D}list: $(folders_file)${N}"
+}
+
+# 0.18.64 keel v1's state file (.keel/state.json) left in a project: keel v1's hooks refuse commits while it names a
+# flow, also one nobody runs any more. keel2 state shows it; keel2 state close moves it to .keel/archive/state-<date>.json
+# (never deletes it). Plain file work in the project folder: keel need not run (MCP: keel_state).
+cmd_state() {  # keel2 state [close] [folder]
+  local sub=show dir f flow phase day dest n=2
+  case "${1:-}" in close|show) sub="$1"; shift ;; esac
+  dir="${1:-$PWD}"
+  [ -d "$dir" ] || die "There is no folder $dir." "usage: keel2 state [close] [folder]"
+  dir="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null || (cd "$dir" && pwd))"
+  f="$dir/.keel/state.json"   # the state file keel v1 left
+  if [ ! -f "$f" ]; then info "No keel v1 state file in $dir (.keel/state.json): no keel v1 flow blocks commits there."; return 0; fi
+  flow="$(sed -n 's/.*"flow"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$f" | head -1)"
+  phase="$(sed -n 's/.*"phase"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$f" | head -1)"
+  if [ "$sub" = show ]; then
+    info "keel v1 state: $f"
+    info "  flow ${flow:-none}, phase ${phase:-none}"
+    info "  keel v1's hooks refuse commits while it names a flow. Archive it (nothing is deleted): keel2 state close${1:+ $1}"
+    return 0
+  fi
+  day="$(date +%F)"; mkdir -p "$dir/.keel/archive"
+  dest="$dir/.keel/archive/state-$day.json"
+  while [ -e "$dest" ]; do dest="$dir/.keel/archive/state-$day-$n.json"; n=$((n + 1)); done
+  mv "$f" "$dest" || die "Could not move $f." "Check the folder's permissions."
+  ok "archived the keel v1 flow ${flow:-?} (phase ${phase:-none}): .keel/state.json -> ${dest#"$dir"/}; it no longer blocks commits"
 }
 
 cmd_status() {
@@ -1347,12 +1420,35 @@ cmd_uninstall() {
 # connecting"). The relay stays on stdio with the tool; when the server ends it waits for keel, starts it again, repeats
 # the tool's initialize, and sends the calls that had no answer yet; if keel does not come back it answers them with an
 # error instead of leaving the tool waiting.
+# 0.18.64 a field report: keel2 add restarted keel and the client's session was lost (a tool call waited minutes, the
+# client gave up on the server). Now a tool call during a restart is answered after KEEL_MCP_RELAY_HOLD seconds (10) as
+# a tool error, "keel is restarting, try again in a few seconds", which a client shows and goes on from; a ping is
+# answered at once. The relay looks for keel with a growing pause (0.5 s up to 5 s), tells the client after a reconnect
+# that the tools may have changed (notifications/tools/list_changed: a newer keel can have new ones), answers
+# keel_reconnect itself (it starts the server again now), and gives the server KEEL_MCP_RELAY_N (its start count) for
+# keel_health.
 MCP_RELAY_PY='
 import json, os, subprocess, sys, threading, time
 name, argv = sys.argv[1], sys.argv[2:]
 out_lock, state = threading.Lock(), threading.Condition()
 pending, init_line, child, ready, closing, restarting, seq = {}, None, None, False, False, False, [0]
+sent = set()
 WAIT = int(os.environ.get("KEEL_MCP_RELAY_WAIT", "180"))
+HOLD = float(os.environ.get("KEEL_MCP_RELAY_HOLD", "10"))
+RESTARTING = "keel is restarting: try again in a few seconds (keel2 status says when it is back)."
+def tool_answer(rid, text, error):
+    return json.dumps({"jsonrpc": "2.0", "id": rid, "result": {"content": [{"type": "text", "text": text}], "isError": error}})
+def hold(key):
+    time.sleep(HOLD)
+    with state:
+        if ready or key not in pending:
+            return
+        line = pending.pop(key)
+    send_out(tool_answer(json.loads(line)["id"], "keel: " + RESTARTING, True))
+def hold_calls():
+    for key, line in list(pending.items()):
+        if json.loads(line).get("method") == "tools/call":
+            threading.Thread(target=hold, args=(key,), daemon=True).start()
 def send_out(line):
     with out_lock:
         sys.stdout.write(line if line.endswith("\n") else line + "\n"); sys.stdout.flush()
@@ -1376,7 +1472,7 @@ def reader(p, my_init):
                 with state:
                     ready = True; state.notify_all()
                 continue
-            pending.pop(json.dumps(msg["id"]), None)
+            pending.pop(json.dumps(msg["id"]), None); sent.discard(json.dumps(msg["id"]))
         send_out(line)
     p.wait()
     with state:
@@ -1387,7 +1483,8 @@ def start(replay):
     global child, ready
     seq[0] += 1
     my_init = None
-    child = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1)
+    env = dict(os.environ, KEEL_MCP_RELAY_N=str(seq[0]))
+    child = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1, env=env)
     if replay and init_line is not None:
         msg = json.loads(init_line); my_init = "keel2-relay-init-%d" % seq[0]; msg["id"] = my_init
         threading.Thread(target=reader, args=(child, my_init), daemon=True).start()
@@ -1397,8 +1494,18 @@ def start(replay):
         if not ready:
             return False
         to_child(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}))
-        for line in list(pending.values()):
-            to_child(line)
+        with state:
+            again = list(pending.items())
+        for key, line in again:
+            msg = json.loads(line)
+            if msg.get("method") == "tools/call" and key in sent:
+                # it reached the old server, which may have done it (a flow started, a gate answered): never twice
+                pending.pop(key, None); sent.discard(key)
+                send_out(tool_answer(msg["id"], "keel: keel restarted while %s ran: it may have happened. Check (keel_flows, "
+                                     "keel_status) before you call it again." % ((msg.get("params") or {}).get("name") or "the call"), True))
+            else:
+                to_child(line)
+        send_out(json.dumps({"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}))
     else:
         threading.Thread(target=reader, args=(child, None), daemon=True).start()
         with state:
@@ -1410,12 +1517,14 @@ def restart():
         if restarting or closing:
             return
         restarting = True
+    hold_calls()
     try:
-        deadline = time.time() + WAIT
+        deadline, pause = time.time() + WAIT, 0.5
         while time.time() < deadline and not closing:
             if running() and start(True):
                 return
-            time.sleep(1.5)
+            time.sleep(pause)
+            pause = min(pause * 2, 5.0)
         for key, line in list(pending.items()):
             rid = json.loads(line)["id"]
             send_out(json.dumps({"jsonrpc": "2.0", "id": rid, "error": {"code": -32000,
@@ -1424,6 +1533,19 @@ def restart():
     finally:
         with state:
             restarting = False
+def reconnect(rid):
+    old, n = child, seq[0]
+    try:
+        old.stdin.close(); old.wait(timeout=3)
+    except Exception:
+        old.terminate()
+    with state:
+        back = state.wait_for(lambda: seq[0] > n and ready, timeout=WAIT)
+    if back:
+        send_out(tool_answer(rid, "keel_reconnect: a new keel server answers now (start %d of this connection); its "
+                             "tools are listed again." % seq[0], False))
+    else:
+        send_out(tool_answer(rid, "keel: " + RESTARTING, True))
 start(False)
 for line in sys.stdin:
     if not line.strip():
@@ -1434,10 +1556,22 @@ for line in sys.stdin:
         msg = None
     if isinstance(msg, dict) and msg.get("method") == "initialize" and init_line is None:
         init_line = line
-    if isinstance(msg, dict) and "method" in msg and "id" in msg:
-        pending[json.dumps(msg["id"])] = line
-    if ready and to_child(line):
+    call = isinstance(msg, dict) and "method" in msg and "id" in msg
+    if call and msg["method"] == "tools/call" and (msg.get("params") or {}).get("name") == "keel_reconnect":
+        threading.Thread(target=reconnect, args=(msg["id"],), daemon=True).start()
         continue
+    if call and msg["method"] == "ping" and not ready:
+        send_out(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {}}))
+        continue
+    if call:
+        with state:
+            pending[json.dumps(msg["id"])] = line
+    if ready and to_child(line):
+        if call:
+            sent.add(json.dumps(msg["id"]))
+        continue
+    if call and msg["method"] == "tools/call":
+        threading.Thread(target=hold, args=(json.dumps(msg["id"]),), daemon=True).start()
     if child is None or child.poll() is not None:
         threading.Thread(target=restart, daemon=True).start()
 closing = True
@@ -1472,11 +1606,21 @@ cmd_mcp() {
       exec "$ND/current/engine/.venv/bin/python" -m keel_engine.mcp "$mode" ${extra[@]+"${extra[@]}"}
   fi
   need_docker >&2
+  # 0.18.64 a client that starts keel2 mcp while keel restarts (keel2 add, update) waits for it, a little longer each
+  # time (KEEL_MCP_START_WAIT seconds, 20), instead of failing at once
+  local waited=0 pause=1
+  while ! container_running && [ "$waited" -lt "${KEEL_MCP_START_WAIT:-20}" ]; do
+    sleep "$pause"; waited=$((waited + pause)); pause=$((pause < 4 ? pause * 2 : 4))
+  done
   container_running || die "keel is not running." "Start it first: keel2 start /path/to/project"
   # keel_dashboard's links: the dashboard as this computer sees it, not the container's own port
   local public="${KEEL_PUBLIC_URL:-}"; [ -n "$public" ] || public="http://localhost:$(running_port)"
+  # 0.18.64 the client's folder as keel sees it (a tool without a project uses the project that holds it; empty: keel
+  # cannot see it), and this computer's time zone, so the times keel shows are the ones files and shells show
+  local tz; tz="$(host_tz)"
   # v0.16.1 the internal token file (docker/keel-start writes it) lets the server ask the api for its level's token
-  local server=(docker exec -i -e KEEL_PUBLIC_URL="$public" -e KEEL_INTERNAL_TOKEN_FILE=/data/run/internal-token "$NAME"
+  local server=(docker exec -i -e KEEL_PUBLIC_URL="$public" -e KEEL_INTERNAL_TOKEN_FILE=/data/run/internal-token
+    -e KEEL_CLIENT_CWD="$(in_container "$(pwd -P)")" ${tz:+-e "TZ=$tz"} -e KEEL_MCP_RELAY_N "$NAME"
     /opt/engine/.venv/bin/python -m keel_engine.mcp "$mode" ${extra[@]+"${extra[@]}"})
   if [ "${KEEL_MCP_RELAY:-1}" != 0 ] && command -v python3 >/dev/null 2>&1; then
     exec python3 -c "$MCP_RELAY_PY" "$NAME" "${server[@]}"
@@ -2050,7 +2194,8 @@ print_mcp_config() {  # print_mcp_config <--read-only|--write|--admin> [extra ar
     info "  Claude Desktop: \"mcpServers\": { \"$name\": { \"command\": \"$jself\", \"args\": [$jargs$jmore]$env_json } }"
     info ""
   done
-  info "${D}Push, DB changes, deletes and stops ask you first in the client; a client that cannot ask is refused unless --yes.${N}"
+  info "${D}Push, DB changes, deletes and stops ask you first in the client; a client without forms: you confirm in keel's Inbox.${N}"
+  info "${D}Danger: --yes skips every question: the model's acting tools then run with no question to you.${N}"
   info "${D}--allow keel_status,keel_approve_gate keeps only those tools. keel's own agents always get it read-only.${N}"
 }
 
@@ -2416,13 +2561,10 @@ cmd_tui() {
       exec node "$KEEL_TUI_JS" --url "http://127.0.0.1:$port" --public-url "$public" "$@"
   fi
   # this folder as keel's container sees it (the project is at /workspace; with --docker and added folders, at the same path)
-  local project here="" f
-  project="$(label project)"
-  if [ "$(label docker)" = 1 ]; then here="$PWD"
-  else case "$PWD/" in "$project"/*) here="/workspace${PWD#"$project"}" ;; esac; fi
-  if [ -z "$here" ]; then
-    while IFS= read -r f; do case "$PWD/" in "$f"/*) here="$PWD" ;; esac; done < <(container_folders)
-  fi
+  local here tz
+  here="$(in_container "$PWD")"
+  # 0.18.64 keel TUI runs in keel's container: this computer's time zone, so its times are the ones the shell shows
+  tz="$(host_tz)"
   docker exec "$NAME" test -f /opt/keel-v2/cli/keel-tui.mjs 2>/dev/null \
     || die "This keel's image has no terminal app (keel TUI) yet." "Get a newer image: keel2 update"
   local tty=(-i); if interactive; then tty=(-it); fi
@@ -2433,7 +2575,7 @@ cmd_tui() {
     docker exec "$NAME" rm -rf /tmp/keel-tui-profiles >/dev/null 2>&1 || true
     DOCKER_CLI_HINTS=false docker exec "${tty[@]}" -e TERM="${TERM:-xterm-256color}" -e COLORTERM="${COLORTERM:-}" -e KEEL_PUBLIC_URL="$public" \
       -e NO_COLOR -e FORCE_COLOR -e KEEL_TUI_THEME -e KEEL_TUI_COLORS -e KEEL_TUI_ASCII -e COLORFGBG -e TERM_PROGRAM -e KEEL_TUI_PROFILE_DIR=/tmp/keel-tui-profiles \
-      -e KEEL_TUI_CWD="$here" -e KEEL_WEB_KEY_FILE=/data/run/web-key "$NAME" node /opt/keel-v2/cli/keel-tui.mjs --url http://127.0.0.1:8080 "$@" || rc=$?
+      -e KEEL_TUI_CWD="$here" ${tz:+-e "TZ=$tz"} -e KEEL_WEB_KEY_FILE=/data/run/web-key "$NAME" node /opt/keel-v2/cli/keel-tui.mjs --url http://127.0.0.1:8080 "$@" || rc=$?
     mkdir -p "$out" && docker cp "$NAME:/tmp/keel-tui-profiles/." "$out/" >/dev/null 2>&1 \
       && info "  ${D}The profile is on this computer now: $out/$(ls -t "$out" | head -1)${N}"
     return "$rc"
@@ -2442,7 +2584,7 @@ cmd_tui() {
   # TERM_PROGRAM too (macOS Terminal ignores OSC 52 copies: keel TUI then says how to copy there)
   DOCKER_CLI_HINTS=false exec docker exec "${tty[@]}" -e TERM="${TERM:-xterm-256color}" -e COLORTERM="${COLORTERM:-}" -e KEEL_PUBLIC_URL="$public" \
     -e NO_COLOR -e FORCE_COLOR -e KEEL_TUI_THEME -e KEEL_TUI_COLORS -e KEEL_TUI_ASCII -e COLORFGBG -e TERM_PROGRAM \
-    -e KEEL_TUI_CWD="$here" -e KEEL_WEB_KEY_FILE=/data/run/web-key "$NAME" node /opt/keel-v2/cli/keel-tui.mjs --url http://127.0.0.1:8080 "$@"
+    -e KEEL_TUI_CWD="$here" ${tz:+-e "TZ=$tz"} -e KEEL_WEB_KEY_FILE=/data/run/web-key "$NAME" node /opt/keel-v2/cli/keel-tui.mjs --url http://127.0.0.1:8080 "$@"
 }
 
 # ---------------------------------------------------------------- main
@@ -2460,6 +2602,7 @@ case "$cmd" in
   add)              cmd_add "$@" ;;
   remove|rm)        cmd_remove "$@" ;;
   folders)          cmd_folders ;;
+  state)            cmd_state "$@" ;;
   open)             cmd_open "$@" ;;
   auth)             cmd_auth "$@" ;;
   share)            cmd_share "$@" ;;

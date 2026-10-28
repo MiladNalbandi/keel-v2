@@ -54,6 +54,11 @@ class WorkspaceDoctor(
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
+    /** 0.18.64 a failed commit names the keel v1 flow left in .keel/state.json, whose hooks refuse commits ("" when none). */
+    private fun v1Note(root: Path): String = runCatching {
+        engine.get("/keel-state?root={root}", mapOf("root" to root.toString())).path("v1").path("line").asText("")
+    }.getOrDefault("").let { if (it.isBlank()) "" else " ($it)" }
+
     fun dirty(root: Path): List<DirtyFile> {
         val r = workspace.git(root, "status", "--porcelain", "--untracked-files=all")
         if (!r.ok) throw Conflict("This folder is not a git repository", r.err.take(200))
@@ -168,7 +173,7 @@ class WorkspaceDoctor(
                     val add = workspace.git(root, "add", "-A", "--", *files.toTypedArray())
                     val c = if (add.ok) workspace.git(root, "commit", "-q", "-m", item.message!!.trim()) else add
                     if (c.ok && files.contains(".gitignore")) gitignoreChanged = false
-                    ApplyResult("commit", files, c.ok, if (c.ok) "committed: ${item.message!!.trim()}" else (c.err.ifBlank { c.out }).take(300))
+                    ApplyResult("commit", files, c.ok, if (c.ok) "committed: ${item.message!!.trim()}" else (c.err.ifBlank { c.out }).take(300) + v1Note(root))
                 }
                 "stash" -> {
                     val s = workspace.git(root, "stash", "push", "-q", "-u", "-m", "keel doctor: ${item.title ?: "saved work"}", "--", *item.files.toTypedArray())
@@ -181,7 +186,7 @@ class WorkspaceDoctor(
         if (gitignoreChanged) {
             val add = workspace.git(root, "add", "--", ".gitignore")
             val c = if (add.ok) workspace.git(root, "commit", "-q", "-m", "chore: ignore local and secret files") else add
-            results += ApplyResult("commit", listOf(".gitignore"), c.ok, if (c.ok) "committed: chore: ignore local and secret files" else c.err.take(300))
+            results += ApplyResult("commit", listOf(".gitignore"), c.ok, if (c.ok) "committed: chore: ignore local and secret files" else c.err.take(300) + v1Note(root))
         }
         val remaining = dirty(root).map { it.path }
         return Applied(results, remaining, remaining.isEmpty())
@@ -323,6 +328,22 @@ class WorkspaceDoctor(
         /** keel's own files in a project (the engine's ENGINE_FILES, engine/keel_engine/tools/git.py): never the user's work. */
         private val ENGINE_FILES = listOf(".keel/ladder.json", ".keel/agents/")
         fun isEngineFile(p: String) = ENGINE_FILES.any { p == it || p.startsWith(it) }
+
+        /**
+         * 0.18.64 what keel itself writes under .keel/: specs, knowledge, ADRs, docs, the runbook, its CLAUDE.md block, hunt
+         * reports, chat exports, worktrees and memory, plus the layout's own folders there (a `memory.dir` or `specs.dir`
+         * such as .keel/docs/knowledge). keel's own output never blocks its own flows (a field report: the start's 409
+         * listed .keel/docs/ and .keel/specs/). The person's settings there (config.yml, rules/, stacks/, dod.md,
+         * lenses/, plugins/, project-rules.json) still do.
+         */
+        private val KEEL_OUTPUT = listOf(".keel/specs/", ".keel/knowledge/", ".keel/adr/", ".keel/docs/", ".keel/hunts/", ".keel/hunt/",
+            ".keel/chats/", ".keel/worktrees/", ".keel/RUNNING.md", ".keel/CLAUDE.md", ".keel/memory.json")
+        fun isKeelOutput(p: String, layoutFolders: List<String> = emptyList()): Boolean {
+            val path = p.trim().removeSurrounding("\"")
+            if (!path.startsWith(".keel/")) return false
+            val mine = KEEL_OUTPUT + layoutFolders.filter { it.startsWith(".keel/") }.map { it.trimEnd('/') + "/" }
+            return mine.any { if (it.endsWith("/")) path.startsWith(it) || path == it.trimEnd('/') else path == it }
+        }
 
         /** 0.18.57 an editor's or a tool's own files, never the person's work: they do not block a flow's start. */
         private val TOOL_FILES = Regex("""^(\.serena|\.idea|\.vscode|\.fleet)(/|$)|(^|/)\.DS_Store$|^\.claude/settings\.local\.json$""")

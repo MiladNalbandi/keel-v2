@@ -4,7 +4,7 @@
 // check), the running flow, the pull request ("Review it"), and More actions. The classic drawer's tests (tasks.test.tsx,
 // automations.test.tsx) adapted to the new one.
 
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
@@ -421,6 +421,49 @@ describe("Task drawer (new page): keel's proposal", () => {
         workflow_id: "fix",
         answers: { q1: "yes" },
       }),
+    );
+  });
+
+  it("0.18.64 an unsent answer is kept after the drawer closes, and goes when the flow starts", async () => {
+    db.tk.items.push(
+      proposal(304, {
+        questions: [
+          {
+            id: "q1",
+            question: "Cover the empty list too?",
+            options: [{ label: "yes" }, { label: "no" }],
+          },
+        ],
+      }) as never,
+    );
+    const user = userEvent.setup();
+    let d = await openTask("tk_1", "ABC-1 · Rank players weekly");
+    let p = await within(d).findByRole("region", {
+      name: "I want to run the small flow on ABC-1",
+    });
+    await user.click(within(p).getByRole("radio", { name: /no/ }));
+    expect(within(p).queryByTestId("draft-kept")).toBeNull();
+    cleanup();
+    d = await openTask("tk_1", "ABC-1 · Rank players weekly");
+    p = await within(d).findByRole("region", {
+      name: "I want to run the small flow on ABC-1",
+    });
+    expect(within(p).getByRole("radio", { name: /no/ })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    expect(within(p).getByTestId("draft-kept")).toBeInTheDocument();
+    await user.click(within(p).getByRole("button", { name: "Start" }));
+    await waitFor(() =>
+      expect(calls("POST", "/api/inbox/tasks/304/act")[0]?.body).toEqual({
+        action: "start",
+        answers: { q1: "no" },
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        Object.keys(localStorage).filter((k) => k.startsWith("keel2.answer.")),
+      ).toEqual([]),
     );
   });
 

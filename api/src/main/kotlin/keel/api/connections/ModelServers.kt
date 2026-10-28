@@ -3,6 +3,7 @@ package keel.api.connections
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import keel.api.common.BadRequest
+import keel.api.common.Hosts
 import keel.api.common.Json
 import keel.api.common.KvStore
 import keel.api.common.NotFound
@@ -102,6 +103,9 @@ class ModelServerService(
         if (body.kind !in KINDS) throw BadRequest("kind cannot be \"${body.kind}\"", "Pick one of: ${KINDS.joinToString()}")
         val url = body.url.trim().trimEnd('/')
         if (!URL.matches(url)) throw BadRequest("The URL must start with http:// or https://", "For example ${defaults()["ollama"]}")
+        // 0.18.64 a key never goes over plain http to a server outside this machine and the local network
+        if (!Hosts.tokenSafe(url, lan = true)) throw BadRequest("Use https:// for a model server outside your network",
+            "Plain http:// is only for this machine, host.docker.internal, a *.local name or a private address (192.168.x.x, 10.x.x.x).")
         body.context?.let { if (it !in 256..10_000_000) throw BadRequest("context must be from 256 to 10,000,000 tokens", "Leave it empty to use what the server says.") }
         listOfNotNull(body.priceIn, body.priceOut).forEach { if (it < 0 || it > 10_000) throw BadRequest("A price must be from 0 to 10,000 USD per million tokens") }
         val c = local()
@@ -111,9 +115,11 @@ class ModelServerService(
         // a new server keeps its place; the first one ever turns local models on
         val next = c.endpoints.map { if (it.name == name) e else it }.let { if (c.endpoints.any { x -> x.name == name }) it else it + e }
         kv.put(LOCAL_KEY, c.copy(endpoints = next, enabled = c.enabled || c.endpoints.isEmpty()))
+        // 0.18.64 the saved key belongs to the saved server: a new host drops it (type it again if the new one needs it)
+        val moved = c.endpoints.firstOrNull { it.name == name }?.let { !Hosts.sameSite(it.url, url) } ?: false
         when {
-            body.clearKey -> if (secrets.has(secretOf(name))) secrets.delete(secretOf(name))
             !body.key.isNullOrBlank() -> secrets.put(secretOf(name), body.key.trim())
+            body.clearKey || moved -> if (secrets.has(secretOf(name))) secrets.delete(secretOf(name))
         }
         return localView()
     }

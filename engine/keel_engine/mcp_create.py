@@ -81,12 +81,14 @@ def agent_definitions(api: KeelApi, project: str | None = None) -> str:
     rows = api.get(f"/projects/{p['id']}/agents") or []
     if not rows:
         return "no agent."
-    from .mcp_models import model_text
-    return "\n".join(f"- {a.get('id')}  {a.get('label')} · {'yours' if a.get('custom') else 'keel'}"
-                     + ("" if a.get("enabled", True) else " · off")
-                     + f" · model {model_text(a.get('model'))}"
-                     + f" · tools {', '.join(a.get('tools') or [])} · phases {', '.join(a.get('phases') or [])}"
-                     + (f"\n    {a['about']}" if a.get("about") else "") for a in rows)
+    from .mcp_models import _roles_line, model_text
+    return "\n".join([f"- {a.get('id')}  {a.get('label')} · {'yours' if a.get('custom') else 'keel'}"
+                      + ("" if a.get("enabled", True) else " · off")
+                      + f" · model {model_text(a.get('model'))}"
+                      + f" · tools {', '.join(a.get('tools') or [])} · phases {', '.join(a.get('phases') or [])}"
+                      + (f"\n    {a['about']}" if a.get("about") else "") for a in rows]
+                     # 0.18.64 the words people use for a job ("planning" named no agent), as keel_agent_model takes them
+                     + [f"Role words: {_roles_line()}."])
 
 
 def create_agent(api: KeelApi, name: str, prompt: str, about: str = "", tools: list[str] | None = None,

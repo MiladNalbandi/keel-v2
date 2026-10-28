@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import copy
 import os
-from datetime import datetime
+import re
+from datetime import datetime, timedelta, timezone
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 import httpx
 
@@ -21,6 +22,21 @@ class ApiError(Exception):
         super().__init__(message)
         self.status = status     # the api's HTTP status, when it answered
         self.body = body or {}   # 0.18.57 the error's other fields (a refused start: ignorable paths, owners)
+
+
+SCOPE_ENV = "KEEL_MCP_PROJECTS"
+
+
+def scope() -> list[str] | None:
+    """0.18.64 the projects this server answers for (KEEL_MCP_PROJECTS, set by the engine for a flow's agents: the
+    flow's own project first); None: every project (a person's own MCP client)."""
+    raw = os.environ.get(SCOPE_ENV, "").strip()
+    return [p for p in (x.strip() for x in raw.split(",")) if p] if raw else None
+
+
+def out_of_scope(pid: str, sc: list[str]) -> str:
+    return (f"{pid} is another project: keel's MCP server for this flow's agents reads only {', '.join(sc)} (the "
+            "rule other-projects decides which other projects a flow may read).")
 
 
 def internal_token() -> str:
@@ -92,12 +108,56 @@ class KeelApi:
             return {}
         return {"X-Keel-Via": "mcp", "X-Keel-Client": self.client[:80], "X-Keel-Tool": self.tool[:80]}
 
-    def _raw(self, method: str, path: str, timeout: float | None = None, **kw) -> httpx.Response:
+    def _scope(self, method: str, path: str, kw: dict) -> None:
+        """0.18.64 a flow's agents' server (KEEL_MCP_PROJECTS, tools/mcp.py scoped) answers only for its projects: a
+        project's routes, and a flow or an agent call of one of them; the Inbox and the job list of the first one."""
+        sc = scope()
+        if sc is None:
+            return
+        m = re.match(r"^/projects/([^/?]+)", path)
+        if m:
+            if unquote(m.group(1)) not in sc:
+                raise ApiError(out_of_scope(unquote(m.group(1)), sc), 403)
+            return
+        params = dict(kw.get("params") or {})
+        if path in ("/inbox", "/jobs", "/jobs/count"):
+            if params.get("project") and params["project"] not in sc:
+                raise ApiError(out_of_scope(str(params["project"]), sc), 403)
+            params.setdefault("project", sc[0])
+            if not params["project"]:
+                params["project"] = sc[0]
+            kw["params"] = params
+            return
+        m = re.match(r"^/jobs/([^/?]+)", path)
+        if m:
+            job = self._raw("GET", f"/jobs/{m.group(1)}", _scoped=False)
+            pid = (job.json() if job.content else {}).get("project_id")
+            if pid not in sc:
+                raise ApiError(out_of_scope(str(pid or "another project"), sc), 403)
+            return
+        m = re.match(r"^/threads/([^/?]+)", path)
+        if m:
+            for pid in sc:
+                try:
+                    self._raw("GET", f"/projects/{q(pid)}/flows/{m.group(1)}", _scoped=False)
+                    return
+                except ApiError:
+                    continue
+            raise ApiError(f"flow {unquote(m.group(1))} is not one of {', '.join(sc)}: this server reads only "
+                           f"{'that project' if len(sc) == 1 else 'those projects'}.", 403)
+        if path.startswith(("/folders", "/inbox/")):
+            raise ApiError("this server reads only its own project's files and flows (keel's MCP server for a flow's agents).", 403)
+
+    def _raw(self, method: str, path: str, timeout: float | None = None, _scoped: bool = True, **kw) -> httpx.Response:
+        if _scoped:
+            self._scope(method, path, kw)
         self._prove()
         try:
             res = self.http.request(method, path, headers=self._audit(method), **({"timeout": timeout} if timeout else {}), **kw)
         except httpx.HTTPError as exc:
-            raise ApiError(f"keel's api does not answer at {self.url} ({type(exc).__name__}). Is keel running? (keel2 status)") from exc
+            # 0.18.64 a keel restart (keel2 add, keel2 update) is the usual reason: the same call works again in a moment
+            raise ApiError(f"keel's api does not answer at {self.url} ({type(exc).__name__}): keel is restarting or "
+                           "stopped. Try again in a few seconds (keel2 status).") from exc
         if res.status_code >= 400:
             body = None
             try:
@@ -128,7 +188,11 @@ class KeelApi:
 
     def get(self, route: str, /, **params) -> Any:
         """GET a route; `params` are the query (a `path` query parameter is fine: the route is positional)."""
-        return self._send("GET", route, params={k: v for k, v in params.items() if v is not None})
+        got = self._send("GET", route, params={k: v for k, v in params.items() if v is not None})
+        sc = scope()
+        if sc is not None and route == "/projects" and isinstance(got, list):
+            got = [p for p in got if isinstance(p, dict) and p.get("id") in sc]     # 0.18.64 the others stay unknown
+        return got
 
     def post(self, path: str, body: dict, timeout: float | None = None) -> Any:
         return self._send("POST", path, json=body, timeout=timeout)
@@ -136,7 +200,21 @@ class KeelApi:
 
 # ---------------------------------------------------------------- helpers
 
+def client_folder() -> str | None:
+    """The folder the MCP client works in, as keel sees it. 0.18.64 `keel2 mcp` passes it (KEEL_CLIENT_CWD; empty when
+    keel cannot see that folder): the server runs in keel's container, whose own folder is /workspace (the main
+    project), so a tool without a project answered for the main project from any folder. Without the variable (an
+    agent's server, native keel) the server's own folder is the client's."""
+    if "KEEL_CLIENT_CWD" in os.environ:
+        cwd = os.environ["KEEL_CLIENT_CWD"].strip()
+        return os.path.normpath(cwd) if cwd else None
+    return os.path.realpath(os.getcwd())
+
+
 def _project(api: KeelApi, project: str | None) -> dict:
+    """The project a tool is for: the one named (or KEEL_PROJECT), else the only one, else the one that holds the
+    client's folder. 0.18.64 else none: the answer names the projects to pick from. keel_flows without a project
+    answered for the first project, an unrelated one (a write refused already; now a read does too)."""
     projects = api.get("/projects") or []
     want = project or os.environ.get("KEEL_PROJECT") or ""
     if want:
@@ -146,15 +224,15 @@ def _project(api: KeelApi, project: str | None) -> dict:
         raise ApiError(f'no project "{want}". keel knows: {", ".join(p["id"] for p in projects) or "none yet"}')
     if not projects:
         raise ApiError("keel has no project yet. Add one in the dashboard (Projects › Add).")
-    cwd = os.path.realpath(os.getcwd())
-    inside = [p for p in projects if p.get("root") and (cwd == p["root"] or cwd.startswith(p["root"].rstrip("/") + "/"))]
+    if len(projects) == 1:
+        return projects[0]
+    cwd = client_folder()
+    inside = [p for p in projects if cwd and p.get("root") and (cwd == p["root"] or cwd.startswith(p["root"].rstrip("/") + "/"))]
     if inside:
         return max(inside, key=lambda p: len(p["root"]))
-    if getattr(api, "tool", "") and len(projects) > 1:
-        # a write must not land on a project the caller did not pick: the folder matches none, so name the project
-        raise ApiError(f"this folder is in none of keel's projects, so keel does not guess which one to change. Pass "
-                       f'project (one of: {", ".join(p["id"] for p in projects)}).')
-    return projects[0]
+    where = "this folder is in none of keel's projects" if cwd else "keel cannot see the folder you work in"
+    raise ApiError(f"{where}, so keel does not guess which project you mean. Pass project (one of: "
+                   f'{", ".join(p["id"] for p in projects)}).')
 
 
 def _flow(api: KeelApi, pid: str) -> tuple[dict | None, dict | None]:
@@ -224,15 +302,35 @@ def _n(x: Any) -> str:
 
 
 def _when(at: str | None) -> datetime:
+    """A keel time (ISO, UTC) as a naive UTC datetime for sorting; datetime.min when it is not a time."""
     try:
-        return datetime.fromisoformat(str(at).replace("Z", "+00:00")).replace(tzinfo=None)
+        d = datetime.fromisoformat(str(at).replace("Z", "+00:00"))
     except ValueError:
         return datetime.min
+    return d.astimezone(timezone.utc).replace(tzinfo=None) if d.tzinfo else d
 
 
 def _clock(at: str | None) -> str:
+    """0.18.64 a keel time in the person's time zone, with the zone: "10-05 12:04:00 CEST". keel stores UTC while files
+    and shells show local time; `keel2 mcp` passes the computer's zone (TZ) into keel's container."""
     d = _when(at)
-    return d.strftime("%m-%d %H:%M:%S") if d != datetime.min else "--"
+    if d == datetime.min:
+        return "--"
+    local = d.replace(tzinfo=timezone.utc).astimezone()
+    return local.strftime("%m-%d %H:%M:%S ") + zone_name(local)
+
+
+def zone_name(d: datetime | None = None) -> str:
+    """The local zone's short name (CET, EDT), else its offset (UTC+05:30); UTC when there is no offset."""
+    d = d or datetime.now(timezone.utc).astimezone()
+    name = d.tzname() or ""
+    if name[:1].isalpha():
+        return name
+    off = d.utcoffset() or timedelta(0)
+    if not off:
+        return "UTC"
+    m = int(off.total_seconds()) // 60
+    return f"UTC{'+' if m >= 0 else '-'}{abs(m) // 60:02d}:{abs(m) % 60:02d}"
 
 
 def cut(text: str, n: int) -> str:

@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 
-from . import choices as choices_mod, clarify, flow_actions, init_gates, knowledge, markers, md, notice, prompts, ship as ship_mod, spec_check
+from . import choices as choices_mod, clarify, flow_actions, flow_doc, init_gates, knowledge, markers, md, notice, prompts, ship as ship_mod, spec_check
 from .. import rules
 from ..workflows.model import Loop, Step
 from .gate_state import deep_gates
@@ -79,6 +79,10 @@ class GateMixin:
                                              ctx.thread_id)
         elif self.wf.flow == "init" and step.id == "plan_gate":
             detail = init_gates.plan(ctx.root, state.get("init") or init_gates.defaults(ctx.root, bool(ctx.settings.get("fast"))))
+        elif (state.get("data") or {}).get(f"{step.id}_doc"):
+            # 0.18.64 a gate that shows a flow's document builds its text from the file as it is now (the clarify
+            # result: clarify_flow.gate_detail); the question names it, so a read while it waits builds it again
+            detail = await asyncio.to_thread(flow_doc.gate_text, ctx.root, state["data"], step.id)
         elif (state.get("data") or {}).get(f"{step.id}_detail"):
             # A step before this gate wrote what it should show (the hunt's lens list, its report summary).
             detail = str(state["data"][f"{step.id}_detail"])
@@ -115,14 +119,19 @@ class GateMixin:
             if state.get("spec"):
                 detail = f"Spec: {state['spec']}\n{detail}"
                 if step.phase in ("spec", "triage"):
-                    detail += "\n\n" + spec_check.describe(spec_check.check(spec_check.read_spec(ctx.root, state["spec"]), acs,
-                                                                              spec_check.outside_facts(ctx.request, state.get("data"))))
+                    text = spec_check.read_spec(ctx.root, state["spec"])
+                    # 0.18.64 with what a handed-over spec named and this one lost
+                    detail += "\n\n" + spec_check.describe(spec_check.check(text, acs, spec_check.outside_facts(ctx.request, state.get("data")),
+                                                                                   root=ctx.root)
+                                                           + spec_check.lost(text, ctx.request, state.get("data")))
         lint_notes = (state.get("data") or {}).get("lint_notes") or []
         if lint_notes and not no_criteria:
             detail = f"{detail}\n\nStatic checks on the last changed files:\n" + "\n".join(f"- {n}" for n in lint_notes)
         if step.menus and not no_criteria:
             detail = f"{detail}\n\n{self._folded_menus(i)}"
         question = {"step": step.id, "kind": "gate", "title": title, "detail": detail, "options": options}
+        if (state.get("data") or {}).get(f"{step.id}_doc") and not no_criteria:
+            question["doc"] = str(state["data"][f"{step.id}_doc"])
         # 0.18.55 the notification's short lines: what a step before wrote for it (the init hand-over), or from the
         # criterion, the item or the spec's criteria; none: the api makes them from the detail
         wrote = (state.get("data") or {}).get(f"{step.id}_summary")

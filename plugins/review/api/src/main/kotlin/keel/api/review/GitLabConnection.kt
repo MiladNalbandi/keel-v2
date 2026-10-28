@@ -1,6 +1,7 @@
 package keel.api.review
 
 import keel.api.common.BadRequest
+import keel.api.common.Hosts
 import keel.api.common.KvStore
 import keel.api.connections.SecretService
 import org.springframework.stereotype.Service
@@ -36,7 +37,14 @@ class GitLabConnection(private val secrets: SecretService, private val kv: KvSto
         if (u == null || u.scheme !in setOf("https", "http") || u.host.isNullOrBlank()) {
             throw BadRequest("That is not a GitLab address", "Write it like https://gitlab.com or https://gitlab.yourcompany.com")
         }
-        b.token?.trim()?.takeIf { it.isNotEmpty() }?.let { secrets.put(TOKEN, it) }
+        // 0.18.64 the token never goes over plain http to another machine, and a saved one only to the server it was saved for
+        if (!Hosts.tokenSafe(url)) throw BadRequest("The GitLab address must start with https://", "Plain http:// is only for a GitLab on this machine.")
+        val fresh = b.token?.trim()?.takeIf { it.isNotEmpty() }
+        val before = kv.get<Saved>(KV)?.url
+        if (fresh == null && before != null && !Hosts.sameSite(before, url) && secrets.has(TOKEN)) {
+            throw BadRequest("This is another GitLab server: paste its token too", "keel sends a saved token only to the server it was saved for.")
+        }
+        fresh?.let { secrets.put(TOKEN, it) }
         if (token() == null) throw BadRequest("Add the token too", "GitLab › Preferences › Access tokens, with the api and read_user scopes.")
         kv.put(KV, Saved("${u.scheme}://${u.authority}"))
         return view()

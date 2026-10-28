@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import re
 import shlex
+import subprocess
 import tempfile
 import time
 from pathlib import Path
@@ -377,7 +378,10 @@ def commit(root: str, message: str, settings: dict | None = None) -> dict:
     r = git.git(root, *ident, "commit", "-q", "-m", first.strip(), *(["-m", rest.strip()] if rest.strip() else []), *trailer)
     if r.returncode != 0:
         git.git(root, "reset", "-q")
-        raise GitError(400, f"git commit failed: {_tail(r.stderr or r.stdout, 400)}")
+        from keel_engine.runtime import v1_state
+
+        # 0.18.64 keel v1's hooks refuse commits while its state file names a flow: the hint names it
+        raise GitError(400, f"git commit failed: {_tail(r.stderr or r.stdout, 400)}", v1_state.leftover(root))
     return {"sha": (git.head(root) or "")[:12], "subject": first.strip(), "files": staged}
 
 
@@ -421,8 +425,14 @@ def _remote_url(root: str) -> str:
 
 def _fetch(root: str, ref: str, token: str | None):
     """origin's `ref` into origin/<ref>; with keel's GitHub login only when origin is on its host (git_auth)."""
-    with git_auth.remote(root, token) as r:
-        out = git.git(root, *r.args, "fetch", "-q", r.target, f"+refs/heads/{ref}:refs/remotes/origin/{ref}", env=r.env)
+    if not git.plain_name(ref):
+        return subprocess.CompletedProcess(["git", "fetch"], 1, "", f"{ref!r} is not a branch name")
+    try:
+        with git_auth.remote(root, token) as r:
+            out = git.git(root, *r.args, "fetch", "-q", "--end-of-options", r.target,
+                          f"+refs/heads/{ref}:refs/remotes/origin/{ref}", env=r.env)
+    except git_auth.UnsafeRemote as exc:
+        return subprocess.CompletedProcess(["git", "fetch"], 1, "", str(exc))
     out.stderr = git_auth.mask(out.stderr, token)
     out.stdout = git_auth.mask(out.stdout, token)
     return out
@@ -440,9 +450,13 @@ def push(root: str, token: str | None = None) -> dict:
     url = _remote_url(root)
     if not url:
         raise GitError(400, "This repository has no remote called origin.")
-    with git_auth.remote(root, token) as rem:
-        r = git.git(root, *rem.args, "push", "--porcelain", rem.target, f"HEAD:refs/heads/{br}", env=rem.env)
-        https = rem.login is not None
+    try:
+        with git_auth.remote(root, token) as rem:
+            r = git.git(root, *rem.args, "push", "--porcelain", "--end-of-options", rem.target, f"HEAD:refs/heads/{br}",
+                        env=rem.env)
+            https = rem.login is not None
+    except git_auth.UnsafeRemote as exc:
+        raise GitError(400, f"keel did not push: {exc}") from None
     if r.returncode != 0:
         out = git_auth.mask(_tail(r.stderr or r.stdout, 500), token)
         if "non-fast-forward" in out or "rejected" in out:

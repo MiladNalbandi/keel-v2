@@ -26,6 +26,9 @@ data class EngineEvent(
     val data: Map<String, Any?> = emptyMap(),
 )
 
+/** 0.18.64 events kept in the events table only: no screen gets them over SSE (agent.prompt: an agent call's whole prompt). */
+val RECORD_ONLY = setOf("agent.prompt")
+
 /** Published (in-process) after an engine event is stored, for features that follow threads (v0.5.0 tasks). */
 data class EngineEventStored(val event: EngineEvent)
 
@@ -73,6 +76,8 @@ class EventService(
             } catch (ex: Exception) {
                 log.warn("could not store event {} for {}: {}", e.type, e.threadId, ex.message)
             }
+            // 0.18.64 a record only (an agent call's whole prompt, up to 120 KB): kept for GET /jobs/{id}/prompt, no screen shows it
+            if (e.type in RECORD_ONLY) continue
             hub.publish(e.projectId.ifBlank { null }, EventHub.channelOf(e.type), e)
         }
         return stored

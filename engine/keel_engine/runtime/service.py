@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import uuid
 from pathlib import Path
 
@@ -21,13 +22,14 @@ from langgraph.types import Command
 from .. import config, extensions, layout, rules
 from ..events import EventBus
 from ..tools import git, source_ref
+from ..tools import mcp as mcp_tools
 from ..workflows.model import Workflow, from_dict
 from ..workflows.templates import get_template
 from . import bug, hunt, ladder as ladder_mod
 from . import memory as memory_mod
-from . import db, migrate, prompts, run_mode, spec_check
+from . import branch_sync, db, doc_history, flow_doc, migrate, prompts, run_mode, spec_check
 from . import choices as choices_mod
-from . import finding_decisions
+from . import finding_decisions, thread_models
 from .compiler import answer_problem, compile_workflow, running_usage
 from .state import ThreadContext, initial_state, merge_unlocks, normalize_unlocks
 
@@ -68,7 +70,11 @@ class Engine:
         self._resuming: dict[str, asyncio.Lock] = {}   # one resume at a time per thread (web + MCP, a double click)
         self._closing = False                     # close() is cancelling the drivers: a flow it cuts off is not a stopped flow
         self.keys: dict[str, dict] = {}
+        # 0.18.64 thread -> {MCP server: {NAME: value}}: its MCP servers' env values, in memory only like the logins
+        # (checkpoints.db keeps the names: tools/mcp.py strip_env)
+        self.mcp_env: dict[str, dict] = {}
         self.sources: dict[str, str] = {}     # thread -> what a started flow works on ("pr:20"), until POST /threads answers
+        self.base_notes: dict[str, str] = {}  # 0.18.64 thread -> its base against the remotes, until POST /threads answers
 
     # ------------------------------------------------------------ lifecycle
 
@@ -96,6 +102,7 @@ class Engine:
         await self.conn.execute(memory_mod.SCHEMA)
         await self.conn.commit()
         await migrate.migrate(self.conn)
+        await self._strip_stored_env()
         if resume_running:
             # Threads that were running when keel stopped continue once the api has sent their logins (they live in
             # memory only) and their folder: POST /threads/{id}/continue. Without that call they continue by
@@ -105,6 +112,23 @@ class Engine:
             if self.pending:
                 log.info("%d thread(s) wait for the api to continue them", len(self.pending))
                 self._grace = asyncio.create_task(self._continue_later())
+
+    async def _strip_stored_env(self):
+        """0.18.64 a flow stored before 0.18.64 kept its MCP servers' env values in keel_threads: they move to memory
+        (this run still has them) and the row keeps the names."""
+        async with self.conn.execute("select thread_id, body from keel_threads where body like '%\"env\"%'") as cur:
+            rows = await cur.fetchall()
+        for tid, raw in rows:
+            try:
+                body = json.loads(raw)
+            except (TypeError, ValueError):
+                continue
+            if not any(isinstance(s, dict) and s.get("env") for s in body.get("mcp") or []):
+                continue
+            body["mcp"], values = mcp_tools.strip_env(body["mcp"])
+            self.mcp_env[tid] = {**values, **self.mcp_env.get(tid, {})}
+            await self.conn.execute("update keel_threads set body = ? where thread_id = ?", (json.dumps(body), tid))
+        await self.conn.commit()
 
     async def _continue_later(self):
         await asyncio.sleep(CONTINUE_GRACE)
@@ -168,10 +192,13 @@ class Engine:
         body = json.loads(row["body"])
         wf = from_dict(body["workflow"], body["workflow"].get("yaml") or None)
         ctx = ThreadContext(thread_id=tid, project_id=row["project_id"], root=row["root"], workflow=wf, title=row["title"],
-                            request=(body.get("request") or "").strip(), models=body.get("models") or {}, settings=body.get("settings") or {}, mcp=body.get("mcp") or [],
+                            request=(body.get("request") or "").strip(), models=body.get("models") or {}, settings=body.get("settings") or {},
+                            mcp=mcp_tools.with_env(body.get("mcp"), self.mcp_env.get(tid)),
                             skills=body.get("skills") or {}, agents=body.get("agents") or {}, keys=self.keys.get(tid, {}), bus=self.bus,
+                            other_projects=list(body.get("other_projects") or []),
                             memory=memory_mod.AgentMemory(self.conn, tid))
         ctx.spawn = lambda workflow_id, seed, link, tid=tid: self.start_child(tid, workflow_id, seed, link)
+        ctx.synced_base = body.get("synced_base")      # 0.18.64 keel_branch_sync moved where the branch's work starts
         async with self.conn.execute("select path, phase, by, reason, at from thread_unlocks where thread_id = ? order by rowid",
                                      (tid,)) as cur:
             ctx.api_unlocks = [{k: v for k, v in zip(("path", "phase", "by", "reason", "at"), r) if v} for r in await cur.fetchall()]
@@ -322,14 +349,19 @@ class Engine:
         if source:
             self.sources[tid] = source
         stored = {k: v for k, v in body.items() if k not in ("keys",)}
+        # 0.18.64 an MCP server's env holds its secrets: the row keeps the names, memory the values (like the logins)
+        stored["mcp"], env_values = mcp_tools.strip_env(body.get("mcp"))
         stored["workflow"] = {**wf.model_dump(exclude_none=True)}
         stored["root"] = root
         now = _now()
         await self.conn.execute("insert into keel_threads values (?,?,?,?,?,?,?,?,?,?)",
                                 (tid, body["project_id"], wf.id, body["title"], "running", root, json.dumps(stored), None, now, now))
         await self.conn.commit()
-        if body.get("keys"):
-            self.keys[tid] = dict(body["keys"])
+        logins, from_keys = mcp_tools.env_from_keys(body.get("keys"))
+        if logins:
+            self.keys[tid] = logins
+        if env_values or from_keys:
+            self.mcp_env[tid] = {**from_keys, **env_values}
         ctx = await self._context(tid)
         state = initial_state(ctx, body.get("acs"))
         state["data"] = dict(body.get("data") or {})
@@ -338,10 +370,12 @@ class Engine:
         spec = spec_check.start_spec(root, state["data"].get("spec"))
         if spec:
             state["spec"] = spec
+            text = spec_check.read_spec(root, spec)
+            # 0.18.64 its text at the start: the spec check names a risk or criterion the flow's agents drop from it
+            state["data"]["spec_at_start"] = text[:prompts.EVIDENCE_MAX]
             if not state["acs"]:
                 from .feature_actions import order_acs, spec_order, with_depends
 
-                text = spec_check.read_spec(root, spec)
                 # v0.17.5 the spec's ORDER line is the build order from the start, with each criterion's depends_on
                 state["acs"] = with_depends(order_acs(prompts.parse_acs(text), spec_order(text)), text)
         if await asyncio.to_thread(git.is_repo, root):
@@ -351,6 +385,12 @@ class Engine:
             await asyncio.to_thread(git.exclude_engine_files, root)
             layout.hide(root)               # keel / external: .keel/ stays out of git (.git/info/exclude)
             state["preexisting"] = await asyncio.to_thread(git.snapshot, root)
+            check = await self._base_check(root, body, state["git_head"])
+            state["data"].pop("remotes_fetched", None)
+            if check:
+                state["data"]["base_check"] = check
+        else:
+            check = None
         extensions.on_thread_start(root, tid)   # the parts catch up (the code graph syncs edits since its last index)
         await self._import_legacy_unlocks(tid)
         started = {"workflow": wf.id, "workflow_id": wf.id, "title": ctx.title, "flow": wf.flow, "root": root,
@@ -362,9 +402,71 @@ class Engine:
         via = (body.get("data") or {}).get("started_via")
         if via in ("mcp", "tui", "xal"):
             started["via"] = via            # v0.15.8 keel_start_flow (keel2 mcp --write), keel TUI's /flow, xal: the timeline says so
+        if check and check.get("note"):
+            started["note"] = check["note"]  # 0.18.64 how far the base is behind each remote; a failed fetch said plainly
+            started["remotes"] = check["remotes"]
+            self.base_notes[tid] = check["note"]
         ctx.emit("thread.started", data=started)
         self._launch(tid, state)
         return tid
+
+    async def _base_check(self, root: str, body: dict, head: str | None) -> dict | None:
+        """0.18.64 (field report bug 4) the flow's base against every remote: what the api's start fetched
+        (data.remotes_fetched: it fetched before it made the branch, so the branch could start from the newer code),
+        else a fetch here (every remote at once, git.FETCH_EACH s each). A hand-over works on its parent's branch: its
+        parent's start said it. Never fails the start: a failed fetch is a line of the note."""
+        data = body.get("data") or {}
+        fetched = data.get("remotes_fetched")
+        try:
+            if not isinstance(fetched, list):
+                if body.get("parent"):
+                    return None
+                fetched = await asyncio.to_thread(branch_sync.fetch_all, root, body.get("keys"))
+            if not fetched:
+                return None
+            return await asyncio.to_thread(branch_sync.report, root, fetched, head)
+        except Exception:                                   # noqa: BLE001 the start goes on without the note
+            log.exception("base check for %s", root)
+            return None
+
+    async def sync_branch(self, tid: str, onto: str | None = None, mode: str = "merge", action: str = "start") -> dict:
+        """0.18.64 (field report bug 6) keel merges (or rebases) the flow's branch onto a base, in the folder or the
+        worktree the flow works in (runtime/branch_sync.py). keel runs it, not an agent, so the guards that refuse an
+        agent's merge or commit do not apply; never while a step runs. A conflict stops it with the files; continue
+        commits the resolution with keel's commit identity. When the branch moved, where its own work starts (the
+        merge base) becomes the flow's base_head at its next step (ctx.synced_base), so the diff of the flow's work does
+        not hold the base's commits it brought in."""
+        row = await self._row(tid)
+        if tid in self.tasks:
+            raise EngineError(409, "The flow is running a step now.",
+                              "Sync its branch when it waits at a gate, or pause it first.")
+        ctx = await self._context(tid)
+        root = row["root"]
+        # the checkout must be on the flow's own branch (a rebase that waits shows HEAD): never sync another flow's work
+        mine = ((await (await self._graph(tid)).aget_state(self._cfg(tid))).values or {}).get("branch")
+        now = await asyncio.to_thread(git.branch, root)
+        if mine and now and now not in (mine, "HEAD") and await asyncio.to_thread(git.rev, root, f"refs/heads/{mine}"):
+            raise EngineError(409, f"The folder is on {now}, not on this flow's branch {mine}.",
+                              f"Check out {mine} again (or sync the flow that works on {now}).")
+        try:
+            out = await asyncio.to_thread(branch_sync.sync, root, onto, mode, action, ctx.settings)
+        except branch_sync.SyncError as exc:
+            raise EngineError(exc.status, exc.message, exc.hint) from exc
+        if out.get("ok") and out.get("synced") and out.get("base_head"):
+            body = json.loads(row["body"])
+            body["synced_base"] = out["base_head"]
+            await self.conn.execute("update keel_threads set body = ?, updated_at = ? where thread_id = ?",
+                                    (json.dumps(body), _now(), tid))
+            await self.conn.commit()
+            ctx.synced_base = out["base_head"]
+            if out.get("commit"):
+                files = await asyncio.to_thread(lambda: git.git(root, "diff", "--name-only", "HEAD^1", "HEAD").stdout.split())
+                ctx.emit("keel.applied", data={"kind": "commit", "sha": out["commit"], "ref": out["commit"],
+                                               "subject": f"Merge {out.get('onto')} into {out.get('branch')}", "files": files})
+            extensions.on_commit(root)
+        ctx.emit("branch.synced", data={k: out.get(k) for k in ("ok", "synced", "mode", "onto", "branch", "head", "note",
+                                                               "conflicts") if out.get(k) is not None})
+        return {**out, "thread": await self.state(tid)}
 
     async def _preflight(self, wf: Workflow, root: str, body: dict) -> str | None:
         """A workflow whose first step checks its input before anything runs (review-pr's ticket_prep: the PR or
@@ -417,7 +519,7 @@ class Engine:
             a = a if isinstance(a, dict) else {"title": str(a)}
             acs.append({"id": str(a.get("id") or f"AC-{n + 1}"), "layer": a.get("layer") or "API", "title": str(a.get("title") or ""),
                         **({"status": a["status"]} if a.get("status") else {}), **({"kind": a["kind"]} if a.get("kind") else {})})
-        child = {k: body[k] for k in ("project_id", "models", "settings", "mcp", "skills", "agents") if k in body}
+        child = {k: body[k] for k in ("project_id", "models", "settings", "mcp", "skills", "agents", "other_projects") if k in body}
         request = request.strip()
         if len(request) > prompts.REQUEST_MAX:
             # every agent of the flow reads the request; the whole evidence (data.seed) goes to the steps that write
@@ -426,6 +528,8 @@ class Engine:
                        "characters: the steps that write the spec get the whole evidence]")
         if isinstance(seed.get("evidence"), str):
             seed = {**seed, "evidence": seed["evidence"][:prompts.EVIDENCE_MAX]}
+        if "mcp" in child:
+            child["mcp"] = mcp_tools.with_env(child["mcp"], self.mcp_env.get(parent))   # the values live in memory only
         child.update(root=row["root"], workflow=wf, title=str(seed.get("title") or row["title"])[:200], acs=acs or None,
                      request=request, parent=link, keys=self.keys.get(parent),
                      data={"seed": seed, **{k: seed[k] for k in ("recipe", "symptoms", "evidence", "stale", "needs_e2e", "no_gates")
@@ -486,8 +590,16 @@ class Engine:
         if waiting and status == "waiting":
             out["waiting"] = {"step": waiting.get("step"), "kind": waiting.get("kind", "gate"), "title": waiting.get("title", ""),
                               "detail": waiting.get("detail", ""), "options": waiting.get("options") or ["approve", "reject"]}
+            if waiting.get("doc"):
+                # 0.18.64 a gate that shows a flow's document: its text from the file now, so an edit made while it
+                # waits (by hand, keel_flow_document) shows at once, with when it was made
+                out["waiting"]["detail"] = await asyncio.to_thread(flow_doc.gate_text, row["root"], v.get("data") or {},
+                                                                   str(waiting.get("step") or ""))
             if waiting.get("id"):
                 out["waiting"]["id"] = waiting["id"]
+            if waiting.get("ac"):
+                # 0.18.64 an AC gate names its criterion: the web loads its code (GET /threads/{tid}/ac-code)
+                out["waiting"]["ac"] = waiting["ac"]
             # 0.18.28 the waiting step's own name ("verify the suite + commit"): a suggestion names the gate by it, never
             # by the flow's title cut short
             name = self._step_name(ctx_now, waiting.get("step"))
@@ -563,11 +675,20 @@ class Engine:
                               "Start keel the same way again, or start a new flow.")
 
     async def set_keys(self, tid: str, keys: dict) -> None:
-        """Logins are kept in memory only (never stored), so after an engine restart the api sends them again."""
+        """Logins are kept in memory only (never stored), so after an engine restart the api sends them again.
+        0.18.64 an "mcp_env:<server>:<NAME>" entry is an MCP server's env value: it goes to the servers, not the logins."""
         await self._row(tid)
+        keys, values = mcp_tools.env_from_keys(keys)
         self.keys[tid] = dict(keys)
         if tid in self.ctxs:
             self.ctxs[tid].keys = dict(keys)
+        if values:
+            mine = self.mcp_env.setdefault(tid, {})
+            for server, env in values.items():
+                mine[server] = {**mine.get(server, {}), **env}
+            if tid in self.ctxs:
+                row = await self._row(tid)
+                self.ctxs[tid].mcp = mcp_tools.with_env(json.loads(row["body"]).get("mcp"), mine)
 
     async def resume(self, tid: str, decision: str, why: str | None, payload: dict | None,
                      question_id: str | None = None, by: str | None = None) -> dict:
@@ -610,8 +731,39 @@ class Engine:
         resume = {"decision": decision, "why": why or "", "payload": payload or {}, "asked": asked}
         if by:
             resume["by"] = by
+        took = choices_mod.answered(self._waiting(snap), decision, payload)
         self._launch(tid, Command(resume=resume))
-        return await self.state(tid)
+        # 0.18.64 what the answer did (the choice that runs): a reject with the choice edit runs edit, and keel_answer
+        # printed "(reject)"
+        return {**(await self.state(tid)), "answered": took}
+
+    async def set_models(self, tid: str, model: dict | None, agent: str | None = None, step: str | None = None,
+                         phase: str | None = None, keys: dict | None = None) -> dict:
+        """0.18.64 a model for this flow only (an agent, a step, or an agent's steps in one phase; runtime/thread_models.py),
+        stored with the thread's models like set_mode's run mode, used from the agent's next call. model None: the pick
+        is taken back. Other flows and the project's settings do not change."""
+        row = await self._row(tid)
+        ctx = await self._context(tid)
+        targets, problem = thread_models.targets(ctx.workflow, agent, step, phase)
+        if problem:
+            raise EngineError(400, problem)
+        body = json.loads(row["body"])
+        models, picks = thread_models.apply(ctx.models, body.get("model_picks") or {}, targets, model)
+        body["models"], body["model_picks"] = models, picks
+        await self.conn.execute("update keel_threads set body = ?, updated_at = ? where thread_id = ?", (json.dumps(body), _now(), tid))
+        await self.conn.commit()
+        ctx.models = models
+        if keys:
+            # the new model's login or API key (the api sends the thread's with it): kept in memory only, as at the start
+            await self.set_keys(tid, {**self.keys.get(tid, {}), **keys})
+        ctx.emit("thread.models", data={"changed": targets, "model": model})
+        return {"thread_id": tid, "changed": targets, **thread_models.view(models, picks, ctx.workflow)}
+
+    async def models_of(self, tid: str) -> dict:
+        """0.18.64 the flow's model table: the default, each agent's, each agent step's model now, the person's picks."""
+        row = await self._row(tid)
+        ctx = await self._context(tid)
+        return {"thread_id": tid, **thread_models.view(ctx.models, json.loads(row["body"]).get("model_picks") or {}, ctx.workflow)}
 
     async def set_mode(self, tid: str, mode: str) -> dict:
         """Changes the thread's run mode (runtime/run_mode.py) during a run: stored with the thread's settings, used from
@@ -669,6 +821,62 @@ class Engine:
         out = await asyncio.to_thread(rules_view.now, ctx.root, st.get("phase"), lane, unlocks, last.get("provider"),
                                       last.get("mode"), (v.get("data") or {}).get("last_command_failure"))
         return {**out, "thread_id": tid, "status": st.get("status"), "current": st.get("current")}
+
+    async def document(self, tid: str) -> dict:
+        """0.18.64 the flow's document (its clarify document, else its spec) from its file: path, kind, text, whether the
+        person edited it after keel wrote it (and when), and the gate the flow waits at (None while it runs)."""
+        row = await self._row(tid)
+        snap = await (await self._graph(tid)).aget_state(self._cfg(tid))
+        doc = await asyncio.to_thread(flow_doc.read, row["root"], snap.values or {})
+        if not doc:
+            raise EngineError(404, "This flow has no document yet.",
+                              "A clarify flow writes its document before its result gate; a feature flow writes its spec first.")
+        waiting = self._waiting(snap) if tid not in self.tasks and row["status"] != "stopped" else None
+        return {**doc, "thread_id": tid, "waiting": (waiting or {}).get("step")}
+
+    async def ac_code(self, tid: str, ac_id: str, sha: str | None = None, path: str | None = None) -> dict:
+        """0.18.64 a criterion's code for the web's AC gate: its RED and GREEN commits with each file's diff (cut), found
+        since the flow's start as the gate's text finds them (flow_actions.ac_code); with `sha` and `path` one file."""
+        from . import flow_actions
+
+        ac_id = str(ac_id or "").strip().upper()
+        if not re.fullmatch(r"[A-Z]+-[\w.]+", ac_id):
+            raise EngineError(400, f"'{ac_id}' is not an acceptance criterion id.", "Send ac=AC-1, for example.")
+        await self._row(tid)
+        ctx = await self._context(tid)
+        snap = await (await self._graph(tid)).aget_state(self._cfg(tid))
+        since = (snap.values or {}).get("base_head")
+        out = await asyncio.to_thread(flow_actions.ac_code, ctx.root, ac_id, since, sha or None, path or None)
+        return {**out, "thread_id": tid}
+
+    async def set_document(self, tid: str, text: str) -> dict:
+        """0.18.64 replace the flow's document while it waits at a gate (keel_flow_document), recorded in keel's file
+        history as the person's edit. The gate's text shows the file from then on; a clarify hand-over uses it."""
+        if not (text or "").strip():
+            raise EngineError(400, "text is empty.", "Send the document's whole new text.")
+        # the resume lock: an answer that arrives at the same time never runs a step on half of a write
+        async with self._resuming.setdefault(tid, asyncio.Lock()):
+            row = await self._row(tid)
+            if tid in self.tasks:
+                raise EngineError(409, "The flow is running, not waiting at a gate.", "Wait for it to reach a gate.")
+            snap = await (await self._graph(tid)).aget_state(self._cfg(tid))
+            if row["status"] == "stopped" or not self._waiting(snap):
+                raise EngineError(409, "The flow is not waiting at a gate.",
+                                  "Its document changes only while it waits; edit the file itself after the flow ended.")
+            found = flow_doc.of(snap.values or {})
+            if not found:
+                raise EngineError(404, "This flow has no document yet.")
+            rel, _kind = found
+            try:
+                await asyncio.to_thread(flow_doc.write, row["root"], rel, text)
+            except (ValueError, OSError) as exc:
+                raise EngineError(400, f"keel cannot write {rel}: {exc}") from exc
+            ctx = await self._context(tid)
+            sha = await asyncio.to_thread(doc_history.sha_of, row["root"], rel)
+            ctx.emit("doc.version", step=self._waiting(snap).get("step"),
+                     data={**doc_history.event(row["root"], rel, sha), "by_kind": "user", "by_name": "edited while the flow waited",
+                           "phase": (snap.values or {}).get("phase"), "via": "api"})
+        return await self.document(tid)
 
     async def unlocks(self, tid: str) -> list[dict]:
         """The thread's unlocks: those in its graph state plus those granted since its last step."""

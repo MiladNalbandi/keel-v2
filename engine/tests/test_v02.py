@@ -413,7 +413,8 @@ async def test_claude_runner_loads_keels_own_hook_oauth_and_hook_refusal(tmp_pat
     assert not settings.startswith(str(repo))
     hook = json.loads(open(settings).read())["hooks"]["PreToolUse"][0]
     assert hook["hooks"][0]["command"] == f'"{sys.executable}" -I -m keel_engine.hook pre-tool || exit 2'
-    assert hook["matcher"] == "Edit|Write|MultiEdit|NotebookEdit|Bash|Read|mcp__.*"
+    # 0.18.64 the search tools too: claude's Grep read .env files and the hook never saw it
+    assert hook["matcher"] == "Edit|Write|MultiEdit|NotebookEdit|Bash|Read|Grep|Glob|LS|mcp__.*"
     ctx_file = next(line.split("=", 1)[1] for line in env.splitlines() if line.startswith("KEEL_GUARD_CTX="))
     assert not ctx_file.startswith(str(repo))
     ctx = json.loads((tmp_path / "guard.json").read_text())

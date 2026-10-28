@@ -13,7 +13,7 @@ from typing import Callable
 
 from .. import rules
 from ..rules import checks as _checks  # noqa: F401  (rules.checks.added_text)
-from ..runtime import permissions, repeats, run_mode
+from ..runtime import other_projects, permissions, repeats, run_mode
 from . import testcmd
 
 MAX_READ = 60_000
@@ -40,6 +40,8 @@ def failed(command: str, output: str, code=None) -> dict:
 
 
 class ToolBox:
+    flow = ""                       # 0.18.64 the flow this run belongs to, in words: a refused commit names it
+
     def __init__(self, root: str, phase: str, *, cfg: dict | None = None, lane: str | None = None,
                  ac: str | None = None, ac_layer: str = "API",
                  on_refuse: Callable[[str, str, str], None] | None = None, unlocks: list[dict] | None = None,
@@ -72,6 +74,11 @@ class ToolBox:
         # keel 0.18.18 KeelBot: the folder of failed.json (runtime/repeats.py): the same failing command is refused
         # while nothing changed; None: every command runs as often as asked (a flow's agents)
         self.no_repeat: str | None = None
+        # keel 0.18.64 the other projects registered in this keel (runtime/other_projects.py usable): read only. None:
+        # this run was not told (KeelBot), so a path outside the project keeps the old refusal; others_off: the rule
+        # other-projects is off for this project
+        self.others: list[dict] | None = None
+        self.others_off = False
 
     def add_unlocks(self, new: list[dict]):
         """An unlock granted while this agent runs (the engine calls this for every running agent of the thread)."""
@@ -97,18 +104,27 @@ class ToolBox:
             self.on_refuse(tool, path, reason)
         return f"REFUSED: {reason}"
 
-    def read_file(self, path: str, offset: int | None = None, limit: int | None = None) -> str:
-        r = self._resolve(path)
-        if not r:
-            return self._refuse("read_file", path, f"{path} is outside the project.")
-        full, rel = r
-        v = rules.check_read(rel, self.cfg, full=full, ranged=offset is not None or limit is not None, phase=self.phase)
-        if v.ok and self.knowledge:
-            v = rules.check_knowledge(rel, self.agent, self.knowledge.get("sections"), bool(self.knowledge.get("strict")))
-        if not v.ok:
-            return self._refuse("read_file", rel, v.reason)
+    def _outside(self, tool: str, path: str) -> str:
+        if self.others is None:
+            return self._refuse(tool, path, f"{path} is outside the project.")
+        return self._refuse(tool, path, other_projects.outside(path, self.others_off))
+
+    def _read_other(self, path: str, offset: int | None, limit: int | None) -> str:
+        """keel 0.18.64 a file of another project registered in this keel: read only, under that project's read rules."""
+        p = Path(path).expanduser()
+        full = Path(os.path.realpath(p if p.is_absolute() else Path(self.root) / p))
+        got = other_projects.find(self.others, full)
+        if not got:
+            return self._outside("read_file", path)
+        o, rel = got
+        why = other_projects.check_read(o, rel, full, ranged=offset is not None or limit is not None)
+        if why:
+            return self._refuse("read_file", str(full), why)
         if not full.is_file():
-            return f"ERROR: {rel} does not exist."
+            return f"ERROR: {full} does not exist ({o['name']}: {rel})."
+        return self._text(str(full), full, offset, limit)
+
+    def _text(self, rel: str, full: Path, offset: int | None, limit: int | None) -> str:
         st = full.stat()
         key, now = f"{rel}|{offset or ''}|{limit or ''}", (st.st_mtime_ns, st.st_size)
         if self._reads.get(key) == now and not rules.is_off(self.cfg, "read-twice"):   # as hook.already_read: saves tokens
@@ -122,9 +138,27 @@ class ToolBox:
             text = "".join(lines[start:start + (limit or len(lines))])
         return text[:MAX_READ]
 
+    def read_file(self, path: str, offset: int | None = None, limit: int | None = None) -> str:
+        r = self._resolve(path)
+        if not r:
+            return self._read_other(path, offset, limit)
+        full, rel = r
+        v = rules.check_read(rel, self.cfg, full=full, ranged=offset is not None or limit is not None, phase=self.phase)
+        if v.ok and self.knowledge:
+            v = rules.check_knowledge(rel, self.agent, self.knowledge.get("sections"), bool(self.knowledge.get("strict")))
+        if not v.ok:
+            return self._refuse("read_file", rel, v.reason)
+        if not full.is_file():
+            return f"ERROR: {rel} does not exist."
+        return self._text(rel, full, offset, limit)
+
     def write_file(self, path: str, content: str) -> str:
         r = self._resolve(path)
         if not r:
+            p = Path(path).expanduser()
+            got = other_projects.find(self.others, p if p.is_absolute() else Path(self.root) / p)
+            if got:
+                return self._refuse("write_file", path, other_projects.read_only(path, got[0]))
             return self._refuse("write_file", path, f"{path} is outside the project.")
         full, rel = r
         if self.readonly:
@@ -150,9 +184,13 @@ class ToolBox:
         again = repeats.refusal(self.no_repeat, self.root, command)
         if again:
             return self._refuse("run_command", "", again, command=command)
+        # keel 0.18.64 another registered project: read-only commands only, and its secrets stay out
+        why = other_projects.check_command(command, self.root, self.others) if self.others else None
+        if why:
+            return self._refuse("run_command", "", why, command=command)
         v = rules.check_bash(self.phase, command, self.cfg, root=self.root,
                              exists=lambda rel: (Path(self.root) / rel).exists(), unlocks=self.unlocks,
-                             push_blockers=self.push_blockers)
+                             push_blockers=self.push_blockers, flow=self.flow)
         if not v.ok:
             # path is the file the command tried to write (empty for a refused command with no target).
             return self._refuse("run_command", v.path, v.reason, command=command)
@@ -167,6 +205,9 @@ class ToolBox:
         return f"exit {code}\n{out[-8000:]}"
 
     def run_tests(self, ac: str | None = None) -> str:
+        if ac and not testcmd.valid_ac(ac):
+            # 0.18.64 (security audit F14) the id goes into a shell command: only keel's ids (AC-6, CHG-1.2)
+            return self._refuse("run_tests", "", f"{ac[:60]!r} is not a criterion id (AC-6, CHG-1.2).")
         cmd = testcmd.command_for(self.root, ac or self.ac, self.ac_layer)
         if not cmd:
             return "ERROR: no test command found. Add commands to .keel/config.yml."
@@ -178,7 +219,8 @@ class ToolBox:
 
         return [
             StructuredTool.from_function(self.read_file, name="read_file",
-                                         description="Read a file in the project. Optional offset (1-based line) and limit (lines)."),
+                                         description="Read a file in the project, or (read only) in another project registered in keel "
+                                                     "(its absolute path). Optional offset (1-based line) and limit (lines)."),
             StructuredTool.from_function(self.write_file, name="write_file",
                                          description="Write a whole file in the project. Refused when the current keel phase does not allow that file."),
             StructuredTool.from_function(self.run_command, name="run_command",

@@ -44,6 +44,13 @@ def fake() -> bool:
     return os.environ.get("KEEL_FAKE", "0") == "1"
 
 
+def simulate_checks() -> bool | None:
+    """KEEL_SIMULATE_CHECKS=0|1 (0.18.64): run (0) or simulate (1) the project's checks whatever the models are; unset:
+    simulate them when every model is fake. An e2e on the fake model sets 0 to see a real setup rung fail."""
+    v = os.environ.get("KEEL_SIMULATE_CHECKS", "").strip()
+    return None if v not in ("0", "1") else v == "1"
+
+
 def fake_stream_delay() -> float:
     """Seconds between the fake model's text chunks (it streams its answer in pieces, like a real model). 0 in tests."""
     try:

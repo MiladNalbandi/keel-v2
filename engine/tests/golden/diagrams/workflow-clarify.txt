@@ -1,4 +1,4 @@
-workflow clarify "clarify (keel)" - 18 steps, 4 gates
+workflow clarify "clarify (keel)" - 19 steps, 4 gates
 
 == Spec: write and approve what to build ==  id=spec
    o  read the request and the code  (agent explorer)
@@ -21,24 +21,21 @@ workflow clarify "clarify (keel)" - 18 steps, 4 gates
         small -> start a small flow with the criteria
         spike -> start a spike flow on the options
         prompt -> the prompt only
-        reject -> assemble the outputs  (loops back)
+        reject -> take the draft back
         stop -> end of the flow
-      \  #  start a fix flow with the bug report  (code start_flow)
-      \       starts the fix flow
+      \  #  start a fix flow with the bug report  (code clarify_hand+start_flow)
       \       then -> end of the flow
-      \  #  start a change flow with the criteria  (code start_flow)
-      \       starts the change flow
+      \  #  start a change flow with the criteria  (code clarify_hand+start_flow)
       \       then -> end of the flow
-      \  #  start a small flow with the criteria  (code start_flow)
-      \       starts the small flow
+      \  #  start a small flow with the criteria  (code clarify_hand+start_flow)
       \       then -> end of the flow
-      \  #  start a spike flow on the options  (code start_flow)
-      \       starts the spike flow
+      \  #  start a spike flow on the options  (code clarify_hand+start_flow)
       \       then -> end of the flow
-      \  #  the prompt only  (code clarify_prompt)
+      \  #  the prompt only  (code clarify_hand+clarify_prompt)
       \       then -> end of the flow
-   #  start a feature flow with the criteria  (code start_flow)
-        starts the feature flow
+      \  #  take the draft back  (code clarify_redraft)
+      \       then -> the spec check passed  (loops back)
+   #  start a feature flow with the criteria  (code clarify_hand+start_flow)
         then -> end of the flow
 
  o  agent   #  code   [?] gate (you decide)   <  branch   =  parallel   [+] included flow

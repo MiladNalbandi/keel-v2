@@ -20,11 +20,18 @@ READ_TOOLS = {"keel_status", "keel_read_gate", "keel_projects", "keel_timeline",
               "keel_dashboard",                                                                    # v0.15.8 dashboard
               "keel_flows", "keel_inbox", "keel_live", "keel_budget", "keel_specs", "keel_knowledge",  # v0.16.0
               "keel_search", "keel_read_file", "keel_actions", "keel_run_action", "keel_rules",   # v0.17.2 rules
+              "keel_read_project_file",                                                    # 0.18.64 other projects
               # 0.18.5 what keel TUI shows
               "keel_workflows", "keel_agents", "keel_agent", "keel_keelbot_chats", "keel_keelbot_changes", "keel_diagram",
               "keel_format", "keel_workflow_check", "keel_rule_check", "keel_agent_definitions",          # 0.18.5 create
               "keel_skills", "keel_skill",                                                                 # 0.18.6 skills
               "keel_stacks", "keel_stack", "keel_stack_suggest", "keel_stack_check",                       # 0.18.9 stacks
+              "keel_spec_check", "keel_citations_check",                                    # 0.18.64 checks on a file
+              "keel_flow_document",                                                         # 0.18.64 a flow's document
+              "keel_fetch_remotes",                                                                        # 0.18.64 remotes
+              "keel_agent_prompt", "keel_flow_diff", "keel_health", "keel_reconnect",                       # 0.18.64
+              "keel_models",                                                                               # 0.18.64 models
+              "keel_state",                                                         # 0.18.64 keel v1's leftover state
               *MARKET_TOOLS}
 WRITE_TOOLS = {"keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc",
                # 0.18.5 what keel TUI does
@@ -35,7 +42,11 @@ WRITE_TOOLS = {"keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answ
                # 0.18.9 an agent's or KeelBot's model and thinking effort
                "keel_agent_model",
                # 0.18.9 stacks
-               "keel_stack_create", "keel_stack_remove", "keel_stack_off", "keel_stack_market_install"}
+               "keel_stack_create", "keel_stack_remove", "keel_stack_off", "keel_stack_market_install",
+               # 0.18.64 the clarify result's send-back with a replacement draft
+               "keel_reject_with_document", "keel_handover",
+               # 0.18.64 keel syncs a flow's branch onto a base
+               "keel_branch_sync"}
 ADMIN_TOOLS = {"keel_delete_run", "keel_add_project", "keel_remove_project", "keel_pause", "keel_focus", "keel_connect_github",  # 0.19.x
                "keel_edit_workflow", "keel_rule_install", "keel_rule_edit"}                         # v0.17.2 rules
 
@@ -94,6 +105,22 @@ class StubApi:
                 return httpx.Response(409, json={"error": "These agents would use the fake model: explorer. It writes example "
                                                           "files, not real code.", "hint": "Pick a real model."})
             return httpx.Response(200, json={**self.thread, "thread_id": "t-9", "title": body["title"]})
+        if req.method == "POST" and path == "/api/projects/shop/remotes/fetch":
+            self.posts.append((path, json.loads(req.content or b"{}")))
+            return httpx.Response(200, json={
+                "base": "main", "note": "fetch from mirror failed: timed out after 20 s; the base may be stale; "
+                                        "main is 2 commits behind upstream/main",
+                "remotes": [{"remote": "upstream", "ok": True, "branch": "upstream/main", "ahead": 0, "behind": 2},
+                            {"remote": "mirror", "ok": False, "error": "timed out after 20 s"}]})
+        if req.method == "POST" and path == "/api/threads/t-1/sync":
+            body = json.loads(req.content)
+            self.posts.append((path, body))
+            if body.get("action") == "start" and body.get("onto") == "upstream/main":
+                return httpx.Response(200, json={"ok": False, "conflicts": ["src/app.txt"], "state": "merge",
+                                                 "note": "the merge of upstream/main into feat/scores stopped: 1 file(s) have conflicts: src/app.txt",
+                                                 "next": "Resolve each file, then sync again with action=continue."})
+            return httpx.Response(200, json={"ok": True, "synced": True, "base_head": "abc1234def",
+                                             "note": "merged 2 commits of upstream/main into feat/scores (merge commit abc1234)"})
         if req.method == "POST" and path == "/api/projects/shop/doctor/workspace/exclude":
             body = json.loads(req.content)
             self.posts.append((path, body))
@@ -107,7 +134,22 @@ class StubApi:
             "/api/threads/t-1/history": HISTORY,
             "/api/jobs": JOBS,
             "/api/projects/shop/workflows": [{"id": "feature"}, {"id": "fix"}],
+            "/api/health": {"ok": True, "engine": True, "version": "0.18.64", "fake": False},
+            "/api/jobs/j2/prompt": {"id": "j2", "agent": "explorer", "step": "explore", "at": "2026-10-05T10:02:00Z",
+                                    "system": "You are the explorer.", "prompt": "Read the code. Note: keep the retry rule.",
+                                    "system_cut": False, "prompt_cut": False},
         }
+        if req.method == "GET" and path == "/api/projects/shop/flows/t-1/step-diff":
+            step = req.url.params.get("step")
+            if not step:
+                return httpx.Response(200, json={"kind": "list", "runs": 0, "steps": [
+                    {"step": "write_doc", "runs": 2, "kind": "document specs/clarify/x.md"}, {"step": "assemble", "runs": 2, "kind": "answer"}]})
+            if step == "assemble":
+                return httpx.Response(200, json={"step": "assemble", "kind": "answer", "runs": 2,
+                                                 "before": {"id": "a1", "agent": "explorer", "at": "2026-10-05T10:00:00Z"},
+                                                 "after": {"id": "a2", "agent": "explorer", "at": "2026-10-05T10:05:00Z"},
+                                                 "diff": "--- a/assemble.answer\n+++ b/assemble.answer\n@@ -1,1 +1,1 @@\n-old\n+new\n"})
+            return httpx.Response(200, json={"step": step, "kind": "none", "runs": 1, "why": "ran once, so there is nothing to compare."})
         if req.method == "GET" and path in routes:
             return httpx.Response(200, json=routes[path])
         return httpx.Response(404, json={"error": f"No route {path}"})
@@ -148,27 +190,34 @@ def test_the_marketplace_tools_come_after_every_tool_keel_listed_before_at_each_
     names = lambda level: [t.name for t in asyncio.run(mcp_server.build_server(level=level, api=object()).list_tools())]
     read = ["keel_status", "keel_read_gate", "keel_projects", "keel_timeline", "keel_next", "keel_explain", "keel_rules", "keel_dashboard", "keel_flows",
             "keel_inbox", "keel_live", "keel_budget", "keel_specs", "keel_knowledge", "keel_search", "keel_read_file",
+            "keel_spec_check", "keel_citations_check", "keel_read_project_file",          # 0.18.64 next to keel_read_file
             "keel_actions", "keel_run_action"]
     write = ["keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc", "keel_stop_flow"]
     admin = ["keel_delete_run", "keel_add_project", "keel_remove_project", "keel_pause", "keel_focus", "keel_connect_github"]
     # 0.18.5 keel TUI's: after keel_workflows (read since 0.18.5), in the order they are written
     tui_read = ["keel_agents", "keel_agent", "keel_keelbot_chats", "keel_keelbot_changes", "keel_format", "keel_workflow_check",
-                "keel_rule_check", "keel_agent_definitions", "keel_skills", "keel_skill",
-                "keel_stacks", "keel_stack", "keel_stack_suggest", "keel_stack_check", "keel_diagram"]
+                "keel_rule_check", "keel_agent_definitions", "keel_models", "keel_skills", "keel_skill",
+                "keel_stacks", "keel_stack", "keel_stack_suggest", "keel_stack_check", "keel_diagram",
+                "keel_flow_document",                                           # 0.18.64 after keel_diagram
+                "keel_agent_prompt", "keel_flow_diff", "keel_health", "keel_reconnect", "keel_state"]
     tui = ["keel_workflows", "keel_stop_flows", "keel_run_mode", "keel_resume_flow", "keel_agents", "keel_agent", "keel_agent_start",
            "keel_keelbot_ask", "keel_keelbot_chats", "keel_keelbot_changes", "keel_keelbot_keep", "keel_keelbot_undo",
            "keel_format", "keel_workflow_check", "keel_workflow_create", "keel_rule_check", "keel_rule_create",
-           "keel_agent_definitions", "keel_agent_create", "keel_agent_model",      # 0.18.9 right after keel_agent_create
+           "keel_agent_definitions", "keel_agent_create", "keel_models", "keel_agent_model",   # 0.18.9 after keel_agent_create
            # 0.18.6 skills, before keel_diagram
            "keel_skills", "keel_skill", "keel_skill_create", "keel_skill_import", "keel_skill_attach", "keel_skill_market_install",
            # 0.18.9 stacks, before keel_diagram
            "keel_stacks", "keel_stack", "keel_stack_suggest", "keel_stack_check", "keel_stack_create", "keel_stack_remove",
            "keel_stack_off", "keel_stack_market_install",
-           "keel_diagram"]
+           "keel_diagram",
+           # 0.18.64 a flow's document, after keel_diagram
+           "keel_flow_document", "keel_reject_with_document", "keel_handover",
+           "keel_agent_prompt", "keel_flow_diff", "keel_health", "keel_reconnect", "keel_state"]
     rules = ["keel_edit_workflow", "keel_rule_install", "keel_rule_edit"]
-    assert names("read") == read + ["keel_workflows"] + tui_read + MARKET_TOOLS
-    assert names("write") == read + write + tui + MARKET_TOOLS
-    assert names("admin") == read + write + admin + tui + rules + MARKET_TOOLS
+    sync = ["keel_fetch_remotes", "keel_branch_sync"]          # 0.18.64 after every tool before, before the marketplace's
+    assert names("read") == read + ["keel_workflows"] + tui_read + sync[:1] + MARKET_TOOLS
+    assert names("write") == read + write + tui + sync + MARKET_TOOLS
+    assert names("admin") == read + write + admin + tui + rules + sync + MARKET_TOOLS
 
 
 async def test_allow_covers_the_marketplace_tools(stub):
@@ -212,15 +261,35 @@ async def test_status_of_the_default_project_without_a_flow_names_the_one_that_w
 
 
 async def test_project_defaults(stub, monkeypatch):
-    assert mcp_server._project(stub.api, None)["id"] == "shop"          # first project
+    assert mcp_server._project(stub.api, None)["id"] == "shop"          # KEEL_PROJECT
     monkeypatch.setenv("KEEL_PROJECT", "blog")
     assert mcp_server._project(stub.api, None)["id"] == "blog"
     monkeypatch.delenv("KEEL_PROJECT")
+    monkeypatch.delenv("KEEL_CLIENT_CWD", raising=False)
     monkeypatch.setattr(mcp_server.os, "getcwd", lambda: "/workspace/blog/src")
     monkeypatch.setattr(mcp_server.os.path, "realpath", lambda p: p)
     assert mcp_server._project(stub.api, None)["id"] == "blog"          # the agent's working folder
     text = await call(mcp_server.build_server(api=stub.api), "keel_status", {"project": "nope"})
     assert text.startswith('keel: no project "nope". keel knows: shop, blog')
+
+
+async def test_without_a_project_keel_never_guesses_one_of_several(stub, monkeypatch):
+    """0.18.64 a field report: keel_flows without a project answered for another, unrelated project (keel2 mcp's server
+    runs in keel's container, whose folder is the main project's). The only project, or the client's folder (keel2 mcp
+    passes it as KEEL_CLIENT_CWD), else the answer names the projects to pick from."""
+    monkeypatch.delenv("KEEL_PROJECT")
+    monkeypatch.setattr(mcp_server.os, "getcwd", lambda: "/workspace/shop")       # the container's own folder
+    monkeypatch.setenv("KEEL_CLIENT_CWD", "/workspace/blog/src")
+    assert mcp_server._project(stub.api, None)["id"] == "blog"
+    monkeypatch.setenv("KEEL_CLIENT_CWD", "/home/someone/elsewhere")
+    text = await call(mcp_server.build_server(api=stub.api), "keel_flows")
+    assert text == ("keel: this folder is in none of keel's projects, so keel does not guess which project you mean. "
+                    "Pass project (one of: shop, blog).")
+    monkeypatch.setenv("KEEL_CLIENT_CWD", "")                                     # keel cannot see the client's folder
+    assert "keel cannot see the folder you work in" in await call(mcp_server.build_server(api=stub.api), "keel_status")
+    one = [PROJECTS[1]]
+    api = mcp_server.KeelApi("http://keel.test", transport=httpx.MockTransport(lambda r: httpx.Response(200, json=one)))
+    assert mcp_server._project(api, None)["id"] == "blog"                         # the only project
 
 
 async def test_projects(stub):
@@ -241,6 +310,56 @@ async def test_timeline(stub):
     failed = (await call(srv, "keel_timeline", {"filter": "failed"})).splitlines()
     assert len(failed) == 1 and "spec-writer failed" in failed[0]
     assert len((await call(srv, "keel_timeline", {"filter": "steps", "limit": 1})).splitlines()) == 1
+
+
+async def test_timeline_times_are_the_persons_local_time_with_the_zone(stub, monkeypatch):
+    """0.18.64 keel stores UTC; the timeline showed it while files and shells show local time. keel2 mcp passes the
+    computer's zone (TZ) into keel's container."""
+    import time
+
+    monkeypatch.setenv("TZ", "Europe/Berlin")
+    time.tzset()
+    try:
+        lines = (await call(mcp_server.build_server(api=stub.api), "keel_timeline")).splitlines()
+        assert lines[0].startswith("10-05 12:04:00 CEST  step   spec_gate")     # 10:04 UTC
+        monkeypatch.setenv("TZ", "UTC")
+        time.tzset()
+        assert (await call(mcp_server.build_server(api=stub.api), "keel_timeline")).startswith("10-05 10:04:00 UTC  step")
+    finally:
+        monkeypatch.undo()
+        time.tzset()
+
+
+async def test_agent_prompt_shows_what_the_call_really_got(stub):
+    text = await call(mcp_server.build_server(api=stub.api), "keel_agent_prompt", {"agent_id": "j2"})
+    assert text.splitlines()[0].startswith("agent call j2 · explorer · step explore · ")
+    assert "=== system (21 characters)\nYou are the explorer." in text
+    assert "=== task (41 characters)\nRead the code. Note: keep the retry rule." in text
+    text = await call(mcp_server.build_server(api=stub.api), "keel_agent_prompt", {"agent_id": "nope"})
+    assert text.startswith("keel: keel kept no prompt for nope")
+
+
+async def test_flow_diff_lists_the_steps_that_ran_again_and_shows_what_changed(stub):
+    srv = mcp_server.build_server(api=stub.api)
+    listed = await call(srv, "keel_flow_diff")
+    assert "flow t-1: steps that ran more than once" in listed
+    assert "- write_doc: 2 runs · document specs/clarify/x.md" in listed and "- assemble: 2 runs · answer" in listed
+    text = await call(srv, "keel_flow_diff", {"step": "assemble"})
+    assert text.splitlines()[0] == "flow t-1 · step assemble · 2 runs · the agent's answer (explorer call a1 → a2)"
+    assert "-old\n+new" in text
+    assert await call(srv, "keel_flow_diff", {"step": "read"}) == "flow t-1: read ran once, so there is nothing to compare."
+
+
+async def test_health_says_whether_keel_is_up_and_how_fresh_the_connection_is(stub, monkeypatch):
+    monkeypatch.delenv("KEEL_MCP_RELAY_N", raising=False)
+    text = await call(mcp_server.build_server(api=stub.api), "keel_health")
+    assert "keel        up · version 0.18.64" in text and "engine      up" in text
+    assert "no relay" in text and "restart the MCP client" in text
+    monkeypatch.setenv("KEEL_MCP_RELAY_N", "3")                  # keel2 mcp's relay started this server a third time
+    text = await call(mcp_server.build_server(api=stub.api), "keel_health")
+    assert "keel2 mcp's relay: reconnected 2 times after keel restarted" in text
+    # without a relay, keel_reconnect says how instead (the relay answers it itself)
+    assert "has no relay to reconnect it" in await call(mcp_server.build_server(api=stub.api), "keel_reconnect")
 
 
 async def test_next(stub):
@@ -524,6 +643,34 @@ async def test_start_flow_leaves_the_branch_to_the_api_unless_one_is_named(stub)
     assert stub.posts[-1][1]["branch"] == "continue"
 
 
+async def test_start_flow_takes_a_base_and_says_how_far_it_is_behind(stub):
+    """0.18.64 field report bug 4: start from a given branch, and the start's answer says how far the base is behind."""
+    stub.thread = {**THREAD, "base_note": "main is 2 commits behind upstream/main"}
+    srv = mcp_server.build_server(write=True, api=stub.api)
+    text = await call(srv, "keel_start_flow", {"type": "feature", "idea": "Player scores", "base": "upstream/main"})
+    assert stub.posts[-1][1]["base"] == "upstream/main"
+    assert "Base: main is 2 commits behind upstream/main." in text
+    refused = await call(srv, "keel_start_flow", {"type": "feature", "idea": "x", "base": "upstream/main", "branch": "continue"})
+    assert "base starts a new branch" in refused
+
+
+async def test_fetch_remotes_reads_one_line_per_remote(stub):
+    text = await call(mcp_server.build_server(api=stub.api), "keel_fetch_remotes")
+    assert "- upstream: fetched; main is 2 behind upstream/main" in text
+    assert "- mirror: fetch failed: timed out after 20 s (the base may be stale)" in text
+    assert "keel_start_flow(..., base='upstream/main')" in text
+
+
+async def test_branch_sync_reports_a_conflict_and_continues(stub):
+    srv = mcp_server.build_server(write=True, api=stub.api)
+    text = await call(srv, "keel_branch_sync", {"onto": "upstream/main"})
+    assert stub.posts[-1] == ("/api/threads/t-1/sync", {"mode": "merge", "action": "start", "onto": "upstream/main"})
+    assert "- src/app.txt" in text and "action='continue'" in text
+    done = await call(srv, "keel_branch_sync", {"thread_id": "t-1", "action": "continue"})
+    assert stub.posts[-1][1] == {"mode": "merge", "action": "continue"}
+    assert "merged 2 commits of upstream/main" in done and "abc1234" in done
+
+
 # ---------------------------------------------------------------- v0.16.0 levels, allowlist, confirm, audit
 
 async def test_admin_level_has_every_tool_and_read_only_wins(stub, monkeypatch):
@@ -545,7 +692,7 @@ async def test_allow_registers_only_the_named_tools(stub):
 async def test_a_risky_tool_is_refused_when_the_client_cannot_confirm(stub):
     stub.thread = {**THREAD, "status": "running", "waiting": None}
     text = await call(mcp_server.build_server(level="admin", api=stub.api), "keel_stop_flow")
-    assert "cannot ask you to confirm stop the flow" in text and "--yes" in text
+    assert "cannot ask you to confirm stop the flow" in text and "--yes" not in text      # 0.18.64 no way around the person
     assert not [p for p, _ in stub.posts if p.endswith("/stop")]
 
 

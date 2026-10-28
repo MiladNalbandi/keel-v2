@@ -126,11 +126,20 @@ class EngineClient(private val props: KeelProperties, private val mapper: Object
     fun resume(id: String, body: Map<String, Any?>): JsonNode = post("/threads/$id/resume", body, long = true)
     fun stop(id: String): JsonNode = post("/threads/$id/stop", null)
     fun setMode(id: String, mode: String): JsonNode = post("/threads/$id/mode", mapOf("mode" to mode))
+    /** 0.18.64 the flow's models, and a model for this flow only (an agent, a step, an agent's steps in a phase). */
+    fun threadModels(id: String): JsonNode = get("/threads/$id/models")
+    fun setThreadModels(id: String, body: Map<String, Any?>): JsonNode = post("/threads/$id/models", body)
     fun continueThread(id: String, keys: Map<String, String>?, root: String?): JsonNode =
         post("/threads/$id/continue", mapOf("keys" to keys, "root" to root).filterValues { it != null })
     fun history(id: String): JsonNode = get("/threads/$id/history")
     fun unlocks(id: String): JsonNode = get("/threads/$id/unlocks")
     fun addUnlock(id: String, body: Map<String, Any?>): JsonNode = post("/threads/$id/unlocks", body)
+    /** 0.18.64 the flow's document (its clarify document or spec) from its file; replaced while the flow waits at a gate. */
+    fun document(id: String): JsonNode = get("/threads/$id/document")
+    fun writeDocument(id: String, body: Map<String, Any?>): JsonNode = put("/threads/$id/document", body)
+    /** 0.18.64 the AC gate's code: the criterion's RED and GREEN commits with each file's diff; [sha] + [path]: one file. */
+    fun acCode(id: String, ac: String, sha: String?, path: String?): JsonNode =
+        get("/threads/{id}/ac-code?ac={ac}&sha={sha}&path={path}", mapOf("id" to id, "ac" to ac, "sha" to sha, "path" to path))
     fun rewind(id: String, checkpointId: String, keys: Map<String, String>? = null, root: String? = null): JsonNode =
         post("/threads/$id/rewind", mapOf("checkpoint_id" to checkpointId, "keys" to keys, "root" to root).filterValues { it != null }, long = true)
     fun mcpTools(spec: Any): JsonNode = post("/mcp/tools", spec, long = true)

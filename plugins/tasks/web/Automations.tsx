@@ -4,10 +4,14 @@
 //   and the task drawer both show it.
 // - AutomationsDrawer: the project's rules per status, KeelBot's Jira account or label, and the switches.
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   answersOf,
   ClarifyForm,
+  clearDraft,
+  DraftKept,
+  noKeys,
+  useAnswerDraft,
   Drawer,
   ErrorBox,
   errorParts,
@@ -31,6 +35,10 @@ import {
 } from "./tasksApi";
 
 /** The item kinds keel's automations open, with their label in the Inbox (pill and Kind filter). */
+/** 0.18.64 where a proposal's unsent answers are kept: the same for the Inbox card, the task drawer and the board, so
+ *  an answer begun in one shows in the others. */
+export const proposalDraft = (pid: string, itemId: number | string) => ({ project: pid, thread: `task-item-${itemId}`, question: "proposal" });
+
 export const AUTOMATION_KINDS: Record<string, string> = {
   "task-proposal": "keel proposes",
   "task-review": "review comment",
@@ -75,6 +83,7 @@ export function AutomationItem({
   data,
   actions,
   idBase,
+  itemId,
   onAct,
 }: {
   pid: string;
@@ -82,11 +91,14 @@ export function AutomationItem({
   data: Record<string, unknown>;
   actions: Action[];
   idBase: string;
+  /** 0.18.64 the task item's id: its unsent answers are kept under it (none: not kept) */
+  itemId?: number;
   onAct: (action: string, b: ItemActBody) => Promise<void>;
 }) {
   const questions = questionsOf(data.questions);
-  const [picked, setPicked] = useState<ClarifyAnswers>({});
-  const [typed, setTyped] = useState<ClarifyAnswers>({});
+  const place = useMemo(() => (itemId == null ? null : proposalDraft(pid, itemId)), [pid, itemId]);
+  const [picked, setPicked, keptPicked] = useAnswerDraft<ClarifyAnswers>(place, "picked", {}, noKeys);
+  const [typed, setTyped, keptTyped] = useAnswerDraft<ClarifyAnswers>(place, "typed", {});
   const [other, setOther] = useState(false);
   const [wfs, setWfs] = useState<Workflow[] | null>(null);
   const [wid, setWid] = useState("");
@@ -129,6 +141,8 @@ export function AutomationItem({
           : {}),
         ...(allowDirty ? { allow_dirty: true } : {}),
       });
+      // the answers went with the start: nothing to keep
+      if (action === "start" || action === "other") clearDraft(place);
     } catch (e) {
       setErr(errorParts(e));
       setBusy(false);
@@ -242,6 +256,7 @@ export function AutomationItem({
             {a.id === "other" && other ? `Start ${wid || "…"}` : a.label}
           </button>
         ))}
+        <DraftKept shown={keptPicked || keptTyped} />
       </div>
       {err && <ErrorBox error={err} />}
     </div>
