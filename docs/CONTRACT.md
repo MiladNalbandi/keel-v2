@@ -2351,7 +2351,7 @@ Plan and decisions: `docs/plans/0.17.2.md`.
 
 - **Where rules live** (all files in the project, read by the guard on every tool call): `.keel/config.yml` blocks `guards` (`protected`, `generated`, `read_block`, `bash_deny_always`, `bash_deny_in_flow`, `read_guard_max_lines`, default 2000, 0 = off), `mcp.allow`, `rules` (`off: [<built-in id> | pack/<id>]`, `push_gate: true`, `push_gate_commands: ["git push", "gh pr create"]`), `boundaries.rules`; and rule packs `.keel/rules/<id>.yaml`. `rules.load_config(root)` adds `configured` (the config file exists), `packs` and `pack_errors` (files that could not be used, with why).
 - **Rule pack** (`engine/keel_engine/rules/packs.py`, final format: `docs/rules/pack-format.md`): one YAML file `{schema: 1, kind?: rules, name, title, version, publisher? (local), summary?, stack?, requires?: {keel: range, plugins: {name: range}}, rules: [{id, kind: bash|edit|read|mcp, match: [text], how?: contains|glob|name|regex (default per kind: contains, glob, glob, name), phases?: all|in-flow|none|[phase], lanes?: [api|web], except?: [glob], reason}]}`; `name` is the id and the file name; at most 64 KB; a pack whose `requires.keel` this keel does not meet is not used. A pack rule only refuses; it runs inside `check_edit` (after the always-deny buckets, after unlocks), `check_read`, `check_bash` and `hook.check_mcp`, so the hook, the ToolBox and the diff guard all apply it. The refusal reason ends with `(rule <pack>/<rule>)`. The library is `content/rules/*.yaml` (strict-secrets, no-new-dependencies, migrations-only-in-flow, frontend-not-api, stack-spring, stack-node, stack-python), each `version: 1.0.0`, `publisher: keel`. `.keel/rules/.installed.json` records `{name: {version, source: library|file|marketplace, at, edited?}}`; the pack file stays as published.
-- **Built-in rules** (`rules.BUILTINS`, `can_off`): never off — phase-matrix, env-files, keel-rules-files, migrations-immutable, force-push, no-verify, commit-in-flow, history-rewrite, secrets-at-write, disabled-tests; may be off (`rules.off`) — generated, read-build-output, skip-test-flags, new-dependency, read-twice, big-file-read, push-gate, mcp-writes, other-projects (0.18.64: off, the project keeps to itself both ways). The force-push commands and `--no-verify` (always) and `git reset --hard`, `git rebase -i` (in a flow) are refused even when the config's lists drop them (`rules.NEVER_DENY_ALWAYS`, `NEVER_DENY_IN_FLOW`).
+- **Built-in rules** (`rules.BUILTINS`, `can_off`): never off — phase-matrix, env-files, keel-rules-files, migrations-immutable, force-push, no-verify, commit-in-flow, history-rewrite, secrets-at-write, disabled-tests; may be off (`rules.off`) — generated, read-build-output, skip-test-flags, new-dependency, read-twice, big-file-read, push-gate, mcp-writes, other-projects (0.18.64: off, the project keeps to itself both ways; opt-in, `rules.OPT_IN`: off until `rules.on` names it). The force-push commands and `--no-verify` (always) and `git reset --hard`, `git rebase -i` (in a flow) are refused even when the config's lists drop them (`rules.NEVER_DENY_ALWAYS`, `NEVER_DENY_IN_FLOW`).
 - **New bucket `keel-rules`**: `.keel/config.yml` and `.keel/rules/**`; always refused to agents (phase `setup` may write `.keel/config.yml`). The api's `KeelRules.classify` has it too.
 - **keel v1 hook gaps closed**: the push gate (`push_blockers` in the guard context, from `runtime/blockers.py for_agents` when the agent starts; only in a project with `.keel/config.yml`); secrets and disabled-test markers in the text an edit adds (Write `content`, Edit `new_string`, MultiEdit, NotebookEdit, a patch's `+` lines; `rules.check_content`) refused before the write, and the diff guard puts back a changed file whose new lines hold one (`bucket: "content"`); big files read with offset/limit; an agent's last failed shell command in `data.last_command_failure {command, output, step, agent}` (not `state.last_failure`); an agent whose answer has none of the step's registered result markers is asked once more (event `agent.reask {agent, missing}`).
 - **Guard context** gains `push_blockers: [{gate, why, fix}]`.
@@ -2977,11 +2977,66 @@ interactive user response was available".
   ... naming an existing path), so claude's own permission text never reaches the model. The temp folder, /dev and the
   run's scratch folder stay readable. codex, copilot and opencode read outside the project as before.
 - **Guard context**: `others`, `others_off`, `outside_refused`; absent for KeelBot (it is not told, nothing changes).
-- **Off**: the built-in rule `other-projects` (can_off, `rules.off`): off, the project's agents get no other projects,
-  and other projects' agents (and `keel_read_project_file`) do not get it.
+- **Opt-in** (security audit F6): the built-in rule `other-projects` is off until the project turns it on
+  (`rules.on: [other-projects]` in `.keel/config.yml`; `rules.OPT_IN`, `rules.is_off`). The Rules page and `keel_rule`
+  still send the whole `rules.off` list: `rules_view.set_config` saves an opt-in rule that is not in it as `rules.on`.
+  It works both ways: the agents read only the other projects that turned it on too. Off, the project's agents get no
+  other projects (no `others`, no claude `--add-dir`, no prompt line), and other projects' agents (and
+  `keel_read_project_file`) do not get it.
+- **Every word** (F6): a command that can reach another project (it names its folder, or the shell is there) has every
+  word checked against that project's secret files (`rules.shell_secret` with `others`): `grep -r X <other>`,
+  `cat <other>/.en?`, `git -C <other> show HEAD:.env`, `python -c "open('<other>/.env')"` are refused. A Grep on
+  `<other>/.env`, or on a folder of it that holds a secret file, too (`hook.search`).
 - **MCP** (read): `keel_read_project_file {project, path, offset?, limit?}` → the file's text, read from the folder keel
   sees (no plugin route), under the same rules (and `mcp_more.is_secret`), at most 60,000 characters, with a note on how
   to read on.
+
+## keel 0.18.64: secret files stay out of an agent's reach (sec/secret-reads)
+
+From a security audit (F5, F6, F7, F16, F21). Tests: `engine/tests/test_secret_reads.py`.
+
+- **One list of secret files** (F5): `keel_rules.json` `SECRET_FILES` (names, prefixes, suffixes, readable), read by
+  `rules.secret_name`, `rules.classify` (protected-env, for edit, read and shell), `mcp_more.is_secret` and the api's
+  `RepoService.isSecret`: `.env`, `.env.*`, `id_rsa*`, `id_ed25519*`, `id_ecdsa*`, `id_dsa*`, `*.pem`, `*.key`, `*.p12`,
+  `*.pfx`, `*.keystore`, `*.jks`, `*.p8`, `*.kdbx`, `.npmrc`, `.pypirc`, `.netrc`, `.pgpass`, `.git-credentials`,
+  `.htpasswd`, `credentials`, `credentials.json`, `master.key`, `secrets.yml`, `secrets.yaml`, `terraform.tfvars`.
+  `.env.example`, `.env.sample`, `.env.template`, `.env.dist` stay readable. A project's `guards.protected` adds to it;
+  a `!` pattern there takes a file out. keel's own keys (`master.key` in keel's data folder) stay `keel-keys`.
+- **Search tools** (F5a, F5b): the hook's matcher is `Edit|Write|MultiEdit|NotebookEdit|Bash|Read|Grep|Glob|LS|mcp__.*`;
+  opencode's plugin sends grep, glob and list as Grep, Glob and LS. `hook.search`: a Grep whose path is a secret file is
+  refused in every output mode (files_with_matches and count answer "does it match", one guess at a time); a Grep over a
+  folder that holds a secret file it would read is refused unless its `glob` or `type` leaves it out (claude's and
+  opencode's ripgrep read hidden files but skip what git ignores, so an ignored `.env` is fine). Glob and LS list names
+  only (like `ls`): judged only for where they look (keel's keys, other projects, keel's run files).
+- **Shell** (F5c, `rules/secrets.py shell_secret`, from `rules.check_bash`): every word of every command, also inside
+  quotes (`bash -c`, `python -c`, `node -e`, a heredoc fed to an interpreter), after `=` (`--file=.env`, `if=.env`),
+  after `:` (`git show HEAD:.env`), `@` (`curl -d @.env`), with globs and `{a,b}` expanded in the shell's folder. A
+  statement that names a secret file may use only commands that never print content: `ls`, `stat`, `test`, `[`, `echo`,
+  `printf`, `file`, `realpath`, `readlink`, `basename`, `dirname`, `tee`, and `git status / ls-files / check-ignore`
+  (not with `-c`). A copy whose source is a secret file is refused; `cp .env.example .env.local` is a write (the edit
+  rules: setup may write the env file). A recursive grep, `rg`, `ag` or `git grep` over a folder holding a secret file is
+  refused unless `--exclude` / `-g '!..'` / `--include` / `-g` / `-t` leave it out. Refusal: "<file> holds secrets: no
+  shell command reads, prints, copies or searches it ...". Legit uses that name the file are refused too
+  (`docker compose --env-file .env`, `source .env`): the person runs those.
+- **Guard context** (F7, `runtime/guard_ctx.py`): the agent runs as keel's user, so it could rewrite `$KEEL_GUARD_CTX`.
+  (1) the hook refuses a write anywhere in the run's folder, a read of keel's files there (`guard.json`,
+  `guard.json.sum`, `keel-guard.json`, `mcp.json`, `keel-bin/`, `opencode/`) and any shell command that names them, the
+  folder, `$KEEL_GUARD_CTX`, `$KEEL_SHIM_DIR` or `$OPENCODE_CONFIG_DIR`; (2) `write_context` writes the context's sha256
+  to `guard.json.sum` and `load_context` refuses a context that does not match (the hook fails closed: reads only);
+  (3) the engine keeps the sha256 of every file it wrote there (`guard_ctx.seal`) and `models/cli.py run_cli` checks
+  them when the CLI ends: a changed file fails the step ("the agent changed keel's own files for this run ..."). No key
+  the agent cannot read exists within one user: the hook is the CLI's child, and its environment, arguments and files
+  are readable by the agent's shell too (`/proc/<pid>/environ`). So (2) only catches a careless rewrite; (1) and (3)
+  are the protection, and keel's commit step judges every commit's files again (`rules.check_commit`).
+- **MCP scope** (F16): a flow's agents get keel's MCP server with `KEEL_MCP_PROJECTS=<the flow's project>[,<the other
+  projects it may read>]` and `KEEL_PROJECT` (`tools/mcp.py scoped`, from `compiler_agent`). `mcp_api.KeelApi` then
+  refuses a route of another project (`/projects/{pid}/...`), an agent call (`/jobs/{id}...`) or a flow
+  (`/threads/{tid}/...`) of another project, and `/folders`; `/inbox` and `/jobs` default to the flow's project, and
+  `keel_projects` lists only the scope. KeelBot's and a person's own MCP server are not scoped. The api's read token is
+  not scoped by project: this is the MCP server's own check.
+- **AC gate code** (F21, `flow_actions.ac_code`): a committed file that `rules.classify` puts in protected-env comes with
+  bucket `secret`, `folded`, `diff: null`, `note: "secret file: not shown"` (counts only); asking for it by sha and
+  path gives `file: null`. The web shows the note and no Show button.
 
 ## keel 0.18.64: the clarify document is the source of truth (fix/clarify-doc)
 

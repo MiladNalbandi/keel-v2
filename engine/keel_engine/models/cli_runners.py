@@ -474,12 +474,15 @@ class ClaudeCLIRunner:
         if req.system:
             argv += ["--system-prompt", req.system]
         # keel 0.18.64 the other projects registered in this keel are claude's folders too, so it reads them without
-        # asking ("no interactive user response" otherwise); keel's hook refuses every write there (other_projects.py)
+        # asking ("no interactive user response" otherwise); keel's hook refuses every write there (other_projects.py).
+        # Only when the rule other-projects is on (opt-in): off, `others` is empty and claude gets no other folder.
         for o in getattr(req.toolbox, "others", None) or []:
             argv += ["--add-dir", o["root"]]
-        # keel's guard: its own PreToolUse hook (python -m keel_engine.hook) judges every edit, shell command, read and
-        # MCP call against this step's phase before it runs. Always on. Its context file and the settings file live in
-        # the run's scratch folder, outside the project, so the agent cannot edit them.
+        # keel's guard: its own PreToolUse hook (python -m keel_engine.hook) judges every edit, shell command, read,
+        # search and MCP call against this step's phase before it runs. Always on. Its context file and the settings
+        # file live in the run's scratch folder, outside the project. The agent runs as the same user, so it could
+        # write them: the hook refuses every call that names them, the context carries its checksum, and the engine
+        # checks them all when claude ends (runtime/guard_ctx.py, models/cli.py guard_intact).
         scratch = guard_ctx.scratch(req)
         # a Helper Fix turn's hook may wait for the person's OK on a command (runtime/permissions.py)
         hook_timeout = permissions.HOOK_TIMEOUT if getattr(req.toolbox, "ask", None) else 10
@@ -854,6 +857,7 @@ import { spawnSync } from 'node:child_process';
 
 const HOOK = __HOOK__;
 const TOOL = { read: 'Read', write: 'Write', edit: 'Edit', bash: 'Bash' };
+const SEARCH = { grep: 'Grep', glob: 'Glob', list: 'LS' };
 const PATCH = new Set(['apply_patch', 'patch']);
 
 // Files named in a patch body (opencode's `*** Update File:` envelope and unified-diff headers), each with the lines
@@ -905,7 +909,9 @@ export const KeelGuard = async ({ directory, worktree }) => {
       }
       let name = TOOL[tool];
       let toolInput;
-      if (name === 'Bash') toolInput = { command: args.command };
+      // keel 0.18.64 grep reads files (a .env too), glob and list name them: the hook judges where they look
+      if (SEARCH[tool]) { name = SEARCH[tool]; toolInput = { path: args.path, glob: args.include, pattern: args.pattern }; }
+      else if (name === 'Bash') toolInput = { command: args.command };
       else if (name === 'Write') toolInput = { file_path: args.filePath || args.path, content: args.content };
       else if (name === 'Edit') toolInput = { file_path: args.filePath || args.path, old_string: args.oldString, new_string: args.newString };
       else if (name) toolInput = { file_path: args.filePath || args.path, offset: args.offset, limit: args.limit };
@@ -913,7 +919,7 @@ export const KeelGuard = async ({ directory, worktree }) => {
         const at = tool.indexOf('_');     // MCP tools are <server>_<tool>
         name = `mcp__${tool.slice(0, at)}__${tool.slice(at + 1)}`;
         toolInput = args;
-      } else return;                      // glob, grep, list, webfetch, todowrite: nothing to guard
+      } else return;                      // webfetch, todowrite: nothing to guard
       const reason = ask(name, toolInput, cwd);
       if (reason) refuse(reason);
     },
@@ -942,6 +948,8 @@ def write_opencode_plugin(conf: Path, readonly: bool = False, web: bool = False)
     off = [t for t in OPENCODE_OFF if not (web and t in OPENCODE_WEB)] + (OPENCODE_WRITES if readonly else [])
     (Path(conf) / "opencode.json").write_text(json.dumps({"$schema": "https://opencode.ai/config.json",
                                                           "tools": {t: False for t in off}}, indent=2))
+    guard_ctx.seal(d / "keel-guard.js")      # 0.18.64 checked when the CLI ends (models/cli.py guard_intact)
+    guard_ctx.seal(Path(conf) / "opencode.json")
     return str(conf)
 
 

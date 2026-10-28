@@ -186,8 +186,15 @@ def view(root: str) -> dict:
     cfg = rules.load_config(root)
     raw = layout.raw_config(root)
     off = set((cfg.get("rules") or {}).get("off") or [])
-    builtins = [{**b, "off": b["id"] in off and b["can_off"], "enforced": _merge_enforced(b["kind"]),
-                 "saved_in": "keel (built in)" + ("; switched off in .keel/config.yml (rules.off)" if b["id"] in off and b["can_off"] else "")}
+
+    def saved(b: dict) -> str:
+        # 0.18.64 an opt-in rule (rules.OPT_IN) is off until rules.on names it
+        if b["id"] in rules.OPT_IN:
+            return ("keel (built in); off until switched on" if rules.is_off(cfg, b["id"])
+                    else "keel (built in); switched on in .keel/config.yml (rules.on)")
+        return "keel (built in)" + ("; switched off in .keel/config.yml (rules.off)" if b["id"] in off and b["can_off"] else "")
+
+    builtins = [{**b, "off": rules.is_off(cfg, b["id"]), "enforced": _merge_enforced(b["kind"]), "saved_in": saved(b)}
                 for b in rules.BUILTINS]
     lists = []
     for key, kind, words, form in LISTS:
@@ -247,6 +254,9 @@ def _check_patch(patch: dict) -> dict:
             unknown = [x for x in off if x not in rules.BUILTIN_IDS and not x.startswith("pack/")]
             if unknown:
                 raise RulesError(400, f"Unknown rule ids: {', '.join(unknown)}.")
+        on = r.get("on")
+        if on is not None and (not isinstance(on, list) or not all(isinstance(x, str) and x in rules.OPT_IN for x in on)):
+            raise RulesError(400, f"rules.on names the rules that are off until switched on: {', '.join(sorted(rules.OPT_IN))}.")
         if "push_gate" in r and not isinstance(r["push_gate"], bool):
             raise RulesError(400, "rules.push_gate is true or false.")
     m = patch.get("mcp")
@@ -273,6 +283,21 @@ def _blocks(lines: list[str]) -> dict[str, tuple[int, int]]:
     return out
 
 
+def _opt_in(patch: dict, raw: dict) -> dict:
+    """0.18.64 an opt-in rule (rules.OPT_IN) is saved only in rules.on: named in a rules.off it is switched off (taken out
+    of rules.on), never kept in rules.off. Left out of rules.off it stays as it is: only a rules.on turns it on, so a
+    client that sends an off list without it (an older one) never turns reading other projects on by accident."""
+    r = patch.get("rules")
+    if not isinstance(r, dict) or r.get("off") is None:
+        return patch
+    off = list(r["off"])
+    now = r["on"] if "on" in r else list(((raw.get("rules") or {}) if isinstance(raw.get("rules"), dict) else {}).get("on") or [])
+    out = {**r, "off": [x for x in off if x not in rules.OPT_IN]}
+    if any(x in rules.OPT_IN for x in off) or "on" in r:
+        out["on"] = [x for x in now if x not in off]
+    return {**patch, "rules": out}
+
+
 def set_config(root: str, patch: dict) -> dict:
     """Merge `patch` into the owned blocks of .keel/config.yml and write only those blocks back; other lines stay."""
     _check_patch(patch)
@@ -287,6 +312,7 @@ def set_config(root: str, patch: dict) -> dict:
         raise RulesError(409, f".keel/config.yml is not valid YAML ({str(exc).splitlines()[0]}). Fix it by hand first.")
     if not isinstance(raw, dict):
         raise RulesError(409, ".keel/config.yml is not a YAML map. Fix it by hand first.")
+    patch = _opt_in(patch, raw)
     lines = text.split("\n")
     if lines and lines[-1] == "":
         lines = lines[:-1]

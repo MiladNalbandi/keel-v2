@@ -46,9 +46,14 @@ export function RulesPage({ pid }: { pid: string }) {
   const set = (v: RulesView) => { latest.current = v; view.setData(() => v); };
   const setOff = (id: string, on: boolean): Promise<RulesView> => {
     const run = chain.current.then(async () => {
-      const next = new Set(offList(latest.current!));
-      if (on) next.delete(id); else next.add(id);
-      const nv = await rulesApi.setConfig(pid, { rules: { off: [...next] } });
+      const v = latest.current!;
+      const optIn = v.builtins.filter((b) => b.opt_in);
+      const next = new Set(offList(v));
+      // 0.18.64 an opt-in rule (other-projects) is saved in rules.on, never in rules.off
+      const onNow = new Set(optIn.filter((b) => !b.off).map((b) => b.id));
+      if (optIn.some((b) => b.id === id)) { if (on) onNow.add(id); else onNow.delete(id); }
+      else if (on) next.delete(id); else next.add(id);
+      const nv = await rulesApi.setConfig(pid, { rules: { off: [...next], ...(optIn.length ? { on: [...onNow] } : {}) } });
       set(nv);
       return nv;
     });
@@ -191,7 +196,7 @@ function RuleTable({ rules, saved = true }: { rules: Row[]; saved?: boolean }) {
 }
 
 const offList = (v: RulesView): string[] => [
-  ...v.builtins.filter((b) => b.off).map((b) => b.id),
+  ...v.builtins.filter((b) => b.off && !b.opt_in).map((b) => b.id),
   ...v.packs.filter((p) => p.off).map((p) => `pack/${p.id}`),
 ];
 
@@ -200,7 +205,8 @@ function Builtins({ v, setOff }: { v: RulesView; setOff: (id: string, on: boolea
   const flip = async (id: string, on: boolean) => {
     try {
       await setOff(id, on);
-      toast(`${id} is ${on ? "on" : "off"}. Saved in .keel/config.yml (rules.off).`);
+      // 0.18.64 an opt-in rule (other-projects) is saved in rules.on, the others in rules.off
+      toast(`${id} is ${on ? "on" : "off"}. Saved in .keel/config.yml (${id === "other-projects" ? "rules.on" : "rules.off"}).`);
     } catch (e) {
       const x = errorParts(e);
       toast(x.hint ? `${x.message} ${x.hint}` : x.message);

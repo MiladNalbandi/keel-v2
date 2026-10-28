@@ -252,13 +252,17 @@ def ac_evidence(root: str, ac: dict, acs: list[dict], review: str | None, note: 
 # and a criterion that rewrote a big file must not send megabytes to it. MAX_FILES per commit.
 FILE_LINES, FILE_BYTES, TOTAL_BYTES, MAX_FILES = 400, 60_000, 400_000, 80
 MIN_LEFT = 200          # less than this left of TOTAL_BYTES: the next files come without text
+SECRET_NOTE = "secret file: not shown"     # 0.18.64 a committed .env or key: its counts only, never its text
 _STATUS = {"A": "added", "M": "modified", "D": "deleted", "R": "renamed", "C": "added", "T": "modified"}
 
 
 def _bucket(cfg: dict, path: str) -> str:
-    """test | prod | generated | lock: lock and generated files (minified, snapshots, built output too) come folded."""
+    """test | prod | generated | lock | secret: lock and generated files (minified, snapshots, built output too) come
+    folded; 0.18.64 a secret file (rules.classify: protected-env, a .env or a key) too, and its diff is never sent."""
     from . import test_scope, ticket_actions
 
+    if rules.classify(cfg, path) == "protected-env":
+        return "secret"
     noise = ticket_actions.noise_of(cfg, path)
     if noise == "lockfile":
         return "lock"
@@ -353,12 +357,14 @@ def ac_code(root: str, ac_id: str, since: str | None = None, sha: str | None = N
         if sha and path:
             if full.startswith(sha) or found[0].startswith(sha):
                 f = next((x for x in files if x["path"] == path), None)
-                if f and not f["binary"]:
+                if f and not f["binary"] and f["bucket"] != "secret":
                     return {"ac": ac_id, "sha": full, "file": _with_diff(root, full, f, FILE_BYTES)}
             continue
         shown, more = [], max(0, len(files) - MAX_FILES)
         for f in files[:MAX_FILES]:
-            if f["binary"] or f["bucket"] in ("lock", "generated"):
+            if f["bucket"] == "secret":
+                shown.append({**f, "diff": None, "folded": True, "note": SECRET_NOTE})
+            elif f["binary"] or f["bucket"] in ("lock", "generated"):
                 shown.append({**f, "diff": None, "folded": True})
             elif budget < MIN_LEFT:
                 shown.append({**f, "diff": None, "truncated": True})

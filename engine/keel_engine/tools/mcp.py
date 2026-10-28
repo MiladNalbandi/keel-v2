@@ -37,6 +37,20 @@ def keel_server_spec() -> dict:
             "env": keel_server_env()}
 
 
+SCOPE_ENV = "KEEL_MCP_PROJECTS"
+
+
+def scoped(specs: list[dict], allow: list[str] | None, projects: list[str]) -> list[dict]:
+    """0.18.64 keel's own server for a flow's agents, kept to `projects` (the flow's own first, then the ones its rule
+    other-projects lets it read): every tool's project, flow and agent call must be one of them (mcp_api.KeelApi). The
+    other servers are unchanged; without keel's server allowed, nothing changes."""
+    if not projects or "keel" not in parse_allow(allow):
+        return specs
+    base = next((s for s in specs if s.get("name") == "keel"), None) or keel_server_spec()
+    env = {**(base.get("env") or {}), SCOPE_ENV: ",".join(projects), "KEEL_PROJECT": projects[0]}
+    return [s for s in specs if s.get("name") != "keel"] + [{**base, "env": env}]
+
+
 def codegraph_server_spec(root: str) -> dict | None:
     """The code graph's MCP server when keel indexed this folder and the index is ready (the parts' mcp_specs hook,
     keel_engine/extensions.py); None otherwise (agents then find their way with grep)."""
@@ -230,6 +244,9 @@ def claude_mcp_config(specs: list[dict], allow: list[str] | None, folder: str) -
     path = Path(folder) / "mcp.json"
     # 0.18.64 the servers' env holds their secrets: the file is the owner's only from its first byte
     write_private(path, json.dumps(cfg))
+    from ..runtime import guard_ctx
+
+    guard_ctx.seal(path)        # 0.18.64 checked when the CLI ends (it names keel's server and its token)
     allowed = []
     for s in servers:
         names = wanted.get(s["name"])

@@ -9,7 +9,9 @@ export type Engine = "claude" | "opencode" | "codex" | "copilot" | "api";
 export type Enforced = Record<Engine, When>;
 export type Protection = "before" | "partial" | "after";
 
-export type BuiltinRule = { id: string; kind: string; phases: string; words: string; can_off: boolean; off: boolean; enforced: Enforced; saved_in: string };
+export type BuiltinRule = { id: string; kind: string; phases: string; words: string; can_off: boolean; off: boolean; enforced: Enforced; saved_in: string;
+  /** 0.18.64 off until switched on (rules.on): other-projects */
+  opt_in?: boolean };
 export type RuleList = {
   key: string; kind: string; words: string; form: "globs" | "texts" | "number" | "bool" | "boundaries";
   value: unknown; default: unknown; enforced: Enforced; saved_in: string;

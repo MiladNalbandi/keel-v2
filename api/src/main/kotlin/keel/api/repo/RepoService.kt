@@ -482,16 +482,23 @@ class RepoService(
         val SKIP_DIRS = setOf(".git", "node_modules", "build", ".venv", ".gradle", "dist", "target", "__pycache__", ".idea", ".pytest_cache")
         val KEEL_DIRS = listOf("docs/specs", "docs/knowledge", "docs/adr")
 
+        /**
+         * 0.18.64 the secret files by name: keel_rules.json SECRET_FILES, the same list the engine's guard and MCP tools
+         * read (rules.secret_name), so the two never drift apart. .env.example, .sample, .template and .dist stay readable.
+         */
+        private val SECRET_FILES: Map<String, List<String>> by lazy {
+            val node = com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(org.springframework.core.io.ClassPathResource("keel/keel_rules.json").inputStream.use { it.readBytes() })
+                .get("SECRET_FILES")
+            listOf("names", "prefixes", "suffixes", "readable").associateWith { k -> node.get(k).map { it.asText() } }
+        }
+
         fun isSecret(name: String): Boolean {
-            val n = name.lowercase()
-            if (n == ".env.example" || n == ".env.sample" || n == ".env.template") return false
-            return n == ".env" || n.startsWith(".env.") || n.endsWith(".pem") || n.endsWith(".key") ||
-                n.endsWith(".p12") || n.endsWith(".pfx") || n.endsWith(".keystore") || n.endsWith(".jks") ||
-                n.startsWith("id_rsa") || n.startsWith("id_ed25519") || n.startsWith("id_ecdsa") ||
-                n == ".npmrc" || n == ".pypirc" || n == ".netrc" || n == "credentials" || n == "credentials.json" ||
-                n == "master.key" || n == "secrets.yml" || n == "secrets.yaml" ||
-                n == ".git-credentials" || n == ".htpasswd" || n == "terraform.tfvars" || n.startsWith("id_dsa") ||
-                n.endsWith(".p8") || n.endsWith(".kdbx")
+            val n = name.lowercase().substringAfterLast('/')
+            val s = SECRET_FILES
+            if (n.isEmpty() || n in s.getValue("readable")) return false
+            return n in s.getValue("names") || s.getValue("prefixes").any { n.startsWith(it) } ||
+                s.getValue("suffixes").any { n.endsWith(it) }
         }
     }
 }
