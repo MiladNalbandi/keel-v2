@@ -114,7 +114,8 @@ export function ProjectsPage() {
       ) : !projectsLoaded ? <Loading what="Loading projects" /> : !projects.length ? (
         <div className="panel"><EmptyState title="No project yet"
           action={<button className="btn primary" type="button" onClick={() => setDrawer({ kind: "add" })}>Add projects</button>}>
-          Add the repos from your folders, or mount a repo at /workspace when you start the container.
+          Add the repos from your folders, or mount a repo at /workspace when you start the container. New to keel?{" "}
+          <a href="#/help">Help › Start here</a> walks you through the first steps.
         </EmptyState></div>
       ) : (
         <>

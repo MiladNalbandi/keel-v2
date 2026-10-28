@@ -2,7 +2,8 @@
 // "Pair a phone": a one-time code as a QR code for the address the phone uses (Wi-Fi, Tailscale or a tunnel), with
 // its countdown. The QR code is made here, in the page. When keel only answers on this computer, it says how to
 // open it to a phone (keel2 start --wifi, keel2 share tailscale). keel 0.18.57: its own Settings tab — "Pair a phone"
-// is the tab's button (DevicesTab); DevicesSection is the same content with the button in it.
+// is the tab's button; 0.18.66 the devices are part of Settings › Access (pages/settings/Access). DevicesSection is the
+// same content with the button in it.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { errorParts } from "../api";

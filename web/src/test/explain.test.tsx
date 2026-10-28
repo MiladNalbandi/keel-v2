@@ -1,5 +1,6 @@
-// v0.4.1 "What this step does": a click (or Enter) on a block of the Flow page (its side panel) and the builder's
-// "What it does" tab show Task / Rules / Next / Last run; a click on a graph node never pans. The Wiki's drawer and
+// v0.4.1 "What this step does": a click (or Enter) on a block of the Flow page (its side panel: keel 0.18.66 Overview,
+// Rules and Commands tabs) and the builder's "What it does" tab show the task, the rules, where it goes next and the last
+// run; a click on a graph node never pans. The Wiki's drawer and
 // table: plugins/wiki/web/test.
 
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -26,18 +27,25 @@ describe("What this step does", () => {
     const task = await within(dlg).findByRole("region", { name: "Task" });
     expect(within(task).getByText("test-author")).toBeInTheDocument();
     expect(within(task).getByTestId("explain-prompt")).toHaveTextContent("Current criterion: AC-1 [API] main case");
-    const rules = within(dlg).getByRole("region", { name: "Rules" });
+    expect(within(dlg).getByTestId("step-choices")).toHaveTextContent("Where it goes next");
+    expect(within(dlg).getByTestId("step-choices")).toHaveTextContent("nextgreen");
+    const last = within(dlg).getByRole("region", { name: "Last run" });
+    expect(within(last).getByText(/test\(AC-1\): main case/)).toBeInTheDocument();
+    expect(within(last).getByText("RED: tests/test_ac_1.py asserts AC-1.")).toBeInTheDocument();
+    // Rules: three boxes, and the full table one click away
+    await user.click(within(dlg).getByRole("tab", { name: "Rules" }));
+    const boxes = await within(dlg).findByTestId("rule-boxes");
+    expect(boxes.querySelector('[data-box="edit"]')).toHaveTextContent("api-test · web-test · other");
+    expect(boxes.querySelector('[data-box="never"]')).toHaveTextContent("protected-env");
+    await user.click(within(dlg).getByRole("button", { name: "The full table, file by file ›" }));
+    const rules = within(dlg).getByRole("region", { name: "The full table, file by file" });
     const row = (b: string) => rules.querySelector(`tr[data-bucket="${b}"]`) as HTMLElement;
     expect(within(row("api-test")).getByText("✓")).toBeInTheDocument();
     expect(within(row("api-main")).getByText("✗")).toBeInTheDocument();
     expect(within(row("protected-env")).getByText("✗ never")).toBeInTheDocument();
-    expect(within(rules).getByText(/git commit: the engine/)).toBeInTheDocument();
-    expect(within(dlg).getByRole("region", { name: "Next" })).toHaveTextContent("next → green");
-    const last = within(dlg).getByRole("region", { name: "Last run" });
-    expect(within(last).getByText(/test\(AC-1\): main case/)).toBeInTheDocument();
-    expect(within(last).getByText("RED: tests/test_ac_1.py asserts AC-1.")).toBeInTheDocument();
-    await user.click(within(dlg).getByRole("button", { name: "Close" }));
-    expect(screen.queryByRole("region", { name: "What red does" })).not.toBeInTheDocument();
+    // Commands: the refused shell commands, one line each with why
+    await user.click(within(dlg).getByRole("tab", { name: "Commands 1" }));
+    expect(within(dlg).getByRole("list", { name: "Shell commands keel refuses" })).toHaveTextContent("git committhe engine's commit step makes every commit");
   });
 
   it("blocks are keyboard buttons: Enter opens a code step, in words", async () => {
@@ -46,7 +54,7 @@ describe("What this step does", () => {
     const node = await screen.findByRole("button", { name: /^verify_red, plain code/ });
     node.focus();
     await user.keyboard("{Enter}");
-    const dlg = await screen.findByRole("region", { name: "What commit contract does" });
+    const dlg = await screen.findByRole("region", { name: "What verify_red does" });
     const task = await within(dlg).findByRole("region", { name: "Task" });
     expect(within(task).getByText("Looks for secrets in the staged diff.")).toBeInTheDocument();
     expect(within(task).getByText("In phase contract this is a contract commit.")).toBeInTheDocument();

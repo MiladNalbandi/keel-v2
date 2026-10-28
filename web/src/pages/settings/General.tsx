@@ -634,7 +634,7 @@ export function GeneralTab({
       <p className="ss-sub">
         Models are in <a href="#/settings/models">Models &amp; logins</a>, the
         budget rules in <a href="#/settings/budget">Budget</a>, phones in{" "}
-        <a href="#/settings/devices">Devices</a>.
+        <a href="#/settings/access">Access</a>.
       </p>
     </SettingsFrame>
   );

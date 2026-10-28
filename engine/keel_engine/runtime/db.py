@@ -43,7 +43,11 @@ def connect():
             # test, a worker before the engine's own migrate) had helper_sessions without ctx_tokens ("no such column")
             for table, column, decl in migrate.COLUMNS:
                 if column not in {row[1] for row in conn.execute(f"pragma table_info({table})")}:
-                    conn.execute(f"alter table {table} add column {column} {decl}")
+                    try:
+                        conn.execute(f"alter table {table} add column {column} {decl}")
+                    except sqlite3.OperationalError as exc:
+                        if not migrate.duplicate_column(exc):
+                            raise
             conn.commit()
             _migrated.add(p)
         yield conn

@@ -1263,7 +1263,7 @@ keel2 share               # what is shared now
 keel2 share off           # stop sharing (or: keel2 share off tailscale | tunnel)
 ```
 
-Then open **Settings › Devices › Pair a phone** in the dashboard and scan the QR code with the app. The code works
+Then open **Settings › Access › Pair a phone** in the dashboard and scan the QR code with the app. The code works
 once, for 10 minutes. The list shows every paired phone with when it was last seen; **Remove** signs a phone out at
 once.
 
@@ -1273,6 +1273,19 @@ once.
 - A tunnel's address is public and changes each time it starts. Anyone with it reaches only the sign-in and the
   pairing; everything else needs your sign-in or a paired phone, and wrong tries are slowed down (429).
 - The tunnel uses `cloudflared` when it is installed, else Docker's `cloudflare/cloudflared` image.
+- **Settings › Access** (0.18.66) shows where keel answers now (this computer, the Wi-Fi with its addresses, or
+  Tailscale) and the exact `keel2` command for another choice, with Copy. keel cannot restart itself on another
+  address yet, so you run that command in a terminal.
+
+### Updates
+
+Once a day keel asks GitHub for its newest release (Settings › Access › Updates: **Check every day**, on by default;
+off = no network call). A newer version shows a small notice at the top right, once per version: what is new, **All
+changes**, and **Copy the update command**. **Later** hides it until the next version. `keel_health` says it too.
+The command is `keel2 update` (it keeps the image keel runs: `:latest`, or `:product-beta` on the product beta
+channel). A pinned tag such as `:0.18.64` would get the same image again, so then it is
+`KEEL_IMAGE=ghcr.io/miladnalbandi/keel-v2:<new version> keel2 update`. A failed check is silent; the Updates part says
+"could not check: <why>". `KEEL_RELEASE_REPO` (owner/name) or `KEEL_RELEASE_CHECK_URL` change where keel looks.
 
 ## Use keel from Claude Code or Claude Desktop (MCP)
 
@@ -1288,6 +1301,11 @@ keel has an MCP server with three levels; each includes the one below:
 keel2 mcp --print-config                                 # the Claude Code line and Claude Desktop JSON per level
 claude mcp add keel-v2 -- "$(command -v keel2)" mcp --write
 ```
+
+**Help › Start here, step 3** (0.18.66) shows the one-time command or config for Claude Code, opencode, Codex and
+Cursor / VS Code at the level you pick, with a Copy button, and a dot that turns green when keel sees the tool's first
+call (every call with an MCP level token counts, reads too; keel's own agents' server does not). **Settings › Access ›
+AI tools (MCP) and the terminal** lists the tools that called keel: level, last call, calls today.
 
 **Which project** (0.18.64). A tool you give no `project` uses the only project, else the project that holds the
 folder the client runs in; else it names the projects and asks you to pick one (it no longer answers for the first

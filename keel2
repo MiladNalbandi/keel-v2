@@ -51,7 +51,7 @@
 #   keel2 plugins safe          restart keel in safe mode: only the plugins inside the image load
 #   keel2 uninstall [--all]     remove the container, or stop a native keel (--all: also keel's data, after you confirm)
 #
-# Use keel from your phone (keel's Android app; pair it in the dashboard: Settings › Devices › Pair a phone):
+# Use keel from your phone (keel's Android app; pair it in the dashboard: Settings › Access › Pair a phone):
 #   keel2 start --wifi [dir]    reachable on your Wi-Fi (plain http inside the network); restart keeps it, a start
 #                               without --wifi goes back to this computer only (KEEL_BIND=0.0.0.0 or an address: the same)
 #   keel2 share tailscale       https on your tailnet with `tailscale serve` (keel itself stays on 127.0.0.1)
@@ -512,6 +512,9 @@ cmd_start() {
   # phone access: --wifi / KEEL_BIND publishes keel on the network instead of 127.0.0.1 (remembered by the label)
   local i; for i in "${!args[@]}"; do [ "${args[$i]}" = "127.0.0.1:$port:8080" ] && args[i]="$(publish_host "$bind"):$port:8080"; done
   args+=(-e KEEL_NAME="$NAME" --label "keel2.bind=$bind")
+  # 0.18.66 keel's Settings › Access shows where it answers (KEEL_BIND) and the update command for the image it runs
+  # (KEEL_IMAGE: a pinned tag needs KEEL_IMAGE=<new tag> keel2 update); nothing in the container acts on them
+  args+=(-e "KEEL_BIND=$bind" -e "KEEL_IMAGE=$IMAGE")
   # 0.18.55 the names keel answers on besides localhost: KEEL_ALLOWED_HOSTS (restart and update keep it, by the
   # label), and on the network (--wifi) this computer's own name and <name>.local, so http://server.local:8088 works
   local hosts; hosts="$(allowed_hosts "$bind")"
@@ -805,7 +808,7 @@ cmd_auth() {  # keel2 auth reset — v0.18.1 a new sign-in key (api auth/WebKey)
 
 # ---------------------------------------------------------------- phone access (keel's Android app)
 # keel2 start --wifi publishes keel on the network; keel2 share tailscale|tunnel gives it an https address. keel2 tells
-# keel every address it is reachable at (PUT /api/devices/addresses), for the pairing QR code in Settings › Devices.
+# keel every address it is reachable at (PUT /api/devices/addresses), for the pairing QR code in Settings › Access.
 # What is shared lives in ${XDG_CONFIG_HOME:-~/.config}/keel2/<KEEL_NAME>.share/ (so it survives keel2 restart).
 CLOUDFLARED_IMAGE="${KEEL_CLOUDFLARED_IMAGE:-cloudflare/cloudflared:2026.9.1}"
 TAILSCALE="${KEEL_TAILSCALE_BIN:-tailscale}"; CLOUDFLARED="${KEEL_CLOUDFLARED_BIN:-cloudflared}"   # tests: fakes
@@ -868,7 +871,7 @@ show_reach() {  # show_reach <port> <bind>: where a phone finds keel, after a st
   local h; h="$(own_name)"; if [ "$2" = 0.0.0.0 ] && [ -n "$h" ]; then ok "On your network: ${B}http://$h.local:$1${N}"; fi
   while IFS= read -r u; do ok "On your Wi-Fi: ${B}$u${N}"; n=1; done < <(wifi_urls "$1" "$2")
   [ "$n" = 1 ] || warn "keel listens on the network ($2), but keel2 found no Wi-Fi address of this computer. Set KEEL_LAN_IP=<address>."
-  warn "Inside the Wi-Fi this is plain http: others on the network could read the traffic. Phones pair first (Settings › Devices)."
+  warn "Inside the Wi-Fi this is plain http: others on the network could read the traffic. Phones pair first (Settings › Access)."
   info "  ${D}https from anywhere: keel2 share tailscale · back to this computer only: keel2 start (without --wifi)${N}"
 }
 
@@ -945,7 +948,7 @@ print("mine" if mine else "taken")' "$port" || echo free)"
   printf '%s\n' "$url" > "$d/tailscale.url"; printf '%s\n' "$port" > "$d/tailscale.port"; printf '%s\n' "$hp" > "$d/tailscale.https"
   publish_addresses "$port"
   ok "On your tailnet: ${B}$url${N}"
-  info "  ${D}Only your Tailscale devices reach it; keel itself still listens on 127.0.0.1. Pair a phone: Settings › Devices.${N}"
+  info "  ${D}Only your Tailscale devices reach it; keel itself still listens on 127.0.0.1. Pair a phone: Settings › Access.${N}"
   info "  ${D}Stop: keel2 share off tailscale${N}"
 }
 
@@ -1044,7 +1047,7 @@ share_status() {
     if tunnel_alive; then info "  tunnel         $(cat "$d/tunnel.url") ${Y}(public)${N}"
     else info "  tunnel         stopped ${D}(keel2 share tunnel opens a new one)${N}"; fi
   else info "  tunnel         off ${D}(keel2 share tunnel)${N}"; fi
-  info "  ${D}Pair a phone: dashboard › Settings › Devices › Pair a phone${N}"
+  info "  ${D}Pair a phone: dashboard › Settings › Access › Pair a phone${N}"
 }
 
 phone_line() {  # one line for keel2 status when keel is reachable beyond this computer

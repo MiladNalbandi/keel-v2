@@ -26,7 +26,8 @@ export default defineConfig({
   server: {
     port: 5173,
     // vitest loads keel Product's tests and pages from ../product/web, and the plugins' from ../plugins/<name>/web
-    fs: { allow: [".", "../product/web", "../plugins"] },
+    // keel 0.18.66 Help's guides (../docs/guides) and the welcome's video cover (../docs/keel-video.jpg) are bundled in
+    fs: { allow: [".", "../product/web", "../plugins", "../docs/guides", "../docs/keel-video.jpg"] },
     proxy: {
       // SSE: no buffering, keep the connection open.
       "/api/events": {

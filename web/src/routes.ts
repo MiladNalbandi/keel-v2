@@ -28,6 +28,8 @@ export const SCREEN = {
   connections: "connections",
   /** v0.16.0 Control › Plugins: installed plugins, the marketplace, sources and rules */
   plugins: "plugins",
+  /** keel 0.18.66 Help › Start here (#/help) and the short guides (#/help/<guide>) */
+  help: "help",
   /** v0.13.0 a page of an add-on (keel Product): the route's `screen` names it. */
   addon: "addon",
 } as const;
@@ -43,6 +45,8 @@ export const GROUP_HEADS: GroupHead[] = [
   { id: "know", label: "Project", hint: "what this project is" },
   { id: "build", label: "Build", hint: "how agents work" },
   { id: "control", label: "Control", hint: "cost, limits, accounts" },
+  // keel 0.18.66 Start here and the short guides
+  { id: "help", label: "Help", hint: "start here, short guides" },
 ];
 
 export type Group = GroupHead & { pages: [ScreenId, string][] };
@@ -81,7 +85,7 @@ export type Route = {
 
 /** keel 0.18.57 the Settings page's tabs, in its menu's order: #/settings/<tab>, and #/settings/general/<project> for one
  *  project's own settings. Databases is the Database plugin's tab (slot settings.tab); the others are keel's own. */
-export const SETTINGS_TABS = ["general", "models", "review", "connections", "budget", "plugins", "databases", "devices"] as const;
+export const SETTINGS_TABS = ["general", "models", "review", "connections", "budget", "plugins", "databases", "access"] as const;
 export type SettingsTabId = (typeof SETTINGS_TABS)[number];
 
 /** keel's own Settings tabs: id, name in the settings menu, order (a part's tab goes between them by its order). */
@@ -93,7 +97,8 @@ export const CORE_SETTINGS_TABS: { id: SettingsTabId; label: string; order: numb
   { id: "connections", label: "Connections", order: 30 },
   { id: "budget", label: "Budget", order: 40 },
   { id: "plugins", label: "Plugins", order: 50 },
-  { id: "devices", label: "Devices", order: 70 },
+  // keel 0.18.66 Access: where keel answers, the devices (Settings › Devices until 0.18.65), AI tools and updates
+  { id: "access", label: "Access", order: 70 },
 ];
 
 /** A Settings tab's link: settingsHash("budget") is #/settings/budget; `rest` follows it (#/settings/plugins/git). */
@@ -106,9 +111,13 @@ const MOVED: Record<string, SettingsTabId> = {
   connections: "connections",
   plugins: "plugins",
   databases: "databases",
-  devices: "devices",
+  // keel 0.18.66 Devices is part of Access now: #/devices and #/settings/devices open it
+  devices: "access",
   models: "models",
 };
+
+/** keel 0.18.66 Settings tabs that became part of another tab: their links open that one. */
+const TAB_MOVED: Record<string, SettingsTabId> = { devices: "access" };
 
 /** The tab and the rest of a Settings link: #/settings/plugins/rules/x → ["plugins", "rules/x"]; #/settings → general. */
 export function settingsTabOf(r: Pick<Route, "page" | "arg">): [string, string | undefined] {
@@ -144,6 +153,11 @@ export function parseHash(hash: string): Route {
     };
   }
   const [first, ...rest] = raw.split("/");
+  // keel 0.18.66 a Settings tab that is part of another one now (#/settings/devices is Settings › Access)
+  if (first === "settings" && rest[0] && TAB_MOVED[rest[0]]) {
+    const to = TAB_MOVED[rest[0]];
+    return withQuery({ page: SCREEN.settings, arg: to, redirect: `${settingsHash(to)}${query ? `?${query}` : ""}` });
+  }
   // keel 0.18.57 a page that is a Settings tab now: the tab, and the link to show instead
   const moved = MOVED[first];
   if (moved && !pageFor(first)) {

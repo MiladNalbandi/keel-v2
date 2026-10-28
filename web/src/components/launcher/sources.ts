@@ -429,7 +429,7 @@ function pageItems(ctx: Ctx): Item[] {
         ],
       });
     }
-  // keel 0.18.57 each Settings tab is a place of its own: "Settings › Budget", "Settings › Devices" (pair a phone)
+  // keel 0.18.57 each Settings tab is a place of its own: "Settings › Budget", "Settings › Access" (pair a phone)
   const tabs = [
     ...CORE_SETTINGS_TABS.map((t) => ({ id: t.id as string, label: t.label, order: t.order })),
     ...slotItems<SettingsTabItem>(SLOTS.settingsTab).map((t) => ({ id: t.id, label: t.title, order: t.order ?? 60 })),
@@ -439,7 +439,7 @@ function pageItems(ctx: Ctx): Item[] {
       id: `page:settings/${t.id}`,
       kind: "page",
       title: `Settings › ${t.label}`,
-      sub: t.id === "devices" ? "Pair a phone" : "Settings",
+      sub: t.id === "access" ? "Pair a phone, Wi-Fi, AI tools, updates" : "Settings",
       actions: [{ id: "open", label: `Go to Settings › ${t.label}`, keys: "enter", run: goHash(ctx, settingsHash(t.id)) }],
     });
   return out;

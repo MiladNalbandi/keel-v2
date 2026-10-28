@@ -203,7 +203,7 @@ class LocalAuth(
         /** The paired device a request proved to be (its id), when WHO_ATTR is "device". */
         const val DEVICE_ATTR = "keel.auth.device"
         const val DEVICE_GONE = "This device was removed"
-        const val DEVICE_GONE_HINT = "Pair it again in keel: Settings › Devices"
+        const val DEVICE_GONE_HINT = "Pair it again in keel: Settings › Access"
         private val IPV4 = Regex("[0-9]{1,3}(\\.[0-9]{1,3}){3}")
         private val IPV6 = Regex("[0-9a-f:.]+")
     }

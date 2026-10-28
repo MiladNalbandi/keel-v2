@@ -1,6 +1,7 @@
 // MSW handlers for every /api route the web uses, backed by a small in-memory db (reset per test).
 
 import type { Device } from "../devicesApi";
+import type { AccessView, McpClientSeen, StartView, UpdatesView, WelcomeState } from "../helpApi";
 import { http, HttpResponse } from "msw";
 import type { AcCode, Cap, CapLeft, CapsLeft, EngineEvent, Features, FlowBoard, FlowView, CiRun, HelperChange, HelperDone, HelperQuestion, HelperSession, IndexStatus, OnCap, Plugin, RunRow, Settings, Stack, StartCheck, ThreadState, Workflow, WorkflowCheck } from "../api";
 import * as fx from "./fixtures";
@@ -125,8 +126,21 @@ export function createDb() {
     ms: createMarketSkills(),
     /** 0.18.9 stacks: the marketplace's, and the project's own YAML */
     st: createStackDb(),
-    /** phone access: the paired phones (Settings › Devices) */
+    /** phone access: the paired phones (Settings › Access) */
     devices: [] as Device[],
+    // keel 0.18.66 Help › Start here, the welcome (seen: an existing test never meets it; the welcome's tests say
+    // otherwise), the AI tools keel saw, where keel answers, and the release check (nothing newer)
+    welcome: { seen: true, at: "2026-10-28T10:00:00Z", how: "finished" } as WelcomeState,
+    mcpClients: [] as McpClientSeen[],
+    startModels: [{ provider: "claude", label: "Claude subscription (Claude Code CLI)", mode: "subscription" }] as StartView["models"],
+    startFlow: null as StartView["flow"],
+    access: { mode: "local", bind: "127.0.0.1", wifi: [], names: [], tailscale: null, tunnel: null, native: false, folder: "/home/ana/code/my-app" } as AccessView,
+    updates: {
+      current: "0.18.66", latest: "0.18.66", newer: false, name: "keel v2 0.18.66", notes: "", url: "https://github.com/MiladNalbandi/keel-v2/releases/tag/v0.18.66",
+      published_at: null, checked_at: "2026-10-28T09:00:00Z", error: null, check_daily: true, channel: "stable", edition: "full",
+      image: "ghcr.io/miladnalbandi/keel-v2:latest", native: false, command: "keel2 update",
+      command_why: "keel2 update gets the newest image of the tag keel runs and restarts keel.",
+    } as UpdatesView,
   };
 }
 export type Db = ReturnType<typeof createDb>;
@@ -177,7 +191,7 @@ export function handlers(db: Db) {
     return body as Record<string, unknown>;
   };
   return [
-    // phone access (Settings › Devices): the list, remove, and a code for this computer only unless a test says otherwise
+    // phone access (Settings › Access): the list, remove, and a code for this computer only unless a test says otherwise
     http.get("/api/devices", () => HttpResponse.json(db.devices)),
     http.delete("/api/devices/:id", async ({ request, params }) => {
       await log(request);
@@ -189,6 +203,37 @@ export function handlers(db: Db) {
       const qr = "keel://pair?u=http%3A%2F%2Flocalhost%3A8080&c=ABCDEFGHJK&n=keel";
       return HttpResponse.json({ code: "ABCDEFGHJK", expiresAt: new Date(Date.now() + 600_000).toISOString(), qr, name: "keel", reachable: false,
         urls: [{ kind: "local", url: "http://localhost:8080", qr }] });
+    }),
+    // keel 0.18.66 Help › Start here, the welcome, Settings › Access, the update check
+    http.get("/api/help/start", ({ request }) => {
+      const want = new URL(request.url).searchParams.get("project");
+      const p = db.projects.find((x) => x.id === want) ?? db.projects[0];
+      const view: StartView = {
+        projects: db.projects.length,
+        project: p ? { id: p.id, name: p.name, configured: p.configured !== false, init_running: false } : null,
+        models: db.startModels, mcp: db.mcpClients.filter((c) => c.via === "mcp"), flow: db.startFlow, flows: db.startFlow ? 1 : 0,
+        welcome: db.welcome,
+      };
+      return HttpResponse.json(view);
+    }),
+    http.get("/api/help/welcome", () => HttpResponse.json(db.welcome)),
+    http.put("/api/help/welcome", async ({ request }) => {
+      const body = (await log(request)) as { seen?: boolean; how?: string };
+      db.welcome = body.seen ? { seen: true, at: new Date().toISOString(), how: body.how ?? null } : { seen: false };
+      return HttpResponse.json(db.welcome);
+    }),
+    http.get("/api/mcp/clients", () => HttpResponse.json({ clients: db.mcpClients })),
+    http.get("/api/access", () => HttpResponse.json(db.access)),
+    http.get("/api/updates", () => HttpResponse.json(db.updates)),
+    http.put("/api/updates/settings", async ({ request }) => {
+      const body = (await log(request)) as { check_daily: boolean; channel?: string };
+      db.updates = { ...db.updates, check_daily: body.check_daily, channel: body.channel ?? db.updates.channel };
+      return HttpResponse.json(db.updates);
+    }),
+    http.post("/api/updates/check", async ({ request }) => {
+      await log(request);
+      db.updates = { ...db.updates, checked_at: new Date().toISOString() };
+      return HttpResponse.json(db.updates);
     }),
     // v0.15.9 keel's file history: nothing recorded yet, unless a test says otherwise
     http.get("/api/projects/:pid/docs/history", () => HttpResponse.json([])),

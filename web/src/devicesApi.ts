@@ -1,4 +1,4 @@
-// Phone access: the phones paired with this keel (keel's Android app) and pairing a new one (Settings › Devices).
+// Phone access: the phones paired with this keel (keel's Android app) and pairing a new one (Settings › Access).
 // The api's device routes answer in camelCase (the app's contract), unlike the rest of keel's api.
 
 import { del, get, post } from "./api";

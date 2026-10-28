@@ -31,6 +31,10 @@ import "./styles/corehome.css";
 import "./styles/plugins-page.css";
 // keel 0.18.57 the Settings page (General · Models & logins · Connections · Budget · Plugins · Databases · Devices).
 import "./styles/settings.css";
+// keel 0.18.66 Help › Start here, the short guides, step 3's MCP set-up, Settings › Access and the update notice; the
+// first-run welcome (its own dark look, from the approved mockup).
+import "./styles/help.css";
+import "./styles/welcome.css";
 
 // Plugins' web parts load at run time and use this React and @keel/web-sdk: the import map in index.html points their
 // bare imports to small shims that read window.__keel (src/sdk/shared.ts). So it is set before anything renders.

@@ -1,6 +1,7 @@
 // keel 0.18.54 "What did I decide in this run?": the Decisions tab lists every gate decision of the flow (step, decision,
 // who: you / supervisor / the run mode, the note or the answers, the time, the round) and what the Supervisor said; a
-// gate step's panel shows the answers given at that step, not only what the gate does.
+// gate step's panel shows the answers given at that step (keel 0.18.66: its Decided tab, with a count), not only what the
+// gate does.
 
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -97,8 +98,9 @@ describe("A gate step's panel", () => {
     render(<App />);
     const block = await screen.findByRole("button", { name: /^wait for you, spec approval, / });
     await user.click(block);
+    await user.click(await screen.findByRole("tab", { name: "Decided 3" }));
     const here = await screen.findByTestId("step-decisions");
-    expect(here).toHaveTextContent("What was decided here ×2");
+    expect(here).toHaveTextContent("Decided 2 times · oldest first");
     const rows = within(here).getAllByTestId("decision");
     expect(rows.map((r) => within(r).getByTestId("decision-badge").textContent)).toEqual(["sent back", "sent back", "approved"]);
     expect(rows[0]).toHaveTextContent("by supervisor");
@@ -113,12 +115,15 @@ describe("A gate step's panel", () => {
     db.decisions[SHOP_TID] = stored().slice(0, 1);
     render(<App />);
     await user.click(await screen.findByRole("button", { name: /^wait for you, your answers, / }));
+    await user.click(await screen.findByRole("tab", { name: "Decided 1" }));
     const here = await screen.findByTestId("step-decisions");
     const qa = within(here).getByRole("list", { name: "Your answers" });
     expect(within(qa).getAllByRole("listitem")).toHaveLength(2);
     expect(here).toHaveTextContent("alex reviews the copy.");
 
+    // the Decided tab stays picked for the next step
     await user.click(screen.getByRole("button", { name: /^wait for you, spec approval, / }));
     expect(await screen.findByText("Not answered in this run yet.")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Decided" })).toHaveAttribute("aria-selected", "true");
   });
 });
