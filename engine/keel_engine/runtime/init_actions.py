@@ -656,6 +656,19 @@ def _init_summary(a: ActionInput) -> ActionResult:
     lines += rules_mod.hand_over_lines(a.data.get("project_rules"), a.root)
     lines.append(f"Layout: {lay.name} — " + ("keel's files are committed with the code (docs/)." if lay.name == "repo"
                                              else "keel's files stay in .keel/, out of git."))
+    ignored = ignored_setup_files(a.root, hidden=lay.hidden) if git.is_repo(a.root) else []
+    if ignored:
+        # 0.18.65 (R4) the project's .gitignore ignores some of init's files: keel never force-adds them
+        lines.append(f"Left out of git: the project's .gitignore ignores {', '.join(ignored[:8])}"
+                     + (f" and {len(ignored) - 8} more" if len(ignored) > 8 else "")
+                     + "; keel did not force-add them, so they stay on this computer only. Take them out of .gitignore "
+                       "to share them with the team.")
+    branch = git.branch(a.root) if git.is_repo(a.root) else None
+    if branch and branch.startswith(SETUP_BRANCH) and git.head(a.root):
+        # 0.18.65 (R4) init's setup commit is on a branch of its own: a setup PR, never part of a feature's PR
+        lines.append(f"The setup commit is on {branch}, a branch of its own: push it and open a setup PR (Code › Git), "
+                     "so no feature PR carries keel's files. A flow started while the folder is on it builds on it; "
+                     "keel's reviews and PR bodies leave the setup commit out of that flow's change.")
     lines += ["", "Not checked:", "- behaviour: the ladder checks that things start, not that endpoints do the right thing "
               "(a bug hunt checks behaviour)."]
     lines += [f"- rung {r['n']} {r['name']}" for r in unchecked + [r for r in skipped if r not in unchecked and r["n"] in ladder_optional()]]
@@ -672,6 +685,30 @@ def _init_summary(a: ActionInput) -> ActionResult:
     short = notice.hand_over(len(passed), len(skipped), [r["name"] for r in failed], written, kept)
     return ActionResult(True, "hand-over summary ready",
                         update={"data": {**a.data, "hand_over_detail": "\n".join(lines), "hand_over_summary": short}})
+
+
+# 0.18.65 (R4) the branch init commits on when it makes one (the api's FlowService.branchName): a setup PR of its own
+SETUP_BRANCH = "keel/setup"
+
+
+def ignored_setup_files(root: str, hidden: bool = False) -> list[str]:
+    """0.18.65 (R4) init's files (.keel/, the runbook, the knowledge folder, CLAUDE.md) that the project's .gitignore
+    ignores: keel's commit leaves them out (it never runs git add -f). git's own exclude file (.git/info/exclude, where
+    keel's runtime files go) is not the project's choice and is not listed; nor is .keel/ when the layout keeps it out of
+    git anyway (`hidden`)."""
+    from .. import rules as rules_mod
+    from ..tools import git
+
+    _memory, setup = rules_mod._layout_paths(rules_mod.load_config(root))
+    r = git.git(root, "ls-files", "--others", "--ignored", "--exclude-standard", "--directory")
+    found = [p for p in r.stdout.splitlines() if p.strip() and any(x.search(p) for x in setup)]
+    if hidden:
+        found = [p for p in found if not p.startswith(".keel")]
+    if not found:
+        return []
+    why = git.git(root, "check-ignore", "-v", "--", *found).stdout.splitlines()
+    by_gitignore = {line.split("\t", 1)[1] for line in why if "\t" in line and not line.startswith(".git/")}
+    return [p for p in found if p in by_gitignore or p.rstrip("/") in by_gitignore]
 
 
 def ladder_optional() -> set[int]:

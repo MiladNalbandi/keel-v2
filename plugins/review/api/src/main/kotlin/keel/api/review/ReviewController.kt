@@ -30,6 +30,10 @@ class ReviewController(private val reviews: ReviewService, private val ai: Revie
     @GetMapping("/open")
     fun open(@PathVariable pid: String, @RequestParam(defaultValue = "") ref: String) = reviews.view(pid, reviews.keyOf(pid, ref))
 
+    /** 0.18.65 which base a branch review compares against (body: key, base remote | local | ""); answers the review. */
+    @PutMapping("/base")
+    fun pickBase(@PathVariable pid: String, @RequestBody b: BaseBody) = reviews.pickBase(pid, b.key, b.base)
+
     @GetMapping("/diff")
     fun diff(@PathVariable pid: String, @RequestParam key: String, @RequestParam path: String) = reviews.diff(pid, key, path)
 

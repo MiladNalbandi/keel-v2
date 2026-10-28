@@ -117,7 +117,13 @@ def review_scope(a):
     if low not in ["code", "all", "lint", *LENSES]:
         return _stop(f"Unknown review argument '{arg}'.",
                      f"Use code, all, lint, one lens ({', '.join(LENSES)}) or ac <AC-ID>.")
-    base = str(a.data.get("base") or "").strip() or verdict_actions.base_ref(a.root, cfg)
+    # 0.18.65 no base named: the canonical remote's base, and keel init's setup commits at the branch's bottom are not
+    # the branch's change (runtime/bases.py branch_scope)
+    from . import bases
+
+    named = str(a.data.get("base") or "").strip()
+    found = bases.branch_scope(a.root, cfg) if not named else {"base": named, "setup": [], "warning": None}
+    base = found["base"]
     if not base or git.git(a.root, "rev-parse", "--verify", "-q", f"{base}^{{commit}}").returncode != 0:
         return _stop(f"The base ref {base or '(none)'} does not exist.", "Pass base: <branch or commit> to compare with.")
     files = [f for f in git.git(a.root, "diff", "--name-only", f"{base}...HEAD").stdout.splitlines() if f.strip()]
@@ -125,6 +131,9 @@ def review_scope(a):
         return _stop(f"Nothing to review: git diff {base}...HEAD is empty.",
                      "A reviewer sent to review nothing finds something to say anyway.")
     scope = {"scope": f"git diff {base}...HEAD", "base": base, "files": files[:60]}
+    said = [x for x in (found.get("warning"), bases.setup_note(found.get("setup") or [])) if x]
+    if said:
+        scope["note"] = " ".join(said)
     lint = None
     if low == "lint" or a.data.get("lint"):
         # Static checks (lens lint, or data.lint with any lens): the stacks' check tools on the diff, reported only.
@@ -140,7 +149,7 @@ def review_scope(a):
         items = [{"id": lens, "title": f"{lens} lens", "agent": "lens-reviewer", "lens": lens, **scope} for lens in lenses]
     data = {**a.data, "review_lenses": items, **({"lint_report": lint[1]} if lint else {})}
     return _ok(f"Review scope: {scope['scope']} ({len(files)} file(s)); " + ", ".join(i["title"] for i in items)
-               + (f"; {lint[0]}" if lint else "") + ".",
+               + (f"; {lint[0]}" if lint else "") + "." + (f" {scope['note']}" if scope.get("note") else ""),
                "\n".join(files[:60]), {"data": data})
 
 

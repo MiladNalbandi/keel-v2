@@ -8,6 +8,7 @@
 import { type ComponentType } from "react";
 import { api, errorParts, type Settings } from "../../api";
 import { refreshFeatures, useFeatures } from "../../addons";
+import { BaseBranchPanel } from "../../components/BaseBranch";
 import { BellSettings } from "../../components/Notifications";
 import { Skeleton } from "../../components/page";
 import { RUN_MODES, runModeAbout } from "../../components/RunMode";
@@ -170,6 +171,15 @@ export const GENERAL_SECTIONS: GeneralSection[] = [
         help: "Ask you first, do it by itself, or never. The Auto run mode never pushes.",
       },
     ],
+  },
+  {
+    // 0.18.65 the base branch and the canonical remote: files in the repo (.keel/config.yml), one project's own
+    id: "base",
+    title: "Base branch",
+    sub: "The branch work is compared with, and the remote keel trusts for it.",
+    rows: [],
+    after: BaseBranchPanel,
+    only: "project",
   },
   {
     id: "notify",

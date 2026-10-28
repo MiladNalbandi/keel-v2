@@ -63,7 +63,11 @@ export type BranchSummary = {
   removed: number;
   pr: PrSummary | null;
   note: string | null;
+  /** 0.18.65 the local base differs from the canonical remote's copy the counts compare against, in words */
+  base_warning?: string | null;
 };
+/** 0.18.65 a base a branch review can compare against: the canonical remote's copy or the local base. */
+export type BaseOption = { id: "remote" | "local"; ref: string; label: string };
 export type CheckRun = { name: string; state: string; url?: string | null };
 export type ReviewComment = {
   id: string;
@@ -142,6 +146,13 @@ export type ReviewView = {
   merge_state?: string | null;
   /** a branch review: its open pull request, where its pending comments can go */
   branch_pr?: number | null;
+  /** 0.18.65 a branch review: the local base differs from the canonical remote's copy, in words */
+  base_warning?: string | null;
+  /** 0.18.65 a branch review: the bases it can compare against, and the one it does */
+  base_options?: BaseOption[];
+  base_choice?: "remote" | "local" | null;
+  /** 0.18.65 keel init's setup commits at the branch's bottom, left out of the review */
+  setup_left_out?: string[];
 };
 export type CodePlace = {
   path: string;
@@ -441,6 +452,9 @@ export const reviewApi = {
     get<ReviewView>(
       `${R(pid)}/view?${qk(key)}${refresh ? "&refresh=true" : ""}`,
     ),
+  /** 0.18.65 which base a branch review compares against ("" goes back to keel's choice) */
+  pickBase: (pid: string, key: string, base: "remote" | "local" | "") =>
+    put<ReviewView>(`${R(pid)}/base`, { key, base }),
   diff: (pid: string, key: string, path: string) =>
     get<FileDiff>(`${R(pid)}/diff?${qk(key)}&path=${e(path)}`),
   file: (

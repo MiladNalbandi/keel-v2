@@ -217,6 +217,12 @@ tr.click:hover td { background: var(--panel-2); }
 .field .radio select, .row select { width: auto; max-width: 100%; }
 .chk { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
 .hint { font-size: 12px; color: var(--dim); }
+/* 0.18.65 base_branch names no local branch: the choices (components/BaseBranch.tsx) */
+.base-q { display: grid; gap: 6px; }
+.base-q-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.base-q-row select { width: auto; max-width: 100%; }
+.base-panel { display: grid; gap: 8px; }
+.base-panel select { width: auto; max-width: 100%; }
 
 /* Jobs feed */
 .feed { display: grid; gap: 8px; }

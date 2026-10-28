@@ -236,13 +236,13 @@ class FlowBranchApiTest : ApiTest() {
             val (pid, root) = newProject("init-empty-branch")
             engine.nextThreadIds.add("t-init-empty")
             post("/api/projects/$pid/flows", mapOf("workflow_id" to "init", "title" to "init 2026-10-25", "allow_fake" to true)).andExpect(status().isOk)
-            assertThat(git(root, "rev-parse", "--abbrev-ref", "HEAD").trim()).isEqualTo("feat/init-2026-10-25")
+            assertThat(git(root, "rev-parse", "--abbrev-ref", "HEAD").trim()).isEqualTo("keel/setup")
             java.nio.file.Files.writeString(root.resolve("README.md"), "# demo, changed\n")      // uncommitted: it stays
             post("/internal/events", listOf(mapOf("type" to "thread.done", "thread_id" to "t-init-empty", "project_id" to pid,
                 "at" to java.time.Instant.now().toString(), "data" to mapOf("title" to "init"))), mapOf("X-Keel-Token" to TOKEN))
                 .andExpect(status().isOk)
             assertThat(git(root, "rev-parse", "--abbrev-ref", "HEAD").trim()).isEqualTo("main")
-            assertThat(git(root, "branch", "--list", "feat/init-*").trim()).isEmpty()
+            assertThat(git(root, "branch", "--list", "keel/setup*").trim()).isEmpty()
             assertThat(java.nio.file.Files.readString(root.resolve("README.md"))).contains("changed")
         } finally {
             engine.extraTemplates -= init
@@ -262,7 +262,7 @@ class FlowBranchApiTest : ApiTest() {
             post("/internal/events", listOf(mapOf("type" to "thread.done", "thread_id" to "t-init-kept", "project_id" to pid,
                 "at" to java.time.Instant.now().toString(), "data" to mapOf("title" to "init"))), mapOf("X-Keel-Token" to TOKEN))
                 .andExpect(status().isOk)
-            assertThat(git(root, "rev-parse", "--abbrev-ref", "HEAD").trim()).isEqualTo("feat/init-2026-10-25")
+            assertThat(git(root, "rev-parse", "--abbrev-ref", "HEAD").trim()).isEqualTo("keel/setup")
         } finally {
             engine.extraTemplates -= init
         }

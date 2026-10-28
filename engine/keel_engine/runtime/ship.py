@@ -106,11 +106,17 @@ def _lens_scope(a, cfg: dict) -> dict:
     files it touches, and the spec. Without it a reviewer guesses the base."""
     if not git.is_repo(a.root):
         return {}
-    base = verdict_actions.base_ref(a.root, cfg, a.base)
+    # 0.18.65 the canonical remote's base, and keel init's setup commits at the branch's bottom left out (runtime/bases.py)
+    from . import bases
+
+    found = bases.branch_scope(a.root, cfg, a.base)
+    base = found["base"]
     if not base:
         return {}
     files = [f for f in git.git(a.root, "diff", "--name-only", f"{base}...HEAD").stdout.splitlines() if f.strip()]
     out = {"scope": f"git diff {base}...HEAD", "base": base, "files": files[:60]}
+    if found["setup"]:
+        out["note"] = bases.setup_note(found["setup"])
     if len(files) > 60:
         out["files_more"] = len(files) - 60
     if a.state.get("spec"):

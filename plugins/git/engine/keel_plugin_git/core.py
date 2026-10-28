@@ -74,12 +74,29 @@ def _need_repo(root: str):
 
 
 def base(root: str) -> str | None:
-    """The branch work is compared with: base_branch in .keel/config.yml, else main, else master."""
+    """The branch work is compared with: base_branch in .keel/config.yml, else main, else master. 0.18.65 the
+    canonical remote's copy (github/main, runtime/bases.py) when the local base is behind it, went its own way, or does
+    not exist here; base_branch may be <remote>/<branch>."""
+    from keel_engine.runtime import bases
+
+    r = bases.resolve(root)
+    if r.get("local") and r.get("remote") and not r.get("behind"):
+        return r["local"]
+    if r.get("ref"):
+        return r["ref"]
     cfg = rules.load_config(root)
     for ref in [cfg.get("base_branch"), "main", "master"]:
         if ref and git.git(root, "rev-parse", "--verify", "-q", f"{ref}^{{commit}}").returncode == 0:
             return ref
     return None
+
+
+def base_name(root: str) -> str | None:
+    """0.18.65 the base branch's name (main for github/main): the branch a pull request goes into, the branch keel never
+    pushes to."""
+    from keel_engine.runtime import bases
+
+    return bases.resolve(root).get("name") or base(root)
 
 
 def _count(root: str, rng: str) -> int:
@@ -386,8 +403,11 @@ def commit(root: str, message: str, settings: dict | None = None) -> dict:
 
 def sync(root: str, token: str | None = None) -> dict:
     """Merge the base branch (the remote's when there is one) into the current branch. A conflict is undone."""
+    from keel_engine.runtime import bases
+
     _need_repo(root)
-    b = base(root)
+    found = bases.resolve(root)
+    b = found.get("name") or base(root)
     br = git.branch(root)
     if not b:
         raise GitError(400, "keel found no base branch (main or master).", "Set base_branch in .keel/config.yml.")
@@ -395,15 +415,18 @@ def sync(root: str, token: str | None = None) -> dict:
         raise GitError(400, f"You are on the base branch ({b}).", "Switch to a feature branch first.")
     if git.dirty(root):
         raise GitError(409, "The branch has uncommitted changes.", "Commit or stash them first, so a merge cannot mix with them.")
-    ref = b
-    if git.git(root, "remote").stdout.strip():
-        fetched = _fetch(root, b, token)
+    ref = found.get("local") or b
+    # 0.18.65 the canonical remote's copy of the base (github/main), not always origin's
+    remote = found.get("remote") or (f"{found['canonical']}/{b}" if found.get("canonical") else None)
+    if remote:
+        where, _, branch = remote.partition("/")
+        fetched = _fetch(root, branch, token, where)
         if fetched.returncode != 0:
-            # a stale origin/<base> would be merged as if it were current: say the fetch failed instead
-            raise GitError(502, f"git could not fetch {b} from origin: {_tail(fetched.stderr or fetched.stdout, 300)}",
+            # a stale <remote>/<base> would be merged as if it were current: say the fetch failed instead
+            raise GitError(502, f"git could not fetch {branch} from {where}: {_tail(fetched.stderr or fetched.stdout, 300)}",
                            "Check the network and the GitHub token; nothing was merged.")
-        if git.git(root, "rev-parse", "--verify", "-q", f"origin/{b}").returncode == 0:
-            ref = f"origin/{b}"
+        if git.git(root, "rev-parse", "--verify", "-q", f"refs/remotes/{remote}").returncode == 0:
+            ref = remote
     from keel_engine.runtime.actions import commit_args
 
     ident, _ = commit_args(root, {}, rules.load_config(root))
@@ -422,10 +445,11 @@ def _remote_url(root: str) -> str:
     return git.git(root, "remote", "get-url", "origin").stdout.strip()
 
 
-def _fetch(root: str, ref: str, token: str | None):
-    """origin's `ref` into origin/<ref>; with keel's GitHub login only when origin is on its host (git_auth)."""
-    with git_auth.remote(root, token) as r:
-        out = git.git(root, *r.args, "fetch", "-q", r.target, f"+refs/heads/{ref}:refs/remotes/origin/{ref}", env=r.env)
+def _fetch(root: str, ref: str, token: str | None, name: str = "origin"):
+    """A remote's `ref` into <remote>/<ref> (origin's by default); with keel's GitHub login only when the remote is on
+    its host (git_auth)."""
+    with git_auth.remote(root, token, name) as r:
+        out = git.git(root, *r.args, "fetch", "-q", r.target, f"+refs/heads/{ref}:refs/remotes/{name}/{ref}", env=r.env)
     out.stderr = git_auth.mask(out.stderr, token)
     out.stdout = git_auth.mask(out.stdout, token)
     return out
@@ -435,7 +459,7 @@ def push(root: str, token: str | None = None) -> dict:
     """`git push` of the current branch to origin, never with force and never to the base branch, main or master."""
     _need_repo(root)
     br = git.branch(root)
-    b = base(root)
+    b = base_name(root)
     if not br:
         raise GitError(400, "HEAD is not on a branch.", "Switch to a branch first.")
     if br in PROTECTED or br == b:
@@ -466,7 +490,7 @@ def pr(root: str, token: str | None, title: str, body: str, draft: bool = False)
     if not title:
         raise GitError(400, "The pull request needs a title.")
     br = git.branch(root)
-    b = base(root)
+    b = base_name(root)
     if not br or br in PROTECTED or br == b:
         raise GitError(400, "Open a pull request from a feature branch.")
     up = git.git(root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
@@ -532,7 +556,7 @@ def cleanup(root: str) -> dict:
     gone = []
     for line in git.git(root, "branch", "--merged", b, "--format=%(refname:short)").stdout.splitlines():
         name = line.strip()
-        if not name or name in (b, cur, *PROTECTED):
+        if not name or name in (b, cur, base_name(root), *PROTECTED):
             continue
         if git.git(root, "worktree", "list", "--porcelain").stdout.count(f"branch refs/heads/{name}\n"):
             continue

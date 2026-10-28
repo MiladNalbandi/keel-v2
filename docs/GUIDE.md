@@ -951,6 +951,27 @@ ci:
   some) runs it and returns the table; `keel_ci_report` (read) shows the last report and whether it is about HEAD.
   The final review, the PR body and the ship reviewers show the same report.
 
+**The canonical remote and the review's base (0.18.65).** With two remotes that disagree, keel trusts one of them for
+the base: `git.remote` in `.keel/config.yml` (Settings › General › Base branch), else the remote the base branch
+follows, else a remote that has it, else origin. `base_branch` may name a remote's branch itself (`github/main`).
+Everything that compares with the base (a flow's new branch, the audit, ship, the full-diff review, the Review panel)
+uses that remote's copy when the local base is behind it or went its own way, and says so: "Your local master is 3
+commits behind and 2 ahead of github/main: this review compares against github/main." The Review panel's "Compare
+with" picks the local base instead. When `base_branch` names a branch with no local copy, keel asks you (Start a flow,
+Settings, MCP `keel_base_branch`): use the remote's, create a local branch that tracks it, or pick another one. Agents
+never change `.keel/config.yml`, through the Edit tool or the shell.
+
+```
+ origin/master ── A ── O1                    local master ── A ── O1 ── X1   (3 behind, 2 ahead of github/main)
+ github/main   ── A ── M1 ── M2 ── M3 ──┬── feat/x ── F1
+                                         └─ the review: merge-base(github/main, feat/x)...feat/x = F1 only
+```
+
+**keel init's setup on its own branch (0.18.65).** init commits keel's files (config, notes, RUNNING.md) on
+`keel/setup`: open a setup PR for it. A flow started on that branch builds on it, and keel's reviews and PR bodies leave
+init's setup commit out of the flow's change. A setup file your `.gitignore` ignores stays out of git (keel never
+force-adds) and init's summary says which.
+
 **Stale configuration.** `keel2 doctor <project>`, the project's doctor (`GET /api/projects/{pid}/doctor/config`) and
 knowledge-refresh check that the configured commands can still run: a compose service a command execs into is in the
 compose files, a composer / npm script is in composer.json / package.json, a make target is in the Makefile. Each stale

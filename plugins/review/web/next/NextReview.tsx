@@ -13,6 +13,7 @@
 
 import { useEffect, useId, useState } from "react";
 import { ErrorBox, useApp, useStored } from "@keel/web-sdk";
+import { BaseLine } from "../BaseLine";
 import { ChecksList } from "../Checks";
 import { prLabel } from "../reviewApi";
 import * as R from "../store";
@@ -228,6 +229,7 @@ export function NextReview({ pid, reviewKey }: { pid: string; reviewKey: string 
               <span>changes asked by {v.changes_requested.join(", ")}</span>
             )}
           </div>
+          <BaseLine pid={pid} view={v} className="rvn-base" />
           <details className="rvn-overview">
             <summary>What this change does (keel's overview)</summary>
             <div className="rvn-stack">

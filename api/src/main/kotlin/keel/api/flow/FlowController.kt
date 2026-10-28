@@ -68,6 +68,13 @@ class FlowController(private val flows: FlowService) {
     @PostMapping("/projects/{pid}/remotes/fetch")
     fun fetchRemotes(@PathVariable pid: String): JsonNode = flows.fetchRemotes(pid)
 
+    /** 0.18.65 the project's base and its canonical remote; PUT: the person's choice (keel writes .keel/config.yml). */
+    @GetMapping("/projects/{pid}/base")
+    fun base(@PathVariable pid: String): JsonNode = flows.baseView(pid)
+
+    @PutMapping("/projects/{pid}/base")
+    fun chooseBase(@PathVariable pid: String, @RequestBody body: BaseChoice): JsonNode = flows.chooseBase(pid, body)
+
     /** 0.18.64 keel merges or rebases the flow's branch onto a base; a conflict answers ok false with the files. */
     @PostMapping("/threads/{tid}/sync")
     fun sync(@PathVariable tid: String, @RequestBody(required = false) body: SyncBody?): JsonNode =
