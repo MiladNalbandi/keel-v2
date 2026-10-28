@@ -270,6 +270,12 @@ export type ThreadConfig = {
   /** keel 0.18.56 the flows the Address it confirmation offers, the configured one first */
   address_flows?: { id: string; name: string }[];
   buttons?: ThreadButtonInfo[];
+  /** keel 0.18.65 what Find problems runs (Settings › Review): its text, the reviewers, how a finding is fixed */
+  find?: {
+    text: string;
+    reviewers: { letter: string; name: string }[];
+    fix: { flow: "quick" | "small" | "change" | "ask"; one_flow_per_file: boolean };
+  };
 };
 export type AiRun<R> = {
   id: string;
@@ -295,6 +301,8 @@ export type AiState = {
   /** per "<button id>|<thread>": an extra button's latest run */
   buttons?: Record<string, AiRun<JudgeResult>>;
   config?: ThreadConfig;
+  /** keel 0.18.65 per finding: the flow "Fix it" started */
+  fixes?: Record<string, { flow_id: string; title: string; branch: string | null; workflow?: string; with?: number; at: string }>;
 };
 export type AddressResult = {
   flow_id: string;
@@ -503,6 +511,9 @@ export const reviewApi = {
   /** [fix]: the person's answer to "What should the fix be?" (0.18.57, asked when the thread has no reply of theirs). */
   address: (pid: string, key: string, threadId: string, note?: string, workflow?: string, fix?: string) =>
     post<AddressResult>(`${R(pid)}/threads/${e(threadId)}/address`, { key, note, workflow, fix }),
+  /** keel 0.18.65 "Fix it" on a confirmed finding: the flow Settings › Review names, or [workflow] when it asks each time. */
+  fixFinding: (pid: string, key: string, findingId: string, workflow?: string) =>
+    post<AddressResult>(`${R(pid)}/ai/findings/${e(findingId)}/fix`, { key, workflow }),
   button: (pid: string, key: string, threadId: string, buttonId: string, opts: { again?: boolean; harder?: boolean } = {}) =>
     post<AiState>(`${R(pid)}/threads/${e(threadId)}/buttons/${e(buttonId)}`, { key, ...opts }),
   threadSettings: (pid: string | null) =>

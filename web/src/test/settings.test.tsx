@@ -19,7 +19,7 @@ const open = (hash: string) => {
 const fold = (name: string) => screen.findByRole("button", { name });
 
 describe("Settings: the tabs and their links", () => {
-  it("has one menu with the seven tabs; each opens at #/settings/<tab>", async () => {
+  it("has one menu with the eight tabs (Review since 0.18.65); each opens at #/settings/<tab>", async () => {
     const user = userEvent.setup();
     open("#/settings");
     const menu = await screen.findByRole("navigation", {
@@ -32,6 +32,7 @@ describe("Settings: the tabs and their links", () => {
     ).toEqual([
       "General",
       "Models & logins",
+      "Review",
       "Connections",
       "Budget",
       "Plugins",

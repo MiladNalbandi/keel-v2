@@ -114,6 +114,10 @@ class ReviewController(private val reviews: ReviewService, private val ai: Revie
     @PostMapping("/threads/{threadId}/address")
     fun address(@PathVariable pid: String, @PathVariable threadId: String, @RequestBody b: AddressBody) = addressing.address(pid, b.key, threadId, b)
 
+    /** 0.18.65 "Fix it": the flow Settings › Review names fixes a confirmed finding on the reviewed branch. */
+    @PostMapping("/ai/findings/{findingId}/fix")
+    fun fix(@PathVariable pid: String, @PathVariable findingId: String, @RequestBody b: FixBody) = addressing.fixFinding(pid, b.key, findingId, b)
+
     @PostMapping("/ai/findings/{findingId}")
     fun decide(@PathVariable pid: String, @PathVariable findingId: String, @RequestBody b: FindingDecision) = ai.decide(pid, b.key, findingId, b)
 }

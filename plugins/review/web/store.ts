@@ -495,6 +495,13 @@ export async function address(
   return r;
 }
 
+/** keel 0.18.65 "Fix it" on a confirmed finding (Settings › Review decides the flow, or [workflow] when it asks). */
+export async function fixFinding(pid: string, key: string, findingId: string, workflow?: string) {
+  const r = await act(pid, key, `fix:${findingId}`, () => reviewApi.fixFinding(pid, key, findingId, workflow));
+  if (r) set(pid, key, { ai: r.state });
+  return r;
+}
+
 export async function runButton(
   pid: string,
   key: string,

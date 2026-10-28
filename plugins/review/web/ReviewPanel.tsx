@@ -492,10 +492,10 @@ export function FindingsTab({
       {!run && (
         <div className="rv-empty">
           <p>
-            Two keel reviewers read the change (A: correctness and security, B:
-            tests, the description and design). Then a fresh run checks every
-            serious claim against the code. Only checked findings are shown
-            here; nothing is posted.
+            {/* 0.18.65 the reviewers of Settings › Review */}
+            {ai?.config?.find?.text ??
+              "Two keel reviewers read the change (A: correctness and security, B: tests, the description and design). " +
+                "Then a fresh run checks every serious claim against the code. Only checked findings are shown here; nothing is posted."}
           </p>
           <button
             type="button"

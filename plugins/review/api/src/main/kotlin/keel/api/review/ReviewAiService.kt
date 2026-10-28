@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.node.ArrayNode
 import com.fasterxml.jackson.databind.node.ObjectNode
+import keel.api.agents.AgentService
 import keel.api.common.BadRequest
 import keel.api.common.Conflict
 import keel.api.common.Hash
@@ -15,6 +16,10 @@ import keel.api.helper.HelperCreate
 import keel.api.helper.HelperService
 import keel.api.helper.HelperTurn
 import keel.api.projects.ProjectService
+import keel.api.reviewsetup.FindReviewer
+import keel.api.reviewsetup.ReviewSetupService
+import keel.api.settings.Model
+import keel.api.skills.SkillService
 import org.slf4j.LoggerFactory
 import org.springframework.context.event.EventListener
 import org.springframework.jdbc.core.JdbcTemplate
@@ -40,8 +45,8 @@ data class AiRun(
 )
 
 /**
- * [judges]: per thread, keel's latest check of "is the reviewer right?"; [addressed]: per thread, the small flow that
- * makes the change it asks for (flow_id, title, branch).
+ * [judges]: per thread, keel's latest check of "is the reviewer right?"; [addressed]: per thread, the flow that makes the
+ * change it asks for (flow_id, title, branch); [fixes] (0.18.65): per finding, the flow that fixes it.
  */
 data class AiState(
     val overview: AiRun?,
@@ -51,16 +56,19 @@ data class AiState(
     val addressed: Map<String, Map<String, Any?>> = emptyMap(),
     /** per "<button id>|<thread>": the latest run of an extra thread button (an answer, or the flow it started) */
     val buttons: Map<String, AiRun> = emptyMap(),
-    /** what the threads view draws: the judge's mode, Address it's workflow, the extra buttons (Settings) */
+    /** what the threads view draws: the judge's mode, Address it's workflow, the extra buttons (Settings); 0.18.65
+     *  "find": what Find problems runs (Settings › Review): its text, the reviewers, how a confirmed finding is fixed */
     val config: Map<String, Any?> = emptyMap(),
+    val fixes: Map<String, Map<String, Any?>> = emptyMap(),
 )
 
 /**
  * keel's AI on a review, as read-only KeelBot runs (Ask mode: it reads the code with git, never edits). Overview: what
- * the change does, file by file, a diagram, the order to read it, effort and risk. Findings: two reviewers in parallel
- * (A correctness + security, B tests + ticket + design), then fresh runs check every blocking and should-fix claim
- * against the code; only confirmed ones are shown as findings, rejected ones keep their reason. Nothing is posted:
- * the person turns a finding into a comment, or dismisses it with a reason.
+ * the change does, file by file, a diagram, the order to read it, effort and risk. Findings: the reviewers of Settings ›
+ * Review in parallel (keel's default: A correctness + security, B tests + ticket + design, each with its lenses), then
+ * fresh runs check every blocking and should-fix claim against the code; only confirmed ones are shown as findings,
+ * rejected ones keep their reason. Nothing is posted: the person turns a finding into a comment, dismisses it with a
+ * reason, or (0.18.65) has a flow fix it.
  */
 @Service
 class ReviewAiService(
@@ -72,6 +80,9 @@ class ReviewAiService(
     private val props: ReviewProperties,
     private val hub: EventHub,
     private val conf: ReviewThreadSettings,
+    private val setup: ReviewSetupService,
+    private val agents: AgentService,
+    private val skills: SkillService,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
     private val worker = Executors.newSingleThreadExecutor { r -> Thread(r, "review-ai").apply { isDaemon = true } }
@@ -87,18 +98,14 @@ class ReviewAiService(
         const val JUDGE = "judge:"
         const val ADDRESS = "address:"
         const val BUTTON = "button:"
+        const val FIX = "fix:"
+        /** An agent's role and skills in a reviewer's prompt: at most this much of each (keel 0.18.65). */
+        const val ROLE_MAX = 4000
+        private val LENS_HEAD = Regex("^[A-Z][A-Za-z ,]{2,40}:\\s+")
         private val BLOCK = Regex("```[ \\t]*(keel-review[a-z-]*)[ \\t]*\\n(.*?)\\n[ \\t]*```", RegexOption.DOT_MATCHES_ALL)
         private val DOCS = Regex("\\.(md|mdx|txt|rst|adoc)$|(^|/)docs?/|(^|/)(package-lock\\.json|yarn\\.lock|pnpm-lock\\.yaml|composer\\.lock|uv\\.lock|go\\.sum|Cargo\\.lock)$", RegexOption.IGNORE_CASE)
-        /** The lenses each reviewer goes through: the bugs reviews missed most (keel's review-eval benchmark). */
-        val LENSES_A = listOf(
-            "data migration and backfill: defaults and NOT NULL on existing rows, a missing backfill, a new table existing code INNER JOINs to, a unique index the code relies on that the migration does not create (the ORM mapping or test schema may have it)",
-            "concurrency and idempotency: a message delivered twice, overlapping workers or cron runs, check-then-act without a lock, a side effect (an external call, a booking) repeated on redelivery, a status UPDATE whose WHERE does not enforce the allowed transitions",
-            "error handling and retry: one failure that stops a batch (a throw in a loop), a retry without an end or a terminal failed state, a catch-all that only logs",
-        )
-        val LENSES_B = listOf(
-            "secrets and config: every env or config key the code reads against the keys .env, compose and deploy files define (a renamed key breaks the boot), unsafe defaults, test config that hides a prod break",
-            "tests that assert nothing (always-true assertions, a test that only checks a service exists)",
-        )
+        // keel 0.18.65 the lenses each reviewer goes through are lens files now (content/review-lenses, the project's
+        // .keel/lenses), given to a reviewer in Settings › Review: ReviewSetupService.find
 
         private val COMMON = setOf("this", "that", "with", "from", "when", "which", "would", "could", "never", "every", "only", "line",
             "file", "code", "change", "changes", "does", "into", "than", "then", "also", "after", "before", "still", "same", "missing")
@@ -161,8 +168,16 @@ class ReviewAiService(
             @Suppress("UNCHECKED_CAST")
             (r.result?.let { mapper.convertValue(it, Map::class.java) as Map<String, Any?> } ?: emptyMap()) + mapOf("at" to r.createdAt)
         }
+        val fixes = latestByPrefix(pid, key, FIX, head).mapValues { (_, r) ->
+            @Suppress("UNCHECKED_CAST")
+            (r.result?.let { mapper.convertValue(it, Map::class.java) as Map<String, Any?> } ?: emptyMap()) + mapOf("at" to r.createdAt)
+        }
+        val find = runCatching { setup.find(pid, null) }.getOrNull()?.let { f ->
+            mapOf("find" to mapOf("text" to f.text, "reviewers" to f.reviewers.map { mapOf("letter" to it.letter, "name" to it.name) },
+                "fix" to mapOf("flow" to f.fixFlow, "one_flow_per_file" to f.oneFlowPerFile)))
+        }.orEmpty()
         return AiState(latest(pid, key, "overview", head), latest(pid, key, "findings", head), decisions, judges, addressed,
-            latestByPrefix(pid, key, BUTTON, head), runCatching { conf.client(pid) }.getOrDefault(emptyMap()))
+            latestByPrefix(pid, key, BUTTON, head), runCatching { conf.client(pid) }.getOrDefault(emptyMap()) + find, fixes)
     }
 
     /** The newest run of each kind that starts with [prefix] ("judge:<thread>"), by the thread id after it. */
@@ -207,8 +222,11 @@ class ReviewAiService(
             if (kind == "overview") {
                 launch(pid, id, "overview", "${label(view)} · overview", overviewPrompt(view))
             } else {
-                launch(pid, id, "find-a", "${label(view)} · review A", findPrompt(view, "A"))
-                launch(pid, id, "find-b", "${label(view)} · review B", findPrompt(view, "B"))
+                // 0.18.65 the reviewers of Settings › Review (keel's default: A and B), each on its model
+                val find = setup.find(pid, helper.defaultModel(pid))
+                find.reviewers.forEach { r ->
+                    launch(pid, id, "find-${r.letter.lowercase()}", "${label(view)} · review ${r.letter}", findPrompt(pid, view, r), r.model)
+                }
             }
         } catch (e: Exception) {
             fail(id, e.message ?: "KeelBot could not start")
@@ -221,8 +239,8 @@ class ReviewAiService(
 
     /** A read-only KeelBot session and its one turn; its end comes back as a helper.finished event. */
     @Synchronized
-    private fun launch(pid: String, runId: String, role: String, title: String, prompt: String) {
-        val s = helper.create(pid, HelperCreate("ask", null, title))
+    private fun launch(pid: String, runId: String, role: String, title: String, prompt: String, model: Model? = null) {
+        val s = helper.create(pid, HelperCreate("ask", model, title))
         val sid = s.path("id").asText()
         addSession(runId, mapOf("sid" to sid, "role" to role, "status" to "running"))
         helper.turn(pid, sid, HelperTurn(text = prompt))
@@ -356,12 +374,12 @@ class ReviewAiService(
 
     private fun afterFind(pid: String, key: String, runId: String, sessions: List<Map<String, Any?>>) {
         val done = sessions.filter { it["status"] == "done" }
-        if (done.isEmpty()) return fail(runId, "Neither reviewer finished")
-        val parsed = done.map { candidates(it["answer"] as String, if (it["role"] == "find-a") "A" else "B") }
+        if (done.isEmpty()) return fail(runId, "No reviewer finished")
+        val parsed = done.map { candidates(it["answer"] as String, (it["role"] as String).removePrefix("find-").uppercase()) }
         val read = parsed.flatMap { (it.second["read"] ?: "").lines() }.filter { it.isNotBlank() }
         // keel 0.18.57: a run where no reviewer read the change is not a review with no findings: it stops, said so
         if (read.isEmpty() && parsed.all { it.first.isEmpty() }) {
-            return fail(runId, "No reviewer read the change (neither listed a file it read, and neither found anything): keel does not report it as reviewed. Ask again, or review a smaller part.")
+            return fail(runId, "No reviewer read the change (none listed a file it read, and none found anything): keel does not report it as reviewed. Ask again, or review a smaller part.")
         }
         val notes = parsed.flatMap { (it.second - "read" - "set_aside").entries }.groupBy({ it.key }, { it.value }).mapValues { (_, v) -> v.filter { it.isNotBlank() }.joinToString(" ") }
         @Suppress("UNCHECKED_CAST")
@@ -374,11 +392,16 @@ class ReviewAiService(
         // a "finding" that says its finder could not see the code is a question: not checked, never a finding
         val unseen = main.filter { it["severity"] != "nit" && NOT_SEEN.containsMatchIn("${it["title"]} ${it["why"]}") }
             .map { it + mapOf("check" to "not checked", "check_why" to "its reviewer could not see the code it is about") }
-        val checkable = main.filter { it["severity"] != "nit" && unseen.none { u -> u["id"] == it["id"] } }
+        // 0.18.65 Settings › Review: the checker on its own model; should-fix findings checked too (keel's default) or not
+        val find = runCatching { setup.find(pid, helper.defaultModel(pid)) }.getOrNull()
+        val shouldFix = find?.checkShouldFix ?: true
+        val checkable = main.filter { it["severity"] != "nit" && unseen.none { u -> u["id"] == it["id"] } && (shouldFix || it["severity"] == "blocking") }
+        val notAsked = if (shouldFix) emptyList() else main.filter { it["severity"] == "should_fix" && unseen.none { u -> u["id"] == it["id"] } }
+            .map { it + mapOf("check_why" to "Settings › Review checks blocking findings only") }
         val toCheck = checkable.take(MAX_CHECKED)
         val nits = main.filter { it["severity"] == "nit" }
         val unchecked = checkable.drop(MAX_CHECKED).map { it + mapOf("check_why" to "more than $MAX_CHECKED findings: no second look") } +
-            unseen + setAside
+            unseen + notAsked + setAside
         val result = mutableMapOf<String, Any?>(
             "stage" to "verify", "candidates" to toCheck, "nits" to nits.take(MAX_NITS), "more_nits" to (nits.size - MAX_NITS).coerceAtLeast(0),
             "pre_existing" to pre.take(10), "unchecked" to unchecked, "security" to notes["security"], "tests" to notes["tests"],
@@ -388,7 +411,7 @@ class ReviewAiService(
         jdbc.update("UPDATE review_runs SET result = ?, updated_at = ? WHERE id = ?", mapper.writeValueAsString(result), Time.now(), runId)
         val view = reviews.view(pid, key)
         toCheck.chunked(PER_VERIFY).forEachIndexed { i, group ->
-            launch(pid, runId, "verify-${i + 1}", "${label(view)} · check ${i + 1}", verifyPrompt(view, group))
+            launch(pid, runId, "verify-${i + 1}", "${label(view)} · check ${i + 1}", verifyPrompt(view, group), find?.checker)
         }
     }
 
@@ -475,14 +498,29 @@ class ReviewAiService(
         |```
     """.trimMargin()
 
-    private fun findPrompt(v: ReviewView, who: String): String {
-        val focus = if (who == "A") "correctness (logic errors, edge cases, null and error handling, concurrency, data loss) and security (auth, input, data exposure, secrets, injection)"
-            else "tests (would they fail if the code broke? is new behaviour tested?), the ticket or description (does the change do what it says, anything out of scope?) and design (fits the code around it, simpler way, performance)"
-        val lenses = if (who == "A") LENSES_A else LENSES_B
+    /**
+     * 0.18.65 an agent picked for a reviewer in Settings › Review: its role (the agent's prompt) and its skills, as
+     * guidance under keel's rules and answer format. Empty without one, or when the project no longer has it.
+     */
+    private fun role(pid: String, agent: String?): String {
+        if (agent == null) return ""
+        val a = runCatching { agents.get(pid, agent) }.getOrNull() ?: return ""
+        val skillText = runCatching { if (a.skills.isEmpty()) "" else skills.textFor(pid, a.skills) }.getOrDefault("")
+        return buildString {
+            append("You review as keel's ${a.id} agent. Its role (follow it where it does not contradict the rules and the answer format below):\n<<<\n")
+            append(a.prompt.take(ROLE_MAX).trim()).append("\n>>>\n")
+            if (skillText.isNotBlank()) append("Its skills:\n<<<\n").append(skillText.take(ROLE_MAX).trim()).append("\n>>>\n")
+        }
+    }
+
+    private fun findPrompt(pid: String, v: ReviewView, r: FindReviewer): String {
+        // a keel lens's checklist starts with its own short name ("Test quality: ..."): the title says it once
+        val lenses = r.lenses.joinToString("") { (title, checklist) -> "\n  - $title: ${checklist.replace(LENS_HEAD, "").trim()}" }
+        val roleText = role(pid, r.agent)
         return """
-            |You are reviewer $who of a change. Do not change any file and do not run builds or tests: read only.
-            |Your focus: $focus.
-            |
+            |You are reviewer ${r.letter} of a change. Do not change any file and do not run builds or tests: read only.
+            |Your focus: ${r.focus}.
+            |${if (roleText.isNotEmpty()) "\n$roleText" else ""}
             |${scope(v)}
             |Rules:
             |- Report only real problems introduced by this change, with file:line at the head commit. Read the code around a hunk before you claim.
@@ -498,15 +536,15 @@ class ReviewAiService(
             |- Read the diff of every changed code, migration, config and .env file (several files per git diff call), and
             |  list each one you read in "read". Never skip a migration, .env, compose, deploy or config file, even a
             |  one-line change. A file you did not read is not in "read": keel marks the review partial and names it.
-            |- Go through each lens: ${lenses.joinToString("; ")}.
+            |${if (lenses.isNotEmpty()) "- Go through each lens:$lenses" else "- You have no lens of your own: read for your focus."}
             |End your answer with exactly one fenced block named keel-review-findings with this JSON:
             |```keel-review-findings
             |{"read": ["every changed file whose diff you read"],
             | "findings": [{"title": "short", "severity": "blocking|should_fix|nit", "category": "correctness|security|tests|ticket|performance|design",
             |  "path": "file", "line": 12, "side": "RIGHT", "why": "why it matters, with evidence", "suggestion": "", "fix": "", "pre_existing": false}],
             | "set_aside": [{"path": "file", "what": "what you could not judge", "why": "what would settle it"}],
-            | "security": "one line: what you checked for security (reviewer A) or empty",
-            | "tests": "one line: are the tests enough (reviewer B) or empty"}
+            | "security": "one line: what you checked for security, when your focus has it, or empty",
+            | "tests": "one line: are the tests enough, when your focus has them, or empty"}
             |```
         """.trimMargin()
     }
