@@ -14,6 +14,9 @@ import java.time.Instant
  * front end (the dashboard's tabs, keel TUI), so they stay on the same project and chat. Kept in the settings table
  * (scope `ui.focus`); each change goes out as the live event `ui.focus` with the client that made it, so that one does
  * not follow its own change.
+ * keel 0.18.63: a window can keep its own project and chat ("Follow other keel windows" off: the web's Settings › This
+ * browser, keel TUI's /follow and /settings). It then neither reads nor changes this focus, so the focus is what the
+ * windows that follow share; nothing here changes for it.
  */
 data class UiFocus(
     val project: String? = null,

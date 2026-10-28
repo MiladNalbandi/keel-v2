@@ -268,9 +268,10 @@ function TheBell() {
   );
 }
 
-/** This browser: the mascot, the parts' rows (KeelBot's own sound) and the theme. */
+/** This browser: the mascot, following the other keel windows (0.18.63), the parts' rows (KeelBot's own sound) and the
+ *  theme. */
 function ThisBrowser() {
-  const { showMascot, setShowMascot } = useApp();
+  const { showMascot, setShowMascot, followFocus, setFollowFocus } = useApp();
   const parts = useSlot<SettingsBrowserItem>(SLOTS.settingsBrowser);
   const theme = useTheme();
   return (
@@ -280,6 +281,12 @@ function ThisBrowser() {
         onChange={setShowMascot}
         title="Show keel next to the bell"
         help="The little hull jumps when something arrives and says what it is. Off at first."
+      />
+      <SwitchRow
+        on={followFocus}
+        onChange={setFollowFocus}
+        title="Follow other keel windows"
+        help="On: this browser moves to the project and KeelBot chat you open in keel TUI or another browser, and they follow what you open here. Off: this browser stays on its own project and chat, and moves nobody else."
       />
       {parts.map((p) => (
         <p.component key={p.id} />

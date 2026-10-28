@@ -82,6 +82,10 @@ interface Ctx {
   /** "Show keel" (the mascot by the bell). Kept in this browser: the api's notification settings are typed. */
   showMascot: boolean;
   setShowMascot: (on: boolean) => void;
+  /** keel 0.18.63 "Follow other keel windows" (Settings › This browser): on, this browser goes along with the shared
+   *  focus (followsFocus); off, it keeps its own project and KeelBot chat. Kept in this browser, on at first. */
+  followFocus: boolean;
+  setFollowFocus: (on: boolean) => void;
   toast: (msg: string) => void;
 }
 
@@ -103,12 +107,26 @@ function storedMascot(): boolean {
     return false;
   }
 }
+const FOLLOW_KEY = "keel2.followFocus";
+/** keel 0.18.63 does this browser go along with the shared focus below ("Follow other keel windows" in Settings › This
+ *  browser)? On (the default, and when storage is blocked): it follows the project and KeelBot chat the other keel
+ *  windows pick, and its own picks move them. Off: neither way; it keeps its own project and chat. Read at each use, so
+ *  the switch counts at once in every tab of this browser. */
+export function followsFocus(): boolean {
+  try {
+    return localStorage.getItem(FOLLOW_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
 /** keel 0.18.6 this tab's id in the shared focus (api ui/UiFocus.kt): the project and KeelBot chat every keel front end
  *  (the dashboard's tabs, keel TUI) shows; a tab never follows its own change. */
 export const FOCUS_CLIENT = `web-${Math.random().toString(36).slice(2, 10)}`;
 export type UiFocus = { project: string | null; chats: Record<string, string>; by?: string | null; client?: string | null };
-/** Tell keel what this tab shows now (the project, or the KeelBot chat on a project); an older keel without it: nothing. */
+/** Tell keel what this tab shows now (the project, or the KeelBot chat on a project); an older keel without it: nothing.
+ *  keel 0.18.63 nothing either while this browser keeps its own project and chat (followsFocus). */
 export function shareFocus(patch: { project?: string; chat?: string; chat_project?: string; close?: boolean }) {
+  if (!followsFocus()) return;
   void api.setFocus({ ...patch, by: "web", client: FOCUS_CLIENT }).catch(() => undefined);
 }
 /** The window event a focus change from another front end comes as, for the parts that follow it (KeelBot's chat). */
@@ -143,6 +161,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setShowMascotState(on);
     try {
       localStorage.setItem(MASCOT_KEY, on ? "1" : "0");
+    } catch {
+      /* private window */
+    }
+  }, []);
+  const [followFocus, setFollowFocusState] = useState(followsFocus);
+  // keel 0.18.63 nothing moves when the switch changes: the next pick here, or in another window, is shared again
+  const setFollowFocus = useCallback((on: boolean) => {
+    setFollowFocusState(on);
+    try {
+      localStorage.setItem(FOLLOW_KEY, on ? "1" : "0");
     } catch {
       /* private window */
     }
@@ -186,15 +214,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
       /* private window */
     }
   }, []);
-  // the person picks a project: this tab shows it, and keel TUI and the other tabs follow (0.18.6)
+  // the person picks a project: this tab shows it, and keel TUI and the other tabs follow (0.18.6; 0.18.63 not while
+  // this browser keeps its own project: shareFocus says nothing then)
   const setProjectId = useCallback((id: string) => {
     keepProject(id);
     shareFocus({ project: id });
   }, [keepProject]);
 
-  // 0.18.6 at the start: the project keel TUI or another tab is on, when keel knows one
+  // 0.18.6 at the start: the project keel TUI or another tab is on, when keel knows one (0.18.63 not while this browser
+  // keeps its own: it opens on its own last project)
   useEffect(() => {
-    if (!projectsLoaded) return;
+    if (!projectsLoaded || !followsFocus()) return;
     api.focus().then((f) => {
       if (f?.project && f.project !== pidState && projects.some((p) => p.id === f.project)) keepProject(f.project);
     }, () => undefined);
@@ -407,11 +437,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       es.addEventListener("notification", onNote as EventListener);
       es.addEventListener("project.changed", onChanged as EventListener);
       es.addEventListener("notification.done", onDone as EventListener);
-      // 0.18.6 another front end (keel TUI, another tab) moved to a project or a KeelBot chat: follow it
+      // 0.18.6 another front end (keel TUI, another tab) moved to a project or a KeelBot chat: follow it (0.18.63 unless
+      // this browser keeps its own project and chat; KeelBot's chat then hears nothing either)
       es.addEventListener("ui.focus", ((e: MessageEvent) => {
         try {
           const f = JSON.parse(e.data) as UiFocus;
-          if (!f || f.client === FOCUS_CLIENT) return;
+          if (!f || f.client === FOCUS_CLIENT || !followsFocus()) return;
           if (f.project) keepProject(f.project);
           window.dispatchEvent(new CustomEvent(UI_FOCUS_EVENT, { detail: f }));
         } catch {
@@ -488,10 +519,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const value = useMemo<Ctx>(
     () => ({
       health, projects, projectsError, projectsLoaded, project, pid, setProjectId, reloadProjects, tick, live, recent,
-      liveSteps, liveText, liveThinking, notes, unread, markRead, markAllRead, deleteNote, clearNotes, nset, saveNset, notifyLocal: arrive, openNote, popups, dismissPopup, alert, showMascot, setShowMascot, toast,
+      liveSteps, liveText, liveThinking, notes, unread, markRead, markAllRead, deleteNote, clearNotes, nset, saveNset, notifyLocal: arrive, openNote, popups, dismissPopup, alert, showMascot, setShowMascot, followFocus, setFollowFocus, toast,
     }),
     [health, projects, projectsError, projectsLoaded, project, pid, setProjectId, reloadProjects, tick, live, recent,
-      liveSteps, liveText, liveThinking, notes, unread, markRead, markAllRead, deleteNote, clearNotes, nset, saveNset, arrive, openNote, popups, dismissPopup, alert, showMascot, setShowMascot, toast],
+      liveSteps, liveText, liveThinking, notes, unread, markRead, markAllRead, deleteNote, clearNotes, nset, saveNset, arrive, openNote, popups, dismissPopup, alert, showMascot, setShowMascot, followFocus, setFollowFocus, toast],
   );
 
   return (

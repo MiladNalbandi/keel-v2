@@ -591,7 +591,10 @@ changed.
 
 keel TUI is keel in your terminal, the way Claude Code is. Run `keel2` (or `keel2 tui`) while keel runs. It starts on
 the project of the folder you are in, and on the KeelBot chat the dashboard has open. Switch the project or the chat
-in one, and the other follows. What you do in keel TUI shows in the dashboard as "via keel TUI".
+in one, and the other follows. To keep a window on its own project and chat while you work on two at once, turn
+**Follow other keel windows** off: `/follow off` (or `/settings`) in keel TUI, Settings › General › This browser in the
+dashboard. That window then follows no other and moves no other. What you do in keel TUI shows in the dashboard as
+"via keel TUI".
 
 ```
  keel v2 0.18.21 · ✓ claude · today 120k $0.84 · month 2.1M $14.20      ← keel itself: version, logins, spend
@@ -654,7 +657,7 @@ in one, and the other follows. What you do in keel TUI shows in the dashboard as
 | Gates | `/inbox`, `/approve [n]`, `/reject [n] <why>`, `/answer [choice \| q1=answer …]` |
 | Look | `/jobs`, `/agent [n \| new <task>]`, `/live`, `/steps`, `/timeline`, `/diagram …`, `/rules`, `/skills`, `/skill …`, `/stacks`, `/stack …`, `/plugins`, `/budget`, `/dashboard` |
 | KeelBot | `/model`, `/effort`, `/chats`, `/rename`, `/export`, `/compact`, `/fix`, `/new`, `/mode`, `/changes`, `/keep`, `/undo`, `/redo` |
-| Screen | `/help`, `/panel`, `/clear`, `/copy [n]`, `/mouse [on\|off]`, `/editor`, `/quit` |
+| Screen | `/help`, `/panel`, `/clear`, `/copy [n]`, `/mouse [on\|off]`, `/follow [on\|off]`, `/settings`, `/editor`, `/quit` |
 
 `/agent new <task>` starts an agent of your own in its own worktree and branch; a notice says when it is finished.
 Plugins add commands, panels and whole modes (the Git plugin: `/git`, Ctrl+G; Code Review: `/review`). KeelBot's own

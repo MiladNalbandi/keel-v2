@@ -13,6 +13,7 @@ import { loadPlugins, offHere, type OffPlugin, type TuiPlugins } from "./plugins
 import { get, post, put } from "./sdk";
 import type { HelperChange, HelperDone, HelperMention } from "./sdk";
 import type { Profiler } from "./profile";
+import { memorySettings, type SettingsStore } from "./settings";
 import type { ToolCall } from "./tools";
 import { handleMessage, type StreamHost } from "./stream";
 
@@ -109,6 +110,9 @@ export type CoreOptions = {
   noLive?: boolean;
   /** --profile: times the calls, the live events and the start */
   profiler?: Profiler;
+  /** keel 0.18.63 keel TUI's settings (settings.ts): `follow` says whether this window follows the other keel windows;
+   *  /follow and /settings keep the person's choice there. Without it: in memory, following. */
+  settings?: SettingsStore;
 };
 
 
@@ -124,6 +128,8 @@ export class KeelCore {
   /** 0.18.6 the shared focus, and this app's own id in it (so it never follows its own change) */
   private focus: Focus | null = null;
   readonly client = `tui-${Math.random().toString(36).slice(2, 10)}`;
+  /** keel TUI's settings (the person's file from main.tsx; in memory without it) */
+  readonly settings: SettingsStore;
   /** keel 0.18.9 the last error the app showed: /fix hands it to KeelBot */
   lastError: string | null = null;
   private sending = false;
@@ -134,6 +140,7 @@ export class KeelCore {
 
   constructor(private opts: CoreOptions) {
     this.f = opts.profiler ? opts.profiler.wrap(opts.fetch ?? fetch) : opts.fetch ?? fetch;
+    this.settings = opts.settings ?? memorySettings();
     const url = connect(opts.url, this.f);
     this.snapshot = {
       url, publicUrl: (opts.publicUrl || url).replace(/\/+$/, ""), health: null, error: null, projects: [], project: null, flow: null,
@@ -182,6 +189,21 @@ export class KeelCore {
   }
 
   // ---- 0.18.6 the shared focus: the dashboard and keel TUI on the same project and KeelBot chat ----
+  // keel 0.18.63 unless this window keeps its own (follow off: /follow, /settings): it then reads no focus, follows no
+  // other window and shares nothing, at the start too (the project comes from --project, the folder, else the first)
+
+  /** Does this window follow the other keel windows (and they it)? On unless the person switched it off. */
+  get follows(): boolean {
+    return this.settings.get().follow !== false;
+  }
+
+  /** Follow the other keel windows, or keep this window's own project and chat; kept for the next start. Nothing moves
+   *  now: the next project or chat picked here or elsewhere is shared again (the focus is read, so it is not stale). */
+  setFollow(on: boolean) {
+    this.settings.set({ follow: on });
+    if (on) void this.readFocus();
+    else this.focus = null;
+  }
 
   private async readFocus(): Promise<Focus | null> {
     try {
@@ -196,13 +218,14 @@ export class KeelCore {
   private picked: { id: string; at: number } | null = null;
 
   private shareFocus(patch: { project?: string; chat?: string; chat_project?: string; close?: boolean }) {
+    if (!this.follows) return;
     void put("/ui/focus", { ...patch, by: "tui", client: this.client }).catch(() => undefined);
   }
 
   /** The chat the shared focus has open on this project, on screen (its last messages come with the chat event). */
   private async openFocusChat(why: string) {
     const pid = this.pid;
-    const sid = pid ? this.focus?.chats?.[pid] : undefined;
+    const sid = pid && this.follows ? this.focus?.chats?.[pid] : undefined;
     if (!pid || !sid || this.snapshot.chat.session?.id === sid) return;
     try {
       const s = await this.openChat(sid, true);
@@ -214,6 +237,7 @@ export class KeelCore {
 
   /** Another front end changed the focus: follow it (another project, or another chat on this one). */
   private async followFocus(f: Focus) {
+    if (!this.follows) return;        // 0.18.63 this window keeps its own project and chat
     this.focus = f;
     const who = f.by === "web" ? "the dashboard" : f.by || "another keel window";
     // 0.18.14 a focus that still names the project the person just left (the dashboard shared a chat before keel had
@@ -255,8 +279,10 @@ export class KeelCore {
       const inside = projects.filter((p) => p.root && (cwd === p.root || cwd.startsWith(p.root.replace(/\/+$/, "") + "/")));
       project = inside.sort((a, b) => b.root.length - a.root.length)[0] ?? null;
     }
-    if (!project && (await this.readFocus())?.project) project = projects.find((p) => p.id === this.focus!.project) ?? null;
-    else if (!this.focus) await this.readFocus();
+    if (this.follows) {
+      if (!project && (await this.readFocus())?.project) project = projects.find((p) => p.id === this.focus!.project) ?? null;
+      else if (!this.focus) await this.readFocus();
+    }
     this.set({ projects, project: project ?? projects[0] ?? null });
   }
 
