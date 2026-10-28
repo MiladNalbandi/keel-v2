@@ -170,7 +170,7 @@ function FileDiff({
   onOpenEditor: (path: string, line: number | null) => void;
 }) {
   const d = useLoad(
-    `review-diff:${pid}:${reviewKey}:${path}`,
+    `review-diff:${pid}:${reviewKey}:${path}:${view.base_sha}`,
     () => reviewApi.diff(pid, reviewKey, path),
     {
       live: false,

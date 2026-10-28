@@ -23,6 +23,7 @@ import {
   type PrSummary,
   type ReviewView,
 } from "./reviewApi";
+import { BaseLine } from "./BaseLine";
 import { ChecksList } from "./Checks";
 import { FileTree, treeOrder } from "./FileTree";
 import { keyLabel, readKeymap } from "./keymap";
@@ -222,6 +223,9 @@ function ReviewList({
           ))}
         {b?.note && b.branch && (b.ahead > 0 || b.files > 0) && (
           <span className="rv-dim">{b.note}</span>
+        )}
+        {b?.base_warning && b.branch && (
+          <span className="rv-warn rv-base" data-testid="branch-base-warning">{b.base_warning}</span>
         )}
       </section>
       <section
@@ -542,6 +546,7 @@ function OneReview({
           {v.kind === "pr" ? `${label} · ${v.author} · ` : ""}
           {v.base} ← {v.branch}
         </span>
+        <BaseLine pid={pid} view={v} />
         <div className="rv-row">
           {v.state && v.state !== "open" && <Pill tone="idle">{v.state}</Pill>}
           {v.draft && <Pill tone="idle">draft</Pill>}

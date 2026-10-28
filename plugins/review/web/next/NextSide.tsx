@@ -287,6 +287,7 @@ export function NextSide({
               {n(b.ahead, "commit", "commits")} · {n(b.files, "file", "files")}
               {b.pr && <BranchDecisions p={b.pr} />}
             </span>
+            {b.base_warning && <span className="rv-base rvn-base" data-testid="branch-base-warning">{b.base_warning}</span>}
             <button
               type="button"
               className="rvn-link"

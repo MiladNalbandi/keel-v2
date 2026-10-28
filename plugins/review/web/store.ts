@@ -389,6 +389,13 @@ export async function merge(
   return r;
 }
 
+/** 0.18.65 a branch review compares against another base (the canonical remote's copy or the local base). */
+export async function pickBase(pid: string, key: string, base: "remote" | "local" | "") {
+  const r = await act(pid, key, "base", () => reviewApi.pickBase(pid, key, base));
+  if (r) set(pid, key, { view: r });
+  return r;
+}
+
 export async function checkout(pid: string, key: string) {
   return act(pid, key, "checkout", () => reviewApi.checkout(pid, key));
 }
