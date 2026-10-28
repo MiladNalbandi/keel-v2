@@ -165,6 +165,28 @@ describe("KeelBot asks the person to choose (0.18.9)", () => {
     expect(within(card).getByRole("list", { name: "Your answers" })).toHaveTextContent("Where should it show? → Web; iOS");
   });
 
+  it("0.18.63 an option with \"mode\": \"edit\" switches the chat to Edit first, so its answer already runs in Edit", async () => {
+    const user = userEvent.setup();
+    const p = await chatWith('Ask mode is read only.\n\n```keel-questions\n[{"id": "next", "question": "How do we go on?", "options": ['
+      + '{"label": "Switch to Edit and fix it", "mode": "edit", "recommended": true}, {"label": "Leave it"}]}]\n```');
+    const next = await within(p).findByRole("region", { name: "Next steps" });
+    await user.click(within(next).getByRole("button", { name: "Switch to Edit and fix it" }));
+    await waitFor(() => expect(db.calls.some((c) => c.method === "POST" && c.path.endsWith("/helper/sessions/h1/turn"))).toBe(true));
+    const patch = db.calls.findIndex((c) => c.method === "PATCH" && c.path.endsWith("/helper/sessions/h1"));
+    const turn = db.calls.findIndex((c) => c.method === "POST" && c.path.endsWith("/helper/sessions/h1/turn"));
+    expect(db.calls[patch]?.body).toEqual({ mode: "edit" });
+    expect(patch).toBeLessThan(turn);
+    expect(db.calls[turn].body).toMatchObject({ text: "Answers to your questions:\n1. How do we go on?\n   → Switch to Edit and fix it" });
+  });
+
+  it("0.18.63 an option without a mode changes no mode", async () => {
+    const user = userEvent.setup();
+    const p = await chatWith('```keel-questions\n[{"id": "next", "question": "How do we go on?", "options": ["Switch to Edit and fix it", "Leave it"]}]\n```');
+    await user.click(within(await within(p).findByRole("region", { name: "Next steps" })).getByRole("button", { name: "Leave it" }));
+    await waitFor(() => expect(db.calls.some((c) => c.method === "POST" && c.path.endsWith("/helper/sessions/h1/turn"))).toBe(true));
+    expect(db.calls.some((c) => c.method === "PATCH" && c.path.endsWith("/helper/sessions/h1"))).toBe(false);
+  });
+
   it("0.18.13 after a reload the card stays answered: it reads the answers from the chat's later message", async () => {
     const asked = '```keel-questions\n[{"id": "size", "question": "How many players?", "options": ["Top 10", "Top 100"]}]\n```';
     const p = await chatWith(`One thing first:\n\n${asked}`, [

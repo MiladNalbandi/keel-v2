@@ -621,9 +621,10 @@ export function handlers(db: Db) {
       return sess ? HttpResponse.json(sess) : HttpResponse.json({ error: "No KeelBot session" }, { status: 404 });
     }),
     http.patch("/api/projects/:pid/helper/sessions/:sid", async ({ request, params }) => {
-      const b = (await log(request)) as { title?: string; model?: HelperSession["model"]; folder?: string };
+      const b = (await log(request)) as { title?: string; model?: HelperSession["model"]; folder?: string; mode?: HelperSession["mode"] };
       const sess = db.helper.sessions.find((x) => x.id === params.sid)!;
       if (b.title) sess.title = b.title;
+      if (b.mode) sess.mode = b.mode;
       if (b.model) sess.model = b.model;
       if (b.folder !== undefined) sess.folder = b.folder || null;
       return HttpResponse.json(sess);

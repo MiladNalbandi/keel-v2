@@ -11,15 +11,24 @@
 //
 // The same api and store as the classic view: reviewApi.diff, R.toggleViewed, R.addDraft, R.deleteDraft.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  askAssistant,
   ErrorBox,
+  go,
   parseDiff,
+  searchTextOf,
+  SelectionBar,
+  selectionReviewRequest,
+  SLOTS,
   useLoad,
+  useSlot,
   useStored,
+  type AssistantItem,
   type DiffRow,
+  type SelectionAction,
 } from "@keel/web-sdk";
-import { reviewApi, type AiState, type ReviewView } from "../reviewApi";
+import { prLabel, prWord, reviewApi, type AiState, type ReviewView } from "../reviewApi";
 import * as R from "../store";
 import { firstLine } from "../Threads";
 import { same, threadPill } from "./model";
@@ -196,6 +205,44 @@ function FileDiff({
         : null;
   const err = R.review(pid, reviewKey).err;
 
+  // 0.18.63 the bar over selected lines: Search the project for them, ask KeelBot about them, or have it review them
+  const code = useRef<HTMLDivElement>(null);
+  const assistant = useSlot<AssistantItem>(SLOTS.assistant)[0] ?? null;
+  const actions = useMemo<SelectionAction[]>(() => {
+    const out: SelectionAction[] = [{
+      id: "search", label: "Search", title: "Search the project for the selected text (Code › Search)",
+      run: () => {
+        const t = searchTextOf(pickedLines(code.current, path)?.first ?? "");
+        if (t) location.hash = `#/repo?search=${encodeURIComponent(t)}`;
+      },
+    }];
+    const helper = assistant?.title;
+    if (!helper) return out;
+    const where = view.kind === "pr" ? `${prWord(view.host)} ${prLabel(view.host, view.number)}` : `branch ${view.branch}`;
+    const sha = view.head_sha.slice(0, 12);
+    const hand = (text: string) => {
+      askAssistant(text);
+      go("helper");
+    };
+    return [
+      ...out,
+      {
+        id: "ask", label: `Ask ${helper}`, title: `Ask ${helper} about the selected lines`,
+        run: () => {
+          const s = pickedLines(code.current, path);
+          if (s) hand(`About ${s.where} in ${where} (commit ${sha}; read it with git show ${sha}:${path}):\n\n\`\`\`\n${s.text}\n\`\`\`\n\nMy question: `);
+        },
+      },
+      {
+        id: "review", label: "Review", title: `${helper} reviews the selected lines: bugs, missed cases, risks`,
+        run: () => {
+          const s = pickedLines(code.current, path);
+          if (s) hand(selectionReviewRequest(`${s.where} in ${where} (commit ${sha}; the file: git show ${sha}:${path})`, s.text));
+        },
+      },
+    ];
+  }, [view, path, assistant]);
+
   return (
     <section className="rvn-diff" aria-label={`Changes of ${path}`}>
       <div className="rvn-diff-h">
@@ -229,8 +276,9 @@ function FileDiff({
       {d.data?.binary && (
         <p className="rvn-empty">A binary file: no lines to show.</p>
       )}
+      {d.data && !d.data.binary && <SelectionBar within={code} actions={actions} />}
       {d.data && !d.data.binary && (
-        <div className="rvn-code">
+        <div className="rvn-code" ref={code}>
           {rows.map((r, i) => {
             if (r.kind === "hunk" || r.kind === "meta")
               return (
@@ -263,6 +311,7 @@ function FileDiff({
                 data-rvn-line={
                   ln && ln[1] === "RIGHT" ? `${path}:${ln[0]}` : undefined
                 }
+                data-rvn-n={ln ? `${ln[1] === "LEFT" ? "-" : ""}${ln[0]}` : undefined}
               >
                 <div className={`rvn-dl ${r.kind}`}>
                   <span className="rvn-dl-n">
@@ -383,4 +432,38 @@ function FileDiff({
       )}
     </section>
   );
+}
+
+/** The diff lines the selection covers, as KeelBot gets them: "+"/"−" marks kept, and where they are ("path:12-18"). */
+export function pickedLines(root: HTMLElement | null, path: string): { where: string; text: string; first: string } | null {
+  const sel = window.getSelection();
+  if (!root || !sel || sel.isCollapsed || !sel.anchorNode || !sel.focusNode) return null;
+  const rowOf = (n: Node) => (n instanceof Element ? n : n.parentElement)?.closest<HTMLElement>(".rvn-dl-w") ?? null;
+  const a = rowOf(sel.anchorNode);
+  const b = rowOf(sel.focusNode);
+  if (!a || !b || !root.contains(a) || !root.contains(b)) return null;
+  const all = [...root.querySelectorAll<HTMLElement>(".rvn-dl-w")];
+  const [i, j] = [all.indexOf(a), all.indexOf(b)].sort((x, y) => x - y);
+  const rows = all.slice(i, j + 1);
+  const codeOf = (r: HTMLElement) => r.querySelector(".rvn-dl-t");
+  // one row: the part selected (all of its code when the whole row is), never the line number's text
+  const one = () => {
+    const c = codeOf(rows[0]);
+    return c && sel.containsNode(c, false) ? c.textContent ?? "" : sel.toString();
+  };
+  const text = rows.length === 1
+    ? one().trim()
+    : rows.map((r) => {
+        const dl = r.querySelector(".rvn-dl");
+        const mark = dl?.classList.contains("add") ? "+" : dl?.classList.contains("del") ? "-" : " ";
+        return `${mark} ${codeOf(r)?.textContent ?? ""}`;
+      }).join("\n");
+  if (!text.trim()) return null;
+  const ns = rows.map((r) => r.dataset.rvnN).filter((n): n is string => !!n);
+  const news = ns.filter((n) => !n.startsWith("-")).map(Number);
+  const olds = ns.filter((n) => n.startsWith("-")).map((n) => Number(n.slice(1)));
+  const span = (xs: number[]) => (xs.length ? (xs[0] === xs[xs.length - 1] ? `${xs[0]}` : `${xs[0]}-${xs[xs.length - 1]}`) : "");
+  const where = news.length ? `${path}:${span(news)}` : olds.length ? `${path} (old file) :${span(olds)}` : path;
+  const first = rows.length === 1 ? text : codeOf(rows[0])?.textContent ?? "";
+  return { where: rows.length > 1 ? `the lines ${where}` : `line ${where}`, text: text.slice(0, 8000), first };
 }

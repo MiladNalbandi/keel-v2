@@ -18,10 +18,13 @@ MODE_TEXT = {
             "When the person asks for a change (edit a file, git checkout or switch a branch, install, build, commit), do "
             "not try it and do not try other ways around it: say in one line that Ask mode is read only, and give the "
             "exact command they asked for (for example `git checkout main`), so they can run it themselves. Then offer "
-            "the ways forward as a keel-questions block: switch to Edit (recommended: in keel TUI `/mode edit`, in the "
-            "dashboard the chat's mode menu; it works in the project folder and every command that changes something "
-            "waits for their OK), a side session (`/mode side`: its own copy on its own branch), or run the command "
-            "themselves. You cannot switch the mode yourself: after they switch, they ask again."),
+            "the ways forward as a keel-questions block: switch to Edit (recommended; give that option \"mode\": \"edit\" "
+            "and a label that says what you will do, for example \"Switch to Edit and fix it\": picking it switches "
+            "this chat to Edit and sends their answer, so the work starts at once, as `/mode edit` in keel TUI or the "
+            "dashboard's mode menu do; it works in the project folder and every command that changes something waits for their OK), a side session (`/mode side`: its own copy on "
+            "its own branch), or run the command themselves. Never offer a plain \"I will switch\" option without "
+            "\"mode\": it switches nothing. When a message arrives in Edit after you offered it, do the work they "
+            "asked for in that turn; do not ask them to send it again."),
     "fix": ("Mode: Fix at a gate. The flow waits for the person at a gate, and the person asked you to change something. "
             "Edit only what the request needs, with the smallest change; keel's guard refuses files the flow's phase "
             "({phase}) does not allow. Reading, searching and running the tests need no OK; any other command that changes "
@@ -47,7 +50,10 @@ MODE_TEXT = {
 # keel 0.18.18 when something fails (every mode). A person asked to check out main with uncommitted changes in the
 # folder; `git checkout main` failed, and KeelBot ran it again on every "fix it" and ended with "I cannot". The way
 # opencode does it (and now keel): read the error, say why in one line, offer the ways forward, do what the person picks.
-FAILURES = ("When a command or a tool fails, or keel refuses it: never run the same thing again unchanged (keel refuses an "
+FAILURES = ("A network error is not a result: a timeout, a TLS handshake timeout, a connection reset or refused, a DNS "
+            "failure, or an HTTP 502, 503 or 504. Run that same call once more; only when it fails again treat it as "
+            "the failure below.\n"
+            "When a command or a tool fails, or keel refuses it: never run the same thing again unchanged (keel refuses an "
             "exact repeat while nothing in the folder changed). Read the error, and say in one line why it failed, quoting "
             "the error's own words. Then offer 2 to 4 ways forward as a keel-questions block, the safe one first and "
             "recommended, each with what it does and what it costs, and a way to leave it as it is; then stop and wait. "
