@@ -346,7 +346,7 @@ in_container() {  # in_container <host folder> — the path keel's container see
   done < <(container_folders)
   return 0
 }
-host_tz() {  # 0.18.65 this computer's time zone (Europe/Berlin), for the times keel's container shows; nothing when unknown
+host_tz() {  # 0.18.64 this computer's time zone (Europe/Berlin), for the times keel's container shows; nothing when unknown
   if [ -n "${TZ:-}" ]; then printf '%s\n' "${TZ#:}"; return 0; fi
   local l; l="$(readlink /etc/localtime 2>/dev/null || true)"
   case "$l" in *zoneinfo/*) printf '%s\n' "${l##*zoneinfo/}"; return 0 ;; esac
@@ -376,7 +376,7 @@ register_added() {  # register_added <port> <folder>… — every git repo in th
   done
   local seen
   for r in ${roots[@]+"${roots[@]}"}; do
-    # 0.18.65 the path keel sees: a repo inside the main project is at /workspace/… there (keel2 add registers it now)
+    # 0.18.64 the path keel sees: a repo inside the main project is at /workspace/… there (keel2 add registers it now)
     seen="$(in_container "$r")"
     j="$(json_str "${seen:-$r}")"
     if printf '%s' "$known" | grep -qF "\"root\":\"$j\""; then continue; fi
@@ -589,7 +589,7 @@ cmd_restart() {  # keel2 restart [--safe] [--force]; safe mode lasts until the n
 }
 
 cmd_add() {  # keel2 add <folder>… — saves the folders in the list, then restarts keel once
-  # 0.18.65 a folder keel sees already (inside the main project, or inside a folder it has mounted) becomes a project
+  # 0.18.64 a folder keel sees already (inside the main project, or inside a folder it has mounted) becomes a project
   # with no restart; a restart (only for a folder keel must mount) is announced first, with what it does to MCP clients
   # (a field report: keel2 add restarted keel without a word and the MCP session was lost).
   [ $# -gt 0 ] || die "usage: keel2 add <folder> [<folder> …]" "For example: keel2 add ~/Projects/api ~/Projects/web"
@@ -691,7 +691,7 @@ cmd_folders() {
   info "  ${D}list: $(folders_file)${N}"
 }
 
-# 0.18.65 keel v1's state file (.keel/state.json) left in a project: keel v1's hooks refuse commits while it names a
+# 0.18.64 keel v1's state file (.keel/state.json) left in a project: keel v1's hooks refuse commits while it names a
 # flow, also one nobody runs any more. keel2 state shows it; keel2 state close moves it to .keel/archive/state-<date>.json
 # (never deletes it). Plain file work in the project folder: keel need not run (MCP: keel_state).
 cmd_state() {  # keel2 state [close] [folder]
@@ -1420,7 +1420,7 @@ cmd_uninstall() {
 # connecting"). The relay stays on stdio with the tool; when the server ends it waits for keel, starts it again, repeats
 # the tool's initialize, and sends the calls that had no answer yet; if keel does not come back it answers them with an
 # error instead of leaving the tool waiting.
-# 0.18.65 a field report: keel2 add restarted keel and the client's session was lost (a tool call waited minutes, the
+# 0.18.64 a field report: keel2 add restarted keel and the client's session was lost (a tool call waited minutes, the
 # client gave up on the server). Now a tool call during a restart is answered after KEEL_MCP_RELAY_HOLD seconds (10) as
 # a tool error, "keel is restarting, try again in a few seconds", which a client shows and goes on from; a ping is
 # answered at once. The relay looks for keel with a growing pause (0.5 s up to 5 s), tells the client after a reconnect
@@ -1606,7 +1606,7 @@ cmd_mcp() {
       exec "$ND/current/engine/.venv/bin/python" -m keel_engine.mcp "$mode" ${extra[@]+"${extra[@]}"}
   fi
   need_docker >&2
-  # 0.18.65 a client that starts keel2 mcp while keel restarts (keel2 add, update) waits for it, a little longer each
+  # 0.18.64 a client that starts keel2 mcp while keel restarts (keel2 add, update) waits for it, a little longer each
   # time (KEEL_MCP_START_WAIT seconds, 20), instead of failing at once
   local waited=0 pause=1
   while ! container_running && [ "$waited" -lt "${KEEL_MCP_START_WAIT:-20}" ]; do
@@ -1615,7 +1615,7 @@ cmd_mcp() {
   container_running || die "keel is not running." "Start it first: keel2 start /path/to/project"
   # keel_dashboard's links: the dashboard as this computer sees it, not the container's own port
   local public="${KEEL_PUBLIC_URL:-}"; [ -n "$public" ] || public="http://localhost:$(running_port)"
-  # 0.18.65 the client's folder as keel sees it (a tool without a project uses the project that holds it; empty: keel
+  # 0.18.64 the client's folder as keel sees it (a tool without a project uses the project that holds it; empty: keel
   # cannot see it), and this computer's time zone, so the times keel shows are the ones files and shells show
   local tz; tz="$(host_tz)"
   # v0.16.1 the internal token file (docker/keel-start writes it) lets the server ask the api for its level's token
@@ -2563,7 +2563,7 @@ cmd_tui() {
   # this folder as keel's container sees it (the project is at /workspace; with --docker and added folders, at the same path)
   local here tz
   here="$(in_container "$PWD")"
-  # 0.18.65 keel TUI runs in keel's container: this computer's time zone, so its times are the ones the shell shows
+  # 0.18.64 keel TUI runs in keel's container: this computer's time zone, so its times are the ones the shell shows
   tz="$(host_tz)"
   docker exec "$NAME" test -f /opt/keel-v2/cli/keel-tui.mjs 2>/dev/null \
     || die "This keel's image has no terminal app (keel TUI) yet." "Get a newer image: keel2 update"
