@@ -94,6 +94,8 @@ ITEM_DONE = ("done", "skipped", "failed")   # item statuses a for_each loop is f
 # Where a review fix goes (findings_step, payload.route) and the actions that follow the fixing agent.
 ROUTES = {"review-fix": ("verify_green", "commit"), "coverage-fix": ("verify_green", "commit"), "red": ("commit",)}
 STEP_FIELD_MAX = 24_000          # per string field of an agent.step (runners already cap at 20 KB plus a note)
+PROMPT_RECORD_MAX = 60_000       # 0.18.64 per prompt (system, task) kept with an agent call (agent.prompt)
+RESULT_MAX = 20_000              # 0.18.64 an agent call's answer as the job keeps it (agent.finished result)
 USAGE_EVERY = 15.0               # 0.18.17 seconds between two agent.usage events of one running call (the usage so far)
 
 

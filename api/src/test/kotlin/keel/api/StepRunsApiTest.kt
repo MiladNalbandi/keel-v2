@@ -72,6 +72,68 @@ class StepRunsApiTest : ApiTest() {
         assertThat(get("/api/projects/other/flows/t1/step-runs").json().size()).isEqualTo(0)
     }
 
+    /** 0.18.64 keel_flow_diff: what a step's last run changed (a field report: a retry after a reject lost the note, and
+     *  nothing showed that the spec had been written again from scratch). */
+    @Test
+    fun `a step that ran again shows what its answer or its document changed`() {
+        val (pid, _) = newProject("step-diff")
+        post("/internal/events", listOf(
+            ev(pid, "t1", "agent.started", "a1", "assemble", "2026-10-17T10:00:00Z", started("explorer", "sonnet", null)),
+            ev(pid, "t1", "agent.finished", "a1", "assemble", "2026-10-17T10:01:00Z", finished(10, 10, 0.0, "## Spec\nAC-1 save\nAC-2 old rule\n")),
+            ev(pid, "t1", "agent.started", "a2", "assemble", "2026-10-17T10:05:00Z", started("explorer", "sonnet", null)),
+            ev(pid, "t1", "agent.finished", "a2", "assemble", "2026-10-17T10:06:00Z", finished(10, 10, 0.0, "## Spec\nAC-1 save\nAC-2 the note's rule\n")),
+            ev(pid, "t1", "agent.started", "r1", "read", "2026-10-17T09:50:00Z", started("explorer", "sonnet", null)),
+            ev(pid, "t1", "agent.finished", "r1", "read", "2026-10-17T09:51:00Z", finished(10, 10, 0.0, "read it")),
+        ), mapOf("X-Keel-Token" to TOKEN)).andExpect(status().isOk)
+
+        val listed = get("/api/projects/$pid/flows/t1/step-diff").andExpect(status().isOk).json()
+        assertThat(listed["kind"].asText()).isEqualTo("list")
+        assertThat(listed["steps"].map { it["step"].asText() to it["runs"].asInt() }).containsExactly("assemble" to 2)
+
+        val d = get("/api/projects/$pid/flows/t1/step-diff?step=assemble").andExpect(status().isOk).json()
+        assertThat(d["kind"].asText()).isEqualTo("answer")
+        assertThat(d["before"]["id"].asText()).isEqualTo("$pid-a1")
+        assertThat(d["after"]["id"].asText()).isEqualTo("$pid-a2")
+        assertThat(d["diff"].asText()).contains("-AC-2 old rule\n+AC-2 the note's rule\n").contains(" AC-1 save\n")
+
+        val once = get("/api/projects/$pid/flows/t1/step-diff?step=read").andExpect(status().isOk).json()
+        assertThat(once["kind"].asText()).isEqualTo("none")
+        assertThat(once["why"].asText()).contains("ran once")
+
+        // the document the step writes: the versions keel kept of it in this flow
+        val path = ".keel/specs/clarify/2026-10-17-webhook.md"
+        fun version(text: String, at: String) = mapOf("type" to "doc.version", "thread_id" to "t1", "project_id" to pid, "step" to "write_doc",
+            "at" to at, "data" to mapOf("path" to path, "kind" to "spec", "sha256" to keel.api.knowledge.DocHistoryService.sha256(text.toByteArray()),
+                "content" to text, "size" to text.length, "by_kind" to "agent", "by_name" to "explorer", "phase" to "spec"))
+        post("/internal/events", listOf(version("# Webhook\nAC-1 old\n", "2026-10-17T10:02:00Z"), version("# Webhook\nAC-1 new\n", "2026-10-17T10:07:00Z")),
+            mapOf("X-Keel-Token" to TOKEN)).andExpect(status().isOk)
+        val doc = get("/api/projects/$pid/flows/t1/step-diff?step=write_doc").andExpect(status().isOk).json()
+        assertThat(doc["kind"].asText()).isEqualTo("document")
+        assertThat(doc["path"].asText()).isEqualTo(path)
+        assertThat(doc["before"]["version"].asInt()).isEqualTo(1)
+        assertThat(doc["after"]["version"].asInt()).isEqualTo(2)
+        assertThat(doc["diff"].asText()).contains("-AC-1 old\n+AC-1 new\n")
+    }
+
+    @Test
+    fun `an agent call keeps the prompt it got, and no screen is sent it`() {
+        val (pid, _) = newProject("prompt-kept")
+        post("/internal/events", listOf(
+            ev(pid, "t1", "agent.started", "p1", "assemble", "2026-10-17T10:00:00Z", started("explorer", "sonnet", null)),
+            ev(pid, "t1", "agent.prompt", "p1", "assemble", "2026-10-17T10:00:01Z",
+                mapOf("agent" to "explorer", "system" to "You are the explorer.", "prompt" to "Assemble the spec. Notes: keep the rule.",
+                    "system_cut" to false, "prompt_cut" to true)),
+        ), mapOf("X-Keel-Token" to TOKEN)).andExpect(status().isOk)
+        val p = get("/api/jobs/$pid-p1/prompt").andExpect(status().isOk).json()
+        assertThat(p["agent"].asText()).isEqualTo("explorer")
+        assertThat(p["step"].asText()).isEqualTo("assemble")
+        assertThat(p["system"].asText()).isEqualTo("You are the explorer.")
+        assertThat(p["prompt"].asText()).isEqualTo("Assemble the spec. Notes: keep the rule.")
+        assertThat(p["prompt_cut"].asBoolean()).isTrue()
+        get("/api/jobs/$pid-nope/prompt").andExpect(status().isNotFound)
+        assertThat(keel.api.events.RECORD_ONLY).contains("agent.prompt")
+    }
+
     @Test
     fun `the result line skips markdown marks and empty lines and is at most 100 characters`() {
         assertThat(StepRunService.firstLine("\n\n**PASS** — the test proves AC-002.\n- RED 4be12d9")).isEqualTo("PASS — the test proves AC-002.")

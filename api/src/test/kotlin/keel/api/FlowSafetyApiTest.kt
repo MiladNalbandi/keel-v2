@@ -36,6 +36,26 @@ class FlowSafetyApiTest : ApiTest() {
         post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "x")).andExpect(status().isOk)
     }
 
+    /** 0.18.64 a field report: layout repo with keel's notes under .keel/ (memory.dir .keel/docs/knowledge); the start's
+     *  409 listed keel's own .keel/docs/ and .keel/specs/ files. keel's output never blocks keel; the person's settings
+     *  under .keel/ still do. */
+    @Test
+    fun `keel's own output under keel's folder does not block a start, the person's settings there do`() {
+        val (pid, root) = newProject("own-output", mapOf("README.md" to "# demo\n",
+            ".keel/config.yml" to "layout: repo\nmemory:\n  dir: .keel/docs/knowledge\nspecs:\n  dir: .keel/specs\n"))
+        for (rel in listOf(".keel/docs/knowledge/architecture.md", ".keel/specs/clarify/2026-10-01-webhook.md", ".keel/hunts/r1/report.md",
+                ".keel/chats/c1.md", ".keel/RUNNING.md")) {
+            Files.createDirectories(root.resolve(rel).parent)
+            Files.writeString(root.resolve(rel), "# keel wrote this\n")
+        }
+        post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "x")).andExpect(status().isOk)
+
+        val (pid2, root2) = newProject("own-settings", mapOf("README.md" to "# demo\n", ".keel/config.yml" to "layout: repo\n"))
+        Files.writeString(root2.resolve(".keel/config.yml"), "layout: repo\nrules:\n  off: [read-twice]\n")
+        val res = post("/api/projects/$pid2/flows", mapOf("workflow_id" to "feature", "title" to "x")).andExpect(status().isConflict).json()
+        assertThat(res["error"].asText()).contains(".keel/config.yml")
+    }
+
     @Test
     fun `a flow started on main gets its own branch from the branch pattern`() {
         val (pid, root) = newProject("branching")

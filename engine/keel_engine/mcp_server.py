@@ -11,8 +11,9 @@ ask is refused unless --yes. Every write says who acted (X-Keel-Via / X-Keel-Cli
 v0.16.1 the api checks the level too: with the internal token this server asks POST /api/mcp/token for its level's
 token and sends it as X-Keel-Mcp-Token (api McpLevelGuard); without it (agents) the api treats it as read.
 
-Every tool takes an optional `project` id. Without it: KEEL_PROJECT, else the project whose root holds the
-working directory (an agent runs in its project), else the only (or first) project.
+Every tool takes an optional `project` id. Without it: KEEL_PROJECT, else the only project, else the project whose
+root holds the client's folder (KEEL_CLIENT_CWD from keel2 mcp; an agent runs in its project), else none: 0.18.64 the
+answer names the projects to pick from instead of using the first one.
 
 The plugins' tools (Database, Git, CI/CD: keel_db_*, keel_git_*, keel_pr_*, keel_ci_*) come from the plugins, through
 their `keel_mcp` (keel_engine/extensions.py), at the level each part gives them, in keel 0.16.1's places.
@@ -436,6 +437,7 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
     from . import mcp_stacks as stk
     from . import mcp_flows as flows_mod
     from . import mcp_docs as docs
+    from . import mcp_diag as diag
 
     api = api or KeelApi()
     lvl = level or ("write" if write else "read")
@@ -772,7 +774,9 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
 
     @reg(rw)
     async def keel_add_project(path: str, name: str | None = None, ctx: Context | None = None) -> str:
-        """Add a git repo keel can already see (in a folder `keel2 add` mounted) as a project."""
+        """Add a git repo keel can already see as a project, with no restart: one inside the main project folder or a
+        folder `keel2 add` mounted, by its path on this computer. A folder keel cannot see needs `keel2 add <folder>` in a
+        terminal once (keel restarts; keel2 mcp reconnects by itself)."""
         return await act(ctx, "keel_add_project", f"add {path}", more.add_project, api, path, name)
 
     @reg(rx)
@@ -1091,6 +1095,35 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         thread id and the link (the clarify flow's children, the new flow's parent)."""
         return await act(ctx, "keel_handover", f"hand the clarify document over to a {flow} flow", docs.handover, api, flow,
                          text, why, project, thread_id)
+
+    # ---------------------------------------------------------------- 0.18.64 what really happened, and the connection
+
+    @reg(ro)
+    def keel_agent_prompt(agent_id: str, page: int = 1) -> str:
+        """The exact prompt one agent call of a flow got (agent_id: its job id, as keel_agents, keel_timeline and
+        keel_agent show it): the system prompt (its role and skills) and the task prompt, as keel sent them (each cut at
+        keel's cap), in pages when long."""
+        return guard(diag.agent_prompt, api, agent_id, page)
+
+    @reg(ro)
+    def keel_flow_diff(step: str | None = None, thread_id: str | None = None, ac: str | None = None,
+                       project: str | None = None) -> str:
+        """What a flow step's last run changed against the run before (a retry, a send-back, a reject): the document it
+        writes (the versions keel kept), else its agent's answer, as a unified diff. No step: the steps that ran more
+        than once. thread_id: the flow (default the project's current one); ac: a criterion's step."""
+        return guard(diag.flow_diff, api, step, project, thread_id, ac)
+
+    @reg(ro)
+    def keel_health() -> str:
+        """Is keel up (api, engine, version), and this MCP connection: when its server started, whether keel2 mcp's relay
+        reconnects it by itself after a keel restart, and the time zone the times are shown in."""
+        return guard(diag.health, api)
+
+    @reg(ro)
+    def keel_reconnect() -> str:
+        """Start this connection's keel server again (after a keel update, for keel's newest tools; or when calls hang).
+        keel2 mcp's relay does it and answers when the new server is ready; without a relay it says how to reconnect."""
+        return diag.reconnect()
 
     @reg(rx)
     async def keel_edit_workflow(workflow: str, yaml: str, project: str | None = None, ctx: Context | None = None) -> str:

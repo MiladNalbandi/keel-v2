@@ -1129,7 +1129,7 @@ keel has an MCP server with three levels; each includes the one below:
 
 | level | how | adds |
 |---|---|---|
-| read (default) | `keel2 mcp` | status, timeline, next step, phase rules, dashboard links, flows, Inbox, live agents, budget, specs (with history), knowledge, search, read a file, read a file of any registered project (`keel_read_project_file`), engine actions, keel's rules, workflows, agents (one agent's steps live), KeelBot's chats and changes, diagrams in ASCII (`keel_diagram`), skills, stacks, the formats and checks that save nothing (`keel_format`, `keel_workflow_check`, `keel_rule_check`, `keel_stack_check`), keel's spec check on a spec or clarify file (`keel_spec_check`) and the check of every `path:line` it cites (`keel_citations_check`, also on a text), a flow's document or spec from its file (`keel_flow_document`), fetch every remote and say how far the base is behind (`keel_fetch_remotes`), the marketplace search, the Database, Git and CI/CD read tools |
+| read (default) | `keel2 mcp` | status, timeline, next step, phase rules, dashboard links, flows, Inbox, live agents, budget, specs (with history), knowledge, search, read a file, read a file of any registered project (`keel_read_project_file`), engine actions, keel's rules, workflows, agents (one agent's steps live), KeelBot's chats and changes, diagrams in ASCII (`keel_diagram`), skills, stacks, the formats and checks that save nothing (`keel_format`, `keel_workflow_check`, `keel_rule_check`, `keel_stack_check`), keel's spec check on a spec or clarify file (`keel_spec_check`) and the check of every `path:line` it cites (`keel_citations_check`, also on a text), a flow's document or spec from its file (`keel_flow_document`), fetch every remote and say how far the base is behind (`keel_fetch_remotes`), the prompt an agent call really got (`keel_agent_prompt`), what a step's retry changed (`keel_flow_diff`), keel's and the connection's health (`keel_health`, `keel_reconnect`), the marketplace search, the Database, Git and CI/CD read tools |
 | write | `keel2 mcp --write` | decide or send back a gate, answer the Inbox (several answers, a choice and a reason; questions in a form when the client can show one), start a flow (no type: every flow with what it is for and its inputs, like ticket or pr for review-pr; `base`: the branch it starts from), bring a flow's branch up to its base (`keel_branch_sync`: merge or rebase, conflicts resolved and committed by keel), stop and resume flows, set a run mode, start an agent, ask KeelBot (`keel_keelbot_ask`, also `mode=edit`) and keep or undo its changes, create workflows, rule packs, agents, skills and stacks, attach skills, set an agent's model and effort, restore a spec, replace a waiting flow's document (`keel_flow_document` with `text`), send a clarify result back with your own draft (`keel_reject_with_document`) or hand it over to the next flow (`keel_handover`), git / PR / CI / database writes, Code Review comments and submits |
 | admin | `keel2 mcp --admin` | delete flows, pause (`keel_pause`; `keel_resume` goes on), add and remove projects, switch the project the dashboard and keel TUI show (`keel_focus`), connect GitHub with a one-time code (`keel_connect_github`: it returns the code and the link, never the token), change workflows, install and change rules |
 
@@ -1137,6 +1137,13 @@ keel has an MCP server with three levels; each includes the one below:
 keel2 mcp --print-config                                 # the Claude Code line and Claude Desktop JSON per level
 claude mcp add keel-v2 -- "$(command -v keel2)" mcp --write
 ```
+
+**Which project** (0.18.64). A tool you give no `project` uses the only project, else the project that holds the
+folder the client runs in; else it names the projects and asks you to pick one (it no longer answers for the first
+one). **When keel restarts** (`keel2 add`, `keel2 update`), `keel2 mcp` waits for it and reconnects by itself; a call
+in between answers "keel is restarting, try again in a few seconds". `keel_health` says whether keel is up and how
+often the connection reconnected; `keel_reconnect` starts the connection's server again now (after an update, for the
+newest tools). Times (`keel_timeline`) are in your computer's time zone, with its name: `10-28 14:14:02 CET`.
 
 Pushes, database changes, deletes, stops and saves ask you first in the client; a client that cannot ask is refused
 unless you add `--yes`. `--allow keel_status,keel_approve_gate` keeps only those tools. `keel_answer(ask_person=true)`
@@ -1287,7 +1294,10 @@ keel2 remove ~/Work/web                                  # off the list; keel ke
 ```
 
 The list is kept per keel in `~/.config/keel2/<KEEL_NAME>.folders`. If keel runs, `add` and `remove` restart it once
-(they ask first when agents are working), with the image keel runs now (only `keel2 update` takes a new one). Each
+(they ask first when agents are working), with the image keel runs now (only `keel2 update` takes a new one). From
+0.18.64 `keel2 add` says so before the restart, and open MCP sessions (`keel2 mcp`) reconnect by themselves. A folder
+keel sees already (inside the main project, or inside a folder added before) needs no restart: its repos become
+projects at once, and `keel_add_project` (MCP, admin) adds them too, with no terminal. Each
 added folder is mounted at the **same path** as on your computer, and every git repo in it becomes a project (a folder
 of repos: each repo directly inside it). More repos later? All projects › Add projects lets you pick them. A folder
 that no longer exists is skipped (`keel2 folders` marks it).

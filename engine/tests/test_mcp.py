@@ -29,6 +29,7 @@ READ_TOOLS = {"keel_status", "keel_read_gate", "keel_projects", "keel_timeline",
               "keel_spec_check", "keel_citations_check",                                    # 0.18.64 checks on a file
               "keel_flow_document",                                                         # 0.18.64 a flow's document
               "keel_fetch_remotes",                                                                        # 0.18.64 remotes
+              "keel_agent_prompt", "keel_flow_diff", "keel_health", "keel_reconnect",                       # 0.18.64
               *MARKET_TOOLS}
 WRITE_TOOLS = {"keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc",
                # 0.18.5 what keel TUI does
@@ -131,7 +132,22 @@ class StubApi:
             "/api/threads/t-1/history": HISTORY,
             "/api/jobs": JOBS,
             "/api/projects/shop/workflows": [{"id": "feature"}, {"id": "fix"}],
+            "/api/health": {"ok": True, "engine": True, "version": "0.18.64", "fake": False},
+            "/api/jobs/j2/prompt": {"id": "j2", "agent": "explorer", "step": "explore", "at": "2026-10-05T10:02:00Z",
+                                    "system": "You are the explorer.", "prompt": "Read the code. Note: keep the retry rule.",
+                                    "system_cut": False, "prompt_cut": False},
         }
+        if req.method == "GET" and path == "/api/projects/shop/flows/t-1/step-diff":
+            step = req.url.params.get("step")
+            if not step:
+                return httpx.Response(200, json={"kind": "list", "runs": 0, "steps": [
+                    {"step": "write_doc", "runs": 2, "kind": "document specs/clarify/x.md"}, {"step": "assemble", "runs": 2, "kind": "answer"}]})
+            if step == "assemble":
+                return httpx.Response(200, json={"step": "assemble", "kind": "answer", "runs": 2,
+                                                 "before": {"id": "a1", "agent": "explorer", "at": "2026-10-05T10:00:00Z"},
+                                                 "after": {"id": "a2", "agent": "explorer", "at": "2026-10-05T10:05:00Z"},
+                                                 "diff": "--- a/assemble.answer\n+++ b/assemble.answer\n@@ -1,1 +1,1 @@\n-old\n+new\n"})
+            return httpx.Response(200, json={"step": step, "kind": "none", "runs": 1, "why": "ran once, so there is nothing to compare."})
         if req.method == "GET" and path in routes:
             return httpx.Response(200, json=routes[path])
         return httpx.Response(404, json={"error": f"No route {path}"})
@@ -180,7 +196,8 @@ def test_the_marketplace_tools_come_after_every_tool_keel_listed_before_at_each_
     tui_read = ["keel_agents", "keel_agent", "keel_keelbot_chats", "keel_keelbot_changes", "keel_format", "keel_workflow_check",
                 "keel_rule_check", "keel_agent_definitions", "keel_skills", "keel_skill",
                 "keel_stacks", "keel_stack", "keel_stack_suggest", "keel_stack_check", "keel_diagram",
-                "keel_flow_document"]                                           # 0.18.64 after keel_diagram
+                "keel_flow_document",                                           # 0.18.64 after keel_diagram
+                "keel_agent_prompt", "keel_flow_diff", "keel_health", "keel_reconnect"]
     tui = ["keel_workflows", "keel_stop_flows", "keel_run_mode", "keel_resume_flow", "keel_agents", "keel_agent", "keel_agent_start",
            "keel_keelbot_ask", "keel_keelbot_chats", "keel_keelbot_changes", "keel_keelbot_keep", "keel_keelbot_undo",
            "keel_format", "keel_workflow_check", "keel_workflow_create", "keel_rule_check", "keel_rule_create",
@@ -192,7 +209,8 @@ def test_the_marketplace_tools_come_after_every_tool_keel_listed_before_at_each_
            "keel_stack_off", "keel_stack_market_install",
            "keel_diagram",
            # 0.18.64 a flow's document, after keel_diagram
-           "keel_flow_document", "keel_reject_with_document", "keel_handover"]
+           "keel_flow_document", "keel_reject_with_document", "keel_handover",
+           "keel_agent_prompt", "keel_flow_diff", "keel_health", "keel_reconnect"]
     rules = ["keel_edit_workflow", "keel_rule_install", "keel_rule_edit"]
     sync = ["keel_fetch_remotes", "keel_branch_sync"]          # 0.18.64 after every tool before, before the marketplace's
     assert names("read") == read + ["keel_workflows"] + tui_read + sync[:1] + MARKET_TOOLS
@@ -241,15 +259,35 @@ async def test_status_of_the_default_project_without_a_flow_names_the_one_that_w
 
 
 async def test_project_defaults(stub, monkeypatch):
-    assert mcp_server._project(stub.api, None)["id"] == "shop"          # first project
+    assert mcp_server._project(stub.api, None)["id"] == "shop"          # KEEL_PROJECT
     monkeypatch.setenv("KEEL_PROJECT", "blog")
     assert mcp_server._project(stub.api, None)["id"] == "blog"
     monkeypatch.delenv("KEEL_PROJECT")
+    monkeypatch.delenv("KEEL_CLIENT_CWD", raising=False)
     monkeypatch.setattr(mcp_server.os, "getcwd", lambda: "/workspace/blog/src")
     monkeypatch.setattr(mcp_server.os.path, "realpath", lambda p: p)
     assert mcp_server._project(stub.api, None)["id"] == "blog"          # the agent's working folder
     text = await call(mcp_server.build_server(api=stub.api), "keel_status", {"project": "nope"})
     assert text.startswith('keel: no project "nope". keel knows: shop, blog')
+
+
+async def test_without_a_project_keel_never_guesses_one_of_several(stub, monkeypatch):
+    """0.18.64 a field report: keel_flows without a project answered for another, unrelated project (keel2 mcp's server
+    runs in keel's container, whose folder is the main project's). The only project, or the client's folder (keel2 mcp
+    passes it as KEEL_CLIENT_CWD), else the answer names the projects to pick from."""
+    monkeypatch.delenv("KEEL_PROJECT")
+    monkeypatch.setattr(mcp_server.os, "getcwd", lambda: "/workspace/shop")       # the container's own folder
+    monkeypatch.setenv("KEEL_CLIENT_CWD", "/workspace/blog/src")
+    assert mcp_server._project(stub.api, None)["id"] == "blog"
+    monkeypatch.setenv("KEEL_CLIENT_CWD", "/home/someone/elsewhere")
+    text = await call(mcp_server.build_server(api=stub.api), "keel_flows")
+    assert text == ("keel: this folder is in none of keel's projects, so keel does not guess which project you mean. "
+                    "Pass project (one of: shop, blog).")
+    monkeypatch.setenv("KEEL_CLIENT_CWD", "")                                     # keel cannot see the client's folder
+    assert "keel cannot see the folder you work in" in await call(mcp_server.build_server(api=stub.api), "keel_status")
+    one = [PROJECTS[1]]
+    api = mcp_server.KeelApi("http://keel.test", transport=httpx.MockTransport(lambda r: httpx.Response(200, json=one)))
+    assert mcp_server._project(api, None)["id"] == "blog"                         # the only project
 
 
 async def test_projects(stub):
@@ -270,6 +308,56 @@ async def test_timeline(stub):
     failed = (await call(srv, "keel_timeline", {"filter": "failed"})).splitlines()
     assert len(failed) == 1 and "spec-writer failed" in failed[0]
     assert len((await call(srv, "keel_timeline", {"filter": "steps", "limit": 1})).splitlines()) == 1
+
+
+async def test_timeline_times_are_the_persons_local_time_with_the_zone(stub, monkeypatch):
+    """0.18.64 keel stores UTC; the timeline showed it while files and shells show local time. keel2 mcp passes the
+    computer's zone (TZ) into keel's container."""
+    import time
+
+    monkeypatch.setenv("TZ", "Europe/Berlin")
+    time.tzset()
+    try:
+        lines = (await call(mcp_server.build_server(api=stub.api), "keel_timeline")).splitlines()
+        assert lines[0].startswith("10-05 12:04:00 CEST  step   spec_gate")     # 10:04 UTC
+        monkeypatch.setenv("TZ", "UTC")
+        time.tzset()
+        assert (await call(mcp_server.build_server(api=stub.api), "keel_timeline")).startswith("10-05 10:04:00 UTC  step")
+    finally:
+        monkeypatch.undo()
+        time.tzset()
+
+
+async def test_agent_prompt_shows_what_the_call_really_got(stub):
+    text = await call(mcp_server.build_server(api=stub.api), "keel_agent_prompt", {"agent_id": "j2"})
+    assert text.splitlines()[0].startswith("agent call j2 · explorer · step explore · ")
+    assert "=== system (21 characters)\nYou are the explorer." in text
+    assert "=== task (41 characters)\nRead the code. Note: keep the retry rule." in text
+    text = await call(mcp_server.build_server(api=stub.api), "keel_agent_prompt", {"agent_id": "nope"})
+    assert text.startswith("keel: keel kept no prompt for nope")
+
+
+async def test_flow_diff_lists_the_steps_that_ran_again_and_shows_what_changed(stub):
+    srv = mcp_server.build_server(api=stub.api)
+    listed = await call(srv, "keel_flow_diff")
+    assert "flow t-1: steps that ran more than once" in listed
+    assert "- write_doc: 2 runs · document specs/clarify/x.md" in listed and "- assemble: 2 runs · answer" in listed
+    text = await call(srv, "keel_flow_diff", {"step": "assemble"})
+    assert text.splitlines()[0] == "flow t-1 · step assemble · 2 runs · the agent's answer (explorer call a1 → a2)"
+    assert "-old\n+new" in text
+    assert await call(srv, "keel_flow_diff", {"step": "read"}) == "flow t-1: read ran once, so there is nothing to compare."
+
+
+async def test_health_says_whether_keel_is_up_and_how_fresh_the_connection_is(stub, monkeypatch):
+    monkeypatch.delenv("KEEL_MCP_RELAY_N", raising=False)
+    text = await call(mcp_server.build_server(api=stub.api), "keel_health")
+    assert "keel        up · version 0.18.64" in text and "engine      up" in text
+    assert "no relay" in text and "restart the MCP client" in text
+    monkeypatch.setenv("KEEL_MCP_RELAY_N", "3")                  # keel2 mcp's relay started this server a third time
+    text = await call(mcp_server.build_server(api=stub.api), "keel_health")
+    assert "keel2 mcp's relay: reconnected 2 times after keel restarted" in text
+    # without a relay, keel_reconnect says how instead (the relay answers it itself)
+    assert "has no relay to reconnect it" in await call(mcp_server.build_server(api=stub.api), "keel_reconnect")
 
 
 async def test_next(stub):

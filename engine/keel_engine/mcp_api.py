@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import copy
 import os
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import quote
 
@@ -97,7 +97,9 @@ class KeelApi:
         try:
             res = self.http.request(method, path, headers=self._audit(method), **({"timeout": timeout} if timeout else {}), **kw)
         except httpx.HTTPError as exc:
-            raise ApiError(f"keel's api does not answer at {self.url} ({type(exc).__name__}). Is keel running? (keel2 status)") from exc
+            # 0.18.64 a keel restart (keel2 add, keel2 update) is the usual reason: the same call works again in a moment
+            raise ApiError(f"keel's api does not answer at {self.url} ({type(exc).__name__}): keel is restarting or "
+                           "stopped. Try again in a few seconds (keel2 status).") from exc
         if res.status_code >= 400:
             body = None
             try:
@@ -136,7 +138,21 @@ class KeelApi:
 
 # ---------------------------------------------------------------- helpers
 
+def client_folder() -> str | None:
+    """The folder the MCP client works in, as keel sees it. 0.18.64 `keel2 mcp` passes it (KEEL_CLIENT_CWD; empty when
+    keel cannot see that folder): the server runs in keel's container, whose own folder is /workspace (the main
+    project), so a tool without a project answered for the main project from any folder. Without the variable (an
+    agent's server, native keel) the server's own folder is the client's."""
+    if "KEEL_CLIENT_CWD" in os.environ:
+        cwd = os.environ["KEEL_CLIENT_CWD"].strip()
+        return os.path.normpath(cwd) if cwd else None
+    return os.path.realpath(os.getcwd())
+
+
 def _project(api: KeelApi, project: str | None) -> dict:
+    """The project a tool is for: the one named (or KEEL_PROJECT), else the only one, else the one that holds the
+    client's folder. 0.18.64 else none: the answer names the projects to pick from. keel_flows without a project
+    answered for the first project, an unrelated one (a write refused already; now a read does too)."""
     projects = api.get("/projects") or []
     want = project or os.environ.get("KEEL_PROJECT") or ""
     if want:
@@ -146,15 +162,15 @@ def _project(api: KeelApi, project: str | None) -> dict:
         raise ApiError(f'no project "{want}". keel knows: {", ".join(p["id"] for p in projects) or "none yet"}')
     if not projects:
         raise ApiError("keel has no project yet. Add one in the dashboard (Projects › Add).")
-    cwd = os.path.realpath(os.getcwd())
-    inside = [p for p in projects if p.get("root") and (cwd == p["root"] or cwd.startswith(p["root"].rstrip("/") + "/"))]
+    if len(projects) == 1:
+        return projects[0]
+    cwd = client_folder()
+    inside = [p for p in projects if cwd and p.get("root") and (cwd == p["root"] or cwd.startswith(p["root"].rstrip("/") + "/"))]
     if inside:
         return max(inside, key=lambda p: len(p["root"]))
-    if getattr(api, "tool", "") and len(projects) > 1:
-        # a write must not land on a project the caller did not pick: the folder matches none, so name the project
-        raise ApiError(f"this folder is in none of keel's projects, so keel does not guess which one to change. Pass "
-                       f'project (one of: {", ".join(p["id"] for p in projects)}).')
-    return projects[0]
+    where = "this folder is in none of keel's projects" if cwd else "keel cannot see the folder you work in"
+    raise ApiError(f"{where}, so keel does not guess which project you mean. Pass project (one of: "
+                   f'{", ".join(p["id"] for p in projects)}).')
 
 
 def _flow(api: KeelApi, pid: str) -> tuple[dict | None, dict | None]:
@@ -224,15 +240,35 @@ def _n(x: Any) -> str:
 
 
 def _when(at: str | None) -> datetime:
+    """A keel time (ISO, UTC) as a naive UTC datetime for sorting; datetime.min when it is not a time."""
     try:
-        return datetime.fromisoformat(str(at).replace("Z", "+00:00")).replace(tzinfo=None)
+        d = datetime.fromisoformat(str(at).replace("Z", "+00:00"))
     except ValueError:
         return datetime.min
+    return d.astimezone(timezone.utc).replace(tzinfo=None) if d.tzinfo else d
 
 
 def _clock(at: str | None) -> str:
+    """0.18.64 a keel time in the person's time zone, with the zone: "10-05 12:04:00 CEST". keel stores UTC while files
+    and shells show local time; `keel2 mcp` passes the computer's zone (TZ) into keel's container."""
     d = _when(at)
-    return d.strftime("%m-%d %H:%M:%S") if d != datetime.min else "--"
+    if d == datetime.min:
+        return "--"
+    local = d.replace(tzinfo=timezone.utc).astimezone()
+    return local.strftime("%m-%d %H:%M:%S ") + zone_name(local)
+
+
+def zone_name(d: datetime | None = None) -> str:
+    """The local zone's short name (CET, EDT), else its offset (UTC+05:30); UTC when there is no offset."""
+    d = d or datetime.now(timezone.utc).astimezone()
+    name = d.tzname() or ""
+    if name[:1].isalpha():
+        return name
+    off = d.utcoffset() or timedelta(0)
+    if not off:
+        return "UTC"
+    m = int(off.total_seconds()) // 60
+    return f"UTC{'+' if m >= 0 else '-'}{abs(m) // 60:02d}:{abs(m) % 60:02d}"
 
 
 def cut(text: str, n: int) -> str:

@@ -324,6 +324,22 @@ class WorkspaceDoctor(
         private val ENGINE_FILES = listOf(".keel/ladder.json", ".keel/agents/")
         fun isEngineFile(p: String) = ENGINE_FILES.any { p == it || p.startsWith(it) }
 
+        /**
+         * 0.18.64 what keel itself writes under .keel/: specs, knowledge, ADRs, docs, the runbook, its CLAUDE.md block, hunt
+         * reports, chat exports, worktrees and memory, plus the layout's own folders there (a `memory.dir` or `specs.dir`
+         * such as .keel/docs/knowledge). keel's own output never blocks its own flows (a field report: the start's 409
+         * listed .keel/docs/ and .keel/specs/). The person's settings there (config.yml, rules/, stacks/, dod.md,
+         * lenses/, plugins/, project-rules.json) still do.
+         */
+        private val KEEL_OUTPUT = listOf(".keel/specs/", ".keel/knowledge/", ".keel/adr/", ".keel/docs/", ".keel/hunts/", ".keel/hunt/",
+            ".keel/chats/", ".keel/worktrees/", ".keel/RUNNING.md", ".keel/CLAUDE.md", ".keel/memory.json")
+        fun isKeelOutput(p: String, layoutFolders: List<String> = emptyList()): Boolean {
+            val path = p.trim().removeSurrounding("\"")
+            if (!path.startsWith(".keel/")) return false
+            val mine = KEEL_OUTPUT + layoutFolders.filter { it.startsWith(".keel/") }.map { it.trimEnd('/') + "/" }
+            return mine.any { if (it.endsWith("/")) path.startsWith(it) || path == it.trimEnd('/') else path == it }
+        }
+
         /** 0.18.57 an editor's or a tool's own files, never the person's work: they do not block a flow's start. */
         private val TOOL_FILES = Regex("""^(\.serena|\.idea|\.vscode|\.fleet)(/|$)|(^|/)\.DS_Store$|^\.claude/settings\.local\.json$""")
         fun isToolFile(p: String) = TOOL_FILES.containsMatchIn(p.trim().removeSurrounding("\""))

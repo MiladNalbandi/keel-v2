@@ -60,12 +60,12 @@ def add(root: str, name: str, branch: str, start: str | None = None) -> dict:
 def seed_keel_files(root: str, wt: Path) -> list[str]:
     """layout keel / external: .keel/ is outside git, so a new worktree would have no config, specs, knowledge, ADRs
     or runbook, and a flow there would plan against nothing. Copy them in, with their times kept: keep_keel_files
-    brings back only what the flow changed. Symlinked files and keel's own worktrees are left out."""
+    brings back only what the flow changed. Symlinked files and keel's own worktrees are left out.
+    0.18.64 layout repo too, for the files the checkout lacks: a branch whose .gitignore ignores .keel/ (a `memory.dir`
+    of .keel/docs/knowledge) has none of them, and the knowledge check there said every section was missing."""
     from .. import layout
 
     lay = layout.resolve(root)
-    if not lay.hidden:
-        return []
     r = Path(root)
     copied = []
     cfg = r / ".keel" / "config.yml"
@@ -77,6 +77,9 @@ def seed_keel_files(root: str, wt: Path) -> list[str]:
         names.append(lay.runbook)
     for rel in names:
         dst = wt / rel
+        if not lay.hidden and (dst.exists() or dst.is_symlink()
+                               or git.git(str(wt), "check-ignore", "-q", "--", rel).returncode != 0):
+            continue                     # layout repo: only what the branch ignores; git checked out the rest
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(r / rel, dst)
         copied.append(rel)
@@ -102,21 +105,25 @@ def remove(root: str, path: str, branch: str | None = None) -> None:
 
 def keep_keel_files(root: str, wt: Path) -> list[str]:
     """layout keel / external: specs, knowledge, ADRs and the runbook a flow wrote in its worktree are not in git, so
-    they would go with the worktree. Copy each into the project folder, unless the file there is newer."""
+    they would go with the worktree. Copy each into the project folder, unless the file there is newer.
+    0.18.64 layout repo: only the ones git ignores there (the branch's .gitignore); the rest belong to the branch."""
     from .. import layout
 
     lay = layout.resolve(root)
-    if not lay.hidden:
-        return []
+
+    def outside_git(rel: str) -> bool:
+        return lay.hidden or git.git(str(wt), "check-ignore", "-q", "--", rel).returncode == 0
+
     copied = []
     for d in (lay.specs, lay.knowledge, lay.adr):
         for f in sorted((wt / d).glob("*.md")) if (wt / d).is_dir() else []:
-            if f.is_symlink():
-                continue
             rel = f"{d}/{f.name}"
+            if f.is_symlink() or not outside_git(rel):
+                continue
             if _copy_newer(f, Path(root) / rel):
                 copied.append(rel)
-    if (wt / lay.runbook).is_file() and not (wt / lay.runbook).is_symlink() and _copy_newer(wt / lay.runbook, Path(root) / lay.runbook):
+    book = wt / lay.runbook
+    if book.is_file() and not book.is_symlink() and outside_git(lay.runbook) and _copy_newer(book, Path(root) / lay.runbook):
         copied.append(lay.runbook)
     return copied
 
