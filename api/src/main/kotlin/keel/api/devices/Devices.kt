@@ -27,7 +27,7 @@ data class Device(
     /** What the app sees (pair, me): exactly these four fields. */
     fun brief(): Map<String, Any?> = linkedMapOf("id" to id, "name" to name, "platform" to platform, "createdAt" to createdAt)
 
-    /** What Settings › Devices lists. */
+    /** What Settings › Access lists. */
     fun full(): Map<String, Any?> = brief() + linkedMapOf("lastSeenAt" to lastSeenAt, "lastIp" to lastIp)
 }
 

@@ -54,11 +54,11 @@ class DevicesController(
     fun pair(@RequestBody(required = false) body: PairRequest?, request: HttpServletRequest): Map<String, Any?> {
         if (limiter.blocked(AuthLimiter.Kind.PAIR, request)) {
             throw ApiException(HttpStatus.TOO_MANY_REQUESTS, "Too many wrong pairing codes",
-                "Wait a minute, then scan a new code in keel: Settings › Devices › Pair a phone.")
+                "Wait a minute, then scan a new code in keel: Settings › Access › Pair a phone.")
         }
         if (!codes.use(body?.code)) {
             limiter.fail(AuthLimiter.Kind.PAIR, request)
-            throw Forbidden("This pairing code is wrong, used or expired", "Make a new one in keel: Settings › Devices › Pair a phone.")
+            throw Forbidden("This pairing code is wrong, used or expired", "Make a new one in keel: Settings › Access › Pair a phone.")
         }
         val name = (body?.name ?: "").trim().filter { it >= ' ' }.take(60).ifEmpty { "Phone" }
         val platform = (body?.platform ?: "").trim().lowercase().filter { it.isLetterOrDigit() || it == '-' }.take(20).ifEmpty { "android" }
@@ -137,7 +137,7 @@ class DevicesController(
 
     private fun personOnly(request: HttpServletRequest) {
         if (request.getAttribute(LocalAuth.WHO_ATTR) !in PERSON) {
-            throw Forbidden("Only a person signed in to keel can manage devices", "Open keel in your browser: Settings › Devices.")
+            throw Forbidden("Only a person signed in to keel can manage devices", "Open keel in your browser: Settings › Access.")
         }
     }
 

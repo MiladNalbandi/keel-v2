@@ -21,7 +21,7 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put a
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import java.net.URLDecoder
 
-/** Phone access: pairing, device tokens, Settings › Devices (devices/DevicesController, auth/LocalAuth). */
+/** Phone access: pairing, device tokens, Settings › Access (devices/DevicesController, auth/LocalAuth). */
 class DevicesApiTest : ApiTest() {
     @Autowired lateinit var key: WebKey
     @Autowired lateinit var codes: PairingCodes
@@ -82,7 +82,7 @@ class DevicesApiTest : ApiTest() {
         // used once: the same code again is refused
         pair(code).andExpect(status().isForbidden).body().let {
             assertThat(it["error"].asText()).contains("wrong, used or expired")
-            assertThat(it["hint"].asText()).contains("Settings › Devices")
+            assertThat(it["hint"].asText()).contains("Settings › Access")
         }
     }
 
@@ -174,7 +174,7 @@ class DevicesApiTest : ApiTest() {
         bare.perform(rdelete("/api/devices/${device["id"].asText()}").person()).andExpect(status().isNotFound)
         val gone = bare.perform(rget("/api/projects").device(token)).andExpect(status().isForbidden).body()
         assertThat(gone["error"].asText()).isEqualTo("This device was removed")
-        assertThat(gone["hint"].asText()).isEqualTo("Pair it again in keel: Settings › Devices")
+        assertThat(gone["hint"].asText()).isEqualTo("Pair it again in keel: Settings › Access")
         // an unknown token says the same
         bare.perform(rget("/api/projects").device("kd_" + "0".repeat(64))).andExpect(status().isForbidden).body().let {
             assertThat(it["error"].asText()).isEqualTo("This device was removed")

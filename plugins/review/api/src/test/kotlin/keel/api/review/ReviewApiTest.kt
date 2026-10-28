@@ -125,7 +125,7 @@ class ReviewApiTest : ApiTest() {
             .header("Authorization", key)).andExpect(status().isOk)
         val gone = bare.perform(rget("/api/projects/$pid/review/prs?filter=review").header("Authorization", device)).andExpect(status().isForbidden).json()
         assertThat(gone["error"].asText()).isEqualTo("This device was removed")
-        assertThat(gone["hint"].asText()).isEqualTo("Pair it again in keel: Settings › Devices")
+        assertThat(gone["hint"].asText()).isEqualTo("Pair it again in keel: Settings › Access")
     }
 
     @Test
