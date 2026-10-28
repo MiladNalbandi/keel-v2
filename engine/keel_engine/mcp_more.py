@@ -308,6 +308,30 @@ def branch_sync(api: KeelApi, project: str | None = None, thread_id: str | None 
                       f"Then: keel_branch_sync(thread_id={thread_id!r}, action='continue'); or action='abort' to go back."])
 
 
+def base_branch(api: KeelApi, project: str | None = None, choice: str | None = None, branch: str | None = None,
+                remote: str | None = None) -> str:
+    """0.18.65 (the stale-base report R2, R5) the project's base and canonical remote (GET /projects/{pid}/base), or the
+    person's choice (PUT): remote, track, pick, canonical. keel writes .keel/config.yml; an agent never does."""
+    p = _project(api, project)
+    if choice:
+        body = {"choice": choice, **({"branch": branch} if branch else {}), **({"remote": remote} if remote is not None else {})}
+        res = api.put(f"/projects/{p['id']}/base", body) or {}
+    else:
+        res = api.get(f"/projects/{p['id']}/base") or {}
+    out = [f"base of {p['id']}: {res.get('configured') or '(base_branch not set)'} in .keel/config.yml; keel compares with "
+           f"{res.get('ref') or 'nothing (no base branch)'}" + (f"; canonical remote {res['canonical']}" if res.get("canonical") else "")
+           + (" (git.remote)" if res.get("setting") else "")]
+    if res.get("warning"):
+        out.append(str(res["warning"]))
+    gone = res.get("missing")
+    if gone:
+        out.append(str(gone.get("text") or ""))
+        out += [f"- choice={c['id']!r}" + (f", branch={c['ref']!r}" if c.get("ref") else ", branch=<one of: "
+                                           + ", ".join(c.get("branches") or []) + ">") + f": {c.get('label')}" for c in gone.get("choices") or []]
+        out.append("Ask the person which one, then keel_base_branch(choice=..., branch=...).")
+    return "\n".join(out)
+
+
 def actions(level: str) -> str:
     from .runtime import action_docs
 

@@ -97,7 +97,9 @@ TOOLS: dict[str, tuple[str, ...]] = {
               # 0.18.64 the clarify result's send-back with a replacement draft, and its hand-over
               "keel_reject_with_document", "keel_handover",
               # 0.18.64 keel merges or rebases a flow's branch onto a base; a conflict stops with the files
-              "keel_branch_sync"),
+              "keel_branch_sync",
+              # 0.18.65 the base branch and the canonical remote: a choice is the person's (asks first)
+              "keel_base_branch"),
     "admin": ("keel_delete_run", "keel_add_project", "keel_remove_project",
               # 0.19.x what the dashboard and keel TUI do with projects: pause a flow, switch the focused project
               "keel_pause", "keel_focus",

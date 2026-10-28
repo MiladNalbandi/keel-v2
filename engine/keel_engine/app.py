@@ -210,6 +210,14 @@ class WorktreeAdd(BaseModel):
     start: str | None = None            # the commit or branch it starts from (default: the folder's HEAD)
 
 
+class BaseChoice(BaseModel):
+    """0.18.65 a person's answer about the project's base (runtime/bases.py choose): remote, track, pick, canonical."""
+    root: str
+    choice: str
+    branch: str | None = None
+    remote: str | None = None
+
+
 class RemotesFetch(BaseModel):
     """0.18.64 fetch every remote of a project (keel_fetch_remotes, the api's flow start)."""
     root: str
@@ -795,6 +803,25 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
         fetched = await asyncio.to_thread(branch_sync.fetch_all, root, body.keys)
         start = await asyncio.to_thread(git.rev, root, body.start) if body.start else None
         return {**await asyncio.to_thread(branch_sync.report, root, fetched, start), "fetched": fetched}
+
+    # 0.18.65 the project's base and its canonical remote (runtime/bases.py): what Settings › General › Base branch
+    # shows, and the person's answer (keel writes .keel/config.yml; an agent never does)
+    @app.get("/base")
+    async def get_base(root: str):
+        from .runtime import bases
+
+        return await asyncio.to_thread(bases.view, project_root(root))
+
+    @app.post("/base")
+    async def post_base(body: BaseChoice):
+        from .runtime import bases
+
+        root = project_root(body.root)
+        try:
+            await asyncio.to_thread(bases.choose, root, body.choice, body.branch, body.remote)
+        except bases.BaseError as exc:
+            raise EngineError(exc.status, exc.message, exc.hint) from exc
+        return await asyncio.to_thread(bases.view, root)
 
     # 0.18.57 what Start a flow says before a start: can a worktree flow run the tests, is the base behind its remote
     @app.get("/start-check")

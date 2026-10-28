@@ -46,7 +46,9 @@ WRITE_TOOLS = {"keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answ
                # 0.18.64 the clarify result's send-back with a replacement draft
                "keel_reject_with_document", "keel_handover",
                # 0.18.64 keel syncs a flow's branch onto a base
-               "keel_branch_sync"}
+               "keel_branch_sync",
+               # 0.18.65 the base branch and the canonical remote
+               "keel_base_branch"}
 ADMIN_TOOLS = {"keel_delete_run", "keel_add_project", "keel_remove_project", "keel_pause", "keel_focus", "keel_connect_github",  # 0.19.x
                "keel_edit_workflow", "keel_rule_install", "keel_rule_edit"}                         # v0.17.2 rules
 
@@ -112,6 +114,18 @@ class StubApi:
                                         "main is 2 commits behind upstream/main",
                 "remotes": [{"remote": "upstream", "ok": True, "branch": "upstream/main", "ahead": 0, "behind": 2},
                             {"remote": "mirror", "ok": False, "error": "timed out after 20 s"}]})
+        if path == "/api/projects/shop/base":
+            # 0.18.65 the base and the canonical remote; base_branch names no local branch
+            body = json.loads(req.content or b"{}") if req.method == "PUT" else None
+            if body is not None:
+                self.posts.append((path, body))
+            gone = None if body else {"text": ".keel/config.yml says base_branch: main, and this repo has no local branch main; "
+                                              "github/main has it.",
+                                      "choices": [{"id": "remote", "ref": "github/main", "label": "Use github/main"},
+                                                  {"id": "track", "ref": "github/main", "label": "Create a local main that tracks github/main"},
+                                                  {"id": "pick", "label": "Pick another branch", "branches": ["master"]}]}
+            return httpx.Response(200, json={"configured": "main", "ref": "github/main", "canonical": "github", "missing": gone,
+                                             "warning": None})
         if req.method == "POST" and path == "/api/threads/t-1/sync":
             body = json.loads(req.content)
             self.posts.append((path, body))
@@ -214,7 +228,7 @@ def test_the_marketplace_tools_come_after_every_tool_keel_listed_before_at_each_
            "keel_flow_document", "keel_reject_with_document", "keel_handover",
            "keel_agent_prompt", "keel_flow_diff", "keel_health", "keel_reconnect", "keel_state"]
     rules = ["keel_edit_workflow", "keel_rule_install", "keel_rule_edit"]
-    sync = ["keel_fetch_remotes", "keel_branch_sync"]          # 0.18.64 after every tool before, before the marketplace's
+    sync = ["keel_fetch_remotes", "keel_branch_sync", "keel_base_branch"]   # 0.18.64 after every tool before, before the marketplace's
     assert names("read") == read + ["keel_workflows"] + tui_read + sync[:1] + MARKET_TOOLS
     assert names("write") == read + write + tui + sync + MARKET_TOOLS
     assert names("admin") == read + write + admin + tui + rules + sync + MARKET_TOOLS
@@ -669,6 +683,22 @@ async def test_branch_sync_reports_a_conflict_and_continues(stub):
     done = await call(srv, "keel_branch_sync", {"thread_id": "t-1", "action": "continue"})
     assert stub.posts[-1][1] == {"mode": "merge", "action": "continue"}
     assert "merged 2 commits of upstream/main" in done and "abc1234" in done
+
+
+async def test_base_branch_lists_the_choices_and_a_choice_asks_the_person_first(stub):
+    """0.18.65 (the stale-base report R5) base_branch names no local branch: the tool lists the person's choices; a choice
+    needs the person's OK (a client without forms gets a one-time token) and keel writes the config."""
+    srv = mcp_server.build_server(write=True, api=stub.api)
+    text = await call(srv, "keel_base_branch")
+    assert "keel compares with github/main; canonical remote github" in text
+    assert "- choice='track', branch='github/main': Create a local main that tracks github/main" in text
+    assert "branch=<one of: master>" in text and "Ask the person which one" in text
+    asked = await call(srv, "keel_base_branch", {"choice": "track", "branch": "github/main"})
+    assert not [p for p in stub.posts if p[0] == "/api/projects/shop/base"]          # nothing written before the OK
+    assert "OK" in asked or "token" in asked
+    yes = mcp_server.build_server(write=True, api=stub.api, yes=True)
+    await call(yes, "keel_base_branch", {"choice": "track", "branch": "github/main"})
+    assert stub.posts[-1] == ("/api/projects/shop/base", {"choice": "track", "branch": "github/main"})
 
 
 # ---------------------------------------------------------------- v0.16.0 levels, allowlist, confirm, audit

@@ -147,6 +147,16 @@ class AgentMixin:
                        "isolation (it depends on another test's data or order), cleanup (it writes to the database, files "
                        "or a cache and leaves them behind, also on a second connection or a committed transaction), and "
                        "assertions (it asserts something that was true before the criterion, or nothing at all).")
+        if agent == "branch-reviewer" and not item and root:
+            # 0.18.65 the full-diff review reads the branch against the canonical remote's base, without keel init's
+            # setup commits (runtime/bases.py branch_scope), never a local main that is behind or went its own way
+            from . import bases
+
+            found = await asyncio.to_thread(bases.branch_scope, root, None, state.get("base_head"))
+            if found.get("scope"):
+                prompt += (f"\n\nThe branch diff to review: `{found['scope']}` (the base: {found['compared']}). Use this "
+                           "range, not main...HEAD." + "".join(f" {x}." for x in (found.get("warning"),) if x)
+                           + (f" {bases.setup_note(found['setup'])}" if found.get("setup") else ""))
         if agent == "branch-reviewer" and met:
             seen = (state.get("data") or {}).get("already_met") or {}
             prompt += ("\n\nNot reviewed per AC: these criteria passed before any code was written (\"already passes\"), so "

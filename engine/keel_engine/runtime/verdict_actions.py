@@ -75,13 +75,23 @@ def _exists(root: str, ref: str) -> bool:
 
 def remote_of(root: str, name: str) -> str | None:
     """0.18.57 the remote-tracking ref of a plain local branch name: its upstream (main@{upstream}), else origin/<name>;
-    None for an explicit ref (origin/main, refs/..., a tag or a sha) or a branch with no remote copy."""
+    None for an explicit ref (origin/main, refs/..., a tag or a sha) or a branch with no remote copy. 0.18.65 the
+    project's canonical remote (runtime/bases.py) is asked first when .keel/config.yml names it (git.remote), and
+    comes before origin."""
+    from . import bases
+
     if not name or "/" in name or not git.git(root, "show-ref", "--verify", "-q", f"refs/heads/{name}").returncode == 0:
         return None
+    canonical = bases.canonical_remote(root)
+    if canonical and bases.setting(rules.load_config(root)) == canonical and _exists(root, f"{canonical}/{name}"):
+        return f"{canonical}/{name}"
     up = git.git(root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", f"{name}@{{upstream}}")
     if up.returncode == 0 and up.stdout.strip() and _exists(root, up.stdout.strip()):
         return up.stdout.strip()
-    return f"origin/{name}" if _exists(root, f"origin/{name}") else None
+    for r in dict.fromkeys([canonical, "origin"]):
+        if r and _exists(root, f"{r}/{name}"):
+            return f"{r}/{name}"
+    return None
 
 
 def base_ref(root: str, cfg: dict, fallback: str | None = None) -> str | None:
@@ -89,8 +99,15 @@ def base_ref(root: str, cfg: dict, fallback: str | None = None) -> str | None:
 
     0.18.57 a plain branch name is compared through its remote-tracking ref when there is one (origin/main): a local
     main that is behind or diverged made commits merged upstream through a PR look like this branch's own work (the
-    audit refused them, and every retry refused them again). An explicit ref in the config (origin/x, a tag) is kept."""
-    for ref in [cfg.get("base_branch"), "main", "master"]:
+    audit refused them, and every retry refused them again). An explicit ref in the config (origin/x, a tag) is kept.
+    0.18.65 first the project's base as runtime/bases.py resolves it: the canonical remote's copy (base_branch may be
+    <remote>/<branch>, and a base_branch with no local branch is compared with the remote's copy)."""
+    from . import bases
+
+    # a full ref (refs/heads/main) is the person's explicit choice: kept as it is
+    pinned = str(cfg.get("base_branch") or "").startswith("refs/")
+    first = bases.resolve(root, cfg).get("ref") if git.is_repo(root) and not pinned else None
+    for ref in dict.fromkeys([first, cfg.get("base_branch"), "main", "master"]):
         if not ref:
             continue
         ref = remote_of(root, ref) or ref
@@ -103,33 +120,39 @@ def base_ref(root: str, cfg: dict, fallback: str | None = None) -> str | None:
 FETCH_TIMEOUT = 30
 
 
+def _base_remote(root: str, cfg: dict) -> tuple[str, str | None]:
+    """0.18.65 (the local base's name, its remote copy or None) for the fetch, the drift and the audit
+    (runtime/bases.py resolve: base_branch may be <remote>/<branch>)."""
+    from . import bases
+
+    r = bases.resolve(root, cfg) if git.is_repo(root) else {}
+    name = r.get("name") or str(cfg.get("base_branch") or "main").removeprefix("refs/heads/")
+    return name, r.get("remote")
+
+
 def fetch_base(root: str, cfg: dict) -> str:
     """Bring the base's remote-tracking ref up to date before the ship checks read it (no prompt, FETCH_TIMEOUT s). A
     failed fetch (offline, no access) is a note, never a failure. Returns the note ("" when nothing was fetched)."""
-    name = str(cfg.get("base_branch") or "main")
-    remote = remote_of(root, name) if git.is_repo(root) else None
+    _name, remote = _base_remote(root, cfg)
     if not remote:
         return ""
     where, _, branch = remote.partition("/")
-    r = git.git(root, "fetch", "--quiet", "--no-tags", where, branch, timeout=FETCH_TIMEOUT)
+    r = git.git(root, "fetch", "--quiet", "--no-tags", where, f"+refs/heads/{branch}:refs/remotes/{remote}",
+                timeout=FETCH_TIMEOUT)
     return "" if r.returncode == 0 else f"could not fetch {remote} ({(r.stderr or r.stdout).strip()[:120]}); compared with the last fetched copy"
 
 
 def base_drift(root: str, cfg: dict) -> str | None:
     """'main is 3 behind origin/main — keel compares with origin/main' (or 'diverged from', with the counts) when the
-    local base branch differs from its remote-tracking ref; None when they agree or there is no remote copy."""
-    name = str(cfg.get("base_branch") or "main").removeprefix("refs/heads/")
+    local base branch differs from its remote-tracking ref; None when they agree or there is no remote copy. 0.18.65
+    the remote copy is the canonical remote's (runtime/bases.py), and may have another name (local master, github/main)."""
+    from . import bases
+
     if not git.is_repo(root):
         return None
-    remote = remote_of(root, name)
-    if not remote:
-        return None
-    r = git.git(root, "rev-list", "--left-right", "--count", f"{name}...{remote}")
-    try:
-        ahead, behind = (int(x) for x in r.stdout.split())
-    except ValueError:
-        return None
-    if not ahead and not behind:
+    r = bases.resolve(root, cfg)
+    name, remote, ahead, behind = r.get("local"), r.get("remote"), r.get("ahead"), r.get("behind")
+    if not name or not remote or ahead is None or (not ahead and not behind):
         return None
     how = (f"diverged from {remote} ({ahead} local-only commit(s), {behind} behind)" if ahead and behind else
            f"{behind} behind {remote}" if behind else f"{ahead} ahead of {remote} (local-only commits)")
@@ -681,8 +704,7 @@ def _audit(a):
         return _result(None, "Audit not available: not a git repository.")
     cfg = rules.load_config(a.root)
     fetched = fetch_base(a.root, cfg)
-    name = str(cfg.get("base_branch") or "main").removeprefix("refs/heads/")
-    upstream = remote_of(a.root, name)
+    _name, upstream = _base_remote(a.root, cfg)
     base = (a.data or {}).get("audit_base") or base_ref(a.root, cfg, a.base)
     found = audit_problems(a.root, cfg, base, a.unlocks, upstream)
     # 0.18.57 the problems a person accepted at this gate (with their reason) are not asked again: the history the
@@ -1005,13 +1027,21 @@ def pr_body(root: str, project: str, state: dict, title: str, base: str | None, 
     out = [f"# {title}", ""] + ([f"Spec: `{spec}`", ""] if spec else [])
     if extract:
         out += ["<details><summary>Spec extract</summary>", "", *tools.fenced(extract, "markdown"), "</details>", ""]
+    # 0.18.65 keel init's setup commits at the branch's bottom are not this change's (runtime/bases.py own_base)
+    from . import bases
+
+    own, setup = bases.own_base(root, base) if base and git.is_repo(root) else (base, [])
     if not extract:
         # What was asked and what the branch did (the last agent's answer is about its own step, not the branch).
-        commits = git.git(root, "log", "--reverse", "--format=- %s", f"{base}..HEAD").stdout.strip() \
-            if base and git.is_repo(root) else ""
+        commits = git.git(root, "log", "--reverse", "--format=- %s", f"{own}..HEAD").stdout.strip() \
+            if own and git.is_repo(root) else ""
         out += ["## Summary", ""] + ([request.strip()[:1500], ""] if request.strip() else []) \
             + (["Commits:", commits[:3000], ""] if commits else [])
     out += bug.section(state)           # a bug flow: symptom, root cause, reproducing test, hunt findings it closes
+    if setup:
+        files = [f for f in git.git(root, "diff", "--name-only", f"{base}...{setup[-1]}").stdout.splitlines() if f.strip()]
+        out += ["## keel setup (not this change)", "", bases.setup_note(setup), ""] \
+            + [f"- `{f}`" for f in files[:20]] + ([f"- … {len(files) - 20} more"] if len(files) > 20 else []) + [""]
     if rows:
         out += ["## Acceptance criteria", "", trace_table(rows), ""]
     out += ["## Coverage", ""]
