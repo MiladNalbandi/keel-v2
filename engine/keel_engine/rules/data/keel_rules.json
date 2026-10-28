@@ -732,7 +732,8 @@
     "build/generated/x.kt": "generated",
     "README.md": "other",
     ".keel/config.yml": "keel-rules",
-    ".keel/rules/no-new-dependencies.yaml": "keel-rules"
+    ".keel/rules/no-new-dependencies.yaml": "keel-rules",
+    ".keel/stacks/php.yml": "keel-rules"
   },
   "EMPTY": {
     "flow": null,

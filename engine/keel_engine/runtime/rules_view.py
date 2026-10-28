@@ -515,7 +515,8 @@ def now(root: str, phase: str | None, lane: str | None = None, unlocks: list[dic
         item = {"bucket": b, "what": what, "rule": rule, "words": explain.MAY.get(rule, explain.MAY["deny"])[1]}
         (may_not if rule == "deny" else may).append(item)
     always = [{"bucket": "protected-env", "what": ".env files (secrets)", "words": "never read or changed"},
-              {"bucket": "keel-rules", "what": ".keel/config.yml and .keel/rules/", "words": "never changed by an agent"}]
+              {"bucket": "keel-rules", "what": ".keel/config.yml, .keel/rules/ and .keel/stacks/",
+               "words": "never changed by an agent"}]
     if not rules.is_off(cfg, "generated"):
         always.append({"bucket": "generated", "what": "generated code", "words": "changed through its source only"})
     active = [{"pack": p["id"], "name": p["title"], "rule": r["id"], "kind": r["kind"], "reason": r["reason"]}

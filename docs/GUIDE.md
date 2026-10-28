@@ -460,9 +460,16 @@ keel checks every agent with rules. **Build › Rules** shows all of them in pla
                                                         and puts back what the phase does not allow
 ```
 
-- **Always on**: `.env` files, keel's own rule files (`.keel/config.yml`, `.keel/rules/`), old migrations, force push,
-  `--no-verify`, commits and history rewrites inside a flow, secrets and switched-off tests in an edit, and keel's
-  own sign-in keys. These never switch off.
+- **Always on**: `.env` files, keel's own rule files (`.keel/config.yml`, `.keel/rules/`, `.keel/stacks/`), old
+  migrations, force push, `--no-verify`, commits and history rewrites inside a flow, secrets and switched-off tests in
+  an edit, and keel's own sign-in keys. These never switch off.
+- **Git settings** (0.18.64): agents never change the repo's git settings (`git config` that writes, `git remote add`
+  or `set-url`, `git -c`) and never write inside `.git/`; reading them (`git config --get`, `git remote -v`) is fine.
+  keel runs git there with your GitHub login. keel's own git runs no hook, no fsmonitor and no `ext::` remote of the
+  repo, with no keys in its environment, and with the login it speaks https only (so a git hook of the project does
+  not run on keel's commits: its checks belong in the project's `pre-commit` tools, which keel runs itself). A container an agent starts (with
+  `keel2 --docker`) gets no bind mount outside the project, no Docker socket, no `--privileged`, `--cap-add` or host
+  namespaces.
 - **You can switch off**: generated files, build output, `-x test`, new packages, reading a file twice, big-file
   reads, the push gate, MCP tools that change things, reading other projects (`other-projects`). Off is saved in
   `.keel/config.yml` (`rules.off`).

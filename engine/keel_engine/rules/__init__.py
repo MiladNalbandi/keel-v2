@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import re
 import shlex
+import shutil
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -41,7 +43,8 @@ ALWAYS_DENY = {
 }
 
 # The project's rule files: an agent that could edit them could switch off the guard that judges it.
-RULE_FILES = [re.compile(r"^\.keel/config\.ya?ml$"), re.compile(r"^\.keel/rules/")]
+# 0.18.64 (security audit F18) and the project's own stacks: they name the test commands keel runs and trusts.
+RULE_FILES = [re.compile(r"^\.keel/config\.ya?ml$"), re.compile(r"^\.keel/rules/"), re.compile(r"^\.keel/stacks/")]
 
 # v0.18.1 keel's own keys (api auth/LocalAuth): the internal token and the web key, in keel's data folder (Docker
 # /data/run/, native ~/.keel2/<name>/run/ and ~/.keel2/<name>/data/run/). Whoever reads one can act as keel or as the
@@ -166,7 +169,15 @@ BUILTINS: list[dict] = [
     {"id": "env-files", "kind": "edit, read, shell", "phases": "always", "can_off": False,
      "words": ".env files hold secrets: agents never read, print or change them (setup may write the env file)."},
     {"id": "keel-rules-files", "kind": "edit", "phases": "always", "can_off": False,
-     "words": "Agents never change .keel/config.yml or .keel/rules/: an agent may not change its own rules."},
+     "words": "Agents never change .keel/config.yml, .keel/rules/ or .keel/stacks/ (the test commands keel runs): an "
+              "agent may not change its own rules."},
+    # keel 0.18.64 (security audit F2, F3, F19)
+    {"id": "git-settings", "kind": "edit, shell", "phases": "always", "can_off": False,
+     "words": "Agents never change the repo's git settings (git config, git remote add or set-url, git -c) or write "
+              "inside .git: keel runs git there with your GitHub login."},
+    {"id": "docker-host", "kind": "shell", "phases": "always", "can_off": False,
+     "words": "A container an agent starts never gets this computer: no bind mount outside the project, no Docker "
+              "socket, no --privileged, --cap-add or host namespaces."},
     {"id": "keel-keys", "kind": "edit, read, shell", "phases": "always", "can_off": False,
      "words": "keel's own keys (its internal token and the sign-in key) are never read, printed, changed or sent by an "
               "agent: with them anyone could act as keel or as you."},
@@ -462,6 +473,9 @@ def check_edit(phase: str, path: str, cfg: dict | None = None, *, exists: bool =
     cfg = cfg if cfg and "guards" in cfg else make_config(cfg)
     if keel_key_file(path):
         return Verdict(False, "keel-keys", "This is one of keel's own keys: agents never change it.")
+    if GIT_INTERNALS.search(str(path or "").replace("\\", "/")):
+        # 0.18.64 (security audit F2, F3) .git/config, .git/hooks ...: see GIT_SETTINGS_WHY
+        return Verdict(False, "git-internals", f"{_rel(path, cfg.get('root'))} is inside .git: {GIT_SETTINGS_WHY}")
     bucket = classify(cfg, path)
     rel = _rel(path, cfg.get("root"))
     env_file = str(cfg.get("setup", {}).get("env_file") or ".env.local").removeprefix("./")
@@ -634,12 +648,12 @@ def push_gate(cfg: dict, cmd: str, blockers: list[dict] | None) -> Verdict | Non
 
 
 _SEGMENTS = re.compile(r"&&|\|\||[;|&\n`()]")
-_GIT_OPT_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path"}
+_GIT_OPT_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env"}
 
 
-def _git_calls(cmd: str, depth: int = 0):
-    """(subcommand, args) of every `git` in a shell line: per sub-command (split on && || ; | & newline, $( ) and
-    backticks), global options skipped (`git -C dir push`), quoted strings (`bash -c "git ..."`) looked into."""
+def _git_words(cmd: str, depth: int = 0):
+    """(global options, subcommand, args) of every `git` in a shell line: per sub-command (split on && || ; | &
+    newline, $( ) and backticks), quoted strings (`bash -c "git ..."`) looked into."""
     for seg in _SEGMENTS.split(cmd):
         try:
             words = shlex.split(seg)
@@ -648,15 +662,100 @@ def _git_calls(cmd: str, depth: int = 0):
         if depth < 3:
             for w in words:
                 if " " in w.strip() and "git" in w:
-                    yield from _git_calls(w, depth + 1)
+                    yield from _git_words(w, depth + 1)
         for i, w in enumerate(words):
             if w.rsplit("/", 1)[-1] != "git":
                 continue
             j = i + 1
             while j < len(words) and words[j].startswith("-"):
                 j += 2 if words[j] in _GIT_OPT_WITH_VALUE else 1
-            if j < len(words):
-                yield words[j], words[j + 1:]
+            yield words[i + 1:j], (words[j] if j < len(words) else ""), words[j + 1:]
+
+
+def _git_calls(cmd: str, depth: int = 0):
+    """(subcommand, args) of every `git` in a shell line, global options skipped (`git -C dir push`)."""
+    for _glob, sub, args in _git_words(cmd, depth):
+        if sub:
+            yield sub, args
+
+
+# 0.18.64 (security audit F2, F3) the repo's git settings are keel's too: keel runs git there with the GitHub login (a
+# push, a fetch). An agent that sets a remote URL, an `ext::` transport, a hook folder or an fsmonitor program makes
+# keel's next git run its program. So agents never change git settings (`git config` that writes, `git remote add` /
+# `set-url`, settings for one command with `git -c` or GIT_CONFIG_* variables) and never write in .git/. Reading them
+# (`git config --get`, `git config -l`, `git remote -v`) is fine.
+GIT_INTERNALS = re.compile(r"(?:^|/)\.git(?:/|$)")
+_CONFIG_READ = {"--get", "--get-all", "--get-regexp", "--get-urlmatch", "-l", "--list", "--get-color", "--get-colorbool"}
+_CONFIG_WRITE = {"--add", "--replace-all", "--unset", "--unset-all", "--rename-section", "--remove-section", "-e", "--edit"}
+_CONFIG_OPT_WITH_VALUE = {"-f", "--file", "--blob", "--type", "--default", "--comment", "--value"}
+_GIT_ENV_CONFIG = re.compile(r"\bGIT_CONFIG(?:_PARAMETERS|_COUNT|_KEY_\d+|_VALUE_\d+|_GLOBAL|_SYSTEM)?=")
+GIT_SETTINGS_WHY = ("agents do not change the repo's git settings: keel runs git there with the GitHub login, and a "
+                    "setting can make that git run a program. Reading them (git config --get, git remote -v) is fine; "
+                    "ask the person to change a setting.")
+
+
+def _config_writes(args: list[str]) -> bool:
+    """Does `git config <args>` change a setting? `git config name` and the --get/--list forms only read."""
+    if args[:1] and args[0] in ("get", "list"):
+        return False
+    if args[:1] and args[0] in ("set", "unset", "rename-section", "remove-section", "edit"):
+        return True
+    if any(a in _CONFIG_WRITE or a.split("=", 1)[0] in _CONFIG_WRITE for a in args):
+        return True
+    if any(a in _CONFIG_READ for a in args):
+        return False
+    names, i = 0, 0
+    while i < len(args):
+        a = args[i]
+        if a in _CONFIG_OPT_WITH_VALUE:
+            i += 2
+            continue
+        if not a.startswith("-"):
+            names += 1
+        i += 1
+    return names >= 2          # `git config name value`
+
+
+def git_settings(cmd: str) -> str:
+    """The git call of a shell line that changes git settings ("git config", "git remote set-url", "git -c"), else ""."""
+    if _GIT_ENV_CONFIG.search(cmd):
+        return "GIT_CONFIG_*"
+    for glob, sub, args in _git_words(cmd):
+        if any(g == "-c" or g.startswith("--config-env") for g in glob):
+            return "git -c"
+        if sub == "config" and _config_writes(args):
+            return "git config"
+        if sub == "remote" and args[:1] and args[0] in ("add", "set-url", "rename"):
+            return f"git remote {args[0]}"
+    return ""
+
+
+_FILE_WRITERS = {"cp", "mv", "ln", "install", "rsync", "touch", "truncate", "dd", "chmod", "rm", "unlink", "mkdir",
+                 "patch", "tee"}
+_INTERPRETERS = re.compile(r"(?:^|[\s;&|(/])(?:python[0-9.]*|perl|node|ruby|php|bun|deno)\s")
+
+
+def git_dir_write(cmd: str) -> str:
+    """The .git path a shell line writes (a redirect, cp/mv/ln/rm..., `cd .git`, a script that names .git/config or
+    .git/hooks), else ""."""
+    for m in _SHELL_WRITE.finditer(cmd):
+        target = (m.group(1) or m.group(2)).strip("\"'")
+        if GIT_INTERNALS.search(target):
+            return target
+    for seg in _SEGMENTS.split(cmd):
+        try:
+            words = shlex.split(seg)
+        except ValueError:
+            words = seg.split()
+        for i, w in enumerate(words):
+            base = w.rsplit("/", 1)[-1]
+            if base in _FILE_WRITERS or base == "cd":
+                hit = next((a for a in words[i + 1:] if GIT_INTERNALS.search(a.removeprefix("of="))), None)
+                if hit:
+                    return hit
+    if _INTERPRETERS.search(cmd) and re.search(r"\.git/(?:config|hooks|info)\b|\.git['\"]\s*[,)]", cmd):
+        return ".git"
+    return ""
 
 
 def git_danger(cmd: str) -> str:
@@ -738,6 +837,141 @@ def compose_in_worktree(cmd: str, root: str | None) -> Verdict | None:
                    "flow in the project folder. `docker compose run --rm` and `exec` are fine.")
 
 
+# 0.18.64 (security audit F20) the root helper behind sudo, spelled so the word filter does not see it:
+# `sudo /usr/local/bin/keel-stack-setu[p]`, `sudo $(ls ...)`, `... | xargs sudo`, a link to it under another name.
+# A sudo command is spelled out: no pattern, variable or command output in it, and its program is not the helper.
+# sudo where a command starts (not `grep sudo *.py`), after VAR=x, exec, env ...; group 1: the rest of its command
+_SUDO = re.compile(r"(?:^|[;&|(`\n])\s*(?:[A-Za-z_]\w*=\S*\s+)*(?:(?:exec|command|nohup|time|env|then|do|else|!)\s+)*"
+                   r"(?:\S*/)?sudo(?=\s|$)([^;&|\n]*)")
+_SUDO_RUNNER = re.compile(r"\b(?:xargs|find)\b[^;&|\n]*(?:^|[\s/])sudo(?=\s|$)")
+_SUDO_HIDDEN = re.compile(r"[*?\[\]{}$`]")
+_SUDO_OPT_WITH_VALUE = {"-u", "-g", "-h", "-p", "-C", "-D", "-r", "-t", "-U", "-T", "-R", "--user", "--group", "--host",
+                        "--prompt", "--close-from", "--chdir", "--role", "--type", "--other-user", "--command-timeout",
+                        "--chroot"}
+
+
+def _is_helper(word: str) -> bool:
+    found = shutil.which(word) if word else None
+    return bool(found) and STACK_SETUP_HELPER.search(os.path.basename(os.path.realpath(found))) is not None
+
+
+def stack_setup_hidden(cmd: str, depth: int = 0) -> str:
+    """The way a shell line reaches keel-stack-setup or hides a sudo command from this check, else ""."""
+    text = str(cmd or "")
+    if depth < 3 and re.search(r"\b(?:sh|bash|zsh|dash|eval)\b", text):    # bash -c "sudo ...": a shell line too
+        for q in re.findall(r"\"([^\"]*)\"|'([^']*)'", text):
+            found = stack_setup_hidden(q[0] or q[1], depth + 1)
+            if found:
+                return found
+    plain = re.sub(r"[\"'\\]", "", text)            # k'ee'l-stack-setup, s\udo
+    if STACK_SETUP_HELPER.search(plain):
+        return "keel-stack-setup"
+    if _SUDO_RUNNER.search(plain):
+        return "sudo through xargs or find -exec"
+    for m in _SUDO.finditer(plain):
+        rest = m.group(1) or ""
+        if _SUDO_HIDDEN.search(rest):
+            return f"sudo {rest.strip()[:80]}"
+        words, j = rest.split(), 0
+        while j < len(words) and words[j].startswith("-"):
+            j += 2 if words[j] in _SUDO_OPT_WITH_VALUE else 1
+        if j < len(words) and _is_helper(words[j]):
+            return f"sudo {words[j]}"
+    return ""
+
+
+# 0.18.64 (security audit F19, keel2 --docker) the project's tests may use the host's Docker, but a container may not
+# take the host: no bind mount of / or of a folder outside the project, no Docker socket, no --privileged, no host
+# namespaces (--pid=host, --net=host ...), no --cap-add.
+_DOCKER_BOOL = {"-d", "--detach", "-i", "--interactive", "-t", "--tty", "--rm", "-P", "--publish-all", "--init",
+                "--read-only", "--sig-proxy", "--no-healthcheck", "--oom-kill-disable", "--disable-content-trust", "-q",
+                "--quiet", "--privileged", "--help", "--use-api-socket"}
+_DOCKER_NS = {"--pid", "--net", "--network", "--ipc", "--uts", "--userns", "--cgroupns"}
+_PWD = re.compile(r"\$\(\s*pwd\s*\)|`\s*pwd\s*`|\$\{PWD\}|\$PWD\b")
+_PWD_MARK = "__KEEL_PWD__"
+
+
+def _bind_outside(src: str, root: str | None) -> str:
+    """Why a bind mount source is not allowed ("" when it is a named volume or a folder inside the project)."""
+    if "docker.sock" in src:
+        return "the Docker socket"
+    if not src or not (src.startswith(("/", ".", "~", "$", _PWD_MARK)) or "/" in src):
+        return ""                                       # a named volume
+    if "$" in src:
+        return f"{src} (a variable keel cannot check)"
+    if not root:
+        return f"{src} (a folder on the host)"
+    base = os.path.realpath(root)
+    p = src.replace(_PWD_MARK, base, 1) if src.startswith(_PWD_MARK) else os.path.expanduser(src)
+    full = os.path.realpath(p if os.path.isabs(p) else os.path.join(base, p))
+    return "" if full == base or full.startswith(base.rstrip("/") + "/") else f"{src} (outside the project)"
+
+
+def _docker_option(name: str, value: str | None, root: str | None) -> str:
+    if name == "--privileged":
+        return "--privileged"
+    if name == "--use-api-socket":
+        return "--use-api-socket (the Docker socket)"
+    if name in _DOCKER_NS and (value or "").startswith("host"):
+        return f"{name}=host"
+    if name == "--cap-add":
+        return f"--cap-add {value or ''}".strip()
+    if name == "--security-opt" and re.search(r"unconfined|label[=:]disable", value or ""):
+        return f"--security-opt {value}"
+    if name in ("--device", "--device-cgroup-rule"):
+        return f"{name} {value or ''}".strip()
+    if name in ("-v", "--volume") and value and ":" in value:
+        why = _bind_outside(value.split(":", 1)[0], root)
+        return f"a bind mount of {why}" if why else ""
+    if name == "--mount" and value:
+        kv = dict(p.split("=", 1) if "=" in p else (p, "") for p in value.split(","))
+        if "docker.sock" in value:
+            return "a bind mount of the Docker socket"
+        if kv.get("type") == "bind":
+            why = _bind_outside(kv.get("source") or kv.get("src") or "", root)
+            return f"a bind mount of {why}" if why else ""
+    return ""
+
+
+def docker_escape(cmd: str, root: str | None = None, depth: int = 0) -> str:
+    """What in a `docker run` / `docker create` (also `docker container run`, podman) would give the container the
+    host, else ""."""
+    text = _PWD.sub(_PWD_MARK, str(cmd or ""))
+    for seg in _SEGMENTS.split(text):
+        try:
+            words = shlex.split(seg)
+        except ValueError:
+            words = seg.split()
+        if depth < 3:
+            for w in words:
+                if " " in w.strip() and ("docker" in w or "podman" in w):
+                    found = docker_escape(w, root, depth + 1)
+                    if found:
+                        return found
+        for i, w in enumerate(words):
+            if w.rsplit("/", 1)[-1] not in ("docker", "podman"):
+                continue
+            j = i + 1
+            if j < len(words) and words[j] == "container":
+                j += 1
+            if j >= len(words) or words[j] not in ("run", "create"):
+                continue
+            j += 1
+            while j < len(words) and words[j].startswith("-") and words[j] != "--":
+                a = words[j]
+                name, eq, value = a.partition("=")
+                if eq:
+                    j += 1
+                elif a in _DOCKER_BOOL or (not a.startswith("--") and set(a[1:]) <= set("ditPq")):
+                    value, j = None, j + 1
+                else:
+                    value, j = (words[j + 1] if j + 1 < len(words) else ""), j + 2
+                why = _docker_option(name, value, root)
+                if why:
+                    return why
+    return ""
+
+
 # a redirect (`>f`, `> f`, `>>f`, `2>f`; `2>&1` has no file) or sed -i / tee / perl -pi with its target
 _SHELL_WRITE = re.compile(r"(?<!>)>{1,2}\s*([^\s;|&<>()]+)|(?:sed\s+-i(?:\s+\S+)?|tee|perl\s+-pi)\s+([^\s;|&]+)")
 
@@ -762,9 +996,32 @@ def check_bash(phase: str, command: str, cfg: dict | None = None, *, root: str |
     if KEEL_KEY_WORDS.search(cmd):
         return Verdict(False, "keel-keys", "This command reads or sends one of keel's own keys; agents never do. "
                                            "Use keel's MCP tools instead.")
-    if STACK_SETUP_HELPER.search(cmd):
+    hidden = stack_setup_hidden(cmd)
+    if hidden:
         return Verdict(False, "keel-setup", "keel-stack-setup is keel's own root helper for a stack's setup: block; agents "
-                                            "never run it. Put the package in the stack's setup.apt instead.")
+                                            "never run it. Put the package in the stack's setup.apt instead."
+                                            + ("" if hidden == "keel-stack-setup" else
+                                               f" A sudo command is spelled out in full, without patterns, variables or "
+                                               f"xargs ({hidden})."))
+    # 0.18.64 (security audit F2, F3, F19): always, in a flow or not
+    setting = git_settings(cmd)
+    if setting:
+        return Verdict(False, "git-settings", f'"{setting}" is not allowed: {GIT_SETTINGS_WHY}')
+    target = git_dir_write(cmd)
+    if target:
+        return Verdict(False, "git-internals", f"Shell write to {target}: it is inside .git. {GIT_SETTINGS_WHY}",
+                       path=_rel(target))
+    for m in _SHELL_WRITE.finditer(cmd):       # keel's rules and stacks, also outside a flow (as the edit tools)
+        target = (m.group(1) or m.group(2)).strip("\"'")
+        if classify(cfg, _rel(target, root)) == "keel-rules":
+            v = check_edit(phase, _rel(target, root), cfg, exists=exists(_rel(target, root)), unlocks=unlocks)
+            if not v.ok:
+                return Verdict(False, v.bucket, f"Shell write to {v.reason}", path=_rel(target, root))
+    escape = docker_escape(cmd, root)
+    if escape:
+        return Verdict(False, "docker-host", f"docker run with {escape} is not allowed: it gives the container this "
+                                             "computer (its files, its processes or Docker itself). Mount folders of the "
+                                             "project only, and leave out --privileged, --cap-add and host namespaces.")
     v = pack_verdict(cfg, "bash", phase, cmd)
     if v:
         return v
