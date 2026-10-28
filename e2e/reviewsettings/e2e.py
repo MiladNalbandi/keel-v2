@@ -130,6 +130,7 @@ def start(image: str, ws: Path) -> None:
     sh("docker", "run", "-d", "--name", NAME, "-p", f"127.0.0.1:{PORT}:8080", "-v", f"{VOLUME}:/data",
        "-v", f"{ws}:/workspace", "-e", "KEEL_FAKE=1", image)
     wait_until(f"{NAME} ({image}) to be healthy", lambda: api("GET", "/health"), timeout=300)
+    api("PUT", "/help/welcome", {"seen": True, "how": "e2e"})     # 0.18.66: the first-run welcome would cover the page
 
 
 def walk(out: Path, shop: dict) -> dict:
