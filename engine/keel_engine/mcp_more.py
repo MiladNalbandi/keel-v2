@@ -179,6 +179,52 @@ def read_file(api: KeelApi, path: str, project: str | None = None, start: int = 
     return "\n".join(f"{start + i:>5}  {line}" for i, line in enumerate(part)) + more
 
 
+def read_project_file(api: KeelApi, project: str, path: str, offset: int | None = None, limit: int | None = None) -> str:
+    """keel 0.18.64 one file of a registered project, read only, under the rules a flow's agent reads another project by
+    (runtime/other_projects.py): secrets and keel's keys are refused, build output too, and a big file is read in parts
+    (offset, limit). Read from the folder keel sees (keel's MCP server runs next to the engine), not through a plugin's
+    route. A project whose rule other-projects is off is not read here."""
+    import os
+    from pathlib import Path
+
+    from . import rules
+    from .runtime import other_projects
+    from .tools.agent_tools import MAX_READ
+
+    if not str(project or "").strip():
+        raise ApiError("name the project (keel_projects lists them).")
+    p = _project(api, project)
+    root = os.path.realpath(str(p.get("root") or ""))
+    if not p.get("root") or not os.path.isdir(root):
+        raise ApiError(f"keel's MCP server cannot see the folder of {p['id']} ({p.get('root')}). Run it where keel runs "
+                       "(keel2 mcp does), or use keel_read_file.")
+    full = os.path.realpath(os.path.join(root, os.path.expanduser(str(path or ""))))
+    if not other_projects.under(full, root):
+        raise ApiError(f"{path} is outside {p['id']}: name a path inside the project.")
+    rel = os.path.relpath(full, root).replace(os.sep, "/")
+    o = {"id": p["id"], "name": p.get("name") or p["id"], "root": root}
+    if other_projects.is_off(rules.load_config(root)):
+        raise ApiError(f"{o['name']} is not read from outside: its rule other-projects is off (.keel/config.yml rules.off).")
+    if is_secret(rel):
+        raise ApiError(f"{rel} holds secrets; keel never reads it through MCP.")
+    if rules.keel_engine_file(full, root):
+        raise ApiError(rules.ENGINE_REFUSAL)
+    why = other_projects.check_read(o, rel, full, ranged=offset is not None or limit is not None)
+    if why:
+        raise ApiError(why)
+    if not Path(full).is_file():
+        raise ApiError(f"no file {rel} in {o['name']}.")
+    lines = Path(full).read_text(errors="replace").splitlines(keepends=True)
+    start = max(int(offset or 1), 1) - 1
+    part = lines[start:start + (int(limit) if limit else len(lines))]
+    text = "".join(part)
+    if len(text) > MAX_READ:
+        shown = text[:MAX_READ]
+        return shown + f"\n… cut at {MAX_READ} characters: read on with offset={start + shown.count(chr(10)) + 1}"
+    left = len(lines) - (start + len(part))
+    return text + (f"\n… {left} more line(s): read on with offset={start + len(part) + 1}" if left > 0 else "")
+
+
 def actions(level: str) -> str:
     from .runtime import action_docs
 

@@ -200,6 +200,11 @@ BUILTINS: list[dict] = [
      "words": "An agent's git push or gh pr create is refused while keel's push blockers say the branch is not ready."},
     {"id": "mcp-writes", "kind": "mcp", "phases": "in a flow", "can_off": True,
      "words": "In a flow, an MCP tool that can change things runs only when mcp.allow names it."},
+    # keel 0.18.64 runtime/other_projects.py: off, this project's agents read only this project, and other projects'
+    # agents (and keel_read_project_file) do not read it
+    {"id": "other-projects", "kind": "read", "phases": "always", "can_off": True,
+     "words": "Agents may read the other projects registered in this keel (never change them; their secrets stay out). "
+              "Off: this project keeps to itself both ways."},
 ]
 BUILTIN_IDS = {b["id"] for b in BUILTINS}
 CAN_OFF = {b["id"] for b in BUILTINS if b["can_off"]}

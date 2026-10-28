@@ -7,7 +7,7 @@ import tempfile
 import time
 import uuid
 
-from . import agent_knowledge, blockers as push_gates, choices as choices_mod, clarify, flow_actions, guard_ctx, markers, memory as memory_mod, prompts, security_actions, spec_check, stacks, test_scope, tools as tool_runner
+from . import agent_knowledge, blockers as push_gates, choices as choices_mod, clarify, flow_actions, guard_ctx, markers, memory as memory_mod, other_projects, prompts, security_actions, spec_check, stacks, test_scope, tools as tool_runner
 from .. import addons, agent_names, extensions, models, rules
 from ..models import catalog, usage as provider_usage
 from ..models.base import AgentRequest, AgentResult
@@ -73,6 +73,9 @@ class AgentMixin:
                           unlocks=state.get("unlocks") or [], agent=agent, knowledge=know,
                           readonly=self._readonly() or item_root)
         toolbox.refused_paths = refused_paths
+        # keel 0.18.64 the other projects registered in this keel: read only (runtime/other_projects.py)
+        toolbox.others_off = other_projects.is_off(cfg)
+        toolbox.others = await asyncio.to_thread(other_projects.usable, ctx.other_projects, root, ctx.project_id, cfg)
         # keel v1's push gate for the agent's own `git push` / `gh pr create` (rules.push_gate)
         toolbox.push_blockers = await asyncio.to_thread(push_gates.for_agents, root, state.get("base_head"), ctx.project_id or None)
         ctx.emit("agent.started", step=step.id, call_id=call_id, data={
@@ -174,6 +177,9 @@ class AgentMixin:
             # 0.17.3 started from a spec (the Wiki): the agents change that file instead of writing another one
             prompt += (f"\nThis flow starts from the spec {started_from}: change that file (keep its criteria ids and words), "
                        "do not write a new spec file.")
+        others_note = other_projects.prompt_note(toolbox.others)
+        if others_note:
+            prompt += "\n\n" + others_note
         lint_notes = (state.get("data") or {}).get("lint_notes") or []
         if lint_notes:
             why = "know them while you review" if rules.read_only(phase) else "fix them when they are in your scope"

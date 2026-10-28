@@ -145,6 +145,7 @@ type StartThread = {
   mcp: McpServerSpec[];                        // servers this flow may use; per-agent allowlist inside Step.tools
   skills: Record<string, string>;              // agent id → concatenated SKILL.md text to add to its prompt
   agents?: Record<string, { knowledge: Knowledge }>;   // v0.4: what each agent uses (missing → its front matter default)
+  other_projects?: { id: string; name: string; root: string }[];   // 0.18.64 every other registered project: read only for the agents
 };
 type ThreadState = {
   thread_id: string; project_id: string; workflow_id: string; title: string;
@@ -2306,7 +2307,7 @@ keel's key signs them); `keel-plugin index` builds the `stacks` list.
 ## v0.16.0: full MCP (read, --write, --admin)
 
 - `keel2 mcp [--write | --admin] [--allow t1,t2] [--yes] [--print-config]` → `python -m keel_engine.mcp` with the same flags. Each level includes the one below; a tool above the level, or not in `--allow`, is not registered. `--read-only` (what agents get: engine `tools/mcp.py`, api `McpService`) always wins over `--write`, `--admin`, `KEEL_MCP_WRITE` and `KEEL_MCP_LEVEL`. `--allow` (or `KEEL_MCP_ALLOW`) with an unknown tool name stops the server with the list of tools.
-- **read**: `keel_status`, `keel_projects`, `keel_timeline`, `keel_next`, `keel_explain`, `keel_dashboard`, the plugins' `keel_db_schema`, `keel_db_query`, `keel_git_status`, `keel_pr_status`, `keel_ci_runs`, `keel_ci_failure`, and new `keel_flows` (`GET /projects/{pid}/runs`), `keel_inbox` (`GET /inbox`), `keel_live` (`GET /jobs?status=running`, each job's last step), `keel_budget` (`GET /projects/{pid}/budget/now`), `keel_specs` (keel docs, `spec:` wiki pages, `history: true` → `/docs/history/versions`), `keel_knowledge` (`/memory`, `kb:` pages), `keel_search` (`kind: text` → `/repo/search`, `symbol` → `/graph/search`), `keel_read_file` (`/repo/raw`, numbered lines, at most 400, secret files refused before the api is asked), `keel_actions` (every engine action with its level), `keel_run_action`.
+- **read**: `keel_status`, `keel_projects`, `keel_timeline`, `keel_next`, `keel_explain`, `keel_dashboard`, the plugins' `keel_db_schema`, `keel_db_query`, `keel_git_status`, `keel_pr_status`, `keel_ci_runs`, `keel_ci_failure`, and new `keel_flows` (`GET /projects/{pid}/runs`), `keel_inbox` (`GET /inbox`), `keel_live` (`GET /jobs?status=running`, each job's last step), `keel_budget` (`GET /projects/{pid}/budget/now`), `keel_specs` (keel docs, `spec:` wiki pages, `history: true` → `/docs/history/versions`), `keel_knowledge` (`/memory`, `kb:` pages), `keel_search` (`kind: text` → `/repo/search`, `symbol` → `/graph/search`), `keel_read_file` (`/repo/raw`, numbered lines, at most 400, secret files refused before the api is asked), `keel_read_project_file` (0.18.64: any registered project, read from its folder under an agent's read rules), `keel_actions` (every engine action with its level), `keel_run_action`.
 - **write**: `keel_approve_gate`, `keel_resume`, `keel_start_flow`, the plugins' `keel_git_commit`, `keel_git_push`, `keel_pr_create`, `keel_ci_rerun`, `keel_db_change`, and new `keel_answer` (`POST /inbox/{tid}/act { decision, why, payload: { answers, choice } }`, or `POST /inbox/tasks/{id}/act`), `keel_edit_gate` (send back with notes), `keel_restore_doc` (0.15.9 restore).
 - **admin**: `keel_stop_flow` (`POST /threads/{tid}/stop`), `keel_delete_run` (`DELETE /projects/{pid}/flows/{tid}`), `keel_add_project` (only a folder `GET /folders` lists), `keel_remove_project` (`DELETE /api/projects/{pid}`, new: the project is hidden, its history kept; 409 while a flow runs or waits there; `POST /api/projects` with its folder shows it again), `keel_workflows` (list, or one workflow's YAML), `keel_edit_workflow` (`POST /projects/{pid}/workflows/check`, then `PUT /workflows/{wid} { yaml }`; nothing saved when the check has errors).
 - **Engine actions**: `action_docs.ACTION_LEVELS` gives an action its level (read: audit, trace, arch, reports …; write: verify_release, verify_coverage, verify_fast, verify_deps, verify_lint, lint_run, knowledge_check, memory_check, push_check, pr; admin: arch_set, open_pr); every other action is `flow-only`. `POST /api/projects/{pid}/actions/{name} { args }` → engine `POST /projects/{pid}/actions/{name} { root, args, settings }` → `{ ok, note, detail }` (404 unknown, 409 flow-only).
@@ -2343,7 +2344,7 @@ Plan and decisions: `docs/plans/0.17.2.md`.
 
 - **Where rules live** (all files in the project, read by the guard on every tool call): `.keel/config.yml` blocks `guards` (`protected`, `generated`, `read_block`, `bash_deny_always`, `bash_deny_in_flow`, `read_guard_max_lines`, default 2000, 0 = off), `mcp.allow`, `rules` (`off: [<built-in id> | pack/<id>]`, `push_gate: true`, `push_gate_commands: ["git push", "gh pr create"]`), `boundaries.rules`; and rule packs `.keel/rules/<id>.yaml`. `rules.load_config(root)` adds `configured` (the config file exists), `packs` and `pack_errors` (files that could not be used, with why).
 - **Rule pack** (`engine/keel_engine/rules/packs.py`, final format: `docs/rules/pack-format.md`): one YAML file `{schema: 1, kind?: rules, name, title, version, publisher? (local), summary?, stack?, requires?: {keel: range, plugins: {name: range}}, rules: [{id, kind: bash|edit|read|mcp, match: [text], how?: contains|glob|name|regex (default per kind: contains, glob, glob, name), phases?: all|in-flow|none|[phase], lanes?: [api|web], except?: [glob], reason}]}`; `name` is the id and the file name; at most 64 KB; a pack whose `requires.keel` this keel does not meet is not used. A pack rule only refuses; it runs inside `check_edit` (after the always-deny buckets, after unlocks), `check_read`, `check_bash` and `hook.check_mcp`, so the hook, the ToolBox and the diff guard all apply it. The refusal reason ends with `(rule <pack>/<rule>)`. The library is `content/rules/*.yaml` (strict-secrets, no-new-dependencies, migrations-only-in-flow, frontend-not-api, stack-spring, stack-node, stack-python), each `version: 1.0.0`, `publisher: keel`. `.keel/rules/.installed.json` records `{name: {version, source: library|file|marketplace, at, edited?}}`; the pack file stays as published.
-- **Built-in rules** (`rules.BUILTINS`, `can_off`): never off — phase-matrix, env-files, keel-rules-files, migrations-immutable, force-push, no-verify, commit-in-flow, history-rewrite, secrets-at-write, disabled-tests; may be off (`rules.off`) — generated, read-build-output, skip-test-flags, new-dependency, read-twice, big-file-read, push-gate, mcp-writes. The force-push commands and `--no-verify` (always) and `git reset --hard`, `git rebase -i` (in a flow) are refused even when the config's lists drop them (`rules.NEVER_DENY_ALWAYS`, `NEVER_DENY_IN_FLOW`).
+- **Built-in rules** (`rules.BUILTINS`, `can_off`): never off — phase-matrix, env-files, keel-rules-files, migrations-immutable, force-push, no-verify, commit-in-flow, history-rewrite, secrets-at-write, disabled-tests; may be off (`rules.off`) — generated, read-build-output, skip-test-flags, new-dependency, read-twice, big-file-read, push-gate, mcp-writes, other-projects (0.18.64: off, the project keeps to itself both ways). The force-push commands and `--no-verify` (always) and `git reset --hard`, `git rebase -i` (in a flow) are refused even when the config's lists drop them (`rules.NEVER_DENY_ALWAYS`, `NEVER_DENY_IN_FLOW`).
 - **New bucket `keel-rules`**: `.keel/config.yml` and `.keel/rules/**`; always refused to agents (phase `setup` may write `.keel/config.yml`). The api's `KeelRules.classify` has it too.
 - **keel v1 hook gaps closed**: the push gate (`push_blockers` in the guard context, from `runtime/blockers.py for_agents` when the agent starts; only in a project with `.keel/config.yml`); secrets and disabled-test markers in the text an edit adds (Write `content`, Edit `new_string`, MultiEdit, NotebookEdit, a patch's `+` lines; `rules.check_content`) refused before the write, and the diff guard puts back a changed file whose new lines hold one (`bucket: "content"`); big files read with offset/limit; an agent's last failed shell command in `data.last_command_failure {command, output, step, agent}` (not `state.last_failure`); an agent whose answer has none of the step's registered result markers is asked once more (event `agent.reask {agent, missing}`).
 - **Guard context** gains `push_blockers: [{gate, why, fix}]`.
@@ -2902,3 +2903,36 @@ keel TUI (tui.json)  { "follow": false }             (KEEL_TUI_SETTINGS, else ~/
   and chat the following windows share (a window that keeps its own is not in it); with `project` it moves only the
   windows that follow. `McpAudit` leaves `/api/ui/focus` out of the audit as before. Notifications do not read the focus:
   opening one picks its project in that window, shared only when the window follows.
+
+## keel 0.18.64: a flow's agents read the other registered projects (feat/read-other-projects)
+
+A flow's agent may read every other project registered in the same keel, and never change it. Field report bug 5
+(docs/plans/field-report-clarify.md): an agent's `cat` of an upstream project was refused by claude -p with "no
+interactive user response was available".
+
+```
+ api FlowService.buildStart ── StartThread.other_projects [{id, name, root}] (every project but the flow's own)
+ engine thread body ── ThreadContext.other_projects (a flow it starts with start_flow copies it)
+ each agent run ── other_projects.usable(...) ── ToolBox.others, guard context `others`, claude --add-dir <root>
+```
+- **Read**: read_file (ToolBox) and Read (hook) of an absolute path in another project, judged with that project's own
+  `.keel/config.yml` (`rules.check_read`: protected-env, keel's keys, build output, a big file in parts). Shell: a
+  command that names that project's path, changes into it (`cd`, `git -C`) or runs where the shell already is there
+  (the hook call's `cwd`) may use only read-only commands in every part (cat, head, grep, rg, ls, find without
+  -delete/-exec, sed without -i, git log/show/diff/status/blame/grep/ls-files ...), no redirect into it, and its
+  protected-env files are not printed (`runtime/other_projects.py check_command`).
+- **Never write**: Edit/Write (hook) and write_file (ToolBox) there are refused: "<path> is in <name>, another project
+  registered in keel: agents may read it but never change it."
+- **Prompt**: one line per other project after the task ("Other projects registered in keel (read only ...):" then
+  "- name: root"), only when there are any.
+- **Outside**: read_file of a path outside the project and every other project says "<path> is outside this project and
+  is not another project registered in keel; ask the person to add it (keel2 add) or to paste what you need". For a
+  claude agent (guard context `outside_refused`) the hook says it first, for Read and for read commands (cat, ls, grep,
+  ... naming an existing path), so claude's own permission text never reaches the model. The temp folder, /dev and the
+  run's scratch folder stay readable. codex, copilot and opencode read outside the project as before.
+- **Guard context**: `others`, `others_off`, `outside_refused`; absent for KeelBot (it is not told, nothing changes).
+- **Off**: the built-in rule `other-projects` (can_off, `rules.off`): off, the project's agents get no other projects,
+  and other projects' agents (and `keel_read_project_file`) do not get it.
+- **MCP** (read): `keel_read_project_file {project, path, offset?, limit?}` → the file's text, read from the folder keel
+  sees (no plugin route), under the same rules (and `mcp_more.is_secret`), at most 60,000 characters, with a note on how
+  to read on.

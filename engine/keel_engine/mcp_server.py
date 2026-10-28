@@ -614,6 +614,13 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         return guard(more.read_file, api, path, project, start, lines)
 
     @reg(ro)
+    def keel_read_project_file(project: str, path: str, offset: int | None = None, limit: int | None = None) -> str:
+        """keel 0.18.64 one file of a project registered in keel (any of them, e.g. an upstream service a flow needs),
+        read only: its text, from line `offset` (1-based), `limit` lines. The rules a flow's agent reads by: secret files
+        and keel's keys are refused, build output too; a big file is read in parts."""
+        return guard(more.read_project_file, api, project, path, offset, limit)
+
+    @reg(ro)
     def keel_actions() -> str:
         """keel's engine actions (checks, traces, reports ...), each with its level: read, write, admin or flow-only."""
         return more.actions(lvl)

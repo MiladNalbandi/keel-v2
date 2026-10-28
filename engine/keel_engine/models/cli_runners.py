@@ -473,6 +473,10 @@ class ClaudeCLIRunner:
         argv += ["--allowedTools", ",".join(allowed), "--disallowedTools", ",".join(t for t in CLAUDE_HIDDEN if t not in web)]
         if req.system:
             argv += ["--system-prompt", req.system]
+        # keel 0.18.64 the other projects registered in this keel are claude's folders too, so it reads them without
+        # asking ("no interactive user response" otherwise); keel's hook refuses every write there (other_projects.py)
+        for o in getattr(req.toolbox, "others", None) or []:
+            argv += ["--add-dir", o["root"]]
         # keel's guard: its own PreToolUse hook (python -m keel_engine.hook) judges every edit, shell command, read and
         # MCP call against this step's phase before it runs. Always on. Its context file and the settings file live in
         # the run's scratch folder, outside the project, so the agent cannot edit them.

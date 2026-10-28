@@ -67,6 +67,18 @@ class FlowApiTest : ApiTest() {
     }
 
     @Test
+    fun `a flow gets the other registered projects, read only for its agents, never its own`() {
+        val (pid, _) = newProject("reads-others")
+        val (other, otherRoot) = newProject("upstream-service")
+        post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "Take the new payload")).andExpect(status().isOk)
+        val others = engine.lastBody("/threads")!!["other_projects"]
+        assertThat(others.map { it["id"].asText() }).contains(other).doesNotContain(pid)
+        val row = others.first { it["id"].asText() == other }
+        assertThat(row["root"].asText()).isEqualTo(otherRoot.toString())
+        assertThat(row["name"].asText()).isNotBlank()
+    }
+
+    @Test
     fun `agents come from content with phases, and projects can override and add their own`() {
         val (pid, _) = newProject("flow-agents")
         val agents = get("/api/projects/$pid/agents").json()

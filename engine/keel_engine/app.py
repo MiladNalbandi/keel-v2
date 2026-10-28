@@ -138,6 +138,13 @@ class AgentSettings(BaseModel):
     knowledge: AgentKnowledge | None = None
 
 
+class OtherProject(BaseModel):
+    """keel 0.18.64 another project registered in this keel: the flow's agents may read it, never change it."""
+    id: str
+    name: str = ""
+    root: str
+
+
 class StartThread(BaseModel):
     project_id: str
     root: str
@@ -153,6 +160,8 @@ class StartThread(BaseModel):
     request: str | None = None           # what the user asked for, in their words (every agent gets it)
     data: dict[str, Any] | None = None   # lists a workflow reads with from: / for_each: (state.data), e.g. a seed
     parent: dict[str, Any] | None = None # the thread that started this one (start_flow sets it)
+    # keel 0.18.64 every other project registered in this keel (runtime/other_projects.py): read only for the agents
+    other_projects: list[OtherProject] = Field(default_factory=list)
 
 
 class Ask(BaseModel):

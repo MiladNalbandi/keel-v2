@@ -21,6 +21,11 @@ the engine writes the failures into failed.json next to this file).
 push_blockers: [{gate, why, fix}] when the run started (runtime/blockers.py for_agents); while not empty the hook refuses
 an agent's `git push` / `gh pr create` (keel v1 gates.pushBlockers). keel's own push action is not an agent call.
 
+others, others_off, outside_refused (keel 0.18.64, a flow's agents): the other projects registered in this keel
+[{id, name, root}] the agent may read but never change (runtime/other_projects.py); whether the rule other-projects is
+off for this project; and whether the CLI refuses a path outside its folders itself (claude -p, with no reason the model
+can use), so keel refuses such a read first, in plain words. Absent: the run was not told (KeelBot), nothing changes.
+
 knowledge_*: the agent's knowledge setting (runtime/agent_knowledge.py); with strict on, reading a docs/knowledge
 section the agent was not given is refused.
 
@@ -153,6 +158,10 @@ def context_for(req) -> dict:
             "readonly": bool(getattr(tb, "readonly", False)), "ask": getattr(tb, "ask", None),
             "confine": bool(getattr(tb, "confine", False)), "read_tools": read_tools(),
             "push_blockers": list(getattr(tb, "push_blockers", None) or []),
+            # keel 0.18.64 the other projects (a flow's agents only: KeelBot's ToolBox is not told, others is None)
+            **({"others": list(tb.others), "others_off": bool(getattr(tb, "others_off", False)),
+                "outside_refused": (req.model or {}).get("provider") == "claude" and (req.model or {}).get("mode", "api") != "api"}
+               if getattr(tb, "others", None) is not None else {}),
             # keel 0.18.18 KeelBot's only (absent for a flow's agents)
             **{k: v for k, v in (("readonly_label", getattr(tb, "readonly_label", "")),
                                  ("readonly_note", getattr(tb, "readonly_note", "")),
