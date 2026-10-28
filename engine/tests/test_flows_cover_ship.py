@@ -79,7 +79,7 @@ def test_cover_and_ship_templates_validate_and_ship_includes_cover():
     assert feature.step("ship_verify").included_from == "ship" and feature.step("ship_cover_decide").included_from == "ship/cover"
     assert feature.step("red").included_from is None
     assert [(u["name"], u["band"]) for u in ship.skip_units(sh.steps, 0)] == [
-        ("doc_updates", "optional"), ("lint", "optional"), ("release", "deferred"), ("cover", "deferred"), ("deps", "deferred"), ("reviewers", "optional"),
+        ("doc_updates", "optional"), ("lint", "optional"), ("ci", "optional"), ("release", "deferred"), ("cover", "deferred"), ("deps", "deferred"), ("reviewers", "optional"),
         ("spec_walk", "optional")]
 
 

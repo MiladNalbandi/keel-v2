@@ -1,4 +1,4 @@
-workflow feature "feature (keel)" - 126 steps, 19 gates
+workflow feature "feature (keel)" - 127 steps, 19 gates
 
 == Preflight: check the repo and move to the flow's own branch ==  id=preflight
    #  preflight + own branch  (code preflight)
