@@ -86,6 +86,17 @@ class McpApiTest : ApiTest() {
     }
 
     @Test
+    fun `0_18_64 resume sends the MCP servers' env values again, as the engine keeps them only in memory`() {
+        post("/api/mcp-servers", mapOf("name" to "envkeys", "command" to "npx", "env" to mapOf("API_TOKEN" to "fake-mcp-token"))).andExpect(status().isOk)
+        val (pid, _) = newProject("mcp-env-resume")
+        put("/api/projects/$pid/settings", mapOf("mcp" to listOf("keel", "envkeys"))).andExpect(status().isOk)
+        val tid = post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "x")).json()["thread_id"].asText()
+        post("/api/threads/$tid/resume", mapOf("decision" to "approve")).andExpect(status().isOk)
+        assertThat(engine.lastBody("/threads/$tid/resume")!!["keys"]["mcp_env:envkeys:API_TOKEN"].asText()).isEqualTo("fake-mcp-token")
+        delete("/api/mcp-servers/envkeys").andExpect(status().isOk)
+    }
+
+    @Test
     fun `0_18_64 secret refs resolve only when attached to the server, never keel's own logins`(
         @Autowired secrets: keel.api.connections.SecretService,
     ) {
