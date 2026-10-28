@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import keel.api.common.ApiException
 import keel.api.common.BadRequest
 import keel.api.common.Conflict
+import keel.api.common.Forbidden
 import keel.api.common.NotFound
 import keel.api.engine.EngineClient
 import keel.api.flow.FlowService
@@ -165,14 +166,19 @@ class InboxService(
             perProject.map { (id, n) -> InboxProject(id, names[id] ?: id, n) }.sortedBy { it.name.lowercase() })
     }
 
-    /** Answers one inbox item the way the Flow page does; refuses when the thread now waits for something else. */
-    fun act(tid: String, body: InboxAct): JsonNode {
+    /**
+     * Answers one inbox item the way the Flow page does; refuses when the thread now waits for something else.
+     * [mayDecide]: the caller may answer an approval the api asked itself (a person, keel itself or the MCP admin level).
+     */
+    fun act(tid: String, body: InboxAct, mayDecide: Boolean = true): JsonNode {
         if (body.decision !in setOf("approve", "reject")) throw BadRequest("decision must be approve or reject")
         if (jdbc.query("SELECT 1 FROM threads WHERE id = ?", { _, _ -> 1 }, tid).firstOrNull() == null) {
             // P4 an approval keel or a part asked itself (keel Product's send to Jira) is no flow: approve or deny it
             val svc = approvals.ifAvailable
             val a = svc?.find(tid)
             if (svc != null && a != null && !svc.engineOwned(a)) {
+                if (!mayDecide) throw Forbidden("This needs the MCP admin level, or you in keel's Inbox",
+                    "An approval keel asked itself (${a.kind}) is the person's to answer: open keel's Inbox.")
                 svc.decide(tid, if (body.decision == "approve") "approve" else "deny", body.why.orEmpty())
                 return mapper.valueToTree(mapOf("id" to tid, "status" to "decided"))
             }

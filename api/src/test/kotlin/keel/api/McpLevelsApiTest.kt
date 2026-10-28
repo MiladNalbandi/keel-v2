@@ -114,6 +114,22 @@ class McpLevelsApiTest : ApiTest() {
     }
 
     @Test
+    fun `0_18_64 an MCP write token answers flows in the Inbox, never an approval keel asked itself`(
+        @org.springframework.beans.factory.annotation.Autowired approvals: keel.api.approvals.ApprovalService,
+    ) {
+        val a = approvals.create("plugin-install", "", "Install lv-inbox?", "lv-inbox 1.0.0", mapOf("plugin" to "lv-inbox"),
+            requestedBy = "agent")
+        val res = post("/api/inbox/${a.id}/act", mapOf("decision" to "approve"), mcp("write")).andExpect(status().isForbidden).json()
+        assertThat(res["error"].asText()).contains("admin")
+        assertThat(approvals.find(a.id)!!.status).isEqualTo("waiting")
+        // the person (here keel's own token, as the web's) or the admin level may
+        post("/api/inbox/${a.id}/act", mapOf("decision" to "reject"), mcp("admin")).andExpect(status().isOk)
+        assertThat(approvals.find(a.id)!!.status).isEqualTo("denied")
+        val b = approvals.create("plugin-install", "", "Install lv-inbox2?", "lv-inbox2 1.0.0", mapOf("plugin" to "lv-inbox2"))
+        post("/api/inbox/${b.id}/act", mapOf("decision" to "reject")).andExpect(status().isOk)
+    }
+
+    @Test
     fun `the read actions are the engine's`() {
         // Twin of engine tests/test_mcp.py test_read_actions_match_the_api: both pin action_docs.ACTION_LEVELS.
         assertThat(McpLevelGuard.READ_ACTIONS).containsExactlyInAnyOrder("audit", "trace", "trace_strict", "arch", "arch_detect",
