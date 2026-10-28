@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import { questionChain } from "../../core/commands";
 import { answersMessage, blockedByChanges, divergedBase, buttonWords, elsewhere, NOT_SENT_NEW_MESSAGE, prepare, pressButton, type Button } from "../../core/buttons";
 import { fixRequest } from "../../../../web/src/askFix";
+import { pickedMode } from "../../../../web/src/questions";
 import { errorParts } from "../../core/sdk";
 import { api } from "../../core/sdk";
 import type { KeelCore } from "../../core/keel";
@@ -62,7 +63,14 @@ export function useButtonAsks(core: KeelCore, push: (...bs: Block[]) => void) {
     for (const b of buttons) {
       // keel 0.18.9 KeelBot asks the person to choose: the questions one after the other, the answers back to it
       if (b.kind === "questions") {
-        const first = await questionChain(b.questions, (a) => ({ blocks: [], chat: answersMessage(b.questions, a) }));
+        // 0.18.63 an option with "mode": "edit" (KeelBot's "Switch to Edit"): the chat goes on in Edit, as /mode edit,
+        // and the answer already runs in it
+        const first = await questionChain(b.questions, async (a) => {
+          const mode = pickedMode(b.questions, a);
+          const same = mode ? await core.setChatMode(mode) : true;
+          const note = mode ? [{ kind: "dim" as const, text: same ? `  switched to ${mode === "edit" ? "Edit" : "Ask"} mode` : `  ${mode === "edit" ? "Edit" : "Ask"} mode: a new chat` }] : [];
+          return { blocks: note, chat: answersMessage(b.questions, a) };
+        });
         if (first.blocks.length) push(...first.blocks);
         if (first.pick) buttonAsks.current.push(first.pick);
         continue;

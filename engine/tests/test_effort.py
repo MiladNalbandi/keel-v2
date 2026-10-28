@@ -176,3 +176,24 @@ async def test_copilot_cli_gets_the_reasoning_effort_flag(tmp_path, monkeypatch,
     except Exception:  # noqa: BLE001
         pass
     assert "--reasoning-effort" not in (tmp_path / "argv").read_text().splitlines()
+
+
+async def test_copilot_in_a_read_only_run_is_told_it_has_no_shell_and_which_tools_read_instead(tmp_path, monkeypatch, repo):
+    # keel 0.18.63 KeelBot's Ask with Copilot: every shell command is refused (no guard hook), and the model spent its
+    # turns on `cat` and `git diff` that could never run. Now the prompt says so up front and names keel's git tools.
+    copilot_cli(tmp_path, monkeypatch, COPILOT_HELP)
+    model = {"provider": "copilot", "mode": "subscription", "model": "claude-sonnet-4.5"}
+    ro = AgentRequest(agent="helper", system="", prompt="why does sonar fail?", root=str(tmp_path), phase=None, model=model,
+                      toolbox=ToolBox(str(tmp_path), "none", readonly=True), workdir=str(tmp_path))
+    try:
+        await CopilotCLIRunner().run(ro, lambda *a, **k: None)
+    except Exception:  # noqa: BLE001 - the stand-in answers nothing; only its arguments matter here
+        pass
+    argv = (tmp_path / "argv").read_text()
+    assert "--deny-tool\nshell" in argv and "--deny-tool\nwrite" in argv
+    assert "Shell commands are not available" in argv and "git_diff" in argv
+    try:
+        await CopilotCLIRunner().run(req(tmp_path, model), lambda *a, **k: None)
+    except Exception:  # noqa: BLE001
+        pass
+    assert "Shell commands are not available" not in (tmp_path / "argv").read_text()

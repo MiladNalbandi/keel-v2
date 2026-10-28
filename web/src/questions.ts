@@ -143,6 +143,7 @@ export function parseQuestions(raw: unknown): ClarifyQuestion[] {
         label: str(o.label),
         description: str(o.description) || undefined,
         recommended: o.recommended === true,
+        ...(o.mode === "edit" || o.mode === "ask" ? { mode: o.mode as "edit" | "ask" } : {}),
       }));
     if (!question || !options.length) return;
     if (!options.some((o) => o.recommended)) options[0].recommended = true;
@@ -155,6 +156,19 @@ export function parseQuestions(raw: unknown): ClarifyQuestion[] {
     });
   });
   return out;
+}
+
+/** keel 0.18.63 the KeelBot chat mode the picked options ask for (an option with `"mode": "edit"`, KeelBot's "Switch to
+ *  Edit"), or null. Picking it switches the chat before the answer goes, so the answer already runs in that mode. */
+export function pickedMode(questions: ClarifyQuestion[], answers: ClarifyAnswers): "edit" | "ask" | null {
+  for (const q of questions) {
+    const a = answers[q.id];
+    for (const label of Array.isArray(a) ? a : a ? [a] : []) {
+      const m = q.options.find((o) => o.label === label)?.mode;
+      if (m) return m;
+    }
+  }
+  return null;
 }
 
 /** The answers as the next chat message to KeelBot (it starts with ANSWERS_PREFIX). */

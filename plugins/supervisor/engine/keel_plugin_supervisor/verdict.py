@@ -2,6 +2,7 @@
 
     {"action": "answer" | "send_back" | "escalate",
      "decision": "approve" | "reject", "choice": "retry", "answers": {"q1": "Postgres"},
+     "commands": ["composer update -W"]   (a choice that takes commands: init's own_fix)
      "why": "...", "confidence": "high" | "medium" | "low",
      "evidence": ["spec:AC-3", "src/orders.py:88", "knowledge:conventions"], "risks": ["..."],
      "summary": "two or three short lines for the person"}
@@ -52,6 +53,8 @@ def normalize(v: dict) -> dict:
         "decision": str(v.get("decision") or ("reject" if action == "send_back" else "approve")).lower(),
         "choice": v.get("choice") if v.get("choice") not in ("", None) else None,
         "answers": v.get("answers") if isinstance(v.get("answers"), dict) else {},
+        "commands": [str(c).strip() for c in (v.get("commands") if isinstance(v.get("commands"), list) else
+                                              str(v.get("commands") or "").splitlines()) if str(c).strip()][:20],
         "why": str(v.get("why") or "").strip()[:1200],
         "confidence": level if level in LEVELS else "low",
         "evidence": [str(e) for e in (ev if isinstance(ev, list) else [ev])][:20],
@@ -68,6 +71,8 @@ def to_answer(v: dict) -> tuple[str, str, dict]:
         payload["choice"] = v["choice"]
     if v.get("answers"):
         payload["answers"] = v["answers"]
+    if v.get("commands"):
+        payload["commands"] = v["commands"]
     decision = "reject" if v.get("action") == "send_back" else v.get("decision") or "approve"
     return decision, f"supervisor: {v.get('why') or 'no reason given'}", payload
 

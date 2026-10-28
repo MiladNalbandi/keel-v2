@@ -1286,3 +1286,10 @@ pre.prebox-pre { white-space: pre-wrap; overflow-wrap: anywhere; word-break: nor
 .xprompt pre.prebox-pre { margin-top: 0; }
 /* the approval card's details and command (inbox, KeelBot) wrap the same way */
 .inbox-detail, pre.inbox-cmd { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
+
+/* keel 0.18.63 the bar over selected code (components/SelectionBar.tsx): Search, Ask KeelBot, Review */
+.selbar { position: fixed; z-index: 60; display: flex; gap: 2px; padding: 3px; height: 34px; align-items: center;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 9px; box-shadow: var(--shadow); font-size: 12.5px; }
+.selbar-b { border: 0; background: transparent; color: var(--fg); border-radius: 6px; padding: 4px 10px; cursor: pointer;
+  font: inherit; font-weight: 500; white-space: nowrap; }
+.selbar-b:hover, .selbar-b:focus-visible { background: var(--accent-soft); }

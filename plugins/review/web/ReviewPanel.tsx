@@ -670,7 +670,7 @@ export function ChecklistTab({
     comments: `${view.drafts.length} pending comment(s).`,
   };
   return (
-    <ol className="rv-check">
+    <ol className="rv-steps">
       {STEPS.map((s) => (
         <li key={s.id}>
           <label className="chk">

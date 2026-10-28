@@ -10,6 +10,8 @@ import { nameOf, parentOf } from "./model";
 type Props = {
   pid: string;
   focus: number;
+  /** text to search for, from the selection bar (Search); n changes each time */
+  query?: { text: string; n: number } | null;
   onOpen: (path: string, line: number, col: number, len: number, pin: boolean) => void;
 };
 
@@ -35,7 +37,7 @@ function Preview({ text, ranges }: { text: string; ranges: [number, number][] })
   return <>{out}</>;
 }
 
-export function SearchView({ pid, focus, onOpen }: Props) {
+export function SearchView({ pid, focus, query, onOpen }: Props) {
   const [q, setQ] = useState("");
   const [matchCase, setCase] = useState(false);
   const [word, setWord] = useState(false);
@@ -55,6 +57,14 @@ export function SearchView({ pid, focus, onOpen }: Props) {
     input.current?.focus();
     input.current?.select();
   }, [focus]);
+
+  // the selection bar's Search: the selected text, as plain text
+  useEffect(() => {
+    if (!query?.text) return;
+    setQ(query.text);
+    setRegex(false);
+    input.current?.focus();
+  }, [query?.n]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // search as you type, after a short pause; an older answer never replaces a newer one
   useEffect(() => {

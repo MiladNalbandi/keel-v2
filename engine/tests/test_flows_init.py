@@ -55,7 +55,7 @@ DOCTOR = (f"Rung 4 runs `test -f {FLAG}` and the file is missing: nothing built 
           "DIAGNOSIS: fixable")
 
 
-@pytest.mark.parametrize("choice", ["apply_fix", "retry", "skip", "stop"])
+@pytest.mark.parametrize("choice", ["apply_fix", "retry", "own_fix", "skip", "stop"])
 def test_a_failing_rung_shows_the_doctors_diagnosis_and_asks(client, repo, monkeypatch, choice):
     # 0.18.22 the setup-doctor is read-only: it proposes, the rung gate shows its DIAGNOSIS and fix at once and asks
     # apply_fix (keel runs the proposed commands) / retry / skip (not checked) / stop
@@ -65,8 +65,8 @@ def test_a_failing_rung_shows_the_doctors_diagnosis_and_asks(client, repo, monke
     tid = start(client, repo, workflow="init", title="keel init", settings={**SETTINGS, "simulate_checks": False})
     s = to(client, tid, wait(client, tid), "rung_gate")
     w = s["waiting"]
-    assert w["step"] == "rung_gate" and w["choices"] == ["apply_fix", "retry", "skip", "stop"]
-    assert [c["name"] for c in w["choice_info"]] == ["apply_fix", "retry", "skip", "stop"] and w["choice_info"][0]["default"]
+    assert w["step"] == "rung_gate" and w["choices"] == ["apply_fix", "retry", "own_fix", "skip", "stop"]
+    assert [c["name"] for c in w["choice_info"]] == ["apply_fix", "retry", "own_fix", "skip", "stop"] and w["choice_info"][0]["default"]
     assert all(c["description"] for c in w["choice_info"])
     doctors = [r for r in seen if r.agent == "setup-doctor"]
     assert len(doctors) == 1 and doctors[0].item["id"] == "failing-rungs" and [x["n"] for x in doctors[0].item["rungs"]] == [4]
@@ -80,7 +80,8 @@ def test_a_failing_rung_shows_the_doctors_diagnosis_and_asks(client, repo, monke
     if choice == "retry":
         (Path(repo) / "__pycache__").mkdir(exist_ok=True)
         (Path(repo) / FLAG).write_text("")
-    s = decide(client, tid, "approve", why="checked it", payload={"choice": choice})
+    why = f"$ mkdir -p __pycache__\ntouch {FLAG}" if choice == "own_fix" else "checked it"
+    s = decide(client, tid, "approve", why=why, payload={"choice": choice})
     assert any(line.startswith(f"gate rung_gate {choice}") for line in s["gate_log"])
     if choice == "stop":
         assert s["status"] != "waiting" and not (Path(repo) / FLAG).exists()
@@ -155,12 +156,85 @@ def test_a_rung_without_a_proposed_command_offers_no_apply_and_a_destructive_fix
     answers(monkeypatch, {"setup-doctor": lambda r: "No JDK on this machine.\nDIAGNOSIS: needs-you"})
     tid = start(client, repo, workflow="init", title="keel init", settings={**SETTINGS, "simulate_checks": False})
     s = to(client, tid, wait(client, tid), "rung_gate")
-    assert s["waiting"]["choices"] == ["retry", "skip", "stop"] and "proposed no command" in s["waiting"]["detail"]
+    assert s["waiting"]["choices"] == ["retry", "own_fix", "skip", "stop"] and "proposed no command" in s["waiting"]["detail"]
     assert "DIAGNOSIS: needs-you" in s["waiting"]["detail"]
     assert init_actions.fix_commands("x\n```keel-fix\n# start it\n$ docker compose up -d db\n\nnpm ci\n```") == \
         ["docker compose up -d db", "npm ci"]
     assert init_actions.DESTRUCTIVE.search("rm -rf node_modules") and init_actions.DESTRUCTIVE.search("git reset --hard")
     assert not init_actions.DESTRUCTIVE.search("docker compose up -d")
+
+
+# 0.18.63 a narrow fix that kept failing: the doctor proposed it again each round, and a plain approve took apply_fix
+# each time (seven rounds). The doctor now sees the fixes keel ran; one that failed before is not offered again.
+NARROW = "Rung 4 needs one package updated.\n```keel-fix\ntest -f __pycache__/never.flag\n```\nDIAGNOSIS: fixable"
+
+
+def test_a_fix_that_failed_is_not_offered_again_and_a_plain_approve_stops(client, repo, monkeypatch):
+    (Path(repo) / ".keel").mkdir(exist_ok=True)
+    (Path(repo) / ".keel" / "config.yml").write_text(f"commands:\n  api_compile: 'test -f {FLAG}'\n  unit_tests: 'true'\n")
+    seen = answers(monkeypatch, {"setup-doctor": lambda r: NARROW})
+    tid = start(client, repo, workflow="init", title="keel init", settings={**SETTINGS, "simulate_checks": False})
+    s = to(client, tid, wait(client, tid), "rung_gate")
+    assert s["waiting"]["choices"][0] == "apply_fix"
+    s = decide(client, tid, "approve", payload={"choice": "apply_fix"})
+    w = s["waiting"]
+    assert w["step"] == "rung_gate" and "apply_fix" not in w["choices"] and w["choices"][0] == "stop"
+    assert "## keel stops the loop" in w["detail"] and "already ran, and it failed" in w["detail"]
+    doctors = [r for r in seen if r.agent == "setup-doctor"]
+    tried = doctors[-1].item["fixes_tried"]
+    assert len(doctors) == 2 and tried[0]["commands"] == ["test -f __pycache__/never.flag"] and not tried[0]["ok"]
+    assert "exit 1" in tried[0]["log"] and doctors[-1].item["runs_in"] == "on this machine, in keel's own shell"
+    assert "never propose one of them again" in doctors[-1].prompt
+    s = decide(client, tid, "approve")
+    assert s["status"] != "waiting" and any(line.startswith("gate rung_gate stop") for line in s["gate_log"])
+
+
+def test_after_three_failed_fixes_the_gate_offers_no_apply_fix(tmp_path):
+    from keel_engine.runtime import init_actions
+    from keel_engine.runtime.actions import ActionInput
+
+    tried = [{"commands": [f"fix {i}"], "key": f"fix {i}", "ok": False} for i in range(init_actions.FIX_ROUNDS)]
+    a = ActionInput(root=str(tmp_path), phase="setup", title="keel init", ac=None, acs=[], fake=True, flow="init",
+                    data={"rung_question": {"n": 6, "name": "unit tests", "cmd": "x"}, "rung_fixes_tried": tried,
+                          "doctor_results": [{"text": "```keel-fix\nsomething new\n```", "markers": {"DIAGNOSIS": "fixable"}}]})
+    data = init_actions._rung_report(a).update["data"]
+    assert data["rung_gate_without"] == ["apply_fix"] and data["rung_gate_order"] == ["stop"]
+    assert "3 fixes failed on this rung" in data["rung_gate_detail"]
+    a.data["rung_fixes_tried"] = tried[:1]
+    data = init_actions._rung_report(a).update["data"]
+    assert data["rung_gate_without"] == [] and data["rung_gate_order"] == []
+    assert init_actions.own_commands({"why": "$ composer update -W\n# then\n\nphp -v"}) == ["composer update -W", "php -v"]
+    assert init_actions.own_commands({"why": "x", "payload": {"commands": ["a", "b"]}}) == ["a", "b"]
+
+
+def _devcontainer(root: Path, body: str) -> None:
+    (root / ".devcontainer").mkdir(exist_ok=True)
+    (root / ".devcontainer" / "devcontainer.json").write_text(body)
+
+
+def test_the_fix_runs_where_init_says_the_tools_live(tmp_path):
+    # 0.18.63 runs_on "dev container" was kept but never used: the rungs and the doctor's fix ran on keel's side
+    from keel_engine.runtime import container, init_actions, init_gates
+    from keel_engine.runtime.actions import ActionInput
+
+    a = ActionInput(root=str(tmp_path), phase="setup", title="keel init", ac=None, acs=[], fake=True, flow="init",
+                    data={}, init={"runs_on": "dev container"})
+    log, ok = init_actions._run_fix(a, ["composer update -W"])
+    assert not ok and "no .devcontainer/devcontainer.json" in log
+    _devcontainer(tmp_path, '{\n  // the app service\n  "dockerComposeFile": ["../compose.yml", "dev.yml"],\n'
+                            '  "service": "php",\n  "workspaceFolder": "/app",\n}\n')
+    prefix = "docker compose -f compose.yml -f .devcontainer/dev.yml exec -T php"
+    assert container.devcontainer(str(tmp_path)) == {"prefix": prefix, "source": ".devcontainer/devcontainer.json"}
+    log, ok = init_actions._run_fix(a, ["composer update -W", "php -v && composer validate", "docker compose up -d db"])
+    assert ok and f"$ {prefix} composer update -W" in log
+    assert f"$ {prefix} sh -c 'php -v && composer validate'" in log and "$ docker compose up -d db\n" in log
+    assert "`" + prefix + " <command>`" in init_actions._runs_in(a)
+    cmds = init_gates.answered_commands(str(tmp_path), {"runs_on": "dev container"},
+                                        {"unit_tests": "vendor/bin/phpunit", "web_test_module": "npm test"})
+    assert cmds == {"unit_tests": f"{prefix} vendor/bin/phpunit", "web_test_module": "npm test"}
+    _devcontainer(tmp_path, '{"image": "php:8.5-cli"}')
+    assert init_gates.run_prefix(str(tmp_path), {"runs_on": "dev container"}) == "devcontainer exec --workspace-folder ."
+    assert init_gates.run_prefix(str(tmp_path), {"runs_on": "this machine"}) is None
 
 
 def test_audit_now_can_start_a_hunt(client, repo, monkeypatch):

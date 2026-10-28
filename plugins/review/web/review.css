@@ -113,8 +113,10 @@
 .rv-comment { display: grid; gap: 2px; }
 .rv-comment .md { font-size: 13px; }
 .rv-reply { display: grid; gap: 6px; }
-.rv-check { margin: 0; padding-left: 0; list-style: none; display: grid; gap: 10px; }
-.rv-check .chk { display: flex; gap: 8px; align-items: flex-start; }
+/* the Checklist tab's steps (0.18.63 its own name: .rv-check is a CI check's row, a 4-column grid, and squeezed the
+   steps into its 10px first column) */
+.rv-steps { margin: 0; padding-left: 0; list-style: none; display: grid; gap: 10px; }
+.rv-steps .chk { display: flex; gap: 8px; align-items: flex-start; }
 
 /* popups: usages, Find action, Submit */
 .rv-pop { width: min(680px, 100%); }

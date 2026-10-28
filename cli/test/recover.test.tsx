@@ -209,3 +209,27 @@ describe("KeelBot's question card after a failure", () => {
     t.r.unmount();
   });
 });
+
+describe("0.18.63 KeelBot's \"Switch to Edit\" option", () => {
+  it("switches the chat to Edit before its answer goes, so the answer already runs in Edit", async () => {
+    const t = setup();
+    await busyChat(t);
+    t.stub.answer(`Ask mode is read only, so I cannot change it here.
+
+\`\`\`keel-questions
+[{"id": "next", "question": "How do we go on?",
+  "options": [{"label": "Switch to Edit and fix it", "mode": "edit", "recommended": true}, {"label": "Leave it"}]}]
+\`\`\``);
+    t.core.onMessage(ev("helper.finished", { status: "done" }));
+    await waitFor(() => t.probe.pick);
+    await t.key("\r");
+    const turns = () => t.stub.calls.filter((c) => c.path === "/api/projects/demo/helper/sessions/s1/turn");
+    await waitFor(() => turns().length === 2);
+    const patch = t.stub.calls.findIndex((c) => c.method === "PATCH" && c.path === "/api/projects/demo/helper/sessions/s1");
+    expect(t.stub.calls[patch]?.body).toEqual({ mode: "edit" });
+    expect(patch).toBeLessThan(t.stub.calls.indexOf(turns()[1]));
+    expect((turns()[1].body as { text: string }).text).toBe("Answers to your questions:\n1. How do we go on?\n   → Switch to Edit and fix it");
+    expect(t.frame()).toContain("switched to Edit mode");
+    t.r.unmount();
+  });
+});

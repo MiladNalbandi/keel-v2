@@ -657,11 +657,20 @@ class CodexCLIRunner:
                            data={"failed_command": state["failed"]} if state.get("failed") else {})
 
 
+# keel 0.18.63 copilot has no hook for keel's guard, so a read-only run (KeelBot's Ask) denies every shell command. Said
+# up front, it does not spend its turns on commands that are refused and reads with what it has instead.
+COPILOT_READONLY = ("Shell commands are not available in this read-only run (every one is refused, git and cat too): "
+                    "do not try them. Read files with your read, grep and glob tools, and use keel's git tools "
+                    "(git_diff, git_log, git_show, git_status, git_blame) for the branch, its diff and its history.")
+
+
 class CopilotCLIRunner:
     """`copilot -p` prints plain text, so each non-empty line is a text step and tokens are estimated."""
 
     async def run(self, req: AgentRequest, emit: Emit) -> AgentResult:
         prompt = f"{req.system}\n\n{req.prompt}" if req.system else req.prompt
+        if getattr(req.toolbox, "readonly", False):
+            prompt = f"{prompt}\n\n{COPILOT_READONLY}"
         # --disable-builtin-mcps: GitHub's own MCP servers would add their tool descriptions to every turn, and keel's
         # agents never need them (keel opens the PR itself)
         argv = [find("copilot"), "-p", prompt, "--allow-all-tools", "--no-color", "--disable-builtin-mcps"]

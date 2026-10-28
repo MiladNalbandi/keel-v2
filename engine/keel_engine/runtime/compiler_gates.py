@@ -52,7 +52,7 @@ class GateMixin:
             self.ctx.emit("gate.decided", step=step.id, data={"gate": step.name, "decision": "approve", "why": f"waived: {waived}"})
             upd = {"gates": gates, "note": f"{step.name}: waived ({waived})"}
             if isinstance(step.choices, dict):
-                first = next(iter(step.choices))
+                first = self._open_choices(step, state)[0]     # not one a step before ruled out (init: apply_fix)
                 upd["data"] = {**(state.get("data") or {}), f"{step.id}_answer": {"choice": first, "why": "waived", "payload": {}}}
                 return upd, self.nav.jump(step.choices[first], i)
             if step.choices:
