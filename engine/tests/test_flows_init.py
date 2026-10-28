@@ -237,6 +237,17 @@ def test_the_fix_runs_where_init_says_the_tools_live(tmp_path):
     assert init_gates.run_prefix(str(tmp_path), {"runs_on": "this machine"}) is None
 
 
+def test_keel_simulate_checks_0_runs_the_rungs_on_the_fake_model(client, repo, monkeypatch):
+    # 0.18.64 an e2e on the fake model (KEEL_FAKE=1) sees a real setup rung fail: the api has no simulate_checks setting
+    (Path(repo) / ".keel").mkdir(exist_ok=True)
+    (Path(repo) / ".keel" / "config.yml").write_text("commands:\n  api_compile: 'false'\n  unit_tests: 'true'\n")
+    answers(monkeypatch, {"setup-doctor": lambda r: "Nothing to run.\nDIAGNOSIS: needs-you"})
+    monkeypatch.setenv("KEEL_SIMULATE_CHECKS", "0")
+    tid = start(client, repo, workflow="init", title="keel init", settings=SETTINGS)
+    s = to(client, tid, wait(client, tid), "rung_gate")
+    assert s["waiting"]["step"] == "rung_gate" and "Rung 4" in s["waiting"]["detail"]
+
+
 def test_audit_now_can_start_a_hunt(client, repo, monkeypatch):
     answers(monkeypatch, {})
     tid = start(client, repo, workflow="init", title="keel init", settings=SETTINGS)

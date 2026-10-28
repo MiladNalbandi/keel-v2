@@ -32,7 +32,7 @@ import uuid
 from keel_engine import extensions, models
 from keel_engine.models.base import AgentRequest, ModelError
 from keel_engine.runtime import side_usage
-from keel_engine.runtime.compiler import budget_tokens
+from keel_engine.runtime.compiler import budget_tokens, stronger
 from keel_engine.runtime.service import EngineError
 from keel_engine.tools.agent_tools import ToolBox
 
@@ -54,6 +54,18 @@ def settings_of(raw: dict | None) -> dict:
     s = {**DEFAULTS, **{k: v for k, v in (raw or {}).items() if v is not None}}
     s["mode"] = s["mode"] if s["mode"] in MODES else "shadow"
     return s
+
+
+def model_for(sset: dict, project_models: dict | None) -> dict:
+    """The model of a look: the flow's own (settings.supervisor.model), else the project's supervisor model, else one step
+    above the project's default (0.18.64: Opus for Claude, high effort for Codex and Copilot). It judges a gate the other
+    agents could not settle, so it should not be the same model that wrote the work."""
+    pm = project_models or {}
+    if sset.get("model"):
+        return dict(sset["model"])
+    if pm.get("supervisor"):
+        return dict(pm["supervisor"])
+    return stronger(dict(pm.get("default") or {}))
 
 
 class Supervisor:
@@ -272,7 +284,7 @@ class Supervisor:
         if v is None:
             return self._escalate(row, "no-verdict")
         row.update(action=v["action"], why=v["why"], confidence=v["confidence"], evidence=v["evidence"],
-                   summary=v["summary"], choice=v["choice"], answers=v["answers"])
+                   summary=v["summary"], choice=v["choice"], answers=v["answers"], commands=v["commands"])
         decision, why, payload = verdict.to_answer(v)
         row["decision"] = decision
         code = None
@@ -315,7 +327,7 @@ class Supervisor:
         """The model's look: read-only tools, the thread's keys. Returns (verdict, spent, model, ms, error). The api
         stores it as an agent call (supervisor.started / supervisor.finished), so the Budget page counts it."""
         ctx = await self.engine._context(tid)
-        model = dict(sset.get("model") or (ctx.models or {}).get("supervisor") or (ctx.models or {}).get("default") or {})
+        model = model_for(sset, ctx.models)
         if sset.get("effort"):
             model["effort"] = sset["effort"]
         model = models.effective(model)

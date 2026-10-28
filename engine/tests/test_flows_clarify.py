@@ -251,6 +251,26 @@ def test_send_back_writes_the_outputs_again_with_the_note(client, repo, monkeypa
     assert len(again) == 2 and "split AC-1 in two" in (again[1].feedback or "")
 
 
+def test_a_note_survives_the_spec_checks_send_back_and_a_second_reject(client, repo, monkeypatch):
+    # 0.18.64 a reject note was used once, then the spec check sent the outputs back with only its own findings as the
+    # feedback, and the outputs were written again without the note (the gate showed the old spec)
+    calls = []
+
+    def assemble(req):
+        calls.append(req)
+        full = fake_mod.clarify_answer(req)
+        return full.replace("## Test layers", "## Notes") if len(calls) == 2 else full   # the reject's pass misses one
+    tid, s, _seen = to_rounds(client, repo, monkeypatch, {"assemble the outputs": assemble}, sections=["2", "3"])
+    s = decide(client, tid, "approve", why="the id field is required, not optional", payload={"choice": "reject"})
+    assert s["waiting"]["step"] == "result" and len(calls) == 3
+    retry = calls[2]
+    assert "Test layers" in (retry.feedback or "") and "the id field is required, not optional" in retry.feedback
+    assert "the id field is required, not optional" in retry.prompt
+    s = decide(client, tid, "approve", why="keep the old route too", payload={"choice": "reject"})
+    assert values(client, tid)["data"]["clarify"]["notes"] == ["the id field is required, not optional", "keep the old route too"]
+    assert "the id field is required, not optional" in calls[-1].prompt and "keep the old route too" in calls[-1].prompt
+
+
 def test_types_map_to_their_flows_and_templates():
     assert set(clarify_flow.TYPES) == set(clarify_flow.QUESTIONS) == set(clarify_flow.TEMPLATES) == set(clarify_flow.FLOWS)
     assert clarify_flow.FLOWS["bug"][0] == "fix" and clarify_flow.FLOWS["feature"][0] == "feature"

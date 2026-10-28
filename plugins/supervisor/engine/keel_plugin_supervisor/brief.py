@@ -22,7 +22,9 @@ Rules:
 - A send-back ("send_back", decision "reject") needs a "why" the next agent can act on.
 - A choice that runs commands you name (init's own_fix on a failing setup rung): put them in "commands", one string
   each, without a container prefix. When the gate's own fix already failed, this is how you offer a better one; also
-  when you escalate, so the owner can take your commands with one click.
+  when you escalate, so the owner can run your commands with one click (the Supervisor tab's "Run these commands").
+- A big file (a lock file, a generated file) is refused as a whole read: search it (grep) or read the lines you need
+  (offset and limit). Never decide from the gate text alone when the file that settles it is in the project.
 
 End your answer with exactly one JSON object in a ```json block:
 {"action": "answer|send_back|escalate", "decision": "approve|reject", "choice": null, "answers": {}, "commands": [],

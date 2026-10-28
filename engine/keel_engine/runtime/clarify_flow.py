@@ -514,10 +514,23 @@ async def clarify_doc(a):
     return await asyncio.to_thread(_doc, a)
 
 
+def notes_of(a) -> list[str]:
+    """The person's notes from the clarify result's reject, oldest first (0.18.64). Each one stays in the assemble step's
+    prompt ({{data.clarify.notes}}): a send-back by the spec check, or a later reject, used to replace the note in the
+    feedback, and the outputs were written again from the request and the answers alone."""
+    notes = [str(x) for x in _state(a).get("notes") or [] if str(x).strip()]
+    ans = a.data.get("result_answer") or {}
+    why = str(ans.get("why") or "").strip()
+    if ans.get("choice") == "reject" and why and why not in notes:
+        notes.append(why)
+    return notes
+
+
 def _doc(a):
     from . import spec_check
 
     st = _state(a)
+    notes = notes_of(a)
     kind = st.get("type") or "feature"
     chosen = st.get("sections") or list(range(1, 7))
     said = str(a.data.get("assemble_text") or a.state.get("last_answer") or "")
@@ -564,12 +577,16 @@ def _doc(a):
     found = spec_check.check(text, acs, spec_check.outside_facts(a.request, a.data))
     fixes = [f for f in found if f["level"] == "fix"]
     if fixes and not st.get("checked"):
-        data = _data(a, doc=rel, checked=True)
+        data = _data(a, doc=rel, checked=True, notes=notes)
         mk = dict(a.state.get("markers") or {})
         mk[a.step or "write_doc"] = {"SPEC-CHECK": "fix"}
+        note = spec_check.revision_note(fixes).replace("Change the existing file to fix them",
+                                                       "Write your whole answer again with them fixed")
+        if notes:
+            note += ("\n\nThe person's notes on the outputs still apply, all of them: keep every correction your last "
+                     "answer made for them.\n" + "\n".join(f"- {x}" for x in notes))
         return _result(True, f"{rel}: the spec check sends the outputs back once ({len(fixes)} missing)",
-                       update={"data": data, "markers": mk, "feedback": spec_check.revision_note(fixes)
-                               .replace("Change the existing file to fix them", "Write your whole answer again with them fixed")})
+                       update={"data": data, "markers": mk, "feedback": note})
 
     # the hand-over: what the person reported, the criteria as AC lines (change and small read them from the request)
     ac_lines = "\n".join(f"- **{x['id']}** [{x['layer']}] {x['title']}" for x in acs)
@@ -586,7 +603,7 @@ def _doc(a):
     detail = "\n".join([f"Clarify document: {rel} ({len(acs)} acceptance criteria)", "", "Choose one:", *choice_lines, "",
                         spec_check.describe(found), "", "---", "", text])
     data = _data(a, doc=rel, acs=acs or None, prompt=prompt, request=handed, evidence=text, flows=flows, checked=False,
-                 spec_check=[f["text"] for f in found])
+                 spec_check=[f["text"] for f in found], notes=notes)
     data.update(result_detail=detail, result_without=without, result_order=order)
     mk = dict(a.state.get("markers") or {})
     mk[a.step or "write_doc"] = {"SPEC-CHECK": "pass"}

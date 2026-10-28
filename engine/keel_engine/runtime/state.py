@@ -115,8 +115,11 @@ class ThreadContext:
 
     @property
     def simulate_checks(self) -> bool:
-        """Simulate test runs? Default: when every model is fake. settings.simulate_checks overrides."""
+        """Simulate test runs? Default: when every model is fake. settings.simulate_checks overrides, then
+        KEEL_SIMULATE_CHECKS (config.simulate_checks)."""
         v = self.settings.get("simulate_checks")
+        if v is None:
+            v = config.simulate_checks()
         return self.fake if v is None else bool(v)
 
     def add_unlocks(self, new: list[dict]) -> list[dict]:

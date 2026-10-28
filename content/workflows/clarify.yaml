@@ -132,6 +132,11 @@ steps:
       own fences). Never put an AC id inside a drawing. When your outputs come back with a note or the spec check's
       findings, write your whole answer again with them.
 
+      The person's notes on earlier outputs (each one still applies and wins over the answers below; keep every
+      correction made for them):
+
+      {{data.clarify.notes}}
+
       The sections:
 
       {{data.clarify.running}}

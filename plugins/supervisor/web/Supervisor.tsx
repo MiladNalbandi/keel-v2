@@ -17,6 +17,8 @@ export type Decision = {
   why: string | null;
   confidence: string | null;
   evidence: string[];
+  /** 0.18.64 an own_fix verdict's commands (a failing setup rung): "Run these commands" sends them as your answer */
+  commands?: string[];
   code: string | null;
   summary: string | null;
   tokens: number;
@@ -42,6 +44,9 @@ export const supervisor = {
   setKeel: (on: boolean) => post<{ on: boolean }>("/supervisor/switch", { on }),
   project: (pid: string) => get<ProjectSwitch>(`${base(pid)}/supervisor/switch`),
   setProject: (pid: string, on: boolean | null) => post<ProjectSwitch>(`${base(pid)}/supervisor/switch`, { on }),
+  /** your answer to the waiting gate: own_fix with the Supervisor's commands */
+  runCommands: (tid: string, commands: string[]) => post<unknown>(`/threads/${encodeURIComponent(tid)}/resume`, {
+    decision: "approve", why: "the Supervisor's commands", payload: { choice: "own_fix", commands } }),
 };
 
 const tri = (v: boolean | null | undefined) => (v === true ? "on" : v === false ? "off" : "follow");
@@ -154,6 +159,33 @@ function FlowSwitch({ pid, tid, title, version, onChanged }: { pid: string; tid:
   );
 }
 
+/** A suggested own_fix: its commands, and a button that sends them as your answer (keel runs them where the rungs run). */
+function Commands({ d, live, onDone }: { d: Decision; live: boolean; onDone: () => void }) {
+  const [state, setState] = useState<"idle" | "busy" | "sent" | string>("idle");
+  if (!d.commands?.length) return null;
+  const run = async () => {
+    setState("busy");
+    try {
+      await supervisor.runCommands(d.thread_id, d.commands!);
+      setState("sent");
+      onDone();
+    } catch (e) {
+      setState(e instanceof Error ? e.message : String(e));
+    }
+  };
+  const open = live && d.outcome !== "applied" && d.choice === "own_fix";
+  return (
+    <div>
+      <pre aria-label="Suggested commands">{d.commands.map((c) => `$ ${c}`).join("\n")}</pre>
+      {open && state !== "sent" && (
+        <button type="button" disabled={state === "busy"} onClick={() => void run()}>Run these commands</button>
+      )}
+      {state === "sent" && <span role="status">Sent: keel runs them, then the ladder again.</span>}
+      {!["idle", "busy", "sent"].includes(state) && <span role="alert">{state}</span>}
+    </div>
+  );
+}
+
 export function SupervisorView({ pid }: { pid: string }) {
   const rows = useLoad(`supervisor-log:${pid}`, () => supervisor.decisions(pid));
   const flow = useLoad(`supervisor-flow:${pid}`, () => supervisor.flow(pid));
@@ -184,7 +216,10 @@ export function SupervisorView({ pid }: { pid: string }) {
                 <td>{[d.step, d.ac].filter(Boolean).join(" ")}</td>
                 <td>{outcomeText(d)}</td>
                 <td>{d.confidence ?? ""}</td>
-                <td title={(d.evidence || []).join("\n")}>{d.summary || d.why || ""}</td>
+                <td title={(d.evidence || []).join("\n")}>
+                  {d.summary || d.why || ""}
+                  <Commands d={d} live={!!live && d.thread_id === t?.thread_id} onDone={() => void rows.reload()} />
+                </td>
                 <td>{d.tokens.toLocaleString()}</td>
               </tr>
             ))}

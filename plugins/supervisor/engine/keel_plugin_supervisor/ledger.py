@@ -18,13 +18,15 @@ _TABLE = """create table if not exists supervisor_decisions (
   kind text, title_key text, trigger text not null, action text not null, decision text, choice text, answers_json text,
   why text, confidence text, evidence_json text, code text, summary text, model text, effort text,
   tokens integer not null default 0, cost_usd real not null default 0, ms integer not null default 0,
-  outcome text not null, at text not null
+  outcome text not null, at text not null, commands_json text
 )"""
+# 0.18.64 the commands of an own_fix verdict: a table made before has no such column yet
+_ADD = "alter table supervisor_decisions add column commands_json text"
 _INDEX = "create index if not exists supervisor_decisions_thread on supervisor_decisions (thread_id, at)"
 _ready: set[str] = set()
 COLS = ("id", "project_id", "thread_id", "question_id", "step", "ac", "kind", "title_key", "trigger", "action",
         "decision", "choice", "answers_json", "why", "confidence", "evidence_json", "code", "summary", "model", "effort",
-        "tokens", "cost_usd", "ms", "outcome", "at")
+        "tokens", "cost_usd", "ms", "outcome", "at", "commands_json")
 
 
 @contextmanager
@@ -34,6 +36,8 @@ def _db():
         if p not in _ready:
             conn.execute(_TABLE)
             conn.execute(_INDEX)
+            if "commands_json" not in {r[1] for r in conn.execute("pragma table_info(supervisor_decisions)")}:
+                conn.execute(_ADD)
             _ready.add(p)
         yield conn
 
@@ -45,6 +49,7 @@ def record(**row) -> dict:
     full["at"] = full["at"] or db.now()
     full["answers_json"] = json.dumps(row.get("answers") or {})
     full["evidence_json"] = json.dumps(row.get("evidence") or [])
+    full["commands_json"] = json.dumps(row.get("commands") or [])
     for k in ("tokens", "ms"):
         full[k] = int(full[k] or 0)
     full["cost_usd"] = float(full["cost_usd"] or 0)
@@ -58,6 +63,7 @@ def _out(r: dict) -> dict:
     r = dict(r)
     r["answers"] = json.loads(r.pop("answers_json") or "{}")
     r["evidence"] = json.loads(r.pop("evidence_json") or "[]")
+    r["commands"] = json.loads(r.pop("commands_json", None) or "[]")
     return r
 
 
