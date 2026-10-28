@@ -87,7 +87,7 @@
    "agent": "explorer",
    "model": "default",
    "phase": "spec",
-   "instructions": "Build the clarify outputs from the request, the code and the answers (keel's clarify flow, the clarify-loop from the person's ai-coding-toolkit). Write no file: keel writes the document from your answer, as a keel spec (keel's spec template, {{data.clarify.spec_template}}, and the spec-writing skill: the same sections keel's spec check asks for); it adds the front matter, the Request, the Definition of done and the prompt appendix itself. Read the code you cite (edit nothing). Answer with these \"## \" headings, in this order, each one filled: \"## In plain words\": 5 to 10 short sentences for a colleague who does not know the code: what is wrong or missing today, what we will do, what a user will notice, what stays the same, what we still need to find out; simple English, no file names or jargon, one everyday example. \"## For engineers\": 8 to 15 precise lines: the change at each layer (inbound, parsing, the message contract, the handler, persistence, outbound) with the classes and tables named; the key design choices and why (idempotency, ordering, null semantics, transaction scope); compatibility (rolling deploy, old messages, old clients); where it can fail and how we see it (logs, metrics). \"## What will change\": a plain-words list a reader can scan in 30 seconds, one line each: the file or area, new / changed / removed, and what happens to it. \"## Payload changes\": for every request, response or message whose shape changes, its JSON before and after in fenced blocks, each new, changed or removed field marked with a `// +`, `// ~` or `// -` comment, and the compatibility note (old clients, messages already queued); or \"none: <the reason, in one line>\". \"## Database changes\": always; \"none: <the reason, in one line>\" when the schema and the data stay; else the table before and after (columns with types, nullability and indexes, the changed ones marked + / ~ / -), the migration (its name, the up and the down SQL, online or locking on this database engine, the row count when known), any backfill or data fix and its cost, the deploy order (migration, then consumer, then producer), the rollback and the data it loses, and the repository or query methods that change. \"## Architecture\": a fenced ASCII diagram of the request path through the layers (inbound \u2192 app \u2192 domain \u2192 persistence \u2192 outbound), each box marked [new], [changed] or [unchanged], then one line on why it fits the existing layers (file:line). \"## Goal\" (two or three sentences: the outcome, not the how). \"## User stories\" (\"As a <role>, I want <capability>, so that <benefit>.\", one per actor). \"## Decisions\" (each answer as a sentence, with the question it answers). \"## Findings (evidence)\" (what is true today, each claim with its file:line; the inbound, internal-message, persistence and outbound paths the change touches, and the tests that exist). \"## Acceptance criteria\": numbered, testable criteria, one per line in exactly this form: \"- **AC-1** [API] Given <context>, when <action>, then <observable result>\" ([API] a backend test, [WEB] a frontend test, [E2E] a journey that needs a browser, [SMOKE] a check that must also pass after a deploy); each observable, testable, and small enough to map to one test; one rule per criterion, its cases as examples. \"## Test layers\" (each criterion: unit, functional, integration, smoke, e2e, or why not). \"## UI mockup\" only with a [WEB] criterion (fenced ASCII, four states: loading, empty, filled, error). \"## Request path\" only with an [API] criterion (fenced ASCII, one hop a line, each marked + new or ~ changed). \"## Data and migrations\" (or \"none\", see Database changes). \"## Validation and security rules\". \"## Edge cases\". \"## Risks and cost\". \"## Assumptions\". \"## Unverified and open questions\" (each fact no source confirms and who must confirm it, or \"none\"). \"## Out of scope\". Then, only for the sections chosen: \"## Red-flag check\" (each red flag that holds, with why, or \"none\"), \"## Next step\" (the keel flow to hand over to: feature, fix, change, small or spike, why, and what context to bring), and \"## Assembled prompt\": the task type's template below with every placeholder in double braces filled from the request, the code (file:line) and the answers, keeping the template's words (\"unknown\" where nothing says it), between a line ````prompt and a line ```` (four backticks: the template has its own fences). Never put an AC id inside a drawing. When your outputs come back with a note or the spec check's findings, write your whole answer again with them.\nThe sections:\n{{data.clarify.running}}\nThe template for this task type:\n{{data.clarify.template}}\nThe red flags:\n{{data.clarify.red_flags}}\nWhat each question already says (the rounds' record):\n{{data.rounds_text}}\nThe person's answers:\n{{data.rounds_answers}}\nThe first read of the request and the code:\n{{data.read_text}}",
+   "instructions": "Build the clarify outputs from the request, the code and the answers (keel's clarify flow, the clarify-loop from the person's ai-coding-toolkit). Write no file: keel writes the document from your answer, as a keel spec (keel's spec template, {{data.clarify.spec_template}}, and the spec-writing skill: the same sections keel's spec check asks for); it adds the front matter, the Request, the Definition of done and the prompt appendix itself. Read the code you cite (edit nothing). Answer with these \"## \" headings, in this order, each one filled: \"## In plain words\": 5 to 10 short sentences for a colleague who does not know the code: what is wrong or missing today, what we will do, what a user will notice, what stays the same, what we still need to find out; simple English, no file names or jargon, one everyday example. \"## For engineers\": 8 to 15 precise lines: the change at each layer (inbound, parsing, the message contract, the handler, persistence, outbound) with the classes and tables named; the key design choices and why (idempotency, ordering, null semantics, transaction scope); compatibility (rolling deploy, old messages, old clients); where it can fail and how we see it (logs, metrics). \"## What will change\": a plain-words list a reader can scan in 30 seconds, one line each: the file or area, new / changed / removed, and what happens to it. \"## Payload changes\": for every request, response or message whose shape changes, its JSON before and after in fenced blocks, each new, changed or removed field marked with a `// +`, `// ~` or `// -` comment, and the compatibility note (old clients, messages already queued); or \"none: <the reason, in one line>\". \"## Database changes\": always; \"none: <the reason, in one line>\" when the schema and the data stay; else the table before and after (columns with types, nullability and indexes, the changed ones marked + / ~ / -), the migration (its name, the up and the down SQL, online or locking on this database engine, the row count when known), any backfill or data fix and its cost, the deploy order (migration, then consumer, then producer), the rollback and the data it loses, and the repository or query methods that change. \"## Architecture\": a fenced ASCII diagram of the request path through the layers (inbound \u2192 app \u2192 domain \u2192 persistence \u2192 outbound), each box marked [new], [changed] or [unchanged], then one line on why it fits the existing layers (file:line). \"## Goal\" (two or three sentences: the outcome, not the how). \"## User stories\" (\"As a <role>, I want <capability>, so that <benefit>.\", one per actor). \"## Decisions\" (each answer as a sentence, with the question it answers). \"## Findings (evidence)\" (what is true today, each claim with its file:line; the inbound, internal-message, persistence and outbound paths the change touches, and the tests that exist). \"## Acceptance criteria\": numbered, testable criteria, one per line in exactly this form: \"- **AC-1** [API] Given <context>, when <action>, then <observable result>\" ([API] a backend test, [WEB] a frontend test, [E2E] a journey that needs a browser, [SMOKE] a check that must also pass after a deploy); each observable, testable, and small enough to map to one test; one rule per criterion, its cases as examples. \"## Test layers\" (each criterion: unit, functional, integration, smoke, e2e, or why not). \"## UI mockup\" only with a [WEB] criterion (fenced ASCII, four states: loading, empty, filled, error). \"## Request path\" only with an [API] criterion (fenced ASCII, one hop a line, each marked + new or ~ changed). \"## Data and migrations\" (or \"none\", see Database changes). \"## Validation and security rules\". \"## Edge cases\". \"## Risks and cost\". \"## Assumptions\". \"## Unverified and open questions\" (each fact no source confirms and who must confirm it, or \"none\"). \"## Out of scope\". Then, only for the sections chosen: \"## Red-flag check\" (each red flag that holds, with why, or \"none\"), \"## Next step\" (the keel flow to hand over to: feature, fix, change, small or spike, why, and what context to bring), and \"## Assembled prompt\": the task type's template below with every placeholder in double braces filled from the request, the code (file:line) and the answers, keeping the template's words (\"unknown\" where nothing says it), between a line ````prompt and a line ```` (four backticks: the template has its own fences). Never put an AC id inside a drawing. When your outputs come back with a note or the spec check's findings, patch your last draft below: keep every part that is right as it is, change only what the note or the findings ask, and give your whole answer again with every section.\nYour last draft (the clarify document keel wrote from your last answer, as its file is now: the person may have edited it; keel adds the front matter, the Request, the Definition of done and the appendices again itself):\n{{data.clarify.draft}}\nThe person's notes on earlier outputs (each one still applies and wins over the answers below; keep every correction made for them):\n{{data.clarify.notes}}\nThe sections:\n{{data.clarify.running}}\nThe template for this task type:\n{{data.clarify.template}}\nThe red flags:\n{{data.clarify.red_flags}}\nWhat each question already says (the rounds' record):\n{{data.rounds_text}}\nThe person's answers:\n{{data.rounds_answers}}\nThe first read of the request and the code:\n{{data.read_text}}",
    "keep": true
   },
   {
@@ -123,7 +123,7 @@
     "small": "to_small",
     "spike": "to_spike",
     "prompt": "prompt_only",
-    "reject": "assemble",
+    "reject": "redraft",
     "stop": "end"
    }
   },
@@ -132,7 +132,7 @@
    "kind": "code",
    "name": "start a feature flow with the criteria",
    "phase": "spec",
-   "action": "start_flow",
+   "action": "clarify_hand+start_flow",
    "flow": "feature",
    "seed": {
     "title": "$title",
@@ -147,7 +147,7 @@
    "kind": "code",
    "name": "start a fix flow with the bug report",
    "phase": "spec",
-   "action": "start_flow",
+   "action": "clarify_hand+start_flow",
    "flow": "fix",
    "seed": {
     "title": "$title",
@@ -161,7 +161,7 @@
    "kind": "code",
    "name": "start a change flow with the criteria",
    "phase": "spec",
-   "action": "start_flow",
+   "action": "clarify_hand+start_flow",
    "flow": "change",
    "seed": {
     "title": "$title",
@@ -175,7 +175,7 @@
    "kind": "code",
    "name": "start a small flow with the criteria",
    "phase": "spec",
-   "action": "start_flow",
+   "action": "clarify_hand+start_flow",
    "flow": "small",
    "seed": {
     "title": "$title",
@@ -189,7 +189,7 @@
    "kind": "code",
    "name": "start a spike flow on the options",
    "phase": "spec",
-   "action": "start_flow",
+   "action": "clarify_hand+start_flow",
    "flow": "spike",
    "seed": {
     "title": "$title",
@@ -203,8 +203,17 @@
    "kind": "code",
    "name": "the prompt only",
    "phase": "spec",
-   "action": "clarify_prompt",
+   "action": "clarify_hand+clarify_prompt",
    "then": "end"
+  },
+  {
+   "id": "redraft",
+   "kind": "code",
+   "name": "take the draft back",
+   "phase": "spec",
+   "action": "clarify_redraft",
+   "lock": true,
+   "then": "checked"
   }
  ],
  "expect": {
@@ -279,7 +288,8 @@
        "to_change",
        "to_small",
        "to_spike",
-       "prompt_only"
+       "prompt_only",
+       "redraft"
       ]
      },
      {
@@ -292,6 +302,7 @@
   "orphans": [],
   "parent_of": {
    "prompt_only": "result",
+   "redraft": "result",
    "to_change": "result",
    "to_fix": "result",
    "to_small": "result",

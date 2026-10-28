@@ -293,6 +293,10 @@ class StubEngine private constructor(private val server: HttpServer) {
             200 to (mapOf("thread_id" to id) + (threadSources[id]?.let { mapOf("source" to it) } ?: emptyMap()))
         }
         path.matches(Regex("/threads/[^/]+")) -> 200 to state(path.removePrefix("/threads/"))
+        // 0.18.64 a flow's document: GET reads it, PUT replaces it (a test reads what was sent with lastBody)
+        path.matches(Regex("/threads/[^/]+/document")) -> 200 to mapOf("thread_id" to path.split('/')[2],
+            "path" to ".keel/specs/clarify/2026-10-28-t.md", "kind" to "clarify", "exists" to true, "waiting" to "result",
+            "text" to (if (method == "PUT") body?.get("text")?.asText() else "# t\n"), "edited" to (method == "PUT"))
         path.endsWith("/mode") && method == "POST" -> {
             val id = path.split('/')[2]
             val mode = body?.get("mode")?.asText() ?: ""

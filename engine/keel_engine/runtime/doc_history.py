@@ -22,7 +22,7 @@ MAX_CONTENT = 512 * 1024        # bigger files are recorded by hash only
 
 def kind_of(lay: layout.Layout, rel: str) -> str:
     d = rel.rsplit("/", 1)[0] if "/" in rel else ""
-    if d in lay.spec_dirs:
+    if d in lay.spec_dirs or d.removesuffix("/clarify") in lay.spec_dirs:
         return "spec"
     if d in lay.knowledge_dirs:
         return "knowledge"
@@ -36,8 +36,10 @@ def files(root: str) -> list[str]:
     r = Path(root)
     lay = layout.resolve(root)
     out: list[str] = []
-    for d in (*lay.spec_dirs, *lay.knowledge_dirs, *lay.adr_dirs):
-        if (r / d).is_dir():
+    # 0.18.64 with the clarify flow's documents (<specs>/clarify): the person edits them while its gate waits
+    clarify = [f"{d}/clarify" for d in lay.spec_dirs]
+    for d in (*lay.spec_dirs, *clarify, *lay.knowledge_dirs, *lay.adr_dirs):
+        if (r / d).is_dir() and not (r / d).is_symlink():
             # a symlinked file is skipped: a cloned repo could link a spec to a file outside it
             out += [f"{d}/{p.name}" for p in sorted((r / d).glob("*.md")) if p.is_file() and not p.is_symlink()]
     out += [x for x in lay.runbooks if x not in out and not (r / x).is_symlink()]
@@ -54,6 +56,14 @@ def snapshot(root: str | None) -> dict[str, str]:
         except OSError:
             continue
     return out
+
+
+def sha_of(root: str, rel: str) -> str | None:
+    """One file's sha256, None when it is gone."""
+    try:
+        return hashlib.sha256((Path(root) / rel).read_bytes()).hexdigest()
+    except OSError:
+        return None
 
 
 def _masked(text: str) -> tuple[str, bool]:

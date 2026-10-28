@@ -152,14 +152,16 @@ CATALOGUE: dict[tuple[str, str], tuple[str, str, str]] = {
     ("hunt-next:next_gate", "take"): ("Take this one", NONE, "hand the finding shown to a fix or feature flow"),
     ("hunt-next:next_gate", "pick"): ("Take the one I picked", NONE, "hand the finding or group picked in the question over instead"),
     ("hunt-next:next_gate", "stop"): ("Stop here", NONE, "end here; nothing is handed over"),
-    # clarify: the gate's own text names the flow that fits the task type first (clarify_flow.clarify_doc)
+    # clarify: the gate's own text names the flow that fits the task type first (clarify_flow.gate_detail); a hand-over
+    # reads the document again from its file (0.18.64)
     ("clarify:result", "feature"): ("Hand over to feature", NONE, "start the feature flow with the criteria and the answers"),
     ("clarify:result", "fix"): ("Hand over to fix", NONE, "start the fix flow with the bug report"),
     ("clarify:result", "change"): ("Hand over to change", NONE, "start the change flow with the prompt and the criteria"),
     ("clarify:result", "small"): ("Hand over to small", NONE, "start the small flow with the criteria"),
     ("clarify:result", "spike"): ("Hand over to spike", NONE, "start the spike flow: research the options first"),
     ("clarify:result", "prompt"): ("Copy the prompt only", NONE, "the prompt is shown to copy; no flow starts"),
-    ("clarify:result", "reject"): ("Send it back", REQUIRED, "the outputs are written again with your note"),
+    ("clarify:result", "reject"): ("Send it back", REQUIRED, "the outputs are patched with your note: the document as its "
+                                                          "file is then is the draft (0.18.64)"),
     ("clarify:result", "stop"): ("Stop here", NONE, "end here; the document stays"),
 }
 

@@ -199,7 +199,9 @@ class DocHistoryService(private val jdbc: JdbcTemplate, private val projects: Pr
         if (path.split('/').any { it == ".." } || path.startsWith("/")) return false
         val lay = Layout.resolve(root)
         val dir = path.substringBeforeLast('/', "")
-        return path.endsWith(".md") && (dir in lay.folders() || path in (lay.runbooks + lay.runbook))
+        // 0.18.64 the clarify flow's documents (<specs>/clarify): the engine records them, so they can be restored too
+        val clarify = dir.endsWith("/clarify") && dir.removeSuffix("/clarify") in lay.specDirs
+        return path.endsWith(".md") && (dir in lay.folders() || clarify || path in (lay.runbooks + lay.runbook))
     }
 
     // ---- helpers ---------------------------------------------------------------------------

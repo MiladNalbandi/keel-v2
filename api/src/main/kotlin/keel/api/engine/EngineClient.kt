@@ -131,6 +131,9 @@ class EngineClient(private val props: KeelProperties, private val mapper: Object
     fun history(id: String): JsonNode = get("/threads/$id/history")
     fun unlocks(id: String): JsonNode = get("/threads/$id/unlocks")
     fun addUnlock(id: String, body: Map<String, Any?>): JsonNode = post("/threads/$id/unlocks", body)
+    /** 0.18.64 the flow's document (its clarify document or spec) from its file; replaced while the flow waits at a gate. */
+    fun document(id: String): JsonNode = get("/threads/$id/document")
+    fun writeDocument(id: String, body: Map<String, Any?>): JsonNode = put("/threads/$id/document", body)
     fun rewind(id: String, checkpointId: String, keys: Map<String, String>? = null, root: String? = null): JsonNode =
         post("/threads/$id/rewind", mapOf("checkpoint_id" to checkpointId, "keys" to keys, "root" to root).filterValues { it != null }, long = true)
     fun mcpTools(spec: Any): JsonNode = post("/mcp/tools", spec, long = true)

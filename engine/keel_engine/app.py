@@ -225,6 +225,11 @@ class Continue(BaseModel):
     root: str | None = None
 
 
+class DocumentBody(BaseModel):
+    text: str
+    root: str | None = None              # the project's folder now (as Resume)
+
+
 class Rewind(BaseModel):
     checkpoint_id: str
     keys: dict[str, str] | None = None   # logins again: they live in memory only and a restart forgets them
@@ -535,6 +540,16 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     @app.get("/threads/{tid}/unlocks")
     async def get_unlocks(tid: str, request: Request):
         return await engine(request).unlocks(tid)
+
+    # ---- 0.18.64 a flow's document (its clarify document or spec), from its file; replaced while the flow waits
+    @app.get("/threads/{tid}/document")
+    async def get_document(tid: str, request: Request):
+        return await engine(request).document(tid)
+
+    @app.put("/threads/{tid}/document")
+    async def put_document(tid: str, body: DocumentBody, request: Request):
+        await engine(request).set_root(tid, body.root)
+        return await engine(request).set_document(tid, body.text)
 
     # ---- v0.17.2 rules: the Rules page and "Rules now" (runtime/rules_view.py)
     @app.get("/threads/{tid}/rules-now")

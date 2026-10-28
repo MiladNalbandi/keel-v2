@@ -57,6 +57,22 @@ class FlowApiTest : ApiTest() {
     }
 
     @Test
+    fun `a flow's document is read and replaced through the engine`() {
+        // 0.18.64 keel_flow_document: the engine reads the file, and replaces it while the flow waits at a gate
+        val (pid, root) = newProject("flow-document")
+        post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "Ranks")).andExpect(status().isOk)
+        val doc = get("/api/threads/t-stub-1/document").andExpect(status().isOk).json()
+        assertThat(doc["kind"].asText()).isEqualTo("clarify")
+        assertThat(doc["path"].asText()).isEqualTo(".keel/specs/clarify/2026-10-28-t.md")
+        val put = put("/api/threads/t-stub-1/document", mapOf("text" to "# Ranks\n")).andExpect(status().isOk).json()
+        assertThat(put["edited"].asBoolean()).isTrue()
+        val sent = engine.lastBody("/threads/t-stub-1/document")!!
+        assertThat(sent["text"].asText()).isEqualTo("# Ranks\n")
+        assertThat(sent["root"].asText()).isEqualTo(root.toString())
+        put("/api/threads/t-stub-1/document", mapOf("text" to " ")).andExpect(status().isBadRequest)
+    }
+
+    @Test
     fun `flow options reach the engine as the thread's data`() {
         val (pid, _) = newProject("flow-options")
         post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "Review it",

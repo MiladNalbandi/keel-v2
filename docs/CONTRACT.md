@@ -2902,3 +2902,43 @@ keel TUI (tui.json)  { "follow": false }             (KEEL_TUI_SETTINGS, else ~/
   and chat the following windows share (a window that keeps its own is not in it); with `project` it moves only the
   windows that follow. `McpAudit` leaves `/api/ui/focus` out of the audit as before. Notifications do not read the focus:
   opening one picks its project in that window, shared only when the window follows.
+
+## keel 0.18.64: the clarify document is the source of truth (fix/clarify-doc)
+
+From the field report (docs/plans/field-report-clarify.md, bugs 1 and 2) and its missed MCP tools.
+
+- **A send-back patches the last draft**: the assemble step's instructions have `{{data.clarify.draft}}` ("Your last
+  draft", `(nothing yet)` on the first pass). The spec check's send-back sets it to the document keel just wrote; a
+  reject at the result gate (choice `reject` → new code step `redraft`, action `clarify_redraft`, `then: checked`)
+  sets it to the file as it is then (the person's edits in it). The feedback asks to patch it: keep what is right,
+  change only what the note or the findings ask, give every `## ` section again. Every reject note still applies
+  (`data.clarify.notes`). A draft over 11,000 characters is cut with a pointer to its file.
+- **The result gate reads the file**: `clarify_doc` stores `data.result_doc = "clarify"` (no `result_detail`); a gate
+  whose `data["<gate>_doc"]` is set builds its text with `flow_doc.gate_text` when it runs, and the question carries
+  `doc`, so engine `GET /threads/{id}` builds `waiting.detail` again from the file each time. Its second line says
+  which copy a hand-over uses: the file as it is when you choose; `You edited <path> at <local time with zone>; the
+  hand-over uses this file …` when the file differs from keel's copy (`data.clarify.evidence`); `This is your own draft
+  (sent with the reject at <time>)`; or, the file gone, keel's copy.
+- **The hand-over reads the file**: `to_feature` … `to_spike` run `clarify_hand+start_flow`, `prompt_only`
+  `clarify_hand+clarify_prompt`. `clarify_hand` reads the document at the choice: the criteria parsed again from its
+  Acceptance criteria, the prompt from its appendix (````text), the request (the flow's own while the file still holds
+  it word for word, else the file's Request section), the evidence = the file. The link both ways was already there:
+  the clarify flow's `children [{thread_id, workflow, step, title}]`, the new flow's `parent {thread_id, workflow,
+  step}` (engine `GET /threads/{id}`; a test pins it).
+- **A replacement draft with the reject**: resume payload `{choice: "reject", document: "<whole text>"}`. `redraft`
+  writes it to the file, keeps `"(written to <path>)"` in `data.result_answer.payload.document`, and runs the spec
+  check: pass → marker `SPEC-CHECK: pass` on `write_doc` → the result gate again, no assemble pass; fail →
+  `SPEC-CHECK: fix`, the assemble step patches the draft (the check's one send-back is used).
+- **Engine** `GET /threads/{id}/document` → `{thread_id, path, kind: clarify|spec, exists, text, edited, edited_at?,
+  waiting: <gate step> | null}` (the clarify document, else the flow's spec; 404 when it has none).
+  `PUT /threads/{id}/document {text, root?}`: only while the flow waits at a gate (409 running or not waiting, 400
+  empty); writes the file (a `.md` inside the project or the folder `.keel` links to, never through a symlink) and
+  emits `doc.version` with `by_kind: user`, `by_name: "edited while the flow waited"`, `via: api`.
+- **api** `GET` / `PUT /api/threads/{tid}/document {text}` pass through to the engine (`FlowService.document`,
+  `writeDocument`: the project folder as `root`, the saved state refreshed). `PUT` is the MCP write level.
+- **History**: engine `doc_history.files` also lists `<specs>/clarify/*.md` (kind spec); api
+  `DocHistoryService.known` lets them be restored.
+- **MCP**: `keel_flow_document(project?, thread_id?, text?)` (read; `text` needs `--write`), `keel_reject_with_document
+  (text, why?, project?, thread_id?)` (write; only at a clarify result gate; no `why` sends a note that says to keep
+  the draft), `keel_handover(flow, text?, why?, project?, thread_id?)` (write; only a flow the gate offers; with `text`
+  it `PUT`s the document first; answers with the new flow's thread id and the link). They come after `keel_diagram`.

@@ -36,7 +36,9 @@ FLOW_ACTIONS = {"hunt_start", "hunt_deps", "hunt_confirm", "hunt_ingest", "hunt_
                 # review-pr (runtime/ticket_actions.py)
                 "ticket_prep", "ticket_build", "ticket_claims", "ticket_record", "ticket_share", "ticket_comment",
                 # clarify (runtime/clarify_flow.py)
-                "clarify_start", "clarify_type", "clarify_sections", "clarify_doc", "clarify_prompt"}
+                "clarify_start", "clarify_type", "clarify_sections", "clarify_doc", "clarify_prompt",
+                # 0.18.64 a send-back patches the draft; a hand-over reads the file again
+                "clarify_redraft", "clarify_hand"}
 END = "end"          # a branch's no, or a gate choice, may finish the flow
 
 

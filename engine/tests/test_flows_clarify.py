@@ -305,3 +305,135 @@ def test_a_request_that_stores_something_shows_the_database_change(client, repo,
     assert "Online on PostgreSQL" in db and "Deploy order: migration, then consumer, then producer." in db
     assert "Rollback:" in db and "ScoreRepository.save" in db
     assert [f for f in spec_check.check(text, prompts.parse_acs(text)) if f["level"] == "fix"] == []
+
+
+# ------------------------------------------------------------------ 0.18.64 the document on disk is the source of truth
+
+def draft_in(req) -> str:
+    """The "Your last draft" part of an assemble prompt."""
+    return req.prompt.split("Your last draft (the clarify document", 1)[1].split("The person's notes on earlier outputs", 1)[0]
+
+
+def doc_of(client, repo, tid) -> tuple[str, Path]:
+    rel = values(client, tid)["data"]["clarify"]["doc"]
+    return rel, Path(repo) / rel
+
+
+def test_a_send_back_patches_the_last_draft(client, repo, monkeypatch):
+    # 0.18.64 the spec check's retry and a reject's pass wrote the outputs again from the request and the answers: what
+    # the draft before had fixed was lost. Now each gets its last draft and is asked to patch it
+    calls = []
+
+    def assemble(req):
+        calls.append(req)
+        full = fake_mod.clarify_answer(req)
+        return full.replace("## Test layers", "## Notes") if len(calls) == 1 else full   # the first misses one
+    tid, s, _seen = to_rounds(client, repo, monkeypatch, {"assemble the outputs": assemble}, sections=["2", "3"])
+    assert s["waiting"]["step"] == "result" and len(calls) == 2
+    assert "(nothing yet)" in draft_in(calls[0])                                    # the first pass has no draft
+    draft = draft_in(calls[1])
+    assert "- **AC-1** [API] Given scores" in draft and "## Definition of done" in draft    # the document keel wrote
+    assert "Patch your last draft" in calls[1].feedback and "Test layers" in calls[1].feedback
+    # a reject: the file as it is now, with the person's edit in it, is the draft; the note comes with it
+    rel, path = doc_of(client, repo, tid)
+    path.write_text(path.read_text().replace("then the main case works", "then the main case works for ties too"))
+    s = decide(client, tid, "approve", why="ties share a rank", payload={"choice": "reject"})
+    assert s["waiting"]["step"] == "result" and len(calls) == 3
+    assert "then the main case works for ties too" in draft_in(calls[2])
+    assert calls[2].feedback.startswith("ties share a rank") and "Patch your last draft" in calls[2].feedback
+    assert "ties share a rank" in calls[2].prompt
+
+
+def test_the_gate_and_the_hand_over_use_the_file_the_person_edited(client, repo, monkeypatch):
+    # 0.18.64 the gate and the hand-over kept keel's copy after the person edited the document, and nothing said which
+    # copy seeds the next flow
+    tid, s, _seen = to_rounds(client, repo, monkeypatch)
+    s = finish(client, tid, s)
+    rel, path = doc_of(client, repo, tid)
+    assert f"The hand-over uses this file as it is when you choose: edit {rel} first" in s["waiting"]["detail"]
+    old = "- **AC-2** [API] Given bad input, when it runs, then it is refused with a clear message"
+    text = path.read_text()
+    assert old in text
+    path.write_text(text.replace(old, "- **AC-2** [API] Given bad input, when it runs, then it answers 400 naming the field\n"
+                                      "- **AC-3** [API] Given two equal scores, when ranks are shown, then both share a rank"))
+    s = wait(client, tid)                                                # the gate's text, read while it waits
+    detail = s["waiting"]["detail"]
+    assert f"You edited {rel} at " in detail and "the hand-over uses this file as it is" in detail
+    assert "(3 acceptance criteria)" in detail and "answers 400 naming the field" in detail
+    assert "refused with a clear message" not in detail
+    s = decide(client, tid)                                              # the default: feature
+    kid = child(client, s, "feature")
+    v = values(client, kid)
+    assert [a["id"] for a in v["acs"]] == ["AC-1", "AC-2", "AC-3"]       # parsed again from the file
+    req = request_of(client, kid)
+    assert "answers 400 naming the field" in req and "refused with a clear message" not in req
+    assert "both share a rank" in v["data"]["seed"]["evidence"]
+    assert "you edited it at" in values(client, tid)["note"]
+
+
+def test_a_replacement_draft_that_passes_the_check_goes_back_to_the_gate_with_no_assemble_pass(client, repo, monkeypatch):
+    tid, s, seen = to_rounds(client, repo, monkeypatch)
+    s = finish(client, tid, s)
+    rel, path = doc_of(client, repo, tid)
+    passes = [r.step_name for r in seen].count("assemble the outputs")
+    mine = path.read_text().replace("then the main case works", "then the main case works, ties sharing a rank")
+    s = decide(client, tid, "approve", why="my own draft", payload={"choice": "reject", "document": mine})
+    assert s["waiting"]["step"] == "result"
+    assert [r.step_name for r in seen].count("assemble the outputs") == passes
+    assert path.read_text() == mine                                      # keel wrote it to the file
+    detail = s["waiting"]["detail"]
+    assert "This is your own draft (sent with the reject at " in detail and "ties sharing a rank" in detail
+    data = values(client, tid)["data"]
+    assert data["result_answer"]["payload"]["document"] == f"(written to {rel})"    # no second copy in the state
+    s = decide(client, tid)
+    assert "ties sharing a rank" in request_of(client, child(client, s, "feature"))
+
+
+def test_a_replacement_draft_the_check_refuses_is_patched_by_the_assemble_step(client, repo, monkeypatch):
+    calls = []
+
+    def assemble(req):
+        calls.append(req)
+        return fake_mod.clarify_answer(req)
+    tid, s, _seen = to_rounds(client, repo, monkeypatch, {"assemble the outputs": assemble}, sections=["2", "3"])
+    rel, path = doc_of(client, repo, tid)
+    mine = path.read_text().replace("## Test layers", "## Notes").replace("then the main case works", "then it works, mine")
+    s = decide(client, tid, "approve", why="use my draft", payload={"choice": "reject", "document": mine})
+    assert s["waiting"]["step"] == "result" and len(calls) == 2
+    assert "then it works, mine" in draft_in(calls[1]) and "## Notes" in draft_in(calls[1])
+    assert "Test layers" in calls[1].feedback and "Patch your last draft" in calls[1].feedback
+    assert "use my draft" in calls[1].feedback                          # the note still applies
+
+
+def test_the_document_route_reads_it_and_replaces_it_only_while_the_flow_waits(client, repo, monkeypatch):
+    tid, s, _seen = to_rounds(client, repo, monkeypatch)
+    s = finish(client, tid, s)
+    rel, path = doc_of(client, repo, tid)
+    doc = client.get(f"/threads/{tid}/document").json()
+    assert doc["path"] == rel and doc["kind"] == "clarify" and doc["waiting"] == "result"
+    assert doc["edited"] is False and doc["text"] == path.read_text()
+    new = doc["text"].replace("then the main case works", "then the main case works in one call")
+    r = client.put(f"/threads/{tid}/document", json={"text": new})
+    assert r.status_code == 200, r.text
+    assert r.json()["edited"] is True and r.json()["edited_at"] and path.read_text() == new
+    # recorded in keel's file history as the person's edit
+    ev = [e for e in client.bus.of(tid, "doc.version") if e["data"]["path"] == rel][-1]
+    assert ev["data"]["by_kind"] == "user" and ev["data"]["kind"] == "spec" and "in one call" in ev["data"]["content"]
+    assert "You edited" in wait(client, tid)["waiting"]["detail"]
+    assert client.put(f"/threads/{tid}/document", json={"text": "  "}).status_code == 400
+    s = decide(client, tid, "approve", payload={"choice": "stop"})
+    assert s["status"] == "done"
+    r = client.put(f"/threads/{tid}/document", json={"text": new + "x"})
+    assert r.status_code == 409 and "not waiting" in r.json()["error"]
+
+
+def test_a_hand_over_links_the_two_flows_both_ways(client, repo, monkeypatch):
+    # the clarify flow lists the flow it started (children), and that flow names the clarify flow it came from (parent)
+    tid, s, _seen = to_rounds(client, repo, monkeypatch, kind="Bug fix", title="Total crashes",
+                              request="The weekly total crashes on an empty week.")
+    s = finish(client, tid, s)
+    s = decide(client, tid, "approve", payload={"choice": "fix"})
+    kid = child(client, s, "fix")
+    assert s["children"] == [{"thread_id": kid, "workflow": "fix", "step": "to_fix", "title": "Total crashes"}]
+    k = client.get(f"/threads/{kid}").json()
+    assert k["parent"] == {"thread_id": tid, "workflow": "clarify", "step": "to_fix"}

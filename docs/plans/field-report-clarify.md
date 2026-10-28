@@ -16,8 +16,8 @@ clarify flow, with a planned hand-over to the feature flow. keel was driven thro
 
 | # | what happened | status |
 |---|---|---|
-| 1 | **The spec check's retry dropped the reject note.** The first assemble after a reject used the note; the spec check then sent the outputs back with only its own findings as the feedback; the retry wrote the spec again from the request and the answers, passed the check, and the gate showed the stale spec. | **fixed (0.18.64)**: every reject note is kept (`data.clarify.notes`), shown in the assemble prompt each time, and added to the spec check's send-back (`clarify_flow.notes_of`). Still open: give the retry the last draft and ask for a patch, not a new answer. |
-| 2 | **The gate and the hand-over can differ from the file.** The user edited `specs/clarify/<doc>.md`; the gate text and the web kept the stored copy. Which copy seeds the feature flow is not said. | open: read the file again at the gate (or lock it while the gate waits), and say in the gate which copy the hand-over uses. |
+| 1 | **The spec check's retry dropped the reject note.** The first assemble after a reject used the note; the spec check then sent the outputs back with only its own findings as the feedback; the retry wrote the spec again from the request and the answers, passed the check, and the gate showed the stale spec. | **fixed (0.18.64)**: every reject note is kept (`data.clarify.notes`), shown in the assemble prompt each time, and added to the spec check's send-back (`clarify_flow.notes_of`). Also fixed (0.18.64): every send-back gives the assemble step its last draft (`data.clarify.draft`, the file as it is then) and asks for a patch, not a new answer. |
+| 2 | **The gate and the hand-over can differ from the file.** The user edited `specs/clarify/<doc>.md`; the gate text and the web kept the stored copy. Which copy seeds the feature flow is not said. | **fixed (0.18.64)**: the result gate builds its text from the file each time it is shown, says "You edited <path> at <time>; the hand-over uses this file", and the hand-over reads the request, the criteria and the prompt from the file at the choice (`clarify_hand`). |
 | 3 | **The spec check does not check citations.** The spec cited `Controller.php:235-245` in a 38-line file and passed. | open: resolve every `path:line` and fail on a missing file or a line out of range (`keel memory check` does this for the knowledge base already). |
 | 4 | **The flow read stale code.** It branched from a local base branch that was behind a second remote; the spec said a test harness "does not exist" and that the code had a parallel namespace, both wrong on the newer base. A fetch from the first remote timed out and nobody was told. | open: before a flow starts, say how far the base is behind each remote; say when a fetch fails; offer to start from the newer remote branch (`keel_start_flow` with a base). |
 | 5 | **The agent could not read the upstream project.** Its read of the other registered project was refused ("no interactive user response was available"); after the user said "check the project we have connected" it still could not. The spec kept open questions the upstream contract file answered. | open: flows may read other registered projects, read-only (a tool to read one project's file from another); at least a clear "cannot read project X: <why>" error. |
@@ -38,8 +38,8 @@ Smaller ones:
 
 | tool | for |
 |---|---|
-| `keel_flow_document` | read and write the clarify or spec document of a flow |
-| `keel_reject_with_document` | reject with a replacement draft (fixes bug 2 from the other side) |
+| `keel_flow_document` | read and write the clarify or spec document of a flow (**added 0.18.64**) |
+| `keel_reject_with_document` | reject with a replacement draft (fixes bug 2 from the other side; **added 0.18.64**, with `keel_handover`) |
 | `keel_branch_sync` | merge or rebase the flow branch onto a base (bug 6) |
 | `keel_fetch_remotes` | fetch, with one result per remote (bug 4) |
 | `keel_read_project_file` | read a file of another registered project, read-only (bug 5) |

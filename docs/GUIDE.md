@@ -1100,8 +1100,8 @@ keel has an MCP server with three levels; each includes the one below:
 
 | level | how | adds |
 |---|---|---|
-| read (default) | `keel2 mcp` | status, timeline, next step, phase rules, dashboard links, flows, Inbox, live agents, budget, specs (with history), knowledge, search, read a file, engine actions, keel's rules, workflows, agents (one agent's steps live), KeelBot's chats and changes, diagrams in ASCII (`keel_diagram`), skills, stacks, the formats and checks that save nothing (`keel_format`, `keel_workflow_check`, `keel_rule_check`, `keel_stack_check`), the marketplace search, the Database, Git and CI/CD read tools |
-| write | `keel2 mcp --write` | decide or send back a gate, answer the Inbox (several answers, a choice and a reason; questions in a form when the client can show one), start a flow (no type: every flow with what it is for and its inputs, like ticket or pr for review-pr), stop and resume flows, set a run mode, start an agent, ask KeelBot (`keel_keelbot_ask`, also `mode=edit`) and keep or undo its changes, create workflows, rule packs, agents, skills and stacks, attach skills, set an agent's model and effort, restore a spec, git / PR / CI / database writes, Code Review comments and submits |
+| read (default) | `keel2 mcp` | status, timeline, next step, phase rules, dashboard links, flows, Inbox, live agents, budget, specs (with history), knowledge, search, read a file, engine actions, keel's rules, workflows, agents (one agent's steps live), KeelBot's chats and changes, diagrams in ASCII (`keel_diagram`), skills, stacks, the formats and checks that save nothing (`keel_format`, `keel_workflow_check`, `keel_rule_check`, `keel_stack_check`), a flow's clarify document or spec from its file (`keel_flow_document`), the marketplace search, the Database, Git and CI/CD read tools |
+| write | `keel2 mcp --write` | decide or send back a gate, answer the Inbox (several answers, a choice and a reason; questions in a form when the client can show one), start a flow (no type: every flow with what it is for and its inputs, like ticket or pr for review-pr), stop and resume flows, set a run mode, start an agent, ask KeelBot (`keel_keelbot_ask`, also `mode=edit`) and keep or undo its changes, create workflows, rule packs, agents, skills and stacks, attach skills, set an agent's model and effort, restore a spec, replace a waiting flow's document (`keel_flow_document` with `text`), send a clarify result back with your own draft (`keel_reject_with_document`) or hand it over to the next flow (`keel_handover`), git / PR / CI / database writes, Code Review comments and submits |
 | admin | `keel2 mcp --admin` | delete flows, pause (`keel_pause`; `keel_resume` goes on), add and remove projects, switch the project the dashboard and keel TUI show (`keel_focus`), connect GitHub with a one-time code (`keel_connect_github`: it returns the code and the link, never the token), change workflows, install and change rules |
 
 ```bash
@@ -1124,6 +1124,17 @@ or reject does there; pass the name as `choice` to `keel_approve_gate` or `keel_
 whole gate (findings, the failing output, at a spec gate the spec), page by page ("page 1 of 3", with the next
 call). `keel_edit_gate(notes)` takes the gate's edit choice (the spec gate's **edit**, the contract's **change**) or
 sends it back where the gate takes that.
+
+A clarify flow's document on disk is the source of truth (0.18.64). Its result gate shows the file as it is now; when
+you edited it after keel wrote it, the gate says so ("You edited … at <time>; the hand-over uses this file"), and the
+hand-over to feature, fix, change, small or spike reads the request, the criteria and the prompt from the file at
+the moment you choose. `keel_flow_document` reads it (and with `text`, at the write level, replaces it while the flow
+waits; keel's file history records that as your edit). `keel_reject_with_document(text, why)` sends the result back
+with your own draft: keel writes it and runs the spec check; it passes, and the gate shows it again with no new
+assemble pass; it fails, and the assemble step patches your draft. Any send-back patches the last draft (keep what is
+right, change only what the note asks) instead of writing the document again. `keel_handover(flow, text?)` chooses
+the next flow (with a replacement document written first when you give one) and answers with the new flow's thread
+id and the link both ways (the clarify flow's `children`, the new flow's `parent`).
 
 keel's MCP server runs every tool off its event loop, keeps stdout for the protocol only (a stray print goes to
 stderr) and answers a tool's own error as text, so a slow call never makes a client drop keel's tools (0.18.28).
