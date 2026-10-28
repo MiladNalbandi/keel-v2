@@ -2342,7 +2342,7 @@ question to the person). The plugins' "ask in keel's Inbox" stays as a second ch
 - The api makes three random tokens at start (read, write, admin; 64 hex characters each), kept only in memory (`mcp/McpLevels.kt` `McpTokens`); a restart makes new ones.
 - `POST /api/mcp/token { level: read | write | admin }` → `{ level, token }`, only with `X-Keel-Token` equal to the internal token (`KEEL_INTERNAL_TOKEN`, compared in constant time); 403 otherwise (also when keel has no internal token), 400 for an unknown level. keel2 and the engine have the internal token; agents never do (engine `models/cli.py` `SECRET_VARS`).
 - keel's MCP server (`python -m keel_engine.mcp`) asks for its level's token on its first request when it has the internal token (`KEEL_INTERNAL_TOKEN`, else the file `KEEL_INTERNAL_TOKEN_FILE` names) and sends it as `X-Keel-Mcp-Token` on every request; it no longer sends `X-Keel-Token` on ordinary requests. `keel2 mcp` natively passes `KEEL_INTERNAL_TOKEN` from `run/token`; in Docker it passes `KEEL_INTERNAL_TOKEN_FILE=/data/run/internal-token`, which `docker/keel-start` writes (mode 600). Agents' builtin `keel` server gets neither, so it sends no token.
-- `McpLevelGuard` checks requests under `/api/` that carry `X-Keel-Via: mcp` or `X-Keel-Mcp-Token`, and every `POST /api/projects/{pid}/actions/{name}` (only MCP calls it). Without a valid token such a request is at the **read** level. GET is fine at read; `POST /api/projects/{pid}/db/query` is fine at read, but `change: true` needs write; other methods need **write**; **admin**: `POST /api/threads/{tid}/stop`, `DELETE /api/projects/{pid}/flows/{tid}`, `POST /api/projects`, `POST /api/projects/bulk`, `DELETE /api/projects/{pid}`, `PUT` / `DELETE /api/workflows/{wid}`. An action needs its engine level: `McpLevelGuard.READ_ACTIONS` and `ADMIN_ACTIONS` mirror `action_docs.ACTION_LEVELS` (a Kotlin and a Python test pin both lists); any other action needs write. A refused call → 403 `{ error: "This needs the MCP <level> level: run keel2 mcp --write | --admin", hint }`, still recorded by `McpAudit` (`ok: false, status: 403`).
+- `McpLevelGuard` checks requests under `/api/` that carry `X-Keel-Via: mcp` or `X-Keel-Mcp-Token`, and every `POST /api/projects/{pid}/actions/{name}` (only MCP calls it). Without a valid token such a request is at the **read** level. GET is fine at read; `POST /api/projects/{pid}/db/query` is fine at read, but `change: true` needs write; other methods need **write** (0.18.64: only the routes `McpLevelGuard.WRITE` or a plugin's `McpRouteLevels` names; any other non-GET route needs **admin**, see the 0.18.64 security addendum); **admin**: `POST /api/threads/{tid}/stop`, `DELETE /api/projects/{pid}/flows/{tid}`, `POST /api/projects`, `POST /api/projects/bulk`, `DELETE /api/projects/{pid}`, `PUT` / `DELETE /api/workflows/{wid}`. An action needs its engine level: `McpLevelGuard.READ_ACTIONS` and `ADMIN_ACTIONS` mirror `action_docs.ACTION_LEVELS` (a Kotlin and a Python test pin both lists); any other action needs write. A refused call → 403 `{ error: "This needs the MCP <level> level: run keel2 mcp --write | --admin", hint }`, still recorded by `McpAudit` (`ok: false, status: 403`).
 - The web app sends neither header and never calls `/actions`, so it works as before. The guard binds only callers that say they are MCP: it is not a login for the api.
 
 ## v0.17.2: rules
@@ -2405,10 +2405,12 @@ any local program, or a web page through the browser, could approve a gate, star
   `X-Keel-Via: mcp`). keel never answers CORS (no `Access-Control-Allow-*`, a preflight gets 401).
 - **Web key** (`auth/WebSignIn.kt WebKey`): 32 random bytes, hex, in `$KEEL_DATA/run/web-key` (0600), made once, kept
   across restarts. The cookie is `keel_<first 8 hex of sha256(key)>` (two keels on localhost keep theirs apart),
-  value the key, `HttpOnly; SameSite=Strict; Path=/; Max-Age=400 days`.
+  `HttpOnly; SameSite=Strict; Path=/`. 0.18.64: its value is the browser's own session id (`ks_` + 64 hex), never the
+  key; `Max-Age` 30 days; over https the name is `__Host-keel_<8 hex>` with `Secure` (see the 0.18.64 security addendum).
 - **Sign-in**: `POST /api/web/code` (internal token only) → `{code, path: "/web/login?code=…", expires_in: 60}`; a code
   works once. `GET /web/login?code=&next=` sets the cookie and redirects to `next` (a path on this keel only) or `/`; a
-  used or old code redirects to `/?signin=expired`. `POST /api/web/sign-out` clears this browser's cookie.
+  used or old code redirects to `/?signin=expired`. `POST /api/web/sign-out` ends this browser's session and clears
+  its cookie; 0.18.64 `POST /api/web/sign-out-everywhere` → `{ok, ended}` ends every browser's session.
   `GET /api/web/me` → `{signed_in: true, via}`.
 - **MCP level tokens** (`McpTokens`) are `HMAC-SHA256(internal token, "keel-mcp:<level>")`: the same while the
   container runs, also across an api restart (exit 75). The engine computes the read one (`config.mcp_token`) and hands
@@ -3225,3 +3227,35 @@ From the field report (docs/plans/field-report-clarify.md, bugs 8, 9 and 11).
     worktree}], v1}` (the flows that run or wait there); `POST /api/projects/{pid}/keel-state/close` (an MCP write).
   - MCP `keel_state {action: show | close, project?}`: a read tool; `close` needs `--write` (read says so and does
     nothing). keel2: `keel2 state [close] [folder]` does the same on the folder, without keel running.
+
+## 0.18.64 security addendum: MCP levels, MCP server secrets, sign-in sessions, connections
+
+- **MCP levels by name** (`mcp/McpLevels.kt`): a non-GET `/api/` route needs the level of the list that names it:
+  `READ_POSTS` (POSTs that change nothing), `WRITE` (what keel's MCP write tools send: start, stop, resume, answer a
+  flow, agents, skills, stacks, workflow import, rule pack create, `plugins/ask`…), `ADMIN`, `ADMIN_PREFIXES`; a
+  plugin names its own read and write routes with an `McpRouteLevels` bean. **A route no list names needs admin**
+  (until 0.18.63 it was write). Admin now also: `POST/PUT/DELETE /api/mcp-servers…`, `POST /api/mcp-servers/{name}/test`,
+  `PUT /api/projects/{pid}/mcp-allow`, `POST /api/plugin-host/restart`, Jira's and GitLab's connection routes, the local
+  model servers. `McpRouteLevelsApiTest` lists every mapped route and fails on one that no list names.
+- **MCP audit**: a call with an MCP level token is recorded (`mcp.call`) with or without `X-Keel-Via: mcp`.
+- **Inbox**: `POST /api/inbox/{tid}/act` on an approval the api asked itself (a plugin install, a send to Jira) → 403
+  for an MCP token below admin; a person, keel itself or the admin level may.
+- **MCP server env** (`mcp/McpService.kt`): `GET /api/mcp-servers` never shows a value: a `secret:<name>` reference as
+  it is, any other value as `"set"` (sent back on PUT, `"set"` keeps the saved value). On save a typed value goes into
+  the secrets as `<server>_<NAME>` and the env keeps `secret:<server>_<NAME>`. A reference resolves (for a flow or a
+  test) only when it is attached to that server: saved with it through these routes, or attached by the plugin that
+  made it (Jira's `jira.<pid>`); never keel's own logins (`SecretService.keelOwn`: model keys and logins, the GitHub
+  token and sign-in, Vertex AI, `local.*`, GitLab). Naming one of those on save → 400. Servers saved before 0.18.64
+  keep their references once. The engine's stored flow keeps the env names only; the values come in `keys` as
+  `mcp_env:<server>:<NAME>` on continue, resume, rewind and a model change.
+- **Sign-in sessions** (`auth/WebSessions`, table `web_sessions`, `V27`): `/web/login` opens a random session per browser
+  (only its SHA-256 is stored). It ends 30 days after its last use (each use moves the end, written at most once an
+  hour, and then the cookie is sent again), at sign-out, or at sign-out-everywhere. A cookie from before 0.18.64 (the
+  web key itself) is swapped for a session once. The web key stays for `Authorization: Bearer`.
+- **Connections and new hosts** (`common/Hosts.kt`): a Jira or GitLab save that moves the address to another scheme,
+  host or port without a new token → 400 (the saved token never goes there); a local model server's saved key is
+  dropped when its host changes. http:// is refused for a token unless the host is this machine (Jira, GitLab) or, for a
+  local model server, the local network (`host.docker.internal`, `*.local`, 10/8, 172.16/12, 192.168/16, 169.254/16,
+  fc00::/7, fe80::/10).
+- **Supervisor**: `POST /api/projects/{pid}/flows/{tid}/supervisor` (and `/supervisor/flow`) with `policy: {rung: may}`
+  needs `"i_understand": "commands run without you"` (else 400); an MCP token below admin never sends `policy` (403).
