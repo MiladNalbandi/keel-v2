@@ -292,6 +292,9 @@ class StubEngine private constructor(private val server: HttpServer) {
             git(root, "worktree", "remove", "--force", root.resolve(".keel/worktrees").resolve(body["name"].asText()).toString())
             200 to mapOf("ok" to true)
         }
+        // 0.18.65 the project's base (runtime/bases.py view) and the person's choice
+        path == "/base" -> 200 to mapOf("name" to "main", "ref" to "github/main", "canonical" to "github", "missing" to null,
+            "choice" to body?.path("choice")?.asText())
         // 0.18.64 every remote fetched for real (`git fetch <name>`), one result each, as the engine answers
         path == "/remotes/fetch" && method == "POST" -> {
             val root = java.nio.file.Paths.get(body!!["root"].asText())

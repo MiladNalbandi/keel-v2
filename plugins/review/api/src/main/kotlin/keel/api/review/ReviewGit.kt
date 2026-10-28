@@ -86,6 +86,25 @@ object ReviewGit {
 
     fun mergeBase(root: Path, a: String, b: String): String? = out(root, "merge-base", a, b)
 
+    private val SETUP = Regex("^chore\\(setup\\):")
+    private val SETUP_REF = Regex("(?m)^Keel-Ref:\\s*chore\\(setup\\)\\s*$")
+
+    /** 0.18.65 (R4) keel init's setup commits at the bottom of [head] after [base] (oldest first; the engine's
+     *  runtime/bases.py setup_commits): "chore(setup): ..." or keel's Keel-Ref: chore(setup) line. */
+    fun setupCommits(root: Path, base: String, head: String): List<String> {
+        val r = git(root, "log", "--reverse", "--first-parent", "--format=%H%x1f%B%x1e", "$base..$head")
+        if (!r.ok) return emptyList()
+        val out = mutableListOf<String>()
+        for (item in r.out.split('\u001e')) {
+            val sha = item.trim().substringBefore('\u001f')
+            if (sha.isBlank()) continue
+            val body = item.substringAfter('\u001f', "").trim()
+            if (!SETUP.containsMatchIn(body) && !SETUP_REF.containsMatchIn(body)) break
+            out += sha
+        }
+        return out
+    }
+
     /** The files changed between base (its merge base with head) and head, with added and removed line counts. */
     fun files(root: Path, base: String, head: String, max: Int = 2000): List<ChangedFile> {
         val range = "$base...$head"
