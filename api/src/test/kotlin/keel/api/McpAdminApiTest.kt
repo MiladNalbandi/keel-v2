@@ -26,6 +26,16 @@ class McpAdminApiTest : ApiTest() {
     }
 
     @Test
+    fun `0_18_64 a write with an MCP token is recorded without the X-Keel-Via header too`(@Autowired jdbc: JdbcTemplate) {
+        val (pid, _) = newProject("mcp-audit-token")
+        val quiet = mapOf("X-Keel-Mcp-Token" to mcp.getValue("X-Keel-Mcp-Token"))
+        post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "Quiet"), quiet).andExpect(status().isOk)
+        val rows = jdbc.queryForList("SELECT data_json FROM events WHERE project_id = ? AND type = 'mcp.call'", String::class.java, pid)
+        assertThat(rows).hasSize(1)
+        assertThat(rows[0]).contains("\"via\":\"mcp\"").contains("\"client\":\"an MCP client\"")
+    }
+
+    @Test
     fun `a removed project leaves the list and comes back with its folder`() {
         val (pid, root) = newProject("mcp-remove")
         delete("/api/projects/$pid").andExpect(status().isOk)
