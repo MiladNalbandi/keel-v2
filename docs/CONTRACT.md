@@ -2572,7 +2572,7 @@ Plan: `docs/plans/0.17.5.md`.
   (`POST /threads/{tid}/rewind`, as `keel_resume_flow`). keel has no separate cancel route: a paused flow never resumed
   is cancelled, `keel_delete_run` takes it off the history. `keel_focus` reads `GET /api/ui/focus`, and with `project`
   (and `chat`) switches the dashboard and keel TUI to it (`PUT /api/ui/focus {project, chat, by: "mcp", client}`; the
-  api needs the write token for it). `keel_add_project` is unchanged.
+  api needs the write token for it; keel 0.18.63: only the windows that follow the others). `keel_add_project` is unchanged.
 - **KeelBot.** The server's instructions say how to answer questions and keel-questions cards and the failure rule;
   `keel_keelbot_ask`'s hint for a keel-questions card adds the failure rule (never run the failed command again
   unchanged, the person picks one of the ways forward).
@@ -2873,3 +2873,32 @@ HelperSession   += { folder_branch?: string }           (GET one session, Ask an
   flow, and `worktree_ok` from the engine's `GET /start-check` when the engine has it (else null). Start a flow: a
   chat there and a flow that takes its own branch → `where: "worktree"` (recommended), unless `worktree_ok` is false;
   the project folder picked anyway shows a warning with **Use a worktree**.
+
+## keel 0.18.63: a window can keep its own project and chat (feat/own-focus-per-window)
+
+The shared focus (keel 0.18.6, api `ui/UiFocus.kt`: `GET` / `PUT /api/ui/focus`, live event `ui.focus`) is unchanged.
+What changes is that each front end can opt out of it, per window.
+
+```
+web (localStorage)   keel2.followFocus = "0"        (missing or anything else: following, as before)
+keel TUI (tui.json)  { "follow": false }             (KEEL_TUI_SETTINGS, else ~/.config/keel2/tui.json; missing: following)
+```
+- **Follow other keel windows**: one switch per window, on at first. On is 0.18.6 as it was. Off: that window
+  sends no `PUT /api/ui/focus` (its project picks, its KeelBot chat opening, closing or starting), ignores `ui.focus`
+  events, and does not read `GET /api/ui/focus` at the start (the web opens on the browser's own `keel2.project`; keel
+  TUI on `--project`, the folder it starts in, else the first project; neither opens the focus's chat). Switching it
+  moves nothing at once: the next pick here or elsewhere is shared again (keel TUI reads the focus again so its copy is
+  not stale).
+- **Web**: Settings › General › This browser › **Follow other keel windows** (`useApp().followFocus` /
+  `setFollowFocus`). `followsFocus()` (`@keel/web-sdk`, beside `shareFocus`) reads the key at each use, so every tab of
+  that browser goes along at once; `shareFocus` does nothing while it is false; KeelBot's panel reads the focus at the
+  start only when it is true.
+- **keel TUI**: `/follow [on|off]` (no word says which it is) and `/settings` (a picker: Follow other keel windows,
+  Sidebar, and in the app Mouse and Theme, each with its value now; Enter changes the marked one; follow and the
+  sidebar are kept in tui.json, the mouse and the theme are for this run). `KeelCore.follows` / `setFollow(on)`;
+  `CoreOptions.settings` is the store (main.tsx gives the core and the app the same one). A write of tui.json reads the
+  file again first, so two keel TUIs do not drop each other's settings.
+- **What reads the focus**: `keel_focus` (MCP) reads and writes the same focus: with no arguments it says the project
+  and chat the following windows share (a window that keeps its own is not in it); with `project` it moves only the
+  windows that follow. `McpAudit` leaves `/api/ui/focus` out of the audit as before. Notifications do not read the focus:
+  opening one picks its project in that window, shared only when the window follows.

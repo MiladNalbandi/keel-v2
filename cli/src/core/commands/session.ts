@@ -1,8 +1,9 @@
-// Session and shell commands: the project, budget and dashboard, the screen (panel, sidebar, mouse, theme), `!command`.
+// Session and shell commands: the project, budget and dashboard, the screen (panel, sidebar, mouse, theme), following
+// the other keel windows and /settings (0.18.63), `!command`.
 
 import { api, type Project } from "../sdk";
 import * as fmt from "../format";
-import { parseThemeName } from "../theme";
+import { parseThemeName, type ThemeName } from "../theme";
 import { P, errorReply, fail, join, needProject, ok, text } from "./base";
 import type { Ctx, Impl, PanelName, Reply } from "./base";
 
@@ -15,6 +16,50 @@ export const THEME_HELP = [
   "heading, accent, gate (waiting), question, option, recommended, chosen, suggest, hint, detail, meta, border, ok (success),",
   "warn (warning), bad (error), code, path, link, run, add, del. NO_COLOR turns all colour off.",
 ];
+
+/** keel 0.18.63 what following the other keel windows means, on and off (/follow, /settings). */
+export function followText(on: boolean): string {
+  return on
+    ? "following the other keel windows: this window goes to the project and KeelBot chat the dashboard or another keel TUI opens, and they follow what you open here"
+    : "this window keeps its own project and KeelBot chat: it follows no other keel window, and what you open here moves none of them";
+}
+
+/** keel 0.18.63 /settings: keel TUI's settings in a picker, each with its value now; Enter changes the marked one.
+ *  Follow and the sidebar are kept for the next start (settings.ts); the mouse and the palette are for this run. */
+function settingsPick(ctx: Ctx): Reply {
+  const core = ctx.core;
+  const v = ctx.view;
+  const onOff = (b: boolean) => (b ? "on" : "off");
+  const rows: { label: string; value: string; now: string; hint: string }[] = [
+    { label: "Follow other keel windows", value: "follow", now: onOff(core.follows),
+      hint: "the project and KeelBot chat move with the dashboard and other keel TUIs, both ways (/follow); kept" },
+    { label: "Sidebar", value: "sidebar", now: onOff(v ? v.sidebar : core.settings.get().sidebar !== false),
+      hint: `on a terminal 120 columns wide or more, full screen (Ctrl+B, /sidebar); kept` },
+    ...(v ? [
+      { label: "Mouse", value: "mouse", now: onOff(v.mouse), hint: "the wheel scrolls, a drag copies (/mouse); this run (--no-mouse at the start)" },
+      { label: "Theme", value: "theme", now: v.theme, hint: "keel, dark, light or auto (/theme); this run (KEEL_TUI_THEME at the start)" },
+    ] : []),
+  ];
+  const w = Math.max(...rows.map((r) => r.label.length)) + 2;
+  return { blocks: [], pick: {
+    title: "keel TUI settings (Enter changes the marked one, Esc leaves)",
+    choices: rows.map((r) => ({ label: `${r.label.padEnd(w)}${r.now}`, value: r.value, hint: r.hint })),
+    then: (which): Reply => {
+      if (which === "follow") {
+        const on = !core.follows;
+        core.setFollow(on);
+        return { blocks: [{ kind: "ok", text: `follow ${onOff(on)}: ${followText(on)}` }] };
+      }
+      if (which === "sidebar") return { blocks: [], sidebar: "toggle" };
+      if (which === "mouse") return { blocks: [], mouse: "toggle" };
+      if (which === "theme") return { blocks: [], pick: { title: "Theme", index: Math.max(0, THEMES.indexOf(v?.theme as ThemeName)),
+        choices: THEMES.map((t) => ({ label: t + (t === v?.theme ? " (now)" : ""), value: t })),
+        then: (t) => ({ blocks: [], theme: t as ThemeName }) } };
+      return fail(`No setting ${which}.`);
+    },
+  } };
+}
+const THEMES: ThemeName[] = ["keel", "dark", "light", "auto"];
 
 export function dashboardUrl(ctx: Ctx, view: string): string {
   const base = ctx.core.snapshot.publicUrl;
@@ -116,6 +161,18 @@ export const SESSION_IMPLS: Impl[] = [
     if (w && w !== "on" && w !== "off") return fail("/sidebar on or /sidebar off (no word switches it, as Ctrl+B).");
     return { blocks: [], sidebar: w ? w === "on" : "toggle" };
   } },
+  // keel 0.18.63 this window follows the other keel windows (the shared focus), or keeps its own project and chat
+  { name: "follow", complete: (_c, a) => ["on", "off"].filter((x) => x.startsWith(a)), run: (ctx, a) => {
+    const w = a.trim().toLowerCase();
+    if (!w) return { blocks: [{ kind: "ok", text: `follow ${ctx.core.follows ? "on" : "off"}: ${followText(ctx.core.follows)}` },
+      { kind: "dim", text: `  /follow ${ctx.core.follows ? "off keeps this window's own" : "on follows the other windows again"} (kept for the next start; /settings shows it)` }] };
+    if (w !== "on" && w !== "off") return fail("/follow on or /follow off (no word says which it is now).");
+    ctx.core.setFollow(w === "on");
+    return { blocks: [{ kind: "ok", text: `follow ${w}: ${followText(w === "on")}` },
+      { kind: "dim", text: w === "on" ? "  kept for the next start; nothing moves now: the next project or chat opened here or elsewhere is shared again"
+        : "  kept for the next start (/follow on joins the other windows again)" }] };
+  } },
+  { name: "settings", run: (ctx) => settingsPick(ctx) },
   { name: "mouse", run: (_ctx, a) => {
     const w = a.trim().toLowerCase();
     if (w && w !== "on" && w !== "off") return fail("/mouse on or /mouse off (no word switches it).");

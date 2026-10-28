@@ -72,8 +72,11 @@ export function errorReply(e: unknown): Reply {
 
 // ------------------------------------------------------------------ the registry
 
+/** keel 0.18.63 what the app shows now, for /settings: the sidebar, the mouse, the palette, and whether it runs on the
+ *  full screen (not --inline). -c has no app: /settings then shows only what keel TUI keeps in its settings. */
+export type ViewState = { sidebar: boolean; mouse: boolean; theme: string; fullScreen: boolean };
 /** What a command runs with: keel, the terminal's width, and the colours to write in (PLAIN: none). */
-export type Ctx = { core: KeelCore; width: number; paint?: Paint };
+export type Ctx = { core: KeelCore; width: number; paint?: Paint; view?: ViewState };
 export const P = (ctx: Ctx): Paint => ctx.paint ?? PLAIN;
 
 /** One row of content/agent-clients/commands.json, the command table keel's terminal clients share. */

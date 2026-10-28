@@ -367,6 +367,22 @@
       "group": "Screen"
     },
     {
+      "name": "follow",
+      "args": "[on|off]",
+      "summary": "on: this window goes to the project and KeelBot chat the dashboard or another keel TUI opens, and they follow it; off: it keeps its own and moves none of them (kept for the next start)",
+      "writes": false,
+      "complete": "follow",
+      "local": true,
+      "group": "Screen"
+    },
+    {
+      "name": "settings",
+      "summary": "keel TUI's settings with their values now: follow other keel windows, the sidebar, the mouse, the theme; Enter changes one",
+      "writes": false,
+      "local": true,
+      "group": "Screen"
+    },
+    {
       "name": "editor",
       "args": "[text]",
       "summary": "write the prompt in your editor ($VISUAL or $EDITOR): what you save comes back into the prompt, Enter sends it (Ctrl+X E opens the prompt as it is)",

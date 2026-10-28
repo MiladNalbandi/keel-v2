@@ -151,6 +151,24 @@ describe("KeelBot keeps the chat when you leave", () => {
     expect(getDraft(PID, "h_1").text).toBe("typed in the first");
   });
 
+  it("keel 0.18.63 in a browser that keeps its own chat: keel TUI's chat does not open, and a chat opened here tells nobody", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("keel2.followFocus", "0");
+    db.helper.sessions = [chat("h_1", "First"), chat("h_2", "Second"), chat("h_3", "Third")];
+    localStorage.setItem(`keel2.helper.${PID}.session`, "h_1");
+    db.focus = { project: PID, chats: { [PID]: "h_2" }, by: "tui", client: "tui-1" };
+    location.hash = "#/keelbot";
+    render(<App />);
+    const p = await panel();
+    await within(p).findByText("About First.");
+    await new Promise((r) => setTimeout(r, 50));
+    expect(within(p).queryByText("About Second.")).toBeNull();
+    await user.click(within(await chatList()).getByRole("button", { name: /^Third/ }));
+    await within(p).findByText("About Third.");
+    expect(db.calls.filter((c) => c.method === "PUT" && c.path === "/api/ui/focus")).toEqual([]);
+    expect(db.focus.chats[PID]).toBe("h_2");
+  });
+
   it("forgets a chat only when the server says it is gone, not when the server does not answer", async () => {
     db.helper.sessions = [chat("h_9", "Scores API")];
     localStorage.setItem(`keel2.helper.${PID}.session`, "h_9");

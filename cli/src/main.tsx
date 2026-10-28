@@ -20,7 +20,7 @@ import { runScript } from "./script";
 import { Profiler } from "./core/profile";
 import { HELP, parseArgs } from "./main.args";
 import { MOUSE, SCREEN, screenStdout } from "./core/lines";
-import { fileSettings } from "./core/settings";
+import { fileSettings, memorySettings } from "./core/settings";
 
 // keel's colours (core/theme.ts: NO_COLOR, KEEL_TUI_THEME, COLORFGBG, FORCE_COLOR); -c writes them only into a terminal.
 // The app asks the terminal for its background first when nothing else said dark or light (termbg.ts).
@@ -57,7 +57,9 @@ async function main(): Promise<number> {
     if (profiler) process.stderr.write(profiler.summary(profiler.save()) + "\n");
     return code;
   };
-  const core = new KeelCore({ url: args.url, publicUrl: args.publicUrl, project: args.project, cwd: args.cwd, noLive: oneShot, profiler });
+  // keel TUI's settings: one store for the core (0.18.63 follow) and the app (the sidebar); --script keeps them in memory
+  const settings = args.script ? memorySettings() : fileSettings();
+  const core = new KeelCore({ url: args.url, publicUrl: args.publicUrl, project: args.project, cwd: args.cwd, noLive: oneShot, profiler, settings });
   if (args.script) return done(await runScript(core, args.script, { out: args.out, width: args.width, ansi: args.ansi, theme, profiler, rows: args.rows }));
   if (oneShot) {
     const s = await core.start();
@@ -92,7 +94,7 @@ async function main(): Promise<number> {
     if (bg) theme = makeTheme(process.env, undefined, bg, fileColors);
   }
   if (args.inline) {
-    const app = render(<App core={core} theme={theme} profiler={profiler} settings={fileSettings()} />, { exitOnCtrlC: false });
+    const app = render(<App core={core} theme={theme} profiler={profiler} settings={settings} />, { exitOnCtrlC: false });
     await app.waitUntilExit();
     return done(0);
   }
@@ -113,7 +115,7 @@ async function main(): Promise<number> {
     process.stdout.once("resize", () => (clearTimeout(t), done()));
   });
   const app = render(<App core={core} theme={theme} profiler={profiler} rows={process.stdout.rows || 24} mouse={args.mouse}
-    settings={fileSettings()} />,
+    settings={settings} />,
     { exitOnCtrlC: false, stdout: screenStdout(process.stdout) });
   try {
     await app.waitUntilExit();

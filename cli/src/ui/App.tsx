@@ -138,7 +138,8 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
   const modeRef = useRef<DOMElement>(null);
   // the sidebar (Ctrl+B, /sidebar): the person's choice, kept in keel TUI's settings; it shows on the full screen of a
   // terminal SIDEBAR_MIN columns wide or more
-  const settings = useMemo(() => store ?? memorySettings(), [store]);
+  // (0.18.63 the core's own store without one: the same as /follow keeps its choice in)
+  const settings = useMemo(() => store ?? core.settings ?? memorySettings(), [store, core]);
   const [sideOn, setSideOn] = useState(() => settings.get().sidebar !== false);
   const side = screen && !mode && sideOn && termCols >= SIDEBAR_MIN;
   const width = side ? fullWidth - SIDEBAR_WIDTH : fullWidth;
@@ -148,7 +149,9 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
   // the running turn's tool call opened in the live area (Ctrl+O, a click), by its step's n
   const [liveOpen, setLiveOpen] = useState<number | null>(null);
 
-  const ctx: Ctx = useMemo(() => ({ core, width, paint: t.paint }), [core, width, t.paint]);
+  // 0.18.63 with what the screen shows now, for /settings
+  const ctx: Ctx = useMemo(() => ({ core, width, paint: t.paint, view: { sidebar: sideOn, mouse, theme: t.name, fullScreen: screen } }),
+    [core, width, t.paint, sideOn, mouse, t.name, screen]);
   // for the answer event's handler (it is set up once): the colours, the width and when the turn started
   const look = useRef({ paint: t.paint, width });
   look.current = { paint: t.paint, width };

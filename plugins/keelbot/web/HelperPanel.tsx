@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import {
-  ApiError, clock, errorParts, go, keyLabel, Markdown, mergeSteps, ModelPicker, modelLabel, ProviderIcon, provLabel, rankFiles, shareFocus, StepView,
+  ApiError, clock, errorParts, followsFocus, go, keyLabel, Markdown, mergeSteps, ModelPicker, modelLabel, ProviderIcon, provLabel, rankFiles, shareFocus, StepView,
   UI_FOCUS_EVENT, useApp, useLoad, usePages, useWide, type UiFocus, AskKeelBot, ANSWERS_PREFIX, sourceRef, type AskOptions,
   type AnswerSource, type GraphHit, type HelperCommand, type HelperDone, type HelperMention, type HelperMessage, type HelperMode,
   type HelperSelection, type HelperSession, type JobStep, type Model,
@@ -237,10 +237,12 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
     setCaret(0);
     keepSid(v);
   }, [pid, keepSid]);
-  // 0.18.6 the chat keel TUI (or another tab) has open on this project: at the start, and when it opens another
+  // 0.18.6 the chat keel TUI (or another tab) has open on this project: at the start, and when it opens another.
+  // keel 0.18.63 a browser that keeps its own chat (followsFocus false) keeps this tab's: state.tsx sends no event then,
+  // and setSid's shareFocus tells nobody
   useEffect(() => {
     let alive = true;
-    kb.focus().then((f) => { const s = f?.chats?.[pid]; if (alive && s && s !== read(sidKey(pid))) follow(s); }, () => undefined);
+    if (followsFocus()) kb.focus().then((f) => { const s = f?.chats?.[pid]; if (alive && s && s !== read(sidKey(pid))) follow(s); }, () => undefined);
     const on = (e: Event) => {
       const f = (e as CustomEvent<UiFocus>).detail;
       const s = f?.chats?.[pid];
