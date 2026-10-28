@@ -26,8 +26,33 @@ GIT_TIMEOUT = 120      # seconds: a stuck git (a lock, a hung network remote) mu
 SECRET_HINTS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL")
 KEEP_ENV = {"KEEL_GIT_TOKEN_FILE", "KEEL_GIT_HOST"}
 SAFE_ARGS = ("-c", "protocol.ext.allow=never", "-c", f"core.hooksPath={os.devnull}", "-c", "core.fsmonitor=false")
+SAFE_ARGS_HOOKS = ("-c", "protocol.ext.allow=never", "-c", "core.fsmonitor=false")      # git.hooks: on, a local command
 NETWORK = {"fetch", "push", "pull", "ls-remote", "clone", "submodule", "remote", "archive"}
 ALLOW_PROTOCOL = "https:ssh:file"
+# 0.18.64 the person's choice: `git.hooks: on` in .keel/config.yml lets the project's own hooks (husky, lint-staged, a
+# pre-commit hook) run on keel's LOCAL git commands; never on a network command, and always with the scrubbed environment
+LOCAL_HOOK_VERBS = {"commit", "merge", "checkout", "switch", "rebase", "cherry-pick", "am", "revert"}
+_hooks_on: dict[str, tuple[float, bool]] = {}
+
+
+def project_hooks(root: str) -> bool:
+    """Does the project say `git.hooks: on` (its .keel/config.yml, read again when the file changes)?"""
+    f = Path(root) / ".keel" / "config.yml"
+    try:
+        mtime = f.stat().st_mtime
+    except OSError:
+        return False
+    got = _hooks_on.get(str(f))
+    if got and got[0] == mtime:
+        return got[1]
+    try:
+        import yaml
+        cfg = yaml.safe_load(f.read_text()) or {}
+        on = str(((cfg.get("git") or {}) if isinstance(cfg, dict) else {}).get("hooks", "")).lower() in ("on", "true")
+    except Exception:  # noqa: BLE001 - a broken config keeps the safe default
+        on = False
+    _hooks_on[str(f)] = (mtime, on)
+    return on
 # the same settings as environment variables, for programs that run git themselves (gh reads the remotes and the status)
 SAFE_ENV = {"GIT_CONFIG_COUNT": "3", "GIT_CONFIG_KEY_0": "protocol.ext.allow", "GIT_CONFIG_VALUE_0": "never",
             "GIT_CONFIG_KEY_1": "core.hooksPath", "GIT_CONFIG_VALUE_1": os.devnull,
@@ -55,11 +80,13 @@ def git(root: str, *args: str, check: bool = False, env: dict | None = None, tim
     raising; `text=False` gives bytes. A timeout is a failed command (returncode 124), like any other failed git call.
     The environment is `scrubbed` and the repo's hooks, fsmonitor and ext transport are off (SAFE_ARGS)."""
     run_env = {**scrubbed(env), "GIT_TERMINAL_PROMPT": "0"}
-    if _verb(args) in NETWORK:
+    verb = _verb(args)
+    if verb in NETWORK:
         run_env.setdefault("GIT_ALLOW_PROTOCOL", ALLOW_PROTOCOL)
+    safe = SAFE_ARGS_HOOKS if verb in LOCAL_HOOK_VERBS and project_hooks(root) else SAFE_ARGS
     kw: dict = {"encoding": "utf-8", "errors": "replace"} if text else {}
     try:
-        return subprocess.run(["git", *SAFE_ARGS, *args], cwd=root, capture_output=True, check=check, env=run_env,
+        return subprocess.run(["git", *safe, *args], cwd=root, capture_output=True, check=check, env=run_env,
                               timeout=timeout, **kw)
     except subprocess.TimeoutExpired as exc:
         empty = "" if text else b""

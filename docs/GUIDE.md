@@ -467,7 +467,9 @@ keel checks every agent with rules. **Build › Rules** shows all of them in pla
   or `set-url`, `git -c`) and never write inside `.git/`; reading them (`git config --get`, `git remote -v`) is fine.
   keel runs git there with your GitHub login. keel's own git runs no hook, no fsmonitor and no `ext::` remote of the
   repo, with no keys in its environment, and with the login it speaks https only (so a git hook of the project does
-  not run on keel's commits: its checks belong in the project's `pre-commit` tools, which keel runs itself). A container an agent starts (with
+  not run on keel's commits: its checks belong in the project's `pre-commit` tools, which keel runs itself; or
+  set `git: {hooks: on}` in `.keel/config.yml` and the project's own hooks run on keel's local commits, merges and
+  checkouts, with no keys in their environment, never on a push or a fetch). A container an agent starts (with
   `keel2 --docker`) gets no bind mount outside the project, no Docker socket, no `--privileged`, `--cap-add` or host
   namespaces.
 - **You can switch off**: generated files, build output, `-x test`, new packages, reading a file twice, big-file

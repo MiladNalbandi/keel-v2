@@ -142,6 +142,21 @@ def test_keels_commit_runs_no_planted_hook_and_hands_no_key_on(repo, tmp_path, m
     assert not seen.exists()
 
 
+def test_with_git_hooks_on_the_projects_hook_runs_on_a_local_commit_without_keys_and_never_on_a_push(repo, tmp_path,
+                                                                                                    monkeypatch):
+    # 0.18.64 the person's choice (.keel/config.yml git.hooks: on): their own hooks run on keel's local commits
+    monkeypatch.setenv("KEEL_INTERNAL_TOKEN", "keel-internal-fake")
+    seen = plant_hook(repo, tmp_path)
+    (repo / ".keel").mkdir()
+    (repo / ".keel" / "config.yml").write_text("git:\n  hooks: on\n")
+    (repo / "b.txt").write_text("b\n")
+    git.git(str(repo), "add", "-A")
+    assert git.git(str(repo), *ID, "commit", "-q", "-m", "two").returncode == 0
+    assert seen.exists() and "keel-internal-fake" not in seen.read_text()        # it ran, and saw no key
+    assert git.SAFE_ARGS_HOOKS == ("-c", "protocol.ext.allow=never", "-c", "core.fsmonitor=false")
+    assert "push" not in git.LOCAL_HOOK_VERBS and "fetch" not in git.LOCAL_HOOK_VERBS
+
+
 def test_keels_status_runs_no_planted_fsmonitor(repo, tmp_path):
     seen = tmp_path / "fsmon"
     prog = tmp_path / "fsmon.sh"
