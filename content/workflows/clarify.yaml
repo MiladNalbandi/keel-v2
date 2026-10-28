@@ -16,7 +16,8 @@ version: 1
 # the red-flag check, the next step and the ready-to-send prompt for any AI coding tool. The result gate: hand over to
 # the keel flow that fits the type (feature for New feature and API integration, fix for Bug fix, change or small for
 # Refactor, change or spike for Performance, spike or feature for Architecture) with the criteria and the answers as
-# its seed; copy the prompt only; send back with a note; stop.
+# its seed; copy the prompt only; send back with a note; stop. The document on disk is the source of truth
+# (0.18.64): the result gate shows the file as it is now, a send-back patches it, and the hand-over reads it again.
 steps:
   - id: read
     kind: agent
@@ -130,7 +131,13 @@ steps:
       double braces filled from the request, the code (file:line) and the answers, keeping the template's words
       ("unknown" where nothing says it), between a line ````prompt and a line ```` (four backticks: the template has its
       own fences). Never put an AC id inside a drawing. When your outputs come back with a note or the spec check's
-      findings, write your whole answer again with them.
+      findings, patch your last draft below: keep every part that is right as it is, change only what the note or the
+      findings ask, and give your whole answer again with every section.
+
+      Your last draft (the clarify document keel wrote from your last answer, as its file is now: the person may have
+      edited it; keel adds the front matter, the Request, the Definition of done and the appendices again itself):
+
+      {{data.clarify.draft}}
 
       The person's notes on earlier outputs (each one still applies and wins over the answers below; keep every
       correction made for them):
@@ -169,12 +176,13 @@ steps:
     lock: true
     phase: spec
     choices: { feature: to_feature, fix: to_fix, change: to_change, small: to_small, spike: to_spike, prompt: prompt_only,
-               reject: assemble, stop: end }
-  # the hand-over (the same mechanism as the spike's hand_spec): the criteria and the answers are the seed
+               reject: redraft, stop: end }
+  # the hand-over (the same mechanism as the spike's hand_spec): the criteria and the answers are the seed. 0.18.64
+  # clarify_hand reads them again from the file on disk first: the person may have edited it while the gate waited
   - id: to_feature
     kind: code
     name: start a feature flow with the criteria
-    action: start_flow
+    action: clarify_hand+start_flow
     flow: feature
     then: end
     phase: spec
@@ -182,7 +190,7 @@ steps:
   - id: to_fix
     kind: code
     name: start a fix flow with the bug report
-    action: start_flow
+    action: clarify_hand+start_flow
     flow: fix
     then: end
     phase: spec
@@ -190,7 +198,7 @@ steps:
   - id: to_change
     kind: code
     name: start a change flow with the criteria
-    action: start_flow
+    action: clarify_hand+start_flow
     flow: change
     then: end
     phase: spec
@@ -198,7 +206,7 @@ steps:
   - id: to_small
     kind: code
     name: start a small flow with the criteria
-    action: start_flow
+    action: clarify_hand+start_flow
     flow: small
     then: end
     phase: spec
@@ -206,9 +214,12 @@ steps:
   - id: to_spike
     kind: code
     name: start a spike flow on the options
-    action: start_flow
+    action: clarify_hand+start_flow
     flow: spike
     then: end
     phase: spec
     seed: { title: $title, request: $data.clarify.request, evidence: $data.clarify.evidence }
-  - { id: prompt_only, kind: code, name: the prompt only, action: clarify_prompt, then: end, phase: spec }
+  - { id: prompt_only, kind: code, name: the prompt only, action: clarify_hand+clarify_prompt, then: end, phase: spec }
+  # 0.18.64 a send-back: the file as it is now is the draft the assemble step patches; a replacement draft sent with the
+  # reject (keel_reject_with_document) is written and checked, and the gate shows it again when the spec check passes
+  - { id: redraft, kind: code, name: take the draft back, action: clarify_redraft, lock: true, then: checked, phase: spec }

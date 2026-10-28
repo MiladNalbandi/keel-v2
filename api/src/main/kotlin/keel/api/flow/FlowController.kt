@@ -5,6 +5,7 @@ import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
+import org.springframework.web.bind.annotation.PutMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
@@ -40,6 +41,7 @@ data class UnlockBody(val path: String = "", val phase: String? = null, val reas
 data class Resume(val decision: String = "", val why: String? = null, val payload: Map<String, Any?>? = null)
 data class Rewind(val checkpointId: String = "")
 data class ModeBody(val mode: String = "")
+data class DocumentBody(val text: String? = null)
 
 @RestController
 @RequestMapping("/api")
@@ -94,6 +96,14 @@ class FlowController(private val flows: FlowService) {
 
     @PostMapping("/threads/{tid}/rewind")
     fun rewind(@PathVariable tid: String, @RequestBody body: Rewind): JsonNode = flows.rewind(tid, body.checkpointId)
+
+    /** 0.18.64 the flow's document (its clarify document or spec) from its file, and whether the person edited it. */
+    @GetMapping("/threads/{tid}/document")
+    fun document(@PathVariable tid: String): JsonNode = flows.document(tid)
+
+    /** 0.18.64 replace the flow's document while it waits at a gate (keel_flow_document): the person's edit. */
+    @PutMapping("/threads/{tid}/document")
+    fun writeDocument(@PathVariable tid: String, @RequestBody body: DocumentBody): JsonNode = flows.writeDocument(tid, body.text)
 
     /** 0.18.57 who else reads the project folder (KeelBot's Ask and Edit chats, the folder's flow): Start a flow warns. */
     @GetMapping("/projects/{pid}/folder-activity")

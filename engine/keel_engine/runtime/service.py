@@ -25,7 +25,7 @@ from ..workflows.model import Workflow, from_dict
 from ..workflows.templates import get_template
 from . import bug, hunt, ladder as ladder_mod
 from . import memory as memory_mod
-from . import db, migrate, prompts, run_mode, spec_check
+from . import db, doc_history, flow_doc, migrate, prompts, run_mode, spec_check
 from . import choices as choices_mod
 from . import finding_decisions
 from .compiler import answer_problem, compile_workflow, running_usage
@@ -487,6 +487,11 @@ class Engine:
         if waiting and status == "waiting":
             out["waiting"] = {"step": waiting.get("step"), "kind": waiting.get("kind", "gate"), "title": waiting.get("title", ""),
                               "detail": waiting.get("detail", ""), "options": waiting.get("options") or ["approve", "reject"]}
+            if waiting.get("doc"):
+                # 0.18.64 a gate that shows a flow's document: its text from the file now, so an edit made while it
+                # waits (by hand, keel_flow_document) shows at once, with when it was made
+                out["waiting"]["detail"] = await asyncio.to_thread(flow_doc.gate_text, row["root"], v.get("data") or {},
+                                                                   str(waiting.get("step") or ""))
             if waiting.get("id"):
                 out["waiting"]["id"] = waiting["id"]
             # 0.18.28 the waiting step's own name ("verify the suite + commit"): a suggestion names the gate by it, never
@@ -670,6 +675,47 @@ class Engine:
         out = await asyncio.to_thread(rules_view.now, ctx.root, st.get("phase"), lane, unlocks, last.get("provider"),
                                       last.get("mode"), (v.get("data") or {}).get("last_command_failure"))
         return {**out, "thread_id": tid, "status": st.get("status"), "current": st.get("current")}
+
+    async def document(self, tid: str) -> dict:
+        """0.18.64 the flow's document (its clarify document, else its spec) from its file: path, kind, text, whether the
+        person edited it after keel wrote it (and when), and the gate the flow waits at (None while it runs)."""
+        row = await self._row(tid)
+        snap = await (await self._graph(tid)).aget_state(self._cfg(tid))
+        doc = await asyncio.to_thread(flow_doc.read, row["root"], snap.values or {})
+        if not doc:
+            raise EngineError(404, "This flow has no document yet.",
+                              "A clarify flow writes its document before its result gate; a feature flow writes its spec first.")
+        waiting = self._waiting(snap) if tid not in self.tasks and row["status"] != "stopped" else None
+        return {**doc, "thread_id": tid, "waiting": (waiting or {}).get("step")}
+
+    async def set_document(self, tid: str, text: str) -> dict:
+        """0.18.64 replace the flow's document while it waits at a gate (keel_flow_document), recorded in keel's file
+        history as the person's edit. The gate's text shows the file from then on; a clarify hand-over uses it."""
+        if not (text or "").strip():
+            raise EngineError(400, "text is empty.", "Send the document's whole new text.")
+        # the resume lock: an answer that arrives at the same time never runs a step on half of a write
+        async with self._resuming.setdefault(tid, asyncio.Lock()):
+            row = await self._row(tid)
+            if tid in self.tasks:
+                raise EngineError(409, "The flow is running, not waiting at a gate.", "Wait for it to reach a gate.")
+            snap = await (await self._graph(tid)).aget_state(self._cfg(tid))
+            if row["status"] == "stopped" or not self._waiting(snap):
+                raise EngineError(409, "The flow is not waiting at a gate.",
+                                  "Its document changes only while it waits; edit the file itself after the flow ended.")
+            found = flow_doc.of(snap.values or {})
+            if not found:
+                raise EngineError(404, "This flow has no document yet.")
+            rel, _kind = found
+            try:
+                await asyncio.to_thread(flow_doc.write, row["root"], rel, text)
+            except (ValueError, OSError) as exc:
+                raise EngineError(400, f"keel cannot write {rel}: {exc}") from exc
+            ctx = await self._context(tid)
+            sha = await asyncio.to_thread(doc_history.sha_of, row["root"], rel)
+            ctx.emit("doc.version", step=self._waiting(snap).get("step"),
+                     data={**doc_history.event(row["root"], rel, sha), "by_kind": "user", "by_name": "edited while the flow waited",
+                           "phase": (snap.values or {}).get("phase"), "via": "api"})
+        return await self.document(tid)
 
     async def unlocks(self, tid: str) -> list[dict]:
         """The thread's unlocks: those in its graph state plus those granted since its last step."""

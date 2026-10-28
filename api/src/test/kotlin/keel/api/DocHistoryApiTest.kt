@@ -156,6 +156,20 @@ class DocHistoryApiTest : ApiTest() {
     }
 
     @Test
+    fun `a clarify document has a history and can be restored`() {
+        // 0.18.64 the engine records <specs>/clarify documents too: the person edits them while the result gate waits
+        val (pid, root) = newProject("history-clarify", mapOf(".keel/config.yml" to "layout: keel\n"))
+        val rel = ".keel/specs/clarify/2026-10-28-ranks.md"
+        val text = "# Ranks\n- **AC-1** [API] ranked\n"
+        send(mapOf("type" to "doc.version", "thread_id" to "t-c", "project_id" to pid, "step" to "result", "at" to "2026-10-28T10:00:00Z",
+            "data" to mapOf("path" to rel, "kind" to "spec", "sha256" to DocHistoryService.sha256(text.toByteArray()), "content" to text,
+                "size" to text.length, "by_kind" to "user", "by_name" to "edited while the flow waited", "phase" to "spec")))
+        val id = get("/api/projects/$pid/docs/history/versions?path=$rel").json()[0]["id"].asText()
+        post("/api/projects/$pid/docs/history/restore", mapOf("version_id" to id)).andExpect(status().isOk)
+        assertThat(Files.readString(root.resolve(rel))).contains("AC-1")
+    }
+
+    @Test
     fun `a commit sets the sha on the newest version and shows in what the flow applied`() {
         val (pid, _) = newProject("history-applied", mapOf(".keel/config.yml" to "layout: keel\n"))
         send(version(pid, "t-3", "# S\n"),

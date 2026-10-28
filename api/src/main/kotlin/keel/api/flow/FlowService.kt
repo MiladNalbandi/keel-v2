@@ -765,6 +765,23 @@ class FlowService(
 
     fun history(tid: String): JsonNode = engine.history(tid)
 
+    /** 0.18.64 the flow's document (its clarify document, else its spec) from its file: path, kind, text, whether the
+     *  person edited it after keel wrote it (and when), and the gate the flow waits at. */
+    fun document(tid: String): JsonNode = engine.document(tid)
+
+    /**
+     * 0.18.64 replaces the flow's document while it waits at a gate (keel_flow_document). The engine writes the file and
+     * records it in keel's file history as the person's edit; the gate's text shows it from then on, and a clarify
+     * hand-over uses it. The saved state follows, so the run history and keel TUI show the new gate text.
+     */
+    fun writeDocument(tid: String, text: String?): JsonNode {
+        if (text.isNullOrBlank()) throw BadRequest("text is empty", "Send the document's whole new text.")
+        val doc = engine.writeDocument(tid, mapOf("text" to text, "root" to rootNow(tid)).filterValues { it != null })
+        runCatching { save(tid, engine.thread(tid)) }
+        threadProject(tid)?.let { hub.publish(it, "project.changed", mapOf("id" to it)) }
+        return doc
+    }
+
     fun rewind(tid: String, checkpointId: String): JsonNode {
         if (checkpointId.isBlank()) throw BadRequest("checkpoint_id is missing")
         val state = engine.rewind(tid, checkpointId, keysForThread(tid).takeIf { it.isNotEmpty() }, rootNow(tid))

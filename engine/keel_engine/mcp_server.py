@@ -428,6 +428,7 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
     from . import mcp_skills as sk
     from . import mcp_stacks as stk
     from . import mcp_flows as flows_mod
+    from . import mcp_docs as docs
 
     api = api or KeelApi()
     lvl = level or ("write" if write else "read")
@@ -1043,6 +1044,43 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         """keel's ASCII diagrams: flow (the running flow, done steps and the waiting gate; arg zooms to a step), workflow
         (arg: its id), map-er (arg: a table to focus), map-system, map-modules, graph (arg: a symbol's name)."""
         return guard(tui.diagram, api, kind, arg, project, width)
+
+    # ---------------------------------------------------------------- 0.18.64 a flow's document (its clarify document or spec)
+
+    @reg(ro)
+    async def keel_flow_document(project: str | None = None, thread_id: str | None = None, text: str | None = None,
+                                 ctx: Context | None = None) -> str:
+        """A flow's document (thread_id: that flow, default the project's flow): its clarify document, else its spec,
+        from the file on disk: the path, whether the person edited it after keel wrote it (and when), and its text.
+        With `text` (keel2 mcp --write only): replace the whole document while the flow waits at a gate; keel records
+        it as the person's edit, the gate shows it, and a clarify hand-over uses it."""
+        if text is None:
+            return await anyio.to_thread.run_sync(lambda: guard(docs.flow_document, api, project, thread_id))
+        if RANK[lvl] < RANK["write"]:
+            return "keel: replacing a flow's document needs the write level: run keel2 mcp --write."
+        return await act(ctx, "keel_flow_document", "replace the flow's document", docs.write_flow_document, api, text,
+                         project, thread_id)
+
+    @reg(rw)
+    async def keel_reject_with_document(text: str, why: str | None = None, project: str | None = None,
+                                        thread_id: str | None = None, ctx: Context | None = None) -> str:
+        """Send a clarify flow's result back with your own replacement draft (`text`: the whole document) and a note
+        (`why`). keel writes the draft to the file and runs its spec check: when it passes, the result gate shows your
+        draft again with no assemble pass; when it fails, the assemble step patches your draft (keeping what is right)
+        and the gate shows that."""
+        return await act(ctx, "keel_reject_with_document", "send the clarify result back with your draft",
+                         docs.reject_with_document, api, text, why, project, thread_id)
+
+    @reg(rw)
+    async def keel_handover(flow: Literal["feature", "fix", "change", "small", "spike"], text: str | None = None,
+                            why: str | None = None, project: str | None = None, thread_id: str | None = None,
+                            ctx: Context | None = None) -> str:
+        """Hand a clarify flow that waits at its result gate over to the next flow (feature, fix, change, small or spike:
+        one the gate offers). With `text` (the whole document), keel writes it to the file first, recorded as your
+        edit; the hand-over reads the request, the criteria and the prompt from the file. Returns the new flow's
+        thread id and the link (the clarify flow's children, the new flow's parent)."""
+        return await act(ctx, "keel_handover", f"hand the clarify document over to a {flow} flow", docs.handover, api, flow,
+                         text, why, project, thread_id)
 
     @reg(rx)
     async def keel_edit_workflow(workflow: str, yaml: str, project: str | None = None, ctx: Context | None = None) -> str:

@@ -678,6 +678,20 @@ DOCS: dict[str, dict] = {
                   "The result gate offers the keel flow that fits the task type first (feature, fix, change, small or "
                   "spike), then copy the prompt only, send back with a note, stop. Nothing is committed."],
     },
+    "clarify_redraft": {
+        "summary": "A send-back from the clarify result: the document as its file is now becomes the draft to patch.",
+        "steps": ["The note (and every earlier note) goes to the assemble step with the draft: keep what is right, "
+                  "change only what the note asks.",
+                  "A replacement draft sent with the reject (keel_reject_with_document) is written to the file and run "
+                  "through the spec check: it passes, and the result gate shows it again with no assemble pass; it "
+                  "fails, and the assemble step patches it."],
+    },
+    "clarify_hand": {
+        "summary": "Reads the clarify document again from its file before a hand-over or the prompt.",
+        "steps": ["The request, the criteria (parsed again), the prompt and the evidence the next flow gets come from "
+                  "the file as it is at the choice, with the person's edits.",
+                  "Only when the file is gone: the copy keel wrote."],
+    },
     "clarify_prompt": {
         "summary": "Shows the ready-to-send prompt to copy; the flow ends without starting another one.",
         "steps": ["The prompt from the clarify document is the step's output; no child flow starts."],
