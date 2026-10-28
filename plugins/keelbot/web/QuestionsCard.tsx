@@ -1,7 +1,7 @@
 // KeelBot's Questions action block(s), split out of Actions.tsx (Actions.tsx re-exports them).
 
 import { useContext, useState } from "react";
-import { answersMessage, answersOf, AskKeelBot, ClarifyForm, parseQuestions, readAnswersMessage, type ClarifyAnswers } from "@keel/web-sdk";
+import { answersMessage, answersOf, AskKeelBot, ClarifyForm, parseQuestions, pickedMode, readAnswersMessage, type ClarifyAnswers } from "@keel/web-sdk";
 
 /** keel 0.18.9 KeelBot asks the person to choose (```keel-questions```): keel's question form (pick one, tick several,
  *  your own words, how many are answered); Send gives the answers to KeelBot as the next message.
@@ -9,7 +9,8 @@ import { answersMessage, answersOf, AskKeelBot, ClarifyForm, parseQuestions, rea
  *  card shows what was sent, read only, also after a reload (derived from the chat, nothing stored).
  *  0.18.38 one question with the id "next" is KeelBot's next steps: buttons, not a form.
  *  0.18.61 one question that takes one answer: a click on an option sends it, no "Send my answers" step (your own
- *  words still wait for Send). Several questions keep the Send step. */
+ *  words still wait for Send). Several questions keep the Send step.
+ *  0.18.63 an option with `"mode": "edit"` (KeelBot's "Switch to Edit") switches the chat to Edit before its answer goes. */
 export function QuestionsCard({ body, answered }: { body: string; answered?: string | null }) {
   const qs = parseQuestions(body);
   const ask = useContext(AskKeelBot);
@@ -18,8 +19,11 @@ export function QuestionsCard({ body, answered }: { body: string; answered?: str
   const [sent, setSent] = useState<string | null>(null);
   if (!qs.length) return <p className="kb-card bad" role="note">KeelBot's questions could not be read. Ask it to ask again.</p>;
   const send = (p: ClarifyAnswers = picked, t: ClarifyAnswers = typed) => {
-    const text = answersMessage(qs, answersOf(qs, p, t));
-    ask?.(text);
+    const answers = answersOf(qs, p, t);
+    const text = answersMessage(qs, answers);
+    const mode = pickedMode(qs, answers);
+    if (mode) ask?.(text, { mode });
+    else ask?.(text);
     setSent(text);
   };
   const one = qs.length === 1 && !qs[0].multiple;
@@ -35,7 +39,9 @@ export function QuestionsCard({ body, answered }: { body: string; answered?: str
     // 0.18.38 KeelBot's next steps (one question with the id "next"): a row of buttons, one press sends the pick
     const pick = (label: string) => {
       const text = answersMessage(qs, { next: label });
-      ask?.(text);
+      const mode = pickedMode(qs, { next: label });
+      if (mode) ask?.(text, { mode });
+      else ask?.(text);
       setSent(text);
     };
     return (

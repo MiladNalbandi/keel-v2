@@ -114,7 +114,9 @@ export type ClarifyQuestion = {
   question: string;
   why?: string;
   /** keel 0.18.22 `why`: the option takes a reason (a findings gate's "accept"); its answer is "<label>: <reason>" */
-  options: { label: string; description?: string; recommended?: boolean; why?: "required" | "optional" }[];
+  options: { label: string; description?: string; recommended?: boolean; why?: "required" | "optional";
+    /** keel 0.18.63 KeelBot's "Switch to Edit" option: picking it switches the chat to that mode, then sends the answer */
+    mode?: "edit" | "ask" }[];
   /** keel 0.18.9 several options may be picked (the answer is a list) */
   multiple?: boolean;
   /** B9 false: no "own words" box (a skip menu: words there were read as a step's name) */

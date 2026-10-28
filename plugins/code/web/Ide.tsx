@@ -6,9 +6,10 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type PointerEvent as RPointerEvent } from "react";
 import {
-  ASK_ASSISTANT_EVENT, doubleShift, ErrorBox, isTyping, keyLabel, modalOpen, openLauncher, parseHash, readKeymap, slotItems, SLOTS, useApp,
+  ASK_ASSISTANT_EVENT, doubleShift, ErrorBox, isTyping, keyLabel, modalOpen, openLauncher, parseHash, readKeymap, searchTextOf, SelectionBar,
+  selectionReviewRequest, slotItems, SLOTS, useApp,
   useLoad, useNarrow, useRoute, useSlot, useStored, WorkspaceDoctor, type AskAssistantDetail, type AssistantItem, type CodeActivityItem, type CodeTabItem,
-  type HelperSelection,
+  type HelperSelection, type SelectionAction,
 } from "@keel/web-sdk";
 import { codeApi as api, type RepoInfo } from "./codeApi";
 import {
@@ -136,6 +137,9 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus, onRepo
   const screen: "side" | "editor" = storedScreen === "editor" && !tabs.active && !parseDeepLink(route.arg) ? "side" : storedScreen;
   const [reveal, setReveal] = useState(0);
   const [searchFocus, setSearchFocus] = useState(0);
+  // the selection bar's Search hands its text to the search view
+  const [searchQuery, setSearchQuery] = useState<{ text: string; n: number } | null>(null);
+  const edBody = useRef<HTMLDivElement>(null);
   const [filterFocus, setFilterFocus] = useState(0);
   const [against, setAgainst] = useStored<"head" | "base">(`keel2.repo.against.${pid}`, "head", { valid: (v) => v === "head" || v === "base" });
   const [mode, setMode] = useState<DiffMode>(() => readJson(local, "keel2.repo.diff", "inline"));
@@ -239,6 +243,15 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus, onRepo
         setScreen("side");
         return;
       }
+      // 0.18.63 #/repo?search=<text>: the search view with that text (the Review page's selection bar, Search)
+      const search = r.page === "repo" ? new URLSearchParams(r.query ?? "").get("search")?.trim() : null;
+      if (search) {
+        setActivity("search");
+        setSideOpen(true);
+        setScreen("side");
+        setSearchQuery((q) => ({ text: search.slice(0, 200), n: (q?.n ?? 0) + 1 }));
+        return;
+      }
       const file = r.page === "repo" ? parseDeepLink(r.arg) : null;
       if (file) {
         openAt(file.path, file.line, refOfQuery(r.query), false);
@@ -338,6 +351,53 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus, onRepo
     setHelperOpen(true);
     setHelperFocus((n) => n + 1);
   }, [codeSelection]);
+
+  /** The selected line's code for Search: the first selected row's, without its line number (part of it when only
+   *  part of one row is selected). */
+  const selectedLine = (): string => {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.anchorNode || !sel.focusNode) return "";
+    const rowOf = (n: Node) => (n instanceof Element ? n : n.parentElement)?.closest<HTMLElement>(".cv-row") ?? null;
+    const a = rowOf(sel.anchorNode), b = rowOf(sel.focusNode);
+    if (!a || !b) return sel.toString();
+    const code = (r: HTMLElement) => r.querySelector(".cv-code");
+    if (a === b) {
+      const c = code(a);
+      return c && sel.containsNode(c, false) ? c.textContent ?? "" : sel.toString();
+    }
+    const top = Number(a.dataset.line) <= Number(b.dataset.line) ? a : b;
+    return code(top)?.textContent ?? "";
+  };
+
+  // 0.18.63 the bar over selected code: Search for it, ask KeelBot about it, or have KeelBot review it
+  const selActions = useMemo<SelectionAction[]>(() => {
+    if (!codeActive) return [];
+    const out: SelectionAction[] = [{
+      id: "search", label: "Search", title: "Search the project for the selected text (⇧⌘F)",
+      run: () => {
+        const text = searchTextOf(selectedLine());
+        if (!text) return;
+        showSide("search");
+        setSearchQuery((q) => ({ text, n: (q?.n ?? 0) + 1 }));
+      },
+    }];
+    if (assistant) {
+      out.push(
+        { id: "ask", label: `Ask ${helperName}`, title: `Ask ${helperName} about the selected lines (⌘I)`, run: askHelper },
+        {
+          id: "review", label: "Review", title: `${helperName} reviews the selected lines: bugs, missed cases, risks`,
+          run: () => {
+            const picked = codeSelection();
+            if (!picked) return;
+            setHelperSel(picked);
+            setHelperOpen(true);
+            setPrefill((p) => ({ text: selectionReviewRequest(`the selected lines of ${picked.path}`), n: (p?.n ?? 0) + 1 }));
+          },
+        },
+      );
+    }
+    return out;
+  }, [codeActive, assistant, helperName, askHelper, codeSelection, showSide]);
 
   // keyboard: ⌘/Ctrl+P quick open, +Shift+F search, +Shift+E explorer, +Shift+G source control, +F find, +G go to line, Alt+Z wrap
   useEffect(() => {
@@ -482,7 +542,7 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus, onRepo
           onOpen={(p, pin) => openFile(p, pin)} />
       </div>
       <div hidden={activity !== "search"} className="sv-host">
-        <SearchView pid={pid} focus={searchFocus} onOpen={(p, line, col, len, pin) => open({ path: p, view: "code" }, { pin, line, col, len })} />
+        <SearchView pid={pid} focus={searchFocus} query={searchQuery} onOpen={(p, line, col, len, pin) => open({ path: p, view: "code" }, { pin, line, col, len })} />
       </div>
       <div hidden={activity !== "scm"} className="sv-host">
         <ScmView pid={pid} repo={repo} changes={changes.data} changesError={changes.error}
@@ -774,7 +834,8 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus, onRepo
             {toolbar}
           </div>
         )}
-        <div className="ed-body">{body}</div>
+        <div ref={edBody} className="ed-body">{body}</div>
+        <SelectionBar within={edBody} actions={selActions} />
       </section>
       {helperOpen && assistant && (
         <div className="ide-help">

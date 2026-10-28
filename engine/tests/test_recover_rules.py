@@ -116,3 +116,16 @@ def test_a_new_run_starts_with_the_last_runs_failures(folder, tmp_path):
     outside.mkdir()
     repeats.remember(first, str(outside), "make x", "boom")
     assert repeats.refusal(first, str(outside), "make x") is None          # no git: keel cannot tell, so it runs
+
+
+def test_a_network_error_is_not_a_failure_to_refuse_again(folder, tmp_path):
+    # keel 0.18.63 `gh run view` failed on "TLS handshake timeout": the same call a moment later may work
+    run = tmp_path / "run"
+    run.mkdir()
+    assert repeats.transient("failed to get run: Get \"https://api.github.com/...\": net/http: TLS handshake timeout")
+    assert repeats.transient("curl: (6) Could not resolve host: example.com")
+    assert not repeats.transient("error: pathspec 'nope' did not match")
+    assert repeats.remember(run, str(folder), "gh run view 1234", "net/http: TLS handshake timeout") == {}
+    assert repeats.refusal(run, str(folder), "gh run view 1234") is None
+    repeats.remember(run, str(folder), "git checkout nope", "error: pathspec 'nope' did not match")
+    assert "failed before" in repeats.refusal(run, str(folder), "git checkout nope")

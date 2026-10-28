@@ -6,7 +6,9 @@ import { fixRequest } from "../askFix";
 
 export { fixRequest };
 
-export const AskKeelBot = createContext<((text: string) => void) | null>(null);
+/** keel 0.18.63 `mode`: switch the chat to it first (a picked "Switch to Edit" option), then send the text */
+export type AskOptions = { mode?: "edit" | "ask" };
+export const AskKeelBot = createContext<((text: string, opts?: AskOptions) => void) | null>(null);
 
 export function AskFixButton({ what, error }: { what: string; error: { message: string; hint?: string } | null }) {
   const ask = useContext(AskKeelBot);

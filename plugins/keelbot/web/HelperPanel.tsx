@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import {
   ApiError, clock, errorParts, go, keyLabel, Markdown, mergeSteps, ModelPicker, modelLabel, ProviderIcon, provLabel, rankFiles, shareFocus, StepView,
-  UI_FOCUS_EVENT, useApp, useLoad, usePages, useWide, type UiFocus, AskKeelBot, ANSWERS_PREFIX, sourceRef,
+  UI_FOCUS_EVENT, useApp, useLoad, usePages, useWide, type UiFocus, AskKeelBot, ANSWERS_PREFIX, sourceRef, type AskOptions,
   type AnswerSource, type GraphHit, type HelperCommand, type HelperDone, type HelperMention, type HelperMessage, type HelperMode,
   type HelperSelection, type HelperSession, type JobStep, type Model,
 } from "@keel/web-sdk";
@@ -98,7 +98,7 @@ export function ToolFold({ calls, log }: { calls: ToolCall[]; log: string }) {
 /** An answer: Markdown whose `file:line` chips open the editor, and KeelBot's buttons (start a flow, save a workflow).
  *  0.18.57 a chip opens the file as the answer's `source` has it: the branch it was made on (a side session's branch, the
  *  branch the folder was on then), or the ref KeelBot read that file from (`git show <ref>:<path>`). */
-export function Answer({ text, onOpen, pid, onAsk, answered, later, source }: { text: string; onOpen: (path: string, line?: number, ref?: string | null) => void; pid: string; onAsk: (t: string) => void;
+export function Answer({ text, onOpen, pid, onAsk, answered, later, source }: { text: string; onOpen: (path: string, line?: number, ref?: string | null) => void; pid: string; onAsk: (t: string, opts?: AskOptions) => void;
   /** 0.18.57 what the answer was made from */
   source?: AnswerSource | null;
   /** keel 0.18.13 the chat's later message with the answers to this answer's questions (its QuestionsCard shows them) */
@@ -484,9 +484,9 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
     }, 0);
   };
 
-  const ensureSession = async (): Promise<string> => {
+  const ensureSession = async (m: HelperMode = mode): Promise<string> => {
     if (sid && s) return sid;
-    const created = await kb.create(pid, { mode });
+    const created = await kb.create(pid, { mode: m });
     setSid(created.id);          // the draft moves with the chat (the draft effect); the new-chat draft is done
     dropDraft(pid, null);
     void list.reload();
@@ -495,7 +495,9 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
 
   // 0.18.28 messages typed while KeelBot answers: they wait (shown dim) and go one by one after the answer
   const [queued, setQueued] = useState<string[]>([]);
-  const send = async (raw?: string) => {
+  // 0.18.63 `toMode`: a picked "Switch to Edit" option: the chat goes on in that mode (as /mode edit in keel TUI), and the
+  // answer already runs in it
+  const send = async (raw?: string, toMode?: HelperMode) => {
     const body = (raw ?? text).trim();
     if (body && raw === undefined && (runningCall || sending) && !handed) {
       setQueued((q) => [...q, body]);
@@ -507,7 +509,15 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
     setSending(true);
     stick.current = true;
     try {
-      const id = await ensureSession();
+      const id = await ensureSession(toMode ?? mode);
+      if (toMode && s && s.mode !== toMode) {
+        try {
+          await kb.patch(pid, id, { mode: toMode });
+        } catch (e) {
+          toast(`Not switched to ${toMode === "edit" ? "Edit" : "Ask"}: ${errorParts(e).message} Use the mode menu above.`);
+          return;
+        }
+      }
       const used = mentions.filter((m) => body.includes(`@${m.value}`));
       const started = await kb.turn(pid, id, {
         text: body, mentions: used.length ? used : undefined, selection: selection ?? undefined, open_file: openFile ?? undefined,
@@ -855,7 +865,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
         {messages.map((m) => m.role === "user" ? <UserMessage key={m.n} m={m} /> : (
           <div key={m.n} className={`hp-msg ${m.role === "note" ? "hp-note" : "hp-help"}`}>
             {m.role === "helper" && m.data.thinking && <ThinkingBlock text={m.data.thinking} ms={m.data.thinking_ms} answering />}
-            {m.role === "note" ? <p className="hp-text">{m.data.status === "stopped" ? "Stopped." : m.text}</p> : <Answer text={m.text} onOpen={onOpenFile} pid={pid} onAsk={(t) => void send(t)} answered={answeredBy(messages, m.n)} source={m.data.source}
+            {m.role === "note" ? <p className="hp-text">{m.data.status === "stopped" ? "Stopped." : m.text}</p> : <Answer text={m.text} onOpen={onOpenFile} pid={pid} onAsk={(t, o) => void send(t, o?.mode)} answered={answeredBy(messages, m.n)} source={m.data.source}
               later={messages.some((x) => x.n > m.n && x.role === "user")} />}
             {m.call_id && <TurnSteps callId={m.call_id} live={liveSteps[m.call_id] ?? []} running={false} />}
             {m.role === "helper" && (
@@ -872,7 +882,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
             {/* keel 0.18.2 the answer as KeelBot writes it (helper.delta); the stored answer replaces it */}
             {liveText?.[runningCall] && (
               <div className="hp-stream" aria-live="polite" aria-label="KeelBot is writing">
-                <Answer text={liveText[runningCall]} onOpen={onOpenFile} pid={pid} onAsk={(t) => void send(t)}
+                <Answer text={liveText[runningCall]} onOpen={onOpenFile} pid={pid} onAsk={(t, o) => void send(t, o?.mode)}
                   source={sess.data?.branch ? { ref: sess.data.branch } : null} />
               </div>
             )}

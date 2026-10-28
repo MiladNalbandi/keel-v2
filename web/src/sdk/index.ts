@@ -104,10 +104,14 @@ export { NOTE_SECTIONS, ProjectNotesOff, notesCostLabel, setNotes } from "../com
 export { CodeBlock } from "../components/Code";
 // keel 0.18.9 a failed button's "Ask KeelBot to fix it" (KeelBot's chat provides AskKeelBot)
 export { AskFixButton, AskKeelBot, fixRequest as askFixRequest } from "../components/AskFix";
+export type { AskOptions } from "../components/AskFix";
+// keel 0.18.63 the bar over selected code: Search, Ask KeelBot, Review (the Code page and the Review page)
+export { SelectionBar, searchTextOf, selectionIn, selectionReviewRequest } from "../components/SelectionBar";
+export type { SelectionAction } from "../components/SelectionBar";
 export { ClarifyForm, answersOf } from "../components/ClarifyForm";
 export type { ClarifyAnswers } from "../components/ClarifyForm";
 // keel 0.18.13 one way to ask: questions read, answered and written back the same way everywhere; a gate's named choices
-export { ANSWERS_PREFIX, answersMessage, byRecommended, choiceProblem, choiceRows, defaultPick, parseQuestions, readAnswersMessage } from "../questions";
+export { ANSWERS_PREFIX, answersMessage, byRecommended, choiceProblem, choiceRows, defaultPick, parseQuestions, pickedMode, readAnswersMessage } from "../questions";
 export { ChoiceForm } from "../components/ChoiceForm";
 export { clock, kfmt } from "../format";
 export { agoText } from "../components/UsageStrip";

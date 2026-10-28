@@ -79,10 +79,22 @@ def _save(folder: str | Path, seen: dict) -> None:
         pass
 
 
+# keel 0.18.63 a network error says nothing about the command: the same call may well work a moment later
+_TRANSIENT = ("timed out", "timeout", "tls handshake", "connection reset", "connection refused", "temporary failure in "
+              "name resolution", "could not resolve host", "network is unreachable", "502 bad gateway",
+              "503 service unavailable", "504 gateway time")
+
+
+def transient(output: str) -> bool:
+    """True when a command failed on the network (a timeout, a TLS handshake, a reset), not on what it was asked."""
+    low = str(output or "").lower()
+    return any(t in low for t in _TRANSIENT)
+
+
 def remember(folder: str | Path | None, root: str, command: str, output: str = "") -> dict:
     """Notes a failed command and the folder's state now. Answers the note ({command, said, state}), so a caller can
-    keep it past this run (KeelBot's next turn: `seed`)."""
-    if not _norm(command):
+    keep it past this run (KeelBot's next turn: `seed`). A network error is not noted: running it again is fine."""
+    if not _norm(command) or transient(output):
         return {}
     note = {"state": fingerprint(root), "said": first_line(output)}
     if folder:
