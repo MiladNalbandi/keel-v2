@@ -107,6 +107,8 @@ async def set_settings(tid: str, body: SupervisorBody, request: Request):
     ctx.settings = {**(ctx.settings or {}), "supervisor": settings["supervisor"]}
     ctx.emit("supervisor.settings", data={"settings": settings_of(settings["supervisor"])})
     if (await sup.settings(tid))["on"]:
+        # 0.18.64 a new mode or policy is a new look at the waiting gate: shadow's look at it must not keep act from answering
+        sup.seen = {k for k in sup.seen if k[0] != tid}
         sup._spawn(sup.look(tid, trigger="turned-on"))
     else:
         sup.stop_where(thread=tid)

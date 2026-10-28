@@ -126,6 +126,18 @@ def test_act_mode_answers_as_the_supervisor(client, repo, script):
     assert lines[0] == "Supervisor answered 1 gate(s) in this flow:" and "check passed" in lines[1]
 
 
+def test_switching_shadow_to_act_while_a_gate_waits_answers_it(client, repo, script):
+    # 0.18.64 the gate was looked at in shadow mode, so act never looked at it again
+    script(GOOD)
+    tid, s = run(client, repo, sup={"on": True})
+    assert s["waiting"]["step"] == "g1" and rows(tid)[0]["outcome"] == "suggested"
+    r = client.post(f"/threads/{tid}/supervisor", json={"mode": "act"})
+    assert r.status_code == 200, r.text
+    idle(client)
+    assert wait(client, tid)["status"] == "done"
+    assert [x["outcome"] for x in rows(tid)] == ["applied", "suggested"]
+
+
 def test_turning_it_on_while_a_gate_waits_looks_at_once(client, repo, script):
     script(GOOD)
     tid, s = run(client, repo)
