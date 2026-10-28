@@ -44,7 +44,7 @@ import {
 } from "./FlowParts";
 import { BeforeShipPanel, GateCard } from "./Gate";
 import { InitFlow } from "./InitFlow";
-import { JobFeed, StepPanel } from "./StepPanel";
+import { DockBar, DockClose, JobFeed, StepPanel, useStepDock } from "./StepPanel";
 
 const AC_TONE: Record<string, PillTone> = { done: "ok", green: "ok", red: "bad", todo: "idle", "already-met": "met" };
 
@@ -180,16 +180,27 @@ function EarlierRun({ pid, run, onBack, onResumed }: { pid: string; run: RunRow;
 const isInit = (w: Workflow) => isInitFlow(w);
 
 
-/** The right column: what is happening now (and the running agent's last steps), the selected step, checkpoints. */
-function FlowSidePanel({ pid, thread, workflow, job, running, side, setSide, selected, onClose, onDone, history, onJump, readOnly }: {
+const SIDE_WORDS: Record<FlowSide, string> = { now: "Now", step: "Step", decisions: "Decisions", checkpoints: "Checkpoints" };
+
+/** keel 0.18.66 what the folded side panel's bar says: the step it shows, else its tab. */
+const barLabel = (side: FlowSide, name: string | null) => (side === "step" && name ? `Step details · ${name}` : `Flow details · ${SIDE_WORDS[side]}`);
+
+/** The right column: what is happening now (and the running agent's last steps), the selected step, checkpoints.
+ *  keel 0.18.66 it is the one docked panel of the page: the step details are its Step tab (with their own menu bar), and
+ *  » on a wide screen folds the whole column to a thin bar (`dock`). */
+function FlowSidePanel({ pid, thread, workflow, job, running, side, setSide, selected, onClose, onDone, history, onJump, readOnly, dock, wide }: {
   pid: string; thread: ThreadState; workflow: Workflow; job: Job | null; running: Job[]; side: FlowSide; setSide: (s: FlowSide) => void;
   selected: string | null; onClose: () => void; onDone: () => Promise<void>; history: ReturnType<typeof useThreadBits>["history"]; onJump: () => void;
-  readOnly?: ReadOnly;
+  readOnly?: ReadOnly; dock: ReturnType<typeof useStepDock>; wide: boolean;
 }) {
   const name = selected ? workflow.steps.find((s) => s.id === selected)?.name ?? selected : null;
+  if (wide && !dock.open) return <DockBar what="side panel" label={barLabel(side, name)} onOpen={() => dock.setOpen(true)} />;
   return (
     <aside className="fl-side" aria-label="Now, the selected step and checkpoints">
-      <Tabs value={side} onChange={setSide} label="Flow details" options={[["now", "Now"], ["step", name ? `Step: ${name}` : "Step"], ["decisions", "Decisions"], ["checkpoints", "Checkpoints"]]} />
+      <div className="fl-side-top">
+        <Tabs value={side} onChange={setSide} label="Flow details" options={[["now", "Now"], ["step", name ? `Step: ${name}` : "Step"], ["decisions", "Decisions"], ["checkpoints", "Checkpoints"]]} />
+        {wide && <DockClose what="side panel" onClose={() => dock.setOpen(false)} />}
+      </div>
       {side === "now" ? (
         <div className="grid" style={{ gap: 12 }}>
           {thread.status === "waiting" && thread.waiting ? <WaitsCard thread={thread} onJump={onJump} />
@@ -200,7 +211,8 @@ function FlowSidePanel({ pid, thread, workflow, job, running, side, setSide, sel
           <EventsPanel pid={pid} thread={thread} workflow={workflow} history={history.error ? [] : history.data} onAll={() => setSide("checkpoints")} readOnly={!!readOnly} />
         </div>
       ) : side === "step" ? (
-        selected ? <StepPanel key={selected} pid={pid} thread={thread} workflow={workflow} stepId={selected} running={running} onClose={onClose} onJump={onJump} />
+        selected ? <StepPanel key={selected} pid={pid} thread={thread} workflow={workflow} stepId={selected} running={running} onClose={onClose} onJump={onJump}
+          tab={dock.tab} setTab={dock.setTab} />
           : <div className="panel"><div className="panel-body wb-hint"><b>Select a block to see what it does.</b><span className="sub">Its task, the rules of its phase, where it goes next and what it did in this flow.</span></div></div>
       ) : side === "decisions" ? (
         <DecisionsPanel pid={pid} thread={thread} workflow={workflow} />
@@ -248,7 +260,9 @@ function ThreadView({ pid, thread, workflow, reload, onStart, readOnly }: {
       (card.querySelector<HTMLElement>("button") ?? card.querySelector<HTMLElement>("textarea, input"))?.focus({ preventScroll: true });
     }, 120);
   };
-  const open = (id: string) => { setSel(id); setSide("step"); };
+  // keel 0.18.66 a click on a step shows it in the docked panel, and opens the panel when it was folded to its bar
+  const dock = useStepDock();
+  const open = (id: string) => { setSel(id); setSide("step"); if (wide && !dock.open) dock.setOpen(true); };
   const waiting = !readOnly && thread.status === "waiting" && thread.waiting ? <GateCard thread={thread} workflow={workflow} onDone={reload} /> : null;
   // v0.15.4 an earlier run changes nothing, except Resume of the last stopped one: then the page shows it live
   const done = readOnly ? readOnly.onResumed : reload;
@@ -263,12 +277,12 @@ function ThreadView({ pid, thread, workflow, reload, onStart, readOnly }: {
       </div>
       {barGone && !readOnly && <NowLine thread={thread} workflow={workflow} started={started} onJump={jump} />}
       {!wide && sel && <StepPanel drawer key={sel} pid={pid} thread={thread} workflow={workflow} stepId={sel} running={running} onClose={() => setSel(null)}
-        onJump={() => { setSel(null); jump(); }} />}
-      <div className="fl">
+        onJump={() => { setSel(null); jump(); }} tab={dock.tab} setTab={dock.setTab} />}
+      <div className={wide && !dock.open ? "fl is-folded" : "fl"}>
         <LiveCanvas thread={thread} workflow={workflow} tokens={tokens} actual={actual} facts={facts} totals={totals} perAc={perAc} visited={visited} waiting={waiting} canvas={canvas} onOpen={open} selected={sel}
           still={!!readOnly} onJump={jump} job={job} />
         <FlowSidePanel pid={pid} thread={thread} workflow={workflow} job={job} running={running} side={wide ? side : side === "step" ? "now" : side} setSide={setSide}
-          selected={sel} onClose={() => { setSel(null); setSide("now"); }} onDone={done} history={history} onJump={jump} readOnly={readOnly} />
+          selected={sel} onClose={() => { setSel(null); setSide("now"); }} onDone={done} history={history} onJump={jump} readOnly={readOnly} dock={dock} wide={wide} />
       </div>
       <div className="grid fl-more">
         <BudgetMeter thread={thread} estimate={est.data?.tokens ?? null} />

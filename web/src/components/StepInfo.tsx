@@ -1,6 +1,9 @@
 // "What this step does": the engine's explanation of one workflow step (POST /api/projects/{pid}/workflows/explain-step)
 // in a drawer — Task (the agent's real prompt, or each code action in words, or a gate's answers), Rules (what the phase
 // lets an agent touch), Next (where it goes, by step name) and Last run (with a thread: what it really did).
+// keel 0.18.66 the Flow page's step panel (pages/flow/StepPanel.tsx) builds its tabs from the same pieces: the step in
+// plain words (stepWhat, StepChoices, stepMeta), the rules as three boxes (RuleBoxes) with the full table one click away,
+// and the refused shell commands one per line (RefusedList).
 
 import { useEffect, useState, type ReactNode } from "react";
 import { api, errorParts, type ExplainRequest, type StepExplanation, type StepRoute, type Workflow } from "../api";
@@ -35,7 +38,7 @@ function Routes({ routes }: { routes: StepRoute[] }) {
   );
 }
 
-function Task({ x }: { x: StepExplanation }) {
+export function Task({ x }: { x: StepExplanation }) {
   if (x.agent) {
     const a = x.agent;
     const now = a.model.now;
@@ -92,7 +95,8 @@ function Task({ x }: { x: StepExplanation }) {
   if (x.gate) {
     return (
       <Section title="Task">
-        <p className="sub">Waits for you. {x.gate.costs}</p>
+        {/* keel 0.18.66 the engine's line already says "Waits for you." (it was there twice) */}
+        <p className="sub">{x.gate.costs || "Waits for you."}</p>
         <Routes routes={x.gate.answers} />
         {x.gate.notes.map((n, i) => <p key={i} className="hint">{n}</p>)}
       </Section>
@@ -109,31 +113,131 @@ function Task({ x }: { x: StepExplanation }) {
   return null;
 }
 
+/** The phase's rules file by file: one row per kind of file and what an agent may do with it. */
+export function RulesTable({ x }: { x: StepExplanation }) {
+  return (
+    <div className="table-wrap"><table className="xrules">
+      <thead><tr><th>Files</th><th>An agent may</th></tr></thead>
+      <tbody>{x.rules.buckets.map((b) => (
+        <tr key={b.bucket} data-bucket={b.bucket} data-may={b.may}>
+          <td><span className="mono">{b.bucket}</span> <span className="sub">{b.what}</span></td>
+          <td><Pill tone={MAY[b.may]?.[1] as "ok" | "warn" | "bad"} title={b.note ?? b.label}>{MAY[b.may]?.[0] ?? b.may}</Pill> <span className="sub">{b.label}{b.note ? ` — ${b.note}` : ""}</span></td>
+        </tr>
+      ))}</tbody>
+    </table></div>
+  );
+}
+
+export const PhaseLine = ({ x }: { x: StepExplanation }) => (
+  <p className="sub">Phase <span className="mono">{x.phase}</span>{x.phase_inherited ? " (from the step before)" : ""}: {x.phase_meaning}</p>
+);
+
+export const CommitLine = ({ x }: { x: StepExplanation }) => x.rules.commit ? (
+  <p className="sub">A commit in this phase is a <b>{x.rules.commit.type}</b> commit ({x.rules.commit.about}) by {x.rules.commit.author}: <span className="mono">{x.rules.commit.message}</span>.</p>
+) : null;
+
+/** keel 0.18.66 the same rules in three boxes: what an agent may change, may only read, and never touches. A file kind
+ *  with a limit says it ("database migrations (create new files only)"). */
+export function RuleBoxes({ x }: { x: StepExplanation }) {
+  const words = (may: string[]) => x.rules.buckets.filter((b) => may.includes(b.may))
+    .map((b) => (b.may === "new-only" || b.may === "delete-only" ? `${b.what} (${b.label})` : b.what));
+  const boxes: [string, string, string, string[]][] = [
+    ["edit", "ok", "✓ agents may edit", words(["edit", "new-only", "delete-only"])],
+    ["read", "bad", "✕ read only", words(["read-only"])],
+    ["never", "never", "✕ never", words(["no-access"])],
+  ];
+  return (
+    <div className="sp-rules" data-testid="rule-boxes">
+      {boxes.map(([id, tone, title, list]) => (
+        <div key={id} className={`sp-rule is-${tone}`} data-box={id}>
+          <b>{title}</b>
+          <span>{list.length ? list.join(" · ") : "nothing"}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** One refused shell command as the command and why: the engine writes `"git push --force" (it skips checks …)` or
+ *  `git commit: the engine's commit step makes every commit` (runtime/explain.py phase_rules). */
+export function refusedOf(line: string): { cmd: string; why: string; code: boolean } {
+  const quoted = /^"(.+?)"\s*\((.+)\)$/.exec(line);
+  if (quoted) return { cmd: quoted[1], why: quoted[2], code: true };
+  const colon = line.indexOf(": ");
+  if (colon > 0) return { cmd: line.slice(0, colon), why: line.slice(colon + 2), code: /^[\w.-]+( [\w.-]+)*$/.test(line.slice(0, colon)) };
+  return { cmd: line, why: "", code: false };
+}
+
+/** keel 0.18.66 the shell commands keel refuses in this step, one line each with why ("the same" under its twin). */
+export function RefusedList({ x }: { x: StepExplanation }) {
+  const rows = x.rules.shell_refused.map(refusedOf);
+  return (
+    <ul className="sp-cmds" aria-label="Shell commands keel refuses">
+      {rows.map((r, i) => (
+        <li key={i}>
+          {r.code ? <code>{r.cmd}</code> : <span className="sp-cmd-t">{r.cmd}</span>}
+          {r.why && <span className="sub">{i > 0 && rows[i - 1].why === r.why ? "the same" : r.why}</span>}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** keel 0.18.66 what the step does, in one or two plain sentences. */
+export function stepWhat(x: StepExplanation): string {
+  if (x.agent?.about) return x.agent.about;
+  if (x.code) return x.code.text || x.code.actions[0]?.summary || "Plain code: it runs without a model.";
+  if (x.branch) return `It checks: ${x.branch.condition}.`;
+  if (x.gate) {
+    const when = x.gate.notes.find((n) => n.startsWith("Pauses only when"));
+    return when ? `It waits for your answer, but only when ${when.slice("Pauses only when ".length).replace(/;.*$/, "")}. Otherwise keel goes on without asking.`
+      : "It waits for your answer before the flow goes on.";
+  }
+  return "";
+}
+
+/** keel 0.18.66 the step's few facts on one line: waits for you or not, its tokens, its phase. */
+export function stepMeta(x: StepExplanation): string[] {
+  const used = (x.last_runs?.runs ?? []).reduce((a, r) => a + (r.tokens?.step ?? 0), 0);
+  const tokens = x.agent ? (used ? `${kfmt(used)} tokens so far` : "uses tokens") : "no tokens";
+  const kind = x.gate ? "Waits for you" : x.code ? "Plain code" : x.branch ? "A check" : x.agent ? `Agent ${x.agent.id}` : KIND[x.kind] ?? x.kind;
+  return [kind, tokens, `phase ${x.phase}`];
+}
+
+/** keel 0.18.66 the step's choices in one small box: a gate's answers (and what a plain approve picks), a branch's
+ *  question, or where any other step goes next. */
+export function StepChoices({ x }: { x: StepExplanation }) {
+  const plain = x.gate?.notes.find((n) => n.startsWith("A plain approve picks "));
+  const rows = x.gate ? x.gate.answers : x.branch ? x.branch.routes : x.next;
+  if (!rows.length && !plain) return null;
+  return (
+    <div className="sp-box" data-testid="step-choices">
+      <span className="sp-box-t">{x.gate ? "Your choices here" : x.branch ? `It asks: ${x.branch.condition}` : "Where it goes next"}</span>
+      <dl className="sp-choices">
+        {rows.map((r, i) => <div key={i}><dt>{r.label}</dt><dd>{r.text || r.to_name || "—"}</dd></div>)}
+      </dl>
+      {plain && <span className="sp-box-t">A plain approve picks <b>{plain.slice("A plain approve picks ".length).replace(/[.,].*$/, "")}</b>.</span>}
+    </div>
+  );
+}
+
 function Rules({ x }: { x: StepExplanation }) {
   const r = x.rules;
   return (
     <Section title="Rules">
-      <p className="sub">Phase <span className="mono">{x.phase}</span>{x.phase_inherited ? " (from the step before)" : ""}: {x.phase_meaning}</p>
-      <div className="table-wrap"><table className="xrules">
-        <thead><tr><th>Files</th><th>An agent may</th></tr></thead>
-        <tbody>{r.buckets.map((b) => (
-          <tr key={b.bucket} data-bucket={b.bucket} data-may={b.may}>
-            <td><span className="mono">{b.bucket}</span> <span className="sub">{b.what}</span></td>
-            <td><Pill tone={MAY[b.may]?.[1] as "ok" | "warn" | "bad"} title={b.note ?? b.label}>{MAY[b.may]?.[0] ?? b.may}</Pill> <span className="sub">{b.label}{b.note ? ` — ${b.note}` : ""}</span></td>
-          </tr>
-        ))}</tbody>
-      </table></div>
+      <PhaseLine x={x} />
+      <RulesTable x={x} />
       {r.lane_note && <p className="hint">{r.lane_note}</p>}
       {r.shell_refused.length > 0 && <>
         <span className="lab">Shell commands keel refuses</span>
         <ul className="xlist">{r.shell_refused.map((s, i) => <li key={i}>{s}</li>)}</ul>
       </>}
-      {r.commit && <p className="sub">A commit in this phase is a <b>{r.commit.type}</b> commit ({r.commit.about}) by {r.commit.author}: <span className="mono">{r.commit.message}</span>.</p>}
+      <CommitLine x={x} />
     </Section>
   );
 }
 
-function LastRun({ x }: { x: StepExplanation }) {
+export function LastRun({ x }: { x: StepExplanation }) {
   const l = x.last_runs;
   if (!l) return null;
   return (

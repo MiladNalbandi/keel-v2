@@ -163,6 +163,43 @@ export function parseAnswers(
   return answers.length ? { answers, note: notes.join("\n") } : null;
 }
 
+/** keel 0.18.66 why keel went past a gate without asking, in plain words. The engine logs the gate's `when` and the
+ *  values it saw ("not asked, git_question: not given": runtime/compiler_gates.py); the known ones read as a sentence. */
+const NOT_ASKED: Record<string, string | ((v: string) => string)> = {
+  git_question: "the folder is already a git repository with a first commit",
+  rung_question: "every setup rung passed",
+  "clarify.questions": "the agent had no question for you",
+  "clarify.ask": "nothing was unclear enough to ask about",
+  "memory_plan.ask": "the memory plan needed no answer",
+  "next_preview.ask": "the next finding needed no choice",
+  coverage_error: "the coverage could be measured",
+  coverage_no_reports: "the coverage reports are set",
+  "hunt.stack_down": "the stack is up",
+  "hunt.mode": (v) => `the hunt runs without stops (mode ${v})`,
+  contract: "this change does not touch the API contract",
+};
+
+/** A gate's reason as plain words: keel's "not asked, <what>: <values>", "waived: …", "no gate here (…)". Anything else
+ *  (a person's send-back note) stays exactly as it was written. */
+export function plainWhy(why: string): string {
+  const text = why.trim();
+  const m = /^not asked, ([^:]+): (.*)$/s.exec(text);
+  if (m) {
+    const [, label, value] = m;
+    const known = NOT_ASKED[label];
+    if (known) return `Not asked: ${typeof known === "function" ? known(value) : known}.`;
+    // a marker is in capitals (WEB), a data path in small letters (hunt.map)
+    const what = label === label.toUpperCase() ? `the ${label} marker` : humanize(label.replace(/\./g, " "));
+    return `Not asked: ${what} was ${value === "not given" ? "not set" : value}.`;
+  }
+  if (/^not asked$/i.test(text)) return "Not asked.";
+  const waived = /^waived:?\s*\(?(.*?)\)?$/i.exec(text);
+  if (waived) return waived[1] ? `Waived: ${waived[1]}.` : "Waived.";
+  const none = /^no gate here \((.*)\)$/.exec(text);
+  if (none) return `No gate here: ${none[1]}.`;
+  return why;
+}
+
 /** A gate.decided event's parts: its decision, who, its gate's name, its answers (or its reason). */
 export function gateParts(
   ev: EngineEvent,
@@ -182,7 +219,7 @@ export function gateParts(
     d.clarify && str(d.decision) === "approve"
       ? { tone: "ok" as Tone, label: "answered" }
       : decisionOf(d.decision, d);
-  const note = parsed ? parsed.note : by === "auto" ? "" : why;
+  const note = parsed ? parsed.note : by === "auto" ? "" : plainWhy(why);
   return { gate, decision, by, answers: parsed?.answers, note, why };
 }
 
@@ -515,7 +552,7 @@ export function logDecision(
     by: why.includes("auto-approved (mode ") ? "auto" : "you",
     note: answered
       ? line.replace(/^.*?answered\s+/, "answered ")
-      : why || undefined,
+      : (why && plainWhy(why)) || undefined,
     ac: what === "ac" ? id : undefined,
     round: 0,
     rounds: 0,

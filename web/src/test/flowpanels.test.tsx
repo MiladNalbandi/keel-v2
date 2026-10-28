@@ -1,6 +1,7 @@
-// v0.15.2 The Flow page's steps and side panels: a click on a step (Blocks, Table, Graph) shows what it does; the step
-// that runs now (or waits for you) opens on Now, only what happens in it now, with Details one click away. The
-// "<agent> works" and "Events" panels hide (the browser remembers it) and open big; Esc closes the big view only.
+// v0.15.2 The Flow page's steps and side panels: a click on a step (Blocks, Table, Graph) shows what it does; for the
+// step that runs now (or waits for you) its Overview also shows what happens in it now (keel 0.18.66: one panel with a
+// menu bar, no Now / Details switch). The "<agent> works" and "Events" panels hide (the browser remembers it) and open
+// big; Esc closes the big view only.
 
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -24,13 +25,13 @@ describe("Flow steps: a click shows the step", () => {
     await user.click(await screen.findByRole("button", { name: /^red, agent/ }));
     const panel = await within(await side()).findByRole("region", { name: "What red does" });
     expect(await within(panel).findByRole("region", { name: "Last run" })).toBeInTheDocument();
-    expect(within(panel).queryByRole("group", { name: "Now or the details of this step" })).not.toBeInTheDocument();
+    expect(within(panel).queryByRole("region", { name: "Now" })).not.toBeInTheDocument();
     expect(within(await side()).getByRole("tab", { name: "Step: red" })).toHaveAttribute("aria-selected", "true");
 
     const c = await canvas();
     await user.click(within(c).getByRole("button", { name: "Table" }));
     await user.click(within(c).getByRole("button", { name: "verify_red" }));
-    expect(await within(await side()).findByRole("region", { name: "What commit contract does" })).toBeInTheDocument();
+    expect(await within(await side()).findByRole("region", { name: "What verify_red does" })).toBeInTheDocument();
     expect(within(c).getByRole("button", { name: "verify_red" }).closest("tr")).toHaveClass("rowsel");
 
     await user.click(within(c).getByRole("button", { name: "Graph" }));
@@ -38,10 +39,10 @@ describe("Flow steps: a click shows the step", () => {
     await waitFor(() => expect(explains().at(-1)?.body).toMatchObject({ step_id: "s5", thread_id: "th_7f3a" }));
     expect(within(c).getByRole("button", { name: "What green does" })).toHaveClass("gsel");
     expect(within(await side()).getByRole("tab", { name: "Step: green" })).toHaveAttribute("aria-selected", "true");
-    expect(within(await side()).queryByRole("group", { name: "Now or the details of this step" })).not.toBeInTheDocument();
+    expect(within(await side()).queryByRole("region", { name: "Now" })).not.toBeInTheDocument();
   });
 
-  it("the step that waits for you opens on Now: the waiting card and only its events since it started; Details has the rest", async () => {
+  it("the step that waits for you shows Now on its Overview: the waiting card and only its events since it started", async () => {
     const user = userEvent.setup();
     render(<App />);
     const block = await screen.findByRole("button", { name: /AC gate, wait for you, keel rule, waiting for you/ });
@@ -52,39 +53,39 @@ describe("Flow steps: a click shows the step", () => {
     push(ev("gate.waiting", "s8", { title: "AC gate" }));
     await user.click(block);
     const s = await side();
-    const now = await within(s).findByRole("region", { name: "AC gate now" });
-    expect(within(now).getByRole("button", { name: "Now" })).toHaveAttribute("aria-pressed", "true");
-    expect(within(now).getByTestId("step-about")).toHaveTextContent("◆ Gate");
-    const events = within(s).getByRole("region", { name: "Events of AC gate" });
+    const panel = await within(s).findByRole("region", { name: "What AC gate does" });
+    expect(within(panel).getByRole("tab", { name: "Overview" })).toHaveAttribute("aria-selected", "true");
+    expect(panel).toHaveTextContent("Step · ◆ Gate");
+    const now = await within(panel).findByRole("region", { name: "Now" });
+    const events = within(now).getByRole("region", { name: "Events of AC gate" });
     const lines = within(events).getByLabelText("What happened, newest first");
     expect(lines).toHaveTextContent("AC gate waits for you");
     expect(lines).toHaveTextContent("s8 (AC gate) started");
     expect(lines).not.toHaveTextContent("s8 finished");
     expect(lines).not.toHaveTextContent("criterion-reviewer start");
     expect(within(events).queryAllByTestId("event-checkpoint")).toHaveLength(0);
-    expect(within(s).queryByRole("region", { name: "Last run" })).not.toBeInTheDocument();
-    expect(within(s).queryByRole("region", { name: "Rules" })).not.toBeInTheDocument();
 
     // Go to it: the focus goes into the answer card under the block
     await user.click(within(s).getByRole("button", { name: "Go to it" }));
     const card = screen.getByRole("region", { name: "Gate waits for you" });
     await waitFor(() => expect(card.contains(document.activeElement)).toBe(true));
 
-    // Details: the whole explanation with its past runs (the fixture explains every agent step as red)
-    await user.click(within(now).getByRole("button", { name: "Details" }));
-    const details = await within(s).findByRole("region", { name: "What red does" });
-    expect(await within(details).findByRole("region", { name: "Last run" })).toBeInTheDocument();
-    expect(within(s).queryByRole("region", { name: "Events of AC gate" })).not.toBeInTheDocument();
-    await user.click(within(details).getByRole("button", { name: "Now" }));
-    expect(await within(s).findByRole("region", { name: "AC gate now" })).toBeInTheDocument();
+    // the rest of the step is on the same Overview, under Now (the fixture explains every agent step as red), and the
+    // other tabs leave Now: Overview brings it back
+    expect(await within(panel).findByRole("region", { name: "Last run" })).toBeInTheDocument();
+    await user.click(within(panel).getByRole("tab", { name: "Rules" }));
+    expect(within(panel).queryByRole("region", { name: "Events of AC gate" })).not.toBeInTheDocument();
+    await user.click(within(panel).getByRole("tab", { name: "Overview" }));
+    expect(await within(panel).findByRole("region", { name: "Events of AC gate" })).toBeInTheDocument();
   });
 
-  it("the step a running agent works in opens on Now: the running card and the agent's newest steps", async () => {
+  it("the step a running agent works in shows Now: the running card and the agent's newest steps", async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(await screen.findByRole("button", { name: /^AC review, agent/ }));
     const s = await side();
-    expect(await within(s).findByRole("region", { name: "AC review now" })).toBeInTheDocument();
+    const panel = await within(s).findByRole("region", { name: "What AC review does" });
+    expect(await within(panel).findByRole("region", { name: "Now" })).toBeInTheDocument();
     const card = s.querySelector<HTMLElement>(".running-card")!;
     expect(card).toHaveTextContent("running AC review — AC-002");
     expect(card).not.toHaveTextContent("node");
@@ -100,10 +101,12 @@ describe("Flow steps: a click shows the step", () => {
     const c = await canvas();
     await user.click(within(c).getByRole("button", { name: "Table" }));
     await user.click(within(c).getByRole("button", { name: "AC gate" }));
-    expect(await within(await side()).findByRole("region", { name: "AC gate now" })).toBeInTheDocument();
+    const gate = await within(await side()).findByRole("region", { name: "What AC gate does" });
+    expect(await within(gate).findByRole("region", { name: "Now" })).toBeInTheDocument();
     await user.click(within(c).getByRole("button", { name: "Graph" }));
     await user.click(within(c).getByRole("button", { name: "What AC review does" }));
-    expect(await within(await side()).findByRole("region", { name: "AC review now" })).toBeInTheDocument();
+    const review = await within(await side()).findByRole("region", { name: "What AC review does" });
+    expect(await within(review).findByRole("region", { name: "Now" })).toBeInTheDocument();
     expect(within(c).getByRole("button", { name: "What AC review does" })).toHaveClass("gsel");
   });
 });
@@ -187,15 +190,16 @@ describe("Flow side panels: hide and open big", () => {
       const user = userEvent.setup();
       render(<App />);
       await user.click(await screen.findByRole("button", { name: /^AC review, agent/ }));
-      const drawer = await screen.findByRole("dialog", { name: "AC review now" });
+      const drawer = await screen.findByRole("dialog", { name: "What AC review does" });
       const works = await within(drawer).findByRole("region", { name: "criterion-reviewer works" });
       await user.click(within(works).getByRole("button", { name: "Open criterion-reviewer works big" }));
       expect(screen.getByRole("dialog", { name: "criterion-reviewer works" })).toBeInTheDocument();
       await user.keyboard("{Escape}");
       expect(screen.queryByRole("dialog", { name: "criterion-reviewer works" })).not.toBeInTheDocument();
-      expect(screen.getByRole("dialog", { name: "AC review now" })).toBeInTheDocument();
-      await user.click(within(screen.getByRole("dialog", { name: "AC review now" })).getByRole("button", { name: "Details" }));
-      expect(await screen.findByRole("dialog", { name: "What red does" })).toBeInTheDocument();
+      expect(screen.getByRole("dialog", { name: "What AC review does" })).toBeInTheDocument();
+      // the drawer has the same menu bar
+      await user.click(within(drawer).getByRole("tab", { name: "Rules" }));
+      expect(await within(drawer).findByTestId("rule-boxes")).toBeInTheDocument();
       await user.keyboard("{Escape}");
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     } finally {
