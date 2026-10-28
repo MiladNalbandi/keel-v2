@@ -1,7 +1,15 @@
 // KeelBot's Questions action block(s), split out of Actions.tsx (Actions.tsx re-exports them).
 
-import { useContext, useState } from "react";
-import { answersMessage, answersOf, AskKeelBot, ClarifyForm, parseQuestions, pickedMode, readAnswersMessage, type ClarifyAnswers } from "@keel/web-sdk";
+import { useContext, useEffect, useMemo, useState } from "react";
+import { answersMessage, answersOf, AskKeelBot, ClarifyForm, clearDraft, DraftKept, noKeys, parseQuestions, pickedMode, readAnswersMessage, useAnswerDraft,
+  type ClarifyAnswers } from "@keel/web-sdk";
+
+/** A short, steady key for a block's text (the same questions give the same key after a reload). */
+export function textKey(s: string): string {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return `${(h >>> 0).toString(36)}-${s.length}`;
+}
 
 /** keel 0.18.9 KeelBot asks the person to choose (```keel-questions```): keel's question form (pick one, tick several,
  *  your own words, how many are answered); Send gives the answers to KeelBot as the next message.
@@ -10,13 +18,23 @@ import { answersMessage, answersOf, AskKeelBot, ClarifyForm, parseQuestions, pic
  *  0.18.38 one question with the id "next" is KeelBot's next steps: buttons, not a form.
  *  0.18.61 one question that takes one answer: a click on an option sends it, no "Send my answers" step (your own
  *  words still wait for Send). Several questions keep the Send step.
- *  0.18.63 an option with `"mode": "edit"` (KeelBot's "Switch to Edit") switches the chat to Edit before its answer goes. */
-export function QuestionsCard({ body, answered }: { body: string; answered?: string | null }) {
+ *  0.18.63 an option with `"mode": "edit"` (KeelBot's "Switch to Edit") switches the chat to Edit before its answer goes.
+ *  0.18.64 the picked options and typed words are kept until they are sent (another page or project and back: still
+ *  there), by the project and the questions' text. */
+export function QuestionsCard({ body, answered, pid }: { body: string; answered?: string | null;
+  /** the chat's project: the draft is kept under it (none: not kept) */
+  pid?: string }) {
   const qs = parseQuestions(body);
   const ask = useContext(AskKeelBot);
-  const [picked, setPicked] = useState<ClarifyAnswers>({});
-  const [typed, setTyped] = useState<ClarifyAnswers>({});
+  const place = useMemo(() => (pid ? { project: pid, thread: "keelbot", question: textKey(body) } : null), [pid, body]);
+  const [picked, setPicked, keptPicked] = useAnswerDraft<ClarifyAnswers>(place, "picked", {}, noKeys);
+  const [typed, setTyped, keptTyped] = useAnswerDraft<ClarifyAnswers>(place, "typed", {});
   const [sent, setSent] = useState<string | null>(null);
+  // answered (here, or the chat already has the answers): nothing is kept any more
+  const done = !!(answered ?? sent);
+  useEffect(() => {
+    if (done) clearDraft(place);
+  }, [done, place]);
   if (!qs.length) return <p className="kb-card bad" role="note">KeelBot's questions could not be read. Ask it to ask again.</p>;
   const send = (p: ClarifyAnswers = picked, t: ClarifyAnswers = typed) => {
     const answers = answersOf(qs, p, t);
@@ -25,6 +43,7 @@ export function QuestionsCard({ body, answered }: { body: string; answered?: str
     if (mode) ask?.(text, { mode });
     else ask?.(text);
     setSent(text);
+    clearDraft(place);
   };
   const one = qs.length === 1 && !qs[0].multiple;
   const onPick = (id: string, value: string | string[]) => {
@@ -72,7 +91,8 @@ export function QuestionsCard({ body, answered }: { body: string; answered?: str
         <>
           <ClarifyForm questions={qs} picked={picked} typed={typed}
             onPick={onPick} onType={(id, text) => setTyped((p) => ({ ...p, [id]: text }))} />
-          <div className="row"><button type="button" className="btn sm primary" disabled={!ask} onClick={() => send()}>{one ? "Send" : "Send my answers"}</button></div>
+          <div className="row"><button type="button" className="btn sm primary" disabled={!ask} onClick={() => send()}>{one ? "Send" : "Send my answers"}</button>
+            <DraftKept shown={keptPicked || keptTyped} /></div>
         </>
       )}
     </section>

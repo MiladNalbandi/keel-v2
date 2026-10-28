@@ -4,8 +4,10 @@
 // that says so) until it has text; an optional reason shows the box as optional. The number keys 1–9 pick a choice
 // while the focus is in the form (not while typing). Flow's gate card and the Inbox send the same answer: approve with
 // payload {choice: name} and the reason.
+// keel 0.18.64 `draft`: the picked choice and the reason are kept until sent (drafts.tsx), with a quiet "draft kept".
 import { useState } from "react";
 import type { ChoiceInfo } from "../api";
+import { DraftKept, useAnswerDraft, type DraftPlace } from "../drafts";
 import { choiceProblem } from "../questions";
 
 export function ChoiceForm({
@@ -14,6 +16,7 @@ export function ChoiceForm({
   busy = false,
   id,
   sendLabel = "Send",
+  draft = null,
 }: {
   choices: ChoiceInfo[];
   onSend: (choice: string, why: string) => void | Promise<void>;
@@ -21,12 +24,16 @@ export function ChoiceForm({
   /** makes the reason box's id unique on a page with several forms (the Inbox) */
   id: string;
   sendLabel?: string;
+  /** where the unsent choice and reason are kept (null: not kept) */
+  draft?: DraftPlace | null;
 }) {
-  const [picked, setPicked] = useState<string>(
-    () => (choices.find((c) => c.default) ?? choices[0])?.name ?? "",
-  );
-  const [why, setWhy] = useState("");
+  const first = (choices.find((c) => c.default) ?? choices[0])?.name ?? "";
+  // the default choice is no draft: only a choice the person clicked is kept
+  const [stored, setPicked, keptChoice] = useAnswerDraft<string>(draft, "choice", first, (v) => !v || v === first);
+  const [why, setWhy, keptWhy] = useAnswerDraft<string>(draft, "choice-why", "");
   const [problem, setProblem] = useState("");
+  // a kept choice the question does not have (any more) is the default again
+  const picked = choices.some((c) => c.name === stored) ? stored : first;
   const chosen = choices.find((c) => c.name === picked);
   const whyId = `${id}-choice-why`;
 
@@ -138,6 +145,7 @@ export function ChoiceForm({
               ? `${sendLabel}: ${chosen.label || chosen.name}`
               : sendLabel}
         </button>
+        <DraftKept shown={keptChoice || keptWhy} />
       </div>
     </div>
   );

@@ -60,6 +60,10 @@ export {
   writeStored,
 } from "../storage";
 export type { StoredOptions, StoreKind } from "../storage";
+// 0.18.64 an unsent answer to a waiting question (picked options, typed words, a reason), kept per project, flow and
+// question until it is sent, with the quiet "draft kept" line (a plugin's question form keeps its draft the same way)
+export { clearDraft, DraftKept, dropOtherDrafts, noKeys, questionKey, useAnswerDraft } from "../drafts";
+export type { DraftPlace } from "../drafts";
 
 // links to screens, keel's own and the add-ons' (#/initiatives/INI-3); the link the page shows now (#/wiki/kb:domain
 // is { page: "wiki", arg: "kb:domain" }), go(screen, arg) to open another, useRoute() to read the link

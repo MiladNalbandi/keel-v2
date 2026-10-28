@@ -1,10 +1,11 @@
 import { copyText } from "../../clipboard";
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, errorParts, type Blocker, type Step, type ThreadState, type Workflow } from "../../api";
 import { CodeBlock, FoldedText } from "../../components/Code";
 import { ClarifyForm, type ClarifyAnswers } from "../../components/ClarifyForm";
 import { questionsPayload, reasonsMissing } from "../../questions";
 import { ChoiceForm } from "../../components/ChoiceForm";
+import { clearDraft, DraftKept, dropOtherDrafts, noKeys, questionKey, useAnswerDraft } from "../../drafts";
 import { Markdown, type FoldLabels } from "../../components/Markdown";
 import { autoLines, RunModeNote } from "../../components/RunMode";
 import { ErrorBox, Panel, Pill, Ticks } from "../../components/ui";
@@ -141,9 +142,15 @@ export function CopyId({ id }: { id: string }) {
 export function GateCard({ thread, workflow, onDone }: { thread: ThreadState; workflow: Workflow; onDone: () => Promise<void> }) {
   const { toast, reloadProjects } = useApp();
   const w = thread.waiting!;
-  const [why, setWhy] = useState("");
-  const [picked, setPicked] = useState<ClarifyAnswers>({});
-  const [typed, setTyped] = useState<ClarifyAnswers>({});
+  // keel 0.18.64 what the person typed or picked is kept until it is sent (another project or page and back: still
+  // there); a new question of this flow forgets the old one's
+  const pid = thread.project_id;
+  const qkey = questionKey({ id: w.id, step: w.step, ac: thread.ac });
+  const place = useMemo(() => ({ project: pid, thread: thread.thread_id, question: qkey }), [pid, thread.thread_id, qkey]);
+  useEffect(() => dropOtherDrafts(pid, thread.thread_id, qkey), [pid, thread.thread_id, qkey]);
+  const [why, setWhy, keptWhy] = useAnswerDraft<string>(place, "why", "");
+  const [picked, setPicked, keptPicked] = useAnswerDraft<ClarifyAnswers>(place, "picked", {}, noKeys);
+  const [typed, setTyped, keptTyped] = useAnswerDraft<ClarifyAnswers>(place, "typed", {});
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
   const [err, setErr] = useState<{ message: string; hint?: string } | null>(null);
@@ -199,6 +206,7 @@ export function GateCard({ thread, workflow, onDone }: { thread: ThreadState; wo
       setTyped({});
       toast(decision === "approve" ? labels.approved : labels.rejected);
       setWhy("");
+      clearDraft(place);
       await Promise.all([onDone(), reloadProjects()]);
     } catch (e) {
       setErr(errorParts(e));
@@ -238,7 +246,7 @@ export function GateCard({ thread, workflow, onDone }: { thread: ThreadState; wo
         </div>
       )}
       {info ? (
-        <ChoiceForm key={w.id ?? w.title} id={`gate-${thread.thread_id}`} choices={info} busy={busy} onSend={(choice, said) => decide("approve", { choice }, said)} />
+        <ChoiceForm key={w.id ?? w.title} id={`gate-${thread.thread_id}`} choices={info} busy={busy} draft={place} onSend={(choice, said) => decide("approve", { choice }, said)} />
       ) : w.kind === "usage" && w.choices ? (
         <div className="row">
           {w.choices.includes("continue") && <button className="btn warn" type="button" id="approve" disabled={busy} onClick={() => decide("approve", { choice: "continue" })}>Continue anyway</button>}
@@ -266,6 +274,7 @@ export function GateCard({ thread, workflow, onDone }: { thread: ThreadState; wo
           </button>
         )}
       </div>}
+      <DraftKept shown={keptWhy || keptPicked || keptTyped} />
       {err && <ErrorBox error={err} />}
       {err && keelbot && (
         <div className="row">

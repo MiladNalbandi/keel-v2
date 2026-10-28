@@ -64,6 +64,13 @@ export function dropStored(key: string, kind: StoreKind = "session"): void {
   }
 }
 
+/** 0.18.64 Forget [key], and every mounted useStored of it shows its fallback at once (a sent answer's draft goes from
+ *  the form that still shows it). */
+export function forgetStored(key: string, kind: StoreKind = "session"): void {
+  dropStored(key, kind);
+  tell(kind, key, undefined);
+}
+
 /** The keys in a store that start with [prefix]. */
 export function storedKeys(
   prefix: string,

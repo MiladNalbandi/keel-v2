@@ -136,7 +136,7 @@ export function Answer({ text, onOpen, pid, onAsk, answered, later, source }: { 
           : seg.kind === "ci" ? <CiCard key={i} pid={pid} body={seg.body} />
           : seg.kind === "flow" ? <FlowCard key={i} pid={pid} body={seg.body} later={later} />
           : seg.kind === "rule" ? <RuleCard key={i} pid={pid} body={seg.body} />
-          : seg.kind === "questions" ? <QuestionsCard key={i} body={seg.body} answered={answered} />
+          : seg.kind === "questions" ? <QuestionsCard key={i} body={seg.body} answered={answered} pid={pid} />
           : seg.kind === "agent" ? <AgentCard key={i} pid={pid} body={seg.body} />
           : seg.kind === "skill" ? <SkillCard key={i} pid={pid} body={seg.body} />
           : seg.kind === "stack" ? <StackCard key={i} pid={pid} body={seg.body} />
