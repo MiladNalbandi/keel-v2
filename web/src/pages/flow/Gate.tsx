@@ -210,7 +210,8 @@ export function GateCard({ thread, workflow, onDone }: { thread: ThreadState; wo
 
   return (
     <div className="interrupt" role="region" aria-label="Gate waits for you" onKeyDown={onKey}>
-      <h3><Pill tone="warn">◆ waits for you</Pill> <Ticks text={w.title} />{showAc && ac ? <> — {ac.id} [{ac.layer}] <Ticks text={ac.title} /></> : null}</h3>
+      {/* 0.18.64 one span for the title: in the flex row each text and `code` piece of it was its own column */}
+      <h3><Pill tone="warn">◆ waits for you</Pill> <span className="gate-title"><Ticks text={w.title} />{showAc && ac ? <> — {ac.id} [{ac.layer}] <Ticks text={ac.title} /></> : null}</span></h3>
       <RunModeNote mode={thread.run_mode} kind={w.kind === "fix" && /dependenc/i.test(w.title) ? "dependency" : w.kind} title={w.title}
         auto={{ count: autoLines(thread.gate_log).length, last: autoLines(thread.gate_log).at(-1) }} />
       {labels.explain && <p className="sub" style={{ margin: 0 }}>{labels.explain}</p>}
