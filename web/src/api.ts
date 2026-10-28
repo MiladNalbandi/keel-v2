@@ -230,7 +230,9 @@ export type StepRunFacts = {
  *  or 60 KB (`truncated`); lock, generated and binary files come `folded`, without text (ask for it with sha + path). */
 export type AcCodeFile = {
   path: string; old_path?: string; status: "added" | "modified" | "deleted" | "renamed"; added: number; removed: number;
-  bucket: "test" | "prod" | "generated" | "lock"; binary?: boolean; diff: string | null; lines?: number; truncated?: boolean; folded?: boolean;
+  bucket: "test" | "prod" | "generated" | "lock" | "secret"; binary?: boolean; diff: string | null; lines?: number; truncated?: boolean; folded?: boolean;
+  /** 0.18.64 a secret file (a .env, a key): never with its diff */
+  note?: string;
 };
 export type AcCodeCommit = { sha: string; short: string; subject: string; files: AcCodeFile[]; added: number; removed: number; more_files?: number };
 /** 0.18.64 the criterion's code at its AC gate: its RED and GREEN commits (null: none found), and the totals */

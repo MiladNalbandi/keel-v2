@@ -218,6 +218,22 @@ def _classify(tool: str, stdout: str, stderr: str, code) -> ModelError:
     return ModelError(f"`{tool}` exited with code {code}: {short}")
 
 
+def guard_intact(env: dict | None) -> None:
+    """0.18.64 after an agent CLI ends: keel's files in its run folder (the guard context, the hook's settings, mcp.json,
+    the command wrappers) must be what the engine wrote (runtime/guard_ctx.py SEALED). One that changed means the agent
+    got around the hook's refusal and could have turned its rules off: the step fails, its work is not taken."""
+    from ..runtime import guard_ctx
+
+    ctx = (env or {}).get(guard_ctx.ENV)
+    if not ctx:
+        return
+    bad = guard_ctx.broken(os.path.dirname(ctx))
+    if bad:
+        raise ModelError(f"the agent changed keel's own files for this run ({', '.join(Path(b).name for b in bad)}), so "
+                         "keel's guard could not be trusted during it. This step's work is not taken.",
+                         hint="Run the step again; if it happens again, look at the agent's shell commands in its steps.")
+
+
 async def run_cli(tool: str, argv: list[str], *, stdin: str = "", cwd: str | None = None, env: dict | None = None,
                   timeout: int = 1800, on_line: Callable[[str], None] | None = None) -> tuple[str, str]:
     proc = await asyncio.create_subprocess_exec(
@@ -267,6 +283,7 @@ async def run_cli(tool: str, argv: list[str], *, stdin: str = "", cwd: str | Non
         asyncio.get_running_loop().call_later(KILL_GRACE, kill, signal.SIGKILL)
         raise
     stdout, stderr = "\n".join(out_lines), b"".join(err_chunks).decode(errors="replace")
+    guard_intact(env)
     if proc.returncode != 0:
         raise classify_failure(tool, stdout, stderr, proc.returncode)
     return stdout, stderr

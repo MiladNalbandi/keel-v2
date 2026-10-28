@@ -1,6 +1,7 @@
 """keel 0.18.64 a flow's agents read the other projects registered in the same keel, and never change them
 (runtime/other_projects.py): the ToolBox, the guard hook, the claude runner, a flow's start and keel_read_project_file.
-Two projects in tmp folders: `here` (the flow's) and `upstream` (another registered one)."""
+Two projects in tmp folders: `here` (the flow's) and `upstream` (another registered one). The rule other-projects is
+opt-in: both turn it on (`on`), and a project that did not is kept to itself."""
 
 import json
 import os
@@ -27,6 +28,7 @@ def here(tmp_path):
     r = tmp_path / "here"
     (r / "src").mkdir(parents=True)
     (r / "src/Payload.kt").write_text("class Payload\n")
+    on(r)
     return r
 
 
@@ -36,6 +38,7 @@ def upstream(tmp_path):
     (r / "api").mkdir(parents=True)
     (r / CONTRACT).write_text("webhook:\n  id: optional\n")
     (r / ".env").write_text("TOKEN=abc\n")
+    on(r)
     subprocess.run(["git", "init", "-q", "-b", "main", str(r)], check=True)
     subprocess.run(["git", "-C", str(r), "add", "-A"], check=True)
     subprocess.run(["git", "-C", str(r), "-c", "user.name=t", "-c", "user.email=t@e", "commit", "-qm", "first"], check=True)
@@ -46,6 +49,12 @@ def upstream(tmp_path):
 def others(here, upstream):
     return other_projects.usable([{"id": "here", "name": "here", "root": str(here)},
                                   {"id": "upstream", "name": "upstream", "root": str(upstream)}], str(here), "here")
+
+
+def on(root: Path):
+    """The project turns the opt-in rule other-projects on (YAML reads a bare on as true: quoted)."""
+    (root / ".keel").mkdir(exist_ok=True)
+    (root / ".keel/config.yml").write_text('rules:\n  "on": [other-projects]\n')
 
 
 def off(root: Path):
@@ -73,6 +82,40 @@ def test_usable_leaves_out_the_flows_own_project_a_missing_folder_and_a_project_
 def test_the_rule_off_in_this_project_means_no_other_projects(here, upstream):
     off(here)
     assert other_projects.usable([{"id": "upstream", "name": "upstream", "root": str(upstream)}], str(here), "here") == []
+
+
+def test_the_rule_is_off_until_a_project_turns_it_on_both_ways(here, upstream):
+    """0.18.64 opt-in: no config at all, or the rule on in one project only, and nothing is read across."""
+    rows = [{"id": "upstream", "name": "upstream", "root": str(upstream)}]
+    (here / ".keel/config.yml").unlink()
+    assert other_projects.is_off(None) and other_projects.usable(rows, str(here), "here") == []
+    assert other_projects.prompt_note(other_projects.usable(rows, str(here), "here")) == ""
+    on(here)
+    (upstream / ".keel/config.yml").unlink()
+    assert other_projects.usable(rows, str(here), "here") == [], "upstream did not turn it on"
+    on(upstream)
+    assert [o["id"] for o in other_projects.usable(rows, str(here), "here")] == ["upstream"]
+    view = {b["id"]: b for b in __import__("keel_engine.runtime.rules_view", fromlist=["view"]).view(str(upstream))["builtins"]}
+    assert view["other-projects"]["off"] is False and "rules.on" in view["other-projects"]["saved_in"]
+
+
+def test_the_rules_page_saves_the_opt_in_rule_in_rules_on(here):
+    """Only rules.on turns it on; an off list without it (an older client) leaves it as it is; named in rules.off it
+    goes off, and it is never kept in rules.off."""
+    from keel_engine.runtime import rules_view
+
+    def now(v):
+        return {b["id"]: b["off"] for b in v["builtins"]}["other-projects"]
+
+    (here / ".keel/config.yml").write_text("rules:\n  \"off\": []\n")
+    assert now(rules_view.set_config(str(here), {"rules": {"off": ["read-twice"]}})) is True, "not turned on by accident"
+    assert now(rules_view.set_config(str(here), {"rules": {"off": ["read-twice"], "on": ["other-projects"]}})) is False
+    assert now(rules_view.set_config(str(here), {"rules": {"off": ["read-twice"]}})) is False, "an off list leaves it on"
+    assert now(rules_view.set_config(str(here), {"rules": {"off": ["read-twice", "other-projects"]}})) is True
+    saved = rules_view.layout.raw_config(str(here))["rules"]
+    assert saved["off"] == ["read-twice"] and saved["on"] == []
+    with pytest.raises(rules_view.RulesError):
+        rules_view.set_config(str(here), {"rules": {"on": ["read-twice"]}})
 
 
 def test_the_prompt_names_each_other_project_once_and_nothing_when_there_are_none(others, upstream):
@@ -228,6 +271,9 @@ def seen(monkeypatch):
 
 
 def test_a_flow_tells_its_agents_about_the_other_projects(client, repo, seen, upstream):
+    on(repo)
+    subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@e", "commit", "-qm", "rules on"], check=True)
     tid = start(client, repo, other_projects=[{"id": "demo", "name": "demo", "root": str(repo)},
                                               {"id": "upstream", "name": "upstream", "root": str(upstream)}])
     wait(client, tid)
@@ -242,7 +288,9 @@ def test_a_flow_without_other_projects_says_none_and_refuses_outside_in_plain_wo
     wait(client, tid)
     req, ctx = next((r, c) for r, c in seen if r.agent == "explorer")
     assert "Other projects registered in keel" not in req.prompt and ctx["others"] == []
-    assert "is not another project registered in keel" in req.toolbox.read_file(str(tmp_path / "x.md"))
+    # 0.18.64 the rule is opt-in: this project never turned it on, so the refusal says reading others is off
+    assert ctx["others_off"] is True
+    assert "reading other projects is off for it" in req.toolbox.read_file(str(tmp_path / "x.md"))
 
 
 # ------------------------------------------------------------------ MCP keel_read_project_file

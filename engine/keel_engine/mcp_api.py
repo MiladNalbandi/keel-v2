@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import copy
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 import httpx
 
@@ -21,6 +22,21 @@ class ApiError(Exception):
         super().__init__(message)
         self.status = status     # the api's HTTP status, when it answered
         self.body = body or {}   # 0.18.57 the error's other fields (a refused start: ignorable paths, owners)
+
+
+SCOPE_ENV = "KEEL_MCP_PROJECTS"
+
+
+def scope() -> list[str] | None:
+    """0.18.64 the projects this server answers for (KEEL_MCP_PROJECTS, set by the engine for a flow's agents: the
+    flow's own project first); None: every project (a person's own MCP client)."""
+    raw = os.environ.get(SCOPE_ENV, "").strip()
+    return [p for p in (x.strip() for x in raw.split(",")) if p] if raw else None
+
+
+def out_of_scope(pid: str, sc: list[str]) -> str:
+    return (f"{pid} is another project: keel's MCP server for this flow's agents reads only {', '.join(sc)} (the "
+            "rule other-projects decides which other projects a flow may read).")
 
 
 def internal_token() -> str:
@@ -92,7 +108,49 @@ class KeelApi:
             return {}
         return {"X-Keel-Via": "mcp", "X-Keel-Client": self.client[:80], "X-Keel-Tool": self.tool[:80]}
 
-    def _raw(self, method: str, path: str, timeout: float | None = None, **kw) -> httpx.Response:
+    def _scope(self, method: str, path: str, kw: dict) -> None:
+        """0.18.64 a flow's agents' server (KEEL_MCP_PROJECTS, tools/mcp.py scoped) answers only for its projects: a
+        project's routes, and a flow or an agent call of one of them; the Inbox and the job list of the first one."""
+        sc = scope()
+        if sc is None:
+            return
+        m = re.match(r"^/projects/([^/?]+)", path)
+        if m:
+            if unquote(m.group(1)) not in sc:
+                raise ApiError(out_of_scope(unquote(m.group(1)), sc), 403)
+            return
+        params = dict(kw.get("params") or {})
+        if path in ("/inbox", "/jobs", "/jobs/count"):
+            if params.get("project") and params["project"] not in sc:
+                raise ApiError(out_of_scope(str(params["project"]), sc), 403)
+            params.setdefault("project", sc[0])
+            if not params["project"]:
+                params["project"] = sc[0]
+            kw["params"] = params
+            return
+        m = re.match(r"^/jobs/([^/?]+)", path)
+        if m:
+            job = self._raw("GET", f"/jobs/{m.group(1)}", _scoped=False)
+            pid = (job.json() if job.content else {}).get("project_id")
+            if pid not in sc:
+                raise ApiError(out_of_scope(str(pid or "another project"), sc), 403)
+            return
+        m = re.match(r"^/threads/([^/?]+)", path)
+        if m:
+            for pid in sc:
+                try:
+                    self._raw("GET", f"/projects/{q(pid)}/flows/{m.group(1)}", _scoped=False)
+                    return
+                except ApiError:
+                    continue
+            raise ApiError(f"flow {unquote(m.group(1))} is not one of {', '.join(sc)}: this server reads only "
+                           f"{'that project' if len(sc) == 1 else 'those projects'}.", 403)
+        if path.startswith(("/folders", "/inbox/")):
+            raise ApiError("this server reads only its own project's files and flows (keel's MCP server for a flow's agents).", 403)
+
+    def _raw(self, method: str, path: str, timeout: float | None = None, _scoped: bool = True, **kw) -> httpx.Response:
+        if _scoped:
+            self._scope(method, path, kw)
         self._prove()
         try:
             res = self.http.request(method, path, headers=self._audit(method), **({"timeout": timeout} if timeout else {}), **kw)
@@ -130,7 +188,11 @@ class KeelApi:
 
     def get(self, route: str, /, **params) -> Any:
         """GET a route; `params` are the query (a `path` query parameter is fine: the route is positional)."""
-        return self._send("GET", route, params={k: v for k, v in params.items() if v is not None})
+        got = self._send("GET", route, params={k: v for k, v in params.items() if v is not None})
+        sc = scope()
+        if sc is not None and route == "/projects" and isinstance(got, list):
+            got = [p for p in got if isinstance(p, dict) and p.get("id") in sc]     # 0.18.64 the others stay unknown
+        return got
 
     def post(self, path: str, body: dict, timeout: float | None = None) -> Any:
         return self._send("POST", path, json=body, timeout=timeout)

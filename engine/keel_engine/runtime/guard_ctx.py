@@ -35,21 +35,101 @@ The engine writes it into the run's scratch folder (outside the project, mode 06
 runs, and rewrites the same file when an unlock is granted while that agent runs (runtime/service.py
 `add_unlocks`). The hook reads it on every tool call, so a rewrite counts from the next call.
 
+0.18.64 the agent runs as the same user as keel, so it could rewrite this file (and turn its phase rules off). What
+keel does about that:
+    1. the hook refuses every tool call and shell command that writes keel's files in the run's folder (this file, its
+       checksum, the hook's settings, mcp.json, the command wrappers) or names $KEEL_GUARD_CTX (hook.control_refusal);
+    2. next to the file the engine writes its sha256 (guard.json.sum); a context that does not match it is not used:
+       the hook fails closed (only reads pass);
+    3. the engine keeps the sha256 of every file it wrote there (SEALED) and checks them when the CLI ends
+       (models/cli.py run_cli): a changed file fails the step, so its work is not taken.
+A key the agent cannot read is not possible here: the hook is the agent CLI's child, and whatever reaches it (its
+environment, its arguments, a file) the agent's own shell can read too (/proc/<pid>/environ, the settings file).
+So 2 only catches a careless rewrite; 1 and 3 are the protection, and keel's commit step checks every commit's files
+against the phase again (rules.check_commit), whatever the hook allowed.
+
 Stdlib only: the hook imports this module once per tool call.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 ENV = "KEEL_GUARD_CTX"
 FILE = "guard.json"
-# The tools Claude Code runs the hook for (opencode's plugin maps its own names onto these).
-MATCHER = "Edit|Write|MultiEdit|NotebookEdit|Bash|Read|mcp__.*"
+SUM = ".sum"            # guard.json.sum: the sha256 of guard.json as the engine wrote it
+# The tools Claude Code runs the hook for (opencode's plugin maps its own names onto these). 0.18.64 Grep, Glob and LS
+# too: claude's Grep searched .env files (its ripgrep reads hidden files), and the hook never saw it.
+MATCHER = "Edit|Write|MultiEdit|NotebookEdit|Bash|Read|Grep|Glob|LS|mcp__.*"
+# keel's own files in the run's folder: no agent reads, writes or names them (hook.control_refusal)
+CONTROL_FILES = (FILE, FILE + SUM, "keel-guard.json", "mcp.json")
+CONTROL_DIRS = ("keel-bin", "opencode")
+# the variables that name those files in the agent's environment
+CONTROL_VARS = (ENV, "KEEL_SHIM_DIR", "OPENCODE_CONFIG_DIR")
+# path -> sha256 of every control file this engine wrote (seal); run_cli checks them when the CLI ends (broken)
+SEALED: dict[str, str] = {}
+
+
+def digest(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def seal(path: str | Path) -> str:
+    """Keeps the sha256 of a control file the engine just wrote; returns the path."""
+    p = os.path.realpath(str(path))
+    if len(SEALED) > 4000:              # the runs that are over: their folders are gone
+        for old in [k for k in SEALED if not os.path.exists(k)]:
+            SEALED.pop(old, None)
+    try:
+        SEALED[p] = digest(Path(p).read_bytes())
+    except OSError:
+        pass
+    return str(path)
+
+
+def broken(folder: str | Path, forget: bool = False) -> list[str]:
+    """The sealed files in `folder` (a run's scratch folder) that are not what the engine wrote: changed or gone.
+    `forget`: drop them from SEALED afterwards (the run is over)."""
+    home = os.path.realpath(str(folder))
+    out = []
+    for p, want in list(SEALED.items()):
+        if not (p == home or p.startswith(home + os.sep)):
+            continue
+        try:
+            ok = digest(Path(p).read_bytes()) == want
+        except OSError:
+            ok = False
+        if not ok:
+            out.append(p)
+        if forget:
+            SEALED.pop(p, None)
+    return sorted(out)
+
+
+def control_path(ctx_path: str | None, full: str | Path) -> bool:
+    """Is `full` one of keel's files in the run's folder (the folder of the guard context `ctx_path`)?"""
+    if not ctx_path:
+        return False
+    home = os.path.realpath(os.path.dirname(ctx_path))
+    p = os.path.realpath(str(full))
+    if os.path.dirname(p) == home and os.path.basename(p) in CONTROL_FILES:
+        return True
+    return any(p == os.path.join(home, d) or p.startswith(os.path.join(home, d) + os.sep) for d in CONTROL_DIRS)
+
+
+def run_folder(ctx_path: str | None, full: str | Path) -> bool:
+    """Is `full` in the run's folder at all (a write there is refused: keel's files live there)?"""
+    if not ctx_path:
+        return False
+    home = os.path.realpath(os.path.dirname(ctx_path))
+    p = os.path.realpath(str(full))
+    return p == home or p.startswith(home + os.sep)
 
 
 def hook_argv() -> list[str]:
@@ -73,7 +153,7 @@ def claude_settings(path: str | Path, timeout: int = 10) -> str:
         "matcher": MATCHER,
         "hooks": [{"type": "command", "command": hook_command(), "timeout": timeout}],
     }]}}))
-    return str(p)
+    return seal(p)
 
 
 def write_shims(folder: str | Path) -> str:
@@ -87,6 +167,7 @@ def write_shims(folder: str | Path) -> str:
         p = d / name
         p.write_text(f'#!/bin/sh\nexec "{sys.executable}" -I -m keel_engine.shim {name} "$@"\n')
         p.chmod(0o755)
+        seal(p)
     return str(d)
 
 
@@ -103,20 +184,45 @@ def codex_hook_args(timeout: int = 10) -> list[str]:
     return ["-c", f"hooks.PreToolUse={entry}", "--dangerously-bypass-hook-trust"]
 
 
-def write_context(path: str | Path, **ctx) -> str:
-    """Atomic write (a hook reading at the same moment sees the old file or the new one, never half), mode 0600."""
-    p = Path(path)
-    p.parent.mkdir(parents=True, exist_ok=True)
+def _atomic(p: Path, data: bytes) -> None:
     fd, tmp = tempfile.mkstemp(prefix=".guard.", suffix=".tmp", dir=p.parent)
     try:
-        with os.fdopen(fd, "w") as f:
-            json.dump(ctx, f)
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
         os.chmod(tmp, 0o600)
         os.replace(tmp, p)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
         raise
-    return str(p)
+
+
+def write_context(path: str | Path, **ctx) -> str:
+    """Atomic write (a hook reading at the same moment sees the old file or the new one, never half), mode 0600; with
+    its sha256 next to it (guard.json.sum), written first: a hook that reads between the two sees a mismatch and
+    reads the pair again (load_context)."""
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    data = json.dumps(ctx).encode()
+    _atomic(Path(str(p) + SUM), digest(data).encode())
+    _atomic(p, data)
+    seal(str(p) + SUM)
+    return seal(p)
+
+
+def read_checked(path: str | Path) -> bytes:
+    """The context's bytes when they match the sha256 the engine wrote next to them; ValueError when not (changed by
+    someone else, or no checksum). A rewrite in progress is read again once."""
+    for n in range(3):
+        if n:
+            time.sleep(0.05)
+        data = Path(path).read_bytes()
+        try:
+            want = Path(str(path) + SUM).read_text().strip()
+        except OSError:
+            want = ""
+        if want and digest(data) == want:
+            return data
+    raise ValueError("its checksum does not match what keel wrote")
 
 
 def merge(have: list[dict], new: list[dict]) -> list[dict]:

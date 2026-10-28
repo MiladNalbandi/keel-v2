@@ -43,6 +43,20 @@ ALWAYS_DENY = {
 # The project's rule files: an agent that could edit them could switch off the guard that judges it.
 RULE_FILES = [re.compile(r"^\.keel/config\.ya?ml$"), re.compile(r"^\.keel/rules/")]
 
+# 0.18.64 the files that hold secrets by their name (keel_rules.json SECRET_FILES; the api's RepoService.isSecret reads
+# the same list): .env files, SSH and TLS keys, package-registry and database logins. One list for the edit, read and
+# shell guards and keel's MCP tools. The project's guards.protected adds to it; a `!` pattern there takes one out.
+SECRET_FILES: dict[str, list[str]] = _DATA["SECRET_FILES"]
+
+
+def secret_name(path: str | Path | None) -> bool:
+    """Is this file a secret by its name (SECRET_FILES)? .env.example, .env.sample, .env.template, .env.dist are not."""
+    n = str(path or "").replace("\\", "/").rstrip("/").rsplit("/", 1)[-1].lower()
+    if not n or n in SECRET_FILES["readable"]:
+        return False
+    return (n in SECRET_FILES["names"] or n.startswith(tuple(SECRET_FILES["prefixes"]))
+            or n.endswith(tuple(SECRET_FILES["suffixes"])))
+
 # v0.18.1 keel's own keys (api auth/LocalAuth): the internal token and the web key, in keel's data folder (Docker
 # /data/run/, native ~/.keel2/<name>/run/ and ~/.keel2/<name>/data/run/). Whoever reads one can act as keel or as the
 # person through plain HTTP, so no agent reads, prints, changes or sends them. v0.18.33 the same for master.key (it
@@ -139,7 +153,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
                "size_limits_lines": 300, "auth_paths": ["**/security/**", "**/auth/**"]},
     "commit": {"author_name": "", "author_email": ""},   # empty: runtime/actions.py commit_ident decides
     "guards": {
-        "protected": ["**/.env", "**/.env.*", "!**/.env.example"],
+        # SECRET_FILES always count too (classify); these patterns add the project's own
+        "protected": ["**/.env", "**/.env.*", "!**/.env.example", "!**/.env.sample", "!**/.env.template", "!**/.env.dist"],
         "generated": ["**/generated/**", "**/build/generated/**"],
         "read_block": ["**/build/**", "**/node_modules/**", "**/playwright-report/**", "**/target/**"],
         "bash_deny_always": ["git push --force", "git push -f", "--no-verify", "-x test", "-x check"],
@@ -148,8 +163,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "read_guard_max_lines": 2000,
     },
     # keel's own switches (Rules page): `off` names built-in rules (BUILTINS, only can_off ones) or `pack/<id>`;
+    # `on` (0.18.64) the opt-in ones (OPT_IN) the project turns on;
     # the push gate refuses an agent's push while push_blockers reports something (keel v1 gates.pushBlockers).
-    "rules": {"off": [], "push_gate": True, "push_gate_commands": ["git push", "gh pr create"]},
+    "rules": {"off": [], "on": [], "push_gate": True, "push_gate_commands": ["git push", "gh pr create"]},
     "mcp": {"allow": []},
 }
 
@@ -164,7 +180,8 @@ BUILTINS: list[dict] = [
     {"id": "phase-matrix", "kind": "edit", "phases": "in a flow", "can_off": False,
      "words": "Each phase lets agents change only some kinds of files: tests in RED, code in GREEN, nothing in a review."},
     {"id": "env-files", "kind": "edit, read, shell", "phases": "always", "can_off": False,
-     "words": ".env files hold secrets: agents never read, print or change them (setup may write the env file)."},
+     "words": "Secret files (.env, SSH and TLS keys, credentials.json, .npmrc ...) hold secrets: agents never read, search, "
+              "print, copy or change them (setup may write the env file)."},
     {"id": "keel-rules-files", "kind": "edit", "phases": "always", "can_off": False,
      "words": "Agents never change .keel/config.yml or .keel/rules/: an agent may not change its own rules."},
     {"id": "keel-keys", "kind": "edit, read, shell", "phases": "always", "can_off": False,
@@ -201,20 +218,27 @@ BUILTINS: list[dict] = [
     {"id": "mcp-writes", "kind": "mcp", "phases": "in a flow", "can_off": True,
      "words": "In a flow, an MCP tool that can change things runs only when mcp.allow names it."},
     # keel 0.18.64 runtime/other_projects.py: off, this project's agents read only this project, and other projects'
-    # agents (and keel_read_project_file) do not read it
-    {"id": "other-projects", "kind": "read", "phases": "always", "can_off": True,
-     "words": "Agents may read the other projects registered in this keel (never change them; their secrets stay out). "
-              "Off: this project keeps to itself both ways."},
+    # agents (and keel_read_project_file) do not read it. Opt-in (0.18.64): off until the project turns it on
+    # (`rules.on` in .keel/config.yml; the Rules page writes it).
+    {"id": "other-projects", "kind": "read", "phases": "always", "can_off": True, "opt_in": True,
+     "words": "Agents may read the other projects registered in this keel that turn this on too (never change them; "
+              "their secrets stay out). Off by default: this project keeps to itself both ways."},
 ]
 BUILTIN_IDS = {b["id"] for b in BUILTINS}
 CAN_OFF = {b["id"] for b in BUILTINS if b["can_off"]}
+# 0.18.64 the built-in rules that are off until the project names them in `rules.on`
+OPT_IN = {b["id"] for b in BUILTINS if b.get("opt_in")}
 
 
 def is_off(cfg: dict | None, rule_id: str) -> bool:
-    """Is a built-in rule (or `pack/<id>`) switched off in the project's `rules.off`? A never-off rule never is."""
-    off = ((cfg or {}).get("rules") or {}).get("off") or []
+    """Is a built-in rule (or `pack/<id>`) switched off in the project's `rules.off`? A never-off rule never is. An
+    opt-in rule (OPT_IN) is off unless `rules.on` names it (and `rules.off` does not)."""
+    r = (cfg or {}).get("rules") or {}
+    off = r.get("off") or []
     if rule_id in BUILTIN_IDS and rule_id not in CAN_OFF:
         return False
+    if rule_id in OPT_IN:
+        return rule_id in off or rule_id not in (r.get("on") or [])
     return rule_id in off
 
 
@@ -345,7 +369,7 @@ def classify(cfg: dict | None, path: str) -> str:
 
     is_test = any(r.search(rel) for r in _TEST_PATH)
     guards = cfg["guards"]
-    if match_glob(rel, guards["protected"]) and not negated(rel, guards["protected"]):
+    if (match_glob(rel, guards["protected"]) or secret_name(rel)) and not negated(rel, guards["protected"]):
         return "protected-env"
     if any(r.search(rel) for r in RULE_FILES):
         return "keel-rules"
@@ -559,29 +583,8 @@ def check_knowledge(path_or_command: str, agent: str, allowed: list[str] | None,
 
 # ---------------------------------------------------------------- shell guard
 
-_ENV_PRINTERS = {"cat", "less", "more", "head", "tail", "grep", "egrep", "fgrep", "bat", "xxd", "od", "strings", "awk", "nl"}
-
-
-def _bare(w: str) -> str:
-    return re.sub(r"[^A-Za-z0-9_./-]+$", "", re.sub(r"^[^A-Za-z0-9_./-]+", "", w))
-
-
-def prints_env_file(command: str) -> str | None:
-    for segment in re.split(r"[\n;]|&&|\|\||\|", str(command or "")):
-        words = segment.split()
-        for i, w in enumerate(words):
-            if re.sub(r"^.*/", "", _bare(w)) not in _ENV_PRINTERS:
-                continue
-            if i + 1 < len(words) and _bare(words[i + 1]).startswith("<<"):
-                continue
-            for arg in words[i + 1:]:
-                a = _bare(arg)
-                if a.startswith("<<"):
-                    break
-                m = re.search(r"(?:^|/)(\.env(?:\.[A-Za-z0-9_-]+)?)$", a)
-                if m and m.group(1) != ".env.example":
-                    return m.group(1)
-    return None
+# 0.18.64 secret files in a shell command: rules/secrets.py shell_secret (every word of every command, not a list of
+# printers: keel 0.18.63 knew 14 programs, so `sort .env`, `python -c "open('.env')"` and `git show HEAD:.env` passed).
 
 
 _FLAGS_WITH_VALUE = {"--prefix", "--registry", "--workspace", "-w", "--filter", "-C", "--directory", "--cwd",
@@ -744,7 +747,8 @@ _SHELL_WRITE = re.compile(r"(?<!>)>{1,2}\s*([^\s;|&<>()]+)|(?:sed\s+-i(?:\s+\S+)
 
 def check_bash(phase: str, command: str, cfg: dict | None = None, *, root: str | None = None,
                exists=lambda rel: False, unlocks: list[dict] | None = None,
-               push_blockers: list[dict] | None = None, flow: str = "") -> Verdict:
+               push_blockers: list[dict] | None = None, flow: str = "", cwd: str | None = None) -> Verdict:
+    """`cwd`: where the agent's shell is (a relative path or a glob in the command is resolved there); default `root`."""
     cfg = cfg if cfg and "guards" in cfg else make_config(cfg)
     cmd = str(command or "")
     skip_flags = is_off(cfg, "skip-test-flags")
@@ -756,12 +760,12 @@ def check_bash(phase: str, command: str, cfg: dict | None = None, *, root: str |
     danger = git_danger(cmd)   # the same rule, with the flag anywhere in the command
     if danger.startswith("git push"):
         return Verdict(False, reason=f'"{danger}" is not allowed: it skips checks that keel relies on.')
-    env = prints_env_file(cmd)
-    if env:
-        return Verdict(False, reason=f"Printing {env} would put secrets in the conversation.")
     if KEEL_KEY_WORDS.search(cmd):
         return Verdict(False, "keel-keys", "This command reads or sends one of keel's own keys; agents never do. "
                                            "Use keel's MCP tools instead.")
+    found = shell_secret(cmd, cfg, root=root, cwd=cwd)
+    if found.reason:
+        return Verdict(False, "protected-env", found.reason, path=found.path)
     if STACK_SETUP_HELPER.search(cmd):
         return Verdict(False, "keel-setup", "keel-stack-setup is keel's own root helper for a stack's setup: block; agents "
                                             "never run it. Put the package in the stack's setup.apt instead.")
@@ -789,8 +793,9 @@ def check_bash(phase: str, command: str, cfg: dict | None = None, *, root: str |
     if dep:
         return Verdict(False, reason=f'adding "{dep}" is a dependency decision. Put it in the spec and take it through the gate.')
     # Every write target of the line, not only the first: `echo a > /tmp/x && echo b > src/Main.kt`; `>file` needs no space.
-    for m in _SHELL_WRITE.finditer(cmd):
-        target = (m.group(1) or m.group(2)).strip("\"'")
+    # 0.18.64 and a secret file a copy writes (`cp .env.example .env`: shell_secret leaves that to the edit rules)
+    targets = [(m.group(1) or m.group(2)).strip("\"'") for m in _SHELL_WRITE.finditer(cmd)] + found.writes
+    for target in targets:
         if not target.startswith("/dev/"):
             v = check_edit(phase, target, cfg, exists=exists(target), unlocks=unlocks)
             if not v.ok:
@@ -950,3 +955,6 @@ def gate_due(mode: str, acs: list[dict], ac_id: str, skipped: dict | None = None
 
 # Rule packs (.keel/rules/*.yaml): imported last, they use the names above.
 from .packs import load_packs, pack_verdict, parse_pack, validate_pack  # noqa: E402,F401
+# 0.18.64 secret files in shell commands and in a folder search (rules/secrets.py): they use the names above too.
+from .secrets import (SecretHit, git_ignored, glob_hits, secret_files, shell_secret,  # noqa: E402,F401
+                      shell_text_names)

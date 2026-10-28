@@ -460,12 +460,33 @@ keel checks every agent with rules. **Build › Rules** shows all of them in pla
                                                         and puts back what the phase does not allow
 ```
 
-- **Always on**: `.env` files, keel's own rule files (`.keel/config.yml`, `.keel/rules/`), old migrations, force push,
-  `--no-verify`, commits and history rewrites inside a flow, secrets and switched-off tests in an edit, and keel's
-  own sign-in keys. These never switch off.
+- **Always on**: secret files (`.env`, SSH and TLS keys, `credentials.json`, `.npmrc` ...), keel's own rule files
+  (`.keel/config.yml`, `.keel/rules/`), old migrations, force push, `--no-verify`, commits and history rewrites inside
+  a flow, secrets and switched-off tests in an edit, and keel's own sign-in keys. These never switch off.
 - **You can switch off**: generated files, build output, `-x test`, new packages, reading a file twice, big-file
-  reads, the push gate, MCP tools that change things, reading other projects (`other-projects`). Off is saved in
-  `.keel/config.yml` (`rules.off`).
+  reads, the push gate, MCP tools that change things. Off is saved in `.keel/config.yml` (`rules.off`).
+- **You can switch on**: reading other projects (`other-projects`), off until you turn it on. On is saved in
+  `.keel/config.yml` (`rules.on`).
+
+**Secret files** (0.18.64). keel keeps one list of files that hold secrets: `.env` and `.env.*` (not `.env.example`,
+`.env.sample`, `.env.template`, `.env.dist`), SSH keys (`id_rsa`, `id_ed25519` ...), `*.pem`, `*.key`, `*.p12`,
+`*.pfx`, `credentials.json`, `.npmrc`, `.netrc`, `.pgpass`, `secrets.yml` and a few more. Your `guards.protected` adds
+to it. An agent never reads, searches, prints, copies or changes them:
+
+```
+ Read .env / Grep in .env / Grep over a folder that has one     refused (a glob like "*.py" leaves it out)
+ cat .env, sort .env, python -c "open('.env')", git show HEAD:.env, grep -r KEY .      refused
+ ls -la .env, test -f .env, git status .env                      fine: they only name it
+```
+
+Some honest uses are refused too (`source .env`, `docker compose --env-file .env`): run those yourself.
+
+**What keel cannot stop.** keel reads each command before it runs; it does not run agents as another user or in a
+sandbox. So a determined agent can still get around a rule: a file name built at run time (`f=.en; cat ${f}v`), a
+script file that opens `.env` itself, `find . -exec cat {} +`, an archive of a whole folder, a command that prints
+many files at once when a secret file is committed (`git show`, `git log -p`). keel also checks its own run files
+when an agent ends (a changed guard file fails the step) and checks every commit again, but the strong fix is to keep
+real secrets out of the folders agents work in.
 - **Your lists** (`.keel/config.yml`): protected files, generated files, build output, shell commands, `mcp.allow`,
   the big-file limit (`read_guard_max_lines`, default 2000 lines; 0 = off), the push gate, architecture boundaries.
   The page edits them in place; only the `guards`, `mcp`, `rules` and `boundaries` parts are rewritten.
@@ -1345,8 +1366,10 @@ that no longer exists is skipped (`keel2 folders` marks it).
 - keel TUI: the start box says `/flow init`, `/flow` lists init first, and another flow asks the same. `/flow init`
   needs no idea. MCP: `keel_start_flow` puts a line about init first for such a project.
 
-**Agents read the other projects** (0.18.64). A flow's agents may read every other project registered in the same
-keel, for example the upstream service whose contract a change depends on. They never change it.
+**Agents read the other projects** (0.18.64). A flow's agents may read the other projects registered in the same
+keel, for example the upstream service whose contract a change depends on. They never change it. This is **off until
+you turn it on**: switch on the rule **other-projects** on the Rules page (it saves `rules.on: [other-projects]` in
+`.keel/config.yml`). Both projects must have it on: the agents read only the other projects that turned it on too.
 
 ```
  flow in shop-web                       shop-api (registered in the same keel)
@@ -1355,11 +1378,12 @@ keel, for example the upstream service whose contract a change depends on. They 
 ```
 
 - Each agent's prompt names the other projects and their folders (one line each), only when there are any.
-- Its secrets stay out there too (its `.env`, keel's keys), judged with that project's own `.keel/config.yml`.
+- Its secrets stay out there too (its `.env`, keys, keel's keys), judged with that project's own `.keel/config.yml`,
+  whatever the command: `cat`, `grep -r`, `python -c`, `git -C <it> show HEAD:.env` and a Grep are all refused.
 - A folder that is no registered project is refused in plain words: "<path> is outside this project and is not another
   project registered in keel; ask the person to add it (keel2 add) or to paste what you need".
-- To keep a project to itself, switch off the rule **other-projects** on its Rules page: its agents read only it, and
-  other projects' agents do not read it.
+- Off (the default), a project keeps to itself: its agents read only it, other projects' agents do not read it, and
+  keel's MCP server for its flows answers only for it.
 - From an MCP client: `keel_read_project_file(project, path, offset, limit)` reads one file of any project the same way.
 
 **A second keel** (`KEEL_NAME=keel-lab PORT=8097 ./keel2 start …`) gets its own data: the volume is `<KEEL_NAME>-data` (`keel-data` only for the default `keel-v2`; `KEEL_VOLUME` sets another). keel2 refuses to start a keel, restore a backup or delete data on a volume another running keel uses: two keels on one volume would write one database at the same time.

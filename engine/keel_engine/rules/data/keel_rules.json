@@ -813,5 +813,45 @@
     "specs": {
       "dir": "specs"
     }
+  },
+  "SECRET_FILES": {
+    "names": [
+      ".env",
+      ".npmrc",
+      ".pypirc",
+      ".netrc",
+      ".pgpass",
+      ".git-credentials",
+      ".htpasswd",
+      "credentials",
+      "credentials.json",
+      "master.key",
+      "secrets.yml",
+      "secrets.yaml",
+      "terraform.tfvars"
+    ],
+    "prefixes": [
+      ".env.",
+      "id_rsa",
+      "id_ed25519",
+      "id_ecdsa",
+      "id_dsa"
+    ],
+    "suffixes": [
+      ".pem",
+      ".key",
+      ".p12",
+      ".pfx",
+      ".keystore",
+      ".jks",
+      ".p8",
+      ".kdbx"
+    ],
+    "readable": [
+      ".env.example",
+      ".env.sample",
+      ".env.template",
+      ".env.dist"
+    ]
   }
 }

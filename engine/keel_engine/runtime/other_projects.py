@@ -9,8 +9,13 @@ with that project's own `.keel/config.yml`.
     project A (the flow's)         project B (registered in the same keel)
     read, write (phase rules)  ->  read only: read_file, cat, grep, ls, git log/show; no write, no .env
 
-The rule `other-projects` (`rules.off` in `.keel/config.yml`) turns it off for a project both ways: its agents read
-only their own project, and other projects' agents do not get it.
+The rule `other-projects` is opt-in (0.18.64): off until a project turns it on (`rules.on: [other-projects]` in
+`.keel/config.yml`, or the Rules page). It works both ways: a project's agents read the other projects only while the
+rule is on there, and only the other projects that turn it on too. Off, the agents read only their own project, and
+claude gets no --add-dir.
+
+0.18.64 a command that names another project's path has every word checked for that project's secret files (cat,
+python -c, git -C <other> show HEAD:.env, a recursive grep over it: rules.shell_secret with `others`).
 
 A folder that is outside the project and no registered project is refused in plain words (`outside`), never with the
 agent CLI's own "no interactive user response" text (claude -p refuses a path outside its folders that way).
@@ -34,8 +39,8 @@ TEMP = tuple(dict.fromkeys((os.path.realpath(tempfile.gettempdir()), "/tmp")))
 
 OUTSIDE = ("{path} is outside this project and is not another project registered in keel; ask the person to add it "
            "(keel2 add) or to paste what you need.")
-OUTSIDE_OFF = ("{path} is outside this project, and reading other projects is off for it (rule other-projects in "
-               ".keel/config.yml rules.off); ask the person to paste what you need.")
+OUTSIDE_OFF = ("{path} is outside this project, and reading other projects is off for it (rule other-projects, off "
+               "unless .keel/config.yml rules.on names it); ask the person to paste what you need.")
 READ_ONLY = "{path} is in {name}, another project registered in keel: agents may read it but never change it."
 NOT_READ_ONLY = ('"{word}" is not a read-only command, and this command works in {name}, another project registered in '
                  "keel: there agents only read (cat, head, grep, ls, find, git log, git show, git diff ...). Run other "
@@ -196,6 +201,13 @@ def check_command(command: str, root: str, others: list[dict] | None, cwd: str |
     cmd = str(command or "")
     here = _norm(root)
     start = _norm(cwd) if cwd else here
+    # 0.18.64 every word, by each project's own secret rules (not only cat's or grep's operands), when the command can
+    # reach another project: it names its folder, or the shell is there
+    if any(os.path.basename(o["root"]) in cmd for o in others or []) or find(others, start):
+        found = rules.shell_secret(cmd, None, root=None, cwd=start if os.path.isdir(start) else here, others=others)
+        if found.reason:
+            o = find(others, _resolve(found.path, start)) if found.path else None
+            return f"{o[0]['name']}: {found.reason}" if o else found.reason
     touched: dict | None = (find(others, start) or (None,))[0] if not under(start, here) else None
     hits: list[tuple[str, list[str]]] = []      # (command word, its words)
     where = start
