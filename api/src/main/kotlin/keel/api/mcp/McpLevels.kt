@@ -315,6 +315,10 @@ class McpLevelGuard(
             delete("^/api/devices/[^/]+$"),
             post("^/api/web/(code|sign-out|sign-out-everywhere)$"),
             put("^/api/notification-settings$"),
+            // 0.18.66 the update check (its setting, and Check now: a call to GitHub) and the first-run welcome
+            put("^/api/updates/settings$"),
+            post("^/api/updates/check$"),
+            put("^/api/help/welcome$"),
             post("^/api/notifications/(read-all|[^/]+/read)$"),
             delete("^/api/notifications(/[^/]+)?$"),
         )

@@ -97,6 +97,10 @@ abstract class ApiTest {
             // the stub engine answers one fixed state: a pause must not overwrite what a test saved (RunHistoryApiTest turns it on)
             r.add("keel.refresh-state-on-events") { false }
             r.add("keel.keel-v1-optional") { dataDir.resolve("no-keel-v1").toString() }
+            // 0.18.66 the daily release check never runs by itself in tests, and never reaches GitHub (UpdatesApiTest
+            // puts a stand-in source in)
+            r.add("keel.release-check.scheduler") { false }
+            r.add("keel.release-check-url") { "file:///nonexistent/keel-release.json" }
             // v0.5.0 tasks (the Tasks plugin's keel.tasks.*, for the plugins' tests and Product's): effects on the event
             // thread, no background polls, GitHub = the stub, no token from the environment
             r.add("keel.tasks.inline-effects") { true }

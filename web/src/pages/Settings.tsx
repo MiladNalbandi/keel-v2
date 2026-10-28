@@ -1,11 +1,11 @@
 // keel 0.18.57 Settings: one page with its own menu — General · Models & logins · Connections · Budget · Plugins ·
-// Databases · Devices — at #/settings/<tab> (#/settings/general/<project> is one project's own settings). The pages that
+// Databases · Access — at #/settings/<tab> (#/settings/general/<project> is one project's own settings). The pages that
 // were their own before (Budget, Connections, Plugins, the Database plugin's Databases) are tabs now; their old links
 // open the tab (routes.ts). A part adds a tab of its own (slot settings.tab: the Database plugin's Databases).
 
 import { BudgetPage } from "./Budget";
 import { ConnectionsPage } from "./Connections";
-import { DevicesTab } from "./settings/DevicesTab";
+import { AccessTab } from "./settings/Access";
 import { SettingsFrame, useSettingsTabs } from "./settings/frame";
 import { GeneralTab } from "./settings/General";
 import { ModelsTab } from "./settings/Models";
@@ -30,7 +30,7 @@ export function SettingsPage({ pid }: { pid: string }) {
     case "connections": return <ConnectionsPage pid={pid} />;
     case "budget": return <BudgetPage pid={pid} />;
     case "plugins": return <PluginsTab rest={rest} />;
-    case "devices": return <DevicesTab />;
+    case "access": return <AccessTab />;
   }
   const part = tabs.find((t) => t.id === tab)?.part;
   if (part) {

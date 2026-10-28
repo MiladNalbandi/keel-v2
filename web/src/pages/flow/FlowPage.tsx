@@ -117,7 +117,8 @@ export function FlowPage({ pid }: { pid: string }) {
               <div className="panel">
                 <EmptyState title="Nothing running here yet"
                   action={<button className="btn primary" type="button" id="startFlow2" onClick={() => setStart(true)}>Start a flow</button>}>
-                  Start a feature, change, fix or hunt. You will see the estimate before it starts.
+                  Start a feature, change, fix or hunt. You will see the estimate before it starts. New to keel?{" "}
+                  <a href="#/help">Help › Start here</a>.
                 </EmptyState>
               </div>
             </CoreWelcome>
@@ -127,7 +128,8 @@ export function FlowPage({ pid }: { pid: string }) {
             <div className="panel">
               <EmptyState title="Nothing running here yet"
                 action={<button className="btn primary" type="button" id="startFlow2" onClick={() => setStart(true)}>Start a flow</button>}>
-                Start a feature, change, fix or hunt. You will see the estimate before it starts.
+                Start a feature, change, fix or hunt. You will see the estimate before it starts. New to keel?{" "}
+                <a href="#/help">Help › Start here</a>.
               </EmptyState>
             </div>
           </>

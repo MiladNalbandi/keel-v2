@@ -103,10 +103,21 @@ class KeelApi:
         if token:
             self.http.headers[MCP_TOKEN_HEADER] = token
 
+    def name_client(self, name: str | None) -> None:
+        """0.18.66 the client's own name (its MCP initialize), once: every request says it, reads too, so keel's Help ›
+        Start here and Settings › Access see which AI tool is connected (api McpClients). Shared by the copies."""
+        if name and not self._proof.get("client"):
+            self._proof["client"] = str(name)[:80]
+
     def _audit(self, method: str) -> dict:
+        # 0.18.66 keel's own agents' server (the engine gave it its token; it has no internal token) says so: the api
+        # does not count it as a person's AI tool
+        mine = {"X-Keel-Mcp-Kind": "agent"} if not self._proof["internal"] and self._proof["given"] else {}
         if method == "GET":
-            return {}
-        return {"X-Keel-Via": "mcp", "X-Keel-Client": self.client[:80], "X-Keel-Tool": self.tool[:80]}
+            known = self._proof.get("client")
+            return {**mine, **({"X-Keel-Client": known} if known else {})}
+        client = self.client if self.client != "an MCP client" else (self._proof.get("client") or self.client)
+        return {**mine, "X-Keel-Via": "mcp", "X-Keel-Client": client[:80], "X-Keel-Tool": self.tool[:80]}
 
     def _scope(self, method: str, path: str, kw: dict) -> None:
         """0.18.64 a flow's agents' server (KEEL_MCP_PROJECTS, tools/mcp.py scoped) answers only for its projects: a

@@ -237,7 +237,7 @@ describe("useAnswerDraft", () => {
       called = "this";
       return HttpResponse.json({ ok: true });
     }));
-    const { signOut } = await import("../pages/settings/DevicesTab");
+    const { signOut } = await import("../pages/settings/Access");
     await signOut(false);
     expect(called).toBe("this");
     expect(draftKeys()).toEqual([]);

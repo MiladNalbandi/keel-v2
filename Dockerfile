@@ -21,6 +21,9 @@ WORKDIR /src/web
 COPY web/package*.json ./
 RUN npm ci --no-audit --no-fund
 COPY web/ ./
+# keel 0.18.66 Help's short guides and the welcome's video cover are part of the web bundle (web/src/guides.ts)
+COPY docs/guides /src/docs/guides
+COPY docs/keel-video.jpg /src/docs/keel-video.jpg
 # keel's bundle is built before plugins/ and product/web are even here, so it never holds a plugin's pages
 RUN npm run build
 # The plugins' pages are their web parts: each built on its own with web's node_modules (build:plugins writes

@@ -1,0 +1,135 @@
+/* keel 0.18.66 the first-run welcome (components/Welcome.tsx): the approved mockup's own dark look in both themes (a
+   splash before keel itself), its animations (fade-up stagger, the pulsing play button, the slowly drifting soft
+   glows, the growing progress bar, hover lift) and none of them with prefers-reduced-motion. Under the drawers
+   (z-index 20/21: Add projects and Start a flow open over it), over the app. */
+
+.wl { position: fixed; inset: 0; z-index: 19; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain;
+  background: #111216; color: #efece6; font-family: var(--f-body); color-scheme: dark; }
+.wl a { color: #c9baff; }
+.wl a:hover { color: #e2d9ff; }
+.wl code { font-family: var(--f-mono); font-size: .9em; background: rgba(255,255,255,.08); border-radius: 4px; padding: 1px 6px; }
+.wl-glow { position: fixed; border-radius: 50%; pointer-events: none; animation: wl-drift 9s ease-in-out infinite; }
+.wl-glow.a { left: -120px; top: -160px; width: 520px; height: 520px; background: rgba(185,166,255,.10); filter: blur(60px); }
+.wl-glow.b { right: -140px; bottom: -180px; width: 560px; height: 560px; background: rgba(127,210,154,.07); filter: blur(70px); animation-delay: -4s; }
+.wl-in { position: relative; min-height: 100%; display: flex; flex-direction: column; align-items: center; padding: 28px 40px; }
+.wl-top { width: 100%; max-width: 1040px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.wl-brand { display: flex; align-items: center; gap: 10px; font: 700 20px var(--f-mono); color: #ffffff; }
+.wl-grow { flex: 1; }
+.wl-dots { display: flex; align-items: center; gap: 6px; }
+.wl-dots > span:not(.wl-dots-t) { display: inline-block; height: 6px; width: 10px; border-radius: 3px; background: #3a3a40; transition: all .3s ease; }
+.wl-dots > span.done { width: 18px; background: #7fd29a; }
+.wl-dots > span.now { width: 30px; background: #c9baff; }
+.wl-dots-t { margin-left: 8px; font-size: 12.5px; color: #a9a59d; }
+.wl-skip { color: #a9a59d; background: transparent; border: 0; padding: 8px 10px; min-height: 40px; cursor: pointer; font-size: 13px; }
+.wl-skip:hover { color: #efece6; }
+
+.wl-hello { width: 100%; max-width: 1040px; flex: 1; display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 40px; align-items: center; padding: 24px 0; }
+.wl-col { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.wl-kicker { font-size: 13px; color: #c9baff; letter-spacing: .4px; text-transform: uppercase; }
+.wl h1 { margin: 0; font-size: 44px; line-height: 1.1; letter-spacing: -.01em; outline: none; }
+.wl-lead { margin: 0; font-size: 16px; line-height: 1.55; color: #c4c0b8; }
+.wl-cards { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+.wl-card { display: flex; gap: 12px; align-items: center; border: 1px solid rgba(255,255,255,.1); border-radius: 10px; padding: 12px 14px; background: rgba(255,255,255,.02); transition: border-color .2s ease, transform .2s ease; }
+.wl-card:hover { border-color: rgba(201,186,255,.55); transform: translateY(-2px); }
+.wl-card span { color: #a9a59d; }
+.wl-num { flex: none; width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; font-weight: 700; }
+.wl-num.p { background: rgba(185,166,255,.14); color: #c9baff !important; }
+.wl-num.g { background: rgba(127,210,154,.14); color: #7fd29a !important; }
+.wl-num.y { background: rgba(255,196,107,.14); color: #ffc46b !important; }
+.wl-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+.wl-row.center { justify-content: center; }
+.wl-hint { font-size: 13px; color: #a9a59d; }
+.wl-btn { font: inherit; font-size: 14px; color: #efece6; background: transparent; border: 1px solid rgba(255,255,255,.2); border-radius: 10px; padding: 11px 18px; min-height: 46px; cursor: pointer; transition: transform .15s ease, background .15s ease; }
+.wl-btn:hover { transform: translateY(-1px); background: rgba(255,255,255,.04); }
+.wl-btn.p { font-weight: 600; color: #15111f; background: #c9baff; border-color: #c9baff; }
+.wl-btn.p:hover { background: #d6cbff; }
+.wl-btn.q { border-color: transparent; color: #a9a59d; }
+.wl-btn.big { font-size: 15px; padding: 13px 22px; min-height: 48px; }
+.wl-btn:disabled { opacity: .6; cursor: default; transform: none; }
+
+.wl-tour { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.wl-frame { position: relative; border-radius: 16px; overflow: hidden; border: 1px solid rgba(255,255,255,.12); box-shadow: 0 24px 60px rgba(0,0,0,.45); background: #000; aspect-ratio: 2 / 1; }
+.wl-frame video, .wl-frame img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.wl-frame img { opacity: .92; }
+.wl-frame video { opacity: 0; }
+.wl-frame video.on { opacity: 1; object-fit: contain; cursor: pointer; }
+.wl-play { position: absolute; left: 50%; top: 50%; width: 76px; height: 76px; margin: -38px 0 0 -38px; border-radius: 50%; border: 0; background: #c9baff; display: grid; place-items: center; cursor: pointer; animation: wl-ring 2.2s ease-out infinite; transition: transform .15s ease; }
+.wl-play:hover { transform: translateY(-1px) scale(1.03); }
+.wl-bar { position: absolute; left: 0; right: 0; bottom: 0; padding: 12px 14px; border: 0; background: rgba(0,0,0,.55); color: #efece6; display: flex; align-items: center; gap: 10px; font: inherit; font-size: 12.5px; cursor: pointer; text-align: left; animation: wl-fade .5s ease both; }
+.wl-rec { flex: none; width: 8px; height: 8px; border-radius: 50%; background: #8d8981; }
+.wl-rec.on { background: #ff8f80; animation: wl-blink 1.4s ease-in-out infinite; }
+.wl-track { flex: 1; height: 4px; border-radius: 2px; background: rgba(255,255,255,.2); overflow: hidden; }
+.wl-track > span { display: block; height: 4px; background: #c9baff; transition: width .25s linear; }
+.wl-fail { position: absolute; left: 0; right: 0; bottom: 0; padding: 12px 14px; background: rgba(0,0,0,.7); font-size: 13px; }
+.wl-under { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; color: #a9a59d; flex-wrap: wrap; }
+
+.wl-step { width: 100%; max-width: 760px; flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 18px; padding: 24px 0; min-width: 0; }
+.wl-step h1 { font-size: 34px; }
+.wl-box { border: 1px solid rgba(255,255,255,.12); border-radius: 12px; background: rgba(255,255,255,.03); padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.wl-box:empty { display: none; }
+.wl-r { display: flex; gap: 12px; align-items: center; font-size: 14px; min-width: 0; }
+.wl-r .wl-grow { min-width: 0; overflow-wrap: anywhere; }
+.wl-note { color: #a9a59d; font-size: 12.5px; overflow-wrap: anywhere; }
+.wl-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: #4a4946; }
+.wl-dot.ok { background: #7fd29a; }
+.wl-dot.wait { background: #c9baff; animation: wl-blink 1.4s ease-in-out infinite; }
+.wl-pick { display: flex; flex-direction: column; gap: 8px; }
+.wl-pick label { display: flex; gap: 12px; align-items: center; font-size: 14px; border: 1px solid transparent; border-radius: 8px; padding: 6px 8px; margin: -6px -8px; cursor: pointer; }
+.wl-pick label.on { border-color: rgba(201,186,255,.35); }
+.wl-pick label > span:nth-of-type(2) { flex: 1; min-width: 0; }
+.wl-pick input { position: absolute; opacity: 0; pointer-events: none; }
+.wl-pick label:focus-within { outline: 2px solid #c9baff; outline-offset: 2px; }
+.wl-err { margin: 0; color: #ff9b8f; font-size: 13px; }
+.wl-p { margin: 40px 0; color: #c4c0b8; }
+
+/* step 3 in the welcome: keel's MCP set-up (StartSteps) in the welcome's colours */
+.wl .hs-mcp { color: #efece6; }
+.wl .hs-tab { border-color: rgba(255,255,255,.18); color: #efece6; }
+.wl .hs-tab[aria-selected="true"] { background: #c9baff; border-color: #c9baff; color: #15111f; }
+.wl .hs-level { border-color: rgba(255,255,255,.18); }
+.wl .hs-level.on { border-color: #c9baff; }
+.wl .hs-pre { background: #141519; border-color: rgba(255,255,255,.12); color: #efece6; }
+.wl .hs-copy-b { background: transparent; color: #efece6; border-color: rgba(255,255,255,.2); }
+.wl .hs-then, .wl .hs-live, .wl .hs-fold { color: #a9a59d; }
+.wl .hs-dot { background: #6b6a66; }
+.wl .hs-live.on .hs-dot { background: #7fd29a; }
+.wl .hs-warn { color: #e8b45a; }
+
+.wl-done { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; text-align: center; padding: 24px 0; }
+.wl-done h1 { font-size: 36px; }
+.wl-done .wl-lead { max-width: 560px; font-size: 15.5px; }
+.wl-tick { width: 84px; height: 84px; border-radius: 50%; background: #2f6b45; display: grid; place-items: center; }
+.wl-tick.ring { animation: wl-up .55s cubic-bezier(.2,.7,.2,1) both, wl-ring 2.2s ease-out infinite; }
+
+.wl-back { position: fixed; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 19; font: inherit; font-size: 13.5px; font-weight: 600; color: #15111f; background: #c9baff; border: 0; border-radius: 999px; padding: 10px 16px; min-height: 44px; box-shadow: 0 8px 24px rgba(0,0,0,.35); cursor: pointer; }
+
+/* the fade-up stagger */
+.wl .up { animation: wl-up .55s cubic-bezier(.2,.7,.2,1) both; }
+.wl .d1 { animation-delay: .06s; }
+.wl .d2 { animation-delay: .12s; }
+.wl .d3 { animation-delay: .2s; }
+.wl .d4 { animation-delay: .28s; }
+.wl .d5 { animation-delay: .36s; }
+.wl .d6 { animation-delay: .44s; }
+@keyframes wl-up { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+@keyframes wl-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes wl-ring { 0% { box-shadow: 0 0 0 0 rgba(185,166,255,.55); } 70% { box-shadow: 0 0 0 18px rgba(185,166,255,0); } 100% { box-shadow: 0 0 0 0 rgba(185,166,255,0); } }
+@keyframes wl-drift { 0% { transform: translate(0, 0); } 50% { transform: translate(18px, -12px); } 100% { transform: translate(0, 0); } }
+@keyframes wl-blink { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+
+@media (max-width: 900px) {
+  .wl-in { padding: 18px 16px; }
+  .wl-hello { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .wl h1 { font-size: 32px; }
+  .wl-step h1, .wl-done h1 { font-size: 28px; }
+  .wl-dots-t { display: none; }
+}
+@media (max-width: 480px) {
+  .wl-top { gap: 8px; }
+  .wl-dots { order: 3; width: 100%; }
+  .wl-glow.a, .wl-glow.b { width: 300px; height: 300px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wl *, .wl-back { animation: none !important; transition: none !important; }
+}

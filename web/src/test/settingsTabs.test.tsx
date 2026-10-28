@@ -146,17 +146,17 @@ describe("each Settings tab renders with its parts", () => {
     ).toBeInTheDocument();
   });
 
-  it("Devices: Pair a phone is the tab's button; the pairing card replaces it", async () => {
+  it("Access › Devices: Pair a phone is the part's button; the pairing card replaces it", async () => {
     const user = userEvent.setup();
-    await open("#/settings/devices", "Devices");
+    await open("#/settings/access", "Access");
     expect(
       await screen.findByText("No phone is paired yet."),
     ).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Pair a phone" }));
+    await user.click(screen.getByRole("button", { name: "Pair a phone (QR code)" }));
     expect(
       await screen.findByRole("group", { name: "Pair a phone" }),
     ).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Pair a phone" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Pair a phone (QR code)" })).toBeNull();
   });
 });
 

@@ -39,6 +39,9 @@ keel:
   dev-origins: ${KEEL_DEV_ORIGINS:}
   name: ${KEEL_NAME:}
   host-workspace: ${KEEL_HOST_WORKSPACE:}
+  # 0.18.66 the daily check for a newer release (updates/ReleaseCheck): the repo keel is built from, or a whole link
+  release-repo: ${KEEL_RELEASE_REPO:MiladNalbandi/keel-v2}
+  release-check-url: ${KEEL_RELEASE_CHECK_URL:}
 
 logging:
   level:

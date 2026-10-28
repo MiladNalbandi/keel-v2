@@ -308,6 +308,8 @@ describe("the menu and the links stay as they were", () => {
       // keel 0.18.57 one Settings page: Budget, Connections, Plugins and the Database plugin's Databases are its tabs
       pages: [["settings", "Settings"]],
     },
+    // keel 0.18.66 Help › Start here and the short guides
+    { id: "help", label: "Help", hint: "start here, short guides", pages: [["help", "Start here"]] },
   ];
 
   it("has the same groups, pages, labels and order as before the registry", () => {
@@ -316,6 +318,7 @@ describe("the menu and the links stay as they were", () => {
       "know",
       "build",
       "control",
+      "help",
     ]);
     expect(menuGroups()).toEqual(TODAY);
   });
@@ -335,6 +338,7 @@ describe("the menu and the links stay as they were", () => {
       ["run", ["inbox"]],
       ["know", ["helper"]],
       ["control", ["settings"]],
+      ["help", ["help"]],
     ]);
   });
 

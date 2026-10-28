@@ -7,14 +7,17 @@ import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RestController
 
 /** `native`: keel runs without Docker (`keel2 start --native` sets KEEL_NATIVE=1), so its agents run as the person.
- *  `version` is keel v2's own version (the api's build-info; "dev" when the build wrote none). */
-data class Health(val ok: Boolean, val engine: Boolean, val version: String, val fake: Boolean, val native: Boolean = false)
+ *  `version` is keel v2's own version (the api's build-info; "dev" when the build wrote none).
+ *  keel 0.18.66 `latest`: a newer release keel's daily check found (updates/ReleaseCheck), else null; keel_health says it. */
+data class Health(val ok: Boolean, val engine: Boolean, val version: String, val fake: Boolean, val native: Boolean = false,
+                  val latest: String? = null)
 
 @RestController
 class HealthController(
     private val engine: EngineClient,
     build: ObjectProvider<BuildProperties>,
     private val servers: ObjectProvider<keel.api.connections.ModelServerService>,
+    private val releases: ObjectProvider<keel.api.updates.ReleaseCheck>,
 ) {
     private val version: String = build.ifAvailable?.version ?: "dev"
     private val native: Boolean = System.getenv("KEEL_NATIVE") == "1"
@@ -28,6 +31,7 @@ class HealthController(
             version = version,
             fake = h?.get("fake")?.asBoolean() ?: false,
             native = native,
+            latest = runCatching { releases.ifAvailable?.newerVersion() }.getOrNull(),
         )
     }
 

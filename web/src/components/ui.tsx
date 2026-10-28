@@ -173,7 +173,7 @@ export function NoProject() {
     <div className="panel">
       <div className="panel-body empty grid" style={{ gap: 10, justifyItems: "center" }}>
         <b>No project yet</b>
-        <span className="sub">Register a repo on the All projects page first.</span>
+        <span className="sub">Register a repo on the All projects page first. New to keel? <a href="#/help">Help › Start here</a>.</span>
         <GoButton to="projects" className="btn primary">All projects</GoButton>
       </div>
     </div>
