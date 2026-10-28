@@ -14,10 +14,12 @@ export function linesOf(text: string | undefined | null): string[] {
   return (t.endsWith("\n") ? t.slice(0, -1) : t).split("\n");
 }
 
-function useFold(total: number, fold: number) {
+/** Folded when there are more than `fold` lines; folded, it shows the first `keep` (0.18.64: the AC gate folds a diff of
+ *  over 30 lines to its first 12). */
+function useFold(total: number, fold: number, keep = fold) {
   const [open, setOpen] = useState(false);
   const folded = fold > 0 && total > fold && !open;
-  return { open, folded, shown: folded ? fold : total, toggle: () => setOpen((o) => !o) };
+  return { open, folded, shown: folded ? Math.min(keep, fold) : total, toggle: () => setOpen((o) => !o) };
 }
 
 /** The fold button's text while folded, from the total line count. */
@@ -134,11 +136,13 @@ export function splitRows(rows: DiffRow[]): SplitRow[] {
 const SIGN: Record<DiffRow["kind"], string> = { add: "+", del: "-", ctx: " ", hunk: "", meta: "" };
 
 /** A unified diff: green added and red removed lines, old and new line numbers, highlighted by `path`. */
-export function DiffView({ diff, path, fold = FOLD, foldLabel, className }: {
+export function DiffView({ diff, path, fold = FOLD, keep, foldLabel, className }: {
   diff: string; path?: string; fold?: number; foldLabel?: FoldLabel; className?: string;
+  /** the lines shown while folded (default: `fold`) */
+  keep?: number;
 }) {
   const parsed = useMemo(() => parseDiff(diff), [diff]);
-  const f = useFold(parsed.rows.length, fold);
+  const f = useFold(parsed.rows.length, fold, keep);
   const language = languageOf(path ?? parsed.files[0]);
   useLanguage(language);
   const rows = f.folded ? parsed.rows.slice(0, f.shown) : parsed.rows;

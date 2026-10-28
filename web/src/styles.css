@@ -143,6 +143,39 @@ tr.click:hover td { background: var(--panel-2); }
 .gc-proof > :last-child { min-width: 0; }
 .gc-kbd { margin-left: 8px; font: 600 11px var(--f-mono); padding: 0 5px; border: 1px solid currentColor; border-radius: 4px; opacity: .7; }
 @media (max-width: 600px) { .gc-lines > div, .gc-proof { grid-template-columns: minmax(0,1fr); gap: 0; } }
+/* 0.18.64 the AC gate's code: RED / GREEN / Both tabs and a card per file; a long line scrolls inside its card */
+.acc { display: grid; gap: 10px; min-width: 0; }
+.acc-head { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; }
+.acc-head h4 { margin: 0; font-size: 14px; }
+.acc-sum { font-size: 12px; color: var(--dim); }
+.acc-links { margin-left: auto; display: flex; flex-wrap: wrap; gap: 12px; font-size: 12.5px; }
+.acc-links a { color: var(--accent); }
+.acc-add { color: var(--ok); } .acc-del { color: var(--bad); }
+.acc-tabs { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.acc-tab { font: inherit; font-size: 12.5px; text-align: left; color: var(--fg); background: var(--panel); border: 1px solid var(--border);
+  border-radius: 6px; padding: 5px 11px; cursor: pointer; max-width: 100%; min-width: 0; overflow-wrap: anywhere; }
+.acc-tab:hover:not(:disabled) { border-color: var(--warn); }
+.acc-tab[aria-selected="true"] { background: var(--warn); border-color: var(--warn); color: var(--bg); }
+.acc-tab:disabled { cursor: default; color: var(--dim); border-style: dashed; }
+.acc-tab code, .acc-group-h code, .acc code { font: 500 .92em/1.4 var(--f-code); background: var(--code-chip); border-radius: 4px; padding: 1px 5px; }
+.acc-tab[aria-selected="true"] code { background: rgba(0,0,0,.14); color: inherit; }
+.acc-panel { display: grid; gap: 10px; min-width: 0; }
+.acc-group { display: grid; gap: 8px; min-width: 0; }
+.acc-group-h { margin: 4px 0 0; font-size: 12.5px; color: var(--dim); }
+.acc-file { border: 1px solid var(--code-border); border-radius: 8px; overflow: hidden; background: var(--code-bg); color: var(--code-fg); min-width: 0; }
+.acc-fhead { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; padding: 7px 12px; background: var(--code-chip); font-size: 12.5px; }
+.acc-path { font: 600 12.5px var(--f-code); min-width: 0; overflow-wrap: anywhere; }
+.acc-note { color: var(--dim); }
+.acc-show { margin-left: auto; }
+.acc-err { margin: 0; padding: 4px 12px; }
+.acc-file > .code { border: 0; border-top: 1px solid var(--code-border); border-radius: 0; background: var(--code-bg); }
+.acc .diff-rows { font: 12.5px/1.6 var(--f-code); padding: 6px 0; }
+.acc .dl .dtext { padding-right: 14px; }
+.acc .dl.hunk { color: var(--dim); background: transparent; border-top: 1px dashed var(--code-border); padding: 2px 12px; }
+.acc .dl.hunk:first-child { border-top: 0; }
+.acc .fold-btn { background: var(--code-bg); border-top-color: var(--code-border); color: var(--dim); font-weight: 500; font-size: 12.5px; padding: 6px 12px; }
+.acc .fold-btn:hover { color: var(--accent); background: var(--accent-soft); }
+.acc-hint, .acc-more { margin: 0; }
 .interrupt h3 { margin: 0; font-size: 15px; display: flex; align-items: center; gap: 8px; }
 .interrupt h3 > .pill { flex: none; }
 .interrupt h3 .gate-title { flex: 1; min-width: 0; overflow-wrap: anywhere; }
@@ -1147,6 +1180,9 @@ button.sx-x:hover { box-shadow: 0 0 0 2px var(--ink); }
 /* v0.15.3 nested panels hand the wheel on to the parent at their end (no overscroll-behavior: contain) */
 /* keel 0.18.11 on a wide screen the canvas grows with the page (one scroll, the side panel stays in view) */
 .fl-scroll { min-width: 0; }
+/* 0.18.64 the Blocks view is one centered column (it stuck to the left with empty space on its right) */
+.fl-scroll.is-blocks > * { max-width: 1040px; margin-left: auto; margin-right: auto; }
+.fl-scroll.is-blocks > .sx { max-width: 1040px; }
 .fl-side { min-width: 0; position: sticky; top: calc(var(--bar-h, 0px) + 12px); display: grid; gap: 12px; align-content: start; max-height: calc(100vh - var(--bar-h, 0px) - 24px); overflow-y: auto; scrollbar-width: thin; }
 .fl-side > .tabs { justify-self: start; max-width: 100%; overflow-x: auto; }
 .fl-waits { gap: 8px; }

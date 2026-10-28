@@ -232,7 +232,7 @@ export function LiveCanvas({ thread, workflow, tokens, actual, facts, totals, pe
         <ViewToggle value={view} onChange={setView} />
       </div>
       {waiting && !onCanvas && <div className="panel-body" style={{ paddingBottom: 0 }}>{waiting}</div>}
-      <div className="panel-body sx-scroll fl-scroll">
+      <div className={`panel-body sx-scroll fl-scroll${view === "blocks" ? " is-blocks" : ""}`}>
         {needs && view === "blocks" && (
           <div className={`fl-needs ${failedAt ? "is-bad" : ""}`} role="status">
             <span>{failedAt ? <><b>{nameOf(needs)}</b> failed. See why and what to do.</>

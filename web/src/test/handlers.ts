@@ -2,7 +2,7 @@
 
 import type { Device } from "../devicesApi";
 import { http, HttpResponse } from "msw";
-import type { Cap, CapLeft, CapsLeft, EngineEvent, Features, FlowBoard, FlowView, CiRun, HelperChange, HelperDone, HelperQuestion, HelperSession, IndexStatus, OnCap, Plugin, RunRow, Settings, Stack, StartCheck, ThreadState, Workflow, WorkflowCheck } from "../api";
+import type { AcCode, Cap, CapLeft, CapsLeft, EngineEvent, Features, FlowBoard, FlowView, CiRun, HelperChange, HelperDone, HelperQuestion, HelperSession, IndexStatus, OnCap, Plugin, RunRow, Settings, Stack, StartCheck, ThreadState, Workflow, WorkflowCheck } from "../api";
 import * as fx from "./fixtures";
 import type { GraphFocus, GraphOverview } from "./fixtures";
 import { createTaskDb, taskHandlers } from "./taskHandlers";
@@ -48,6 +48,8 @@ export function createDb() {
     focus: { project: null as string | null, chats: {} as Record<string, string>, by: null as string | null, client: null as string | null },
     /** keel 0.18.54 each flow's stored decision events (GET .../flows/:tid/decisions) */
     decisions: {} as Record<string, EngineEvent[]>,
+    /** 0.18.64 each flow's AC gate code (GET .../flows/:tid/ac-code); none: fx.acCode */
+    acCode: {} as Record<string, AcCode>,
     /** 0.18.57 GET /projects/:pid/start-check per project (none: a worktree flow fits, the base is current) */
     startCheck: {} as Record<string, StartCheck>,
     /** 0.18.57 the paths POST .../doctor/workspace/exclude was given */
@@ -259,6 +261,16 @@ export function handlers(db: Db) {
     http.get("/api/threads/:tid/history", () => HttpResponse.json(fx.checkpoints)),
     // keel 0.18.11 each step's calls added up, built from the jobs like the api does (StepRuns.kt)
     http.get("/api/projects/:pid/flows/:tid/decisions", ({ params }) => HttpResponse.json(db.decisions[String(params.tid)] ?? [])),
+    // 0.18.64 the AC gate's code; with sha + path one file with its diff (the folded lock file's Show)
+    http.get("/api/projects/:pid/flows/:tid/ac-code", ({ params, request }) => {
+      const q = new URL(request.url).searchParams;
+      const code = db.acCode[String(params.tid)] ?? { ...clone(fx.acCode), ac: q.get("ac") ?? "AC-1" };
+      if (q.get("sha") && q.get("path")) {
+        const f = [...(code.red?.files ?? []), ...(code.green?.files ?? [])].find((x) => x.path === q.get("path"));
+        return HttpResponse.json({ ac: code.ac, sha: q.get("sha"), file: f ? { ...f, diff: f.diff ?? fx.acLockDiff, folded: false } : null });
+      }
+      return HttpResponse.json(code);
+    }),
     http.get("/api/projects/:pid/flows/:tid/step-runs", ({ params }) =>
       HttpResponse.json(fx.stepRunsOf(fx.jobs.filter((j) => j.project_id === params.pid && j.thread_id === params.tid)))),
     http.post("/api/threads/:tid/rewind", async ({ request }) => { await log(request); return HttpResponse.json(db.flows["ludus-engine"].thread); }),

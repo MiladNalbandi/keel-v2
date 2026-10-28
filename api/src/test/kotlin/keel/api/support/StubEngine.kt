@@ -316,6 +316,12 @@ class StubEngine private constructor(private val server: HttpServer) {
         path.matches(Regex("/threads/[^/]+/document")) -> 200 to mapOf("thread_id" to path.split('/')[2],
             "path" to ".keel/specs/clarify/2026-10-28-t.md", "kind" to "clarify", "exists" to true, "waiting" to "result",
             "text" to (if (method == "PUT") body?.get("text")?.asText() else "# t\n"), "edited" to (method == "PUT"))
+        // 0.18.64 the AC gate's code: one RED commit with one test file (a test reads the query it got from calls)
+        path.matches(Regex("/threads/[^/]+/ac-code")) -> 200 to mapOf("thread_id" to path.split('/')[2], "ac" to "AC-1",
+            "red" to mapOf("sha" to "a1b2c3d4", "short" to "a1b2c3d", "subject" to "test(AC-1): an order keeps its lines",
+                "files" to listOf(mapOf("path" to "tests/test_orders.py", "status" to "added", "added" to 2, "removed" to 0,
+                    "bucket" to "test", "diff" to "@@ -0,0 +1,2 @@\n+a\n+b", "lines" to 3, "truncated" to false))),
+            "green" to null, "commits" to 1, "files" to 1, "added" to 2, "removed" to 0, "truncated" to false)
         // 0.18.64 a model for one flow: echoes what it got as the engine's view
         path.matches(Regex("/threads/[^/]+/models")) -> 200 to mapOf("thread_id" to path.split('/')[2],
             "changed" to listOfNotNull(body?.get("step")?.asText()?.let { "step:$it" } ?: body?.get("agent")?.asText()),

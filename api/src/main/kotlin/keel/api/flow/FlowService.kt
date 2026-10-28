@@ -863,6 +863,16 @@ class FlowService(
      * records it in keel's file history as the person's edit; the gate's text shows it from then on, and a clarify
      * hand-over uses it. The saved state follows, so the run history and keel TUI show the new gate text.
      */
+    /** 0.18.64 the AC gate's code for the web: the criterion's RED and GREEN commits, each file with its status, +/-
+     *  counts, bucket (test, prod, generated, lock) and diff, cut; lock, generated and binary files folded. With [sha] and
+     *  [path] one file with its diff (the gate's Show). Only a flow of this project. */
+    fun acCode(pid: String, tid: String, ac: String?, sha: String?, path: String?): JsonNode {
+        projects.require(pid)
+        if (threadProject(tid) != pid) throw NotFound("No flow $tid in this project")
+        if (ac.isNullOrBlank()) throw BadRequest("ac is missing", "Say which criterion: ac=AC-1.")
+        return engine.acCode(tid, ac.trim(), sha?.trim()?.takeIf { it.isNotEmpty() }, path?.takeIf { it.isNotBlank() })
+    }
+
     fun writeDocument(tid: String, text: String?): JsonNode {
         if (text.isNullOrBlank()) throw BadRequest("text is empty", "Send the document's whole new text.")
         val doc = engine.writeDocument(tid, mapOf("text" to text, "root" to rootNow(tid)).filterValues { it != null })

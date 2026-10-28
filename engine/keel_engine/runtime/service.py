@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import uuid
 from pathlib import Path
 
@@ -566,6 +567,9 @@ class Engine:
                                                                    str(waiting.get("step") or ""))
             if waiting.get("id"):
                 out["waiting"]["id"] = waiting["id"]
+            if waiting.get("ac"):
+                # 0.18.64 an AC gate names its criterion: the web loads its code (GET /threads/{tid}/ac-code)
+                out["waiting"]["ac"] = waiting["ac"]
             # 0.18.28 the waiting step's own name ("verify the suite + commit"): a suggestion names the gate by it, never
             # by the flow's title cut short
             name = self._step_name(ctx_now, waiting.get("step"))
@@ -790,6 +794,21 @@ class Engine:
                               "A clarify flow writes its document before its result gate; a feature flow writes its spec first.")
         waiting = self._waiting(snap) if tid not in self.tasks and row["status"] != "stopped" else None
         return {**doc, "thread_id": tid, "waiting": (waiting or {}).get("step")}
+
+    async def ac_code(self, tid: str, ac_id: str, sha: str | None = None, path: str | None = None) -> dict:
+        """0.18.64 a criterion's code for the web's AC gate: its RED and GREEN commits with each file's diff (cut), found
+        since the flow's start as the gate's text finds them (flow_actions.ac_code); with `sha` and `path` one file."""
+        from . import flow_actions
+
+        ac_id = str(ac_id or "").strip().upper()
+        if not re.fullmatch(r"[A-Z]+-[\w.]+", ac_id):
+            raise EngineError(400, f"'{ac_id}' is not an acceptance criterion id.", "Send ac=AC-1, for example.")
+        await self._row(tid)
+        ctx = await self._context(tid)
+        snap = await (await self._graph(tid)).aget_state(self._cfg(tid))
+        since = (snap.values or {}).get("base_head")
+        out = await asyncio.to_thread(flow_actions.ac_code, ctx.root, ac_id, since, sha or None, path or None)
+        return {**out, "thread_id": tid}
 
     async def set_document(self, tid: str, text: str) -> dict:
         """0.18.64 replace the flow's document while it waits at a gate (keel_flow_document), recorded in keel's file
