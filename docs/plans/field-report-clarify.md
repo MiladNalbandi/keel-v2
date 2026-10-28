@@ -91,3 +91,22 @@ another change's 47 files as this branch's.
 | R4 | keep init's setup files (knowledge, RUNNING.md, config) out of a feature PR, or in a setup PR of their own; respect a `.gitignore` that ignores them | open |
 | R5 | `base_branch` names a branch that does not exist locally: ask the person (offer the remote's branch), never let an agent change it silently | open |
 
+
+## A third report: CI ran on other versions (0.18.65)
+
+A feature flow on a PHP project passed every check keel ran: the style check and the tests (on the machine's newest
+PHP, with an older style tool) and keel's review. The project's CI failed. Its style job runs on PHP 7.4, where a newer
+version of the style tool flags code the local run had accepted; its test jobs run a matrix of PHP 7.4, 8.1 and 8.2,
+each with another framework version. Running each CI job in Docker on CI's versions found the problem at once.
+
+```
+ keel's checks:  style (PHP 8.4, tool v3.x) ✓   tests (PHP 8.4) ✓   review ✓
+ the PR's CI:    style (PHP 7.4) ✗   tests 7.4 / 8.1 / 8.2 × framework versions
+```
+
+| # | what keel lacked | status |
+|---|---|---|
+| C1 | run the project's own CI jobs on CI's versions before ship | 0.18.65: the ship step `ci` (GitHub Actions and GitLab CI, matrix expanded, in throw-away containers with `keel2 --docker`) |
+| C2 | say when keel's style check ran on another runtime than CI's style job | 0.18.65: the report's style check names both versions; CI's result counts |
+| C3 | run keel's own lint step on CI's version when Docker is there | open |
+| C4 | jobs that need service containers (a database) | open: skipped with the reason |
