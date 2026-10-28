@@ -293,6 +293,10 @@ class StubEngine private constructor(private val server: HttpServer) {
             200 to (mapOf("thread_id" to id) + (threadSources[id]?.let { mapOf("source" to it) } ?: emptyMap()))
         }
         path.matches(Regex("/threads/[^/]+")) -> 200 to state(path.removePrefix("/threads/"))
+        // 0.18.64 a model for one flow: echoes what it got as the engine's view
+        path.matches(Regex("/threads/[^/]+/models")) -> 200 to mapOf("thread_id" to path.split('/')[2],
+            "changed" to listOfNotNull(body?.get("step")?.asText()?.let { "step:$it" } ?: body?.get("agent")?.asText()),
+            "models" to (body?.get("model")?.let { mapOf("picked" to mapper.convertValue(it, Map::class.java)) } ?: emptyMap<String, Any>()))
         path.endsWith("/mode") && method == "POST" -> {
             val id = path.split('/')[2]
             val mode = body?.get("mode")?.asText() ?: ""

@@ -90,6 +90,24 @@ def picked(w: dict, decision: str, choice: str | None) -> dict | None:
     return next((c for c in info if c.get("name") == name), None)
 
 
+def did_text(answered: dict | None, decision: str, choice: str | None, w: dict | None = None) -> str:
+    """0.18.64 what an answer really did, from the engine's `answered` (the choice that ran): a reject with the choice
+    edit runs edit, and keel_answer said "(reject)". An older engine sends none: the choice given, else the default."""
+    a = dict(answered or {})
+    if not a and w:
+        c = picked(w, decision, choice) if w.get("choices") else None
+        a = {"choice": c.get("name"), "does": f'the choice "{c.get("name")}" ({c.get("label") or c.get("name")})'} if c else {}
+    took = a.get("choice") or choice
+    does = str(a.get("does") or "").strip()
+    if took:
+        out = does if does.startswith("the choice") else f'the choice "{took}"' + (f": {does}" if does else "")
+        out = "ran " + out
+        if decision == "reject" and took != "reject":
+            out += f' (the choice decides: "{took}" ran, not a plain reject)'
+        return out
+    return ("approved" if decision == "approve" else "sent back") + (f": {does}" if does else "")
+
+
 def missing_reason(w: dict, decision: str, choice: str | None, why: str | None) -> str | None:
     """The refusal keel would give for a choice that needs a reason and has none, said before it is sent."""
     c = picked(w, decision, choice)

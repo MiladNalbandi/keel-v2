@@ -25,6 +25,7 @@ READ_TOOLS = {"keel_status", "keel_read_gate", "keel_projects", "keel_timeline",
               "keel_format", "keel_workflow_check", "keel_rule_check", "keel_agent_definitions",          # 0.18.5 create
               "keel_skills", "keel_skill",                                                                 # 0.18.6 skills
               "keel_stacks", "keel_stack", "keel_stack_suggest", "keel_stack_check",                       # 0.18.9 stacks
+              "keel_models",                                                                               # 0.18.64 models
               *MARKET_TOOLS}
 WRITE_TOOLS = {"keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc",
                # 0.18.5 what keel TUI does
@@ -153,12 +154,12 @@ def test_the_marketplace_tools_come_after_every_tool_keel_listed_before_at_each_
     admin = ["keel_delete_run", "keel_add_project", "keel_remove_project", "keel_pause", "keel_focus", "keel_connect_github"]
     # 0.18.5 keel TUI's: after keel_workflows (read since 0.18.5), in the order they are written
     tui_read = ["keel_agents", "keel_agent", "keel_keelbot_chats", "keel_keelbot_changes", "keel_format", "keel_workflow_check",
-                "keel_rule_check", "keel_agent_definitions", "keel_skills", "keel_skill",
+                "keel_rule_check", "keel_agent_definitions", "keel_models", "keel_skills", "keel_skill",
                 "keel_stacks", "keel_stack", "keel_stack_suggest", "keel_stack_check", "keel_diagram"]
     tui = ["keel_workflows", "keel_stop_flows", "keel_run_mode", "keel_resume_flow", "keel_agents", "keel_agent", "keel_agent_start",
            "keel_keelbot_ask", "keel_keelbot_chats", "keel_keelbot_changes", "keel_keelbot_keep", "keel_keelbot_undo",
            "keel_format", "keel_workflow_check", "keel_workflow_create", "keel_rule_check", "keel_rule_create",
-           "keel_agent_definitions", "keel_agent_create", "keel_agent_model",      # 0.18.9 right after keel_agent_create
+           "keel_agent_definitions", "keel_agent_create", "keel_models", "keel_agent_model",   # 0.18.9 after keel_agent_create
            # 0.18.6 skills, before keel_diagram
            "keel_skills", "keel_skill", "keel_skill_create", "keel_skill_import", "keel_skill_attach", "keel_skill_market_install",
            # 0.18.9 stacks, before keel_diagram

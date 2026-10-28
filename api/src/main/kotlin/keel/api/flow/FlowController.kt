@@ -1,6 +1,7 @@
 package keel.api.flow
 
 import com.fasterxml.jackson.databind.JsonNode
+import keel.api.settings.Model
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -40,6 +41,9 @@ data class UnlockBody(val path: String = "", val phase: String? = null, val reas
 data class Resume(val decision: String = "", val why: String? = null, val payload: Map<String, Any?>? = null)
 data class Rewind(val checkpointId: String = "")
 data class ModeBody(val mode: String = "")
+/** 0.18.64 a model for this flow only: `agent` everywhere in it, one `step`, or `agent` + `phase` (its steps there).
+ *  model null takes the pick back. */
+data class ThreadModelBody(val agent: String? = null, val step: String? = null, val phase: String? = null, val model: Model? = null)
 
 @RestController
 @RequestMapping("/api")
@@ -85,6 +89,14 @@ class FlowController(private val flows: FlowService) {
     /** v0.4.1: change the run mode during a run (from the next gate on). */
     @PostMapping("/threads/{tid}/mode")
     fun mode(@PathVariable tid: String, @RequestBody body: ModeBody): JsonNode = flows.setMode(tid, body.mode)
+
+    /** 0.18.64 the flow's models: the default, each agent's, each agent step's model now, the person's picks. */
+    @GetMapping("/threads/{tid}/models")
+    fun models(@PathVariable tid: String): JsonNode = flows.threadModels(tid)
+
+    /** 0.18.64 a model for this flow only, from its next agent call; the project and other flows keep theirs. */
+    @PostMapping("/threads/{tid}/models")
+    fun setModels(@PathVariable tid: String, @RequestBody body: ThreadModelBody): JsonNode = flows.setThreadModels(tid, body)
 
     @PostMapping("/threads/{tid}/stop")
     fun stop(@PathVariable tid: String): JsonNode = flows.stop(tid)

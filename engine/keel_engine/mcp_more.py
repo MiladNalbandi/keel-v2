@@ -260,7 +260,9 @@ def answer(api: KeelApi, decision: str, project: str | None = None, thread_id: s
     if st.get("status") == "waiting" and again.get("step") == w.get("step") and again.get("title") != w.get("title"):
         # 0.18.57 the gate refused the whole answer and asks again (a skip without its reason): say so, nothing ran
         return f"refused, nothing was done: {again.get('title')}. Answer again (keel_answer)."
-    return f"answered thread {thread_id} ({decision}). The flow is {st.get('status')} at {st.get('current') or '-'}."
+    # 0.18.64 what ran, from the engine's answer: a reject with the choice edit ran edit (it said "(reject)")
+    did = ask_mod.did_text(st.get("answered"), decision, choice, w)
+    return f"answered thread {thread_id}: {did}. The flow is {st.get('status')} at {st.get('current') or '-'}."
 
 
 EDIT_CHOICES = ("edit", "change", "rewrite", "context", "reject")   # 0.18.28 a gate's edit choices, the closest first

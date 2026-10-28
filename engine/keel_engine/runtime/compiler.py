@@ -36,7 +36,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
 from .. import addons, agent_names, extensions, models, rules
-from . import doc_history, md, test_scope
+from . import doc_history, md, test_scope, thread_models
 from ..models import catalog
 from ..models import usage as provider_usage
 from ..models.base import AgentRequest, AgentResult, ModelError
@@ -684,6 +684,8 @@ class Compiler(AgentMixin, FindingsMixin, CodeMixin, GateMixin):
         m = None
         if state.get("model_override"):
             m = state["model_override"]
+        elif self.ctx.models.get(thread_models.step_key(step.id)):
+            m = self.ctx.models[thread_models.step_key(step.id)]     # 0.18.64 the person's model for this step of this flow
         elif agent_names.lookup(state.get("agent_models"), agent):
             m = agent_names.lookup(state.get("agent_models"), agent)    # a flow from before a rename: its old key
         elif step.model and step.model != "default" and step.model in self.ctx.models:

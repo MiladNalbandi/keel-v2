@@ -38,6 +38,12 @@ class Stub:
             {"id": "lens-reviewer", "label": "lens-reviewer", "custom": False, "tools": ["Read"], "phases": ["ship"],
              "model": {"provider": "claude", "mode": "subscription", "model": "opus", "effort": "high"}},
         ]
+        haiku = {"provider": "claude", "mode": "subscription", "model": "haiku"}
+        self.flow = {"models": {"default": haiku, "explorer": haiku, "implementer": self.agents[0]["model"]}, "picks": [],
+                     "steps": [{"id": "interview", "agent": "explorer", "phase": "spec", "model": haiku},
+                               {"id": "plan", "agent": "explorer", "phase": "spec", "model": haiku},
+                               {"id": "triage", "agent": "explorer", "phase": "triage", "model": haiku},
+                               {"id": "green", "agent": "implementer", "phase": "green", "model": self.agents[0]["model"]}]}
         self.session = {"id": "s-1", "title": "docs", "mode": "ask", "status": "idle",
                         "model": {"provider": "codex", "mode": "subscription", "model": "gpt-5.5", "effort": "low"}, "messages": []}
 
@@ -76,6 +82,21 @@ class Stub:
         if m == "PATCH" and path == "/api/projects/shop/helper/sessions/s-1":
             self.session["model"] = body["model"]
             return ok(self.session)
+        if m == "GET" and path == "/api/connections":       # 0.18.64 keel_models: which modes are set up
+            return ok({"providers": [
+                {"id": "claude", "modes": [{"id": "subscription", "ready": True, "detail": "claude 2.1 found, login saved."},
+                                           {"id": "api", "ready": False, "detail": "Add ANTHROPIC_API_KEY."}],
+                 "keySet": False, "keyHint": "sk-…SECRET"},
+                {"id": "codex", "modes": [{"id": "subscription", "ready": False, "detail": "codex found — add your login."}]}]})
+        if m == "GET" and path == "/api/projects/shop/flow":
+            return ok({"thread": {"thread_id": "t-7", "status": "waiting"}, "workflow": {"id": "feature"}})
+        if m == "GET" and path == "/api/threads/t-7/models":  # 0.18.64 one flow's models (engine runtime/thread_models.py)
+            return ok(self.flow)
+        if m == "POST" and path == "/api/threads/t-7/models":
+            keys = ([f"step:{body['step']}"] if body.get("step") else
+                    [f"step:{s['id']}" for s in self.flow["steps"] if s["agent"] == body["agent"] and s["phase"] == body["phase"]]
+                    if body.get("phase") else [body["agent"]])
+            return ok({**self.flow, "changed": keys})
         return httpx.Response(404, json={"error": f"stub: no {m} {path}"})
 
 
@@ -112,6 +133,7 @@ async def test_the_agents_show_their_model_and_effort(stub):
     defs = await call(server(stub, "read"), "keel_agent_definitions")
     assert "- implementer  Implementer · keel · model claude/sonnet (subscription) · effort high" in defs
     assert "- explorer  Explorer · keel · model claude/haiku (subscription) · effort default" in defs
+    assert "Role words: planning = the explorer in the spec phase" in defs          # 0.18.64
 
 
 async def test_agent_model_changes_the_effort_and_keeps_the_rest(stub):
@@ -140,9 +162,9 @@ async def test_agent_model_with_an_agents_old_name_changes_the_renamed_agent(stu
 
 async def test_agent_model_refuses_an_effort_the_model_does_not_have(stub):
     no = await call(server(stub), "keel_agent_model", {"agent": "explorer", "effort": "high"})
-    assert no == "keel: claude/haiku has no effort setting: keel ignores one. Leave effort out."
+    assert no == "keel: claude/haiku has no effort setting; it has none. Leave effort out (or say default)."
     bad = await call(server(stub), "keel_agent_model", {"agent": "implementer", "effort": "ultra"})
-    assert 'has no effort "ultra": pick low, medium, high, xhigh, max or default' in bad
+    assert 'claude/sonnet has no effort setting "ultra"; it takes: low, medium, high, xhigh, max, or default.' in bad
     gone = await call(server(stub), "keel_agent_model", {"agent": "nobody", "effort": "low"})
     assert gone.startswith('keel: no agent "nobody"')
     assert puts(stub) == []
@@ -173,3 +195,55 @@ async def test_agent_create_with_a_model_and_effort(stub):
     assert "model claude/sonnet (subscription) · effort medium" in text
     plain = await call(server(stub), "keel_agent_create", {"name": "plain", "prompt": "Read."})
     assert "model" not in puts(stub)[-1][1] and "model the default model" in plain
+
+
+# ---------------------------------------------------------------- 0.18.64 the field report's model findings (bug 12)
+
+async def test_keel_models_lists_each_providers_models_efforts_and_set_up_modes_without_a_secret(stub):
+    text = await call(server(stub, "read"), "keel_models")
+    assert "claude (Claude) · default subscription/sonnet · effort high" in text
+    assert "  subscription [set up]: opus, sonnet (effort low, medium, high, xhigh, max); haiku (effort none)" in text
+    assert "codex (GPT / Codex)" in text and "  subscription [not set up: codex found — add your login.]: gpt-5.5 (effort low, medium, high)" in text
+    assert "copilot" in text and "set-up state unknown" in text
+    assert "planning = the explorer in the spec phase" in text
+    assert "SECRET" not in text and mcp_server.tool_level("keel_models") == "read"
+
+
+async def test_a_wrong_provider_mode_or_model_names_the_ones_there_are(stub):
+    srv = server(stub)
+    bad = await call(srv, "keel_agent_model", {"agent": "implementer", "model": "sonet"})
+    assert bad.startswith("keel: sonet is not a model of claude in the subscription mode; pick one of: opus, sonnet, haiku.")
+    bad = await call(srv, "keel_agent_model", {"agent": "implementer", "provider": "gemini"})
+    assert bad == "keel: gemini is not a provider keel knows; pick one of: claude, codex, copilot."
+    bad = await call(srv, "keel_agent_model", {"agent": "implementer", "mode": "cloud"})
+    assert bad == "keel: cloud is not a mode of claude; pick one of: subscription."
+    assert puts(stub) == []
+
+
+async def test_a_role_word_reaches_its_agent_and_says_the_project_wide_change_is_everywhere(stub):
+    text = await call(server(stub), "keel_agent_model", {"agent": "planning", "model": "opus"})
+    assert puts(stub)[-1] == ("/api/projects/shop/agents/explorer", {"model": {"provider": "claude", "mode": "subscription", "model": "opus"}})
+    assert text.startswith("the agent explorer (planning = the explorer in the spec phase (reads the code and writes the spec)) now uses")
+    assert "in every phase, not only spec; for one flow pass thread_id" in text
+    coding = await call(server(stub), "keel_agent_model", {"agent": "coding", "effort": "low"})
+    assert puts(stub)[-1][0] == "/api/projects/shop/agents/implementer" and "not only" not in coding
+    nobody = await call(server(stub), "keel_agent_model", {"agent": "dreamer", "effort": "low"})
+    assert nobody.startswith('keel: no agent "dreamer". The agents: implementer, explorer, helper, lens-reviewer.')
+    assert "Role words: planning = the explorer in the spec phase" in nobody
+
+
+async def test_one_flow_or_one_step_gets_its_own_model_and_the_project_keeps_its_agents(stub):
+    text = await call(server(stub), "keel_agent_model", {"agent": "planning", "thread_id": "t-7", "model": "opus", "effort": "high"})
+    assert puts(stub) == [("/api/threads/t-7/models", {"agent": "explorer", "phase": "spec",
+                                                        "model": {"provider": "claude", "mode": "subscription", "model": "opus", "effort": "high"}})]
+    assert text.startswith("flow t-7: the steps interview, plan (planning = the explorer in the spec phase")
+    assert "now use claude/opus (subscription) · effort high" in text and "Only this flow changed" in text
+    # one step; no thread_id: the project's flow
+    text = await call(server(stub), "keel_agent_model", {"step": "green", "effort": "low"})
+    assert puts(stub)[-1] == ("/api/threads/t-7/models", {"step": "green",
+                                                           "model": {"provider": "claude", "mode": "subscription", "model": "sonnet", "effort": "low"}})
+    assert text.startswith("flow t-7: the step green now uses claude/sonnet (subscription) · effort low")
+    # an agent of the flow by its id: that agent in this flow
+    await call(server(stub), "keel_agent_model", {"agent": "explorer", "thread_id": "t-7", "model": "sonnet"})
+    assert puts(stub)[-1][1]["agent"] == "explorer" and "phase" not in puts(stub)[-1][1]
+    assert not any(p.startswith("/api/projects/shop/agents/") for p, _ in puts(stub))

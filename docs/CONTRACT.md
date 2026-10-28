@@ -2902,3 +2902,50 @@ keel TUI (tui.json)  { "follow": false }             (KEEL_TUI_SETTINGS, else ~/
   and chat the following windows share (a window that keeps its own is not in it); with `project` it moves only the
   windows that follow. `McpAudit` leaves `/api/ui/focus` out of the audit as before. Notifications do not read the focus:
   opening one picks its project in that window, shared only when the window follows.
+
+## keel 0.18.64: MCP answers, starts, models and confirmations (fix/mcp-ux)
+
+The field report's bugs 12 and 13 (`docs/plans/field-report-clarify.md`).
+
+- **What an answer ran**: engine `POST /threads/{id}/resume` adds `answered { decision, choice?, does }` to the state it
+  returns (`runtime/choices.answered`: a named choice runs whatever the decision says, as `Compiler._choice` does; no
+  choice: the plain approve's or reject's effect). The api passes it through (`/threads/{id}/resume`, `/inbox/{id}/act`).
+  `keel_answer` says `answered thread <id>: ran the choice "edit" (…) (the choice decides: "edit" ran, not a plain
+  reject)`, no longer `(reject)`; `keel_approve_gate` and `keel_edit_gate` say `<gate> on thread <id>: ran the choice …`
+  when a choice ran. An older engine (no `answered`): the choice that was sent, else the default choice.
+- **`keel_start_flow` answers at once**: no wait for the first gate by default (it polled for 20 s and outlasted a
+  client's timeout). The answer has the thread id, `Status: starting|running|waiting` and how to follow it
+  (`keel_status`, `keel_flows`; `keel_read_gate(flow=…)` and `keel_answer(thread_id=…)` when it waits). New `wait`
+  (seconds, at most 60) waits for the first gate, polling `GET /projects/{pid}/flows/{tid}`. The start POST may take 30 s
+  (branch, worktree, estimate); a timeout says the flow may still start and to look with `keel_flows` before a retry.
+- **Models**: new read tool `keel_models`: `GET /providers/models` and `GET /connections`: per provider its default, each
+  mode with `[set up]` / `[not set up: <detail>]` (a mode's `ready`; no key or login is printed), its models grouped by
+  the efforts they take (`effort none` for a model without one), and the role words. `keel_agent_model` (and
+  `keel_agent_create`) refuse with the choices: `<model> is not a model of <provider> in the <mode> mode; pick one of:
+  …`, `<provider> is not a provider keel knows; pick one of: …`, `<mode> is not a mode of <provider>; pick one of: …`,
+  `<provider>/<model> has no effort setting "<e>"; it takes: …, or default.`, `<provider>/<model> has no effort
+  setting; it has none.` A model is checked only when provider, mode or model changes (an id set under the dashboard's
+  Other model keeps working for an effort change).
+- **Role words** (`agent_names.ROLES`, MCP only; workflows and settings keep agent ids): planning, planner, spec →
+  explorer in the spec phase; triage → explorer in the triage phase; coding, coder, implementation → implementer;
+  testing, tests → test-author; contract → contract-author; debugging → investigator; research → web-researcher; docs →
+  librarian; security → security-auditor; final-review → branch-reviewer. A project agent of that id wins over a role.
+  Project-wide, a role with a phase changes the whole agent and the answer says so.
+- **A model for one flow or one step**: `keel_agent_model(..., thread_id?, step?)`. api `GET /api/threads/{tid}/models`
+  and `POST /api/threads/{tid}/models { agent?, step?, phase?, model? }` (`FlowService.setThreadModels`: the model is
+  `Model.checked()`, `LocalOnly` applies, its login or key goes along as `keys`, memory only) → engine
+  `GET|POST /threads/{tid}/models` (`Engine.models_of`, `Engine.set_models`, `runtime/thread_models.py`). The flow's start
+  body keeps `models` (`default`, one per agent, now `step:<step id>`) and `model_picks { key: what was there before }`;
+  `model: null` takes a pick back. `agent` replaces that agent's entry in this flow; `step` adds `step:<id>`; `agent` +
+  `phase` adds `step:<id>` for each of the agent's steps in that phase. 400 for a step that runs no agent, an agent the
+  flow does not run, a step of another agent; 404 for an unknown thread. Event `thread.models { changed, model }`. The
+  answer: `{ thread_id, changed, models, picks, steps: [{ id, name, agent, phase, model, picked }] }`.
+  `Compiler._model` order: the cap's cheaper model, the step's pick, escalate_model's stronger model, the step's own
+  `model:`, the agent's entry, the default (`explain.model_info` the same). Other flows and the Agents page never change.
+- **Confirmations without forms** (`mcp_confirm.py`): a tool that asks first (`CONFIRM`, a part's `confirm=True`, a
+  publishing action) and a client without elicitation (or whose form fails): nothing is done and the answer is `keel:
+  this MCP client cannot ask you to confirm <what> in a form, so nothing was done yet. This needs your OK: <what>. …
+  call <tool> again with the same arguments and confirm: "ok-…" within 5 minutes (it works once). Or run keel2 mcp with
+  --yes …`. The token is bound to the tool and a hash of its arguments, used up by any try, and ends after 300 s; a bad
+  one answers `that confirm token is not valid for this call …` with a new one. Those tools (and keel_run_action and
+  the parts' write tools) take an optional `confirm: string`. Elicitation where it works and `--yes` are unchanged.

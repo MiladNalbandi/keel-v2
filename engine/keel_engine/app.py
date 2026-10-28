@@ -220,6 +220,15 @@ class ModeBody(BaseModel):
     mode: Literal["manual", "important", "auto", "readonly"]
 
 
+class ModelsBody(BaseModel):
+    """0.18.64 a model for this flow only: an agent, a step, or an agent's steps in one phase (runtime/thread_models.py)."""
+    agent: str | None = None
+    step: str | None = None
+    phase: str | None = None
+    model: dict[str, Any] | None = None   # {provider, mode, model, effort?}; null takes the pick back
+    keys: dict[str, str] | None = None    # the new model's login or API key (memory only, like a start's keys)
+
+
 class Continue(BaseModel):
     keys: dict[str, str] | None = None   # the thread's logins (the engine keeps them in memory only)
     root: str | None = None
@@ -512,6 +521,16 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     async def post_mode(tid: str, body: ModeBody, request: Request):
         """The run mode from the next pause on (manual | important | auto | readonly)."""
         return await engine(request).set_mode(tid, body.mode)
+
+    @app.get("/threads/{tid}/models")
+    async def get_models(tid: str, request: Request):
+        """0.18.64 the flow's models: the default, each agent's, each agent step's model now, the person's picks."""
+        return await engine(request).models_of(tid)
+
+    @app.post("/threads/{tid}/models")
+    async def post_models(tid: str, body: ModelsBody, request: Request):
+        """0.18.64 a model for this flow only (an agent, a step, an agent's steps in a phase), from its next agent call."""
+        return await engine(request).set_models(tid, body.model, body.agent, body.step, body.phase, body.keys)
 
     @app.post("/threads/{tid}/continue")
     async def post_continue(tid: str, body: Continue, request: Request):

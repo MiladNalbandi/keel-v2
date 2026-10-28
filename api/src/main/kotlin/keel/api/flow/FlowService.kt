@@ -28,6 +28,7 @@ import keel.api.projects.ProjectService
 import keel.api.budget.CapPlanner
 import keel.api.budget.CapText
 import keel.api.budget.ProviderUsageService
+import keel.api.settings.LocalOnly
 import keel.api.settings.Model
 import keel.api.settings.SettingsService
 import keel.api.skills.SkillService
@@ -744,6 +745,25 @@ class FlowService(
         checkRunMode(mode)
         val state = engine.setMode(tid, mode)
         save(tid, state)
+        threadProject(tid)?.let { hub.publish(it, "project.changed", mapOf("id" to it)) }
+        return state
+    }
+
+    fun threadModels(tid: String): JsonNode = engine.threadModels(tid)
+
+    /**
+     * 0.18.64 a model for one flow (an agent in it, one step, or an agent's steps in one phase) without changing the
+     * project's Agents page or any other flow. The model is checked as the Agents page checks one (its effort, local
+     * models only), and its login or API key goes to the engine with it (memory only, as at the start).
+     */
+    fun setThreadModels(tid: String, body: ThreadModelBody): JsonNode {
+        val pid = threadProject(tid) ?: throw NotFound("No flow $tid")
+        if (body.agent.isNullOrBlank() && body.step.isNullOrBlank()) throw BadRequest("Say which agent or which step", "Send { agent } or { step }, and model.")
+        val model = body.model?.checked()
+        if (model != null) LocalOnly.check(settings.effective(pid), listOf(model), "this flow's ${body.step ?: body.agent}")
+        val keys = model?.let { keysForThread(tid) + keysFor(listOf(it)) }?.takeIf { it.isNotEmpty() }
+        val state = engine.setThreadModels(tid, mapOf("agent" to body.agent, "step" to body.step, "phase" to body.phase,
+            "model" to model, "keys" to keys).filterValues { it != null })
         threadProject(tid)?.let { hub.publish(it, "project.changed", mapOf("id" to it)) }
         return state
     }

@@ -298,6 +298,26 @@ def plain_effects(question: dict) -> dict:
     return out
 
 
+def answered(question: dict | None, decision: str, payload: dict | None) -> dict:
+    """0.18.64 what an answer does at this question, for the one who sent it: {decision, choice?, does}. A named choice
+    runs whatever the decision says (reject + choice edit runs edit, as Compiler._choice does); no choice: a plain
+    approve or reject's effect (plain_effects)."""
+    q = question or {}
+    names = [str(c) for c in q.get("choices") or []]
+    name = (payload or {}).get("choice")
+    if name is None and (payload or {}).get("skip") is True:
+        name = "skip"
+    out: dict = {"decision": decision}
+    if name is not None and str(name) in names:
+        info = list(q.get("choice_info") or for_question(q, q.get("step")).get("choice_info") or [])
+        c = next((x for x in info if x.get("name") == str(name)), {"name": str(name)})
+        return {**out, "choice": str(name), "does": _effect(c)["does"]}
+    plain = plain_effects(q).get(decision) or {}
+    if plain.get("choice"):
+        out["choice"] = plain["choice"]
+    return {**out, "does": plain.get("does") or ("approves and goes on" if decision == "approve" else "sends it back")}
+
+
 def how_to(*, note: bool = True, plain: str | None = None) -> str:
     """The line that tells how to answer a gate with named choices:
     'Choose one (approve with payload {"choice": "<name>"} and a note; a plain approve is retry):'"""
