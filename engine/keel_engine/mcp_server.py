@@ -1229,6 +1229,25 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         return await act(ctx, "keel_branch_sync", f"{mode} the flow's branch", more.branch_sync, api, project, thread_id,
                          onto, mode, action)
 
+    # ---------------------------------------------------------------- 0.18.65 the project's own CI on CI's versions
+
+    @reg(ro)
+    def keel_ci_report(project: str | None = None) -> str:
+        """The last report of the project's own CI jobs run by keel on CI's versions (the ship step `ci` or
+        keel_ci_run): one row per run (job, versions, passed / failed / could not run / skipped, time), each failure's
+        command and output tail, the style check; and whether it is about HEAD. Runs nothing."""
+        return guard(more.ci_report, api, project)
+
+    @reg(rw)
+    async def keel_ci_run(project: str | None = None, thread_id: str | None = None, jobs: list[str] | None = None,
+                          ctx: Context | None = None) -> str:
+        """Run the project's CI jobs now (.github/workflows, .gitlab-ci.yml) on CI's versions: keel itself runs each
+        job's commands in a throw-away container on CI's image (with keel2 --docker or native mode; else only the runs
+        whose runtime version is here). Deploy jobs and jobs that need secrets are skipped. thread_id: in that flow's
+        worktree (default: the project folder); jobs: only these job ids. Waits up to 15 minutes; returns the table."""
+        return await act(ctx, "keel_ci_run", "run the project's CI jobs in containers", more.ci_run, api, lvl, project,
+                         thread_id, jobs)
+
     # ---------------------------------------------------------------- the marketplace (step 4)
     # last at every level (keel 0.16.1's list keeps its order); asking for a plugin is allowed read-only
 

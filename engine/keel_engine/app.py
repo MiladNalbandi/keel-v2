@@ -733,10 +733,12 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
         return await asyncio.to_thread(hunt.run_view, pid, run)
 
     @app.post("/projects/{pid}/actions/{name}")
-    async def post_action(pid: str, name: str, body: dict):
+    async def post_action(pid: str, name: str, body: dict, request: Request):
         """v0.16.0 one engine action outside a flow (keel_run_action): only an action with a level (action_docs
         ACTION_LEVELS), on a blank flow input for the project's folder. The MCP level is enforced by keel's MCP server
-        (mcp_more.run_action); like the rest of keel's api on 127.0.0.1, this route has no login of its own."""
+        (mcp_more.run_action); like the rest of keel's api on 127.0.0.1, this route has no login of its own.
+        0.18.65 args.thread_id: the action runs in that flow's folder (its worktree), a flow of this project only; the
+        other args are the action's params (keel_ci_run: jobs)."""
         from .runtime import action_docs
         from .runtime.actions import ActionInput, run_action
 
@@ -747,10 +749,21 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
         root = str(body.get("root") or "")
         if not root or not Path(root).is_dir():
             raise EngineError(400, "root is missing or not a folder.")
+        args = dict(body.get("args") or {}) if isinstance(body.get("args"), dict) else {}
+        tid = str(args.pop("thread_id", "") or "")
+        if tid:
+            row = await engine(request)._row(tid)
+            if row["project_id"] != pid:
+                raise EngineError(404, f"No flow {tid} in this project.")
+            if not Path(row["root"]).is_dir():
+                raise EngineError(409, f"The flow's folder is gone: {row['root']}.")
+            root = row["root"]
         a = ActionInput(root=root, phase="none", title=f"{name} (MCP)", ac=None, acs=[], fake=False, flow="mcp", project=pid,
-                        settings=dict(body.get("settings") or {}))
+                        settings=dict(body.get("settings") or {}), params=args)
         r = await run_action(name, a)
-        return {"ok": r.ok, "note": r.note, "detail": (r.detail or "")[-6000:]}
+        # a check's output matters at its end; a CI report starts with its table (0.18.65)
+        detail = (r.detail or "")[:12000] if name in ("ci_pipeline", "ci_report") else (r.detail or "")[-6000:]
+        return {"ok": r.ok, "note": r.note, "detail": detail}
 
     from .approvals_routes import router as approvals_router   # core: ask a person and wait (keel_engine/approvals.py)
     app.include_router(approvals_router)
