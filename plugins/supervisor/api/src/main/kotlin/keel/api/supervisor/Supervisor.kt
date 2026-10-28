@@ -1,6 +1,9 @@
 package keel.api.supervisor
 
 import com.fasterxml.jackson.databind.JsonNode
+import jakarta.servlet.http.HttpServletRequest
+import keel.api.common.BadRequest
+import keel.api.common.Forbidden
 import keel.api.common.NotFound
 import keel.api.common.Time
 import keel.api.engine.EngineClient
@@ -8,6 +11,7 @@ import keel.api.events.AgentCalls
 import keel.api.events.EngineEvent
 import keel.api.events.EngineEventHandler
 import keel.api.flow.FlowService
+import keel.api.mcp.McpLevelGuard
 import keel.api.notifications.NotificationService
 import keel.api.projects.ProjectService
 import org.springframework.stereotype.Component
@@ -28,6 +32,7 @@ import java.nio.charset.StandardCharsets
  *     GET  /api/projects/{pid}/supervisor/decisions?threadId=&limit=   the audit log, newest first
  *     GET  /api/projects/{pid}/flows/{tid}/supervisor                   a flow's Supervisor settings, tokens, last rows
  *     POST /api/projects/{pid}/flows/{tid}/supervisor                   {on, mode, model, effort, cap_tokens, max_answers, policy}
+ *                                                                       (policy rung: may also needs i_understand: [RUNG_OK])
  *     GET|POST /api/projects/{pid}/supervisor/flow                      the same for the project's flow now (keel TUI's
  *                                                                       /supervisor: a plugin's TUI command calls its own routes)
  */
@@ -50,8 +55,10 @@ class SupervisorController(private val engine: EngineClient, private val project
     }
 
     @PostMapping("/flows/{tid}/supervisor")
-    fun change(@PathVariable pid: String, @PathVariable tid: String, @RequestBody body: Map<String, Any?>): JsonNode {
+    fun change(@PathVariable pid: String, @PathVariable tid: String, @RequestBody body: Map<String, Any?>,
+               request: HttpServletRequest): JsonNode {
         own(pid, tid)
+        checkPolicy(body, request)
         val allowed = setOf("on", "mode", "model", "effort", "cap_tokens", "max_answers", "policy")
         return engine.post("/threads/${enc(tid)}/supervisor", body.filterKeys { it in allowed })
     }
@@ -60,8 +67,26 @@ class SupervisorController(private val engine: EngineClient, private val project
     fun current(@PathVariable pid: String): Any = flowNow(pid)?.let { settings(pid, it) } ?: NO_FLOW
 
     @PostMapping("/supervisor/flow")
-    fun changeCurrent(@PathVariable pid: String, @RequestBody body: Map<String, Any?>): Any =
-        flowNow(pid)?.let { change(pid, it, body) } ?: NO_FLOW
+    fun changeCurrent(@PathVariable pid: String, @RequestBody body: Map<String, Any?>, request: HttpServletRequest): Any =
+        flowNow(pid)?.let { change(pid, it, body, request) } ?: NO_FLOW
+
+    /**
+     * 0.18.64 `policy: {rung: may}` lets the Supervisor run the commands it chose on a failing setup rung, with nobody
+     * looking. It stays possible (an owner may want it; e2e/supervisor uses it), but only said out loud: the body must
+     * also have `i_understand: "commands run without you"`. An MCP client below the admin level never changes the
+     * policy (keel_supervisor_set does not send one).
+     */
+    private fun checkPolicy(body: Map<String, Any?>, request: HttpServletRequest) {
+        val policy = body["policy"] as? Map<*, *> ?: return
+        val level = request.getAttribute(McpLevelGuard.LEVEL_ATTR)
+        if (level != null && level != "admin") {
+            throw Forbidden("Only you change the Supervisor's policy", "Change it in keel (the flow's Supervisor panel), or with keel2 mcp --admin.")
+        }
+        if (policy["rung"] == "may" && body["i_understand"] != RUNG_OK) {
+            throw BadRequest("rung: may lets the Supervisor run commands on this machine without you",
+                "If you want that, send i_understand: \"$RUNG_OK\" with it.")
+        }
+    }
 
     /** The project's flow that runs or waits now, else null. */
     private fun flowNow(pid: String): String? {
@@ -80,6 +105,8 @@ class SupervisorController(private val engine: EngineClient, private val project
 
     companion object {
         val NO_FLOW = mapOf("thread_id" to null, "note" to "No flow runs in this project: start one first.")
+        /** 0.18.64 what a body must say to set policy rung: may ([checkPolicy]). */
+        const val RUNG_OK = "commands run without you"
     }
 }
 
