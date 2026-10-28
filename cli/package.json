@@ -1,6 +1,6 @@
 {
   "name": "keel-tui",
-  "version": "0.18.64",
+  "version": "0.18.65",
   "description": "keel v2 in the terminal: KeelBot, slash commands, the live flow, agents and inbox (Ink)",
   "license": "MIT",
   "type": "module",

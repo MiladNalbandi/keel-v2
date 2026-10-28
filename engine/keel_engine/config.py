@@ -7,7 +7,7 @@ import hmac
 import os
 from pathlib import Path
 
-VERSION = "0.18.64"   # keel v2 release; a test keeps it equal to KEEL2_VERSION in keel2
+VERSION = "0.18.65"   # keel v2 release; a test keeps it equal to KEEL2_VERSION in keel2
 
 
 def data_dir() -> Path:
@@ -45,7 +45,7 @@ def fake() -> bool:
 
 
 def simulate_checks() -> bool | None:
-    """KEEL_SIMULATE_CHECKS=0|1 (0.18.64): run (0) or simulate (1) the project's checks whatever the models are; unset:
+    """KEEL_SIMULATE_CHECKS=0|1 (0.18.65): run (0) or simulate (1) the project's checks whatever the models are; unset:
     simulate them when every model is fake. An e2e on the fake model sets 0 to see a real setup rung fail."""
     v = os.environ.get("KEEL_SIMULATE_CHECKS", "").strip()
     return None if v not in ("0", "1") else v == "1"
