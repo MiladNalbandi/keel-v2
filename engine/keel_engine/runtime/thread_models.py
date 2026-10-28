@@ -15,6 +15,7 @@ from typing import Any
 
 from .. import agent_names
 from ..workflows.model import Workflow
+from . import review_config
 
 STEP = "step:"
 
@@ -83,11 +84,20 @@ def apply(models: dict, picks: dict, keys: list[str], model: dict | None) -> tup
     return models, picks
 
 
-def view(models: dict, picks: dict, wf: Workflow) -> dict[str, Any]:
+def shown_model(models: dict | None, step, agent: str, root: str | None) -> dict | None:
+    """What a step runs on, for the table: its static model, and (0.18.65) a final review's stronger model
+    (Compiler._model: Settings › Review's review.final) when the person did not pick one for the step."""
+    m = static_model(models, step, agent)
+    if root and m and not (models or {}).get(step_key(step.id)) and review_config.final_step(step, agent):
+        return review_config.final_model(root, m)
+    return m
+
+
+def view(models: dict, picks: dict, wf: Workflow, root: str | None = None) -> dict[str, Any]:
     """The flow's model table: the default, each agent's entry, each step's model now and which ones the person picked
     for this flow."""
     steps = [{"id": s.id, "name": s.name, "agent": s.agent, "phase": s.phase or "none",
-              "model": static_model(models, s, s.agent or ""),
+              "model": shown_model(models, s, s.agent or "", root),
               "picked": step_key(s.id) in (picks or {}) or agent_names.canonical(s.agent) in (picks or {})}
              for s in agent_steps(wf)]
     return {"models": dict(models or {}), "picks": sorted((picks or {}).keys()), "steps": steps}

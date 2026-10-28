@@ -153,6 +153,10 @@ def test_a_project_on_sonnet_gets_opus_for_the_final_review_step(tmp_path, monke
     assert c._model({}, step["green"], "implementer") == SONNET
     ship = {s.id: s for s in get_template("ship").steps}
     assert c._model({}, ship["review"], "lens-reviewer")["model"] == "opus"
+    # the Flow page's model table says the same
+    from keel_engine.runtime import thread_models
+    table = {s["id"]: s for s in thread_models.view(c.ctx.models, {}, wf, str(root))["steps"]}
+    assert table["code_review"]["model"]["model"] == "opus" and table["green"]["model"] == SONNET
     # the person's pick for the step, and a model the flow was switched to, win
     c.ctx.models["step:code_review"] = {**SONNET, "effort": "low"}
     assert c._model({}, step["code_review"], "branch-reviewer")["effort"] == "low"

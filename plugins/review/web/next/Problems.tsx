@@ -51,7 +51,8 @@ export function ProblemsTab({
   const find = ai?.config?.find;
   const lead = find?.text ?? "Two keel reviewers read the change, a second check removes false alarms, and you decide " +
     "what to post. Nothing is posted by itself.";
-  const many = (find?.reviewers.length ?? 2) === 1 ? "A keel reviewer reads" : `${["", "One", "Two", "Three", "Four"][find?.reviewers.length ?? 2] ?? "The"} keel reviewers read`;
+  const n = find?.reviewers.length ?? 2;
+  const many = `${["", "One", "Two", "Three", "Four"][n] ?? n} keel reviewer${n === 1 ? " reads" : "s read"}`;
   const fixWith = find?.fix.flow ?? "small";
   const fix = (f: Finding, workflow?: string) => void R.fixFinding(pid, reviewKey, f.id, workflow);
   const blocking = live.filter(

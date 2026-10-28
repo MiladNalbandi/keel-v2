@@ -718,13 +718,14 @@ class Engine:
             # the new model's login or API key (the api sends the thread's with it): kept in memory only, as at the start
             await self.set_keys(tid, {**self.keys.get(tid, {}), **keys})
         ctx.emit("thread.models", data={"changed": targets, "model": model})
-        return {"thread_id": tid, "changed": targets, **thread_models.view(models, picks, ctx.workflow)}
+        return {"thread_id": tid, "changed": targets, **thread_models.view(models, picks, ctx.workflow, ctx.root)}
 
     async def models_of(self, tid: str) -> dict:
         """0.18.64 the flow's model table: the default, each agent's, each agent step's model now, the person's picks."""
         row = await self._row(tid)
         ctx = await self._context(tid)
-        return {"thread_id": tid, **thread_models.view(ctx.models, json.loads(row["body"]).get("model_picks") or {}, ctx.workflow)}
+        return {"thread_id": tid, **thread_models.view(ctx.models, json.loads(row["body"]).get("model_picks") or {}, ctx.workflow,
+                                                     ctx.root)}
 
     async def set_mode(self, tid: str, mode: str) -> dict:
         """Changes the thread's run mode (runtime/run_mode.py) during a run: stored with the thread's settings, used from

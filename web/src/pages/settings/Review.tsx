@@ -540,7 +540,7 @@ export function ReviewTab({ pid }: { pid: string }) {
           value={cfg.final.model}
           effort={cfg.final.effort}
           base={view.models.reviewer}
-          uses={view.uses.final}
+          uses={null}
           efforts={efforts}
           onChange={(m, e) => void save({ final: { model: m as ModelChoice, effort: e } })}
         />
