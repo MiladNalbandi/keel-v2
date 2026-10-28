@@ -8,6 +8,7 @@ logins, keys or connection secrets is called, and secret files are refused befor
 
 from __future__ import annotations
 
+import os
 import posixpath
 from typing import Any
 
@@ -313,12 +314,30 @@ def delete_run(api: KeelApi, thread_id: str, project: str | None = None) -> str:
     return f"flow {thread_id} is gone from {p['id']}'s run history (its records stay for budgets)."
 
 
+def seen_as(path: str) -> str:
+    """0.18.64 a folder on the person's computer as keel's container sees it: the main project is mounted at /workspace
+    (KEEL_HOST_WORKSPACE → KEEL_WORKSPACE), so a repo inside it was "not visible" by its own path although keel has it.
+    Added folders are mounted at their own path."""
+    p = os.path.normpath(str(path).strip())
+    host = os.environ.get("KEEL_HOST_WORKSPACE", "").rstrip("/")
+    ws = os.environ.get("KEEL_WORKSPACE", "").rstrip("/")
+    if host and ws and host != ws and (p == host or p.startswith(host + "/")):
+        return ws + p[len(host):]
+    return p
+
+
 def add_project(api: KeelApi, path: str, name: str | None = None) -> str:
+    """A git repo keel can see becomes a project, with no terminal and no restart: one in the main project folder or in
+    a folder `keel2 add` mounted (0.18.64 also by its path on the person's computer). Only a folder keel cannot see
+    needs `keel2 add`, which restarts keel once."""
+    want = seen_as(path)
     seen = api.get("/folders") or {}
     roots = [r.get("path") for r in seen.get("roots") or [] if r.get("exists", True)]
-    if not any(path == r or str(path).startswith(str(r).rstrip("/") + "/") for r in roots):
-        raise ApiError(f"keel can't see {path}. Run `keel2 add {path}` in a terminal first, then add it here.")
-    p = api.post("/projects", {"root": path, **({"name": name} if name else {})}) or {}
+    if not any(want == r or want.startswith(str(r).rstrip("/") + "/") for r in roots):
+        raise ApiError(f"keel can't see {path}: it is in none of keel's folders ({', '.join(roots) or 'none'}). Run "
+                       f"`keel2 add {path}` in a terminal: keel restarts once (about half a minute) to mount it, and "
+                       "keel2 mcp reconnects by itself; then call keel_add_project again.")
+    p = api.post("/projects", {"root": want, **({"name": name} if name else {})}) or {}
     return f"project {p.get('id')} added ({p.get('root')})."
 
 

@@ -563,7 +563,9 @@ longer built in.
 | `keel_resume` | write | the raw resume: `decision`, `thread_id?` (default the project's flow), `why?`, `payload?` | same |
 
 - Every tool takes an optional `project` (id or name). Without it: `KEEL_PROJECT`, else the project whose root holds
-  the server's working folder (an agent runs in its project), else the first project.
+  the server's working folder (an agent runs in its project), else the first project. 0.18.64: else the only project,
+  else the client's folder (`KEEL_CLIENT_CWD`), else none: the answer names the projects to pick from (see "keel
+  0.18.64" below).
 - **Read-only vs write:** the write tools are registered only with `--write` (or `KEEL_MCP_WRITE=1` without
   `--read-only`); `--read-only` always wins. In read-only mode `tools/list` does not show them at all.
 - **Agents** get the builtin `keel` server read-only (an agent never approves its own gate): the api seeds
@@ -2902,3 +2904,56 @@ keel TUI (tui.json)  { "follow": false }             (KEEL_TUI_SETTINGS, else ~/
   and chat the following windows share (a window that keeps its own is not in it); with `project` it moves only the
   windows that follow. `McpAudit` leaves `/api/ui/focus` out of the audit as before. Notifications do not read the focus:
   opening one picks its project in that window, shared only when the window follows.
+
+## keel 0.18.64: MCP after a restart, the project a tool means, keel's own files, what really happened
+
+From a field report (docs/plans/field-report-clarify.md: bug 7 and the smaller ones).
+
+- **keel2 add** restarts keel only for a folder it must mount, and says so first (`keel restarts once now …`, `Open MCP
+  sessions (keel2 mcp) reconnect by themselves …`). A folder keel sees already (inside the main project, or inside a
+  mounted folder; `in_container` maps it: the main project is `/workspace/…` in the plain mode) is registered at once
+  (`POST /api/projects` with the container path), no restart. A listed folder keel has not mounted yet restarts it.
+- **keel_add_project** maps a path on the person's computer inside the main project to keel's (`KEEL_HOST_WORKSPACE` →
+  `KEEL_WORKSPACE`, `mcp_more.seen_as`), so a repo keel sees needs no terminal; only a folder outside every folder keel
+  has still needs `keel2 add` (the answer says keel restarts once and keel2 mcp reconnects).
+- **keel2 mcp** waits up to `KEEL_MCP_START_WAIT` (20 s) for a container that is restarting, with a growing pause. Its
+  relay (0.18.51) now: answers a `tools/call` that waits while keel is down after `KEEL_MCP_RELAY_HOLD` (10 s) as a tool
+  error `keel: keel is restarting: try again in a few seconds …` (a result with `isError`, which clients show and go on
+  from, not a JSON-RPC error after minutes); answers `ping` at once; looks for keel with a pause from 0.5 s up to 5 s;
+  sends `notifications/tools/list_changed` after a reconnect; answers `keel_reconnect` itself (closes the server, waits
+  for the new one); gives the server `KEEL_MCP_RELAY_N` (its start count, `-e KEEL_MCP_RELAY_N` on docker exec).
+  The api client's "does not answer" error says keel is restarting or stopped and to try again in a few seconds.
+- **Which project**: `docker exec -e KEEL_CLIENT_CWD=<the client's folder as keel sees it, empty when keel cannot see
+  it>`. `mcp_api._project`: the named one (or `KEEL_PROJECT`), else the only project, else the project whose root holds
+  `KEEL_CLIENT_CWD` (without the variable: the server's own folder, as agents and native keel have it), else an error
+  naming the projects (`Pass project (one of: …)`). Before, a read answered for the first project: the server's folder
+  in the container is `/workspace`, the main project, whatever folder the client was in.
+- **Time zones**: keel2 passes the computer's zone (`TZ`, else `/etc/localtime`'s link, else `/etc/timezone`) to
+  keel2 mcp's server and to keel TUI in the container. `_clock` shows local time with the zone's short name
+  (`10-05 12:04:00 CEST`; an offset `UTC+05:30` when the zone has no name); `keel_timeline` uses it. The web shows the
+  browser's local time as before.
+- **Dirty tree**: `FlowService.refuseDirty` leaves out keel's own output under `.keel/` in every layout
+  (`WorkspaceDoctor.isKeelOutput`): `.keel/specs/`, `knowledge/`, `adr/`, `docs/`, `hunts/`, `hunt/`, `chats/`,
+  `worktrees/`, `RUNNING.md`, `CLAUDE.md`, `memory.json`, and the layout's folders under `.keel/` (a `memory.dir` such as
+  `.keel/docs/knowledge`). The person's settings there (`config.yml`, `rules/`, `stacks/`, `dod.md`, `lenses/`,
+  `plugins/`, `project-rules.json`) still refuse a start. They stay out of keel's commits like any file dirty at the
+  start (`preexisting`).
+- **Knowledge on a branch**: the knowledge check reads the sections from disk whatever git says. A worktree
+  (`tools/worktrees.seed_keel_files`) gets, in layout repo too, the layout's files the branch's `.gitignore` ignores
+  (`git check-ignore`); `keep_keel_files` brings back only those. In one of keel's worktrees a section that is not there
+  is read from the project folder (`knowledge.source`), and a cited file too (`on_disk`). A shorthand citation that no
+  tracked file matches looks at the files on disk (`knowledge.Files.disk`, walked once, `node_modules` and the like
+  left out).
+- **New read tools** (after `keel_diagram`, `mcp_diag.py`):
+
+| Tool | What it returns | api |
+|---|---|---|
+| `keel_agent_prompt(agent_id, page)` | the system and task prompt one agent call of a flow got, each cut at 60,000 characters (`system_cut` / `prompt_cut`), 20,000 characters a page | `GET /api/jobs/{id}/prompt` |
+| `keel_flow_diff(step?, thread_id?, ac?, project?)` | what a step's last run changed against the run before: its document (the two newest versions keel kept in this flow), else its agent's answer (the newest call and the same agent's call before); no step: the steps that ran more than once | `GET /api/projects/{pid}/flows/{tid}/step-diff?step=&ac=` → `{kind: document \| answer \| none \| list, runs, path, before, after, diff, why, steps}` |
+| `keel_health()` | keel's api and engine, keel's version against the server's, when this connection's server started, whether keel2 mcp's relay reconnects it and how often it did, the time zone | `GET /api/health` |
+| `keel_reconnect()` | the relay starts the server again and answers when the new one is ready; without a relay: how to reconnect | — |
+
+- **The prompt is kept**: the engine emits `agent.prompt` (`{agent, ac, system, prompt, system_cut, prompt_cut}`,
+  `compiler.PROMPT_RECORD_MAX` = 60,000 characters each) once per agent call, before it runs. The api stores it in
+  `events` like every event and sends it to no screen (`RECORD_ONLY`). `agent.finished`'s `result` keeps up to
+  `compiler.RESULT_MAX` (20,000) characters of the answer (2,000 before), so keel_flow_diff compares whole answers.

@@ -22,9 +22,9 @@ clarify flow, with a planned hand-over to the feature flow. keel was driven thro
 | 4 | **The flow read stale code.** It branched from a local base branch that was behind a second remote; the spec said a test harness "does not exist" and that the code had a parallel namespace, both wrong on the newer base. A fetch from the first remote timed out and nobody was told. | open: before a flow starts, say how far the base is behind each remote; say when a fetch fails; offer to start from the newer remote branch (`keel_start_flow` with a base). |
 | 5 | **The agent could not read the upstream project.** Its read of the other registered project was refused ("no interactive user response was available"); after the user said "check the project we have connected" it still could not. The spec kept open questions the upstream contract file answered. | open: flows may read other registered projects, read-only (a tool to read one project's file from another); at least a clear "cannot read project X: <why>" error. |
 | 6 | **No sanctioned way to bring a flow branch up to its base.** `git reset --hard` and a plain `git commit` are refused during a flow (right), but nothing else does it. | open: a keel command to merge or rebase the flow branch onto a base, the conflict resolution committed by keel. |
-| 7 | **Registering a project needs a terminal and restarts keel.** `keel_add_project` said to run `keel2 add` first; `keel2 add` restarted keel and the MCP connection was lost. | open: warn before a restart; the MCP client reconnects by itself. |
+| 7 | **Registering a project needs a terminal and restarts keel.** `keel_add_project` said to run `keel2 add` first; `keel2 add` restarted keel and the MCP connection was lost. | **fixed (0.18.64)**: a folder keel sees already is added with no restart (`keel2 add` and `keel_add_project`, also by its path on the computer); a restart is announced first; `keel2 mcp` waits for keel, answers a call in between "keel is restarting", reconnects by itself; `keel_health`, `keel_reconnect`. |
 
-Smaller ones:
+Smaller ones (all four fixed in 0.18.64: docs/CONTRACT.md "keel 0.18.64"):
 
 - **Default project**: `keel_flows` without a project answered for another, unrelated project. It should refuse or ask
   when it cannot tell which project is meant.
@@ -44,9 +44,9 @@ Smaller ones:
 | `keel_fetch_remotes` | fetch, with one result per remote (bug 4) |
 | `keel_read_project_file` | read a file of another registered project, read-only (bug 5) |
 | `keel_spec_check`, `keel_citations_check` | run the spec check or the citation check on a path (bug 3) |
-| `keel_flow_diff` | what a retry changed in a step's output (bug 1 would have shown at once) |
-| `keel_agent_prompt` | the prompt a step really got |
-| `keel_reconnect` / a health check | after keel restarts (bug 7) |
+| `keel_flow_diff` | what a retry changed in a step's output (bug 1 would have shown at once) — **added 0.18.64** |
+| `keel_agent_prompt` | the prompt a step really got — **added 0.18.64** |
+| `keel_reconnect` / a health check | after keel restarts (bug 7) — **added 0.18.64** (`keel_health`, `keel_reconnect`) |
 | `keel_start_flow` with `base` | start from a given branch (bug 4) |
 
 ## What the session taught

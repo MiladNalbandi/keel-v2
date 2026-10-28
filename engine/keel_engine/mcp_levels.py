@@ -66,7 +66,9 @@ TOOLS: dict[str, tuple[str, ...]] = {
              # 0.18.6 skills: the project's (and which agents use each), one skill's text
              "keel_skills", "keel_skill",
              # 0.18.9 stacks: the project's, one with its YAML, what keel reads for a new one, a check that saves nothing
-             "keel_stacks", "keel_stack", "keel_stack_suggest", "keel_stack_check"),
+             "keel_stacks", "keel_stack", "keel_stack_suggest", "keel_stack_check",
+             # 0.18.64 what really happened (an agent's prompt, what a retry changed) and the connection itself
+             "keel_agent_prompt", "keel_flow_diff", "keel_health", "keel_reconnect"),
     "write": ("keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc",
               # 0.18.5 what keel TUI does: stop flows (asks first), a run mode, go on with a stopped flow, start an
               # agent, ask KeelBot, keep or undo its changes (asks first)

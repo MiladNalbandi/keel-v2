@@ -36,6 +36,10 @@ class JobController(private val jobs: JobService, private val engine: EngineClie
     @GetMapping("/{id}")
     fun get(@PathVariable id: String): JobDetail = JobDetail(jobs.get(id), jobs.steps(id, 0))
 
+    /** 0.18.64 the exact prompt the call got: `{id, agent, step, ac, at, system, prompt, system_cut, prompt_cut}`. */
+    @GetMapping("/{id}/prompt")
+    fun prompt(@PathVariable id: String): JobPrompt = jobs.prompt(id)
+
     @GetMapping("/{id}/steps")
     fun steps(@PathVariable id: String, @RequestParam(defaultValue = "0") after: Int): JobSteps {
         val job = jobs.get(id)

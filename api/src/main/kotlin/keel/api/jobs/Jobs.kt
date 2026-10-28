@@ -2,6 +2,7 @@ package keel.api.jobs
 
 import com.fasterxml.jackson.annotation.JsonInclude
 import com.fasterxml.jackson.annotation.JsonUnwrapped
+import keel.api.common.Json
 import keel.api.common.NotFound
 import keel.api.common.Time
 import org.springframework.jdbc.core.JdbcTemplate
@@ -48,6 +49,12 @@ data class JobStep(
 )
 
 data class JobDetail(@get:JsonUnwrapped val job: Job, val steps: List<JobStep>)
+
+/** 0.18.64 the exact prompt an agent call got (GET /api/jobs/{id}/prompt; the MCP tool keel_agent_prompt). */
+data class JobPrompt(
+    val id: String, val agent: String?, val step: String?, val ac: String?, val at: String?,
+    val system: String, val prompt: String, val systemCut: Boolean, val promptCut: Boolean,
+)
 data class JobSteps(val steps: List<JobStep>, val running: Boolean)
 
 @Service
@@ -131,6 +138,22 @@ class JobService(private val jdbc: JdbcTemplate) {
 
     fun steps(id: String, after: Int): List<JobStep> =
         jdbc.query("SELECT * FROM agent_steps WHERE call_id = ? AND n > ? ORDER BY n", stepMapper, id, after)
+
+    /** 0.18.64 the prompt the call got (the engine's agent.prompt event): system and task text, each cut at the engine's
+     *  cap (`system_cut` / `prompt_cut` say so). 404 for a call with none: not a flow's agent, or from before 0.18.64. */
+    fun prompt(id: String): JobPrompt {
+        val job = get(id)
+        // by the thread first: events has an index on thread_id only
+        val (where, args) = if (job.threadId != null) "thread_id = ? AND call_id = ?" to arrayOf<Any>(job.threadId, id) else "call_id = ?" to arrayOf<Any>(id)
+        val row = jdbc.query(
+            "SELECT step, at, data_json FROM events WHERE $where AND type = 'agent.prompt' ORDER BY id DESC LIMIT 1",
+            { rs, _ -> Triple(rs.getString("step"), rs.getString("at"), Json.readMap(rs.getString("data_json"))) }, *args,
+        ).firstOrNull() ?: throw NotFound("keel kept no prompt for $id",
+            "Only a flow's agent calls keep their prompt, from keel 0.18.64 on.")
+        val (step, at, d) = row
+        return JobPrompt(id, job.agent ?: d["agent"]?.toString(), step ?: job.step, job.ac ?: d["ac"]?.toString(), at,
+            d["system"]?.toString().orEmpty(), d["prompt"]?.toString().orEmpty(), d["system_cut"] == true, d["prompt_cut"] == true)
+    }
 
     fun markStopped(id: String) {
         jdbc.update("UPDATE agent_calls SET status = 'stopped', ended_at = COALESCE(ended_at, ?) WHERE id = ? AND status = 'running'", Time.now(), id)

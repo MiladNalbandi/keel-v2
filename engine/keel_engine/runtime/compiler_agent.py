@@ -192,6 +192,14 @@ class AgentMixin:
                                keys=dict(ctx.keys), section=section, session=session, resume=resuming,
                                on_session=(lambda sid: mem.set_session(key, sid)) if mem else None, thread=ctx.thread_id,
                                knowledge=know, item=item)
+            # 0.18.64 the exact prompt this call got, kept with the job (api events, GET /jobs/{id}/prompt, the MCP tool
+            # keel_agent_prompt): a field report could not tell whether a retry's prompt still had the reject note.
+            # A record, not a live view: the api stores it and sends it to no screen.
+            system_text, task_text = str(req.system or ""), str(req.prompt or "")
+            ctx.emit("agent.prompt", step=step.id, call_id=call_id, data={
+                "agent": agent, "ac": (ac or {}).get("id"),
+                "system": system_text[:_c.PROMPT_RECORD_MAX], "system_cut": len(system_text) > _c.PROMPT_RECORD_MAX,
+                "prompt": task_text[:_c.PROMPT_RECORD_MAX], "prompt_cut": len(task_text) > _c.PROMPT_RECORD_MAX})
             # The guard context keel's hook reads on every tool call (CLI agents). It sits in this run's scratch folder,
             # outside the project; an unlock granted while the agent runs rewrites it (ThreadContext.add_unlocks).
             gfile = guard_ctx.GuardFile(Path(tmp) / guard_ctx.FILE, **guard_ctx.context_for(req))
@@ -237,7 +245,9 @@ class AgentMixin:
             res.cost_usd = catalog.premium_cost(model["provider"], model.get("model", ""), res.premium_requests)
         ctx.emit("agent.finished", step=step.id, call_id=call_id, data={
             "agent": agent, "status": "done", "tokens_in": res.tokens_in, "tokens_out": res.tokens_out, "tokens_cached": res.tokens_cached,
-            "cost_usd": round(res.cost_usd, 6), "premium_requests": res.premium_requests, "result": res.text[:2000]})
+            # 0.18.64 the whole answer up to RESULT_MAX (it was 2,000 characters): keel_flow_diff compares a step's last
+            # two answers (a spec assembled again after a reject), and a cut answer hid what changed
+            "cost_usd": round(res.cost_usd, 6), "premium_requests": res.premium_requests, "result": res.text[:_c.RESULT_MAX]})
         return res, model, toolbox
 
     # ------------------------------------------------------------ budget
