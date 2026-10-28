@@ -740,6 +740,53 @@ triages, sets up and asks clarify's questions, so a project-wide change of it ch
 to change only that flow (with a role word, only its steps in that phase), or `step` for one step of it. The project's
 Agents page and the other flows keep their models.
 
+## Review settings (Settings › Review)
+
+From keel 0.18.65 each project has a **Review** tab in Settings. It decides what "Find problems" on the Review page
+does, and how keel's last review of a flow runs. keel keeps it in the project's `.keel/config.yml` under `review:`,
+so a teammate's keel uses the same. Nothing written there means keel's defaults.
+
+```
+ Find problems ─ reviewers A, B (1 to 4) ─ each goes through its lenses ─ the checker ─ confirmed findings ─ Fix it
+```
+
+- **Reviewers**: how many read the change (1 to 4; keel's default is 2: A correctness and security, B tests, the
+  description and design). For each one: a name, its focus, a model (the project's default, *stronger*, or one you
+  pick), an effort, and an agent. An agent gives the reviewer its role and skills (its prompt); none means keel's
+  review prompt only. The Review page's text says how many reviewers read the change and what each looks at.
+- **Lenses**: a lens is a checklist a reviewer goes through. keel's own are in `content/review-lenses/`; your
+  project's are `.keel/lenses/<name>.md` (the hunt reads the same files). Turn a lens on or off and give it to a
+  reviewer. **+ New lens** writes `.keel/lenses/<name>.md` (commit it to share it); **Edit** opens a project lens,
+  **View** one of keel's. A lens file is a title, one short line under it, and a `## Checklist` section:
+
+  ```markdown
+  # Money rounding
+
+  cents as integers, one rounding place, totals equal the sum of their lines
+
+  ## Checklist
+
+  - amounts are integers in cents, never floats
+  - an order total equals the sum of its lines after discounts
+  ```
+
+- **The checker** ("is the reviewer right?"): its own model and effort, and whether it checks should-fix findings
+  too (on by default). A should-fix finding it does not check is listed as not checked, never as a finding.
+- **Fixing a finding**: a confirmed finding has **Fix it**. It runs a flow on the reviewed branch in the project
+  folder (it commits there and pushes nothing): **quick**, **small** (keel's default), **change**, or **ask me each
+  time** (the finding shows the three buttons). Also the fix model (the flow's own by default), the run mode, and
+  "several findings in one file: one flow for all of them".
+- **The last review of a flow**: the whole-branch review at the end of a feature, small or plugin flow, and the ship
+  review's lens reviewers. By default they run on a **stronger** model than the project's: when the project uses a
+  Claude model below Opus (Sonnet, Haiku) they run on **Opus at high effort**; on Codex or Copilot at their high
+  effort. The tab shows it: "project default (sonnet) → the final review uses claude · opus · high". Pick the
+  project's default or another model to change it; a model you pick for one step of one flow still wins.
+- **The ship review**: its lenses are correctness, security, performance and **consumers-config** (what breaks for a
+  consumer that runs the new next to the old, shared keys and routes, public types against their contract, the CI
+  config), or the project's `review.lenses`. The correctness lens is no longer skipped after a passed full-diff
+  review; "Skip the ship's correctness lens…" turns the old behaviour back on.
+- **Back to keel's default** takes the tab's settings out of `.keel/config.yml` (the ship's `review.lenses` stays).
+
 ## Plugins and the Marketplace
 
 From 0.17.0 keel is a small **core** with **plugins**. The core runs flows, workflows, agents, gates, the Inbox,

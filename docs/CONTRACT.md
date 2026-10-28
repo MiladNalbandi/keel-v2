@@ -3209,3 +3209,68 @@ From the field report (docs/plans/field-report-clarify.md, bugs 8, 9 and 11).
     worktree}], v1}` (the flows that run or wait there); `POST /api/projects/{pid}/keel-state/close` (an MCP write).
   - MCP `keel_state {action: show | close, project?}`: a read tool; `close` needs `--write` (read says so and does
     nothing). keel2: `keel2 state [close] [folder]` does the same on the folder, without keel running.
+
+## keel 0.18.65: Settings › Review, one lens format, a stronger last review (feat/review-settings)
+
+From the field report (docs/plans/field-report-clarify.md, "A third report: the last review was too shallow").
+
+- **`review:` in `.keel/config.yml`** (engine `runtime/review_config.py`; nothing written = keel's defaults):
+
+  ```yaml
+  review:
+    lenses: [correctness, security, performance, consumers-config]  # the ship review's lenses (before 0.18.65 too)
+    drop_correctness: false            # ship skips correctness after a passed full-diff review (keel v1's way)
+    reviewers:                         # Find problems on the Review page: 1 to 4, lettered A..D by their place
+      - name: correctness and security
+        focus: correctness (logic errors, ...) and security (...)
+        model: default                 # default (the project's) | stronger | {provider, mode, model}
+        effort: high                   # none: the model's own
+        agent: lens-reviewer           # none: keel's review prompt only; else an agent of the project (its role, skills)
+        lenses: [data-migration, idempotency-retry, error-handling-retry]
+    checker: {model: stronger, effort: null, should_fix: true}
+    fix: {flow: small, model: flow, run_mode: null, one_flow_per_file: false}   # flow: quick | small | change | ask
+    final: {model: stronger, effort: null}
+  ```
+
+  keel's default reviewers are the A and B of before (their focus, and their lenses as files). A lens is on one
+  reviewer at most. `stronger` (`review_config.raised`): the compiler's `stronger` (Opus for Claude, high effort for
+  Codex and Copilot) and high effort for Claude too; any other provider keeps its model. Only the `review:` block is
+  rewritten; every other line of the file stays. `reset: true` removes the parts above and keeps `lenses`.
+- **One lens format** (engine `runtime/lenses.py`): keel's `content/review-lenses/<name>.md` and the project's
+  `.keel/lenses/<name>.md` are a `# Title`, one description line, a `## Checklist` section, and optionally
+  `## Reference`. The project's file wins over keel's of the same name. The hunt's `brief`, the review-pr flow's
+  `lens_text`, the ship review and Find problems read them through it. A name is `[a-z0-9][a-z0-9-]{0,47}`, never a
+  path. New keel lenses: `error-handling-retry`, `consumers-config`.
+- **Engine routes**: `POST /review-config/view {root, models: {default, reviewer}}` → `{configured, stored, config,
+  defaults, lenses: [{name, source, path, title, description, checklist, reviewer}], missing, uses: {reviewers,
+  checker, final, fix}, models, find_text, ship_lenses, ship_lenses_from, limits}`; `PUT /review-config {root, patch,
+  models}` (400 with what is wrong; 409 without `.keel/config.yml`); `POST /review-config/lenses {root, lens: {title,
+  description?, reviewer?, checklist}}` → `{lens, view}` (409 when the file exists); `GET /review-config/lenses/{name}
+  ?root=` → the lens with its `text`; `PUT /review-config/lenses/{name} {root, text}` (a project lens; it must keep a
+  `## Checklist`).
+- **api**: `GET|PUT /api/projects/{pid}/review-setup` (the view plus `agents: [{id, label, custom, keel}]`; a
+  reviewer's agent must be an enabled agent of the project), `POST /api/projects/{pid}/review-setup/lenses`,
+  `GET|PUT /api/projects/{pid}/review-setup/lenses/{name}`. MCP level: write.
+- **Find problems** (`ReviewAiService`): one read-only KeelBot run per reviewer (`find-a` … `find-d`), on its model
+  (none when it is the project's default with no effort: KeelBot's own model, as before), with its focus, its lenses'
+  checklists and its agent's role and skills (at most 4,000 characters each). The checker runs on `checker`'s model;
+  with `should_fix: false` a should-fix finding goes to `not_checked` ("Settings › Review checks blocking findings
+  only"). `GET …/review/ai` adds `config.find: {text, reviewers: [{letter, name}], fix: {flow, one_flow_per_file}}` and
+  `fixes: {<finding id>: {flow_id, title, branch, workflow, with, at}}`.
+- **Fix it**: `POST /api/projects/{pid}/review/ai/findings/{id}/fix {key, workflow?}` starts `fix.flow` (or the
+  `workflow` the person picked; 400 "Pick how to fix it" when Settings says ask and none is given) with the finding as
+  its request, on the reviewed branch in the project folder (a pull request is checked out; a branch review switches
+  to its branch when the folder is clean), branch mode `continue`, `fix.model` for every agent, `fix.run_mode`. With
+  `one_flow_per_file` the file's other open confirmed findings go into the same flow. Nothing is pushed or posted.
+- **The final review's model** (`Compiler._model`): a step of `branch-reviewer`, or of `lens-reviewer` in the ship
+  phase, gets `review_config.final_model(root, m)` of the model it would get, unless the flow was switched to a model
+  (`model_override`) or the person picked one for the step (`step:<id>`). A project on Sonnet gets Opus at high effort.
+- **branch-reviewer** (`content/agents/branch-reviewer.md`) goes through a checklist (correctness across criteria,
+  shared config keys, parameters and routes against the old version, each public type against its contract, a
+  consumer's upgrade, runtime deprecations, the CI config and its commands, consistency, duplication, scope) and always
+  ends with a "What I did not check" list before `CODE-REVIEW:`. It never edits; it may run the project's read-only
+  checks. The feature flow's `code_review` instruction says the same.
+- **Ship**: `DEFAULT_LENSES` adds `consumers-config`; a lens with a lens file puts `lens_title` and `checklist` in its
+  reviewer's item. The correctness lens is dropped after a passed full-diff review only with `drop_correctness: true`.
+- **web**: Settings › Review (`#/settings/review`, `pages/settings/Review.tsx`); the Review page's Problems tab says
+  `config.find.text` and offers Fix it (or quick / small / change when Settings asks each time).

@@ -91,3 +91,23 @@ another change's 47 files as this branch's.
 | R4 | keep init's setup files (knowledge, RUNNING.md, config) out of a feature PR, or in a setup PR of their own; respect a `.gitignore` that ignores them | open |
 | R5 | `base_branch` names a branch that does not exist locally: ask the person (offer the remote's branch), never let an agent change it silently | open |
 
+
+## A third report: the last review was too shallow (0.18.64)
+
+A feature flow on a library project ran end to end on the project's default model (a Sonnet). Its last step, the
+whole-branch review, answered `CODE-REVIEW: pass` in about 4k tokens and 20 seconds, read-only. Its instruction narrowed
+it to "Report only what needs the whole diff in view", and its agent file told it that other reviews owned the rest.
+A review of the same branch on Opus found five problems the last review never looked for:
+
+- one signing key shared by an old and a new route;
+- a call deprecated on the newest runtime version the project supports;
+- a public type that accepted more than its documented contract (an object where the docs say a list);
+- the project's CI config, which no review read;
+- a break for a consumer that upgrades by adding the new version next to the old one.
+
+| # | what keel lacks | status |
+|---|---|---|
+| S1 | the last whole-branch review reads less than the change needs: a checklist (shared keys and routes, public types against their contract, a consumer's upgrade, runtime deprecations, the CI config) and a "What I did not check" list | fixed in 0.18.65 (`branch-reviewer`, the feature flow's `code_review`) |
+| S2 | the last review runs on the project's default model: a stronger model and a higher effort by default, set in Settings › Review | fixed in 0.18.65 (`review.final`, Opus at high effort for a project below Opus) |
+| S3 | the ship review has no lens for consumers and config, and drops its correctness lens after a passed full-diff review | fixed in 0.18.65 (`consumers-config`, `review.drop_correctness` off by default) |
+| S4 | the Review page's reviewers, their lenses and the checker are fixed in code: a project cannot add its own lens or reviewer | fixed in 0.18.65 (Settings › Review, `.keel/lenses/<name>.md`) |
