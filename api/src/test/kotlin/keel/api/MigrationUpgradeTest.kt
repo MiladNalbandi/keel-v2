@@ -17,7 +17,7 @@ import javax.sql.DataSource
  * columns, V17__workflow_market.sql (docs/plugins/21-workflow-marketplace.md), and 0.18.6's skill marketplace columns,
  * V18__skill_market.sql, 0.18.9's effort of each agent call, V19__agent_call_effort.sql, and Code Review's multi-line
  * comments, V20__review_line_range.sql, the review agents' new names, V21__review_agent_names.sql, then the Database
- * plugin's global connections, V22__db_connection_scopes.sql, then the phone's paired devices, V23__devices.sql, then the task automations, V24__task_automations.sql, then the notifications' short lines, V25__notification_summary.sql, then what a run works on, V26__thread_source.sql. A keel
+ * plugin's global connections, V22__db_connection_scopes.sql, then the phone's paired devices, V23__devices.sql, then the task automations, V24__task_automations.sql, then the notifications' short lines, V25__notification_summary.sql, then what a run works on, V26__thread_source.sql, then the browsers' sign-in sessions, V27__web_sessions.sql. A keel
  * that ran 0.16.1 must start on the track: Flyway applies only V16 to V25, and 0.16.1's rows and history stay as they were. No Spring: Flyway on a
  * throw-away SQLite file, as keel's api runs it.
  */
@@ -55,7 +55,7 @@ class MigrationUpgradeTest {
         val names = core().keys
         assertThat(names).containsAll(released)
         assertThat(names - released.toSet()).containsExactlyInAnyOrder("V16__approvals.sql", "V17__workflow_market.sql", "V18__skill_market.sql", "V19__agent_call_effort.sql",
-            "V20__review_line_range.sql", "V21__review_agent_names.sql", "V22__db_connection_scopes.sql", "V23__devices.sql", "V24__task_automations.sql", "V25__notification_summary.sql", "V26__thread_source.sql")
+            "V20__review_line_range.sql", "V21__review_agent_names.sql", "V22__db_connection_scopes.sql", "V23__devices.sql", "V24__task_automations.sql", "V25__notification_summary.sql", "V26__thread_source.sql", "V27__web_sessions.sql")
         // one file per version: a second V15 would stop every keel at start
         val versions = names.map { it.substringBefore("__") }
         assertThat(versions).doesNotHaveDuplicates()
@@ -93,17 +93,17 @@ class MigrationUpgradeTest {
         // the plugin track starts on the same file: Flyway checks 0.16.1's history (same checksums) and adds V16
         val track = flyway(ds, "classpath:db/migration")
         val result = track.migrate()
-        assertThat(result.migrationsExecuted).isEqualTo(11)
+        assertThat(result.migrationsExecuted).isEqualTo(12)
         assertThat(result.migrations.map { it.filepath.substringAfterLast('/') })
             .containsExactly("V16__approvals.sql", "V17__workflow_market.sql", "V18__skill_market.sql", "V19__agent_call_effort.sql",
-            "V20__review_line_range.sql", "V21__review_agent_names.sql", "V22__db_connection_scopes.sql", "V23__devices.sql", "V24__task_automations.sql", "V25__notification_summary.sql", "V26__thread_source.sql")
+            "V20__review_line_range.sql", "V21__review_agent_names.sql", "V22__db_connection_scopes.sql", "V23__devices.sql", "V24__task_automations.sql", "V25__notification_summary.sql", "V26__thread_source.sql", "V27__web_sessions.sql")
         assertThat(track.validateWithResult().validationSuccessful).isTrue()
 
         val h = history(ds)
-        assertThat(h).hasSize(26)
+        assertThat(h).hasSize(27)
         assertThat(h.take(15).map { it.substringAfter(' ').substringBefore(' ') }).containsExactlyElementsOf(released)
         assertThat(h.drop(15)).containsExactly("16 V16__approvals.sql 1", "17 V17__workflow_market.sql 1", "18 V18__skill_market.sql 1", "19 V19__agent_call_effort.sql 1",
-            "20 V20__review_line_range.sql 1", "21 V21__review_agent_names.sql 1", "22 V22__db_connection_scopes.sql 1", "23 V23__devices.sql 1", "24 V24__task_automations.sql 1", "25 V25__notification_summary.sql 1", "26 V26__thread_source.sql 1")
+            "20 V20__review_line_range.sql 1", "21 V21__review_agent_names.sql 1", "22 V22__db_connection_scopes.sql 1", "23 V23__devices.sql 1", "24 V24__task_automations.sql 1", "25 V25__notification_summary.sql 1", "26 V26__thread_source.sql 1", "27 V27__web_sessions.sql 1")
         assertThat(tables(ds)).contains("approvals", "threads", "doc_versions", "flow_applied", "devices", "task_automations", "task_watch", "task_runs")
         ds.connection.use { c ->
             c.createStatement().executeQuery("SELECT hidden_at FROM threads WHERE id = 't1'").use { rs ->

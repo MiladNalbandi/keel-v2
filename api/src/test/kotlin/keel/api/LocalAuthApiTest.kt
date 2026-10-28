@@ -174,6 +174,56 @@ class LocalAuthApiTest : ApiTest() {
     }
 
     @Test
+    fun `0_18_64 the cookie is this browser's own session, never the web key, and sign-out ends it`() {
+        val c = signInCookie()
+        assertThat(c.value).startsWith("ks_").isNotEqualTo(key.value)
+        val other = signInCookie()
+        bare.perform(rpost("/api/web/sign-out").cookie(c).header("X-Keel-Web", "1")).andExpect(status().isOk)
+        // the signed-out cookie no longer works, even if a copy of it was kept; the other browser stays signed in
+        bare.perform(rget("/api/projects").cookie(c)).andExpect(status().isUnauthorized)
+        bare.perform(rget("/api/projects").cookie(other)).andExpect(status().isOk)
+        // sign out everywhere: every browser's session ends; the terminal app's web key still works
+        val third = signInCookie()
+        val res = bare.perform(rpost("/api/web/sign-out-everywhere").cookie(third).header("X-Keel-Web", "1")).andExpect(status().isOk).json()
+        assertThat(res["ended"].asInt()).isGreaterThanOrEqualTo(2)
+        bare.perform(rget("/api/projects").cookie(other)).andExpect(status().isUnauthorized)
+        bare.perform(rget("/api/projects").cookie(third)).andExpect(status().isUnauthorized)
+        bare.perform(rget("/api/projects").header("Authorization", "Bearer ${key.value}")).andExpect(status().isOk)
+    }
+
+    @Test
+    fun `0_18_64 a session ends 30 days after its last use, and each use moves the end`(@Autowired sessions: keel.api.auth.WebSessions) {
+        val day = 24L * 3600 * 1000
+        val t0 = 1_800_000_000_000L
+        val id = sessions.open(t0)
+        assertThat(sessions.check(id, t0 + 20 * day)).isEqualTo(keel.api.auth.WebSessions.Check.MOVED)
+        assertThat(sessions.check(id, t0 + 20 * day + 1000)).isEqualTo(keel.api.auth.WebSessions.Check.YES)
+        // 45 days after it was opened, but 25 after its last use: still signed in
+        assertThat(sessions.check(id, t0 + 45 * day)).isNotEqualTo(keel.api.auth.WebSessions.Check.NO)
+        // 31 days without a use: gone
+        assertThat(sessions.check(id, t0 + 76 * day + 1000)).isEqualTo(keel.api.auth.WebSessions.Check.NO)
+        assertThat(sessions.check("ks_" + "0".repeat(64), t0)).isEqualTo(keel.api.auth.WebSessions.Check.NO)
+    }
+
+    @Test
+    fun `0_18_64 over https the cookie is a Secure __Host- cookie`() {
+        val code = post("/api/web/code").andExpect(status().isOk).json()["code"].asText()
+        val res = bare.perform(rget("/web/login").param("code", code).secure(true)).andExpect(status().isFound).andReturn()
+        val set = res.response.getHeader("Set-Cookie")!!
+        assertThat(set).startsWith("__Host-${key.cookieName}=ks_").contains("Secure").contains("HttpOnly").contains("Path=/")
+            .contains("Max-Age=${30L * 24 * 3600}").doesNotContain("Domain=")
+        val c = res.response.getCookie("__Host-${key.cookieName}")!!
+        bare.perform(rget("/api/projects").secure(true).cookie(c)).andExpect(status().isOk)
+    }
+
+    @Test
+    fun `0_18_64 a cookie from before (the web key itself) is swapped for a session once`() {
+        val old = Cookie(key.cookieName, key.value)
+        val res = bare.perform(rget("/api/projects").cookie(old)).andExpect(status().isOk).andReturn()
+        assertThat(res.response.getHeader("Set-Cookie")).startsWith(key.cookieName + "=ks_")
+    }
+
+    @Test
     fun `the web key is kept in a file only its owner reads`() {
         assertThat(key.value).hasSize(64)
         assertThat(Files.readString(key.file).trim()).isEqualTo(key.value)

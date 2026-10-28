@@ -33,9 +33,9 @@ import java.net.URI
  *  4. X-Keel-Token = the internal token: the engine, keel2 and keel's own scripts;
  *  5. `Authorization: Bearer <web key>`: a person's terminal app (the keel TUI); `Authorization: Bearer kd_…`: a paired
  *     phone's device token ([DeviceStore]): the person's access, except the device list and /internal; a removed one: 403;
- *  6. the sign-in cookie ([WebKey]): the browser. A GET passes with the cookie; any other method also needs
- *     `X-Keel-Web: 1` (a header another site's page cannot send: keel answers no CORS preflight) and, when the browser
- *     sends one, an Origin that is keel's own;
+ *  6. the sign-in cookie (0.18.64: a browser's own session, [WebSessions]): the browser. A GET passes with the cookie;
+ *     any other method also needs `X-Keel-Web: 1` (a header another site's page cannot send: keel answers no CORS
+ *     preflight) and, when the browser sends one, an Origin that is keel's own;
  *  7. anything else: 401 with how to sign in (`keel2 open`).
  * A wrong token is refused (403), never treated as "no token"; a cookie never lifts an MCP call to a person's access.
  * Open without a sign-in: GET /api/health and POST /api/devices/pair (a phone's one-time pairing code).
@@ -53,6 +53,7 @@ class LocalAuth(
     private val devices: DeviceStore,
     private val addresses: DeviceAddresses,
     private val limiter: AuthLimiter,
+    private val sessions: WebSessions,
 ) : OncePerRequestFilter() {
 
     override fun shouldNotFilterAsyncDispatch(): Boolean = true
@@ -101,8 +102,7 @@ class LocalAuth(
         }
         val cookie = key.cookieOf(request)
         if (cookie != null && limiter.blocked(AuthLimiter.Kind.SIGN_IN, request)) return tooMany(response)
-        if (cookie != null && !key.matches(cookie)) limiter.fail(AuthLimiter.Kind.SIGN_IN, request)
-        if (key.matches(cookie)) {
+        if (cookie != null && signedIn(cookie, request, response)) {
             if (request.method in SAFE) return pass(request, response, chain, "browser")
             if (request.getHeader(WEB_HEADER) != "1") {
                 return refuse(response, HttpServletResponse.SC_FORBIDDEN, "This change did not come from keel's own page", RELOAD)
@@ -113,8 +113,24 @@ class LocalAuth(
             }
             return pass(request, response, chain, "browser")
         }
+        if (cookie != null) limiter.fail(AuthLimiter.Kind.SIGN_IN, request)
         refuse(response, HttpServletResponse.SC_UNAUTHORIZED, SIGN_IN, HINT, signIn = true)
     }
+
+    /**
+     * 0.18.64 a live session of this browser ([WebSessions]); its use moves its end, and the cookie is sent again then.
+     * A cookie from before 0.18.64 held the web key itself: it is swapped for a session once, so nobody has to sign in again.
+     */
+    private fun signedIn(cookie: String, request: HttpServletRequest, response: HttpServletResponse): Boolean =
+        when (sessions.check(cookie)) {
+            WebSessions.Check.YES -> true
+            WebSessions.Check.MOVED -> true.also {
+                response.addHeader(org.springframework.http.HttpHeaders.SET_COOKIE, sessions.cookie(request, cookie).toString())
+            }
+            WebSessions.Check.NO -> key.matches(cookie).also { old ->
+                if (old) response.addHeader(org.springframework.http.HttpHeaders.SET_COOKIE, sessions.cookie(request, sessions.open()).toString())
+            }
+        }
 
     private fun pass(request: HttpServletRequest, response: HttpServletResponse, chain: FilterChain, who: String) {
         request.setAttribute(WHO_ATTR, who)
