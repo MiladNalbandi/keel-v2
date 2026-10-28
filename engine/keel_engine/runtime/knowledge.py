@@ -29,11 +29,11 @@ import yaml
 
 from .. import layout, rules
 from ..tools import git
+from . import citations as cite_mod
+from .citations import resolve
 
 SECTIONS = ["architecture", "domain", "conventions", "data", "integrations", "journeys"]
 
-# A citation is a backticked path with a line number; prose that merely names a file is not evidence.
-CITATION = re.compile(r"`([A-Za-z0-9_@./-]+\.[A-Za-z0-9]+):(\d+)(?:-(\d+))?`")
 PLACEHOLDER = re.compile(r"\{\{[A-Z_]+\}\}")
 PROOF = [re.compile(p) for p in (r"(^|/)(test|tests)/", r"(^|/)src/(test|integrationTest)/", r"Tests?\.(kt|java)$",
                                  r"\.(test|spec)\.(ts|tsx|js|jsx)$", r"^\.keel/hunt/repro/")]
@@ -55,32 +55,9 @@ def is_proof(rel: str) -> bool:
 
 
 def citations(text: str) -> list[dict]:
-    return [{"rel": m.group(1), "line": int(m.group(2)), "end": int(m.group(3)) if m.group(3) else None}
-            for m in CITATION.finditer(text)]
-
-
-def _lines(p: Path) -> int | None:
-    try:
-        return len(p.read_text(errors="replace").split("\n"))
-    except (OSError, IsADirectoryError):
-        return None
-
-
-def resolve(root: str, rel: str, files: list[str] | None) -> tuple[str | None, str | None]:
-    """(the file a citation names, the problem). A path that exists is itself. A shorthand (`.../a/B.java`, `B.java`)
-    is the one tracked file that ends with it: agents shorten long paths, and one match names the file as well as the
-    full path does. None of them, or two, is a problem the librarian can fix."""
-    if (Path(root) / rel).is_file():
-        return rel, None
-    tail = re.sub(r"^(\.\.\./|…/)+", "", rel).lstrip("/")
-    if files is None or not tail:
-        return None, "does not exist"
-    hits = [f for f in files if f == tail or f.endswith("/" + tail)]
-    if len(hits) == 1:
-        return hits[0], None
-    if hits:
-        return None, f"matches {len(hits)} files ({', '.join(hits[:3])}{', …' if len(hits) > 3 else ''}); give the full path"
-    return None, "does not exist"
+    """A citation is a backticked path with a line number; prose that merely names a file is not evidence. 0.18.64 the
+    parser is shared with the spec check (runtime/citations.py)."""
+    return cite_mod.find(text, quoted=True)
 
 
 def built(root: str) -> list[str]:
@@ -210,7 +187,7 @@ def check_section(root: str, name: str, cfg: dict, files: list[str] | None = Non
     cites = citations(text)
     for c in cites:
         path, why = resolve(root, c["rel"], files)
-        n = _lines(Path(root) / path) if path else None
+        n = cite_mod.lines(Path(root) / path) if path else None
         if n is None:
             problems.append(f"{rel}: cites `{c['rel']}:{c['line']}`, which {why or 'does not exist'}")
             continue

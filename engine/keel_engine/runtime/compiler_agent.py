@@ -620,8 +620,9 @@ class AgentMixin:
             if acs:
                 # keel's spec check: something clear is missing (a screen with no mockup, an API with no request path)
                 # → send the spec back to the explorer ONCE, in the same session. Otherwise the gate shows the warnings.
-                found = spec_check.check(await asyncio.to_thread(spec_check.read_spec, ctx.root, spec or state.get("spec")), acs,
-                                         spec_check.outside_facts(ctx.request, state.get("data")))
+                # 0.18.64 with the project's root: its citations are checked against the files (git ls-files, reads)
+                found = await asyncio.to_thread(spec_check.check, spec_check.read_spec(ctx.root, spec or state.get("spec")), acs,
+                                                spec_check.outside_facts(ctx.request, state.get("data")), ctx.root)
                 if any(f["level"] == "fix" for f in found) and not state.get("spec_revisions") \
                         and ctx.settings.get("spec_check", not ctx.fake):
                     upd.update(spec_revisions=1, feedback=spec_check.revision_note(found), clarify={},

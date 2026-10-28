@@ -614,6 +614,19 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         return guard(more.read_file, api, path, project, start, lines)
 
     @reg(ro)
+    def keel_spec_check(path: str, project: str | None = None) -> str:
+        """keel's spec check on a spec or clarify document of the project (path relative to it, e.g.
+        docs/specs/orders.md): its criteria and what is missing, as a flow checks it before the spec gate, with every
+        path:line it cites checked against the project's files. Changes nothing."""
+        return guard(more.spec_check, api, path, project)
+
+    @reg(ro)
+    def keel_citations_check(path: str | None = None, text: str | None = None, project: str | None = None) -> str:
+        """Every path:line (also path:10-20, path#L10) in a file of the project, or in a text, checked against the
+        project's files: the citations whose file does not exist or whose lines are past its end. Give path or text."""
+        return guard(more.citations_check, api, path, text, project)
+
+    @reg(ro)
     def keel_actions() -> str:
         """keel's engine actions (checks, traces, reports ...), each with its level: read, write, admin or flow-only."""
         return more.actions(lvl)

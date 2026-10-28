@@ -37,7 +37,8 @@ def test_a_shorthand_or_bare_file_name_citation_resolves_to_its_one_tracked_file
     write(repo, "docs/knowledge/architecture.md", "# Architecture\n\n"
           "Too far (`.../owner/OwnerRepository.java:99`), two of them (`Dup.java:1`), gone (`Gone.java:1`).\n")
     problems = "\n".join(knowledge.check(str(repo))["problems"])
-    assert "`.../owner/OwnerRepository.java:99` but that file has 61 line(s) (src/main/java/org/x/owner/OwnerRepository.java)" in problems
+    # 0.18.64 the real count: the last newline ends line 60, it does not start a 61st (runtime/citations.py lines)
+    assert "`.../owner/OwnerRepository.java:99` but that file has 60 line(s) (src/main/java/org/x/owner/OwnerRepository.java)" in problems
     assert "`Dup.java:1`, which matches 2 files (a/Dup.java, b/Dup.java); give the full path" in problems
     assert "`Gone.java:1`, which does not exist" in problems
 

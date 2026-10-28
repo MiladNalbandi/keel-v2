@@ -314,6 +314,10 @@ The rule: never start any coding task without answering these questions first.
   for a new feature or an API integration, fix for a bug, change or small for a refactor, change or spike for
   performance, spike or feature for architecture): the criteria and the answers are its seed. Or copy the prompt
   only (no flow starts), send it back with a note, or stop.
+- **Citations** (0.18.64): the spec check (here and in the feature flow) also reads every `path:line`, `path:10-20`
+  or `path#L10` the document cites. A file that does not exist, or a line past its end ("src/orders.py:88-95 does
+  not exist: the file has 40 lines"), sends the document back once like any missing section. From an MCP client:
+  `keel_spec_check(path)` and `keel_citations_check(path or text)`.
 
 ### review
 
@@ -1100,7 +1104,7 @@ keel has an MCP server with three levels; each includes the one below:
 
 | level | how | adds |
 |---|---|---|
-| read (default) | `keel2 mcp` | status, timeline, next step, phase rules, dashboard links, flows, Inbox, live agents, budget, specs (with history), knowledge, search, read a file, engine actions, keel's rules, workflows, agents (one agent's steps live), KeelBot's chats and changes, diagrams in ASCII (`keel_diagram`), skills, stacks, the formats and checks that save nothing (`keel_format`, `keel_workflow_check`, `keel_rule_check`, `keel_stack_check`), the marketplace search, the Database, Git and CI/CD read tools |
+| read (default) | `keel2 mcp` | status, timeline, next step, phase rules, dashboard links, flows, Inbox, live agents, budget, specs (with history), knowledge, search, read a file, engine actions, keel's rules, workflows, agents (one agent's steps live), KeelBot's chats and changes, diagrams in ASCII (`keel_diagram`), skills, stacks, the formats and checks that save nothing (`keel_format`, `keel_workflow_check`, `keel_rule_check`, `keel_stack_check`), keel's spec check on a spec or clarify file (`keel_spec_check`) and the check of every `path:line` it cites (`keel_citations_check`, also on a text), the marketplace search, the Database, Git and CI/CD read tools |
 | write | `keel2 mcp --write` | decide or send back a gate, answer the Inbox (several answers, a choice and a reason; questions in a form when the client can show one), start a flow (no type: every flow with what it is for and its inputs, like ticket or pr for review-pr), stop and resume flows, set a run mode, start an agent, ask KeelBot (`keel_keelbot_ask`, also `mode=edit`) and keep or undo its changes, create workflows, rule packs, agents, skills and stacks, attach skills, set an agent's model and effort, restore a spec, git / PR / CI / database writes, Code Review comments and submits |
 | admin | `keel2 mcp --admin` | delete flows, pause (`keel_pause`; `keel_resume` goes on), add and remove projects, switch the project the dashboard and keel TUI show (`keel_focus`), connect GitHub with a one-time code (`keel_connect_github`: it returns the code and the link, never the token), change workflows, install and change rules |
 
@@ -1132,7 +1136,7 @@ stderr) and answers a tool's own error as text, so a slow call never makes a cli
 |---|---|
 | keel_status, keel_projects, keel_timeline, keel_next, keel_explain | the same names |
 | keel_dashboard (flow, map, er) | keel_dashboard (flow, map, er) |
-| — | keel_flows, keel_inbox, keel_live, keel_budget, keel_specs, keel_knowledge, keel_search, keel_read_file, keel_actions (read); write and admin tools (v1 has none) |
+| — | keel_flows, keel_inbox, keel_live, keel_budget, keel_specs, keel_knowledge, keel_search, keel_read_file, keel_spec_check, keel_citations_check, keel_actions (read); write and admin tools (v1 has none) |
 
 keel v1 is a separate project; its MCP server can be added like any other: `keel2 start --with-keel-v1 <keel
 checkout>`, then turn on "keel v1 (optional)" in Tools.

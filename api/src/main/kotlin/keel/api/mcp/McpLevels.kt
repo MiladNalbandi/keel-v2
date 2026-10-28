@@ -180,6 +180,8 @@ class McpLevelGuard(private val tokens: McpTokens, private val mapper: ObjectMap
             // 0.18.9 a stack's check (keel_stack_check): it saves nothing. Saving, removing, turning off and a marketplace
             // install are write (keel_stack_create, _remove and _market_install ask the person first)
             Regex("^/api/projects/[^/]+/stacks/check$"),
+            // 0.18.64 keel's spec check and citation check on a file of the project (keel_spec_check, keel_citations_check)
+            Regex("^/api/projects/[^/]+/(specs|citations)/check$"),
         )
     }
 }
