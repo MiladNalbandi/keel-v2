@@ -3274,3 +3274,83 @@ From the field report (docs/plans/field-report-clarify.md, "A third report: the 
   reviewer's item. The correctness lens is dropped after a passed full-diff review only with `drop_correctness: true`.
 - **web**: Settings › Review (`#/settings/review`, `pages/settings/Review.tsx`); the Review page's Problems tab says
   `config.find.text` and offers Fix it (or quick / small / change when Settings asks each time).
+
+## keel 0.18.65: the project's CI jobs on CI's versions (feat/ci-pipeline)
+
+Field report "CI ran on other versions" (docs/plans/field-report-clarify.md): a flow passed keel's style check and tests
+on the machine's newest runtime and the review, and the project's CI failed: its style job runs on an older runtime
+where the style tool flags code the local run accepted. keel now runs the CI jobs itself, on CI's versions.
+
+```
+ship step  { id: ci, kind: code, action: ci_pipeline, phase: ship, soft: true, skippable: optional }   after lint
+action     ci_pipeline (MCP write)   ci_report (MCP read)          runtime/ci_pipeline.py, runtime/ci_config.py
+verdict    ci  { summary, report (Markdown), docker, runs: RunResult[], style: string[], sources }   (verdicts.KINDS)
+flow data  data.ci_pipeline = { status: off|none|passed|failed|not run, summary, docker, counts, style }
+           data.ci_pipeline_report = the Markdown report
+.keel/config.yml  ci: { run: auto|on|off (auto), timeout: min per run (15), budget: min for all (45), max_runs (24),
+                        jobs: [job ids], extensions: report|install }
+engine POST /projects/{pid}/actions/{name}  + args.thread_id?  the action runs in that flow's folder (its worktree);
+                                             404 when the flow is not this project's; the other args are the action's
+                                             params. ci_pipeline / ci_report answer the head of the detail (12000).
+MCP        keel_ci_report(project?) (read)   keel_ci_run(project?, thread_id?, jobs?) (write; budget 14 min)
+type Run       = { key, source, job, name, matrix, runtime: php|node|python|java|go|"", version, image, image_from:
+                   config|"", extensions, tools, env, steps: [{name, run, dir, env, allow_fail, shell}], skip, notes, style }
+type RunResult = { key, source, job, name, matrix, runtime, version, image, style, tools, result: passed|failed|
+                   could not run|skipped, why, ms, where, notes, step?, cmd?, code?, tail?, timed_out?, setup? }
+```
+
+- **Reading** (`ci_config.plan(root)` → `{sources, runs, problems}`). GitHub: `.github/workflows/*.yml|yaml`; a
+  workflow named or filed as deploy / release / publish, or one not on push / pull_request / merge_group, is skipped
+  whole. Per job: `strategy.matrix` expanded as GitHub does (product, `exclude` by partial match, `include` added to the
+  combinations whose original values it keeps, else a combination of its own; a matrix from an expression is a skip);
+  `${{ matrix.* }}`, `${{ env.* }}`, `github.workspace`, `runner.os` filled, other expressions left empty with a note;
+  the setup actions (`shivammathur/setup-php` php-version, extensions, coverage, tools; `actions/setup-node`,
+  `setup-python`, `setup-java`, `setup-go` with their version input or version file) give runtime and version;
+  `container:` gives the image; `ramsey/composer-install` becomes `composer install`/`update`; checkout and cache do
+  nothing; other actions are notes. YAML floats stay text (`3.10` is not `3.1`). GitLab: `.gitlab-ci.yml` jobs (not the
+  reserved keys, not hidden `.templates`), `extends:` merged, `default:`, `variables:` (global, job, matrix),
+  `image:` with `$VAR` expanded, `before_script` + `script` as one step, `after_script` as an allowed-to-fail step,
+  `parallel: matrix:` (each entry's product, the entries added up); `include:` is a note, not followed.
+- **Skipped, with the reason** (`skip`): deploy / release / publish (job id, name, GitLab stage) or a job with
+  `environment:`; a job that needs secrets (`secrets.*` other than `GITHUB_TOKEN` in workflow, job, container or step
+  env, in a run line or an action's `with:`; GitLab `secrets:`); `GITHUB_TOKEN` alone is dropped with a note; a job on
+  Windows or macOS; a job with `services:`; a reusable-workflow call; GitLab `when: manual|never` and `trigger:`; past
+  `max_runs`; not in `ci.jobs`.
+- **Running** (`ci_pipeline.execute`). Docker when `docker version` reaches an engine (`docker_ready`;
+  `KEEL_CI_DOCKER=0` turns it off): `keel2 --docker` mounts the host's socket into keel's container, native mode has
+  the computer's docker. Each run: `docker create --name keel-ci-<id> --label keel.ci=1 --workdir /work --security-opt
+  no-new-privileges --pids-limit 4096 --network bridge --entrypoint /bin/sh <image> /work/.keel-ci/run-<n>.sh`, `docker
+  cp <temp copy>/. <name>:/work`, `docker start --attach <name>` (at most `ci.timeout`), `docker rm --force --volumes`.
+  Fixed argument lists; the docker client gets only docker's own environment variables. No `-v`, `--mount`,
+  `--privileged`, docker socket or host network. The image is the job's `container:` / `image:` or keel's official one
+  (`php:<v>-cli`, `node:<v>`, `python:<v>`, `eclipse-temurin:<v>`, `golang:<v>`); any other is refused
+  (`image_allowed`: a CI config image or `OFFICIAL`, never one that does not match `IMAGE_OK`). The temp copy holds
+  what git tracks plus untracked files it does not ignore (no `.git`, no `vendor/`, no `node_modules/`, no
+  `.keel/worktrees/`), and the scripts under `.keel-ci/`; it is deleted at the end. Without Docker (or for a run with
+  no runtime and no image): the run goes on keel's own shell in a temp copy of its own when `local_version(runtime)`
+  fits CI's (`7.4` fits 7.4.33; `lts` / `latest` fit any), else `could not run: <runtime> <version> not available here
+  (this machine has <v>) (keel2 --docker runs it in a container)`. A compose service or dev container is not used: its
+  commands would run in the project folder itself. When the branch changed a CI config file (against the base, or not
+  committed: an agent may edit it during the flow), no run goes on keel's shell (`changed_config`): "could not run:
+  this branch changed the CI config (…): keel runs it only in a container".
+- **The script** (`ci_pipeline.script`): exports `CI=true` (+ `GITHUB_ACTIONS`, `GITHUB_WORKSPACE` or `GITLAB_CI`,
+  `CI_PROJECT_DIR`) and the run's env (valid names only, values quoted); in an official PHP image it installs composer
+  (and git, unzip) when a step names composer or setup-php lists tools, `composer global require` for setup-php's tools
+  (`PHP_TOOLS`: `php-cs-fixer:3.4` → `friendsofphp/php-cs-fixer:3.4.*`), and checks each extension (`ci.extensions:
+  install` tries `pecl install` + `docker-php-ext-enable` or `docker-php-ext-install`); each step runs in its folder
+  (inside the copy) with `bash --noprofile --norc -eo pipefail`, else `sh -e`, between marker lines with a per-run
+  nonce, so the report names the failing step and only its output.
+- **Report** (`ci_pipeline.report`): `## CI on its own versions`, where it ran, a table `job | versions | result |
+  time`, the summary line ("CI on its own versions: 1 of 4 run(s) failed (cs · PHP 7.4); 2 passed, 1 could not run, 1
+  skipped."), per failure the command and the last 40 lines, `### Style check`, `### Notes`. The action fails only
+  when a run failed (the ship step is soft); nothing passed and nothing failed is "not available".
+- **Style** (`style_check`): CI's style jobs (`ci_config.STYLE`: php-cs-fixer, phpcs, pint, eslint, prettier, black,
+  ruff ..., or a job named lint / cs / code style) that ran: "that result counts over keel's own style check". For each
+  of keel's style tools (the lint verdict's, else the declared ones whose program answers) on another runtime version
+  than CI's: "your style check ran on PHP 8.4.1 with php-cs-fixer v3.64.0; CI runs PHP 7.4 (php-cs-fixer:3.4)." (the
+  versions through the tool's own container prefix when its command has one).
+- **Where it shows**: the final review (`ship.final_report`: an exception line when the fresh ci verdict failed, a
+  `ci` row in the verdict table when there is a verdict, the report from the flow's data or a fresh verdict); the PR
+  body (`verdict_actions.ci_section`); each ship lens reviewer's item (`ci`: the report cut to 2500 characters).
+- Not done yet: pointing keel's own lint step at CI's version when Docker is there (the report names the mismatch);
+  service containers; GitLab `include:`; Windows and macOS runners.

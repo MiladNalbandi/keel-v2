@@ -1,4 +1,4 @@
-workflow feature "feature (keel)" - 126 steps, 19 gates
+workflow feature "feature (keel)" - 127 steps, 19 gates
 
 loop: For each criterion (each criterion)  id=ac
   :  o  red  (agent test-author)

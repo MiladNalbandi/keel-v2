@@ -1024,6 +1024,7 @@ def pr_body(root: str, project: str, state: dict, title: str, base: str | None, 
         out.append(f"Pass — {d.get('summary') or 'coverage met'}" if cov.get("ok") else f"FAIL — {'; '.join(d.get('problems') or []) or d.get('summary')}")
     out.append("")
     out += lint_section(project)
+    out += ci_section(project)
     accepted = data.get("coverage_accepted") or []
     if accepted:
         out += ["## Uncovered lines accepted", ""] + [f"- `{x.get('key') or x.get('id')}`: {x.get('reason') or 'no reason given'}"
@@ -1089,6 +1090,21 @@ def lint_section(project: str) -> list[str]:
         res = "not available" if not t.get("available", True) else ("pass" if t.get("ok") else
                                                                     "warning" if t.get("fail") == "warn" else "fail")
         out.append(f"- {name} ({t.get('on')}, {t.get('fail')}): {res}")
+    return out + [""]
+
+
+def ci_section(project: str) -> list[str]:
+    """0.18.65 the PR body's CI line: what the project's own CI jobs said on CI's versions (the ci verdict), one line
+    per run that did not pass. Nothing when keel never ran them."""
+    v = verdicts.latest(project, "ci")
+    if not v:
+        return []
+    d = v.get("detail") or {}
+    out = ["## CI jobs on CI's versions (run by keel)", "", str(d.get("summary") or d.get("reason") or "")]
+    for r in d.get("runs") or []:
+        if isinstance(r, dict) and r.get("result") in ("failed", "could not run"):
+            out.append(f"- {r.get('name')} {r.get('runtime') or ''} {r.get('version') or ''}".rstrip()
+                       + f": {r.get('result')}" + (f" ({r.get('why')})" if r.get("why") else ""))
     return out + [""]
 
 

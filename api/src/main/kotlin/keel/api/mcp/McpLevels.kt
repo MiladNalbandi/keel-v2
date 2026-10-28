@@ -121,7 +121,7 @@ class McpLevelGuard(private val tokens: McpTokens, private val mapper: ObjectMap
          * runtime/action_docs.py ACTION_LEVELS: change both together (McpLevelsApiTest and engine test_mcp.py pin them).
          */
         val READ_ACTIONS = setOf("audit", "trace", "trace_strict", "arch", "arch_detect", "coverage_report", "lint_scope",
-            "lint_report", "review_lenses")
+            "lint_report", "review_lenses", "ci_report")
 
         /** The engine actions that need the admin level. Twin of the "admin" names in engine action_docs.ACTION_LEVELS. */
         val ADMIN_ACTIONS = setOf("arch_set", "open_pr")

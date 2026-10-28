@@ -111,3 +111,22 @@ A review of the same branch on Opus found five problems the last review never lo
 | S2 | the last review runs on the project's default model: a stronger model and a higher effort by default, set in Settings › Review | fixed in 0.18.65 (`review.final`, Opus at high effort for a project below Opus) |
 | S3 | the ship review has no lens for consumers and config, and drops its correctness lens after a passed full-diff review | fixed in 0.18.65 (`consumers-config`, `review.drop_correctness` off by default) |
 | S4 | the Review page's reviewers, their lenses and the checker are fixed in code: a project cannot add its own lens or reviewer | fixed in 0.18.65 (Settings › Review, `.keel/lenses/<name>.md`) |
+
+## A fourth report: CI ran on other versions (0.18.65)
+
+A feature flow on a PHP project passed every check keel ran: the style check and the tests (on the machine's newest
+PHP, with an older style tool) and keel's review. The project's CI failed. Its style job runs on PHP 7.4, where a newer
+version of the style tool flags code the local run had accepted; its test jobs run a matrix of PHP 7.4, 8.1 and 8.2,
+each with another framework version. Running each CI job in Docker on CI's versions found the problem at once.
+
+```
+ keel's checks:  style (PHP 8.4, tool v3.x) ✓   tests (PHP 8.4) ✓   review ✓
+ the PR's CI:    style (PHP 7.4) ✗   tests 7.4 / 8.1 / 8.2 × framework versions
+```
+
+| # | what keel lacked | status |
+|---|---|---|
+| C1 | run the project's own CI jobs on CI's versions before ship | 0.18.65: the ship step `ci` (GitHub Actions and GitLab CI, matrix expanded, in throw-away containers with `keel2 --docker`) |
+| C2 | say when keel's style check ran on another runtime than CI's style job | 0.18.65: the report's style check names both versions; CI's result counts |
+| C3 | run keel's own lint step on CI's version when Docker is there | open |
+| C4 | jobs that need service containers (a database) | open: skipped with the reason |

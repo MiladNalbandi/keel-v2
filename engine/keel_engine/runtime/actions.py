@@ -6,9 +6,10 @@ image). Commits are real whenever the root is a git repository, so COMMIT_RULES 
 Checks that decide a push write a verdict to the engine DB (runtime/verdicts.py): knowledge_check -> memory,
 verify_release and a whole-suite verify_green -> release, verify_coverage -> coverage. Simulated runs write none.
 The other verdict actions (verify_fast, verify_module, verify_deps, audit, trace, arch) and the PR (pr, open_pr) live
-in runtime/verdict_actions.py; review_lenses and coverage_report in runtime/ship.py; the review, diagnose, fix and change
-helpers in runtime/flow_actions.py, the feature flow's in runtime/feature_actions.py; start_flow and escalate_model are
-the compiler's (they start a thread, change a model).
+in runtime/verdict_actions.py; the CI pipeline (ci_pipeline, ci_report) in runtime/ci_pipeline.py; review_lenses and
+coverage_report in runtime/ship.py; the review, diagnose, fix and change helpers in runtime/flow_actions.py, the feature
+flow's in runtime/feature_actions.py; start_flow and escalate_model are the compiler's (they start a thread, change a
+model).
 The hunt's backlog actions (hunt_*) are in runtime/hunt_actions.py, init's architecture and ladder-repair steps
 in runtime/init_actions.py, review-pr's (ticket_*) in runtime/ticket_actions.py.
 """
@@ -29,7 +30,7 @@ from ..tools.agent_tools import command_env
 from . import blockers as push_gates
 from . import choices as choices_mod
 from . import bug as bug_mod
-from . import feature_actions, flow_actions, knowledge, lint_actions, ship, verdict_actions, verdicts
+from . import ci_pipeline, feature_actions, flow_actions, knowledge, lint_actions, ship, verdict_actions, verdicts
 from . import test_scope
 from . import commit_style
 from . import tools as tool_runner
@@ -43,6 +44,7 @@ VERDICT_ACTIONS = {
     "pr": verdict_actions.pr, "open_pr": verdict_actions.open_pr,
     "review_lenses": ship.review_lenses, "coverage_report": ship.coverage_report, "memory_plan": ship.memory_plan,
     "memory_skip": ship.memory_skip, "knowledge_scan": ship.knowledge_scan, **lint_actions.ACTIONS,
+    **ci_pipeline.ACTIONS,     # 0.18.65 the project's own CI jobs on CI's versions (runtime/ci_pipeline.py)
 }
 
 

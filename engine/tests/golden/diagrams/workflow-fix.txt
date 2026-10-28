@@ -1,4 +1,4 @@
-workflow fix "fix (keel)" - 61 steps, 9 gates
+workflow fix "fix (keel)" - 62 steps, 9 gates
 
 == Bug report: take in the bug report ==  id=bug-report
    #  bug report  (code bug_intake)
@@ -55,7 +55,7 @@ workflow fix "fix (keel)" - 61 steps, 9 gates
       |   o  regression e2e  (agent e2e-author)
       |   #  commit e2e  (code commit)
       no: go on
-[+] include ship: checks, reviews and the pull request (36 steps)  id=ship
+[+] include ship: checks, reviews and the pull request (37 steps)  id=ship
 == Close: decision records and the closing note ==  id=close
    #  done  (code)
         then -> end of the flow

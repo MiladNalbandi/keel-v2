@@ -340,6 +340,24 @@ def run_action(api: KeelApi, action: str, level: str, args: dict | None = None, 
     return f"{action}: {'ok' if r.get('ok') else 'failed'} · {r.get('note') or ''}" + (f"\n{r['detail']}" if r.get("detail") else "")
 
 
+def ci_run(api: KeelApi, level: str, project: str | None = None, thread_id: str | None = None,
+           jobs: list[str] | None = None) -> str:
+    """0.18.65 the ci_pipeline action now (keel_ci_run): in the flow's folder with thread_id (the engine finds its
+    worktree and refuses a flow of another project), else the project folder. keel runs the containers, never the
+    client. The budget stays under the api's wait (ACTION_TIMEOUT)."""
+    args: dict[str, Any] = {"budget": ACTION_TIMEOUT // 60 - 1}
+    if thread_id:
+        args["thread_id"] = thread_id
+    if jobs:
+        args["jobs"] = [str(j) for j in jobs]
+    return run_action(api, "ci_pipeline", level, args, project)
+
+
+def ci_report(api: KeelApi, project: str | None = None) -> str:
+    """0.18.65 the last CI pipeline report (the ci verdict) through the read-level ci_report action."""
+    return run_action(api, "ci_report", "read", {}, project)
+
+
 def state(api: KeelApi, project: str | None = None, write: bool = False) -> str:
     """0.18.64 keel's flow state for the project (GET /projects/{pid}/keel-state): the keel v2 flows that run or wait
     there, and keel v1's leftover .keel/state.json with what it blocks."""
