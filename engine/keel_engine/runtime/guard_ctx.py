@@ -3,6 +3,8 @@
     {root, phase, ac: {id, layer} | null, lane, unlocks: [{path, phase, by?, reason?, at?}], agent, thread,
      knowledge_allowed: [section] | null, knowledge_strict: bool, readonly: bool, read_tools: {server: [tool]}}
 
+flow (0.18.64, a flow's agents only): the flow in words, '"<title>" (thread <id>)'; the hook's refusal of a commit names it.
+
 readonly: the run mode is readonly (runtime/run_mode.py): every edit, write, commit and changing shell command is refused.
 
 read_tools: the read tools of the parts' MCP servers, the plugins' too (keel-ci): they pass in every phase. The hook runs
@@ -162,6 +164,8 @@ def context_for(req) -> dict:
             **({"others": list(tb.others), "others_off": bool(getattr(tb, "others_off", False)),
                 "outside_refused": (req.model or {}).get("provider") == "claude" and (req.model or {}).get("mode", "api") != "api"}
                if getattr(tb, "others", None) is not None else {}),
+            # 0.18.64 the flow in words ("Prices in euros" (thread t-1)): a refused commit names it
+            **({"flow": tb.flow} if getattr(tb, "flow", "") else {}),
             # keel 0.18.18 KeelBot's only (absent for a flow's agents)
             **{k: v for k, v in (("readonly_label", getattr(tb, "readonly_label", "")),
                                  ("readonly_note", getattr(tb, "readonly_note", "")),

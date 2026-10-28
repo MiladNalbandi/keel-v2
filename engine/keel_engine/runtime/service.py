@@ -341,10 +341,12 @@ class Engine:
         spec = spec_check.start_spec(root, state["data"].get("spec"))
         if spec:
             state["spec"] = spec
+            text = spec_check.read_spec(root, spec)
+            # 0.18.64 its text at the start: the spec check names a risk or criterion the flow's agents drop from it
+            state["data"]["spec_at_start"] = text[:prompts.EVIDENCE_MAX]
             if not state["acs"]:
                 from .feature_actions import order_acs, spec_order, with_depends
 
-                text = spec_check.read_spec(root, spec)
                 # v0.17.5 the spec's ORDER line is the build order from the start, with each criterion's depends_on
                 state["acs"] = with_depends(order_acs(prompts.parse_acs(text), spec_order(text)), text)
         if await asyncio.to_thread(git.is_repo, root):

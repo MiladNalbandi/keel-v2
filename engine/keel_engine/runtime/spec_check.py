@@ -189,6 +189,128 @@ def outside_facts(request: str, data: dict | None) -> bool:
     return bool(str(data.get("web_docs_text") or "").strip()) or bool(URL.search(f"{request or ''}\n{seed.get('evidence') or ''}"))
 
 
+# ------------------------------------------------------------------ 0.18.64 what a handed-over spec named, kept
+
+# A flow handed a spec (a clarify hand-over, a spec pasted into the request, the spec file it started from) wrote its
+# spec again and dropped a risk the person had named. These sections' items and every criterion line must still be in
+# the spec the flow wrote: in its words, or close (most of an item's words in one line of the spec).
+KEPT = (("risk", ("risk",)), ("out-of-scope item", ("out of scope", "not in scope", "non-goal")))
+HEAD = re.compile(r"^\s*(?:#{1,6}\s+(.+?)\s*#*|\*\*([^*\n]{2,60}?):?\*\*:?|([A-Za-z][\w ,/&()-]{2,40}):)\s*$")
+BULLET = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s+)?")
+STOP = frozenset("the and for with that this from into when then than are was were has have had not but its it's will "
+                 "can may must should would could any all each per our your their they them there here what which who "
+                 "how why also only just been being given".split())
+KEEP_MIN = 0.6              # the share of an item's words one line of the spec must have
+LOST_SHOWN = 8              # lost items named one by one; the rest are counted
+
+
+def _words(text: str) -> list[str]:
+    return [w for w in re.findall(r"[a-z0-9]+", str(text or "").lower()) if (len(w) > 2 or w.isdigit()) and w not in STOP]
+
+
+def _units(text: str) -> list[str]:
+    """The text's items: a list item with its follow-up lines, a table row, a paragraph line (fenced code and HTML
+    comments left out)."""
+    text = re.sub(r"<!--.*?-->", "", re.sub(r"```.*?(```|\Z)", "", text or "", flags=re.S), flags=re.S)
+    out: list[str] = []
+    open_item = False
+    for line in text.splitlines():
+        s = line.strip()
+        if not s or re.match(r"^\|?[\s:|-]+\|?$", s) or HEAD.match(line):
+            open_item = False
+            continue
+        if s.startswith("|"):
+            out.append(" ".join(c.strip() for c in s.strip("|").split("|")))
+            open_item = False
+        elif BULLET.match(line) or not open_item:
+            out.append(BULLET.sub("", line).strip())
+            open_item = True
+        else:
+            out[-1] += " " + s
+    return [u for u in out if u]
+
+
+def _parts(text: str) -> list[tuple[str, str]]:
+    """(section name in lower case, its body) for every heading, bold label or "Name:" line of a document."""
+    marks = []
+    for m in re.finditer(r"^.*$", text or "", re.M):
+        h = HEAD.match(m.group(0))
+        if h:
+            marks.append((m.start(), m.end(), (h.group(1) or h.group(2) or h.group(3) or "").strip().lower()))
+    return [(name, text[e:marks[n + 1][0] if n + 1 < len(marks) else len(text)]) for n, (_s, e, name) in enumerate(marks)]
+
+
+def _is_spec(text: str) -> bool:
+    """A handed-over document is a spec (not a spike's findings or a hunt's evidence): front matter, or an Acceptance
+    criteria section."""
+    return bool(re.match(r"\A---\n.*?\n---\n", text or "", re.S)) or any(n.startswith("acceptance criteria") for n, _b in _parts(text))
+
+
+def kept_items(text: str) -> list[tuple[str, str]]:
+    """(kind, text) of what a handed-over spec names that the flow's spec must keep: each item under a Risks or Out of
+    scope heading (or a "Risks:" label), and every criterion line."""
+    from .prompts import parse_acs
+
+    out: list[tuple[str, str]] = []
+    for name, body in _parts(text):
+        kind = next((k for k, pre in KEPT if name.startswith(pre)), None)
+        if kind:
+            out += [(kind, u) for u in _units(body) if len(_words(u)) >= 2 and not BARE_NONE.match(u)]
+    out += [("criterion", f"{a['id']} {a['title']}") for a in parse_acs(text)]
+    return out
+
+
+def seeded(request: str, data: dict | None) -> list[tuple[str, str]]:
+    """(where, the document) of every spec this flow was handed: the spec file it started from (its text at the
+    start, data.spec_at_start), a parent flow's document that is a spec (data.seed.evidence: the clarify hand-over),
+    and the request when it names risks, out-of-scope items or criteria itself."""
+    data = data or {}
+    seed = data.get("seed") if isinstance(data.get("seed"), dict) else {}
+    ev = seed.get("evidence")
+    ev = "\n".join(str(x) for x in ev) if isinstance(ev, list) else str(ev or "")
+    out = []
+    if str(data.get("spec_at_start") or "").strip():
+        out.append(("the spec this flow started from", str(data["spec_at_start"])))
+    if _is_spec(ev):
+        out.append(("the handed-over document", ev))
+    if kept_items(request or ""):
+        out.append(("the request", request))
+    return out
+
+
+def lost(text: str, request: str, data: dict | None) -> list[dict]:
+    """"fix" findings for what a handed-over spec (seeded) named and the spec no longer has: a risk, an out-of-scope
+    item or a criterion whose words are not in any line of the spec. [] when the flow was handed no spec, or there is
+    no spec text yet."""
+    if not (text or "").strip():
+        return []
+    units = [set(_words(u)) for u in _units(text)]
+    flat = " ".join(_words(text))
+    gone: list[tuple[str, str, str]] = []
+    seen: set[str] = set()
+    for where, doc in seeded(request, data):
+        for kind, item in kept_items(doc):
+            words = _words(re.sub(r"^\s*AC-\d+\s*", "", item))
+            key = " ".join(words)
+            if not words or key in seen:
+                continue
+            seen.add(key)
+            if key in flat or max((len(set(words) & u) / len(set(words)) for u in units), default=0) >= KEEP_MIN:
+                continue
+            gone.append((where, kind, item))
+    out = [{"level": "fix", "text": f"Lost from {where}: the {kind} “{_short(item)}” is not in the spec. Put it back "
+                                    "(its words, or close), in its section."} for where, kind, item in gone[:LOST_SHOWN]]
+    if len(gone) > LOST_SHOWN:
+        out.append({"level": "fix", "text": f"{len(gone) - LOST_SHOWN} more items of what the flow was handed are not in "
+                                            "the spec: keep every risk, criterion and out-of-scope item it named."})
+    return out
+
+
+def _short(text: str, n: int = 140) -> str:
+    t = re.sub(r"\s+", " ", text).strip()
+    return t if len(t) <= n else t[:n].rstrip() + " …"
+
+
 def template_path() -> str:
     from .. import config
 

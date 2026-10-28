@@ -377,7 +377,10 @@ def commit(root: str, message: str, settings: dict | None = None) -> dict:
     r = git.git(root, *ident, "commit", "-q", "-m", first.strip(), *(["-m", rest.strip()] if rest.strip() else []), *trailer)
     if r.returncode != 0:
         git.git(root, "reset", "-q")
-        raise GitError(400, f"git commit failed: {_tail(r.stderr or r.stdout, 400)}")
+        from keel_engine.runtime import v1_state
+
+        # 0.18.64 keel v1's hooks refuse commits while its state file names a flow: the hint names it
+        raise GitError(400, f"git commit failed: {_tail(r.stderr or r.stdout, 400)}", v1_state.leftover(root))
     return {"sha": (git.head(root) or "")[:12], "subject": first.strip(), "files": staged}
 
 

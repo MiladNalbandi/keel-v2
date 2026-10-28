@@ -40,6 +40,8 @@ def failed(command: str, output: str, code=None) -> dict:
 
 
 class ToolBox:
+    flow = ""                       # 0.18.64 the flow this run belongs to, in words: a refused commit names it
+
     def __init__(self, root: str, phase: str, *, cfg: dict | None = None, lane: str | None = None,
                  ac: str | None = None, ac_layer: str = "API",
                  on_refuse: Callable[[str, str, str], None] | None = None, unlocks: list[dict] | None = None,
@@ -188,7 +190,7 @@ class ToolBox:
             return self._refuse("run_command", "", why, command=command)
         v = rules.check_bash(self.phase, command, self.cfg, root=self.root,
                              exists=lambda rel: (Path(self.root) / rel).exists(), unlocks=self.unlocks,
-                             push_blockers=self.push_blockers)
+                             push_blockers=self.push_blockers, flow=self.flow)
         if not v.ok:
             # path is the file the command tried to write (empty for a refused command with no target).
             return self._refuse("run_command", v.path, v.reason, command=command)

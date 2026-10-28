@@ -902,7 +902,11 @@ def commit(a: ActionInput) -> ActionResult:
     r = git.git(a.root, *ident, "commit", "-q", "-m", message, *extra, *trailer)
     if r.returncode != 0:
         git.git(a.root, "reset", "-q")
-        return ActionResult(False, "git commit failed.", (r.stderr or r.stdout)[-2000:])
+        from . import v1_state
+
+        # 0.18.64 keel v1's hooks refuse commits while its state file names a flow: say which one, and how to archive it
+        left = v1_state.leftover(a.root)
+        return ActionResult(False, "git commit failed" + (f": {left}." if left else "."), (r.stderr or r.stdout)[-2000:])
     sha = git.head(a.root)
     if sha:
         _applied(a, "commit", sha, message, staged)

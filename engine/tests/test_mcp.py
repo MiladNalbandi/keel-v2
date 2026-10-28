@@ -31,6 +31,7 @@ READ_TOOLS = {"keel_status", "keel_read_gate", "keel_projects", "keel_timeline",
               "keel_fetch_remotes",                                                                        # 0.18.64 remotes
               "keel_agent_prompt", "keel_flow_diff", "keel_health", "keel_reconnect",                       # 0.18.64
               "keel_models",                                                                               # 0.18.64 models
+              "keel_state",                                                         # 0.18.64 keel v1's leftover state
               *MARKET_TOOLS}
 WRITE_TOOLS = {"keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc",
                # 0.18.5 what keel TUI does
@@ -198,7 +199,7 @@ def test_the_marketplace_tools_come_after_every_tool_keel_listed_before_at_each_
                 "keel_rule_check", "keel_agent_definitions", "keel_models", "keel_skills", "keel_skill",
                 "keel_stacks", "keel_stack", "keel_stack_suggest", "keel_stack_check", "keel_diagram",
                 "keel_flow_document",                                           # 0.18.64 after keel_diagram
-                "keel_agent_prompt", "keel_flow_diff", "keel_health", "keel_reconnect"]
+                "keel_agent_prompt", "keel_flow_diff", "keel_health", "keel_reconnect", "keel_state"]
     tui = ["keel_workflows", "keel_stop_flows", "keel_run_mode", "keel_resume_flow", "keel_agents", "keel_agent", "keel_agent_start",
            "keel_keelbot_ask", "keel_keelbot_chats", "keel_keelbot_changes", "keel_keelbot_keep", "keel_keelbot_undo",
            "keel_format", "keel_workflow_check", "keel_workflow_create", "keel_rule_check", "keel_rule_create",
@@ -211,7 +212,7 @@ def test_the_marketplace_tools_come_after_every_tool_keel_listed_before_at_each_
            "keel_diagram",
            # 0.18.64 a flow's document, after keel_diagram
            "keel_flow_document", "keel_reject_with_document", "keel_handover",
-           "keel_agent_prompt", "keel_flow_diff", "keel_health", "keel_reconnect"]
+           "keel_agent_prompt", "keel_flow_diff", "keel_health", "keel_reconnect", "keel_state"]
     rules = ["keel_edit_workflow", "keel_rule_install", "keel_rule_edit"]
     sync = ["keel_fetch_remotes", "keel_branch_sync"]          # 0.18.64 after every tool before, before the marketplace's
     assert names("read") == read + ["keel_workflows"] + tui_read + sync[:1] + MARKET_TOOLS
