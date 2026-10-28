@@ -147,16 +147,18 @@ const OTHER = "\u0000other";
 const BACK = "\u0000back";
 
 /** keel 0.18.9 questions one after the other: pick one (or tick several), Other… for your own words, ← Back; then a
- *  check of every answer ("Send these answers?", change one) before `send` gets them. */
+ *  check of every answer ("Send these answers?", change one) before `send` gets them.
+ *  keel 0.18.64 `keep` hears the answers so far at every step (/answer keeps them as a draft). */
 export function questionChain(qs: Question[], send: (answers: Answers) => Promise<Reply> | Reply, k = 0, answers: Answers = {},
-  onlyOne = false): Promise<Reply> | Reply {
+  onlyOne = false, keep?: (answers: Answers) => void): Promise<Reply> | Reply {
+  keep?.(answers);
   // 0.18.61 one question: its answer goes at once; the "Send these answers?" check is for several
-  if (k >= qs.length) return qs.length === 1 ? send(answers) : reviewAnswers(qs, send, answers);
+  if (k >= qs.length) return qs.length === 1 ? send(answers) : reviewAnswers(qs, send, answers, keep);
   const q = qs[k];
   const opts = [...q.options].sort((a, b) => Number(!!b.recommended) - Number(!!a.recommended));
   // one answer changed from the check: straight back to it; else the next question
-  const next = (v: string | string[]) => onlyOne ? reviewAnswers(qs, send, { ...answers, [q.id]: v })
-    : questionChain(qs, send, k + 1, { ...answers, [q.id]: v });
+  const next = (v: string | string[]) => onlyOne ? reviewAnswers(qs, send, { ...answers, [q.id]: v }, keep)
+    : questionChain(qs, send, k + 1, { ...answers, [q.id]: v }, false, keep);
   const own = (picked: string[]) => ({ blocks: [], ask: { prompt: q.question, then: (words: string) =>
     next(q.multiple ? [...picked, words.trim()].filter(Boolean) : words.trim()) } }) as Reply;
   // keel 0.18.22 an option that takes a reason: ask for it (again while empty when it is needed), send "<label>: <reason>"
@@ -177,10 +179,10 @@ export function questionChain(qs: Question[], send: (answers: Answers) => Promis
       title: q.question, multi: !!q.multiple, choices,
       then: (v) => {
         const picked: string[] = q.multiple ? (JSON.parse(v) as string[]) : [v];
-        if (picked.includes(BACK)) return questionChain(qs, send, k - 1, answers);
+        if (picked.includes(BACK)) return questionChain(qs, send, k - 1, answers, false, keep);
         const real = picked.filter((x) => x !== OTHER);
         if (picked.includes(OTHER)) return own(real);
-        if (!real.length) return questionChain(qs, send, k, answers, onlyOne);  // nothing ticked: ask again
+        if (!real.length) return questionChain(qs, send, k, answers, onlyOne, keep);  // nothing ticked: ask again
         const takes = !q.multiple ? opts.find((o) => o.label === real[0] && (o.why === "required" || o.why === "optional")) : undefined;
         if (takes) return reason(takes);
         return next(q.multiple ? real : real[0]);
@@ -190,7 +192,9 @@ export function questionChain(qs: Question[], send: (answers: Answers) => Promis
 }
 
 /** Every answer at once, then send them or change one. */
-function reviewAnswers(qs: Question[], send: (answers: Answers) => Promise<Reply> | Reply, answers: Answers): Reply {
+function reviewAnswers(qs: Question[], send: (answers: Answers) => Promise<Reply> | Reply, answers: Answers,
+  keep?: (answers: Answers) => void): Reply {
+  keep?.(answers);
   const shown = (v: string | string[] | undefined) => (Array.isArray(v) ? v.join("; ") : v) || "(not answered: keel uses the recommended one)";
   return {
     blocks: [{ kind: "text", text: ["Your answers:", ...qs.map((q, i) => `  ${i + 1}. ${q.question}\n     → ${shown(answers[q.id])}`)].join("\n") }],
@@ -199,7 +203,7 @@ function reviewAnswers(qs: Question[], send: (answers: Answers) => Promise<Reply
       choices: [{ label: "Send them", value: "send" }, ...qs.map((q, i) => ({ label: `Change ${i + 1}: ${q.question.slice(0, 60)}`, value: `c${i}` })),
         { label: "Cancel", value: "cancel", hint: "nothing is sent" }],
       then: (v) => v === "send" ? send(answers) : v === "cancel" ? text("Not sent.")
-        : questionChain(qs, send, Number(v.slice(1)), answers, true),
+        : questionChain(qs, send, Number(v.slice(1)), answers, true, keep),
     },
   };
 }
@@ -222,9 +226,43 @@ function answerChoice(ctx: Ctx, t: ThreadState, c: ChoiceInfo): Promise<Reply> |
   return ask(false);
 }
 
-/** /answer for a clarify gate: the questions one after the other, checked before keel gets them. */
-function askQuestions(ctx: Ctx, t: ThreadState, k: number, answers: Answers): Promise<Reply> | Reply {
-  return questionChain((t.waiting?.questions ?? []) as Question[], (a) => actOnFlow(ctx, t, "approve", "", { answers: a }), k, answers);
+/** keel 0.18.64 the answers picked so far in /answer's questions, per flow, for the question they answer: Esc (to switch
+ *  project, to read something first) and /answer again goes on from them. Sent, or the flow asks something new: gone.
+ *  keel2's own memory (nothing on disk): a new keel2 starts empty. */
+const kept = new Map<string, { q: string; answers: Answers }>();
+
+/** The waiting question's own id, else its step and criterion (as the web's drafts name it). */
+const questionOf = (t: ThreadState) => t.waiting?.id || `${t.waiting?.step ?? ""}|${t.ac ?? ""}`;
+
+/** The kept answers to the flow's waiting question ({} when none, or when they were for another question). */
+export function keptAnswers(t: ThreadState): Answers {
+  const d = kept.get(t.thread_id);
+  if (d && d.q === questionOf(t)) return d.answers;
+  kept.delete(t.thread_id);
+  return {};
+}
+
+/** /answer for questions (a clarify gate's, or a gate's beside approve / reject): one after the other, checked before
+ *  keel gets them, from the kept answers on (the first one not answered yet; all answered: the check). */
+function askQuestions(ctx: Ctx, t: ThreadState): Promise<Reply> | Reply {
+  const qs = (t.waiting?.questions ?? []) as Question[];
+  const q = questionOf(t);
+  const answers = keptAnswers(t);
+  const keep = (a: Answers) => {
+    if (Object.keys(a).length) kept.set(t.thread_id, { q, answers: a });
+    else kept.delete(t.thread_id);
+  };
+  const send = async (a: Answers) => {
+    const r = await actOnFlow(ctx, t, "approve", "", { answers: a });
+    if (!r.blocks.some((b) => b.kind === "error")) kept.delete(t.thread_id);
+    return r;
+  };
+  const done = qs.filter((x) => x.id in answers).map((x) => qs.indexOf(x) + 1);
+  if (!done.length) return questionChain(qs, send, 0, {}, false, keep);
+  const first = qs.findIndex((x) => !(x.id in answers));
+  const r = first < 0 ? reviewAnswers(qs, send, answers, keep) : questionChain(qs, send, first, answers, false, keep);
+  const said = { kind: "dim" as const, text: `  draft kept: your answers to ${done.join(", ")} from before (← Back or "Change" alters them)` };
+  return r instanceof Promise ? r.then((x) => ({ ...x, blocks: [said, ...x.blocks] })) : { ...r, blocks: [said, ...r.blocks] };
 }
 
 function pickWorkflowThen(ctx: Ctx, rows: Workflow[], then: (w: Workflow) => Promise<Reply> | Reply, title: string): Reply {
@@ -403,7 +441,7 @@ export const FLOW_IMPLS: Impl[] = [
       if (w.kind === "clarify") {
         const pairs = [...arg.matchAll(/(\w[\w-]*)=("[^"]*"|\S+)/g)];
         if (pairs.length) return actOnFlow(ctx, t, "approve", "", { answers: pairAnswers((w.questions ?? []) as Question[], pairs.map((m) => [m[1], m[2]])) });
-        return askQuestions(ctx, t, 0, {});
+        return askQuestions(ctx, t);
       }
       if (w.choices?.length) {
         const rows = choiceRows(w.choices, w.choice_info);
@@ -426,7 +464,7 @@ export const FLOW_IMPLS: Impl[] = [
         const qs = w.questions as Question[];
         const pairs = [...arg.matchAll(/(\w[\w-]*)=("[^"]*"|\S+)/g)];
         if (pairs.length) return actOnFlow(ctx, t, "approve", "", { answers: pairAnswers(qs, pairs.map((m) => [m[1], m[2]])) });
-        return questionChain(qs, (ans) => actOnFlow(ctx, t, "approve", "", { answers: ans }));
+        return askQuestions(ctx, t);
       }
       return text(`${w.title}: /approve or /reject <why>.`);
     },

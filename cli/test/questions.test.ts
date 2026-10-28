@@ -250,6 +250,57 @@ describe("/answer for questions", () => {
   });
 });
 
+describe("keel 0.18.64 /answer keeps the answers picked so far", () => {
+  const ROUND = {
+    step: "clarify_gate",
+    kind: "clarify",
+    title: "Questions before the plan",
+    detail: "",
+    options: ["approve"],
+    id: "q-1",
+    questions: [
+      {
+        id: "store",
+        question: "Where should the cache live?",
+        options: [{ label: "in memory", recommended: true }, { label: "on disk" }],
+      },
+      {
+        id: "ttl",
+        question: "How long should entries live?",
+        options: [{ label: "one hour", recommended: true }, { label: "one day" }],
+      },
+    ],
+  };
+  const then = async (r: Reply | Promise<Reply>, v: string) => (await r).pick!.then(v);
+
+  it("Esc and /answer again goes on at the next question; sent, nothing is kept", async () => {
+    const { ctx, acts, stub } = await waitingOn({ ...ROUND, id: "q-keep" });
+    await then(run(ctx, "/answer"), "on disk");
+    // the person pressed Esc here (to switch project, to read the gate first): /answer again
+    const again = await run(ctx, "/answer");
+    expect(again.blocks[0]).toEqual({ kind: "dim", text: expect.stringContaining("draft kept: your answers to 1") });
+    expect(again.pick!.title).toBe("How long should entries live?");
+    const check = await then(again, "one day");
+    expect(check.pick!.title).toBe("Send these answers?");
+    expect((await then(check, "send")).blocks[0].kind).toBe("ok");
+    expect(acts().at(-1)!.body).toMatchObject({ payload: { answers: { store: "on disk", ttl: "one day" } } });
+    // the same question again (the stub moved on): nothing was kept
+    stub.state.thread = { ...stub.state.thread, status: "waiting", waiting: { ...ROUND, id: "q-keep" } } as never;
+    const fresh = await run(ctx, "/answer");
+    expect(fresh.blocks.some((b) => b.text.includes("draft kept"))).toBe(false);
+    expect(fresh.pick!.title).toBe("Where should the cache live?");
+  });
+
+  it("a new question of the flow does not show the old one's answers", async () => {
+    const { ctx, stub } = await waitingOn({ ...ROUND, id: "q-old" });
+    await then(run(ctx, "/answer"), "on disk");
+    stub.state.thread = { ...stub.state.thread, waiting: { ...ROUND, id: "q-next" } } as never;
+    const next = await run(ctx, "/answer");
+    expect(next.blocks.some((b) => b.text.includes("draft kept"))).toBe(false);
+    expect(next.pick!.title).toBe("Where should the cache live?");
+  });
+});
+
 describe("KeelBot's answer button (keel-flow answer)", () => {
   it("reads answers or a choice, asks yes / no in words, and sends the answer like the Flow page", async () => {
     const answers = toButton(
