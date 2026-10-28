@@ -2,13 +2,15 @@
 
 It never blocks the person: they decide at the spec gate. The engine sends a spec back to the explorer once when
 something clear is missing (a section of keel's spec template, a criterion with no test layer, a screen with no states
-drawn, an API with no request path, outside facts with no Unverified and open questions); after that the findings are
-shown on the spec gate as missing, the rest as warnings.
+drawn, an API with no request path, outside facts with no Unverified and open questions, 0.18.64 a `path:line` citation
+whose file or line does not exist); after that the findings are shown on the spec gate as missing, the rest as warnings.
 """
 from __future__ import annotations
 
 import re
 from pathlib import Path
+
+from . import citations
 
 SECTION = re.compile(r"^#{2,3}\s+(.+?)\s*$", re.M)
 STATES = {"loading": r"load", "empty": r"empt|no results|nothing", "error": r"error|fail", "filled": r"fill|result|row|list|data|show"}
@@ -74,10 +76,11 @@ def _shape(title: str) -> str:
     return re.sub(r"\s+", " ", t).strip() if "#" in t else ""
 
 
-def check(text: str, acs: list[dict], outside: bool = False) -> list[dict]:
+def check(text: str, acs: list[dict], outside: bool = False, root: str | None = None) -> list[dict]:
     """Findings as {level: "fix"|"note", text}. "fix" ones are worth one automatic revision. `outside`: the work relies on
     facts from outside the repository (web research, a spike's sources), so the spec needs Unverified and open
-    questions; a URL in the spec says the same."""
+    questions; a URL in the spec says the same. `root`: the project the spec is about; 0.18.64 with it, every citation
+    that names a project file is checked (runtime/citations.py): a missing file or a line past its end is a "fix"."""
     found: list[dict] = []
     sec = sections(text)
     layers = {str(a.get("layer", "API")).upper() for a in acs}
@@ -89,6 +92,8 @@ def check(text: str, acs: list[dict], outside: bool = False) -> list[dict]:
         return [{"level": "fix", "text": "No acceptance criteria."}]
     if text.strip():
         found += _template(text, sec, acs, outside)
+        if root:
+            found += citations.findings(root, text)
     if "WEB" in layers:
         mock = has("mockup", "ui mockup", "wireframe", "screen")
         if mock is None or not mock.strip("`\n "):
@@ -216,6 +221,18 @@ def start_spec(root: str, rel) -> str | None:
     except OSError:
         return None
     return rel
+
+
+def check_file(root: str, rel: str) -> dict:
+    """0.18.64 keel's spec check on one file of the project (keel_spec_check; the engine's POST /specs/check): its
+    criteria, read as a flow reads them, and the findings with the citations checked against the project."""
+    from .prompts import parse_acs
+
+    text = read_spec(root, rel)
+    acs = parse_acs(text)
+    found = check(text, acs, root=root) if text.strip() else [{"level": "fix", "text": f"{rel} is empty."}]
+    return {"path": rel, "criteria": [a["id"] for a in acs], "findings": found,
+            "fix": sum(f["level"] == "fix" for f in found), "summary": describe(found)}
 
 
 def revision_note(findings: list[dict]) -> str:

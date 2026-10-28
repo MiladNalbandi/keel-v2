@@ -295,6 +295,21 @@ def test_a_document_the_spec_check_refuses_is_written_again_once(client, repo, m
     assert "## Test layers" in text
 
 
+def test_a_document_that_cites_lines_past_a_files_end_is_written_again_once(client, repo, monkeypatch):
+    # 0.18.64 a field report: the spec cited lines 235-245 of a 38-line file and passed the spec check
+    calls = []
+
+    def assemble(req):
+        calls.append(req)
+        full = fake_mod.clarify_answer(req)
+        return full if len(calls) > 1 else full.replace("src/scores/__init__.py:1", "src/scores/__init__.py:235-245")
+    tid, s, _seen = to_rounds(client, repo, monkeypatch, {"assemble the outputs": assemble}, sections=["2", "3"])
+    assert s["waiting"]["step"] == "result" and len(calls) == 2
+    n = len((Path(repo) / "src/scores/__init__.py").read_text().splitlines())
+    assert f"src/scores/__init__.py:235-245 does not exist: the file has {n} lines" in (calls[1].feedback or "")
+    assert "does not exist" not in s["waiting"]["detail"]                 # the second answer cites real lines
+
+
 def test_a_request_that_stores_something_shows_the_database_change(client, repo, monkeypatch):
     tid, s, _seen = to_rounds(client, repo, monkeypatch, request="Store each player's rank in the scores table.")
     finish(client, tid, s)

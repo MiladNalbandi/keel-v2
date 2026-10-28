@@ -116,7 +116,8 @@ class GateMixin:
                 detail = f"Spec: {state['spec']}\n{detail}"
                 if step.phase in ("spec", "triage"):
                     detail += "\n\n" + spec_check.describe(spec_check.check(spec_check.read_spec(ctx.root, state["spec"]), acs,
-                                                                              spec_check.outside_facts(ctx.request, state.get("data"))))
+                                                                              spec_check.outside_facts(ctx.request, state.get("data")),
+                                                                              root=ctx.root))
         lint_notes = (state.get("data") or {}).get("lint_notes") or []
         if lint_notes and not no_criteria:
             detail = f"{detail}\n\nStatic checks on the last changed files:\n" + "\n".join(f"- {n}" for n in lint_notes)

@@ -2902,3 +2902,40 @@ keel TUI (tui.json)  { "follow": false }             (KEEL_TUI_SETTINGS, else ~/
   and chat the following windows share (a window that keeps its own is not in it); with `project` it moves only the
   windows that follow. `McpAudit` leaves `/api/ui/focus` out of the audit as before. Notifications do not read the focus:
   opening one picks its project in that window, shared only when the window follows.
+
+## keel 0.18.64: the spec check checks citations; keel_spec_check and keel_citations_check (fix/spec-citations)
+
+A field report (docs/plans/field-report-clarify.md, bug 3): a spec cited lines 235-245 of a 38-line file and passed
+keel's spec check.
+
+```
+ spec text ──► citations.find ──► each path:line that names a project file ──► the file? its line count?
+                                                                                │
+                      spec_check.check(..., root=) ◄── "fix" findings ◄─────────┘
+                      knowledge.check            ◄── the same parser, backticked citations only
+```
+- **One parser** (`engine/keel_engine/runtime/citations.py`), shared by the knowledge check (`keel memory check`:
+  backticked citations only, as before) and the spec check (every form): `path:88`, `path:88-95`, `path#L88`,
+  `path#L88-L95`, bare or in backticks; `path:88:5` reads line 88. Not citations: URLs (masked first, so
+  `http://host:8080/a.py:3` is none), host:port and times (no extension), versions like `1.2:3` (an extension starts
+  with a letter). In the spec check a citation names a project file when that file exists, or when the project's files
+  (git ls-files, else the folder) have its extension; an absolute path outside the project and a `../` path are not
+  checked. A bare name or a shorthand (`.../billing/Invoice.java:7`) is the one file that ends with it (the knowledge
+  check's rule).
+- **Findings** (level `fix`, so a flow sends the spec back once): `src/orders.py:88-95 does not exist: the file has 40
+  lines.`, `src/gone.py:3 does not exist: no such file.`; a bare name that matches two files is a `note`. At most 10
+  are named, then one line counts the rest. A file's line count is now exact in both checks (a last newline ends a line;
+  the knowledge check counted one more before).
+- **Where**: `spec_check.check(text, acs, outside, root)` checks citations when it gets the project's root: the
+  clarify flow's write_doc, the feature flow's spec step (its one send-back), the spec gate's text and spec_sync's
+  report all pass it.
+- **Engine** (`runtime/spec_routes.py`): `POST /specs/check {root, path}` → `{path, criteria: [ids], findings: [{level,
+  text}], fix, summary}`; `POST /citations/check {root, path? | text?}` → `{path, checked, bad: [{cite, path, problem,
+  level}]}`. A path is relative to the project (400 for `../` or an absolute path, 404 for a missing file); a file or
+  a text over 2 MB is refused.
+- **api** (`knowledge/SpecCheckController.kt`): `POST /api/projects/{pid}/specs/check {path}` and
+  `POST /api/projects/{pid}/citations/check {path | text}` add the project's folder and ask the engine (400 for no path,
+  or for both or neither of path and text). Both are reads for MCP (`McpLevels` READ_POSTS).
+- **MCP** (read, after `keel_read_file`): `keel_spec_check {path}` — the criteria, how many findings a flow would send
+  back, each finding; `keel_citations_check {path | text}` — how many citations of project files were checked and each
+  one that does not resolve. A secret file's path is refused before the api is asked.

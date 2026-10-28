@@ -25,6 +25,7 @@ READ_TOOLS = {"keel_status", "keel_read_gate", "keel_projects", "keel_timeline",
               "keel_format", "keel_workflow_check", "keel_rule_check", "keel_agent_definitions",          # 0.18.5 create
               "keel_skills", "keel_skill",                                                                 # 0.18.6 skills
               "keel_stacks", "keel_stack", "keel_stack_suggest", "keel_stack_check",                       # 0.18.9 stacks
+              "keel_spec_check", "keel_citations_check",                                    # 0.18.64 checks on a file
               *MARKET_TOOLS}
 WRITE_TOOLS = {"keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc",
                # 0.18.5 what keel TUI does
@@ -148,6 +149,7 @@ def test_the_marketplace_tools_come_after_every_tool_keel_listed_before_at_each_
     names = lambda level: [t.name for t in asyncio.run(mcp_server.build_server(level=level, api=object()).list_tools())]
     read = ["keel_status", "keel_read_gate", "keel_projects", "keel_timeline", "keel_next", "keel_explain", "keel_rules", "keel_dashboard", "keel_flows",
             "keel_inbox", "keel_live", "keel_budget", "keel_specs", "keel_knowledge", "keel_search", "keel_read_file",
+            "keel_spec_check", "keel_citations_check",          # 0.18.64 next to keel_read_file
             "keel_actions", "keel_run_action"]
     write = ["keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc", "keel_stop_flow"]
     admin = ["keel_delete_run", "keel_add_project", "keel_remove_project", "keel_pause", "keel_focus", "keel_connect_github"]

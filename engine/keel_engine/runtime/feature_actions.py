@@ -338,7 +338,8 @@ def spec_sync(a):
     plan = _section(text, "plan")
     if plan:
         parts.append(md.section("Plan (files per criterion, contract delta, test layer)", md.demote(plan[:2500])))
-    parts.append(md.section("Spec check", spec_check.describe(spec_check.check(text, acs, spec_check.outside_facts(a.request, a.data)))))
+    parts.append(md.section("Spec check", spec_check.describe(spec_check.check(text, acs, spec_check.outside_facts(a.request, a.data),
+                                                                                         root=a.root))))
     answer = a.data.get("spec_gate_answer") or {}
     if a.step.startswith("spec_review") and answer.get("choice") == "review" and (a.state.get("last_answer") or "").strip():
         parts.append(md.section("Spec review (you asked for it)", "The reviewer's answer, word for word:", md.demote(a.state["last_answer"].strip()[:6000])))

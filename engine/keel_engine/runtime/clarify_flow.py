@@ -574,7 +574,7 @@ def _doc(a):
     path.write_text(text)
 
     # keel's spec check: something clear missing -> the outputs are written again once, then the gate shows the rest
-    found = spec_check.check(text, acs, spec_check.outside_facts(a.request, a.data))
+    found = spec_check.check(text, acs, spec_check.outside_facts(a.request, a.data), root=a.root)
     fixes = [f for f in found if f["level"] == "fix"]
     if fixes and not st.get("checked"):
         data = _data(a, doc=rel, checked=True, notes=notes)

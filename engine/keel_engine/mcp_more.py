@@ -179,6 +179,33 @@ def read_file(api: KeelApi, path: str, project: str | None = None, start: int = 
     return "\n".join(f"{start + i:>5}  {line}" for i, line in enumerate(part)) + more
 
 
+def spec_check(api: KeelApi, path: str, project: str | None = None) -> str:
+    """0.18.64 keel's spec check on one file of the project, as a flow runs it (citations checked against the files)."""
+    p = _project(api, project)
+    r = api.post(f"/projects/{p['id']}/specs/check", {"path": path}) or {}
+    crit = r.get("criteria") or []
+    head = (f"{r.get('path') or path}: {len(crit)} acceptance criteria" + (f" ({', '.join(crit[:12])}{', …' if len(crit) > 12 else ''})" if crit else "")
+            + f" · {r.get('fix') or 0} to fix (a flow sends the spec back once for these)")
+    found = r.get("findings") or []
+    if not found:
+        return head + "\nnothing missing."
+    return head + "\n" + "\n".join(f"{'fix ' if f.get('level') == 'fix' else 'note'}  {f.get('text')}" for f in found)
+
+
+def citations_check(api: KeelApi, path: str | None = None, text: str | None = None, project: str | None = None) -> str:
+    """0.18.64 every path:line in a file of the project (or a text) against the project's files: the ones that do not resolve."""
+    if bool(path) == bool(text):
+        raise ApiError("give a path (a file of the project) or a text, one of them.")
+    if path and is_secret(path):
+        raise ApiError(f"{path} holds secrets; keel never reads it through MCP.")
+    p = _project(api, project)
+    r = api.post(f"/projects/{p['id']}/citations/check", {"path": path} if path else {"text": text}) or {}
+    bad = r.get("bad") or []
+    where = r.get("path") or "the text"
+    head = f"{where}: {r.get('checked') or 0} citations of project files checked, {len(bad)} do not resolve"
+    return head + ("." if not bad else ":\n" + "\n".join(f"{'fix ' if b.get('level') == 'fix' else 'note'}  {b.get('problem')}" for b in bad))
+
+
 def actions(level: str) -> str:
     from .runtime import action_docs
 
