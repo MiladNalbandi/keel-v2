@@ -452,13 +452,15 @@ def agent_info(wf: Workflow, i: int, phase: str, root: str | None, agents: dict,
 
 
 def model_info(step: Step, agent: str, fm: dict, ctx, state: dict | None) -> dict:
-    rule = ("1. a cheaper model when the budget cap switched to one (on_cap: cheaper); 2. a stronger model after "
-            "escalate_model; 3. the step's own model when it is not \"default\" and is in the model table; 4. the "
-            f"model set for {agent or 'the agent'} in Agents; 5. the default model in Settings.")
+    rule = ("1. a cheaper model when the budget cap switched to one (on_cap: cheaper); 2. the model the person gave this "
+            "step in this flow (keel_agent_model with step); 3. a stronger model after escalate_model; 4. the step's own "
+            "model when it is not \"default\" and is in the model table; 5. the model set for "
+            f"{agent or 'the agent'} in Agents (or for this flow); 6. the default model in Settings.")
     out = {"step": step.model or "default", "agent_file": fm.get("model"), "effort": fm.get("effort"), "rule": rule}
     if ctx is not None:
         models = ctx.models or {}
-        m = ((state or {}).get("model_override") or agent_names.lookup((state or {}).get("agent_models"), agent)
+        m = ((state or {}).get("model_override") or models.get(f"step:{step.id}")      # 0.18.64 a step's own pick
+             or agent_names.lookup((state or {}).get("agent_models"), agent)
              or (models.get(step.model) if step.model and step.model != "default" else None) or agent_names.lookup(models, agent)
              or models.get("default"))
         if m:

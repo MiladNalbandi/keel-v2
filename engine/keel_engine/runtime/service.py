@@ -27,7 +27,7 @@ from . import bug, hunt, ladder as ladder_mod
 from . import memory as memory_mod
 from . import branch_sync, db, doc_history, flow_doc, migrate, prompts, run_mode, spec_check
 from . import choices as choices_mod
-from . import finding_decisions
+from . import finding_decisions, thread_models
 from .compiler import answer_problem, compile_workflow, running_usage
 from .state import ThreadContext, initial_state, merge_unlocks, normalize_unlocks
 
@@ -686,8 +686,39 @@ class Engine:
         resume = {"decision": decision, "why": why or "", "payload": payload or {}, "asked": asked}
         if by:
             resume["by"] = by
+        took = choices_mod.answered(self._waiting(snap), decision, payload)
         self._launch(tid, Command(resume=resume))
-        return await self.state(tid)
+        # 0.18.64 what the answer did (the choice that runs): a reject with the choice edit runs edit, and keel_answer
+        # printed "(reject)"
+        return {**(await self.state(tid)), "answered": took}
+
+    async def set_models(self, tid: str, model: dict | None, agent: str | None = None, step: str | None = None,
+                         phase: str | None = None, keys: dict | None = None) -> dict:
+        """0.18.64 a model for this flow only (an agent, a step, or an agent's steps in one phase; runtime/thread_models.py),
+        stored with the thread's models like set_mode's run mode, used from the agent's next call. model None: the pick
+        is taken back. Other flows and the project's settings do not change."""
+        row = await self._row(tid)
+        ctx = await self._context(tid)
+        targets, problem = thread_models.targets(ctx.workflow, agent, step, phase)
+        if problem:
+            raise EngineError(400, problem)
+        body = json.loads(row["body"])
+        models, picks = thread_models.apply(ctx.models, body.get("model_picks") or {}, targets, model)
+        body["models"], body["model_picks"] = models, picks
+        await self.conn.execute("update keel_threads set body = ?, updated_at = ? where thread_id = ?", (json.dumps(body), _now(), tid))
+        await self.conn.commit()
+        ctx.models = models
+        if keys:
+            # the new model's login or API key (the api sends the thread's with it): kept in memory only, as at the start
+            await self.set_keys(tid, {**self.keys.get(tid, {}), **keys})
+        ctx.emit("thread.models", data={"changed": targets, "model": model})
+        return {"thread_id": tid, "changed": targets, **thread_models.view(models, picks, ctx.workflow)}
+
+    async def models_of(self, tid: str) -> dict:
+        """0.18.64 the flow's model table: the default, each agent's, each agent step's model now, the person's picks."""
+        row = await self._row(tid)
+        ctx = await self._context(tid)
+        return {"thread_id": tid, **thread_models.view(ctx.models, json.loads(row["body"]).get("model_picks") or {}, ctx.workflow)}
 
     async def set_mode(self, tid: str, mode: str) -> dict:
         """Changes the thread's run mode (runtime/run_mode.py) during a run: stored with the thread's settings, used from

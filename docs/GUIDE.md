@@ -732,6 +732,14 @@ effort is slower and uses more tokens; less is quicker and cheaper. **default** 
 
 A model without an effort setting shows "no effort setting", and keel ignores an effort it cannot pass on.
 
+**From MCP** (0.18.64): `keel_models` lists every provider, its modes, their models and the efforts each model takes,
+and which modes are set up (keel has the login or the key; no secret is shown). `keel_agent_model` refuses a wrong
+provider, mode, model or effort with the ones there are. It takes role words too: **planning** is the explorer in
+the spec phase, **coding** the implementer, **testing** the test-author (`keel_models` lists them). The explorer also
+triages, sets up and asks clarify's questions, so a project-wide change of it changes all of those: pass `thread_id`
+to change only that flow (with a role word, only its steps in that phase), or `step` for one step of it. The project's
+Agents page and the other flows keep their models.
+
 ## Plugins and the Marketplace
 
 From 0.17.0 keel is a small **core** with **plugins**. The core runs flows, workflows, agents, gates, the Inbox,
@@ -1145,8 +1153,13 @@ in between answers "keel is restarting, try again in a few seconds". `keel_healt
 often the connection reconnected; `keel_reconnect` starts the connection's server again now (after an update, for the
 newest tools). Times (`keel_timeline`) are in your computer's time zone, with its name: `10-28 14:14:02 CET`.
 
-Pushes, database changes, deletes, stops and saves ask you first in the client; a client that cannot ask is refused
-unless you add `--yes`. `--allow keel_status,keel_approve_gate` keeps only those tools. `keel_answer(ask_person=true)`
+Pushes, database changes, deletes, stops and saves ask you first in the client. A client that cannot show that form
+does nothing yet and answers "This needs your OK: <what>" with a one-time token: when you say yes, it calls the same
+tool again with the same arguments and `confirm: "<token>"` within 5 minutes (the token works once, for that call
+only). `--yes` still skips every question. `--allow keel_status,keel_approve_gate` keeps only those tools.
+`keel_start_flow` answers at once with the flow's thread id, its status (starting, running or waiting) and how to
+follow it; `wait` (seconds, at most 60) waits for its first gate first. `keel_answer` and `keel_approve_gate` say what
+really ran: a reject with the choice **edit** says the edit choice ran. `keel_answer(ask_person=true)`
 asks you through the client's own form when it has one. Everything the client changes shows on the flow's timeline as
 "via MCP · <client>: <tool>". keel's own agents always get the read level.
 

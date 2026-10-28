@@ -6,8 +6,9 @@ v0.16.0 three levels, each with the one below (TOOLS lists them): read (default;
 gates, answer the Inbox, start flows, git / PR / CI / DB writes), admin (stop and delete flows, projects, workflows).
 A tool above the level, or not in --allow, is not registered at all, so a client cannot even see it. Agents get
 --read-only (the builtin `keel` server in tools/mcp.py and the api's McpService), which always wins over the env.
-Push, DB changes, deletes and stops ask the person through the client first (MCP elicitation); a client that cannot
-ask is refused unless --yes. Every write says who acted (X-Keel-Via / X-Keel-Client / X-Keel-Tool; api McpAudit).
+Push, DB changes, deletes and stops ask the person through the client first (MCP elicitation); 0.18.64 a client that
+cannot ask gets a one-time token to call again with (mcp_confirm.py), and --yes skips every question. Every write
+says who acted (X-Keel-Via / X-Keel-Client / X-Keel-Tool; api McpAudit).
 v0.16.1 the api checks the level too: with the internal token this server asks POST /api/mcp/token for its level's
 token and sends it as X-Keel-Mcp-Token (api McpLevelGuard); without it (agents) the api treats it as read.
 
@@ -35,13 +36,15 @@ import time
 from typing import Any, Literal
 
 import anyio
+import httpx
 from mcp.server.fastmcp import Context
 from pydantic import BaseModel, Field
 
 from . import extensions
 from . import mcp_ask as ask_mod
+from . import mcp_confirm as confirm_mod
 from .addons import NAME
-from .mcp_api import (API_TIMEOUT, MCP_TOKEN_HEADER, ApiError, KeelApi, _clock, _flow, _n, _project, _when, cut, internal_token,
+from .mcp_api import (API_TIMEOUT, MCP_TOKEN_HEADER, ApiError, KeelApi, _clock, _flow, _flow_of, _n, _project, _when, cut, internal_token,
                       waiting_thread)
 from .mcp_levels import (CONFIRM, CONFIRM_ACTIONS, LEVELS, MARKET_TOOLS, RANK, TOOLS, _Names, allowed, level, part_tools,
                          tool_level, write_mode)
@@ -50,8 +53,10 @@ from .mcp_read import (BUCKET_TEXT, BUCKETS, DASHBOARD_VIEWS, GATE_PAGE, ORDER_F
                        projects, read_gate, read_gate_hint, status, timeline)
 
 log = logging.getLogger("keel.mcp")
-START_WAIT = 20         # keel_start_flow waits this long for the flow to reach its first gate
+START_WAIT = 0          # 0.18.64 keel_start_flow answers at once (it waited 20 s for the first gate); `wait` asks for it
+START_WAIT_MAX = 60     # the longest `wait` a client may ask for
 START_POLL = 2
+START_POST = 30         # the start itself (branch, worktree, estimate) may take longer than API_TIMEOUT
 
 
 # ---------------------------------------------------------------- write tools (only with --write)
@@ -109,8 +114,13 @@ def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | 
             raise ApiError("run_mode is one of manual, important, auto, readonly.")
         body["run_mode"] = run_mode
     try:
-        state = api.post(f"/projects/{p['id']}/flows", body) or {}
+        state = api.post(f"/projects/{p['id']}/flows", body, timeout=START_POST) or {}
     except ApiError as exc:
+        if exc.status is None and isinstance(exc.__cause__, httpx.TimeoutException):
+            # 0.18.64 the api still makes the branch or worktree: the flow may well start; never "is keel running?"
+            raise ApiError(f"keel took longer than {START_POST} s to start the {type} flow, so this call stops waiting. It may "
+                           f"still start: keel_flows(project={p['id']!r}) shows it in a moment; do not start it again "
+                           "before you looked.") from exc
         if exc.status == 409 and "fake model" in str(exc) and not allow_fake:
             raise ApiError(f"{exc}\nTo run it on the fake model anyway (example files, committed on the flow's branch), "
                            "call keel_start_flow again with allow_fake=true.", exc.status) from exc
@@ -128,18 +138,21 @@ def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | 
                            exc.status, exc.body) from exc
         raise
     tid = state.get("thread_id")
-    deadline = time.monotonic() + wait
+    # 0.18.64 no wait by default: the answer comes at once with the thread id and how to follow it (a 20 s wait for the
+    # first gate, polled, outlasted a client's timeout and the person got nothing); `wait` asks for it
+    deadline = time.monotonic() + max(0.0, min(float(wait or 0), START_WAIT_MAX))
     while tid and state.get("status") == "running" and time.monotonic() < deadline:
         sleep(START_POLL)
-        thread, _ = _flow(api, p["id"])
-        if thread and thread.get("thread_id") == tid:
+        thread = _flow_of(api, p["id"], tid)
+        if thread:
             state = thread
-    # still no step and no phase after the wait: the graph has not reached its first step, so say it is starting
+    # still no step and no phase: the graph has not reached its first step, so say it is starting
     at = f" at {state.get('current') or '-'} (phase {state.get('phase') or 'none'})" if state.get("current") or state.get("phase") else ""
-    now = (f"The flow is {state.get('status')}{at}." if at or state.get("status") not in (None, "", "running")
+    started = bool(at or state.get("status") not in (None, "", "running"))
+    now = (f"The flow is {state.get('status')}{at}." if started
            else "The flow is starting: it has not reached its first step yet.")
     out = [f'started {type} "{title}" on {p["id"]} (thread {tid}) in {state.get("run_mode") or run_mode or "the project\'s"} mode, '
-           "recorded as started via MCP.", now]
+           "recorded as started via MCP.", f"Status: {state.get('status') if started else 'starting'}. {now}"]
     if ignored:
         out.insert(0, "ignored on this computer (.git/info/exclude): " + ", ".join(ignored))
     if first:
@@ -148,6 +161,9 @@ def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | 
         out.append(f"It waits for a human: {state['waiting'].get('title')}. Decide it in the dashboard or with keel_approve_gate.")
     elif state.get("status") == "running":
         out.append("It is still running; keel_status follows it, and it stops at its first gate for a human.")
+    if tid:
+        out.append(f"Follow it: keel_status(project={p['id']!r}) or keel_flows(project={p['id']!r}) for where it is; when it "
+                   f"waits, keel_read_gate(project={p['id']!r}, flow={tid!r}) and keel_answer(thread_id={tid!r}).")
     if state.get("cap_note"):
         out.append(str(state["cap_note"]))
     if state.get("base_note"):
@@ -234,6 +250,11 @@ def _resume(api: KeelApi, tid: str, decision: str, why: str | None, payload: dic
     after = f"{state.get('status')} at {state.get('current') or '-'} (phase {state.get('phase') or 'none'})"
     if state.get("waiting"):
         after += f"; now waiting: {state['waiting'].get('title')}"
+    took = (state.get("answered") or {}).get("choice") or (payload or {}).get("choice")
+    if took:
+        # 0.18.64 a named choice ran (from the engine's answer): say which, not "sent back" for a reject + choice edit
+        did = ask_mod.did_text(state.get("answered"), decision, (payload or {}).get("choice"), before)
+        return f"{(what.strip() or 'the gate')} on thread {tid}: {did}. The flow is {after}."
     done = "approved" if decision == "approve" else "sent back"
     return f"{done}{what} on thread {tid}. The flow is {after}."
 
@@ -390,8 +411,6 @@ def _ask_person(api: KeelApi, pid: str, title: str, command: str, sleep=time.sle
     return False, "Nobody answered in keel's Inbox in 10 minutes."
 # 0.18.9 a new stack, a removed one and one from the marketplace (turning one off is easy to undo: no question)
 CONFIRM |= {"keel_stack_create", "keel_stack_remove", "keel_stack_market_install"}
-NO_ELICIT = ("this MCP client cannot ask you to confirm {what}, so keel refuses it. Run keel2 mcp with --yes to allow "
-             "it without asking, or do it in keel's dashboard.")
 
 
 # what every client reads first (the server's instructions): how to answer keel's questions, and the failure rule
@@ -440,6 +459,7 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
     from . import mcp_diag as diag
 
     api = api or KeelApi()
+    tokens = confirm_mod.Tokens()          # 0.18.64 the confirm tokens this server gave (mcp_confirm.py)
     lvl = level or ("write" if write else "read")
     if lvl not in LEVELS:
         raise ValueError(f"level must be one of {', '.join(LEVELS)}")
@@ -469,6 +489,8 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
                 async def threaded(*a, **kw):
                     return await anyio.to_thread.run_sync(lambda: sync(*a, **kw))
                 fn = threaded
+            if name in CONFIRM or name == "keel_run_action" or at == "write":
+                fn = confirm_mod.with_confirm(fn)   # 0.18.64 `confirm`: the token of a client without forms
             return srv.tool(annotations=ann, structured_output=False)(fn)
         return deco
 
@@ -499,16 +521,22 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         mine = api.acting(client, name)
         a = tuple(mine if x is api else x for x in a)
         if (name in CONFIRM if confirm is None else confirm) and not yes:
-            can = False
-            try:
-                can = bool(ctx and ctx.session.client_params and ctx.session.client_params.capabilities.elicitation)
-            except Exception:  # noqa: BLE001
-                can = False
-            if not can:
-                return "keel: " + NO_ELICIT.format(what=what)
-            res = await ctx.elicit(message=f"keel: {what}?", schema=Confirm)
-            if res.action != "accept" or not getattr(res.data, "confirm", False):
-                return f"keel: not done — you said no to {what}."
+            # 0.18.64 a client without forms gets a one-time token for this call instead of only "use --yes"
+            key = confirm_mod.Tokens.key(name, a, kw, KeelApi)
+            given = confirm_mod.GIVEN.get()
+            if given:
+                if not tokens.take(given, name, key):
+                    return confirm_mod.bad_text(name, what, tokens.issue(name, key))
+            elif not ask_mod.can_elicit(ctx):
+                return confirm_mod.ask_text(name, what, tokens.issue(name, key))
+            else:
+                try:
+                    res = await ctx.elicit(message=f"keel: {what}?", schema=Confirm)
+                except Exception:  # noqa: BLE001 - a client that says it has forms and then shows none: the token way
+                    log.info("keel mcp: the client's form failed for %s", name, exc_info=True)
+                    return confirm_mod.ask_text(name, what, tokens.issue(name, key))
+                if res.action != "accept" or not getattr(res.data, "confirm", False):
+                    return f"keel: not done — you said no to {what}."
         return await anyio.to_thread.run_sync(lambda: guard(fn, *a, **kw))
 
     async def ask_first(ctx, project, thread_id, decision, why, answers, choice, ask_person):
@@ -699,7 +727,7 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
                               ticket: str | None = None, pr: str | None = None, inputs: dict[str, Any] | None = None,
                               run_mode: Literal["manual", "important", "auto", "readonly"] | None = None,
                               allow_dirty: bool = False, ignore: list[str] | None = None, force: bool = False,
-                              branch: Literal["new", "continue"] | None = None, base: str | None = None,
+                              branch: Literal["new", "continue"] | None = None, base: str | None = None, wait: int = 0,
                               ctx: Context | None = None) -> str:
         """Start a keel flow on the project, as the dashboard's "Start a flow" does. No type: every flow the project can
         start (quick, small, implement, change, feature, fix, spike, clarify, review-pr, ...), one line each on what it is for
@@ -718,12 +746,16 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         branch: continue (the branch the project folder is on) or new (a new branch from the base branch); default:
         continue for the flows that finish a branch (ship, cover, review, lint, address), new for the others.
         base: the branch the flow's new branch starts from, a local branch or <remote>/<branch> (e.g. upstream/main);
-        keel fetches every remote at the start and its answer says how far the base is behind each one."""
+        keel fetches every remote at the start and its answer says how far the base is behind each one.
+
+        It answers at once with the thread id, its status (starting, running or waiting) and how to follow it
+        (keel_status, keel_flows; keel_read_gate and keel_answer when it waits); wait: up to that many seconds (at most
+        60) for the flow to reach its first gate before answering."""
         if not type:
             from . import mcp_flows
             return guard(startable, api, project)
         return await act(ctx, "keel_start_flow", f"start a {type} flow", start_flow, api, type, idea, project,
-                         time.sleep, START_WAIT, allow_fake, title, request, ticket, pr, inputs, run_mode,
+                         time.sleep, wait, allow_fake, title, request, ticket, pr, inputs, run_mode,
                          allow_dirty, ignore, force, branch, base)
 
     @reg(rw)
@@ -941,17 +973,32 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         return await act(ctx, "keel_agent_create", f"save the new agent {name}", create.create_agent, api, name, prompt, about,
                          tools, phases, project, provider=provider, mode=mode, model=model, effort=effort)
 
+    @reg(ro)
+    def keel_models() -> str:
+        """0.18.64 Every model keel can use: each provider (claude, codex, copilot, ...) with its modes, their models and
+        the thinking efforts each model takes (or none), its default, and whether each mode is set up (keel has its login
+        or API key; no secret is shown). Also the role words keel_agent_model takes (planning = the explorer in the spec
+        phase, ...)."""
+        return guard(mm.models, api)
+
     @reg(rw)
-    async def keel_agent_model(agent: str, provider: str | None = None, mode: str | None = None, model: str | None = None,
-                               effort: str | None = None, chat: str | None = None, project: str | None = None,
+    async def keel_agent_model(agent: str | None = None, provider: str | None = None, mode: str | None = None,
+                               model: str | None = None, effort: str | None = None, chat: str | None = None,
+                               project: str | None = None, thread_id: str | None = None, step: str | None = None,
                                ctx: Context | None = None) -> str:
-        """Change the model and thinking effort an agent uses on the project (agent: its id from keel_agent_definitions,
-        or keelbot for KeelBot). Give only what changes: provider (claude | codex | copilot | fake), mode
-        (subscription | api | opencode), model, effort (what the model offers, e.g. low, medium, high, xhigh, max;
-        "default" = the engine's own). With `chat`, only that KeelBot chat changes. Asks the person first."""
+        """Change the model and thinking effort an agent uses (agent: its id from keel_agent_definitions, keelbot for
+        KeelBot, or a role word: planning = the explorer in the spec phase, coding = the implementer, ...; keel_models
+        lists them). Give only what changes: provider (claude | codex | copilot | fake | ...), mode (subscription | api |
+        opencode), model, effort (what the model offers, e.g. low, medium, high, xhigh, max; "default" = the engine's
+        own); a wrong one is refused with the ones there are (keel_models lists them all). Where it changes: the project
+        (default: every flow, from the agent's next run); with `thread_id` only that flow (a role word: only its steps in
+        that phase); with `step` only that step of the flow (thread_id, default the project's flow); with `chat` only
+        that KeelBot chat. Asks the person first."""
         what = f"use {'/'.join(x for x in (provider, model) if x) or 'its model'}" + (f" with effort {effort}" if effort else "")
-        return await act(ctx, "keel_agent_model", f"{what} for {chat and f'KeelBot chat {chat}' or agent}", mm.agent_model, api,
-                         agent, provider, mode, model, effort, chat, project)
+        where = (f"KeelBot chat {chat}" if chat else f"the step {step} of flow {thread_id or '(the project flow)'}" if step
+                 else f"{agent} in flow {thread_id} only" if thread_id else f"{agent} on the whole project")
+        return await act(ctx, "keel_agent_model", f"{what} for {where}", mm.agent_model, api,
+                         agent, provider, mode, model, effort, chat, project, thread_id, step)
 
     # ---------------------------------------------------------------- 0.18.6 skills
 
