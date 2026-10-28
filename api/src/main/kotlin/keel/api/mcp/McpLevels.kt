@@ -197,6 +197,8 @@ class McpLevelGuard(
             post("^/api/projects/[^/]+/doctor/workspace/exclude$"),
             post("^/api/threads/[^/]+/(stop|resume|mode|models|rewind|sync)$"),
             put("^/api/threads/[^/]+/document$"),
+            // 0.18.65 the base branch and the canonical remote (keel_base_branch asks the person first)
+            put("^/api/projects/[^/]+/base$"),
             // keel_answer and keel_approve_gate answer a flow's question (an approval the api asked itself needs more:
             // InboxService.act)
             post("^/api/inbox/[^/]+/act$"),
@@ -227,6 +229,10 @@ class McpLevelGuard(
          * or approve a plugin install.
          */
         val ADMIN = listOf(
+            // 0.18.65 Settings › Review and the project's lens files (no MCP tool changes them)
+            put("^/api/projects/[^/]+/review-setup$"),
+            post("^/api/projects/[^/]+/review-setup/lenses$"),
+            put("^/api/projects/[^/]+/review-setup/lenses/[^/]+$"),
             // a flow's run removed (keel_delete_run), its worktree removed, a project unlocked
             delete("^/api/projects/[^/]+/flows/[^/]+$"),
             post("^/api/threads/[^/]+/worktree/remove$"),
