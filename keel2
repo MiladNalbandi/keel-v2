@@ -2194,7 +2194,8 @@ print_mcp_config() {  # print_mcp_config <--read-only|--write|--admin> [extra ar
     info "  Claude Desktop: \"mcpServers\": { \"$name\": { \"command\": \"$jself\", \"args\": [$jargs$jmore]$env_json } }"
     info ""
   done
-  info "${D}Push, DB changes, deletes and stops ask you first in the client; a client without forms gets a one-time token to call again with (--yes skips every question).${N}"
+  info "${D}Push, DB changes, deletes and stops ask you first in the client; a client without forms: you confirm in keel's Inbox.${N}"
+  info "${D}Danger: --yes skips every question: the model's acting tools then run with no question to you.${N}"
   info "${D}--allow keel_status,keel_approve_gate keeps only those tools. keel's own agents always get it read-only.${N}"
 }
 

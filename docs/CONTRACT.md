@@ -2316,7 +2316,9 @@ keel's key signs them); `keel-plugin index` builds the `stacks` list.
 - **write**: `keel_approve_gate`, `keel_resume`, `keel_start_flow`, the plugins' `keel_git_commit`, `keel_git_push`, `keel_pr_create`, `keel_ci_rerun`, `keel_db_change`, and new `keel_answer` (`POST /inbox/{tid}/act { decision, why, payload: { answers, choice } }`, or `POST /inbox/tasks/{id}/act`), `keel_edit_gate` (send back with notes), `keel_restore_doc` (0.15.9 restore).
 - **admin**: `keel_stop_flow` (`POST /threads/{tid}/stop`), `keel_delete_run` (`DELETE /projects/{pid}/flows/{tid}`), `keel_add_project` (only a folder `GET /folders` lists), `keel_remove_project` (`DELETE /api/projects/{pid}`, new: the project is hidden, its history kept; 409 while a flow runs or waits there; `POST /api/projects` with its folder shows it again), `keel_workflows` (list, or one workflow's YAML), `keel_edit_workflow` (`POST /projects/{pid}/workflows/check`, then `PUT /workflows/{wid} { yaml }`; nothing saved when the check has errors).
 - **Engine actions**: `action_docs.ACTION_LEVELS` gives an action its level (read: audit, trace, arch, reports …; write: verify_release, verify_coverage, verify_fast, verify_deps, verify_lint, lint_run, knowledge_check, memory_check, push_check, pr; admin: arch_set, open_pr); every other action is `flow-only`. `POST /api/projects/{pid}/actions/{name} { args }` → engine `POST /projects/{pid}/actions/{name} { root, args, settings }` → `{ ok, note, detail }` (404 unknown, 409 flow-only).
-- **Confirm**: `keel_git_push`, `keel_db_change`, `keel_delete_run`, `keel_stop_flow`, `keel_remove_project`, `keel_edit_workflow` and `keel_restore_doc` ask the person through the client (MCP elicitation, `{ confirm: bool }`); a client without elicitation is refused ("…run keel2 mcp with --yes…"); `--yes` skips the question. The plugins' "ask in keel's Inbox" stays as a second check.
+- **Confirm**: `keel_git_push`, `keel_db_change`, `keel_delete_run`, `keel_stop_flow`, `keel_remove_project`, `keel_edit_workflow` and `keel_restore_doc` ask the person through the client (MCP elicitation, `{ confirm: bool }`); a client without elicitation gets a one-time token and, 0.18.64, a question in keel's Inbox (below: "A client without
+forms: you confirm in keel's Inbox"); `--yes` skips the question (danger: the model's acting tools then run with no
+question to the person). The plugins' "ask in keel's Inbox" stays as a second check.
 - **Audit**: every non-GET request from the MCP server carries `X-Keel-Via: mcp`, `X-Keel-Client: <the client's name>` and `X-Keel-Tool: <tool>`. The api (`mcp/McpAudit.kt`) records each as an event `mcp.call { via, client, tool, method, path, ok, status }` on the project (and thread); the web timeline shows "via MCP · <client>: <tool>". Reads are not recorded.
 - No tool calls keel's login, key or connection-secret routes; `repo/file` and `repo/raw` already refuse secret files (`.env`, keys, certificates; `RepoService.safePath`).
 
@@ -3170,11 +3172,25 @@ The field report's bugs 12 and 13 (`docs/plans/field-report-clarify.md`).
   `model:`, the agent's entry, the default (`explain.model_info` the same). Other flows and the Agents page never change.
 - **Confirmations without forms** (`mcp_confirm.py`): a tool that asks first (`CONFIRM`, a part's `confirm=True`, a
   publishing action) and a client without elicitation (or whose form fails): nothing is done and the answer is `keel:
-  this MCP client cannot ask you to confirm <what> in a form, so nothing was done yet. This needs your OK: <what>. …
-  call <tool> again with the same arguments and confirm: "ok-…" within 5 minutes (it works once). Or run keel2 mcp with
-  --yes …`. The token is bound to the tool and a hash of its arguments, used up by any try, and ends after 300 s; a bad
-  one answers `that confirm token is not valid for this call …` with a new one. Those tools (and keel_run_action and
-  the parts' write tools) take an optional `confirm: string`. Elicitation where it works and `--yes` are unchanged.
+  this MCP client cannot ask you to confirm <what> in a form, so nothing was done yet. This needs the person's OK:
+  <what>. Ask the person; never confirm by yourself. …` with a one-time token `ok-…`. The token is bound to the tool and
+  a hash of its arguments, ends after 300 s (600 s when it has an Inbox question), and a bad or late one answers `that
+  confirm token is not valid for this call …` with a new one. Those tools (and keel_run_action and the parts' write
+  tools) take an optional `confirm: string`. Elicitation where it works and `--yes` are unchanged; 0.18.64 the answer no
+  longer names `--yes`.
+- **A client without forms: you confirm in keel's Inbox** (0.18.64, security audit F13). The model reads the token, so
+  it could confirm by itself. With the token keel also asks in its Inbox: `POST /api/projects/{pid}/plugins/ask
+  {title: "<client>: <what>?", command: "<tool>(<arguments>)"}` (engine approvals, kind `plugin`, session `mcp`: the
+  Inbox's "Claude Code asks" card; the project is the tool's `project`, else the only one or the client's folder's).
+  The call with the token reads `GET /api/plugins/asks/{id}`: approved → done; denied → `keel: not done — the person said
+  no to <what> in keel's Inbox`; still waiting → `keel: the person has not approved <what> in keel's Inbox yet …` (the
+  token stays open). The dangerous kinds (`mcp_confirm.OUT_OF_BAND`: keel_delete_run, keel_remove_project,
+  keel_stack_remove, keel_keelbot_undo, keel_git_push, keel_stop_flow, keel_stop_flows, keel_pause, keel_agent_model,
+  keel_db_change, and keel_run_action's open_pr / pr) need the Inbox's approval: the token alone does nothing, and
+  when keel cannot ask in its Inbox (no project, no write level) the answer is `… keel could not put the question in
+  its Inbox (…), so nothing was done … they confirm it in keel's dashboard` with no token. The other kinds act on the
+  token (the Inbox's approval counts too; a denial there wins). `KEEL_MCP_CONFIRM=token`: the token alone confirms
+  every kind (as before).
 
 ## keel 0.18.64: a spec handed over is kept, spec numbers, keel v1's leftover state (fix/spec-seed-v1-state)
 
