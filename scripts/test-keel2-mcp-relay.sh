@@ -63,10 +63,11 @@ send(p, {"jsonrpc": "2.0", "method": "notifications/initialized"})
 send(p, {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"n": 1}})
 r = recv(p); assert r["id"] == 2 and r["result"]["start"] == 1, r
 send(p, {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"n": 2}})   # the server ends here
-r = recv(p); assert r["id"] == 3 and r["result"] == {"start": 2, "n": 2}, r       # answered by the restarted server
-assert p.notes == ["notifications/tools/list_changed"], p.notes                  # the client lists the tools again
+# 0.18.64 it reached the old server, which may have done it: never sent twice (a flow started twice), it says so
+r = recv(p); assert r["id"] == 3 and r["result"]["isError"] and "it may have happened" in r["result"]["content"][0]["text"], r
 send(p, {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"n": 3}})
 r = recv(p); assert r["id"] == 4 and r["result"]["start"] == 2, r
+assert p.notes == ["notifications/tools/list_changed"], p.notes                  # the client lists the tools again
 assert open(tmp + "/starts").read() == "2"
 # keel_reconnect: the relay's own; it starts the server again and says so when the new one answers
 send(p, {"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "keel_reconnect", "arguments": {}}})
@@ -74,7 +75,7 @@ r = recv(p); assert r["id"] == 5 and not r["result"]["isError"] and "start 3" in
 send(p, {"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"n": 4}})
 r = recv(p); assert r["id"] == 6 and r["result"]["start"] == 3, r
 p.stdin.close(); p.wait(timeout=10)
-print("ok   a call during a keel restart is answered by the restarted server (initialize repeated, tools listed again)")
+print("ok   a call the old server got is not sent again after a keel restart; the next goes to the new server (initialize repeated, tools listed again)")
 print("ok   keel_reconnect starts the server again and answers when the new one is ready")
 P
 # keel stays down: a waiting call gets "keel is restarting" after the hold, not silence; a ping is answered at once

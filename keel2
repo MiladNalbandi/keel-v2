@@ -1404,6 +1404,7 @@ import json, os, subprocess, sys, threading, time
 name, argv = sys.argv[1], sys.argv[2:]
 out_lock, state = threading.Lock(), threading.Condition()
 pending, init_line, child, ready, closing, restarting, seq = {}, None, None, False, False, False, [0]
+sent = set()
 WAIT = int(os.environ.get("KEEL_MCP_RELAY_WAIT", "180"))
 HOLD = float(os.environ.get("KEEL_MCP_RELAY_HOLD", "10"))
 RESTARTING = "keel is restarting: try again in a few seconds (keel2 status says when it is back)."
@@ -1443,7 +1444,7 @@ def reader(p, my_init):
                 with state:
                     ready = True; state.notify_all()
                 continue
-            pending.pop(json.dumps(msg["id"]), None)
+            pending.pop(json.dumps(msg["id"]), None); sent.discard(json.dumps(msg["id"]))
         send_out(line)
     p.wait()
     with state:
@@ -1466,9 +1467,16 @@ def start(replay):
             return False
         to_child(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}))
         with state:
-            again = list(pending.values())
-        for line in again:
-            to_child(line)
+            again = list(pending.items())
+        for key, line in again:
+            msg = json.loads(line)
+            if msg.get("method") == "tools/call" and key in sent:
+                # it reached the old server, which may have done it (a flow started, a gate answered): never twice
+                pending.pop(key, None); sent.discard(key)
+                send_out(tool_answer(msg["id"], "keel: keel restarted while %s ran: it may have happened. Check (keel_flows, "
+                                     "keel_status) before you call it again." % ((msg.get("params") or {}).get("name") or "the call"), True))
+            else:
+                to_child(line)
         send_out(json.dumps({"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}))
     else:
         threading.Thread(target=reader, args=(child, None), daemon=True).start()
@@ -1531,6 +1539,8 @@ for line in sys.stdin:
         with state:
             pending[json.dumps(msg["id"])] = line
     if ready and to_child(line):
+        if call:
+            sent.add(json.dumps(msg["id"]))
         continue
     if call and msg["method"] == "tools/call":
         threading.Thread(target=hold, args=(json.dumps(msg["id"]),), daemon=True).start()
