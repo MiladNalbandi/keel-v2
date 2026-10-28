@@ -11,6 +11,7 @@ import { api, errorParts } from "../api";
 import { ClarifyForm, type ClarifyAnswers } from "../components/ClarifyForm";
 import { questionsPayload, reasonsMissing } from "../questions";
 import { ChoiceForm } from "../components/ChoiceForm";
+import { clearDraft, DraftKept, dropOtherDrafts, noKeys, questionKey, useAnswerDraft } from "../drafts";
 import { RunModeNote } from "../components/RunMode";
 import { EmptyState } from "../components/EmptyState";
 import { GateDetail } from "./Flow";
@@ -180,10 +181,16 @@ function StackSetupCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) =
 function InboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) => Promise<void> }) {
   const { setProjectId } = useApp();
   const b = buttonsFor(it);
-  const [why, setWhy] = useState("");
-  const [askWhy, setAskWhy] = useState(false);
-  const [picked, setPicked] = useState<ClarifyAnswers>({});
-  const [typed, setTyped] = useState<ClarifyAnswers>({});
+  // keel 0.18.64 the unsent answer is kept, the same draft as the Flow page's gate card (another page and back: still
+  // there; answered: gone)
+  const qkey = questionKey(it);
+  const place = useMemo(() => ({ project: it.project_id, thread: it.thread_id, question: qkey }), [it.project_id, it.thread_id, qkey]);
+  useEffect(() => dropOtherDrafts(it.project_id, it.thread_id, qkey), [it.project_id, it.thread_id, qkey]);
+  const [why, setWhy, keptWhy] = useAnswerDraft<string>(place, "why", "");
+  // a kept reason shows its box again
+  const [askWhy, setAskWhy] = useState(() => !!why.trim());
+  const [picked, setPicked, keptPicked] = useAnswerDraft<ClarifyAnswers>(place, "picked", {}, noKeys);
+  const [typed, setTyped, keptTyped] = useAnswerDraft<ClarifyAnswers>(place, "typed", {});
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<{ message: string; hint?: string } | null>(null);
   const hid = `inbox-${it.thread_id}`;
@@ -212,6 +219,7 @@ function InboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) => Pro
     else if (payload) body.payload = payload;
     try {
       await inboxApi.act(it.thread_id, body);
+      clearDraft(place);
       await onDone(msg ?? (decision === "approve" ? `${it.project_name}: ${b.approve}. The flow goes on.` : `${it.project_name}: ${b.reject}.`));
     } catch (e) {
       setErr(errorParts(e));
@@ -253,7 +261,7 @@ function InboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) => Pro
         </div>
       )}
       {info && (
-        <ChoiceForm id={hid} choices={info} busy={busy}
+        <ChoiceForm id={hid} choices={info} busy={busy} draft={place}
           onSend={(choice, said) => act("approve", { choice }, `${it.project_name}: ${info.find((c) => c.name === choice)?.label || choice}.`, said)} />
       )}
       <div className="row inbox-actions">
@@ -280,6 +288,7 @@ function InboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) => Pro
         )}
         <button className="btn sm ghost inbox-open" type="button" onClick={openFlow} aria-label={`Open flow ${it.flow} in ${it.project_name}`}>Open flow ▸</button>
       </div>
+      <DraftKept shown={keptWhy || keptPicked || keptTyped} />
       {err && <ErrorBox error={err} />}
     </article>
   );

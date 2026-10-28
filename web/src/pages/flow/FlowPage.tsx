@@ -22,6 +22,7 @@ import { CiteLinks } from "../../components/Markdown";
 import { hasPage } from "../../sdk/registry";
 import { StartFlowDrawer } from "../../components/StartFlow";
 import { initOffered, isInitFlow, markInitOffered, needsInit } from "../../components/InitAsk";
+import { dropOtherDrafts } from "../../drafts";
 import { InitBanner, SetupCard } from "../../components/InitSetup";
 import { type BlocksHandle } from "../../components/Blocks";
 import { useWide } from "../../components/useWide";
@@ -61,6 +62,13 @@ export function FlowPage({ pid }: { pid: string }) {
   useEffect(() => setViewing(null), [pid, tid]);
   const cur = flow.data?.thread ?? null;
   const live = !!cur && (cur.status === "running" || cur.status === "waiting");
+  // keel 0.18.64 the flow waits for nothing now (answered here, in the Inbox or in keel2): its unsent drafts go
+  const curTid = cur?.thread_id ?? null;
+  const curPid = cur?.project_id ?? pid;
+  const curWaits = cur?.status === "waiting" && !!cur.waiting;
+  useEffect(() => {
+    if (curTid && !curWaits) dropOtherDrafts(curPid, curTid, null);
+  }, [curPid, curTid, curWaits]);
   // the Runs history shows when the current flow does not run or wait (or there is none)
   const history = !!flow.data && !live;
   const shown = history ? viewing : null;

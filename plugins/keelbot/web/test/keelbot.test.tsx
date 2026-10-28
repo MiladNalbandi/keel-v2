@@ -187,6 +187,31 @@ describe("KeelBot asks the person to choose (0.18.9)", () => {
     expect(db.calls.some((c) => c.method === "PATCH" && c.path.endsWith("/helper/sessions/h1"))).toBe(false);
   });
 
+  it("0.18.64 the picked options and own words are kept after another page, and go once they are sent", async () => {
+    const user = userEvent.setup();
+    const asked = 'Two things first:\n\n```keel-questions\n[{"id": "where", "question": "Where should it show?", "multiple": true,'
+      + ' "options": [{"label": "Web", "recommended": true}, {"label": "Mobile"}]},'
+      + ' {"id": "size", "question": "How many rows?", "options": ["Ten", "A hundred"]}]\n```';
+    let p = await chatWith(asked);
+    let card = await within(p).findByRole("region", { name: "KeelBot's questions" });
+    await user.click(within(card).getByRole("checkbox", { name: /Mobile/ }));
+    await user.type(within(card).getByLabelText("Your own answer to: How many rows?"), "as many as fit");
+    expect(within(card).queryByTestId("draft-kept")).toBeNull();
+    // another page and back
+    location.hash = "#/flow";
+    await screen.findByRole("region", { name: "Gate waits for you" });
+    location.hash = "#/keelbot";
+    p = await panel();
+    card = await within(p).findByRole("region", { name: "KeelBot's questions" });
+    expect(within(card).getByRole("checkbox", { name: /Mobile/ })).toHaveAttribute("aria-checked", "true");
+    expect(within(card).getByLabelText("Your own answer to: How many rows?")).toHaveValue("as many as fit");
+    expect(within(card).getByTestId("draft-kept")).toBeInTheDocument();
+    await user.click(within(card).getByRole("button", { name: "Send my answers" }));
+    await waitFor(() => expect(db.calls.find((c) => c.method === "POST" && c.path.endsWith("/helper/sessions/h1/turn"))?.body).toMatchObject({
+      text: "Answers to your questions:\n1. Where should it show?\n   → Web; Mobile\n2. How many rows?\n   → as many as fit" }));
+    expect(Object.keys(localStorage).filter((k) => k.startsWith("keel2.answer."))).toEqual([]);
+  });
+
   it("0.18.13 after a reload the card stays answered: it reads the answers from the chat's later message", async () => {
     const asked = '```keel-questions\n[{"id": "size", "question": "How many players?", "options": ["Top 10", "Top 100"]}]\n```';
     const p = await chatWith(`One thing first:\n\n${asked}`, [
