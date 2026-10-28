@@ -169,7 +169,7 @@ def test_review_pr_without_a_login_says_to_connect_github_or_fetch_on_the_host(c
     assert code == 409
     assert "GitHub is not connected in keel (Connections › GitHub) — or fetch the branch on the host first" in err
     assert "`git fetch origin pull/20/head:refs/keel/pr-20`" in err
-    assert calls and calls[0]["args"][-3:] == ["origin", "--", "+refs/pull/20/head:refs/keel/review-pr/20"]
+    assert calls and calls[0]["args"][-3:] == ["--end-of-options", "origin", "+refs/pull/20/head:refs/keel/review-pr/20"]
     assert not any(a.startswith("credential.helper=!") for a in calls[0]["args"])
 
 

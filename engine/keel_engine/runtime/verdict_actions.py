@@ -111,7 +111,9 @@ def fetch_base(root: str, cfg: dict) -> str:
     if not remote:
         return ""
     where, _, branch = remote.partition("/")
-    r = git.git(root, "fetch", "--quiet", "--no-tags", where, branch, timeout=FETCH_TIMEOUT)
+    if not (git.plain_name(where) and git.plain_name(branch)):
+        return f"did not fetch {remote}: not a remote branch name"
+    r = git.git(root, "fetch", "--quiet", "--no-tags", "--end-of-options", where, branch, timeout=FETCH_TIMEOUT)
     return "" if r.returncode == 0 else f"could not fetch {remote} ({(r.stderr or r.stdout).strip()[:120]}); compared with the last fetched copy"
 
 

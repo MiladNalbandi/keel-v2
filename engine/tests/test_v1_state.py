@@ -83,6 +83,25 @@ def test_a_refused_commit_names_the_v2_flow_that_blocks_it(tmp_path, capsys):
 
 def test_a_failed_commit_names_the_keel_v1_flow_left_behind(repo, monkeypatch, tmp_path):
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "no-gitconfig"))
+    v1(repo)
+    (repo / "src" / "scores" / "x.py").write_text("x = 1\n")
+    a = ActionInput(root=str(repo), phase="green", title="ranks", ac=None, acs=[], fake=True, flow="custom", project="demo")
+    real = actions.git.git
+
+    def failing_commit(root, *args, **kw):           # the commit itself fails (a lock, a full disk ...)
+        if "commit" in args:
+            return actions.git.subprocess.CompletedProcess(["git", *args], 1, "", "fatal: cannot lock the index")
+        return real(root, *args, **kw)
+
+    monkeypatch.setattr(actions.git, "git", failing_commit)
+    r = actions.commit(a)
+    assert not r.ok and r.note.startswith("git commit failed: a keel v1 flow (feature 012-prices, phase full-review) left")
+    assert "cannot lock the index" in r.detail
+
+
+def test_keel_v1s_leftover_git_hook_no_longer_blocks_keels_commit(repo, monkeypatch, tmp_path):
+    # 0.18.64 (security audit F3) keel's own git runs no hook of the repo (tools/git.py SAFE_ARGS)
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "no-gitconfig"))
     hookfile = repo / ".git" / "hooks" / "pre-commit"
     hookfile.parent.mkdir(parents=True, exist_ok=True)
     hookfile.write_text("#!/bin/sh\necho 'keel v1: no commits in phase full-review' >&2\nexit 1\n")
@@ -91,8 +110,7 @@ def test_a_failed_commit_names_the_keel_v1_flow_left_behind(repo, monkeypatch, t
     (repo / "src" / "scores" / "x.py").write_text("x = 1\n")
     a = ActionInput(root=str(repo), phase="green", title="ranks", ac=None, acs=[], fake=True, flow="custom", project="demo")
     r = actions.commit(a)
-    assert not r.ok and r.note.startswith("git commit failed: a keel v1 flow (feature 012-prices, phase full-review) left")
-    assert "keel v1: no commits" in r.detail
+    assert r.ok, (r.note, r.detail)
 
 
 # ------------------------------------------------------------------ MCP keel_state
