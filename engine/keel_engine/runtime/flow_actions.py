@@ -19,7 +19,7 @@ from pathlib import Path
 
 from .. import rules
 from ..tools import git
-from . import bug, md, spike_report, verdict_actions
+from . import bug, commit_style, md, spike_report, verdict_actions
 from .gate_state import shallow_gates
 
 LENSES = ["correctness", "security", "performance", "architecture", "assertions"]
@@ -186,16 +186,20 @@ STAT_LINES = 25
 
 
 def ac_commit(root: str, prefix: str, ac_id: str, since: str | None = None) -> tuple[str, str] | None:
-    """(short sha, subject) of the newest commit whose subject starts with "<prefix>(<ac id>)" (test = RED, feat =
-    GREEN), since `since` (the flow's start) when given; None when there is none."""
+    """(short sha, subject) of the newest commit that is "<prefix>(<ac id>)" (test = RED, feat = GREEN, fix too), since
+    `since` (the flow's start) when given; None when there is none. 0.18.64 read as the trace reads it
+    (commit_style.ref_of): with a project commit style the subject is the project's and keel's form is the Keel-Ref
+    trailer, so the gate said "no test(AC-1) commit found" for commits the reviewer was shown."""
     if not git.is_repo(root):
         return None
     rng = [f"{since}..HEAD"] if since and git.git(root, "rev-parse", "--verify", "-q", f"{since}^{{commit}}").returncode == 0 else []
-    out = git.git(root, "log", "--format=%h%x09%s", "-n", "300", *rng).stdout
-    head = f"{prefix}({ac_id})"
-    for line in out.splitlines():
-        sha, _, subject = line.partition("\t")
-        if subject.startswith(head):
+    out = git.git(root, "log", "--format=%h%x1f%s%x1f%b%x1e", "-n", "300", *rng).stdout or ""
+    heads = [f"{prefix}({ac_id})"] + ([f"fix({ac_id})"] if prefix == "feat" else [])
+    for entry in out.split("\x1e"):
+        sha, _, rest = entry.strip("\n").partition("\x1f")
+        subject, _, body = rest.partition("\x1f")
+        ref = commit_style.ref_of(subject, body)
+        if sha and any(ref.startswith(h) for h in heads):
             return sha, subject
     return None
 

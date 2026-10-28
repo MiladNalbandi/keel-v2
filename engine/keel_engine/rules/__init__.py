@@ -836,6 +836,13 @@ def _layout_paths(cfg: dict | None) -> tuple[list[re.Pattern], list[re.Pattern]]
     return MEMORY_PATHS + extra_k, SETUP_PATHS + extra_k + extra_r
 
 
+def setup_stray(files: list[str], cfg: dict | None = None) -> list[str]:
+    """The files a setup commit may not hold (not what an init writes): a rung fix's changes, a cache it left."""
+    cfg = cfg if cfg and "guards" in cfg else make_config(cfg)
+    _memory, setup_paths = _layout_paths(cfg)
+    return [f for f in files if not any(p.search(f) for p in setup_paths)]
+
+
 def check_commit(ctype: str, files: list[str], cfg: dict | None = None) -> CommitVerdict:
     """The bucket rules of `keel commit <type>` for a staged file list (diff-level checks are not here)."""
     rule = COMMIT_RULES.get(ctype)

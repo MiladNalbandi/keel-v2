@@ -766,8 +766,16 @@ def commit(a: ActionInput) -> ActionResult:
     if theirs:
         git.git(a.root, "reset", "-q", "--", *theirs)
     staged = [f for f in git.git(a.root, "diff", "--cached", "--name-only").stdout.splitlines() if f.strip()]
+    # 0.18.64 init commits only what an init writes: a rung fix changed project files (a lock file, a cache), and the
+    # whole setup commit was refused, again on every "try again". They stay uncommitted, for the person.
+    left = rules.setup_stray(staged, rules.load_config(a.root)) if ctype == "setup" else []
+    if left:
+        git.git(a.root, "reset", "-q", "--", *left)
+        staged = [f for f in staged if f not in left]
+    left_note = (f" · left uncommitted for you (not init's files): {', '.join(left[:8])}"
+                 + (f" and {len(left) - 8} more" if len(left) > 8 else "")) if left else ""
     if not staged:
-        return ActionResult(True, "Nothing to commit.")
+        return ActionResult(True, "Nothing to commit." + left_note)
     tool_notes, staged = _pre_commit_tools(a, staged)
     if isinstance(tool_notes, ActionResult):
         return tool_notes
@@ -903,7 +911,7 @@ def commit(a: ActionInput) -> ActionResult:
     tail_note += f" · suggest: {'; '.join(t['why'] for t in suggest)} (not blocking)" if suggest else ""
     gates = a.state.get("gates") or {"mode": "every-ac", "log": list(a.gates_log), "skipped": {}}
     noted = {"gates": {**gates, "log": [*(gates.get("log") or []), *checks.suggest_lines(suggest)]}} if suggest else {}
-    return ActionResult(True, f"{message} {sha[:7] if sha else ''}".strip() + tail_note, "\n".join(staged),
+    return ActionResult(True, f"{message} {sha[:7] if sha else ''}".strip() + tail_note + left_note, "\n".join(staged),
                         {"git_head": sha, "blockers": push_gates.push_blockers(a.root, a.base, project=a.key), **noted})
 
 
