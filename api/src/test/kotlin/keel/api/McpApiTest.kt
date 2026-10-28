@@ -64,4 +64,56 @@ class McpApiTest : ApiTest() {
         kv.delete("mcp-keel-v1-dismissed")
     }
 
+    @Test
+    fun `0_18_64 a typed env value becomes a secret and GET never shows it`(@Autowired secrets: keel.api.connections.SecretService) {
+        val spec = mapOf("name" to "envtest", "command" to "npx", "args" to listOf("demo"),
+            "env" to mapOf("API_TOKEN" to "fake-token-123", "MODE" to "fast", "EMPTY" to ""))
+        val made = post("/api/mcp-servers", spec).andExpect(status().isOk).json()
+        assertThat(made["env"]["API_TOKEN"].asText()).isEqualTo("secret:envtest_API_TOKEN")
+        assertThat(made.toString()).doesNotContain("fake-token-123").doesNotContain("fast")
+        assertThat(secrets.get("envtest_API_TOKEN")).isEqualTo("fake-token-123")
+        val listed = get("/api/mcp-servers").json().first { it["name"].asText() == "envtest" }
+        assertThat(listed.toString()).doesNotContain("fake-token-123")
+        // a value saved before 0.18.64 (plain in the table) shows as "set"; sent back, it is kept
+        jdbc.update("UPDATE mcp_servers SET env_json = ? WHERE name = 'envtest'", """{"OLD":"fake-old-value","API_TOKEN":"secret:envtest_API_TOKEN"}""")
+        assertThat(get("/api/mcp-servers").json().first { it["name"].asText() == "envtest" }["env"]["OLD"].asText()).isEqualTo("set")
+        put("/api/mcp-servers/envtest", mapOf("env" to mapOf("OLD" to "set", "API_TOKEN" to "secret:envtest_API_TOKEN"))).andExpect(status().isOk)
+        assertThat(secrets.get("envtest_OLD")).isEqualTo("fake-old-value")
+        // the engine gets the value when the server is tested
+        post("/api/mcp-servers/envtest/test").andExpect(status().isOk)
+        assertThat(engine.lastBody("/mcp/tools")!!["env"]["API_TOKEN"].asText()).isEqualTo("fake-token-123")
+        delete("/api/mcp-servers/envtest").andExpect(status().isOk)
+    }
+
+    @Test
+    fun `0_18_64 secret refs resolve only when attached to the server, never keel's own logins`(
+        @Autowired secrets: keel.api.connections.SecretService,
+    ) {
+        secrets.put("ANTHROPIC_API_KEY", "sk-ant-fake-key")
+        secrets.put("SHARED_TOKEN", "fake-shared")
+        // naming keel's own login is refused when saved
+        val own = mapOf("name" to "steal", "command" to "sh", "env" to mapOf("K" to "secret:ANTHROPIC_API_KEY"))
+        post("/api/mcp-servers", own).andExpect(status().isBadRequest)
+        post("/api/mcp-servers", own + ("env" to mapOf("K" to "secret:GITHUB_TOKEN"))).andExpect(status().isBadRequest)
+        // the person saves a server that names a secret: it is attached and resolves
+        post("/api/mcp-servers", mapOf("name" to "mine", "command" to "sh", "env" to mapOf("T" to "secret:SHARED_TOKEN"))).andExpect(status().isOk)
+        assertThat(mcp.attached("mine")).containsExactly("SHARED_TOKEN")
+        post("/api/mcp-servers/mine/test").andExpect(status().isOk)
+        assertThat(engine.lastBody("/mcp/tools")!!["env"]["T"].asText()).isEqualTo("fake-shared")
+        // a ref written into the table by other means (not attached), or keel's own login, stays empty
+        jdbc.update("UPDATE mcp_servers SET env_json = ? WHERE name = 'mine'",
+            """{"T":"secret:SHARED_TOKEN","X":"secret:OTHER_ONE","K":"secret:ANTHROPIC_API_KEY"}""")
+        secrets.put("OTHER_ONE", "fake-other")
+        post("/api/mcp-servers/mine/test").andExpect(status().isOk)
+        val env = engine.lastBody("/mcp/tools")!!["env"]
+        assertThat(env["T"].asText()).isEqualTo("fake-shared")
+        assertThat(env["X"].asText()).isEmpty()
+        assertThat(env["K"].asText()).isEmpty()
+        delete("/api/mcp-servers/mine").andExpect(status().isOk)
+        secrets.delete("ANTHROPIC_API_KEY")
+        assertThat(secrets.keelOwn("CLAUDE_CODE_OAUTH_TOKEN")).isTrue()
+        assertThat(secrets.keelOwn("local.ollama")).isTrue()
+        assertThat(secrets.keelOwn("SHARED_TOKEN")).isFalse()
+    }
+
 }

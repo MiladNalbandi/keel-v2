@@ -77,7 +77,10 @@ class JiraController(private val jira: JiraService, private val mcp: McpService,
     fun addFromCatalog(@PathVariable pid: String, @PathVariable id: String): McpServer {
         projects.require(pid)
         if (id != "jira") throw NotFound("No catalog entry \"$id\"")
-        return mcp.get(jira.addMcp(pid))
+        val name = jira.addMcp(pid)
+        // 0.18.64 the server may use this project's Jira token, and only that one (McpService resolves attached secrets)
+        mcp.attach(name, listOf(JiraService.secretName(pid)))
+        return mcp.viewOf(name)
     }
 }
 

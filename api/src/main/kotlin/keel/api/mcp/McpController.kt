@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.RestController
 class McpController(private val mcp: McpService) {
 
     @GetMapping("/mcp-servers")
-    fun list(): List<McpServer> = mcp.list()
+    fun list(): List<McpServer> = mcp.view()
 
     @PostMapping("/mcp-servers")
     fun create(@RequestBody spec: McpServerSpec): McpServer = mcp.create(spec)
