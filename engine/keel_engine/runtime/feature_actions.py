@@ -240,13 +240,16 @@ def preflight_warnings(a, cfg: dict) -> list[str]:
     never ran or did not pass; Docker is needed (a compose file, commands.services or a container-backed test) but not
     running; a command the flow will need is empty (codegen when a contract file exists, e2e when the work asks for e2e
     tests or the project has an e2e folder, static_checks for ship's static checks). Problems found here would
-    otherwise show up later as confusing test failures."""
-    from . import init_gates, ladder
+    otherwise show up later as confusing test failures. 0.18.64 also a keel v1 flow left in .keel/state.json (any
+    project)."""
+    from . import init_gates, ladder, v1_state
 
     root = Path(a.root)
+    # 0.18.64 a keel v1 flow nobody runs any more still blocks commits through keel v1's hooks
+    left = v1_state.leftover(a.root)
     if not (root / ".keel" / "config.yml").is_file():
-        return []
-    out: list[str] = []
+        return [left] if left else []
+    out: list[str] = [left] if left else []
     cmds = cfg.get("commands") or {}
     rungs = ladder.previous(a.root)
     if not rungs:
@@ -338,7 +341,9 @@ def spec_sync(a):
     plan = _section(text, "plan")
     if plan:
         parts.append(md.section("Plan (files per criterion, contract delta, test layer)", md.demote(plan[:2500])))
-    parts.append(md.section("Spec check", spec_check.describe(spec_check.check(text, acs, spec_check.outside_facts(a.request, a.data)))))
+    # 0.18.64 with what a handed-over spec named and this one lost (a risk, a criterion, an out-of-scope item)
+    found = spec_check.check(text, acs, spec_check.outside_facts(a.request, a.data)) + spec_check.lost(text, a.request, a.data)
+    parts.append(md.section("Spec check", spec_check.describe(found)))
     answer = a.data.get("spec_gate_answer") or {}
     if a.step.startswith("spec_review") and answer.get("choice") == "review" and (a.state.get("last_answer") or "").strip():
         parts.append(md.section("Spec review (you asked for it)", "The reviewer's answer, word for word:", md.demote(a.state["last_answer"].strip()[:6000])))

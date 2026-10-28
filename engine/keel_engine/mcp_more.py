@@ -211,6 +211,44 @@ def run_action(api: KeelApi, action: str, level: str, args: dict | None = None, 
     return f"{action}: {'ok' if r.get('ok') else 'failed'} · {r.get('note') or ''}" + (f"\n{r['detail']}" if r.get("detail") else "")
 
 
+def state(api: KeelApi, project: str | None = None, write: bool = False) -> str:
+    """0.18.64 keel's flow state for the project (GET /projects/{pid}/keel-state): the keel v2 flows that run or wait
+    there, and keel v1's leftover .keel/state.json with what it blocks."""
+    p = _project(api, project)
+    s = api.get(f"/projects/{p['id']}/keel-state") or {}
+    out = [f"keel's flow state on {p['id']}:"]
+    flows = s.get("flows") or []
+    out.append("keel v2 flows that run or wait here:" if flows else "keel v2: no flow runs or waits here.")
+    for f in flows:
+        where = f", worktree {f['worktree']}" if f.get("worktree") else ""
+        out.append(f"- \"{f.get('title') or '?'}\" ({f.get('workflow') or 'flow'}, thread {f.get('id')}): {f.get('status')} "
+                   f"at {f.get('step') or '-'}, phase {f.get('phase') or 'none'}{where}")
+    v1 = s.get("v1")
+    if not v1:
+        out.append("keel v1: no state file (.keel/state.json is not there).")
+        return "\n".join(out)
+    when = f", last changed {v1['updated']}" if v1.get("updated") else ""
+    if v1.get("error"):
+        out.append(f"keel v1: {v1.get('path')} is there but {v1['error']}{when}.")
+    elif v1.get("active"):
+        out.append(f"keel v1: {v1.get('path')} names the flow {v1.get('name')}{when}. keel v2 does not run it, but "
+                   "keel v1's hooks (when they are still installed) refuse every commit while it is there.")
+    else:
+        out.append(f"keel v1: {v1.get('path')} names no active flow ({v1.get('name')}{when}); it blocks nothing.")
+    how = 'keel_state(action="close")' + ("" if write else " with keel2 mcp --write")
+    out.append(f"Archive it (moved to .keel/archive/state-<date>.json, never deleted): {how}, or `keel2 state close` in "
+               "the project folder.")
+    return "\n".join(out)
+
+
+def state_close(api: KeelApi, project: str | None = None) -> str:
+    """0.18.64 archive keel v1's leftover state file (POST /projects/{pid}/keel-state/close)."""
+    p = _project(api, project)
+    r = api.post(f"/projects/{p['id']}/keel-state/close", {}) or {}
+    blocked = " It no longer blocks commits." if r.get("was_active") else ""
+    return f"keel v1's state ({r.get('flow')}) is archived as {r.get('archived')} on {p['id']}.{blocked}"
+
+
 # ---------------------------------------------------------------- write
 
 def waiting_of(api: KeelApi, project: str | None = None, thread_id: str | None = None) -> tuple[dict | None, str]:

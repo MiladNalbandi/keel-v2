@@ -1100,8 +1100,8 @@ keel has an MCP server with three levels; each includes the one below:
 
 | level | how | adds |
 |---|---|---|
-| read (default) | `keel2 mcp` | status, timeline, next step, phase rules, dashboard links, flows, Inbox, live agents, budget, specs (with history), knowledge, search, read a file, engine actions, keel's rules, workflows, agents (one agent's steps live), KeelBot's chats and changes, diagrams in ASCII (`keel_diagram`), skills, stacks, the formats and checks that save nothing (`keel_format`, `keel_workflow_check`, `keel_rule_check`, `keel_stack_check`), the marketplace search, the Database, Git and CI/CD read tools |
-| write | `keel2 mcp --write` | decide or send back a gate, answer the Inbox (several answers, a choice and a reason; questions in a form when the client can show one), start a flow (no type: every flow with what it is for and its inputs, like ticket or pr for review-pr), stop and resume flows, set a run mode, start an agent, ask KeelBot (`keel_keelbot_ask`, also `mode=edit`) and keep or undo its changes, create workflows, rule packs, agents, skills and stacks, attach skills, set an agent's model and effort, restore a spec, git / PR / CI / database writes, Code Review comments and submits |
+| read (default) | `keel2 mcp` | status, timeline, next step, phase rules, dashboard links, flows, Inbox, live agents, budget, specs (with history), knowledge, search, read a file, engine actions, keel's rules, workflows, agents (one agent's steps live), KeelBot's chats and changes, diagrams in ASCII (`keel_diagram`), skills, stacks, the formats and checks that save nothing (`keel_format`, `keel_workflow_check`, `keel_rule_check`, `keel_stack_check`), keel's flow state with a state file keel v1 left (`keel_state`; its `close` needs `--write`), the marketplace search, the Database, Git and CI/CD read tools |
+| write | `keel2 mcp --write` | decide or send back a gate, answer the Inbox (several answers, a choice and a reason; questions in a form when the client can show one), start a flow (no type: every flow with what it is for and its inputs, like ticket or pr for review-pr), stop and resume flows, set a run mode, start an agent, ask KeelBot (`keel_keelbot_ask`, also `mode=edit`) and keep or undo its changes, create workflows, rule packs, agents, skills and stacks, attach skills, set an agent's model and effort, restore a spec, archive keel v1's leftover state (`keel_state action=close`), git / PR / CI / database writes, Code Review comments and submits |
 | admin | `keel2 mcp --admin` | delete flows, pause (`keel_pause`; `keel_resume` goes on), add and remove projects, switch the project the dashboard and keel TUI show (`keel_focus`), connect GitHub with a one-time code (`keel_connect_github`: it returns the code and the link, never the token), change workflows, install and change rules |
 
 ```bash
@@ -1244,6 +1244,17 @@ work. Docker access is as strong as root on your computer: use it only for proje
 keel2 add ~/Projects/api ~/Work/web ~/Projects/clients   # each a git repo, or a folder of git repos
 keel2 folders                                            # the main folder and the added ones
 keel2 remove ~/Work/web                                  # off the list; keel keeps its history
+```
+
+**A state file keel v1 left** (0.18.64). A project that ran keel v1 may still hold `.keel/state.json`. While it names
+a flow, keel v1's hooks (when they are still installed) refuse every commit, also after you moved to keel v2. keel v2
+says so where a commit fails and before a flow starts ("a keel v1 flow (feature 012-prices, phase full-review) left
+.keel/state.json: it blocks commits"), and a commit keel v2 itself refuses names its flow. Archive the file (it moves
+to `.keel/archive/state-<date>.json`, nothing is deleted):
+
+```bash
+keel2 state                                              # what keel v1 left in this folder
+keel2 state close                                        # archive it (MCP: keel_state action=close, with --write)
 ```
 
 The list is kept per keel in `~/.config/keel2/<KEEL_NAME>.folders`. If keel runs, `add` and `remove` restart it once

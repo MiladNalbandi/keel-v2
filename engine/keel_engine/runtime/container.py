@@ -312,7 +312,8 @@ def worktree_fit(root: str) -> dict:
 
 def start_check(root: str) -> dict:
     """What a flow start should know (the api's Start a flow and its own start): {worktree: worktree_fit, base: the
-    local base's drift from its remote or None}. Never raises; nothing is fetched (it answers at once)."""
+    local base's drift from its remote or None, v1_state: a keel v1 flow left in .keel/state.json, in words, or None}.
+    Never raises; nothing is fetched (it answers at once)."""
     out: dict = {"worktree": {"ok": True, "reason": "", "service": None}, "base": None}
     try:
         out["worktree"] = worktree_fit(root)
@@ -324,6 +325,10 @@ def start_check(root: str) -> dict:
         out["base"] = verdict_actions.base_drift(root, rules.load_config(root))
     except Exception:            # noqa: BLE001
         pass
+    from . import v1_state
+
+    # 0.18.64 a keel v1 flow left in .keel/state.json blocks commits through keel v1's hooks: said before a start
+    out["v1_state"] = v1_state.leftover(root) or None
     return out
 
 

@@ -1024,6 +1024,18 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         (arg: its id), map-er (arg: a table to focus), map-system, map-modules, graph (arg: a symbol's name)."""
         return guard(tui.diagram, api, kind, arg, project, width)
 
+    @reg(ro)
+    async def keel_state(action: Literal["show", "close"] = "show", project: str | None = None,
+                         ctx: Context | None = None) -> str:
+        """keel's flow state on the project: the keel v2 flows that run or wait there, and a state file keel v1 left
+        (.keel/state.json: its flow and phase, and that keel v1's hooks refuse commits while it is there). close
+        (needs --write) archives that file to .keel/archive/state-<date>.json; nothing is deleted."""
+        if action == "show":
+            return await anyio.to_thread.run_sync(lambda: guard(more.state, api, project, lvl != "read"))
+        if lvl == "read":
+            return "keel: keel_state close archives a file: it needs keel2 mcp --write (or run `keel2 state close`)."
+        return await act(ctx, "keel_state", "archive keel v1's state file", more.state_close, api, project)
+
     @reg(rx)
     async def keel_edit_workflow(workflow: str, yaml: str, project: str | None = None, ctx: Context | None = None) -> str:
         """Change a workflow: the whole YAML (keel_workflows with `workflow` shows it). keel checks it first; nothing is

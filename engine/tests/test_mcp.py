@@ -25,6 +25,7 @@ READ_TOOLS = {"keel_status", "keel_read_gate", "keel_projects", "keel_timeline",
               "keel_format", "keel_workflow_check", "keel_rule_check", "keel_agent_definitions",          # 0.18.5 create
               "keel_skills", "keel_skill",                                                                 # 0.18.6 skills
               "keel_stacks", "keel_stack", "keel_stack_suggest", "keel_stack_check",                       # 0.18.9 stacks
+              "keel_state",                                                         # 0.18.64 keel v1's leftover state
               *MARKET_TOOLS}
 WRITE_TOOLS = {"keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc",
                # 0.18.5 what keel TUI does
@@ -154,7 +155,8 @@ def test_the_marketplace_tools_come_after_every_tool_keel_listed_before_at_each_
     # 0.18.5 keel TUI's: after keel_workflows (read since 0.18.5), in the order they are written
     tui_read = ["keel_agents", "keel_agent", "keel_keelbot_chats", "keel_keelbot_changes", "keel_format", "keel_workflow_check",
                 "keel_rule_check", "keel_agent_definitions", "keel_skills", "keel_skill",
-                "keel_stacks", "keel_stack", "keel_stack_suggest", "keel_stack_check", "keel_diagram"]
+                "keel_stacks", "keel_stack", "keel_stack_suggest", "keel_stack_check", "keel_diagram",
+                "keel_state"]                                   # 0.18.64 right after keel_diagram
     tui = ["keel_workflows", "keel_stop_flows", "keel_run_mode", "keel_resume_flow", "keel_agents", "keel_agent", "keel_agent_start",
            "keel_keelbot_ask", "keel_keelbot_chats", "keel_keelbot_changes", "keel_keelbot_keep", "keel_keelbot_undo",
            "keel_format", "keel_workflow_check", "keel_workflow_create", "keel_rule_check", "keel_rule_create",
@@ -164,7 +166,7 @@ def test_the_marketplace_tools_come_after_every_tool_keel_listed_before_at_each_
            # 0.18.9 stacks, before keel_diagram
            "keel_stacks", "keel_stack", "keel_stack_suggest", "keel_stack_check", "keel_stack_create", "keel_stack_remove",
            "keel_stack_off", "keel_stack_market_install",
-           "keel_diagram"]
+           "keel_diagram", "keel_state"]
     rules = ["keel_edit_workflow", "keel_rule_install", "keel_rule_edit"]
     assert names("read") == read + ["keel_workflows"] + tui_read + MARKET_TOOLS
     assert names("write") == read + write + tui + MARKET_TOOLS

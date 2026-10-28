@@ -17,6 +17,8 @@
 #   keel2 remove <folder> [<folder> …]
 #                               take added folders off the list (keel keeps their projects' history)
 #   keel2 folders               the main project folder and the added ones
+#   keel2 state [close] [dir]   a state file keel v1 left in the project (.keel/state.json; its hooks refuse commits while
+#                               it names a flow): show it, or close = archive it to .keel/archive/ (never deleted)
 #   keel2 status                is keel running, for which project, on which port, which edition (core or full)
 #   keel2 tui                   keel in the terminal (keel TUI): KeelBot, slash commands, the live flow, agents and the
 #                               inbox. Plain `keel2` opens it too, in a terminal while keel runs (KEEL_TUI_DEFAULT=0: help)
@@ -642,6 +644,32 @@ cmd_folders() {
   done < <(list_folders)
   [ "$n" -gt 0 ] || info "  ${D}No added folders. Add some: keel2 add <folder> [<folder> …]${N}"
   info "  ${D}list: $(folders_file)${N}"
+}
+
+# 0.18.64 keel v1's state file (.keel/state.json) left in a project: keel v1's hooks refuse commits while it names a
+# flow, also one nobody runs any more. keel2 state shows it; keel2 state close moves it to .keel/archive/state-<date>.json
+# (never deletes it). Plain file work in the project folder: keel need not run (MCP: keel_state).
+cmd_state() {  # keel2 state [close] [folder]
+  local sub=show dir f flow phase day dest n=2
+  case "${1:-}" in close|show) sub="$1"; shift ;; esac
+  dir="${1:-$PWD}"
+  [ -d "$dir" ] || die "There is no folder $dir." "usage: keel2 state [close] [folder]"
+  dir="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null || (cd "$dir" && pwd))"
+  f="$dir/.keel/state.json"
+  if [ ! -f "$f" ]; then info "No keel v1 state file in $dir (.keel/state.json): no keel v1 flow blocks commits there."; return 0; fi
+  flow="$(sed -n 's/.*"flow"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$f" | head -1)"
+  phase="$(sed -n 's/.*"phase"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$f" | head -1)"
+  if [ "$sub" = show ]; then
+    info "keel v1 state: $f"
+    info "  flow ${flow:-none}, phase ${phase:-none}"
+    info "  keel v1's hooks refuse commits while it names a flow. Archive it (nothing is deleted): keel2 state close${1:+ $1}"
+    return 0
+  fi
+  day="$(date +%F)"; mkdir -p "$dir/.keel/archive"
+  dest="$dir/.keel/archive/state-$day.json"
+  while [ -e "$dest" ]; do dest="$dir/.keel/archive/state-$day-$n.json"; n=$((n + 1)); done
+  mv "$f" "$dest" || die "Could not move $f." "Check the folder's permissions."
+  ok "archived the keel v1 flow ${flow:-?} (phase ${phase:-none}): .keel/state.json -> ${dest#"$dir"/}; it no longer blocks commits"
 }
 
 cmd_status() {
@@ -2460,6 +2488,7 @@ case "$cmd" in
   add)              cmd_add "$@" ;;
   remove|rm)        cmd_remove "$@" ;;
   folders)          cmd_folders ;;
+  state)            cmd_state "$@" ;;
   open)             cmd_open "$@" ;;
   auth)             cmd_auth "$@" ;;
   share)            cmd_share "$@" ;;

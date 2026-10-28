@@ -54,6 +54,11 @@ class WorkspaceDoctor(
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
+    /** 0.18.64 a failed commit names the keel v1 flow left in .keel/state.json, whose hooks refuse commits ("" when none). */
+    private fun v1Note(root: Path): String = runCatching {
+        engine.get("/keel-state?root={root}", mapOf("root" to root.toString())).path("v1").path("line").asText("")
+    }.getOrDefault("").let { if (it.isBlank()) "" else " ($it)" }
+
     fun dirty(root: Path): List<DirtyFile> {
         val r = workspace.git(root, "status", "--porcelain", "--untracked-files=all")
         if (!r.ok) throw Conflict("This folder is not a git repository", r.err.take(200))
@@ -168,7 +173,7 @@ class WorkspaceDoctor(
                     val add = workspace.git(root, "add", "-A", "--", *files.toTypedArray())
                     val c = if (add.ok) workspace.git(root, "commit", "-q", "-m", item.message!!.trim()) else add
                     if (c.ok && files.contains(".gitignore")) gitignoreChanged = false
-                    ApplyResult("commit", files, c.ok, if (c.ok) "committed: ${item.message!!.trim()}" else (c.err.ifBlank { c.out }).take(300))
+                    ApplyResult("commit", files, c.ok, if (c.ok) "committed: ${item.message!!.trim()}" else (c.err.ifBlank { c.out }).take(300) + v1Note(root))
                 }
                 "stash" -> {
                     val s = workspace.git(root, "stash", "push", "-q", "-u", "-m", "keel doctor: ${item.title ?: "saved work"}", "--", *item.files.toTypedArray())
@@ -181,7 +186,7 @@ class WorkspaceDoctor(
         if (gitignoreChanged) {
             val add = workspace.git(root, "add", "--", ".gitignore")
             val c = if (add.ok) workspace.git(root, "commit", "-q", "-m", "chore: ignore local and secret files") else add
-            results += ApplyResult("commit", listOf(".gitignore"), c.ok, if (c.ok) "committed: chore: ignore local and secret files" else c.err.take(300))
+            results += ApplyResult("commit", listOf(".gitignore"), c.ok, if (c.ok) "committed: chore: ignore local and secret files" else c.err.take(300) + v1Note(root))
         }
         val remaining = dirty(root).map { it.path }
         return Applied(results, remaining, remaining.isEmpty())

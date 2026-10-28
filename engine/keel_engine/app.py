@@ -207,6 +207,10 @@ class WorktreeRemove(BaseModel):
     branch: str | None = None           # also delete this branch (a flow's is kept for its PR)
 
 
+class RootBody(BaseModel):
+    root: str
+
+
 class Resume(BaseModel):
     decision: Literal["approve", "reject"]
     why: str | None = None
@@ -723,6 +727,22 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
 
         found = await asyncio.to_thread(config_check.stale, project_root(root))
         return {"stale": found, "lines": config_check.lines(found)}
+
+    # 0.18.64 keel v1's leftover state file (.keel/state.json): what it says, and archiving it (runtime/v1_state.py)
+    @app.get("/keel-state")
+    async def get_keel_state(root: str):
+        from .runtime import v1_state
+
+        return await asyncio.to_thread(v1_state.show, project_root(root))
+
+    @app.post("/keel-state/close")
+    async def post_keel_state_close(body: RootBody):
+        from .runtime import v1_state
+
+        try:
+            return await asyncio.to_thread(v1_state.close, project_root(body.root))
+        except FileNotFoundError as exc:
+            raise EngineError(404, str(exc), "Nothing to archive: keel_state shows what keel knows.") from exc
 
     @app.post("/worktrees/remove")
     async def post_worktree_remove(body: WorktreeRemove):

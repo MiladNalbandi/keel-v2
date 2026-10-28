@@ -174,9 +174,17 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
     # 0.18.21 only the step that writes the spec (spec_writer: not a `keep` step such as the spike's frame or the web
     # research, not the interview, not a fan-out) gets the "write the spec" and "ask questions" lines
     spec_phase = phase in ("spec", "triage") and writes_spec
-    if spec_phase and feedback and spec:
-        lines.append(f"The spec {spec} exists from the last try and was sent back with the note below. Change that "
-                     "file to answer the note. Read only what the note needs; do not explore the project again.")
+    # 0.18.64 a send-back (the spec check, a gate's note) patches the last draft: a retry that wrote the spec again from
+    # the request lost what the person had added (a risk the request named)
+    draft = spec_phase and bool(feedback and spec) and not str(feedback).startswith("Answers to your questions:")
+    if draft:
+        lines.append(draft_block(root, spec))
+    if spec_phase and acs and not spec and phase == "spec":
+        # 0.18.64 criteria handed over (a clarify or change flow) still need the spec's number: without it the agent
+        # picked 001 itself while 001-… and 002-… existed
+        nnn = next_spec_number(root, lay.specs)
+        lines.append(f"Write the spec under {lay.specs}/ as {nnn}-<kebab-name>.md (its id {nnn}: the next free number "
+                     "in the project's spec folders).")
     if spec_phase and not acs:
         lines.append(f"Keep the reading short: the request, the README, {f'{kdir}/, ' if kdir else ''}and the files the "
                      "request names. Write the spec file early (before half of your turns are used), then improve it; "
@@ -194,7 +202,8 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
                      "test for it and proves it by the existing tests passing before and after. Never ask for a test that "
                      "reads the source code as text.")
         nnn = next_spec_number(root, lay.specs)
-        where = (f"Write the spec under {lay.specs}/ as {nnn}-<kebab-name>.md (its id {nnn}: the next free number there) "
+        where = (f"Keep the spec in {spec} (patch it, do not start another file) with numbered criteria" if draft
+                 else f"Write the spec under {lay.specs}/ as {nnn}-<kebab-name>.md (its id {nnn}: the next free number there) "
                  f"with numbered criteria" if phase == "spec"
                  else "List the criteria in your answer (no spec file: a small change keeps them inline)")
         lines.append(f"{where}, one per line, in this form:\n"
@@ -284,18 +293,97 @@ def evidence_block(seed: dict | None) -> str:
             + text[:EVIDENCE_MAX])
 
 
+DRAFT_MAX = 30_000          # the last draft of a sent-back spec, in the spec writer's prompt
+
+
+def draft_block(root: str, spec: str) -> str:
+    """0.18.64 a sent-back spec: patch the last draft (given whole up to DRAFT_MAX), never write it again from the
+    request."""
+    text = spec_check.read_spec(root, spec).strip()
+    head = (f"The spec {spec} exists from the last try and was sent back with the note below. Change that file to "
+            "answer the note: patch it, do not write it again from the request. Keep every section, criterion (its id "
+            "and words), risk, edge case, decision and out-of-scope item it has; change only what the note names. Read "
+            "only what the note needs; do not explore the project again.")
+    if not text:
+        return head
+    cut = len(text) > DRAFT_MAX
+    return (f"{head}\nThe draft as it is now" + (f" (its first {DRAFT_MAX} characters)" if cut else "")
+            + f":\n````markdown\n{text[:DRAFT_MAX]}\n````")
+
+
+def seeded_block(where: str) -> str:
+    """0.18.64 the flow was handed a spec (a clarify hand-over, a spec pasted into the request, the spec it started
+    from): the spec writer keeps all of it and only fills the gaps. keel's spec check names what it dropped."""
+    return (f"{where[:1].upper()}{where[1:]} holds a spec (or part of one) already. Keep all of it: every section, "
+            "every risk, every acceptance criterion (its id and words), every edge case, decision and out-of-scope item. "
+            "Put it into keel's template, fill only what is missing, and mark nothing as done that it does not say. Do "
+            "not drop, merge away or summarise anything; keel's spec check compares the spec with it and sends back "
+            "what is lost.")
+
+
 _SPEC_NO = re.compile(r"^(\d{3,4})-")
 
 
-def next_spec_number(root: str | Path, specs: str) -> str:
-    """The next free spec number in the project's specs folder ("001" when it has none): the highest NNN- name there
-    plus one. Before, the agent picked a number itself and a project's first spec could be 004."""
-    folder = Path(root) / specs
+def spec_folders(root: str | Path, specs: str | None = None) -> list[str]:
+    """0.18.64 every spec folder keel knows for the project: `specs` (where a new one goes), the layout's folders and keel
+    v1's places (docs/specs, specs, .keel/specs, the config's specs.dir); a folder that does not exist reads as empty."""
+    from .. import layout
+
     try:
-        used = [int(m.group(1)) for p in folder.iterdir() if (m := _SPEC_NO.match(p.name))]
-    except OSError:
-        used = []
+        known = list(layout.resolve(root).spec_dirs)
+    except Exception:  # noqa: BLE001 - a broken config still gets a number from the folders that exist
+        known = []
+    return list(dict.fromkeys(x for x in [specs, *known, *layout.REPO_SPEC_DIRS, layout.HIDDEN["specs"]] if x))
+
+
+def _spec_numbers(root: str | Path, specs: str | None = None, skip: str | None = None) -> dict[int, list[str]]:
+    """{number: [the specs with it]} over every spec folder (spec_folders), files and folders named NNN-…; `skip` is a
+    spec's own path."""
+    used: dict[int, list[str]] = {}
+    for d in spec_folders(root, specs):
+        try:
+            names = sorted(p.name for p in (Path(root) / d).iterdir())
+        except OSError:
+            continue
+        for name in names:
+            rel = f"{d.rstrip('/')}/{name}"
+            if rel != skip and (m := _SPEC_NO.match(name)):
+                used.setdefault(int(m.group(1)), []).append(rel)
+    return used
+
+
+def next_spec_number(root: str | Path, specs: str) -> str:
+    """The next free spec number ("001" when the project has none): the highest NNN- name plus one. Before, the agent
+    picked a number itself and a project's first spec could be 004. 0.18.64 over every spec folder keel knows (the
+    layout's and keel v1's): a new spec got 001 while 001-… and 002-… sat in another one."""
+    used = _spec_numbers(root, specs)
     return f"{(max(used) + 1) if used else 1:03d}"
+
+
+def renumber_spec(root: str | Path, rel: str | None) -> str | None:
+    """0.18.64 a spec this flow just wrote whose NNN- number another spec has already (in any spec folder): it gets the
+    next free number (the file is renamed, its front matter's `id` with it). Returns its path, the same when nothing
+    clashed. Only a file right in a spec folder is renamed."""
+    if not rel:
+        return rel
+    p = Path(root) / rel
+    m = _SPEC_NO.match(p.name)
+    folder = Path(rel).parent.as_posix()
+    if not m or not p.is_file() or folder not in spec_folders(root):
+        return rel
+    if not _spec_numbers(root, skip=rel).get(int(m.group(1))):
+        return rel
+    nnn = next_spec_number(root, folder)
+    new = p.with_name(nnn + p.name[len(m.group(1)):])
+    if new.exists():
+        return rel
+    text = p.read_text(errors="replace")
+    head = re.match(r"\A---\n.*?\n---\n", text, re.S)
+    if head:
+        fixed = re.sub(rf"(?m)^(id:\s*['\"]?)0*{int(m.group(1))}(['\"]?\s*)$", rf"\g<1>{nnn}\g<2>", head.group(0))
+        p.write_text(fixed + text[head.end():])
+    p.rename(new)
+    return f"{folder}/{new.name}"
 
 
 def spec_template_line() -> str:

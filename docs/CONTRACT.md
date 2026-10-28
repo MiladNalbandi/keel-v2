@@ -404,6 +404,9 @@ POST /api/projects/{pid}/flows       409 for uncommitted files            (0.18.
 GET  /api/projects/{pid}/start-check                                      (0.18.57: { worktree: {ok, reason, service}, base: drift line | null }; engine GET /start-check?root=)
 POST /api/projects/{pid}/doctor/workspace/exclude { path }               (0.18.57: one untracked path → .git/info/exclude → Applied)
 GET  /api/projects/{pid}/doctor/config                                    (0.18.57: { stale: [{key, command, problem, file, line, missing_in}], lines }; engine GET /config-check?root=)
+GET  /api/projects/{pid}/keel-state                                       (0.18.64: { project, flows: [StateFlow], v1: V1State | null }; engine GET /keel-state?root=)
+POST /api/projects/{pid}/keel-state/close                                 (0.18.64: archive keel v1's .keel/state.json → { archived, flow, was_active }; 404 when none; engine POST /keel-state/close { root })
+GET  /api/projects/{pid}/start-check                                      + v1_state: line | null (0.18.64)
 POST /api/projects/{pid}/helper/sessions + { force? }                     (0.18.57: a side session on a task someone works on is 409 with owners unless force)
 POST /api/tasks/{id}/start           + { force? }                         (0.18.57: as above)
 GET  /api/projects/{pid}/estimate    + POST variant { yaml, acs }         (estimate unsaved workflow YAML)
@@ -2902,3 +2905,37 @@ keel TUI (tui.json)  { "follow": false }             (KEEL_TUI_SETTINGS, else ~/
   and chat the following windows share (a window that keeps its own is not in it); with `project` it moves only the
   windows that follow. `McpAudit` leaves `/api/ui/focus` out of the audit as before. Notifications do not read the focus:
   opening one picks its project in that window, shared only when the window follows.
+
+## keel 0.18.64: a spec handed over is kept, spec numbers, keel v1's leftover state (fix/spec-seed-v1-state)
+
+From the field report (docs/plans/field-report-clarify.md, bugs 8, 9 and 11).
+
+- **A spec handed over is kept** (`runtime/spec_check.py` `seeded`, `kept_items`, `lost`). What a flow was handed: the
+  spec file it started from (its text at the start, `data.spec_at_start`), a parent flow's document that is a spec
+  (`data.seed.evidence` with front matter or an Acceptance criteria section: the clarify hand-over), and the request
+  when it names risks, out-of-scope items or criteria itself (a spec pasted into it). The spec writer is told to keep
+  all of it and only fill the gaps (`prompts.seeded_block`). After it writes, every item under a Risks or Out of scope
+  heading (or a `Risks:` label) and every criterion line must still be in the spec, in its words or close (at least
+  `KEEP_MIN` of its words in one line); a lost one is a `fix` finding ("Lost from the request: the risk “…” is not in
+  the spec"), sent back once like the other spec check findings, also when the criteria were handed over, and shown on
+  the spec gate. The check is additive: `check()` is unchanged, the callers add `lost()`.
+- **A send-back patches the last draft** (`prompts.draft_block`): the spec writer gets the draft whole (up to
+  `DRAFT_MAX`) and is told to change only what the note names; it is not told to write a new numbered file.
+- **Spec numbers** (`prompts.spec_folders`, `next_spec_number`, `renumber_spec`): the next free number counts every spec
+  folder keel knows (the layout's, keel v1's `docs/specs`, `specs`, `.keel/specs`, the config's `specs.dir`), files and
+  folders named `NNN-…`. The spec writer gets the number also when the criteria were handed over. A spec this flow
+  wrote first (not committed, not the one it started from) whose number another spec has moves to the next free one,
+  its front matter's `id` with it.
+- **keel v1's leftover state** (`runtime/v1_state.py`). `.keel/state.json` naming a flow in an active phase is said
+  where a commit fails (keel's commit step, the Git plugin's commit, the workspace Doctor's commit), in the preflight
+  warnings and in `GET /start-check` (`v1_state`: the line or null): "a keel v1 flow (feature 012-prices, phase
+  full-review) left .keel/state.json: it blocks commits; archive it with keel_state close or `keel2 state close`".
+  A commit keel's guard refuses during a flow names that flow ("The flow that blocks this commit: the keel v2 flow
+  "Prices in euros" (thread t-1), phase green."; the guard context's `flow`, `ToolBox.flow`).
+  - engine `GET /keel-state?root=` → `{v1: {path, flow, phase, id, title, ac, updated, active, thread, line, name,
+    error?} | null}`; `POST /keel-state/close {root}` → `{archived, flow, was_active}` (404 when there is no file). The
+    file moves to `.keel/archive/state-<date>.json` (`-2`, `-3` … when taken); nothing is deleted.
+  - api `GET /api/projects/{pid}/keel-state` → `{project, flows: [{id, title, workflow, status, step, phase,
+    worktree}], v1}` (the flows that run or wait there); `POST /api/projects/{pid}/keel-state/close` (an MCP write).
+  - MCP `keel_state {action: show | close, project?}`: a read tool; `close` needs `--write` (read says so and does
+    nothing). keel2: `keel2 state [close] [folder]` does the same on the folder, without keel running.

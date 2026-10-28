@@ -739,7 +739,7 @@ _SHELL_WRITE = re.compile(r"(?<!>)>{1,2}\s*([^\s;|&<>()]+)|(?:sed\s+-i(?:\s+\S+)
 
 def check_bash(phase: str, command: str, cfg: dict | None = None, *, root: str | None = None,
                exists=lambda rel: False, unlocks: list[dict] | None = None,
-               push_blockers: list[dict] | None = None) -> Verdict:
+               push_blockers: list[dict] | None = None, flow: str = "") -> Verdict:
     cfg = cfg if cfg and "guards" in cfg else make_config(cfg)
     cmd = str(command or "")
     skip_flags = is_off(cfg, "skip-test-flags")
@@ -772,7 +772,9 @@ def check_bash(phase: str, command: str, cfg: dict | None = None, *, root: str |
     if phase in (None, "", "none"):
         return Verdict(True)
     if re.search(r"^\s*git\s+commit\b", cmd) or re.search(r"&&\s*git\s+commit\b", cmd):
-        return Verdict(False, reason=f'Commits are made by the engine\'s commit step, which checks them against phase "{phase}".')
+        # 0.18.64 a refused commit names the flow that blocks it (`flow`: its title and thread, from the guard context)
+        return Verdict(False, reason=f'Commits are made by the engine\'s commit step, which checks them against phase "{phase}".'
+                       + (f" The flow that blocks this commit: the keel v2 flow {flow}, phase {phase}." if flow else ""))
     for pat in NEVER_DENY_IN_FLOW + [p for p in cfg["guards"]["bash_deny_in_flow"] if p not in NEVER_DENY_IN_FLOW]:
         if pat in cmd:
             return Verdict(False, reason=f'"{pat}" is blocked during a keel flow.')

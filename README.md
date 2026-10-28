@@ -157,6 +157,7 @@ It runs on a strong model, never raises a budget cap, and you can turn it on kee
 | `keel2 stop` | stop keel |
 | `keel2 add <folder> [<folder> …]` | add more projects (each a git repo, or a folder of repos) |
 | `keel2 folders` | which project folders keel has |
+| `keel2 state [close]` | a state file keel v1 left in the project (it blocks commits): show it, or archive it |
 | `keel2 status` | is keel running? |
 | `keel2 update` | get the newest version |
 | `keel2 doctor` | find problems and say how to fix them |

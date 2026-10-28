@@ -267,7 +267,7 @@ def decide(tool: str, ti: dict, ctx: dict) -> str | None:
             return refused
         v = rules.check_bash(phase, str(ti.get("command") or ""), cfg, root=root,
                              exists=lambda rel: (Path(root) / rel).exists(), unlocks=unlocks,
-                             push_blockers=ctx.get("push_blockers"))
+                             push_blockers=ctx.get("push_blockers"), flow=str(ctx.get("flow") or ""))
         if not v.ok:
             return v.reason
         # a run that may ask (KeelBot's Fix and side modes): a command that changes something waits for the person's OK
