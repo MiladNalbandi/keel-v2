@@ -74,3 +74,20 @@ Smaller ones (all four fixed in 0.18.64: docs/CONTRACT.md "keel 0.18.64"):
 - **Reading the source, not only the contract** (the upstream code and its migrations) is what found the real gap.
 - **Re-reading the document after every gate** caught lost corrections three times.
 - **Editing the file by hand** was faster than another reject once a retry had lost the note, but it made bug 2.
+
+## A second report: the review compared against a stale base (0.18.64)
+
+A repo with two remotes that disagree: `origin` (its HEAD is `master`, and its fetch times out) and a second remote
+whose default branch is `main`. There is no local `main`. Init wrote `base_branch: main` (right); a later agent session
+changed it to `master` ("there is no local main"). The local `master` was behind the second remote's `main` and ahead of
+`origin/master` (an older copy of work that later landed on `main`), so the Review panel diffed `master...HEAD` and showed
+another change's 47 files as this branch's.
+
+| # | what keel lacks | status |
+|---|---|---|
+| R1 | compare the base with every remote, say when a fetch fails | fixed in 0.18.64 (bug 4) |
+| R2 | a remote-tracking base (`<remote>/main`) everywhere a base is named, and a canonical remote per project | 0.18.64: a flow's `base`; the rest open |
+| R3 | the Review panel and the full-diff review: diff against the merge-base with the canonical remote's default branch, and warn when the local base has diverged from it | open |
+| R4 | keep init's setup files (knowledge, RUNNING.md, config) out of a feature PR, or in a setup PR of their own; respect a `.gitignore` that ignores them | open |
+| R5 | `base_branch` names a branch that does not exist locally: ask the person (offer the remote's branch), never let an agent change it silently | open |
+
