@@ -24,6 +24,17 @@ clarify flow, with a planned hand-over to the feature flow. keel was driven thro
 | 6 | **No sanctioned way to bring a flow branch up to its base.** `git reset --hard` and a plain `git commit` are refused during a flow (right), but nothing else does it. | open: a keel command to merge or rebase the flow branch onto a base, the conflict resolution committed by keel. |
 | 7 | **Registering a project needs a terminal and restarts keel.** `keel_add_project` said to run `keel2 add` first; `keel2 add` restarted keel and the MCP connection was lost. | open: warn before a restart; the MCP client reconnects by itself. |
 
+Found later in the same project (the feature flow after clarify):
+
+| # | what happened | status |
+|---|---|---|
+| 8 | **The feature flow's spec dropped part of the request** (a risk the request named); the user added it back by hand. Same root as bug 1: a seed or a retry writes the spec again instead of patching it. | open |
+| 9 | **A leftover keel v1 state file blocked commits.** `.keel/state.json` of an old v1 flow (phase full-review) blocked `git commit` although the v2 flow had stopped; only `keel state close` cleared it. The refusal did not say which flow blocked it. | open: v2 finds leftover v1 state and offers to archive it; a blocked commit names the flow (v1 or v2) that blocks it. |
+| 10 | **The clarify-to-feature hand-over was not used**: the gate showed the stale copy, so the user stopped clarify and pasted the spec into a new feature request; keel's history does not link the two flows. | open: the hand-over takes the file on disk and records the link (bug 2). |
+| 11 | **Spec numbers collide**: a new spec got 001 while `001-…` and `002-…` already existed. | open |
+| 12 | **Tool feedback**: `keel_answer` with reject + choice edit printed "(reject)" though it ran as an edit; `keel_start_flow` returned nothing within the client's timeout (the user polled); a wrong model or effort said only "no effort setting" and nothing lists the valid ones; "planning" maps to no agent name (it is the explorer, and changing the explorer project-wide also changes clarify and contract). | open |
+| 13 | **Confirmations**: `keel_stop_flow` and `keel_agent_model` ask for a confirmation a client without forms cannot show; the user ran `keel2 mcp --admin --yes`, which skips every confirmation. | open: a confirmation a plain client can give (a second call with a token keel returned). |
+
 Smaller ones:
 
 - **Default project**: `keel_flows` without a project answered for another, unrelated project. It should refuse or ask
@@ -48,6 +59,10 @@ Smaller ones:
 | `keel_agent_prompt` | the prompt a step really got |
 | `keel_reconnect` / a health check | after keel restarts (bug 7) |
 | `keel_start_flow` with `base` | start from a given branch (bug 4) |
+| `keel_models` | the models and efforts keel can use, per provider (bug 12) |
+| `keel_agent_model` with `thread_id` and `step` | a model for one flow or one step, not the whole project (bug 12) |
+| `keel_state` | keel v1's leftover state: show and close (bug 9) |
+| `keel_handover` | hand a flow's document over to the next flow, linked (bug 10) |
 
 ## What the session taught
 
@@ -56,4 +71,6 @@ Smaller ones:
 - **Contract against data**: the upstream contract said an id field is optional while its database column is NOT NULL.
   Checking a contract against the migrations found a real upstream bug. The clarify flow could ask for that check
   when a request touches an external contract.
+- **Reading the source, not only the contract** (the upstream code and its migrations) is what found the real gap.
+- **Re-reading the document after every gate** caught lost corrections three times.
 - **Editing the file by hand** was faster than another reject once a retry had lost the note, but it made bug 2.
