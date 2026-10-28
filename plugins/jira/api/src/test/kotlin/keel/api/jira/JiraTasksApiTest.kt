@@ -13,6 +13,7 @@ import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
  * plugin's own tests (plugins/tasks/api).
  */
 class JiraTasksApiTest : ApiTest() {
+    @org.springframework.beans.factory.annotation.Autowired lateinit var mcp: keel.api.mcp.McpService
 
     companion object {
         val cloud: StubJira = StubJira.start("cloud")
@@ -314,6 +315,12 @@ class JiraTasksApiTest : ApiTest() {
         val elsewhere = post("/api/projects/$pid/jira/test", mapOf("base_url" to "https://elsewhere.example.com")).json()
         assertThat(elsewhere["ok"].asBoolean()).isFalse()
         assertThat(elsewhere["hint"].asText()).contains("another Jira URL")
+        // 0.18.64 a save that moves the connection to another site needs that site's token: the saved one never goes there
+        val moved = put("/api/projects/$pid/jira", mapOf("base_url" to "https://elsewhere.example.com")).andExpect(status().isBadRequest).json()
+        assertThat(moved["error"].asText()).contains("another Jira site")
+        assertThat(get("/api/projects/$pid/jira").json()["settings"]["base_url"].asText()).isEqualTo(cloud.url)
+        // and the token never goes over plain http to another machine
+        put("/api/projects/$pid/jira", mapOf("base_url" to "http://jira.example.com", "token" to "fake-new-token")).andExpect(status().isBadRequest)
 
         val d = get("/api/projects/$pid/jira/discover?key=ABC-1").andExpect(status().isOk).json()
         assertThat(d["statuses"].map { it["name"].asText() }).containsExactly("To Do", "In Progress", "In Review", "Testing in PP", "Ready for Production", "Done")
@@ -336,11 +343,14 @@ class JiraTasksApiTest : ApiTest() {
         assertThat(srv["enabled"].asBoolean()).isFalse()
         assertThat(srv["command"].asText()).isEqualTo("uvx")
         assertThat(srv["args"].map { it.asText() }).containsExactly("mcp-atlassian")
-        assertThat(srv["env"]["JIRA_URL"].asText()).isEqualTo(cloud.url)
-        assertThat(srv["env"]["JIRA_USERNAME"].asText()).isEqualTo(cloud.email)
+        // 0.18.64 GET shows an env value only as "set" (a secret reference as it is); the server may use its own token only
+        assertThat(srv["env"]["JIRA_URL"].asText()).isEqualTo("set")
+        assertThat(srv["env"]["JIRA_USERNAME"].asText()).isEqualTo("set")
         assertThat(srv["env"]["JIRA_API_TOKEN"].asText()).isEqualTo("secret:jira.$pid")
-        assertThat(srv["env"]["READ_ONLY_MODE"].asText()).isEqualTo("true")
-        assertThat(srv["env"]["JIRA_PROJECTS_FILTER"].asText()).isEqualTo("ABC")
+        assertThat(srv["env"]["READ_ONLY_MODE"].asText()).isEqualTo("set")
+        assertThat(srv["env"]["JIRA_PROJECTS_FILTER"].asText()).isEqualTo("set")
+        assertThat(mcp.attached(name)).containsExactly("jira.$pid")
+        assertThat(mcp.list().first { it.name == name }.env!!["JIRA_URL"]).isEqualTo(cloud.url)
         assertThat(srv["label"].asText()).contains("mcp-atlassian")
         assertThat(get("/api/mcp-servers").andReturn().response.contentAsString).doesNotContain(cloud.token)
         assertThat(get("/api/projects/$pid/jira").json()["mcp_server"].asText()).isEqualTo(name)
