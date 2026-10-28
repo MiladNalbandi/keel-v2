@@ -35,7 +35,7 @@ from .. import config, rules
 from ..rules import checks
 from ..tools import git, git_auth, testcmd
 from ..tools.agent_tools import command_env
-from . import md
+from . import lenses, md
 from . import run_mode as run_modes
 from . import tools as tool_runner
 from . import verdict_actions as va
@@ -306,13 +306,9 @@ LENS_FALLBACK = {
 
 def lens_text(name: str) -> str:
     """A lens's checklist: the "## Checklist" section of content/review-lenses/<name>.md, else the built-in text."""
-    try:
-        text = (config.content_dir() / "review-lenses" / f"{name}.md").read_text()
-        m = re.search(r"^## Checklist\s*\n(.*?)(?=^## |\Z)", text, re.S | re.M)
-        if m and m.group(1).strip():
-            return " ".join(m.group(1).split())
-    except OSError:
-        pass
+    lens = lenses.load(name)       # keel 0.18.65 the one lens loader (runtime/lenses.py), keel's file only
+    if lens and lens["checklist"]:
+        return lenses.flat(lens["checklist"])
     return LENS_FALLBACK[name]
 
 

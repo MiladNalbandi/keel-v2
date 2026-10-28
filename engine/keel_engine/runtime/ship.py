@@ -18,9 +18,12 @@ import re
 from .. import extensions, rules
 from ..tools import git
 from . import choices as choices_mod
-from . import blockers, bug, knowledge, run_mode, verdict_actions, verdicts
+from . import blockers, bug, knowledge, review_config, run_mode, verdict_actions, verdicts
+from . import lenses as lens_files
 
-DEFAULT_LENSES = ["correctness", "security", "performance"]
+# keel 0.18.65 consumers-config (content/review-lenses/consumers-config.md): what a consumer that runs the new next to
+# the old meets, shared keys and routes, public types against their contract, the CI config
+DEFAULT_LENSES = ["correctness", "security", "performance", "consumers-config"]
 BANDS = {
     "deferred": "Deferred, not avoided: skipping moves the work; the push stays blocked until a fresh verdict for HEAD",
     "optional": "Optional: nothing downstream demands it; skipping is a real choice with a real cost",
@@ -60,7 +63,9 @@ async def review_lenses(a):
 
 def _lenses(a):
     """The lenses chosen at the opening gate (data.lenses_chosen), else review.lenses from .keel/config.yml, else
-    correctness, security and performance; architecture joins when the project sets an architecture style or rules."""
+    correctness, security, performance and (0.18.65) consumers-config; architecture joins when the project sets an
+    architecture style or rules. A lens with a lens file (the project's .keel/lenses/<name>.md, else keel's
+    content/review-lenses/<name>.md) gives its reviewer that file's checklist in its item."""
     cfg = rules.load_config(a.root)
     chosen = a.data.get("lenses_chosen")
     conf = (cfg.get("review") or {}).get("lenses") if isinstance(cfg.get("review"), dict) else None
@@ -82,9 +87,15 @@ def _lenses(a):
         seen = [x for x in seen if x != "correctness"]
         data["lens_dropped"] = dropped
     scope = _lens_scope(a, cfg)
-    items = [{"id": lens, "title": f"{lens} lens", "lens": lens, **scope} for lens in seen]
+    items = [{"id": lens, "title": f"{lens} lens", "lens": lens, **_checklist(a.root, lens), **scope} for lens in seen]
     return _result(True, f"Review lenses ({why}): {', '.join(seen) or 'none'}." + (f" {dropped}." if dropped else ""),
                    update={"data": {**data, "review_lenses": items}})
+
+
+def _checklist(root: str, lens: str) -> dict:
+    """A ship lens's checklist from its lens file (runtime/lenses.py), or nothing (keel's lens-reviewer knows the lens)."""
+    f = lens_files.load(lens, root)
+    return {"lens_title": f["title"], "checklist": lens_files.flat(f["checklist"])[:3000]} if f and f["checklist"] else {}
 
 
 def _lens_scope(a, cfg: dict) -> dict:
@@ -106,8 +117,11 @@ def _lens_scope(a, cfg: dict) -> dict:
 
 def _drop_correctness(a, cfg: dict, lenses: list[str]) -> str:
     """keel v1 ship step 5: the correctness lens is dropped when the full-diff review (data.full_review, written after
-    the feature flow's code_review) passed and no production file changed since its sha: it read the same code for the
-    same thing. Any production change since (an integration commit, a fix) and the lens runs. Returns why, or ""."""
+    the feature flow's code_review) passed and no production file changed since its sha. keel 0.18.65: only when the
+    project asks for it (review.drop_correctness, Settings › Review; off by default): a field report showed a passed
+    full-diff review that missed what a second correctness look would see. Returns why, or ""."""
+    if not review_config.effective(a.root)["drop_correctness"]:
+        return ""
     full = a.data.get("full_review") if isinstance(a.data.get("full_review"), dict) else {}
     sha = str(full.get("sha") or "")
     if "correctness" not in lenses or full.get("verdict") != "pass" or not sha or not git.is_repo(a.root):

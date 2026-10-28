@@ -506,7 +506,7 @@
    "model": "default",
    "phase": "gate",
    "back": "review_fix",
-   "instructions": "Read the spec's criteria and scope, then the whole branch diff against the base branch. Report only what needs the whole diff in view.",
+   "instructions": "Read the spec's criteria and scope, then the whole branch diff against the base branch. Go through your whole checklist: correctness across criteria, shared config keys, parameters and routes against the old version, each public type against its contract, a consumer's upgrade, runtime deprecations, the project's CI config (name its commands). Never edit; run only the project's read-only checks. End with a \"What I did not check\" list.",
    "rounds": 2
   },
   {

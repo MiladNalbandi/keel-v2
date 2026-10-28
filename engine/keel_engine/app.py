@@ -21,7 +21,7 @@ from .demo import create_demo, workspace_missing
 from .events import EventBus, bus as default_bus
 from .marketplace import MarketError
 from .models import catalog
-from .runtime import evals, hunt, rules_view, scan, stack_setup, task_pick
+from .runtime import evals, hunt, lenses, review_config, rules_view, scan, stack_setup, task_pick
 from .rules.packs import normalize as packs_normalize
 from .runtime.explain import ExplainError, explain_step
 from .runtime.service import Engine, EngineError
@@ -282,6 +282,16 @@ class RulesConfigBody(BaseModel):
     patch: dict[str, Any]
 
 
+class ReviewConfigBody(BaseModel):
+    """keel 0.18.65 Settings › Review (runtime/review_config.py). models: the project's {default, reviewer} models (the
+    api has them), to say which model each part will use."""
+    root: str
+    patch: dict[str, Any] = Field(default_factory=dict)
+    models: dict[str, Any] = Field(default_factory=dict)
+    lens: dict[str, Any] = Field(default_factory=dict)
+    text: str = ""
+
+
 class RulePackBody(BaseModel):
     root: str
     yaml: str
@@ -436,6 +446,14 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     @app.exception_handler(rules_view.RulesError)
     async def rules_error(_req, exc: rules_view.RulesError):
         return _err(exc.status, exc.error, "; ".join(exc.errors) or None, exc.errors or None)
+
+    @app.exception_handler(review_config.ReviewConfigError)
+    async def review_config_error(_req, exc: review_config.ReviewConfigError):
+        return _err(exc.status, exc.error)
+
+    @app.exception_handler(lenses.LensError)
+    async def lens_error(_req, exc: lenses.LensError):
+        return _err(exc.status, exc.error)
 
     @app.exception_handler(StackError)
     async def stack_error(_req, exc: StackError):
@@ -622,6 +640,30 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     @app.put("/rules/config")
     async def put_rules_config(body: RulesConfigBody):
         return await asyncio.to_thread(rules_view.set_config, project_root(body.root), body.patch)
+
+    # ---- keel 0.18.65 Settings › Review: the review block of .keel/config.yml and the lens files (runtime/review_config.py)
+    @app.post("/review-config/view")
+    async def post_review_config_view(body: ReviewConfigBody):
+        return await asyncio.to_thread(review_config.view, project_root(body.root), body.models)
+
+    @app.put("/review-config")
+    async def put_review_config(body: ReviewConfigBody):
+        return await asyncio.to_thread(review_config.write, project_root(body.root), body.patch, body.models)
+
+    @app.post("/review-config/lenses")
+    async def post_review_lens(body: ReviewConfigBody):
+        return await asyncio.to_thread(review_config.new_lens, project_root(body.root), body.lens, body.models)
+
+    @app.get("/review-config/lenses/{name}")
+    async def get_review_lens(name: str, root: str):
+        lens = await asyncio.to_thread(lenses.load, lenses.checked_name(name), project_root(root))
+        if not lens:
+            raise lenses.LensError(404, f"There is no lens {name}.")
+        return lens
+
+    @app.put("/review-config/lenses/{name}")
+    async def put_review_lens(name: str, body: ReviewConfigBody):
+        return await asyncio.to_thread(lenses.save_text, project_root(body.root), name, body.text)
 
     @app.get("/rules/library")
     async def get_rules_library():

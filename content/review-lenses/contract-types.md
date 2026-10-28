@@ -1,6 +1,9 @@
-# Review lens: contract-types
+# Contract and types
 
-<!-- One file per lens (keel 0.18.57). runtime/ticket_actions.py gives a review-pr reviewer the Checklist below in its
+a public name, route, payload or type that no longer matches its callers or its documented contract
+
+<!-- One file per lens (keel 0.18.57; the title and the description line under it 0.18.65, the format is
+engine runtime/lenses.py). runtime/ticket_actions.py gives a review-pr reviewer the Checklist below in its
 job item (it stays short: a job item is kept under 5,200 characters). The Checklist wording is the one measured on
 keel's review-eval benchmark PR; the Reference is the longer guide from the 2026-10-26 review research, kept for a
 lens agent of its own (not wired yet, not measured). New wording, written for keel. -->
