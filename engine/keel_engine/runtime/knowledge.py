@@ -22,6 +22,7 @@ them on request and turns them on.
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 from pathlib import Path
 
@@ -39,9 +40,71 @@ PROOF = [re.compile(p) for p in (r"(^|/)(test|tests)/", r"(^|/)src/(test|integra
                                  r"\.(test|spec)\.(ts|tsx|js|jsx)$", r"^\.keel/hunt/repro/")]
 
 
+WORKTREES = "/.keel/worktrees/"
+WALK_SKIP = {".git", "node_modules", ".venv", "venv", "__pycache__", ".gradle", ".next", ".idea", "build", "dist", "target"}
+WALK_MAX = 100_000
+
+
+def project_folder(root: str) -> str | None:
+    """The project folder of one of keel's worktrees (<project>/.keel/worktrees/<name>), else None."""
+    r = str(root)
+    return r.split(WORKTREES, 1)[0] if WORKTREES in r + "/" and not r.endswith("/.keel/worktrees") else None
+
+
+def source(root: str, name: str) -> tuple[str, Path]:
+    """(the path as the layout names it, the file to read) of a section. 0.18.64 read from disk whatever git says: in
+    one of keel's worktrees a section git ignores there (a branch's .gitignore with .keel/) is not checked out, and
+    `keel memory check` said all the sections were missing; then the project folder's file is the one."""
+    rel = layout.resolve(root).knowledge_file(root, name)
+    f = Path(root) / rel
+    main = None if f.is_file() else project_folder(root)
+    if main:
+        mrel = layout.resolve(main).knowledge_file(main, name)
+        if (Path(main) / mrel).is_file():
+            return mrel, Path(main) / mrel
+    return rel, f
+
+
 def section_file(root: str, name: str) -> Path:
     """The section's file where the project's layout keeps it (docs/knowledge, .keel/knowledge; keel_engine/layout.py)."""
-    return Path(root) / layout.resolve(root).knowledge_file(root, name)
+    return source(root, name)[1]
+
+
+def on_disk(root: str, rel: str) -> Path | None:
+    """A cited file: in the folder, else (one of keel's worktrees) in the project folder, where the files git ignores
+    are (a generated file, keel's own notes); None when neither has it."""
+    for base in (root, project_folder(root)):
+        if base and (Path(base) / rel).is_file():
+            return Path(base) / rel
+    return None
+
+
+class Files(list):
+    """The files a shorthand citation may name: git's tracked files, then (0.18.64, only when a citation is not among
+    them) the files on disk, walked once: a file git ignores is still there and still cited. In one of keel's worktrees
+    the project folder's files count too."""
+
+    def __init__(self, root: str, tracked: list[str] | None):
+        super().__init__(tracked or [])
+        self.root = root
+        self._disk: list[str] | None = None
+
+    def disk(self) -> list[str]:
+        if self._disk is None:
+            out: list[str] = []
+            for base in [Path(b) for b in (self.root, project_folder(self.root)) if b]:
+                for d, dirs, names in os.walk(base):
+                    rel_d = os.path.relpath(d, base)
+                    dirs[:] = [x for x in dirs if x not in WALK_SKIP and not (rel_d == ".keel" and x == "worktrees")]
+                    out += [n if rel_d == "." else f"{rel_d}/{n}" for n in names]
+                    if len(out) > WALK_MAX:
+                        break
+            self._disk = list(dict.fromkeys(out))
+        return self._disk
+
+
+def tracked_files(root: str) -> Files:
+    return Files(root, git.tracked(root) if git.is_repo(root) else None)
 
 
 def knowledge_dir(root: str) -> str:
@@ -70,12 +133,14 @@ def resolve(root: str, rel: str, files: list[str] | None) -> tuple[str | None, s
     """(the file a citation names, the problem). A path that exists is itself. A shorthand (`.../a/B.java`, `B.java`)
     is the one tracked file that ends with it: agents shorten long paths, and one match names the file as well as the
     full path does. None of them, or two, is a problem the librarian can fix."""
-    if (Path(root) / rel).is_file():
+    if (Path(root) / rel).is_file() or (isinstance(files, Files) and on_disk(root, rel)):
         return rel, None
     tail = re.sub(r"^(\.\.\./|…/)+", "", rel).lstrip("/")
     if files is None or not tail:
         return None, "does not exist"
     hits = [f for f in files if f == tail or f.endswith("/" + tail)]
+    if not hits and isinstance(files, Files):
+        hits = [f for f in files.disk() if f == tail or f.endswith("/" + tail)]
     if len(hits) == 1:
         return hits[0], None
     if hits:
@@ -198,8 +263,7 @@ def selection(root: str, cfg: dict | None = None) -> list[str] | None:
 
 
 def check_section(root: str, name: str, cfg: dict, files: list[str] | None = None) -> dict:
-    rel = layout.resolve(root).knowledge_file(root, name)
-    f = Path(root) / rel
+    rel, f = source(root, name)
     if not f.is_file():
         return {"name": name, "missing": True, "problems": [f"{rel} is missing"], "citations": 0, "proofs": 0, "unverified": 0}
     text = f.read_text(errors="replace")
@@ -210,7 +274,8 @@ def check_section(root: str, name: str, cfg: dict, files: list[str] | None = Non
     cites = citations(text)
     for c in cites:
         path, why = resolve(root, c["rel"], files)
-        n = _lines(Path(root) / path) if path else None
+        found = on_disk(root, path) if path else None
+        n = _lines(found) if found else None
         if n is None:
             problems.append(f"{rel}: cites `{c['rel']}:{c['line']}`, which {why or 'does not exist'}")
             continue
@@ -242,7 +307,7 @@ def check(root: str, only: list[str] | None = None) -> dict:
     unanswered = sel is None
     chosen = sel or []
     sections = []
-    files = git.tracked(root) if git.is_repo(root) else None   # for shorthand citations (resolve)
+    files = tracked_files(root)   # for shorthand citations (resolve); 0.18.64 what git ignores too
     for n in SECTIONS:
         if n in chosen or section_file(root, n).is_file():
             sections.append({**check_section(root, n, cfg, files), "selected": n in chosen})
@@ -261,7 +326,7 @@ def cited_files(root: str, name: str, files: list[str] | None = None) -> list[st
     f = section_file(root, name)
     if not f.is_file():
         return []
-    files = files if files is not None else (git.tracked(root) if git.is_repo(root) else None)
+    files = files if files is not None else tracked_files(root)
     out = [resolve(root, c["rel"], files)[0] for c in citations(f.read_text(errors="replace"))]
     return list(dict.fromkeys(x for x in out if x))
 

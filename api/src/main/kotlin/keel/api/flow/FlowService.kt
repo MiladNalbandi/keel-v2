@@ -443,9 +443,13 @@ class FlowService(
         val r = workspace.git(root, "status", "--porcelain", "--untracked-files=all")
         if (!r.ok) return
         // v0.15.8 layout keel / external: .keel/ holds keel's own files, outside git (the engine hides it at flow start)
-        val hidden = keel.api.knowledge.Layout.resolve(root).hidden
+        val layout = keel.api.knowledge.Layout.resolve(root)
+        val hidden = layout.hidden
+        // 0.18.64 nor keel's own output under .keel/ (specs, knowledge, docs …) in any layout: keel's files never block keel
+        val keelFolders = layout.folders() + layout.runbooks
         val files = r.out.lines().filter { it.length > 3 }.map { it.substring(3).trim().removeSurrounding("\"") }
-            .filterNot { WorkspaceDoctor.isEngineFile(it) || WorkspaceDoctor.isToolFile(it) || (hidden && (it == ".keel" || it.startsWith(".keel/"))) }
+            .filterNot { WorkspaceDoctor.isEngineFile(it) || WorkspaceDoctor.isToolFile(it) || (hidden && (it == ".keel" || it.startsWith(".keel/"))) ||
+                WorkspaceDoctor.isKeelOutput(it, keelFolders) }
         if (files.isEmpty()) return
         // the untracked entries as git shows them by default (a new folder once, not every file in it); a folder only
         // when a file that blocks is in it (.claude/ holding only settings.local.json is a tool's folder)
