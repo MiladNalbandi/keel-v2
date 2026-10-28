@@ -140,6 +140,83 @@ async def langchain_tools(specs: list[dict], allow: list[str] | None) -> tuple[l
     return out, client
 
 
+# 0.18.64 a `keys` entry "mcp_env:<server>:<NAME>" is that server's env value (the api sends it again after a restart,
+# like a login): set_keys moves it out of the logins
+KEY_PREFIX = "mcp_env:"
+
+
+def strip_env(specs: list[dict] | None) -> tuple[list[dict], dict[str, dict]]:
+    """0.18.64 the MCP servers as a flow stores them (checkpoints.db keel_threads): each server's env names
+    (`env_names`), never their values, which come back as {server: {NAME: value}} for memory only, like the logins."""
+    stored, values = [], {}
+    for s in specs or []:
+        env = s.get("env") or {}
+        rest = {k: v for k, v in s.items() if k != "env"}
+        if env:
+            rest["env_names"] = sorted(env)
+            values[s["name"]] = {k: str(v) for k, v in env.items()}
+        stored.append(rest)
+    return stored, values
+
+
+def with_env(specs: list[dict] | None, values: dict[str, dict] | None) -> list[dict]:
+    """The stored servers with their env again: the values kept in memory (a name with no value, after an engine
+    restart, is left out). A server stored before 0.18.64 still has its `env` and keeps it."""
+    out = []
+    for s in specs or []:
+        names = s.get("env_names")
+        if names is None:
+            out.append(dict(s))
+            continue
+        got = (values or {}).get(s["name"]) or {}
+        env = {k: got[k] for k in names if k in got}
+        out.append({**{k: v for k, v in s.items() if k != "env_names"}, **({"env": env} if env else {})})
+    return out
+
+
+def env_from_keys(keys: dict | None) -> tuple[dict, dict[str, dict]]:
+    """(the logins without the MCP env entries, {server: {NAME: value}} from the "mcp_env:<server>:<NAME>" entries)."""
+    logins, values = {}, {}
+    for k, v in (keys or {}).items():
+        if k.startswith(KEY_PREFIX) and k.count(":") >= 2:
+            server, name = k[len(KEY_PREFIX):].split(":", 1)
+            values.setdefault(server, {})[name] = str(v)
+        else:
+            logins[k] = v
+    return logins, values
+
+
+def write_private(path: Path | str, text: str) -> None:
+    from ..models.cli import write_private as write
+
+    write(path, text)
+
+
+ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def env_by_name(servers: list[dict], base: dict | None = None) -> tuple[dict, dict[str, list[str]], dict[str, dict]]:
+    """0.18.64 the MCP servers' env for a CLI that starts them from its own environment (codex's `env_vars`), so no value
+    is on its command line (any process on the machine reads that). Returns (the values for the CLI's environment, the
+    names each server takes from there, what must stay in a server's own table). A name that two servers give different
+    values, or that the CLI's environment (`base`: PATH, HOME...) already has with another value, stays in that server's
+    own table: one environment holds one value per name."""
+    shared: dict[str, str] = {}
+    names: dict[str, list[str]] = {}
+    inline: dict[str, dict] = {}
+    for s in servers:
+        for k, v in (s.get("env") or {}).items():
+            if not ENV_NAME.match(k):
+                continue
+            v = str(v)
+            if (k in shared and shared[k] != v) or (base and k in base and base[k] != v):
+                inline.setdefault(s["name"], {})[k] = v
+                continue
+            shared[k] = v
+            names.setdefault(s["name"], []).append(k)
+    return shared, names, inline
+
+
 def claude_mcp_config(specs: list[dict], allow: list[str] | None, folder: str) -> tuple[str | None, list[str]]:
     """Write a Claude Code --mcp-config file. Returns (path, allowedTools entries)."""
     import json
@@ -151,7 +228,8 @@ def claude_mcp_config(specs: list[dict], allow: list[str] | None, folder: str) -
     cfg = {"mcpServers": {s["name"]: {"command": s["command"], "args": list(s.get("args") or []), "env": s.get("env") or {}}
                           for s in servers}}
     path = Path(folder) / "mcp.json"
-    path.write_text(json.dumps(cfg))
+    # 0.18.64 the servers' env holds their secrets: the file is the owner's only from its first byte
+    write_private(path, json.dumps(cfg))
     allowed = []
     for s in servers:
         names = wanted.get(s["name"])

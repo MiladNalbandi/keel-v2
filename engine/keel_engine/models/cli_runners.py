@@ -619,14 +619,27 @@ class CodexCLIRunner:
             argv += ["-m", req.model["model"]]
         if catalog.effort_for(req.model):
             argv += ["-c", f"model_reasoning_effort={catalog.effort_for(req.model)}"]
-        for s in mcp.servers_for(req.mcp_specs, req.tools_allow):
+        env = safe_env({**codex_login_env(req.keys), guard_ctx.ENV: guard_ctx.ensure(req, scratch)})
+        env.update(guard_ctx.shim_env(shims, env.get("PATH")))
+        servers = mcp.servers_for(req.mcp_specs, req.tools_allow)
+        # v0.18.1 each server's environment too (keel's own server: the api and its read token, KEEL_MCP_TOKEN): codex
+        # starts MCP servers with almost none. 0.18.64 not on the command line (any process reads it there, and an MCP
+        # server's env holds its secrets): the values go in codex's own environment and each server names the ones it
+        # takes (`env_vars`); codex's shell commands never get them (shell_environment_policy.exclude).
+        shared, names, inline = mcp.env_by_name(servers, env)
+        for s in servers:
             argv += ["-c", f"mcp_servers.{s['name']}.command={json.dumps(s['command'])}",
                      "-c", f"mcp_servers.{s['name']}.args={json.dumps(list(s.get('args') or []))}"]
-            # v0.18.1 its environment too (keel's own server: the api and its read token, KEEL_MCP_TOKEN): codex starts
-            # MCP servers with almost none. A TOML inline table; json.dumps gives TOML-safe strings.
-            if s.get("env"):
-                table = ", ".join(f"{k} = {json.dumps(str(v))}" for k, v in s["env"].items() if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", k))
+            if names.get(s["name"]):
+                argv += ["-c", f"mcp_servers.{s['name']}.env_vars={json.dumps(names[s['name']])}"]
+            if inline.get(s["name"]):
+                # a name another server (or codex itself) has with another value: only in this server's table (a TOML
+                # inline table; json.dumps gives TOML-safe strings)
+                table = ", ".join(f"{k} = {json.dumps(v)}" for k, v in inline[s["name"]].items())
                 argv += ["-c", f"mcp_servers.{s['name']}.env={{{table}}}"]
+        if shared:
+            argv += ["-c", f"shell_environment_policy.exclude={json.dumps(sorted(shared))}"]
+            env.update(shared)
         # Sessions live in CODEX_HOME on /data; continue this step's session when there is one.
         argv += ["resume", req.session, "-"] if (req.session and req.resume) else ["-"]
         state: dict = {}
@@ -639,8 +652,6 @@ class CodexCLIRunner:
 
         prompt = f"{req.system}\n\n{req.prompt}" if req.system else req.prompt
         try:
-            env = safe_env({**codex_login_env(req.keys), guard_ctx.ENV: guard_ctx.ensure(req, scratch)})
-            env.update(guard_ctx.shim_env(shims, env.get("PATH")))
             await run_cli("codex", argv, stdin=prompt, cwd=req.root, env=env, timeout=req.timeout, on_line=on_line)
         except ModelError as exc:
             if req.session and req.resume and NO_SESSION.search(str(exc)):
@@ -690,15 +701,20 @@ class CopilotCLIRunner:
             # newer Copilot CLIs (1.0.x) take --reasoning-effort; effort_for keeps it only when this CLI lists it
             argv += ["--reasoning-effort", catalog.effort_for(req.model)]
         servers = mcp.servers_for(req.mcp_specs, req.tools_allow)
+        scratch = guard_ctx.scratch(req)
         if servers:
             cfg = {"mcpServers": {s["name"]: {"type": "local", "command": s["command"], "args": list(s.get("args") or []), "tools": ["*"],
                                               **({"env": dict(s["env"])} if s.get("env") else {})}
                                   for s in servers}}
-            argv += ["--additional-mcp-config", json.dumps(cfg)]
-        login = copilot_login_env(req.keys) or ({"GH_TOKEN": req.key, "COPILOT_GITHUB_TOKEN": req.key} if req.key else {})
+            # 0.18.64 a file only keel reads (copilot takes "@path"), not the JSON itself: an MCP server's env holds its
+            # secrets, and any process on the machine reads a command line
+            path = Path(scratch) / "copilot-mcp.json"
+            await asyncio.to_thread(mcp.write_private, path, json.dumps(cfg))
+            argv += ["--additional-mcp-config", f"@{path}"]
+        # 0.18.64 only the Copilot login (keys, GH_TOKEN): req.key could be the container's GITHUB_TOKEN (models.key_for)
+        login = copilot_login_env(req.keys)
         # keel's guard: copilot's shell commands go through keel's command wrappers (keel_engine/shim.py); its own file
         # edits are judged after the step by the diff guard
-        scratch = guard_ctx.scratch(req)
         shims = await asyncio.to_thread(guard_ctx.write_shims, Path(scratch) / "keel-bin")
         env = safe_env({**login, guard_ctx.ENV: guard_ctx.ensure(req, scratch)})
         env.update(guard_ctx.shim_env(shims, env.get("PATH")))

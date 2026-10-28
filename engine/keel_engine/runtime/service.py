@@ -22,6 +22,7 @@ from langgraph.types import Command
 from .. import config, extensions, layout, rules
 from ..events import EventBus
 from ..tools import git, source_ref
+from ..tools import mcp as mcp_tools
 from ..workflows.model import Workflow, from_dict
 from ..workflows.templates import get_template
 from . import bug, hunt, ladder as ladder_mod
@@ -69,6 +70,9 @@ class Engine:
         self._resuming: dict[str, asyncio.Lock] = {}   # one resume at a time per thread (web + MCP, a double click)
         self._closing = False                     # close() is cancelling the drivers: a flow it cuts off is not a stopped flow
         self.keys: dict[str, dict] = {}
+        # 0.18.64 thread -> {MCP server: {NAME: value}}: its MCP servers' env values, in memory only like the logins
+        # (checkpoints.db keeps the names: tools/mcp.py strip_env)
+        self.mcp_env: dict[str, dict] = {}
         self.sources: dict[str, str] = {}     # thread -> what a started flow works on ("pr:20"), until POST /threads answers
         self.base_notes: dict[str, str] = {}  # 0.18.64 thread -> its base against the remotes, until POST /threads answers
 
@@ -98,6 +102,7 @@ class Engine:
         await self.conn.execute(memory_mod.SCHEMA)
         await self.conn.commit()
         await migrate.migrate(self.conn)
+        await self._strip_stored_env()
         if resume_running:
             # Threads that were running when keel stopped continue once the api has sent their logins (they live in
             # memory only) and their folder: POST /threads/{id}/continue. Without that call they continue by
@@ -107,6 +112,23 @@ class Engine:
             if self.pending:
                 log.info("%d thread(s) wait for the api to continue them", len(self.pending))
                 self._grace = asyncio.create_task(self._continue_later())
+
+    async def _strip_stored_env(self):
+        """0.18.64 a flow stored before 0.18.64 kept its MCP servers' env values in keel_threads: they move to memory
+        (this run still has them) and the row keeps the names."""
+        async with self.conn.execute("select thread_id, body from keel_threads where body like '%\"env\"%'") as cur:
+            rows = await cur.fetchall()
+        for tid, raw in rows:
+            try:
+                body = json.loads(raw)
+            except (TypeError, ValueError):
+                continue
+            if not any(isinstance(s, dict) and s.get("env") for s in body.get("mcp") or []):
+                continue
+            body["mcp"], values = mcp_tools.strip_env(body["mcp"])
+            self.mcp_env[tid] = {**values, **self.mcp_env.get(tid, {})}
+            await self.conn.execute("update keel_threads set body = ? where thread_id = ?", (json.dumps(body), tid))
+        await self.conn.commit()
 
     async def _continue_later(self):
         await asyncio.sleep(CONTINUE_GRACE)
@@ -170,7 +192,8 @@ class Engine:
         body = json.loads(row["body"])
         wf = from_dict(body["workflow"], body["workflow"].get("yaml") or None)
         ctx = ThreadContext(thread_id=tid, project_id=row["project_id"], root=row["root"], workflow=wf, title=row["title"],
-                            request=(body.get("request") or "").strip(), models=body.get("models") or {}, settings=body.get("settings") or {}, mcp=body.get("mcp") or [],
+                            request=(body.get("request") or "").strip(), models=body.get("models") or {}, settings=body.get("settings") or {},
+                            mcp=mcp_tools.with_env(body.get("mcp"), self.mcp_env.get(tid)),
                             skills=body.get("skills") or {}, agents=body.get("agents") or {}, keys=self.keys.get(tid, {}), bus=self.bus,
                             other_projects=list(body.get("other_projects") or []),
                             memory=memory_mod.AgentMemory(self.conn, tid))
@@ -326,14 +349,19 @@ class Engine:
         if source:
             self.sources[tid] = source
         stored = {k: v for k, v in body.items() if k not in ("keys",)}
+        # 0.18.64 an MCP server's env holds its secrets: the row keeps the names, memory the values (like the logins)
+        stored["mcp"], env_values = mcp_tools.strip_env(body.get("mcp"))
         stored["workflow"] = {**wf.model_dump(exclude_none=True)}
         stored["root"] = root
         now = _now()
         await self.conn.execute("insert into keel_threads values (?,?,?,?,?,?,?,?,?,?)",
                                 (tid, body["project_id"], wf.id, body["title"], "running", root, json.dumps(stored), None, now, now))
         await self.conn.commit()
-        if body.get("keys"):
-            self.keys[tid] = dict(body["keys"])
+        logins, from_keys = mcp_tools.env_from_keys(body.get("keys"))
+        if logins:
+            self.keys[tid] = logins
+        if env_values or from_keys:
+            self.mcp_env[tid] = {**from_keys, **env_values}
         ctx = await self._context(tid)
         state = initial_state(ctx, body.get("acs"))
         state["data"] = dict(body.get("data") or {})
@@ -500,6 +528,8 @@ class Engine:
                        "characters: the steps that write the spec get the whole evidence]")
         if isinstance(seed.get("evidence"), str):
             seed = {**seed, "evidence": seed["evidence"][:prompts.EVIDENCE_MAX]}
+        if "mcp" in child:
+            child["mcp"] = mcp_tools.with_env(child["mcp"], self.mcp_env.get(parent))   # the values live in memory only
         child.update(root=row["root"], workflow=wf, title=str(seed.get("title") or row["title"])[:200], acs=acs or None,
                      request=request, parent=link, keys=self.keys.get(parent),
                      data={"seed": seed, **{k: seed[k] for k in ("recipe", "symptoms", "evidence", "stale", "needs_e2e", "no_gates")
@@ -645,11 +675,20 @@ class Engine:
                               "Start keel the same way again, or start a new flow.")
 
     async def set_keys(self, tid: str, keys: dict) -> None:
-        """Logins are kept in memory only (never stored), so after an engine restart the api sends them again."""
+        """Logins are kept in memory only (never stored), so after an engine restart the api sends them again.
+        0.18.64 an "mcp_env:<server>:<NAME>" entry is an MCP server's env value: it goes to the servers, not the logins."""
         await self._row(tid)
+        keys, values = mcp_tools.env_from_keys(keys)
         self.keys[tid] = dict(keys)
         if tid in self.ctxs:
             self.ctxs[tid].keys = dict(keys)
+        if values:
+            mine = self.mcp_env.setdefault(tid, {})
+            for server, env in values.items():
+                mine[server] = {**mine.get(server, {}), **env}
+            if tid in self.ctxs:
+                row = await self._row(tid)
+                self.ctxs[tid].mcp = mcp_tools.with_env(json.loads(row["body"]).get("mcp"), mine)
 
     async def resume(self, tid: str, decision: str, why: str | None, payload: dict | None,
                      question_id: str | None = None, by: str | None = None) -> dict:
