@@ -1,7 +1,8 @@
-// The new Review view's Problems tab (0.18.57): keel's checked findings. "Find problems" starts the run (two keel
-// reviewers read the change, a second check removes false alarms); the findings come in groups you decide on: Blocking,
-// Should fix, Small things, and the ones that were there before this change (never blocking). Each one: Add as comment
-// (a pending comment on its line) or Dismiss. Nothing is posted by itself.
+// The new Review view's Problems tab (0.18.57): keel's checked findings. "Find problems" starts the run (the keel
+// reviewers of Settings › Review read the change, a second check removes false alarms); the findings come in groups you
+// decide on: Blocking, Should fix, Small things, and the ones that were there before this change (never blocking). Each
+// one: Add as comment (a pending comment on its line), Fix it (0.18.65: a flow on the branch, the one Settings › Review
+// names, or quick / small / change when it asks each time) or Dismiss. Nothing is posted by itself.
 //
 // The same api and store as the classic Findings tab: R.startAi("findings"), R.addDraft + R.decide.
 
@@ -46,6 +47,14 @@ export function ProblemsTab({
       await R.decide(pid, reviewKey, f.id, "commented");
   };
   const live = groups.filter((g) => g.actions).flatMap((g) => g.items);
+  // 0.18.65 what Settings › Review says: the text above Find problems, and how a finding is fixed
+  const find = ai?.config?.find;
+  const lead = find?.text ?? "Two keel reviewers read the change, a second check removes false alarms, and you decide " +
+    "what to post. Nothing is posted by itself.";
+  const n = find?.reviewers.length ?? 2;
+  const many = `${["", "One", "Two", "Three", "Four"][n] ?? n} keel reviewer${n === 1 ? " reads" : "s read"}`;
+  const fixWith = find?.fix.flow ?? "small";
+  const fix = (f: Finding, workflow?: string) => void R.fixFinding(pid, reviewKey, f.id, workflow);
   const blocking = live.filter(
     (f) =>
       f.severity === "blocking" &&
@@ -56,10 +65,7 @@ export function ProblemsTab({
     return (
       <div className="rvn-call">
         <b>keel has not looked for problems yet</b>
-        <span className="rvn-dim">
-          Two keel reviewers read the change, a second check removes false
-          alarms, and you decide what to post. Nothing is posted by itself.
-        </span>
+        <span className="rvn-dim">{lead}</span>
         <button
           type="button"
           className="rvn-btn primary"
@@ -76,7 +82,7 @@ export function ProblemsTab({
         <span className="pg-spin">
           {run.stage === "verify"
             ? "keel checks each problem against the code…"
-            : "Two keel reviewers read the change…"}
+            : `${many} the change…`}
         </span>
         <span className="rvn-dim">
           It takes a few minutes. You can keep reviewing meanwhile.
@@ -155,6 +161,29 @@ export function ProblemsTab({
                     >
                       Add as comment
                     </button>
+                    {f.severity !== "nit" && !ai?.fixes?.[f.id] &&
+                      (fixWith === "ask" ? (
+                        (["quick", "small", "change"] as const).map((w) => (
+                          <button
+                            key={w}
+                            type="button"
+                            className="rvn-btn"
+                            disabled={running.includes(`fix:${f.id}`)}
+                            onClick={() => fix(f, w)}
+                          >
+                            Fix: {w}
+                          </button>
+                        ))
+                      ) : (
+                        <button
+                          type="button"
+                          className="rvn-btn"
+                          disabled={running.includes(`fix:${f.id}`)}
+                          onClick={() => fix(f)}
+                        >
+                          Fix it ({fixWith})
+                        </button>
+                      ))}
                     <button
                       type="button"
                       className="rvn-link quiet"
@@ -172,6 +201,13 @@ export function ProblemsTab({
                       Dismiss
                     </button>
                   </div>
+                )}
+                {ai?.fixes?.[f.id] && (
+                  <p className="rvn-flow" role="status">
+                    The {ai.fixes[f.id].workflow} flow fixes it
+                    {(ai.fixes[f.id].with ?? 1) > 1 ? ` with ${(ai.fixes[f.id].with ?? 1) - 1} more in this file` : ""}.{" "}
+                    <a href={`#/flow/${encodeURIComponent(ai.fixes[f.id].flow_id)}`}>Open flow ▸</a>
+                  </p>
                 )}
                 {decided && (
                   <span

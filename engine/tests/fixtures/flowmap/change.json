@@ -228,6 +228,17 @@
    "included_from": "ship"
   },
   {
+   "id": "ship_ci",
+   "kind": "code",
+   "name": "the project's CI jobs on CI's versions",
+   "phase": "ship",
+   "action": "ci_pipeline",
+   "soft": true,
+   "skippable": "optional",
+   "group": "ci",
+   "included_from": "ship"
+  },
+  {
    "id": "ship_release",
    "kind": "code",
    "name": "verify release",
@@ -623,6 +634,7 @@
    "ship_verify_fix_commit",
    "ship_verify",
    "ship_lint",
+   "ship_ci",
    "ship_release",
    "ship_cover_measure",
    "ship_cover_measured",
@@ -761,7 +773,7 @@
     "nodes": [
      {
       "include": "ship",
-      "count": 36,
+      "count": 37,
       "body": [
        {
         "kind": "phase",
@@ -811,6 +823,10 @@
          },
          {
           "step": "ship_lint",
+          "side": []
+         },
+         {
+          "step": "ship_ci",
           "side": []
          },
          {

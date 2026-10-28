@@ -23,6 +23,7 @@ import {
   type DiffRow,
 } from "@keel/web-sdk";
 import { reviewApi } from "./reviewApi";
+import * as R from "./store";
 import { wordAt } from "./keymap";
 import { rowsOf, useLineRange, type Point, type Span } from "./range";
 
@@ -112,8 +113,10 @@ export function ReviewDiff({
   onWord: (word: string, l: LineRef | null) => void;
   onChanges: (count: number) => void;
 }) {
+  // 0.18.65 another base (the panel's pick) is another diff
+  const baseSha = R.review(pid, reviewKey).view?.base_sha ?? "";
   const d = useLoad(
-    `review-diff:${pid}:${reviewKey}:${path}`,
+    `review-diff:${pid}:${reviewKey}:${path}:${baseSha}`,
     () => reviewApi.diff(pid, reviewKey, path),
     { live: false },
   );

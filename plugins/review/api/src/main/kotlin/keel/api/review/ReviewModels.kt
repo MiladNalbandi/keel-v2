@@ -139,7 +139,21 @@ data class ReviewView(
     val mergeState: String? = null,
     /** a branch review: the number of the branch's open pull request (its pending comments can move there) */
     val branchPr: Int? = null,
+    /** 0.18.65 a branch review: the local base differs from the canonical remote's copy, in words (null: they agree) */
+    val baseWarning: String? = null,
+    /** 0.18.65 a branch review: the bases it can compare against (the remote default, the local base) */
+    val baseOptions: List<BaseOption> = emptyList(),
+    /** 0.18.65 the option compared against now ("remote" or "local") */
+    val baseChoice: String? = null,
+    /** 0.18.65 keel init's setup commits at the branch's bottom, left out of the review */
+    val setupLeftOut: List<String> = emptyList(),
 )
+
+/** 0.18.65 a base a branch review can compare against: [id] remote (the canonical remote's copy) or local. */
+data class BaseOption(val id: String, val ref: String, val label: String)
+
+/** 0.18.65 PUT review/base: which base a branch review compares against ("" goes back to keel's choice). */
+data class BaseBody(val key: String = "", val base: String = "")
 
 /** The branch the project folder is on, against its base: Review › This branch. */
 data class BranchSummary(
@@ -151,6 +165,8 @@ data class BranchSummary(
     val removed: Int,
     val pr: PrSummary?,
     val note: String?,
+    /** 0.18.65 the local base differs from the canonical remote's copy the counts compare against, in words */
+    val baseWarning: String? = null,
 )
 
 data class DraftBody(val key: String = "", val path: String? = null, val line: Int? = null, val side: String = "RIGHT",

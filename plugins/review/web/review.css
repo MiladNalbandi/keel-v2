@@ -102,7 +102,12 @@
 .rv-link { border: 0; background: none; color: var(--accent); padding: 0; font: inherit; cursor: pointer; text-align: left; overflow-wrap: anywhere; }
 .rv-link:hover { text-decoration: underline; }
 .rv-where { font-size: 12px; }
-.rv-warn { color: var(--warn); } .rv-ok { color: var(--ok); } .rv-bad { color: var(--bad); font-weight: 600; }
+.rv-warn { color: var(--warn); }
+/* 0.18.65 a branch review's base: the warning and the Compare with pick (BaseLine.tsx) */
+.rv-base { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; font-size: 12px; }
+.rv-base-pick { display: inline-flex; gap: 6px; align-items: center; color: var(--dim); }
+.rv-base-pick select { width: auto; max-width: 100%; font-size: 12px; }
+.rvn-base { color: var(--warn); padding: 6px 0; } .rv-ok { color: var(--ok); } .rv-bad { color: var(--bad); font-weight: 600; }
 .rv-desc { max-height: 260px; overflow: auto; border-left: 3px solid var(--ide-line); padding-left: 10px; }
 .rv-group { display: grid; gap: 8px; }
 .rv-group-h { border: 0; background: none; padding: 0; color: var(--dim); font: 600 11px var(--f-body); letter-spacing: .06em; text-transform: uppercase; text-align: left; cursor: pointer; display: flex; align-items: center; }

@@ -63,7 +63,11 @@ export type BranchSummary = {
   removed: number;
   pr: PrSummary | null;
   note: string | null;
+  /** 0.18.65 the local base differs from the canonical remote's copy the counts compare against, in words */
+  base_warning?: string | null;
 };
+/** 0.18.65 a base a branch review can compare against: the canonical remote's copy or the local base. */
+export type BaseOption = { id: "remote" | "local"; ref: string; label: string };
 export type CheckRun = { name: string; state: string; url?: string | null };
 export type ReviewComment = {
   id: string;
@@ -142,6 +146,13 @@ export type ReviewView = {
   merge_state?: string | null;
   /** a branch review: its open pull request, where its pending comments can go */
   branch_pr?: number | null;
+  /** 0.18.65 a branch review: the local base differs from the canonical remote's copy, in words */
+  base_warning?: string | null;
+  /** 0.18.65 a branch review: the bases it can compare against, and the one it does */
+  base_options?: BaseOption[];
+  base_choice?: "remote" | "local" | null;
+  /** 0.18.65 keel init's setup commits at the branch's bottom, left out of the review */
+  setup_left_out?: string[];
 };
 export type CodePlace = {
   path: string;
@@ -270,6 +281,12 @@ export type ThreadConfig = {
   /** keel 0.18.56 the flows the Address it confirmation offers, the configured one first */
   address_flows?: { id: string; name: string }[];
   buttons?: ThreadButtonInfo[];
+  /** keel 0.18.65 what Find problems runs (Settings › Review): its text, the reviewers, how a finding is fixed */
+  find?: {
+    text: string;
+    reviewers: { letter: string; name: string }[];
+    fix: { flow: "quick" | "small" | "change" | "ask"; one_flow_per_file: boolean };
+  };
 };
 export type AiRun<R> = {
   id: string;
@@ -295,6 +312,8 @@ export type AiState = {
   /** per "<button id>|<thread>": an extra button's latest run */
   buttons?: Record<string, AiRun<JudgeResult>>;
   config?: ThreadConfig;
+  /** keel 0.18.65 per finding: the flow "Fix it" started */
+  fixes?: Record<string, { flow_id: string; title: string; branch: string | null; workflow?: string; with?: number; at: string }>;
 };
 export type AddressResult = {
   flow_id: string;
@@ -433,6 +452,9 @@ export const reviewApi = {
     get<ReviewView>(
       `${R(pid)}/view?${qk(key)}${refresh ? "&refresh=true" : ""}`,
     ),
+  /** 0.18.65 which base a branch review compares against ("" goes back to keel's choice) */
+  pickBase: (pid: string, key: string, base: "remote" | "local" | "") =>
+    put<ReviewView>(`${R(pid)}/base`, { key, base }),
   diff: (pid: string, key: string, path: string) =>
     get<FileDiff>(`${R(pid)}/diff?${qk(key)}&path=${e(path)}`),
   file: (
@@ -503,6 +525,9 @@ export const reviewApi = {
   /** [fix]: the person's answer to "What should the fix be?" (0.18.57, asked when the thread has no reply of theirs). */
   address: (pid: string, key: string, threadId: string, note?: string, workflow?: string, fix?: string) =>
     post<AddressResult>(`${R(pid)}/threads/${e(threadId)}/address`, { key, note, workflow, fix }),
+  /** keel 0.18.65 "Fix it" on a confirmed finding: the flow Settings › Review names, or [workflow] when it asks each time. */
+  fixFinding: (pid: string, key: string, findingId: string, workflow?: string) =>
+    post<AddressResult>(`${R(pid)}/ai/findings/${e(findingId)}/fix`, { key, workflow }),
   button: (pid: string, key: string, threadId: string, buttonId: string, opts: { again?: boolean; harder?: boolean } = {}) =>
     post<AiState>(`${R(pid)}/threads/${e(threadId)}/buttons/${e(buttonId)}`, { key, ...opts }),
   threadSettings: (pid: string | null) =>

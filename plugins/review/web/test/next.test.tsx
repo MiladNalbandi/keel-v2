@@ -492,6 +492,28 @@ describe("the new Review view: one pull request", () => {
   });
 });
 
+describe("the new Review view: Settings › Review on the Problems tab (0.18.65)", () => {
+  it("says which reviewers read the change, and a finding offers quick, small and change when Settings asks each time", async () => {
+    const demo = start({ found: [] });
+    const { pr } = await openPr(45);
+    await userEvent.click(tab(pr, /^Problems/));
+    expect(
+      within(pr).getByText(/^Three keel reviewers read the change \(A: correctness and security, B: tests, the description and design, C: money\)/),
+    ).toBeInTheDocument();
+    await userEvent.click(within(pr).getByRole("button", { name: "Find problems" }));
+    const blocking = await within(pr).findByRole("article", {
+      name: 'A cell that starts with "-" is not made safe',
+    });
+    expect(within(blocking).getByRole("button", { name: "Fix: quick" })).toBeInTheDocument();
+    expect(within(blocking).getByRole("button", { name: "Fix: change" })).toBeInTheDocument();
+    await userEvent.click(within(blocking).getByRole("button", { name: "Fix: small" }));
+    expect(await within(blocking).findByText(/The small flow fixes it/)).toBeInTheDocument();
+    expect(within(blocking).getByRole("link", { name: "Open flow ▸" })).toHaveAttribute("href", "#/flow/t-fix-1");
+    expect(demo.calls.find((c) => c.path.endsWith("/ai/findings/f1/fix"))?.body).toMatchObject({ workflow: "small" });
+    expect(within(blocking).queryByRole("button", { name: "Fix: quick" })).not.toBeInTheDocument();
+  });
+});
+
 describe("the new Review view: Submit", () => {
   it("does not offer Approve or Request changes on your own pull request; it sends a comment", async () => {
     const demo = start();

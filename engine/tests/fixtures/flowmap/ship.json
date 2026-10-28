@@ -65,6 +65,15 @@
    "skippable": "optional"
   },
   {
+   "id": "ci",
+   "kind": "code",
+   "name": "the project's CI jobs on CI's versions",
+   "phase": "ship",
+   "action": "ci_pipeline",
+   "soft": true,
+   "skippable": "optional"
+  },
+  {
    "id": "release",
    "kind": "code",
    "name": "verify release",
@@ -413,6 +422,7 @@
    "verify_fix_commit",
    "verify",
    "lint",
+   "ci",
    "release",
    "cover_measure",
    "cover_measured",
@@ -491,6 +501,10 @@
      },
      {
       "step": "lint",
+      "side": []
+     },
+     {
+      "step": "ci",
       "side": []
      },
      {

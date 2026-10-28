@@ -30,6 +30,10 @@ class ReviewController(private val reviews: ReviewService, private val ai: Revie
     @GetMapping("/open")
     fun open(@PathVariable pid: String, @RequestParam(defaultValue = "") ref: String) = reviews.view(pid, reviews.keyOf(pid, ref))
 
+    /** 0.18.65 which base a branch review compares against (body: key, base remote | local | ""); answers the review. */
+    @PutMapping("/base")
+    fun pickBase(@PathVariable pid: String, @RequestBody b: BaseBody) = reviews.pickBase(pid, b.key, b.base)
+
     @GetMapping("/diff")
     fun diff(@PathVariable pid: String, @RequestParam key: String, @RequestParam path: String) = reviews.diff(pid, key, path)
 
@@ -113,6 +117,10 @@ class ReviewController(private val reviews: ReviewService, private val ai: Revie
     /** "Address it": a small flow makes the change the thread asks for, on the pull request's branch. Never pushes. */
     @PostMapping("/threads/{threadId}/address")
     fun address(@PathVariable pid: String, @PathVariable threadId: String, @RequestBody b: AddressBody) = addressing.address(pid, b.key, threadId, b)
+
+    /** 0.18.65 "Fix it": the flow Settings › Review names fixes a confirmed finding on the reviewed branch. */
+    @PostMapping("/ai/findings/{findingId}/fix")
+    fun fix(@PathVariable pid: String, @PathVariable findingId: String, @RequestBody b: FixBody) = addressing.fixFinding(pid, b.key, findingId, b)
 
     @PostMapping("/ai/findings/{findingId}")
     fun decide(@PathVariable pid: String, @PathVariable findingId: String, @RequestBody b: FindingDecision) = ai.decide(pid, b.key, findingId, b)

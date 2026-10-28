@@ -18,14 +18,17 @@ import re
 from .. import extensions, rules
 from ..tools import git
 from . import choices as choices_mod
-from . import blockers, bug, knowledge, run_mode, verdict_actions, verdicts
+from . import blockers, bug, ci_pipeline, knowledge, review_config, run_mode, verdict_actions, verdicts
+from . import lenses as lens_files
 
-DEFAULT_LENSES = ["correctness", "security", "performance"]
+# keel 0.18.65 consumers-config (content/review-lenses/consumers-config.md): what a consumer that runs the new next to
+# the old meets, shared keys and routes, public types against their contract, the CI config
+DEFAULT_LENSES = ["correctness", "security", "performance", "consumers-config"]
 BANDS = {
     "deferred": "Deferred, not avoided: skipping moves the work; the push stays blocked until a fresh verdict for HEAD",
     "optional": "Optional: nothing downstream demands it; skipping is a real choice with a real cost",
 }
-VERDICT_ROWS = ["fast", "module", "lint", "release", "coverage", "deps", "audit", "trace", "arch", "memory"]
+VERDICT_ROWS = ["fast", "module", "lint", "ci", "release", "coverage", "deps", "audit", "trace", "arch", "memory"]
 # Production code: the buckets keel's rules know, plus any other file that is not a test, a doc or keel's own.
 PROD_BUCKETS = {"api-main", "web-src", "migration"}
 _TESTISH = re.compile(r"(^|/)(tests?|__tests__|e2e|smoke|specs?)/|(^|/)test_[^/]*$|_test\.\w+$|\.(test|spec)\.\w+$|Tests?\.\w+$")
@@ -60,7 +63,9 @@ async def review_lenses(a):
 
 def _lenses(a):
     """The lenses chosen at the opening gate (data.lenses_chosen), else review.lenses from .keel/config.yml, else
-    correctness, security and performance; architecture joins when the project sets an architecture style or rules."""
+    correctness, security, performance and (0.18.65) consumers-config; architecture joins when the project sets an
+    architecture style or rules. A lens with a lens file (the project's .keel/lenses/<name>.md, else keel's
+    content/review-lenses/<name>.md) gives its reviewer that file's checklist in its item."""
     cfg = rules.load_config(a.root)
     chosen = a.data.get("lenses_chosen")
     conf = (cfg.get("review") or {}).get("lenses") if isinstance(cfg.get("review"), dict) else None
@@ -82,9 +87,18 @@ def _lenses(a):
         seen = [x for x in seen if x != "correctness"]
         data["lens_dropped"] = dropped
     scope = _lens_scope(a, cfg)
-    items = [{"id": lens, "title": f"{lens} lens", "lens": lens, **scope} for lens in seen]
+    if a.data.get("ci_pipeline_report"):
+        # 0.18.65 what the project's own CI jobs said on CI's versions: each reviewer weighs a failure there
+        scope = {**scope, "ci": ci_pipeline.brief(str(a.data["ci_pipeline_report"]))}
+    items = [{"id": lens, "title": f"{lens} lens", "lens": lens, **_checklist(a.root, lens), **scope} for lens in seen]
     return _result(True, f"Review lenses ({why}): {', '.join(seen) or 'none'}." + (f" {dropped}." if dropped else ""),
                    update={"data": {**data, "review_lenses": items}})
+
+
+def _checklist(root: str, lens: str) -> dict:
+    """A ship lens's checklist from its lens file (runtime/lenses.py), or nothing (keel's lens-reviewer knows the lens)."""
+    f = lens_files.load(lens, root)
+    return {"lens_title": f["title"], "checklist": lens_files.flat(f["checklist"])[:3000]} if f and f["checklist"] else {}
 
 
 def _lens_scope(a, cfg: dict) -> dict:
@@ -92,11 +106,17 @@ def _lens_scope(a, cfg: dict) -> dict:
     files it touches, and the spec. Without it a reviewer guesses the base."""
     if not git.is_repo(a.root):
         return {}
-    base = verdict_actions.base_ref(a.root, cfg, a.base)
+    # 0.18.65 the canonical remote's base, and keel init's setup commits at the branch's bottom left out (runtime/bases.py)
+    from . import bases
+
+    found = bases.branch_scope(a.root, cfg, a.base)
+    base = found["base"]
     if not base:
         return {}
     files = [f for f in git.git(a.root, "diff", "--name-only", f"{base}...HEAD").stdout.splitlines() if f.strip()]
     out = {"scope": f"git diff {base}...HEAD", "base": base, "files": files[:60]}
+    if found["setup"]:
+        out["note"] = bases.setup_note(found["setup"])
     if len(files) > 60:
         out["files_more"] = len(files) - 60
     if a.state.get("spec"):
@@ -106,8 +126,11 @@ def _lens_scope(a, cfg: dict) -> dict:
 
 def _drop_correctness(a, cfg: dict, lenses: list[str]) -> str:
     """keel v1 ship step 5: the correctness lens is dropped when the full-diff review (data.full_review, written after
-    the feature flow's code_review) passed and no production file changed since its sha: it read the same code for the
-    same thing. Any production change since (an integration commit, a fix) and the lens runs. Returns why, or ""."""
+    the feature flow's code_review) passed and no production file changed since its sha. keel 0.18.65: only when the
+    project asks for it (review.drop_correctness, Settings › Review; off by default): a field report showed a passed
+    full-diff review that missed what a second correctness look would see. Returns why, or ""."""
+    if not review_config.effective(a.root)["drop_correctness"]:
+        return ""
     full = a.data.get("full_review") if isinstance(a.data.get("full_review"), dict) else {}
     sha = str(full.get("sha") or "")
     if "correctness" not in lenses or full.get("verdict") != "pass" or not sha or not git.is_repo(a.root):
@@ -475,6 +498,10 @@ def final_report(root: str, key: str, state: dict, title: str, thread_id: str = 
     if lint and not lint.get("ok") and (lint.get("detail") or {}).get("available") is not False \
             and (not (head or tree) or verdicts.fresh(lint, head, tree)):
         exc.append(f"- static checks fail: {(lint.get('detail') or {}).get('summary') or 'see the lint verdict'}")
+    ci = verdicts.latest(key, "ci")
+    ci_fresh = bool(ci) and (not (head or tree) or verdicts.fresh(ci, head, tree))
+    if ci and ci_fresh and not ci.get("ok") and (ci.get("detail") or {}).get("available") is not False:
+        exc.append(f"- {(ci.get('detail') or {}).get('summary') or 'the CI pipeline failed'}")
     if repo:
         for b in blockers.push_blockers(root, base, project=key):
             if b["gate"] == "knowledge":
@@ -488,11 +515,17 @@ def final_report(root: str, key: str, state: dict, title: str, thread_id: str = 
     out += _spec_part(root, state)
     out += [f"## Verdicts for HEAD {str(head or 'not a git repository')[:7]}", "", "| check | result | summary |", "|---|---|---|"]
     for kind in VERDICT_ROWS:
+        if kind == "ci" and not ci:
+            continue            # a project without a CI pipeline run has no row for it
         res, summary = _mark(verdicts.latest(key, kind), head, tree)
         out.append(f"| {kind} | {res} | {summary} |")
     sec, sec_lines = verdict_actions.security_summary(state)
     out.append(f"| security | {sec} | {'; '.join(x.strip(' -') for x in sec_lines if not x.startswith('  '))[:200] or '—'} |")
     out.append("")
+    # 0.18.65 the project's own CI jobs on CI's versions: the flow's report, else a fresh ci verdict's (keel_ci_run)
+    ci_text = str(data.get("ci_pipeline_report") or "") or (str((ci.get("detail") or {}).get("report") or "") if ci_fresh else "")
+    if ci_text.strip():
+        out += [ci_text.strip(), ""]
     out += _reviews_part(root, cfg, state)
     rounds = state.get("review_rounds") or {}
     if rounds:

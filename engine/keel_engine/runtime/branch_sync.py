@@ -71,9 +71,12 @@ def fetch_all(root: str, keys=None, timeout: float = git.FETCH_EACH) -> list[dic
 def base_name(root: str, cfg: dict | None = None) -> str | None:
     """The local base branch: base_branch from .keel/config.yml (origin/main counts as main), else main, else master;
     None when the repo has none of them."""
+    from . import bases
+
     cfg = rules.load_config(root) if cfg is None else cfg
-    named = str(cfg.get("base_branch") or "").removeprefix("refs/heads/")
-    wanted = [named, named.split("/", 1)[1] if "/" in named else "", "main", "master"]
+    named = bases.configured(cfg)
+    # 0.18.65 only a real remote's name is cut off (github/main is main; a local feat/x stays feat/x)
+    wanted = [named, bases.split(named, git.remotes(root))[1], "main", "master"]
     for b in wanted:
         if b and git.git(root, "show-ref", "--verify", "-q", f"refs/heads/{b}").returncode == 0:
             return b
@@ -90,7 +93,10 @@ def report(root: str, fetched: list[dict] | None, start: str | None = None, cfg:
     same name, and the remote's default branch when its name differs (local master, another remote's main). A failed
     fetch is said plainly; the comparison then uses what the last fetch left. With `start` (the commit the flow starts
     at): which remote branch it starts from, or the way to start from the newer one."""
+    from . import bases
+
     fetched = list(fetched or [])
+    cfg = rules.load_config(root) if cfg is None else cfg
     base = base_name(root, cfg) if git.is_repo(root) else None
     rows, lines, newer = [], [], []
     for item in fetched:
@@ -116,6 +122,11 @@ def report(root: str, fetched: list[dict] | None, start: str | None = None, cfg:
                     newer.append((dab[1], default))
                     lines.append(f"{base} is {_n(dab[1])} behind {default} ({name}'s default branch)")
         rows.append(row)
+    gone = bases.missing(root, cfg) if git.is_repo(root) else None
+    if gone:
+        # 0.18.65 (R5) base_branch names no local branch: said, with the choices the person makes (never an agent)
+        lines.append(gone["text"] + " Choose in Settings › General › Base branch (or keel_base_branch): "
+                     + "; ".join(c["label"] for c in gone["choices"]))
     compared = [r.get(k) for r in rows for k in ("branch", "default") if r.get(k)]
     if base and compared and not newer:
         lines.append(f"{base} is up to date with {', '.join(compared)}")
@@ -125,7 +136,9 @@ def report(root: str, fetched: list[dict] | None, start: str | None = None, cfg:
         if from_ref:
             lines.append(f"the flow's branch starts from {from_ref}")
         elif newer and local == start:
-            ref = max(newer)[1]
+            # 0.18.65 the canonical remote's copy first (runtime/bases.py), else the one that is furthest ahead
+            canonical = bases.resolve(root, cfg).get("remote")
+            ref = canonical if any(r == canonical for _k, r in newer) else max(newer)[1]
             lines.append(f"the flow starts from the local {base}: to start from the newer code, start it with base {ref}")
     return {"base": base, "remotes": rows, "lines": lines, "note": "; ".join(lines)}
 

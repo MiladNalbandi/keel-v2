@@ -338,7 +338,19 @@ export type FlowBoard = { flows: BoardFlow[]; overlaps: { file: string; flows: s
 export type FlowWhere = "folder" | "worktree" | "auto";
 /** 0.18.57 what a start should know first (GET /projects/{pid}/start-check): can a worktree flow run the tests (no when
  *  they run in a container that sees only the project folder), and how the local base branch differs from its remote. */
-export type StartCheck = { worktree?: { ok: boolean; reason?: string; service?: string | null }; base?: string | null };
+export type StartCheck = { worktree?: { ok: boolean; reason?: string; service?: string | null }; base?: string | null;
+  /** 0.18.65 base_branch names no local branch: the person's choices (null: it exists) */
+  base_missing?: BaseMissing | null };
+/** 0.18.65 base_branch names a branch with no local copy (the engine's runtime/bases.py missing). */
+export type BaseMissing = { name: string; remote?: string | null; remotes: string[]; branches: string[]; text: string;
+  choices: { id: "remote" | "track" | "pick"; label: string; about?: string; ref?: string; branches?: string[] }[] };
+/** 0.18.65 the project's base and its canonical remote (GET /projects/{pid}/base): what work is compared with. */
+export type BaseView = { name?: string | null; local?: string | null; remote?: string | null; canonical?: string | null;
+  ref?: string | null; ahead?: number | null; behind?: number | null; warning?: string | null; explicit?: boolean;
+  configured?: string | null; setting?: string | null; remotes: string[]; branches: string[]; missing?: BaseMissing | null;
+  configured_file?: boolean };
+/** 0.18.65 the person's answer: remote (base_branch = <remote>/<branch>), track, pick, canonical (git.remote). */
+export type BaseChoice = { choice: "remote" | "track" | "pick" | "canonical"; branch?: string; remote?: string };
 /** 0.18.57 who already works on a task (a refused start's `owners`) */
 export type TaskOwner = { kind: "flow" | "side"; id: string; who: string; why: string };
 /** 0.18.57 who else reads the project folder (GET /projects/{pid}/folder-activity): KeelBot's Ask and Edit chats that
@@ -1187,6 +1199,9 @@ export const api = {
   }) =>
     post<ThreadState>(`/projects/${e(pid)}/flows`, body),
   startCheck: (pid: string) => get<StartCheck>(`/projects/${e(pid)}/start-check`),
+  /** 0.18.65 the project's base and canonical remote; the person's choice (keel writes .keel/config.yml) */
+  base: (pid: string) => get<BaseView>(`/projects/${e(pid)}/base`),
+  chooseBase: (pid: string, body: BaseChoice) => put<BaseView>(`/projects/${e(pid)}/base`, body),
   /** 0.18.57 "Ignore this path": an untracked path into .git/info/exclude (this computer only) */
   excludePath: (pid: string, path: string) => post<DoctorApplied>(`/projects/${e(pid)}/doctor/workspace/exclude`, { path }),
   resume: (tid: string, decision: "approve" | "reject", why?: string, payload?: Record<string, unknown>) =>

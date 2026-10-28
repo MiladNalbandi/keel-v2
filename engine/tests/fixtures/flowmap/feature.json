@@ -506,7 +506,7 @@
    "model": "default",
    "phase": "gate",
    "back": "review_fix",
-   "instructions": "Read the spec's criteria and scope, then the whole branch diff against the base branch. Report only what needs the whole diff in view.",
+   "instructions": "Read the spec's criteria and scope, then the whole branch diff against the base branch. Go through your whole checklist: correctness across criteria, shared config keys, parameters and routes against the old version, each public type against its contract, a consumer's upgrade, runtime deprecations, the project's CI config (name its commands). Never edit; run only the project's read-only checks. End with a \"What I did not check\" list.",
    "rounds": 2
   },
   {
@@ -739,6 +739,17 @@
    "soft": true,
    "skippable": "optional",
    "group": "lint",
+   "included_from": "ship"
+  },
+  {
+   "id": "ship_ci",
+   "kind": "code",
+   "name": "the project's CI jobs on CI's versions",
+   "phase": "ship",
+   "action": "ci_pipeline",
+   "soft": true,
+   "skippable": "optional",
+   "group": "ci",
    "included_from": "ship"
   },
   {
@@ -1431,6 +1442,7 @@
    "ship_verify_fix_commit",
    "ship_verify",
    "ship_lint",
+   "ship_ci",
    "ship_release",
    "ship_cover_measure",
    "ship_cover_measured",
@@ -1860,7 +1872,7 @@
     "nodes": [
      {
       "include": "ship",
-      "count": 36,
+      "count": 37,
       "body": [
        {
         "kind": "phase",
@@ -1910,6 +1922,10 @@
          },
          {
           "step": "ship_lint",
+          "side": []
+         },
+         {
+          "step": "ship_ci",
           "side": []
          },
          {

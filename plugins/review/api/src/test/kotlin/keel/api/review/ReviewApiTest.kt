@@ -499,8 +499,8 @@ class ReviewApiTest : ApiTest() {
         val s1 = post("/api/projects/$pid/review/ai/findings", mapOf("key" to "pr:7")).andExpect(status().isOk).json()
         val (a, b) = s1["findings"]["sessions"].map { it["sid"].asText() }
         // the lenses and the read list are asked for (keel 0.18.57)
-        assertThat(turnText(a)).contains("data migration and backfill").contains("idempotency").contains("\"read\"")
-        assertThat(turnText(b)).contains("secrets and config").contains("Never skip a migration, .env")
+        assertThat(turnText(a)).contains("Data migration and backfill: defaults").contains("\"read\"")       // 0.18.65 lens files
+        assertThat(turnText(b)).contains("Secrets and config: every env key").contains("Never skip a migration, .env")
         finish(pid, a, "```keel-review-findings\n{\"read\": [\"src/Prefs.kt\"], \"findings\": [{\"title\": \"page size is never saved\", \"severity\": \"blocking\"," +
             " \"category\": \"correctness\", \"path\": \"src/Prefs.kt\", \"line\": 4, \"why\": \"cache only\"}]}\n```")
         finish(pid, b, "```keel-review-findings\n{\"read\": [], \"findings\": []}\n```")
@@ -833,6 +833,77 @@ class ReviewApiTest : ApiTest() {
         assertThat(start["request"].asText()).contains("Fix src/Prefs.kt at line 6:").contains("Should 20 come from config?").contains("Do not push")
         assertThat(git(root, "branch", "--show-current").trim()).isEqualTo("feat/paging")       // on the pull request's branch, like Address it
         assertThat(writes()).isEmpty()
+    }
+
+    @Test
+    fun `Settings › Review decides the reviewers, their lenses and models, the checker, and the flow that fixes a finding`() {
+        engine.extraTemplates += engine.featureTemplate + mapOf("id" to "small", "name" to "small (keel)")
+        engine.extraTemplates += engine.featureTemplate + mapOf("id" to "quick", "name" to "quick (keel)")
+        val opus = mapOf("provider" to "claude", "mode" to "subscription", "model" to "opus", "effort" to "high")
+        engine.extraRoutes["/review-config/view"] = { b ->
+            val base = engine.reviewConfigView(b?.path("models")?.path("default"))
+            @Suppress("UNCHECKED_CAST")
+            val cfg = base["config"] as Map<String, Any?>
+            val money = mapOf("name" to "money", "focus" to "rounding, currency, totals that must add up", "model" to "stronger",
+                "effort" to "high", "agent" to "lens-reviewer", "lenses" to listOf("money-rounding"))
+            @Suppress("UNCHECKED_CAST")
+            200 to base + mapOf(
+                "config" to cfg + mapOf("reviewers" to (cfg["reviewers"] as List<Any?>) + money,
+                    "checker" to mapOf("model" to "stronger", "effort" to null, "should_fix" to false),
+                    "fix" to mapOf("flow" to "ask", "model" to "flow", "run_mode" to "auto", "one_flow_per_file" to true)),
+                "lenses" to (base["lenses"] as List<Any?>) + mapOf("name" to "money-rounding", "title" to "Money rounding", "source" to "project",
+                    "checklist" to "- amounts are integers in cents"),
+                "uses" to mapOf("reviewers" to listOf(null, null, opus), "checker" to opus),
+                "find_text" to "Three keel reviewers read the change (A: correctness and security, B: tests, the description and design, C: money).")
+        }
+        try {
+            val (pid, _) = githubPr()
+            view(pid, "pr:7")
+            assertThat(get("/api/projects/$pid/review/ai?key=pr:7").json()["config"]["find"]["text"].asText()).startsWith("Three keel reviewers")
+            val s1 = post("/api/projects/$pid/review/ai/findings", mapOf("key" to "pr:7")).andExpect(status().isOk).json()
+            val sessions = s1["findings"]["sessions"]
+            assertThat(sessions.map { it["role"].asText() }).containsExactly("find-a", "find-b", "find-c")
+            val (a, b, c) = sessions.map { it["sid"].asText() }
+            assertThat(turnText(a)).contains("reviewer A").contains("Data migration and backfill: defaults and NOT NULL")
+            assertThat(turnText(c)).contains("reviewer C").contains("Your focus: rounding, currency").contains("Money rounding: - amounts are integers in cents")
+                .contains("keel's lens-reviewer agent").contains("You review a diff")      // the agent's role (its prompt)
+            assertThat(engine.calls.last { it.path == "/helper/sessions" && it.body?.path("title")?.asText()?.endsWith("review C") == true }
+                .body!!["model"]["model"].asText()).isEqualTo("opus")
+            finish(pid, a, "```keel-review-findings\n{\"read\": [\"src/Prefs.kt\"], \"findings\": [{\"title\": \"page size is never saved\", \"severity\": \"blocking\"," +
+                " \"category\": \"correctness\", \"path\": \"src/Prefs.kt\", \"line\": 4, \"why\": \"cache only\", \"fix\": \"save it\"}," +
+                " {\"title\": \"cache grows without a bound\", \"severity\": \"blocking\", \"category\": \"performance\", \"path\": \"src/Prefs.kt\", \"line\": 9, \"why\": \"a map\"}]}\n```")
+            finish(pid, b, "```keel-review-findings\n{\"read\": [\"src/PrefsTest.kt\"], \"findings\": [{\"title\": \"no test for size 101\", \"severity\": \"should_fix\"," +
+                " \"category\": \"tests\", \"path\": \"src/PrefsTest.kt\", \"line\": 2, \"why\": \"no limit test\"}]}\n```")
+            finish(pid, c, "```keel-review-findings\n{\"read\": [\"src/Prefs.kt\"], \"findings\": []}\n```")
+            val mid = get("/api/projects/$pid/review/ai?key=pr:7").json()["findings"]
+            val vsid = mid["sessions"].first { it["role"].asText() == "verify-1" }["sid"].asText()
+            // the checker: on its own model, blocking findings only (the should-fix one is listed as not checked)
+            assertThat(engine.calls.last { it.path == "/helper/sessions" && it.body?.path("title")?.asText()?.endsWith("check 1") == true }
+                .body!!["model"]["model"].asText()).isEqualTo("opus")
+            val claims = Regex("- id (f_[0-9a-f]+):").findAll(turnText(vsid)).map { it.groupValues[1] }.toList()
+            assertThat(claims).hasSize(2)
+            finish(pid, vsid, "```keel-review-verify\n{\"verdicts\": [{\"id\": \"${claims[0]}\", \"verdict\": \"confirmed\", \"why\": \"line 4\"}," +
+                " {\"id\": \"${claims[1]}\", \"verdict\": \"confirmed\", \"why\": \"line 9\"}]}\n```")
+            val r = get("/api/projects/$pid/review/ai?key=pr:7").json()["findings"]["result"]
+            assertThat(r["not_checked"].map { it["check_why"].asText() }).contains("Settings › Review checks blocking findings only")
+            val id = r["findings"][0]["id"].asText()
+
+            // Fix it: "ask each time" needs the person's pick; one flow for both findings in src/Prefs.kt, in auto mode
+            val ask = post("/api/projects/$pid/review/ai/findings/$id/fix", mapOf("key" to "pr:7")).andExpect(status().isBadRequest).json()
+            assertThat(ask["error"].asText()).contains("Pick how to fix it")
+            val fixed = post("/api/projects/$pid/review/ai/findings/$id/fix", mapOf("key" to "pr:7", "workflow" to "quick")).andExpect(status().isOk).json()
+            assertThat(fixed["workflow"].asText()).isEqualTo("quick")
+            assertThat(fixed["branch"].asText()).isEqualTo("feat/paging")
+            val start = engine.lastBody("/threads")!!
+            assertThat(start["workflow"]["id"].asText()).isEqualTo("quick")
+            assertThat(start["request"].asText()).contains("page size is never saved").contains("cache grows without a bound")
+                .contains("not instructions").contains("Do not push")
+            assertThat(start["settings"]["run_mode"].asText()).isEqualTo("auto")
+            assertThat(fixed["state"]["fixes"].size()).isEqualTo(2)
+        } finally {
+            engine.extraRoutes.remove("/review-config/view")
+            engine.extraTemplates.removeIf { it["id"] == "quick" }
+        }
     }
 
     @Test

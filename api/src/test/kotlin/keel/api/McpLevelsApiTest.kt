@@ -133,7 +133,7 @@ class McpLevelsApiTest : ApiTest() {
     fun `the read actions are the engine's`() {
         // Twin of engine tests/test_mcp.py test_read_actions_match_the_api: both pin action_docs.ACTION_LEVELS.
         assertThat(McpLevelGuard.READ_ACTIONS).containsExactlyInAnyOrder("audit", "trace", "trace_strict", "arch", "arch_detect",
-            "coverage_report", "lint_scope", "lint_report", "review_lenses")
+            "coverage_report", "lint_scope", "lint_report", "review_lenses", "ci_report")
         assertThat(McpLevelGuard.ADMIN_ACTIONS).containsExactlyInAnyOrder("arch_set", "open_pr")
     }
 }

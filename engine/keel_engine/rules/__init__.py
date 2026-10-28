@@ -976,6 +976,60 @@ def docker_escape(cmd: str, root: str | None = None, depth: int = 0) -> str:
 
 
 # a redirect (`>f`, `> f`, `>>f`, `2>f`; `2>&1` has no file) or sed -i / tee / perl -pi with its target
+# 0.18.65 keel's rule files in a shell command (.keel/config.yml, .keel/rules/): an agent session with no flow changed
+# base_branch with sed (the Edit tool was refused; a shell write was checked only in a flow, and only `sed -i x file`)
+RULE_PATH = re.compile(r"\.keel/(?:config\.ya?ml\b|rules\b)")
+_IN_KEEL_DIR = re.compile(r"\bcd\s+[\"']?\S*\.keel[\"']?(?:\s|;|&|$)")
+_RULE_FILE_NAME = re.compile(r"\bconfig\.ya?ml\b|\brules/")
+_READS = {"cat", "head", "tail", "less", "more", "grep", "egrep", "fgrep", "rg", "ag", "wc", "ls", "stat", "file", "diff",
+          "cmp", "test", "[", "jq", "bat", "md5sum", "sha256sum", "realpath", "readlink", "echo", "printf", "true"}
+_GIT_READS = {"log", "show", "diff", "status", "blame", "grep", "ls-files", "cat-file", "check-ignore"}
+_SEGMENT = re.compile(r"\|\||&&|[;|&\n]")
+
+
+def _words(segment: str) -> list[str]:
+    try:
+        words = shlex.split(segment, comments=False, posix=True)
+    except ValueError:
+        words = segment.split()
+    while words and (re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", words[0]) or words[0] in ("sudo", "command", "env", "time", "nice")):
+        words = words[1:]
+    return words
+
+
+def rule_file_write(command: str) -> str | None:
+    """0.18.65 the part of a shell command that may change keel's rule files, or None: every part that names one must
+    only read it (cat, grep, git log, yq without -i, ...), and no redirect or tee may point at one. Checked always, in a
+    flow or not (KeelBot, a side session), like the Edit tool's keel-rules refusal."""
+    cmd = str(command or "")
+    if not (RULE_PATH.search(cmd) or (_IN_KEEL_DIR.search(cmd) and _RULE_FILE_NAME.search(cmd))):
+        return None
+    for m in re.finditer(r"(?<![<>&0-9])(?:[0-9]?>{1,2}|&>)\s*([^\s;|&<>()]+)", cmd):
+        target = m.group(1).strip("\"'")
+        if RULE_PATH.search(target) or (_IN_KEEL_DIR.search(cmd) and _RULE_FILE_NAME.search(target)):
+            return m.group(0).strip()
+    for part in _SEGMENT.split(cmd):
+        if not (RULE_PATH.search(part) or (_IN_KEEL_DIR.search(cmd) and _RULE_FILE_NAME.search(part))):
+            continue
+        words = _words(re.sub(r"(?:[0-9]?>{1,2}|&>)\s*\S+", " ", part))
+        if not words:
+            continue
+        head = words[0].rsplit("/", 1)[-1]
+        if head in ("sed", "perl", "ruby", "awk", "gawk") and any(
+                w.startswith(("-i", "-pi", "--in-place")) or w == "inplace" for w in words[1:]):
+            return part.strip()
+        if head in _READS or head in ("sed", "awk", "gawk", "sort", "uniq", "cut"):
+            continue
+        if head == "yq" and not any(w in ("-i", "--inplace") or w.startswith("-i") for w in words[1:]):
+            continue
+        if head == "git" and len(words) > 1 and words[1] in _GIT_READS:
+            continue
+        if head == "find" and not any(w in ("-delete", "-exec", "-execdir", "-ok", "-fprint") for w in words[1:]):
+            continue
+        return part.strip()
+    return None
+
+
 _SHELL_WRITE = re.compile(r"(?<!>)>{1,2}\s*([^\s;|&<>()]+)|(?:sed\s+-i(?:\s+\S+)?|tee|perl\s+-pi)\s+([^\s;|&]+)")
 
 
@@ -1007,6 +1061,13 @@ def check_bash(phase: str, command: str, cfg: dict | None = None, *, root: str |
                                             + ("" if hidden == "keel-stack-setup" else
                                                f" A sudo command is spelled out in full, without patterns, variables or "
                                                f"xargs ({hidden})."))
+    wrote = rule_file_write(cmd) if phase != "setup" else None
+    if wrote:
+        # 0.18.65 the person changes keel's rules and the base (Rules page, Settings › General › Base branch)
+        return Verdict(False, "keel-rules", f"`{wrote[:120]}` would change .keel/config.yml or .keel/rules/, which "
+                                            f"{ALWAYS_DENY['keel-rules']} The base branch and the canonical remote: "
+                                            "Settings › General › Base branch.",
+                       path=".keel/config.yml")
     # 0.18.64 (security audit F2, F3, F19): always, in a flow or not
     setting = git_settings(cmd)
     if setting:

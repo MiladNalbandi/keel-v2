@@ -79,7 +79,7 @@ def test_cover_and_ship_templates_validate_and_ship_includes_cover():
     assert feature.step("ship_verify").included_from == "ship" and feature.step("ship_cover_decide").included_from == "ship/cover"
     assert feature.step("red").included_from is None
     assert [(u["name"], u["band"]) for u in ship.skip_units(sh.steps, 0)] == [
-        ("doc_updates", "optional"), ("lint", "optional"), ("release", "deferred"), ("cover", "deferred"), ("deps", "deferred"), ("reviewers", "optional"),
+        ("doc_updates", "optional"), ("lint", "optional"), ("ci", "optional"), ("release", "deferred"), ("cover", "deferred"), ("deps", "deferred"), ("reviewers", "optional"),
         ("spec_walk", "optional")]
 
 
@@ -440,7 +440,15 @@ def test_review_lenses(tmp_path):
     (root / ".keel").mkdir(parents=True)
     a = ActionInput(root=str(root), project="p", phase="ship", title="t", ac=None, acs=[], fake=True, flow="ship")
     r = asyncio.run(run_action("review_lenses", a))
-    assert [x["id"] for x in r.update["data"]["review_lenses"]] == ["correctness", "security", "performance"]
+    assert [x["id"] for x in r.update["data"]["review_lenses"]] == ["correctness", "security", "performance", "consumers-config"]
+    # 0.18.65 a lens with a lens file carries its checklist: consumers-config is keel's; the others the agent knows
+    items = {x["id"]: x for x in r.update["data"]["review_lenses"]}
+    assert "CI config" in items["consumers-config"]["checklist"]
+    assert items["consumers-config"]["lens_title"] == "Consumers and config" and "checklist" not in items["security"]
+    (root / ".keel/lenses").mkdir()
+    (root / ".keel/lenses/security.md").write_text("# Our security\n\nours\n\n## Checklist\n\n- every route checks the shop id\n")
+    r = asyncio.run(run_action("review_lenses", a))
+    assert {x["id"]: x for x in r.update["data"]["review_lenses"]}["security"]["checklist"] == "- every route checks the shop id"
     (root / ".keel/config.yml").write_text("version: 4\narchitecture: {style: hexagonal}\n")
     r = asyncio.run(run_action("review_lenses", a))
     assert [x["id"] for x in r.update["data"]["review_lenses"]][-1] == "architecture"
@@ -582,8 +590,20 @@ def _lens_repo(tmp_path):
     return root, git, write, commit_all
 
 
+def test_correctness_lens_kept_after_a_passed_full_review_by_default(tmp_path):
+    # keel 0.18.65 (a field report: the full-diff review passed and missed what a correctness look finds)
+    root, git, write, commit_all = _lens_repo(tmp_path)
+    sha = git(root, "rev-parse", "HEAD").stdout.strip()
+    a = ActionInput(root=str(root), project="p", phase="ship", title="t", ac=None, acs=[], fake=True, flow="ship",
+                    data={"full_review": {"verdict": "pass", "sha": sha}})
+    r = asyncio.run(run_action("review_lenses", a))
+    assert [x["id"] for x in r.update["data"]["review_lenses"]][0] == "correctness" and "lens_dropped" not in r.update["data"]
+
+
 def test_correctness_lens_dropped_when_the_full_review_passed_and_no_production_file_changed(tmp_path):
     root, git, write, commit_all = _lens_repo(tmp_path)
+    write(root, ".keel/config.yml", "version: 4\nreview:\n  drop_correctness: true\n")
+    commit_all(root, "drop the lens after a pass")
     sha = git(root, "rev-parse", "HEAD").stdout.strip()
     a = ActionInput(root=str(root), project="p", phase="ship", title="t", ac=None, acs=[], fake=True, flow="ship",
                     data={"full_review": {"verdict": "pass", "sha": sha}})
@@ -591,7 +611,7 @@ def test_correctness_lens_dropped_when_the_full_review_passed_and_no_production_
     write(root, "tests/test_app.py", "def test(): pass\n")
     commit_all(root, "docs and tests only")
     r = asyncio.run(run_action("review_lenses", a))
-    assert [x["id"] for x in r.update["data"]["review_lenses"]] == ["security", "performance"]
+    assert [x["id"] for x in r.update["data"]["review_lenses"]] == ["security", "performance", "consumers-config"]
     assert "correctness lens dropped" in r.note and sha[:7] in r.update["data"]["lens_dropped"]
     write(root, "src/app.py", "X = 2\n")
     commit_all(root, "a production change")

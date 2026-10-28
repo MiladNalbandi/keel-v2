@@ -131,19 +131,68 @@ class ReviewService(
     fun thisBranch(pid: String): BranchSummary {
         val root = root(pid)
         val branch = projects.branch(root)?.takeIf { it != "HEAD" }
-        val base = repo.base(root)
+        // 0.18.65 the canonical remote's copy of the base when the local one is behind it or went its own way
+        val info = repo.baseInfo(root)
+        val chosen = baseOf(pid, root, "branch:${branch.orEmpty()}", info)
+        val base = chosen?.label ?: repo.base(root)
         if (branch == null) return BranchSummary(null, base, 0, 0, 0, 0, null, "The project folder is not on a branch.")
-        if (base == null || base == branch) return BranchSummary(branch, base, 0, 0, 0, 0, null,
-            if (base == null) "keel found no main or master branch to compare with." else "You are on the base branch: switch to a branch to review it.")
-        val ahead = ReviewGit.git(root, "rev-list", "--count", "refs/heads/$base..refs/heads/$branch").out.trim().toIntOrNull() ?: 0
-        val files = ReviewGit.files(root, "refs/heads/$base", "refs/heads/$branch")
+        if (chosen == null || branch == info.local || branch == info.name) return BranchSummary(branch, base, 0, 0, 0, 0, null,
+            if (chosen == null) "keel found no main or master branch to compare with." else "You are on the base branch: switch to a branch to review it.")
+        val r = refs(pid, "branch:$branch")
+        val ahead = ReviewGit.git(root, "rev-list", "--count", "${r.base}..refs/heads/$branch").out.trim().toIntOrNull() ?: 0
+        val files = ReviewGit.files(root, r.base, r.head)
         val (h, _) = host(root)
         val (pr, note) = if (h == null) null to null else try {
             h.forBranch(branch, me(h))?.let { if (it.mine) decided(h, it) else it } to null
         } catch (e: HostException) {
             null to e.message
         }
-        return BranchSummary(branch, base, ahead, files.size, files.sumOf { it.added }, files.sumOf { it.removed }, pr, note)
+        return BranchSummary(branch, base, ahead, files.size, files.sumOf { it.added }, files.sumOf { it.removed }, pr, note,
+            baseWarning(info, chosen))
+    }
+
+    // ---------------------------------------------------------------- 0.18.65 the base a branch review compares against
+
+    /** A branch review's base, picked in the panel ("remote" or "local"), per project and review; kept while keel runs. */
+    private val picked = ConcurrentHashMap<String, String>()
+
+    /** The bases a branch review can compare against: the canonical remote's copy (its default branch) and the local base. */
+    fun baseOptions(info: keel.api.workspace.BaseInfo): List<BaseOption> = listOfNotNull(
+        info.remote?.let { BaseOption("remote", "refs/remotes/$it", it) },
+        info.local?.let { BaseOption("local", "refs/heads/$it", it) },
+    )
+
+    /** The base this review compares against: the panel's pick, else keel's (the remote copy when there is one). */
+    private fun baseOf(pid: String, root: Path, key: String, info: keel.api.workspace.BaseInfo = repo.baseInfo(root)): BaseOption? {
+        val options = baseOptions(info)
+        val fallback = repo.base(root)?.let { BaseOption("local", "refs/heads/$it", it) }
+        return options.firstOrNull { it.id == picked["$pid|$key"] } ?: options.firstOrNull() ?: fallback
+    }
+
+    /** "Your local master is 3 commits behind and 2 ahead of github/main: this review compares against github/main." */
+    fun baseWarning(info: keel.api.workspace.BaseInfo, chosen: BaseOption?): String? {
+        val (local, remote) = (info.local ?: return null) to (info.remote ?: return null)
+        val ahead = info.ahead ?: 0
+        val behind = info.behind ?: 0
+        if (ahead == 0 && behind == 0) return null
+        val drift = keel.api.workspace.GitWorkspace.drift(local, remote, ahead, behind).replaceFirst("the local", "Your local")
+        return if (chosen?.id == "local") "$drift: this review compares against your local $local, so it may show other changes' files as this branch's."
+        else "$drift: this review compares against $remote."
+    }
+
+    /** The panel's pick of the base for a branch review: remote, local, or "" (keel's choice). Answers the review. */
+    fun pickBase(pid: String, key: String, base: String): ReviewView {
+        val (kind, _) = parse(key)
+        if (kind != "branch") throw BadRequest("Only a branch review picks its base", "A pull request's base is the one on the host.")
+        when (base.trim()) {
+            "" -> picked.remove("$pid|$key")
+            "remote", "local" -> {
+                if (baseOptions(repo.baseInfo(root(pid))).none { it.id == base.trim() }) throw BadRequest("This project has no $base base")
+                picked["$pid|$key"] = base.trim()
+            }
+            else -> throw BadRequest("base is remote, local or empty")
+        }
+        return view(pid, key)
     }
 
     // ---------------------------------------------------------------- one review
@@ -176,10 +225,15 @@ class ReviewService(
             val base = ReviewGit.mergeBase(root, baseTip, head) ?: baseTip
             return Refs(key, base, head, "base", "#$n", n, null)
         }
-        val base = repo.base(root) ?: throw Conflict("No base branch found", "keel looks for main or master.")
+        // 0.18.65 merge-base(<canonical remote>/<default branch>, head), the local base when there is no remote copy or
+        // the panel picked it; keel init's setup commits at the branch's bottom are not the branch's change (R4)
+        val chosen = baseOf(pid, root, key) ?: throw Conflict("No base branch found", "keel looks for base_branch, main or master.")
         val head = ReviewGit.sha(root, "refs/heads/$v") ?: throw NotFound("No branch $v")
-        val baseTip = ReviewGit.sha(root, "refs/heads/$base") ?: throw NotFound("No branch $base")
-        return Refs(key, ReviewGit.mergeBase(root, baseTip, head) ?: baseTip, head, base, v, null, v)
+        val baseTip = ReviewGit.sha(root, chosen.ref) ?: throw NotFound("No branch ${chosen.label}")
+        val start = ReviewGit.mergeBase(root, baseTip, head) ?: baseTip
+        val setup = ReviewGit.setupCommits(root, start, head)
+        val own = setup.lastOrNull()?.takeIf { it != head } ?: start
+        return Refs(key, own, head, chosen.label, v, null, v)
     }
 
     fun view(pid: String, key: String, refresh: Boolean = false): ReviewView {
@@ -201,10 +255,19 @@ class ReviewService(
             if (pr != null) notes += "This branch has pull request #${pr.number}: open it to see its threads and to post a review."
             else if (why != null) notes += why
             if (projects.branch(root) == v && repo.marks(root).isNotEmpty()) notes += "Uncommitted changes are not part of the review: it shows the commits."
+            val info = repo.baseInfo(root)
+            val chosen = baseOf(pid, root, key, info)
+            val tip = chosen?.let { ReviewGit.sha(root, it.ref) }
+            val setup = tip?.let { t -> ReviewGit.mergeBase(root, t, r.head)?.let { ReviewGit.setupCommits(root, it, r.head) } }
+                ?.takeIf { it.lastOrNull() != r.head }.orEmpty()
+            if (setup.isNotEmpty()) notes += "keel init's setup commit${if (setup.size > 1) "s" else ""} ${setup.joinToString { it.take(7) }} " +
+                "(keel's config, notes, RUNNING.md) ${if (setup.size > 1) "are" else "is"} left out: not this branch's change. A setup PR " +
+                "from keel/setup carries ${if (setup.size > 1) "them" else "it"}."
             return ReviewView(key, "branch", null, v, null, null, r.baseLabel, v, r.base, r.head, pr?.url, null, false, true,
                 emptyList(), emptyList(), emptyList(), files, files.sumOf { it.added }, files.sumOf { it.removed },
                 repo.commits(root, 100, null, "${r.base}..${r.head}"), emptyList(), emptyList(), drafts(pid, key), viewed(pid, key, r.head),
-                false, h?.ref, h?.let { me(it) }, notes, branchPr = pr?.number)
+                false, h?.ref, h?.let { me(it) }, notes, branchPr = pr?.number, baseWarning = baseWarning(info, chosen),
+                baseOptions = baseOptions(info), baseChoice = chosen?.id, setupLeftOut = setup)
         }
         val n = v.toInt()
         val h = needHost(root)

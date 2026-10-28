@@ -10,6 +10,8 @@ version: 1
 # the PR gate is approved and with a GitHub token.
 # lint (v0.4.1): the stacks' and the project's check tools on the branch diff, fixers left out; soft (a failure is shown
 # at the final review and in the PR body, the lint flow fixes it); optional.
+# ci (0.18.65): the project's own CI jobs (.github/workflows, .gitlab-ci.yml) on CI's versions, in throw-away containers
+# when keel has Docker (runtime/ci_pipeline.py); soft and optional; the final review and the ship reviewers get the report.
 # spec_walk runs only when the flow has a spec (a fix or a small change has none: its walk had nothing to walk against).
 # doc_updates: the project's own docs this change makes wrong (README, CHANGELOG, API docs), optional, first so
 # the verdicts see them; the final review shows what it changed. The knowledge update is asked (memory_plan,
@@ -39,6 +41,9 @@ steps:
   - { id: verify_fix_commit, kind: code, name: commit the fix, action: commit, phase: review-fix }
   - { id: verify, kind: code, name: verify fast + module, action: verify_fast+verify_module, phase: ship, rounds: 2, lock: true }
   - { id: lint, kind: code, name: static checks, action: verify_lint, phase: ship, soft: true, skippable: optional }
+  # 0.18.65 the project's own CI jobs on CI's versions (ci.run: auto|on|off); soft: a failure is an exception at the
+  # final review, and the ship reviewers get the report
+  - { id: ci, kind: code, name: "the project's CI jobs on CI's versions", action: ci_pipeline, phase: ship, soft: true, skippable: optional }
   - { id: release, kind: code, name: verify release, action: verify_release, phase: ship, rounds: 2, skippable: deferred }
   - { id: cover, kind: include, name: coverage, flow: cover, skippable: deferred }
   - { id: deps, kind: code, name: verify deps, action: verify_deps, phase: ship, skippable: deferred }

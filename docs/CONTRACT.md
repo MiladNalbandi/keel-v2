@@ -3283,6 +3283,204 @@ From the field report (docs/plans/field-report-clarify.md, bugs 8, 9 and 11).
   - MCP `keel_state {action: show | close, project?}`: a read tool; `close` needs `--write` (read says so and does
     nothing). keel2: `keel2 state [close] [folder]` does the same on the folder, without keel running.
 
+## keel 0.18.65: Settings › Review, one lens format, a stronger last review (feat/review-settings)
+
+From the field report (docs/plans/field-report-clarify.md, "A third report: the last review was too shallow").
+
+- **`review:` in `.keel/config.yml`** (engine `runtime/review_config.py`; nothing written = keel's defaults):
+
+  ```yaml
+  review:
+    lenses: [correctness, security, performance, consumers-config]  # the ship review's lenses (before 0.18.65 too)
+    drop_correctness: false            # ship skips correctness after a passed full-diff review (keel v1's way)
+    reviewers:                         # Find problems on the Review page: 1 to 4, lettered A..D by their place
+      - name: correctness and security
+        focus: correctness (logic errors, ...) and security (...)
+        model: default                 # default (the project's) | stronger | {provider, mode, model}
+        effort: high                   # none: the model's own
+        agent: lens-reviewer           # none: keel's review prompt only; else an agent of the project (its role, skills)
+        lenses: [data-migration, idempotency-retry, error-handling-retry]
+    checker: {model: stronger, effort: null, should_fix: true}
+    fix: {flow: small, model: flow, run_mode: null, one_flow_per_file: false}   # flow: quick | small | change | ask
+    final: {model: stronger, effort: null}
+  ```
+
+  keel's default reviewers are the A and B of before (their focus, and their lenses as files). A lens is on one
+  reviewer at most. `stronger` (`review_config.raised`): the compiler's `stronger` (Opus for Claude, high effort for
+  Codex and Copilot) and high effort for Claude too; any other provider keeps its model. Only the `review:` block is
+  rewritten; every other line of the file stays. `reset: true` removes the parts above and keeps `lenses`.
+- **One lens format** (engine `runtime/lenses.py`): keel's `content/review-lenses/<name>.md` and the project's
+  `.keel/lenses/<name>.md` are a `# Title`, one description line, a `## Checklist` section, and optionally
+  `## Reference`. The project's file wins over keel's of the same name. The hunt's `brief`, the review-pr flow's
+  `lens_text`, the ship review and Find problems read them through it. A name is `[a-z0-9][a-z0-9-]{0,47}`, never a
+  path. New keel lenses: `error-handling-retry`, `consumers-config`.
+- **Engine routes**: `POST /review-config/view {root, models: {default, reviewer}}` → `{configured, stored, config,
+  defaults, lenses: [{name, source, path, title, description, checklist, reviewer}], missing, uses: {reviewers,
+  checker, final, fix}, models, find_text, ship_lenses, ship_lenses_from, limits}`; `PUT /review-config {root, patch,
+  models}` (400 with what is wrong; 409 without `.keel/config.yml`); `POST /review-config/lenses {root, lens: {title,
+  description?, reviewer?, checklist}}` → `{lens, view}` (409 when the file exists); `GET /review-config/lenses/{name}
+  ?root=` → the lens with its `text`; `PUT /review-config/lenses/{name} {root, text}` (a project lens; it must keep a
+  `## Checklist`).
+- **api**: `GET|PUT /api/projects/{pid}/review-setup` (the view plus `agents: [{id, label, custom, keel}]`; a
+  reviewer's agent must be an enabled agent of the project), `POST /api/projects/{pid}/review-setup/lenses`,
+  `GET|PUT /api/projects/{pid}/review-setup/lenses/{name}`. MCP level: write.
+- **Find problems** (`ReviewAiService`): one read-only KeelBot run per reviewer (`find-a` … `find-d`), on its model
+  (none when it is the project's default with no effort: KeelBot's own model, as before), with its focus, its lenses'
+  checklists and its agent's role and skills (at most 4,000 characters each). The checker runs on `checker`'s model;
+  with `should_fix: false` a should-fix finding goes to `not_checked` ("Settings › Review checks blocking findings
+  only"). `GET …/review/ai` adds `config.find: {text, reviewers: [{letter, name}], fix: {flow, one_flow_per_file}}` and
+  `fixes: {<finding id>: {flow_id, title, branch, workflow, with, at}}`.
+- **Fix it**: `POST /api/projects/{pid}/review/ai/findings/{id}/fix {key, workflow?}` starts `fix.flow` (or the
+  `workflow` the person picked; 400 "Pick how to fix it" when Settings says ask and none is given) with the finding as
+  its request, on the reviewed branch in the project folder (a pull request is checked out; a branch review switches
+  to its branch when the folder is clean), branch mode `continue`, `fix.model` for every agent, `fix.run_mode`. With
+  `one_flow_per_file` the file's other open confirmed findings go into the same flow. Nothing is pushed or posted.
+- **The final review's model** (`Compiler._model`): a step of `branch-reviewer`, or of `lens-reviewer` in the ship
+  phase, gets `review_config.final_model(root, m)` of the model it would get, unless the flow was switched to a model
+  (`model_override`) or the person picked one for the step (`step:<id>`). A project on Sonnet gets Opus at high effort.
+- **branch-reviewer** (`content/agents/branch-reviewer.md`) goes through a checklist (correctness across criteria,
+  shared config keys, parameters and routes against the old version, each public type against its contract, a
+  consumer's upgrade, runtime deprecations, the CI config and its commands, consistency, duplication, scope) and always
+  ends with a "What I did not check" list before `CODE-REVIEW:`. It never edits; it may run the project's read-only
+  checks. The feature flow's `code_review` instruction says the same.
+- **Ship**: `DEFAULT_LENSES` adds `consumers-config`; a lens with a lens file puts `lens_title` and `checklist` in its
+  reviewer's item. The correctness lens is dropped after a passed full-diff review only with `drop_correctness: true`.
+- **web**: Settings › Review (`#/settings/review`, `pages/settings/Review.tsx`); the Review page's Problems tab says
+  `config.find.text` and offers Fix it (or quick / small / change when Settings asks each time).
+
+## keel 0.18.65: the project's CI jobs on CI's versions (feat/ci-pipeline)
+
+Field report "CI ran on other versions" (docs/plans/field-report-clarify.md): a flow passed keel's style check and tests
+on the machine's newest runtime and the review, and the project's CI failed: its style job runs on an older runtime
+where the style tool flags code the local run accepted. keel now runs the CI jobs itself, on CI's versions.
+
+```
+ship step  { id: ci, kind: code, action: ci_pipeline, phase: ship, soft: true, skippable: optional }   after lint
+action     ci_pipeline (MCP write)   ci_report (MCP read)          runtime/ci_pipeline.py, runtime/ci_config.py
+verdict    ci  { summary, report (Markdown), docker, runs: RunResult[], style: string[], sources }   (verdicts.KINDS)
+flow data  data.ci_pipeline = { status: off|none|passed|failed|not run, summary, docker, counts, style }
+           data.ci_pipeline_report = the Markdown report
+.keel/config.yml  ci: { run: auto|on|off (auto), timeout: min per run (15), budget: min for all (45), max_runs (24),
+                        jobs: [job ids], extensions: report|install }
+engine POST /projects/{pid}/actions/{name}  + args.thread_id?  the action runs in that flow's folder (its worktree);
+                                             404 when the flow is not this project's; the other args are the action's
+                                             params. ci_pipeline / ci_report answer the head of the detail (12000).
+MCP        keel_ci_report(project?) (read)   keel_ci_run(project?, thread_id?, jobs?) (write; budget 14 min)
+type Run       = { key, source, job, name, matrix, runtime: php|node|python|java|go|"", version, image, image_from:
+                   config|"", extensions, tools, env, steps: [{name, run, dir, env, allow_fail, shell}], skip, notes, style }
+type RunResult = { key, source, job, name, matrix, runtime, version, image, style, tools, result: passed|failed|
+                   could not run|skipped, why, ms, where, notes, step?, cmd?, code?, tail?, timed_out?, setup? }
+```
+
+- **Reading** (`ci_config.plan(root)` → `{sources, runs, problems}`). GitHub: `.github/workflows/*.yml|yaml`; a
+  workflow named or filed as deploy / release / publish, or one not on push / pull_request / merge_group, is skipped
+  whole. Per job: `strategy.matrix` expanded as GitHub does (product, `exclude` by partial match, `include` added to the
+  combinations whose original values it keeps, else a combination of its own; a matrix from an expression is a skip);
+  `${{ matrix.* }}`, `${{ env.* }}`, `github.workspace`, `runner.os` filled, other expressions left empty with a note;
+  the setup actions (`shivammathur/setup-php` php-version, extensions, coverage, tools; `actions/setup-node`,
+  `setup-python`, `setup-java`, `setup-go` with their version input or version file) give runtime and version;
+  `container:` gives the image; `ramsey/composer-install` becomes `composer install`/`update`; checkout and cache do
+  nothing; other actions are notes. YAML floats stay text (`3.10` is not `3.1`). GitLab: `.gitlab-ci.yml` jobs (not the
+  reserved keys, not hidden `.templates`), `extends:` merged, `default:`, `variables:` (global, job, matrix),
+  `image:` with `$VAR` expanded, `before_script` + `script` as one step, `after_script` as an allowed-to-fail step,
+  `parallel: matrix:` (each entry's product, the entries added up); `include:` is a note, not followed.
+- **Skipped, with the reason** (`skip`): deploy / release / publish (job id, name, GitLab stage) or a job with
+  `environment:`; a job that needs secrets (`secrets.*` other than `GITHUB_TOKEN` in workflow, job, container or step
+  env, in a run line or an action's `with:`; GitLab `secrets:`); `GITHUB_TOKEN` alone is dropped with a note; a job on
+  Windows or macOS; a job with `services:`; a reusable-workflow call; GitLab `when: manual|never` and `trigger:`; past
+  `max_runs`; not in `ci.jobs`.
+- **Running** (`ci_pipeline.execute`). Docker when `docker version` reaches an engine (`docker_ready`;
+  `KEEL_CI_DOCKER=0` turns it off): `keel2 --docker` mounts the host's socket into keel's container, native mode has
+  the computer's docker. Each run: `docker create --name keel-ci-<id> --label keel.ci=1 --workdir /work --security-opt
+  no-new-privileges --pids-limit 4096 --network bridge --entrypoint /bin/sh <image> /work/.keel-ci/run-<n>.sh`, `docker
+  cp <temp copy>/. <name>:/work`, `docker start --attach <name>` (at most `ci.timeout`), `docker rm --force --volumes`.
+  Fixed argument lists; the docker client gets only docker's own environment variables. No `-v`, `--mount`,
+  `--privileged`, docker socket or host network. The image is the job's `container:` / `image:` or keel's official one
+  (`php:<v>-cli`, `node:<v>`, `python:<v>`, `eclipse-temurin:<v>`, `golang:<v>`); any other is refused
+  (`image_allowed`: a CI config image or `OFFICIAL`, never one that does not match `IMAGE_OK`). The temp copy holds
+  what git tracks plus untracked files it does not ignore (no `.git`, no `vendor/`, no `node_modules/`, no
+  `.keel/worktrees/`), and the scripts under `.keel-ci/`; it is deleted at the end. Without Docker (or for a run with
+  no runtime and no image): the run goes on keel's own shell in a temp copy of its own when `local_version(runtime)`
+  fits CI's (`7.4` fits 7.4.33; `lts` / `latest` fit any), else `could not run: <runtime> <version> not available here
+  (this machine has <v>) (keel2 --docker runs it in a container)`. A compose service or dev container is not used: its
+  commands would run in the project folder itself. When the branch changed a CI config file (against the base, or not
+  committed: an agent may edit it during the flow), no run goes on keel's shell (`changed_config`): "could not run:
+  this branch changed the CI config (…): keel runs it only in a container".
+- **The script** (`ci_pipeline.script`): exports `CI=true` (+ `GITHUB_ACTIONS`, `GITHUB_WORKSPACE` or `GITLAB_CI`,
+  `CI_PROJECT_DIR`) and the run's env (valid names only, values quoted); in an official PHP image it installs composer
+  (and git, unzip) when a step names composer or setup-php lists tools, `composer global require` for setup-php's tools
+  (`PHP_TOOLS`: `php-cs-fixer:3.4` → `friendsofphp/php-cs-fixer:3.4.*`), and checks each extension (`ci.extensions:
+  install` tries `pecl install` + `docker-php-ext-enable` or `docker-php-ext-install`); each step runs in its folder
+  (inside the copy) with `bash --noprofile --norc -eo pipefail`, else `sh -e`, between marker lines with a per-run
+  nonce, so the report names the failing step and only its output.
+- **Report** (`ci_pipeline.report`): `## CI on its own versions`, where it ran, a table `job | versions | result |
+  time`, the summary line ("CI on its own versions: 1 of 4 run(s) failed (cs · PHP 7.4); 2 passed, 1 could not run, 1
+  skipped."), per failure the command and the last 40 lines, `### Style check`, `### Notes`. The action fails only
+  when a run failed (the ship step is soft); nothing passed and nothing failed is "not available".
+- **Style** (`style_check`): CI's style jobs (`ci_config.STYLE`: php-cs-fixer, phpcs, pint, eslint, prettier, black,
+  ruff ..., or a job named lint / cs / code style) that ran: "that result counts over keel's own style check". For each
+  of keel's style tools (the lint verdict's, else the declared ones whose program answers) on another runtime version
+  than CI's: "your style check ran on PHP 8.4.1 with php-cs-fixer v3.64.0; CI runs PHP 7.4 (php-cs-fixer:3.4)." (the
+  versions through the tool's own container prefix when its command has one).
+- **Where it shows**: the final review (`ship.final_report`: an exception line when the fresh ci verdict failed, a
+  `ci` row in the verdict table when there is a verdict, the report from the flow's data or a fresh verdict); the PR
+  body (`verdict_actions.ci_section`); each ship lens reviewer's item (`ci`: the report cut to 2500 characters).
+- Not done yet: pointing keel's own lint step at CI's version when Docker is there (the report names the mismatch);
+  service containers; GitLab `include:`; Windows and macOS runners.
+
+## keel 0.18.65: the canonical remote, the review's base, init's setup branch (feat/review-base)
+
+The stale-base field report (docs/plans/field-report-clarify.md R2-R5): two remotes that disagree, a local base behind
+one and ahead of the other; the Review panel diffed `master...HEAD` and showed another change's files as the branch's.
+
+```
+.keel/config.yml   base_branch: <branch> | <remote>/<branch>      git: { remote: <name> }   (the canonical remote)
+GET  /api/projects/{pid}/base  → BaseView                          (engine GET /base?root=, runtime/bases.py view)
+PUT  /api/projects/{pid}/base  { choice: remote|track|pick|canonical, branch?, remote? } → BaseView   (engine POST /base)
+GET  /api/projects/{pid}/start-check → + base_missing?: BaseMissing | null
+POST /api/projects/{pid}/flows → 409 "base_branch <b> in .keel/config.yml names no local branch here; <remote>/<b> has it"
+                                 when no base is named, the flow makes a branch and a remote has that branch
+PUT  /api/projects/{pid}/review/base { key: branch:<name>, base: remote|local|"" } → ReviewView
+ReviewView      + base_warning?, base_options: [{id: remote|local, ref, label}], base_choice?, setup_left_out: string[]
+BranchSummary   + base_warning?
+type BaseView    = { name, local, remote, canonical, ref, ahead, behind, warning, explicit, configured, setting,
+                     remotes, branches, missing: BaseMissing | null, configured_file }
+type BaseMissing = { name, remote, remotes, branches, text, choices: [{id: remote|track|pick, label, about, ref?, branches?}] }
+```
+- **Canonical remote** (`bases.canonical_remote`, the api's `GitWorkspace.baseInfo`): `git.remote` when the repo has
+  it, else the remote `base_branch` names (`github/main`), else the remote of the base branch's upstream, else a remote
+  that has the base branch (origin first), else origin, else the only remote. Only a real remote's name is cut off a
+  `base_branch` (`feat/x` stays a local branch).
+- **The base** (`bases.resolve`): `remote` = `<canonical>/<name>`, else (git.remote set, or no local base) the canonical
+  remote's default branch, else the local branch's upstream; `ref` (what work is compared with) = the remote copy when
+  there is one, else the local branch; `warning` = "the local master is 3 commits behind and 2 ahead of github/main;
+  keel compares with github/main". `verdict_actions.base_ref` asks it first (a full ref `refs/heads/x` stays the
+  person's), and so the audit, the fetch before ship, the drift line, the start report ("start it with base
+  <canonical copy>"), branch sync's default `onto`, the Git part (`core.base`: the remote copy when the local base is
+  behind it; `core.base_name` for the PR's `--base` and the branches keel never pushes to; Update from main fetches the
+  canonical remote's copy) and the api (a flow's new branch from the canonical copy when the local base is only behind
+  it, or from it when there is no local base; the board's and the owners' changed files).
+- **Review** (R3): a branch review's base is `merge-base(<remote copy>, head)` (the local base when there is no remote
+  copy, or when the panel picked it); the Review page and Code › Review show the warning ("Your local master is …: this
+  review compares against github/main.") and "Compare with" (remote | local, kept per review while keel runs). The
+  full-diff review (branch-reviewer without an item), ship's lenses and the review flow read `bases.branch_scope`: the
+  same base, init's setup commits left out, the drift said.
+- **Init's setup** (R4): init's own branch is `keel/setup` (`-2` … when taken), for a setup PR. A flow started while the
+  folder is on an unmerged `keel/setup` branches from it. keel init's setup commits at the bottom of a branch
+  (`chore(setup): …`, or `Keel-Ref: chore(setup)`) are not its change: the review, the PR body (a "keel setup (not this
+  change)" section with the files) and the review scopes start after them; a branch that is only setup keeps its base.
+  keel never runs `git add -f`: init's summary lists the setup files the project's .gitignore ignores
+  (`init_actions.ignored_setup_files`; .git/info/exclude is keel's own and not listed).
+- **R5**: `bases.missing` when base_branch names no local branch (not when it names `<remote>/<branch>`); the start
+  dialog and Settings › General › Base branch ask (Use <remote>/<branch> · Create a local <branch> that tracks it ·
+  Pick another branch); `bases.choose` writes only the `base_branch` line or the `git` block. MCP `keel_base_branch
+  (choice?, branch?, remote?, project?)` (write; a choice asks the person first) after `keel_branch_sync`.
+- **Agents never change keel's rules through the shell** (`rules.rule_file_write`, in `check_bash` before the phase
+  check, so also outside a flow: KeelBot, a side session): a command that names `.keel/config.yml` or `.keel/rules/`
+  may only read it (cat, grep, sed without -i, git log/show/diff, yq without -i, find without -delete/-exec, …); a
+  redirect or tee to one, sed/perl/awk in place, cp, mv, rm, python, … are refused (bucket keel-rules). Phase setup
+  (init) may write the config, as the Edit tool already allowed.
+
 ## 0.18.64 security addendum: MCP levels, MCP server secrets, sign-in sessions, connections
 
 - **MCP levels by name** (`mcp/McpLevels.kt`): a non-GET `/api/` route needs the level of the list that names it:

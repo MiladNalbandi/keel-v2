@@ -349,12 +349,14 @@ The rule: never start any coding task without answering these questions first.
 ### ship
 
 ```
- ◆ which steps ─ verify ─ lint ─ release ─ cover ─ deps ─ audit ─ trace ─ lens reviewers ─ spec walk
+ ◆ which steps ─ verify ─ lint ─ CI jobs ─ release ─ cover ─ deps ─ audit ─ trace ─ lens reviewers ─ spec walk
    ─◆ final review ─ knowledge update ─ PR body ─◆ open the PR (never pushes)
 ```
 
-- **Which steps run**: optional and deferred steps can be skipped (static checks, release tests, coverage, deps, the
-  reviewers).
+- **Which steps run**: optional and deferred steps can be skipped (static checks, the CI jobs, release tests,
+  coverage, deps, the reviewers).
+- **CI jobs (0.18.65)**: keel runs the project's own CI jobs on CI's versions (see *The project's CI on CI's
+  versions* below); a failure is an exception at the final review, and the reviewers get the report.
 - **Final review**: every verdict on one page; send it back to fix.
 - **Open the PR**: the PR body; keel never pushes.
 
@@ -770,6 +772,53 @@ triages, sets up and asks clarify's questions, so a project-wide change of it ch
 to change only that flow (with a role word, only its steps in that phase), or `step` for one step of it. The project's
 Agents page and the other flows keep their models.
 
+## Review settings (Settings › Review)
+
+From keel 0.18.65 each project has a **Review** tab in Settings. It decides what "Find problems" on the Review page
+does, and how keel's last review of a flow runs. keel keeps it in the project's `.keel/config.yml` under `review:`,
+so a teammate's keel uses the same. Nothing written there means keel's defaults.
+
+```
+ Find problems ─ reviewers A, B (1 to 4) ─ each goes through its lenses ─ the checker ─ confirmed findings ─ Fix it
+```
+
+- **Reviewers**: how many read the change (1 to 4; keel's default is 2: A correctness and security, B tests, the
+  description and design). For each one: a name, its focus, a model (the project's default, *stronger*, or one you
+  pick), an effort, and an agent. An agent gives the reviewer its role and skills (its prompt); none means keel's
+  review prompt only. The Review page's text says how many reviewers read the change and what each looks at.
+- **Lenses**: a lens is a checklist a reviewer goes through. keel's own are in `content/review-lenses/`; your
+  project's are `.keel/lenses/<name>.md` (the hunt reads the same files). Turn a lens on or off and give it to a
+  reviewer. **+ New lens** writes `.keel/lenses/<name>.md` (commit it to share it); **Edit** opens a project lens,
+  **View** one of keel's. A lens file is a title, one short line under it, and a `## Checklist` section:
+
+  ```markdown
+  # Money rounding
+
+  cents as integers, one rounding place, totals equal the sum of their lines
+
+  ## Checklist
+
+  - amounts are integers in cents, never floats
+  - an order total equals the sum of its lines after discounts
+  ```
+
+- **The checker** ("is the reviewer right?"): its own model and effort, and whether it checks should-fix findings
+  too (on by default). A should-fix finding it does not check is listed as not checked, never as a finding.
+- **Fixing a finding**: a confirmed finding has **Fix it**. It runs a flow on the reviewed branch in the project
+  folder (it commits there and pushes nothing): **quick**, **small** (keel's default), **change**, or **ask me each
+  time** (the finding shows the three buttons). Also the fix model (the flow's own by default), the run mode, and
+  "several findings in one file: one flow for all of them".
+- **The last review of a flow**: the whole-branch review at the end of a feature, small or plugin flow, and the ship
+  review's lens reviewers. By default they run on a **stronger** model than the project's: when the project uses a
+  Claude model below Opus (Sonnet, Haiku) they run on **Opus at high effort**; on Codex or Copilot at their high
+  effort. The tab shows it: "project default (sonnet) → the final review uses claude · opus · high". Pick the
+  project's default or another model to change it; a model you pick for one step of one flow still wins.
+- **The ship review**: its lenses are correctness, security, performance and **consumers-config** (what breaks for a
+  consumer that runs the new next to the old, shared keys and routes, public types against their contract, the CI
+  config), or the project's `review.lenses`. The correctness lens is no longer skipped after a passed full-diff
+  review; "Skip the ship's correctness lens…" turns the old behaviour back on.
+- **Back to keel's default** takes the tab's settings out of `.keel/config.yml` (the ship's `review.lenses` stays).
+
 ## Plugins and the Marketplace
 
 From 0.17.0 keel is a small **core** with **plugins**. The core runs flows, workflows, agents, gates, the Inbox,
@@ -888,6 +937,70 @@ agent: remove the conflict markers, then `action=continue` and keel stages exact
 resolution with its usual commit identity (KeelBot co-authors); `action=abort` puts the branch back. The flow's next
 step compares its own work with the new merge base, so the base's commits it brought in do not count as its work.
 A rebase gives the branch's commits new ids: a branch pushed before needs a push with `--force-with-lease`.
+
+**The project's CI on CI's versions (0.18.65).** keel's style check and tests run on one runtime, the one keel has.
+CI may run them on others (PHP 7.4, 8.1 and 8.2, each with its own framework version), where a newer or older style
+tool flags code the local run accepted. So ship runs the project's own CI jobs itself (step `ci`, after the static
+checks):
+
+```
+ .github/workflows/*.yml, .gitlab-ci.yml ──► jobs × matrix (include, exclude, GitLab parallel: matrix:)
+     ├─ deploy / release / publish, needs secrets, Windows / macOS, service containers, manual ──► skipped (why)
+     └─ each other run ──► with Docker: a throw-away container on CI's image (php:7.4-cli, node:20, python:3.12,
+                           eclipse-temurin:17, or the job's own container: / image:), a copy of the worktree inside
+                       ──► without Docker: here, when this machine has CI's version; else "could not run"
+ report: job · versions · passed / failed / could not run / skipped · time, the failing command's output tail
+```
+
+- **Where it runs.** keel runs the containers itself; agents never get Docker. keel has Docker with
+  `keel2 --docker` and in native mode. Each run gets a temp copy of the flow's worktree (`vendor/` and
+  `node_modules/` are built inside the container and thrown away with it), no mount of your folders, no Docker
+  socket, no `--privileged`, no host network. keel uses only the images the CI config names and its own official list.
+  Secrets never go in: a job that needs one is skipped, and `GITHUB_TOKEN` is left out. When the flow's branch
+  changed the CI config, its jobs run only in containers, never on keel's own machine.
+- **PHP.** An official PHP image has only PHP: keel installs composer (and git, unzip) when a step uses it, and the
+  tools `setup-php` lists (`php-cs-fixer:3.4` as `friendsofphp/php-cs-fixer:3.4.*`). The extensions it lists are checked
+  and a missing one is a note ("extension intl not available"); `ci.extensions: install` tries
+  `docker-php-ext-install` / `pecl` for them.
+- **The style check.** When CI has a style job, its result on CI's version is what counts. When your style check ran
+  on another version, the report says so: "your style check ran on PHP 8.4.1 with php-cs-fixer v3.64.0; CI runs PHP
+  7.4 (php-cs-fixer:3.4)".
+- **Settings** in `.keel/config.yml`:
+
+```yaml
+ci:
+  run: auto        # auto (when a CI config exists) | on | off
+  timeout: 15      # minutes per run
+  budget: 45       # minutes for all runs together
+  max_runs: 24     # more runs than this (a large matrix) are skipped
+  jobs: [cs]       # only these jobs (optional)
+  extensions: report   # report | install (PHP extensions setup-php would install)
+```
+
+- **Now, from MCP.** `keel_ci_run` (write: the project folder, or a flow's worktree with `thread_id`; `jobs` picks
+  some) runs it and returns the table; `keel_ci_report` (read) shows the last report and whether it is about HEAD.
+  The final review, the PR body and the ship reviewers show the same report.
+
+**The canonical remote and the review's base (0.18.65).** With two remotes that disagree, keel trusts one of them for
+the base: `git.remote` in `.keel/config.yml` (Settings › General › Base branch), else the remote the base branch
+follows, else a remote that has it, else origin. `base_branch` may name a remote's branch itself (`github/main`).
+Everything that compares with the base (a flow's new branch, the audit, ship, the full-diff review, the Review panel)
+uses that remote's copy when the local base is behind it or went its own way, and says so: "Your local master is 3
+commits behind and 2 ahead of github/main: this review compares against github/main." The Review panel's "Compare
+with" picks the local base instead. When `base_branch` names a branch with no local copy, keel asks you (Start a flow,
+Settings, MCP `keel_base_branch`): use the remote's, create a local branch that tracks it, or pick another one. Agents
+never change `.keel/config.yml`, through the Edit tool or the shell.
+
+```
+ origin/master ── A ── O1                    local master ── A ── O1 ── X1   (3 behind, 2 ahead of github/main)
+ github/main   ── A ── M1 ── M2 ── M3 ──┬── feat/x ── F1
+                                         └─ the review: merge-base(github/main, feat/x)...feat/x = F1 only
+```
+
+**keel init's setup on its own branch (0.18.65).** init commits keel's files (config, notes, RUNNING.md) on
+`keel/setup`: open a setup PR for it. A flow started on that branch builds on it, and keel's reviews and PR bodies leave
+init's setup commit out of the flow's change. A setup file your `.gitignore` ignores stays out of git (keel never
+force-adds) and init's summary says which.
 
 **Stale configuration.** `keel2 doctor <project>`, the project's doctor (`GET /api/projects/{pid}/doctor/config`) and
 knowledge-refresh check that the configured commands can still run: a compose service a command execs into is in the
@@ -1167,8 +1280,8 @@ keel has an MCP server with three levels; each includes the one below:
 
 | level | how | adds |
 |---|---|---|
-| read (default) | `keel2 mcp` | status, timeline, next step, phase rules, dashboard links, flows, Inbox, live agents, budget, specs (with history), knowledge, search, read a file, read a file of any registered project (`keel_read_project_file`), engine actions, keel's rules, workflows, agents (one agent's steps live), KeelBot's chats and changes, diagrams in ASCII (`keel_diagram`), skills, stacks, the formats and checks that save nothing (`keel_format`, `keel_workflow_check`, `keel_rule_check`, `keel_stack_check`), keel's spec check on a spec or clarify file (`keel_spec_check`) and the check of every `path:line` it cites (`keel_citations_check`, also on a text), a flow's document or spec from its file (`keel_flow_document`), fetch every remote and say how far the base is behind (`keel_fetch_remotes`), the prompt an agent call really got (`keel_agent_prompt`), what a step's retry changed (`keel_flow_diff`), keel's and the connection's health (`keel_health`, `keel_reconnect`), keel's flow state with a state file keel v1 left (`keel_state`; its `close` needs `--write`), the marketplace search, the Database, Git and CI/CD read tools |
-| write | `keel2 mcp --write` | decide or send back a gate, answer the Inbox (several answers, a choice and a reason; questions in a form when the client can show one), start a flow (no type: every flow with what it is for and its inputs, like ticket or pr for review-pr; `base`: the branch it starts from), bring a flow's branch up to its base (`keel_branch_sync`: merge or rebase, conflicts resolved and committed by keel), stop and resume flows, set a run mode, start an agent, ask KeelBot (`keel_keelbot_ask`, also `mode=edit`) and keep or undo its changes, create workflows, rule packs, agents, skills and stacks, attach skills, set an agent's model and effort, restore a spec, replace a waiting flow's document (`keel_flow_document` with `text`), send a clarify result back with your own draft (`keel_reject_with_document`) or hand it over to the next flow (`keel_handover`), archive keel v1's leftover state (`keel_state action=close`), git / PR / CI / database writes, Code Review comments and submits |
+| read (default) | `keel2 mcp` | status, timeline, next step, phase rules, dashboard links, flows, Inbox, live agents, budget, specs (with history), knowledge, search, read a file, read a file of any registered project (`keel_read_project_file`), engine actions, keel's rules, workflows, agents (one agent's steps live), KeelBot's chats and changes, diagrams in ASCII (`keel_diagram`), skills, stacks, the formats and checks that save nothing (`keel_format`, `keel_workflow_check`, `keel_rule_check`, `keel_stack_check`), keel's spec check on a spec or clarify file (`keel_spec_check`) and the check of every `path:line` it cites (`keel_citations_check`, also on a text), a flow's document or spec from its file (`keel_flow_document`), fetch every remote and say how far the base is behind (`keel_fetch_remotes`), the prompt an agent call really got (`keel_agent_prompt`), what a step's retry changed (`keel_flow_diff`), keel's and the connection's health (`keel_health`, `keel_reconnect`), keel's flow state with a state file keel v1 left (`keel_state`; its `close` needs `--write`), the last report of the project's CI jobs run on CI's versions (`keel_ci_report`), the marketplace search, the Database, Git and CI/CD read tools |
+| write | `keel2 mcp --write` | decide or send back a gate, answer the Inbox (several answers, a choice and a reason; questions in a form when the client can show one), start a flow (no type: every flow with what it is for and its inputs, like ticket or pr for review-pr; `base`: the branch it starts from), bring a flow's branch up to its base (`keel_branch_sync`: merge or rebase, conflicts resolved and committed by keel), stop and resume flows, set a run mode, start an agent, ask KeelBot (`keel_keelbot_ask`, also `mode=edit`) and keep or undo its changes, create workflows, rule packs, agents, skills and stacks, attach skills, set an agent's model and effort, restore a spec, replace a waiting flow's document (`keel_flow_document` with `text`), send a clarify result back with your own draft (`keel_reject_with_document`) or hand it over to the next flow (`keel_handover`), archive keel v1's leftover state (`keel_state action=close`), run the project's CI jobs on CI's versions in throw-away containers (`keel_ci_run`), git / PR / CI / database writes, Code Review comments and submits |
 | admin | `keel2 mcp --admin` | delete flows, pause (`keel_pause`; `keel_resume` goes on), add and remove projects, switch the project the dashboard and keel TUI show (`keel_focus`), connect GitHub with a one-time code (`keel_connect_github`: it returns the code and the link, never the token), change workflows, install and change rules |
 
 ```bash

@@ -55,6 +55,9 @@ class RepoService(
 
     fun base(root: Path): String? = workspace.base(root)
 
+    /** 0.18.65 the base work is compared with and its canonical remote (the Review panel, the Code page). */
+    fun baseInfo(root: Path): keel.api.workspace.BaseInfo = workspace.baseInfo(root)
+
     private fun worktrees(root: Path): List<Worktree> {
         val out = gitOut(root, "worktree", "list", "--porcelain") ?: return emptyList()
         val list = mutableListOf<Worktree>()

@@ -294,8 +294,10 @@ steps:
     back: review_fix
     rounds: 2
     instructions: >-
-      Read the spec's criteria and scope, then the whole branch diff against the base branch. Report only what needs
-      the whole diff in view.
+      Read the spec's criteria and scope, then the whole branch diff against the base branch. Go through your whole
+      checklist: correctness across criteria, shared config keys, parameters and routes against the old version, each
+      public type against its contract, a consumer's upgrade, runtime deprecations, the project's CI config (name its
+      commands). Never edit; run only the project's read-only checks. End with a "What I did not check" list.
   # its verdict and sha: ship drops its correctness lens when this passed and no production file changed since
   - { id: full_review, kind: code, name: the full-diff review's verdict, action: full_review, phase: gate }
   # keel v1 phase 5: the stack up and migrated before smoke and e2e (when the project configures them); soft

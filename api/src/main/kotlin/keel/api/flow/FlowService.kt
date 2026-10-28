@@ -326,6 +326,15 @@ class FlowService(
         if (from != null && !workspace.git(root, "rev-parse", "--verify", "--quiet", "$from^{commit}").ok)
             throw BadRequest("There is no branch $from to start from",
                 "Name a local branch or <remote>/<branch>; keel_fetch_remotes fetches the remotes and lists them.")
+        // 0.18.65 (field report R5) base_branch names no local branch while a remote has it: the person chooses (use the
+        // remote's, a local branch that tracks it, or another branch); keel never guesses and no agent edits the config
+        if (from == null && !readOnly && !isDemo(root) && mode != "continue" && ownBranch && wantsOwnBranch(start.workflow)) {
+            val info = workspace.baseInfo(root)
+            if (info.mustAsk) throw Conflict(
+                "base_branch ${info.configured} in .keel/config.yml names no local branch here; ${info.remote} has it",
+                "Choose once (Settings › General › Base branch, the start dialog, or keel_base_branch): use ${info.remote}, " +
+                    "create a local ${info.name} that tracks ${info.remote}, or pick another branch. Or start this flow with base ${info.remote}.")
+        }
         // the project folder, or (v0.7.x) a worktree of its own next to the flow that runs or waits there
         val wt = if (!readOnly && inWorktree(pid, where, root)) worktreeFor(pid, root, title, workflowId, from) else null
         var madeBranch: MadeBranch? = null
@@ -458,7 +467,7 @@ class FlowService(
         val ticket = ticketOf(options?.get("ticket")?.toString(), title, request)
         val wanted = pathsIn("$title\n${request.orEmpty()}")
         val out = mutableListOf<Map<String, String>>()
-        val base = workspace.base(root)
+        val base = workspace.baseInfo(root).ref ?: workspace.base(root)     // 0.18.65 the canonical remote's copy
         jdbc.query("SELECT id, title, current, worktree, branch, state_json FROM threads WHERE project_id = ? AND status IN ('running','waiting') ORDER BY created_at",
             { rs, _ -> listOf(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4), rs.getString(5), rs.getString(6)) }, pid,
         ).forEach { row ->
@@ -615,9 +624,9 @@ class FlowService(
         var n = 2
         while (workspace.git(root, "rev-parse", "--verify", "--quiet", "refs/heads/$branch").ok) branch = "$first-${n++}"
         val name = "flow-${Slug.of(title).take(30)}-${java.util.UUID.randomUUID().toString().take(6)}"
-        // B7 from origin/<base> when the local base is behind it
+        // B7 from origin/<base> when the local base is behind it (0.18.65 the canonical remote's copy)
         val res = engine.post("/worktrees", mapOf("root" to root.toString(), "name" to name, "branch" to branch,
-            "start" to (from ?: workspace.base(root)?.let { freshBase(root, it) })))
+            "start" to (from ?: freshBase(root))))
         return FlowWorktree(name, res.path("branch").asText(branch), res.path("path").asText())
     }
 
@@ -681,13 +690,17 @@ class FlowService(
     private fun ownBranch(pid: String, root: Path, title: String, workflowId: String, mode: String? = null, start: String? = null): MadeBranch? {
         if (isDemo(root)) return null
         val current = workspace.git(root, "rev-parse", "--abbrev-ref", "HEAD").takeIf { it.ok }?.out?.trim() ?: return null
-        val base = workspace.base(root)
+        val info = workspace.baseInfo(root)
+        val base = workspace.base(root) ?: info.remote
         if (base == null && start == null) return null
-        val offBase = current != base
+        val offBase = current != base && current != info.name
         if (offBase && mode != "new" && start == null) return null
         // B7 a new branch starts from the base, and never from a local base that is behind origin's (a pull not made
-        // yet): on the base itself too, unless the flow continues the base's own commits ("continue")
-        val from = start ?: if (base != null && (offBase || mode == "new")) freshBase(root, base) else null
+        // yet): on the base itself too, unless the flow continues the base's own commits ("continue"). 0.18.65 (R4) on
+        // init's own keel/setup branch (not merged yet) it starts there: it has keel's config, and keel's reviews and PR
+        // bodies leave the setup commit out of the flow's change
+        val setup = current.takeIf { workflowId != "init" && it.startsWith(SETUP_BRANCH) && aheadOf(root, it, info.ref) }
+        val from = start ?: setup ?: if (base != null && (offBase || mode == "new")) freshBase(root) else null
         val tip = workspace.git(root, "rev-parse", from?.let { "$it^{commit}" } ?: "HEAD").takeIf { it.ok }?.out?.trim() ?: return null
         val first = branchName(settings.effective(pid).branchPattern, title, workflowId)
         var name = first
@@ -701,20 +714,47 @@ class FlowService(
     }
 
     /**
-     * B7 where a new branch starts: the local [base], or origin/<base> when the local one is only behind it (its
-     * commits are all in origin's: a pull not made yet). A local base that went its own way (commits on both sides)
-     * is refused: keel does not guess which one has the work. Nothing is fetched: origin is as the last fetch left it.
+     * B7 where a new branch starts: the local base, or its remote copy when the local one is only behind it (its
+     * commits are all in the remote's: a pull not made yet). A local base that went its own way (commits on both sides)
+     * is refused: keel does not guess which one has the work. Nothing is fetched: the remote is as the last fetch left it.
+     * 0.18.65 the remote copy is the canonical remote's (Workspace.baseInfo: git.remote, the base's upstream, ...), not
+     * always origin's; with no local base branch (base_branch: github/main) the remote copy itself. Null: no base.
      */
-    private fun freshBase(root: Path, base: String): String {
+    private fun freshBase(root: Path): String? {
+        val info = workspace.baseInfo(root)
+        // no local copy of the base branch (base_branch: github/main): its remote copy, never another local branch
+        if (info.local == null && info.remote != null && (info.explicit || info.remote.substringAfter('/') == info.name)) return info.remote
+        val base = info.local ?: workspace.base(root)
+        val remoteName = info.remote ?: base?.let { b -> "origin/$b".takeIf { workspace.git(root, "rev-parse", "--verify", "--quiet", "refs/remotes/$it").ok } }
+        if (base == null || remoteName == null) return base ?: remoteName
         val local = "refs/heads/$base"
-        val remote = "refs/remotes/origin/$base"
+        val remote = "refs/remotes/$remoteName"
         if (!workspace.git(root, "rev-parse", "--verify", "--quiet", remote).ok) return base
         val behind = workspace.gitOut(root, "rev-list", "--count", "$local..$remote")?.toIntOrNull() ?: return base
         if (behind == 0) return base
         val ahead = workspace.gitOut(root, "rev-list", "--count", "$remote..$local")?.toIntOrNull() ?: 0
-        if (ahead > 0) throw Conflict("The local $base and origin/$base went their own ways ($ahead and $behind commits)",
-            "Pull (or rebase) $base first, so the flow's new branch starts from the latest code; or continue on the branch the folder is on.")
-        return "origin/$base"
+        if (ahead > 0) throw Conflict("The local $base and $remoteName went their own ways ($ahead and $behind commits)",
+            "Pull (or rebase) $base first, so the flow's new branch starts from the latest code; start the flow with base " +
+                "$remoteName; or continue on the branch the folder is on.")
+        return remoteName
+    }
+
+    /** [branch] has commits [base] has not (init's keel/setup branch, not merged yet). */
+    private fun aheadOf(root: Path, branch: String, base: String?): Boolean =
+        base != null && (workspace.gitOut(root, "rev-list", "--count", "$base..refs/heads/$branch")?.toIntOrNull() ?: 0) > 0
+
+    /** 0.18.65 the project's base and its canonical remote (engine GET /base): Settings › General › Base branch. */
+    fun baseView(pid: String): JsonNode = engine.get("/base?root={root}", mapOf("root" to projects.root(pid).toString()))
+
+    /** 0.18.65 the person's answer about the base (engine POST /base): remote, track, pick, or canonical. keel writes
+     *  .keel/config.yml (and git branch --track for track); an agent never does. */
+    fun chooseBase(pid: String, body: BaseChoice): JsonNode {
+        if (body.choice !in setOf("remote", "track", "pick", "canonical"))
+            throw BadRequest("choice cannot be \"${body.choice}\"", "Pick one of: remote, track, pick, canonical")
+        val root = projects.root(pid)
+        val res = engine.post("/base", mapOf("root" to root.toString(), "choice" to body.choice, "branch" to body.branch, "remote" to body.remote))
+        hub.publish(pid, "project.changed", mapOf("id" to pid))
+        return res
     }
 
     /**
@@ -996,7 +1036,7 @@ class FlowService(
     /** The flows that run or wait, in the project folder or in worktrees, and the finished ones whose worktree is left. */
     fun board(pid: String): FlowBoard {
         val root = projects.root(pid)
-        val base = workspace.base(root)
+        val base = workspace.baseInfo(root).ref ?: workspace.base(root)     // 0.18.65 the canonical remote's copy
         val rows = jdbc.query(
             "SELECT id, title, workflow_id, status, phase, current, worktree, branch, state_json, updated_at FROM threads " +
                 "WHERE project_id = ? AND (status IN ('running','waiting') OR worktree IS NOT NULL) ORDER BY created_at",
@@ -1124,6 +1164,12 @@ private const val SHOWN = "(hidden_at IS NULL OR status IN ('running','waiting')
  */
 val CONTINUE_FLOWS = setOf("ship", "cover", "review", "lint", "address")
 
+/** 0.18.65 (R4) the branch init commits keel's setup on (the engine's init_actions.SETUP_BRANCH). */
+const val SETUP_BRANCH = "keel/setup"
+
+/** 0.18.65 PUT /api/projects/{pid}/base: the person's answer about the base (choice remote, track, pick, canonical). */
+data class BaseChoice(val choice: String = "", val branch: String? = null, val remote: String? = null)
+
 /** POST /flows with no branch mode (the dashboard, MCP keel_start_flow, the TUI): [defaultBranch] picks it. */
 const val DEFAULT_BRANCH = "default"
 
@@ -1139,6 +1185,8 @@ data class UnlockResult(val unlocks: List<Any?>, val via: String, val threadId: 
  * (it was always the word "flow"), and a fix goes on fix/ where the pattern says feat/ (the engine's bug.branch_name).
  */
 fun branchName(pattern: String?, title: String, workflowId: String): String {
+    // 0.18.65 (R4) init commits keel's setup on a branch of its own, for a setup PR: never a feature's branch
+    if (workflowId == "init") return SETUP_BRANCH
     var p = pattern?.trim().orEmpty().ifBlank { "feat/{slug}" }
     if (workflowId == "fix" && p.startsWith("feat/")) p = "fix/" + p.removePrefix("feat/")
     return p.replace("{slug}", Slug.of(title).take(40)).replace("{user}", "keel").replace("{flow}", workflowId.ifBlank { "flow" })

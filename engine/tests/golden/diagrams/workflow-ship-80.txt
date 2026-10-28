@@ -1,4 +1,4 @@
-workflow ship "ship (keel)" - 36 steps, 7 gates
+workflow ship "ship (keel)" - 37 steps, 7 gates
 
 == Ship: checks, reviews and the pull request ==  id=ship
   [?] which ship steps run  (gate, you decide)
@@ -11,6 +11,7 @@ workflow ship "ship (keel)" - 36 steps, 7 gates
 == Ship: checks, reviews and the pull request ==  id=ship
    #  verify fast + module  (code verify_fast+verify_module)
    #  static checks  (code verify_lint)
+   #  the project's CI jobs on CI's versions  (code ci_pipeline)
    #  verify release  (code verify_release)
 [+] include cover: measure coverage and close the gaps (12 steps)  id=cover
 == Ship: checks, reviews and the pull request ==  id=ship

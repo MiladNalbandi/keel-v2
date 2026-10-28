@@ -304,6 +304,30 @@ def branch_sync(api: KeelApi, project: str | None = None, thread_id: str | None 
                       f"Then: keel_branch_sync(thread_id={thread_id!r}, action='continue'); or action='abort' to go back."])
 
 
+def base_branch(api: KeelApi, project: str | None = None, choice: str | None = None, branch: str | None = None,
+                remote: str | None = None) -> str:
+    """0.18.65 (the stale-base report R2, R5) the project's base and canonical remote (GET /projects/{pid}/base), or the
+    person's choice (PUT): remote, track, pick, canonical. keel writes .keel/config.yml; an agent never does."""
+    p = _project(api, project)
+    if choice:
+        body = {"choice": choice, **({"branch": branch} if branch else {}), **({"remote": remote} if remote is not None else {})}
+        res = api.put(f"/projects/{p['id']}/base", body) or {}
+    else:
+        res = api.get(f"/projects/{p['id']}/base") or {}
+    out = [f"base of {p['id']}: {res.get('configured') or '(base_branch not set)'} in .keel/config.yml; keel compares with "
+           f"{res.get('ref') or 'nothing (no base branch)'}" + (f"; canonical remote {res['canonical']}" if res.get("canonical") else "")
+           + (" (git.remote)" if res.get("setting") else "")]
+    if res.get("warning"):
+        out.append(str(res["warning"]))
+    gone = res.get("missing")
+    if gone:
+        out.append(str(gone.get("text") or ""))
+        out += [f"- choice={c['id']!r}" + (f", branch={c['ref']!r}" if c.get("ref") else ", branch=<one of: "
+                                           + ", ".join(c.get("branches") or []) + ">") + f": {c.get('label')}" for c in gone.get("choices") or []]
+        out.append("Ask the person which one, then keel_base_branch(choice=..., branch=...).")
+    return "\n".join(out)
+
+
 def actions(level: str) -> str:
     from .runtime import action_docs
 
@@ -334,6 +358,24 @@ def run_action(api: KeelApi, action: str, level: str, args: dict | None = None, 
     # a check like verify_release runs the whole test suite: wait as long as the api waits for the engine
     r = api.post(f"/projects/{p['id']}/actions/{_q(action)}", {"args": args or {}}, timeout=ACTION_TIMEOUT) or {}
     return f"{action}: {'ok' if r.get('ok') else 'failed'} · {r.get('note') or ''}" + (f"\n{r['detail']}" if r.get("detail") else "")
+
+
+def ci_run(api: KeelApi, level: str, project: str | None = None, thread_id: str | None = None,
+           jobs: list[str] | None = None) -> str:
+    """0.18.65 the ci_pipeline action now (keel_ci_run): in the flow's folder with thread_id (the engine finds its
+    worktree and refuses a flow of another project), else the project folder. keel runs the containers, never the
+    client. The budget stays under the api's wait (ACTION_TIMEOUT)."""
+    args: dict[str, Any] = {"budget": ACTION_TIMEOUT // 60 - 1}
+    if thread_id:
+        args["thread_id"] = thread_id
+    if jobs:
+        args["jobs"] = [str(j) for j in jobs]
+    return run_action(api, "ci_pipeline", level, args, project)
+
+
+def ci_report(api: KeelApi, project: str | None = None) -> str:
+    """0.18.65 the last CI pipeline report (the ci verdict) through the read-level ci_report action."""
+    return run_action(api, "ci_report", "read", {}, project)
 
 
 def state(api: KeelApi, project: str | None = None, write: bool = False) -> str:

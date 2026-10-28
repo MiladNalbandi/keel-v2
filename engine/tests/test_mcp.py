@@ -32,6 +32,7 @@ READ_TOOLS = {"keel_status", "keel_read_gate", "keel_projects", "keel_timeline",
               "keel_agent_prompt", "keel_flow_diff", "keel_health", "keel_reconnect",                       # 0.18.64
               "keel_models",                                                                               # 0.18.64 models
               "keel_state",                                                         # 0.18.64 keel v1's leftover state
+              "keel_ci_report",                                             # 0.18.65 the CI pipeline's last report
               *MARKET_TOOLS}
 WRITE_TOOLS = {"keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc",
                # 0.18.5 what keel TUI does
@@ -46,7 +47,11 @@ WRITE_TOOLS = {"keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answ
                # 0.18.64 the clarify result's send-back with a replacement draft
                "keel_reject_with_document", "keel_handover",
                # 0.18.64 keel syncs a flow's branch onto a base
-               "keel_branch_sync"}
+               "keel_branch_sync",
+               # 0.18.65 keel runs the project's CI jobs on CI's versions
+               "keel_ci_run",
+               # 0.18.65 the base branch and the canonical remote
+               "keel_base_branch"}
 ADMIN_TOOLS = {"keel_delete_run", "keel_add_project", "keel_remove_project", "keel_pause", "keel_focus", "keel_connect_github",  # 0.19.x
                "keel_edit_workflow", "keel_rule_install", "keel_rule_edit"}                         # v0.17.2 rules
 
@@ -112,6 +117,18 @@ class StubApi:
                                         "main is 2 commits behind upstream/main",
                 "remotes": [{"remote": "upstream", "ok": True, "branch": "upstream/main", "ahead": 0, "behind": 2},
                             {"remote": "mirror", "ok": False, "error": "timed out after 20 s"}]})
+        if path == "/api/projects/shop/base":
+            # 0.18.65 the base and the canonical remote; base_branch names no local branch
+            body = json.loads(req.content or b"{}") if req.method == "PUT" else None
+            if body is not None:
+                self.posts.append((path, body))
+            gone = None if body else {"text": ".keel/config.yml says base_branch: main, and this repo has no local branch main; "
+                                              "github/main has it.",
+                                      "choices": [{"id": "remote", "ref": "github/main", "label": "Use github/main"},
+                                                  {"id": "track", "ref": "github/main", "label": "Create a local main that tracks github/main"},
+                                                  {"id": "pick", "label": "Pick another branch", "branches": ["master"]}]}
+            return httpx.Response(200, json={"configured": "main", "ref": "github/main", "canonical": "github", "missing": gone,
+                                             "warning": None})
         if req.method == "POST" and path == "/api/threads/t-1/sync":
             body = json.loads(req.content)
             self.posts.append((path, body))
@@ -121,6 +138,11 @@ class StubApi:
                                                  "next": "Resolve each file, then sync again with action=continue."})
             return httpx.Response(200, json={"ok": True, "synced": True, "base_head": "abc1234def",
                                              "note": "merged 2 commits of upstream/main into feat/scores (merge commit abc1234)"})
+        if req.method == "POST" and path in ("/api/projects/shop/actions/ci_pipeline", "/api/projects/shop/actions/ci_report"):
+            body = json.loads(req.content or b"{}")
+            self.posts.append((path, body))
+            return httpx.Response(200, json={"ok": False, "note": "CI on its own versions: 1 of 2 run(s) failed (cs · PHP 7.4)",
+                                             "detail": "## CI on its own versions\n\n| cs | php 7.4 | failed | 3s |"})
         if req.method == "POST" and path == "/api/projects/shop/doctor/workspace/exclude":
             body = json.loads(req.content)
             self.posts.append((path, body))
@@ -215,9 +237,11 @@ def test_the_marketplace_tools_come_after_every_tool_keel_listed_before_at_each_
            "keel_agent_prompt", "keel_flow_diff", "keel_health", "keel_reconnect", "keel_state"]
     rules = ["keel_edit_workflow", "keel_rule_install", "keel_rule_edit"]
     sync = ["keel_fetch_remotes", "keel_branch_sync"]          # 0.18.64 after every tool before, before the marketplace's
-    assert names("read") == read + ["keel_workflows"] + tui_read + sync[:1] + MARKET_TOOLS
-    assert names("write") == read + write + tui + sync + MARKET_TOOLS
-    assert names("admin") == read + write + admin + tui + rules + sync + MARKET_TOOLS
+    ci = ["keel_ci_report", "keel_ci_run"]                     # 0.18.65 after the sync tools
+    base = ["keel_base_branch"]                                # 0.18.65 after the CI tools
+    assert names("read") == read + ["keel_workflows"] + tui_read + sync[:1] + ci[:1] + MARKET_TOOLS
+    assert names("write") == read + write + tui + sync + ci + base + MARKET_TOOLS
+    assert names("admin") == read + write + admin + tui + rules + sync + ci + base + MARKET_TOOLS
 
 
 async def test_allow_covers_the_marketplace_tools(stub):
@@ -671,6 +695,34 @@ async def test_branch_sync_reports_a_conflict_and_continues(stub):
     assert "merged 2 commits of upstream/main" in done and "abc1234" in done
 
 
+async def test_ci_run_runs_the_pipeline_in_a_flow_and_ci_report_reads_it(stub):
+    """0.18.65 keel runs the project's CI jobs (the client never gets docker): keel_ci_run is write, keel_ci_report read."""
+    assert "keel_ci_run" not in [t.name for t in await mcp_server.build_server(api=stub.api).list_tools()]
+    srv = mcp_server.build_server(write=True, api=stub.api)
+    text = await call(srv, "keel_ci_run", {"thread_id": "t-1", "jobs": ["cs"]})
+    assert stub.posts[-1] == ("/api/projects/shop/actions/ci_pipeline",
+                              {"args": {"budget": 14, "thread_id": "t-1", "jobs": ["cs"]}})
+    assert "ci_pipeline: failed · CI on its own versions: 1 of 2 run(s) failed" in text and "| cs | php 7.4 | failed |" in text
+    text = await call(mcp_server.build_server(api=stub.api), "keel_ci_report")
+    assert stub.posts[-1] == ("/api/projects/shop/actions/ci_report", {"args": {}}) and "| cs | php 7.4 |" in text
+
+
+async def test_base_branch_lists_the_choices_and_a_choice_asks_the_person_first(stub):
+    """0.18.65 (the stale-base report R5) base_branch names no local branch: the tool lists the person's choices; a choice
+    needs the person's OK (a client without forms gets a one-time token) and keel writes the config."""
+    srv = mcp_server.build_server(write=True, api=stub.api)
+    text = await call(srv, "keel_base_branch")
+    assert "keel compares with github/main; canonical remote github" in text
+    assert "- choice='track', branch='github/main': Create a local main that tracks github/main" in text
+    assert "branch=<one of: master>" in text and "Ask the person which one" in text
+    asked = await call(srv, "keel_base_branch", {"choice": "track", "branch": "github/main"})
+    assert not [p for p in stub.posts if p[0] == "/api/projects/shop/base"]          # nothing written before the OK
+    assert "OK" in asked or "token" in asked
+    yes = mcp_server.build_server(write=True, api=stub.api, yes=True)
+    await call(yes, "keel_base_branch", {"choice": "track", "branch": "github/main"})
+    assert stub.posts[-1] == ("/api/projects/shop/base", {"choice": "track", "branch": "github/main"})
+
+
 # ---------------------------------------------------------------- v0.16.0 levels, allowlist, confirm, audit
 
 async def test_admin_level_has_every_tool_and_read_only_wins(stub, monkeypatch):
@@ -843,7 +895,8 @@ def test_read_actions_match_the_api():
     from keel_engine.runtime.action_docs import ACTION_LEVELS
 
     assert {n for n, lv in ACTION_LEVELS.items() if lv == "read"} == {
-        "audit", "trace", "trace_strict", "arch", "arch_detect", "coverage_report", "lint_scope", "lint_report", "review_lenses"}
+        "audit", "trace", "trace_strict", "arch", "arch_detect", "coverage_report", "lint_scope", "lint_report", "review_lenses",
+        "ci_report"}
     assert {n for n, lv in ACTION_LEVELS.items() if lv == "admin"} == {"arch_set", "open_pr"}
 
 

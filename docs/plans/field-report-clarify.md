@@ -74,3 +74,59 @@ Smaller ones (all four fixed in 0.18.64: docs/CONTRACT.md "keel 0.18.64"):
 - **Reading the source, not only the contract** (the upstream code and its migrations) is what found the real gap.
 - **Re-reading the document after every gate** caught lost corrections three times.
 - **Editing the file by hand** was faster than another reject once a retry had lost the note, but it made bug 2.
+
+## A second report: the review compared against a stale base (0.18.64)
+
+A repo with two remotes that disagree: `origin` (its HEAD is `master`, and its fetch times out) and a second remote
+whose default branch is `main`. There is no local `main`. Init wrote `base_branch: main` (right); a later agent session
+changed it to `master` ("there is no local main"). The local `master` was behind the second remote's `main` and ahead of
+`origin/master` (an older copy of work that later landed on `main`), so the Review panel diffed `master...HEAD` and showed
+another change's 47 files as this branch's.
+
+| # | what keel lacks | status |
+|---|---|---|
+| R1 | compare the base with every remote, say when a fetch fails | fixed in 0.18.64 (bug 4) |
+| R2 | a remote-tracking base (`<remote>/main`) everywhere a base is named, and a canonical remote per project | **fixed (0.18.65)**: `git.remote` in .keel/config.yml names the canonical remote (default: the base branch's upstream's remote, else a remote that has the base, else origin, else the only remote; Settings › General › Base branch, `keel_base_branch`). `base_branch` may be `<remote>/<branch>`. The engine (`runtime/bases.py`: base_ref, the audit, the fetch, the drift, the start report, branch sync, the Git part's sync and PR) and the api (`Workspace.baseInfo`: a flow's new branch, the board) compare with the canonical remote's copy. |
+| R3 | the Review panel and the full-diff review: diff against the merge-base with the canonical remote's default branch, and warn when the local base has diverged from it | **fixed (0.18.65)**: a branch review diffs `merge-base(<canonical>/<default branch>, HEAD)...HEAD` (the local base when there is no remote copy), warns "Your local master is 3 commits behind and 2 ahead of github/main: this review compares against github/main.", and "Compare with" picks the local base instead. The full-diff review, ship's lenses and the review flow get the same range. |
+| R4 | keep init's setup files (knowledge, RUNNING.md, config) out of a feature PR, or in a setup PR of their own; respect a `.gitignore` that ignores them | **fixed (0.18.65)**: init commits on its own branch `keel/setup` (a setup PR); a flow started on it builds on it, and keel's reviews and PR bodies leave init's setup commits at the bottom of a branch out of its change. keel never force-adds: init's summary lists the setup files the project's .gitignore ignores. |
+| R5 | `base_branch` names a branch that does not exist locally: ask the person (offer the remote's branch), never let an agent change it silently | **fixed (0.18.65)**: a start asks first (use `<remote>/<branch>`, a local branch that tracks it, or another branch: the start dialog, Settings, `keel_base_branch`, which asks the person). Agents cannot change .keel/config.yml through the shell either (sed -i, a redirect, tee, cp, yq -i, ...), in a flow or not (KeelBot, a side session); the Edit tool was refused already. |
+
+
+## A third report: the last review was too shallow (0.18.64)
+
+A feature flow on a library project ran end to end on the project's default model (a Sonnet). Its last step, the
+whole-branch review, answered `CODE-REVIEW: pass` in about 4k tokens and 20 seconds, read-only. Its instruction narrowed
+it to "Report only what needs the whole diff in view", and its agent file told it that other reviews owned the rest.
+A review of the same branch on Opus found five problems the last review never looked for:
+
+- one signing key shared by an old and a new route;
+- a call deprecated on the newest runtime version the project supports;
+- a public type that accepted more than its documented contract (an object where the docs say a list);
+- the project's CI config, which no review read;
+- a break for a consumer that upgrades by adding the new version next to the old one.
+
+| # | what keel lacks | status |
+|---|---|---|
+| S1 | the last whole-branch review reads less than the change needs: a checklist (shared keys and routes, public types against their contract, a consumer's upgrade, runtime deprecations, the CI config) and a "What I did not check" list | fixed in 0.18.65 (`branch-reviewer`, the feature flow's `code_review`) |
+| S2 | the last review runs on the project's default model: a stronger model and a higher effort by default, set in Settings › Review | fixed in 0.18.65 (`review.final`, Opus at high effort for a project below Opus) |
+| S3 | the ship review has no lens for consumers and config, and drops its correctness lens after a passed full-diff review | fixed in 0.18.65 (`consumers-config`, `review.drop_correctness` off by default) |
+| S4 | the Review page's reviewers, their lenses and the checker are fixed in code: a project cannot add its own lens or reviewer | fixed in 0.18.65 (Settings › Review, `.keel/lenses/<name>.md`) |
+
+## A fourth report: CI ran on other versions (0.18.65)
+
+A feature flow on a PHP project passed every check keel ran: the style check and the tests (on the machine's newest
+PHP, with an older style tool) and keel's review. The project's CI failed. Its style job runs on PHP 7.4, where a newer
+version of the style tool flags code the local run had accepted; its test jobs run a matrix of PHP 7.4, 8.1 and 8.2,
+each with another framework version. Running each CI job in Docker on CI's versions found the problem at once.
+
+```
+ keel's checks:  style (PHP 8.4, tool v3.x) ✓   tests (PHP 8.4) ✓   review ✓
+ the PR's CI:    style (PHP 7.4) ✗   tests 7.4 / 8.1 / 8.2 × framework versions
+```
+
+| # | what keel lacked | status |
+|---|---|---|
+| C1 | run the project's own CI jobs on CI's versions before ship | 0.18.65: the ship step `ci` (GitHub Actions and GitLab CI, matrix expanded, in throw-away containers with `keel2 --docker`) |
+| C2 | say when keel's style check ran on another runtime than CI's style job | 0.18.65: the report's style check names both versions; CI's result counts |
+| C3 | run keel's own lint step on CI's version when Docker is there | open |
+| C4 | jobs that need service containers (a database) | open: skipped with the reason |

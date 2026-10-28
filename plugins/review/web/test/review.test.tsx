@@ -1223,6 +1223,70 @@ describe("Code › Review: comments on several lines and the Pending tab", () =>
     expect(within(form).getByRole("radio", { name: /Comment/ })).toBeChecked();
   });
 
+  it("0.18.65 a branch review warns when the local base went its own way, and Compare with picks the base", async () => {
+    const s = reviewServer();
+    const remote: ReviewView = {
+      ...s.views["pr:7"],
+      key: "branch:feat/paging",
+      kind: "branch",
+      number: null,
+      can_post: false,
+      threads: [],
+      base: "github/main",
+      base_warning:
+        "Your local master is 3 commits behind and 2 ahead of github/main: this review compares against github/main.",
+      base_options: [
+        { id: "remote", ref: "refs/remotes/github/main", label: "github/main" },
+        { id: "local", ref: "refs/heads/master", label: "master" },
+      ],
+      base_choice: "remote",
+    };
+    s.views["branch:feat/paging"] = remote;
+    const local: ReviewView = {
+      ...remote,
+      base: "master",
+      base_sha: "c".repeat(40),
+      base_choice: "local",
+      files: [
+        ...remote.files,
+        { path: "landed/m1.txt", status: "A", added: 1, removed: 0, from: null, binary: false },
+      ],
+      base_warning:
+        "Your local master is 3 commits behind and 2 ahead of github/main: this review compares against your local master, so it may show other changes' files as this branch's.",
+    };
+    const picked: unknown[] = [];
+    server.use(
+      http.get("/api/projects/:pid/review/branch", () =>
+        HttpResponse.json({
+          branch: "feat/paging", base: "github/main", ahead: 1, files: 2, added: 6, removed: 0, pr: null, note: null,
+          base_warning: remote.base_warning,
+        }),
+      ),
+      http.put("/api/projects/:pid/review/base", async ({ request }) => {
+        const b = (await request.json()) as { base: string };
+        picked.push(b);
+        return HttpResponse.json(b.base === "local" ? local : remote);
+      }),
+    );
+    const side = await openTool();
+    expect(await within(side).findByTestId("branch-base-warning")).toHaveTextContent(
+      "Your local master is 3 commits behind and 2 ahead of github/main: this review compares against github/main.",
+    );
+    await userEvent.click(await within(side).findByRole("button", { name: "Review this branch" }));
+    const warning = await within(side).findByTestId("review-base-warning");
+    expect(warning).toHaveTextContent("this review compares against github/main.");
+    const pick = within(side).getByRole("combobox", { name: "Compare with" });
+    expect(pick).toHaveValue("remote");
+    await userEvent.selectOptions(pick, "local");
+    await waitFor(() => expect(picked).toEqual([{ key: "branch:feat/paging", base: "local" }]));
+    await waitFor(() =>
+      expect(within(side).getByTestId("review-base-warning")).toHaveTextContent(
+        "compares against your local master, so it may show other changes' files",
+      ),
+    );
+    expect(within(side).getByRole("combobox", { name: "Compare with" })).toHaveValue("local");
+  });
+
   it("moves a branch review's pending comments to its pull request, where they can be sent", async () => {
     const s = reviewServer();
     s.views["branch:feat/paging"] = {

@@ -15,7 +15,8 @@ import json
 from ..tools import git
 from . import db
 
-KINDS = ("memory", "release", "coverage", "deps", "security", "fast", "module", "audit", "trace", "arch", "lint")
+# 0.18.65 ci: the project's own CI jobs on CI's versions (runtime/ci_pipeline.py); its detail holds the report
+KINDS = ("memory", "release", "coverage", "deps", "security", "fast", "module", "audit", "trace", "arch", "lint", "ci")
 
 
 def write(project: str, kind: str, ok: bool, detail: dict | None = None, commit: str | None = None) -> dict:

@@ -118,6 +118,30 @@ class StubEngine private constructor(private val server: HttpServer) {
     /** Unlocks posted per thread (POST /threads/{id}/unlocks), like the engine keeps them. */
     val unlocks = java.util.concurrent.ConcurrentHashMap<String, MutableList<Map<String, Any?>>>()
 
+    /** The engine's review settings view with keel's defaults: two reviewers, a lens each, the checker on [default]. */
+    fun reviewConfigView(default: JsonNode?): Map<String, Any?> {
+        val reviewer = { name: String, focus: String, lens: String ->
+            mapOf("name" to name, "focus" to focus, "model" to "default", "effort" to null, "agent" to null, "lenses" to listOf(lens))
+        }
+        val model = default?.takeIf { it.isObject }
+        return mapOf(
+            "config" to mapOf(
+                "reviewers" to listOf(reviewer("correctness and security", "correctness and security", "data-migration"),
+                    reviewer("tests, the description and design", "tests, the ticket and design", "config-secrets")),
+                "checker" to mapOf("model" to "stronger", "effort" to null, "should_fix" to true),
+                "fix" to mapOf("flow" to "small", "model" to "flow", "run_mode" to null, "one_flow_per_file" to false),
+                "final" to mapOf("model" to "stronger", "effort" to null), "drop_correctness" to false),
+            "lenses" to listOf(
+                mapOf("name" to "data-migration", "title" to "Data migration and backfill", "source" to "keel", "reviewer" to "A",
+                    "checklist" to "Data migration and backfill: defaults and NOT NULL on existing rows"),
+                mapOf("name" to "config-secrets", "title" to "Secrets and config", "source" to "keel", "reviewer" to "B",
+                    "checklist" to "Secrets and config: every env key the code reads")),
+            "uses" to mapOf("reviewers" to listOf(model, model), "checker" to model, "final" to model),
+            "find_text" to "Two keel reviewers read the change (A: correctness and security, B: tests, the description and design). " +
+                "Then a fresh run checks every serious claim against the code. Only checked findings are shown here; nothing is posted.",
+        )
+    }
+
     private fun state(id: String, status: String = "running"): Map<String, Any?> = mapOf(
         "thread_id" to id, "project_id" to "p", "workflow_id" to "feature", "title" to "t", "status" to status,
         "current" to "spec", "phase" to "spec", "ac" to null,
@@ -134,6 +158,8 @@ class StubEngine private constructor(private val server: HttpServer) {
         path.startsWith("/marketplace/") -> market.route(method, path, body, query)
         path == "/threads" && method == "POST" && threadRefusal != null -> threadRefusal!!
         path == "/health" -> 200 to mapOf("ok" to true, "version" to "stub", "fake" to true)
+        // keel 0.18.65 Settings › Review with nothing written: keel's two reviewers (engine runtime/review_config.py)
+        path == "/review-config/view" -> 200 to reviewConfigView(body?.path("models")?.path("default"))
         path == "/setup/status" -> 200 to mapOf("state" to "running", "mode" to "container", "busy" to true,
             "line" to "installing php8.3-cli for billing-router…", "missing" to listOf("php8.3-cli"), "failed" to emptyList<String>())
         path == "/diagrams/ascii" -> if (body?.path("kind")?.asText() == "pie") 400 to mapOf("error" to "no diagram kind \"pie\"")
@@ -292,6 +318,9 @@ class StubEngine private constructor(private val server: HttpServer) {
             git(root, "worktree", "remove", "--force", root.resolve(".keel/worktrees").resolve(body["name"].asText()).toString())
             200 to mapOf("ok" to true)
         }
+        // 0.18.65 the project's base (runtime/bases.py view) and the person's choice
+        path == "/base" -> 200 to mapOf("name" to "main", "ref" to "github/main", "canonical" to "github", "missing" to null,
+            "choice" to body?.path("choice")?.asText())
         // 0.18.64 every remote fetched for real (`git fetch <name>`), one result each, as the engine answers
         path == "/remotes/fetch" && method == "POST" -> {
             val root = java.nio.file.Paths.get(body!!["root"].asText())

@@ -194,7 +194,11 @@ def preflight(a):
                      "Add commands (api_test_ac, api_test_module) to .keel/config.yml, or run the init flow first.")
     cfg = rules.load_config(a.root)
     cur = git.branch(a.root) or ""
-    bases = {b for b in (cfg.get("base_branch"), "main", "master") if b}
+    from . import bases as bases_mod
+
+    # 0.18.65 base_branch may be <remote>/<branch>: its branch name is the base here too
+    bases = {b for b in (cfg.get("base_branch"), bases_mod.split(bases_mod.configured(cfg), git.remotes(a.root))[1],
+                         "main", "master") if b}
     if cur in bases and a.settings.get("own_branch", True) is not False:
         first = str(a.settings.get("branch_pattern") or "feat/{slug}").replace("{slug}", _slug(a.title)).replace("{flow}", "feature")
         name, n = first, 2

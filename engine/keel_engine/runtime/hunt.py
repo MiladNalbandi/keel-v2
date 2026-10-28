@@ -24,7 +24,7 @@ from pathlib import Path
 from .. import config as engine_config
 from .. import rules
 from ..tools import git
-from . import db
+from . import db, lenses
 
 SEVERITIES = ["low", "moderate", "high", "critical"]
 VERDICTS = ["proven", "unproven", "false"]
@@ -171,9 +171,10 @@ def lane_of(root: str, cited: str) -> str | None:
 
 
 def brief(root: str, lens: str) -> str | None:
-    """A lens brief: the project's own .keel/lenses/<lens>.md first, else keel's references/lenses.md section."""
-    own = Path(root) / ".keel" / "lenses" / f"{lens}.md"
-    if own.is_file():
+    """A lens brief: the project's own .keel/lenses/<lens>.md first (read by the one lens loader, runtime/lenses.py: the
+    Review page's reviewers read the same file), else keel's references/lenses.md section."""
+    own = lenses.project_file(root, lens)
+    if own is not None:
         return own.read_text(errors="replace").strip()
     ref = engine_config.content_dir() / "skills" / "hunt" / "references" / "lenses.md"
     try:

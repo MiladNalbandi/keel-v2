@@ -389,6 +389,13 @@ export async function merge(
   return r;
 }
 
+/** 0.18.65 a branch review compares against another base (the canonical remote's copy or the local base). */
+export async function pickBase(pid: string, key: string, base: "remote" | "local" | "") {
+  const r = await act(pid, key, "base", () => reviewApi.pickBase(pid, key, base));
+  if (r) set(pid, key, { view: r });
+  return r;
+}
+
 export async function checkout(pid: string, key: string) {
   return act(pid, key, "checkout", () => reviewApi.checkout(pid, key));
 }
@@ -491,6 +498,13 @@ export async function address(
   const r = await act(pid, key, `address:${threadId}`, () =>
     reviewApi.address(pid, key, threadId, note, workflow, fix),
   );
+  if (r) set(pid, key, { ai: r.state });
+  return r;
+}
+
+/** keel 0.18.65 "Fix it" on a confirmed finding (Settings › Review decides the flow, or [workflow] when it asks). */
+export async function fixFinding(pid: string, key: string, findingId: string, workflow?: string) {
+  const r = await act(pid, key, `fix:${findingId}`, () => reviewApi.fixFinding(pid, key, findingId, workflow));
   if (r) set(pid, key, { ai: r.state });
   return r;
 }

@@ -36,7 +36,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
 from .. import addons, agent_names, extensions, models, rules
-from . import doc_history, md, test_scope, thread_models
+from . import doc_history, md, review_config, test_scope, thread_models
 from ..models import catalog
 from ..models import usage as provider_usage
 from ..models.base import AgentRequest, AgentResult, ModelError
@@ -703,6 +703,12 @@ class Compiler(AgentMixin, FindingsMixin, CodeMixin, GateMixin):
             m = agent_names.lookup(self.ctx.models, agent)
         elif "default" in self.ctx.models:
             m = self.ctx.models["default"]
+        # 0.18.65 a flow's last review (the whole-branch review, a ship lens) runs on a stronger model than the one it
+        # would get (Opus at high effort for Claude, see review_config.raised), unless Settings › Review says otherwise.
+        # A model the flow was switched to (a cap's cheaper model, an escalation) or the person's pick for the step wins.
+        if (m and not state.get("model_override") and not self.ctx.models.get(thread_models.step_key(step.id))
+                and review_config.final_step(step, agent)):
+            m = review_config.final_model(self.ctx.root, m)
         return models.effective(m)
 
     def _ask(self, state: FlowState, question: dict, gate: str | None = None, review: str | None = None) -> tuple[dict, dict]:

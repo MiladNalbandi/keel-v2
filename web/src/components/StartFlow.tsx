@@ -5,6 +5,7 @@ import { api, ApiError, errorParts, type CapsLeft, type Estimate, type FolderAct
 import { kfmt, parseTokens, usd } from "../format";
 import { go, useApp } from "../state";
 import { settingsHash } from "../routes";
+import { BaseQuestion } from "./BaseBranch";
 import { RunModePicker } from "./RunMode";
 import { Drawer, ErrorBox } from "./ui";
 import { WorkspaceDoctor } from "./WorkspaceDoctor";
@@ -300,6 +301,10 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
           </span>
         )}
         {check?.base && <span className="hint amber" data-testid="sf-base">{check.base}.</span>}
+        {check?.base_missing && p && (
+          <BaseQuestion pid={p} missing={check.base_missing}
+            onDone={() => { api.startCheck(p).then(setCheck).catch(() => undefined); }} />
+        )}
         <span className="hint">{inWorktree
           ? "keel makes a copy of the project on a new branch from the base branch (.keel/worktrees). The project folder and its flow are not touched; the Flow page shows both, and the files they share."
           : offBase && branchMode === "continue" ? `The flow works in the project folder, on ${onBranch}.`

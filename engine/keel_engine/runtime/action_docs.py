@@ -224,6 +224,33 @@ DOCS: dict[str, dict] = {
         "steps": ["Reads the latest lint verdict and the last run's results; the report is what the next gate shows "
                   "(data.lint_report)."],
     },
+    # ---------------------------------------------------------------- 0.18.65 the CI pipeline (runtime/ci_pipeline.py)
+    "ci_pipeline": {
+        "summary": "Runs the project's own CI jobs (GitHub Actions, GitLab CI) on CI's versions, in throw-away "
+                   "containers when keel has Docker; writes the ci verdict and the report the final review shows.",
+        "steps": [
+            "ci.run in .keel/config.yml: off does nothing; auto (the default) runs when the project has a CI config; "
+            "on also says when there is none.",
+            "Reads .github/workflows/*.yml and .gitlab-ci.yml: every job, its matrix expanded (include and exclude, "
+            "GitLab's parallel: matrix:), its setup actions' versions, container: / image:, env and run / script lines.",
+            "Skips deploy, release and publish jobs, jobs that need secrets, Windows and macOS jobs, jobs that need "
+            "service containers and manual jobs, each with its reason; GITHUB_TOKEN is dropped, never passed.",
+            "With Docker (keel2 --docker, native mode): each run in its own container on the job's image or the "
+            "official one (php:<v>-cli, node:<v>, python:<v>, eclipse-temurin:<v>); a temp copy of the worktree is "
+            "copied in (docker cp), never mounted; no docker socket, no --privileged, no host network. PHP: composer "
+            "and setup-php's tools are installed, its extensions checked (ci.extensions: install tries to add them).",
+            "Without Docker: only runs whose runtime version is on keel's own shell run (in a temp copy); the others "
+            "are \"could not run\" and say so.",
+            "Each run has ci.timeout minutes (15), all of them ci.budget (45). The report: one row per run (job, "
+            "versions, passed / failed / could not run / skipped, time), each failure's command and output tail, and "
+            "the style check: CI's style job counts over keel's own, and a different runtime version is named.",
+            "Fails when a run failed (in ship the step is soft: the final review shows it as an exception).",
+        ],
+    },
+    "ci_report": {
+        "summary": "The last CI pipeline report of the project (the ci verdict), and whether it is about HEAD.",
+        "steps": ["Reads the latest ci verdict; runs nothing."],
+    },
     "verify_lint": {
         "summary": "Ship's static checks: the check tools on the branch diff without fixers; writes the lint verdict.",
         "steps": [
@@ -704,9 +731,9 @@ DOCS: dict[str, dict] = {
 # "flow-only" (also the default for an action not named here; tests/test_explain.py keeps the list current).
 ACTION_LEVELS: dict[str, str] = {
     **{n: "read" for n in ("audit", "trace", "trace_strict", "arch", "arch_detect", "coverage_report", "lint_scope",
-                           "lint_report", "review_lenses")},
+                           "lint_report", "review_lenses", "ci_report")},
     **{n: "write" for n in ("verify_release", "verify_coverage", "verify_fast", "verify_deps", "verify_lint", "lint_run",
-                            "knowledge_check", "memory_check", "push_check", "pr")},
+                            "knowledge_check", "memory_check", "push_check", "pr", "ci_pipeline")},
     **{n: "admin" for n in ("arch_set", "open_pr")},
 }
 

@@ -576,7 +576,19 @@ function aiOf(n: number, found: boolean): AiState {
       address_workflow: "small",
       address_flows: [{ id: "small", name: "small" }],
       buttons: [],
+      // keel 0.18.65 Settings › Review: three reviewers, and a fix flow picked for each finding
+      find: {
+        text: "Three keel reviewers read the change (A: correctness and security, B: tests, the description and design, " +
+          "C: money). Then a fresh run checks every serious claim against the code. Only checked findings are shown here; nothing is posted.",
+        reviewers: [
+          { letter: "A", name: "correctness and security" },
+          { letter: "B", name: "tests, the description and design" },
+          { letter: "C", name: "money" },
+        ],
+        fix: { flow: "ask", one_flow_per_file: false },
+      },
     },
+    fixes: {},
   };
 }
 
@@ -676,6 +688,14 @@ export function nextDemo(opts: { found?: number[] } = {}) {
       });
     }),
     http.get(`${R}/ai`, ({ request }) => HttpResponse.json(ai[keyOf(request)])),
+    http.post(`${R}/ai/findings/:fid/fix`, async ({ request, params }) => {
+      const b = await rec(request);
+      const k = keyOf(request, b);
+      const fid = String(params.fid);
+      const done = { flow_id: "t-fix-1", title: "Fix review finding", branch: "feat/export", workflow: String(b.workflow ?? "small"), at: "now" };
+      ai[k] = { ...ai[k], fixes: { ...ai[k].fixes, [fid]: done } };
+      return HttpResponse.json({ ...done, note: "", state: ai[k] });
+    }),
     http.post(`${R}/ai/findings/:fid`, async ({ request, params }) => {
       const b = await rec(request);
       const k = keyOf(request, b);

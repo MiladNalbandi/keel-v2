@@ -21,7 +21,7 @@ from .demo import create_demo, workspace_missing
 from .events import EventBus, bus as default_bus
 from .marketplace import MarketError
 from .models import catalog
-from .runtime import evals, hunt, rules_view, scan, stack_setup, task_pick
+from .runtime import evals, hunt, lenses, review_config, rules_view, scan, stack_setup, task_pick
 from .rules.packs import normalize as packs_normalize
 from .runtime.explain import ExplainError, explain_step
 from .runtime.service import Engine, EngineError
@@ -210,6 +210,14 @@ class WorktreeAdd(BaseModel):
     start: str | None = None            # the commit or branch it starts from (default: the folder's HEAD)
 
 
+class BaseChoice(BaseModel):
+    """0.18.65 a person's answer about the project's base (runtime/bases.py choose): remote, track, pick, canonical."""
+    root: str
+    choice: str
+    branch: str | None = None
+    remote: str | None = None
+
+
 class RemotesFetch(BaseModel):
     """0.18.64 fetch every remote of a project (keel_fetch_remotes, the api's flow start)."""
     root: str
@@ -280,6 +288,16 @@ class YamlBody(BaseModel):
 class RulesConfigBody(BaseModel):
     root: str
     patch: dict[str, Any]
+
+
+class ReviewConfigBody(BaseModel):
+    """keel 0.18.65 Settings › Review (runtime/review_config.py). models: the project's {default, reviewer} models (the
+    api has them), to say which model each part will use."""
+    root: str
+    patch: dict[str, Any] = Field(default_factory=dict)
+    models: dict[str, Any] = Field(default_factory=dict)
+    lens: dict[str, Any] = Field(default_factory=dict)
+    text: str = ""
 
 
 class RulePackBody(BaseModel):
@@ -436,6 +454,14 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     @app.exception_handler(rules_view.RulesError)
     async def rules_error(_req, exc: rules_view.RulesError):
         return _err(exc.status, exc.error, "; ".join(exc.errors) or None, exc.errors or None)
+
+    @app.exception_handler(review_config.ReviewConfigError)
+    async def review_config_error(_req, exc: review_config.ReviewConfigError):
+        return _err(exc.status, exc.error)
+
+    @app.exception_handler(lenses.LensError)
+    async def lens_error(_req, exc: lenses.LensError):
+        return _err(exc.status, exc.error)
 
     @app.exception_handler(StackError)
     async def stack_error(_req, exc: StackError):
@@ -623,6 +649,30 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     async def put_rules_config(body: RulesConfigBody):
         return await asyncio.to_thread(rules_view.set_config, project_root(body.root), body.patch)
 
+    # ---- keel 0.18.65 Settings › Review: the review block of .keel/config.yml and the lens files (runtime/review_config.py)
+    @app.post("/review-config/view")
+    async def post_review_config_view(body: ReviewConfigBody):
+        return await asyncio.to_thread(review_config.view, project_root(body.root), body.models)
+
+    @app.put("/review-config")
+    async def put_review_config(body: ReviewConfigBody):
+        return await asyncio.to_thread(review_config.write, project_root(body.root), body.patch, body.models)
+
+    @app.post("/review-config/lenses")
+    async def post_review_lens(body: ReviewConfigBody):
+        return await asyncio.to_thread(review_config.new_lens, project_root(body.root), body.lens, body.models)
+
+    @app.get("/review-config/lenses/{name}")
+    async def get_review_lens(name: str, root: str):
+        lens = await asyncio.to_thread(lenses.load, lenses.checked_name(name), project_root(root))
+        if not lens:
+            raise lenses.LensError(404, f"There is no lens {name}.")
+        return lens
+
+    @app.put("/review-config/lenses/{name}")
+    async def put_review_lens(name: str, body: ReviewConfigBody):
+        return await asyncio.to_thread(lenses.save_text, project_root(body.root), name, body.text)
+
     @app.get("/rules/library")
     async def get_rules_library():
         return await asyncio.to_thread(rules_view.library)
@@ -733,10 +783,12 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
         return await asyncio.to_thread(hunt.run_view, pid, run)
 
     @app.post("/projects/{pid}/actions/{name}")
-    async def post_action(pid: str, name: str, body: dict):
+    async def post_action(pid: str, name: str, body: dict, request: Request):
         """v0.16.0 one engine action outside a flow (keel_run_action): only an action with a level (action_docs
         ACTION_LEVELS), on a blank flow input for the project's folder. The MCP level is enforced by keel's MCP server
-        (mcp_more.run_action); like the rest of keel's api on 127.0.0.1, this route has no login of its own."""
+        (mcp_more.run_action); like the rest of keel's api on 127.0.0.1, this route has no login of its own.
+        0.18.65 args.thread_id: the action runs in that flow's folder (its worktree), a flow of this project only; the
+        other args are the action's params (keel_ci_run: jobs)."""
         from .runtime import action_docs
         from .runtime.actions import ActionInput, run_action
 
@@ -747,10 +799,21 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
         root = str(body.get("root") or "")
         if not root or not Path(root).is_dir():
             raise EngineError(400, "root is missing or not a folder.")
+        args = dict(body.get("args") or {}) if isinstance(body.get("args"), dict) else {}
+        tid = str(args.pop("thread_id", "") or "")
+        if tid:
+            row = await engine(request)._row(tid)
+            if row["project_id"] != pid:
+                raise EngineError(404, f"No flow {tid} in this project.")
+            if not Path(row["root"]).is_dir():
+                raise EngineError(409, f"The flow's folder is gone: {row['root']}.")
+            root = row["root"]
         a = ActionInput(root=root, phase="none", title=f"{name} (MCP)", ac=None, acs=[], fake=False, flow="mcp", project=pid,
-                        settings=dict(body.get("settings") or {}))
+                        settings=dict(body.get("settings") or {}), params=args)
         r = await run_action(name, a)
-        return {"ok": r.ok, "note": r.note, "detail": (r.detail or "")[-6000:]}
+        # a check's output matters at its end; a CI report starts with its table (0.18.65)
+        detail = (r.detail or "")[:12000] if name in ("ci_pipeline", "ci_report") else (r.detail or "")[-6000:]
+        return {"ok": r.ok, "note": r.note, "detail": detail}
 
     from .approvals_routes import router as approvals_router   # core: ask a person and wait (keel_engine/approvals.py)
     app.include_router(approvals_router)
@@ -795,6 +858,25 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
         fetched = await asyncio.to_thread(branch_sync.fetch_all, root, body.keys)
         start = await asyncio.to_thread(git.rev, root, body.start) if body.start else None
         return {**await asyncio.to_thread(branch_sync.report, root, fetched, start), "fetched": fetched}
+
+    # 0.18.65 the project's base and its canonical remote (runtime/bases.py): what Settings › General › Base branch
+    # shows, and the person's answer (keel writes .keel/config.yml; an agent never does)
+    @app.get("/base")
+    async def get_base(root: str):
+        from .runtime import bases
+
+        return await asyncio.to_thread(bases.view, project_root(root))
+
+    @app.post("/base")
+    async def post_base(body: BaseChoice):
+        from .runtime import bases
+
+        root = project_root(body.root)
+        try:
+            await asyncio.to_thread(bases.choose, root, body.choice, body.branch, body.remote)
+        except bases.BaseError as exc:
+            raise EngineError(exc.status, exc.message, exc.hint) from exc
+        return await asyncio.to_thread(bases.view, root)
 
     # 0.18.57 what Start a flow says before a start: can a worktree flow run the tests, is the base behind its remote
     @app.get("/start-check")
