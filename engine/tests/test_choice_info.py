@@ -58,7 +58,7 @@ def test_choice_info_keeps_the_order_marks_one_default_and_knows_the_flow():
     ("fix:gate_f", ["fix", "feature"], "fix", {"feature": ("A missing requirement", "none")}),
     ("cover:measure_failed", ["try_again", "go_on"], "try_again", {"try_again": ("Measure again", "none")}),
     ("change:scope_gate", ["small", "trivial", "feature"], "small", {"small": ("Small change", "optional")}),
-    ("init:rung_gate", ["apply_fix", "retry", "skip", "stop"], "apply_fix", {"apply_fix": ("Apply the fix", "none"),
+    ("init:rung_gate", ["apply_fix", "retry", "own_fix", "skip", "stop"], "apply_fix", {"apply_fix": ("Apply the fix", "none"),
                                                                            "skip": ("Skip, not checked", "optional")}),
     ("init:git_repo", ["init", "retry", "go_on", "stop"], "init", {"init": ("Make the first commit", "none")}),
     ("cover:no_reports", ["go_on", "stop"], "go_on", {"go_on": ("Go on", "none")}),

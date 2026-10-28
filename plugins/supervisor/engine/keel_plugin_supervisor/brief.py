@@ -20,9 +20,12 @@ Rules:
 - "high" confidence only when what you read shows the answer is right; name what shows it in "evidence":
   "spec:AC-2", "path/to/file.py:41", "knowledge:<section>", "gate:<step>", "log:<what>".
 - A send-back ("send_back", decision "reject") needs a "why" the next agent can act on.
+- A choice that runs commands you name (init's own_fix on a failing setup rung): put them in "commands", one string
+  each, without a container prefix. When the gate's own fix already failed, this is how you offer a better one; also
+  when you escalate, so the owner can take your commands with one click.
 
 End your answer with exactly one JSON object in a ```json block:
-{"action": "answer|send_back|escalate", "decision": "approve|reject", "choice": null, "answers": {},
+{"action": "answer|send_back|escalate", "decision": "approve|reject", "choice": null, "answers": {}, "commands": [],
  "why": "...", "confidence": "high|medium|low", "evidence": ["..."], "risks": ["..."],
  "summary": "at most 5 short lines for the owner: what happened, what you checked, what you suggest"}"""
 

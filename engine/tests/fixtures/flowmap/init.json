@@ -158,6 +158,7 @@
    "choices": {
     "apply_fix": "rung_apply",
     "retry": "rung_apply",
+    "own_fix": "rung_apply",
     "skip": "rung_apply",
     "stop": "end"
    }

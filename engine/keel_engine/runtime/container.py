@@ -19,6 +19,9 @@ runs every command through it (`docker compose exec -T app vendor/bin/phpunit`).
     worktree_fit(root)       {ok, reason, service}: can a worktree flow run its tests?
     exec_prefix(service, f)  `docker compose [-f f] exec -T <service>`, the prefix init writes for a compose service
     wrap(cmds, prefix)       the backend commands (WRAP_KEYS) not in a container yet, run through the prefix
+    devcontainer(root)       {prefix, source}: how a command runs in the project's dev container (.devcontainer)
+    boxed(cmd)               does the command already go through docker, compose or the devcontainer CLI?
+    wrap_one(cmd, prefix)    one command run through the prefix (a shell line through `sh -c`)
     cleanup_worktree(path)   [ids]: removes the containers docker compose made from a worktree
 """
 
@@ -63,7 +66,77 @@ def exec_prefix(service: str, compose_file: str | None = None) -> str:
 def wrap(cmds: dict, prefix: str) -> dict:
     """{key: command} of the WRAP_KEYS commands that do not run in a container yet, each run through `prefix`."""
     return {k: f"{prefix} {cmds[k]}" for k in WRAP_KEYS
-            if isinstance(cmds.get(k), str) and cmds[k].strip() and not exec_of(cmds[k])}
+            if isinstance(cmds.get(k), str) and cmds[k].strip() and not boxed(cmds[k])}
+
+
+# the first words of a command that starts or reaches a container itself: it runs on keel's side as it is
+BOXED_TOOLS = {"docker", "docker-compose", "podman", "podman-compose", "devcontainer"}
+_SHELL_LINE = re.compile(r"&&|\|\||[;|<>`$]")
+
+
+def boxed(cmd: str | None) -> bool:
+    """Does the command run in (or manage) a container already: docker / compose exec, `devcontainer exec`, or a
+    command whose first word is a container tool (`docker compose up -d db`)?"""
+    if exec_of(cmd):
+        return True
+    try:
+        tokens = shlex.split(str(cmd or ""))
+    except ValueError:
+        return False
+    while tokens and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", tokens[0]):
+        tokens = tokens[1:]
+    if tokens[:1] == ["env"]:
+        tokens = [t for t in tokens[1:] if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", t)]
+    return bool(tokens) and Path(tokens[0]).name in BOXED_TOOLS
+
+
+def wrap_one(cmd: str, prefix: str) -> str:
+    """`cmd` run through `prefix`; a line with shell syntax (&&, pipes, $VAR) goes through `sh -c` inside, so all of it
+    runs in the container and not only its first part. A command that is boxed already stays as it is."""
+    if boxed(cmd):
+        return cmd
+    return f"{prefix} sh -c {shlex.quote(cmd)}" if _SHELL_LINE.search(cmd) else f"{prefix} {cmd}"
+
+
+DEVCONTAINER_FILES = (".devcontainer/devcontainer.json", ".devcontainer.json")
+_JSONC_COMMENT = re.compile(r'("(?:\\.|[^"\\])*")|//[^\n]*|/\*.*?\*/', re.S)
+_TRAILING_COMMA = re.compile(r'("(?:\\.|[^"\\])*")|,(\s*[}\]])')
+
+
+def _jsonc(text: str) -> dict | None:
+    """devcontainer.json is JSON with comments and trailing commas."""
+    import json
+
+    text = _JSONC_COMMENT.sub(lambda m: m.group(1) or "", text)
+    text = _TRAILING_COMMA.sub(lambda m: m.group(1) or m.group(2), text)
+    try:
+        v = json.loads(text)
+    except ValueError:
+        return None
+    return v if isinstance(v, dict) else None
+
+
+def devcontainer(root: str) -> dict | None:
+    """{prefix, source} for a project whose tools run in its dev container: a devcontainer.json on a compose service
+    runs commands through `docker compose -f <its files> exec -T <service>`; any other dev container through the
+    devcontainer CLI (`devcontainer exec --workspace-folder .`). None without a devcontainer.json."""
+    for rel in DEVCONTAINER_FILES:
+        f = Path(root) / rel
+        if not f.is_file():
+            continue
+        try:
+            cfg = _jsonc(f.read_text(errors="replace")) or {}
+        except OSError:
+            continue
+        files = cfg.get("dockerComposeFile")
+        files = [files] if isinstance(files, str) else [x for x in files or [] if isinstance(x, str)]
+        svc = cfg.get("service")
+        if files and isinstance(svc, str) and svc.strip():
+            base = f.parent.relative_to(Path(root))
+            opts = "".join(f" -f {shlex.quote(os.path.normpath((base / x).as_posix()))}" for x in files)
+            return {"prefix": f"docker compose{opts} exec -T {shlex.quote(svc.strip())}", "source": rel}
+        return {"prefix": "devcontainer exec --workspace-folder .", "source": rel}
+    return None
 
 
 def exec_of(cmd: str | None) -> dict | None:

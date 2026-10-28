@@ -122,6 +122,8 @@ CATALOGUE: dict[tuple[str, str], tuple[str, str, str]] = {
     ("init:git_repo", "stop"): ("Stop init", OPTIONAL, "end init here (open the right folder first)"),
     ("init:rung_gate", "apply_fix"): ("Apply the fix", NONE, "keel runs the doctor's proposed commands, then the ladder again"),
     ("init:rung_gate", "retry"): ("I fixed it, run again", OPTIONAL, "you fixed it (or it was a passing problem); the ladder runs again"),
+    ("init:rung_gate", "own_fix"): ("Run my own fix", REQUIRED, "write the fix commands, one per line; keel runs them where "
+                                    "the rungs run, then the ladder again"),
     ("init:rung_gate", "skip"): ("Skip, not checked", OPTIONAL, "keep the rung, marked as not checked (setup.not_checked); the ladder goes on"),
     ("init:rung_gate", "stop"): ("Stop init", OPTIONAL, "end init here; no knowledge check and no commit"),
     ("init:audit_now", "skip"): ("Hand over now", NONE, "hand over now; nothing checked behaviour"),
