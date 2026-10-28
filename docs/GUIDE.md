@@ -1162,10 +1162,16 @@ in between answers "keel is restarting, try again in a few seconds". `keel_healt
 often the connection reconnected; `keel_reconnect` starts the connection's server again now (after an update, for the
 newest tools). Times (`keel_timeline`) are in your computer's time zone, with its name: `10-28 14:14:02 CET`.
 
-Pushes, database changes, deletes, stops and saves ask you first in the client. A client that cannot show that form
-does nothing yet and answers "This needs your OK: <what>" with a one-time token: when you say yes, it calls the same
-tool again with the same arguments and `confirm: "<token>"` within 5 minutes (the token works once, for that call
-only). `--yes` still skips every question. `--allow keel_status,keel_approve_gate` keeps only those tools.
+Pushes, database changes, deletes, stops and saves ask you first in the client. **A client without forms: you confirm
+in keel's Inbox** (0.18.64). A client that cannot show that form does nothing yet and answers "This needs the person's
+OK: <what>" with a one-time token, and keel puts the same question in its Inbox (the dashboard, keel TUI, the phone
+app). The model reads that answer, so it could send the token back by itself; for the dangerous kinds (deletes,
+pushes, stops, a model change, a data change, a pull request) the token alone does nothing: you approve the question
+in keel's Inbox, then the client calls the tool again with `confirm: "<token>"`. For the other kinds the token works
+when you say yes in the chat (within 5 minutes, once, for that call only), and an approval in the Inbox counts too.
+`KEEL_MCP_CONFIRM=token` lets the token alone confirm every kind again. If keel cannot put the question in its Inbox,
+a dangerous kind is not done: do it in keel's dashboard. **Danger:** `keel2 mcp --yes` skips every question: the
+model's acting tools then run with no question to you. `--allow keel_status,keel_approve_gate` keeps only those tools.
 `keel_start_flow` answers at once with the flow's thread id, its status (starting, running or waiting) and how to
 follow it; `wait` (seconds, at most 60) waits for its first gate first. `keel_answer` and `keel_approve_gate` say what
 really ran: a reject with the choice **edit** says the edit choice ran. `keel_answer(ask_person=true)`

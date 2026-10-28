@@ -30,9 +30,17 @@ import org.springframework.web.util.ContentCachingRequestWrapper
 class McpAudit(private val events: EventService, private val jdbc: JdbcTemplate, private val mapper: ObjectMapper) : OncePerRequestFilter() {
 
     override fun shouldNotFilter(request: HttpServletRequest): Boolean =
-        request.method == "GET" || request.getHeader("X-Keel-Via") !in VIAS || !ApiPath.of(request).startsWith("/api/") ||
+        request.method == "GET" || viaOf(request) == null || !ApiPath.of(request).startsWith("/api/") ||
             // 0.18.6 which project and chat a front end shows (ui/UiFocus.kt) is not a change to record
             ApiPath.of(request) == "/api/ui/focus"
+
+    /**
+     * 0.18.64 who acted: a request with an MCP level token is always an MCP call (until 0.18.63 only one that also sent
+     * X-Keel-Via: mcp was recorded, so a client that left the header out acted unseen); else keel TUI or xal by their
+     * header; else null (not recorded).
+     */
+    private fun viaOf(request: HttpServletRequest): String? =
+        if (request.getAttribute(keel.api.auth.LocalAuth.WHO_ATTR) == "mcp") "mcp" else request.getHeader("X-Keel-Via")?.takeIf { it in VIAS }
 
     override fun doFilterInternal(request: HttpServletRequest, response: HttpServletResponse, chain: FilterChain) {
         val cached = ContentCachingRequestWrapper(request, BODY_MAX)
@@ -55,7 +63,7 @@ class McpAudit(private val events: EventService, private val jdbc: JdbcTemplate,
 
     private fun record(request: ContentCachingRequestWrapper, status: Int) {
         val path = ApiPath.of(request)
-        val via = request.getHeader("X-Keel-Via") ?: "mcp"
+        val via = viaOf(request) ?: return
         val tid = THREAD.find(path)?.groupValues?.get(1) ?: INBOX.find(path)?.groupValues?.get(1)
         val pid = PROJECT.find(path)?.groupValues?.get(1)
             ?: tid?.let { jdbc.query("SELECT project_id FROM threads WHERE id = ?", { rs, _ -> rs.getString(1) }, it).firstOrNull() }

@@ -58,6 +58,15 @@ export function pruneDrafts(now = Date.now()): void {
   capStored(DRAFT_PREFIX, DRAFT_MAX, "local");
 }
 
+/** keel 0.18.64 KeelBot's chat drafts (plugins/keelbot/web/chats.ts): one key per project, keel2.helper.<project>.drafts */
+const KEELBOT_DRAFTS = /^keel2\.helper\..+\.drafts$/;
+
+/** keel 0.18.64 at sign-out: forget every unsent answer and KeelBot chat draft kept in this browser. */
+export function forgetAllDrafts(): void {
+  for (const k of storedKeys(DRAFT_PREFIX, "local")) forgetStored(k, "local");
+  for (const k of storedKeys("keel2.helper.", "local")) if (KEELBOT_DRAFTS.test(k)) forgetStored(k, "local");
+}
+
 /** Forget every field of this question's draft (the answer was sent); the forms that show it are emptied too. */
 export function clearDraft(p: DraftPlace | null): void {
   if (!p) return;

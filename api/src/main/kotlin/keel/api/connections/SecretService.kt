@@ -141,6 +141,14 @@ class SecretService(
         return (get(name) ?: System.getenv(name)?.takeIf { it.isNotBlank() })?.let { clean(name, it) }
     }
 
+    /**
+     * 0.18.64 keel's own logins and connections: the model keys and logins, the GitHub token, Vertex AI, the local model
+     * servers' keys and the tokens a part's connection kind names (GitLab). An MCP server never gets one (McpService).
+     */
+    fun keelOwn(name: String): Boolean =
+        name in TOKEN_NAMES || name in KEY_NAMES.values || name in LOGIN_NAMES.values || name in OWN ||
+            name.startsWith(ModelServerService.secretOf("")) || kinds.stream().anyMatch { name in it.tokens }
+
     /** The keys a flow or a test needs for this model, under the names the engine reads (StartThread.keys). */
     fun engineKeys(provider: String, mode: String): Map<String, String> =
         if (mode == "api" || provider in ModelServerService.PROVIDERS) keyForProvider(provider)?.let { mapOf(provider to it) } ?: emptyMap()
@@ -157,6 +165,8 @@ class SecretService(
         val LOGIN_NAMES = mapOf("claude" to "CLAUDE_CODE_OAUTH_TOKEN", "codex" to "CODEX_AUTH_JSON", "copilot" to "GH_TOKEN")
         /** Secret names whose value is a single token (whitespace is removed); CODEX_AUTH_JSON is a JSON file. */
         val TOKEN_NAMES = setOf("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GITHUB_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "GH_TOKEN", "GITHUB_REPO_TOKEN")
+        /** 0.18.64 keel's other own secrets ([keelOwn]): the GitHub sign-in's account, Vertex AI's credentials. */
+        private val OWN = setOf("CODEX_AUTH_JSON", "GITHUB_REPO_INFO", "VERTEX_CREDENTIALS", "GITLAB_TOKEN")
         /** Secrets with a known Claude shape (sk-ant-…, only letters, digits, - and _), and what they are called. */
         private val SHAPES = mapOf("CLAUDE_CODE_OAUTH_TOKEN" to "Claude login token", "ANTHROPIC_API_KEY" to "Anthropic API key")
         private val ENGINE_LOGIN_KEY = mapOf("claude" to "claude_oauth", "codex" to "codex_auth", "copilot" to "copilot")

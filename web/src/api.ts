@@ -1131,6 +1131,8 @@ export type PluginInfo = { name: string; title: string; version: string; web: Pl
 
 export const api = {
   health: () => get<Health>("/health"),
+  /** keel 0.18.64 sign this browser out (its session ends), or every browser (each one's session ends) */
+  webSignOut: (everywhere = false) => post<{ ok: boolean; ended?: number }>(everywhere ? "/web/sign-out-everywhere" : "/web/sign-out"),
   /** keel 0.18.22 what keel installs for the projects' stacks (setup.apt), and how far it is */
   stackSetup: () => get<StackSetup>("/setup"),
   features: () => get<Features>("/features"),

@@ -2,16 +2,24 @@
 // where each chat was scrolled to, the mode of a chat not started yet, which folders are folded, and whether the chat
 // list is open. Going to another page, or closing the panel, and coming back finds them as they were. Drafts and folded
 // folders are kept in this browser (localStorage); the rest in this tab (sessionStorage).
+// keel 0.18.64 a draft older than 14 days goes (like keel's unsent answers, web/src/drafts.tsx), and keel's sign-out
+// forgets them all (drafts.tsx forgetAllDrafts: the key keel2.helper.<project>.drafts).
 // Also the chat list's pure helpers: search, chats grouped by folder, and "how long ago".
 
 import type { HelperMention, HelperMode, HelperSession } from "@keel/web-sdk";
 import type { HelperFolder } from "./keelbotApi";
 
 export type Draft = { text: string; mentions: HelperMention[] };
+/** A draft as it is kept: with when it was last typed in. */
+type Kept = Draft & { at?: number };
 
 /** The key of a chat not started yet (it has no id until its first message). */
 const NEW = "new";
 const MAX_DRAFTS = 40;
+/** keel 0.18.64 a draft this old is not shown and goes at the next save */
+export const DRAFT_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
+/** A draft kept before 0.18.64 has no time: it counts from its next save. */
+const fresh = (d: Kept | undefined, now: number) => !!d && (typeof d.at !== "number" || now - d.at < DRAFT_MAX_AGE_MS);
 const draftsKey = (pid: string) => `keel2.helper.${pid}.drafts`;
 const foldedKey = (pid: string) => `keel2.helper.${pid}.folded`;
 const tabKey = (pid: string) => `keel2.helper.${pid}.tab`;
@@ -40,17 +48,19 @@ const readTab = (pid: string) => readJson<TabState>(tabKey(pid), {}, "session");
 const writeTab = (pid: string, patch: Partial<TabState>) => writeJson(tabKey(pid), { ...readTab(pid), ...patch }, "session");
 
 /** The draft of a chat (null: the new chat). */
-export function getDraft(pid: string, sid: string | null): Draft {
-  const d = readJson<Record<string, Draft>>(draftsKey(pid), {})[sid ?? NEW];
-  return d && typeof d.text === "string" ? { text: d.text, mentions: Array.isArray(d.mentions) ? d.mentions : [] } : { text: "", mentions: [] };
+export function getDraft(pid: string, sid: string | null, now = Date.now()): Draft {
+  const d = readJson<Record<string, Kept>>(draftsKey(pid), {})[sid ?? NEW];
+  return d && fresh(d, now) && typeof d.text === "string"
+    ? { text: d.text, mentions: Array.isArray(d.mentions) ? d.mentions : [] } : { text: "", mentions: [] };
 }
 
 /** Keep a chat's draft; an empty one is forgotten. Only the newest drafts are kept. */
-export function setDraft(pid: string, sid: string | null, d: Draft) {
-  const all = readJson<Record<string, Draft>>(draftsKey(pid), {});
+export function setDraft(pid: string, sid: string | null, d: Draft, now = Date.now()) {
+  const all = readJson<Record<string, Kept>>(draftsKey(pid), {});
   const key = sid ?? NEW;
   delete all[key];
-  if (d.text.trim()) all[key] = { text: d.text.slice(0, 20_000), mentions: d.mentions };
+  for (const k of Object.keys(all)) if (!fresh(all[k], now)) delete all[k]; else all[k] = { ...all[k], at: all[k].at ?? now };
+  if (d.text.trim()) all[key] = { text: d.text.slice(0, 20_000), mentions: d.mentions, at: now };
   const keys = Object.keys(all);
   for (const k of keys.slice(0, Math.max(0, keys.length - MAX_DRAFTS))) delete all[k];
   writeJson(draftsKey(pid), all);

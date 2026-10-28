@@ -75,7 +75,15 @@ describe("KeelBot chats: the pure helpers", () => {
     expect(getDraft(PID, null).text).toBe("a new idea");
     setDraft(PID, "a", { text: "  ", mentions: [] });
     expect(getDraft(PID, "a").text).toBe("");
-    expect(JSON.parse(localStorage.getItem(`keel2.helper.${PID}.drafts`)!)).toEqual({ new: { text: "a new idea", mentions: [] } });
+    expect(JSON.parse(localStorage.getItem(`keel2.helper.${PID}.drafts`)!)).toEqual({ new: { text: "a new idea", mentions: [], at: expect.any(Number) } });
+
+    // keel 0.18.64 a draft older than 14 days is not shown, and goes at the next save
+    const t0 = Date.parse("2026-10-01T12:00:00Z");
+    setDraft(PID, "old", { text: "from long ago", mentions: [] }, t0);
+    expect(getDraft(PID, "old", t0 + 13 * 864e5).text).toBe("from long ago");
+    expect(getDraft(PID, "old", t0 + 15 * 864e5).text).toBe("");
+    setDraft(PID, "b", { text: "today", mentions: [] }, t0 + 15 * 864e5);
+    expect(Object.keys(JSON.parse(localStorage.getItem(`keel2.helper.${PID}.drafts`)!))).not.toContain("old");
 
     const now = Date.parse("2026-10-08T12:00:00Z");
     expect(ago("2026-10-08T11:59:40Z", now)).toBe("now");

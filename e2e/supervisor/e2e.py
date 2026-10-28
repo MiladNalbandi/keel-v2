@@ -233,7 +233,9 @@ def run(image: str, tmp: Path) -> None:
 
     print("\nact: it answers own_fix, the rung passes, and it leaves audit_now to you")
     api("POST", f"/projects/{pid}/flows/{tid}/supervisor", {"on": False})
-    api("POST", f"/projects/{pid}/flows/{tid}/supervisor", {"on": True, "mode": "act", "policy": {"rung": "may"}})
+    # 0.18.64 rung: may lets it run commands without you: the api takes it only with these words
+    api("POST", f"/projects/{pid}/flows/{tid}/supervisor", {"on": True, "mode": "act", "policy": {"rung": "may"},
+                                                            "i_understand": "commands run without you"})
     applied = wait_until("the Supervisor's answer", lambda: next(
         (r for r in rows(pid, tid, "rung_gate") if r.get("outcome") == "applied"), None), timeout=120)
     check(applied["choice"] == "own_fix", "act: it answered the rung gate with own_fix")

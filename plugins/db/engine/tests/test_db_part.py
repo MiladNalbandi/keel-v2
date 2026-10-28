@@ -152,7 +152,7 @@ def test_a_data_change_asks_the_client_first(with_ci):
             return res.content[0].text
 
     text = asyncio.run(go())
-    assert "cannot ask you to confirm change data in the database" in text and "--yes" in text
+    assert "cannot ask you to confirm change data in the database" in text and "--yes" not in text     # 0.18.64 the model is never told how to skip the person
 
 
 # ------------------------------------------------------------------ its content: Tools › Plugins and its command

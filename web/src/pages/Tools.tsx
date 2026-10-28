@@ -47,7 +47,7 @@ function AddServerDrawer({ onClose, onAdded }: { onClose: () => void; onAdded: (
       <div className="field"><label htmlFor="ms-cmd">Command</label><input type="text" id="ms-cmd" value={command} onChange={(e) => setCommand(e.target.value)} placeholder="e.g. docker" /></div>
       <div className="field"><label htmlFor="ms-args">Arguments</label><input type="text" id="ms-args" value={args} onChange={(e) => setArgs(e.target.value)} placeholder="run -i ghcr.io/github/github-mcp-server" /></div>
       <div className="field"><label htmlFor="ms-env">Environment (NAME=value, one per line)</label><textarea id="ms-env" value={env} onChange={(e) => setEnv(e.target.value)} style={{ minHeight: 70 }} />
-        <span className="hint">For secrets, save a key in Settings › Models &amp; logins and refer to its name.</span></div>
+        <span className="hint">keel keeps each value you type here as a secret (secret:&lt;server&gt;_&lt;NAME&gt;) and never shows it again.</span></div>
       {err && <ErrorBox error={err} />}
     </Drawer>
   );

@@ -5,6 +5,7 @@ import keel.api.common.ApiException
 import keel.api.common.BadRequest
 import keel.api.common.Conflict
 import keel.api.common.Hash
+import keel.api.common.Hosts
 import keel.api.common.Json
 import keel.api.common.NotFound
 import keel.api.common.Time
@@ -136,6 +137,10 @@ class JiraService(
         val cur = settings(pid) ?: JiraSettings()
         val next = check(merge(cur, body))
         val token = body.token?.filterNot { it.isWhitespace() }?.takeIf { it.isNotEmpty() }
+        // 0.18.64 the saved token belongs to the saved site: a new host (or http instead of https) needs its token again
+        if (token == null && settings(pid) != null && !Hosts.sameSite(cur.baseUrl, next.baseUrl)) {
+            throw BadRequest("This is another Jira site: paste its token too", "keel sends a saved token only to the site it was saved for.")
+        }
         if (token == null && !secrets.has(secretName(pid))) {
             throw BadRequest("The token is missing", if (next.kind == "cloud") "Paste an API token from id.atlassian.com › Security › API tokens."
             else "Paste a personal access token (Jira › Profile › Personal Access Tokens).")
@@ -302,6 +307,8 @@ class JiraService(
         if (!Regex("^https?://[^\\s/?#]+(/[^\\s?#]*)?$").matches(s.baseUrl)) {
             throw BadRequest("The Jira URL is not valid", if (s.kind == "cloud") "For example https://your-site.atlassian.net" else "For example https://jira.example.com")
         }
+        // 0.18.64 the token never goes over plain http to another machine
+        if (!Hosts.tokenSafe(s.baseUrl)) throw BadRequest("The Jira URL must start with https://", "Plain http:// is only for a Jira on this machine.")
         if (s.kind == "cloud" && (s.email == null || "@" !in s.email)) throw BadRequest("Jira Cloud needs the email of the account", "The token belongs to that email.")
         if (s.projectKey != null && !Regex("^[A-Z][A-Z0-9_]{0,29}$").matches(s.projectKey)) throw BadRequest("The project key is not valid", "Like ABC (the letters before the number in ABC-12).")
         if (s.boardId != null && !Regex("^\\d{1,12}$").matches(s.boardId)) throw BadRequest("The board id is a number", "Open the board in Jira: …/boards/<id>.")

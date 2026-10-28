@@ -142,7 +142,8 @@ def test_what_posts_to_the_host_asks_the_person_first(tool, args):
             return r.content[0].text
 
     assert "cannot ask you to confirm" in asyncio.run(call(False))
-    assert not [c for c in s.calls if c[0] == "POST"]
+    # 0.18.64 only the question in keel's Inbox (the person's OK out of the model's reach), nothing to the host
+    assert not [c for c in s.calls if c[0] == "POST" and not c[1].endswith("/plugins/ask")]
     assert not asyncio.run(call(True)).startswith("keel:")
     assert [c for c in s.calls if c[0] == "POST"]
 

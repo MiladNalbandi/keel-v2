@@ -45,6 +45,30 @@ class SupervisorApiTest : ApiTest() {
     }
 
     @Test
+    fun `0_18_64 policy rung may needs the words that say commands run without you`() {
+        val (pid, _) = newProject("sup-rung")
+        flowOf(pid)
+        val calls = engine.calls.count { it.path == "/threads/t_sup/supervisor" && it.method == "POST" }
+        val res = post("/api/projects/$pid/flows/t_sup/supervisor", mapOf("mode" to "act", "policy" to mapOf("rung" to "may")))
+            .andExpect(status().isBadRequest).json()
+        assertThat(res["error"].asText()).contains("without you")
+        assertThat(engine.calls.count { it.path == "/threads/t_sup/supervisor" && it.method == "POST" }).isEqualTo(calls)
+        post("/api/projects/$pid/flows/t_sup/supervisor", mapOf("mode" to "act", "policy" to mapOf("rung" to "may"),
+            "i_understand" to SupervisorController.RUNG_OK)).andExpect(status().isOk)
+        val sent = engine.lastBody("/threads/t_sup/supervisor")!!
+        assertThat(sent["policy"]["rung"].asText()).isEqualTo("may")
+        assertThat(sent.has("i_understand")).isFalse()
+        // another kind needs no words; an MCP client below admin never changes the policy
+        post("/api/projects/$pid/flows/t_sup/supervisor", mapOf("policy" to mapOf("spec" to "may"))).andExpect(status().isOk)
+        val write = post("/api/mcp/token", mapOf("level" to "write"), mapOf("X-Keel-Token" to TOKEN)).json()["token"].asText()
+        val mcp = mapOf("X-Keel-Via" to "mcp", "X-Keel-Mcp-Token" to write)
+        post("/api/projects/$pid/flows/t_sup/supervisor", mapOf("policy" to mapOf("spec" to "may")), mcp).andExpect(status().isForbidden)
+        post("/api/projects/$pid/flows/t_sup/supervisor", mapOf("mode" to "act"), mcp).andExpect(status().isOk)
+        // keel_supervisor_set's routes stay at write; any other non-GET route of the plugin needs admin
+        post("/api/projects/$pid/supervisor/flow", mapOf("mode" to "act"), mcp).andExpect(status().isForbidden)
+    }
+
+    @Test
     fun `another project's flow is a 404`() {
         val (pid, _) = newProject("sup-mine")
         flowOf("someone-else")
