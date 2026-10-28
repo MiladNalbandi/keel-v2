@@ -25,7 +25,7 @@ from ..workflows.model import Workflow, from_dict
 from ..workflows.templates import get_template
 from . import bug, hunt, ladder as ladder_mod
 from . import memory as memory_mod
-from . import db, doc_history, flow_doc, migrate, prompts, run_mode, spec_check
+from . import branch_sync, db, doc_history, flow_doc, migrate, prompts, run_mode, spec_check
 from . import choices as choices_mod
 from . import finding_decisions
 from .compiler import answer_problem, compile_workflow, running_usage
@@ -69,6 +69,7 @@ class Engine:
         self._closing = False                     # close() is cancelling the drivers: a flow it cuts off is not a stopped flow
         self.keys: dict[str, dict] = {}
         self.sources: dict[str, str] = {}     # thread -> what a started flow works on ("pr:20"), until POST /threads answers
+        self.base_notes: dict[str, str] = {}  # 0.18.64 thread -> its base against the remotes, until POST /threads answers
 
     # ------------------------------------------------------------ lifecycle
 
@@ -173,6 +174,7 @@ class Engine:
                             other_projects=list(body.get("other_projects") or []),
                             memory=memory_mod.AgentMemory(self.conn, tid))
         ctx.spawn = lambda workflow_id, seed, link, tid=tid: self.start_child(tid, workflow_id, seed, link)
+        ctx.synced_base = body.get("synced_base")      # 0.18.64 keel_branch_sync moved where the branch's work starts
         async with self.conn.execute("select path, phase, by, reason, at from thread_unlocks where thread_id = ? order by rowid",
                                      (tid,)) as cur:
             ctx.api_unlocks = [{k: v for k, v in zip(("path", "phase", "by", "reason", "at"), r) if v} for r in await cur.fetchall()]
@@ -352,6 +354,12 @@ class Engine:
             await asyncio.to_thread(git.exclude_engine_files, root)
             layout.hide(root)               # keel / external: .keel/ stays out of git (.git/info/exclude)
             state["preexisting"] = await asyncio.to_thread(git.snapshot, root)
+            check = await self._base_check(root, body, state["git_head"])
+            state["data"].pop("remotes_fetched", None)
+            if check:
+                state["data"]["base_check"] = check
+        else:
+            check = None
         extensions.on_thread_start(root, tid)   # the parts catch up (the code graph syncs edits since its last index)
         await self._import_legacy_unlocks(tid)
         started = {"workflow": wf.id, "workflow_id": wf.id, "title": ctx.title, "flow": wf.flow, "root": root,
@@ -363,9 +371,71 @@ class Engine:
         via = (body.get("data") or {}).get("started_via")
         if via in ("mcp", "tui", "xal"):
             started["via"] = via            # v0.15.8 keel_start_flow (keel2 mcp --write), keel TUI's /flow, xal: the timeline says so
+        if check and check.get("note"):
+            started["note"] = check["note"]  # 0.18.64 how far the base is behind each remote; a failed fetch said plainly
+            started["remotes"] = check["remotes"]
+            self.base_notes[tid] = check["note"]
         ctx.emit("thread.started", data=started)
         self._launch(tid, state)
         return tid
+
+    async def _base_check(self, root: str, body: dict, head: str | None) -> dict | None:
+        """0.18.64 (field report bug 4) the flow's base against every remote: what the api's start fetched
+        (data.remotes_fetched: it fetched before it made the branch, so the branch could start from the newer code),
+        else a fetch here (every remote at once, git.FETCH_EACH s each). A hand-over works on its parent's branch: its
+        parent's start said it. Never fails the start: a failed fetch is a line of the note."""
+        data = body.get("data") or {}
+        fetched = data.get("remotes_fetched")
+        try:
+            if not isinstance(fetched, list):
+                if body.get("parent"):
+                    return None
+                fetched = await asyncio.to_thread(branch_sync.fetch_all, root, body.get("keys"))
+            if not fetched:
+                return None
+            return await asyncio.to_thread(branch_sync.report, root, fetched, head)
+        except Exception:                                   # noqa: BLE001 the start goes on without the note
+            log.exception("base check for %s", root)
+            return None
+
+    async def sync_branch(self, tid: str, onto: str | None = None, mode: str = "merge", action: str = "start") -> dict:
+        """0.18.64 (field report bug 6) keel merges (or rebases) the flow's branch onto a base, in the folder or the
+        worktree the flow works in (runtime/branch_sync.py). keel runs it, not an agent, so the guards that refuse an
+        agent's merge or commit do not apply; never while a step runs. A conflict stops it with the files; continue
+        commits the resolution with keel's commit identity. When the branch moved, where its own work starts (the
+        merge base) becomes the flow's base_head at its next step (ctx.synced_base), so the diff of the flow's work does
+        not hold the base's commits it brought in."""
+        row = await self._row(tid)
+        if tid in self.tasks:
+            raise EngineError(409, "The flow is running a step now.",
+                              "Sync its branch when it waits at a gate, or pause it first.")
+        ctx = await self._context(tid)
+        root = row["root"]
+        # the checkout must be on the flow's own branch (a rebase that waits shows HEAD): never sync another flow's work
+        mine = ((await (await self._graph(tid)).aget_state(self._cfg(tid))).values or {}).get("branch")
+        now = await asyncio.to_thread(git.branch, root)
+        if mine and now and now not in (mine, "HEAD") and await asyncio.to_thread(git.rev, root, f"refs/heads/{mine}"):
+            raise EngineError(409, f"The folder is on {now}, not on this flow's branch {mine}.",
+                              f"Check out {mine} again (or sync the flow that works on {now}).")
+        try:
+            out = await asyncio.to_thread(branch_sync.sync, root, onto, mode, action, ctx.settings)
+        except branch_sync.SyncError as exc:
+            raise EngineError(exc.status, exc.message, exc.hint) from exc
+        if out.get("ok") and out.get("synced") and out.get("base_head"):
+            body = json.loads(row["body"])
+            body["synced_base"] = out["base_head"]
+            await self.conn.execute("update keel_threads set body = ?, updated_at = ? where thread_id = ?",
+                                    (json.dumps(body), _now(), tid))
+            await self.conn.commit()
+            ctx.synced_base = out["base_head"]
+            if out.get("commit"):
+                files = await asyncio.to_thread(lambda: git.git(root, "diff", "--name-only", "HEAD^1", "HEAD").stdout.split())
+                ctx.emit("keel.applied", data={"kind": "commit", "sha": out["commit"], "ref": out["commit"],
+                                               "subject": f"Merge {out.get('onto')} into {out.get('branch')}", "files": files})
+            extensions.on_commit(root)
+        ctx.emit("branch.synced", data={k: out.get(k) for k in ("ok", "synced", "mode", "onto", "branch", "head", "note",
+                                                               "conflicts") if out.get(k) is not None})
+        return {**out, "thread": await self.state(tid)}
 
     async def _preflight(self, wf: Workflow, root: str, body: dict) -> str | None:
         """A workflow whose first step checks its input before anything runs (review-pr's ticket_prep: the PR or

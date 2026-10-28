@@ -182,6 +182,9 @@ class McpLevelGuard(private val tokens: McpTokens, private val mapper: ObjectMap
             Regex("^/api/projects/[^/]+/stacks/check$"),
             // 0.18.64 keel's spec check and citation check on a file of the project (keel_spec_check, keel_citations_check)
             Regex("^/api/projects/[^/]+/(specs|citations)/check$"),
+            // 0.18.64 a fetch of the project's remotes (keel_fetch_remotes): it updates only the remote-tracking refs, no
+            // branch and no file. A flow branch's sync (POST /api/threads/{id}/sync, keel_branch_sync) is write.
+            Regex("^/api/projects/[^/]+/remotes/fetch$"),
         )
     }
 }

@@ -72,7 +72,9 @@ TOOLS: dict[str, tuple[str, ...]] = {
              # 0.18.64 keel's spec check and citation check on a file of the project (they change nothing)
              "keel_spec_check", "keel_citations_check",
              # 0.18.64 a flow's document from its file (with `text` it replaces it: that needs the write level)
-             "keel_flow_document"),
+             "keel_flow_document",
+             # 0.18.64 fetch every remote (a fetch changes no branch): one result per remote, the base's distance
+             "keel_fetch_remotes"),
     "write": ("keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc",
               # 0.18.5 what keel TUI does: stop flows (asks first), a run mode, go on with a stopped flow, start an
               # agent, ask KeelBot, keep or undo its changes (asks first)
@@ -87,7 +89,9 @@ TOOLS: dict[str, tuple[str, ...]] = {
               # 0.18.9 a new stack, one removed, one turned off or on, one from the marketplace
               "keel_stack_create", "keel_stack_remove", "keel_stack_off", "keel_stack_market_install",
               # 0.18.64 the clarify result's send-back with a replacement draft, and its hand-over
-              "keel_reject_with_document", "keel_handover"),
+              "keel_reject_with_document", "keel_handover",
+              # 0.18.64 keel merges or rebases a flow's branch onto a base; a conflict stops with the files
+              "keel_branch_sync"),
     "admin": ("keel_delete_run", "keel_add_project", "keel_remove_project",
               # 0.19.x what the dashboard and keel TUI do with projects: pause a flow, switch the focused project
               "keel_pause", "keel_focus",

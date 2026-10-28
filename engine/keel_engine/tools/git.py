@@ -167,3 +167,74 @@ def head_tree(root: str) -> str | None:
 
 def tracked_in_head(root: str, rel: str) -> bool:
     return git(root, "cat-file", "-e", f"HEAD:{rel}").returncode == 0
+
+
+# ------------------------------------------------------------------ 0.18.64 remotes and branch sync
+
+FETCH_EACH = 20        # seconds per remote: a dead or slow remote never holds a flow's start for long
+
+
+def remotes(root: str) -> list[str]:
+    """The repo's remotes by name (`git remote`), in git's order; [] outside a repo or with none."""
+    r = git(root, "remote")
+    return [x.strip() for x in r.stdout.splitlines() if x.strip()] if r.returncode == 0 else []
+
+
+def rev(root: str, ref: str) -> str | None:
+    """The commit `ref` names (a branch, origin/main, a tag, a sha), or None."""
+    if not ref:
+        return None
+    r = git(root, "rev-parse", "--verify", "-q", f"{ref}^{{commit}}")
+    return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else None
+
+
+def ahead_behind(root: str, ref: str, other: str) -> tuple[int, int] | None:
+    """(commits only on `ref`, commits only on `other`): how far `ref` is ahead of and behind `other`; None when git
+    cannot compare them (a ref that does not exist)."""
+    r = git(root, "rev-list", "--left-right", "--count", f"{ref}...{other}")
+    try:
+        ahead, behind = (int(x) for x in r.stdout.split())
+    except ValueError:
+        return None
+    return ahead, behind
+
+
+def remote_default(root: str, name: str) -> str | None:
+    """A remote's default branch as the last fetch left it ("upstream/main"): refs/remotes/<name>/HEAD, else main or
+    master when the remote has one. Nothing is fetched."""
+    r = git(root, "symbolic-ref", "-q", "--short", f"refs/remotes/{name}/HEAD")
+    if r.returncode == 0 and r.stdout.strip():
+        return r.stdout.strip()
+    for b in ("main", "master"):
+        if git(root, "show-ref", "--verify", "-q", f"refs/remotes/{name}/{b}").returncode == 0:
+            return f"{name}/{b}"
+    return None
+
+
+def in_progress(root: str) -> str | None:
+    """"merge" or "rebase" while one waits for its conflicts to be resolved, else None."""
+    if git(root, "rev-parse", "-q", "--verify", "MERGE_HEAD").returncode == 0:
+        return "merge"
+    for d in ("rebase-merge", "rebase-apply"):
+        p = git(root, "rev-parse", "--git-path", d).stdout.strip()
+        if p and (Path(root) / p).is_dir():
+            return "rebase"
+    return None
+
+
+def unmerged(root: str) -> list[str]:
+    """The files a merge or rebase left with conflicts (`git diff --diff-filter=U`), sorted."""
+    r = git(root, "diff", "--name-only", "--diff-filter=U", "-z")
+    return sorted({p for p in r.stdout.split("\0") if p}) if r.returncode == 0 else []
+
+
+def has_markers(root: str, rel: str) -> bool:
+    """True when a working file still holds a conflict block (a `<<<<<<< ` line and a `>>>>>>> ` line)."""
+    p = Path(root) / rel
+    if not p.is_file():
+        return False
+    try:
+        lines = p.read_text(errors="replace").splitlines()
+    except OSError:
+        return False
+    return any(x.startswith("<<<<<<< ") for x in lines) and any(x.startswith(">>>>>>> ") for x in lines)

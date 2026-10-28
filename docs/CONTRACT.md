@@ -3013,3 +3013,60 @@ From the field report (docs/plans/field-report-clarify.md, bugs 1 and 2) and its
   (text, why?, project?, thread_id?)` (write; only at a clarify result gate; no `why` sends a note that says to keep
   the draft), `keel_handover(flow, text?, why?, project?, thread_id?)` (write; only a flow the gate offers; with `text`
   it `PUT`s the document first; answers with the new flow's thread id and the link). They come after `keel_diagram`.
+
+## keel 0.18.64: the base against the remotes, and keel's branch sync (feat/base-sync)
+
+Field report bugs 4 and 6 (docs/plans/field-report-clarify.md): a flow branched from a local base behind a second
+remote while a timed-out fetch went unsaid, and nothing could bring a flow's branch up to its base.
+
+```
+POST /api/projects/{pid}/flows        + { base? }   a local branch or <remote>/<branch>: the flow's new branch (folder or
+                                                     worktree) starts from it; 400 when it does not resolve, with
+                                                     branch: continue, for a read-only flow or one with own_branch: false
+                                      → ThreadState + base_note?   (the engine's start note, below)
+POST /api/projects/{pid}/remotes/fetch → { base, remotes: RemoteRow[], lines: string[], note, fetched: [{remote, ok, error?}] }
+                                                     (MCP read level: a fetch moves remote-tracking refs only)
+POST /api/threads/{tid}/sync  { onto?, mode?: merge|rebase, action?: start|continue|abort }
+                                      → SyncResult + thread   (write level; 404 unknown flow, 400 bad mode or action)
+type RemoteRow  = { remote, ok, error?, branch?: "<remote>/<base>", ahead?, behind?, default?: "<remote>/<default>",
+                    default_ahead?, default_behind? }
+type SyncResult = { ok, synced, mode, onto, branch, before, head, base_head?, commit?, behind?, conflicts: string[],
+                    state?: merge|rebase (a conflict waits), note, next? }
+
+engine POST /remotes/fetch  { root, keys?, start? }   → as the api's (runtime/branch_sync.py fetch_all + report)
+engine POST /threads/{tid}/sync { onto?, mode, action, root? } → SyncResult + thread (Engine.sync_branch)
+engine POST /threads            + data.remotes_fetched?  → { thread_id, source?, base_note? }
+```
+- **Fetch**: every remote at once (`git fetch -q --no-tags <remote> +refs/heads/*:refs/remotes/<remote>/*`), at most
+  `git.FETCH_EACH` = 20 s each, no password or ssh host-key prompt (BatchMode), keel's GitHub login only for a remote on
+  its host (tools/git_auth.py). A failure or a timeout is a row with `ok: false` and git's first line (the token masked).
+- **Report** (`branch_sync.report`): the base is base_branch (origin/main counts as main), else main, else master. Per
+  remote: ahead / behind of the base against `<remote>/<base>`, and against the remote's default branch
+  (refs/remotes/<remote>/HEAD, else its main or master) when that is another branch. Lines: "fetch from <remote> failed:
+  <why>; the base may be stale", "<base> is N commits behind <remote>/<base>" (+ "and M ahead" when they diverged),
+  "<base> is N commits behind <remote>/<default> (<remote>'s default branch)", else "<base> is up to date with …"; with
+  the flow's start commit: "the flow's branch starts from <ref>", or "the flow starts from the local <base>: to start
+  from the newer code, start it with base <ref>".
+- **Start**: the api fetches (engine `/remotes/fetch`, keys = the contributors' keys) before it makes the branch, so
+  B7's freshBase sees the fetched `origin/<base>`; it sends the rows as `data.remotes_fetched` (`[]` for a read-only
+  flow, which fetches what it reads itself; nothing for a project without a remote). The engine's start_thread fetches
+  itself only when `remotes_fetched` is missing and the flow has no parent. The report is `state.data.base_check`,
+  `thread.started` carries `note` and `remotes`, and `POST /threads` answers `base_note`. Nothing here fails a start.
+- **Sync** (`branch_sync.sync`, run by keel, not an agent: the guards that refuse an agent's merge, reset or commit do
+  not apply). Refused (409) while a step runs, when the checkout is not on the flow's branch (state.branch), on a
+  detached HEAD, with changed tracked files, or while a merge or rebase waits (start). `onto` default:
+  `verdict_actions.base_ref` (the base's remote copy, else the local base); 400 when it does not resolve or is the
+  branch itself. merge: `git merge --no-edit -m "Merge <onto> into <branch>" -m <co-author>` with keel's commit
+  identity (`actions.commit_args`); rebase: `git rebase <onto>` with that committer. A conflict: `ok: false`,
+  `conflicts`, `state`, `next`; the merge or rebase waits. continue: the conflicted files must be free of markers
+  (else `ok: false` with them); keel stages exactly them and commits (MERGE_MSG without its # lines) or runs
+  `rebase --continue`. abort: `git merge|rebase --abort`. When the branch moved: the thread body's `synced_base` and
+  `ThreadContext.synced_base` = the merge base with `onto`; the compiler's next step writes it into `state.base_head`.
+  Events `branch.synced {ok, synced, mode, onto, branch, head, note, conflicts}` and, for a merge commit,
+  `keel.applied {kind: commit, …}`.
+- **MCP**: `keel_fetch_remotes(project?)` (read) — one line per remote, then the note and the way to use the newer
+  branch; `keel_branch_sync(thread_id?, onto?, mode, action, project?)` (write) — the project folder's flow by
+  default; a conflict lists the files and the continue call. `keel_start_flow(base=…)` sends `base` (refused with
+  `branch=continue`) and its answer ends with "Base: <note>." Both new tools come after keel's earlier tools and
+  before the marketplace's four. The older `POST /api/projects/{pid}/repo/update-from-base` (project folder, merge
+  only, aborts on a conflict) stays as it was.

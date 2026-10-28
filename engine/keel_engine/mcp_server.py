@@ -59,7 +59,7 @@ def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | 
                wait: float = START_WAIT, allow_fake: bool = False, title: str | None = None, request: str | None = None,
                ticket: str | None = None, pr: str | None = None, inputs: dict | None = None,
                run_mode: str | None = None, allow_dirty: bool = False, ignore: list[str] | None = None,
-               force: bool = False, branch: str | None = None) -> str:
+               force: bool = False, branch: str | None = None, base: str | None = None) -> str:
     """Start a flow through the dashboard's own endpoint (POST /api/projects/{id}/flows): the same guard, budget, run
     mode and records as a flow started in the web app. It runs until its first human gate, like any flow. No type:
     the flows the project can start, each with what it is for and its inputs."""
@@ -91,6 +91,11 @@ def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | 
         if branch not in ("new", "continue"):
             raise ApiError("branch is new (a new branch from the base branch) or continue (the branch the folder is on).")
         body["branch"] = branch
+    if base:
+        # 0.18.64 the flow's new branch starts from this branch: a local one or <remote>/<branch> (field report bug 4)
+        if branch == "continue":
+            raise ApiError("base starts a new branch from it; branch=continue stays on the folder's branch: pass one of them.")
+        body["base"] = base
     ignored = []
     for path in ignore or []:
         # 0.18.57 "Ignore this path": an untracked path that is not the person's work goes to .git/info/exclude
@@ -144,6 +149,8 @@ def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | 
         out.append("It is still running; keel_status follows it, and it stops at its first gate for a human.")
     if state.get("cap_note"):
         out.append(str(state["cap_note"]))
+    if state.get("base_note"):
+        out.append(f"Base: {state['base_note']}.")        # 0.18.64 how far the base is behind each remote
     out.append(f"Watch it: {dashboard_url(api, 'flow', p['id'])}")
     return "\n".join(out)
 
@@ -690,7 +697,8 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
                               ticket: str | None = None, pr: str | None = None, inputs: dict[str, Any] | None = None,
                               run_mode: Literal["manual", "important", "auto", "readonly"] | None = None,
                               allow_dirty: bool = False, ignore: list[str] | None = None, force: bool = False,
-                              branch: Literal["new", "continue"] | None = None, ctx: Context | None = None) -> str:
+                              branch: Literal["new", "continue"] | None = None, base: str | None = None,
+                              ctx: Context | None = None) -> str:
         """Start a keel flow on the project, as the dashboard's "Start a flow" does. No type: every flow the project can
         start (quick, small, implement, change, feature, fix, spike, clarify, review-pr, ...), one line each on what it is for
         and the inputs it reads. type: the workflow id; request (or idea): in your words what to build, fix or find out (a flow that builds
@@ -706,13 +714,15 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         lists untracked paths that are not their work (added to .git/info/exclude first); force starts although another
         flow or side agent works on the same ticket, branch or files. Use them only when the person said so.
         branch: continue (the branch the project folder is on) or new (a new branch from the base branch); default:
-        continue for the flows that finish a branch (ship, cover, review, lint, address), new for the others."""
+        continue for the flows that finish a branch (ship, cover, review, lint, address), new for the others.
+        base: the branch the flow's new branch starts from, a local branch or <remote>/<branch> (e.g. upstream/main);
+        keel fetches every remote at the start and its answer says how far the base is behind each one."""
         if not type:
             from . import mcp_flows
             return guard(startable, api, project)
         return await act(ctx, "keel_start_flow", f"start a {type} flow", start_flow, api, type, idea, project,
                          time.sleep, START_WAIT, allow_fake, title, request, ticket, pr, inputs, run_mode,
-                         allow_dirty, ignore, force, branch)
+                         allow_dirty, ignore, force, branch, base)
 
     @reg(rw)
     async def keel_answer(decision: Literal["approve", "reject"] = "approve", project: str | None = None,
@@ -1103,6 +1113,29 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         what = {"add": "add a rule pack", "change": f"change the rule pack {pack}", "remove": f"remove the rule pack {pack}",
                 "off": f"switch off {rule}", "on": f"switch on {rule}"}.get(op, op)
         return await act(ctx, "keel_rule_edit", what, more.rule_edit, api, op, pack, yaml, rule, project)
+
+    # ---------------------------------------------------------------- 0.18.64 the base and the remotes
+    # after every tool keel listed before (their order stays), before the marketplace's
+
+    @reg(ro)
+    def keel_fetch_remotes(project: str | None = None) -> str:
+        """Fetch every git remote of the project (at most 20 s each; a fetch changes no branch) and say, one line per
+        remote, whether it worked (or why not) and how far the base branch is behind the remote's copy of it and the
+        remote's default branch. Use it before a flow starts or a spec is written: code read from a stale base is wrong."""
+        return guard(more.fetch_remotes, api, project)
+
+    @reg(rw)
+    async def keel_branch_sync(thread_id: str | None = None, onto: str | None = None,
+                               mode: Literal["merge", "rebase"] = "merge",
+                               action: Literal["start", "continue", "abort"] = "start", project: str | None = None,
+                               ctx: Context | None = None) -> str:
+        """Bring a flow's branch up to a base: keel itself merges (default) or rebases it, in the folder or worktree the
+        flow works in, while the flow waits or is paused (not while a step runs). onto: a local branch or
+        <remote>/<branch> (default: the base branch's remote copy, else the local base; keel_fetch_remotes first). A
+        conflict stops with the files: resolve them (remove the conflict markers), then action=continue and keel
+        commits the resolution; action=abort goes back. thread_id: the flow (default: the project folder's flow)."""
+        return await act(ctx, "keel_branch_sync", f"{mode} the flow's branch", more.branch_sync, api, project, thread_id,
+                         onto, mode, action)
 
     # ---------------------------------------------------------------- the marketplace (step 4)
     # last at every level (keel 0.16.1's list keeps its order); asking for a plugin is allowed read-only
