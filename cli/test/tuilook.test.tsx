@@ -155,7 +155,7 @@ function setup({ width = 100, rows = 40, sidebar, mcp }: Opts = {}) {
   };
 }
 
-const STATUS_OUT = "project app-tracking\nflow feature waiting\nstep spec_gate";
+const STATUS_OUT = "project demo-project\nflow feature waiting\nstep spec_gate";
 
 describe("the person's message has a bar, KeelBot's answer none", () => {
   it("draws the bar on each of the person's lines (and its air) and on no other block", () => {
@@ -210,20 +210,20 @@ describe("one tidy line per tool call", () => {
       kind: "tool",
       tool: "keel_status",
       server: "keel",
-      text: '{"project":"app-tracking"}',
+      text: '{"project":"demo-project"}',
       output: STATUS_OUT,
       ok: true,
     });
     expect(fromStep).toMatchObject({
       name: "keel_status",
-      args: "project=app-tracking",
+      args: "project=demo-project",
       status: "ok",
       lines: 3,
       summary: "3 lines",
       shell: false,
     });
     expect(toolLines(fromStep!, 80)).toEqual([
-      "  ⚙ keel_status [project=app-tracking]",
+      "  ⚙ keel_status [project=demo-project]",
       "    └ 3 lines",
     ]);
     const sh = toolFromEvent({
@@ -281,7 +281,7 @@ describe("one tidy line per tool call", () => {
       kind: "tool",
       tool: "keel_status",
       server: "keel",
-      text: '{"project":"app-tracking"}',
+      text: '{"project":"demo-project"}',
       output: STATUS_OUT,
       ok: true,
     });
@@ -289,7 +289,7 @@ describe("one tidy line per tool call", () => {
       n: 1,
       name: "keel_status",
       server: "keel",
-      args: { project: "app-tracking" },
+      args: { project: "demo-project" },
       shell: false,
       status: "ok",
       summary: "3 lines",
@@ -306,14 +306,14 @@ describe("one tidy line per tool call", () => {
     });
     await waitFor(() => t.frame().includes("$ git status --short"));
     expect(t.frame()).toContain(
-      "⚙ keel_status [project=app-tracking]\n    └ 3 lines (Ctrl+O to show)",
+      "⚙ keel_status [project=demo-project]\n    └ 3 lines (Ctrl+O to show)",
     );
     expect(t.frame()).toContain("$ git status --short\n    └ M src/a.ts");
     expect(t.frame()).not.toContain("flow feature waiting");
     await t.key("\x0f"); // Ctrl+O
     await waitFor(() => t.frame().includes("flow feature waiting"));
     expect(t.frame()).toContain(
-      "    └ 3 lines (open)\n      project app-tracking\n      flow feature waiting",
+      "    └ 3 lines (open)\n      project demo-project\n      flow feature waiting",
     );
     await t.key("\x0f");
     await waitFor(() => !t.frame().includes("flow feature waiting"));
@@ -328,7 +328,7 @@ describe("one tidy line per tool call", () => {
       n: 1,
       name: "keel_status",
       server: "keel",
-      args: { project: "app-tracking" },
+      args: { project: "demo-project" },
       status: "ok",
       summary: "3 lines",
       lines: 3,
@@ -348,7 +348,7 @@ describe("one tidy line per tool call", () => {
     await t.finish("The flow waits at the spec gate.");
     let f = t.frame();
     expect(f).toMatch(
-      /⚙ keel_status \[project=app-tracking\]\n {4}└ 3 lines\n/,
+      /⚙ keel_status \[project=demo-project\]\n {4}└ 3 lines\n/,
     );
     expect(f).toContain(
       "⚙ keel_next\n    └ keel is not reachable (Ctrl+O to show)",
@@ -410,7 +410,7 @@ describe("one tidy line per tool call", () => {
         data: {
           n: 1,
           name: "keel_status",
-          args: { project: "app-tracking" },
+          args: { project: "demo-project" },
           status: "ok",
           summary: "3 lines",
           lines: 3,
@@ -433,12 +433,12 @@ describe("one tidy line per tool call", () => {
     await waitFor(() => probe.answers === 1);
     await tick(30);
     expect(frame()).toContain(
-      "  ⚙ keel_status [project=app-tracking]\n    └ 3 lines (Ctrl+O to show)",
+      "  ⚙ keel_status [project=demo-project]\n    └ 3 lines (Ctrl+O to show)",
     );
     r.stdin.write("\x0f");
     await waitFor(() => frame().includes("flow feature waiting"));
     expect(frame()).toContain(
-      "    └ 3 lines (open)\n      project app-tracking",
+      "    └ 3 lines (open)\n      project demo-project",
     );
     r.unmount();
   });

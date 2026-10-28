@@ -7,7 +7,9 @@ version: 1
 # Options (StartThread.settings): fast (no knowledge base unless the user names sections, a rung that passed before
 # with the same command is re-used, no arch-surveyor).
 # A failing rung: one read-only setup-doctor diagnoses it and proposes a fix, then the rung gate shows the DIAGNOSIS
-# and the fix: apply_fix (keel runs the proposed commands and writes a corrected rung command to .keel/config.yml) / retry / skip (setup.not_checked) / stop. A rung gate, the
+# and the fix: apply_fix (keel runs the proposed commands and writes a corrected rung command to .keel/config.yml) / retry / skip (setup.not_checked) / stop.
+# 0.18.63 own_fix: the person (or the Supervisor) gives the fix commands; after FIX_ROUNDS failed fixes, or a fix that already
+# failed, the gate offers no apply_fix and a plain approve stops init. A rung gate, the
 # git question and audit_now are only ever answered by a person (run_mode: SAFETY kinds rung and note).
 steps:
   - { id: git_check, kind: code, name: is this a git repository, action: git_check, phase: setup }
@@ -53,7 +55,7 @@ steps:
   - { id: doctor, kind: parallel, name: setup-doctor for the failing rungs, agent: setup-doctor, model: default, from: doctor_items, markers: [DIAGNOSIS], phase: setup }
   - { id: rung_report, kind: code, name: the doctor's diagnosis, action: rung_report, phase: setup }
   - { id: rung_gate, kind: gate, name: a setup rung fails, phase: setup, when: { data: rung_question },
-      choices: { apply_fix: rung_apply, retry: rung_apply, skip: rung_apply, stop: end } }
+      choices: { apply_fix: rung_apply, retry: rung_apply, own_fix: rung_apply, skip: rung_apply, stop: end } }
   - { id: rung_apply, kind: code, name: apply the rung decision, action: rung_apply, phase: setup }
   - { id: ladder_done, kind: branch, name: ladder green, when: { marker: LADDER, equals: green }, no: doctor, phase: setup }
   - { id: memory_check, kind: code, name: knowledge check, action: knowledge_check, phase: setup }

@@ -140,6 +140,24 @@ def run_service(init: dict | None) -> str | None:
     return r[len(COMPOSE_RUN):].strip() or None if r.startswith(COMPOSE_RUN) else None
 
 
+DEV_CONTAINER = "dev container"
+
+
+def run_prefix(root: str, init: dict | None) -> str | None:
+    """The prefix that runs a project command where init's answer says the tools live: `docker compose exec -T <service>`
+    for a compose service, the dev container's exec for "dev container" (container.devcontainer), else None (this
+    machine: keel's own shell)."""
+    from . import container
+
+    svc = run_service(init)
+    if svc:
+        return container.exec_prefix(svc, compose_file(root))
+    if str((init or {}).get("runs_on") or "") == DEV_CONTAINER:
+        dev = container.devcontainer(root)
+        return dev["prefix"] if dev else None
+    return None
+
+
 def services_command(root: str, init: dict | None) -> str | None:
     """The command that starts the services when the answer was "use <compose file>"."""
     from . import container
@@ -152,14 +170,14 @@ def services_command(root: str, init: dict | None) -> str | None:
 
 
 def answered_commands(root: str, init: dict | None, cmds: dict) -> dict:
-    """The commands with init's answers applied: run in a compose service -> the backend commands go through
-    `docker compose exec -T <service>`; services "use <compose file>" -> commands.services, unless one is set."""
+    """The commands with init's answers applied: run in a compose service or the dev container -> the backend commands
+    go through its exec (run_prefix); services "use <compose file>" -> commands.services, unless one is set."""
     from . import container
 
     out = dict(cmds or {})
-    svc = run_service(init)
-    if svc:
-        out.update(container.wrap(out, container.exec_prefix(svc, compose_file(root))))
+    prefix = run_prefix(root, init)
+    if prefix:
+        out.update(container.wrap(out, prefix))
     start = services_command(root, init)
     if start and not str(out.get("services") or "").strip():
         out["services"] = start

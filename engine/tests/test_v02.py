@@ -181,7 +181,7 @@ def test_ladder_failure_pauses_init_with_waiting_rungs(client, repo):
     while s["status"] == "waiting" and s["waiting"]["step"] in ("questions", "plan_gate"):
         s = decide(client, tid)
     assert s["status"] == "waiting" and s["waiting"]["step"] == "rung_gate", s
-    assert s["waiting"]["choices"][-3:] == ["retry", "skip", "stop"] and "Rung 4" in s["waiting"]["detail"]
+    assert s["waiting"]["choices"][-4:] == ["retry", "own_fix", "skip", "stop"] and "Rung 4" in s["waiting"]["detail"]
     st = {r["n"]: r["status"] for r in s["ladder"]}
     assert st[4] == "fail" and st[6] == "waiting" and st[1] == "pass"
 

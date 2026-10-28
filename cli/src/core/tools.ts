@@ -1,5 +1,5 @@
 // KeelBot's tool calls as keel TUI shows them, the opencode way: one quiet line per call, "⚙ keel_status
-// [project=app-tracking]" or "$ git status --short", its result folded under it ("└ 220 lines", or the one line it
+// [project=demo-project]" or "$ git status --short", its result folded under it ("└ 220 lines", or the one line it
 // printed, an error in the error colour), and the whole output in the transcript when the person opens it (Ctrl+O, or a
 // click). No UI here: lines of styled text for any front end.
 //
@@ -17,7 +17,7 @@ export type ToolCall = {
   n: number;
   name: string;
   server?: string;
-  /** the arguments as one line: "project=app-tracking", the command, the path */
+  /** the arguments as one line: "project=demo-project", the command, the path */
   args: string;
   /** a shell command: shown as "$ <command>" */
   shell: boolean;
@@ -174,7 +174,7 @@ export function cutTo(s: string, width: number): string {
   return out + "…";
 }
 
-/** The call's line: "⚙ keel_status [project=app-tracking]", "$ git status --short", cut to one line. */
+/** The call's line: "⚙ keel_status [project=demo-project]", "$ git status --short", cut to one line. */
 export function toolHead(t: ToolCall, width: number, p: Paint = PLAIN): string {
   const bad = t.status !== "ok";
   const glyph = (s: string) => (bad ? p.bad(s) : p.meta(s));

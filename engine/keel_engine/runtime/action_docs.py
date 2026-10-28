@@ -576,12 +576,17 @@ DOCS: dict[str, dict] = {
                    "proposed fix and the commands apply_fix would run.",
         "steps": ["The commands come from the doctor's keel-fix block (data.rung_fix), corrected rung commands from its "
                   "keel-config block (data.rung_config); without either the gate offers no apply_fix.",
-                  "The text is data.rung_gate_detail, with what the last applied fix did."],
+                  "The text is data.rung_gate_detail, with what the last applied fix did.",
+                  "A fix that already failed, or 3 failed fixes on the rung: no apply_fix, and a plain approve stops "
+                  "init (data.rung_gate_order)."],
     },
     "rung_apply": {
-        "summary": "Applies your answer for a failing rung: apply_fix (run the proposed commands), retry, or skip "
-                   "(setup.not_checked).",
-        "steps": ["apply_fix: each command is checked by the setup phase's command rules, then run; the first failure stops.",
+        "summary": "Applies your answer for a failing rung: apply_fix (run the proposed commands), own_fix (run your "
+                   "commands), retry, or skip (setup.not_checked).",
+        "steps": ["apply_fix / own_fix: each command is checked by the setup phase's command rules, then run where init "
+                  "says the tools live (a compose service or the dev container); the first failure stops.",
+                  "apply_fix / own_fix: the fix and its output are kept (data.rung_fixes_tried) for the doctor's next "
+                  "round and the loop check.",
                   "apply_fix: when all ran, the corrected rung commands (the keel-config block, and a fix command that "
                   "is a failing rung's command corrected) are written to commands in .keel/config.yml.",
                   "skip: the rung number is added to setup.not_checked in .keel/config.yml.",

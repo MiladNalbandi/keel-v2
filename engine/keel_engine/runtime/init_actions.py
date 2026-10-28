@@ -28,7 +28,7 @@ from pathlib import Path
 import yaml
 
 from .. import rules
-from . import arch, md
+from . import arch, init_gates, md
 from .actions import ActionInput, ActionResult, ladder
 
 
@@ -139,7 +139,17 @@ DOCTOR_ASK = ("These setup ladder rungs fail. First look for a cause they share 
               "the person sees them and decides. When a rung's own command is wrong (it must run in a container, in "
               "another folder or with other options), put the corrected command in one ```keel-config block as "
               "`commands.<the rung's key>: <command>` (one per line): keel writes it to .keel/config.yml, so the ladder "
-              "and every flow run it from then on. End with DIAGNOSIS: fixable | needs-you | unknown.")
+              "and every flow run it from then on. The item says where keel runs the commands (runs_in): check the "
+              "versions there (runtime, package manager), not only on the machine you are on, and write the keel-fix "
+              "commands without that prefix (keel adds it). Compare the dependency manifest with its lock file: a lock "
+              "older than the manifest needs a full update, not an update of one package. fixes_tried lists the fixes "
+              "keel already ran and what they printed: never propose one of them again; say why it failed and what "
+              "is different now, or answer needs-you. End with DIAGNOSIS: fixable | needs-you | unknown.")
+
+# 0.18.63 a rung whose fix failed: the doctor proposed the same narrow fix again and again, and a plain approve took
+# apply_fix each time (a seven-round loop). After FIX_ROUNDS failed fixes, or when the doctor proposes one that already
+# failed, the gate offers no apply_fix and a plain approve stops init.
+FIX_ROUNDS = 3
 
 
 def _audit_detail(rungs: list[dict], notes_cost: str | None = None, notes_on: bool = False) -> str:
@@ -186,7 +196,9 @@ async def _ladder_state(a: ActionInput, step: str, extra: dict | None = None) ->
     # next round resumes the same agent's session (agent memory keys on the item), so it keeps what it learned.
     data["doctor_items"] = [{
         "id": "failing-rungs", "whole": True, "name": f"{len(failed)} failing rung{'s' if len(failed) != 1 else ''}",
-        "rungs": data["failed_rungs"], "ask": DOCTOR_ASK}] if failed else []
+        "rungs": data["failed_rungs"], "runs_on": str((a.init or {}).get("runs_on") or "this machine"),
+        "runs_in": _runs_in(a), "fixes_tried": (data.get("rung_fixes_tried") or [])[-FIX_ROUNDS:],
+        "ask": DOCTOR_ASK}] if failed else []
     if failed:
         x = failed[0]
         data["rung_question"] = {"n": x["n"], "name": x["name"], "cmd": x["cmd"], "detail": x.get("detail"),
@@ -196,8 +208,18 @@ async def _ladder_state(a: ActionInput, step: str, extra: dict | None = None) ->
     return ActionResult(True, note, r.detail, {"ladder": rungs, "data": data, "markers": _marker(a, "LADDER", value, step)})
 
 
+def _runs_in(a: ActionInput) -> str:
+    """Where keel runs the rung and fix commands, in words for the doctor."""
+    prefix = init_gates.run_prefix(a.root, a.init)
+    if prefix:
+        return f"in the container: every command runs as `{prefix} <command>`"
+    if str((a.init or {}).get("runs_on") or "") == init_gates.DEV_CONTAINER:
+        return "nowhere yet: the answer is dev container, but the project has no devcontainer.json keel can use"
+    return "on this machine, in keel's own shell"
+
+
 async def ladder_soft(a: ActionInput) -> ActionResult:
-    return await _ladder_state(a, "ladder", {"rung_attempts": {}, "rung_fix_log": None})
+    return await _ladder_state(a, "ladder", {"rung_attempts": {}, "rung_fix_log": None, "rung_fixes_tried": []})
 
 
 async def ladder_retry(a: ActionInput) -> ActionResult:
@@ -366,13 +388,26 @@ def _rung_report(a: ActionInput) -> ActionResult:
           "the ladder runs again."] if cmds or sets else [])
         + ["**retry**: you fixed it (or it was a passing problem); the ladder runs again and the doctor looks again if it "
            "still fails.",
+           "**own_fix**: write your own fix commands in your answer, one per line; keel runs them where the rungs "
+           "run, then the ladder again.",
            f"**skip**: keep rung {q['n']} but mark it as not checked ({md.code('setup.not_checked')}); the ladder goes on "
            "with the next rungs.",
            "**stop**: end init here; nothing after the ladder runs (no knowledge check, no commit)."])))
+    tried = [x for x in a.data.get("rung_fixes_tried") or [] if isinstance(x, dict)]
+    failed_fixes = [x for x in tried if not x.get("ok")]
+    again = bool(cmds or sets) and any(x.get("key") == _fix_key(cmds, sets) for x in failed_fixes)
+    stuck = again or len(failed_fixes) >= FIX_ROUNDS
+    if stuck:
+        why = ("The doctor proposed a fix that keel already ran, and it failed." if again else
+               f"{len(failed_fixes)} fixes failed on this rung.")
+        parts.insert(1, md.section("keel stops the loop", f"**{why}** keel does not run it again. Fix it yourself and "
+                                   "choose retry, give your own commands with own_fix, skip the rung, or stop. A plain "
+                                   "approve stops init."))
     lines = [md.doc(*parts)]
     data = {**a.data, "rung_fix": cmds, "rung_config": sets, "rung_gate_detail": "\n".join(lines).strip(),
-            "rung_gate_without": [] if cmds or sets else ["apply_fix"]}
-    note = f"rung {q['n']}: DIAGNOSIS {diagnosis}" + (f", {len(cmds)} fix command(s) proposed" if cmds else
+            "rung_gate_without": [] if (cmds or sets) and not stuck else ["apply_fix"],
+            "rung_gate_order": ["stop"] if stuck else []}
+    note = ("loop stopped · " if stuck else "") + f"rung {q['n']}: DIAGNOSIS {diagnosis}" + (f", {len(cmds)} fix command(s) proposed" if cmds else
                                                       "" if sets else ", no command proposed") \
         + (f", {len(sets)} corrected command(s)" if sets else "")
     return ActionResult(True, note, update={"data": data})
@@ -384,14 +419,24 @@ DESTRUCTIVE = re.compile(r"\brm\s+-[a-z]*[rf]|\bgit\s+(reset|clean|checkout|push
 
 
 def _apply_fix(a: ActionInput, cmds: list[str]) -> str:
-    """Runs the shown fix commands (the guard's setup-phase rules refuse what this phase may not do). Stops at the first
-    failure. When all of them ran, writes the corrected rung commands to .keel/config.yml: the doctor's keel-config
-    block, and a fix command that is a failing rung's command corrected (it passed, so the ladder must run it from now
-    on). Returns what happened, for the note and the next rung gate."""
+    return _run_fix(a, cmds)[0]
+
+
+def _run_fix(a: ActionInput, cmds: list[str]) -> tuple[str, bool]:
+    """Runs the shown fix commands (the guard's setup-phase rules refuse what this phase may not do) where init's answer
+    says the tools live (init_gates.run_prefix: a compose service, the dev container). Stops at the first failure.
+    When all of them ran, writes the corrected rung commands to .keel/config.yml: the doctor's keel-config block, and a
+    fix command that is a failing rung's command corrected (it passed, so the ladder must run it from now on).
+    Returns (what happened, for the note and the next rung gate; did every command run)."""
+    from . import container
     from ..tools import testcmd
     from ..tools.agent_tools import command_env
 
     cfg = rules.load_config(a.root)
+    prefix = init_gates.run_prefix(a.root, a.init)
+    if not prefix and cmds and str((a.init or {}).get("runs_on") or "") == init_gates.DEV_CONTAINER:
+        return ("refused: the tools run in the dev container, but keel finds no .devcontainer/devcontainer.json to "
+                "run the fix in; run it in the dev container yourself, then choose retry"), False
     out, ran = [], []
     for cmd in cmds:
         if DESTRUCTIVE.search(cmd):
@@ -402,12 +447,13 @@ def _apply_fix(a: ActionInput, cmds: list[str]) -> str:
         if not v.ok:
             out.append(f"$ {cmd}\nrefused: {v.reason}")
             break
+        boxed = container.wrap_one(cmd, prefix) if prefix else cmd
         if a.fake:
-            out.append(f"$ {cmd}\n(simulated)")
+            out.append(f"$ {boxed}\n(simulated)")
             ran.append(cmd)
             continue
-        code, text = testcmd.run(a.root, cmd, 900, command_env())
-        out.append(f"$ {cmd}\nexit {code}" + (f"\n{text.strip()[-600:]}" if text.strip() else ""))
+        code, text = testcmd.run(a.root, boxed, 900, command_env())
+        out.append(f"$ {boxed}\nexit {code}" + (f"\n{text.strip()[-600:]}" if text.strip() else ""))
         if code:
             break
         ran.append(cmd)
@@ -416,7 +462,26 @@ def _apply_fix(a: ActionInput, cmds: list[str]) -> str:
                 **{str(k): str(v) for k, v in (a.data.get("rung_config") or {}).items()}}
         if sets:
             out.append(_write_commands(a, sets))
-    return "\n".join(x for x in out if x)
+    return "\n".join(x for x in out if x), len(ran) == len(cmds)
+
+
+def own_commands(ans: dict) -> list[str]:
+    """The commands an own_fix answer gives: payload.commands (a list or lines), else the answer's text, one command per
+    line (a leading `$ ` and comment lines left out)."""
+    raw = (ans.get("payload") or {}).get("commands") or ans.get("why") or ""
+    lines = raw if isinstance(raw, list) else str(raw).splitlines()
+    out = []
+    for line in lines:
+        line = re.sub(r"^\s*\$\s+", "", str(line)).strip()
+        if line and not line.startswith("#") and not line.startswith("```"):
+            out.append(line)
+    return out
+
+
+def _fix_key(cmds: list[str], sets: dict | None = None) -> str:
+    """The same fix, whatever its spacing: the commands and corrected commands, whitespace folded."""
+    norm = [" ".join(str(c).split()) for c in cmds] + [f"{k}={' '.join(str(v).split())}" for k, v in sorted((sets or {}).items())]
+    return "\n".join(norm)
 
 
 # answers given before 0.18.22 (fix / exclude / accept) still apply
@@ -432,10 +497,20 @@ async def rung_apply(a: ActionInput) -> ActionResult:
     said = str(ans.get("choice") or "retry")
     choice = OLD_CHOICES.get(said, said)
     extra: dict = {"rung_gate_answer": None, "rung_fix_log": None}
-    if choice == "apply_fix":
-        cmds = [str(c) for c in a.data.get("rung_fix") or []]
-        has = cmds or a.data.get("rung_config")
-        extra["rung_fix_log"] = await asyncio.to_thread(_apply_fix, a, cmds) if has else "no fix command to run"
+    if choice in ("apply_fix", "own_fix"):
+        own = choice == "own_fix"
+        cmds = own_commands(ans) if own else [str(c) for c in a.data.get("rung_fix") or []]
+        sets = {} if own else dict(a.data.get("rung_config") or {})
+        if own:
+            a.data = {**a.data, "rung_config": {}}
+        if cmds or sets:
+            log, ok = await asyncio.to_thread(_run_fix, a, cmds)
+            tried = list(a.data.get("rung_fixes_tried") or [])
+            tried.append({"by": "you" if own else "doctor", "commands": cmds, "config": sets, "key": _fix_key(cmds, sets),
+                          "ok": ok, "log": log[-1500:]})
+            extra.update(rung_fix_log=log, rung_fixes_tried=tried)
+        else:
+            extra["rung_fix_log"] = "no fix command to run" + (": write the commands in your answer, one per line" if own else "")
     elif choice in ("skip", "exclude"):
         key = "ladder_exclude" if choice == "exclude" else "not_checked"
         rungs = {n, *[int(x) for x in q.get("rungs") or [] if str(x).isdigit()]}

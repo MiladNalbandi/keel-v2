@@ -257,3 +257,11 @@ def test_a_verdict_is_read_from_the_last_json_block():
     assert v["action"] == "answer" and v["confidence"] == "high" and v["evidence"] == ["x.py"]
     assert verdict.parse("no json here") is None
     assert verdict.parse('{"action": "launch-missiles"}')["action"] == "escalate"
+
+
+def test_a_verdict_can_name_the_commands_of_an_own_fix():
+    # 0.18.63 a stuck setup rung: the Supervisor's better fix goes to the gate as own_fix commands
+    v = verdict.parse('```json\n{"action": "escalate", "choice": "own_fix", "commands": "composer update -W\\n\\nphp -v"}\n```')
+    assert v["commands"] == ["composer update -W", "php -v"]
+    assert verdict.to_answer(v)[2] == {"choice": "own_fix", "commands": ["composer update -W", "php -v"]}
+    assert "commands" not in verdict.to_answer(verdict.normalize({"action": "answer"}))[2]
