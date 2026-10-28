@@ -158,6 +158,8 @@ export type ThreadState = {
     choice_info?: ChoiceInfo[];
     /** 0.18.28 the waiting step's own name ("verify the suite + commit"); a suggestion names the gate by it */
     name?: string;
+    /** 0.18.64 an AC gate's criterion: the card shows its code (api.acCode) */
+    ac?: string;
     /** 0.18.28 what a plain approve and a plain reject do here, and whether the reason is used */
     plain?: { approve?: PlainEffect; reject?: PlainEffect };
   };
@@ -223,6 +225,18 @@ export type StepRunFacts = {
   step: string; ac: string | null; tries: number; status: JobStatus; agent: string | null; provider: Provider | null; model: string | null;
   effort?: string | null; started_at: string; ended_at: string | null; ms: number; tokens_in: number; tokens_out: number; tokens_cached: number;
   cost_usd: number; result: string | null; call_id: string;
+};
+/** 0.18.64 one file of an AC gate's commit (GET .../flows/{tid}/ac-code): its diff from the first hunk, cut at 400 lines
+ *  or 60 KB (`truncated`); lock, generated and binary files come `folded`, without text (ask for it with sha + path). */
+export type AcCodeFile = {
+  path: string; old_path?: string; status: "added" | "modified" | "deleted" | "renamed"; added: number; removed: number;
+  bucket: "test" | "prod" | "generated" | "lock"; binary?: boolean; diff: string | null; lines?: number; truncated?: boolean; folded?: boolean;
+};
+export type AcCodeCommit = { sha: string; short: string; subject: string; files: AcCodeFile[]; added: number; removed: number; more_files?: number };
+/** 0.18.64 the criterion's code at its AC gate: its RED and GREEN commits (null: none found), and the totals */
+export type AcCode = {
+  ac: string; red: AcCodeCommit | null; green: AcCodeCommit | null; commits: number; files: number; added: number; removed: number;
+  truncated: boolean; branch: string | null;
 };
 export type Estimate = {
   tokens: number;
@@ -1176,6 +1190,11 @@ export const api = {
   stopThread: (tid: string) => post<ThreadState>(`/threads/${e(tid)}/stop`),
   history: (tid: string) => get<Checkpoint[]>(`/threads/${e(tid)}/history`),
   stepRuns: (pid: string, tid: string) => get<StepRunFacts[]>(`/projects/${e(pid)}/flows/${e(tid)}/step-runs`),
+  /** 0.18.64 the AC gate's code: the criterion's RED and GREEN commits with each file's diff */
+  acCode: (pid: string, tid: string, ac: string) => get<AcCode>(`/projects/${e(pid)}/flows/${e(tid)}/ac-code?ac=${e(ac)}`),
+  /** 0.18.64 one file of those commits with its diff, also a folded one (the gate's Show) */
+  acCodeFile: (pid: string, tid: string, ac: string, sha: string, path: string) =>
+    get<{ ac: string; sha: string; file: AcCodeFile | null }>(`/projects/${e(pid)}/flows/${e(tid)}/ac-code?ac=${e(ac)}&sha=${e(sha)}&path=${e(path)}`),
   /** keel 0.18.54 the flow's gate decisions (who answered, the answers) and what the Supervisor said, oldest first: the
    *  stored gate.decided / supervisor.decided / .escalated / .paused events */
   flowDecisions: (pid: string, tid: string) => get<EngineEvent[]>(`/projects/${e(pid)}/flows/${e(tid)}/decisions`),

@@ -127,6 +127,12 @@ class FlowController(private val flows: FlowService) {
     @GetMapping("/threads/{tid}/document")
     fun document(@PathVariable tid: String): JsonNode = flows.document(tid)
 
+    /** 0.18.64 the AC gate's code: the criterion's RED and GREEN commits with each file's diff; sha + path: one file. */
+    @GetMapping("/projects/{pid}/flows/{tid}/ac-code")
+    fun acCode(@PathVariable pid: String, @PathVariable tid: String, @RequestParam(required = false) ac: String?,
+               @RequestParam(required = false) sha: String?, @RequestParam(required = false) path: String?): JsonNode =
+        flows.acCode(pid, tid, ac, sha, path)
+
     /** 0.18.64 replace the flow's document while it waits at a gate (keel_flow_document): the person's edit. */
     @PutMapping("/threads/{tid}/document")
     fun writeDocument(@PathVariable tid: String, @RequestBody body: DocumentBody): JsonNode = flows.writeDocument(tid, body.text)

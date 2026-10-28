@@ -596,6 +596,11 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     async def get_document(tid: str, request: Request):
         return await engine(request).document(tid)
 
+    # 0.18.64 the AC gate's code for the web: the criterion's RED and GREEN commits with each file's diff (cut)
+    @app.get("/threads/{tid}/ac-code")
+    async def get_ac_code(tid: str, request: Request, ac: str = "", sha: str = "", path: str = ""):
+        return await engine(request).ac_code(tid, ac, sha or None, path or None)
+
     @app.put("/threads/{tid}/document")
     async def put_document(tid: str, body: DocumentBody, request: Request):
         await engine(request).set_root(tid, body.root)

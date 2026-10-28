@@ -137,6 +137,9 @@ class EngineClient(private val props: KeelProperties, private val mapper: Object
     /** 0.18.64 the flow's document (its clarify document or spec) from its file; replaced while the flow waits at a gate. */
     fun document(id: String): JsonNode = get("/threads/$id/document")
     fun writeDocument(id: String, body: Map<String, Any?>): JsonNode = put("/threads/$id/document", body)
+    /** 0.18.64 the AC gate's code: the criterion's RED and GREEN commits with each file's diff; [sha] + [path]: one file. */
+    fun acCode(id: String, ac: String, sha: String?, path: String?): JsonNode =
+        get("/threads/{id}/ac-code?ac={ac}&sha={sha}&path={path}", mapOf("id" to id, "ac" to ac, "sha" to sha, "path" to path))
     fun rewind(id: String, checkpointId: String, keys: Map<String, String>? = null, root: String? = null): JsonNode =
         post("/threads/$id/rewind", mapOf("checkpoint_id" to checkpointId, "keys" to keys, "root" to root).filterValues { it != null }, long = true)
     fun mcpTools(spec: Any): JsonNode = post("/mcp/tools", spec, long = true)

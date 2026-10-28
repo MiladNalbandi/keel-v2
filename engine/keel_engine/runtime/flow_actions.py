@@ -246,6 +246,144 @@ def ac_evidence(root: str, ac: dict, acs: list[dict], review: str | None, note: 
     return md.doc(*parts)
 
 
+# ------------------------------------------------------------------ the AC gate's code (the web's diff, 0.18.64)
+
+# Each file's diff stops at FILE_LINES lines or FILE_BYTES, all diffs together at TOTAL_BYTES: the gate waits on a page,
+# and a criterion that rewrote a big file must not send megabytes to it. MAX_FILES per commit.
+FILE_LINES, FILE_BYTES, TOTAL_BYTES, MAX_FILES = 400, 60_000, 400_000, 80
+MIN_LEFT = 200          # less than this left of TOTAL_BYTES: the next files come without text
+_STATUS = {"A": "added", "M": "modified", "D": "deleted", "R": "renamed", "C": "added", "T": "modified"}
+
+
+def _bucket(cfg: dict, path: str) -> str:
+    """test | prod | generated | lock: lock and generated files (minified, snapshots, built output too) come folded."""
+    from . import test_scope, ticket_actions
+
+    noise = ticket_actions.noise_of(cfg, path)
+    if noise == "lockfile":
+        return "lock"
+    if noise:
+        return "generated"
+    return "test" if test_scope.is_test_file(cfg, path) else "prod"
+
+
+def _cut_diff(text: str, budget: int) -> tuple[str, bool, int]:
+    """A file's diff from its first hunk (no `diff --git`, `index`, `---`/`+++` lines), cut at FILE_LINES lines,
+    FILE_BYTES or `budget`; and how many lines it has uncut."""
+    lines = text.splitlines()
+    while lines and not lines[0].startswith(("@@", "Binary files")):
+        lines.pop(0)
+    out, size, cut = [], 0, False
+    for line in lines:
+        if len(out) >= FILE_LINES or size + len(line) + 1 > min(FILE_BYTES, budget):
+            cut = True
+            break
+        out.append(line)
+        size += len(line) + 1
+    return "\n".join(out), cut, len(lines)
+
+
+def _commit_files(root: str, cfg: dict, sha: str) -> list[dict]:
+    """One commit's files: path (old_path when renamed), status, +/- counts, bucket, binary. No diff text yet."""
+    status = git.git(root, "show", "--format=", "--name-status", "-M", "-z", sha).stdout.split("\0")
+    nums = git.git(root, "show", "--format=", "--numstat", "-M", "-z", sha).stdout.split("\0")
+    counts: dict[str, tuple[str, str]] = {}
+    i = 0
+    while i < len(nums):
+        head = nums[i].strip("\n")
+        i += 1
+        if not head:
+            continue
+        added, removed, path = (head.split("\t", 2) + ["", ""])[:3]
+        if not path:          # a rename: "added\tremoved\t" then the old and the new path
+            path = nums[i + 1] if i + 1 < len(nums) else ""
+            i += 2
+        counts[path] = (added, removed)
+    files, i = [], 0
+    while i < len(status):
+        code = status[i].strip("\n")
+        i += 1
+        if not code:
+            continue
+        old = None
+        if code[0] in "RC":
+            old, path = status[i], status[i + 1] if i + 1 < len(status) else status[i]
+            i += 2
+        else:
+            path = status[i] if i < len(status) else ""
+            i += 1
+        a, r = counts.get(path, ("0", "0"))
+        binary = a == "-" or r == "-"
+        f = {"path": path, "status": _STATUS.get(code[0], "modified"), "added": 0 if binary else int(a or 0),
+             "removed": 0 if binary else int(r or 0), "bucket": _bucket(cfg, path), "binary": binary}
+        if code[0] == "R" and old:
+            f["old_path"] = old
+        files.append(f)
+    return files
+
+
+def _with_diff(root: str, sha: str, f: dict, budget: int) -> dict:
+    """The file with its diff text (`diff`, `lines`: the diff's whole length, `truncated`)."""
+    paths = [f["old_path"], f["path"]] if f.get("old_path") else [f["path"]]
+    raw = git.git(root, "show", "--format=", "-M", "--no-color", "--no-ext-diff", sha, "--", *paths).stdout or ""
+    text, cut, total = _cut_diff(raw, budget)
+    return {**f, "diff": text, "lines": total, "truncated": cut}
+
+
+def ac_code(root: str, ac_id: str, since: str | None = None, sha: str | None = None, path: str | None = None) -> dict:
+    """What the web's AC gate shows of the criterion's code: its RED and GREEN commits ({sha, short, subject, files,
+    added, removed} or None, found as ac_evidence finds them), each file with its status, +/- counts, a bucket (test,
+    prod, generated, lock) and its unified diff (cut, `truncated`). Lock files, generated files and binaries come
+    folded: no diff text (`folded`). With `sha` (one of the two commits) and `path`: that one file with its diff, also
+    a folded one (the web's Show)."""
+    out: dict = {"ac": ac_id, "red": None, "green": None, "commits": 0, "files": 0, "added": 0, "removed": 0,
+                 "truncated": False, "branch": None,
+                 "limits": {"file_lines": FILE_LINES, "file_bytes": FILE_BYTES, "total_bytes": TOTAL_BYTES}}
+    if not git.is_repo(root):
+        return out
+    cfg = rules.load_config(root)
+    budget = TOTAL_BYTES
+    paths: set[str] = set()
+    for key, prefix in (("red", "test"), ("green", "feat")):
+        found = ac_commit(root, prefix, ac_id, since)
+        if not found:
+            continue
+        full = git.git(root, "rev-parse", "--verify", "-q", f"{found[0]}^{{commit}}").stdout.strip() or found[0]
+        files = _commit_files(root, cfg, full)
+        if sha and path:
+            if full.startswith(sha) or found[0].startswith(sha):
+                f = next((x for x in files if x["path"] == path), None)
+                if f and not f["binary"]:
+                    return {"ac": ac_id, "sha": full, "file": _with_diff(root, full, f, FILE_BYTES)}
+            continue
+        shown, more = [], max(0, len(files) - MAX_FILES)
+        for f in files[:MAX_FILES]:
+            if f["binary"] or f["bucket"] in ("lock", "generated"):
+                shown.append({**f, "diff": None, "folded": True})
+            elif budget < MIN_LEFT:
+                shown.append({**f, "diff": None, "truncated": True})
+                out["truncated"] = True
+            else:
+                f = _with_diff(root, full, f, budget)
+                budget -= len(f["diff"])
+                out["truncated"] = out["truncated"] or f["truncated"]
+                shown.append(f)
+        out[key] = {"sha": full, "short": found[0], "subject": found[1], "files": shown,
+                    "added": sum(f["added"] for f in files), "removed": sum(f["removed"] for f in files),
+                    **({"more_files": more} if more else {})}
+        out["commits"] += 1
+        out["added"] += out[key]["added"]
+        out["removed"] += out[key]["removed"]
+        out["truncated"] = out["truncated"] or bool(more)
+        paths.update(f["path"] for f in files)
+    if sha and path:
+        return {"ac": ac_id, "sha": sha, "file": None}
+    out["files"] = len(paths)
+    branch = git.git(root, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+    out["branch"] = branch if branch and branch != "HEAD" else None
+    return out
+
+
 # ------------------------------------------------------------------ report
 
 def report(a):
