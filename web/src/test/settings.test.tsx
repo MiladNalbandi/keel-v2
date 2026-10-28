@@ -37,7 +37,7 @@ describe("Settings: the tabs and their links", () => {
       "Budget",
       "Plugins",
       "Databases",
-      "Devices",
+      "Access",
     ]);
     expect(within(menu).getByRole("link", { name: "General" })).toHaveAttribute(
       "aria-current",

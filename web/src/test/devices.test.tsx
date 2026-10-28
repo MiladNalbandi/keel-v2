@@ -162,14 +162,15 @@ describe("Settings › Devices", () => {
     expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
   });
 
-  it("is a tab of the Settings page, with Pair a phone as its button", async () => {
+  it("0.18.66 is part of Settings › Access: the old link opens it, with Pair a phone", async () => {
     location.hash = "#/settings/devices";
     render(<App />);
     expect(
-      await screen.findByRole("heading", { level: 1, name: "Devices" }),
+      await screen.findByRole("heading", { level: 1, name: "Access" }),
     ).toBeInTheDocument();
+    expect(location.hash).toBe("#/settings/access");
     expect(
-      await screen.findByRole("button", { name: "Pair a phone" }),
+      await screen.findByRole("button", { name: "Pair a phone (QR code)" }),
     ).toBeInTheDocument();
   });
 });

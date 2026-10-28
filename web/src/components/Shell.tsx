@@ -34,6 +34,9 @@ import { NotificationDrawer, Popups } from "./Notifications";
 import { isCoreOnly, NoPagesYet, useCoreOnly } from "./CoreOnly";
 import { ProjectSwitcher, projectLine } from "./ProjectSwitcher";
 import { api, type StackSetup } from "../api";
+import { LOGO_PATH } from "./logo";
+import { UpdateNotice } from "./UpdateNotice";
+import { Welcome } from "./Welcome";
 
 const THEME_KEY = "keel2.theme";
 
@@ -145,14 +148,10 @@ function SearchButton({ className }: { className: string }) {
   );
 }
 
+// keel 0.18.59 the keel v1 mark: the hull split down the middle (evenodd cuts the line out); its path is in ./logo
 const Logo = () => (
   <svg viewBox="0 0 120 68" aria-hidden="true">
-    {/* keel 0.18.59 the keel v1 mark: the hull split down the middle (evenodd cuts the line out) */}
-    <path
-      fill="var(--accent)"
-      fillRule="evenodd"
-      d="M4 0H116Q120 0 119.4 4C118 22 92 38 66.6 50Q64 51.5 64 54L62.2 64.5Q61.8 67 60 67Q58.2 67 57.8 64.5L56 54Q56 51.5 53.4 50C28 38 2 22 .6 4Q0 0 4 0ZM58.7 0H61.3V57.7A1.3 1.3 0 0 1 58.7 57.7Z"
-    />
+    <path fill="var(--accent)" fillRule="evenodd" d={LOGO_PATH} />
   </svg>
 );
 
@@ -961,6 +960,9 @@ export function Shell({ children }: { children: ReactNode }) {
         openNotes={() => setNotesOpen(true)}
       />
       <KeySheet />
+      {/* keel 0.18.66 a newer keel is out (once per version, top right), and the first-run welcome */}
+      <UpdateNotice />
+      <Welcome />
       {/* v0.15.2 the parts' watchers (KeelBot: a number on KeelBot and its own sound for an answer you did not see) */}
       <PartWatches />
     </div>
