@@ -48,6 +48,10 @@ def health(api: KeelApi, now: float | None = None) -> str:
         lines.append(f"keel        up · version {version} · api {api.url} answered in {ms} ms")
         lines.append(f"engine      {'up' if h.get('engine') else 'not answering (flows wait until it is back)'}"
                      + (" · fake model only" if h.get("fake") else ""))
+        # 0.18.66 keel's daily release check found a newer keel (api updates/ReleaseCheck)
+        if h.get("latest"):
+            lines.append(f"update      keel {h['latest']} is out (this keel is {version}): run keel2 update in a terminal "
+                         "(Settings › Access › Updates in keel shows the exact command and what is new)")
         if version not in ("?", "dev") and version != config.VERSION:
             lines.append(f"versions    this MCP server is {config.VERSION}, keel is {version}: reconnect (keel_reconnect, or "
                          "restart the MCP client) for keel's newest tools")

@@ -510,6 +510,16 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
                                                                           "admin": " Write tools can decide gates, start, stop and resume flows, set a run mode, start agents and ask KeelBot; admin tools can also change projects and workflows."}[lvl],
                   log_level="WARNING")
 
+    def _name_client() -> None:
+        """0.18.66 the client's name (from its initialize) on every request this server sends (api McpClients)."""
+        if not hasattr(api, "name_client"):
+            return
+        try:
+            params = srv.get_context().session.client_params
+            api.name_client(params.clientInfo.name if params and params.clientInfo else None)
+        except Exception:  # noqa: BLE001 - no request context (a test calls the tool directly)
+            pass
+
     def reg(ann, at: str | None = None):
         """Registers a tool within the level and --allow. `at`: a part's tool's level (else keel's own, TOOLS).
         0.18.28 a plain (sync) tool runs in a worker thread: its HTTP call to keel's api (up to 15 s) blocked the
@@ -524,8 +534,17 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
 
                 @functools.wraps(sync)
                 async def threaded(*a, **kw):
+                    _name_client()
                     return await anyio.to_thread.run_sync(lambda: sync(*a, **kw))
                 fn = threaded
+            else:
+                inner = fn
+
+                @functools.wraps(inner)
+                async def named(*a, **kw):
+                    _name_client()
+                    return await inner(*a, **kw)
+                fn = named
             if name in CONFIRM or name == "keel_run_action" or at == "write":
                 fn = confirm_mod.with_confirm(fn)   # 0.18.64 `confirm`: the token of a client without forms
             return srv.tool(annotations=ann, structured_output=False)(fn)
