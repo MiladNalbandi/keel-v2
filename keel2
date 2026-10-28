@@ -700,7 +700,7 @@ cmd_state() {  # keel2 state [close] [folder]
   dir="${1:-$PWD}"
   [ -d "$dir" ] || die "There is no folder $dir." "usage: keel2 state [close] [folder]"
   dir="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null || (cd "$dir" && pwd))"
-  f="$dir/.keel/state.json"
+  f="$dir/.keel/state.json"   # the state file keel v1 left
   if [ ! -f "$f" ]; then info "No keel v1 state file in $dir (.keel/state.json): no keel v1 flow blocks commits there."; return 0; fi
   flow="$(sed -n 's/.*"flow"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$f" | head -1)"
   phase="$(sed -n 's/.*"phase"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$f" | head -1)"

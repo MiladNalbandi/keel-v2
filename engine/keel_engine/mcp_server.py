@@ -1176,7 +1176,7 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
     async def keel_state(action: Literal["show", "close"] = "show", project: str | None = None,
                          ctx: Context | None = None) -> str:
         """keel's flow state on the project: the keel v2 flows that run or wait there, and a state file keel v1 left
-        (.keel/state.json: its flow and phase, and that keel v1's hooks refuse commits while it is there). close
+        (.keel/state.json, left by keel v1: its flow and phase; keel v1's hooks refuse commits while it is there). close
         (needs --write) archives that file to .keel/archive/state-<date>.json; nothing is deleted."""
         if action == "show":
             return await anyio.to_thread.run_sync(lambda: guard(more.state, api, project, lvl != "read"))
