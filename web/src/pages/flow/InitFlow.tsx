@@ -6,7 +6,8 @@ import { useLoad } from "../../state";
 import { EventsPanel } from "./EventsPanel";
 import { BudgetMeter, FlowBar, LiveCanvas, StatusCard, useThreadBits } from "./FlowParts";
 import { GateCard } from "./Gate";
-import { StepPanel } from "./StepPanel";
+import { DockBar, DockClose, StepPanel, useStepDock } from "./StepPanel";
+import { useWide } from "../../components/useWide";
 
 // ---------- init flow: ladder ‖ knowledge build ----------
 
@@ -39,13 +40,33 @@ export function InitFlow({ pid, f, onStart, reload }: { pid: string; f: { thread
   const canvas = useRef<BlocksHandle>(null);
   const waiting = thread.status === "waiting" && thread.waiting ? <GateCard thread={thread} workflow={workflow} onDone={reload} /> : null;
   const running = (jobs.data ?? []).filter((j) => j.thread_id === thread.thread_id && j.status === "running");
+  // keel 0.18.66 a wide screen docks the step panel next to the steps: the clicked step, else the one that runs now (or
+  // waits), else the first; » folds it to a thin bar. A narrow screen keeps the drawer.
+  const wide = useWide();
+  const dock = useStepDock();
+  const cur = (thread.waiting?.step ?? thread.current ?? "").replace(/__fix$/, "");
+  const shown = explain ?? (workflow.steps.some((s) => s.id === cur) ? cur : workflow.steps[0]?.id ?? null);
+  const shownName = workflow.steps.find((s) => s.id === shown)?.name ?? shown ?? "";
+  const toCurrent = () => canvas.current?.reveal(cur, true);
+  const pick = (id: string) => { setExplain(id); if (wide && !dock.open) dock.setOpen(true); };
+  const steps = <LiveCanvas thread={thread} workflow={workflow} actual={actual} facts={facts} totals={totals} perAc={perAc} visited={visited} waiting={waiting} canvas={canvas} onOpen={pick} selected={explain} />;
   return (
     <>
-      {explain && <StepPanel drawer key={explain} pid={pid} thread={thread} workflow={workflow} stepId={explain} running={running} onClose={() => setExplain(null)}
-        onJump={() => { setExplain(null); canvas.current?.reveal((thread.current ?? "").replace(/__fix$/, ""), true); }} />}
+      {!wide && explain && <StepPanel drawer key={explain} pid={pid} thread={thread} workflow={workflow} stepId={explain} running={running} onClose={() => setExplain(null)}
+        onJump={() => { setExplain(null); toCurrent(); }} tab={dock.tab} setTab={dock.setTab} />}
       <FlowBar thread={thread} workflow={workflow} estimate={est.data?.tokens ?? null} started={started} onStart={onStart}
-        onJump={() => canvas.current?.reveal((thread.current ?? "").replace(/__fix$/, ""), true)} extra={<GoButton to="wiki" className="btn">Open wiki</GoButton>} />
-      <LiveCanvas thread={thread} workflow={workflow} actual={actual} facts={facts} totals={totals} perAc={perAc} visited={visited} waiting={waiting} canvas={canvas} onOpen={setExplain} selected={explain} />
+        onJump={toCurrent} extra={<GoButton to="wiki" className="btn">Open wiki</GoButton>} />
+      {!wide || !shown ? steps : (
+        <div className={dock.open ? "fl" : "fl is-folded"}>
+          {steps}
+          {dock.open ? (
+            <aside className="fl-side" aria-label="Step details">
+              <StepPanel key={shown} pid={pid} thread={thread} workflow={workflow} stepId={shown} running={running} onClose={() => dock.setOpen(false)}
+                onJump={toCurrent} tab={dock.tab} setTab={dock.setTab} tools={<DockClose what="step panel" onClose={() => dock.setOpen(false)} />} />
+            </aside>
+          ) : <DockBar what="step panel" label={`Step details · ${shownName}`} onOpen={() => dock.setOpen(true)} />}
+        </div>
+      )}
       <div className="lanes" style={{ marginTop: 12 }}>
             <div className="lane">
               <div className="lane-h"><b>Ladder</b><span className="sub num">{rungs.length ? `${passed} / ${rungs.length} rungs` : "not started"}</span></div>

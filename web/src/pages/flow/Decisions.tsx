@@ -184,23 +184,9 @@ export function DecisionsPanel({
   );
 }
 
-/** A step's panel: what was decided at this step in this flow (every round), or, for a gate, that nobody answered yet.
- *  Shows nothing for a step that never decides anything. */
-export function StepDecisions({
-  pid,
-  thread,
-  workflow,
-  stepId,
-  x,
-}: {
-  pid: string;
-  thread: ThreadState;
-  workflow: Workflow;
-  stepId: string;
-  x?: StepExplanation | null;
-}) {
+/** What was decided at one step in this flow (every round), oldest first. `waits`: the flow waits at this step now. */
+export function useStepDecisions(pid: string, thread: ThreadState, workflow: Workflow, stepId: string, x?: StepExplanation | null) {
   const { items, loading } = useDecisions(pid, thread, workflow);
-  const step = workflow.steps.find((s) => s.id === stepId);
   const mine = items.filter((it) => it.step === stepId);
   // no events for it (an older flow, or they could not be read): what the step's last runs logged
   const logged = !mine.length
@@ -220,22 +206,35 @@ export function StepDecisions({
   const waits =
     thread.status === "waiting" &&
     (thread.waiting?.step ?? "").replace(/__fix$/, "") === stepId;
-  if (!shown.length && step?.kind !== "gate") return null;
+  return { shown, loading, waits };
+}
+
+/** keel 0.18.66 the step panel's Decided tab: each decision at this step as a card (who, when, in plain words), or
+ *  that nobody answered yet. */
+export function StepDecisions({ workflow, stepId, d }: {
+  workflow: Workflow;
+  stepId: string;
+  d: ReturnType<typeof useStepDecisions>;
+}) {
+  const { shown, loading, waits } = d;
+  const gate = workflow.steps.find((s) => s.id === stepId)?.kind === "gate";
   const rounds = shown.filter((it) => it.source === "gate").length;
   return (
     <section className="xsec dc-sec" aria-label="What was decided here" data-testid="step-decisions">
-      <h3>
-        What was decided here{rounds > 1 ? <span className="dc-times"> ×{rounds}</span> : null}
-        {shown.length > 0 && <span className="hint dc-order"> · oldest first</span>}
-      </h3>
       {loading && !shown.length ? (
         <span className="sub loading">Reading the answers…</span>
       ) : !shown.length ? (
-        <span className="sub">{waits ? "It waits for your answer now. Your answer shows here once you give it." : "Not answered in this run yet."}</span>
+        <span className="sub">
+          {waits ? "It waits for your answer now. Your answer shows here once you give it."
+            : gate ? "Not answered in this run yet." : "Nothing was decided at this step: only a gate (◆) asks for a decision."}
+        </span>
       ) : (
-        <ol className="dc-list">
-          {shown.map((it) => <DecisionCard key={it.key} it={it} showStep={false} />)}
-        </ol>
+        <>
+          <span className="hint dc-order">{rounds > 1 ? <span className="dc-times">Decided {rounds} times · </span> : null}oldest first</span>
+          <ol className="dc-list" aria-label="What was decided here, oldest first">
+            {shown.map((it) => <DecisionCard key={it.key} it={it} showStep={false} />)}
+          </ol>
+        </>
       )}
     </section>
   );

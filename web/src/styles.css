@@ -1180,7 +1180,7 @@ button.sx-x:hover { box-shadow: 0 0 0 2px var(--ink); }
 .fl-meter { width: 220px; height: 7px; overflow: visible; }
 .fl-meter i { background: var(--accent); }
 .fl-meter em { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--fg); }
-.fl { display: grid; grid-template-columns: minmax(0,1fr) minmax(320px, 400px); gap: 16px; align-items: start; }
+.fl { display: grid; grid-template-columns: minmax(0,1fr) minmax(320px, 440px); gap: 16px; align-items: start; }
 .fl-canvas { --sx-bg: var(--panel); min-width: 0; }
 .fl-canvas > .panel-body { background: var(--panel) radial-gradient(var(--blk-dots) 1px, transparent 1.2px) 0 0 / 18px 18px; border-radius: 0 0 10px 10px; }
 /* v0.15.3 nested panels hand the wheel on to the parent at their end (no overscroll-behavior: contain) */
@@ -1194,6 +1194,65 @@ button.sx-x:hover { box-shadow: 0 0 0 2px var(--ink); }
 .fl-waits { gap: 8px; }
 .fl-feed { max-height: 320px; overflow-y: auto; }
 .fl-more { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); margin-top: 16px; align-items: start; }
+/* keel 0.18.66 the step panel, docked on the right of the Flow page (pages/flow/StepPanel.tsx): its head (kind, name),
+   a menu bar (Overview · Decided · Rules · Commands) and the picked tab, which slides in. » folds the right column to a
+   thin bar at the right edge (.fl.is-folded, wide screens only); « opens it again. */
+.fl.is-folded { grid-template-columns: minmax(0,1fr) 38px; }
+.fl-side-top { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
+.fl-side-top > .tabs { flex: 0 1 auto; min-width: 0; overflow-x: auto; }
+.fl-side-top > .sp-toggle { margin-left: auto; }
+.sp-toggle { flex: none; min-width: 34px; min-height: 32px; border: 1px solid var(--border); border-radius: 7px; background: var(--panel); color: var(--dim);
+  cursor: pointer; font-size: 14px; line-height: 1; }
+.sp-toggle:hover { color: var(--fg); border-color: var(--faint); }
+.fl-side.sp-bar { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 10px 0; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 10px; height: calc(100vh - var(--bar-h, 0px) - 24px); max-height: 640px; overflow: hidden; }
+.sp-bar .sp-toggle { min-width: 28px; }
+.sp-bar-t { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 12px; color: var(--dim); letter-spacing: .02em; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; max-height: 100%; cursor: pointer; }
+.sp { display: flex; flex-direction: column; min-width: 0; }
+.sp-head { display: flex; align-items: flex-start; gap: 10px; padding: 14px 16px 0; min-width: 0; }
+.sp-title { flex: 1 1 0; min-width: 0; display: grid; gap: 2px; }
+.sp-kind { font-size: 12px; color: var(--dim); }
+.sp-head h2 { margin: 0; font-size: 16px; line-height: 1.3; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-tabs { position: sticky; top: 0; z-index: 2; display: flex; gap: 4px; padding: 10px 12px 0; border-bottom: 1px solid var(--border); background: var(--panel);
+  overflow-x: auto; scrollbar-width: none; border-radius: 10px 10px 0 0; }
+.sp-tabs button { flex: none; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; background: transparent; padding: 8px 10px; min-height: 38px;
+  color: var(--dim); cursor: pointer; font-size: 13px; font-weight: 500; transition: color .15s ease, border-color .15s ease; }
+.sp-tabs button:hover { color: var(--fg); }
+.sp-tabs button[aria-selected="true"] { color: var(--fg); font-weight: 600; border-bottom-color: var(--accent); }
+.sp-count { margin-left: 2px; font-size: 11px; font-weight: 600; color: var(--on-accent); background: var(--accent); border-radius: 999px; padding: 0 6px; }
+.sp-body { display: grid; gap: 12px; padding: 14px 16px; font-size: 13px; line-height: 1.55; min-width: 0; }
+.sp-body > * { min-width: 0; }
+.sp-in-drawer { display: grid; gap: 8px; }
+.sp-in-drawer .sp-tabs { padding: 0; border-radius: 0; }
+.sp-in-drawer .sp-body { padding: 6px 0 0; }
+@keyframes sp-slide { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: none; } }
+.sp-slide { animation: sp-slide .25s ease both; }
+.sp-about { display: grid; gap: 6px; }
+.sp-about p { margin: 0; }
+.sp-box { display: grid; gap: 6px; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; min-width: 0; }
+.sp-box-t { font-size: 12px; color: var(--dim); }
+.sp-box-t b { color: var(--fg); }
+.sp-choices { display: grid; gap: 6px; margin: 0; }
+.sp-choices > div { display: grid; grid-template-columns: minmax(54px, max-content) minmax(0, 1fr); gap: 0 10px; align-items: baseline; }
+.sp-choices dt { font-weight: 650; overflow-wrap: anywhere; }
+.sp-choices dd { margin: 0; min-width: 0; color: var(--dim); overflow-wrap: anywhere; }
+.sp-meta { display: flex; flex-wrap: wrap; font-size: 12.5px; color: var(--dim); }
+.sp-meta > span + span::before { content: "·"; margin: 0 8px; }
+.sp-h { margin: 0; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); }
+.sp-rules { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.sp-rule { display: grid; gap: 4px; align-content: start; border: 1px solid var(--border); border-radius: 8px; padding: 10px; min-width: 0; overflow-wrap: anywhere; }
+.sp-rule b { font-size: 12px; font-weight: 600; }
+.sp-rule.is-ok { border-color: color-mix(in srgb, var(--ok) 40%, var(--border)); }
+.sp-rule.is-ok b { color: var(--ok); }
+.sp-rule.is-bad { border-color: color-mix(in srgb, var(--bad) 35%, var(--border)); }
+.sp-rule.is-bad b, .sp-rule.is-never b { color: var(--bad); }
+.sp-rule.is-never { grid-column: 1 / -1; border-color: color-mix(in srgb, var(--bad) 60%, var(--border)); }
+.sp-more { justify-self: start; font-size: 12.5px; color: var(--accent); }
+.sp-cmds { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.sp-cmds li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border); min-width: 0; }
+.sp-cmds code { font-family: var(--f-mono); font-size: 12px; background: var(--panel-2); border-radius: 4px; padding: 1px 5px; overflow-wrap: anywhere; }
+.sp-cmd-t { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
 @media (max-width: 1099px) {
   .fl { grid-template-columns: minmax(0,1fr); }
   .fl-side { position: static; max-height: none; overflow: visible; }
