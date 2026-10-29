@@ -305,6 +305,18 @@ def test_fix_changes_files_the_phase_allows_and_undo_puts_them_back(client, repo
     assert not (Path(repo) / "src" / "scores" / "helper_fix.py").exists()
 
 
+def test_a_file_changed_on_another_branch_leaves_the_changed_files(client, repo):
+    """0.18.71 after a switch to a branch without KeelBot's change, the file showed as "the whole file deleted"."""
+    s = fix_session(client, repo)
+    ask(client, s["id"], "Add the small helper the gate asks for.", flow=FLOW)
+    assert [c["path"] for c in client.get(f"/helper/sessions/{s['id']}/changes").json()] == ["src/scores/helper_fix.py"]
+    git = lambda *a: _sp.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *a], cwd=repo, capture_output=True, text=True)
+    git("checkout", "-q", "-b", "elsewhere")
+    git("add", "-A")
+    git("commit", "-q", "-m", "the person keeps it on another branch")
+    assert client.get(f"/helper/sessions/{s['id']}/changes").json() == []
+
+
 def test_fix_puts_back_what_the_phase_forbids(client, repo):
     # fake-rogue also writes a test file behind keel's back: tests are frozen in green, so it is put back
     s = new_session(client, repo, mode="fix", thread_id="t-gate", model={"provider": "fake", "mode": "api", "model": "fake-rogue"})
