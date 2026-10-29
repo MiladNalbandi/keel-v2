@@ -1607,6 +1607,10 @@ cmd_mcp() {
   if native_mode && ! docker_keel_running; then
     native_running || die "keel is not running." "Start it first: keel2 start --native /path/to/project"
     local p; p="$(native_port)"
+    # 0.18.68 the times keel_health and the other tools show: the computer's zone, as the container gets it (an MCP
+    # client may start this with an environment that has no TZ and a Python that cannot read /etc/localtime)
+    local ntz; ntz="$(host_tz)"
+    if [ -n "$ntz" ]; then export TZ="$ntz"; fi
     KEEL_API_URL="http://127.0.0.1:$p" KEEL_INTERNAL_TOKEN="$(cat "$ND/run/token")" KEEL_PUBLIC_URL="${KEEL_PUBLIC_URL:-http://localhost:$p}" \
       KEEL_DATA="$ND/data" KEEL_PLUGINS_IMAGE="$ND/current/plugins" \
       exec "$ND/current/engine/.venv/bin/python" -m keel_engine.mcp "$mode" ${extra[@]+"${extra[@]}"}
