@@ -124,6 +124,25 @@ def agents(seen, ac="AC-1"):
     return [r.agent for r in seen if (r.ac or {}).get("id") == ac and r.phase != "refactor"]
 
 
+def test_a_test_the_investigator_calls_wrong_goes_back_to_red(client, repo, monkeypatch):
+    """0.18.69 a field report: a RED test sent what the spec answers with 400, GREEN may not change tests, and three
+    rounds failed the same way. When the investigator says the test is wrong, the RED step writes it again."""
+    from keel_engine.workflows.templates import get_template
+    three_criteria(monkeypatch)
+    inv = get_template("feature").step("verify_green").name + ": why does it keep failing"
+    seen = by_step(monkeypatch, {inv: lambda req, real: (None, "", "TEST-WRONG: it sends an empty list, which the spec "
+                                                         "answers with 400; send one valid item", {})})
+    green_fails(monkeypatch, left=2)
+    tid = start(client, repo)
+    s = to_loop(client, tid)
+    mine = agents(seen)
+    assert mine[:5] == ["test-author", "implementer", "implementer", "investigator", "test-author"], mine
+    again = [r for r in seen if r.agent == "test-author" and (r.ac or {}).get("id") == "AC-1"][1]
+    assert "cannot pass as the spec says" in (again.feedback or "") and "send one valid item" in again.feedback
+    assert any("the investigator says the test is wrong; RED again" in x for x in s["gate_log"])
+    assert mine[5] == "implementer", (s.get("waiting", {}).get("detail") or "")[:1500]   # then GREEN goes on
+
+
 def test_the_ladder_same_agent_then_investigator_then_a_stronger_model_then_real_choices(client, repo, monkeypatch):
     three_criteria(monkeypatch)
     seen = by_step(monkeypatch, {})
@@ -140,7 +159,9 @@ def test_the_ladder_same_agent_then_investigator_then_a_stronger_model_then_real
     assert [x.split(":")[0] for x in log] == ["stall AC-1 round 1", "stall AC-1 round 2", "stall AC-1 round 3"], log
     assert "investigator proposed" in log[1] and "implementer" in log[2]
     third = [r for r in seen if r.agent == "implementer" and (r.ac or {}).get("id") == "AC-1"][2]
-    assert "An investigator read this failure" in (third.feedback or "")
+    assert (third.feedback or "").startswith("An investigator read this failure")     # 0.18.69 the cause first
+    # 0.18.69 the same failure twice (its numbers aside): the agent is told the last try changed nothing
+    assert "SAME FAILURE as the last try" in (third.feedback or "")
     v = values(client, tid)
     assert v["data"]["ladder_escalated"]["agent"] == "implementer" and "implementer" in v["agent_models"]
     s = decide(client, tid, payload={"choice": "skip"}, why="later")

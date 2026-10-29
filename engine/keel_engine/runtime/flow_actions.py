@@ -529,6 +529,34 @@ def reset(a):
     return _ok(note, "\n".join(back))
 
 
+def revert_red(root: str, ac_id: str, since: str | None = None) -> tuple[bool, str] | None:
+    """keel 0.18.69 a skipped criterion's RED test commit (test(<id>), since the flow's start, with no GREEN after it) is
+    reverted by a commit of its own, so the next criteria's suite runs do not fail on a test nobody can make pass now (a
+    field report: after a skip every later ac_suite failed on it). The test comes back when the criterion is built again.
+    None when there is nothing to revert; else (reverted, what happened) for the gate log."""
+    if not git.is_repo(root):
+        return None
+    red = ac_commit(root, "test", ac_id, since)
+    if not red or ac_commit(root, "feat", ac_id, since):
+        return None
+    sha, subject = red
+    r = git.git(root, "revert", "--no-edit", "--no-commit", sha)
+    if r.returncode != 0:
+        git.git(root, "revert", "--abort")
+        return False, f"{ac_id}: its RED commit {sha} could not be reverted ({(r.stderr or r.stdout).strip()[:160]}); its test stays"
+    msg = (f"revert({ac_id}): skipped, its test comes back when it is built again\n\nThis reverts {sha} ({subject}).\n"
+           f"Keel-Ref: revert({ac_id})")
+    from .actions import commit_args
+
+    who, trailer = commit_args(root, None, rules.load_config(root))
+    c = git.git(root, *who, "commit", "-q", "--no-verify", "-m", msg, *trailer)
+    if c.returncode != 0:
+        git.git(root, "revert", "--abort")
+        git.git(root, "reset", "-q", "--hard", "HEAD")
+        return False, f"{ac_id}: its RED commit {sha} could not be reverted ({(c.stderr or c.stdout).strip()[:160]}); its test stays"
+    return True, f"{ac_id}: its RED test commit {sha} reverted, so the next criteria's runs do not fail on it"
+
+
 # ------------------------------------------------------------------ change
 
 def change_size(a):
