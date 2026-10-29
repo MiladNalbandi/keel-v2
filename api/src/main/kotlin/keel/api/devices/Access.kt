@@ -25,6 +25,8 @@ data class AccessView(
     val native: Boolean,
     /** the main project folder on the person's computer, for `keel2 start <folder>`; null when keel2 did not say */
     val folder: String?,
+    /** 0.18.68 keel2's absolute path on the person's computer (KEEL2_PATH), for the MCP snippets; null: an older keel2 */
+    val keel2Path: String? = null,
 )
 
 @RestController
@@ -46,10 +48,13 @@ class AccessController(private val addresses: DeviceAddresses, private val props
             else -> "local"
         }
         return AccessView(mode, bind, wifi, names, tailscale, known.firstOrNull { it.kind == "tunnel" }?.url,
-            System.getenv("KEEL_NATIVE") == "1", props.hostWorkspace.trim().ifEmpty { null })
+            System.getenv("KEEL_NATIVE") == "1", props.hostWorkspace.trim().ifEmpty { null },
+            System.getenv("KEEL2_PATH")?.trim()?.takeIf { it.startsWith("/") && PATH_OK.matches(it) })
     }
 
     companion object {
         private val HOST = Regex("^[A-Za-z0-9.-]{1,253}$")
+        /** a path a snippet can carry as it is (no quote, no shell character) */
+        private val PATH_OK = Regex("^[A-Za-z0-9._/~+-]{1,400}$")
     }
 }

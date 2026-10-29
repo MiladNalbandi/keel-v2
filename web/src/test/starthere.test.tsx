@@ -117,6 +117,19 @@ describe("Help › Start here", () => {
     expect(mcpSnippets("codex", "write")[1].text).toBe('[mcp_servers.keel]\ncommand = "keel2"\nargs = ["mcp", "--write"]');
     expect(JSON.parse(mcpSnippets("opencode", "write")[0].text).mcp.keel).toEqual({ type: "local", command: ["keel2", "mcp", "--write"], enabled: true });
     expect(JSON.parse(mcpSnippets("cursor", "read")[1].text).servers.keel).toEqual({ type: "stdio", command: "keel2", args: ["mcp"] });
+    // 0.18.68 keel2's absolute path when keel knows it (a tool started from a desktop launcher has no ~/.local/bin)
+    const bin = "/home/ana/.local/bin/keel2";
+    expect(mcpSnippets("claude", "write", bin)[0].text).toBe(`claude mcp add keel -- ${bin} mcp --write`);
+    expect(JSON.parse(mcpSnippets("opencode", "write", bin)[0].text).mcp.keel.command).toEqual([bin, "mcp", "--write"]);
+    expect(mcpSnippets("codex", "read", bin)[1].text).toContain(`command = "${bin}"`);
+  });
+
+  it("the snippets on the page use keel2's absolute path from Settings › Access", async () => {
+    db.access = { ...db.access, keel2_path: "/home/ana/.local/bin/keel2" };
+    await openStart();
+    const step = await screen.findByTestId("step-mcp");
+    await waitFor(() => expect(within(step).getByLabelText("Claude Code command"))
+      .toHaveTextContent("claude mcp add keel -- /home/ana/.local/bin/keel2 mcp --write"));
   });
 });
 
