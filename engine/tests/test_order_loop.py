@@ -112,6 +112,7 @@ def test_skip_moves_the_criterion_to_the_end(client, repo, monkeypatch):
     assert values(client, tid)["data"]["ac_order"]["from"] == "person"
 
 
+
 def test_the_loop_gate_is_never_decided_by_a_run_mode():
     from keel_engine.runtime import run_mode
     from keel_engine.workflows.templates import get_template
@@ -195,3 +196,32 @@ def test_fake_lab_order_from_the_spec_then_the_loop_guard(client, repo):
         assert s["waiting"]["step"] != "amend_gate"
         s = decide(client, tid)
     assert s["waiting"]["step"] == "amend_loop" and s["ac"] == "AC-1"
+
+
+def test_a_skipped_criterions_red_test_commit_is_reverted(tmp_path):
+    """0.18.69 a field report: after a skip, every later criterion's suite failed on the skipped one's RED test."""
+    from test_v02 import git
+    from keel_engine.runtime import flow_actions
+    root = tmp_path / "r"
+    root.mkdir()
+    git(root, "init", "-q", "-b", "main")
+    (root / "a.py").write_text("x = 1\n")
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "chore: start")
+    start = git(root, "rev-parse", "HEAD").stdout.strip()
+    (root / "test_ac1.py").write_text("def test_ac_1():\n    assert False\n")
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "test(AC-1): ranks")
+    ok, note = flow_actions.revert_red(str(root), "AC-1", start)
+    assert ok and "reverted" in note
+    assert not (root / "test_ac1.py").exists()
+    assert git(root, "log", "-1", "--format=%s").stdout.startswith("revert(AC-1): skipped")
+    assert git(root, "status", "--porcelain").stdout == ""
+    assert flow_actions.revert_red(str(root), "AC-2", start) is None        # no RED commit: nothing to do
+    (root / "test_ac3.py").write_text("def test_ac_3():\n    assert False\n")
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "test(AC-3): x")
+    (root / "a.py").write_text("x = 3\n")
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "feat(AC-3): x")
+    assert flow_actions.revert_red(str(root), "AC-3", start) is None        # built: its test is not taken away

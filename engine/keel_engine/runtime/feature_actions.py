@@ -590,7 +590,12 @@ def amend_reorder(a):
     choice = ((a.data.get("amend_loop_answer") or {}).get("choice")) or "first"
     gates = _gates(a)
     if choice == "skip" or not amend.get("next"):
-        acs = [x for x in a.acs if x["id"] != ac] + [x for x in a.acs if x["id"] == ac]
+        # 0.18.69 a skipped criterion's RED test commit is reverted; it starts from todo again when its turn comes
+        undone = flow_actions.revert_red(a.root, ac, a.state.get("base_head")) if choice == "skip" and ac else None
+        if undone:
+            gates["log"].append(undone[1][:300])
+        acs = [x for x in a.acs if x["id"] != ac] + [dict(x, status="todo") if undone and undone[0] else x
+                                                     for x in a.acs if x["id"] == ac]
         nxt = next((i for i in [x["id"] for x in acs] if i in _unfinished(a) and i != ac), ac)
         note = f"you moved {ac} to the end; next: {nxt}" if nxt != ac else f"{ac} is the only criterion left: it runs again"
     else:

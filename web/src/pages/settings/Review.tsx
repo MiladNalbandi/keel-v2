@@ -649,7 +649,8 @@ export function ReviewTab({ pid }: { pid: string }) {
           On the Review page
         </h2>
         <div className="ss-rv-preview">
-          <p data-testid="rv-find-text">{findText(revs)}</p>
+          {/* 0.18.69 the flow's own text when Find problems runs the review flow (it said "Two keel reviewers…") */}
+          <p data-testid="rv-find-text">{cfg.find_runs === "classic" ? findText(revs) : view.find_text}</p>
           <span className="ss-btn p" aria-hidden="true">
             Find problems
           </span>

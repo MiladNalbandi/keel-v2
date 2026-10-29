@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 import hashlib
+import re
 import time
 
 from . import choices as choices_mod, flow_actions, prompts, run_mode, spec_check, suite_failure, test_scope
@@ -19,6 +20,9 @@ from langgraph.graph import END
 HISTORY_CHECKS = {"audit", "trace", "trace_strict"}   # checks that only read the branch's history
 
 from . import compiler as _c      # the compiler module's own names (looked up when called: tests patch some)
+
+_FIGURES = re.compile(r"0x[0-9a-f]+|\b[0-9a-f]{7,40}\b|\d+(?:[.,:]\d+)*")
+TEST_WRONG = re.compile(r"^\s*(?:\*\*|`)?TEST-WRONG\b", re.I | re.M)
 
 
 class CodeMixin:
@@ -410,9 +414,16 @@ class CodeMixin:
             back = flow_actions.reset(self._action_input(state, ac))
             gates["log"].append(f"{ac['id']}: {back.note}"[:300])
         if choice == "skip" and ac and lp and lp.per_ac:
-            acs = [x for x in state.get("acs") or [] if x["id"] != ac["id"]] + [x for x in state.get("acs") or [] if x["id"] == ac["id"]]
-            return {**base, "acs": acs, "ac": None, "feedback": None, "last_failure": None,
-                    "note": f"{ac['id']} moved to the end"}, self.nav.begin(lp)
+            # 0.18.69 its RED test commit is reverted and it starts from todo again when its turn comes
+            undone = flow_actions.revert_red(self.ctx.root, ac["id"], state.get("base_head"))
+            reverted = bool(undone and undone[0])
+            if undone:
+                gates["log"].append(undone[1][:300])
+            moved = [x for x in state.get("acs") or [] if x["id"] != ac["id"]] + \
+                [dict(x, status="todo") if reverted else x for x in state.get("acs") or [] if x["id"] == ac["id"]]
+            return {**base, "acs": moved, "ac": None, "feedback": None, "last_failure": None,
+                    "note": f"{ac['id']} moved to the end" + ("; its RED test reverted" if reverted else "")}, \
+                self.nav.begin(lp)
         if choice == "edit" and ac and any(s.id == "amend" for s in self.wf.steps):
             data = {**(state.get("data") or {}), "amend": {"from": step.id, "ac": ac["id"], "route": "amend",
                                                           "reason": f"{ac['id']} · {r.note}" + (f"\nThe person says: {why}" if why else ""),
@@ -529,6 +540,13 @@ class CodeMixin:
         gates["log"].append("audit stop" + (f": {why}" if why else ""))
         return {**upd, "gates": gates, "status": "stopped", "error": r.note, "note": f"stopped: {r.note}"[:300]}, END
 
+    def _red_step(self, lp) -> str | None:
+        """The criterion loop's RED agent step (it writes the test), or None (a loop without one)."""
+        for s in self.wf.steps:
+            if s.kind == "agent" and s.phase == "red" and s.id in self.nav.index and self.nav.loop_of(self.nav.index[s.id]) == lp:
+                return s.id
+        return None
+
     async def _ladder(self, count: int, i: int, step: Step, state: FlowState, target: str, feedback: str) -> tuple[str, dict, str]:
         """v0.17.5 the stall ladder of a criterion's check, one rung per failed round:
         1. the same agent again, with the concrete failure (no extra call);
@@ -544,7 +562,10 @@ class CodeMixin:
                                           "agent": "investigator", "phase": "review", "markers": None, "instructions": None})
             ask = (f"{feedback}\n\nThis check failed twice for {ac_id}. Read the failure and the code (read only). Say in a few "
                    "lines what really goes wrong and what the next try must change. If the cause is outside the agent's "
-                   "reach (the test command, the build, a criterion that must be built first), say so.")
+                   "reach (the test command, the build, a criterion that must be built first), say so. If the TEST is what "
+                   "is wrong (it can never pass as the spec says: it sends input the spec says the code must refuse, "
+                   "expects what the spec does not ask, or needs a fixture or test config the implementer may not "
+                   "change), start your answer with the line TEST-WRONG: <what the test must change>.")
             try:
                 res, _m, _tb = await self._run_agent({**state, "phase": "review", "feedback": ask}, inv, "investigator", 0)
             except (asyncio.CancelledError, GraphBubbleUp):
@@ -555,8 +576,9 @@ class CodeMixin:
                                                                ("tokens_in", "tokens_out", "tokens_cached", "premium_requests", "cost_usd")})
             proposal = (res.text or "").strip()[-3000:]
             data["ladder_proposal"] = proposal
-            return (f"{feedback}\n\nAn investigator read this failure. Its proposal:\n{proposal}", {"usage": usage, "data": data},
-                    "an investigator proposed a fix; tried again")
+            # 0.18.69 the cause first, the failure after it (it came last, under four thousand characters of output)
+            return (f"An investigator read this failure. What really goes wrong and what this try must change:\n{proposal}"
+                    f"\n\nThe failure:\n{feedback}", {"usage": usage, "data": data}, "an investigator proposed a fix; tried again")
         if count == 1:
             return feedback, {}, "the same agent again, with the failure"
         proposal = data.get("ladder_proposal")
@@ -655,13 +677,18 @@ class CodeMixin:
         key = f"{step.id}:{(ac or {}).get('id')}"
         retries = dict(state.get("retries") or {})
         count = retries.get(key, 0) + 1
-        fp = hashlib.sha1((r.note + r.detail[:400]).encode()).hexdigest()[:12]
+        # 0.18.69 the failure without its numbers (times, counts, ids, line numbers): the same failure in two rounds has
+        # the same fingerprint (raw, a duration alone made every round look new)
+        fp = hashlib.sha1(_FIGURES.sub("#", r.note + r.detail[:600]).encode()).hexdigest()[:12]
         stall = dict(state.get("stall") or {"fingerprint": None, "count": 0, "step": 0})
         if stall.get("fingerprint") == fp:
             stall["count"] = stall.get("count", 0) + 1
         else:
             stall = {"fingerprint": fp, "count": 1, "step": 0}
         feedback = f"{r.note}\n{r.detail[-4000:]}".strip()
+        if stall["count"] >= 2:
+            feedback = (f"SAME FAILURE as the last try ({stall['count']} rounds in a row): what was tried did not change the "
+                        "outcome. Do not repeat it: find a different cause, or say BLOCKED with why.\n\n" + feedback)
         limit = (rules.load_config(self.ctx.root).get("loops") or {}).get("stall_repeats", 3)
         if stall["count"] >= limit:
             stall["step"] = min(stall.get("step", 0) + 1, len(rules.LADDER))
@@ -683,6 +710,22 @@ class CodeMixin:
             retries[key] = count
             if ladder:
                 fb, more, did = await self._ladder(count, i, step, {**state, **upd}, target, feedback)
+                red = self._red_step(lp) if count == 2 else None
+                said = str(((more.get("data") or {}).get("ladder_proposal")) or "")
+                if red and TEST_WRONG.match(said):
+                    # 0.18.69 the investigator says the test is what is wrong (a field report: a RED test that sent what
+                    # the spec answers with 400; GREEN may not change tests, so three rounds failed the same way): the
+                    # RED step writes the test again, with the reason; then GREEN goes on
+                    gates = deep_gates(base, state)
+                    # GREEN's uncommitted tries go back first: a RED commit may hold no production code
+                    back = flow_actions.reset(self._action_input(state, ac))
+                    gates["log"].append(f"{ac['id']}: {back.note}"[:300])
+                    gates["log"].append(f"stall {ac['id']} round {count}: the investigator says the test is wrong; RED again"[:300])
+                    fb = (f"The test you wrote for {ac['id']} cannot pass as the spec says. An investigator read it with the "
+                          f"failure:\n{said}\n\nWrite the test again so it checks {ac['id']} as the spec says; it must "
+                          f"fail now for the missing behaviour, not for a wrong input or expectation.\n\nThe failure:\n{feedback}")
+                    return {**base, **more, "gates": gates, "feedback": fb, "retries": retries,
+                            "note": f"{r.note} · round {count}: the test is wrong; RED writes it again"[:300]}, red
                 gates = deep_gates(base, state)
                 gates["log"].append(f"stall {ac['id']} round {count}: {did}"[:300])
                 return {**base, **more, "gates": gates, "feedback": fb, "retries": retries,

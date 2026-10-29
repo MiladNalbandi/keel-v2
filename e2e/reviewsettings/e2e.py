@@ -183,6 +183,8 @@ def main() -> int:
         revs = raw["review"]["reviewers"]
         check(len(revs) == 3 and "money-rounding" in revs[2]["lenses"],
               ".keel/config.yml has review: with three reviewers and the lens on C")
+        check(raw["review"].get("depth") == "full" and raw["review"].get("find_runs") == "classic",
+              ".keel/config.yml has the depth (full) and what Find problems runs (classic)")
         check(raw["knowledge"] == {"build": False} and "# the shop's own settings" in (repo / ".keel/config.yml").read_text(),
               "the rest of .keel/config.yml is as it was")
         api("PUT", f"/projects/{shop['id']}/review-setup", {"reset": True})

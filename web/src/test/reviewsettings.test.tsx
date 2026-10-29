@@ -40,7 +40,7 @@ function viewOf(reviewers: { name: string; focus: string; lenses: string[] }[], 
     missing: [],
     uses: { reviewers: revs.map(() => SONNET), checker: OPUS_HIGH, final: OPUS_HIGH, fix: null },
     models: { default: SONNET, reviewer: SONNET },
-    find_text: findText(revs),
+    find_text: extra.runs === "flow" ? "The review flow (Standard, ~60k tokens) reads the change with your project's rules." : findText(revs),
     ship_lenses: ["correctness", "security", "performance", "consumers-config"],
     ship_lenses_from: "keel's default",
     limits: { reviewers: 4, efforts: ["low", "medium", "high"], fix_flows: ["quick", "small", "change", "ask"], run_modes: ["manual", "important", "auto"],
@@ -81,6 +81,7 @@ describe("Settings › Review", () => {
     expect(screen.getByRole("radio", { name: /The review flow/ })).toBeChecked();
     // the flow has no reviewer count: the classic reviewers show only when Find problems runs them
     expect(screen.queryByRole("radiogroup", { name: "Number of reviewers" })).toBeNull();
+    expect(screen.getByTestId("rv-find-text")).toHaveTextContent(/^The review flow \(Standard/);   // the flow's text, not the reviewers
     const depth = screen.getByRole("radiogroup", { name: "Review depth" });
     expect(within(depth).getByRole("radio", { name: /Standard/ })).toHaveAttribute("aria-checked", "true");
     expect(within(depth).getByRole("radio", { name: /Quick/ })).toHaveTextContent("~20k tokens · 1–2 min");
