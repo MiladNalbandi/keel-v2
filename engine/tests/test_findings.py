@@ -119,3 +119,43 @@ def test_unanswered_findings_follow_the_plain_decision():
     assert got[0]["decision"] == "fix", "no amendment where the flow has none"
     auto = fd.read(asked, found, {"decision": "approve", "auto": True, "payload": {"answers": {"f1": "accept: x"}}})
     assert [d["decision"] for d in auto] == ["fix", "fix"]
+
+
+# keel 0.18.68 the 0.18.65 regression: a branch review's checklist answers were read as blocking findings
+CHECKLIST_ANSWER = """Read the spec, then git diff main...HEAD.
+
+1. **Correctness across ACs**: nothing to report.
+2. **Shared config keys, parameters and routes**
+- EXPORT_LIMIT: new, read only by the export service.
+- **Each public type against its contract**: none.
+- Consumer upgrade: n/a, nothing is published.
+- **Runtime and dependency versions**
+- `src/Export/Writer.php:41` calls `utf8_encode()`, removed in PHP 8.4 (the CI matrix tests 8.4).
+
+## What I did not check
+- the deploy config (not in the repo)
+- the staging database
+
+CODE-REVIEW: findings"""
+
+
+def test_checklist_answers_and_what_was_not_checked_are_not_findings():
+    assert blocking(CHECKLIST_ANSWER) == [
+        "EXPORT_LIMIT: new, read only by the export service.",
+        "`src/Export/Writer.php:41` calls `utf8_encode()`, removed in PHP 8.4 (the CI matrix tests 8.4).",
+    ]
+
+
+def test_a_findings_heading_is_the_only_place_findings_are_read_from():
+    text = ("## Checklist\n- Shared config keys: one new key, fine\n- Consumer upgrade: nothing to report\n\n"
+            "## Findings\n- `src/Order.kt:30` the retry never ends\n\n## What I did not check\n- the CI file\n\n"
+            "CODE-REVIEW: findings")
+    assert blocking(text) == ["`src/Order.kt:30` the retry never ends"]
+
+
+def test_only_what_was_not_checked_is_a_pass_with_notes():
+    text = ("## Checklist\n- Correctness across ACs: nothing to report\n\n## Findings\nNone.\n\n"
+            "## What I did not check\n- the CI file (not readable)\n\nCODE-REVIEW: findings")
+    assert blocking(text) == []
+    assert blocking("I read it all and found a problem in the export.\nCODE-REVIEW: findings") == [
+        "The reviewer reported findings: I read it all and found a problem in the export."]
