@@ -498,7 +498,20 @@ def plan(ranked: list[dict], items: list[dict], depth: str = "standard") -> list
     # keel 0.18.68 a blind comparison (Opus judging, the same Sonnet on both sides): one agent that read the whole change
     # found the bugs between files that reviewers of one area each missed. Standard keeps one reviewer up to
     # STANDARD_ONE_AGENT_LINES; full splits by area and adds a reviewer of the whole change for what lies between files.
-    if depth != "full" and lines <= (STANDARD_ONE_AGENT_LINES if depth == "standard" else ONE_AGENT_LINES):
+    # The checklist (the ticket's items and the team's, a dozen or more) took most of one reviewer's turns: it found two
+    # problems in 900 lines where the plain review found five. So up to STANDARD_ONE_AGENT_LINES standard runs three
+    # reviewers in parallel: the checklist, one bug reviewer of the whole change, and quality (the project's rules).
+    if depth == "standard" and lines <= STANDARD_ONE_AGENT_LINES:
+        code = [f["file"] for f in ranked if area_of(f["file"]) != "docs"]
+        jobs = [{"job": "checklist", "items": [it["id"] for it in open_], "files": every}] if open_ else []
+        # the bug reviewer is change-reviewer: a short prompt that reads like a colleague's request (pr-reviewer's long,
+        # precision-first rules found a third of the bugs a plain request found on the same change)
+        jobs.append({"job": "bugs", "items": [], "files": every, "area": "the whole change", "lenses": lenses_for(every),
+                     "agent": "change-reviewer"})
+        if code:
+            jobs.append({"job": "quality", "items": [], "files": code[:MAX_FILES]})
+        return jobs
+    if depth != "full" and lines <= ONE_AGENT_LINES:
         return [{"job": "all", "items": [it["id"] for it in open_], "files": every, "lenses": lenses_for(every)}]
     jobs = []
     order = {f: n for n, f in enumerate(every)}
@@ -530,6 +543,8 @@ JOB_TEXT = {
     "team": "only the items you are given (the team's definition of done), each against its files",
     "bugs": "only problems the change introduces in these files that will really break",
     "quality": "only these files: do they follow this codebase's own patterns (the like: file) and the standards",
+    "checklist": "only the items you are given (the ticket's and the team's), each against its files; also report "
+                 "scope creep",
     "cross": "the whole change, for the bugs between files: a caller and what it calls, an event and its handler, a write "
              "and the read that needs it, the order things happen in",
     "check": "a few claims other reviewers made: for each, read its lines and the one place that would make it false, "
@@ -878,6 +893,8 @@ def _job_item(n: int, job: dict, review: dict, read: str, own: list[dict] | None
                          "then TICKET-REVIEW: done"}
         if job.get("area"):
             out["area"] = job["area"]
+        if job.get("agent"):
+            out["agent"] = job["agent"]
         if job.get("lenses"):
             out["lenses"] = [f"{name}: {LENSES[name]}" for name in job["lenses"]]
         if own and job["job"] in ("all", "bugs", "cross"):
@@ -885,12 +902,12 @@ def _job_item(n: int, job: dict, review: dict, read: str, own: list[dict] | None
             mine = {x["name"] for x in own}
             out["lenses"] = [x for x in out.get("lenses") or [] if x.split(":", 1)[0] not in mine] + \
                 [f"{x['name']}: {lenses.flat(x['checklist'])}" for x in own]
-        if review.get("stack") and job["job"] in ("all", "quality"):
+        if review.get("stack") and (job["job"] in ("all", "quality") or job.get("agent") == "change-reviewer"):
             out["stack"] = ", ".join(review["stack"])
         auto = [f"{it['id']} AUTO {it['verdict']}: {it['evidence']}" for it in review["items"] if it.get("auto")]
-        if auto and job["job"] in ("all", "ticket", "team"):
+        if auto and job["job"] in ("all", "ticket", "team", "checklist"):
             out["decided"] = auto
-        if job["job"] in ("all", "quality") and review.get("standards"):
+        if (job["job"] in ("all", "quality") or job.get("agent") == "change-reviewer") and review.get("standards"):
             out["standards"] = [f"git show {review['source']['base_ref']}:{s}" for s in review["standards"]]
         return out
 
@@ -1074,6 +1091,29 @@ def _where(text: str) -> tuple[str | None, int | None]:
     return m.group(1), int(m.group(2)) if m.group(2) else None
 
 
+def _cells(line: str) -> list[str]:
+    """A result line's fields: split at "|", but not inside `code` and not at "||" (keel 0.18.68: a finding quoting
+    `a || b` was cut at the pipe, so its text ended mid-sentence)."""
+    out, cur, code, i = [], [], False, 0
+    while i < len(line):
+        ch = line[i]
+        if ch == "`":
+            code = not code
+        elif ch == "|" and not code:
+            if line[i:i + 2] == "||":
+                cur.append("||")
+                i += 2
+                continue
+            out.append("".join(cur))
+            cur = []
+            i += 1
+            continue
+        cur.append(ch)
+        i += 1
+    out.append("".join(cur))
+    return out
+
+
 def parse_lines(text: str) -> dict:
     """`T1 | met | src/A.kt:42 | why`, `F | blocking | where | what | to do`, `Q | where | rule | what | to do`, `S | ...`,
     `READ | file` (a file the reviewer read), `GAP | file | why` (one it could not read), `CHECK | confirmed | why`
@@ -1083,7 +1123,7 @@ def parse_lines(text: str) -> dict:
         line = re.sub(r"^\s*[-*]\s+", "", raw).strip().strip("`")
         if "|" not in line:
             continue
-        p = [x.strip().strip("`") for x in line.split("|")]
+        p = [x.strip().strip("`") for x in _cells(line)]
         head = p[0].upper()
         if head == "S":
             out["summary"].append(" | ".join(p[1:])[:300])
@@ -1116,7 +1156,7 @@ def parse_lines(text: str) -> dict:
         elif head == "Q":
             f, n = _where(p[1] if len(p) > 1 else "")
             out["quality"].append({"file": f, "line": n, "rule": (p[2] if len(p) > 2 else "")[:80],
-                                   "text": (p[3] if len(p) > 3 else "")[:300], "todo": " | ".join(p[4:])[:300] or None})
+                                   "text": (p[3] if len(p) > 3 else "")[:300], "todo": " | ".join(x for x in p[4:] if x)[:300] or None})
         elif head == "F":
             sev = (p[1] if len(p) > 1 else "").lower()
             if sev not in SEVERITIES:
@@ -1124,21 +1164,21 @@ def parse_lines(text: str) -> dict:
                 continue
             f, n = _where(p[2] if len(p) > 2 else "")
             out["findings"].append({"severity": sev, "file": f, "line": n, "text": (p[3] if len(p) > 3 else "")[:400],
-                                    "todo": " | ".join(p[4:])[:300] or None})
+                                    "todo": " | ".join(x for x in p[4:] if x)[:300] or None})
         elif re.fullmatch(r"[TD]\d+", head):
             v = (p[1] if len(p) > 1 else "").lower()
             if v in SEVERITIES:
                 # a problem written on an item's line (T2 | minor | ...): kept as a finding, not lost
                 f, n = _where(p[2] if len(p) > 2 else "")
                 out["findings"].append({"severity": v, "file": f, "line": n, "text": (p[3] if len(p) > 3 else "")[:400],
-                                        "todo": " | ".join(p[4:])[:300] or None})
+                                        "todo": " | ".join(x for x in p[4:] if x)[:300] or None})
                 continue
             if v not in ITEM_VERDICTS:
                 out["bad"].append(f'{head} has verdict "{p[1] if len(p) > 1 else ""}"')
                 continue
             ev = " ".join(x for x in p[2:4] if x and x != "-")
             out["items"].append({"id": head, "verdict": v, "evidence": ev[:400] or None,
-                                 "todo": " | ".join(p[4:])[:300] or None})
+                                 "todo": " | ".join(x for x in p[4:] if x)[:300] or None})
     return out
 
 

@@ -149,9 +149,14 @@ def test_a_full_review_of_a_branch_shares_only_the_chosen_sections_and_posts_not
     tid = review(client, repo)
     s = wait(client, tid)
     assert s["waiting"]["step"] == "share" and s["phase"] == "review", s
-    agents = [r for r in seen if r.agent == "pr-reviewer"]
-    assert len(agents) == 1 and agents[0].item["job"] == "all"          # a small change: one agent does every job
-    job = agents[0].item
+    agents = [r for r in seen if r.agent in ("pr-reviewer", "change-reviewer")]
+    # keel 0.18.68 standard: the checklist, one bug reviewer of the whole change, and quality, in parallel
+    assert sorted(r.item["job"] for r in agents) == ["bugs", "checklist", "quality"]
+    bugs = next(r for r in agents if r.item["job"] == "bugs")
+    assert bugs.agent == "change-reviewer"                               # the short prompt hunts the bugs
+    bugs = bugs.item
+    assert bugs["area"] == "the whole change" and bugs["files"][0].startswith("src/scores/ranks.py")
+    job = next(r.item for r in agents if r.item["job"] == "checklist")
     assert [i["id"] for i in job["items"]][:2] == ["T1", "T2"]
     assert job["files"][0].startswith("src/scores/ranks.py")
     assert "git diff main...feat/ranks -- <file>" in job["read"]
@@ -203,7 +208,7 @@ def test_every_problem_is_checked_again_and_only_confirmed_ones_are_reported(cli
                  else "unproven | needs:the docs rule of this repo")
             out.append(f"CHECK | {c['id']} | {v}")
         return "\n".join(out + ["TICKET-REVIEW: done"])
-    seen = answers(monkeypatch, {"pr-reviewer": reviewer, "finding-verifier": verifier})
+    seen = answers(monkeypatch, {"pr-reviewer": reviewer, "change-reviewer": reviewer, "finding-verifier": verifier})
     tid = review(client, repo)
     s = wait(client, tid)
     checks = [r.item for r in seen if r.agent == "finding-verifier"]

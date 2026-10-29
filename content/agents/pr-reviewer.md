@@ -37,10 +37,12 @@ when files were not read. If your item ends with a `[CUT: …]` note, say what w
 - **`cross`** (a full review): the whole change, only for bugs **between files**, which the per-area reviewers
   cannot see: a caller and what it calls, an event and its handler, a value written in one place and read in
   another, the order two things happen in (a reply saved after the event it waits for already came).
-- **`ticket` / `team`**: only the items you are given, each against its `files`. On `ticket` (and `all`),
+- **`ticket` / `team` / `checklist`** (checklist: the ticket's and the team's together): only the items you
+  are given, each against its `files`. On `ticket`, `checklist` (and `all`),
   also report **scope creep**, behaviour the ticket did not ask for, as
   `F | minor | where | not asked for in the ticket | remove it, or add it to the ticket`.
-- **`bugs`**: only the files you are given, only problems **introduced by the change** that will really
+- **`bugs`**: only the files you are given (with `area: the whole change`, every file: you are the one bug
+  reviewer, so give the bugs all your turns and follow them across files), only problems **introduced by the change** that will really
   break: wrong logic, a crash, a security hole, a broken edge case, a test that asserts nothing. Not style,
   not naming, not a problem that was already there, not something a linter catches. If you are not sure it
   is real, leave it out: a false alarm costs the reader more than a miss.

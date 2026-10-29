@@ -32,14 +32,14 @@ def test_quick_is_one_reviewer_full_splits_even_a_small_change_and_adds_lenses()
     small = [f("src/api/OrderController.php", 30), f("migrations/Version1.php", 20)]
     quick = ta.plan(small, [], "quick")
     assert [j["job"] for j in quick] == ["all"] and len(quick[0]["lenses"]) <= ta.QUICK_LENSES
-    assert [j["job"] for j in ta.plan(small, [], "standard")] == ["all"]
+    assert [j["job"] for j in ta.plan(small, [], "standard")] == ["bugs", "quality"]     # no checklist items: no checklist job
     full = ta.plan(small, [], "full")
     assert {j["job"] for j in full} == {"bugs", "quality", "cross"}
     assert next(j for j in full if j["job"] == "cross")["files"] == [x["file"] for x in small]
     # 0.18.68 standard: one reviewer reads the whole change up to STANDARD_ONE_AGENT_LINES (it splits above)
     mid = [f(f"src/api/C{n}.php", 300) for n in range(4)]
-    assert [j["job"] for j in ta.plan(mid, [], "standard")] == ["all"]
-    assert "all" not in [j["job"] for j in ta.plan(mid * 2, [], "standard")]
+    assert next(j for j in ta.plan(mid, [{"id": "T1", "from": "ticket"}], "standard") if j["job"] == "bugs")["area"] == "the whole change"
+    assert "the whole change" not in [j.get("area") for j in ta.plan(mid * 2, [], "standard")]
     assert all(set(ta.FULL_LENSES) <= set(j["lenses"]) for j in full if j["job"] == "bugs")
     big = [f(f"src/api/C{n}.php", 300) for n in range(8)]
     assert [j["job"] for j in ta.plan(big, [], "quick")] == ["all"]          # quick never splits
@@ -67,11 +67,13 @@ def test_every_reviewer_gets_the_projects_rules_from_the_base_and_its_own_lenses
     tid = start(client, repo, workflow="review-pr", title="Review ranks", request="branch: feat/ranks\n" + TICKET)
     s = wait(client, tid)
     assert s["waiting"]["step"] == "share", s
-    job = next(r for r in seen if r.agent == "pr-reviewer").item
+    job = next(r.item for r in seen if r.agent == "pr-reviewer" and r.item["job"] == "quality")
     assert "git show main:AGENTS.md" in job["standards"] and "git show main:.cursor/rules/naming.mdc" in job["standards"]
     assert not any("CLAUDE.md" in x for x in job["standards"])      # the change cannot bring its own rules
-    assert any(x.startswith("money-rounding: ") for x in job["lenses"])
-    assert not any(x.startswith("anything-goes") for x in job["lenses"])     # nor its own lenses
+    bugs = next(r.item for r in seen if r.agent == "change-reviewer" and r.item["job"] == "bugs")
+    assert "git show main:AGENTS.md" in bugs["standards"]                    # the bug reviewer reads the rules too
+    assert any(x.startswith("money-rounding: ") for x in bugs["lenses"])
+    assert not any(x.startswith("anything-goes") for x in bugs["lenses"])     # nor its own lenses
     review = graph_values(client, tid)["data"]["ticket_review"]
     assert review["depth"] == "standard" and review["own_lenses"] == ["money-rounding"]
 
@@ -151,3 +153,11 @@ def test_a_confirmed_finding_moves_to_the_line_the_verifier_read_and_off_a_blank
 def test_the_verifier_says_where_a_finding_is():
     got = ta.parse_lines("CHECK | c1 | confirmed | the fee is a float | sev:blocking | at:shelf/loans.py:6 | evidence:shelf/loans.py:6")
     assert got["checks"][0]["at"] == "shelf/loans.py:6" and got["checks"][0]["why"] == "the fee is a float"
+
+
+def test_a_pipe_inside_code_or_a_double_pipe_does_not_cut_a_finding():
+    got = ta.parse_lines('F | minor | web/Problems.tsx:79 | `run?.stage === "flow" || run?.result?.flow_id` mixes two checks '
+                         '| keep one | \nQ | a.ts:3 | like b.ts | `x | y` is a pipe in a shell string | quote it')
+    assert got["findings"][0]["text"].endswith('"flow" || run?.result?.flow_id` mixes two checks')
+    assert got["findings"][0]["todo"] == "keep one"
+    assert got["quality"][0]["text"].startswith("x | y` is a pipe") and got["quality"][0]["todo"] == "quote it"
