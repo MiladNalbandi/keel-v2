@@ -784,12 +784,23 @@ def ac_commits(root: str, ac_id: str, base: str | None = None) -> dict:
 OWN_STEP_LAYERS = {"E2E": "e2e", "SMOKE": "smoke"}     # criteria built by their own step, not by RED/GREEN
 
 
+# keel 0.18.72 where a test that names a criterion may live when the project sets no e2e (smoke) folder, or none there
+# names it: a field report's [E2E] criteria were tested under tests/ and the strict trace said "no test commit" anyway
+TEST_PATHS = (":(glob)**/tests/**", ":(glob)**/test/**", ":(glob)**/e2e/**", ":(glob)**/*Test.*", ":(glob)**/*_test.*",
+              ":(glob)**/*.spec.*", ":(glob)**/*.test.*", ":(glob)**/test_*", ":(exclude,glob)**/*.md")
+
+
 def _named_test(root: str, folder: str | None, ac_id: str) -> str | None:
-    """The first tracked file under the e2e (or smoke) folder that names this criterion id."""
-    if not folder:
-        return None
-    r = git.git(root, "grep", "-l", "-w", "-F", "-e", ac_id, "--", folder.rstrip("/") + "/")
-    return next((f.strip() for f in (r.stdout or "").splitlines() if f.strip()), None)
+    """The first tracked file under the e2e (or smoke) folder that names this criterion id; else (0.18.72) the first
+    test file anywhere that names it."""
+    for paths in ([folder.rstrip("/") + "/"] if folder else [], list(TEST_PATHS)):
+        if not paths:
+            continue
+        r = git.git(root, "grep", "-l", "-w", "-F", "-e", ac_id, "--", *paths)
+        found = next((f.strip() for f in (r.stdout or "").splitlines() if f.strip()), None)
+        if found:
+            return found
+    return None
 
 
 def trace_rows(root: str, acs: list[dict], base: str | None = None) -> list[dict]:
@@ -808,8 +819,10 @@ def trace_rows(root: str, acs: list[dict], base: str | None = None) -> list[dict
             named = re.compile(rf"(?m)^Covers:.*(?<![\w-]){re.escape(aid)}(?![\w.-])")
             sha = next((sha for sha, _s, body in log if named.search(body)), None)
             test = _named_test(root, (cfg.get(OWN_STEP_LAYERS[layer]) or {}).get("dir"), aid)
+            red = next((c for c, s, _b in log if f"test({aid})" in s), None)
+            sha = sha or red                    # 0.18.72 an [E2E] criterion built test first has its test(<id>) commit
             # a smoke check is often a plain script with no id in it: its smoke commit's Covers: line is enough
-            done = bool(test) or (layer == "SMOKE" and bool(sha))
+            done = bool(test) or bool(red) or (layer == "SMOKE" and bool(sha))
             rows.append({**row, "test": sha[:7] if sha else None, "commit": None, "file": test, "complete": done})
             continue
         red = next((sha for sha, s, _b in log if f"test({aid})" in s), None)
