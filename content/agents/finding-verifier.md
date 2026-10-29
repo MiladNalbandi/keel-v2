@@ -64,8 +64,14 @@ Re-rate every confirmed finding against the rubric, not the reviewer's word:
 - **blocking** — data lost or corrupted; a security hole; a crash or 5xx on a normal path; a message lost or
   applied twice; a migration that fails, times out or locks on real data; a secret committed; a contract
   change that breaks an existing caller.
+- A break of a rule the project wrote down for money, data, security or errors (its AGENTS.md, CLAUDE.md,
+  style docs: "money is int cents", "never swallow an exception", "every handler checks the user") counts as
+  the defect the rule guards against: money held as a float is a money bug, rate it as one.
 - **minor** — a real defect with a narrow trigger or a cheap workaround; a missing test for a risky branch.
 - Anything below that is not a finding: say `rejected | below the bar: <why>`.
+
+**Where it is**: for a confirmed finding add `at:<file>:<line>`, the line where the problem is as you read it
+at the reviewed version (the reviewer's line is often a hunk start or an empty line).
 
 `conf:high` when you read every place the claim depends on; `conf:medium` when one hop is inferred. A
 `confirmed` finding at medium names the hop you did not read.
@@ -85,7 +91,7 @@ kept one's reason.
 ## Answer in lines, nothing else
 
 ```
-CHECK | c3 | confirmed | V42 adds status without a default; OrderQuery.kt:88 filters status='OPEN', so old rows vanish | sev:blocking | conf:high | evidence:db/migration/V42__status.sql:3; src/OrderQuery.kt:88
+CHECK | c3 | confirmed | V42 adds status without a default; OrderQuery.kt:88 filters status='OPEN', so old rows vanish | sev:blocking | conf:high | at:db/migration/V42__status.sql:3 | evidence:db/migration/V42__status.sql:3; src/OrderQuery.kt:88
 CHECK | c4 | rejected | OrderController.kt:40 catches it and returns 409; GlobalHandler.kt:22 logs it | evidence:src/OrderController.kt:40
 CHECK | c5 | unproven | the consumer retries via broker config, not in this repo | needs:the redelivery count and dead-letter setting for orders.created
 CHECK | c6 | rejected | duplicate of c3

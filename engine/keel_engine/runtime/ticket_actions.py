@@ -54,6 +54,7 @@ MAX_CHECK_JOBS = 12          # finding-verifier jobs per review: up to 48 claims
 MAX_SETTLES = 12             # undecided checklist items a second look settles by reading the code
 MAX_CHECKS = CHECK_BATCH * MAX_CHECK_JOBS
 DEPTHS = ("quick", "standard", "full")    # keel 0.18.67 how hard the review looks (depth_of)
+STANDARD_ONE_AGENT_LINES = 1500   # keel 0.18.68 standard: one reviewer reads a change this size whole (see plan)
 QUICK_LENSES = 2             # keel lenses the one quick reviewer goes through (the project's own always apply)
 QUICK_CHECKS = 2 * CHECK_BATCH   # claims a quick review checks again; the rest are listed as not checked
 FULL_LENSES = ["error-handling-retry", "contract-types", "consumers-config", "test-quality"]
@@ -494,7 +495,10 @@ def plan(ranked: list[dict], items: list[dict], depth: str = "standard") -> list
     if depth == "quick":
         return [{"job": "all", "items": [it["id"] for it in open_], "files": every,
                  "lenses": lenses_for(every)[:QUICK_LENSES]}]
-    if lines <= ONE_AGENT_LINES and depth != "full":
+    # keel 0.18.68 a blind comparison (Opus judging, the same Sonnet on both sides): one agent that read the whole change
+    # found the bugs between files that reviewers of one area each missed. Standard keeps one reviewer up to
+    # STANDARD_ONE_AGENT_LINES; full splits by area and adds a reviewer of the whole change for what lies between files.
+    if depth != "full" and lines <= (STANDARD_ONE_AGENT_LINES if depth == "standard" else ONE_AGENT_LINES):
         return [{"job": "all", "items": [it["id"] for it in open_], "files": every, "lenses": lenses_for(every)}]
     jobs = []
     order = {f: n for n, f in enumerate(every)}
@@ -511,6 +515,8 @@ def plan(ranked: list[dict], items: list[dict], depth: str = "standard") -> list
     code = [f for f in ranked if area_of(f["file"]) != "docs"]
     if code:
         jobs.append({"job": "quality", "items": [], "files": [f["file"] for f in code[:15]]})
+    if depth == "full" and len(code) > 1:
+        jobs.append({"job": "cross", "items": [], "files": [f["file"] for f in code]})
     return jobs
 
 
@@ -524,6 +530,8 @@ JOB_TEXT = {
     "team": "only the items you are given (the team's definition of done), each against its files",
     "bugs": "only problems the change introduces in these files that will really break",
     "quality": "only these files: do they follow this codebase's own patterns (the like: file) and the standards",
+    "cross": "the whole change, for the bugs between files: a caller and what it calls, an event and its handler, a write "
+             "and the read that needs it, the order things happen in",
     "check": "a few claims other reviewers made: for each, read its lines and the one place that would make it false, "
              "and answer confirmed, rejected or unproven",
     "settle": "one checklist item nobody could decide: read the code it needs and decide it, or say what you could not read",
@@ -872,7 +880,7 @@ def _job_item(n: int, job: dict, review: dict, read: str, own: list[dict] | None
             out["area"] = job["area"]
         if job.get("lenses"):
             out["lenses"] = [f"{name}: {LENSES[name]}" for name in job["lenses"]]
-        if own and job["job"] in ("all", "bugs"):
+        if own and job["job"] in ("all", "bugs", "cross"):
             # the project's own lenses; one with the name of keel's replaces it
             mine = {x["name"] for x in own}
             out["lenses"] = [x for x in out.get("lenses") or [] if x.split(":", 1)[0] not in mine] + \
@@ -1101,9 +1109,9 @@ def parse_lines(text: str) -> dict:
             v = (p[1] if len(p) > 1 else "").lower()
             v = {"unproven": "unverified"}.get(v, v)
             if v in CHECK_VERDICTS:
-                tags = {k.lower(): val.strip() for x in p[2:] if (m := re.match(r"^(sev|conf|evidence|needs)\s*:\s*(.*)$", x, re.I))
+                tags = {k.lower(): val.strip() for x in p[2:] if (m := re.match(r"^(sev|conf|evidence|needs|at)\s*:\s*(.*)$", x, re.I))
                         for k, val in [m.groups()]}
-                why = " | ".join(x for x in p[2:] if x and x != "-" and not re.match(r"^(sev|conf|evidence|needs)\s*:", x, re.I))
+                why = " | ".join(x for x in p[2:] if x and x != "-" and not re.match(r"^(sev|conf|evidence|needs|at)\s*:", x, re.I))
                 out["checks"].append({"id": cid, "verdict": v, "why": why[:400], **{k: v2[:300] for k, v2 in tags.items()}})
         elif head == "Q":
             f, n = _where(p[1] if len(p) > 1 else "")
@@ -1440,7 +1448,7 @@ def _record(a):
                 if v and v["verdict"] == "confirmed":
                     sev = (v.get("sev") or "").lower()
                     keep[target] = {**f, "check": "confirmed", "check_why": v["why"],
-                                    **({"severity": sev} if sev in SEVERITIES else {})}
+                                    **({"severity": sev} if sev in SEVERITIES else {}), **_located(a, f, v.get("at"))}
                 elif v and v["verdict"] == "rejected":
                     dropped.append({**f, "why": v["why"]})
                 else:
@@ -1511,6 +1519,32 @@ def _record(a):
     marks[a.step or "record"] = {**(marks.get(a.step or "record") or {}), "SHARE": share}
     marks["*"] = {**(marks.get("*") or {}), "SHARE": share}
     return _result(True, note, "", {"show": text, "data": data, "markers": marks})
+
+
+def _located(a, f: dict, at: str | None) -> dict:
+    """keel 0.18.68 where a confirmed finding really is (a blind comparison found four findings on an empty or wrong
+    line): the verifier's at: file:line when it names the same file, then the line checked at the reviewed version: a
+    line past the file's end is dropped, a blank one moves to the nearest code line within 3."""
+    out: dict = {}
+    if at:
+        file, line = _where(at)
+        if file and line and (not f.get("file") or _norm(file) == _norm(f["file"]) or not f.get("line")):
+            out = {"file": file, "line": line}
+    file, line = out.get("file") or f.get("file"), out.get("line") or f.get("line")
+    ref = ((_review(a).get("source") or {}).get("ref")) if a is not None else None
+    if not (file and line and ref and getattr(a, "root", None)):
+        return out
+    shown = git.git(a.root, "show", f"{ref}:{file}")
+    if shown.returncode != 0:
+        return out
+    lines = shown.stdout.split("\n")
+    n = int(line)
+    if n > len(lines):
+        return {**out, "file": file, "line": None}
+    if not lines[n - 1].strip():
+        near = [m for d in (1, -1, 2, -2, 3, -3) if 1 <= (m := n + d) <= len(lines) and lines[m - 1].strip()]
+        return {**out, "file": file, "line": near[0] if near else n}
+    return out
 
 
 def _same_note(q: dict, f: dict) -> bool:

@@ -34,9 +34,14 @@ def test_quick_is_one_reviewer_full_splits_even_a_small_change_and_adds_lenses()
     assert [j["job"] for j in quick] == ["all"] and len(quick[0]["lenses"]) <= ta.QUICK_LENSES
     assert [j["job"] for j in ta.plan(small, [], "standard")] == ["all"]
     full = ta.plan(small, [], "full")
-    assert {j["job"] for j in full} == {"bugs", "quality"}
+    assert {j["job"] for j in full} == {"bugs", "quality", "cross"}
+    assert next(j for j in full if j["job"] == "cross")["files"] == [x["file"] for x in small]
+    # 0.18.68 standard: one reviewer reads the whole change up to STANDARD_ONE_AGENT_LINES (it splits above)
+    mid = [f(f"src/api/C{n}.php", 300) for n in range(4)]
+    assert [j["job"] for j in ta.plan(mid, [], "standard")] == ["all"]
+    assert "all" not in [j["job"] for j in ta.plan(mid * 2, [], "standard")]
     assert all(set(ta.FULL_LENSES) <= set(j["lenses"]) for j in full if j["job"] == "bugs")
-    big = [f(f"src/api/C{n}.php", 300) for n in range(4)]
+    big = [f(f"src/api/C{n}.php", 300) for n in range(8)]
     assert [j["job"] for j in ta.plan(big, [], "quick")] == ["all"]          # quick never splits
 
 
@@ -129,3 +134,20 @@ def test_the_review_page_reads_the_result_of_its_flow(client, repo, monkeypatch)
     assert wait(client, tid)["status"] == "done"
     got = client.get(f"/threads/{tid}/review").json()
     assert got["done"] and got["depth"] == "quick" and isinstance(got["findings"], list) and got["verdict"]
+
+
+def test_a_confirmed_finding_moves_to_the_line_the_verifier_read_and_off_a_blank_or_missing_line(repo):
+    on_branch(repo, files={"src/scores/ranks.py": "def rank(xs):\n\n    return sorted(xs, reverse=True)\n"})
+    from keel_engine.runtime.actions import ActionInput
+    a = ActionInput(root=str(repo), phase="review", title="t", ac=None, acs=[], fake=False, flow="review-pr",
+                    data={"ticket_review": {"source": {"ref": "feat/ranks"}}})
+    f = {"file": "src/scores/ranks.py", "line": 2}
+    assert ta._located(a, f, None) == {"file": "src/scores/ranks.py", "line": 3}        # line 2 is blank: the next code
+    assert ta._located(a, f, "src/scores/ranks.py:1") == {"file": "src/scores/ranks.py", "line": 1}
+    assert ta._located(a, {"file": "src/scores/ranks.py", "line": 90}, None)["line"] is None   # past the end
+    assert ta._located(a, f, "other/file.py:9") == {"file": "src/scores/ranks.py", "line": 3}  # another file: not taken
+
+
+def test_the_verifier_says_where_a_finding_is():
+    got = ta.parse_lines("CHECK | c1 | confirmed | the fee is a float | sev:blocking | at:shelf/loans.py:6 | evidence:shelf/loans.py:6")
+    assert got["checks"][0]["at"] == "shelf/loans.py:6" and got["checks"][0]["why"] == "the fee is a float"

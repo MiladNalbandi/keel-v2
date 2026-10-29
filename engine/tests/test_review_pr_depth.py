@@ -268,8 +268,11 @@ def test_a_large_review_is_chunked_and_a_reviewer_that_skips_files_makes_it_part
         lines = [f"READ | {x}" for x in mine] + [f"{i['id']} | met | backend/migrations/V1.php:1 | ok" for i in item["items"]]
         return "\n".join(lines + ["S | fine", "TICKET-REVIEW: done"])
     seen = answers(monkeypatch, {"pr-reviewer": reviewer})
-    s = wait(client, start(client, repo, workflow="review-pr", title="Review dispatch", request="branch: feat/dispatch\n" + TICKET))
+    # keel 0.18.68 standard reads a change of this size with one reviewer; full splits it by area
+    s = wait(client, start(client, repo, workflow="review-pr", title="Review dispatch", request="branch: feat/dispatch\n" + TICKET,
+                           data={"depth": "full"}))
     assert s["waiting"]["step"] == "share", s
+    assert any(r.item["job"] == "cross" for r in seen if r.agent == "pr-reviewer")   # and one reviewer between files
     jobs = [r.item for r in seen if r.agent == "pr-reviewer" and r.item["job"] == "bugs"]
     areas = sorted(j["area"] for j in jobs)
     assert areas == ["deploy-config", "message-pipeline", "migrations", "persistence", "tests"], areas

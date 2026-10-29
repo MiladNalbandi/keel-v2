@@ -32,7 +32,11 @@ when files were not read. If your item ends with a `[CUT: …]` note, say what w
 
 ## The job
 
-- **`all`**: every item you are given, then bugs, then quality, in every file (a small change: one agent).
+- **`all`**: every item you are given, then bugs, then quality, in every file (one agent reads the whole
+  change). Bugs come first and get most of your turns; at most 5 quality notes.
+- **`cross`** (a full review): the whole change, only for bugs **between files**, which the per-area reviewers
+  cannot see: a caller and what it calls, an event and its handler, a value written in one place and read in
+  another, the order two things happen in (a reply saved after the event it waits for already came).
 - **`ticket` / `team`**: only the items you are given, each against its `files`. On `ticket` (and `all`),
   also report **scope creep**, behaviour the ticket did not ask for, as
   `F | minor | where | not asked for in the ticket | remove it, or add it to the ticket`.
@@ -40,6 +44,11 @@ when files were not read. If your item ends with a `[CUT: …]` note, say what w
   break: wrong logic, a crash, a security hole, a broken edge case, a test that asserts nothing. Not style,
   not naming, not a problem that was already there, not something a linter catches. If you are not sure it
   is real, leave it out: a false alarm costs the reader more than a miss.
+
+**Follow the change end to end.** For each new or changed behaviour ask: who calls it, what runs after it,
+and does the feature work for real data: a value written and never read, a field that is never updated, a
+check the ticket asks for that nothing does, an id saved only after the thing it waits for may have happened.
+Most bugs a reviewer misses are between two files, not inside one.
 
 **Follow one step before you write an `F` line.** Every finding has a place that would make it false: the
 caller that already checks it, the allow-list the value goes through, the migration or mapping that creates
@@ -56,7 +65,9 @@ bugs, and never counts them as problems.
   concrete, fixable notes that name the pattern or rule they break: not bugs (the `bugs` job), not
   formatting a linter fixes (keel runs the linters itself), not taste. At most 8, most useful first. They
   are minor: they never block. The `standards` are the project's own rules (its style docs and its rules
-  for coding agents: AGENTS.md, CLAUDE.md, rule folders), read at the base. A note against one of them
+  for coding agents: AGENTS.md, CLAUDE.md, rule folders), read at the base. A rule there that guards money, data, security or errors ("money is int cents",
+  "never swallow an exception") is broken by a bug, not by style: report that break as an `F` line in a
+  bugs or all job, not as a quality note. A note against one of the other rules
   names the file and quotes its rule in the rule field (`AGENTS.md: "services never call the database
   directly"`); a note against a pattern names the `like:` file. `stack` names the project's frameworks:
   judge the code by their usual way of doing things only where the project's own rules say nothing.
