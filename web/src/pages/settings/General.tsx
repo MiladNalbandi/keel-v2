@@ -444,7 +444,8 @@ export function GeneralTab({
   const extra = useSlot<SettingsSectionItem>(SLOTS.settingsSection);
   const sections: GeneralSection[] = [
     ...GENERAL_SECTIONS,
-    ...extra.map((x): GeneralSection => ({
+    // 0.18.74 a section that belongs on Settings › Review shows there for a project; General keeps keel's defaults
+    ...extra.filter((x) => !(isProj && x.page === "review")).map((x): GeneralSection => ({
       id: x.id,
       title: x.title,
       sub: x.sub,

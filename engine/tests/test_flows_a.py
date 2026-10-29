@@ -643,6 +643,26 @@ def test_change_trivial_that_is_not_trivial_goes_back_to_triage(client, repo, mo
     assert git(repo, "status", "--porcelain").stdout.strip() == ""      # the trivial agent's edit was put back
 
 
+def test_a_second_triage_gets_its_earlier_answer_and_a_changed_one_is_shown(client, repo, monkeypatch):
+    """0.18.74 triage once: a field report's change flow said feature, then small, 22 s later, with no reason."""
+    sizes = iter(["SIZE: trivial", "WHY: it edits a test\nSIZE: small"])
+    seen = answers(monkeypatch, {"explorer": lambda r: next(sizes)})
+    real = actions_mod.commit
+
+    def commit(a):
+        if a.phase == "trivial":
+            return actions_mod.ActionResult(False, "This is not a trivial change: it edits existing tests.", "tests/x.py",
+                                            final=True)
+        return real(a)
+    monkeypatch.setattr(actions_mod, "commit", commit)
+    tid = start(client, repo, workflow="change", title="Rename the helper")
+    wait(client, tid)
+    s = decide(client, tid, "approve", payload={"choice": "trivial"})
+    assert "You triaged this change before: SIZE trivial" in seen[-1].prompt
+    assert s["waiting"]["step"] == "scope_gate"
+    assert "Triage changed its answer: earlier trivial, now small." in s["waiting"]["detail"]
+
+
 def test_change_trivial_red_suite_retries_before_retriage(client, repo, monkeypatch):
     seen = answers(monkeypatch, {"explorer": lambda r: "A rename; no test could notice.\nSIZE: trivial"})
     script(monkeypatch, ship_plan())

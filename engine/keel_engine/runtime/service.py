@@ -8,6 +8,7 @@ restarted engine can rebuild each graph and carry on with threads that were runn
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import logging
 import os
@@ -30,7 +31,7 @@ from . import memory as memory_mod
 from . import branch_sync, db, doc_history, flow_doc, migrate, prompts, run_mode, spec_check
 from . import choices as choices_mod
 from . import finding_decisions, thread_models
-from .compiler import answer_problem, compile_workflow, running_usage
+from .compiler import FINISH, answer_problem, compile_workflow, running_usage
 from .state import ThreadContext, initial_state, merge_unlocks, normalize_unlocks
 
 log = logging.getLogger(__name__)
@@ -382,6 +383,12 @@ class Engine:
             state["branch"] = await asyncio.to_thread(git.branch, root)
             state["git_head"] = await asyncio.to_thread(git.head, root)
             state["base_head"] = state["git_head"]
+            # 0.18.74 the branch already has commits of its own (a flow that continues a pull request's branch): a flow that
+            # builds (a RED/GREEN loop) checks and reviews its own work only, from here (verdict_actions.flow_base). A
+            # flow that checks the branch itself (an audit, a knowledge refresh) still reads all of it.
+            builds = any(st.phase in ("red", "green") for st in wf.steps)
+            if builds and await asyncio.to_thread(_ahead_of_base, root):
+                state["data"]["own_since"] = state["git_head"]
             await asyncio.to_thread(git.exclude_engine_files, root)
             layout.hide(root)               # keel / external: .keel/ stays out of git (.git/info/exclude)
             state["preexisting"] = await asyncio.to_thread(git.snapshot, root)
@@ -766,21 +773,63 @@ class Engine:
         return {"thread_id": tid, **thread_models.view(ctx.models, json.loads(row["body"]).get("model_picks") or {}, ctx.workflow,
                                                      ctx.root)}
 
-    async def set_mode(self, tid: str, mode: str) -> dict:
+    async def set_mode(self, tid: str, mode: str, by: str | None = None) -> dict:
         """Changes the thread's run mode (runtime/run_mode.py) during a run: stored with the thread's settings, used from
-        the next pause on. A question that waits now keeps waiting for the user."""
+        the next pause on. A question that waits now keeps waiting for the user. 0.18.74 [by] (who changed it, as the api
+        knows it) goes into the event and the flow's gate log: a field report could not tell who turned auto on."""
         row = await self._row(tid)
         if mode not in run_mode.MODES:
             raise EngineError(400, f'"{mode}" is not a run mode.', "Pick one of: " + ", ".join(run_mode.MODES))
         body = json.loads(row["body"])
         before = run_mode.normalize((body.get("settings") or {}).get("run_mode"))
-        body["settings"] = {**(body.get("settings") or {}), "run_mode": mode}
+        settings = {**(body.get("settings") or {}), "run_mode": mode}
+        who = (by or "").strip()[:80] or "someone (an older client did not say)"
+        if before != mode:
+            # the gate log gets it at the flow's next step (Compiler._wrap): the final review and the PR body list it
+            settings["mode_log"] = [*list(settings.get("mode_log") or []), f"run mode {before} → {mode} by {who} at {_now()}"]
+        body["settings"] = settings
         await self.conn.execute("update keel_threads set body = ?, updated_at = ? where thread_id = ?", (json.dumps(body), _now(), tid))
         await self.conn.commit()
         ctx = await self._context(tid)
-        ctx.settings = {**(ctx.settings or {}), "run_mode": mode}
+        ctx.settings = {**(ctx.settings or {}), "run_mode": mode, "mode_log": settings.get("mode_log") or []}
         if before != mode:
-            ctx.emit("thread.mode", data={"mode": mode, "from": before})
+            ctx.emit("thread.mode", data={"mode": mode, "from": before, "by": who})
+        return await self.state(tid)
+
+    async def finish_by_hand(self, tid: str, done: list[str] | None, message: str = "", by: str = "") -> dict:
+        """0.18.74 a stopped flow that the person finished themselves (a field report: a stopped flow could not be "finished
+        by hand"): the folder's changes are committed through keel's secret scan (keel's engine files left out), the
+        criteria named in [done] are marked done, and the flow ends as done with a gate log line that says so."""
+        row = await self._row(tid)
+        if row["status"] not in ("stopped", "failed"):
+            raise EngineError(409, "Only a stopped flow can be finished by hand.", "Stop it first, or answer its question.")
+        ctx = await self._context(tid)
+        root = ctx.root
+        graph = await self._graph(tid)
+        snap = await graph.aget_state(self._cfg(tid))
+        values = dict(snap.values or {})
+        acs = [dict(a) for a in values.get("acs") or []]
+        known = {a["id"] for a in acs}
+        wanted = [x for x in dict.fromkeys(done or []) if x]
+        unknown = [x for x in wanted if x not in known]
+        if unknown:
+            raise EngineError(400, f"This flow has no criterion {', '.join(unknown)}.")
+        sha = None
+        if await asyncio.to_thread(git.is_repo, root):
+            sha = await asyncio.to_thread(_commit_by_hand, root, row["title"], message)
+        for a in acs:
+            if a["id"] in wanted:
+                a["status"] = "done"
+        gates = copy.deepcopy(values.get("gates") or {})
+        who = (by or "").strip()[:80] or "the person"
+        line = (f"finished by hand by {who}" + (f": {message.strip()[:200]}" if message.strip() else "")
+                + (f" · commit {sha[:7]}" if sha else " · nothing to commit")
+                + (f" · done: {', '.join(wanted)}" if wanted else ""))
+        gates["log"] = [*list(gates.get("log") or []), line]
+        await graph.aupdate_state(self._cfg(tid), {"acs": acs, "gates": gates, "status": "done", "note": line[:300]},
+                                  as_node=FINISH)
+        await self._set_status(tid, "done")
+        ctx.emit("thread.done", data={"status": "done", "by_hand": True, "commit": sha, "done": wanted})
         return await self.state(tid)
 
     async def stop(self, tid: str) -> dict:
@@ -1032,3 +1081,40 @@ def relocate(old: str | None) -> str | None:
             cands.append("/workspace")
         cands.append(f"/workspace/{name}")
     return next((c for c in cands if c != old and _project_there(c)), None)
+
+
+def _ahead_of_base(root: str) -> bool:
+    """Does HEAD have commits its base does not (keel init's setup commits aside)? A new branch made for the flow: no."""
+    from . import bases, verdict_actions
+
+    base = verdict_actions.base_ref(root, rules.load_config(root))
+    if not base:
+        return False
+    own, _setup = bases.own_base(root, base)
+    n = git.git(root, "rev-list", "--count", f"{own or base}..HEAD").stdout.strip()
+    return n.isdigit() and int(n) > 0
+
+
+def _commit_by_hand(root: str, title: str, message: str) -> str | None:
+    """The folder's changes as one commit, keel's engine files left out, refused when the staged diff holds a secret."""
+    from .actions import commit_args
+
+    git.git(root, "add", "-A", "--", ".")          # keel's engine files stay out through .git/info/exclude
+    staged = git.git(root, "diff", "--cached").stdout
+    if not staged.strip():
+        return None
+    from ..rules import checks
+
+    hits = checks.scan_secrets("\n".join(ln[1:] for ln in staged.splitlines() if ln.startswith("+") and not ln.startswith("+++")))
+    if hits:
+        git.git(root, "reset", "-q")
+        raise EngineError(409, "A secret is in the changes: nothing was committed.",
+                          "; ".join(str(h.get("why")) for h in hits[:3]) + ". Take it out, then finish again.")
+    who, trailer = commit_args(root, None, rules.load_config(root))
+    subject = f"chore: {title.strip()[:60] or 'the flow'}: finished by hand"
+    body = message.strip()[:2000]
+    r = git.git(root, *who, "commit", "-q", "-m", subject, *(["-m", body] if body else []), *trailer)
+    if r.returncode != 0:
+        git.git(root, "reset", "-q")
+        raise EngineError(409, f"git commit failed: {(r.stderr or r.stdout).strip()[:300]}")
+    return git.head(root)

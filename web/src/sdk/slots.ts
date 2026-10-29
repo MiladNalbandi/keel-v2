@@ -110,6 +110,8 @@ export type SettingsSectionItem = SlotItem & {
   sub: string;
   rows: SettingRow[];
   component?: ComponentType<SettingsSectionProps>;
+  /** 0.18.74 "review": a project's own values are on Settings › Review (General keeps the keel-wide ones) */
+  page?: "review";
 };
 
 /** What a section that draws itself gets: the project (empty for none) and the scope shown. */

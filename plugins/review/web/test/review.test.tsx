@@ -416,6 +416,11 @@ function reviewServer() {
       ai = { ...ai, [String(params.kind)]: run } as AiState;
       return HttpResponse.json(ai);
     }),
+    http.post(`${R}/ai/findings/:fid/fix`, async ({ request, params }) => {
+      await rec(request);
+      ai = { ...ai, fixes: { ...(ai.fixes ?? {}), [String(params.fid)]: { flow_id: "t-fix-9", workflow: "small" } } } as AiState;
+      return HttpResponse.json({ flow_id: "t-fix-9", title: "Fix", branch: "feat/x", workflow: "small", note: "", state: ai });
+    }),
     http.post(`${R}/ai/findings/:fid`, async ({ request, params }) => {
       const b = await rec(request);
       ai = {
@@ -958,6 +963,10 @@ describe("Code › Review, IDE style", () => {
     expect(
       within(side).getByText(/Not checked: nobody could prove or disprove/),
     ).toBeInTheDocument();
+    // 0.18.74 Fix it here too, as on the Problems tab: a flow fixes it, and the card links to it
+    await userEvent.click(within(side).getAllByRole("button", { name: /^Fix it/ })[0]);
+    await waitFor(() => expect(s.calls.some((c) => c.path.endsWith("/fix"))).toBe(true));
+    expect(await within(side).findByRole("link", { name: "Open flow ▸" })).toHaveAttribute("href", "#/flow/t-fix-9");
 
     await userEvent.click(within(side).getByRole("tab", { name: /Changes/ }));
     const tab = await openFile(side, "src/Prefs.kt");

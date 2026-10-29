@@ -13,6 +13,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { errorParts, type Model } from "../../api";
 import { ModelPicker } from "../../components/ModelPicker";
+import { useSlot } from "../../sdk/registry";
+import { SLOTS, type SettingsSectionItem } from "../../sdk/slots";
 import { useApp } from "../../state";
 import { SettingsFrame } from "./frame";
 import {
@@ -125,6 +127,8 @@ export function ReviewTab({ pid }: { pid: string }) {
   const [creating, setCreating] = useState(false);
   const [open, setOpen] = useState<LensFile | null>(null);
   const [edit, setEdit] = useState("");
+  // 0.18.74 the plugins' sections that belong here (the review plugin's Code Review threads), for this project
+  const parts = useSlot<SettingsSectionItem>(SLOTS.settingsSection).filter((x) => x.page === "review");
 
   const take = useCallback((v: ReviewSetup) => {
     setView(v);
@@ -643,6 +647,16 @@ export function ReviewTab({ pid }: { pid: string }) {
           Skip the ship's correctness lens when the full-diff review passed and no production file changed since
         </label>
       </section>
+
+      {parts.map((x) => (
+        <section key={x.id} className="ss-cardp" aria-labelledby={`rv-part-${x.id}`}>
+          <h2 id={`rv-part-${x.id}`} className="ss-h2">
+            {x.title}
+          </h2>
+          <p className="ss-help">{x.sub}</p>
+          {x.component && <x.component pid={pid} scope="project" />}
+        </section>
+      ))}
 
       <section className="ss-cardp" aria-labelledby="rv-page-h">
         <h2 id="rv-page-h" className="ss-h2">

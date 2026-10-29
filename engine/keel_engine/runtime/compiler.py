@@ -524,6 +524,12 @@ class Compiler(AgentMixin, FindingsMixin, CodeMixin, GateMixin):
             synced = ctx.synced_base if ctx.synced_base and state.get("base_head") != ctx.synced_base else None
             if synced:
                 state = {**state, "base_head": synced}
+            # 0.18.74 who changed the run mode, and when (service.set_mode): into the gate log, once
+            said = [x for x in ((ctx.settings or {}).get("mode_log") or []) if x not in ((state.get("gates") or {}).get("log") or [])]
+            if said:
+                g = dict(state.get("gates") or {})
+                g["log"] = [*list(g.get("log") or []), *said]
+                state = {**state, "gates": g}
             prev = state.get("phase") or "none"
             phase = step.phase or prev
             ac = state.get("ac") if step.per_ac else None

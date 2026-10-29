@@ -125,7 +125,8 @@ class EngineClient(private val props: KeelProperties, private val mapper: Object
     fun thread(id: String): JsonNode = get("/threads/$id")
     fun resume(id: String, body: Map<String, Any?>): JsonNode = post("/threads/$id/resume", body, long = true)
     fun stop(id: String): JsonNode = post("/threads/$id/stop", null)
-    fun setMode(id: String, mode: String): JsonNode = post("/threads/$id/mode", mapOf("mode" to mode))
+    fun setMode(id: String, mode: String, by: String? = null): JsonNode =
+        post("/threads/$id/mode", mapOf("mode" to mode) + (by?.let { mapOf("by" to it) } ?: emptyMap()))
     /** 0.18.64 the flow's models, and a model for this flow only (an agent, a step, an agent's steps in a phase). */
     fun threadModels(id: String): JsonNode = get("/threads/$id/models")
     fun setThreadModels(id: String, body: Map<String, Any?>): JsonNode = post("/threads/$id/models", body)

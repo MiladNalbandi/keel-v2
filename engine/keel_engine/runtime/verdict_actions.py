@@ -94,6 +94,16 @@ def remote_of(root: str, name: str) -> str | None:
     return None
 
 
+def flow_base(a, cfg: dict) -> str | None:
+    """0.18.74 where this flow's own work starts: on a branch that already had commits of its own when the flow started
+    (a flow that continues a pull request's branch), the flow's start (data.own_since); else base_ref. A field report:
+    a flow on a PR branch reviewed, audited and traced all 41 commits of the branch, not its own."""
+    own = (getattr(a, "data", None) or {}).get("own_since")
+    if own and git.git(a.root, "rev-parse", "--verify", "-q", f"{own}^{{commit}}").returncode == 0:
+        return own
+    return base_ref(a.root, cfg, a.base)
+
+
 def base_ref(root: str, cfg: dict, fallback: str | None = None) -> str | None:
     """The branch the work is compared with: base_branch from the config, else main or master, else the thread's start.
 
@@ -274,7 +284,7 @@ def _fast(a):
     if not git.is_repo(a.root):
         record_verdict(a.key, "fast", None, {"reason": "not a git repository: nothing to compare"})
         return _result(None, "Fast check not available: this folder is not a git repository.")
-    files = branch_files(a.root, base_ref(a.root, cfg, a.base))
+    files = branch_files(a.root, flow_base(a, cfg))
     api, web = _dir_of(cfg, "backend"), _dir_of(cfg, "frontend")
     contract = (cfg.get("contract") or {}).get("file")
     steps = []
@@ -581,7 +591,7 @@ def measure(root: str, cfg: dict, base: str | None) -> dict:
 def coverage_from_reports(a) -> tuple[dict, object]:
     """The changed-line verdict from the configured reports; returns (measurement, ActionResult)."""
     cfg = rules.load_config(a.root)
-    m = measure(a.root, cfg, base_ref(a.root, cfg, a.base))
+    m = measure(a.root, cfg, flow_base(a, cfg))
     detail = {k: m[k] for k in ("base", "apps", "problems", "summary")}
     detail["groups"] = [{k: g[k] for k in ("key", "file", "lines", "app", "critical")} for g in m["groups"][:50]]
     if not m["ok"]:
@@ -617,7 +627,7 @@ def _deps(a):
     if not git.is_repo(a.root):
         record_verdict(a.key, "deps", None, {"reason": "not a git repository"})
         return _result(None, "Dependency check not available: not a git repository.")
-    changed = [f for f in branch_files(a.root, base_ref(a.root, cfg, a.base)) if rules.match_glob(f, checks.DEP_FILES)]
+    changed = [f for f in branch_files(a.root, flow_base(a, cfg)) if rules.match_glob(f, checks.DEP_FILES)]
     if not changed:
         record_verdict(a.key, "deps", True, {"summary": "no manifest or lockfile changed on this branch", "manifests": []}, root=a.root)
         return _result(True, "Dependencies: no manifest or lockfile changed; nothing to check.")
@@ -707,7 +717,7 @@ def _audit(a):
     cfg = rules.load_config(a.root)
     fetched = fetch_base(a.root, cfg)
     _name, upstream = _base_remote(a.root, cfg)
-    base = (a.data or {}).get("audit_base") or base_ref(a.root, cfg, a.base)
+    base = (a.data or {}).get("audit_base") or flow_base(a, cfg)
     found = audit_problems(a.root, cfg, base, a.unlocks, upstream)
     # 0.18.57 the problems a person accepted at this gate (with their reason) are not asked again: the history the
     # audit reads cannot change by running it again, so "approve" has to change what it checks
@@ -860,7 +870,7 @@ def _trace(a, strict: bool):
         record_verdict(a.key, "trace", None, {"reason": "this flow has no acceptance criteria"}, root=a.root)
         return _result(None, "Trace: this flow has no acceptance criteria to trace.")
     cfg = rules.load_config(a.root)
-    rows = trace_rows(a.root, a.acs, base_ref(a.root, cfg, a.base))
+    rows = trace_rows(a.root, a.acs, flow_base(a, cfg))
     own = [r for r in rows if str(r.get("layer") or "").upper() in OWN_STEP_LAYERS]
     loop = [r for r in rows if r not in own]
     untested = [r["id"] for r in loop if not r["test"] and r["status"] != "already-met"]
@@ -933,7 +943,7 @@ def _arch_action(a):
         why = "no architecture rules (boundaries.rules or architecture.rules in .keel/config.yml)"
         record_verdict(a.key, "arch", None, {"reason": why}, root=a.root if git.is_repo(a.root) else None)
         return _result(None, f"Architecture check not available: {why}.")
-    files = branch_files(a.root, base_ref(a.root, cfg, a.base)) if git.is_repo(a.root) else []
+    files = branch_files(a.root, flow_base(a, cfg)) if git.is_repo(a.root) else []
     r = _arch(a.root, cfg, files) or {"violations": [], "inspected": 0}
     bad = r["violations"]
     record_verdict(a.key, "arch", not bad, {"violations": bad[:50], "inspected": r["inspected"],

@@ -151,12 +151,26 @@ class AgentMixin:
                        "isolation (it depends on another test's data or order), cleanup (it writes to the database, files "
                        "or a cache and leaves them behind, also on a second connection or a committed transaction), and "
                        "assertions (it asserts something that was true before the criterion, or nothing at all).")
+        said = ((state.get("data") or {}).get("change") or {}).get("history") or []
+        if step.id == "triage" and said:
+            # 0.18.74 triage once: the earlier answer, to keep unless something new shows it was wrong
+            last = said[-1]
+            prompt += (f"\n\nYou triaged this change before: SIZE {last.get('size')}. "
+                       + (f"Your reason then: {str(last.get('reason') or '')[:400]} " if last.get("reason") else "")
+                       + "Keep that size unless what happened since (below) shows it was wrong. If you change it, start "
+                         "with a line WHY: <what changed your mind>.")
         if agent == "branch-reviewer" and not item and root:
             # 0.18.65 the full-diff review reads the branch against the canonical remote's base, without keel init's
             # setup commits (runtime/bases.py branch_scope), never a local main that is behind or went its own way
             from . import bases
 
             found = await asyncio.to_thread(bases.branch_scope, root, None, state.get("base_head"))
+            own = (state.get("data") or {}).get("own_since")
+            if own:
+                # 0.18.74 a flow that continues a branch: its own commits only (verdict_actions.flow_base)
+                found = {**found, "scope": f"git diff {own[:12]}...HEAD", "compared": f"this flow's start ({own[:7]}): the "
+                         "branch had commits of its own before this flow, and they are not this flow's to review",
+                         "setup": [], "warning": None}
             if found.get("scope"):
                 prompt += (f"\n\nThe branch diff to review: `{found['scope']}` (the base: {found['compared']}). Use this "
                            "range, not main...HEAD." + "".join(f" {x}." for x in (found.get("warning"),) if x)

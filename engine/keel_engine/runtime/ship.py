@@ -197,7 +197,7 @@ def _memory_plan(a):
     v = verdicts.latest(a.key, "memory")
     cfg = rules.load_config(a.root)
     since = (v or {}).get("commit") if v and v.get("ok") else None
-    since = since or (verdict_actions.base_ref(a.root, cfg, a.base) if git.is_repo(a.root) else None)
+    since = since or (verdict_actions.flow_base(a, cfg) if git.is_repo(a.root) else None)
     found = knowledge.stale(a.root, since)
     missing = [n for n in sel if not knowledge.section_file(a.root, n).is_file()]
     if not found and not missing:
@@ -231,7 +231,7 @@ def _knowledge_scan(a):
     v = verdicts.latest(a.key, "memory")
     since = (v or {}).get("commit") if v and v.get("ok") else None
     if not since and git.is_repo(a.root):
-        since = verdict_actions.base_ref(a.root, rules.load_config(a.root), a.base)
+        since = verdict_actions.flow_base(a, rules.load_config(a.root))
     found = knowledge.stale(a.root, since)
     chosen = knowledge.selection(a.root) or []
     missing = [n for n in chosen if not knowledge.section_file(a.root, n).is_file()]

@@ -162,6 +162,10 @@ def decide(mode: str, kind: str, question: dict, state: dict | None = None, *, r
         return None        # nothing keel could approve (a spec gate without criteria only takes a send-back)
     if repeats >= MAX_REPEATS:
         return None
+    # 0.18.74 a field report: auto approved integration, e2e and "ready" while a check had failed. A soft check that
+    # failed (coverage, lint, CI, ...: data.soft_failed) stops auto at the next gate, until it passes again.
+    if mode == "auto" and ((state or {}).get("data") or {}).get("soft_failed"):
+        return None
     if rule == "auto-if-clean":
         st = state or {}
         if st.get("last_failure") or not review_clean(review):

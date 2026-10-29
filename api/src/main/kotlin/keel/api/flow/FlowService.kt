@@ -862,10 +862,10 @@ class FlowService(
     }
 
     /** v0.4.1: the thread's run mode from its next pause on (the engine keeps it with the thread). */
-    fun setMode(tid: String, mode: String): JsonNode {
+    fun setMode(tid: String, mode: String, by: String? = null): JsonNode {
         if (mode.isBlank()) throw BadRequest("mode is missing", "Pick one of: ${keel.api.settings.Settings.RUN_MODES.joinToString()}")
         checkRunMode(mode)
-        val state = engine.setMode(tid, mode)
+        val state = engine.setMode(tid, mode, by)
         save(tid, state)
         threadProject(tid)?.let { hub.publish(it, "project.changed", mapOf("id" to it)) }
         return state
@@ -886,6 +886,14 @@ class FlowService(
         val keys = model?.let { keysForThread(tid) + keysFor(listOf(it)) }?.takeIf { it.isNotEmpty() }
         val state = engine.setThreadModels(tid, mapOf("agent" to body.agent, "step" to body.step, "phase" to body.phase,
             "model" to model, "keys" to keys).filterValues { it != null })
+        threadProject(tid)?.let { hub.publish(it, "project.changed", mapOf("id" to it)) }
+        return state
+    }
+
+    /** 0.18.74 a stopped flow the person finished: the engine commits the folder's changes and ends it as done. */
+    fun finishByHand(tid: String, done: List<String>, message: String, by: String): JsonNode {
+        val state = engine.post("/threads/$tid/finish-by-hand", mapOf("done" to done, "message" to message, "by" to by))
+        save(tid, state)
         threadProject(tid)?.let { hub.publish(it, "project.changed", mapOf("id" to it)) }
         return state
     }

@@ -1108,7 +1108,7 @@ def security_scope(a):
     """keel v1 phase 5.5: two pipelines in parallel. The security auditor reads the branch diff against the spec;
     the dependency triager runs only when verify deps reported something (its output is the triager's input)."""
     cfg = rules.load_config(a.root)
-    base = verdict_actions.base_ref(a.root, cfg, a.base) if git.is_repo(a.root) else None
+    base = verdict_actions.flow_base(a, cfg) if git.is_repo(a.root) else None
     items = [{"id": "audit", "title": "security audit of the branch diff", "agent": "security-auditor",
               "scope": f"git diff {base}...HEAD" if base else "the branch diff", "spec": spec_path(a) or "(no spec file)"}]
     res = ((a.state.get("markers") or {}).get(DEPS_STEP) or {}).get("RESULT")

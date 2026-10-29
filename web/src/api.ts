@@ -1207,6 +1207,9 @@ export const api = {
   resume: (tid: string, decision: "approve" | "reject", why?: string, payload?: Record<string, unknown>) =>
     post<ThreadState>(`/threads/${e(tid)}/resume`, { decision, ...(why ? { why } : {}), ...(payload ? { payload } : {}) }),
   stopThread: (tid: string) => post<ThreadState>(`/threads/${e(tid)}/stop`),
+  /** 0.18.74 a stopped flow you finished yourself: commit the folder's changes, mark criteria done, end it as done */
+  finishByHand: (tid: string, done: string[], message: string) =>
+    post<ThreadState>(`/threads/${e(tid)}/finish-by-hand`, { done, message }),
   history: (tid: string) => get<Checkpoint[]>(`/threads/${e(tid)}/history`),
   stepRuns: (pid: string, tid: string) => get<StepRunFacts[]>(`/projects/${e(pid)}/flows/${e(tid)}/step-runs`),
   /** 0.18.64 the AC gate's code: the criterion's RED and GREEN commits with each file's diff */
