@@ -16,7 +16,7 @@ from ..tools import git, guard, mcp
 from ..tools.agent_tools import ToolBox
 from ..workflows.model import Step
 from .actions import ActionResult
-from .findings import REVIEWERS, blocking, key as finding_key, nonblocking, unique
+from .findings import REVIEWERS, blocking, key as finding_key, nonblocking, same as same_finding, unique
 from .state import FlowState
 from langgraph.errors import GraphBubbleUp
 from langgraph.graph import END
@@ -620,6 +620,13 @@ class AgentMixin:
         streak = self._guard_streak(step, state, ac, kept, upd)
         if streak is not None:
             upd["data"] = streak
+        # 0.18.71 what keel put back after this step, whatever the file (a review's question names a spec file a fix
+        # round may not change: data.put_back[<step>])
+        pb = dict((upd.get("data") or state.get("data") or {}).get("put_back") or {})
+        if kept or step.id in pb:
+            root_ = str(ctx.root).rstrip("/") + "/"
+            pb[step.id] = sorted({rules._rel(p, ctx.root).removeprefix(root_) for p in kept})
+            upd["data"] = {**(upd.get("data") or state.get("data") or {}), "put_back": pb}
         if tools_note:
             upd["note"] += f" · {tools_note}"
         if sections and state.get("acs"):
@@ -745,7 +752,23 @@ class AgentMixin:
                 upd["note"] += f" · {len(found)} blocking finding(s)"
                 key = self._rounds_key(step, loop_item)
                 done_rounds = int((state.get("review_rounds") or {}).get(key, 0))
-                if step.back and done_rounds < (step.rounds or 2):
+                # 0.18.71 a field report: the same findings came back round after round (the fix was put back by the
+                # guard, or the fix round committed nothing), and the review reached four rounds. Each round remembers
+                # its findings and the commit it read; the same findings again, or no new commit, go to the person now.
+                data = dict(upd.get("data") or state.get("data") or {})
+                trail = dict(data.get("review_trail") or {})
+                last = trail.get(key) or {}
+                head = git.head(ctx.root) if git.is_repo(ctx.root) else None
+                texts = [f["text"] for f in found]
+                again = bool(last.get("texts")) and all(any(same_finding(t, o) for o in last["texts"]) for t in texts)
+                stuck_round = done_rounds >= 1 and (again or (head is not None and head == last.get("head")))
+                trail[key] = {"texts": texts[:30], "head": head, "same": again,
+                              "no_change": head is not None and head == last.get("head")}
+                data["review_trail"] = trail
+                upd["data"] = data
+                if stuck_round:
+                    upd["note"] += " · " + ("the same findings as the last round" if again else "the fix round changed nothing")
+                if step.back and done_rounds < (step.rounds or 2) and not stuck_round:
                     # Findings go straight back to the step that wrote the work (cover: the test author), no question,
                     # until the rounds are used up; then the fix node asks.
                     rounds = {**(state.get("review_rounds") or {}), key: done_rounds + 1}

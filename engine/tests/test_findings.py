@@ -159,3 +159,25 @@ def test_only_what_was_not_checked_is_a_pass_with_notes():
     assert blocking(text) == []
     assert blocking("I read it all and found a problem in the export.\nCODE-REVIEW: findings") == [
         "The reviewer reported findings: I read it all and found a problem in the export."]
+
+
+# keel 0.18.71 a dismissed finding said again in other words is the same finding
+def test_the_same_problem_in_other_words_is_the_same_finding():
+    from keel_engine.runtime.findings import same
+    a = "`src/Payload.php:44` the nullable default `?string $x = null` is not the project's style"
+    assert same(a, "`src/Payload.php:44` uses ?string $x = null, against the style rule")             # same file:line
+    assert same("the webhook handler never logs a failed delivery when logging is enabled in config",
+                "when logging is enabled, a failed delivery is never logged by the webhook handler")   # same words
+    assert not same(a, "`src/Payload.php:80` the payload is decoded twice")
+    assert not same("retry never ends", "the retry has no end")                                         # too short to tell
+
+
+def test_a_finding_about_a_spec_keel_put_back_recommends_amend_spec():
+    from keel_engine.runtime import finding_decisions as fd
+    found = [{"text": "specs/002-webhook.md:44 says 201, the code answers 200", "lens": "spec"},
+             {"text": "src/Handler.php:12 swallows the exception", "lens": "bugs"}]
+    q = fd.questions(found, True, ["specs/002-webhook.md"])
+    first = [o["label"] for o in q[0]["options"]]
+    assert first[0] == fd.AMEND and q[0]["options"][0]["recommended"]
+    assert [o["label"] for o in q[1]["options"]][0] == fd.FIX                        # not about the spec: fix first
+    assert [o["label"] for o in fd.questions(found, True)[0]["options"]][0] == fd.FIX   # nothing put back: as before

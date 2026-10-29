@@ -21,8 +21,9 @@ DISMISSED = (ACCEPT, NOT_A_FINDING)
 MAX_ASKED = 10          # findings past this many follow the plain decision (the form stays readable)
 
 
-def questions(found: list[dict], can_amend: bool) -> list[dict]:
-    """One question per finding (at most MAX_ASKED): id f1, f2, ...; the lens as its why."""
+def questions(found: list[dict], can_amend: bool, spec_files: list[str] | None = None) -> list[dict]:
+    """One question per finding (at most MAX_ASKED): id f1, f2, ...; the lens as its why. keel 0.18.71 [spec_files]: spec
+    files keel put back after a fix round; a finding that names one (or "spec") recommends amend spec instead of fix."""
     opts = [
         {"label": FIX, "description": "the implementer fixes it, then the review runs again", "recommended": True},
         {"label": ACCEPT, "description": "keep it as it is; say why (accept: <reason>), it shows at the final review",
@@ -31,8 +32,20 @@ def questions(found: list[dict], can_amend: bool) -> list[dict]:
     ]
     if can_amend:
         opts.append({"label": AMEND, "description": "the spec is wrong here: start a spec amendment with this finding"})
+    def about_spec(text: str) -> bool:
+        low = text.lower()
+        return bool(spec_files) and (any(p.lower() in low or p.rsplit("/", 1)[-1].lower() in low for p in spec_files)
+                                     or "spec" in low)
+
+    def options(text: str) -> list[dict]:
+        out = [dict(o) for o in opts]
+        if can_amend and about_spec(text):
+            for o in out:
+                o["recommended"] = o["label"] == AMEND
+            out.sort(key=lambda o: not o.get("recommended"))
+        return out
     return [{"id": f"f{n}", "question": str(f.get("text") or "")[:300], "why": f"from {f.get('lens') or 'the review'}",
-             "options": [dict(o) for o in opts]} for n, f in enumerate(found[:MAX_ASKED], 1)]
+             "options": options(str(f.get("text") or ""))} for n, f in enumerate(found[:MAX_ASKED], 1)]
 
 
 def read(asked: list[dict], found: list[dict], answer: dict) -> list[dict]:
