@@ -307,3 +307,21 @@ def test_unit_scope_leaves_the_users_own_files_out(repo):
 def git_fp(root, rel):
     from keel_engine.tools import git as g
     return g.fingerprint(str(root), rel)
+
+
+def test_a_fixer_that_fails_on_two_commits_in_a_row_is_said_once_in_the_gate_log(repo):
+    """0.18.75 a field report: php-cs-fixer exited 16 on every commit and only each commit's note said so."""
+    configure(repo, {"csfix": {"run": "sh -c 'echo \"PHP needs to be a minimum version of 7.4 and maximum 8.3\"; exit 16'",
+                               "on": "pre-commit", "fail": "fix"}})
+    f = repo / "src" / "scores" / "a.py"
+    a = ai(repo)
+    for n, text in enumerate(("x = 1\n", "x = 2\n", "x = 3\n")):
+        f.write_text(text)
+        r = actions.commit(a)
+        assert r.ok, r.note
+        log = (r.update.get("gates") or {}).get("log") or []
+        loud = [x for x in log if x.startswith("csfix failed on")]
+        assert len(loud) == (1 if n == 1 else 0), (n, log)      # the second commit says it, once
+        if n == 1:
+            assert "exit 16" in loud[0] and "maximum 8.3" in loud[0] and ".keel/config.yml" in loud[0]
+        a.data = r.update.get("data") or a.data

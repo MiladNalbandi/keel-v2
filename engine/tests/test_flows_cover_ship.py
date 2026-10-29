@@ -827,3 +827,22 @@ def test_a_failing_strict_trace_has_a_way_out_and_a_refactor_counts_as_traced(cl
         {"id": "AC-3", "layer": "API", "title": "a total in cents", "status": "done"}])
     assert rows[0]["complete"] and rows[0]["test"] == "existing tests"
     assert not rows[1]["complete"]
+
+
+def test_coverage_without_a_driver_or_with_an_old_report_never_passes(tmp_path):
+    """0.18.75 a field report: PHP without a coverage driver said "No code coverage driver available", wrote no report,
+    and an old report made "coverage passes"."""
+    import os
+    import time as _time
+    root = lcov_repo(tmp_path)
+    cfg = root / ".keel/config.yml"
+    a = ActionInput(root=str(root), project="pdrv", phase="coverage-fix", title="t", ac=None, acs=[], fake=False, flow="cover")
+    cfg.write_text(cfg.read_text() + "commands:\n  coverage: \"echo 'No code coverage driver available'\"\n")
+    r = asyncio.run(run_action("verify_coverage", a))
+    assert not r.ok and "no coverage driver" in r.note and "pcov" in r.detail
+    # a command that runs but does not write the report: the report there is from before, so it does not count
+    cfg.write_text(cfg.read_text().replace("echo 'No code coverage driver available'", "true"))
+    old = _time.time() - 3600
+    os.utime(root / "build/lcov.info", (old, old))
+    r = asyncio.run(run_action("verify_coverage", a))
+    assert not r.ok and "older than this run" in r.note
