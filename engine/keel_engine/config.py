@@ -7,7 +7,7 @@ import hmac
 import os
 from pathlib import Path
 
-VERSION = "0.18.67"   # keel v2 release; a test keeps it equal to KEEL2_VERSION in keel2
+VERSION = "0.18.68"   # keel v2 release; a test keeps it equal to KEEL2_VERSION in keel2
 
 
 def data_dir() -> Path:

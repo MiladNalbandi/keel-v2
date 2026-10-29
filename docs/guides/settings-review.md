@@ -27,10 +27,12 @@ Every review is one flow: **Find problems** on the Review page, a PR review and 
 - **Depth** says how hard the review looks:
   - **Quick** (about 20k tokens): one reviewer with your own lenses and at most two of keel's. A few claims get a
     second look.
-  - **Standard** (about 80k tokens, the default): a large change gets one reviewer per area, with the lenses its files
-    need. Checklist and quality reviewers join them, and every claim gets a second look.
-  - **Full** (about 250k tokens): one reviewer per area even for a small change, and every lens that fits. The second
-    look runs on the stronger model.
+  - **Standard** (about 60k tokens, the default): one bug reviewer reads the whole change with your rules, and a
+    checklist reviewer judges the ticket's items. A change over 1500 lines is split by area. Every claim gets a
+    second look.
+  - **Full** (about 250k tokens): one reviewer per area even for a small change, one for the bugs between files,
+    every lens that fits, a quality reviewer and the team's checklist (`.keel/dod.md`). The second look runs on the
+    stronger model.
 - **Your standards**: every reviewer reads the project's own rules first. These are AGENTS.md, CLAUDE.md, CONTRIBUTING,
   `.github/copilot-instructions.md`, `.cursor/rules/` and the style docs, plus your lenses (`.keel/lenses/`) and the
   stack. keel reads them from the change's base branch, so a change cannot rewrite its own rules. A quality note quotes

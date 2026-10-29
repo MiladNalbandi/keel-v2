@@ -73,7 +73,7 @@
 # data volume, so they survive restarts and new images. Nothing from your computer is copied into the container.
 set -euo pipefail
 
-KEEL2_VERSION="0.18.67"
+KEEL2_VERSION="0.18.68"
 IMAGE="${KEEL_IMAGE:-ghcr.io/miladnalbandi/keel-v2:latest}"
 # keel's core only (docs/plugins/16-steps5-7-contract.md, step 6): keel2 start --core, unless KEEL_IMAGE is set
 CORE_IMAGE="ghcr.io/miladnalbandi/keel-v2:core"

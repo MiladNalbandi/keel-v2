@@ -32,7 +32,7 @@ def test_quick_is_one_reviewer_full_splits_even_a_small_change_and_adds_lenses()
     small = [f("src/api/OrderController.php", 30), f("migrations/Version1.php", 20)]
     quick = ta.plan(small, [], "quick")
     assert [j["job"] for j in quick] == ["all"] and len(quick[0]["lenses"]) <= ta.QUICK_LENSES
-    assert [j["job"] for j in ta.plan(small, [], "standard")] == ["bugs", "quality"]     # no checklist items: no checklist job
+    assert [j["job"] for j in ta.plan(small, [], "standard")] == ["bugs"]     # no ticket items: one bug reviewer only
     full = ta.plan(small, [], "full")
     assert {j["job"] for j in full} == {"bugs", "quality", "cross"}
     assert next(j for j in full if j["job"] == "cross")["files"] == [x["file"] for x in small]
@@ -67,7 +67,7 @@ def test_every_reviewer_gets_the_projects_rules_from_the_base_and_its_own_lenses
     tid = start(client, repo, workflow="review-pr", title="Review ranks", request="branch: feat/ranks\n" + TICKET)
     s = wait(client, tid)
     assert s["waiting"]["step"] == "share", s
-    job = next(r.item for r in seen if r.agent == "pr-reviewer" and r.item["job"] == "quality")
+    job = next(r.item for r in seen if r.agent == "change-reviewer" and r.item["job"] == "bugs")
     assert "git show main:AGENTS.md" in job["standards"] and "git show main:.cursor/rules/naming.mdc" in job["standards"]
     assert not any("CLAUDE.md" in x for x in job["standards"])      # the change cannot bring its own rules
     bugs = next(r.item for r in seen if r.agent == "change-reviewer" and r.item["job"] == "bugs")

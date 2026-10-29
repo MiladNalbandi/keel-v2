@@ -150,25 +150,22 @@ def test_a_full_review_of_a_branch_shares_only_the_chosen_sections_and_posts_not
     s = wait(client, tid)
     assert s["waiting"]["step"] == "share" and s["phase"] == "review", s
     agents = [r for r in seen if r.agent in ("pr-reviewer", "change-reviewer")]
-    # keel 0.18.68 standard: the checklist, one bug reviewer of the whole change, and quality, in parallel
-    assert sorted(r.item["job"] for r in agents) == ["bugs", "checklist", "quality"]
+    # keel 0.18.68 standard: one bug reviewer of the whole change, and a checklist reviewer for the ticket's items
+    assert sorted(r.item["job"] for r in agents) == ["bugs", "checklist"]
     bugs = next(r for r in agents if r.item["job"] == "bugs")
     assert bugs.agent == "change-reviewer"                               # the short prompt hunts the bugs
     bugs = bugs.item
     assert bugs["area"] == "the whole change" and bugs["files"][0].startswith("src/scores/ranks.py")
     job = next(r.item for r in agents if r.item["job"] == "checklist")
-    assert [i["id"] for i in job["items"]][:2] == ["T1", "T2"]
+    assert [i["id"] for i in job["items"]] == ["T1", "T2"]               # the team's checklist is a full review's
     assert job["files"][0].startswith("src/scores/ranks.py")
     assert "git diff main...feat/ranks -- <file>" in job["read"]
-    assert [line.split(" ")[0] for line in job["decided"]] == ["D8"]     # no database change: decided by the script
-    scripts = {i["id"]: i.get("script") for i in job["items"]}
-    assert scripts["D3"] == "no disable or skip marker in the added lines"   # a clean script check is only a hint
     detail = s["waiting"]["detail"]
-    assert "DONE" in detail and "of 12 checklist item(s) done" in detail and "NEXT STEPS" in detail
+    assert "DONE" in detail and "of 2 checklist item(s) done" in detail and "NEXT STEPS" in detail
     assert "Nothing has been sent to the author" in detail
     q = s["waiting"]["questions"][0]
     assert q["id"] == "sections" and q["multiple"] is True
-    assert {o["label"] for o in q["options"]} == {"summary", "minor", "quality"}   # empty sections are not offered
+    assert {o["label"] for o in q["options"]} == {"summary", "minor"}   # empty sections are not offered
     assert [o["label"] for o in q["options"] if o["recommended"]] == ["summary"]
     assert [c["name"] for c in s["waiting"]["choice_info"]] == ["done", "share"]
     assert (Path(repo) / "src/scores/ranks.py").exists() is False         # the person's tree was never touched
@@ -209,7 +206,7 @@ def test_every_problem_is_checked_again_and_only_confirmed_ones_are_reported(cli
             out.append(f"CHECK | {c['id']} | {v}")
         return "\n".join(out + ["TICKET-REVIEW: done"])
     seen = answers(monkeypatch, {"pr-reviewer": reviewer, "change-reviewer": reviewer, "finding-verifier": verifier})
-    tid = review(client, repo)
+    tid = review(client, repo, data={"depth": "full"})                  # the team's checklist: a full review
     s = wait(client, tid)
     checks = [r.item for r in seen if r.agent == "finding-verifier"]
     claims = [c for job in checks for c in job["claims"]]

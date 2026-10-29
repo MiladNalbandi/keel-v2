@@ -498,18 +498,15 @@ def plan(ranked: list[dict], items: list[dict], depth: str = "standard") -> list
     # keel 0.18.68 a blind comparison (Opus judging, the same Sonnet on both sides): one agent that read the whole change
     # found the bugs between files that reviewers of one area each missed. Standard keeps one reviewer up to
     # STANDARD_ONE_AGENT_LINES; full splits by area and adds a reviewer of the whole change for what lies between files.
-    # The checklist (the ticket's items and the team's, a dozen or more) took most of one reviewer's turns: it found two
-    # problems in 900 lines where the plain review found five. So up to STANDARD_ONE_AGENT_LINES standard runs three
-    # reviewers in parallel: the checklist, one bug reviewer of the whole change, and quality (the project's rules).
+    # The checklist took most of one reviewer's turns, and three reviewers of one change said the same things two to
+    # five times. So up to STANDARD_ONE_AGENT_LINES standard is one bug reviewer of the whole change (it reads the
+    # project's rules too), plus a checklist reviewer only when the ticket has items; quality is a full review's.
     if depth == "standard" and lines <= STANDARD_ONE_AGENT_LINES:
-        code = [f["file"] for f in ranked if area_of(f["file"]) != "docs"]
         jobs = [{"job": "checklist", "items": [it["id"] for it in open_], "files": every}] if open_ else []
         # the bug reviewer is change-reviewer: a short prompt that reads like a colleague's request (pr-reviewer's long,
         # precision-first rules found a third of the bugs a plain request found on the same change)
         jobs.append({"job": "bugs", "items": [], "files": every, "area": "the whole change", "lenses": lenses_for(every),
                      "agent": "change-reviewer"})
-        if code:
-            jobs.append({"job": "quality", "items": [], "files": code[:MAX_FILES]})
         return jobs
     if depth != "full" and lines <= ONE_AGENT_LINES:
         return [{"job": "all", "items": [it["id"] for it in open_], "files": every, "lenses": lenses_for(every)}]
@@ -815,6 +812,11 @@ def _prep(a):
 
     from_ticket = ticket_items(want["ticket"])
     team, dod_source = team_items(a.root)
+    depth = depth_of(a.data, cfg)
+    # keel 0.18.68 the team's definition of done is a full review's: in blind comparisons its dozen general items added
+    # noise (a false "secrets" alarm) and crowded out bugs; quick and standard judge the ticket's own items only
+    if depth != "full":
+        team, dod_source = [], f"{dod_source} (a full review checks it)"
     items = [{"id": f"T{i + 1}", "from": "ticket", "text": t} for i, t in enumerate(from_ticket)] + \
             [{"id": f"D{i + 1}", "from": "team", "text": t} for i, t in enumerate(team)]
     apply_checks(items, auto_checks(ranked))
@@ -832,7 +834,6 @@ def _prep(a):
         if sib:
             f["like"] = sib[0]
     standards = project_standards(a.root, src["base_ref"])
-    depth = depth_of(a.data, cfg)
     jobs = plan(ranked, items, depth)
     own = _own_lenses(a.root, src["base_ref"])
     title = src.get("title") or next((ln.lstrip("# ").strip() for ln in want["ticket"].splitlines() if ln.strip()), "") \
