@@ -344,7 +344,63 @@ export function StatusCard({ pid, thread, workflow, job, onDone, onCheckpoints, 
         </div>
       )}
       {thread.status !== "done" && (noResume ? <span className="hint">{noResume}</span> : <ResumeRow thread={thread} onDone={onDone} onCheckpoints={onCheckpoints} />)}
+      {(thread.status === "stopped" || thread.status === "failed") && !noResume && <FinishByHand thread={thread} onDone={onDone} />}
     </div>
+  );
+}
+
+/** 0.18.74 a stopped flow you finished yourself: keel commits the folder's changes (its secret scan first), marks the
+ *  criteria you tick done, and ends the flow as done. A field report: a stopped flow could not be finished by hand. */
+function FinishByHand({ thread, onDone }: { thread: ThreadState; onDone: () => Promise<void> }) {
+  const [open, setOpen] = useState(false);
+  const open_ = thread.acs.filter((a) => a.status !== "done");
+  const [done, setDone] = useState<string[]>([]);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (!open)
+    return (
+      <div className="row">
+        <button type="button" className="btn sm ghost" onClick={() => setOpen(true)}>Finish by hand…</button>
+      </div>
+    );
+  const send = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.finishByHand(thread.thread_id, done, note.trim());
+      await onDone();
+    } catch (e) {
+      setError(errorParts(e).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <form className="fl-byhand" aria-label="Finish by hand" onSubmit={(e) => { e.preventDefault(); void send(); }}>
+      <span className="sub">keel commits what is changed in the folder now (after its secret check), marks the criteria
+        you tick done, and ends this flow as done.</span>
+      {open_.length > 0 && (
+        <fieldset>
+          <legend>Done by you</legend>
+          {open_.map((a) => (
+            <label key={a.id} className="row">
+              <input type="checkbox" checked={done.includes(a.id)}
+                onChange={(e) => setDone(e.target.checked ? [...done, a.id] : done.filter((x) => x !== a.id))} />
+              <span><b>{a.id}</b> {a.title}</span>
+            </label>
+          ))}
+        </fieldset>
+      )}
+      <label className="ss-label">What you did (goes in the commit)
+        <input className="ss-input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="optional" />
+      </label>
+      {error && <span className="errline" role="alert">{error}</span>}
+      <div className="row">
+        <button type="submit" className="btn sm primary" disabled={busy}>{busy ? "Finishing…" : "Commit and finish"}</button>
+        <button type="button" className="btn sm ghost" disabled={busy} onClick={() => setOpen(false)}>Cancel</button>
+      </div>
+    </form>
   );
 }
 

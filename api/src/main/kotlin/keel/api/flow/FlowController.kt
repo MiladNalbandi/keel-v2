@@ -46,6 +46,7 @@ data class UnlockBody(val path: String = "", val phase: String? = null, val reas
 data class Resume(val decision: String = "", val why: String? = null, val payload: Map<String, Any?>? = null)
 data class Rewind(val checkpointId: String = "")
 data class ModeBody(val mode: String = "")
+data class FinishByHand(val done: List<String> = emptyList(), val message: String = "")
 
 /** 0.18.74 who changed a flow's run mode, for its gate log: an MCP client by its name, an agent's own MCP tool, else the
  *  dashboard (the web and keel TUI). */
@@ -119,6 +120,11 @@ class FlowController(private val flows: FlowService) {
 
     @PostMapping("/threads/{tid}/resume")
     fun resume(@PathVariable tid: String, @RequestBody body: Resume): JsonNode = flows.resume(tid, body.decision, body.why, body.payload)
+
+    /** 0.18.74 a stopped flow you finished yourself: commit the folder's changes, mark criteria done, end it as done. */
+    @PostMapping("/threads/{tid}/finish-by-hand")
+    fun finishByHand(@PathVariable tid: String, @RequestBody body: FinishByHand, request: jakarta.servlet.http.HttpServletRequest): JsonNode =
+        flows.finishByHand(tid, body.done, body.message, whoChanged(request))
 
     /** v0.4.1: change the run mode during a run (from the next gate on). */
     @PostMapping("/threads/{tid}/mode")

@@ -195,7 +195,7 @@ class McpLevelGuard(
             // flows: start one (keel_start_flow; its "ignore this path" is the doctor's exclude), stop, go on, answer
             post("^/api/projects/[^/]+/flows$"),
             post("^/api/projects/[^/]+/doctor/workspace/exclude$"),
-            post("^/api/threads/[^/]+/(stop|resume|mode|models|rewind|sync)$"),
+            post("^/api/threads/[^/]+/(stop|resume|mode|models|rewind|sync|finish-by-hand)$"),
             put("^/api/threads/[^/]+/document$"),
             // 0.18.65 the base branch and the canonical remote (keel_base_branch asks the person first)
             put("^/api/projects/[^/]+/base$"),

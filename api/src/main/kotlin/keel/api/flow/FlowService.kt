@@ -890,6 +890,14 @@ class FlowService(
         return state
     }
 
+    /** 0.18.74 a stopped flow the person finished: the engine commits the folder's changes and ends it as done. */
+    fun finishByHand(tid: String, done: List<String>, message: String, by: String): JsonNode {
+        val state = engine.post("/threads/$tid/finish-by-hand", mapOf("done" to done, "message" to message, "by" to by))
+        save(tid, state)
+        threadProject(tid)?.let { hub.publish(it, "project.changed", mapOf("id" to it)) }
+        return state
+    }
+
     fun stop(tid: String): JsonNode {
         val state = engine.stop(tid)
         save(tid, state)

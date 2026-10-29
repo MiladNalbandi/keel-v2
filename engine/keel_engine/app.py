@@ -252,6 +252,12 @@ class Resume(BaseModel):
     question_id: str | None = None       # the id of the question the answer is for: a flow that moved on answers 409, not the new one
 
 
+class FinishByHand(BaseModel):
+    done: list[str] = []           # the criteria the person finished
+    message: str = ""
+    by: str | None = None
+
+
 class ModeBody(BaseModel):
     mode: Literal["manual", "important", "auto", "readonly"]
     by: str | None = None          # 0.18.74 who changed it (the api: the dashboard, an MCP client by name, ...)
@@ -596,6 +602,11 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     @app.post("/threads/{tid}/continue")
     async def post_continue(tid: str, body: Continue, request: Request):
         return await engine(request).continue_after_restart(tid, body.keys, body.root)
+
+    @app.post("/threads/{tid}/finish-by-hand")
+    async def post_finish_by_hand(tid: str, body: FinishByHand, request: Request):
+        """0.18.74 a stopped flow the person finished: commit the folder's changes, mark criteria done, end it as done."""
+        return await engine(request).finish_by_hand(tid, body.done, body.message, body.by)
 
     @app.post("/threads/{tid}/stop")
     async def post_stop(tid: str, request: Request):
