@@ -59,8 +59,13 @@ def changes(sid: str) -> list[dict]:
     root = s["root"]
     with db.connect() as conn:
         rows = conn.execute("select path, existed, content from helper_files where session_id = ? order by path", (sid,)).fetchall()
+    # 0.18.71 only what git sees as changed in the folder now: after a switch to another branch, KeelBot's change of a file
+    # that branch does not have showed as "the whole file deleted", with a commit button
+    dirty = set(git.dirty(root)) if rows and git.is_repo(root) else None
     out = []
     for rel, existed, content in rows:
+        if dirty is not None and rel not in dirty:
+            continue
         f = Path(root) / rel
         now = f.read_bytes() if f.is_file() else None
         entry = _change(rel, content if existed else None, now)

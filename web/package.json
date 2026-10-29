@@ -1,7 +1,7 @@
 {
   "name": "keel-v2-web",
   "private": true,
-  "version": "0.18.70",
+  "version": "0.18.71",
   "type": "module",
   "scripts": {
     "dev": "vite",
