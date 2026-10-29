@@ -71,7 +71,9 @@ def test_nothing_written_is_todays_two_reviewers(tmp_path):
     assert [r["name"] for r in revs] == ["correctness and security", "tests, the description and design"]
     assert revs[0]["lenses"] == ["data-migration", "idempotency-retry", "error-handling-retry"]
     assert revs[1]["lenses"] == ["config-secrets", "test-quality"]
-    assert v["find_text"].startswith("Two keel reviewers read the change (A: correctness and security, B: tests, the")
+    assert v["find_text"].startswith("The review flow (Standard, ~80k tokens) reads the change with your project's rules")
+    classic = review_config.find_text({**v["config"], "find_runs": "classic"})
+    assert classic.startswith("Two keel reviewers read the change (A: correctness and security, B: tests, the")
     # the reviewers keep the project's model; the checker and the final review get a stronger one
     assert v["uses"]["reviewers"] == [SONNET, SONNET]
     assert v["uses"]["checker"] == {**SONNET, "model": "opus", "effort": "high"}
@@ -104,8 +106,8 @@ def test_writing_keeps_the_rest_of_the_file_and_checks_what_it_writes(tmp_path):
                                              "model": "stronger", "effort": "high", "agent": "branch-reviewer",
                                              "lenses": ["contract-types"]}
     assert raw["review"]["checker"] == {"should_fix": False} and raw["review"]["fix"] == {"flow": "ask"}
-    assert v["find_text"].startswith("Three keel reviewers read the change (A: correctness and security, B: tests, "
-                                     "the description and design, C: money).")
+    assert review_config.find_text({**v["config"], "find_runs": "classic"}).startswith(
+        "Three keel reviewers read the change (A: correctness and security, B: tests, the description and design, C: money).")
     assert v["uses"]["final"] == SONNET and v["uses"]["reviewers"][2]["model"] == "opus"
     for bad, says in [({"reviewers": []}, "1 to 4"), ({"reviewers": [{"name": "a", "focus": "b", "lenses": ["nope"]}]}, "no lens"),
                       ({"reviewers": [{"name": "a", "focus": "b", "lenses": ["test-quality"]},
@@ -185,3 +187,34 @@ def test_the_routes_the_api_calls(client, tmp_path):
     assert ok.status_code == 200 and ok.json()["config"]["fix"]["flow"] == "quick"
     edit = client.put("/review-config/lenses/currency-in-every-price", json={"root": str(root), "text": "# x\n\n## Checklist\n\n- y\n"})
     assert edit.status_code == 200 and edit.json()["checklist"] == "- y"
+
+
+# ------------------------------------------------------------------ 0.18.67 depth, Find problems' flow, your standards
+
+def test_depth_and_find_runs_default_to_standard_and_the_flow_and_are_written_only_when_changed(tmp_path):
+    root = project(tmp_path)
+    cfg = review_config.effective(str(root))
+    assert (cfg["depth"], cfg["find_runs"]) == ("standard", "flow")
+    review_config.write(str(root), {"depth": "full", "find_runs": "classic"})
+    block = yaml.safe_load((root / ".keel/config.yml").read_text())["review"]
+    assert (block["depth"], block["find_runs"]) == ("full", "classic")
+    review_config.write(str(root), {"depth": "standard", "find_runs": "flow"})        # the defaults again: not written
+    assert "review" not in (yaml.safe_load((root / ".keel/config.yml").read_text()) or {})
+    for bad in ({"depth": "deep"}, {"find_runs": "agents"}):
+        with pytest.raises(review_config.ReviewConfigError):
+            review_config.write(str(root), bad)
+
+
+def test_the_view_says_what_each_depth_costs_and_which_standards_a_review_reads(tmp_path):
+    import subprocess
+
+    root = project(tmp_path)
+    (root / "AGENTS.md").write_text("# Rules\n")
+    (root / ".keel/lenses").mkdir()
+    (root / ".keel/lenses/money-rounding.md").write_text("# Money rounding\n\ncents\n\n## Checklist\n- integers in cents\n")
+    for args in (["init", "-q", "-b", "main"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "x"]):
+        subprocess.run(["git", "-C", str(root), *args], check=True)
+    v = review_config.view(str(root))
+    assert set(v["depths"]) == {"quick", "standard", "full"} and v["depths"]["quick"]["tokens"].startswith("~")
+    assert v["standards"]["rules"] == ["AGENTS.md"] and v["standards"]["lenses"] == ["money-rounding"]
+    assert v["limits"]["depths"] == ["quick", "standard", "full"]

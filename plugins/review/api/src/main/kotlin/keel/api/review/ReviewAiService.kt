@@ -12,6 +12,8 @@ import keel.api.common.Time
 import keel.api.events.EngineEvent
 import keel.api.events.EngineEventStored
 import keel.api.events.EventHub
+import keel.api.engine.EngineClient
+import keel.api.flow.FlowService
 import keel.api.helper.HelperCreate
 import keel.api.helper.HelperService
 import keel.api.helper.HelperTurn
@@ -21,6 +23,7 @@ import keel.api.reviewsetup.ReviewSetupService
 import keel.api.settings.Model
 import keel.api.skills.SkillService
 import org.slf4j.LoggerFactory
+import org.springframework.context.annotation.Lazy
 import org.springframework.context.event.EventListener
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
@@ -83,6 +86,8 @@ class ReviewAiService(
     private val setup: ReviewSetupService,
     private val agents: AgentService,
     private val skills: SkillService,
+    @Lazy private val flows: FlowService,
+    private val engine: EngineClient,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
     private val worker = Executors.newSingleThreadExecutor { r -> Thread(r, "review-ai").apply { isDaemon = true } }
@@ -127,6 +132,65 @@ class ReviewAiService(
             val la = a["line"] as Int?
             val lb = b["line"] as Int?
             return shared >= 2 || (shared >= 1 && la != null && lb != null && kotlin.math.abs(la - lb) <= 2)
+        }
+
+        fun fid(path: String, line: Int?, title: String): String =
+            "f_" + Hash.sha256Hex("$path:${line ?: 0}:${title.lowercase().take(60)}").take(10)
+
+        /** One finding of the review flow (review-pr's F lines: severity blocking or minor, file, line, text, todo) in the
+         *  shape the Problems tab shows. */
+        fun flowFinding(f: JsonNode, severity: String, check: String, why: String?): Map<String, Any?> {
+            val text = f.path("text").asText("").trim()
+            val title = text.substringBefore(". ").substringBefore("\n").trim().take(160).ifBlank { "a problem" }
+            val path = f.path("file").asText("").trim().takeIf { it.isNotEmpty() && it != "null" }
+            val line = f.path("line").takeIf { it.isInt }?.asInt()?.takeIf { it > 0 }
+            return mapOf("id" to fid(path.orEmpty(), line, title), "title" to title, "severity" to severity, "category" to "correctness",
+                "path" to path, "line" to line, "side" to "RIGHT", "why" to text.take(1200),
+                "fix" to f.path("todo").asText("").takeIf { it.isNotBlank() && it != "null" }?.take(800).orEmpty(),
+                "suggestion" to null, "pre_existing" to false, "reviewer" to (f.path("job").asText("").ifBlank { "review flow" }),
+                "check" to check, "check_why" to why?.take(600))
+        }
+
+        /**
+         * 0.18.67 the review flow's result (engine GET /threads/{id}/review) as Find problems' result: confirmed findings
+         * (blocking stays blocking, minor is should fix), dropped ones as rejected, unproven ones as not checked, quality
+         * notes as small things, the build checks as the tests line.
+         */
+        fun fromFlow(before: Map<String, Any?>, r: JsonNode): Map<String, Any?> {
+            fun sev(f: JsonNode) = if (f.path("severity").asText() == "blocking") "blocking" else "should_fix"
+            val findings = r.path("findings").map { flowFinding(it, sev(it), "confirmed", it.path("check_why").asText("").ifBlank { null }) }
+                .sortedBy { SEVERITIES.indexOf(it["severity"]) }
+            val rejected = r.path("dropped").map { flowFinding(it, sev(it), "rejected", it.path("why").asText("").ifBlank { null }) }
+            val notChecked = r.path("not_checked").map { flowFinding(it, sev(it), "not checked", it.path("why").asText("").ifBlank { null }) }
+            val nits = r.path("quality").map { q ->
+                val text = q.path("text").asText("").trim()
+                val path = q.path("file").asText("").trim().takeIf { it.isNotEmpty() && it != "null" }
+                val line = q.path("line").takeIf { it.isInt }?.asInt()?.takeIf { it > 0 }
+                mapOf("id" to fid(path.orEmpty(), line, text), "title" to text.take(160), "severity" to "nit", "category" to "design",
+                    "path" to path, "line" to line, "side" to "RIGHT", "why" to q.path("rule").asText("").takeIf { it != "null" }.orEmpty(),
+                    "fix" to q.path("todo").asText("").takeIf { it != "null" }.orEmpty(), "suggestion" to null, "pre_existing" to false,
+                    "reviewer" to "quality")
+            }
+            val checks = r.path("build").path("checks")
+            val tests = if (checks.isEmpty) r.path("build").path("note").asText("").ifBlank { null }
+                else checks.joinToString(" · ") { c ->
+                    val n = c.path("issues").size()
+                    "${c.path("name").asText()}: ${if (c.path("ok").asBoolean(false)) "ok" else if (n > 0) "$n issue(s)" else "failed"}"
+                }
+            val cov = r.path("coverage")
+            val unread = cov.path("unread").map { it.asText() }
+            val files = cov.path("files").asInt(0)
+            val known = cov.path("known").asBoolean(false)
+            val counts = SEVERITIES.associateWith { s -> findings.count { it["severity"] == s } } +
+                mapOf("nit" to nits.size, "not_checked" to notChecked.size)
+            return before + mapOf(
+                "stage" to "done", "findings" to findings, "rejected" to rejected, "not_checked" to notChecked,
+                "nits" to nits.take(MAX_NITS), "more_nits" to (nits.size - MAX_NITS).coerceAtLeast(0), "pre_existing" to emptyList<Any>(),
+                "security" to null, "tests" to tests, "counts" to counts, "depth" to r.path("depth").asText("standard"),
+                "verdict" to r.path("verdict").asText(""), "standards" to r.path("standards").map { it.asText() },
+                "partial" to (known && unread.isNotEmpty()),
+                "coverage" to mapOf("files" to files, "read" to if (known) files - unread.size else null, "unread" to unread.take(200), "known" to known),
+            )
         }
 
         /** The changed files a review must read: everything but docs and lockfiles. */
@@ -222,10 +286,15 @@ class ReviewAiService(
             if (kind == "overview") {
                 launch(pid, id, "overview", "${label(view)} · overview", overviewPrompt(view))
             } else {
-                // 0.18.65 the reviewers of Settings › Review (keel's default: A and B), each on its model
                 val find = setup.find(pid, helper.defaultModel(pid))
-                find.reviewers.forEach { r ->
-                    launch(pid, id, "find-${r.letter.lowercase()}", "${label(view)} · review ${r.letter}", findPrompt(pid, view, r), r.model)
+                if (find.runs == "flow" && view.host?.kind != "gitlab") {
+                    // 0.18.67 the one review flow (review-pr) at Settings › Review's depth: every step on its Flow page
+                    startFlow(pid, id, view, find.depth)
+                } else {
+                    // 0.18.65 the reviewers of Settings › Review (keel's default: A and B), each on its model
+                    find.reviewers.forEach { r ->
+                        launch(pid, id, "find-${r.letter.lowercase()}", "${label(view)} · review ${r.letter}", findPrompt(pid, view, r), r.model)
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -246,6 +315,23 @@ class ReviewAiService(
         helper.turn(pid, sid, HelperTurn(text = prompt))
     }
 
+    /**
+     * 0.18.67 Find problems as the review flow: review-pr on this PR (or branch, against the review's base) with data
+     * source find (it ends after record: no share gate) and [depth]. Its end comes back as thread.done / thread.failed.
+     */
+    private fun startFlow(pid: String, runId: String, v: ReviewView, depth: String) {
+        val options = mutableMapOf<String, Any?>("source" to "find", "depth" to depth)
+        if (v.kind == "pr" && v.number != null) options["pr"] = v.number else options += mapOf("branch" to v.branch, "base" to v.base)
+        val started = flows.start(pid, "review-pr", "${label(v)} · find problems", null, options = options)
+        val flowId = started.path("thread_id").asText().ifBlank { started.path("id").asText() }
+        addSession(runId, mapOf("sid" to flowId, "role" to "flow", "status" to "running"))
+        val (_, r) = run(runId) ?: return
+        @Suppress("UNCHECKED_CAST")
+        val result = (r.result?.let { mapper.convertValue(it, Map::class.java) as Map<String, Any?> } ?: emptyMap()) +
+            mapOf("stage" to "flow", "flow_id" to flowId, "depth" to depth)
+        jdbc.update("UPDATE review_runs SET result = ?, updated_at = ? WHERE id = ?", mapper.writeValueAsString(result), Time.now(), runId)
+    }
+
     @Synchronized
     private fun addSession(runId: String, s: Map<String, Any?>) {
         val (_, r) = run(runId) ?: return
@@ -262,6 +348,13 @@ class ReviewAiService(
     @EventListener
     fun on(stored: EngineEventStored) {
         val e = stored.event
+        if ((e.type == "thread.done" || e.type == "thread.failed") && e.threadId.isNotBlank()) {
+            val flowRun = jdbc.query("SELECT id FROM review_runs WHERE status = 'running' AND (? = '' OR project_id = ?) " +
+                "AND result LIKE ? AND sessions LIKE ? ORDER BY created_at DESC",
+                { rs, _ -> rs.getString(1) }, e.projectId, e.projectId, "%\"stage\":\"flow\"%", "%\"${e.threadId}\"%").firstOrNull() ?: return
+            if (props.inlineEffects) flowFinished(flowRun, e) else worker.execute { flowFinished(flowRun, e) }
+            return
+        }
         if (e.type != "helper.finished" || e.threadId.isBlank()) return
         val runId = jdbc.query("SELECT id FROM review_runs WHERE status = 'running' AND sessions LIKE ?", { rs, _ -> rs.getString(1) },
             "%\"${e.threadId}\"%").firstOrNull() ?: return
@@ -288,6 +381,31 @@ class ReviewAiService(
         } catch (ex: Exception) {
             log.warn("review AI run {}: {}", runId, ex.message)
             fail(runId, ex.message ?: "the run failed")
+        }
+    }
+
+    /** 0.18.67 the review flow ended: its result (engine /threads/{id}/review) as this run's findings, or why it stopped. */
+    @Synchronized
+    private fun flowFinished(runId: String, e: EngineEvent) {
+        try {
+            val (pid, r) = run(runId) ?: return
+            if (r.status != "running") return
+            val got = runCatching { engine.get("/threads/${e.threadId}/review") }.getOrNull()
+            val sessions = r.sessions.map { if (it["sid"] == e.threadId) it + mapOf("status" to if (e.type == "thread.done") "done" else "failed") else it }
+            jdbc.update("UPDATE review_runs SET sessions = ?, updated_at = ? WHERE id = ?", mapper.writeValueAsString(sessions), Time.now(), runId)
+            if (got == null || !got.path("done").asBoolean(false)) {
+                val why = (e.data["error"] ?: e.data["note"] ?: e.data["reason"])?.toString()?.takeIf { it.isNotBlank() }
+                fail(runId, (why ?: "The review flow stopped before it had a result.") + " Open the flow to see each step.")
+            } else {
+                @Suppress("UNCHECKED_CAST")
+                val before = (r.result?.let { mapper.convertValue(it, Map::class.java) as Map<String, Any?> } ?: emptyMap())
+                done(runId, fromFlow(before, got))
+            }
+            val key = jdbc.queryForObject("SELECT review_key FROM review_runs WHERE id = ?", String::class.java, runId)!!
+            hub.publish(pid, "review.ai", mapOf("key" to key, "kind" to r.kind))
+        } catch (ex: Exception) {
+            log.warn("review flow run {}: {}", runId, ex.message)
+            fail(runId, ex.message ?: "the review flow's result could not be read")
         }
     }
 
@@ -333,8 +451,6 @@ class ReviewAiService(
             "coverage" to mapOf("files" to want.size, "read" to want.size - missing.size, "unread" to missing.take(200), "known" to true))
     }
 
-    private fun fid(path: String, line: Int?, title: String): String =
-        "f_" + Hash.sha256Hex("$path:${line ?: 0}:${title.lowercase().take(60)}").take(10)
 
     private fun candidates(answer: String, reviewer: String): Pair<List<MutableMap<String, Any?>>, Map<String, String>> {
         val b = block(answer, "keel-review-findings") ?: return emptyList<MutableMap<String, Any?>>() to emptyMap()

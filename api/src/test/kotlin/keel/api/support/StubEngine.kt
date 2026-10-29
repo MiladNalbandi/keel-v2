@@ -130,7 +130,9 @@ class StubEngine private constructor(private val server: HttpServer) {
                     reviewer("tests, the description and design", "tests, the ticket and design", "config-secrets")),
                 "checker" to mapOf("model" to "stronger", "effort" to null, "should_fix" to true),
                 "fix" to mapOf("flow" to "small", "model" to "flow", "run_mode" to null, "one_flow_per_file" to false),
-                "final" to mapOf("model" to "stronger", "effort" to null), "drop_correctness" to false),
+                "final" to mapOf("model" to "stronger", "effort" to null), "drop_correctness" to false,
+                // 0.18.67 keel's default is flow (the review flow); the stub keeps the classic reviewers most tests walk
+                "depth" to "standard", "find_runs" to "classic"),
             "lenses" to listOf(
                 mapOf("name" to "data-migration", "title" to "Data migration and backfill", "source" to "keel", "reviewer" to "A",
                     "checklist" to "Data migration and backfill: defaults and NOT NULL on existing rows"),

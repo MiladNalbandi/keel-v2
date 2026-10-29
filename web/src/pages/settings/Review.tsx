@@ -22,6 +22,7 @@ import {
   NEW_REVIEWER,
   reviewSetup,
   slug,
+  type Depth,
   type LensFile,
   type ModelChoice,
   type ReviewConfig,
@@ -218,8 +219,8 @@ export function ReviewTab({ pid }: { pid: string }) {
       title="Review"
       line={
         <>
-          What “Find problems” on the Review page does: how many keel reviewers read the change, and the lenses each
-          one goes through. A fresh run checks every serious claim after them. For this project.
+          How keel reviews a change: “Find problems” on the Review page, a PR review and your uncommitted changes all
+          run one review flow. Pick how deep it looks; it follows your project's own rules first. For this project.
         </>
       }
     >
@@ -236,6 +237,86 @@ export function ReviewTab({ pid }: { pid: string }) {
         </p>
       )}
 
+      <section className="ss-cardp" aria-labelledby="rv-how-h">
+        <h2 id="rv-how-h" className="ss-h2">
+          How a review runs
+        </h2>
+        <div role="radiogroup" aria-label="Find problems runs" className="ss-rv-radios">
+          <label>
+            <input
+              type="radio"
+              name="rv-runs"
+              checked={cfg.find_runs !== "classic"}
+              disabled={busy || readOnly}
+              onChange={() => void save({ find_runs: "flow" })}
+            />
+            <span>
+              <b>The review flow</b> · every step is on the Flow page: prepare, build and lint, reviewers, a second
+              look at each claim, the report (keel's default)
+            </span>
+          </label>
+          <label>
+            <input
+              type="radio"
+              name="rv-runs"
+              checked={cfg.find_runs === "classic"}
+              disabled={busy || readOnly}
+              onChange={() => void save({ find_runs: "classic" })}
+            />
+            <span>
+              <b>Classic</b> · the reviewers below as KeelBot runs, then the checker
+            </span>
+          </label>
+        </div>
+        {view.depths && (
+          <div className="ss-rv-depths" role="radiogroup" aria-label="Review depth">
+            {(view.limits.depths ?? (["quick", "standard", "full"] as Depth[])).map((d) => {
+              const info = view.depths![d];
+              return (
+                <button
+                  key={d}
+                  type="button"
+                  role="radio"
+                  aria-checked={(cfg.depth ?? "standard") === d}
+                  className="ss-rv-depth"
+                  disabled={busy || readOnly}
+                  onClick={() => void save({ depth: d }, `${info.title} reviews from now on.`)}
+                >
+                  <b>{info.title}</b>
+                  <span className="ss-meta">
+                    {info.tokens} · {info.time}
+                  </span>
+                  <span className="ss-help">{info.what}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {view.standards && (
+          <div className="ss-rv-standards" role="group" aria-label="Your standards">
+            <b>Your standards: every reviewer reads them first</b>
+            <span className="ss-help">
+              Read from the change's base branch, so a change cannot rewrite its own rules.
+            </span>
+            <dl>
+              <dt>Rules</dt>
+              <dd className="ss-mono">
+                {view.standards.rules.length
+                  ? view.standards.rules.join(" · ")
+                  : "none found (AGENTS.md, CLAUDE.md, CONTRIBUTING.md, .cursor/rules/ …)"}
+              </dd>
+              <dt>Your lenses</dt>
+              <dd className="ss-mono">
+                {view.standards.lenses.length ? view.standards.lenses.join(" · ") : "none yet (.keel/lenses/, see Lenses below)"}
+              </dd>
+              <dt>Stack</dt>
+              <dd>{view.standards.stack.length ? view.standards.stack.join(" · ") : "not detected"}</dd>
+            </dl>
+          </div>
+        )}
+      </section>
+
+      {cfg.find_runs === "classic" && (
       <section className="ss-cardp" aria-labelledby="rv-revs-h">
         <h2 id="rv-revs-h" className="ss-h2">
           Reviewers
@@ -320,6 +401,8 @@ export function ReviewTab({ pid }: { pid: string }) {
           ))}
         </div>
       </section>
+
+      )}
 
       <section className="ss-cardp" aria-labelledby="rv-lenses-h">
         <div className="ss-sechead">

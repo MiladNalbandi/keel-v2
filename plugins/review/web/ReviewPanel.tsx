@@ -510,9 +510,11 @@ export function FindingsTab({
       {run?.status === "running" && (
         <Running
           what={
-            run.stage === "verify"
-              ? "keel checks each claim…"
-              : "Two reviewers read the change…"
+            run.stage === "flow"
+              ? "The review flow reads the change (every step is on its Flow page)…"
+              : run.stage === "verify"
+                ? "keel checks each claim…"
+                : "Two reviewers read the change…"
           }
           sessions={run.sessions}
         />

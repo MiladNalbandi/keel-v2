@@ -76,14 +76,24 @@ export function ProblemsTab({
         </button>
       </div>
     );
+  // 0.18.67 Find problems as the review flow: every step is on its Flow page
+  const flowId = run?.stage === "flow" || run?.result?.flow_id ? run?.result?.flow_id ?? null : null;
+  const flowLink = flowId && (
+    <a className="rvn-link" href={`#/flow/${encodeURIComponent(flowId)}`}>
+      Open the review flow ▸
+    </a>
+  );
   if (run.status === "running")
     return (
       <div className="rvn-call" role="status">
         <span className="pg-spin">
-          {run.stage === "verify"
-            ? "keel checks each problem against the code…"
-            : `${many} the change…`}
+          {run.stage === "flow"
+            ? `The review flow${run.result?.depth ? ` (${run.result.depth})` : ""} reads the change with your project's rules…`
+            : run.stage === "verify"
+              ? "keel checks each problem against the code…"
+              : `${many} the change…`}
         </span>
+        {flowLink}
         <span className="rvn-dim">
           It takes a few minutes. You can keep reviewing meanwhile.
         </span>
@@ -95,6 +105,7 @@ export function ProblemsTab({
         <ErrorBox
           error={{ message: run.error ?? "keel could not look for problems" }}
         />
+        {flowLink}
         <button type="button" className="rvn-btn" onClick={start}>
           Try again
         </button>
@@ -114,6 +125,8 @@ export function ProblemsTab({
         {blocking ? `${blocking} blocking` : "No blocking problem"}
         {" · "}security: {r?.security || "nothing reported"}
         {" · "}tests: {r?.tests || "nothing reported"}
+        {r?.depth ? ` · ${r.depth} review` : ""}
+        {flowLink ? <> · {flowLink}</> : null}
       </p>
       {!groups.length && (
         <p className="rvn-empty">keel read the change: no problems found.</p>

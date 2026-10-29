@@ -12,12 +12,49 @@ Since keel 0.18.65 each project has a **Review** tab in Settings. It decides two
 keel saves it in the project's `.keel/config.yml` under `review:`. So a teammate's keel uses the same settings.
 When nothing is written there, keel uses its defaults.
 
+## How a review runs (keel 0.18.67)
+
+Every review is one flow: **Find problems** on the Review page, a PR review and your uncommitted changes all run the
+`review-pr` flow. You can watch each step on the Flow page. No agent starts in the background.
+
+```text
+ Find problems ─┐
+ review a PR ───┼─ prepare ─ build + lint ─ reviewers (by area, with lenses) ─ second look at each claim ─ report
+ uncommitted ───┘     │                                                                                     │
+                 your standards                                                                   Problems tab
+```
+
+- **Depth** says how hard the review looks:
+  - **Quick** (about 20k tokens): one reviewer and at most two lenses. A few claims get a second look.
+  - **Standard** (about 80k tokens, the default): a large change gets one reviewer per area, with the lenses its files
+    need. Checklist and quality reviewers join them, and every claim gets a second look.
+  - **Full** (about 250k tokens): one reviewer per area even for a small change, and every lens that fits. The second
+    look runs on the stronger model.
+- **Your standards**: every reviewer reads the project's own rules first. These are AGENTS.md, CLAUDE.md, CONTRIBUTING,
+  `.github/copilot-instructions.md`, `.cursor/rules/` and the style docs, plus your lenses (`.keel/lenses/`) and the
+  stack. keel reads them from the change's base branch, so a change cannot rewrite its own rules. A quality note quotes
+  the rule it breaks.
+- **Classic** runs the reviewers below as KeelBot runs, as before 0.18.67.
+
+The tokens are first guesses for a change of a few hundred lines.
+
+In `.keel/config.yml`:
+
+```yaml
+review:
+  depth: full          # quick | standard | full
+  find_runs: classic   # flow (default) | classic
+```
+
+To review your uncommitted changes, start `review-pr` with `uncommitted: true`. keel makes a snapshot commit in a
+throwaway index (`refs/keel/review/uncommitted`). Your index, files and branch stay as they are.
+
+## Reviewers (classic)
+
 ```text
  Find problems ─ reviewers A, B (1 to 4) ─ each goes through its lenses ─ the checker
                ─ confirmed findings ─ Fix it
 ```
-
-## Reviewers
 
 Choose how many reviewers read the change: 1 to 4. keel's default is 2:
 

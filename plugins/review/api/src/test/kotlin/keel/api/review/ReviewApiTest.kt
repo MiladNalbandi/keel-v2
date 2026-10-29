@@ -430,6 +430,87 @@ class ReviewApiTest : ApiTest() {
     private fun turnText(sid: String): String = engine.calls.last { it.path == "/helper/sessions/$sid/turn" }.body!!["text"].asText()
 
     @Test
+    fun `Find problems runs the review flow at Settings › Review's depth and shows its checked findings`() {
+        engine.extraTemplates += engine.featureTemplate + mapOf("id" to "review-pr", "name" to "review a PR (keel)")
+        engine.extraRoutes["/review-config/view"] = { b ->
+            val base = engine.reviewConfigView(b?.path("models")?.path("default"))
+            @Suppress("UNCHECKED_CAST")
+            200 to base + mapOf("config" to (base["config"] as Map<String, Any?>) + mapOf("find_runs" to "flow", "depth" to "quick"))
+        }
+        engine.extraRoutes["/threads/t-stub-1/review"] = { _ ->
+            200 to mapOf("done" to true, "depth" to "quick", "verdict" to "not-done",
+                "findings" to listOf(mapOf("severity" to "blocking", "file" to "src/Prefs.kt", "line" to 4,
+                    "text" to "page size is never saved. It lives in a cache only.", "todo" to "save it", "check" to "confirmed",
+                    "check_why" to "the cache is the only write")),
+                "dropped" to listOf(mapOf("severity" to "minor", "file" to "src/Prefs.kt", "line" to 9, "text" to "cache grows", "why" to "it is cleared")),
+                "not_checked" to emptyList<Any>(),
+                "quality" to listOf(mapOf("file" to "src/Prefs.kt", "line" to 2, "rule" to "AGENTS.md: \"names are nouns\"",
+                    "text" to "savePrefs is named like a verb", "todo" to "rename it Prefs")),
+                "build" to mapOf("checks" to listOf(mapOf("name" to "compile", "kind" to "compile", "ok" to true, "issues" to emptyList<Any>()))),
+                "coverage" to mapOf("files" to 2, "unread" to emptyList<Any>(), "known" to true),
+                "standards" to listOf("AGENTS.md"))
+        }
+        try {
+            val (pid, _) = githubPr()
+            view(pid, "pr:7")
+            val helpers = engine.calls.count { it.path == "/helper/sessions" && it.method == "POST" }
+            val s1 = post("/api/projects/$pid/review/ai/findings", mapOf("key" to "pr:7")).andExpect(status().isOk).json()
+            assertThat(s1["findings"]["sessions"].map { it["role"].asText() }).containsExactly("flow")
+            assertThat(s1["findings"]["stage"].asText()).isEqualTo("flow")
+            assertThat(engine.calls.count { it.path == "/helper/sessions" && it.method == "POST" }).isEqualTo(helpers)   // no quick spawn
+            val start = engine.lastBody("/threads")!!
+            assertThat(start["workflow"]["id"].asText()).isEqualTo("review-pr")
+            assertThat(start["data"]["source"].asText()).isEqualTo("find")
+            assertThat(start["data"]["depth"].asText()).isEqualTo("quick")
+            assertThat(start["data"]["pr"].asInt()).isEqualTo(7)
+            post("/internal/events", listOf(mapOf("type" to "thread.done", "thread_id" to "t-stub-1", "project_id" to pid, "step" to "record",
+                "at" to "2026-10-29T10:00:00Z", "data" to emptyMap<String, Any>())), mapOf("X-Keel-Token" to TOKEN)).andExpect(status().isOk)
+            val f = get("/api/projects/$pid/review/ai?key=pr:7").json()["findings"]
+            assertThat(f["status"].asText()).isEqualTo("done")
+            val r = f["result"]
+            assertThat(r["flow_id"].asText()).isEqualTo("t-stub-1")
+            assertThat(r["depth"].asText()).isEqualTo("quick")
+            assertThat(r["findings"].map { it["title"].asText() }).containsExactly("page size is never saved")
+            assertThat(r["findings"][0]["severity"].asText()).isEqualTo("blocking")
+            assertThat(r["findings"][0]["check"].asText()).isEqualTo("confirmed")
+            assertThat(r["rejected"][0]["check_why"].asText()).isEqualTo("it is cleared")
+            assertThat(r["nits"][0]["why"].asText()).contains("AGENTS.md")
+            assertThat(r["tests"].asText()).isEqualTo("compile: ok")
+            assertThat(r["counts"]["blocking"].asInt()).isEqualTo(1)
+        } finally {
+            engine.extraRoutes.remove("/review-config/view")
+            engine.extraRoutes.remove("/threads/t-stub-1/review")
+            engine.extraTemplates.removeIf { it["id"] == "review-pr" }
+        }
+    }
+
+    @Test
+    fun `a review flow that stops before its result fails the run and says where to look`() {
+        engine.extraTemplates += engine.featureTemplate + mapOf("id" to "review-pr", "name" to "review a PR (keel)")
+        engine.extraRoutes["/review-config/view"] = { b ->
+            val base = engine.reviewConfigView(b?.path("models")?.path("default"))
+            @Suppress("UNCHECKED_CAST")
+            200 to base + mapOf("config" to (base["config"] as Map<String, Any?>) + mapOf("find_runs" to "flow"))
+        }
+        engine.extraRoutes["/threads/t-stub-1/review"] = { _ -> 200 to mapOf("done" to false) }
+        try {
+            val (pid, _) = githubPr()
+            view(pid, "pr:7")
+            post("/api/projects/$pid/review/ai/findings", mapOf("key" to "pr:7")).andExpect(status().isOk)
+            post("/internal/events", listOf(mapOf("type" to "thread.failed", "thread_id" to "t-stub-1", "project_id" to pid, "step" to "prep",
+                "at" to "2026-10-29T10:00:00Z", "data" to mapOf("error" to "The diff is empty: nothing to review."))),
+                mapOf("X-Keel-Token" to TOKEN)).andExpect(status().isOk)
+            val f = get("/api/projects/$pid/review/ai?key=pr:7").json()["findings"]
+            assertThat(f["status"].asText()).isEqualTo("failed")
+            assertThat(f["error"].asText()).startsWith("The diff is empty").contains("Open the flow")
+        } finally {
+            engine.extraRoutes.remove("/review-config/view")
+            engine.extraRoutes.remove("/threads/t-stub-1/review")
+            engine.extraTemplates.removeIf { it["id"] == "review-pr" }
+        }
+    }
+
+    @Test
     fun `keel explains the change, finds problems with two reviewers and checks every claim`() {
         val (pid, _) = githubPr()
         view(pid, "pr:7")
