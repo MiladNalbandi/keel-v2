@@ -389,6 +389,18 @@ class Engine:
             state["data"].pop("remotes_fetched", None)
             if check:
                 state["data"]["base_check"] = check
+            # 0.18.75 this machine's runtime against the versions CI runs: local tests, fixers and reviewers may disagree
+            # with CI (the ship's CI step runs CI's own versions)
+            from . import ci_config
+
+            differs = await asyncio.to_thread(ci_config.runtime_mismatch, root)
+            if differs:
+                state["data"]["runtime_mismatch"] = differs
+                gates = dict(state.get("gates") or {})
+                gates["log"] = [*list(gates.get("log") or []), *(
+                    f"runtime: {x}: tests, fixers and reviews here may disagree with CI (the ship's CI step runs CI's "
+                    "versions; a style tool may not support this one)" for x in differs)]
+                state["gates"] = gates
         else:
             check = None
         extensions.on_thread_start(root, tid)   # the parts catch up (the code graph syncs edits since its last index)
