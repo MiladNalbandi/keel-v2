@@ -418,3 +418,30 @@ def test_a_spec_extract_with_its_own_code_block_stays_inside_the_pr_bodys_fold(r
     spec.write_text("# Euro\n\n## Request path\n```\ntest -> formatEuro(cents)\n```\n")
     body = verdict_actions.pr_body(str(repo), "demo", {"spec": "docs/specs/euro.md"}, "Euro", None)
     assert "````markdown" in body and body.index("</details>") > body.index("formatEuro") and body.count("````") == 2
+
+
+def test_an_e2e_criterion_tested_outside_an_e2e_folder_is_traced(proj):
+    """0.18.72 a field report: no e2e folder set (a PHP library), the [E2E] criteria's tests under tests/, and the
+    strict trace said "no test commit" for them anyway."""
+    write(proj, "tests/Feature/WebhookTest.php", "<?php // CHG-2.3 a failed delivery is logged\n")
+    commit(proj, "test: webhook logging")
+    write(proj, "README.md", "CHG-2.4 is described here, which is not a test\n")
+    commit(proj, "docs: readme")
+    acs = [{"id": "CHG-2.3", "layer": "E2E", "title": "logs a failure", "status": "done"},
+           {"id": "CHG-2.4", "layer": "E2E", "title": "off by default", "status": "done"}]
+    r = run("trace_strict", ai(proj, acs=acs))
+    rows = {x["id"]: x for x in r.update["data"]["trace"]}
+    assert rows["CHG-2.3"]["complete"] and rows["CHG-2.3"]["file"] == "tests/Feature/WebhookTest.php"
+    assert not rows["CHG-2.4"]["complete"] and "no test commit: CHG-2.4" in r.note       # a doc does not count
+    write(proj, "tests/Feature/OffTest.php", "<?php\n")
+    commit(proj, "test(CHG-2.4): off by default")                                       # a test commit counts too
+    assert run("trace_strict", ai(proj, acs=acs)).ok
+
+
+def test_an_e2e_step_whose_files_keel_put_back_does_not_pass(proj):
+    """0.18.72 the e2e author's renames were put back by keel's file rule and its "pass" closed the criteria."""
+    from keel_engine.runtime import feature_actions as fa
+    a = ai(proj, acs=[{"id": "CHG-2.3", "layer": "E2E", "title": "x", "status": "todo"}])
+    a.data = {"e2e": {"ids": ["CHG-2.3"], "run": True, "command": "true"}, "put_back": {"e2e": ["tests/Unit/WebhookTest.php"]}}
+    r = fa.verify_e2e(a)
+    assert not r.ok and "keel put back 1 file(s)" in r.note and "tests/Unit/WebhookTest.php" in r.detail
