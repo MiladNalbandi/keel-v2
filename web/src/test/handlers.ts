@@ -303,6 +303,13 @@ export function handlers(db: Db) {
       return HttpResponse.json(f.thread);
     }),
     http.post("/api/threads/:tid/stop", async ({ request }) => { await log(request); return HttpResponse.json(db.flows["ludus-engine"].thread); }),
+    // 0.18.74 Finish by hand
+    http.post("/api/threads/:tid/finish-by-hand", async ({ request }) => {
+      await log(request);
+      const t = db.flows["ludus-engine"].thread!;
+      db.flows["ludus-engine"].thread = { ...t, status: "done" };
+      return HttpResponse.json(db.flows["ludus-engine"].thread);
+    }),
     http.get("/api/threads/:tid/history", () => HttpResponse.json(fx.checkpoints)),
     // keel 0.18.11 each step's calls added up, built from the jobs like the api does (StepRuns.kt)
     http.get("/api/projects/:pid/flows/:tid/decisions", ({ params }) => HttpResponse.json(db.decisions[String(params.tid)] ?? [])),

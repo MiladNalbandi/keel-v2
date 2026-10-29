@@ -16,6 +16,11 @@ class FlowApiTest : ApiTest() {
     @Test
     fun `starting a flow sends the engine a full StartThread and remembers the thread`() {
         val (pid, root) = newProject("flow-start")
+        // a Kotlin project: 0.18.74 a stack's skills reach its agents only when the project uses the stack
+        java.nio.file.Files.writeString(root.resolve("build.gradle.kts"), "plugins { kotlin(\"jvm\") }\n")
+        root.resolve(".git/info").toFile().mkdirs()
+        java.nio.file.Files.writeString(root.resolve(".git/info/exclude"), "build.gradle.kts\n",
+            java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND)     // the folder stays clean
         put("/api/projects/$pid/settings", mapOf("cap_tokens" to 200000)).andExpect(status().isOk)
         put("/api/projects/$pid/mcp-allow", mapOf("implementer" to listOf("mcp:keel:keel_next"))).andExpect(status().isOk)
         put("/api/projects/$pid/skills/kotlin-spring-testing", mapOf("agents" to listOf("test-author"))).andExpect(status().isOk)
@@ -239,5 +244,15 @@ class FlowApiTest : ApiTest() {
         val client = EngineClient(KeelProperties(engineUrl = "http://127.0.0.1:$port"), mapper)
         assertThatThrownBy { client.templates() }.isInstanceOf(EngineDown::class.java)
         assertThat(client.health()).isNull()
+    }
+
+    @Test
+    fun `a stack's skill reaches no agent in a project that does not use the stack`() {
+        val (pid, _) = newProject("no-kotlin")
+        put("/api/projects/$pid/skills/kotlin-spring-testing", mapOf("agents" to listOf("test-author"))).andExpect(status().isOk)
+        post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "Scores",
+            "acs" to listOf(mapOf("id" to "AC-001", "layer" to "API", "title" to "Save a score")))).andExpect(status().isOk)
+        val skills = engine.lastBody("/threads")!!["skills"]
+        assertThat(skills.path("test-author").asText("")).doesNotContain("Kotlin + Spring Boot test patterns")
     }
 }

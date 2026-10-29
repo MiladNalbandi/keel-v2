@@ -164,6 +164,10 @@ class InboxApiTest : ApiTest() {
         val state = post("/api/threads/t-stub-1/mode", mapOf("mode" to "readonly")).andExpect(status().isOk).json()
         assertThat(state["run_mode"].asText()).isEqualTo("readonly")
         assertThat(engine.lastBody("/threads/t-stub-1/mode")!!["mode"].asText()).isEqualTo("readonly")
+        // 0.18.74 who changed it goes to the engine (the flow's gate log): the dashboard, or an MCP client by its name
+        assertThat(engine.lastBody("/threads/t-stub-1/mode")!!["by"].asText()).isEqualTo("the dashboard")
+        post("/api/threads/t-stub-1/mode", mapOf("mode" to "auto"), mapOf("X-Keel-Client" to "opencode")).andExpect(status().isOk)
+        assertThat(engine.lastBody("/threads/t-stub-1/mode")!!["by"].asText()).isEqualTo("the MCP client opencode")
         post("/api/threads/t-stub-1/mode", mapOf("mode" to "sometimes")).andExpect(status().isBadRequest)
         post("/api/threads/t-stub-1/mode", mapOf<String, Any>()).andExpect(status().isBadRequest)
         put("/api/projects/$pid/settings", mapOf("run_mode" to null)).andExpect(status().isOk)

@@ -572,6 +572,14 @@ def change_size(a):
         size = "feature"
     lines = [f"Proposed: {size}", ""]
     reason = triage_reason(a.state.get("last_answer") or "")
+    # 0.18.74 triage once: a field report's change flow said feature, then small, 22 s later, with no word on why. Each
+    # answer is kept; a different one is shown with the earlier one, so the person sees the change and its reason.
+    history = list((a.data.get("change") or {}).get("history") or [])
+    before = history[-1] if history else None
+    if before and before.get("size") != size:
+        lines += [f"Triage changed its answer: earlier {before.get('size')}, now {size}.",
+                  f"Earlier: {str(before.get('reason') or '(no reason given)')[:400]}", ""]
+    history.append({"size": size, "reason": reason[:600]})
     if reason:
         lines += [reason[:1500], ""]
     if acs:
@@ -584,7 +592,7 @@ def change_size(a):
               f"Choosing small against a {size} recommendation needs a reason: it is recorded as an escalation override."
               if size == "feature" else ""]
     update = {"acs": acs, "show": "\n".join(lines).strip(),
-              "data": {**a.data, "change": {"recommended": size, "triggers": triggers, "limit": limit}},
+              "data": {**a.data, "change": {"recommended": size, "triggers": triggers, "limit": limit, "history": history[-5:]}},
               "markers": _markers(a, {"SIZE": size})}
     return _ok(f"triage: {size}" + (f" ({len(acs)} criteria)" if acs else ""), update=update)
 

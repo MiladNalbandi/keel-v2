@@ -7,7 +7,7 @@ import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 import { App } from "../App";
 import { findText, slug } from "../pages/settings/reviewSetup";
-import { server } from "./setup";
+import { db, server } from "./setup";
 
 const SONNET = { provider: "claude", mode: "subscription", model: "sonnet" };
 const OPUS_HIGH = { ...SONNET, model: "opus", effort: "high" };
@@ -63,6 +63,24 @@ const TWO = [
 ];
 
 describe("Settings › Review", () => {
+  it("0.18.74 shows the project's Code Review threads settings (moved from General)", async () => {
+    db.plugins.review = true;
+    server.use(
+      http.get("/api/projects/:pid/review-setup", () => HttpResponse.json(viewOf(TWO, { runs: "flow" }))),
+      http.get("/api/projects/:pid/review/settings", () => HttpResponse.json({
+        defaults: {}, general: {}, overrides: {}, agents: ["pr-reviewer"], workflows: [{ id: "small", name: "small" }],
+        models: [], limits: { buttons: 6, label: 30, min_cap: 200, max_cap: 1000000, placeholders: ["diff"] },
+        effective: { judge_mode: "quick", judge_agent: "pr-reviewer", judge_model: null, judge_effort: "low",
+          judge_token_cap: 25000, judge_allow_harder: true, judge_workflow: "review", address_workflow: "small",
+          thread_buttons: [] },
+      })),
+    );
+    location.hash = "#/settings/review";
+    render(<App />);
+    expect(await screen.findByRole("heading", { level: 2, name: "Code Review threads" })).toBeInTheDocument();
+    expect(await screen.findByLabelText("How keel checks")).toBeInTheDocument();
+  });
+
   it("0.18.67 runs one review flow at the depth you pick, and shows the standards every reviewer reads first", async () => {
     let current = viewOf(TWO, { runs: "flow" });
     const saved: Record<string, unknown>[] = [];

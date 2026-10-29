@@ -172,6 +172,7 @@ export function setup(sdk: KeelSdk) {
     order: 95,
     rows: [],
     component: ThreadSettings,
+    page: "review",
   });
 }
 

@@ -28,6 +28,22 @@ describe("a stopped flow", () => {
     expect(screen.getByRole("tab", { name: "Checkpoints" })).toHaveAttribute("aria-selected", "true");
   });
 
+  it("0.18.74 Finish by hand: tick what you finished, say what you did, keel commits and ends the flow", async () => {
+    const user = userEvent.setup();
+    const f = db.flows["ludus-engine"];
+    f.thread = { ...f.thread!, status: "stopped", waiting: undefined };
+    const open = f.thread.acs.filter((a) => a.status !== "done");
+    location.hash = "#/flow";
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Finish by hand…" }));
+    const form = screen.getByRole("form", { name: "Finish by hand" });
+    await user.click(within(form).getByRole("checkbox", { name: new RegExp(open[0].id) }));
+    await user.type(within(form).getByRole("textbox", { name: /What you did/ }), "fixed the order myself");
+    await user.click(within(form).getByRole("button", { name: "Commit and finish" }));
+    await waitFor(() => expect(db.calls.find((l) => l.path.endsWith("/finish-by-hand"))?.body)
+      .toEqual({ done: [open[0].id], message: "fixed the order myself" }));
+  });
+
   it("Stop flow asks first: Keep it running stops nothing, Esc closes, Stop the flow stops it", async () => {
     const user = userEvent.setup();
     location.hash = "#/flow";

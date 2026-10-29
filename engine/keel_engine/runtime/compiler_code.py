@@ -85,10 +85,11 @@ class CodeMixin:
                 return {**upd, "status": "stopped", "error": r.note, "note": r.note}, END
             if not r.ok and step.soft:
                 # A soft check records what it found and goes on; a branch reads markers[<id>].RESULT, a later step
-                # reads what it said in data["<id>_output"].
+                # reads what it said in data["<id>_output"]. 0.18.74 data.soft_failed: auto mode stops at the next gate
                 st.update(r.update)
                 upd.update(r.update)
-                data = {**(st.get("data") or {}), f"{step.id}_output": f"{r.note}\n{r.detail}".strip()[:6000]}
+                data = {**(st.get("data") or {}), f"{step.id}_output": f"{r.note}\n{r.detail}".strip()[:6000],
+                        "soft_failed": {**((st.get("data") or {}).get("soft_failed") or {}), step.id: r.note[:200]}}
                 st["data"] = upd["data"] = data
                 notes.append(r.note)
                 break
@@ -111,6 +112,11 @@ class CodeMixin:
                 details.append(r.detail)
         else:
             r = None
+        if step.soft and r is None and step.id in ((state.get("data") or {}).get("soft_failed") or {}):
+            # it passes now: no longer a reason for auto mode to stop
+            d = dict(upd.get("data") or state.get("data") or {})
+            d["soft_failed"] = {k: v for k, v in (d.get("soft_failed") or {}).items() if k != step.id}
+            upd["data"] = d
         if step.soft:
             result = "fail" if r is not None else "pass"
             mk = dict(state.get("markers") or {})
