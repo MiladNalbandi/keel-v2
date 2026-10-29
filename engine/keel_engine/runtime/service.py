@@ -861,7 +861,7 @@ class Engine:
         if "verdict" not in review:
             return {"thread_id": tid, "done": False}
         keep = ("title", "source", "depth", "verdict", "counts", "findings", "dropped", "not_checked", "quality", "build",
-                "coverage", "standards", "own_lenses", "stack", "files", "skipped", "summary")
+                "coverage", "standards", "own_lenses", "stack", "files", "skipped", "summary", "items")
         return {"thread_id": tid, "done": True, **{k: review.get(k) for k in keep if k in review}}
 
     async def set_document(self, tid: str, text: str) -> dict:

@@ -916,6 +916,8 @@ table.xrules td { padding-top: 4px; padding-bottom: 4px; }
 /* keel 0.18.11 what the running step does now, one dim line in its block */
 .sb-live { font: 12px var(--f-mono); color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 /* keel 0.18.11 the flow in one line, on top once the flow bar is out of view */
+/* 0.18.68 its ::before fills the gap above it with the page's ground: rows that scroll by no longer show through */
+.fl-now::before { content: ""; position: absolute; left: -1px; right: -1px; top: -13px; height: 12px; background: var(--bg); }
 .fl-now { position: sticky; top: var(--bar-h, 0px); z-index: 20; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 0 0 12px;
   padding: 7px 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 14px rgba(0,0,0,.08); font-size: 13px; }
 .fl-now-t { font-weight: 650; min-width: 0; max-width: 32ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1016,7 +1018,7 @@ button.sx-x:hover { box-shadow: 0 0 0 2px var(--ink); }
 .fl-needs .btn { margin-left: auto; }
 /* "Jump to live" takes its own row above the steps (with height 0 it floated over the first block's text: "1 step ran ·
    1s" under the pill); it still sticks to the top while the steps scroll under it */
-.fl-live { position: sticky; top: calc(var(--bar-h, 0px) + 8px); z-index: 3; display: flex; justify-content: center; margin: 0 0 8px; pointer-events: none; }
+.fl-live { position: sticky; top: calc(var(--bar-h, 0px) + var(--now-h, 0px) + 8px); z-index: 3; display: flex; justify-content: center; margin: 0 0 8px; pointer-events: none; }
 .fl-live button { pointer-events: auto; margin: 0; border: 1px solid var(--run); background: var(--panel); color: var(--run); border-radius: 999px; padding: 3px 12px; font: inherit;
   font-size: 12.5px; font-weight: 600; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
 .sx-chev { display: inline-block; transition: transform .15s; font-size: 11px; }
@@ -1189,7 +1191,7 @@ button.sx-x:hover { box-shadow: 0 0 0 2px var(--ink); }
 /* 0.18.64 the Blocks view is one centered column (it stuck to the left with empty space on its right) */
 .fl-scroll.is-blocks > * { max-width: 1040px; margin-left: auto; margin-right: auto; }
 .fl-scroll.is-blocks > .sx { max-width: 1040px; }
-.fl-side { min-width: 0; position: sticky; top: calc(var(--bar-h, 0px) + 12px); display: grid; gap: 12px; align-content: start; max-height: calc(100vh - var(--bar-h, 0px) - 24px); overflow-y: auto; scrollbar-width: thin; }
+.fl-side { min-width: 0; position: sticky; top: calc(var(--bar-h, 0px) + var(--now-h, 0px) + 12px); display: grid; gap: 12px; align-content: start; max-height: calc(100vh - var(--bar-h, 0px) - var(--now-h, 0px) - 24px); overflow-y: auto; scrollbar-width: thin; }
 .fl-side > .tabs { justify-self: start; max-width: 100%; overflow-x: auto; }
 .fl-waits { gap: 8px; }
 .fl-feed { max-height: 320px; overflow-y: auto; }

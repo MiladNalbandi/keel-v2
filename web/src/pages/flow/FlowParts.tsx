@@ -96,8 +96,21 @@ export function NowLine({ thread, workflow, started, onJump }: { thread: ThreadS
   const step = workflow.steps.find((s) => s.id === cur);
   const live = thread.status === "running" || thread.status === "waiting";
   const at = phaseAt(workflow, thread);
+  // 0.18.68 the bar sticks at the top: what sticks under it (the side column, the live line) starts below it, at its
+  // real height (it wraps to two lines on a narrow page); before, the side column's top hid behind it
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    const root = document.documentElement;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const set = () => root.style.setProperty("--now-h", `${Math.ceil(el.getBoundingClientRect().height) + 12}px`);
+    set();
+    const ro = new ResizeObserver(set);
+    ro.observe(el);
+    return () => { ro.disconnect(); root.style.removeProperty("--now-h"); };
+  }, []);
   return (
-    <div className="fl-now" role="region" aria-label="The flow now">
+    <div ref={ref} className="fl-now" role="region" aria-label="The flow now">
       <Pill tone={tone}>{label}</Pill>
       <span className="fl-now-t" title={thread.title}>{thread.title || workflow.name}</span>
       <span className="fl-now-m">

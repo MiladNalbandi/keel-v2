@@ -158,10 +158,26 @@ class ReviewAiService(
          */
         fun fromFlow(before: Map<String, Any?>, r: JsonNode): Map<String, Any?> {
             fun sev(f: JsonNode) = if (f.path("severity").asText() == "blocking") "blocking" else "should_fix"
-            val findings = r.path("findings").map { flowFinding(it, sev(it), "confirmed", it.path("check_why").asText("").ifBlank { null }) }
-                .sortedBy { SEVERITIES.indexOf(it["severity"]) }
+            val confirmed = r.path("findings").map { flowFinding(it, sev(it), "confirmed", it.path("check_why").asText("").ifBlank { null }) }
             val rejected = r.path("dropped").map { flowFinding(it, sev(it), "rejected", it.path("why").asText("").ifBlank { null }) }
-            val notChecked = r.path("not_checked").map { flowFinding(it, sev(it), "not checked", it.path("why").asText("").ifBlank { null }) }
+            // 0.18.68 the checklist (the ticket's items and the team's): an item not met after the second look is a
+            // blocking finding in the ticket's own words; an unclear one is not checked. Before, the Review page never got
+            // them: a missed acceptance criterion (overdue from day 14 on) was found and then not shown.
+            fun item(it: JsonNode, check: String): Map<String, Any?> {
+                val files = it.path("files").map { f -> f.asText() }
+                val at = it.path("evidence").asText("").let { e -> Regex("([\\w./-]+\\.\\w+):(\\d+)").find(e) }
+                val path = at?.groupValues?.get(1) ?: files.firstOrNull()
+                val line = at?.groupValues?.get(2)?.toIntOrNull()
+                val title = "Not done: ${it.path("text").asText("").trim()}".take(160)
+                return mapOf("id" to fid(path.orEmpty(), line, title), "title" to title, "severity" to if (check == "confirmed") "blocking" else "should_fix",
+                    "category" to "ticket", "path" to path, "line" to line, "side" to "RIGHT",
+                    "why" to it.path("evidence").asText("").take(1200), "fix" to it.path("todo").asText("").takeIf { t -> t != "null" }.orEmpty().take(800),
+                    "suggestion" to null, "pre_existing" to false, "reviewer" to "checklist", "check" to check,
+                    "check_why" to it.path("evidence").asText("").take(600).ifBlank { null })
+            }
+            val items = r.path("items").filter { it.path("verdict").asText() == "not-met" }.map { item(it, "confirmed") }
+            val unclear = r.path("items").filter { it.path("verdict").asText() == "unclear" }.map { item(it, "not checked") }
+            val notChecked = r.path("not_checked").map { flowFinding(it, sev(it), "not checked", it.path("why").asText("").ifBlank { null }) } + unclear
             val nits = r.path("quality").map { q ->
                 val text = q.path("text").asText("").trim()
                 val path = q.path("file").asText("").trim().takeIf { it.isNotEmpty() && it != "null" }
@@ -175,12 +191,19 @@ class ReviewAiService(
             val tests = if (checks.isEmpty) r.path("build").path("note").asText("").ifBlank { null }
                 else checks.joinToString(" · ") { c ->
                     val n = c.path("issues").size()
-                    "${c.path("name").asText()}: ${if (c.path("ok").asBoolean(false)) "ok" else if (n > 0) "$n issue(s)" else "failed"}"
+                    val word = when {
+                        c.path("ran").isBoolean && !c.path("ran").asBoolean() -> "not run (not installed)"
+                        c.path("ok").asBoolean(false) -> "ok"
+                        n > 0 -> "$n issue(s)"
+                        else -> "failed"
+                    }
+                    "${c.path("name").asText()}: $word"
                 }
             val cov = r.path("coverage")
             val unread = cov.path("unread").map { it.asText() }
             val files = cov.path("files").asInt(0)
             val known = cov.path("known").asBoolean(false)
+            val findings = (confirmed + items).sortedBy { SEVERITIES.indexOf(it["severity"]) }
             val counts = SEVERITIES.associateWith { s -> findings.count { it["severity"] == s } } +
                 mapOf("nit" to nits.size, "not_checked" to notChecked.size)
             return before + mapOf(

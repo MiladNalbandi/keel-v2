@@ -71,7 +71,7 @@ def test_nothing_written_is_todays_two_reviewers(tmp_path):
     assert [r["name"] for r in revs] == ["correctness and security", "tests, the description and design"]
     assert revs[0]["lenses"] == ["data-migration", "idempotency-retry", "error-handling-retry"]
     assert revs[1]["lenses"] == ["config-secrets", "test-quality"]
-    assert v["find_text"].startswith("The review flow (Standard, ~80k tokens) reads the change with your project's rules")
+    assert v["find_text"].startswith("The review flow (Standard, ~60k tokens) reads the change with your project's rules")
     classic = review_config.find_text({**v["config"], "find_runs": "classic"})
     assert classic.startswith("Two keel reviewers read the change (A: correctness and security, B: tests, the")
     # the reviewers keep the project's model; the checker and the final review get a stronger one

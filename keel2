@@ -73,7 +73,7 @@
 # data volume, so they survive restarts and new images. Nothing from your computer is copied into the container.
 set -euo pipefail
 
-KEEL2_VERSION="0.18.67"
+KEEL2_VERSION="0.18.68"
 IMAGE="${KEEL_IMAGE:-ghcr.io/miladnalbandi/keel-v2:latest}"
 # keel's core only (docs/plugins/16-steps5-7-contract.md, step 6): keel2 start --core, unless KEEL_IMAGE is set
 CORE_IMAGE="ghcr.io/miladnalbandi/keel-v2:core"
@@ -515,6 +515,9 @@ cmd_start() {
   # 0.18.66 keel's Settings › Access shows where it answers (KEEL_BIND) and the update command for the image it runs
   # (KEEL_IMAGE: a pinned tag needs KEEL_IMAGE=<new tag> keel2 update); nothing in the container acts on them
   args+=(-e "KEEL_BIND=$bind" -e "KEEL_IMAGE=$IMAGE")
+  # 0.18.68 Help › Start here's MCP snippets name this launcher by its absolute path (an AI tool started from a
+  # desktop launcher often has no ~/.local/bin on its PATH: opencode failed on a bare keel2)
+  args+=(-e "KEEL2_PATH=$(self_path)")
   # 0.18.55 the names keel answers on besides localhost: KEEL_ALLOWED_HOSTS (restart and update keep it, by the
   # label), and on the network (--wifi) this computer's own name and <name>.local, so http://server.local:8088 works
   local hosts; hosts="$(allowed_hosts "$bind")"
@@ -1604,6 +1607,10 @@ cmd_mcp() {
   if native_mode && ! docker_keel_running; then
     native_running || die "keel is not running." "Start it first: keel2 start --native /path/to/project"
     local p; p="$(native_port)"
+    # 0.18.68 the times keel_health and the other tools show: the computer's zone, as the container gets it (an MCP
+    # client may start this with an environment that has no TZ and a Python that cannot read /etc/localtime)
+    local ntz; ntz="$(host_tz)"
+    if [ -n "$ntz" ]; then export TZ="$ntz"; fi
     KEEL_API_URL="http://127.0.0.1:$p" KEEL_INTERNAL_TOKEN="$(cat "$ND/run/token")" KEEL_PUBLIC_URL="${KEEL_PUBLIC_URL:-http://localhost:$p}" \
       KEEL_DATA="$ND/data" KEEL_PLUGINS_IMAGE="$ND/current/plugins" \
       exec "$ND/current/engine/.venv/bin/python" -m keel_engine.mcp "$mode" ${extra[@]+"${extra[@]}"}
@@ -2177,9 +2184,13 @@ cmd_plugins() {
   esac
 }
 
+self_path() {  # this launcher's absolute path (the MCP snippets name it, not a bare keel2)
+  printf '%s/%s' "$(cd "$(dirname "$0")" && pwd -P)" "$(basename "$0")"
+}
+
 print_mcp_config() {  # print_mcp_config <--read-only|--write|--admin> [extra args…]
   local level="$1"; shift
-  local self; self="$(cd "$(dirname "$0")" && pwd -P)/$(basename "$0")"
+  local self; self="$(self_path)"
   local env_cli="" env_json="" jself
   if [ "$NAME" != keel-v2 ]; then env_cli=" -e KEEL_NAME=$NAME"; env_json=", \"env\": { \"KEEL_NAME\": \"$NAME\" }"; fi
   jself="$(printf '%s' "$self" | sed 's/\\/\\\\/g; s/"/\\"/g')"
@@ -2335,7 +2346,7 @@ native_start() {  # native_start <project> <tarball or ""> <source checkout or "
   info "Starting keel natively for ${B}$project${N}…"
   KEEL_APP="$ND/current" KEEL_DATA="$ND/data" KEEL_WORKSPACE="$project" KEEL_PROJECT_NAME="$(basename "$project")" KEEL_HOST_WORKSPACE="$project" \
     KEEL_FOLDERS="$folders" KEEL_PORT="$port" KEEL_ENGINE_PORT="$eport" KEEL_NPM="$ND/npm" KEEL_INTERNAL_TOKEN="$tok" \
-    KEEL_PLUGINS="${NATIVE_PLUGINS:-${KEEL_PLUGINS:-on}}" KEEL_BIND="$bind" KEEL_NAME="$NAME" \
+    KEEL_PLUGINS="${NATIVE_PLUGINS:-${KEEL_PLUGINS:-on}}" KEEL_BIND="$bind" KEEL_NAME="$NAME" KEEL2_PATH="$(self_path)" \
     nohup "$ND/current/keel-native-start" >> "$ND/logs/keel.log" 2>&1 < /dev/null &
   echo $! > "$ND/run/keel.pid"
   local i; for i in $(seq 1 180); do

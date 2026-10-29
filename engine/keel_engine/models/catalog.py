@@ -71,6 +71,7 @@ AGENT_DEFAULTS: dict[str, tuple[float, float, float]] = {
     "librarian": (20, 3, 0.0), "reproducer": (30, 4, 0.3), "investigator": (70, 6, 0.2),
     "web-researcher": (60, 5, 0.1),     # 0.18.20 fetched pages are most of its input
     "pr-reviewer": (35, 3, 0.0),    # review-pr: reads the diff and a few lines around each hunk
+    "change-reviewer": (60, 6, 0.0),    # 0.18.68 review-pr standard: the one bug reviewer of the whole change
     "finding-verifier": (30, 3, 0.0),   # review-pr: four claims, the lines each names and the place that decides it
 }
 FALLBACK_AGENT = (20, 3, 0.1)

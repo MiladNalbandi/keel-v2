@@ -444,9 +444,13 @@ class ReviewApiTest : ApiTest() {
                     "check_why" to "the cache is the only write")),
                 "dropped" to listOf(mapOf("severity" to "minor", "file" to "src/Prefs.kt", "line" to 9, "text" to "cache grows", "why" to "it is cleared")),
                 "not_checked" to emptyList<Any>(),
+                "items" to listOf(mapOf("id" to "T1", "text" to "a page size of 101 is refused", "verdict" to "not-met",
+                    "evidence" to "src/Prefs.kt:7 accepts any size", "todo" to "refuse sizes over 100", "files" to listOf("src/Prefs.kt")),
+                    mapOf("id" to "T2", "text" to "the size is saved per user", "verdict" to "met", "evidence" to "src/Prefs.kt:4")),
                 "quality" to listOf(mapOf("file" to "src/Prefs.kt", "line" to 2, "rule" to "AGENTS.md: \"names are nouns\"",
                     "text" to "savePrefs is named like a verb", "todo" to "rename it Prefs")),
-                "build" to mapOf("checks" to listOf(mapOf("name" to "compile", "kind" to "compile", "ok" to true, "issues" to emptyList<Any>()))),
+                "build" to mapOf("checks" to listOf(mapOf("name" to "compile", "kind" to "compile", "ok" to true, "issues" to emptyList<Any>()),
+                    mapOf("name" to "ruff", "kind" to "lint", "ok" to true, "ran" to false, "issues" to emptyList<Any>()))),
                 "coverage" to mapOf("files" to 2, "unread" to emptyList<Any>(), "known" to true),
                 "standards" to listOf("AGENTS.md"))
         }
@@ -470,13 +474,16 @@ class ReviewApiTest : ApiTest() {
             val r = f["result"]
             assertThat(r["flow_id"].asText()).isEqualTo("t-stub-1")
             assertThat(r["depth"].asText()).isEqualTo("quick")
-            assertThat(r["findings"].map { it["title"].asText() }).containsExactly("page size is never saved")
+            // 0.18.68 a checklist item not met is a blocking finding in the ticket's words; a met one is not shown
+            assertThat(r["findings"].map { it["title"].asText() }).containsExactly("page size is never saved", "Not done: a page size of 101 is refused")
+            assertThat(r["findings"][1]["line"].asInt()).isEqualTo(7)
+            assertThat(r["findings"][1]["fix"].asText()).isEqualTo("refuse sizes over 100")
             assertThat(r["findings"][0]["severity"].asText()).isEqualTo("blocking")
             assertThat(r["findings"][0]["check"].asText()).isEqualTo("confirmed")
             assertThat(r["rejected"][0]["check_why"].asText()).isEqualTo("it is cleared")
             assertThat(r["nits"][0]["why"].asText()).contains("AGENTS.md")
-            assertThat(r["tests"].asText()).isEqualTo("compile: ok")
-            assertThat(r["counts"]["blocking"].asInt()).isEqualTo(1)
+            assertThat(r["tests"].asText()).isEqualTo("compile: ok · ruff: not run (not installed)")
+            assertThat(r["counts"]["blocking"].asInt()).isEqualTo(2)
         } finally {
             engine.extraRoutes.remove("/review-config/view")
             engine.extraRoutes.remove("/threads/t-stub-1/review")

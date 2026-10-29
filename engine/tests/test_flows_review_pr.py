@@ -149,21 +149,23 @@ def test_a_full_review_of_a_branch_shares_only_the_chosen_sections_and_posts_not
     tid = review(client, repo)
     s = wait(client, tid)
     assert s["waiting"]["step"] == "share" and s["phase"] == "review", s
-    agents = [r for r in seen if r.agent == "pr-reviewer"]
-    assert len(agents) == 1 and agents[0].item["job"] == "all"          # a small change: one agent does every job
-    job = agents[0].item
-    assert [i["id"] for i in job["items"]][:2] == ["T1", "T2"]
+    agents = [r for r in seen if r.agent in ("pr-reviewer", "change-reviewer")]
+    # keel 0.18.68 standard: one bug reviewer of the whole change, and a checklist reviewer for the ticket's items
+    assert sorted(r.item["job"] for r in agents) == ["bugs", "checklist"]
+    bugs = next(r for r in agents if r.item["job"] == "bugs")
+    assert bugs.agent == "change-reviewer"                               # the short prompt hunts the bugs
+    bugs = bugs.item
+    assert bugs["area"] == "the whole change" and bugs["files"][0].startswith("src/scores/ranks.py")
+    job = next(r.item for r in agents if r.item["job"] == "checklist")
+    assert [i["id"] for i in job["items"]] == ["T1", "T2"]               # the team's checklist is a full review's
     assert job["files"][0].startswith("src/scores/ranks.py")
     assert "git diff main...feat/ranks -- <file>" in job["read"]
-    assert [line.split(" ")[0] for line in job["decided"]] == ["D8"]     # no database change: decided by the script
-    scripts = {i["id"]: i.get("script") for i in job["items"]}
-    assert scripts["D3"] == "no disable or skip marker in the added lines"   # a clean script check is only a hint
     detail = s["waiting"]["detail"]
-    assert "DONE" in detail and "of 12 checklist item(s) done" in detail and "NEXT STEPS" in detail
+    assert "DONE" in detail and "of 2 checklist item(s) done" in detail and "NEXT STEPS" in detail
     assert "Nothing has been sent to the author" in detail
     q = s["waiting"]["questions"][0]
     assert q["id"] == "sections" and q["multiple"] is True
-    assert {o["label"] for o in q["options"]} == {"summary", "minor", "quality"}   # empty sections are not offered
+    assert {o["label"] for o in q["options"]} == {"summary", "minor"}   # empty sections are not offered
     assert [o["label"] for o in q["options"] if o["recommended"]] == ["summary"]
     assert [c["name"] for c in s["waiting"]["choice_info"]] == ["done", "share"]
     assert (Path(repo) / "src/scores/ranks.py").exists() is False         # the person's tree was never touched
@@ -203,8 +205,8 @@ def test_every_problem_is_checked_again_and_only_confirmed_ones_are_reported(cli
                  else "unproven | needs:the docs rule of this repo")
             out.append(f"CHECK | {c['id']} | {v}")
         return "\n".join(out + ["TICKET-REVIEW: done"])
-    seen = answers(monkeypatch, {"pr-reviewer": reviewer, "finding-verifier": verifier})
-    tid = review(client, repo)
+    seen = answers(monkeypatch, {"pr-reviewer": reviewer, "change-reviewer": reviewer, "finding-verifier": verifier})
+    tid = review(client, repo, data={"depth": "full"})                  # the team's checklist: a full review
     s = wait(client, tid)
     checks = [r.item for r in seen if r.agent == "finding-verifier"]
     claims = [c for job in checks for c in job["claims"]]
@@ -302,3 +304,16 @@ def test_the_build_runs_in_a_worktree_and_keeps_only_messages_on_changed_files(r
     assert git(repo, "worktree", "list").stdout.count("\n") == 1          # and the worktree is gone
     review_ = {**r.update["data"]["ticket_review"], "items": [], "findings": []}
     assert ta.verdict_of(review_)["verdict"] == "not-done"                # code that does not build is not done
+
+
+def test_a_check_whose_tool_is_not_installed_is_not_run_never_ok(repo, monkeypatch):
+    # keel 0.18.68 a field report: "lint ok" for linters that were not installed in the container
+    on_branch(repo)
+    monkeypatch.setattr(ta.tool_runner, "resolve", lambda *a, **k: [])
+    monkeypatch.setattr(ta.tool_runner, "run_tools", lambda *a, **k: [{"name": "ruff", "available": False}])
+    a = ActionInput(root=str(repo), phase="review", title="t", ac=None, acs=[], fake=False, flow="review-pr",
+                    data={"ticket_review": {"source": {"ref": "feat/ranks"}, "files": [{"file": "src/scores/ranks.py"}]}})
+    r = ta._build(a)
+    ruff = next(c for c in r.update["data"]["ticket_review"]["build"]["checks"] if c["name"] == "ruff")
+    assert ruff["ran"] is False and "not run" in ruff["note"]
+    assert "Not run (not installed here): ruff." in r.note and "ruff (lint): NOT RUN" in r.detail

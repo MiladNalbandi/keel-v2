@@ -58,9 +58,17 @@ Read the spec first for what was actually agreed, then the diff. `file:line` and
 finding. Say when there is nothing to report — a review that only ever finds problems reads as
 noise the moment it finds none.
 
+**Shape your answer in three parts**, so keel can tell a finding from a checklist answer:
+
+- `## Checklist`: one line per item above, what you found for it ("nothing to report" is fine here).
+- `## Findings`: only the real problems, one list item each: `file:line` and one sentence, and what to do.
+  None: write `None.` under the heading.
+- `## What I did not check`: as below. These are notes, never findings.
+
 Always end with a **What I did not check** list: each item above you could not settle (a contract
 you could not find, a CI file you could not read, a check you could not run) and what would settle
 it. "None" only when you went through all of them. A pass with an empty list is a claim that you
 read everything.
 
-Then end with exactly one line: `CODE-REVIEW: pass` or `CODE-REVIEW: findings`.
+Then end with exactly one line: `CODE-REVIEW: pass` or `CODE-REVIEW: findings`. `findings` only when
+`## Findings` lists at least one problem; what you did not check alone is a pass (keel shows the notes).

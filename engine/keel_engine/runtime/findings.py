@@ -39,19 +39,59 @@ def blocking(text: str) -> list[str]:
         found = [f"The reviewer marked this blocking: {lead[:300]}"]
     own = _OWN_VERDICT.findall(text or "")
     if not verdicts and not found and own and own[-1].lower() == "findings":
-        found = _listed(text) or ["The reviewer reported findings: " + next(
-            (l.strip() for l in (text or "").splitlines() if l.strip() and not _OWN_VERDICT.match(l)), "")[:300]]
+        # keel 0.18.68 a list that holds only checklist answers and "did not check" items is a pass with notes; only an
+        # answer with no list at all falls back to its first line
+        found = _listed(text) or ([] if _has_items(text) else ["The reviewer reported findings: " + next(
+            (l.strip() for l in (text or "").splitlines() if l.strip() and not _OWN_VERDICT.match(l)), "")[:300]])
     return found
 
 
+# keel 0.18.68 (field report: a branch review sent back twice with 27, then 26 "blocking findings" that were its own
+# checklist answers): the headings of an answer's parts that hold no findings, and an item that says there is nothing
+_ANY_HEAD = re.compile(r"^\s*(?:#{1,6}\s+(.+?)|(?:\*\*|__)([^*_]+?)(?:\*\*|__)\s*:?)\s*$")
+_FINDINGS_HEAD = re.compile(r"(?i)^\W*(?:\d+[.)]\s*)?(?:findings?|problems?|issues?|must fix|should fix)\b")
+_NOT_FINDINGS_HEAD = re.compile(r"(?i)\b(?:did not check|didn't check|not checked|unchecked|could not check|checklist|"
+                                r"what i (?:checked|read)|checked|scope|summary|notes?|context|method|verdict)\b")
+_NOTHING = re.compile(r"(?i)^\W*(?:none|nothing|no (?:issues?|problems?|findings?|change|concerns?)|n/?a|not applicable|"
+                      r"ok(?:ay)?|fine|clean|pass(?:es|ed)?|looks (?:good|fine|right|correct)|unchanged|nothing to report|"
+                      r"nothing found|no new)\b")
+_LABEL = re.compile(r"^\s*(?:\*\*|__)?([^:*_]{1,80}?)(?:\*\*|__)?\s*[:—–-]\s*(?:\*\*|__)?\s*(.*)$")
+
+
+def _says_nothing(item: str) -> bool:
+    """A checklist answer, not a finding: "nothing", "Shared config keys: nothing to report", a bare "**Correctness**"."""
+    t = item.strip()
+    if not re.sub(r"[*_`:\s]", "", t):
+        return True
+    if _NOTHING.match(t):
+        return True
+    m = _LABEL.match(t)
+    if m and not _REF.search(m.group(1)):
+        rest = m.group(2).strip().strip("*_").strip()
+        return not rest or bool(_NOTHING.match(rest))
+    return bool(re.fullmatch(r"(?:\*\*|__)[^*_]+(?:\*\*|__)\.?", t))
+
+
 def _listed(text: str) -> list[str]:
-    """The list items of an answer (a reviewer that names its findings without a Blocking heading)."""
-    out = []
+    """The list items of an answer that names its findings without a Blocking heading. keel 0.18.68: the items under a
+    Findings heading when it has one; else every item but those under a checklist or "What I did not check" heading,
+    and never an item that says there is nothing ("Shared config keys: nothing to report") or is only a label."""
+    parts: list[tuple[str, list[str]]] = [("", [])]
     for line in (text or "").splitlines():
+        h = _ANY_HEAD.match(line)
+        if h and not _BULLET.match(line):
+            parts.append(((h.group(1) or h.group(2) or "").strip(), []))
+            continue
         b = _BULLET.match(line)
-        if b and b.group(1).strip() and not _NONE.match(b.group(1)):
-            out.append(re.sub(r"\s+", " ", b.group(1)).strip())
-    return out
+        if b and b.group(1).strip():
+            parts[-1][1].append(re.sub(r"\s+", " ", b.group(1)).strip())
+    named = [items for head, items in parts if head and _FINDINGS_HEAD.match(head)]
+    chosen = named or [items for head, items in parts if not (head and _NOT_FINDINGS_HEAD.search(head))]
+    return [x for items in chosen for x in items if not _NONE.match(x) and not _says_nothing(x)]
+
+
+def _has_items(text: str) -> bool:
+    return any(_BULLET.match(line) and _BULLET.match(line).group(1).strip() for line in (text or "").splitlines())
 
 
 _NB_HEAD = re.compile(r"^\s*(?:#{1,6}\s*)?(?:\*\*|__)?\s*non-?blocking\b[^:\n]*?(?:\*\*|__)?\s*:?\s*(?:\*\*|__)?\s*(.*)$", re.I)

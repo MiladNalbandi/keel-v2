@@ -101,28 +101,30 @@ const json = (v: unknown) => JSON.stringify(v, null, 2);
 export type McpSnippet = { where: string; text: string; lang: "bash" | "json" | "toml"; then: string };
 
 /** The one-time command or config for a tool and level. Claude Code's is keel's own (keel2 mcp --print-config); the
- *  others follow each tool's own MCP config format. */
-export function mcpSnippets(tool: McpTool, level: McpLevel): McpSnippet[] {
+ *  others follow each tool's own MCP config format. [bin] (0.18.68): keel2's absolute path when keel knows it (an AI tool
+ *  started from a desktop launcher often has no ~/.local/bin on its PATH), else keel2. */
+export function mcpSnippets(tool: McpTool, level: McpLevel, bin = "keel2"): McpSnippet[] {
   const a = args(level);
+  const keel2 = bin;
   switch (tool) {
     case "claude":
-      return [{ where: "Run this once in a terminal on this computer:", lang: "bash", text: `claude mcp add keel -- keel2 ${a.join(" ")}`,
+      return [{ where: "Run this once in a terminal on this computer:", lang: "bash", text: `claude mcp add keel -- ${keel2} ${a.join(" ")}`,
         then: "In Claude Code, type /mcp: keel shows as connected." }];
     case "opencode":
       return [{ where: "Put this in opencode.json (in the project, or ~/.config/opencode/opencode.json for every project):", lang: "json",
-        text: json({ $schema: "https://opencode.ai/config.json", mcp: { keel: { type: "local", command: ["keel2", ...a], enabled: true } } }),
+        text: json({ $schema: "https://opencode.ai/config.json", mcp: { keel: { type: "local", command: [keel2, ...a], enabled: true } } }),
         then: "Start opencode again: keel's tools are in its list." }];
     case "codex":
-      return [{ where: "Run this once in a terminal on this computer:", lang: "bash", text: `codex mcp add keel -- keel2 ${a.join(" ")}`,
+      return [{ where: "Run this once in a terminal on this computer:", lang: "bash", text: `codex mcp add keel -- ${keel2} ${a.join(" ")}`,
         then: "In Codex, type /mcp: keel is in the list." },
       { where: "Or put this in ~/.codex/config.toml:", lang: "toml",
-        text: `[mcp_servers.keel]\ncommand = "keel2"\nargs = [${a.map((x) => `"${x}"`).join(", ")}]`, then: "" }];
+        text: `[mcp_servers.keel]\ncommand = "${keel2}"\nargs = [${a.map((x) => `"${x}"`).join(", ")}]`, then: "" }];
     case "cursor":
       return [{ where: "Cursor: put this in ~/.cursor/mcp.json (or .cursor/mcp.json in the project):", lang: "json",
-        text: json({ mcpServers: { keel: { command: "keel2", args: a } } }),
+        text: json({ mcpServers: { keel: { command: keel2, args: a } } }),
         then: "Cursor Settings › MCP shows keel: turn it on." },
       { where: "VS Code: put this in .vscode/mcp.json in the project:", lang: "json",
-        text: json({ servers: { keel: { type: "stdio", command: "keel2", args: a } } }),
+        text: json({ servers: { keel: { type: "stdio", command: keel2, args: a } } }),
         then: "In the Chat view (agent mode), the tools list shows keel." }];
   }
 }
@@ -168,7 +170,15 @@ export function McpSetup({ tools, compact, live = true }: { tools: McpClientSeen
   const [tool, setTool] = useState<McpTool>("claude");
   const [level, setLevel] = useState<McpLevel>("write");
   const label = MCP_TOOLS.find((t) => t.id === tool)!.label;
-  const snippets = mcpSnippets(tool, level);
+  const [bin, setBin] = useState("keel2");
+  useEffect(() => {
+    let live = true;
+    helpApi.access().then((a) => live && a.keel2_path && setBin(a.keel2_path)).catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
+  const snippets = mcpSnippets(tool, level, bin);
   return (
     <div className={`hs-mcp${compact ? " compact" : ""}`}>
       <div role="tablist" aria-label="Your tool" className="hs-tabs">

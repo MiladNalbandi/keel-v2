@@ -50,7 +50,7 @@ steps:
       Your item holds a few claims other reviewers made (findings and not-met checklist items; one claim may stand for
       both). For each, restate it as trigger -> effect, then read the reviewed version: the lines it names and the one
       place that would make it false (a caller, the migration, the config reader, the consumer). Answer one line per
-      claim: CHECK | <id> | confirmed, rejected or unproven | why | sev: | conf: | evidence: | needs:. unproven is kept
+      claim: CHECK | <id> | confirmed, rejected or unproven | why | sev: | conf: | at: | evidence: | needs:. unproven is kept
       and shown as not checked; never guess confirmed.
   - id: settle
     kind: parallel

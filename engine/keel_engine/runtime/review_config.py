@@ -71,12 +71,13 @@ DEPTH_INFO = {
     "quick": {"title": "Quick", "tokens": "~20k tokens", "time": "1–2 min",
               "what": "One reviewer reads the whole change with your rules, your own lenses and at most two of "
                       "keel's; a few claims are checked again."},
-    "standard": {"title": "Standard", "tokens": "~80k tokens", "time": "4–6 min",
-                 "what": "A large change gets one reviewer per area with the lenses its files need, plus checklist "
-                         "and quality reviewers; every claim is checked again."},
+    "standard": {"title": "Standard", "tokens": "~60k tokens", "time": "2–4 min",
+                 "what": "One bug reviewer reads the whole change with your rules (and a checklist reviewer for the "
+                         "ticket's items); a very large change is split by area. Every claim is checked again."},
     "full": {"title": "Full", "tokens": "~250k tokens", "time": "10–15 min",
-             "what": "One reviewer per area even for a small change, every lens that fits, a quality reviewer; the "
-                     "second look runs on the stronger model."},
+             "what": "One reviewer per area even for a small change, one for the bugs between files, every lens "
+                     "that fits, a quality reviewer and the team's checklist; the second look runs on the stronger "
+                     "model."},
 }
 
 

@@ -377,6 +377,9 @@ describe("the new Review view: one pull request", () => {
     await userEvent.click(tab(pr, /^Files/));
     const files = within(pr).getByRole("list", { name: "Changed files" });
     expect(within(files).getByText("refunds.py")).toBeInTheDocument();
+    // 0.18.68 each file's folder shows next to its name, not only in the tooltip
+    const row = within(files).getByRole("button", { name: "Show orders/refunds.py" });
+    expect(within(row).getByTestId("rvn-fdir")).toHaveTextContent("orders/");
     const viewed = within(files).getByRole("checkbox", {
       name: "Viewed: orders/refunds.py",
     });

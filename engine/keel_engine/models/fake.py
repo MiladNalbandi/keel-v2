@@ -327,7 +327,7 @@ def _canned(req: AgentRequest) -> tuple[str | None, str, str, dict]:
         lines = [f"CHECK | {c['id']} | confirmed | the lines show it | sev:{c.get('severity') or 'minor'} | conf:high"
                  for c in claims]
         return None, "", "\n".join(lines + ["TICKET-REVIEW: done"]), {}
-    if agent == "pr-reviewer":
+    if agent in ("pr-reviewer", "change-reviewer"):
         # review-pr: result lines for its job (every item met, one minor finding, one quality note), or a confirmed check
         item = req.item or {}
         if item.get("job") == "check":

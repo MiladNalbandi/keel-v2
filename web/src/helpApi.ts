@@ -41,6 +41,8 @@ export type AccessView = {
   tunnel: string | null;
   native: boolean;
   folder: string | null;
+  /** 0.18.68 keel2's absolute path on this computer: the MCP snippets name it (null: an older keel2) */
+  keel2_path?: string | null;
 };
 
 export type UpdatesView = {
