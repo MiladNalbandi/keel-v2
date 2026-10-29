@@ -184,6 +184,9 @@ export const Blocks = memo(forwardRef<BlocksHandle, BlocksProps>(function Blocks
   const root = useRef<HTMLDivElement>(null);
   const pending = useRef<{ id: string; focus: boolean; block: ScrollLogicalPosition } | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
+  // the flash ends after 1.6 s; a canvas closed before that clears it (a timer firing after unmount failed a test run)
+  const flashTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(flashTimer.current), []);
   const [dragOver, setDragOver] = useState<string | null>(null);
   const [isDragging, setDragging] = useState(false);
   const [open, setOpen] = useState<Set<string>>(() => {
@@ -259,7 +262,8 @@ export const Blocks = memo(forwardRef<BlocksHandle, BlocksProps>(function Blocks
     if (want.focus) main.focus({ preventScroll: true });
     if (want.focus || want.block === "center") {
       setFlash(want.id);
-      window.setTimeout(() => setFlash((f) => (f === want.id ? null : f)), 1600);
+      window.clearTimeout(flashTimer.current);
+      flashTimer.current = window.setTimeout(() => setFlash((f) => (f === want.id ? null : f)), 1600);
     }
   });
 
