@@ -35,3 +35,21 @@ def test_a_local_runtime_ci_does_not_run_is_named(tmp_path, monkeypatch):
 
 def test_no_ci_file_says_nothing(tmp_path):
     assert ci_config.runtime_mismatch(str(tmp_path)) == []
+
+
+def test_a_plain_python_or_php_project_is_not_django_or_symfony(tmp_path):
+    """0.18.75 Settings › Review showed "django" for a plain Python project (any .py file matched the pack)."""
+    import yaml
+    from pathlib import Path
+    from keel_engine.runtime import stacks
+    content = Path(__file__).resolve().parents[2] / "content" / "packs"
+    django = yaml.safe_load((content / "django/stack.yml").read_text())["detect"]
+    symfony = yaml.safe_load((content / "symfony/stack.yml").read_text())["detect"]
+    (tmp_path / "app.py").write_text("print(1)\n")
+    (tmp_path / "requirements.txt").write_text("requests\n")
+    (tmp_path / "composer.json").write_text("{}\n")
+    (tmp_path / "lib.php").write_text("<?php\n")
+    assert not stacks.detects(django, str(tmp_path)) and not stacks.detects(symfony, str(tmp_path))
+    (tmp_path / "manage.py").write_text("")
+    (tmp_path / "symfony.lock").write_text("{}")
+    assert stacks.detects(django, str(tmp_path)) and stacks.detects(symfony, str(tmp_path))
