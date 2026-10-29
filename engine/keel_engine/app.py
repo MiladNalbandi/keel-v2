@@ -254,6 +254,7 @@ class Resume(BaseModel):
 
 class ModeBody(BaseModel):
     mode: Literal["manual", "important", "auto", "readonly"]
+    by: str | None = None          # 0.18.74 who changed it (the api: the dashboard, an MCP client by name, ...)
 
 
 class ModelsBody(BaseModel):
@@ -580,7 +581,7 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     @app.post("/threads/{tid}/mode")
     async def post_mode(tid: str, body: ModeBody, request: Request):
         """The run mode from the next pause on (manual | important | auto | readonly)."""
-        return await engine(request).set_mode(tid, body.mode)
+        return await engine(request).set_mode(tid, body.mode, body.by)
 
     @app.get("/threads/{tid}/models")
     async def get_models(tid: str, request: Request):

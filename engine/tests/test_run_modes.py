@@ -222,22 +222,32 @@ def test_changing_the_mode_mid_run_keeps_the_waiting_question_for_the_user(clien
     tid = start(client, repo, settings=mode_settings("manual"))
     s = wait(client, tid)
     assert s["waiting"]["step"] == "spec_gate" and s["run_mode"] == "manual" and s["waiting"]["id"]
-    r = client.post(f"/threads/{tid}/mode", json={"mode": "auto"})
+    r = client.post(f"/threads/{tid}/mode", json={"mode": "auto", "by": "the MCP client opencode"})
     assert r.status_code == 200 and r.json()["run_mode"] == "auto"
     assert r.json()["status"] == "waiting" and r.json()["waiting"]["step"] == "spec_gate"    # from the next gate on
-    assert client.bus.of(tid, "thread.mode")[-1]["data"] == {"mode": "auto", "from": "manual"}
+    assert client.bus.of(tid, "thread.mode")[-1]["data"] == {"mode": "auto", "from": "manual", "by": "the MCP client opencode"}
     # the user's send-back wins over the new mode; every later gate is keel's
     s = decide(client, tid, "reject", why="say what a tie does")
     assert s["status"] == "waiting" and s["waiting"]["step"] == "ship_final_review", "auto still stops at the final review"
     s = decide(client, tid)
     assert s["status"] == "done", s
-    log = [x for x in s["gate_log"] if not x.startswith("gate interview_gate approve: not asked")]
+    # 0.18.74 who changed the mode, and when, is in the gate log (a field report could not tell)
+    assert any(x.startswith("run mode manual → auto by the MCP client opencode at ") for x in s["gate_log"])
+    log = [x for x in s["gate_log"] if not x.startswith(("gate interview_gate approve: not asked", "run mode "))]
     assert log[0] == "gate spec_gate reject: say what a tie does"
     assert "gate spec_gate approve: auto-approved (mode auto)" in log[1:]
     # the mode is stored with the thread: a fresh context (an engine restart) still has it
     eng = client.app.state.engine
     eng.ctxs.pop(tid)
     assert client.get(f"/threads/{tid}").json()["run_mode"] == "auto"
+
+
+def test_a_failed_soft_check_stops_auto_at_the_next_gate():
+    """0.18.74 a field report: auto approved integration, e2e and "ready" while coverage had failed."""
+    q = {"options": ["approve", "reject"]}
+    assert run_mode.decide("auto", "gate", q, {"data": {}})["decision"] == "approve"
+    assert run_mode.decide("auto", "gate", q, {"data": {"soft_failed": {"cover": "coverage 61% < 80%"}}}) is None
+    assert run_mode.decide("manual", "gate", q, {"data": {}}) is None
 
 
 def test_switching_back_to_manual_stops_at_the_next_gate(client, repo):

@@ -46,6 +46,17 @@ data class UnlockBody(val path: String = "", val phase: String? = null, val reas
 data class Resume(val decision: String = "", val why: String? = null, val payload: Map<String, Any?>? = null)
 data class Rewind(val checkpointId: String = "")
 data class ModeBody(val mode: String = "")
+
+/** 0.18.74 who changed a flow's run mode, for its gate log: an MCP client by its name, an agent's own MCP tool, else the
+ *  dashboard (the web and keel TUI). */
+internal fun whoChanged(request: jakarta.servlet.http.HttpServletRequest): String {
+    val client = request.getHeader("X-Keel-Client")?.trim()?.take(60)?.ifBlank { null }
+    return when {
+        request.getHeader("X-Keel-Mcp-Kind") == "agent" -> "an agent's MCP tool" + (client?.let { " ($it)" } ?: "")
+        client != null -> "the MCP client $client"
+        else -> "the dashboard"
+    }
+}
 data class DocumentBody(val text: String? = null)
 /** 0.18.64 a model for this flow only: `agent` everywhere in it, one `step`, or `agent` + `phase` (its steps there).
  *  model null takes the pick back. */
@@ -111,7 +122,8 @@ class FlowController(private val flows: FlowService) {
 
     /** v0.4.1: change the run mode during a run (from the next gate on). */
     @PostMapping("/threads/{tid}/mode")
-    fun mode(@PathVariable tid: String, @RequestBody body: ModeBody): JsonNode = flows.setMode(tid, body.mode)
+    fun mode(@PathVariable tid: String, @RequestBody body: ModeBody, request: jakarta.servlet.http.HttpServletRequest): JsonNode =
+        flows.setMode(tid, body.mode, whoChanged(request))
 
     /** 0.18.64 the flow's models: the default, each agent's, each agent step's model now, the person's picks. */
     @GetMapping("/threads/{tid}/models")

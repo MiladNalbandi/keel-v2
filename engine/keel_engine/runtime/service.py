@@ -766,21 +766,27 @@ class Engine:
         return {"thread_id": tid, **thread_models.view(ctx.models, json.loads(row["body"]).get("model_picks") or {}, ctx.workflow,
                                                      ctx.root)}
 
-    async def set_mode(self, tid: str, mode: str) -> dict:
+    async def set_mode(self, tid: str, mode: str, by: str | None = None) -> dict:
         """Changes the thread's run mode (runtime/run_mode.py) during a run: stored with the thread's settings, used from
-        the next pause on. A question that waits now keeps waiting for the user."""
+        the next pause on. A question that waits now keeps waiting for the user. 0.18.74 [by] (who changed it, as the api
+        knows it) goes into the event and the flow's gate log: a field report could not tell who turned auto on."""
         row = await self._row(tid)
         if mode not in run_mode.MODES:
             raise EngineError(400, f'"{mode}" is not a run mode.', "Pick one of: " + ", ".join(run_mode.MODES))
         body = json.loads(row["body"])
         before = run_mode.normalize((body.get("settings") or {}).get("run_mode"))
-        body["settings"] = {**(body.get("settings") or {}), "run_mode": mode}
+        settings = {**(body.get("settings") or {}), "run_mode": mode}
+        who = (by or "").strip()[:80] or "someone (an older client did not say)"
+        if before != mode:
+            # the gate log gets it at the flow's next step (Compiler._wrap): the final review and the PR body list it
+            settings["mode_log"] = [*list(settings.get("mode_log") or []), f"run mode {before} → {mode} by {who} at {_now()}"]
+        body["settings"] = settings
         await self.conn.execute("update keel_threads set body = ?, updated_at = ? where thread_id = ?", (json.dumps(body), _now(), tid))
         await self.conn.commit()
         ctx = await self._context(tid)
-        ctx.settings = {**(ctx.settings or {}), "run_mode": mode}
+        ctx.settings = {**(ctx.settings or {}), "run_mode": mode, "mode_log": settings.get("mode_log") or []}
         if before != mode:
-            ctx.emit("thread.mode", data={"mode": mode, "from": before})
+            ctx.emit("thread.mode", data={"mode": mode, "from": before, "by": who})
         return await self.state(tid)
 
     async def stop(self, tid: str) -> dict:

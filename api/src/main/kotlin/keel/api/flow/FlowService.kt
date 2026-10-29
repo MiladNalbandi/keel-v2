@@ -862,10 +862,10 @@ class FlowService(
     }
 
     /** v0.4.1: the thread's run mode from its next pause on (the engine keeps it with the thread). */
-    fun setMode(tid: String, mode: String): JsonNode {
+    fun setMode(tid: String, mode: String, by: String? = null): JsonNode {
         if (mode.isBlank()) throw BadRequest("mode is missing", "Pick one of: ${keel.api.settings.Settings.RUN_MODES.joinToString()}")
         checkRunMode(mode)
-        val state = engine.setMode(tid, mode)
+        val state = engine.setMode(tid, mode, by)
         save(tid, state)
         threadProject(tid)?.let { hub.publish(it, "project.changed", mapOf("id" to it)) }
         return state
