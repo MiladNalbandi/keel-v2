@@ -66,9 +66,10 @@ def secret_name(path: str | Path | None) -> bool:
 # decrypts the stored logins) and keel.db (holds them) in that data folder.
 _DATA_SECRET = r"(?:master\.key|keel\.db(?:-wal|-shm|-journal)?)(?![\w.])"
 KEEL_KEY_FILES = re.compile(r"(?:^|/)run/(?:internal-token|web-key|token|hook-token)$|(?:^|/)\.keel2/[^/\s]+/(?:data/)?run(?:/|$)"
+                            r"|^/run/keel/signing-key$"      # 0.18.75 the commit signing key keel2 mounts
                             r"|^/data/run(?:/|$)"
                             r"|^/data/" + _DATA_SECRET + r"$|(?:^|/)\.keel2/[^/\s]+/(?:data/)?" + _DATA_SECRET + r"$")
-KEEL_KEY_WORDS = re.compile(r"/run/(?:internal-token|web-key)\b|\.keel2/[^/\s]+/(?:data/)?run/|(?:^|[\s'\"=])/data/run/"
+KEEL_KEY_WORDS = re.compile(r"/run/keel/signing-key|/run/(?:internal-token|web-key)\b|\.keel2/[^/\s]+/(?:data/)?run/|(?:^|[\s'\"=])/data/run/"
                             r"|(?:^|[\s'\"=])/data/" + _DATA_SECRET + r"|\.keel2/[^/\s]+/(?:data/)?" + _DATA_SECRET
                             + r"|\$\{?KEEL_DATA\}?/" + _DATA_SECRET + r"|\bKEEL_SECRET\b"
                             r"|\bKEEL_INTERNAL_TOKEN\b|\bKEEL_WEB_KEY\b|X-Keel-(?:Mcp-)?Token|Authorization:\s*Bearer\s+\$\("

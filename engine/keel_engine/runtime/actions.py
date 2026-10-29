@@ -17,6 +17,7 @@ in runtime/init_actions.py, review-pr's (ticket_*) in runtime/ticket_actions.py.
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 import re
 from dataclasses import dataclass, field, replace
@@ -1038,7 +1039,12 @@ def commit_args(root: str, settings: dict | None, cfg: dict) -> tuple[list[str],
     the setting commit_coauthor is off (it is on by default) or KeelBot is the author already."""
     name, email = commit_ident(root, settings, cfg)
     coauthor = (settings or {}).get("commit_coauthor") is not False and email != KEELBOT[1]
-    return ["-c", f"user.name={name}", "-c", f"user.email={email}"], (["-m", COAUTHOR] if coauthor else [])
+    who = ["-c", f"user.name={name}", "-c", f"user.email={email}"]
+    # 0.18.75 keel2 mounted an SSH signing key (KEEL_SIGNING_KEY): keel's commits are signed with it
+    key = os.environ.get("KEEL_SIGNING_KEY", "").strip()
+    if key and os.path.isfile(key):
+        who += ["-c", "gpg.format=ssh", "-c", f"user.signingkey={key}", "-c", "commit.gpgsign=true"]
+    return who, (["-m", COAUTHOR] if coauthor else [])
 
 
 TICKET = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,29}-\d{1,9}$")
