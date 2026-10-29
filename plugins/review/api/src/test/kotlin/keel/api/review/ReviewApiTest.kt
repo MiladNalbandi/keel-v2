@@ -446,7 +446,8 @@ class ReviewApiTest : ApiTest() {
                 "not_checked" to emptyList<Any>(),
                 "quality" to listOf(mapOf("file" to "src/Prefs.kt", "line" to 2, "rule" to "AGENTS.md: \"names are nouns\"",
                     "text" to "savePrefs is named like a verb", "todo" to "rename it Prefs")),
-                "build" to mapOf("checks" to listOf(mapOf("name" to "compile", "kind" to "compile", "ok" to true, "issues" to emptyList<Any>()))),
+                "build" to mapOf("checks" to listOf(mapOf("name" to "compile", "kind" to "compile", "ok" to true, "issues" to emptyList<Any>()),
+                    mapOf("name" to "ruff", "kind" to "lint", "ok" to true, "ran" to false, "issues" to emptyList<Any>()))),
                 "coverage" to mapOf("files" to 2, "unread" to emptyList<Any>(), "known" to true),
                 "standards" to listOf("AGENTS.md"))
         }
@@ -475,7 +476,7 @@ class ReviewApiTest : ApiTest() {
             assertThat(r["findings"][0]["check"].asText()).isEqualTo("confirmed")
             assertThat(r["rejected"][0]["check_why"].asText()).isEqualTo("it is cleared")
             assertThat(r["nits"][0]["why"].asText()).contains("AGENTS.md")
-            assertThat(r["tests"].asText()).isEqualTo("compile: ok")
+            assertThat(r["tests"].asText()).isEqualTo("compile: ok · ruff: not run (not installed)")
             assertThat(r["counts"]["blocking"].asInt()).isEqualTo(1)
         } finally {
             engine.extraRoutes.remove("/review-config/view")

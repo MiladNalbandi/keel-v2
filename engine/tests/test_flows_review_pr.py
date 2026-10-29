@@ -302,3 +302,16 @@ def test_the_build_runs_in_a_worktree_and_keeps_only_messages_on_changed_files(r
     assert git(repo, "worktree", "list").stdout.count("\n") == 1          # and the worktree is gone
     review_ = {**r.update["data"]["ticket_review"], "items": [], "findings": []}
     assert ta.verdict_of(review_)["verdict"] == "not-done"                # code that does not build is not done
+
+
+def test_a_check_whose_tool_is_not_installed_is_not_run_never_ok(repo, monkeypatch):
+    # keel 0.18.68 a field report: "lint ok" for linters that were not installed in the container
+    on_branch(repo)
+    monkeypatch.setattr(ta.tool_runner, "resolve", lambda *a, **k: [])
+    monkeypatch.setattr(ta.tool_runner, "run_tools", lambda *a, **k: [{"name": "ruff", "available": False}])
+    a = ActionInput(root=str(repo), phase="review", title="t", ac=None, acs=[], fake=False, flow="review-pr",
+                    data={"ticket_review": {"source": {"ref": "feat/ranks"}, "files": [{"file": "src/scores/ranks.py"}]}})
+    r = ta._build(a)
+    ruff = next(c for c in r.update["data"]["ticket_review"]["build"]["checks"] if c["name"] == "ruff")
+    assert ruff["ran"] is False and "not run" in ruff["note"]
+    assert "Not run (not installed here): ruff." in r.note and "ruff (lint): NOT RUN" in r.detail

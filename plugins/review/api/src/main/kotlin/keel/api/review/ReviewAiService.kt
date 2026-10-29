@@ -175,7 +175,13 @@ class ReviewAiService(
             val tests = if (checks.isEmpty) r.path("build").path("note").asText("").ifBlank { null }
                 else checks.joinToString(" · ") { c ->
                     val n = c.path("issues").size()
-                    "${c.path("name").asText()}: ${if (c.path("ok").asBoolean(false)) "ok" else if (n > 0) "$n issue(s)" else "failed"}"
+                    val word = when {
+                        c.path("ran").isBoolean && !c.path("ran").asBoolean() -> "not run (not installed)"
+                        c.path("ok").asBoolean(false) -> "ok"
+                        n > 0 -> "$n issue(s)"
+                        else -> "failed"
+                    }
+                    "${c.path("name").asText()}: $word"
                 }
             val cov = r.path("coverage")
             val unread = cov.path("unread").map { it.asText() }

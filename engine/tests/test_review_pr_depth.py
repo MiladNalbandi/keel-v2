@@ -200,7 +200,10 @@ def test_the_verifier_settles_items_and_marks_what_it_could_not_read():
               "claims": [{"id": "c1", "targets": [["finding", 0]]}, {"id": "c2", "targets": [["finding", 1]]},
                          {"id": "c3", "targets": [["item", "T4"], ["finding", 3]]}, {"id": "c4", "targets": [["finding", 2]]}],
               "reviewable": ["x.php"], "coverage": {"files": 1, "read": 1, "unread": [], "known": True},
-              "source": {"branch": "feat/x", "base": "main"}, "title": "t"}
+              "source": {"branch": "feat/x", "base": "main"}, "title": "t",
+              # keel 0.18.68 a quality note on the confirmed finding's line is the same problem twice: it goes
+              "quality": [{"file": "Publisher.php", "line": 41, "rule": "AGENTS.md", "text": "a throw in a loop"},
+                          {"file": "Other.php", "line": 5, "rule": "like Other2.php", "text": "naming"}]}
     checks = [{"id": "check-1", "claims": [{"id": "c1"}, {"id": "c2"}, {"id": "c3"}, {"id": "c4"}]}]
     settles = [{"id": "settle-1", "target": "T1"}, {"id": "settle-2", "target": "T2"}, {"id": "settle-3", "target": "T3"}]
     check_results = [{"item": "check-1", "text": "CHECK | c1 | unproven | the handler is generated | needs:the build output\n"
@@ -220,6 +223,7 @@ def test_the_verifier_settles_items_and_marks_what_it_could_not_read():
     assert items["T3"]["verdict"] == "unclear" and items["T3"]["evidence"].startswith("unverified:")
     assert items["T4"]["verdict"] == "not-met"                            # the shared claim confirmed both
     assert [f["text"] for f in out["findings"]] == ["one throw stops the loop"]   # only what was confirmed
+    assert [q["text"] for q in out["quality"]] == ["naming"]
     assert [f["text"] for f in out["dropped"]] == ["sort goes into the SQL"]
     assert {f["text"]: f["why"] for f in out["not_checked"]} == {
         "retries forever": "unproven: the build output", "time zone dropped": "the second look gave no answer"}

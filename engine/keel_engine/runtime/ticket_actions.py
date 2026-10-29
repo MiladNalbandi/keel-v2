@@ -973,7 +973,10 @@ def _build(a):
         note = (f"Build check: {len(result['checks'])} check(s); "
                 + (f"{len(broken)} compile check(s) fail on a changed file; " if broken else "compiles; ")
                 + f"{lint} lint message(s) on changed files.")
-    detail = "\n".join(f"{c['name']} ({c['kind']}): {'ok' if c['ok'] else 'FAIL'}"
+    unrun = [c["name"] for c in result["checks"] if c.get("ran") is False]
+    if unrun:
+        note += f" Not run (not installed here): {', '.join(unrun)}."
+    detail = "\n".join(f"{c['name']} ({c['kind']}): {'NOT RUN' if c.get('ran') is False else 'ok' if c['ok'] else 'FAIL'}"
                        + "".join(f"\n  {i['file']}:{i['line'] or '?'} {i['text']}" for i in c["issues"])
                        + (f"\n  {c['note']}" if c.get("note") else "") for c in result["checks"])
     return _result(True, note, detail, {"data": {**a.data, KEY: review}})
@@ -1025,8 +1028,10 @@ def run_build(a, ref: str, files: list[str]) -> dict:
         for r in tool_runner.run_tools(str(wt), ("manual", "edit", "batch", "pre-commit"), present, cfg=cfg,
                                        tools=declared, skip_fix=True):
             if not r["available"]:
-                result["checks"].append({"name": r["name"], "kind": "lint", "ok": True, "issues": [],
-                                         "note": "not installed here"})
+                # keel 0.18.68 a tool that did not run is "not run", never ok (a field report: "lint ok" for tools that
+                # were not installed in the container)
+                result["checks"].append({"name": r["name"], "kind": "lint", "ok": True, "ran": False, "issues": [],
+                                         "note": "not installed here: not run"})
                 continue
             issues = [] if r["ok"] else issues_in(r.get("output") or r.get("head") or "", files)
             result["checks"].append({"name": r["name"], "kind": "lint", "ok": r["ok"], "issues": issues,
@@ -1453,6 +1458,10 @@ def _record(a):
             else:
                 unclear_items[target] = x["why"]
     review["findings"] = [keep[n] for n in sorted(keep)]          # only what a second look confirmed
+    # keel 0.18.68 a quality note about a problem a finding already names is the same problem twice (a blind comparison
+    # counted four doubles in one review): the finding stays, the note goes
+    review["quality"] = [q for q in review.get("quality") or []
+                         if not any(_same_note(q, f) for f in review["findings"] + not_checked)]
     review["dropped"] = dropped
     review["not_checked"] = not_checked
     missing = []
@@ -1502,6 +1511,17 @@ def _record(a):
     marks[a.step or "record"] = {**(marks.get(a.step or "record") or {}), "SHARE": share}
     marks["*"] = {**(marks.get("*") or {}), "SHARE": share}
     return _result(True, note, "", {"show": text, "data": data, "markers": marks})
+
+
+def _same_note(q: dict, f: dict) -> bool:
+    """A quality note and a finding about one problem: the same file, lines within 3 (or one has none), and at least two
+    telling words in common between the note (with its rule) and the finding."""
+    if not q.get("file") or q.get("file") != f.get("file"):
+        return False
+    if q.get("line") is not None and f.get("line") is not None and abs(int(q["line"]) - int(f["line"])) > 3:
+        return False
+    words = {w for w in _words_of(f"{q.get('text')} {q.get('rule')} {q.get('todo')}") if len(w) > 3}
+    return len(words & {w for w in _words_of(f"{f.get('text')} {f.get('todo')}") if len(w) > 3}) >= 2
 
 
 def _word(verdict: str | None) -> str:
