@@ -13,6 +13,8 @@
       checker: {model: stronger, effort: null, should_fix: true}       # "is the reviewer right?" on every claim
       fix: {flow: small, model: flow, run_mode: null, one_flow_per_file: false}
       final: {model: stronger, effort: null}                           # the flows' last whole-branch review steps
+      depth: standard                # 0.18.67 how hard a review looks: quick | standard | full (runtime/ticket_actions.py)
+      find_runs: flow                # 0.18.67 Find problems runs the review flow (review-pr); classic: the reviewers above
 
 Nothing written means keel's defaults below: two reviewers (A and B, the focus and lenses they had before 0.18.65), the
 checker and the final review on a stronger model than the project's (stronger: Opus at high effort for Claude, high
@@ -58,8 +60,24 @@ DEFAULTS: dict[str, Any] = {
     "fix": {"flow": "small", "model": "flow", "run_mode": None, "one_flow_per_file": False},
     "final": {"model": "stronger", "effort": None},
     "drop_correctness": False,
+    "depth": "standard",
+    "find_runs": "flow",
 }
-PARTS = ("reviewers", "checker", "fix", "final", "drop_correctness")
+PARTS = ("reviewers", "checker", "fix", "final", "drop_correctness", "depth", "find_runs")
+DEPTHS = ("quick", "standard", "full")
+FIND_RUNS = ("flow", "classic")
+# what Settings › Review says about each depth; the tokens are a first guess for a change of a few hundred lines
+DEPTH_INFO = {
+    "quick": {"title": "Quick", "tokens": "~20k tokens", "time": "1–2 min",
+              "what": "One reviewer reads the whole change with your rules, your own lenses and at most two of "
+                      "keel's; a few claims are checked again."},
+    "standard": {"title": "Standard", "tokens": "~80k tokens", "time": "4–6 min",
+                 "what": "A large change gets one reviewer per area with the lenses its files need, plus checklist "
+                         "and quality reviewers; every claim is checked again."},
+    "full": {"title": "Full", "tokens": "~250k tokens", "time": "10–15 min",
+             "what": "One reviewer per area even for a small change, every lens that fits, a quality reviewer; the "
+                     "second look runs on the stronger model."},
+}
 
 
 class ReviewConfigError(Exception):
@@ -102,6 +120,13 @@ def final_step(step, agent: str | None) -> bool:
     """A flow's last review: the whole-branch review (branch-reviewer: feature, small, plugin) or a ship lens reviewer."""
     a = agent_names.canonical(agent or "")
     return a == "branch-reviewer" or (a == "lens-reviewer" and (getattr(step, "phase", None) or "") == "ship")
+
+
+def deep_check(step, state: dict | None) -> bool:
+    """keel 0.18.67 a full-depth review's second look (review-pr's check and settle steps) runs on the stronger model,
+    like a flow's last review."""
+    review = ((state or {}).get("data") or {}).get("ticket_review") or {}
+    return review.get("depth") == "full" and (getattr(step, "id", None) or "") in ("check", "settle")
 
 
 def final_model(root: str | None, model: dict | None) -> dict | None:
@@ -168,11 +193,21 @@ def effective(root: str | None) -> dict:
         out["fix"]["one_flow_per_file"] = fx["one_flow_per_file"]
     if isinstance(own.get("drop_correctness"), bool):
         out["drop_correctness"] = own["drop_correctness"]
+    if own.get("depth") in DEPTHS:
+        out["depth"] = own["depth"]
+    if own.get("find_runs") in FIND_RUNS:
+        out["find_runs"] = own["find_runs"]
     return out
 
 
 def find_text(cfg: dict) -> str:
-    """What the Review page says above "Find problems": how many reviewers read the change and what each looks at."""
+    """What the Review page says above "Find problems": the review flow and its depth (0.18.67), or, classic, how many
+    reviewers read the change and what each looks at."""
+    if cfg.get("find_runs", "flow") == "flow":
+        info = DEPTH_INFO.get(cfg.get("depth") or "standard") or DEPTH_INFO["standard"]
+        return (f"The review flow ({info['title']}, {info['tokens']}) reads the change with your project's rules: "
+                f"{info['what']} You can watch every step on its Flow page. Only checked findings are shown here; "
+                "nothing is posted.")
     revs = cfg["reviewers"]
     who = ", ".join(f"{LETTERS[i]}: {r['name']}" for i, r in enumerate(revs))
     n = len(revs)
@@ -218,8 +253,21 @@ def view(root: str, models: dict | None = None) -> dict:
         "ship_lenses": [str(x) for x in ship] if isinstance(ship, list) and ship else list(DEFAULT_LENSES),
         "ship_lenses_from": "review.lenses" if isinstance(ship, list) and ship else "keel's default",
         "limits": {"reviewers": MAX_REVIEWERS, "efforts": list(EFFORTS), "fix_flows": list(FIX_FLOWS),
-                   "run_modes": list(RUN_MODES)},
+                   "run_modes": list(RUN_MODES), "depths": list(DEPTHS), "find_runs": list(FIND_RUNS)},
+        "depths": DEPTH_INFO,
+        "standards": standards(root),
     }
+
+
+def standards(root: str) -> dict:
+    """keel 0.18.67 what every review reads besides the change (Settings › Review, Your standards): the project's
+    written rules at HEAD (the review reads them at its base), its own lenses and its stacks."""
+    from . import ticket_actions as ta
+    from ..tools import git
+
+    rules = ta.project_standards(root, "HEAD") if git.is_repo(root) else []
+    own = ta._own_lenses(root, "HEAD") if git.is_repo(root) else []
+    return {"rules": rules, "lenses": [x["name"] for x in own], "stack": ta._stack_names(root)}
 
 
 # ------------------------------------------------------------------ writing
@@ -298,6 +346,10 @@ def check(root: str, patch: dict) -> dict:
             raise ReviewConfigError(400, "fix.one_flow_per_file is true or false.")
     if "drop_correctness" in patch and not isinstance(patch["drop_correctness"], bool):
         raise ReviewConfigError(400, "drop_correctness is true or false.")
+    if patch.get("depth") is not None and patch["depth"] not in DEPTHS:
+        raise ReviewConfigError(400, f"depth is one of {', '.join(DEPTHS)}.")
+    if patch.get("find_runs") is not None and patch["find_runs"] not in FIND_RUNS:
+        raise ReviewConfigError(400, f"find_runs is one of {', '.join(FIND_RUNS)}.")
     return patch
 
 
@@ -348,6 +400,12 @@ def write(root: str, patch: dict, models: dict | None = None) -> dict:
             new["drop_correctness"] = True
         else:
             new.pop("drop_correctness", None)
+    for part in ("depth", "find_runs"):
+        if patch.get(part) is not None:
+            if patch[part] == DEFAULTS[part]:
+                new.pop(part, None)
+            else:
+                new[part] = patch[part]
     lines = text.split("\n")
     if lines and lines[-1] == "":
         lines = lines[:-1]

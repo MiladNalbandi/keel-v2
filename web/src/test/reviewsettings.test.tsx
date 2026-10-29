@@ -31,6 +31,8 @@ function viewOf(reviewers: { name: string; focus: string; lenses: string[] }[], 
       fix: { flow: "small", model: "flow", run_mode: null, one_flow_per_file: false },
       final: { model: "stronger", effort: null },
       drop_correctness: false,
+      depth: (extra.depth as string) ?? "standard",
+      find_runs: (extra.runs as string) ?? "classic",
     },
     defaults: {},
     lenses: [lens("data-migration", "Data migration and backfill"), lens("config-secrets", "Secrets and config"),
@@ -41,7 +43,14 @@ function viewOf(reviewers: { name: string; focus: string; lenses: string[] }[], 
     find_text: findText(revs),
     ship_lenses: ["correctness", "security", "performance", "consumers-config"],
     ship_lenses_from: "keel's default",
-    limits: { reviewers: 4, efforts: ["low", "medium", "high"], fix_flows: ["quick", "small", "change", "ask"], run_modes: ["manual", "important", "auto"] },
+    limits: { reviewers: 4, efforts: ["low", "medium", "high"], fix_flows: ["quick", "small", "change", "ask"], run_modes: ["manual", "important", "auto"],
+      depths: ["quick", "standard", "full"] },
+    depths: {
+      quick: { title: "Quick", tokens: "~20k tokens", time: "1–2 min", what: "One reviewer." },
+      standard: { title: "Standard", tokens: "~80k tokens", time: "4–6 min", what: "One reviewer per area." },
+      full: { title: "Full", tokens: "~250k tokens", time: "10–15 min", what: "Every lens that fits." },
+    },
+    standards: { rules: ["AGENTS.md", ".cursor/rules/naming.mdc"], lenses: ["money-rounding"], stack: ["python"] },
     agents: [{ id: "branch-reviewer", label: "Branch reviewer", custom: false, keel: true },
       { id: "implementer", label: "Implementer", custom: false, keel: true },
       { id: "money-reviewer", label: "Money reviewer", custom: true, keel: false }],
@@ -54,6 +63,38 @@ const TWO = [
 ];
 
 describe("Settings › Review", () => {
+  it("0.18.67 runs one review flow at the depth you pick, and shows the standards every reviewer reads first", async () => {
+    let current = viewOf(TWO, { runs: "flow" });
+    const saved: Record<string, unknown>[] = [];
+    server.use(
+      http.get("/api/projects/:pid/review-setup", () => HttpResponse.json(current)),
+      http.put("/api/projects/:pid/review-setup", async ({ request }) => {
+        const patch = (await request.json()) as Record<string, unknown>;
+        saved.push(patch);
+        current = viewOf(TWO, { runs: (patch.find_runs as string) ?? current.config.find_runs, depth: (patch.depth as string) ?? current.config.depth });
+        return HttpResponse.json(current);
+      }),
+    );
+    location.hash = "#/settings/review";
+    render(<App />);
+    expect(await screen.findByRole("heading", { level: 1, name: "Review" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /The review flow/ })).toBeChecked();
+    // the flow has no reviewer count: the classic reviewers show only when Find problems runs them
+    expect(screen.queryByRole("radiogroup", { name: "Number of reviewers" })).toBeNull();
+    const depth = screen.getByRole("radiogroup", { name: "Review depth" });
+    expect(within(depth).getByRole("radio", { name: /Standard/ })).toHaveAttribute("aria-checked", "true");
+    expect(within(depth).getByRole("radio", { name: /Quick/ })).toHaveTextContent("~20k tokens · 1–2 min");
+    const std = screen.getByRole("group", { name: "Your standards" });
+    expect(std).toHaveTextContent("AGENTS.md · .cursor/rules/naming.mdc");
+    expect(std).toHaveTextContent("money-rounding");
+    await userEvent.click(within(depth).getByRole("radio", { name: /Full/ }));
+    await waitFor(() => expect(saved.at(-1)).toEqual({ depth: "full" }));
+    await waitFor(() => expect(within(depth).getByRole("radio", { name: /Full/ })).toHaveAttribute("aria-checked", "true"));
+    await userEvent.click(screen.getByRole("radio", { name: /Classic/ }));
+    await waitFor(() => expect(saved.at(-1)).toEqual({ find_runs: "classic" }));
+    expect(await screen.findByRole("radiogroup", { name: "Number of reviewers" })).toBeInTheDocument();
+  });
+
   it("changes the number of reviewers, puts a lens on a reviewer, adds a lens and goes back to keel's default", async () => {
     let current = viewOf(TWO);
     const saved: Record<string, unknown>[] = [];

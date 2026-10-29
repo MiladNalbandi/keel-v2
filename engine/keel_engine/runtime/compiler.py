@@ -707,7 +707,7 @@ class Compiler(AgentMixin, FindingsMixin, CodeMixin, GateMixin):
         # would get (Opus at high effort for Claude, see review_config.raised), unless Settings › Review says otherwise.
         # A model the flow was switched to (a cap's cheaper model, an escalation) or the person's pick for the step wins.
         if (m and not state.get("model_override") and not self.ctx.models.get(thread_models.step_key(step.id))
-                and review_config.final_step(step, agent)):
+                and (review_config.final_step(step, agent) or review_config.deep_check(step, state))):
             m = review_config.final_model(self.ctx.root, m)
         return models.effective(m)
 

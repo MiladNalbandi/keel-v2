@@ -1400,6 +1400,60 @@ select.ss-input {
   align-items: flex-start;
   gap: 8px;
 }
+/* 0.18.67 How a review runs: the depth cards and Your standards */
+.ss-rv-depths {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+.ss-rv-depth {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 12px;
+  min-height: 44px;
+  text-align: left;
+  font: inherit;
+  color: var(--fg);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.ss-rv-depth[aria-checked="true"] {
+  border: 2px solid var(--accent);
+  background: var(--accent-soft);
+  padding: 11px;
+}
+.ss-rv-depth:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+.ss-rv-standards {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+}
+.ss-rv-standards dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 0;
+}
+.ss-rv-standards dt {
+  color: var(--dim);
+}
+.ss-rv-standards dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
 .ss-rv-table {
   overflow-x: auto;
 }

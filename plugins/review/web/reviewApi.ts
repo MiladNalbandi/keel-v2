@@ -226,6 +226,10 @@ export type FindingsResult = {
   tests?: string;
   counts?: Record<string, number>;
   reviewers?: number;
+  /** 0.18.67 Find problems as the review flow: its id, its depth, the project's rules it read */
+  flow_id?: string;
+  depth?: string;
+  standards?: string[];
 };
 export type Verdict = "reviewer_right" | "author_right" | "partly" | "unclear";
 export type JudgeItem = {

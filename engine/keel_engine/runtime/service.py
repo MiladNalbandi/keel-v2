@@ -850,6 +850,20 @@ class Engine:
         out = await asyncio.to_thread(flow_actions.ac_code, ctx.root, ac_id, since, sha or None, path or None)
         return {**out, "thread_id": tid}
 
+    async def review_result(self, tid: str) -> dict:
+        """0.18.67 a review flow's result (review-pr's data.ticket_review after record) for the Review page's Problems:
+        the confirmed findings, the dropped and not-checked ones, quality notes, the build checks, the depth. Before record
+        has run: {"done": false}."""
+        await self._row(tid)
+        snap = await (await self._graph(tid)).aget_state(self._cfg(tid))
+        data = (snap.values or {}).get("data") or {}
+        review = data.get("ticket_review") or {}
+        if "verdict" not in review:
+            return {"thread_id": tid, "done": False}
+        keep = ("title", "source", "depth", "verdict", "counts", "findings", "dropped", "not_checked", "quality", "build",
+                "coverage", "standards", "own_lenses", "stack", "files", "skipped", "summary")
+        return {"thread_id": tid, "done": True, **{k: review.get(k) for k in keep if k in review}}
+
     async def set_document(self, tid: str, text: str) -> dict:
         """0.18.64 replace the flow's document while it waits at a gate (keel_flow_document), recorded in keel's file
         history as the person's edit. The gate's text shows the file from then on; a clarify hand-over uses it."""

@@ -9,6 +9,11 @@ version: 1
 # one that read nothing stops), sends every finding and not-met item to the finding-verifier (in batches; a finding
 # and an item about the same problem share one check) and every undecided item to a second look that reads the code.
 # Only confirmed findings are reported as findings; unproven or unanswered ones are listed as NOT CHECKED.
+# keel 0.18.67 the one review flow: the Review page's Find problems runs it too (data source: find, depth, and pr or
+# branch, or uncommitted: true for the folder's uncommitted changes as a snapshot commit). depth quick | standard | full
+# (Settings › Review; .keel/config.yml review.depth) sets how many reviewers, lenses and second looks it spends. Every
+# reviewer reads the project's own rules at the base (AGENTS.md, CLAUDE.md, rule folders, style docs) and its own
+# lenses (.keel/lenses).
 # Read-only: nothing is fixed, committed or pushed, and nothing reaches the author unless you choose
 # which sections to share and then choose post. Inputs: the request's first line names the PR (a number, #12, PR 12, its
 # URL) or `branch: <name>`, the rest is the ticket; or StartThread.data (the api's options): pr, branch, base, ticket,
@@ -61,6 +66,8 @@ steps:
       decides it cannot be read: CHECK | unverified | <what you could not read>. Never leave it as a question for the
       person.
   - { id: record, kind: code, name: record the review, action: ticket_record, phase: review }
+  # 0.18.67 a review the Review page started (Find problems) ends here: its findings go to the page's Problems
+  - { id: to_share, kind: branch, name: share the review, when: { marker: SHARE, equals: "yes", step: record }, no: end, phase: review }
   - { id: share, kind: gate, name: the review, phase: review, choices: { done: end, share: share_text } }
   - { id: share_text, kind: code, name: the text for the author, action: ticket_share, phase: review }
   - { id: post, kind: gate, name: share with the author, phase: review, choices: { keep: end, post: post_comment } }

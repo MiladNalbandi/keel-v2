@@ -53,6 +53,10 @@ CHECK_BATCH = 4              # claims one finding-verifier checks (one job)
 MAX_CHECK_JOBS = 12          # finding-verifier jobs per review: up to 48 claims; any more are listed as not checked
 MAX_SETTLES = 12             # undecided checklist items a second look settles by reading the code
 MAX_CHECKS = CHECK_BATCH * MAX_CHECK_JOBS
+DEPTHS = ("quick", "standard", "full")    # keel 0.18.67 how hard the review looks (depth_of)
+QUICK_LENSES = 2             # keel lenses the one quick reviewer goes through (the project's own always apply)
+QUICK_CHECKS = 2 * CHECK_BATCH   # claims a quick review checks again; the rest are listed as not checked
+FULL_LENSES = ["error-handling-retry", "contract-types", "consumers-config", "test-quality"]
 LOW_TOKENS_PER_LINE = 10     # reviewers that used fewer tokens per changed line did not read the diff
 SECTIONS = {
     "summary": "the verdict and one sentence",
@@ -107,7 +111,8 @@ def parse_input(request: str, data: dict) -> dict:
     first line that names a PR (a number, #12, PR 12, a pull URL) or a branch (`branch: x`) is the source, the rest the
     ticket. data.ticket wins over the request's text."""
     out = {"pr": None, "branch": None, "base": str(data.get("base") or "").strip() or None,
-           "force": bool(data.get("force")), "ticket": str(data.get("ticket") or "").strip()}
+           "force": bool(data.get("force")), "ticket": str(data.get("ticket") or "").strip(),
+           "uncommitted": bool(data.get("uncommitted")) or str(data.get("scope") or "").strip().lower() == "uncommitted"}
     raw_pr = str(data.get("pr") or "").strip()
     if raw_pr:
         m = PR_URL.search(raw_pr) or re.search(r"(\d+)", raw_pr)
@@ -116,7 +121,7 @@ def parse_input(request: str, data: dict) -> dict:
         out["branch"] = str(data["branch"]).strip()
     lines = str(request or "").splitlines()
     rest = list(lines)
-    if not out["pr"] and not out["branch"]:
+    if not out["pr"] and not out["branch"] and not out["uncommitted"]:
         for n, line in enumerate(lines):
             m = PR_URL.search(line) or PR_WORD.match(line) or PR_HASH.match(line) or (PR_BARE.match(line) if n == 0 else None)
             b = BRANCH_WORD.match(line)
@@ -469,14 +474,27 @@ def route(item: dict, ranked: list[dict]) -> list[str]:
     return picked or [f["file"] for f in ranked[:4]]
 
 
-def plan(ranked: list[dict], items: list[dict]) -> list[dict]:
+def depth_of(data: dict, cfg: dict) -> str:
+    """keel 0.18.67 how hard the review looks: data.depth (the api: Settings › Review), else review.depth in
+    .keel/config.yml, else standard. quick: one reviewer, at most QUICK_LENSES lenses, QUICK_CHECKS claims checked again;
+    standard: the plan below; full: one reviewer per area even for a small change, FULL_LENSES too, a quality job, the
+    finding-verifier on the stronger model (review_config.final_step)."""
+    d = str(data.get("depth") or (cfg.get("review") or {}).get("depth") or "standard").strip().lower()
+    return d if d in DEPTHS else "standard"
+
+
+def plan(ranked: list[dict], items: list[dict], depth: str = "standard") -> list[dict]:
     """One `all` job for a small change. A larger one: the ticket's and the team's items in jobs of ITEMS_PER_JOB (each
     with the files its items route to), one `bugs` job per area chunk (chunk_by_area, with its lenses) and quality, in
-    parallel. Every code file is in exactly one bugs job: nothing is left for nobody to read."""
+    parallel. Every code file is in exactly one bugs job: nothing is left for nobody to read. Depth quick: always the
+    one `all` job; full: always the split plan, each bugs job with FULL_LENSES too."""
     lines = sum(f["added"] + f["removed"] for f in ranked)
     open_ = [it for it in items if not it.get("auto")]
     every = [f["file"] for f in ranked]
-    if lines <= ONE_AGENT_LINES:
+    if depth == "quick":
+        return [{"job": "all", "items": [it["id"] for it in open_], "files": every,
+                 "lenses": lenses_for(every)[:QUICK_LENSES]}]
+    if lines <= ONE_AGENT_LINES and depth != "full":
         return [{"job": "all", "items": [it["id"] for it in open_], "files": every, "lenses": lenses_for(every)}]
     jobs = []
     order = {f: n for n, f in enumerate(every)}
@@ -487,14 +505,16 @@ def plan(ranked: list[dict], items: list[dict]) -> list[dict]:
             files = sorted({f for it in group for f in it.get("files") or []}, key=lambda f: order.get(f, 10 ** 6))
             jobs.append({"job": kind, "items": [it["id"] for it in group], "files": files or every[:MAX_FILES]})
     for c in chunk_by_area(ranked):
+        more = [x for x in FULL_LENSES if x not in c["lenses"]] if depth == "full" else []
         jobs.append({"job": "bugs", "items": [], "files": [f["file"] for f in c["files"]], "area": " + ".join(c["areas"]),
-                     "lenses": c["lenses"]})
+                     "lenses": c["lenses"] + more})
     code = [f for f in ranked if area_of(f["file"]) != "docs"]
     if code:
         jobs.append({"job": "quality", "items": [], "files": [f["file"] for f in code[:15]]})
     return jobs
 
 
+MAX_STANDARDS = 16
 STANDARDS = ["CONTRIBUTING.md", "CODING_STANDARDS.md", "STYLEGUIDE.md", "STYLE_GUIDE.md", "docs/CONTRIBUTING.md",
              "docs/coding-standards.md", "docs/STYLEGUIDE.md", ".github/CONTRIBUTING.md", "docs/knowledge/conventions.md",
              ".keel/knowledge/conventions.md"]
@@ -623,6 +643,97 @@ def _source_branch(a, cfg: dict, branch: str, base: str | None) -> tuple[dict | 
     return {"pr": None, "branch": branch, "ref": ref, "base": base, "base_ref": base, "head": head, "title": None}, None
 
 
+def _source(a, cfg: dict, want: dict) -> tuple[dict | None, str | None]:
+    if want["uncommitted"]:
+        return _source_working(a)
+    if want["pr"]:
+        return _source_pr(a, want["pr"], want["force"], cfg, want["base"])
+    return _source_branch(a, cfg, want["branch"], want["base"])
+
+
+SNAPSHOT_PREFIX = "refs/keel/review/snapshot-"   # + the snapshot's short sha: one ref per reviewed snapshot
+SNAPSHOT_KEEP = 10           # the newest snapshots kept; older refs are deleted (their objects go with git's gc)
+# untracked files a snapshot never takes: a secret the person has not committed must not reach a reviewer
+SNAPSHOT_SKIP = (":(glob,exclude)**/.env", ":(glob,exclude)**/.env.*", ":(glob,exclude)**/*.pem", ":(glob,exclude)**/*.key",
+                 ":(glob,exclude)**/id_rsa*", ":(glob,exclude)**/id_ed25519*", ":(glob,exclude)**/*.p12")
+SNAPSHOT_WHO = {"GIT_AUTHOR_NAME": "keel", "GIT_AUTHOR_EMAIL": "keel@localhost", "GIT_COMMITTER_NAME": "keel",
+                "GIT_COMMITTER_EMAIL": "keel@localhost"}
+
+
+def _source_working(a) -> tuple[dict | None, str | None]:
+    """keel 0.18.67 the uncommitted changes (tracked and new files, .gitignore respected) as a commit object on top of
+    HEAD, made in a throwaway index: the person's index, working tree and branch are not touched. Kept under
+    SNAPSHOT_PREFIX<sha> so the reviewers' `git show <ref>:<file>` reads exactly what was reviewed. New files that look
+    like secrets (SNAPSHOT_SKIP: .env, keys) are left out; a tracked file is taken as it is."""
+    head = git.git(a.root, "rev-parse", "--verify", "-q", "HEAD^{commit}").stdout.strip()
+    if not head:
+        return None, "This repository has no commit yet: there is nothing to compare the uncommitted changes with."
+    with tempfile.TemporaryDirectory(prefix="keel-review-") as tmp:
+        env = {**os.environ, "GIT_INDEX_FILE": str(Path(tmp) / "index")}
+        for args in (("read-tree", "HEAD"), ("add", "-A", "--", ".", *SNAPSHOT_SKIP)):
+            r = git.git(a.root, *args, env=env)
+            if r.returncode != 0:
+                return None, f"git {args[0]} failed: {(r.stderr or '').strip()[:200]}"
+        tree = git.git(a.root, "write-tree", env=env).stdout.strip()
+    if not tree or tree == git.git(a.root, "rev-parse", "HEAD^{tree}").stdout.strip():
+        return None, "There are no uncommitted changes to review."
+    made = git.git(a.root, "commit-tree", tree, "-p", head, "-m", "keel review: uncommitted changes",
+                   env={**os.environ, **SNAPSHOT_WHO})
+    sha = made.stdout.strip()
+    if made.returncode != 0 or not sha:
+        return None, f"git commit-tree failed: {(made.stderr or '').strip()[:200]}"
+    git.git(a.root, "update-ref", SNAPSHOT_PREFIX + sha[:12], sha)
+    old = git.git(a.root, "for-each-ref", "--sort=-committerdate", "--format=%(refname)", SNAPSHOT_PREFIX.rsplit("/", 1)[0] + "/")
+    for ref in [r for r in old.stdout.split() if r.startswith(SNAPSHOT_PREFIX)][SNAPSHOT_KEEP:]:
+        git.git(a.root, "update-ref", "-d", ref)
+    return {"pr": None, "branch": "uncommitted changes", "ref": sha, "base": "HEAD", "base_ref": head,
+            "head": sha[:7], "title": "Uncommitted changes", "uncommitted": True}, None
+
+
+def project_standards(root: str, base_ref: str) -> list[str]:
+    """The written rules the reviewed change must follow, read at the base (a change cannot rewrite its own rules):
+    the style docs (STANDARDS) and, keel 0.18.67, the project's rules for coding agents (project_rules: AGENTS.md,
+    CLAUDE.md, .github/copilot-instructions.md, .cursor/rules/*, ...); at most MAX_STANDARDS."""
+    from . import project_rules
+
+    def there(path: str) -> bool:
+        return git.git(root, "cat-file", "-e", f"{base_ref}:{path}").returncode == 0
+
+    found = [s for s in STANDARDS if there(s)] + [d for d in project_rules.DOCS if there(d)]
+    for folder in project_rules.DOC_DIRS:
+        listed = git.git(root, "ls-tree", "-r", "--name-only", base_ref, "--", folder + "/").stdout
+        found += sorted(x.strip() for x in listed.splitlines()
+                        if x.strip().endswith(project_rules.DOC_EXT))[:project_rules.MAX_FILES]
+    return list(dict.fromkeys(found))[:MAX_STANDARDS]
+
+
+def _own_lenses(root: str, base_ref: str = "HEAD") -> list[dict]:
+    """The project's own lenses (.keel/lenses/*.md, runtime/lenses.py) as they are at the base, like the rules: a change
+    cannot bring or soften the lenses it is reviewed with. Every bug reviewer goes through them."""
+    listed = git.git(root, "ls-tree", "--name-only", base_ref, "--", f"{lenses.PROJECT_DIR}/").stdout.splitlines()
+    out = []
+    for path in sorted(x.strip() for x in listed if x.strip().endswith(".md"))[:MAX_STANDARDS]:
+        name = Path(path).stem
+        if not lenses._NAME.match(name):
+            continue
+        shown = git.git(root, "show", f"{base_ref}:{path}")
+        if shown.returncode != 0:
+            continue
+        p = lenses.parse(shown.stdout[:lenses.MAX_BYTES])
+        if p.get("checklist"):
+            out.append({"name": name, "checklist": p["checklist"], "path": path})
+    return out
+
+
+def _stack_names(root: str) -> list[str]:
+    """The project's stacks (runtime/stacks.py): the quality reviewer judges the code by their rules."""
+    try:
+        from . import stacks
+        return [str(x.get("name")) for x in stacks.matched(root) if x.get("name")][:8]
+    except Exception:
+        return []
+
+
 def preflight(root: str, body: dict) -> str:
     """Before a review-pr run exists (engine start_thread): the change to review must be named and reachable, so a
     start without one, or with a PR keel cannot fetch (no GitHub login, refs not fetched on the host), a closed or
@@ -634,7 +745,7 @@ def preflight(root: str, body: dict) -> str:
 
     data = dict(body.get("data") or {})
     want = parse_input(body.get("request") or "", data)
-    if not want["pr"] and not want["branch"]:
+    if not want["pr"] and not want["branch"] and not want["uncommitted"]:
         raise EngineError(400, "Which change should keel review? Name a PR or a branch.",
                           "Put the PR on the first line (a number, #12, PR 12 or its URL) or `branch: <name>`, then the "
                           "ticket text; or pass pr / branch.")
@@ -642,11 +753,10 @@ def preflight(root: str, body: dict) -> str:
         raise EngineError(400, "Not a git repository: there is no PR or branch to review.")
     a = SimpleNamespace(root=root, keys=dict(body.get("keys") or {}), data=data, request=body.get("request") or "")
     cfg = rules.load_config(root)
-    src, err = _source_pr(a, want["pr"], want["force"], cfg, want["base"]) if want["pr"] else \
-        _source_branch(a, cfg, want["branch"], want["base"])
+    src, err = _source(a, cfg, want)
     if err:
         raise EngineError(409, err[:1].upper() + err[1:])
-    return f"pr:{want['pr']}" if want["pr"] else f"branch:{want['branch']}"
+    return f"pr:{want['pr']}" if want["pr"] else "uncommitted" if want["uncommitted"] else f"branch:{want['branch']}"
 
 
 def _prep(a):
@@ -654,12 +764,11 @@ def _prep(a):
         return _stop("Not a git repository: there is no PR or branch to review.")
     cfg = rules.load_config(a.root)
     want = parse_input(a.request or "", a.data)
-    if not want["pr"] and not want["branch"]:
+    if not want["pr"] and not want["branch"] and not want["uncommitted"]:
         return _stop("Which change should keel review? Name a PR or a branch.",
                      "Start the flow with the PR on the first line (a number, #12, PR 12 or its URL) or `branch: <name>`, "
                      "then the ticket text; or pass data pr / branch / ticket.")
-    src, err = _source_pr(a, want["pr"], want["force"], cfg, want["base"]) if want["pr"] else \
-        _source_branch(a, cfg, want["branch"], want["base"])
+    src, err = _source(a, cfg, want)
     if err:
         return _stop(err)
     d = git.git(a.root, "diff", "--no-color", f"{src['base_ref']}...{src['ref']}")
@@ -699,8 +808,10 @@ def _prep(a):
         sib = [x.strip() for x in listed.splitlines() if x.strip() and Path(x.strip()).suffix == ext and x.strip() not in names]
         if sib:
             f["like"] = sib[0]
-    standards = [s for s in STANDARDS if git.git(a.root, "cat-file", "-e", f"{src['base_ref']}:{s}").returncode == 0]
-    jobs = plan(ranked, items)
+    standards = project_standards(a.root, src["base_ref"])
+    depth = depth_of(a.data, cfg)
+    jobs = plan(ranked, items, depth)
+    own = _own_lenses(a.root, src["base_ref"])
     title = src.get("title") or next((ln.lstrip("# ").strip() for ln in want["ticket"].splitlines() if ln.strip()), "") \
         or (f"PR #{src['pr']}" if src.get("pr") else src["branch"])
     review = {
@@ -711,17 +822,20 @@ def _prep(a):
                   for it in items],
         "ticket_items": len(from_ticket), "team_items": len(team), "dod_source": dod_source, "standards": standards,
         "added": sum(f["added"] for f in ranked), "removed": sum(f["removed"] for f in ranked),
+        "depth": depth, "stack": _stack_names(a.root), "own_lenses": [x["name"] for x in own],
     }
     read = (f"git diff {src['base_ref']}...{src['ref']} -- <file>   ·   git show {src['ref']}:<file> | sed -n 'a,bp'"
             f"   ·   the base version: git show {src['base_ref']}:<file>")
-    job_items = [_job_item(n, j, review, read) for n, j in enumerate(jobs, 1)]
+    job_items = [_job_item(n, j, review, read, own) for n, j in enumerate(jobs, 1)]
     # what each reviewer must read: claims compares it with the READ lines they give back (a partial review is named)
     review["jobs"] = [{"id": it["id"], "job": j["job"], "files": list(j["files"])} for it, j in zip(job_items, jobs)]
     review["reviewable"] = [f["file"] for f in ranked if area_of(f["file"]) != "docs"]
     pack = render_pack(review, jobs)
-    note = (f"Review of {_what(src)}: {len(ranked)} file(s), +{review['added']} -{review['removed']}; "
+    note = (f"Review of {_what(src)} ({depth}): {len(ranked)} file(s), +{review['added']} -{review['removed']}; "
             f"{len(from_ticket)} ticket item(s), {len(team)} from {dod_source}; "
-            f"{len(jobs)} reviewer job(s): {', '.join(_job_name(j) for j in jobs)}."
+            f"{len(jobs)} reviewer job(s): {', '.join(_job_name(j) for j in jobs)}"
+            + (f"; the project's rules: {', '.join(standards[:6])}" if standards else "; no project rules found")
+            + (f"; its own lenses: {', '.join(review['own_lenses'])}" if own else "") + "."
             + (f" {src['fallback']}" if src.get("fallback") else ""))
     return _result(True, note, pack, {"data": {**a.data, KEY: review, "ticket_jobs": job_items, "ticket_pack": pack}})
 
@@ -736,7 +850,7 @@ def _what(src: dict) -> str:
     return f"{src['branch']} vs {src['base']}"
 
 
-def _job_item(n: int, job: dict, review: dict, read: str) -> dict:
+def _job_item(n: int, job: dict, review: dict, read: str, own: list[dict] | None = None) -> dict:
     by_file = {f["file"]: f for f in review["files"]}
     by_item = {it["id"]: it for it in review["items"]}
 
@@ -758,6 +872,13 @@ def _job_item(n: int, job: dict, review: dict, read: str) -> dict:
             out["area"] = job["area"]
         if job.get("lenses"):
             out["lenses"] = [f"{name}: {LENSES[name]}" for name in job["lenses"]]
+        if own and job["job"] in ("all", "bugs"):
+            # the project's own lenses; one with the name of keel's replaces it
+            mine = {x["name"] for x in own}
+            out["lenses"] = [x for x in out.get("lenses") or [] if x.split(":", 1)[0] not in mine] + \
+                [f"{x['name']}: {lenses.flat(x['checklist'])}" for x in own]
+        if review.get("stack") and job["job"] in ("all", "quality"):
+            out["stack"] = ", ".join(review["stack"])
         auto = [f"{it['id']} AUTO {it['verdict']}: {it['evidence']}" for it in review["items"] if it.get("auto")]
         if auto and job["job"] in ("all", "ticket", "team"):
             out["decided"] = auto
@@ -1196,10 +1317,12 @@ def _claims(a):
     # every finding and every not-met item gets a second look (keel 0.18.56 checked only the blocking ones); an item
     # and a finding about the same problem share it. Batches of CHECK_BATCH for the finding-verifier.
     claims, aside = plan_claims(by_item, known, findings)
-    over = claims[MAX_CHECKS:]
-    claims = claims[:MAX_CHECKS]
+    cap = QUICK_CHECKS if review.get("depth") == "quick" else MAX_CHECKS
+    over = claims[cap:]
+    claims = claims[:cap]
     review["claims"] = claims
-    review["unchecked"] = [{"id": c["id"], "targets": c["targets"], "why": f"more than {MAX_CHECKS} claims: no second look"}
+    why_over = f"more than {cap} claims ({review.get('depth') or 'standard'} review): no second look"
+    review["unchecked"] = [{"id": c["id"], "targets": c["targets"], "why": why_over}
                            for c in over]
     review["not_checked"] = [{"severity": f["severity"], "file": f.get("file"), "line": f.get("line"), "text": f["text"],
                               "todo": f.get("todo"), "why": f["why"]} for f in aside] + \
@@ -1372,7 +1495,13 @@ def _record(a):
             + (f"; PARTIAL: {len(cov.get('unread') or [])} of {cov.get('files')} file(s) not read" if cov.get("unread") and cov.get("known") else "")
             + (f"; {cov['warning']}" if cov.get("warning") else "") + ".")
     data = {**a.data, KEY: review, "review_text": text, "share_questions": [share_question(review)]}
-    return _result(True, note, "", {"show": text, "data": data})
+    # keel 0.18.67 a review the Review page started (Find problems: data.source find) ends here; its findings go to the
+    # Review page's Problems. Any other review goes on to the share gate (review-pr.yaml: the branch `to_share`).
+    share = "no" if str(a.data.get("source") or "") == "find" else "yes"
+    marks = dict((a.state or {}).get("markers") or {})
+    marks[a.step or "record"] = {**(marks.get(a.step or "record") or {}), "SHARE": share}
+    marks["*"] = {**(marks.get("*") or {}), "SHARE": share}
+    return _result(True, note, "", {"show": text, "data": data, "markers": marks})
 
 
 def _word(verdict: str | None) -> str:

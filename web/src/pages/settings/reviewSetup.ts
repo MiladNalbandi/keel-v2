@@ -21,7 +21,13 @@ export type ReviewConfig = {
   fix: { flow: "quick" | "small" | "change" | "ask"; model: "flow" | Model; run_mode: string | null; one_flow_per_file: boolean };
   final: { model: ModelChoice; effort: string | null };
   drop_correctness: boolean;
+  /** 0.18.67 how hard a review looks, and what Find problems runs: the review flow or the classic reviewers */
+  depth: Depth;
+  find_runs: "flow" | "classic";
 };
+
+export type Depth = "quick" | "standard" | "full";
+export type DepthInfo = { title: string; tokens: string; time: string; what: string };
 
 export type LensRow = {
   name: string;
@@ -45,7 +51,10 @@ export type ReviewSetup = {
   find_text: string;
   ship_lenses: string[];
   ship_lenses_from: string;
-  limits: { reviewers: number; efforts: string[]; fix_flows: string[]; run_modes: string[] };
+  limits: { reviewers: number; efforts: string[]; fix_flows: string[]; run_modes: string[]; depths?: Depth[] };
+  depths?: Record<Depth, DepthInfo>;
+  /** what every review reads besides the change: the project's written rules, its own lenses, its stacks */
+  standards?: { rules: string[]; lenses: string[]; stack: string[] };
   agents: { id: string; label: string; custom: boolean; keel: boolean }[];
 };
 

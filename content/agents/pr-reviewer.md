@@ -55,7 +55,11 @@ bugs, and never counts them as problems.
   and compare naming, structure, error handling, where the logic lives, how tests are written. Report only
   concrete, fixable notes that name the pattern or rule they break: not bugs (the `bugs` job), not
   formatting a linter fixes (keel runs the linters itself), not taste. At most 8, most useful first. They
-  are minor: they never block.
+  are minor: they never block. The `standards` are the project's own rules (its style docs and its rules
+  for coding agents: AGENTS.md, CLAUDE.md, rule folders), read at the base. A note against one of them
+  names the file and quotes its rule in the rule field (`AGENTS.md: "services never call the database
+  directly"`); a note against a pattern names the `like:` file. `stack` names the project's frameworks:
+  judge the code by their usual way of doing things only where the project's own rules say nothing.
 - **`check`**: one claim. Read its lines (and the code they call) and answer whether it is true.
 - **`settle`**: one checklist item nobody could decide. Read the code it needs (its `files`, then
   `git grep` for the rest) and decide it: `CHECK | met | file:line | why` or `CHECK | not-met | file:line |
