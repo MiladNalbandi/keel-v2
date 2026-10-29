@@ -85,9 +85,30 @@ try {
     await page.getByRole("listbox", { name: "Projects" }).getByRole("option", { name: projectName, exact: true }).click();
   }
 
-  // 1. Settings › Review: keel's two reviewers
+  // 0. (0.18.68) How a review runs: the review flow at Standard, the depth cards, Your standards; pick Full, then Classic
   await page.evaluate(() => (location.hash = "#/settings/review"));
   await page.getByRole("heading", { level: 1, name: "Review" }).waitFor({ timeout: 30_000 });
+  const flowRadio = page.getByRole("radio", { name: /The review flow/ });
+  await flowRadio.waitFor({ timeout: 30_000 });
+  check("Find problems runs the review flow by default", await flowRadio.isChecked());
+  const depth = page.getByRole("radiogroup", { name: "Review depth" });
+  check("the depth cards say Standard, with what each costs",
+    (await depth.getByRole("radio", { name: /Standard/ }).getAttribute("aria-checked")) === "true" &&
+      /~20k tokens/.test(await depth.getByRole("radio", { name: /Quick/ }).innerText()), await depth.innerText());
+  const std = page.getByRole("group", { name: "Your standards" });
+  check("Your standards lists what every reviewer reads first", /Rules/.test(await std.innerText()), await std.innerText());
+  check("the Review page's text is the review flow's",
+    (await page.getByTestId("rv-find-text").innerText()).startsWith("The review flow (Standard"), await page.getByTestId("rv-find-text").innerText());
+  check("the classic reviewers are hidden while the flow runs",
+    (await page.getByRole("radiogroup", { name: "Number of reviewers" }).count()) === 0);
+  await shot(page, "00-how-a-review-runs.png");
+  await depth.getByRole("radio", { name: /Full/ }).click();
+  await page.waitForFunction(() => document.querySelector('[aria-label="Review depth"] [aria-checked="true"]')?.textContent?.includes("Full"),
+    null, { timeout: 15_000 });
+  check("Full is picked", true);
+  await page.getByRole("radio", { name: /Classic/ }).click();
+
+  // 1. Settings › Review: keel's two reviewers (classic)
   const count = page.getByRole("radiogroup", { name: "Number of reviewers" });
   await count.waitFor({ timeout: 30_000 });
   check("Settings › Review opens with keel's two reviewers",
@@ -142,6 +163,12 @@ try {
     THREE.slice(0, 40), { timeout: 30_000 }).catch(() => undefined);
   check("the Review page says three reviewers above Find problems", (await said.innerText()).startsWith(THREE), await said.innerText());
   await shot(page, "06-review-page-find-problems.png", false);
+  // 0.18.68 Review › Files: each file's folder next to its name
+  await page.getByRole("tab", { name: /^Files/ }).click();
+  const dir = page.getByRole("list", { name: "Changed files" }).getByTestId("rvn-fdir").first();
+  await dir.waitFor({ timeout: 15_000 });
+  check("Review › Files shows the file's folder", (await dir.innerText()).startsWith("shop/"), await dir.innerText());
+  await shot(page, "07-files-folder.png", false);
   const noise = errors.filter((e) => !/Failed to load resource/.test(e));
   check("no console error and no failed request on the way", !noise.length && !failed.length, [...noise, ...failed].join(" | "));
 } catch (e) {
