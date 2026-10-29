@@ -56,7 +56,8 @@ def test_every_reviewer_gets_the_projects_rules_from_the_base_and_its_own_lenses
     write(repo, ".keel/lenses/money-rounding.md", "# Money rounding\n\ncents as integers\n\n## Checklist\n- amounts are integers in cents\n")
     commit_all(repo, "docs: rules")
     on_branch(repo, files={"src/scores/ranks.py": "def rank(xs):\n    return sorted(xs, reverse=True)\n",
-                           "CLAUDE.md": "a rule the change adds for itself\n"})
+                           "CLAUDE.md": "a rule the change adds for itself\n",
+                           ".keel/lenses/anything-goes.md": "# Anything goes\n\nx\n\n## Checklist\n- nothing to check\n"})
     seen = answers(monkeypatch, {})
     tid = start(client, repo, workflow="review-pr", title="Review ranks", request="branch: feat/ranks\n" + TICKET)
     s = wait(client, tid)
@@ -65,6 +66,7 @@ def test_every_reviewer_gets_the_projects_rules_from_the_base_and_its_own_lenses
     assert "git show main:AGENTS.md" in job["standards"] and "git show main:.cursor/rules/naming.mdc" in job["standards"]
     assert not any("CLAUDE.md" in x for x in job["standards"])      # the change cannot bring its own rules
     assert any(x.startswith("money-rounding: ") for x in job["lenses"])
+    assert not any(x.startswith("anything-goes") for x in job["lenses"])     # nor its own lenses
     review = graph_values(client, tid)["data"]["ticket_review"]
     assert review["depth"] == "standard" and review["own_lenses"] == ["money-rounding"]
 
@@ -76,6 +78,7 @@ def test_uncommitted_changes_are_reviewed_as_a_snapshot_and_the_folder_is_left_a
     commit_all(repo, "feat: ranks")
     write(repo, "src/scores/ranks.py", "def rank(xs):\n    return sorted(xs, reverse=True)\n")
     write(repo, "src/scores/ties.py", "def ties(xs):\n    return xs\n")              # a new, untracked file
+    write(repo, ".env", "API_KEY=not-for-reviewers\n")                            # a new secret: never in the snapshot
     before = (git(repo, "status", "--porcelain").stdout, git(repo, "rev-parse", "HEAD").stdout)
     seen = answers(monkeypatch, {})
     tid = start(client, repo, workflow="review-pr", title="Review my changes", request="",
@@ -87,7 +90,8 @@ def test_uncommitted_changes_are_reviewed_as_a_snapshot_and_the_folder_is_left_a
     assert set(names) == {"src/scores/ranks.py", "src/scores/ties.py"}
     review = graph_values(client, tid)["data"]["ticket_review"]
     src = review["source"]
-    assert src["uncommitted"] and git(repo, "rev-parse", ta.SNAPSHOT_REF).stdout.strip() == src["ref"]
+    assert src["uncommitted"] and git(repo, "rev-parse", ta.SNAPSHOT_PREFIX + src["ref"][:12]).stdout.strip() == src["ref"]
+    assert git(repo, "cat-file", "-e", f"{src['ref']}:.env").returncode != 0
     assert f"git diff {src['base_ref']}...{src['ref']} -- <file>" in job["read"]
     assert (git(repo, "status", "--porcelain").stdout, git(repo, "rev-parse", "HEAD").stdout) == before   # index, tree, branch: same
     assert review["depth"] == "quick"

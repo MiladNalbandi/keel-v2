@@ -485,6 +485,31 @@ class ReviewApiTest : ApiTest() {
     }
 
     @Test
+    fun `a review flow that ended before its id was saved is still read`() {
+        engine.extraTemplates += engine.featureTemplate + mapOf("id" to "review-pr", "name" to "review a PR (keel)")
+        engine.extraRoutes["/review-config/view"] = { b ->
+            val base = engine.reviewConfigView(b?.path("models")?.path("default"))
+            @Suppress("UNCHECKED_CAST")
+            200 to base + mapOf("config" to (base["config"] as Map<String, Any?>) + mapOf("find_runs" to "flow"))
+        }
+        engine.extraRoutes["/threads/t-stub-1"] = { _ -> 200 to mapOf("thread_id" to "t-stub-1", "status" to "failed",
+            "error" to "The diff is empty: nothing to review.") }
+        engine.extraRoutes["/threads/t-stub-1/review"] = { _ -> 200 to mapOf("done" to false) }
+        try {
+            val (pid, _) = githubPr()
+            view(pid, "pr:7")
+            val s1 = post("/api/projects/$pid/review/ai/findings", mapOf("key" to "pr:7")).andExpect(status().isOk).json()
+            assertThat(s1["findings"]["status"].asText()).isEqualTo("failed")       // no end event needed
+            assertThat(s1["findings"]["error"].asText()).startsWith("The diff is empty")
+        } finally {
+            engine.extraRoutes.remove("/review-config/view")
+            engine.extraRoutes.remove("/threads/t-stub-1")
+            engine.extraRoutes.remove("/threads/t-stub-1/review")
+            engine.extraTemplates.removeIf { it["id"] == "review-pr" }
+        }
+    }
+
+    @Test
     fun `a review flow that stops before its result fails the run and says where to look`() {
         engine.extraTemplates += engine.featureTemplate + mapOf("id" to "review-pr", "name" to "review a PR (keel)")
         engine.extraRoutes["/review-config/view"] = { b ->

@@ -25,7 +25,8 @@ Every review is one flow: **Find problems** on the Review page, a PR review and 
 ```
 
 - **Depth** says how hard the review looks:
-  - **Quick** (about 20k tokens): one reviewer and at most two lenses. A few claims get a second look.
+  - **Quick** (about 20k tokens): one reviewer with your own lenses and at most two of keel's. A few claims get a
+    second look.
   - **Standard** (about 80k tokens, the default): a large change gets one reviewer per area, with the lenses its files
     need. Checklist and quality reviewers join them, and every claim gets a second look.
   - **Full** (about 250k tokens): one reviewer per area even for a small change, and every lens that fits. The second

@@ -330,6 +330,15 @@ class ReviewAiService(
         val result = (r.result?.let { mapper.convertValue(it, Map::class.java) as Map<String, Any?> } ?: emptyMap()) +
             mapOf("stage" to "flow", "flow_id" to flowId, "depth" to depth)
         jdbc.update("UPDATE review_runs SET result = ?, updated_at = ? WHERE id = ?", mapper.writeValueAsString(result), Time.now(), runId)
+        // a flow that ended before its id was saved here (prep stops at once on an empty diff) sent its end too early for
+        // on(): ask the engine once. flowFinished runs once per run (it skips a run that is no longer running).
+        val now = runCatching { engine.thread(flowId) }.getOrNull() ?: return
+        val status = now.path("status").asText()
+        if (status.isNotBlank() && status != "running" && status != "waiting") {
+            val error = now.path("error").asText("").ifBlank { now.path("note").asText("") }
+            flowFinished(runId, EngineEvent(type = if (status == "done") "thread.done" else "thread.failed", threadId = flowId,
+                projectId = pid, data = if (error.isNotBlank()) mapOf("error" to error) else emptyMap()))
+        }
     }
 
     @Synchronized

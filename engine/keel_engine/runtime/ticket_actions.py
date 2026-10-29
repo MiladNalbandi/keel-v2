@@ -54,7 +54,7 @@ MAX_CHECK_JOBS = 12          # finding-verifier jobs per review: up to 48 claims
 MAX_SETTLES = 12             # undecided checklist items a second look settles by reading the code
 MAX_CHECKS = CHECK_BATCH * MAX_CHECK_JOBS
 DEPTHS = ("quick", "standard", "full")    # keel 0.18.67 how hard the review looks (depth_of)
-QUICK_LENSES = 2             # lenses the one quick reviewer goes through
+QUICK_LENSES = 2             # keel lenses the one quick reviewer goes through (the project's own always apply)
 QUICK_CHECKS = 2 * CHECK_BATCH   # claims a quick review checks again; the rest are listed as not checked
 FULL_LENSES = ["error-handling-retry", "contract-types", "consumers-config", "test-quality"]
 LOW_TOKENS_PER_LINE = 10     # reviewers that used fewer tokens per changed line did not read the diff
@@ -651,7 +651,11 @@ def _source(a, cfg: dict, want: dict) -> tuple[dict | None, str | None]:
     return _source_branch(a, cfg, want["branch"], want["base"])
 
 
-SNAPSHOT_REF = "refs/keel/review/uncommitted"
+SNAPSHOT_PREFIX = "refs/keel/review/snapshot-"   # + the snapshot's short sha: one ref per reviewed snapshot
+SNAPSHOT_KEEP = 10           # the newest snapshots kept; older refs are deleted (their objects go with git's gc)
+# untracked files a snapshot never takes: a secret the person has not committed must not reach a reviewer
+SNAPSHOT_SKIP = (":(glob,exclude)**/.env", ":(glob,exclude)**/.env.*", ":(glob,exclude)**/*.pem", ":(glob,exclude)**/*.key",
+                 ":(glob,exclude)**/id_rsa*", ":(glob,exclude)**/id_ed25519*", ":(glob,exclude)**/*.p12")
 SNAPSHOT_WHO = {"GIT_AUTHOR_NAME": "keel", "GIT_AUTHOR_EMAIL": "keel@localhost", "GIT_COMMITTER_NAME": "keel",
                 "GIT_COMMITTER_EMAIL": "keel@localhost"}
 
@@ -659,13 +663,14 @@ SNAPSHOT_WHO = {"GIT_AUTHOR_NAME": "keel", "GIT_AUTHOR_EMAIL": "keel@localhost",
 def _source_working(a) -> tuple[dict | None, str | None]:
     """keel 0.18.67 the uncommitted changes (tracked and new files, .gitignore respected) as a commit object on top of
     HEAD, made in a throwaway index: the person's index, working tree and branch are not touched. Kept under
-    SNAPSHOT_REF so the reviewers' `git show <ref>:<file>` reads exactly what was reviewed."""
+    SNAPSHOT_PREFIX<sha> so the reviewers' `git show <ref>:<file>` reads exactly what was reviewed. New files that look
+    like secrets (SNAPSHOT_SKIP: .env, keys) are left out; a tracked file is taken as it is."""
     head = git.git(a.root, "rev-parse", "--verify", "-q", "HEAD^{commit}").stdout.strip()
     if not head:
         return None, "This repository has no commit yet: there is nothing to compare the uncommitted changes with."
     with tempfile.TemporaryDirectory(prefix="keel-review-") as tmp:
         env = {**os.environ, "GIT_INDEX_FILE": str(Path(tmp) / "index")}
-        for args in (("read-tree", "HEAD"), ("add", "-A", "--", ".")):
+        for args in (("read-tree", "HEAD"), ("add", "-A", "--", ".", *SNAPSHOT_SKIP)):
             r = git.git(a.root, *args, env=env)
             if r.returncode != 0:
                 return None, f"git {args[0]} failed: {(r.stderr or '').strip()[:200]}"
@@ -677,7 +682,10 @@ def _source_working(a) -> tuple[dict | None, str | None]:
     sha = made.stdout.strip()
     if made.returncode != 0 or not sha:
         return None, f"git commit-tree failed: {(made.stderr or '').strip()[:200]}"
-    git.git(a.root, "update-ref", SNAPSHOT_REF, sha)
+    git.git(a.root, "update-ref", SNAPSHOT_PREFIX + sha[:12], sha)
+    old = git.git(a.root, "for-each-ref", "--sort=-committerdate", "--format=%(refname)", SNAPSHOT_PREFIX.rsplit("/", 1)[0] + "/")
+    for ref in [r for r in old.stdout.split() if r.startswith(SNAPSHOT_PREFIX)][SNAPSHOT_KEEP:]:
+        git.git(a.root, "update-ref", "-d", ref)
     return {"pr": None, "branch": "uncommitted changes", "ref": sha, "base": "HEAD", "base_ref": head,
             "head": sha[:7], "title": "Uncommitted changes", "uncommitted": True}, None
 
@@ -699,12 +707,22 @@ def project_standards(root: str, base_ref: str) -> list[str]:
     return list(dict.fromkeys(found))[:MAX_STANDARDS]
 
 
-def _own_lenses(root: str) -> list[dict]:
-    """The project's own lenses (.keel/lenses/*.md, runtime/lenses.py): every reviewer goes through them."""
-    try:
-        return [x for x in lenses.all_lenses(root) if x.get("source") == "project" and x.get("checklist")]
-    except Exception:          # a broken lens file never stops a review
-        return []
+def _own_lenses(root: str, base_ref: str = "HEAD") -> list[dict]:
+    """The project's own lenses (.keel/lenses/*.md, runtime/lenses.py) as they are at the base, like the rules: a change
+    cannot bring or soften the lenses it is reviewed with. Every bug reviewer goes through them."""
+    listed = git.git(root, "ls-tree", "--name-only", base_ref, "--", f"{lenses.PROJECT_DIR}/").stdout.splitlines()
+    out = []
+    for path in sorted(x.strip() for x in listed if x.strip().endswith(".md"))[:MAX_STANDARDS]:
+        name = Path(path).stem
+        if not lenses._NAME.match(name):
+            continue
+        shown = git.git(root, "show", f"{base_ref}:{path}")
+        if shown.returncode != 0:
+            continue
+        p = lenses.parse(shown.stdout[:lenses.MAX_BYTES])
+        if p.get("checklist"):
+            out.append({"name": name, "checklist": p["checklist"], "path": path})
+    return out
 
 
 def _stack_names(root: str) -> list[str]:
@@ -793,7 +811,7 @@ def _prep(a):
     standards = project_standards(a.root, src["base_ref"])
     depth = depth_of(a.data, cfg)
     jobs = plan(ranked, items, depth)
-    own = _own_lenses(a.root)
+    own = _own_lenses(a.root, src["base_ref"])
     title = src.get("title") or next((ln.lstrip("# ").strip() for ln in want["ticket"].splitlines() if ln.strip()), "") \
         or (f"PR #{src['pr']}" if src.get("pr") else src["branch"])
     review = {

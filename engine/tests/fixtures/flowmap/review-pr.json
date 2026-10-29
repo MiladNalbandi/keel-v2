@@ -71,6 +71,18 @@
    "action": "ticket_record"
   },
   {
+   "id": "to_share",
+   "kind": "branch",
+   "name": "share the review",
+   "phase": "review",
+   "no": "end",
+   "when": {
+    "marker": "SHARE",
+    "equals": "yes",
+    "step": "record"
+   }
+  },
+  {
    "id": "share",
    "kind": "gate",
    "name": "the review",
@@ -114,6 +126,7 @@
    "check",
    "settle",
    "record",
+   "to_share",
    "share",
    "share_text",
    "post",
@@ -150,6 +163,10 @@
      },
      {
       "step": "record",
+      "side": []
+     },
+     {
+      "step": "to_share",
       "side": []
      },
      {

@@ -69,8 +69,8 @@ FIND_RUNS = ("flow", "classic")
 # what Settings › Review says about each depth; the tokens are a first guess for a change of a few hundred lines
 DEPTH_INFO = {
     "quick": {"title": "Quick", "tokens": "~20k tokens", "time": "1–2 min",
-              "what": "One reviewer reads the whole change with your rules and at most two lenses; a few claims are "
-                      "checked again."},
+              "what": "One reviewer reads the whole change with your rules, your own lenses and at most two of "
+                      "keel's; a few claims are checked again."},
     "standard": {"title": "Standard", "tokens": "~80k tokens", "time": "4–6 min",
                  "what": "A large change gets one reviewer per area with the lenses its files need, plus checklist "
                          "and quality reviewers; every claim is checked again."},
@@ -266,7 +266,8 @@ def standards(root: str) -> dict:
     from ..tools import git
 
     rules = ta.project_standards(root, "HEAD") if git.is_repo(root) else []
-    return {"rules": rules, "lenses": [x["name"] for x in ta._own_lenses(root)], "stack": ta._stack_names(root)}
+    own = ta._own_lenses(root, "HEAD") if git.is_repo(root) else []
+    return {"rules": rules, "lenses": [x["name"] for x in own], "stack": ta._stack_names(root)}
 
 
 # ------------------------------------------------------------------ writing
