@@ -36,7 +36,8 @@ KEEL_WORKFLOWS = frozenset({"address", "change", "clarify", "cover", "diagnose",
 # The review agents' old names (keel-v2's engine/keel_engine/agent_names.py RENAMED) stay keel's: a workflow that says
 # one still runs keel's agent, and a plugin cannot bring an agent with one.
 KEEL_RENAMED_AGENTS = frozenset({"ac-reviewer", "code-reviewer", "reviewer", "ticket-reviewer"})
-KEEL_AGENTS = frozenset({"arch-surveyor", "branch-reviewer", "bulk-reader", "contract-author", "criterion-reviewer",
+KEEL_AGENTS = frozenset({"arch-surveyor", "branch-reviewer", "bulk-reader", "change-reviewer", "contract-author",
+                         "criterion-reviewer",
                          "dependency-triager", "e2e-author", "explorer", "finding-verifier", "hunter", "implementer", "investigator",
                          "lane-runner", "lens-reviewer", "librarian", "pr-reviewer", "prover", "reproducer",
                          "security-auditor", "setup-doctor", "test-author", "web-researcher"}) | KEEL_RENAMED_AGENTS
