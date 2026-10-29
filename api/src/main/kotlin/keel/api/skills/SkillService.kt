@@ -82,6 +82,7 @@ class SkillService(
     private val projects: ProjectService,
     private val props: KeelProperties,
     private val settings: keel.api.settings.SettingsService,
+    @org.springframework.context.annotation.Lazy private val stacks: keel.api.stacks.StackService,
 ) {
     private fun scan(dir: Path, source: String): List<SkillDef> {
         if (!Files.isDirectory(dir)) return emptyList()
@@ -336,10 +337,19 @@ class SkillService(
         return skillIds.mapNotNull { all[it] }.joinToString("\n\n---\n\n") { it.body.trim() }
     }
 
-    /** Skill ids assigned (and enabled) for each agent in a project. */
+    /**
+     * Skill ids assigned (and enabled) for each agent in a project. 0.18.74 a skill of a stack (kotlin-spring-…, web-…,
+     * symfony-…) only when the project uses that stack (detected, not turned off): a field report's PHP project gave
+     * its agents the Kotlin and React skills, about 20k characters in every prompt.
+     */
     fun assignedByAgent(pid: String): Map<String, List<String>> {
+        val used = runCatching { stacks.list(pid).filter { it.detected && !it.off }.map { it.name }.toSet() }.getOrNull()
         val out = mutableMapOf<String, MutableList<String>>()
-        for (s in list(pid)) if (s.enabled) for (a in s.agents) out.getOrPut(a) { mutableListOf() } += s.id
+        for (s in list(pid)) {
+            if (!s.enabled) continue
+            if (used != null && s.stack != "any" && s.stack !in used) continue
+            for (a in s.agents) out.getOrPut(a) { mutableListOf() } += s.id
+        }
         return out
     }
 
