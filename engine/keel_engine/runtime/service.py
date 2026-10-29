@@ -1099,7 +1099,7 @@ def _commit_by_hand(root: str, title: str, message: str) -> str | None:
     """The folder's changes as one commit, keel's engine files left out, refused when the staged diff holds a secret."""
     from .actions import commit_args
 
-    git.git(root, "add", "-A", "--", ".", ":(exclude).keel/state.json")
+    git.git(root, "add", "-A", "--", ".")          # keel's engine files stay out through .git/info/exclude
     staged = git.git(root, "diff", "--cached").stdout
     if not staged.strip():
         return None
