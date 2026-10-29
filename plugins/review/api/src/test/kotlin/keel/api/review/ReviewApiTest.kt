@@ -430,6 +430,18 @@ class ReviewApiTest : ApiTest() {
     private fun turnText(sid: String): String = engine.calls.last { it.path == "/helper/sessions/$sid/turn" }.body!!["text"].asText()
 
     @Test
+    fun `deleting the pending comment made from a finding opens the finding again`() {
+        val (pid, _) = githubPr()
+        view(pid, "pr:7")
+        val d = post("/api/projects/$pid/review/drafts", mapOf("key" to "pr:7", "path" to "src/Prefs.kt", "line" to 4,
+            "body" to "Save it", "finding_id" to "f_abc")).andExpect(status().isOk).json()
+        post("/api/projects/$pid/review/ai/findings/f_abc", mapOf("key" to "pr:7", "decision" to "commented")).andExpect(status().isOk)
+        assertThat(get("/api/projects/$pid/review/ai?key=pr:7").json()["decisions"]["f_abc"]["decision"].asText()).isEqualTo("commented")
+        delete("/api/projects/$pid/review/drafts/${d["id"].asText()}").andExpect(status().isOk)
+        assertThat(get("/api/projects/$pid/review/ai?key=pr:7").json()["decisions"].has("f_abc")).isFalse()   // its buttons again
+    }
+
+    @Test
     fun `Find problems runs the review flow at Settings › Review's depth and shows its checked findings`() {
         engine.extraTemplates += engine.featureTemplate + mapOf("id" to "review-pr", "name" to "review a PR (keel)")
         engine.extraRoutes["/review-config/view"] = { b ->

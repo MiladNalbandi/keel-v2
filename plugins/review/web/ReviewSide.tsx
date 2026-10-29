@@ -38,6 +38,10 @@ import { PendingTab } from "./PendingTab";
 import { ThreadsView } from "./Threads";
 import * as R from "./store";
 
+/** GitHub and GitLab check states that are not finished yet, and how often the CI box looks again. */
+export const CI_RUNNING = ["queued", "in_progress", "pending", "waiting", "requested", "expected", "running", "created"];
+const CI_POLL_MS = 30_000;
+
 type Filter = "review" | "assigned" | "mine" | "all";
 const FILTERS: [Filter, string][] = [
   ["review", "To review"],
@@ -424,6 +428,17 @@ function OneReview({
     }, 3000);
     return () => window.clearInterval(t);
   }, [running, pid, reviewKey]);
+
+  // 0.18.70 CI checks still running or queued: the review's view (and its CI box) is fetched again every 30 s until they
+  // end (before, the box stayed at "in_progress" until you pressed Refresh)
+  const ciRunning = r.view?.kind === "pr" && (r.view.checks ?? []).some((c) => CI_RUNNING.includes(c.state));
+  useEffect(() => {
+    if (!ciRunning) return;
+    const t = window.setInterval(() => {
+      if (!document.hidden) void R.load(pid, reviewKey, true);
+    }, CI_POLL_MS);
+    return () => window.clearInterval(t);
+  }, [ciRunning, pid, reviewKey]);
 
   const v = r.view;
   // a review remembered from before that is not there any more (a deleted branch, a pull request you cannot see now)

@@ -14,7 +14,7 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   registerSlot,
   slotItems,
@@ -555,6 +555,39 @@ function select(word: string) {
     configurable: true,
   });
 }
+
+describe("Code › Review: the CI box", () => {
+  it("0.18.70 looks again every 30 s while a check runs, and stops when they end", async () => {
+    reviewServer();
+    let n = 0;
+    let state = "in_progress";
+    server.use(
+      http.get("/api/projects/:pid/review/view", () => {
+        n += 1;
+        return HttpResponse.json({ ...viewOf(7), checks: [{ name: "build", state }] });
+      }),
+    );
+    const timers: { fn: () => void; ms: number }[] = [];
+    const real = window.setInterval.bind(window);
+    const spy = vi.spyOn(window, "setInterval").mockImplementation(((fn: () => void, ms?: number) => {
+      timers.push({ fn, ms: ms ?? 0 });
+      return real(() => {}, 1_000_000);
+    }) as typeof window.setInterval);
+    try {
+      const side = await openPr(7);
+      expect(await within(side).findByText("CI 0/1")).toBeInTheDocument();
+      const poll = timers.filter((t) => t.ms === 30_000);
+      expect(poll.length).toBeGreaterThan(0);
+      const before = n;
+      state = "success";
+      poll[poll.length - 1].fn();
+      await waitFor(() => expect(n).toBeGreaterThan(before));
+      expect(await within(side).findByText("CI 1/1")).toBeInTheDocument();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
 
 describe("the keymap", () => {
   it("names keys the IntelliJ way and matches them (Ctrl stands for ⌘ off a Mac)", () => {
