@@ -100,6 +100,8 @@ export function FilesTab({
         <ul className="rvn-flist" aria-label="Changed files">
           {view.files.map((f) => {
             const name = f.path.slice(f.path.lastIndexOf("/") + 1);
+            // 0.18.68 the folder on its own dim line (it was only in the tooltip); a long one keeps its nearest folders
+            const dir = f.path.slice(0, f.path.lastIndexOf("/") + 1);
             const n = count(f.path);
             const viewed = view.viewed.includes(f.path);
             return (
@@ -112,6 +114,12 @@ export function FilesTab({
                   aria-label={`Show ${f.path}`}
                   onClick={() => setPath(f.path)}
                 >
+                  {dir && (
+                    <span className="rvn-fdir" data-testid="rvn-fdir">
+                      {dir}
+                      {"\u200e"}
+                    </span>
+                  )}
                   <span className="rvn-fname">{name}</span>
                   <span className="rvn-fmeta">
                     <span className="rvn-add">+{f.added}</span>{" "}
