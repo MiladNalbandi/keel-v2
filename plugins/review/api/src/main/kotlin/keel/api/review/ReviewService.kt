@@ -415,7 +415,15 @@ class ReviewService(
 
     fun deleteDraft(pid: String, id: String) {
         root(pid)
+        // 0.18.70 a pending comment made from a finding ("Add as comment"): deleting it opens the finding again; before,
+        // the finding kept "Added as a pending comment" with no buttons, and nothing could be done with it
+        val from = jdbc.query("SELECT review_key, finding_id FROM review_drafts WHERE project_id = ? AND id = ?",
+            { rs, _ -> rs.getString(1) to rs.getString(2) }, pid, id).firstOrNull()
         if (jdbc.update("DELETE FROM review_drafts WHERE project_id = ? AND id = ?", pid, id) == 0) throw NotFound("No pending comment $id")
+        val (key, finding) = from ?: return
+        if (!finding.isNullOrBlank() && jdbc.queryForObject("SELECT COUNT(*) FROM review_drafts WHERE project_id = ? AND review_key = ? AND finding_id = ?",
+                Int::class.java, pid, key, finding) == 0)
+            jdbc.update("DELETE FROM review_decisions WHERE project_id = ? AND review_key = ? AND finding_id = ? AND decision = 'commented'", pid, key, finding)
     }
 
     /** A branch review's pending comments go to its pull request: a branch takes no review, its pull request does. */

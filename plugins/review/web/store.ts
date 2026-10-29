@@ -313,11 +313,14 @@ export async function editDraft(
 }
 
 export async function deleteDraft(pid: string, key: string, d: Draft) {
-  if (await act(pid, key, "draft", () => reviewApi.deleteDraft(pid, d.id)))
+  if (await act(pid, key, "draft", () => reviewApi.deleteDraft(pid, d.id))) {
     patchView(pid, key, (v) => ({
       ...v,
       drafts: v.drafts.filter((x) => x.id !== d.id),
     }));
+    // 0.18.70 a comment made from a finding: the api opened the finding again, so its buttons come back
+    if (d.finding_id) await loadAi(pid, key);
+  }
 }
 
 /** A branch review's pending comments go to its pull request; the pull request's review is loaded with them. */
