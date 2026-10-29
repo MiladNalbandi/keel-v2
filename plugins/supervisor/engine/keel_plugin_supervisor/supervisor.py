@@ -40,7 +40,7 @@ from . import brief, ledger, policy, switch, verdict
 
 log = logging.getLogger("keel.supervisor")
 
-MODES = ("shadow", "act")
+MODES = ("shadow", "retry", "act")     # 0.18.75 retry: acts only to try a stuck step again with its note
 DEFAULTS = {"on": None, "mode": "shadow", "effort": "high", "cap_tokens": 150_000, "max_answers": 20, "estimate": 30_000,
             "day_cap_tokens": 500_000}
 MAX_SAME_QUESTION = 2       # answers to the very same question in one flow, then it asks
@@ -292,13 +292,17 @@ class Supervisor:
             code = "model-escalated"
         elif rule != "may":
             code = "policy-escalate"
-        elif v["confidence"] != "high":
+        elif v["confidence"] != "high" and not (sset["mode"] == "retry" and v["confidence"] == "medium"
+                                                and _is_retry(q, payload)):
+            # 0.18.75 mode retry takes a medium-confidence retry note: a retry is cheap and the step's checks run again
             code = "low-confidence"
         else:
             code = policy.evidence_problem(v["evidence"], (await self.engine._context(tid)).root, st.get("acs") or [])
         if not code and policy.offered_problem(q, decision, why, payload):
             code = "not-offered"
-        if not code and sset["mode"] != "act":
+        if not code and sset["mode"] == "retry" and not _is_retry(q, payload):
+            code = "shadow"           # mode retry answers nothing but "try again with this note"
+        elif not code and sset["mode"] not in ("act", "retry"):
             code = "shadow"
         if code:
             return self._escalate(row, code, suggestion={"decision": decision, "why": why, "payload": payload}
@@ -394,3 +398,9 @@ class Supervisor:
     def _emit(self, row: dict, type_: str, data: dict) -> None:
         self.bus.emit(type_, row["thread_id"], row["project_id"], step=row.get("step"),
                       data={"question_id": row.get("question_id"), "kind": row.get("kind"), **data})
+
+
+def _is_retry(q: dict, payload: dict) -> bool:
+    """A stuck step's "try again" with a note (choice retry offered by the question): what mode retry may answer. A field
+    report: in shadow the Supervisor proposed a near-right retry note three times and could not apply it."""
+    return payload.get("choice") == "retry" and "retry" in (q.get("choices") or q.get("options") or [])
