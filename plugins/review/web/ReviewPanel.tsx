@@ -294,12 +294,19 @@ function FindingCard({
   onDismiss,
   onReopen,
   onAsk,
+  onFix,
+  fixWith,
+  fixed,
   muted,
 }: {
   f: Finding;
   view: ReviewView;
   decision?: { decision: string; why: string | null };
   muted?: boolean;
+  /** 0.18.74 "Fix it" here too (the Problems tab had it): the flow Settings › Review names, or ask each time */
+  onFix?: (f: Finding, workflow?: string) => void;
+  fixWith?: string;
+  fixed?: { flow_id?: string; workflow?: string } | null;
   onOpen: (path: string, line?: number | null, side?: "RIGHT" | "LEFT") => void;
   onComment?: (f: Finding) => void;
   onDismiss?: (f: Finding, why: string) => void;
@@ -362,6 +369,12 @@ function FindingCard({
       {commented && !dismissed && (
         <p className="rv-ok">Added as a pending comment.</p>
       )}
+      {fixed && (
+        <p className="rv-ok">
+          The {fixed.workflow ?? "fix"} flow fixes it.{" "}
+          {fixed.flow_id && <a href={`#/flow/${encodeURIComponent(fixed.flow_id)}`}>Open flow ▸</a>}
+        </p>
+      )}
       {!dismissed &&
         !commented &&
         (onComment || onDismiss) &&
@@ -413,6 +426,18 @@ function FindingCard({
                 Dismiss…
               </button>
             )}
+            {onFix && f.severity !== "nit" && !fixed &&
+              (fixWith === "ask" ? (
+                (["quick", "small", "change"] as const).map((w) => (
+                  <button key={w} type="button" className="btn sm" onClick={() => onFix(f, w)}>
+                    Fix: {w}
+                  </button>
+                ))
+              ) : (
+                <button type="button" className="btn sm" onClick={() => onFix(f)}>
+                  Fix it ({fixWith ?? "small"})
+                </button>
+              ))}
             {onAsk && (
               <button
                 type="button"
@@ -438,6 +463,7 @@ export function FindingsTab({
   onDismiss,
   onReopen,
   onAsk,
+  onFix,
 }: {
   view: ReviewView;
   ai: AiState | null;
@@ -448,6 +474,7 @@ export function FindingsTab({
   onDismiss: (f: Finding, why: string) => void;
   onReopen: (f: Finding) => void;
   onAsk: (f: Finding) => void;
+  onFix?: (f: Finding, workflow?: string) => void;
 }) {
   const run = ai?.findings;
   const r = run?.status === "done" ? run.result : null;
@@ -481,6 +508,9 @@ export function FindingsTab({
               onDismiss={opts.actions === false ? undefined : onDismiss}
               onReopen={onReopen}
               onAsk={opts.actions === false ? undefined : onAsk}
+              onFix={opts.actions === false ? undefined : onFix}
+              fixWith={ai?.config?.find?.fix.flow}
+              fixed={(ai?.fixes?.[f.id] as { flow_id?: string; workflow?: string } | undefined) ?? null}
             />
           ))}
       </section>

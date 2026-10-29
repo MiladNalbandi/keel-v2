@@ -815,6 +815,7 @@ function OneReview({
             }
             onReopen={(f) => void R.decide(pid, reviewKey, f.id, "open")}
             onAsk={(f) => askAboutFinding(v, f)}
+            onFix={(f, w) => void R.fixFinding(pid, reviewKey, f.id, w)}
           />
         )}
         {tab === "threads" && (
