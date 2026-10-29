@@ -138,6 +138,26 @@ def key(text: str) -> str:
     return m.group(1) if m else re.sub(r"\s+", " ", text or "").strip().lower()
 
 
+_WORD = re.compile(r"[a-z0-9_]{4,}")
+_COMMON = {"this", "that", "with", "from", "when", "which", "would", "could", "should", "never", "every", "only", "line",
+           "file", "code", "change", "does", "into", "than", "then", "also", "after", "before", "still", "same", "must",
+           "blocking", "finding", "there", "their", "here", "what", "because"}
+
+
+def same(a: str, b: str) -> bool:
+    """keel 0.18.71 two findings about one problem, said in other words (a reviewer rephrases a finding the person
+    dismissed in the round before): the same file:line, or most of the telling words of the shorter one in the other."""
+    if key(a) == key(b):
+        return True
+    ra, rb = _REF.search(a or ""), _REF.search(b or "")
+    if ra and rb and ra.group(1) == rb.group(1):
+        return True
+    wa = {w for w in _WORD.findall((a or "").lower()) if w not in _COMMON}
+    wb = {w for w in _WORD.findall((b or "").lower()) if w not in _COMMON}
+    small = min(len(wa), len(wb))
+    return small >= 4 and len(wa & wb) >= 0.6 * small
+
+
 def unique(findings: list[dict]) -> list[dict]:
     """One finding per file:line (two lenses often report the same one)."""
     seen: set[str] = set()

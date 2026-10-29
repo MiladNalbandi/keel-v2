@@ -9,7 +9,7 @@ from .. import rules
 from ..tools import git, guard
 from ..workflows.model import Step
 from .actions import ActionInput
-from .findings import key as finding_key
+from .findings import key as finding_key, same as same_finding
 from .gate_state import deep_gates
 from .state import FlowState
 from pathlib import Path
@@ -18,6 +18,13 @@ from . import compiler as _c      # the compiler module's own names (looked up w
 
 
 class FindingsMixin:
+
+    def _spec_put_back(self, state: FlowState, review: Step) -> list[str]:
+        """The spec files keel's phase rule put back after this review's fix step (data.put_back)."""
+        spec = str(state.get("spec") or "")
+        fixers = [review.back] if review.back else [_c.fix_id(review.id)]
+        paths = [p for f in fixers for p in ((state.get("data") or {}).get("put_back") or {}).get(f) or []]
+        return list(dict.fromkeys(p for p in paths if p == spec or (p.endswith(".md") and "spec" in p.lower())))
 
     async def findings_step(self, i: int, fix: Step, state: FlowState):
         """After a review with blocking findings: ask; fix and review again, or go on with the user's reason (the
@@ -38,10 +45,11 @@ class FindingsMixin:
         gates = deep_gates(state)
         data = dict(state.get("data") or {})
         # 0.18.22 a finding the person already accepted or called not a finding for this review is not asked again
-        gone = {finding_key(t) for d in data.get("dismissed_findings") or []
-                if d.get("step") == review.id and d.get("item") == (item or {}).get("id") for t in d.get("findings") or []}
+        gone = [t for d in data.get("dismissed_findings") or []
+                if d.get("step") == review.id and d.get("item") == (item or {}).get("id") for t in d.get("findings") or []]
         if gone and found:
-            fresh = [f for f in found if finding_key(f["text"]) not in gone]
+            # 0.18.71 the same problem said in other words is the same finding (same_finding), not a new one
+            fresh = [f for f in found if not any(same_finding(f["text"], g) for g in gone)]
             if not fresh:
                 gates["log"].append(f"{review.name}: {len(found)} finding(s) dismissed before, not asked again")
                 if (review.agent or "") == "security-auditor":
@@ -55,13 +63,28 @@ class FindingsMixin:
         limit = review.rounds or (2 if review.back else None)
         past = f"\n\n{done_rounds} fix round(s) done, the limit is {limit}: the check and the change disagree, and " \
                f"repeating may not settle it. Deciding is yours." if limit and done_rounds >= limit else ""
+        # 0.18.71 why sending back again would not help: the same findings, a fix round that changed nothing, a spec file
+        # the fix phase may not change (keel put it back each round)
+        trail = (data.get("review_trail") or {}).get(key) or {}
+        why_stuck = []
+        if trail.get("same") and done_rounds:
+            why_stuck.append("These are the same findings as the last round: the fix did not settle them.")
+        if trail.get("no_change") and done_rounds:
+            why_stuck.append("The last fix round changed nothing (no new commit): another round of the same will not either.")
+        spec_put_back = self._spec_put_back(state, review)
+        if spec_put_back:
+            why_stuck.append(f"keel put back {', '.join(md.code(p) for p in spec_put_back)} after the fix round: the fix phase "
+                             "may not change the spec. Choose **amend spec** for a finding about the spec (the spec "
+                             "phase changes it), or say it is not a finding.")
+        if why_stuck:
+            past = ("\n\n" + " ".join(why_stuck) + past).rstrip()
         fix_txt = (f"{md.code(review.back)} gets these findings once more, then {review.name} runs again." if review.back else
                    f"the implementer fixes these findings (payload route: review-fix, coverage-fix or red picks "
                    f"who and how), the tests run, the fix is committed, and the flow goes on from "
                    f"{review.redo or review.name}.")
         # keel v1: the person decides each finding (fix / accept / not a finding / amend the spec), as questions
         can_amend = "amend_entry" in self.nav.index and bool(state.get("spec"))
-        asked = finding_decisions.questions(found, can_amend)
+        asked = finding_decisions.questions(found, can_amend, spec_put_back if can_amend else None)
         each = ("Or decide each finding below: fix, accept (with a reason), not a finding (with a reason)"
                 + (", or amend spec (a spec amendment starts)" if can_amend else "")
                 + f". A finding you do not mark follows the button: {'Send back' if review.back else 'Fix them'} fixes it, "

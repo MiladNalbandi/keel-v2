@@ -545,12 +545,32 @@ def test_the_full_diff_review_sends_findings_back_twice_then_asks(client, repo, 
     tid = start(client, repo)
     s = to(client, tid, wait(client, tid), "code_review__fix")
     fixes = [r for r in seen if r.step_name == "fix the full-diff review's findings"]
-    assert len(fixes) == 2 and all(r.phase == "review-fix" and "duplicates ac_2.py" in r.feedback for r in fixes)
-    assert len([r for r in seen if r.agent == "branch-reviewer"]) == 3
-    assert "the limit is 2" in s["waiting"]["detail"]
+    # 0.18.71 the same finding after a fix round: no second automatic round, the person decides now, told why
+    assert len(fixes) == 1 and all(r.phase == "review-fix" and "duplicates ac_2.py" in r.feedback for r in fixes)
+    assert len([r for r in seen if r.agent == "branch-reviewer"]) == 2
+    assert "the same findings as the last round" in s["waiting"]["detail"]
     s = decide(client, tid, "reject", why="the duplication is deliberate")
     assert s["waiting"]["step"] == "ready_gate"
     assert values(client, tid)["data"]["dismissed_findings"][0]["why"] == "the duplication is deliberate"
+
+
+def test_a_fix_round_that_changes_the_spec_is_put_back_and_the_question_says_amend_the_spec(client, repo, monkeypatch):
+    """0.18.71 a field report: the review-fix phase may not change the spec, keel put the line back each round, and the
+    same finding came back four times. Now the question names the file and recommends amend spec."""
+    def spec_file():
+        return next(str(p.relative_to(repo)) for p in Path(repo).rglob("*.md") if "spec" in str(p).lower() and ".keel" not in str(p))
+
+    def fix(req, real):
+        f = spec_file()
+        return f, (Path(repo) / f).read_text() + "\nThe webhook answers 200.\n", "Fixed the spec line.", {}
+    seen = by_step(monkeypatch, {"fix the full-diff review's findings": fix})
+    answers(monkeypatch, {"branch-reviewer": lambda r: f"- `{spec_file()}:44` says 201, the code answers 200\nCODE-REVIEW: findings"})
+    tid = start(client, repo)
+    s = to(client, tid, wait(client, tid), "code_review__fix")
+    detail = s["waiting"]["detail"]
+    assert "keel put back" in detail and spec_file() in detail and "amend spec" in detail
+    q = s["waiting"]["questions"][0]
+    assert q["options"][0]["label"] == "amend spec" and q["options"][0]["recommended"]
 
 
 # ------------------------------------------------------------------ refactor, smoke before e2e, stack up, gate mode

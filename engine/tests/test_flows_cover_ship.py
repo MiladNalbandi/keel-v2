@@ -140,9 +140,16 @@ def test_cover_passing_coverage_needs_no_decision(client, repo, monkeypatch):
 def test_cover_every_decision_review_round_and_the_round_limit(client, repo, monkeypatch):
     said = {"n": 0}
 
+    # a new finding each round (0.18.71: the same one twice asks after one round; this test is about the round limit)
+    rounds = ["tests/test_cover.py:3 asserts what the code does, not what it should do",
+              "tests/test_cover.py:9 mocks the rounding helper it should exercise",
+              "tests/test_cover.py:15 compares against a constant copied from the output"]
+
     def review(req):
         said["n"] += 1
-        return BLOCK if req.item["id"] == "src/a.py:3-4" else CLEAN
+        if req.item["id"] != "src/a.py:3-4":
+            return CLEAN
+        return f"## Blocking\n- {rounds[min(said['g1'], 2)]}\n\nBLOCKING: yes" if not said.update(g1=said.get("g1", -1) + 1) else ""
     seen = answers(monkeypatch, {"lens-reviewer": review})
     script(monkeypatch, {"verify_coverage": [cov_fail("src/a.py:3-4", "src/b.py:10-10", "src/c.py:7-9"), cov_fail("src/d.py:1-2")]})
     tid = start(client, repo, workflow="cover")
@@ -150,14 +157,15 @@ def test_cover_every_decision_review_round_and_the_round_limit(client, repo, mon
     assert s["waiting"]["step"] == "decide" and s["waiting"]["title"] == "decide test / delete / accept · src/a.py:3-4"
     assert s["waiting"]["choices"] == ["test", "delete", "accept"] and s["waiting"]["options"] == ["approve"]
 
-    # g1: test -> the reviewer blocks twice, each time straight back to the writer; the third time keel asks
+    # g1: test -> the reviewer blocks, straight back to the writer; the fake writer commits nothing new, so (0.18.71)
+    # keel asks after that round instead of sending the next finding back to a writer that changes nothing
     s = decide(client, tid, "approve", payload={"choice": "test"})
     writes = [r for r in seen if r.agent == "test-author"]
-    assert len(writes) == 3 and writes[0].item["decision"] == "test"
-    assert "Fix these blocking findings" in writes[1].prompt and "round 2" in writes[2].prompt
+    assert len(writes) == 2 and writes[0].item["decision"] == "test"
+    assert "Fix these blocking findings" in writes[1].prompt
     assert all("assertions lens" in r.step_name for r in seen if r.agent == "lens-reviewer")
     assert s["waiting"]["step"] == "review__fix" and s["waiting"]["labels"]["approve"] == "Send back"
-    assert "the limit is 2" in s["waiting"]["detail"]
+    assert "The last fix round changed nothing" in s["waiting"]["detail"]
     s = decide(client, tid, "reject", why="it checks the rank order, which is the requirement")
 
     # g2: accept needs a reason; with one it is recorded and skipped
@@ -183,7 +191,7 @@ def test_cover_every_decision_review_round_and_the_round_limit(client, repo, mon
                                                "title": "src/b.py:10-10", "app": "api", "critical": False,
                                                "decision": "accept", "reason": "a shutdown hook"}]
     assert v["data"]["dismissed_findings"][0]["item"] == "src/a.py:3-4"
-    assert v["review_rounds"]["review:src/a.py:3-4"] == 2
+    assert v["review_rounds"]["review:src/a.py:3-4"] == 1                 # one round, then asked (nothing changed)
     # the last measurement is what is left: the group the second round worked on is still uncovered
     assert [(g["id"], g.get("status")) for g in v["data"]["coverage_groups"]] == [("src/d.py:1-2", None)]
     assert v["markers"]["remeasure"] == {"RESULT": "fail"} and v["markers"]["decide"] == {"CHOICE": "test"}
