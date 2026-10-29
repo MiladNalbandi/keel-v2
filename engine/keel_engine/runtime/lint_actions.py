@@ -45,7 +45,7 @@ def scope_files(a, cfg: dict, scope: str, base: str | None = None) -> tuple[list
         out = git.git(a.root, "ls-files", "--cached", "--others", "--exclude-standard").stdout.splitlines()
         label = "the whole project"
     else:
-        base = base or verdict_actions.base_ref(a.root, cfg, a.base)
+        base = base or verdict_actions.flow_base(a, cfg)
         out = verdict_actions.branch_files(a.root, base)
         label = f"the branch diff ({base}...HEAD and uncommitted)" if base else "the uncommitted files"
     theirs = {f for f, fp in (a.preexisting or {}).items() if git.fingerprint(a.root, f) == fp}

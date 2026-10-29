@@ -157,6 +157,12 @@ class AgentMixin:
             from . import bases
 
             found = await asyncio.to_thread(bases.branch_scope, root, None, state.get("base_head"))
+            own = (state.get("data") or {}).get("own_since")
+            if own:
+                # 0.18.74 a flow that continues a branch: its own commits only (verdict_actions.flow_base)
+                found = {**found, "scope": f"git diff {own[:12]}...HEAD", "compared": f"this flow's start ({own[:7]}): the "
+                         "branch had commits of its own before this flow, and they are not this flow's to review",
+                         "setup": [], "warning": None}
             if found.get("scope"):
                 prompt += (f"\n\nThe branch diff to review: `{found['scope']}` (the base: {found['compared']}). Use this "
                            "range, not main...HEAD." + "".join(f" {x}." for x in (found.get("warning"),) if x)

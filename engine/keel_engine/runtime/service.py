@@ -382,6 +382,12 @@ class Engine:
             state["branch"] = await asyncio.to_thread(git.branch, root)
             state["git_head"] = await asyncio.to_thread(git.head, root)
             state["base_head"] = state["git_head"]
+            # 0.18.74 the branch already has commits of its own (a flow that continues a pull request's branch): a flow that
+            # builds (a RED/GREEN loop) checks and reviews its own work only, from here (verdict_actions.flow_base). A
+            # flow that checks the branch itself (an audit, a knowledge refresh) still reads all of it.
+            builds = any(st.phase in ("red", "green") for st in wf.steps)
+            if builds and await asyncio.to_thread(_ahead_of_base, root):
+                state["data"]["own_since"] = state["git_head"]
             await asyncio.to_thread(git.exclude_engine_files, root)
             layout.hide(root)               # keel / external: .keel/ stays out of git (.git/info/exclude)
             state["preexisting"] = await asyncio.to_thread(git.snapshot, root)
@@ -1038,3 +1044,15 @@ def relocate(old: str | None) -> str | None:
             cands.append("/workspace")
         cands.append(f"/workspace/{name}")
     return next((c for c in cands if c != old and _project_there(c)), None)
+
+
+def _ahead_of_base(root: str) -> bool:
+    """Does HEAD have commits its base does not (keel init's setup commits aside)? A new branch made for the flow: no."""
+    from . import bases, verdict_actions
+
+    base = verdict_actions.base_ref(root, rules.load_config(root))
+    if not base:
+        return False
+    own, _setup = bases.own_base(root, base)
+    n = git.git(root, "rev-list", "--count", f"{own or base}..HEAD").stdout.strip()
+    return n.isdigit() and int(n) > 0
