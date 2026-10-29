@@ -1177,6 +1177,14 @@ def verify_e2e(a):
     e2e = a.data.get("e2e") or {}
     ids = list(e2e.get("ids") or [])
     said = str(((a.state.get("markers") or {}).get("*") or {}).get("E2E-RESULT") or "")
+    # 0.18.72 a field report: the e2e author's edits (tests renamed with the criteria ids) were put back by keel's file
+    # rule, its "pass" was taken, and the criteria were closed without their tests: what keel put back fails the step
+    back = list(((a.data.get("put_back") or {}).get("e2e")) or [])
+    if back:
+        return _fail(f"keel put back {len(back)} file(s) the e2e step changed: its result does not count.",
+                     "Put back (the e2e phase may not change them): " + ", ".join(back[:12]) +
+                     "\nWrite the e2e tests in files the e2e phase may change (the e2e folder), or ask for the files at the "
+                     "gate; never rename or move a test the phase may not touch.")
     # the commit after this one says which criteria it covers (actions.commit: a "Covers:" line)
     covers = {"data": {**a.data, "e2e": {**e2e, "covers": ids}}}
     if not e2e.get("run") or not e2e.get("command"):
