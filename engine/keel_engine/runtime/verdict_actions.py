@@ -527,7 +527,7 @@ def reports_of(cfg: dict) -> dict[str, str]:
     return {k: v for k, v in reports.items() if isinstance(v, str) and v.strip()} if isinstance(reports, dict) else {}
 
 
-def measure(root: str, cfg: dict, base: str | None) -> dict:
+def measure(root: str, cfg: dict, base: str | None, fresh_after: float | None = None) -> dict:
     """keel v1 coverage.run + cover.measure: changed lines per app, the problems, and the uncovered groups."""
     cov = cfg.get("coverage") or {}
     reports = reports_of(cfg)
@@ -546,6 +546,12 @@ def measure(root: str, cfg: dict, base: str | None) -> dict:
         data = load_report(root, rel)
         if data is None:
             results.append({"app": app, "error": f"coverage report not found: {rel}"})
+            continue
+        # 0.18.75 a report the coverage command did not write in this run is an old one: it measures old code
+        f = Path(root) / rel
+        if fresh_after and f.is_file() and f.stat().st_mtime < fresh_after - 2:
+            results.append({"app": app, "error": f"coverage report {rel} is older than this run: the coverage command "
+                                                 "did not write it, so it measures old code"})
             continue
         results.append(measure_app(app, data, scoped, critical, list(((cov.get("exclude") or {}).get(app)) or [])))
     problems = []
@@ -588,10 +594,11 @@ def measure(root: str, cfg: dict, base: str | None) -> dict:
     return {"base": base, "ok": ok, "apps": results, "problems": problems, "summary": summary, "groups": groups}
 
 
-def coverage_from_reports(a) -> tuple[dict, object]:
-    """The changed-line verdict from the configured reports; returns (measurement, ActionResult)."""
+def coverage_from_reports(a, fresh_after: float | None = None) -> tuple[dict, object]:
+    """The changed-line verdict from the configured reports; returns (measurement, ActionResult). [fresh_after]: the time
+    the coverage command started; an older report counts as not written."""
     cfg = rules.load_config(a.root)
-    m = measure(a.root, cfg, flow_base(a, cfg))
+    m = measure(a.root, cfg, flow_base(a, cfg), fresh_after)
     detail = {k: m[k] for k in ("base", "apps", "problems", "summary")}
     detail["groups"] = [{k: g[k] for k in ("key", "file", "lines", "app", "critical")} for g in m["groups"][:50]]
     if not m["ok"]:

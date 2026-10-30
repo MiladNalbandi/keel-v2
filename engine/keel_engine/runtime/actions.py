@@ -17,6 +17,8 @@ in runtime/init_actions.py, review-pr's (ticket_*) in runtime/ticket_actions.py.
 from __future__ import annotations
 
 import asyncio
+import os
+import time
 import re
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -688,6 +690,10 @@ async def verify_release(a: ActionInput) -> ActionResult:
                         f"$ {show}\n{tail(r['out'], 1500)}", upd)
 
 
+NO_COVERAGE_DRIVER = re.compile(r"no code coverage driver|no coverage driver (?:is )?available|"
+                                r"code coverage needs to be enabled|xdebug_mode=coverage|pcov.*not (?:loaded|installed)", re.I)
+
+
 async def verify_coverage(a: ActionInput) -> ActionResult:
     """`commands.coverage` from .keel/config.yml; exit 0 = the coverage gate passes. Without it there is no coverage gate.
 
@@ -704,15 +710,26 @@ async def verify_coverage(a: ActionInput) -> ActionResult:
             (c, str(Path(a.root) / d) if d and (Path(a.root) / d).is_dir() else a.root)
             for app, key in (("api", "backend"), ("web", "frontend")) if app in verdict_actions.reports_of(cfg)
             for c, d in [(str((cfg.get("commands") or {}).get(f"coverage_{app}") or "").strip(), verdict_actions._dir_of(cfg, key))] if c]
+        started = time.time()
         for cmd, cwd in runs:
             code, out = await asyncio.to_thread(testcmd.run, cwd, cmd, 1800, command_env())
+            # 0.18.75 a field report: PHP without a coverage driver printed "No code coverage driver available", wrote
+            # no report, and an old report made the gate pass. No driver fails here, loudly, whatever the exit code.
+            if NO_COVERAGE_DRIVER.search(out or ""):
+                why = (f"`{cmd}` ran without a coverage driver, so it measured nothing. Install one where the tests run "
+                       "(PHP: `pecl install pcov` and `extension=pcov` in php.ini, or Xdebug with XDEBUG_MODE=coverage), "
+                       "or run coverage in the CI image.")
+                await asyncio.to_thread(verdict_actions.record_verdict, a.key, "coverage", False,
+                                        {"command": cmd, "summary": "no coverage driver", "output": tail(out, 1500)}, None, a.root)
+                return ActionResult(False, "Coverage was not measured: no coverage driver.", f"{why}\n\n$ {cmd}\n{tail(out, 2000)}",
+                                    {"data": {**a.data, "coverage_groups": [], "coverage_error": why}})
             if code != 0:
                 await asyncio.to_thread(verdict_actions.record_verdict, a.key, "coverage", False,
                                         {"command": cmd, "summary": f"`{cmd}` exited {code}", "output": tail(out, 1500)}, None, a.root)
                 err = f"`{cmd}` exited {code}, so there is no report to read.\n\n$ {cmd}\n{tail(out, 2000)}"
                 return ActionResult(False, f"The coverage command `{cmd}` failed.", f"$ {cmd}\n{tail(out, 3000)}",
                                     {"data": {**a.data, "coverage_groups": [], "coverage_error": err}})
-        _m, r = await asyncio.to_thread(verdict_actions.coverage_from_reports, a)
+        _m, r = await asyncio.to_thread(verdict_actions.coverage_from_reports, a, started if runs else None)
         return r
     if not cmd:
         if not a.fake:
@@ -725,6 +742,10 @@ async def verify_coverage(a: ActionInput) -> ActionResult:
     if a.fake:
         return ActionResult(True, "Coverage: passed (simulated, no verdict written).")
     code, out = await asyncio.to_thread(testcmd.run, a.root, cmd, 1800, command_env())
+    if NO_COVERAGE_DRIVER.search(out or ""):
+        code = code or 1          # 0.18.75 nothing was measured: never a pass
+        out = ("No coverage driver: nothing was measured. Install one where the tests run (PHP: pcov, or Xdebug with "
+               "XDEBUG_MODE=coverage), or run coverage in the CI image.\n\n" + (out or ""))
     head, tree = await asyncio.to_thread(verdicts.stamp, a.root)
     await asyncio.to_thread(verdicts.write, a.key, "coverage", code == 0,
                             {"command": cmd, "tree": tree, "summary": None if code == 0 else f"`{cmd}` exited {code}",
@@ -927,9 +948,37 @@ def commit(a: ActionInput) -> ActionResult:
     tail_note = f" · tools: {'; '.join(tool_notes)}" if tool_notes else ""
     tail_note += f" · suggest: {'; '.join(t['why'] for t in suggest)} (not blocking)" if suggest else ""
     gates = a.state.get("gates") or {"mode": "every-ac", "log": list(a.gates_log), "skipped": {}}
-    noted = {"gates": {**gates, "log": [*(gates.get("log") or []), *checks.suggest_lines(suggest)]}} if suggest else {}
+    loud, data = _tool_failures(a, tool_notes or [])
+    log_add = [*(checks.suggest_lines(suggest) if suggest else []), *loud]
+    noted = {"gates": {**gates, "log": [*(gates.get("log") or []), *log_add]}} if log_add else {}
+    if data is not None:
+        noted["data"] = data
     return ActionResult(True, f"{message} {sha[:7] if sha else ''}".strip() + tail_note + left_note, "\n".join(staged),
                         {"git_head": sha, "blockers": push_gates.push_blockers(a.root, a.base, project=a.key), **noted})
+
+
+_TOOL_FAILED = re.compile(r"^(\S+) \((?:fix|warn)\): exit (\d+): (.*)$")
+
+
+def _tool_failures(a: ActionInput, notes: list[str]) -> tuple[list[str], dict | None]:
+    """0.18.75 a field report: php-cs-fixer exited 16 on every commit (the container's PHP was newer than it supports)
+    and only the commit note said so. A fix or warn tool that fails on two commits in a row gets one gate log line (the
+    final review and the PR body show it), with its first line and what to do. (log lines, new data or None)."""
+    seen = dict((a.data or {}).get("tool_failures") or {})
+    failing = {m.group(1): m for n in notes if (m := _TOOL_FAILED.match(n))}
+    if not failing and not seen:
+        return [], None
+    out, now = [], {}
+    for name, m in failing.items():
+        count = int((seen.get(name) or {}).get("count") or 0) + 1
+        said = bool((seen.get(name) or {}).get("said"))
+        if count >= 2 and not said:
+            out.append(f"{name} failed on {count} commits in a row (exit {m.group(2)}): {m.group(3)[:160]}. keel commits "
+                       "without it; fix the tool (its version for this runtime, its config) or take it out of tools in "
+                       ".keel/config.yml.")
+            said = True
+        now[name] = {"count": count, "said": said}
+    return out, {**(a.data or {}), "tool_failures": now}
 
 
 def _applied(a: ActionInput, kind: str, ref: str, subject: str, files: list[str]) -> None:
@@ -1001,7 +1050,12 @@ def commit_args(root: str, settings: dict | None, cfg: dict) -> tuple[list[str],
     the setting commit_coauthor is off (it is on by default) or KeelBot is the author already."""
     name, email = commit_ident(root, settings, cfg)
     coauthor = (settings or {}).get("commit_coauthor") is not False and email != KEELBOT[1]
-    return ["-c", f"user.name={name}", "-c", f"user.email={email}"], (["-m", COAUTHOR] if coauthor else [])
+    who = ["-c", f"user.name={name}", "-c", f"user.email={email}"]
+    # 0.18.75 keel2 mounted an SSH signing key (KEEL_SIGNING_KEY): keel's commits are signed with it
+    key = os.environ.get("KEEL_SIGNING_KEY", "").strip()
+    if key and os.path.isfile(key):
+        who += ["-c", "gpg.format=ssh", "-c", f"user.signingkey={key}", "-c", "commit.gpgsign=true"]
+    return who, (["-m", COAUTHOR] if coauthor else [])
 
 
 TICKET = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,29}-\d{1,9}$")

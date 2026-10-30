@@ -536,3 +536,52 @@ def runtime_of_image(image: str) -> tuple[str, str]:
         return "", ""
     ver = re.match(r"^v?(\d+(?:\.\d+)*)", tag)
     return rt, (ver.group(1) if ver else tag)
+
+
+# 0.18.75 the runtime on this machine against the versions CI runs (a field report: the container's PHP 8.4, CI's 8.1 to 8.3,
+# and php-cs-fixer, which does not support 8.4, failed on every commit while the reviewers judged style the CI disagrees with)
+LOCAL_VERSION = {
+    "php": ["php", "-r", "echo PHP_VERSION;"],
+    "python": ["python3", "-c", "import sys; print('%d.%d.%d' % sys.version_info[:3])"],
+    "node": ["node", "--version"],
+    "go": ["go", "env", "GOVERSION"],
+    "java": ["java", "-version"],
+    "ruby": ["ruby", "-e", "print RUBY_VERSION"],
+}
+_MM = re.compile(r"(\d+)\.(\d+)")
+
+
+def local_version(runtime: str, root: str | None = None) -> str | None:
+    """major.minor of the runtime on this machine (None: not installed or not known)."""
+    import subprocess
+
+    cmd = LOCAL_VERSION.get(runtime)
+    if not cmd:
+        return None
+    try:
+        r = subprocess.run(cmd, cwd=root or None, capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    m = _MM.search((r.stdout or "") + (r.stderr or ""))
+    return f"{m.group(1)}.{m.group(2)}" if m else None
+
+
+def runtime_mismatch(root: str) -> list[str]:
+    """One line per runtime whose local major.minor is not among the versions CI runs it with, e.g. "php 8.4 here; CI
+    runs 8.1, 8.2, 8.3". [] when CI names no version, the runtime is not installed here, or they match."""
+    try:
+        runs = [r for r in plan(root).get("runs") or [] if not r.get("skip") and r.get("runtime") and r.get("version")]
+    except Exception:          # a CI file keel cannot read never stops a flow
+        return []
+    want: dict[str, set[str]] = {}
+    for r in runs:
+        m = _MM.search(str(r["version"]))
+        if m:
+            want.setdefault(r["runtime"], set()).add(f"{m.group(1)}.{m.group(2)}")
+    out = []
+    for rt, versions in sorted(want.items()):
+        here = local_version(rt, root)
+        if here and here not in versions:
+            ordered = sorted(versions, key=lambda v: tuple(int(x) for x in v.split(".")))
+            out.append(f"{rt} {here} here; CI runs {', '.join(ordered)}")
+    return out

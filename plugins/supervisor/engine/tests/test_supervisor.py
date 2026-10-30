@@ -302,3 +302,18 @@ def test_its_log_keeps_the_commands_of_an_own_fix_and_an_old_table_gets_the_colu
     assert r["commands"] == ["tools/lock.py --all"]
     assert ledger.list_rows(thread_id="t-old")[0]["commands"] == ["tools/lock.py --all"]
 
+
+
+def test_retry_mode_answers_nothing_but_a_retry_note(client, repo, script):
+    """0.18.75 mode retry: it may try a stuck step again with its note (medium confidence is enough there), and only
+    suggests every other answer, a plain gate approve included."""
+    from keel_plugin_supervisor.supervisor import MODES, _is_retry
+    assert MODES == ("shadow", "retry", "act")
+    assert _is_retry({"choices": ["retry", "skip", "edit", "stop"]}, {"choice": "retry"})
+    assert not _is_retry({"choices": ["retry", "skip"]}, {"choice": "skip"})
+    assert not _is_retry({"options": ["approve", "reject"]}, {})
+    script(GOOD)
+    tid, s = run(client, repo, sup={"on": True, "mode": "retry"})
+    assert s["status"] == "waiting" and s["waiting"]["step"] == "g1"          # a gate approve: only a suggestion
+    row = rows(tid)[0]
+    assert row["outcome"] == "suggested" and row["code"] == "shadow"

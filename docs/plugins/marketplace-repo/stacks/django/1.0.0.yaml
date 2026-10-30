@@ -7,10 +7,10 @@ arch_ref_suffix: python
 
 # How to recognise this stack in a repo, cheapest signal first. `manage.py` is the one file every
 # Django project has and nothing else does; the rest catch a project that keeps it elsewhere.
+# 0.18.75 only a Django project: its manage.py (any .py file or requirements.txt matched every Python project, and
+# a plain Python project got Django's skills and showed "django" in Settings › Review)
 detect:
-  files: [manage.py, pyproject.toml, requirements.txt]
-  package_deps: [django]
-  extensions: ['.py']
+  files: [manage.py]
 
 # keel 0.18.28 the highlight.js languages for this stack's files (the dashboard loads them when the project opens)
 languages:

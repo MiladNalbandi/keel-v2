@@ -27,7 +27,7 @@ export type Decision = {
 };
 
 type Switches = { keel: boolean; plugin: boolean; project: boolean; flow: boolean | null; off_by: string | null };
-type Settings = { on: boolean; mode: "shadow" | "act"; effort?: string; cap_tokens: number; switches?: Switches };
+type Settings = { on: boolean; mode: "shadow" | "retry" | "act"; effort?: string; cap_tokens: number; switches?: Switches };
 type ProjectSwitch = { on: boolean; keel: boolean; project: boolean; own: boolean | null; plugin: boolean };
 type FlowPatch = { on?: boolean | null; mode?: Settings["mode"] };
 type FlowView = { thread: { thread_id: string; title?: string; status?: string } | null };
@@ -142,6 +142,7 @@ function FlowSwitch({ pid, tid, title, version, onChanged }: { pid: string; tid:
             Mode{" "}
             <select value={cur.mode} disabled={busy} onChange={(e) => void set({ mode: e.target.value as Settings["mode"] })}>
               <option value="shadow">shadow: only suggests</option>
+              <option value="retry">retry: only tries a stuck step again, with its note</option>
               <option value="act">act: answers when sure</option>
             </select>
           </label>{" "}

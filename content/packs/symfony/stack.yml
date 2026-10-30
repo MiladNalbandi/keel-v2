@@ -6,9 +6,9 @@ lane: api
 arch_ref_suffix: php
 
 # How to recognise this stack in a repo, cheapest signal first.
+# 0.18.75 only a Symfony project: symfony.lock or bin/console (any composer.json or .php file matched every PHP project)
 detect:
-  files: [composer.json, symfony.lock, bin/console]
-  extensions: ['.php']
+  files: [symfony.lock, bin/console]
 
 # keel 0.18.28 the highlight.js languages for this stack's files (the dashboard loads them when the project opens)
 languages:
