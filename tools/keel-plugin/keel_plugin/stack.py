@@ -232,10 +232,12 @@ def lint(path: Path, name: str | None = None, version: str | None = None) -> Sta
 
 
 def category_of(doc: dict) -> str:
-    """A stack's category from what detects it."""
+    """A stack's category from what detects it, and its arch_ref_suffix (0.19.1: Symfony is detected by symfony.lock and
+    bin/console only, so no composer.json or .php is left to say php)."""
     det = doc.get("detect") if isinstance(doc.get("detect"), dict) else {}
-    words = " ".join(_strs(det.get("files")) + _strs(det.get("extensions")) + _strs(det.get("package_deps"))).lower()
-    for cat, signs in (("jvm", ("gradle", "pom.xml", ".kt", ".java")), ("php", ("composer", ".php")),
+    words = " ".join(_strs(det.get("files")) + _strs(det.get("extensions")) + _strs(det.get("package_deps"))
+                     + _strs([doc.get("arch_ref_suffix")] if doc.get("arch_ref_suffix") else [])).lower()
+    for cat, signs in (("jvm", ("gradle", "pom.xml", ".kt", ".java")), ("php", ("composer", ".php", "php", "symfony")),
                        ("python", ("pyproject", "setup.py", "manage.py", ".py")), ("go", ("go.mod", ".go")),
                        ("rust", ("cargo", ".rs")), ("dotnet", (".csproj", ".cs")),
                        ("javascript", ("package.json", "tsconfig", ".ts", ".js", "react"))):
