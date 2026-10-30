@@ -1,0 +1,69 @@
+id: harness
+name: harness (keel)
+keel_rules: true
+version: 1
+# keel 0.19.0 harness mode: the project's coding harness (Claude Code, Codex, Copilot CLI or OpenCode: the provider of
+# the default model) does the work in ONE session of its own, the way a person works in it; keel is the control room.
+# The harness plans (read only), you approve the plan (or send a note back to the same session), the same session
+# builds it with its tests, keel runs the project's tests (one fix round in the same session), you look at the change,
+# keel commits it, and the PR steps are as in ship. Settings › Who does the work picks this flow or keel's own flows
+# (change, feature, bug) for new work; data.intent says which one the person asked for, and the planner follows its
+# expectations (a bug: reproduce it first; a feature: a criteria list). Plan mode is on by default (data.plan_first
+# "yes", Settings › Who does the work › harness_plan): "no" goes straight to the build. `mcp: gateway`: the project's
+# MCP servers (Settings › MCP) reach the harness through keel's own server only, which asks the person before a tool
+# that is not read-only runs (keel_engine/mcp_gateway.py).
+steps:
+  - { id: preflight, kind: code, name: preflight + own branch, action: preflight, phase: preflight }
+  - { id: intent, kind: code, name: what was asked for, action: harness_intent, phase: triage }
+  - id: plan
+    kind: agent
+    name: the harness plans the change
+    agent: harness-planner
+    model: default
+    phase: triage
+    session: thread
+    mcp: gateway
+    keep: true
+    when: { data: plan_first, equals: "yes" }
+    instructions: >-
+      Plan this work, do not change any file yet. {{data.intent_note}} Answer with the whole plan in Markdown, in this
+      order: ## Goal (one or two sentences); ## Acceptance criteria (a numbered list, each one testable); ## Files
+      (each file you will add or change, and why); ## Tests (the tests you will write, one per criterion at least, and
+      the command that runs them); ## Risks (what could break, what you are not sure about). Read the code first; name
+      real files and the project's own patterns. End with one line "PLAN: ready" or "PLAN: blocked <why>".
+    markers: [PLAN]
+  - { id: plan_show, kind: code, name: the plan for your look, action: harness_plan_show, phase: triage,
+      when: { data: plan_first, equals: "yes" } }
+  - id: plan_gate
+    kind: gate
+    name: approve the plan
+    phase: gate
+    lock: true
+    when: { data: plan_first, equals: "yes" }
+    choices: { approve: build, change: plan, reject: close }
+  - id: build
+    kind: agent
+    name: the harness builds the plan
+    agent: harness-builder
+    model: default
+    phase: ac
+    session: thread
+    mcp: gateway
+    instructions: >-
+      Build the plan you wrote in this session (with the person's notes, when they gave any). Write the tests first and
+      see them fail, then the code; run the tests you wrote and the ones around them until they pass. Follow the
+      project's rules (AGENTS.md, CLAUDE.md, the code around it). Do not commit: keel commits after its own check. End
+      with a short summary: what you changed, the test command you ran and its result.
+  - { id: check, kind: code, name: keel runs the project's tests, action: harness_check, phase: ac, back: build, rounds: 1 }
+  - { id: done_show, kind: code, name: the change for your look, action: harness_done_show, phase: ac }
+  - id: done_gate
+    kind: gate
+    name: look at the change
+    phase: gate
+    lock: true
+    choices: { commit: commit, more: build, reject: close }
+  - { id: commit, kind: code, name: commit, action: commit, lock: true, phase: ac }
+  - { id: pr, kind: code, name: PR body, action: pr, phase: close }
+  - { id: pr_gate, kind: gate, name: open the PR, phase: close, lock: true, choices: { open: open_pr, skip: close } }
+  - { id: open_pr, kind: code, name: open the PR (never pushes), action: open_pr, phase: close }
+  - { id: close, kind: code, name: done, action: close_flow, then: end, phase: close }

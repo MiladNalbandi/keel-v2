@@ -9,7 +9,7 @@ import uuid
 
 from . import agent_knowledge, blockers as push_gates, choices as choices_mod, clarify, flow_actions, guard_ctx, markers, memory as memory_mod, other_projects, prompts, security_actions, spec_check, stacks, test_scope, tools as tool_runner
 from .. import addons, agent_names, extensions, models, rules
-from ..models import catalog, usage as provider_usage
+from ..models import catalog, cli_runners, usage as provider_usage
 from ..models.base import AgentRequest, AgentResult
 from ..models.stream import DeltaThrottle
 from ..tools import git, guard, mcp
@@ -57,6 +57,9 @@ class AgentMixin:
         if plugin_key:
             specs += extensions.server_specs(mine, plugin_key)
         mcp_specs, tools_allow = agent_knowledge.filter_mcp(specs, allow, know)
+        if step.mcp == "gateway":
+            # 0.19.0 harness mode: the project's MCP servers through keel's own server only (mcp_gateway.py)
+            mcp_specs, tools_allow = mcp.gateway(mcp_specs, tools_allow, [s.get("name") for s in ctx.mcp or []])
 
         refused_paths: list[str] = []      # the guard-loop count (CodeMixin._guard_loop) reads the files refused here
 
@@ -91,7 +94,11 @@ class AgentMixin:
         # Agent memory: the same step again (restart, try again, send-back) continues this agent's own session.
         mem = ctx.memory
         key = memory_mod.attempt_key(step.id, ac or item, agent, index, section)
-        if agent in REVIEWERS:
+        if step.session == "thread":
+            # 0.19.0 harness mode: every step marked `session: thread` continues one harness session (plan, build,
+            # fix-ups), as a person does in one Claude Code / Codex / Copilot / OpenCode session
+            key = memory_mod.THREAD_KEY
+        elif agent in REVIEWERS:
             # 0.18.17 a reviewer remembers one commit only: after a fix commit it continued its old session ("use what
             # you already know") and repeated the fixed findings word for word. A new HEAD is a new review.
             key += "|" + ((await asyncio.to_thread(git.head, root)) or "")[:12]
@@ -99,7 +106,7 @@ class AgentMixin:
         same = bool(prev and prev["provider"] == model["provider"] and prev["root"] == root)
         can_resume = model.get("mode") != "api" and model["provider"] in _c.RESUMABLE
         resuming = bool(same and can_resume and prev.get("session"))
-        session = prev["session"] if resuming else (str(uuid.uuid4()) if can_resume and model["provider"] == "claude" else None)
+        session = prev["session"] if resuming else (str(uuid.uuid4()) if can_resume and model["provider"] in _c.NAMED_SESSION else None)
         if mem:
             await mem.start(key, model["provider"], root, session, keep_trail=same)
 
@@ -663,6 +670,17 @@ class AgentMixin:
             if fail:
                 data = dict(upd.get("data") or state.get("data") or {})
                 data["last_command_failure"] = {**fail, "step": step.id, "agent": step.agent or calls[0][0]}
+                upd["data"] = data
+                state = {**state, "data": data}
+        if step.session == "thread" and agent_results and ctx.memory:
+            # 0.19.0 harness mode: the session this flow keeps, and how a person opens it in their own terminal
+            got = await ctx.memory.get(memory_mod.THREAD_KEY) or {}
+            m = agent_results[-1][1]
+            if got.get("session"):
+                data = dict(upd.get("data") or state.get("data") or {})
+                data["harness"] = {"provider": m["provider"], "model": m.get("model"), "session": got["session"],
+                                   "open": memory_mod.open_command(m["provider"], got["session"], m.get("mode"),
+                                                                   cli_runners.claude_home())}
                 upd["data"] = data
                 state = {**state, "data": data}
         upd.update(self._outputs(step, state, [r[0] for r in agent_results], item_of))

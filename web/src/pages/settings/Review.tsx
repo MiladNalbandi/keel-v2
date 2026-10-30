@@ -250,13 +250,26 @@ export function ReviewTab({ pid }: { pid: string }) {
             <input
               type="radio"
               name="rv-runs"
-              checked={cfg.find_runs !== "classic"}
+              checked={(cfg.find_runs ?? "harness") === "harness"}
+              disabled={busy || readOnly}
+              onChange={() => void save({ find_runs: "harness" })}
+            />
+            <span>
+              <b>Your coding harness</b> · the project's default model (Claude Code, Codex, Copilot CLI or OpenCode)
+              reviews the change in one session of its own, then a fresh run checks each serious claim (keel's default)
+            </span>
+          </label>
+          <label>
+            <input
+              type="radio"
+              name="rv-runs"
+              checked={cfg.find_runs === "flow"}
               disabled={busy || readOnly}
               onChange={() => void save({ find_runs: "flow" })}
             />
             <span>
               <b>The review flow</b> · every step is on the Flow page: prepare, build and lint, reviewers, a second
-              look at each claim, the report (keel's default)
+              look at each claim, the report
             </span>
           </label>
           <label>

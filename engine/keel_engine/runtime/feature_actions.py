@@ -189,7 +189,10 @@ def preflight(a):
         notes.append("integration, e2e and smoke gates waived")
     if not git.is_repo(a.root):
         return _ok("; ".join(["Not a git repository: no branch of its own", *notes]), update=update)
-    if not a.fake and not testcmd.command_for(a.root, None, "API"):
+    if not a.fake and not testcmd.command_for(a.root, None, "API") and a.flow == "harness":
+        # 0.19.0 the harness runs the project's tests itself: keel's own test run is a check on top (harness_check)
+        notes.append("no test command keel knows: the harness runs the tests itself")
+    elif not a.fake and not testcmd.command_for(a.root, None, "API"):
         return _fail("Not ready: no test command found.",
                      "Add commands (api_test_ac, api_test_module) to .keel/config.yml, or run the init flow first.")
     cfg = rules.load_config(a.root)

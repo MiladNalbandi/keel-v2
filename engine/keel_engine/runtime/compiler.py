@@ -87,7 +87,9 @@ NO_REASON = ("The person sent this back but gave no reason. Do not do the same w
 SPEC_PATH = re.compile(r"(?<![\w./-])((?:\.{0,2}/)?[\w@.-]+(?:/[\w@.-]+)*\.md)\b")
 # The knowledge check's actions: a failure goes to the librarian, never fails the flow (Compiler._knowledge_failed).
 KNOWLEDGE_CHECKS = ("knowledge_check", "memory_check")
-RESUMABLE = {"claude", "codex"}      # CLIs whose sessions keel can continue (claude --resume, codex exec resume)
+RESUMABLE = {"claude", "codex", "copilot", "opencode"}   # CLIs whose sessions keel can continue (claude --resume, codex
+#                                                       # exec resume, copilot --session-id, opencode run -s)
+NAMED_SESSION = {"claude", "copilot"}                  # keel names a new session itself (the others report the id)
 ALREADY_MET = "already-met"
 DONE = ("done", ALREADY_MET)        # AC statuses the per-AC loop is finished with
 ITEM_DONE = ("done", "skipped", "failed")   # item statuses a for_each loop is finished with (todo is the rest)

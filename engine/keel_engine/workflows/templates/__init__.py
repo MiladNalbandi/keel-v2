@@ -11,7 +11,7 @@ from ... import addons
 from ...config import content_dir
 
 ORDER = ["feature", "change", "quick", "address", "small", "implement", "spike", "clarify", "fix", "diagnose", "review", "review-pr", "init", "knowledge-refresh", "cover", "ship", "hunt", "hunt-next", "lint",
-         "plugin"]
+         "plugin", "harness"]
 
 
 def folder() -> Path:

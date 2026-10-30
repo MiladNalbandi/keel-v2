@@ -66,8 +66,6 @@
 # --core.
 # Native: KEEL2_HOME (default ~/.keel2), KEEL_YES=1 (yes to the native warning, and to restore's question), KEEL_NATIVE_CLIS=0 (no agent CLIs),
 # KEEL_RELEASE_URL (where releases are downloaded from).
-# Signed commits: KEEL_SIGNING_KEY=<an SSH key that may sign commits> keel2 start ... (0.18.75: mounted read-only at
-#                 /run/keel/signing-key, keel's own commits are signed with it; restart and update keep it).
 # Phone: KEEL_BIND (127.0.0.1 default; --wifi = 0.0.0.0), KEEL_LAN_IP (the Wi-Fi address to show, when the guess is wrong),
 # KEEL_CLOUDFLARED_IMAGE (the tunnel's image when cloudflared is not installed), KEEL_YES=1 (yes to the tunnel's question).
 # Added folders are listed in ${XDG_CONFIG_HOME:-~/.config}/keel2/<KEEL_NAME>.folders (one path per line).
@@ -75,7 +73,7 @@
 # data volume, so they survive restarts and new images. Nothing from your computer is copied into the container.
 set -euo pipefail
 
-KEEL2_VERSION="0.18.75"
+KEEL2_VERSION="0.19.1"
 IMAGE="${KEEL_IMAGE:-ghcr.io/miladnalbandi/keel-v2:latest}"
 # keel's core only (docs/plugins/16-steps5-7-contract.md, step 6): keel2 start --core, unless KEEL_IMAGE is set
 CORE_IMAGE="ghcr.io/miladnalbandi/keel-v2:core"
@@ -520,12 +518,6 @@ cmd_start() {
   # 0.18.68 Help › Start here's MCP snippets name this launcher by its absolute path (an AI tool started from a
   # desktop launcher often has no ~/.local/bin on its PATH: opencode failed on a bare keel2)
   args+=(-e "KEEL2_PATH=$(self_path)")
-  # 0.18.75 keel's commits signed (a repo whose rules want signed commits): KEEL_SIGNING_KEY names an SSH signing key on
-  # this computer; it is mounted read-only and keel's own commits use it (restart and update keep it, by the label)
-  if [ -n "${KEEL_SIGNING_KEY:-}" ]; then
-    [ -f "$KEEL_SIGNING_KEY" ] || die "KEEL_SIGNING_KEY names no file: $KEEL_SIGNING_KEY" "Give the path of an SSH key that may sign commits."
-    args+=(-v "$KEEL_SIGNING_KEY:/run/keel/signing-key:ro" -e KEEL_SIGNING_KEY=/run/keel/signing-key --label "keel2.signing=$KEEL_SIGNING_KEY")
-  fi
   # 0.18.55 the names keel answers on besides localhost: KEEL_ALLOWED_HOSTS (restart and update keep it, by the
   # label), and on the network (--wifi) this computer's own name and <name>.local, so http://server.local:8088 works
   local hosts; hosts="$(allowed_hosts "$bind")"
@@ -598,7 +590,6 @@ cmd_restart() {  # keel2 restart [--safe] [--force]; safe mode lasts until the n
   local extra=(); if [ -n "$v1" ] && [ -f "$v1/mcp/server.js" ]; then extra=(--with-keel-v1 "$v1"); fi
   if [ "$(label core)" = 1 ]; then extra+=(--core); fi
   local b; b="$(label bind)"; if [ -n "$b" ] && [ -z "${KEEL_BIND:-}" ]; then extra+=(--bind "$b"); fi
-  local sk; sk="$(label signing)"; if [ -n "$sk" ] && [ -z "${KEEL_SIGNING_KEY:-}" ]; then export KEEL_SIGNING_KEY="$sk"; fi
   extra+=(${safe[@]+"${safe[@]}"})
   if [ "$d" = 1 ]; then cmd_start --docker ${extra[@]+"${extra[@]}"} "$p"; else cmd_start --no-docker ${extra[@]+"${extra[@]}"} "$p"; fi
 }

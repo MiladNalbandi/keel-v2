@@ -67,7 +67,7 @@ class CoreSlotsApiTest : ApiTest() {
     @Test
     fun `the settings sections hold every core key once, with its type and default`() {
         val sections = get("/api/settings/sections").andExpect(status().isOk).json()
-        assertThat(sections.map { it["id"].asText() }).containsExactly("mode", "flow", "models", "budget", "git", "notify", "env")
+        assertThat(sections.map { it["id"].asText() }).containsExactly("mode", "harness", "flow", "models", "budget", "git", "notify", "env")
         val keys = sections.flatMap { s -> s["keys"].toList() }
         assertThat(keys.map { it["key"].asText() }).containsExactlyInAnyOrderElementsOf(Settings.KEYS)
         val byKey = keys.associateBy { it["key"].asText() }

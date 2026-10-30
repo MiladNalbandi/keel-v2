@@ -9,7 +9,7 @@ from keel_engine.workflows.validate import validate
 def test_templates_are_valid_and_have_phases():
     ids = [t.id for t in templates()]
     assert ids == ["feature", "change", "quick", "address", "small", "implement", "spike", "clarify", "fix", "diagnose", "review", "review-pr", "init", "knowledge-refresh", "cover", "ship", "hunt", "hunt-next", "lint",
-                   "plugin"]
+                   "plugin", "harness"]
     for t in templates():
         assert validate(t) == [], t.id
         assert all(s.phase for s in t.steps), t.id
@@ -119,7 +119,7 @@ def test_api_validate_and_estimate(client):
     tpls = client.get("/templates").json()
     # (a plugin's own workflow comes after these, with "plugin": the CI/CD plugin's ci-fix, plugins/ci/engine/tests)
     assert [t["id"] for t in tpls] == ["feature", "change", "quick", "address", "small", "implement", "spike", "clarify", "fix", "diagnose", "review", "review-pr", "init", "knowledge-refresh", "cover", "ship", "hunt", "hunt-next", "lint",
-                   "plugin"]
+                   "plugin", "harness"]
     assert "plugin" not in tpls[0]
     good = tpls[0]["yaml"]
     r = client.post("/workflows/validate", json={"yaml": good}).json()

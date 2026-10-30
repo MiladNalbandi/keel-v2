@@ -75,6 +75,10 @@ data class Step(
     val asks: Boolean? = null,
     /** v0.13.0 an agent step whose whole answer the next steps read: state.data["<step id>_text"]. */
     val keep: Boolean? = null,
+    /** 0.19.0 harness mode: "thread" = this agent step continues the flow's one harness session (plan, then build). */
+    val session: String? = null,
+    /** 0.19.0 harness mode: "gateway" = the project's MCP servers reach this agent through keel's own server only. */
+    val mcp: String? = null,
 ) {
     val locked: Boolean @com.fasterxml.jackson.annotation.JsonIgnore get() = lock == true
 

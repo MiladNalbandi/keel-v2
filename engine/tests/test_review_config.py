@@ -71,7 +71,10 @@ def test_nothing_written_is_todays_two_reviewers(tmp_path):
     assert [r["name"] for r in revs] == ["correctness and security", "tests, the description and design"]
     assert revs[0]["lenses"] == ["data-migration", "idempotency-retry", "error-handling-retry"]
     assert revs[1]["lenses"] == ["config-secrets", "test-quality"]
-    assert v["find_text"].startswith("The review flow (Standard, ~60k tokens) reads the change with your project's rules")
+    assert v["find_text"].startswith("Your coding harness (the project's default model: Claude Code, Codex, Copilot CLI or "
+                                     "OpenCode) reviews the change in one session of its own")
+    flow = review_config.find_text({**v["config"], "find_runs": "flow"})
+    assert flow.startswith("The review flow (Standard, ~60k tokens) reads the change with your project's rules")
     classic = review_config.find_text({**v["config"], "find_runs": "classic"})
     assert classic.startswith("Two keel reviewers read the change (A: correctness and security, B: tests, the")
     # the reviewers keep the project's model; the checker and the final review get a stronger one
@@ -191,14 +194,14 @@ def test_the_routes_the_api_calls(client, tmp_path):
 
 # ------------------------------------------------------------------ 0.18.67 depth, Find problems' flow, your standards
 
-def test_depth_and_find_runs_default_to_standard_and_the_flow_and_are_written_only_when_changed(tmp_path):
+def test_depth_and_find_runs_default_to_standard_and_the_harness_and_are_written_only_when_changed(tmp_path):
     root = project(tmp_path)
     cfg = review_config.effective(str(root))
-    assert (cfg["depth"], cfg["find_runs"]) == ("standard", "flow")
+    assert (cfg["depth"], cfg["find_runs"]) == ("standard", "harness")
     review_config.write(str(root), {"depth": "full", "find_runs": "classic"})
     block = yaml.safe_load((root / ".keel/config.yml").read_text())["review"]
     assert (block["depth"], block["find_runs"]) == ("full", "classic")
-    review_config.write(str(root), {"depth": "standard", "find_runs": "flow"})        # the defaults again: not written
+    review_config.write(str(root), {"depth": "standard", "find_runs": "harness"})     # the defaults again: not written
     assert "review" not in (yaml.safe_load((root / ".keel/config.yml").read_text()) or {})
     for bad in ({"depth": "deep"}, {"find_runs": "agents"}):
         with pytest.raises(review_config.ReviewConfigError):
