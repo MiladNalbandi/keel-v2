@@ -442,6 +442,36 @@ class ReviewApiTest : ApiTest() {
     }
 
     @Test
+    fun `Find problems in harness mode is one session of the project's harness, then the checker`() {
+        engine.extraRoutes["/review-config/view"] = { b ->
+            val base = engine.reviewConfigView(b?.path("models")?.path("default"))
+            @Suppress("UNCHECKED_CAST")
+            200 to base + mapOf("config" to (base["config"] as Map<String, Any?>) + mapOf("find_runs" to "harness", "depth" to "quick"))
+        }
+        try {
+            val (pid, _) = githubPr()
+            view(pid, "pr:7")
+            val s1 = post("/api/projects/$pid/review/ai/findings", mapOf("key" to "pr:7")).andExpect(status().isOk).json()
+            val sessions = s1["findings"]["sessions"]
+            assertThat(sessions.map { it["role"].asText() }).containsExactly("find-a")       // one reviewer: the harness
+            val sid = sessions[0]["sid"].asText()
+            assertThat(turnText(sid)).contains("reviewer A").contains("Read the diff only")           // quick
+                .contains("breaks of this project's own rules").contains("keel-review-findings")
+            finish(pid, sid, "```keel-review-findings\n{\"read\": [\"src/Prefs.kt\"], \"findings\": [{\"title\": \"page size is never saved\", " +
+                "\"severity\": \"blocking\", \"category\": \"correctness\", \"path\": \"src/Prefs.kt\", \"line\": 4, \"why\": \"cache only\", \"fix\": \"save it\"}]}\n```")
+            val mid = get("/api/projects/$pid/review/ai?key=pr:7").json()["findings"]
+            val vsid = mid["sessions"].first { it["role"].asText() == "verify-1" }["sid"].asText()
+            val claim = Regex("- id (f_[0-9a-f]+):").find(turnText(vsid))!!.groupValues[1]
+            finish(pid, vsid, "```keel-review-verify\n{\"verdicts\": [{\"id\": \"$claim\", \"verdict\": \"confirmed\", \"why\": \"line 4\"}]}\n```")
+            val r = get("/api/projects/$pid/review/ai?key=pr:7").json()["findings"]
+            assertThat(r["status"].asText()).isEqualTo("done")
+            assertThat(r["result"]["findings"].map { it["title"].asText() }).containsExactly("page size is never saved")
+        } finally {
+            engine.extraRoutes.remove("/review-config/view")
+        }
+    }
+
+    @Test
     fun `Find problems runs the review flow at Settings › Review's depth and shows its checked findings`() {
         engine.extraTemplates += engine.featureTemplate + mapOf("id" to "review-pr", "name" to "review a PR (keel)")
         engine.extraRoutes["/review-config/view"] = { b ->

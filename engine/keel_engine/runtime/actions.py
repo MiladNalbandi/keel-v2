@@ -36,7 +36,10 @@ from . import commit_style
 from . import tools as tool_runner
 from . import ladder as run_ladder
 
-COMMIT_EXCLUDES = [f":!{p.rstrip('/')}" for p in git.ENGINE_FILES]
+COMMIT_EXCLUDES = [f":!{p.rstrip('/')}" for p in git.ENGINE_FILES] + [
+    # 0.19.0 what running the tests leaves behind in a project without a .gitignore for it (a harness ran pytest and
+    # keel's commit took the bytecode along)
+    ":(glob,exclude)**/__pycache__/**", ":(glob,exclude)**/*.pyc", ":(glob,exclude)**/.pytest_cache/**"]
 VERDICT_ACTIONS = {
     "verify_fast": verdict_actions.verify_fast, "verify_module": verdict_actions.verify_module,
     "verify_deps": verdict_actions.verify_deps, "audit": verdict_actions.audit, "trace": verdict_actions.trace,
@@ -145,8 +148,16 @@ async def run_action(action: str, a: ActionInput) -> ActionResult:
 def _flow_actions() -> dict:
     """The actions of single flows (hunt, hunt-next, init's extra steps, review-pr, clarify); imported late, they import
     this module."""
-    from . import clarify_flow, hunt_actions, init_actions, ticket_actions
-    return {**hunt_actions.ACTIONS, **init_actions.ACTIONS, **ticket_actions.ACTIONS, **clarify_flow.ACTIONS}
+    from . import clarify_flow, harness_actions, hunt_actions, init_actions, ticket_actions
+    return {**hunt_actions.ACTIONS, **init_actions.ACTIONS, **ticket_actions.ACTIONS, **clarify_flow.ACTIONS,
+            **{k: _threaded(f) for k, f in harness_actions.ACTIONS.items()}}
+
+
+def _threaded(fn):
+    """A plain (blocking) action as the coroutine run_action awaits: it runs in a worker thread."""
+    async def run(a):
+        return await asyncio.to_thread(fn, a)
+    return run
 
 
 

@@ -45,6 +45,7 @@ from pydantic import BaseModel, Field
 from . import extensions
 from . import mcp_ask as ask_mod
 from . import mcp_confirm as confirm_mod
+from . import mcp_gateway as gateway_mod
 from .addons import NAME
 from .mcp_api import (API_TIMEOUT, MCP_TOKEN_HEADER, ApiError, KeelApi, _clock, _flow, _flow_of, _n, _project, _when, cut, internal_token,
                       waiting_thread)
@@ -1381,7 +1382,24 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         own words) and never installs anything itself. One request per plugin; a second one joins it."""
         return guard(plugin_request, api, name, reason, version, project)
 
+    # 0.19.0 harness mode: the project's connected MCP servers re-exported through this server (mcp_gateway.py)
+    via = gateway_mod.configured()
+    if via:
+        gateway_mod.attach(srv, via, None if yes else lambda server, tool, args: _gateway_ask(api, server, tool, args))
     return srv
+
+
+def _gateway_ask(api: KeelApi, server: str, tool: str, args: dict) -> tuple[bool, str]:
+    """The person's OK in keel's Inbox for a connected server's tool that is not read-only (mcp_gateway.py)."""
+    import json
+
+    try:
+        pid = os.environ.get("KEEL_PROJECT") or _project(api, None)["id"]
+        shown = json.dumps(args, default=str)[:3000]
+        return _ask_person(api.acting("keel gateway", f"{server}__{tool}"), pid,
+                           f"An agent wants to run {server}'s {tool}"[:200], f"{server}.{tool}({shown})")
+    except ApiError as exc:
+        return False, str(exc)
 
 
 PLUGIN_ENV = ("KEEL_PLUGIN_PATHS", "KEEL_PLUGIN_ADDONS")

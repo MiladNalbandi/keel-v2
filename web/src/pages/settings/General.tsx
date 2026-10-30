@@ -51,6 +51,51 @@ export type GeneralSection = {
 /** keel's own sections of General, in order. Add a setting here: one row in its section. */
 export const GENERAL_SECTIONS: GeneralSection[] = [
   {
+    // 0.19.0 harness mode: the coding harness does the work, keel is the control room around it
+    id: "harness",
+    title: "Who does the work",
+    sub: "Your coding harness (the default model's: Claude Code, Codex, Copilot CLI or OpenCode) in one session of its own, or keel's own flows.",
+    open: true,
+    rows: [
+      {
+        key: "build_runs",
+        label: "New work (change, feature, bug)",
+        def: "harness",
+        kind: {
+          t: "select",
+          opts: [
+            ["harness", "the coding harness"],
+            ["flow", "keel's flows"],
+          ],
+        },
+        help: (v) =>
+          String(v ?? "harness") === "harness"
+            ? "The harness plans and builds in one session; keel shows it live, runs your tests, and commits after your look. You can open the session in your own terminal."
+            : "keel's own flows: spec, criteria one by one (test first), reviews and gates.",
+      },
+      {
+        key: "harness_plan",
+        label: "Plan first",
+        def: true,
+        kind: { t: "bool", on: "yes", off: "no" },
+        help: "The harness writes a plan and waits for your OK (or your note) before it changes any file.",
+      },
+      {
+        key: "fix_runs",
+        label: "Fixing a review finding",
+        def: "harness",
+        kind: {
+          t: "select",
+          opts: [
+            ["harness", "the coding harness"],
+            ["flow", "keel's flow"],
+          ],
+        },
+        help: "Who fixes a finding when you press Fix on the Review page. keel commits the fix and pushes nothing.",
+      },
+    ],
+  },
+  {
     id: "flow",
     title: "Flow and gates",
     sub: "How much a flow does by itself, and when it stops for you.",

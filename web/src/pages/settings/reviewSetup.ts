@@ -23,7 +23,7 @@ export type ReviewConfig = {
   drop_correctness: boolean;
   /** 0.18.67 how hard a review looks, and what Find problems runs: the review flow or the classic reviewers */
   depth: Depth;
-  find_runs: "flow" | "classic";
+  find_runs: "harness" | "flow" | "classic";
 };
 
 export type Depth = "quick" | "standard" | "full";

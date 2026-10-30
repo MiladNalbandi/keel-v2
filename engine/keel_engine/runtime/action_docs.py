@@ -723,6 +723,30 @@ DOCS: dict[str, dict] = {
         "summary": "Shows the ready-to-send prompt to copy; the flow ends without starting another one.",
         "steps": ["The prompt from the clarify document is the step's output; no child flow starts."],
     },
+    # 0.19.0 harness mode (runtime/harness_actions.py, content/workflows/harness.yaml)
+    "harness_intent": {
+        "summary": "Says which of keel's flows the person asked for (change, feature, bug, a review fix), so the "
+                   "harness's planner follows what that flow expects, and whether the harness plans first.",
+        "steps": ["data.intent from the start (the api sets it when Settings › Who does the work sends the work to the "
+                  "coding harness); change when none was given.",
+                  "data.plan_first: yes unless the start said no (Settings › Who does the work › Plan first)."],
+    },
+    "harness_plan_show": {
+        "summary": "Shows the harness's plan at the plan gate, word for word, with the command that opens its session.",
+        "steps": ["The plan step's whole answer (goal, criteria, files, tests, risks).",
+                  "approve: the same session builds it; change: the note goes back to that session; reject: stop."],
+    },
+    "harness_check": {
+        "summary": "keel runs the project's tests after the harness built the change; a failure goes back to the "
+                   "same harness session once, with the output.",
+        "steps": ["The project's test command (.keel/config.yml commands, a stack pack, or the build files).",
+                  "No test command keel knows: passes with a note (the harness ran its tests itself)."],
+    },
+    "harness_done_show": {
+        "summary": "Shows the change for your look: the harness's summary, the diff (not committed yet) and its session.",
+        "steps": ["commit: keel commits it (the secret scan first); more: a note back to the same session; reject: "
+                  "stop, the change stays in the folder."],
+    },
 }
 
 

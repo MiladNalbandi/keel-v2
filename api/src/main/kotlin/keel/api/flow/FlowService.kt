@@ -295,6 +295,11 @@ class FlowService(
               ownBranch: Boolean = true, branch: String? = null, force: Boolean? = null, base: String? = null): JsonNode {
         if (title.isBlank()) throw BadRequest("Give the flow a title", "One short line: what should this flow build or fix?")
         cap?.check()
+        // 0.19.0 harness mode: new work goes to the project's coding harness (Settings › Who does the work), when this
+        // engine has the harness flow (an older engine runs the flow that was asked for)
+        val (workflowId, options) = Harness.route(settings.effective(pid), workflowId, options, model)
+            .takeIf { (wf, _) -> wf != Harness.WORKFLOW || runCatching { workflows.get(Harness.WORKFLOW) }.isSuccess }
+            ?: (workflowId to options?.minus("engine"))
         var start = buildStart(pid, workflowId, title, acs, cap, model)
         // B7 a start that named no branch mode: ship and the other flows that finish the folder's branch continue it
         val mode = if (branch == DEFAULT_BRANCH) defaultBranch(workflowId, start.workflow.basedOn) else branch

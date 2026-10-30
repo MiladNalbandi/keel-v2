@@ -306,7 +306,7 @@ function FindingCard({
   /** 0.18.74 "Fix it" here too (the Problems tab had it): the flow Settings › Review names, or ask each time */
   onFix?: (f: Finding, workflow?: string) => void;
   fixWith?: string;
-  fixed?: { flow_id?: string; workflow?: string } | null;
+  fixed?: { flow_id?: string; workflow?: string; harness?: string | null } | null;
   onOpen: (path: string, line?: number | null, side?: "RIGHT" | "LEFT") => void;
   onComment?: (f: Finding) => void;
   onDismiss?: (f: Finding, why: string) => void;
@@ -371,7 +371,7 @@ function FindingCard({
       )}
       {fixed && (
         <p className="rv-ok">
-          The {fixed.workflow ?? "fix"} flow fixes it.{" "}
+          {fixed.harness ? `${fixed.harness} fixes it.` : `The ${fixed.workflow ?? "fix"} flow fixes it.`}{" "}
           {fixed.flow_id && <a href={`#/flow/${encodeURIComponent(fixed.flow_id)}`}>Open flow ▸</a>}
         </p>
       )}
@@ -510,7 +510,7 @@ export function FindingsTab({
               onAsk={opts.actions === false ? undefined : onAsk}
               onFix={opts.actions === false ? undefined : onFix}
               fixWith={ai?.config?.find?.fix.flow}
-              fixed={(ai?.fixes?.[f.id] as { flow_id?: string; workflow?: string } | undefined) ?? null}
+              fixed={(ai?.fixes?.[f.id] as { flow_id?: string; workflow?: string; harness?: string | null } | undefined) ?? null}
             />
           ))}
       </section>

@@ -226,6 +226,19 @@ def detected(root: str, ac: str | None = None) -> str | None:
     return shown(sub, d) if sub else None
 
 
+def _plain_pytest(r: Path) -> bool:
+    """0.19.0 a Python project with no build file (checked after every build file): a tests/ (or test/) folder
+    holding pytest files, or a conftest.py.
+    keel stopped with "no test command found" on such a project while every harness ran pytest there."""
+    if (r / "conftest.py").is_file():
+        return True
+    for d in ("tests", "test"):
+        t = r / d
+        if t.is_dir() and (any(t.glob("test_*.py")) or any(t.glob("*_test.py")) or (t / "conftest.py").is_file()):
+            return True
+    return False
+
+
 def _detect_in(root: str, ac: str | None = None) -> str | None:
     """The test command for the build files in one folder."""
     r = Path(root)
@@ -263,6 +276,10 @@ def _detect_in(root: str, ac: str | None = None) -> str | None:
             runner = scripts["test"]
             flag = "--test-name-pattern=" if "node --test" in runner or "node  --test" in runner else "-t "
             return f"npm test --silent -- {flag}{shlex.quote(ac)}"
+    if _plain_pytest(r):
+        # 0.19.0 last: only a folder no build file above speaks for
+        base = "python -m pytest -q"
+        return f"{base} -k {shlex.quote(_pytest_key(ac))}" if ac else base
     return None
 
 

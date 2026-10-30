@@ -270,7 +270,8 @@ def test_commands_endpoint(client, repo):
             "plugin": "core", "source": "keel"} in got
 
 
-@pytest.mark.parametrize("provider,resumes", [("claude", True), ("codex", True), ("copilot", False)])
+@pytest.mark.parametrize("provider,resumes", [("claude", True), ("codex", True), ("copilot", True), ("opencode", True),
+                                             ("local", False)])
 def test_which_engines_continue_their_own_session(provider, resumes):
     assert (provider in helper.RESUMABLE) is resumes
 

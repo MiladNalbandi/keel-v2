@@ -8,9 +8,11 @@ import keel.api.common.Time
 import keel.api.doctor.WorkspaceDoctor
 import keel.api.events.EventHub
 import keel.api.flow.FlowService
+import keel.api.flow.Harness
 import keel.api.projects.ProjectService
 import keel.api.repo.ClassifyConfig
 import keel.api.repo.KeelRules
+import keel.api.settings.SettingsService
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
 import java.util.UUID
@@ -47,6 +49,7 @@ class ReviewAddressService(
     private val mapper: ObjectMapper,
     private val hub: EventHub,
     private val setup: keel.api.reviewsetup.ReviewSetupService,
+    private val settings: SettingsService,
 ) {
     fun address(pid: String, key: String, threadId: String, b: AddressBody): AddressResult {
         val asked = b.workflow?.trim()?.ifEmpty { null }
@@ -82,20 +85,29 @@ class ReviewAddressService(
         val branch = folderOn(pid, view)
         val first = f.path("title").asText().take(70)
         val title = "Fix review finding: $first${if (group.size > 1) " (+${group.size - 1} in ${path})" else ""}"
+        // 0.19.0 Settings › Who does the work › fix_runs: the project's coding harness fixes it (the harness flow, no plan
+        // step: a finding says what to change), or keel's own flow
+        val s = settings.effective(pid)
+        val harness = s.fixRuns == Harness.WORKFLOW && Harness.isHarness(set.fixModel ?: s.defaultModel)
+        val options = if (harness) mapOf("engine" to Harness.WORKFLOW, "intent" to "review-fix", "plan_first" to "no")
+            else mapOf("engine" to "flow")
         val started = flows.start(pid, flow, title, null, cap = keel.api.flow.FlowCap(runMode = set.fixRunMode),
-            request = findingsRequest(view, group), where = "folder", model = set.fixModel, branch = "continue")
+            request = findingsRequest(view, group), where = "folder", model = set.fixModel, branch = "continue", options = options)
         val flowId = started.path("thread_id").asText().ifBlank { started.path("id").asText() }
+        val who = if (harness) Harness.name(set.fixModel ?: s.defaultModel) else null
         val now = Time.now()
         group.forEach { g ->
             jdbc.update("INSERT INTO review_runs(id, project_id, review_key, kind, head_sha, status, sessions, result, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
                 "rr_" + UUID.randomUUID().toString().replace("-", "").take(12), pid, key, ReviewAiService.FIX + g.path("id").asText(), view.headSha, "done", "[]",
-                mapper.writeValueAsString(mapOf("stage" to "flow", "flow_id" to flowId, "title" to title, "branch" to branch, "workflow" to flow,
+                mapper.writeValueAsString(mapOf("stage" to "flow", "flow_id" to flowId, "title" to title, "branch" to branch,
+                    "workflow" to if (harness) Harness.WORKFLOW else flow, "harness" to who,
                     "finding_id" to g.path("id").asText(), "with" to group.size)), now, now)
         }
         hub.publish(pid, "review.ai", mapOf("key" to key, "kind" to "flow"))
         val more = if (group.size > 1) " with the ${group.size - 1} other finding(s) in $path" else ""
-        return AddressResult(flowId, title, branch, flow,
-            "The $flow flow fixes it$more on ${branch ?: view.branch}. It commits there and pushes nothing.", ai.state(pid, key))
+        val doer = who ?: "The $flow flow"
+        return AddressResult(flowId, title, branch, if (harness) Harness.WORKFLOW else flow,
+            "$doer fixes it$more on ${branch ?: view.branch}. keel commits there and pushes nothing.", ai.state(pid, key))
     }
 
     /**

@@ -51,6 +51,32 @@ def scoped(specs: list[dict], allow: list[str] | None, projects: list[str]) -> l
     return [s for s in specs if s.get("name") != "keel"] + [{**base, "env": env}]
 
 
+GATEWAY_ENV = "KEEL_MCP_GATEWAY"
+
+
+def gateway(specs: list[dict], allow: list[str] | None, connected: list[str]) -> tuple[list[dict], list[str]]:
+    """0.19.0 harness mode (a step with `mcp: gateway`): the project's connected MCP servers (`connected`: Settings ›
+    MCP, keel's own excluded) reach the agent through keel's own server only. keel's server gets them in its env
+    (GATEWAY_ENV, JSON: each server's spec, and `tools`: the ones the Tools page allows, None for all) and re-exports their
+    tools (keel_engine/mcp_gateway.py); the agent's own config names keel's server alone. The servers the agent's allow
+    names (Tools › Who may use what), else every connected one. Returns (specs, allow) for the agent call."""
+    import json
+
+    wanted = parse_allow(allow)
+    by_name = {s["name"]: s for s in specs or []}
+    names = [n for n in connected if n != "keel" and n in by_name]
+    picked = [n for n in names if n in wanted] or names
+    rest = [a for a in allow or [] if a.split(":")[1:2] not in [[n] for n in picked] and a not in picked]
+    if not any(a == "keel" or a.startswith("mcp:keel") for a in rest):
+        rest.append("mcp:keel:*")
+    keel = by_name.get("keel") or keel_server_spec()
+    out = [s for s in specs or [] if s["name"] not in picked and s["name"] != "keel"]
+    if picked:
+        via = [{**by_name[n], "tools": None if wanted.get(n) is None else sorted(wanted[n])} for n in picked]
+        keel = {**keel, "env": {**(keel.get("env") or {}), GATEWAY_ENV: json.dumps(via)}}
+    return out + [keel], rest
+
+
 def codegraph_server_spec(root: str) -> dict | None:
     """The code graph's MCP server when keel indexed this folder and the index is ready (the parts' mcp_specs hook,
     keel_engine/extensions.py); None otherwise (agents then find their way with grep)."""

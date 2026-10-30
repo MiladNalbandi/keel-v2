@@ -78,6 +78,13 @@ data class Settings(
     val repoSkills: Boolean = true,
     /** v0.13.0 what this keel does (general only): auto = Product and Dev when the Product add-on is installed, else Dev. */
     val keelMode: String = "auto",
+    /** 0.19.0 who builds new work (change, feature, bug): harness = the default model's coding harness (Claude Code,
+     *  Codex, Copilot CLI, OpenCode) in one session of its own, keel around it (flow/Harness.kt); flow = keel's own flows. */
+    val buildRuns: String = "harness",
+    /** 0.19.0 harness mode: the harness writes a plan first and the person approves it before it builds (plan mode). */
+    val harnessPlan: Boolean = true,
+    /** 0.19.0 who fixes a review finding: harness = the review's harness session (KeelBot), flow = a keel flow. */
+    val fixRuns: String = "harness",
 ) {
     companion object {
         val RUN_MODES = setOf("manual", "important", "auto", "readonly")
@@ -85,6 +92,7 @@ data class Settings(
             "gates_mode", "run_mode", "fix_attempts", "coverage_min", "default_model", "implementer_model",
             "reviewer_model", "cheaper_model", "local_only", "cap_tokens", "on_cap", "usage_warn", "usage_pause", "branch_pattern", "web_lane_worktree",
             "push_pr", "commit_author", "commit_coauthor", "ci_on_failure", "notify", "env_names", "mcp", "repo_skills", "keel_mode",
+            "build_runs", "harness_plan", "fix_runs",
         )
         /** Settings of the whole keel only: a project cannot override them. */
         val GENERAL_ONLY = setOf("keel_mode")
@@ -98,6 +106,8 @@ data class Settings(
             "push_pr" to setOf("ask", "auto", "never"),
             "ci_on_failure" to setOf("notify", "fix", "quiet"),
             "keel_mode" to setOf("auto", "dev", "product", "both"),
+            "build_runs" to setOf("harness", "flow"),
+            "fix_runs" to setOf("harness", "flow"),
         )
     }
 }

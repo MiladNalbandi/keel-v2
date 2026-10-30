@@ -317,7 +317,9 @@ export type AiState = {
   buttons?: Record<string, AiRun<JudgeResult>>;
   config?: ThreadConfig;
   /** keel 0.18.65 per finding: the flow "Fix it" started */
-  fixes?: Record<string, { flow_id: string; title: string; branch: string | null; workflow?: string; with?: number; at: string }>;
+  fixes?: Record<string, { flow_id: string; title: string; branch: string | null; workflow?: string; with?: number; at: string;
+    /** 0.19.0 the coding harness that fixes it (Claude Code, Codex, Copilot CLI, OpenCode); null: a keel flow does */
+    harness?: string | null }>;
 };
 export type AddressResult = {
   flow_id: string;
