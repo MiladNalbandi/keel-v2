@@ -3,7 +3,7 @@
 # Nothing real runs: no Docker, no network (native releases are file:// URLs). Needs bash, python3; the native part needs uv.
 #   1. start: the running keel is removed only when the port is chosen and everything is ready; a failing `docker run`
 #      says how to recover (the volume is untouched) and exits non-zero
-#   2. update: no pull for a local image, no restart when the image did not change, a pinned/other image is kept
+#   2. update: no pull for a local image, no restart when the image did not change, another image is kept, a pinned version moves to its edition's newest
 #   3. native update: no downgrade when GitHub does not answer; a failed download leaves keel running;
 #      keel2 start keeps a version the person went back to
 #   4. guard_busy: when keel does not say if agents work (403, no token), keel2 asks (or refuses); it does not guess "none"
@@ -184,6 +184,24 @@ reset; seed ghcr.io/miladnalbandi/keel-v2-product:1.2 sha256:prod
 run_k -- update
 no_if "other image: :latest is not pulled" called "docker pull $LATEST"
 yes_if "other image: its own image is pulled" called "docker pull ghcr.io/miladnalbandi/keel-v2-product:1.2"
+# 0.19.2 a pinned version of keel's own image moves to its edition's newest release (the same tag again never updated)
+R=ghcr.io/miladnalbandi/keel-v2
+for pin in "0.18.74-product-beta:product-beta" "0.18.68:latest" "0.18:latest" "0.18.74-core:core"; do
+  reset; seed "$R:${pin%:*}" sha256:old
+  run_k -- update
+  yes_if "pinned :${pin%:*}: the newest :${pin##*:} is pulled" called "docker pull $R:${pin##*:}$"
+  no_if "pinned :${pin%:*}: the pinned tag is not pulled again" called "docker pull $R:${pin%:*}$"
+  yes_if "pinned :${pin%:*}: keel restarts on :${pin##*:}" called "docker run .*$R:${pin##*:}$"
+done
+reset; seed "$R:product-beta" sha256:old
+run_k -- update
+yes_if "product-beta stays product-beta" called "docker pull $R:product-beta$"
+reset; seed "$R:0.18.74-product-beta" sha256:old
+run_k KEEL_IMAGE="$R:0.18.74-product-beta" -- update
+yes_if "KEEL_IMAGE pins a version on purpose" called "docker pull $R:0.18.74-product-beta$"
+reset; seed "$R:stage-abc-full-amd64" sha256:old
+run_k -- update
+yes_if "a staging tag is kept" called "docker pull $R:stage-abc-full-amd64$"
 
 # ------------------------------------------------------------------ 4: guard_busy
 echo "guard_busy: an unknown answer is not 'no agents'"
