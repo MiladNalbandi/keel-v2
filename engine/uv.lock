@@ -687,7 +687,7 @@ wheels = [
 
 [[package]]
 name = "keel-engine"
-version = "0.18.74"
+version = "0.18.75"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic", extra = ["vertex"] },
