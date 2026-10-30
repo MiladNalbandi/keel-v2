@@ -1,0 +1,266 @@
+{
+ "workflow": "harness",
+ "name": "harness (keel)",
+ "steps": [
+  {
+   "id": "preflight",
+   "kind": "code",
+   "name": "preflight + own branch",
+   "phase": "preflight",
+   "action": "preflight"
+  },
+  {
+   "id": "intent",
+   "kind": "code",
+   "name": "what was asked for",
+   "phase": "triage",
+   "action": "harness_intent"
+  },
+  {
+   "id": "plan",
+   "kind": "agent",
+   "name": "the harness plans the change",
+   "agent": "harness-planner",
+   "model": "default",
+   "phase": "triage",
+   "markers": [
+    "PLAN"
+   ],
+   "when": {
+    "data": "plan_first",
+    "equals": "yes"
+   },
+   "instructions": "Plan this work, do not change any file yet. {{data.intent_note}} Answer with the whole plan in Markdown, in this order: ## Goal (one or two sentences); ## Acceptance criteria (a numbered list, each one testable); ## Files (each file you will add or change, and why); ## Tests (the tests you will write, one per criterion at least, and the command that runs them); ## Risks (what could break, what you are not sure about). Read the code first; name real files and the project's own patterns. End with one line \"PLAN: ready\" or \"PLAN: blocked <why>\".",
+   "keep": true,
+   "session": "thread",
+   "mcp": "gateway"
+  },
+  {
+   "id": "plan_show",
+   "kind": "code",
+   "name": "the plan for your look",
+   "phase": "triage",
+   "action": "harness_plan_show",
+   "when": {
+    "data": "plan_first",
+    "equals": "yes"
+   }
+  },
+  {
+   "id": "plan_gate",
+   "kind": "gate",
+   "name": "approve the plan",
+   "phase": "gate",
+   "lock": true,
+   "when": {
+    "data": "plan_first",
+    "equals": "yes"
+   },
+   "choices": {
+    "approve": "build",
+    "change": "plan",
+    "reject": "close"
+   }
+  },
+  {
+   "id": "build",
+   "kind": "agent",
+   "name": "the harness builds the plan",
+   "agent": "harness-builder",
+   "model": "default",
+   "phase": "ac",
+   "instructions": "Build the plan you wrote in this session (with the person's notes, when they gave any). Write the tests first and see them fail, then the code; run the tests you wrote and the ones around them until they pass. Follow the project's rules (AGENTS.md, CLAUDE.md, the code around it). Do not commit: keel commits after its own check. End with a short summary: what you changed, the test command you ran and its result.",
+   "session": "thread",
+   "mcp": "gateway"
+  },
+  {
+   "id": "check",
+   "kind": "code",
+   "name": "keel runs the project's tests",
+   "phase": "ac",
+   "action": "harness_check",
+   "back": "build",
+   "rounds": 1
+  },
+  {
+   "id": "done_show",
+   "kind": "code",
+   "name": "the change for your look",
+   "phase": "ac",
+   "action": "harness_done_show"
+  },
+  {
+   "id": "done_gate",
+   "kind": "gate",
+   "name": "look at the change",
+   "phase": "gate",
+   "lock": true,
+   "choices": {
+    "commit": "commit",
+    "more": "build",
+    "reject": "close"
+   }
+  },
+  {
+   "id": "commit",
+   "kind": "code",
+   "name": "commit",
+   "phase": "ac",
+   "action": "commit",
+   "lock": true
+  },
+  {
+   "id": "pr",
+   "kind": "code",
+   "name": "PR body",
+   "phase": "close",
+   "action": "pr"
+  },
+  {
+   "id": "pr_gate",
+   "kind": "gate",
+   "name": "open the PR",
+   "phase": "close",
+   "lock": true,
+   "choices": {
+    "open": "open_pr",
+    "skip": "close"
+   }
+  },
+  {
+   "id": "open_pr",
+   "kind": "code",
+   "name": "open the PR (never pushes)",
+   "phase": "close",
+   "action": "open_pr"
+  },
+  {
+   "id": "close",
+   "kind": "code",
+   "name": "done",
+   "phase": "close",
+   "action": "close_flow",
+   "then": "end"
+  }
+ ],
+ "expect": {
+  "main": [
+   "preflight",
+   "intent",
+   "plan",
+   "plan_show",
+   "plan_gate",
+   "build",
+   "check",
+   "done_show",
+   "done_gate",
+   "commit",
+   "pr",
+   "pr_gate",
+   "open_pr",
+   "close"
+  ],
+  "sections": [
+   {
+    "kind": "phase",
+    "phase": "preflight",
+    "nodes": [
+     {
+      "step": "preflight",
+      "side": []
+     }
+    ]
+   },
+   {
+    "kind": "phase",
+    "phase": "triage",
+    "nodes": [
+     {
+      "step": "intent",
+      "side": []
+     },
+     {
+      "step": "plan",
+      "side": []
+     },
+     {
+      "step": "plan_show",
+      "side": []
+     }
+    ]
+   },
+   {
+    "kind": "phase",
+    "phase": "gate",
+    "nodes": [
+     {
+      "step": "plan_gate",
+      "side": []
+     }
+    ]
+   },
+   {
+    "kind": "phase",
+    "phase": "ac",
+    "nodes": [
+     {
+      "step": "build",
+      "side": []
+     },
+     {
+      "step": "check",
+      "side": []
+     },
+     {
+      "step": "done_show",
+      "side": []
+     }
+    ]
+   },
+   {
+    "kind": "phase",
+    "phase": "gate",
+    "nodes": [
+     {
+      "step": "done_gate",
+      "side": []
+     }
+    ]
+   },
+   {
+    "kind": "phase",
+    "phase": "ac",
+    "nodes": [
+     {
+      "step": "commit",
+      "side": []
+     }
+    ]
+   },
+   {
+    "kind": "phase",
+    "phase": "close",
+    "nodes": [
+     {
+      "step": "pr",
+      "side": []
+     },
+     {
+      "step": "pr_gate",
+      "side": []
+     },
+     {
+      "step": "open_pr",
+      "side": []
+     },
+     {
+      "step": "close",
+      "side": []
+     }
+    ]
+   }
+  ],
+  "orphans": [],
+  "parent_of": {}
+ }
+}

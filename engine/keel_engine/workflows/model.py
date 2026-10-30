@@ -120,6 +120,12 @@ class Step(BaseModel):
     # Set by `include`: the include ids this step came from, outermost first (`ship`, or `ship/cover` for a step of the
     # cover flow that ship includes). Only for showing the workflow (the web folds an include into one block).
     included_from: str | None = None
+    # 0.19.0 harness mode: "thread" = this agent step continues the flow's one harness session (the plan step's session
+    # builds the plan); without it each step attempt has its own session (memory.attempt_key)
+    session: Literal["thread"] | None = None
+    # 0.19.0 harness mode: "gateway" = the project's MCP servers reach this agent through keel's own server only, which
+    # re-exports their tools and asks the person before one that is not read-only runs (mcp_gateway.py)
+    mcp: Literal["gateway"] | None = None
 
     @model_validator(mode="after")
     def _for_each_runs_per_item(self):

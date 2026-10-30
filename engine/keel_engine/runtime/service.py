@@ -586,6 +586,10 @@ class Engine:
             # 0.18.57 the branch or ref the flow's file:line citations are about (the Code page opens them there)
             "source_ref": await asyncio.to_thread(source_ref.flow_source_ref, row["root"], v.get("data")),
         }
+        harness = (v.get("data") or {}).get("harness")
+        if harness:
+            # 0.19.0 harness mode: the coding harness session this flow keeps, and how a person opens it themselves
+            out["harness"] = {k: harness.get(k) for k in ("provider", "model", "session", "open")}
         ctx = await self._context(tid)
         rungs = v.get("ladder")
         if self._has_ladder(ctx):

@@ -14,11 +14,13 @@ import keel.api.events.EngineEventStored
 import keel.api.events.EventHub
 import keel.api.engine.EngineClient
 import keel.api.flow.FlowService
+import keel.api.flow.Harness
 import keel.api.helper.HelperCreate
 import keel.api.helper.HelperService
 import keel.api.helper.HelperTurn
 import keel.api.projects.ProjectService
 import keel.api.reviewsetup.FindReviewer
+import keel.api.reviewsetup.FindSetup
 import keel.api.reviewsetup.ReviewSetupService
 import keel.api.settings.Model
 import keel.api.skills.SkillService
@@ -310,7 +312,12 @@ class ReviewAiService(
                 launch(pid, id, "overview", "${label(view)} · overview", overviewPrompt(view))
             } else {
                 val find = setup.find(pid, helper.defaultModel(pid))
-                if (find.runs == "flow" && view.host?.kind != "gitlab") {
+                if (find.runs == "harness") {
+                    // 0.19.0 harness mode: the project's coding harness reviews the whole change in one session of its own
+                    // (KeelBot's ask mode on the default model); the checker gives every serious claim a second look
+                    val who = Harness.name(helper.defaultModel(pid))
+                    launch(pid, id, "find-a", "${label(view)} · review ($who)", harnessPrompt(pid, view, find))
+                } else if (find.runs == "flow" && view.host?.kind != "gitlab") {
                     // 0.18.67 the one review flow (review-pr) at Settings › Review's depth: every step on its Flow page
                     startFlow(pid, id, view, find.depth)
                 } else {
@@ -695,6 +702,28 @@ class ReviewAiService(
             | "tests": "one line: are the tests enough, when your focus has them, or empty"}
             |```
         """.trimMargin()
+    }
+
+    /**
+     * 0.19.0 harness mode: one reviewer, the project's coding harness, with keel's change reviewer role and the
+     * project's rules. The depth says how far it reads (review_config.HARNESS_DEPTH): quick the diff only, standard the
+     * code around it, full the repo with every lens of Settings › Review. The answer is the classic reviewers' block.
+     */
+    internal fun harnessPrompt(pid: String, v: ReviewView, find: FindSetup): String {
+        val reach = when (find.depth) {
+            "quick" -> "Read the diff only, and report only the serious problems (blocking or should_fix)."
+            "full" -> "Read the diff, then anything in the repo it needs: callers, what runs after it, the tests, the config."
+            else -> "Read the diff and the code around it: the callers of what changed, its tests, the project's rules."
+        }
+        val reviewer = FindReviewer(
+            letter = "A", name = "harness",
+            focus = "every real problem the change introduces: bugs, security, what the description asks that the code " +
+                "does not do, missing or weak tests, and breaks of this project's own rules (AGENTS.md, CLAUDE.md, " +
+                "CONTRIBUTING.md and the code around it). $reach",
+            model = null, agent = "change-reviewer",
+            lenses = if (find.depth == "full") find.reviewers.flatMap { it.lenses }.distinctBy { it.first } else emptyList(),
+        )
+        return findPrompt(pid, v, reviewer)
     }
 
     private fun verifyPrompt(v: ReviewView, group: List<Map<String, Any?>>): String {

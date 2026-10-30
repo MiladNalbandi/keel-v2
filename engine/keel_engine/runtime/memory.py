@@ -115,6 +115,25 @@ class AgentMemory:
             log.warning("agent memory not saved: %s", exc)
 
 
+THREAD_KEY = "thread"      # 0.19.0 the one harness session the steps with `session: thread` share
+OPEN = {"claude": "claude --resume {sid}", "codex": "codex resume {sid}", "copilot": "copilot --resume {sid}",
+        "opencode": "opencode -s {sid}"}
+
+
+def open_command(provider: str, session: str, mode: str | None = None, claude_home: str = "") -> str | None:
+    """0.19.0 the command that opens a flow's harness session in a person's own terminal (None for an api run).
+    keel keeps claude's sessions in its own config home (CLAUDE_CONFIG_DIR, models/cli_runners.claude_home): the
+    command names it, or `claude --resume` would look in the person's ~/.claude and not find the session."""
+    if mode == "api" or not session:
+        return None
+    kind = "opencode" if mode == "opencode" else provider
+    tpl = OPEN.get(kind)
+    if not tpl:
+        return None
+    cmd = tpl.format(sid=session)
+    return f"CLAUDE_CONFIG_DIR={claude_home} {cmd}" if kind == "claude" and claude_home else cmd
+
+
 def attempt_key(step_id: str, ac: dict | None, agent: str, index: int, section: str | None) -> str:
     return "|".join([step_id, (ac or {}).get("id", ""), agent, str(index), section or ""])
 

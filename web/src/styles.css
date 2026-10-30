@@ -1402,4 +1402,6 @@ pre.prebox-pre { white-space: pre-wrap; overflow-wrap: anywhere; word-break: nor
 .fl-byhand { display: grid; gap: 8px; margin-top: 6px; }
 .fl-byhand fieldset { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; display: grid; gap: 4px; }
 .fl-byhand legend { font-size: 12px; color: var(--dim); padding: 0 4px; }
+.fl-harness { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-bottom: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; }
+.fl-harness code { overflow-wrap: anywhere; font-size: 12px; }
 .fl-byhand label.row { gap: 8px; align-items: flex-start; font-size: 13px; }

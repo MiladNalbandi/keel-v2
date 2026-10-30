@@ -14,7 +14,8 @@
       fix: {flow: small, model: flow, run_mode: null, one_flow_per_file: false}
       final: {model: stronger, effort: null}                           # the flows' last whole-branch review steps
       depth: standard                # 0.18.67 how hard a review looks: quick | standard | full (runtime/ticket_actions.py)
-      find_runs: flow                # 0.18.67 Find problems runs the review flow (review-pr); classic: the reviewers above
+      find_runs: harness             # 0.19.0 Find problems runs in the project's coding harness (one session, then a
+                                     # second look); flow: the review flow (review-pr, 0.18.67); classic: the reviewers above
 
 Nothing written means keel's defaults below: two reviewers (A and B, the focus and lenses they had before 0.18.65), the
 checker and the final review on a stronger model than the project's (stronger: Opus at high effort for Claude, high
@@ -61,11 +62,15 @@ DEFAULTS: dict[str, Any] = {
     "final": {"model": "stronger", "effort": None},
     "drop_correctness": False,
     "depth": "standard",
-    "find_runs": "flow",
+    "find_runs": "harness",
 }
 PARTS = ("reviewers", "checker", "fix", "final", "drop_correctness", "depth", "find_runs")
 DEPTHS = ("quick", "standard", "full")
-FIND_RUNS = ("flow", "classic")
+FIND_RUNS = ("harness", "flow", "classic")
+# 0.19.0 what each depth asks of the harness reviewer (the api's harness prompt says the same)
+HARNESS_DEPTH = {"quick": "the diff only, the serious problems.",
+                 "standard": "the diff and the code around it: callers, tests, the project's rules.",
+                 "full": "the diff and anything in the repo it needs, with every lens of Settings › Review."}
 # what Settings › Review says about each depth; the tokens are a first guess for a change of a few hundred lines
 DEPTH_INFO = {
     "quick": {"title": "Quick", "tokens": "~20k tokens", "time": "1–2 min",
@@ -203,8 +208,13 @@ def effective(root: str | None) -> dict:
 
 def find_text(cfg: dict) -> str:
     """What the Review page says above "Find problems": the review flow and its depth (0.18.67), or, classic, how many
-    reviewers read the change and what each looks at."""
-    if cfg.get("find_runs", "flow") == "flow":
+    reviewers read the change and what each looks at; harness (0.19.0): the project's coding harness reads it."""
+    if cfg.get("find_runs", "harness") == "harness":
+        info = HARNESS_DEPTH.get(cfg.get("depth") or "standard") or HARNESS_DEPTH["standard"]
+        return (f"Your coding harness (the project's default model: Claude Code, Codex, Copilot CLI or OpenCode) reviews "
+                f"the change in one session of its own, with your project's rules: {info} Then a fresh run checks "
+                "every serious claim against the code. Only checked findings are shown here; nothing is posted.")
+    if cfg.get("find_runs", "harness") == "flow":
         info = DEPTH_INFO.get(cfg.get("depth") or "standard") or DEPTH_INFO["standard"]
         return (f"The review flow ({info['title']}, {info['tokens']}) reads the change with your project's rules: "
                 f"{info['what']} You can watch every step on its Flow page. Only checked findings are shown here; "

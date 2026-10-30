@@ -93,7 +93,7 @@ from .chat.toolevents import (  # noqa: F401 - re-exported: the routes and the t
 
 log = logging.getLogger(__name__)
 
-RESUMABLE = {"claude", "codex"}          # CLIs that continue their own session (runtime/compiler.py RESUMABLE)
+RESUMABLE = {"claude", "codex", "copilot", "opencode"}   # CLIs that continue their own session (runtime/compiler.py RESUMABLE)
 HISTORY_TURNS = 12                       # earlier messages an API-key model gets
 TURN_TIMEOUT = 900
 SHELL_TIMEOUT = 300                      # 0.18.18 a `!command` the person runs (keel TUI), once it may run
@@ -496,7 +496,7 @@ class HelperRunner:
         resumable = model.get("mode") != "api" and provider in RESUMABLE
         session = s["engine_session"] if resumable else None
         resume = bool(session)
-        if resumable and not session and provider == "claude":
+        if resumable and not session and provider in ("claude", "copilot"):
             session = str(uuid.uuid4())
         hist: list = []
         res: AgentResult | None = None

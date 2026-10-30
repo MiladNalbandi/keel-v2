@@ -112,6 +112,10 @@ describe("Settings › Review", () => {
     await userEvent.click(screen.getByRole("radio", { name: /Classic/ }));
     await waitFor(() => expect(saved.at(-1)).toEqual({ find_runs: "classic" }));
     expect(await screen.findByRole("radiogroup", { name: "Number of reviewers" })).toBeInTheDocument();
+    // 0.19.0 the coding harness reviews (keel's default)
+    await userEvent.click(screen.getByRole("radio", { name: /Your coding harness/ }));
+    await waitFor(() => expect(saved.at(-1)).toEqual({ find_runs: "harness" }));
+    await waitFor(() => expect(screen.getByRole("radio", { name: /Your coding harness/ })).toBeChecked());
   });
 
   it("changes the number of reviewers, puts a lens on a reviewer, adds a lens and goes back to keel's default", async () => {

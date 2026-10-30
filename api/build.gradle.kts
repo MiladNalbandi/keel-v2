@@ -9,7 +9,7 @@ plugins {
 
 group = "keel"
 // keel v2's version: GET /api/health reports it (from build-info). Keep it equal to KEEL2_VERSION in ../keel2.
-version = "0.18.74"
+version = "0.19.0"
 
 java {
     toolchain { languageVersion.set(JavaLanguageVersion.of(21)) }

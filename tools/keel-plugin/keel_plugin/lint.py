@@ -31,14 +31,15 @@ PYTHON_LIBRARIES = ("requirements.lock", "requirements.txt")
 # keel's own names (keel-v2's content/workflows, content/agents and the agents it has without a file): a plugin's
 # content with one of them never loads, because keel keeps its own (03-security.md 3.4, rule 2).
 # tests/test_lint_names.py checks the lists against keel-v2's content/.
-KEEL_WORKFLOWS = frozenset({"address", "change", "clarify", "cover", "diagnose", "feature", "fix", "hunt", "hunt-next", "implement", "init",
+KEEL_WORKFLOWS = frozenset({"address", "change", "clarify", "cover", "diagnose", "feature", "fix", "harness", "hunt", "hunt-next", "implement", "init",
                             "knowledge-refresh", "lint", "plugin", "quick", "review", "review-pr", "ship", "small", "spike"})
 # The review agents' old names (keel-v2's engine/keel_engine/agent_names.py RENAMED) stay keel's: a workflow that says
 # one still runs keel's agent, and a plugin cannot bring an agent with one.
 KEEL_RENAMED_AGENTS = frozenset({"ac-reviewer", "code-reviewer", "reviewer", "ticket-reviewer"})
 KEEL_AGENTS = frozenset({"arch-surveyor", "branch-reviewer", "bulk-reader", "change-reviewer", "contract-author",
                          "criterion-reviewer",
-                         "dependency-triager", "e2e-author", "explorer", "finding-verifier", "hunter", "implementer", "investigator",
+                         "dependency-triager", "e2e-author", "explorer", "finding-verifier", "harness-builder", "harness-planner",
+                         "hunter", "implementer", "investigator",
                          "lane-runner", "lens-reviewer", "librarian", "pr-reviewer", "prover", "reproducer",
                          "security-auditor", "setup-doctor", "test-author", "web-researcher"}) | KEEL_RENAMED_AGENTS
 FRONT_NAME = re.compile(r"^name:\s*['\"]?([^'\"\s#]+)", re.M)

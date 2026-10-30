@@ -16,6 +16,9 @@ const ON_CAP: [OnCap, string][] = [["pause", "pause and ask me"], ["cheaper", "s
 
 /** 0.17.3 a flow started from a spec (the Wiki's "Start a flow from this spec"): the engine takes it as the flow's spec
  *  and its criteria (options.spec); acs is its number of criteria, for the estimate. */
+/** 0.19.0 the flows Settings › Who does the work sends to the coding harness (api flow/Harness.kt BUILD_FLOWS) */
+const HARNESS_FLOWS = new Set(["change", "quick", "small", "implement", "feature", "fix"]);
+
 export type StartFromSpec = { path: string; acs?: number };
 
 export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0, spec }: {
@@ -50,6 +53,8 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
   const [model, setModel] = useState<{ provider: string; model: string; effort?: string } | null>(null);
   const [allowFake, setAllowFake] = useState(false);
   const [allowDirty, setAllowDirty] = useState(false);
+  // 0.19.0 harness mode: a build flow goes to the coding harness (Settings › Who does the work); this runs keel's own
+  const [keelFlow, setKeelFlow] = useState(false);
   const [doctor, setDoctor] = useState(false);
   const [lintScope, setLintScope] = useState<"diff" | "all">("diff");
   const isDemo = projects.find((x) => x.id === p)?.root === "/data/demo";
@@ -222,7 +227,9 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
         // after the pick, put the project's mode back; and an omitted mode followed whatever the project said by then)
         run_mode: runMode,
         // the lint flow reads its scope from the flow's data (docs/CONTRACT.md, v0.4.1); a flow from a spec its path
-        ...(wid === "lint" ? { options: { scope: lintScope } } : spec ? { options: { spec: spec.path } } : {}),
+        ...(wid === "lint" ? { options: { scope: lintScope } }
+          : spec ? { options: { spec: spec.path, ...(keelFlow ? { engine: "flow" } : {}) } }
+          : keelFlow && HARNESS_FLOWS.has(wid) ? { options: { engine: "flow" } } : {}),
         // 0.18.57 auto with a chat in the folder: the worktree this form recommends (the api's auto knows only flows)
         ...(where !== "auto" ? { where } : inWorktree && !folderBusy ? { where: "worktree" as const } : {}),
         ...(!inWorktree && offBase ? { branch: branchMode } : {}),
@@ -452,6 +459,11 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
           <ul>{owners.map((o) => <li key={o.id}><b>{o.who}</b> — {o.why}</li>)}</ul>
           <label className="chk"><input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} /> Start anyway — two agents on one task write over each other</label>
         </div>
+      )}
+      {HARNESS_FLOWS.has(wid) && (
+        <label className="chk" title="Settings › Who does the work: new work goes to your coding harness (Claude Code, Codex, Copilot CLI or OpenCode)">
+          <input type="checkbox" checked={keelFlow} onChange={(e) => setKeelFlow(e.target.checked)} /> Run keel's own {wid} flow, not the coding harness
+        </label>
       )}
       {(dirtyRefused || allowDirty) && (
         <label className="chk"><input type="checkbox" checked={allowDirty} onChange={(e) => setAllowDirty(e.target.checked)} /> Start anyway — my uncommitted files stay out of keel's commits</label>

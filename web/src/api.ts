@@ -140,6 +140,8 @@ export type ThreadState = {
   source_ref?: string | null;
   thread_id: string;
   project_id: string;
+  /** 0.19.0 harness mode: the coding harness session this flow keeps (open: the command that opens it) */
+  harness?: { provider: string; model?: string | null; session: string; open?: string | null };
   workflow_id: string;
   title: string;
   status: ThreadStatus;
@@ -952,6 +954,12 @@ export type Settings = {
   mcp: string[];
   /** 0.18.57 the repo's own skills are loaded for their agents (Skills › Found in the repo) */
   repo_skills?: boolean;
+  /** 0.19.0 who builds new work: the coding harness (one session of its own) or keel's flows */
+  build_runs?: "harness" | "flow";
+  /** 0.19.0 harness mode: the harness plans first and waits for your OK */
+  harness_plan?: boolean;
+  /** 0.19.0 who fixes a review finding: the coding harness or a keel flow */
+  fix_runs?: "harness" | "flow";
 };
 export type ProjectSettings = { general: Settings; overrides: Partial<Settings>; effective: Settings;
   /** B15 the General keys someone saved (the others are keel's defaults). */

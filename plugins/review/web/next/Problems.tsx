@@ -217,7 +217,7 @@ export function ProblemsTab({
                 )}
                 {ai?.fixes?.[f.id] && (
                   <p className="rvn-flow" role="status">
-                    The {ai.fixes[f.id].workflow} flow fixes it
+                    {ai.fixes[f.id].harness ? `${ai.fixes[f.id].harness} fixes it` : `The ${ai.fixes[f.id].workflow} flow fixes it`}
                     {(ai.fixes[f.id].with ?? 1) > 1 ? ` with ${(ai.fixes[f.id].with ?? 1) - 1} more in this file` : ""}.{" "}
                     <a href={`#/flow/${encodeURIComponent(ai.fixes[f.id].flow_id)}`}>Open flow ▸</a>
                   </p>

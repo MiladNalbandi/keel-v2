@@ -45,8 +45,9 @@ data class FindSetup(
     val fixRunMode: String?,
     val oneFlowPerFile: Boolean,
     val text: String,
-    /** 0.18.67 flow: Find problems runs the review flow (review-pr) at [depth]; classic: the [reviewers] as KeelBot runs */
-    val runs: String = "flow",
+    /** 0.19.0 harness: Find problems runs in the project's coding harness (one KeelBot session on the default model,
+     *  then the checker); flow: the review flow (review-pr, 0.18.67) at [depth]; classic: the [reviewers] as KeelBot runs */
+    val runs: String = "harness",
     val depth: String = "standard",
 )
 
@@ -149,7 +150,7 @@ class ReviewSetupService(
             fixFlow = fix.path("flow").asText("small"), fixModel = model(fix.path("model")),
             fixRunMode = fix.path("run_mode").takeIf { it.isTextual }?.asText(), oneFlowPerFile = fix.path("one_flow_per_file").asBoolean(false),
             text = v.path("find_text").asText(),
-            runs = cfg.path("find_runs").asText("flow").ifBlank { "flow" },
+            runs = cfg.path("find_runs").asText("harness").ifBlank { "harness" },
             depth = cfg.path("depth").asText("standard").ifBlank { "standard" },
         )
     }

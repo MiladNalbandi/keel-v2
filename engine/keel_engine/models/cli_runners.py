@@ -496,7 +496,7 @@ class ClaudeCLIRunner:
         # MCP_CONNECTION_NONBLOCKING=0: claude -p waits for the MCP servers before the first model call (2.1 connects
         # them in the background), so a tool keel's prompt names (db_query, git_status, ...) is there from the start.
         env = safe_env({**claude_login_env(req.keys), guard_ctx.ENV: guard_ctx.ensure(req, scratch), "CLAUDE_CONFIG_DIR": claude_home(),
-                        "MCP_CONNECTION_NONBLOCKING": "0"})
+                        "MCP_CONNECTION_NONBLOCKING": "0", "MCP_TIMEOUT": str(MCP_START_MS)})
         # A resumed run's total_cost_usd includes the session's earlier runs (session_cost): keel books only this run's.
         before = session_cost(req.session) if req.resume else None
         try:
@@ -635,6 +635,11 @@ class CodexCLIRunner:
                      "-c", f"mcp_servers.{s['name']}.args={json.dumps(list(s.get('args') or []))}"]
             if names.get(s["name"]):
                 argv += ["-c", f"mcp_servers.{s['name']}.env_vars={json.dumps(names[s['name']])}"]
+            if mcp.GATEWAY_ENV in (s.get("env") or {}):
+                # 0.19.0 keel's gateway starts the project's servers before it answers (codex waits 10 s by default),
+                # and a tool that is not read-only waits for the person's OK in keel's Inbox (60 s by default)
+                argv += ["-c", f"mcp_servers.{s['name']}.startup_timeout_sec={MCP_START_MS // 1000}",
+                         "-c", f"mcp_servers.{s['name']}.tool_timeout_sec={MCP_TOOL_S}"]
             if inline.get(s["name"]):
                 # a name another server (or codex itself) has with another value: only in this server's table (a TOML
                 # inline table; json.dumps gives TOML-safe strings)
@@ -685,13 +690,26 @@ COPILOT_READONLY = ("Shell commands are not available in this read-only run (eve
 class CopilotCLIRunner:
     """`copilot -p` prints plain text, so each non-empty line is a text step and tokens are estimated."""
 
+    async def _fresh(self, req: AgentRequest, emit: Emit) -> AgentResult:
+        """The saved session is gone: start a new one for this step (as ClaudeCLIRunner does)."""
+        emit("text", "Could not continue the earlier session for this step; starting a new one.")
+        new = str(uuid.uuid4())
+        if req.on_session:
+            req.on_session(new)
+        return await self.run(dataclasses.replace(req, session=new, resume=False), emit)
+
     async def run(self, req: AgentRequest, emit: Emit) -> AgentResult:
         prompt = f"{req.system}\n\n{req.prompt}" if req.system else req.prompt
         if getattr(req.toolbox, "readonly", False):
             prompt = f"{prompt}\n\n{COPILOT_READONLY}"
         # --disable-builtin-mcps: GitHub's own MCP servers would add their tool descriptions to every turn, and keel's
         # agents never need them (keel opens the PR itself)
+        if req.resume and req.session:
+            prompt = req.prompt      # 0.19.0 the session already has the system text and the earlier turns
         argv = [find("copilot"), "-p", prompt, "--allow-all-tools", "--no-color", "--disable-builtin-mcps"]
+        if req.session:
+            # 0.19.0 --session-id names a new session or continues that one (copilot 1.0.x): one session per flow
+            argv += ["--session-id", req.session]
         if getattr(req.toolbox, "readonly", False):
             # no hook for keel's guard here: a read-only run may not write files or run shell commands
             argv += ["--deny-tool", "write", "--deny-tool", "shell"]
@@ -738,7 +756,12 @@ class CopilotCLIRunner:
             else:
                 flush()     # a blank line ends a paragraph: one Markdown step per paragraph, newlines kept
 
-        await run_cli("copilot", argv, cwd=req.root, env=env, timeout=req.timeout, on_line=on_line)
+        try:
+            await run_cli("copilot", argv, cwd=req.root, env=env, timeout=req.timeout, on_line=on_line)
+        except ModelError as exc:
+            if req.resume and NO_SESSION.search(str(exc) + "\n".join(lines[-20:])):
+                return await self._fresh(req, emit)
+            raise
         flush()
         text = "\n".join(lines).strip()
         emit("answer", cap(text))
@@ -751,7 +774,11 @@ class OpenCodeRunner:
     async def run(self, req: AgentRequest, emit: Emit) -> AgentResult:
         prompt = f"{req.system}\n\n{req.prompt}" if req.system else req.prompt
         model = req.model.get("model") or "gpt-5"
+        if req.resume and req.session:
+            prompt = req.prompt      # 0.19.0 the session already has the system text and the earlier turns
         argv = [find("opencode"), "run", "--format", "json", "-m", f"github-copilot/{model}"]
+        if req.resume and req.session:
+            argv += ["-s", req.session]       # 0.19.0 continue this flow's opencode session
         if catalog.effort_for(req.model):
             argv += ["--variant", catalog.effort_for(req.model)]      # opencode's reasoning effort for the model
         argv.append(prompt)
@@ -762,7 +789,7 @@ class OpenCodeRunner:
         # hands each guarded call to the same hook Claude Code runs.
         scratch = guard_ctx.scratch(req)
         conf = await asyncio.to_thread(write_opencode_plugin, Path(scratch) / "opencode", bool(getattr(req.toolbox, "readonly", False)),
-                                       bool(prompts.web_tools(req.agent)))
+                                       bool(prompts.web_tools(req.agent)), mcp.servers_for(req.mcp_specs, req.tools_allow))
         state = {"text": [], "in": 0, "out": 0, "cost": 0.0}
         steps = Steps(emit, req.root)
         refusals: list[dict] = []
@@ -773,6 +800,11 @@ class OpenCodeRunner:
             except json.JSONDecodeError:
                 return
             part = ev.get("part") or {}
+            sid = ev.get("sessionID") or part.get("sessionID")
+            if sid and not state.get("session"):
+                state["session"] = sid
+                if req.on_session and sid != req.session:
+                    req.on_session(sid)       # 0.19.0 a new session's id, kept for the next step to continue
             t = ev.get("type") or part.get("type")
             if t == "text" and part.get("text", "").strip():
                 state["text"].append(part["text"].strip())
@@ -794,7 +826,16 @@ class OpenCodeRunner:
                 state["error"] = json.dumps(ev.get("error") or ev)[:400]
 
         env = safe_env({guard_ctx.ENV: guard_ctx.ensure(req, scratch), "OPENCODE_CONFIG_DIR": conf})
-        await run_cli("opencode", argv, cwd=req.root, env=env, timeout=req.timeout, on_line=on_line)
+        try:
+            await run_cli("opencode", argv, cwd=req.root, env=env, timeout=req.timeout, on_line=on_line)
+        except ModelError as exc:
+            if req.resume and NO_SESSION.search(str(exc)):
+                emit("text", "Could not continue the earlier session for this step; starting a new one.")
+                return await self.run(dataclasses.replace(req, session=None, resume=False), emit)
+            raise
+        if req.resume and state.get("error") and NO_SESSION.search(state["error"]):
+            emit("text", "Could not continue the earlier session for this step; starting a new one.")
+            return await self.run(dataclasses.replace(req, session=None, resume=False), emit)
         if state.get("error"):
             raise ModelError(f"opencode reported an error: {state['error']}")
         text = "\n".join(state["text"])
@@ -930,6 +971,12 @@ export const KeelGuard = async ({ directory, worktree }) => {
 V1_ADAPTER = "keel's enforcement, for OpenCode."
 
 
+# 0.19.0 how long a harness waits for keel's MCP server to start (its gateway starts the project's servers first,
+# tools/mcp.py LIST_TIMEOUT each, at once), and for one tool call (a gateway tool that is not read-only waits up to
+# mcp_server.ASK_WAIT for the person's OK in keel's Inbox)
+MCP_START_MS = (mcp.LIST_TIMEOUT + 30) * 1000
+MCP_TOOL_S = 660
+
 # opencode's built-in tools a keel step never needs: off, so their descriptions are not in every turn (like claude's
 # --tools); a read-only run (KeelBot's Ask) gets no tool that writes either. opencode merges this opencode.json from
 # OPENCODE_CONFIG_DIR into its config.
@@ -938,16 +985,23 @@ OPENCODE_WRITES = ["write", "edit", "patch"]
 OPENCODE_WEB = ("webfetch", "websearch")
 
 
-def write_opencode_plugin(conf: Path, readonly: bool = False, web: bool = False) -> str:
+def write_opencode_plugin(conf: Path, readonly: bool = False, web: bool = False, servers: list[dict] | None = None) -> str:
     """Writes keel's guard plugin into `conf/plugins/` and the tools keel allows into `conf/opencode.json`; returns
     `conf` (the run's OPENCODE_CONFIG_DIR). `web` (0.18.20, an agent whose file names WebSearch/WebFetch) keeps
-    opencode's webfetch and websearch on."""
+    opencode's webfetch and websearch on. 0.19.0 `servers`: the step's MCP servers (keel's own, and through it the
+    project's connected ones in harness mode) in opencode's `mcp` table; the file is then the owner's only (their env
+    holds secrets)."""
     d = Path(conf) / "plugins"
     d.mkdir(parents=True, exist_ok=True)
     (d / "keel-guard.js").write_text(OPENCODE_PLUGIN.replace("__HOOK__", json.dumps(guard_ctx.hook_argv())))
     off = [t for t in OPENCODE_OFF if not (web and t in OPENCODE_WEB)] + (OPENCODE_WRITES if readonly else [])
-    (Path(conf) / "opencode.json").write_text(json.dumps({"$schema": "https://opencode.ai/config.json",
-                                                          "tools": {t: False for t in off}}, indent=2))
+    cfg: dict = {"$schema": "https://opencode.ai/config.json", "tools": {t: False for t in off}}
+    if servers:
+        # timeout: how long opencode waits for a server's tools (5 s by default; keel's gateway starts its servers first)
+        cfg["mcp"] = {s["name"]: {"type": "local", "command": [s["command"], *list(s.get("args") or [])],
+                                  "environment": {k: str(v) for k, v in (s.get("env") or {}).items()}, "enabled": True,
+                                  "timeout": MCP_START_MS} for s in servers}
+    mcp.write_private(Path(conf) / "opencode.json", json.dumps(cfg, indent=2))
     guard_ctx.seal(d / "keel-guard.js")      # 0.18.64 checked when the CLI ends (models/cli.py guard_intact)
     guard_ctx.seal(Path(conf) / "opencode.json")
     return str(conf)
