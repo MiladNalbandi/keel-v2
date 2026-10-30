@@ -73,7 +73,7 @@
 # data volume, so they survive restarts and new images. Nothing from your computer is copied into the container.
 set -euo pipefail
 
-KEEL2_VERSION="0.19.1"
+KEEL2_VERSION="0.19.2"
 IMAGE="${KEEL_IMAGE:-ghcr.io/miladnalbandi/keel-v2:latest}"
 # keel's core only (docs/plugins/16-steps5-7-contract.md, step 6): keel2 start --core, unless KEEL_IMAGE is set
 CORE_IMAGE="ghcr.io/miladnalbandi/keel-v2:core"
@@ -1154,16 +1154,36 @@ check_other_keels() {
 # A local image (built here, like keel-v2:dev) has no registry in its name: there is nothing to download.
 image_is_local() { case "${1%%@*}" in */*) return 1 ;; *) return 0 ;; esac; }
 
+# newest_tag <image>: the moving tag of a pinned keel release image (the tags .github/workflows/docker.yml puts on a
+# release): :1.2.3 and :1.2 -> :latest, :1.2.3-core -> :core, :1.2.3-product-beta -> :product-beta. Nothing for any
+# other image (another registry, a staging tag, a digest, a local build).
+newest_tag() {
+  local repo="${1%:*}" tag="${1##*:}"
+  [ "$repo" = "${CORE_IMAGE%:*}" ] && [ "$repo" != "$1" ] || return 0
+  [[ "$tag" =~ ^v?[0-9]+\.[0-9]+(\.[0-9]+)?(-.+)?$ ]] || return 0
+  case "$tag" in
+    *-product-beta) echo "$repo:product-beta" ;;
+    *-core)         echo "$repo:core" ;;
+    *)              echo "$repo:latest" ;;
+  esac
+}
+
 cmd_update() {
   need_docker
   # keel v2 does not use keel v1 any more: the old setting does nothing now
   [ -n "${KEEL_HOME:-}" ] && warn "KEEL_HOME is set but ignored since 0.4.1: keel v2 does not use keel v1 (see: keel2 help, --with-keel-v1)."
   # a keel started with --core gets the newest core image
   if container_exists && [ "$(label core)" = 1 ] && [ -z "${KEEL_IMAGE:-}" ]; then IMAGE="$CORE_IMAGE"; fi
-  # a keel that runs another image (a pinned tag, a product edition) keeps it: KEEL_IMAGE=<image> keel2 update moves it
+  # a keel that runs another image keeps it (its edition: :product-beta stays :product-beta); a pinned version of
+  # keel's own image (:0.18.74, :0.18.74-product-beta) moves to its edition's newest release: pulling the same pinned
+  # tag again never updated it. KEEL_IMAGE=<image> keel2 update picks any image (also a pinned one, on purpose).
   if container_exists && [ -z "${KEEL_IMAGE:-}" ] && [ "$(label core)" != 1 ]; then
-    local running; running="$(docker inspect -f '{{.Config.Image}}' "$NAME" 2>/dev/null || true)"
-    if [ -n "$running" ] && [ "$running" != "$IMAGE" ]; then
+    local running newest; running="$(docker inspect -f '{{.Config.Image}}' "$NAME" 2>/dev/null || true)"
+    newest="$(newest_tag "$running")"
+    if [ -n "$newest" ] && [ "$newest" != "$running" ]; then
+      info "keel runs $running, a pinned version: keel2 updates it to the newest release ($newest)."
+      IMAGE="$newest"
+    elif [ -n "$running" ] && [ "$running" != "$IMAGE" ]; then
       info "keel runs $running, so keel2 updates that image. To move to another one: KEEL_IMAGE=<image> keel2 update"
       IMAGE="$running"
     fi

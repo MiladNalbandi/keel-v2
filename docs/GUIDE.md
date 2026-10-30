@@ -1283,8 +1283,9 @@ Once a day keel asks GitHub for its newest release (Settings › Access › Upda
 off = no network call). A newer version shows a small notice at the top right, once per version: what is new, **All
 changes**, and **Copy the update command**. **Later** hides it until the next version. `keel_health` says it too.
 The command is `keel2 update` (it keeps the image keel runs: `:latest`, or `:product-beta` on the product beta
-channel). A pinned tag such as `:0.18.64` would get the same image again, so then it is
-`KEEL_IMAGE=ghcr.io/miladnalbandi/keel-v2:<new version> keel2 update`. A failed check is silent; the Updates part says
+channel). Since 0.19.2 `keel2 update` also moves a pinned version (`:0.18.64`, `:0.18.64-product-beta`) to its
+edition's newest release; the notice names the new tag (`KEEL_IMAGE=ghcr.io/miladnalbandi/keel-v2:<new version> keel2
+update`), which an older `keel2` script needs. `KEEL_IMAGE=<image> keel2 update` pins any version on purpose. A failed check is silent; the Updates part says
 "could not check: <why>". `KEEL_RELEASE_REPO` (owner/name) or `KEEL_RELEASE_CHECK_URL` change where keel looks.
 
 ## Use keel from Claude Code or Claude Desktop (MCP)
