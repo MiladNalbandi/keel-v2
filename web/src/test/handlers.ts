@@ -230,7 +230,8 @@ export function handlers(db: Db) {
     http.put("/api/resources", async ({ request }) => {
       const body = (await request.json()) as Record<string, unknown>;
       db.calls.push({ method: "PUT", path: "/api/resources", body });
-      db.resources = { ...db.resources, ...body };
+      const { memory, cpus, ...rest } = body;
+      db.resources = { ...db.resources, ...rest, ...(memory || cpus ? { wanted: { memory, cpus } } : {}) };
       return HttpResponse.json(db.resources);
     }),
     http.get("/api/updates", () => HttpResponse.json(db.updates)),

@@ -199,10 +199,10 @@ describe("registerSlot and useSlot", () => {
         within(await within(sec).findByRole("group", { name: "Demo mode" })).getByRole("button", { name: "on" }),
       ).toHaveAttribute("aria-pressed", "true");
       const names = screen.getAllByRole("region").map((r) => r.getAttribute("aria-labelledby") && document.getElementById(r.getAttribute("aria-labelledby")!)?.textContent);
-      // after keel's own sections, with the other parts' (Code Review threads), before This browser
+      // after keel's own sections, before This browser; a section of the Review page shows only there
       expect(names.indexOf("Demo part")).toBeGreaterThan(names.indexOf("Environment"));
       expect(names.indexOf("Demo part")).toBeLessThan(names.indexOf("This browser"));
-      expect(names).toContain("Code Review threads");
+      expect(names).not.toContain("Code Review threads");
     } finally {
       act(() => off());
     }

@@ -500,7 +500,9 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
         from .runtime import resources
 
         try:
-            resources.save(body)
+            if "memory" in body or "cpus" in body:
+                resources.save_wanted(body.get("memory"), body.get("cpus"))
+            resources.save({k: v for k, v in body.items() if k in resources.DEFAULTS})
         except ValueError as exc:
             raise EngineError(400, str(exc)) from None
         return resources.view()

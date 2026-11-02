@@ -1,8 +1,8 @@
-"""keel 0.20.0 how much of the machine keel may use, Settings › Access › Resources.
+"""keel 0.20.0 how much of the machine keel may use, Settings › Resources.
 
-The container's own limits (memory, CPUs) are Docker's: `keel2 limits` sets them from the host, keel only reads them here
-(a container cannot change its own). What keel controls itself, and what is kept here, is what its agents do inside
-them:
+The container's own limits (memory, CPUs) are Docker's and only the host can change them: a container cannot change its
+own. 0.20.1 Settings saves what the person wants in <data>/limits-wanted, and keel2 takes it from there: at its next start
+(restart, update), or at once with `keel2 limits`. What keel controls itself is what its agents do inside them:
 
     max_agents    coding agents (Claude Code, Codex, ...) running at the same time on this keel, every flow and KeelBot
                   together; the others wait for a free place. 0 = auto: the CPUs keel may use, at least 2, at most 6.
@@ -19,6 +19,7 @@ import contextlib
 import json
 import math
 import os
+import re
 import weakref
 from pathlib import Path
 
@@ -30,6 +31,9 @@ MAX_AGENTS = 32
 AUTO_MIN, AUTO_MAX = 2, 6
 WAKE_S = 5                   # a waiting agent looks at the limit again: the person may raise it while the others run long
 DEFAULTS = {"max_agents": 0, "low_priority": True}
+WANTED = "limits-wanted"
+MEMORY = re.compile(r"^([0-9]+)([mg])$")
+CPUS = re.compile(r"^[0-9]+(\.[0-9]+)?$")
 
 
 def _file() -> Path:
@@ -62,6 +66,39 @@ def save(patch: dict) -> dict:
     tmp.write_text(json.dumps(new))
     tmp.replace(f)
     return new
+
+
+def _wanted_file() -> Path:
+    return config.data_dir() / WANTED
+
+
+def wanted() -> dict:
+    """The limits Settings saved that keel2 has not taken yet: {} when there are none."""
+    try:
+        lines = _wanted_file().read_text().splitlines()
+    except OSError:
+        return {}
+    return {k: v for k, _, v in (line.partition("=") for line in lines) if k in ("memory", "cpus") and v}
+
+
+def save_wanted(memory: str | None, cpus: str | None) -> None:
+    """ValueError names what is wrong. keel2 reads this file with sed: one `name=value` per line."""
+    memory, cpus = (memory or "").strip().lower(), (cpus or "").strip().lower()
+    if memory and memory != "off":
+        m = MEMORY.match(memory)
+        if not m:
+            raise ValueError("Memory is a size like 6g or 4096m, or off.")
+        if int(m.group(1)) * (1024 if m.group(2) == "g" else 1) < 1024:
+            raise ValueError("keel needs at least 1g of memory.")
+    if cpus and cpus != "off" and not (CPUS.match(cpus) and float(cpus) > 0):
+        raise ValueError("CPUs is a number like 4 or 1.5, or off.")
+    text = "".join(f"{k}={v}\n" for k, v in (("memory", memory), ("cpus", cpus)) if v)
+    f = _wanted_file()
+    if text:
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(text)
+    else:
+        f.unlink(missing_ok=True)
 
 
 def _read(name: str, root: Path | None = None) -> str:
@@ -156,4 +193,4 @@ def view() -> dict:
     return {**s, "auto_agents": auto_agents(), "agents_limit": s["max_agents"] or auto_agents(), "max": MAX_AGENTS,
             "running": g.running if g else 0, "waiting": g.waiting if g else 0,
             "memory_used": mem["used"], "memory_limit": mem["limit"], "oom_kills": mem["oom_kills"],
-            "cpu_limit": cpu_limit(), "cpus": os.cpu_count()}
+            "cpu_limit": cpu_limit(), "cpus": os.cpu_count(), "wanted": wanted(), "in_container": Path("/.dockerenv").exists()}

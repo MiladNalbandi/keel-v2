@@ -30,7 +30,8 @@
 #   keel2 logs                  follow keel's log (Ctrl+C to leave)
 #   keel2 doctor                check Docker, the port, the image and the project, and say how to fix problems
 #   keel2 limits [--memory 6g|off] [--cpus 4|off] [--auto]   how much memory and CPU keel's container may use: without
-#                               options it shows them; a change counts at once, with no restart, and is kept
+#                               options it shows them, and applies what Settings › Resources saved; a change counts at
+#                               once, with no restart, and is kept
 #   keel2 update                get the newest image and restart keel if it is running (native: the newest
 #                               release; keel2 update --rollback goes back one version)
 #   keel2 token <claude|codex|copilot|anthropic|openai|github>   save a login or key (encrypted, input hidden);
@@ -76,7 +77,7 @@
 # data volume, so they survive restarts and new images. Nothing from your computer is copied into the container.
 set -euo pipefail
 
-KEEL2_VERSION="0.20.0"
+KEEL2_VERSION="0.20.1"
 IMAGE="${KEEL_IMAGE:-ghcr.io/miladnalbandi/keel-v2:latest}"
 # keel's core only (docs/plugins/16-steps5-7-contract.md, step 6): keel2 start --core, unless KEEL_IMAGE is set
 CORE_IMAGE="ghcr.io/miladnalbandi/keel-v2:core"
@@ -1207,9 +1208,31 @@ limit_value() {  # limit_value <memory|cpus>
 }
 # The docker flags for one memory value. Swap as much again as memory: docker refuses a memory above the swap limit it has.
 limit_memory_flags() { LIMIT_FLAGS=(--memory "$1" --memory-swap "$(($(limit_bytes "$1") * 2))"); }
+# 0.20.1 what Settings › Resources saved in the container (/data/limits-wanted): a container cannot change its own limits,
+# so it waits there for keel2. Moved into the limits file, so one place holds them. Prints what was taken.
+limits_take_wanted() {
+  container_running || return 0
+  local w m c f saved_m saved_c
+  w="$(docker exec "$NAME" cat /data/limits-wanted 2>/dev/null || true)"
+  [ -n "$w" ] || return 0
+  m="$(printf '%s\n' "$w" | sed -n 's/^memory=//p' | tail -1)"; c="$(printf '%s\n' "$w" | sed -n 's/^cpus=//p' | tail -1)"
+  # checked in a subshell: limit_check dies, and a bad value in the file must not stop keel from starting
+  if [ -n "$m" ] && ! (limit_check memory "$m") >/dev/null 2>&1; then m=""; fi
+  if [ -n "$c" ] && ! (limit_check cpus "$c") >/dev/null 2>&1; then c=""; fi
+  f="$(limits_file)"; saved_m="$(limit_saved memory)"; saved_c="$(limit_saved cpus)"
+  [ -z "$m" ] || saved_m="$m"
+  [ -z "$c" ] || saved_c="$c"
+  if [ -n "$saved_m$saved_c" ]; then
+    mkdir -p "$(dirname "$f")"
+    { [ -z "$saved_m" ] || echo "memory=$saved_m"; [ -z "$saved_c" ] || echo "cpus=$saved_c"; } > "$f"
+  fi
+  docker exec "$NAME" rm -f /data/limits-wanted >/dev/null 2>&1 || true
+  [ -z "$m$c" ] || echo "taken"
+}
 limit_args() {  # sets LIMIT_ARGS for docker run (bash 3.2 on a Mac: no mapfile)
   local m c
   LIMIT_ARGS=()
+  limits_take_wanted >/dev/null
   m="$(limit_value memory)" || exit 1
   c="$(limit_value cpus)" || exit 1
   if [ -n "$m" ] && [ "$m" != off ]; then limit_memory_flags "$m"; LIMIT_ARGS+=("${LIMIT_FLAGS[@]}"); fi
@@ -1227,6 +1250,13 @@ cmd_limits() {
       *) die "Unknown option: $1" "usage: keel2 limits [--memory 6g|off] [--cpus 4|off] [--auto]" ;;
     esac
   done
+  local from_settings=""
+  if [ "$auto" = 0 ]; then from_settings="$(limits_take_wanted)"; fi
+  if [ -n "$from_settings" ] && [ -z "$mem$cpus" ]; then
+    # what Settings › Resources saved counts now
+    mem="$(limit_saved memory)"; cpus="$(limit_saved cpus)"
+    info "Applying what Settings › Resources saved."
+  fi
   if [ -z "$mem$cpus" ] && [ "$auto" = 0 ]; then
     local m c
     m="$(limit_value memory)"; c="$(limit_value cpus)"
@@ -2686,7 +2716,7 @@ if native_mode && ! docker_keel_running; then
   cmd_status() { native_status; }
   cmd_doctor() { native_doctor; }
   cmd_update() { native_update "$@"; }
-  cmd_limits() { info "In native mode keel has no container to limit. Settings › Access › Resources sets how many agents run at once."; }
+  cmd_limits() { info "In native mode keel has no container to limit. Settings › Resources sets how many agents run at once."; }
   cmd_backup() { native_backup "$@"; }
   cmd_restore() { native_restore "$@"; }
   cmd_uninstall() { native_uninstall "$@"; }

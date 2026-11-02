@@ -164,27 +164,33 @@ describe("Settings › Access", () => {
     expect(wifi).toHaveAttribute("aria-checked", "true");
   });
 
-  it("0.20.0 Resources: what keel uses and may use, agents at once, their priority, the keel2 limits command", async () => {
+  it("0.20.1 Settings › Resources: what keel uses, the limits it saves for keel2, agents at once, their priority", async () => {
     const user = userEvent.setup();
-    location.hash = "#/settings/access";
+    location.hash = "#/settings/resources";
     render(<App />);
-    const card = await screen.findByRole("region", { name: "Resources" });
-    expect(await within(card).findByTestId("res-now")).toHaveTextContent("Memory: 1.0 GB used, limit 8.0 GB · CPUs: 4 (this machine has 8) · Agents: 1 running");
-    expect(within(card).queryByRole("alert")).toBeNull();
-    await user.selectOptions(within(card).getByRole("combobox", { name: "Agents at the same time" }), "2");
+    const now = await screen.findByTestId("res-now");
+    expect(now).toHaveTextContent("Memory: 1.0 GB used, limit 8.0 GB · CPUs: 4 (this machine has 8) · Agents: 1 running");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByLabelText("keel2 limits command")).toBeNull();
+    await user.type(screen.getByRole("textbox", { name: "Memory" }), "6g");
+    await user.type(screen.getByRole("textbox", { name: "CPUs" }), "3");
+    await user.click(screen.getByRole("button", { name: "Save the limits" }));
+    await waitFor(() => expect(db.calls.some((c) => c.path === "/api/resources" && (c.body as { memory?: string }).memory === "6g")).toBe(true));
+    expect(await screen.findByRole("status")).toHaveTextContent("Saved, not applied yet");
+    expect(screen.getByLabelText("keel2 limits command")).toHaveTextContent("keel2 limits");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Agents at the same time" }), "2");
     await waitFor(() => expect(db.calls.some((c) => c.path === "/api/resources" && (c.body as { max_agents?: number }).max_agents === 2)).toBe(true));
-    await user.click(within(card).getByRole("checkbox", { name: /low CPU priority/ }));
+    await user.click(screen.getByRole("checkbox", { name: /low CPU priority/ }));
     await waitFor(() => expect(db.calls.some((c) => c.path === "/api/resources" && (c.body as { low_priority?: boolean }).low_priority === false)).toBe(true));
-    expect(within(card).getByLabelText("keel2 limits command")).toHaveTextContent("keel2 limits --memory 6g --cpus 4");
   });
 
-  it("0.20.0 Resources says when the memory limit stopped a process", async () => {
-    db.resources = { ...db.resources, oom_kills: 2, memory_limit: null, cpu_limit: null };
-    location.hash = "#/settings/access";
+  it("0.20.1 Resources says when the memory limit stopped a process, and has no limits in native mode", async () => {
+    db.resources = { ...db.resources, oom_kills: 2, memory_limit: null, cpu_limit: null, in_container: false };
+    location.hash = "#/settings/resources";
     render(<App />);
-    const card = await screen.findByRole("region", { name: "Resources" });
-    expect(await within(card).findByRole("alert")).toHaveTextContent("stopped a process 2 times");
-    expect(within(card).getByTestId("res-now")).toHaveTextContent("limit none · CPUs: no limit");
+    expect(await screen.findByRole("alert")).toHaveTextContent("stopped a process 2 times");
+    expect(screen.getByTestId("res-now")).toHaveTextContent("limit none · CPUs: no limit");
+    expect(screen.queryByRole("button", { name: "Save the limits" })).toBeNull();
   });
 
   it("the AI tools keel saw, and the updates part: check every day, the channel, the command", async () => {

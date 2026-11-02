@@ -81,6 +81,48 @@ describe("Settings › Review", () => {
     expect(await screen.findByLabelText("How keel checks")).toBeInTheDocument();
   });
 
+  it("0.20.1 who fixes a finding and keel's defaults for every project are here, not on General", async () => {
+    db.plugins.review = true;
+    const put: Record<string, unknown>[] = [];
+    let threads = 0;
+    server.use(
+      http.get("/api/projects/:pid/review-setup", () => HttpResponse.json(viewOf(TWO, { runs: "flow" }))),
+      http.get("/api/projects/:pid/settings", () => HttpResponse.json({ general: { fix_runs: "harness" }, overrides: {}, effective: { fix_runs: "harness" } })),
+      http.put("/api/projects/:pid/settings", async ({ request }) => {
+        put.push((await request.json()) as Record<string, unknown>);
+        return HttpResponse.json({});
+      }),
+      http.put("/api/settings/general", async ({ request }) => {
+        put.push({ general: await request.json() });
+        return HttpResponse.json({});
+      }),
+      http.get("/api/review/settings", () => {
+        threads += 1;
+        return HttpResponse.json({
+          defaults: {}, general: {}, overrides: {}, agents: ["pr-reviewer"], workflows: [{ id: "small", name: "small" }],
+          models: [], limits: { buttons: 6, label: 30, min_cap: 200, max_cap: 1000000, placeholders: ["diff"] },
+          effective: { judge_mode: "quick", judge_agent: "pr-reviewer", judge_model: null, judge_effort: "low",
+            judge_token_cap: 25000, judge_allow_harder: true, judge_workflow: "review", address_workflow: "small", thread_buttons: [] },
+        });
+      }),
+      http.get("/api/projects/:pid/review/settings", () => HttpResponse.json({
+        defaults: {}, general: {}, overrides: {}, agents: ["pr-reviewer"], workflows: [{ id: "small", name: "small" }],
+        models: [], limits: { buttons: 6, label: 30, min_cap: 200, max_cap: 1000000, placeholders: ["diff"] },
+        effective: { judge_mode: "quick", judge_agent: "pr-reviewer", judge_model: null, judge_effort: "low",
+          judge_token_cap: 25000, judge_allow_harder: true, judge_workflow: "review", address_workflow: "small", thread_buttons: [] },
+      })),
+    );
+    location.hash = "#/settings/review";
+    render(<App />);
+    await userEvent.selectOptions(await screen.findByRole("combobox", { name: "Who fixes a finding" }), "flow");
+    await waitFor(() => expect(put).toContainEqual({ fix_runs: "flow" }));
+    expect(threads).toBe(0);                                   // keel's defaults are folded until you open them
+    await userEvent.click(screen.getByText("keel's defaults for every project"));
+    await waitFor(() => expect(threads).toBe(1));
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Who fixes a finding, by default" }), "flow");
+    await waitFor(() => expect(put.some((p) => (p.general as { fix_runs?: string })?.fix_runs === "flow")).toBe(true));
+  });
+
   it("0.18.67 runs one review flow at the depth you pick, and shows the standards every reviewer reads first", async () => {
     let current = viewOf(TWO, { runs: "flow" });
     const saved: Record<string, unknown>[] = [];

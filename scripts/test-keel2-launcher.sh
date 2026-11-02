@@ -72,6 +72,7 @@ case "$1" in
     cat "$(imgfile "$img")" > "$S/imgid"; echo c0ffee; exit 0 ;;
   exec)
     case "$*" in
+      *"cat /data/limits-wanted"*) printf '%b' "${FAKE_WANTED:-}"; exit 0 ;;
       *internal-token*) [ "${FAKE_NO_TOKEN:-0}" = 1 ] && exit 1; printf 'faketoken' ;;
       *" python3 "*) shift; while [ "$1" != python3 ]; do shift; done; shift; exec python3 "$@" ;;
     esac
@@ -254,6 +255,20 @@ done
 run_k FAKE_MEM=$((16 * G)) FAKE_CPUS=8 FAKE_UPDATE_FAIL=1 -- limits --memory 2g
 no_if "Docker refuses: it says so" test "$rc" = 0
 has "Docker refuses: why" "$out" "could not change the limits"
+# 0.20.1 what Settings › Resources saved in the container: a container cannot change its own limits, keel2 takes it
+limits_reset; : > "$FAKE_CALLS"
+run_k FAKE_MEM=$((16 * G)) FAKE_CPUS=8 FAKE_WANTED='memory=5g\ncpus=3\n' -- limits
+check "Settings: limits succeeds" "$rc" 0
+has "Settings: it says so" "$out" "Settings › Resources"
+yes_if "Settings: keel2 limits applies it at once" called "docker update --memory 5g --memory-swap $((10 * G)) --cpus 3 $KEEL_NAME"
+yes_if "Settings: the wish is taken once" called "docker exec $KEEL_NAME rm -f /data/limits-wanted"
+limits_reset; : > "$FAKE_CALLS"
+run_k FAKE_MEM=$((16 * G)) FAKE_CPUS=8 FAKE_PULL_NEW=1 FAKE_WANTED='memory=5g\n' -- update
+yes_if "Settings: an update takes it" called "docker run .*--memory 5g .*--cpus 4 "
+limits_reset; : > "$FAKE_CALLS"
+run_k FAKE_MEM=$((16 * G)) FAKE_CPUS=8 FAKE_PULL_NEW=1 FAKE_WANTED='memory=lots\ncpus=many\n' -- update
+check "Settings: a bad value does not stop keel" "$rc" 0
+yes_if "Settings: a bad value keeps the default" called "docker run .*--memory 8g .*--cpus 4 "
 rm -f "$XDG_CONFIG_HOME/keel2/$KEEL_NAME.limits"
 
 # ------------------------------------------------------------------ 4: guard_busy

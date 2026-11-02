@@ -10,6 +10,7 @@ import { SettingsFrame, useSettingsTabs } from "./settings/frame";
 import { GeneralTab } from "./settings/General";
 import { ModelsTab } from "./settings/Models";
 import { PluginsTab } from "./settings/PluginsTab";
+import { ResourcesTab } from "./settings/Resources";
 import { ReviewTab } from "./settings/Review";
 import { settingsTabOf } from "../routes";
 import { useRoute } from "../state";
@@ -29,6 +30,7 @@ export function SettingsPage({ pid }: { pid: string }) {
     case "review": return <ReviewTab pid={pid} />;
     case "connections": return <ConnectionsPage pid={pid} />;
     case "budget": return <BudgetPage pid={pid} />;
+    case "resources": return <ResourcesTab />;
     case "plugins": return <PluginsTab rest={rest} />;
     case "access": return <AccessTab />;
   }

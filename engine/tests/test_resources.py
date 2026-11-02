@@ -134,3 +134,19 @@ def test_the_engine_answers_and_refuses_a_bad_value(client):
     assert client.put("/resources", json={"max_agents": 4}).json()["agents_limit"] == 4
     r = client.put("/resources", json={"max_agents": 99})
     assert r.status_code == 400 and "max_agents" in r.json()["error"]
+
+
+def test_settings_saves_the_limits_it_wants_for_keel2_to_take(client, data):
+    from pathlib import Path
+
+    got = client.put("/resources", json={"memory": "6G", "cpus": "2.5"}).json()
+    assert got["wanted"] == {"memory": "6g", "cpus": "2.5"}
+    assert (Path(data) / "limits-wanted").read_text() == "memory=6g\ncpus=2.5\n"      # keel2 reads it with sed
+    assert client.put("/resources", json={"memory": "off", "cpus": ""}).json()["wanted"] == {"memory": "off"}
+    assert client.put("/resources", json={"memory": "", "cpus": ""}).json()["wanted"] == {}
+    assert not (Path(data) / "limits-wanted").exists()
+    for bad, why in (({"memory": "500m"}, "at least 1g"), ({"memory": "lots"}, "Memory"), ({"memory": "6g\nx=1"}, "Memory"),
+                     ({"cpus": "0"}, "CPUs"), ({"cpus": "many"}, "CPUs")):
+        r = client.put("/resources", json=bad)
+        assert r.status_code == 400 and why in r.json()["error"], bad
+    assert client.put("/resources", json={"max_agents": 2}).json()["max_agents"] == 2
