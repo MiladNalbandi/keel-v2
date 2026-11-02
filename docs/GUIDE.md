@@ -1336,14 +1336,15 @@ update`), which an older `keel2` script needs. `KEEL_IMAGE=<image> keel2 update`
 
 ### Resources
 
-**Settings › Access › Resources** shows the memory and CPU keel uses, and its limits. keel at rest uses little (about 300 MB
+**Settings › Resources** shows the memory and CPU keel uses, and its limits. keel at rest uses little (about 300 MB
 and no CPU); the load comes from its agents and the project's builds. Since 0.20.0:
 
 - **The container has limits.** By default, half of what Docker has: memory at least 2g and at most 8g, CPUs at least 2.
   `keel2 limits` shows them. `keel2 limits --memory 6g --cpus 4` changes them at once, with no restart, and restart and
   update keep them. `off` means no limit and `--auto` goes back to the default. `KEEL_MEMORY` and `KEEL_CPUS` do the same at
-  start. A container cannot change its own limits, so this is a command on the computer that runs keel, not a field in the
-  page. When the memory limit stops a process, the card says so: an agent or a build may have failed for that reason.
+  start. You can also set them on the page: a container cannot change its own limits, so the page saves what you want and
+  keel applies it the next time it starts (`keel2 restart`, `keel2 update`). `keel2 limits` applies it at once, with no
+  restart. When the memory limit stops a process, the page says so: an agent or a build may have failed for that reason.
 - **Agents at the same time:** every flow and KeelBot together. The others wait. Auto is the CPUs keel may use, at least 2
   and at most 6.
 - **Low CPU priority** for agents (on by default), so your own work on the computer stays quick. The project's tests that an

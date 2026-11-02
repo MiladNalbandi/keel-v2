@@ -1,4 +1,4 @@
-// keel 0.18.65 Settings › Review, for one project: what "Find problems" on the Review page does (how many keel reviewers
+// keel 0.18.65 Settings › Review, for one project (0.20.1 and, folded, keel's defaults for every project): what "Find problems" on the Review page does (how many keel reviewers
 // read the change, their focus, model and agent, the lenses each one goes through), the checker ("is the reviewer
 // right?"), how a confirmed finding is fixed, and the model of the flows' last review. Kept in the project's
 // .keel/config.yml under `review:` (a teammate's keel uses the same), lenses in .keel/lenses/<name>.md. Every change
@@ -11,7 +11,7 @@
 //   On the Review page    "Two keel reviewers read the change (A: …, B: …)…"   [Back to keel's default]
 
 import { useCallback, useEffect, useState } from "react";
-import { errorParts, type Model } from "../../api";
+import { api, errorParts, type Model, type ProjectSettings } from "../../api";
 import { ModelPicker } from "../../components/ModelPicker";
 import { useSlot } from "../../sdk/registry";
 import { SLOTS, type SettingsSectionItem } from "../../sdk/slots";
@@ -130,6 +130,9 @@ export function ReviewTab({ pid }: { pid: string }) {
   const [edit, setEdit] = useState("");
   // 0.18.74 the plugins' sections that belong here (the review plugin's Code Review threads), for this project
   const parts = useSlot<SettingsSectionItem>(SLOTS.settingsSection).filter((x) => x.page === "review");
+  // 0.20.1 who fixes a finding (it was on General), and keel's defaults for every project, also here
+  const [ps, setPs] = useState<ProjectSettings | null>(null);
+  const [defaultsOpen, setDefaultsOpen] = useState(false);
 
   const take = useCallback((v: ReviewSetup) => {
     setView(v);
@@ -146,6 +149,25 @@ export function ReviewTab({ pid }: { pid: string }) {
       live = false;
     };
   }, [pid, take]);
+
+  useEffect(() => {
+    let live = true;
+    api.projectSettings(pid).then((p) => live && setPs(p), () => undefined);
+    return () => {
+      live = false;
+    };
+  }, [pid]);
+  const saveFixRuns = async (to: "project" | "general", value: string) => {
+    setError(null);
+    try {
+      if (to === "project") await api.saveProjectSettings(pid, { fix_runs: value });
+      else await api.saveGeneralSettings({ fix_runs: value } as Parameters<typeof api.saveGeneralSettings>[0]);
+      setPs(await api.projectSettings(pid));
+      toast(to === "project" ? "Saved for this project." : "Saved for every project.");
+    } catch (e) {
+      setError(errorParts(e));
+    }
+  };
 
   const save = async (patch: Partial<ReviewConfig> | { reset: true }, said = "Saved in .keel/config.yml.") => {
     setBusy(true);
@@ -547,6 +569,19 @@ export function ReviewTab({ pid }: { pid: string }) {
         <h2 id="rv-fix-h" className="ss-h2">
           Checking and fixing a finding
         </h2>
+        {ps && (
+          <label className="ss-label" style={{ marginBottom: 12 }}>
+            Who fixes a finding
+            <select
+              className="ss-input"
+              value={String(ps.effective.fix_runs ?? "harness")}
+              onChange={(e) => void saveFixRuns("project", e.target.value)}
+            >
+              <option value="harness">the coding harness</option>
+              <option value="flow">keel's flow</option>
+            </select>
+          </label>
+        )}
         <div className="ss-rv-two">
           <div className="ss-rv-card" role="group" aria-label="The checker">
             <b>The checker (“is the reviewer right?”)</b>
@@ -685,6 +720,31 @@ export function ReviewTab({ pid }: { pid: string }) {
           {x.component && <x.component pid={pid} scope="project" />}
         </section>
       ))}
+
+      <details className="ss-cardp" onToggle={(e) => setDefaultsOpen(e.currentTarget.open)}>
+        <summary className="ss-h2" style={{ cursor: "pointer" }}>keel's defaults for every project</summary>
+        <p className="ss-help">What a project gets when it has not changed these itself.</p>
+        {ps && (
+          <label className="ss-label">
+            Who fixes a finding, by default
+            <select
+              className="ss-input"
+              value={String(ps.general.fix_runs ?? "harness")}
+              onChange={(e) => void saveFixRuns("general", e.target.value)}
+            >
+              <option value="harness">the coding harness</option>
+              <option value="flow">keel's flow</option>
+            </select>
+          </label>
+        )}
+        {defaultsOpen &&
+          parts.map((x) => (
+            <div key={x.id}>
+              <h3>{x.title}</h3>
+              {x.component && <x.component pid={pid} scope="general" />}
+            </div>
+          ))}
+      </details>
 
       <section className="ss-cardp" aria-labelledby="rv-page-h">
         <h2 id="rv-page-h" className="ss-h2">

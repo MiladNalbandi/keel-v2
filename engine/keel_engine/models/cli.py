@@ -243,7 +243,7 @@ def guard_intact(env: dict | None) -> None:
 
 async def run_cli(tool: str, argv: list[str], *, stdin: str = "", cwd: str | None = None, env: dict | None = None,
                   timeout: int = 1800, on_line: Callable[[str], None] | None = None) -> tuple[str, str]:
-    """One agent CLI, when there is a free place (0.20.0 runtime/resources.py: Settings › Access › Resources). Its timeout
+    """One agent CLI, when there is a free place (0.20.0 runtime/resources.py: Settings › Resources). Its timeout
     starts when it starts, not while it waits."""
     from ..runtime import resources
 

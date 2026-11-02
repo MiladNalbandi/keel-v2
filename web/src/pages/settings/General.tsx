@@ -80,19 +80,6 @@ export const GENERAL_SECTIONS: GeneralSection[] = [
         kind: { t: "bool", on: "yes", off: "no" },
         help: "The harness writes a plan and waits for your OK (or your note) before it changes any file.",
       },
-      {
-        key: "fix_runs",
-        label: "Fixing a review finding",
-        def: "harness",
-        kind: {
-          t: "select",
-          opts: [
-            ["harness", "the coding harness"],
-            ["flow", "keel's flow"],
-          ],
-        },
-        help: "Who fixes a finding when you press Fix on the Review page. keel commits the fix and pushes nothing.",
-      },
     ],
   },
   {
@@ -489,8 +476,8 @@ export function GeneralTab({
   const extra = useSlot<SettingsSectionItem>(SLOTS.settingsSection);
   const sections: GeneralSection[] = [
     ...GENERAL_SECTIONS,
-    // 0.18.74 a section that belongs on Settings › Review shows there for a project; General keeps keel's defaults
-    ...extra.filter((x) => !(isProj && x.page === "review")).map((x): GeneralSection => ({
+    // 0.20.1 a section that belongs on Settings › Review shows only there, for a project and for keel's defaults
+    ...extra.filter((x) => x.page !== "review").map((x): GeneralSection => ({
       id: x.id,
       title: x.title,
       sub: x.sub,

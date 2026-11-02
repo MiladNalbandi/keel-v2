@@ -85,7 +85,7 @@ export type Route = {
 
 /** keel 0.18.57 the Settings page's tabs, in its menu's order: #/settings/<tab>, and #/settings/general/<project> for one
  *  project's own settings. Databases is the Database plugin's tab (slot settings.tab); the others are keel's own. */
-export const SETTINGS_TABS = ["general", "models", "review", "connections", "budget", "plugins", "databases", "access"] as const;
+export const SETTINGS_TABS = ["general", "models", "review", "connections", "budget", "resources", "plugins", "databases", "access"] as const;
 export type SettingsTabId = (typeof SETTINGS_TABS)[number];
 
 /** keel's own Settings tabs: id, name in the settings menu, order (a part's tab goes between them by its order). */
@@ -96,6 +96,8 @@ export const CORE_SETTINGS_TABS: { id: SettingsTabId; label: string; order: numb
   { id: "review", label: "Review", order: 25 },
   { id: "connections", label: "Connections", order: 30 },
   { id: "budget", label: "Budget", order: 40 },
+  // keel 0.20.1 what keel uses and may use: memory, CPUs, agents at once
+  { id: "resources", label: "Resources", order: 45 },
   { id: "plugins", label: "Plugins", order: 50 },
   // keel 0.18.66 Access: where keel answers, the devices (Settings › Devices until 0.18.65), AI tools and updates
   { id: "access", label: "Access", order: 70 },

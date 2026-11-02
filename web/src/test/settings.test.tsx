@@ -19,7 +19,7 @@ const open = (hash: string) => {
 const fold = (name: string) => screen.findByRole("button", { name });
 
 describe("Settings: the tabs and their links", () => {
-  it("has one menu with the eight tabs (Review since 0.18.65); each opens at #/settings/<tab>", async () => {
+  it("has one menu with the nine tabs (Review since 0.18.65, Resources since 0.20.1); each opens at #/settings/<tab>", async () => {
     const user = userEvent.setup();
     open("#/settings");
     const menu = await screen.findByRole("navigation", {
@@ -35,6 +35,7 @@ describe("Settings: the tabs and their links", () => {
       "Review",
       "Connections",
       "Budget",
+      "Resources",
       "Plugins",
       "Databases",
       "Access",
@@ -289,10 +290,12 @@ describe("Settings › General", () => {
       "Git",
       "Notifications",
       "Environment",
-      "Code Review threads",
       "This browser",
     ])
       expect(screen.getByRole("region", { name })).toBeInTheDocument();
+    // 0.20.1 nothing about review here: it is all on Settings › Review
+    expect(screen.queryByRole("region", { name: "Code Review threads" })).toBeNull();
+    expect(screen.queryByText("Fixing a review finding")).toBeNull();
     // the models and the budget rules have their own tabs now
     expect(screen.queryByRole("region", { name: "Models" })).toBeNull();
     expect(screen.queryByRole("region", { name: "Budget" })).toBeNull();

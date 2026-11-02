@@ -5,7 +5,6 @@
 //   Devices              what Settings › Devices was (0.18.57–0.18.65; #/settings/devices opens this tab): pair a phone,
 //                        the paired phones, sign out this browser or every browser (0.18.64)
 //   AI tools (MCP) and the terminal   the tools that called keel (api McpClients): level, last call, calls today
-//   Resources            0.20.0 memory and CPU now and their limits, agents at once, their priority (engine runtime/resources.py)
 //   Updates              the daily release check (api updates/ReleaseCheck): the newest version, check every day, the
 //                        channel (stable :<v> / product beta :<v>-product-beta), the command that updates this keel
 
@@ -175,72 +174,6 @@ function Tools() {
   );
 }
 
-const gigabytes = (n: number) => `${(n / 1073741824).toFixed(1)} GB`;
-
-/** 0.20.0 what keel uses and may use. The agents are keel's to limit; memory and CPUs are Docker's, set from the host. */
-function Resources() {
-  const r = useLoad("resources", () => helpApi.resources(), { live: false });
-  const [err, setErr] = useState<string | null>(null);
-  const v = r.data;
-  const save = async (body: { max_agents?: number; low_priority?: boolean }) => {
-    setErr(null);
-    try {
-      r.setData(await helpApi.saveResources(body));
-    } catch (e) {
-      setErr(errorParts(e).message);
-    }
-  };
-  return (
-    <section className="ss-cardp" id="acc-resources" aria-labelledby="acc-resources-h">
-      <h2 id="acc-resources-h" className="ss-h2">Resources</h2>
-      {(r.error || err) && <p className="ss-note t-err" role="alert">{err ?? r.error?.message}</p>}
-      {v && (
-        <>
-          <p className="ss-row" style={{ margin: 0 }} data-testid="res-now">
-            Memory: {v.memory_used != null ? gigabytes(v.memory_used) : "not known"} used, limit{" "}
-            {v.memory_limit != null ? gigabytes(v.memory_limit) : "none"} · CPUs: {v.cpu_limit ?? "no limit"}
-            {v.cpus ? ` (this machine has ${v.cpus})` : ""} · Agents: {v.running} running
-            {v.waiting ? `, ${v.waiting} waiting` : ""}
-          </p>
-          {v.oom_kills > 0 && (
-            <p className="ss-note t-err" role="alert">
-              The memory limit stopped a process {v.oom_kills} time{v.oom_kills === 1 ? "" : "s"} since keel started. An agent or a build may have failed for
-              that reason: raise the memory with the command below, or run fewer agents at once.
-            </p>
-          )}
-          <label className="ss-label">
-            Agents at the same time
-            <select
-              className="ss-input"
-              value={v.max_agents}
-              onChange={(e) => void save({ max_agents: Number(e.target.value) })}
-            >
-              <option value={0}>auto ({v.auto_agents})</option>
-              {Array.from({ length: 8 }, (_, i) => i + 1).map((n) => (
-                <option key={n} value={n}>{n}</option>
-              ))}
-              {v.max_agents > 8 && <option value={v.max_agents}>{v.max_agents}</option>}
-            </select>
-          </label>
-          <span className="ss-help">
-            Every flow and KeelBot together, on this keel. The others wait for a free place, and a flow takes longer. Each
-            agent uses about 300-500 MB.
-          </span>
-          <label className="acc-check">
-            <input type="checkbox" checked={v.low_priority} onChange={(e) => void save({ low_priority: e.target.checked })} />
-            Run agents at a low CPU priority, so this computer stays quick
-          </label>
-          <p className="ss-row" style={{ margin: 0 }}>
-            A container cannot change its own memory and CPU limits, so you set them on the computer that runs keel. It counts at once, with
-            no restart, and stays after an update (<span className="ss-mono">off</span> = no limit):
-          </p>
-          <CopyBlock text="keel2 limits --memory 6g --cpus 4" label="keel2 limits command" />
-        </>
-      )}
-    </section>
-  );
-}
-
 function Updates() {
   const r = useLoad("updates", () => helpApi.updates(), { live: false });
   const [busy, setBusy] = useState(false);
@@ -326,7 +259,6 @@ export function AccessTab() {
         <Where />
         <Devices />
         <Tools />
-        <Resources />
         <Updates />
       </div>
     </SettingsFrame>

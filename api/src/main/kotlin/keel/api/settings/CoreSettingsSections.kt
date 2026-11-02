@@ -38,7 +38,11 @@ class CoreSettingsSections(private val mapper: ObjectMapper) {
 
     /** 0.19.0 harness mode: the coding harness does the work, keel is the control room (flow/Harness.kt). */
     @Bean
-    fun harnessSettings(): SettingsSection = section("harness", "Who does the work", 5, "build_runs", "harness_plan", "fix_runs")
+    fun harnessSettings(): SettingsSection = section("harness", "Who does the work", 5, "build_runs", "harness_plan")
+
+    /** 0.20.1 who fixes a finding: on Settings › Review, with the rest of the review's settings. */
+    @Bean
+    fun reviewSettings(): SettingsSection = section("review", "Review", 6, "fix_runs")
 
     @Bean
     fun flowSettings(): SettingsSection =
