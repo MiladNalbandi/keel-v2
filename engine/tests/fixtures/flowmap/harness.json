@@ -69,6 +69,10 @@
    "name": "goldfish review of the plan",
    "phase": "triage",
    "action": "start_flow",
+   "when": {
+    "data": "plan_first",
+    "equals": "yes"
+   },
    "flow": "design-review",
    "seed": {
     "title": "Goldfish review of the plan",

@@ -9,7 +9,7 @@ import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 class EventsApiTest : ApiTest() {
 
     private fun ev(type: String, pid: String, tid: String, callId: String? = null, step: String? = null, data: Map<String, Any?> = emptyMap()) =
-        mapOf("type" to type, "thread_id" to tid, "project_id" to pid, "step" to step, "at" to "2026-10-03T10:00:00Z", "call_id" to callId, "data" to data)
+        mapOf("type" to type, "thread_id" to tid, "project_id" to pid, "step" to step, "at" to java.time.Instant.now().toString(), "call_id" to callId, "data" to data)
 
     private fun send(events: List<Map<String, Any?>>) =
         post("/internal/events", events, mapOf("X-Keel-Token" to TOKEN))

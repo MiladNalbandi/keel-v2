@@ -204,6 +204,28 @@ def test_harness_plan_gate_starts_a_goldfish_review_of_the_plan_and_waits(client
     assert "Nothing to resolve here" in (r["waiting"].get("detail") or r.get("show") or "")
 
 
+def test_without_plan_mode_the_goldfish_step_is_skipped_and_starts_no_review(client, repo, monkeypatch):
+    # it sits after the plan gate: walking into it with the gate skipped started review flows for ever
+    seen = answers(monkeypatch, {**said(), "harness-builder": lambda r: "Changed nothing."})
+    s = wait(client, start(client, repo, workflow="harness", title="Owner", data={"plan_first": "no"}), timeout=60)
+    assert not s.get("children") and not [q for q in seen if q.agent.startswith("egm-")]
+    assert [q.agent for q in seen][0] == "harness-builder"
+
+
+def test_a_gate_detour_cannot_be_walked_into_by_a_skipped_gate():
+    """A start_flow step that comes back to a gate must be reached only through that gate's choice."""
+    from keel_engine.workflows.templates import templates
+
+    for wf in templates():
+        for n, st in enumerate(wf.steps):
+            if st.action != "start_flow" or not st.then or st.then == "end" or n == 0:
+                continue
+            before = wf.steps[n - 1]
+            gate = next((g for g in wf.steps if g.id == st.then), None)
+            if gate is not None and gate.when and before.id == gate.id:
+                assert st.when == gate.when, f"{wf.id}: {st.id} runs when {gate.id} is skipped"
+
+
 def test_the_egm_content_is_whole_read_only_and_credited():
     import re
 

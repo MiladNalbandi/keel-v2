@@ -42,7 +42,9 @@ steps:
     when: { data: plan_first, equals: "yes" }
     choices: { approve: build, change: plan, goldfish: plan_goldfish, reject: close }
   # 0.20.0 a goldfish review of the plan before anything is built: its own flow (design-review), this gate waits here
+  # (`when`: without plan mode the gate is skipped, and this step must be skipped with it, not run on the way to the build)
   - { id: plan_goldfish, kind: code, name: goldfish review of the plan, action: start_flow, flow: design-review, then: plan_gate, phase: triage,
+      when: { data: plan_first, equals: "yes" },
       seed: { title: Goldfish review of the plan, text: $data.plan_text, source: the harness plan, preset: feature } }
   - id: build
     kind: agent
