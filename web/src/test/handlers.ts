@@ -135,6 +135,8 @@ export function createDb() {
     startModels: [{ provider: "claude", label: "Claude subscription (Claude Code CLI)", mode: "subscription" }] as StartView["models"],
     startFlow: null as StartView["flow"],
     access: { mode: "local", bind: "127.0.0.1", wifi: [], names: [], tailscale: null, tunnel: null, native: false, folder: "/home/ana/code/my-app" } as AccessView,
+    resources: { max_agents: 0, auto_agents: 4, agents_limit: 4, max: 32, low_priority: true, running: 1, waiting: 0, memory_used: 1073741824,
+      memory_limit: 8589934592, oom_kills: 0, cpu_limit: 4, cpus: 8 } as Record<string, unknown>,
     updates: {
       current: "0.18.66", latest: "0.18.66", newer: false, name: "keel v2 0.18.66", notes: "", url: "https://github.com/MiladNalbandi/keel-v2/releases/tag/v0.18.66",
       published_at: null, checked_at: "2026-10-28T09:00:00Z", error: null, check_daily: true, channel: "stable", edition: "full",
@@ -224,6 +226,13 @@ export function handlers(db: Db) {
     }),
     http.get("/api/mcp/clients", () => HttpResponse.json({ clients: db.mcpClients })),
     http.get("/api/access", () => HttpResponse.json(db.access)),
+    http.get("/api/resources", () => HttpResponse.json(db.resources)),
+    http.put("/api/resources", async ({ request }) => {
+      const body = (await request.json()) as Record<string, unknown>;
+      db.calls.push({ method: "PUT", path: "/api/resources", body });
+      db.resources = { ...db.resources, ...body };
+      return HttpResponse.json(db.resources);
+    }),
     http.get("/api/updates", () => HttpResponse.json(db.updates)),
     http.put("/api/updates/settings", async ({ request }) => {
       const body = (await log(request)) as { check_daily: boolean; channel?: string };

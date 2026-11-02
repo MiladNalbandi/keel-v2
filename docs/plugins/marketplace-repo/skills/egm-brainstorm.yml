@@ -1,0 +1,8 @@
+# keel's own skill egm-brainstorm (content/skills in keel-v2), kept in this repo: skills/egm-brainstorm/<version>.md
+name: egm-brainstorm
+title: "EGM Brainstorm: Interactive Multi-Lens Ideation & Refinement"
+publisher: keel
+category: other
+summary: "Interactive ideation and brainstorming skill for the Elephant & Goldfish Model (EGM)."
+tags: [egm, keel]
+keel: ">=0.20.0"

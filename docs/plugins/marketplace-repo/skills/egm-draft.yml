@@ -1,0 +1,8 @@
+# keel's own skill egm-draft (content/skills in keel-v2), kept in this repo: skills/egm-draft/<version>.md
+name: egm-draft
+title: "Design Drafting (Document Construction)"
+publisher: keel
+category: other
+summary: "Drafts a design document section-by-section using the concepts brief from egm-brainstorm (or user notes)."
+tags: [egm, keel]
+keel: ">=0.20.0"

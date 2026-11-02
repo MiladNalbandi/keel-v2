@@ -1,0 +1,8 @@
+# keel's own skill egm-bootstrap (content/skills in keel-v2), kept in this repo: skills/egm-bootstrap/<version>.md
+name: egm-bootstrap
+title: "EGM Peanuts and Hay Bootstrap (`egm-bootstrap`)"
+publisher: keel
+category: other
+summary: "Bootstrap directory README.md files across a repository subtree."
+tags: [egm, keel]
+keel: ">=0.20.0"

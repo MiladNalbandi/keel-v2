@@ -614,7 +614,7 @@ export type CustomAgent = {
 };
 export type TestResult = { ok: boolean; text?: string; ms: number; error?: string };
 
-export type SkillSource = "keel" | "keel pack" | "claude" | "yours" | "marketplace" | "repo";
+export type SkillSource = "keel" | "keel pack" | "EGM (Google)" | "claude" | "yours" | "marketplace" | "repo";
 /** 0.18.6 where a skill from the marketplace came from; edited: its text was changed here since. */
 export type SkillMarket = { catalog: string; name: string; version: string; edited: boolean };
 export type Skill = {

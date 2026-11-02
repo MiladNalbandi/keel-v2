@@ -177,7 +177,7 @@ steps:
     back: spec
     lock: true
     phase: spec
-    choices: { approve: freeze, edit: spec_edit, rewrite: spec_edit, review: spec_review, order: plan, reject: spec_restart }
+    choices: { approve: freeze, edit: spec_edit, rewrite: spec_edit, review: spec_review, goldfish: spec_goldfish, order: plan, reject: spec_restart }
     menus: true
   - { id: freeze, kind: code, name: freeze + commit the spec, action: spec_freeze, back: spec, lock: true, phase: spec }
   - { id: options, kind: gate, name: which optional phases run, phase: spec, skip_menu: true }
@@ -398,6 +398,9 @@ steps:
 
       The web research: {{data.web_docs_text}}
   - { id: spec_review_sync, kind: code, name: criteria + plan + the review for the gate, action: spec_sync, then: spec_gate, phase: spec }
+  # 0.20.0 a goldfish review of the spec: its own flow (design-review), the spec gate waits here
+  - { id: spec_goldfish, kind: code, name: goldfish review of the spec, action: start_flow, flow: design-review, then: spec_gate, phase: spec,
+      seed: { title: Goldfish review of the spec, doc: $spec, preset: feature } }
   - { id: spec_restart, kind: code, name: the interview starts again, action: spec_restart, then: spec, phase: spec }
   - { id: contract_undo, kind: code, name: put the contract draft back, action: reset+amend_start, then: amend, phase: contract }
   # v0.17.4 the amendment loop guard: the same criterion back after an amendment that changed nothing is asked, not looped

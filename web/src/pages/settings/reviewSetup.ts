@@ -102,3 +102,10 @@ export const NEW_REVIEWER: Reviewer = {
   agent: null,
   lenses: [],
 };
+
+/** 0.20.0 the goldfish preset's reviewers: Google's Elephant-Goldfish Model, its lenses for a code change. */
+export const GOLDFISH_REVIEWERS = [
+  { name: "Zoom out", focus: "simplicity: too much code, things nobody needs yet, an existing helper written again", lens: "egm-zoom-out" },
+  { name: "Design critic", focus: "the design under load, failure and growth: the concrete situation that breaks it", lens: "egm-design" },
+  { name: "Codebase details", focus: "the change against the real code: names, shapes, the project's own way, library contracts", lens: "egm-codebase-details" },
+];

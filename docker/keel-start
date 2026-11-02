@@ -20,6 +20,8 @@
 # Docker socket's container settings.
 set -euo pipefail
 
+# 0.20.0 glibc keeps one malloc arena per thread up to 8 x CPUs: two are enough here and hold far less memory
+export MALLOC_ARENA_MAX="${MALLOC_ARENA_MAX:-2}"
 export KEEL_INTERNAL_TOKEN="${KEEL_INTERNAL_TOKEN:-$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')}"
 mkdir -p "$KEEL_DATA"
 # v0.16.1 keel2 mcp (docker exec) reads it from here to ask the api for its MCP level token (KEEL_INTERNAL_TOKEN_FILE)
@@ -129,8 +131,10 @@ start_api() {
     # The heap: a quarter of the container's memory, not 60%. The api uses 70-300 MB; 60% of Docker Desktop's VM
     # (4.6 GB of 7.6 GB) let each keel's heap grow, and the projects' own builds and tests run in the same VM. Serial
     # GC: one GC thread instead of one per CPU (9 on an 11-core Mac), the smallest footprint for a heap this size.
+    # 0.20.0 C1 only: the api waits on the engine and the database, C2's compiler threads cost more CPU and memory at start
+    # than they ever give back; a smaller thread stack (40 threads at idle).
     # shellcheck disable=SC2086  # JAVA_OPTS holds several options
-    KEEL_SUPERVISED=1 java ${JAVA_OPTS:--XX:MaxRAMPercentage=25 -XX:+UseSerialGC} -Dloader.path="$KEEL_PLUGIN_LOADER_PATH" \
+    KEEL_SUPERVISED=1 java ${JAVA_OPTS:--XX:MaxRAMPercentage=25 -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -Xss512k} -Dloader.path="$KEEL_PLUGIN_LOADER_PATH" \
       -cp "$API_JAR" org.springframework.boot.loader.launch.PropertiesLauncher &
   fi
   api=$!

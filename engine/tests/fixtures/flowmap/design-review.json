@@ -1,0 +1,262 @@
+{
+ "workflow": "design-review",
+ "name": "design review (keel)",
+ "steps": [
+  {
+   "id": "doc",
+   "kind": "code",
+   "name": "the document and its stages",
+   "phase": "review",
+   "action": "design_doc",
+   "lock": true
+  },
+  {
+   "id": "zoom_out",
+   "kind": "parallel",
+   "name": "stage 1: zoom out",
+   "agent": "egm-zoom-out",
+   "model": "default",
+   "phase": "review",
+   "from": "design_zoom_out",
+   "markers": [
+    "GOLDFISH"
+   ],
+   "instructions": "{{data.design_brief}}"
+  },
+  {
+   "id": "comprehension",
+   "kind": "parallel",
+   "name": "stage 2: comprehension",
+   "agent": "egm-comprehension",
+   "model": "default",
+   "phase": "review",
+   "from": "design_comprehension",
+   "markers": [
+    "GOLDFISH"
+   ],
+   "instructions": "{{data.design_brief}}"
+  },
+  {
+   "id": "critic",
+   "kind": "parallel",
+   "name": "stage 3: design critique",
+   "agent": "egm-design",
+   "model": "default",
+   "phase": "review",
+   "from": "design_critic",
+   "markers": [
+    "GOLDFISH"
+   ],
+   "instructions": "{{data.design_brief}}"
+  },
+  {
+   "id": "stage1",
+   "kind": "code",
+   "name": "stage 1's findings for stage 4",
+   "phase": "review",
+   "action": "design_stage1"
+  },
+  {
+   "id": "zoom_again",
+   "kind": "parallel",
+   "name": "stage 4: zoom out again",
+   "agent": "egm-zoom-out",
+   "model": "default",
+   "phase": "review",
+   "from": "design_zoom_again",
+   "markers": [
+    "GOLDFISH"
+   ],
+   "instructions": "{{data.design_brief}}"
+  },
+  {
+   "id": "readiness",
+   "kind": "parallel",
+   "name": "stage 5: implementation readiness",
+   "agent": "egm-implementation-readiness",
+   "model": "default",
+   "phase": "review",
+   "from": "design_readiness",
+   "markers": [
+    "GOLDFISH"
+   ],
+   "instructions": "{{data.design_brief}}"
+  },
+  {
+   "id": "collect",
+   "kind": "code",
+   "name": "every goldfish's findings",
+   "phase": "review",
+   "action": "design_collect"
+  },
+  {
+   "id": "synthesize",
+   "kind": "agent",
+   "name": "group the findings that say the same thing",
+   "agent": "egm-synthesizer",
+   "model": "default",
+   "phase": "review",
+   "when": {
+    "data": "design_group",
+    "equals": "yes"
+   },
+   "instructions": "The findings (id | severity | where | finding | change):\n{{data.design_raw}}",
+   "keep": true
+  },
+  {
+   "id": "report",
+   "kind": "code",
+   "name": "one report",
+   "phase": "review",
+   "action": "design_report"
+  },
+  {
+   "id": "report_gate",
+   "kind": "gate",
+   "name": "the goldfish report",
+   "phase": "gate",
+   "lock": true,
+   "choices": {
+    "resolve": "resolve",
+    "again": "doc",
+    "done": "end"
+   }
+  },
+  {
+   "id": "resolve",
+   "kind": "agent",
+   "name": "resolve the findings (the elephant)",
+   "agent": "egm-resolver",
+   "model": "default",
+   "phase": "spec",
+   "when": {
+    "data": "design_file_set",
+    "equals": "yes"
+   },
+   "instructions": "The person chose what to do with this goldfish review of `{{data.design.path}}`. Their note: {{data.report_gate_answer.why}} {{data.resolve_gate_answer.why}}\nThe report:\n{{data.design_report_text}}",
+   "keep": true,
+   "session": "thread"
+  },
+  {
+   "id": "resolve_show",
+   "kind": "code",
+   "name": "the change for your look",
+   "phase": "spec",
+   "action": "design_resolve_show"
+  },
+  {
+   "id": "resolve_gate",
+   "kind": "gate",
+   "name": "look at the change",
+   "phase": "gate",
+   "lock": true,
+   "choices": {
+    "again": "doc",
+    "more": "resolve",
+    "done": "end"
+   }
+  }
+ ],
+ "expect": {
+  "main": [
+   "doc",
+   "zoom_out",
+   "comprehension",
+   "critic",
+   "stage1",
+   "zoom_again",
+   "readiness",
+   "collect",
+   "synthesize",
+   "report",
+   "report_gate",
+   "resolve",
+   "resolve_show",
+   "resolve_gate"
+  ],
+  "sections": [
+   {
+    "kind": "phase",
+    "phase": "review",
+    "nodes": [
+     {
+      "step": "doc",
+      "side": []
+     },
+     {
+      "step": "zoom_out",
+      "side": []
+     },
+     {
+      "step": "comprehension",
+      "side": []
+     },
+     {
+      "step": "critic",
+      "side": []
+     },
+     {
+      "step": "stage1",
+      "side": []
+     },
+     {
+      "step": "zoom_again",
+      "side": []
+     },
+     {
+      "step": "readiness",
+      "side": []
+     },
+     {
+      "step": "collect",
+      "side": []
+     },
+     {
+      "step": "synthesize",
+      "side": []
+     },
+     {
+      "step": "report",
+      "side": []
+     }
+    ]
+   },
+   {
+    "kind": "phase",
+    "phase": "gate",
+    "nodes": [
+     {
+      "step": "report_gate",
+      "side": []
+     }
+    ]
+   },
+   {
+    "kind": "phase",
+    "phase": "spec",
+    "nodes": [
+     {
+      "step": "resolve",
+      "side": []
+     },
+     {
+      "step": "resolve_show",
+      "side": []
+     }
+    ]
+   },
+   {
+    "kind": "phase",
+    "phase": "gate",
+    "nodes": [
+     {
+      "step": "resolve_gate",
+      "side": []
+     }
+    ]
+   }
+  ],
+  "orphans": [],
+  "parent_of": {}
+ }
+}

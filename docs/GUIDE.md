@@ -424,6 +424,44 @@ them cost about $4–6 per project.
  spec ─◆ ─ keel-plugin new ─ per criterion: red ─ green ─ review ─◆ ─ keel-plugin lint ─ the plugin's tests ─◆ review
 ```
 
+### Design review (Elephant-Goldfish Model)
+
+The `design-review` flow reviews a **design document**, not code. It comes from Google's
+[Elephant-Goldfish Model](https://github.com/google/elephant-goldfish-model) (EGM, Apache-2.0). A *goldfish* is a reviewer
+in a fresh session with no history: it sees only the document and the files the document names, so it finds what the
+author assumed and never wrote down.
+
+Start it from **Start flow › design-review** and name the document (`docs/designs/hooks.md`) in the title or the request.
+You can also start it from two gates, which wait for you while the review runs as a flow of its own:
+
+- the **harness flow's plan gate**: **Goldfish review** reads the plan. A plan has no file, so to fix findings go back to
+  that gate and choose **change** with your note.
+- the **feature flow's spec gate**: **Goldfish review** reads the spec.
+
+| Stage | Reviewers | Reads |
+|---|---|---|
+| 1 Zoom out | `egm-zoom-out` | the whole document |
+| 2 Comprehension | `egm-comprehension` | the whole document |
+| 3 Design critique | `egm-design`, `egm-structural`, `egm-style` | the feature part |
+| 4 Zoom out again | `egm-zoom-out`, with what stage 1 found | the whole document |
+| 5 Implementation readiness | `egm-implementation-readiness`, `egm-codebase-details`, `egm-style` | the implementation plan |
+
+The implementation plan starts at a `## Implementation Plan` heading (or `## Detailed Implementation Plan`, `## Work
+Breakdown`, `## Implementation Steps`). A document without one skips stage 5. `options.preset` picks the stages: `full`
+(the default), `feature` (1-4) or `implementation` (5). Reviews started from the two gates use `feature`.
+
+keel merges the findings into one report. The `egm-synthesizer` agent groups the findings that say the same thing in other
+words; keel gives each group the highest severity any reviewer gave it, with all its places and reviewers, blockers first.
+That agent only groups: a finding it leaves out stays in the report, and it cannot lower a severity. A reviewer that answered in no known form is named as not reviewed, never counted as clean. The
+report gate offers **Resolve the findings** (the `egm-resolver` agent edits only that document, for the findings your note
+names, or all blockers and majors when it names none, and argues against the ones it thinks are wrong), **Review again**
+(fresh goldfish) and **Done**. keel commits nothing.
+
+keel's flow does EGM's stage order and merging itself, without EGM's check-in after each stage: you get one report at the
+end. The seven EGM skills (`egm-brainstorm`, `egm-draft`, `egm-review`, `egm-review-loop`, `egm-resolve`, `egm-bootstrap`,
+`egm-drift-report`) are in the Skills tab. Only `egm-resolve` is on an agent by default (`egm-resolver`); put the others on
+an agent yourself when you want them.
+
 ## Web research
 
 **web-researcher** (0.18.20) is a read-only agent for outside docs: APIs, libraries, webhooks, standards. It searches
@@ -818,6 +856,14 @@ so a teammate's keel uses the same. Nothing written there means keel's defaults.
   config), or the project's `review.lenses`. The correctness lens is no longer skipped after a passed full-diff
   review; "Skip the ship's correctness lens…" turns the old behaviour back on.
 - **Back to keel's default** takes the tab's settings out of `.keel/config.yml` (the ship's `review.lenses` stays).
+
+### Goldfish reviewers for code
+
+**Goldfish reviewers** under *How a review runs* keeps your first reviewer and adds three fresh ones, using lenses adapted
+from EGM for a code change: `egm-zoom-out` (too much code, things nobody needs yet), `egm-design` (what breaks under load,
+failure and growth) and `egm-codebase-details` (the change against the real code). It switches to the **Classic** run,
+because each reviewer needs a session of its own. It is off until you press it. EGM itself reviews design documents, so
+these three lenses are keel's own wording and are not measured against EGM's results.
 
 ## Plugins and the Marketplace
 
@@ -1288,6 +1334,23 @@ edition's newest release; the notice names the new tag (`KEEL_IMAGE=ghcr.io/mila
 update`), which an older `keel2` script needs. `KEEL_IMAGE=<image> keel2 update` pins any version on purpose. A failed check is silent; the Updates part says
 "could not check: <why>". `KEEL_RELEASE_REPO` (owner/name) or `KEEL_RELEASE_CHECK_URL` change where keel looks.
 
+### Resources
+
+**Settings › Access › Resources** shows the memory and CPU keel uses, and its limits. keel at rest uses little (about 300 MB
+and no CPU); the load comes from its agents and the project's builds. Since 0.20.0:
+
+- **The container has limits.** By default, half of what Docker has: memory at least 2g and at most 8g, CPUs at least 2.
+  `keel2 limits` shows them. `keel2 limits --memory 6g --cpus 4` changes them at once, with no restart, and restart and
+  update keep them. `off` means no limit and `--auto` goes back to the default. `KEEL_MEMORY` and `KEEL_CPUS` do the same at
+  start. A container cannot change its own limits, so this is a command on the computer that runs keel, not a field in the
+  page. When the memory limit stops a process, the card says so: an agent or a build may have failed for that reason.
+- **Agents at the same time:** every flow and KeelBot together. The others wait. Auto is the CPUs keel may use, at least 2
+  and at most 6.
+- **Low CPU priority** for agents (on by default), so your own work on the computer stays quick. The project's tests that an
+  agent starts run at the same low priority.
+
+In native mode there is no container: only the two agent settings apply.
+
 ## Use keel from Claude Code or Claude Desktop (MCP)
 
 keel has an MCP server with three levels; each includes the one below:
@@ -1410,11 +1473,12 @@ and a proposal for buttons: [muxy.md](muxy.md), [muxy-proposal.md](muxy-proposal
 | `keel2 mcp [--write\|--admin]` | keel's MCP server (see [MCP](#use-keel-from-claude-code-or-claude-desktop-mcp)) |
 | `keel2 plugins list\|install\|remove\|search\|update\|rollback\|safe` | manage plugins from the terminal |
 | `keel2 muxy hook [--project <name>] [--test\|--install\|--uninstall]` / `keel2 muxy workspace [folder]` | keel in Muxy (see [keel in Muxy](#keel-in-muxy)) |
+| `keel2 limits [--memory 6g\|off] [--cpus 4\|off] [--auto]` | how much memory and CPU keel may use (see [Resources](#resources)) |
 | `keel2 uninstall [--all]` | remove the container (`--all`: also keel's data, after you confirm) |
 | `keel2 version` | keel2's version and the image |
 
 Settings (environment): `PORT` (default 8080; a busy port moves to the next free one), `KEEL_NAME`, `KEEL_VOLUME`,
-`KEEL_IMAGE`, `KEEL_OPEN=0` (no browser), `KEEL_DOCKER=1`, `KEEL_PLUGINS=on|image|off`, `KEEL_BIND`, `KEEL_LAN_IP`. Get a new `keel2` script with
+`KEEL_IMAGE`, `KEEL_MEMORY`, `KEEL_CPUS`, `KEEL_OPEN=0` (no browser), `KEEL_DOCKER=1`, `KEEL_PLUGINS=on|image|off`, `KEEL_BIND`, `KEEL_LAN_IP`. Get a new `keel2` script with
 `curl -fsSL https://raw.githubusercontent.com/MiladNalbandi/keel-v2/main/install.sh | bash`.
 
 ## Where keel keeps its files (layouts)

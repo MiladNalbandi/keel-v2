@@ -42,7 +42,8 @@ FLOW_ACTIONS = {"hunt_start", "hunt_deps", "hunt_confirm", "hunt_ingest", "hunt_
                 # 0.18.64 a send-back patches the draft; a hand-over reads the file again
                 "clarify_redraft", "clarify_hand",
                 # 0.19.0 harness mode (runtime/harness_actions.py)
-                "harness_intent", "harness_plan_show", "harness_check", "harness_done_show"}
+                "harness_intent", "harness_plan_show", "harness_check", "harness_done_show",
+                "design_doc", "design_stage1", "design_collect", "design_report", "design_resolve_show"}
 END = "end"          # a branch's no, or a gate choice, may finish the flow
 
 

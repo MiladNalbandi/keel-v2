@@ -34,7 +34,11 @@ S="$FAKE_S"
 fmt=""; [ "${2:-}" = -f ] && fmt="${3:-}"
 imgfile() { echo "$S/img/$(printf '%s' "$1" | tr '/:' '__')"; }
 case "$1" in
-  info|volume|logs) exit 0 ;;
+  info)
+    case "$*" in *MemTotal*) echo "${FAKE_MEM:-}" ;; *NCPU*) echo "${FAKE_CPUS:-}" ;; esac
+    exit 0 ;;
+  update) [ "${FAKE_UPDATE_FAIL:-0}" = 1 ] && { echo "Minimum memoryswap limit" >&2; exit 1; }; exit 0 ;;
+  volume|logs) exit 0 ;;
   ps) exit 0 ;;
   image)  # image inspect [-f fmt] <ref>
     shift; shift; f=""; [ "${1:-}" = -f ] && { f=1; shift 2; }
@@ -202,6 +206,55 @@ yes_if "KEEL_IMAGE pins a version on purpose" called "docker pull $R:0.18.74-pro
 reset; seed "$R:stage-abc-full-amd64" sha256:old
 run_k -- update
 yes_if "a staging tag is kept" called "docker pull $R:stage-abc-full-amd64$"
+
+# ------------------------------------------------------------------ 0.20.0: limits
+echo "limits: half of what Docker has by default, kept, changed at once"
+G=1073741824
+limits_reset() { reset; rm -f "$XDG_CONFIG_HOME/keel2/$KEEL_NAME.limits"; seed "$LATEST" sha256:old; }
+limits_reset
+run_k FAKE_MEM=$((16 * G)) FAKE_CPUS=8 FAKE_PULL_NEW=1 -- update
+yes_if "default: half the memory, with swap as much again" called "docker run .*--memory 8g --memory-swap $((16 * G)) "
+yes_if "default: half the CPUs" called "docker run .*--cpus 4 "
+limits_reset
+run_k FAKE_MEM=$((64 * G)) FAKE_CPUS=1 FAKE_PULL_NEW=1 -- update
+yes_if "default: at most 8g, at least 2 CPUs" called "docker run .*--memory 8g .*--cpus 2 "
+limits_reset
+run_k FAKE_MEM=$((2 * G)) FAKE_CPUS=4 FAKE_PULL_NEW=1 -- update
+yes_if "default: at least 2g" called "docker run .*--memory 2g "
+limits_reset
+run_k FAKE_PULL_NEW=1 -- update
+no_if "Docker says nothing: no limit is made up" called "docker run .*--memory "
+limits_reset
+run_k FAKE_MEM=$((16 * G)) FAKE_CPUS=8 KEEL_MEMORY=off KEEL_CPUS=1.5 FAKE_PULL_NEW=1 -- update
+no_if "KEEL_MEMORY=off: no memory limit" called "docker run .*--memory "
+yes_if "KEEL_CPUS: its own value" called "docker run .*--cpus 1.5 "
+limits_reset
+run_k FAKE_MEM=$((16 * G)) FAKE_CPUS=8 -- limits --memory 6g --cpus 3
+check "limits: succeeds" "$rc" 0
+yes_if "limits: changes the running container with no restart" called "docker update --memory 6g --memory-swap $((12 * G)) --cpus 3 $KEEL_NAME"
+no_if "limits: nothing is restarted" called "docker run"
+run_k FAKE_MEM=$((16 * G)) FAKE_CPUS=8 FAKE_PULL_NEW=1 -- update
+yes_if "update keeps what limits saved" called "docker run .*--memory 6g .*--cpus 3 "
+run_k FAKE_MEM=$((16 * G)) FAKE_CPUS=8 -- limits --cpus 2
+yes_if "limits: one value keeps the other" called "docker update --memory 6g --memory-swap $((12 * G)) --cpus 2 $KEEL_NAME"
+run_k FAKE_MEM=$((16 * G)) FAKE_CPUS=8 -- limits --memory off --cpus off
+# docker update ignores --memory 0 and --cpus 0 (seen on a real container): off is all of what Docker has, until a restart
+yes_if "limits: off is all of what Docker has" called "docker update --memory $((16 * G)) --memory-swap $((32 * G)) --cpus 8 $KEEL_NAME"
+: > "$FAKE_CALLS"
+run_k FAKE_MEM=$((16 * G)) FAKE_CPUS=8 FAKE_PULL_NEW=1 -- update
+yes_if "off is kept: keel starts again" called "docker run "
+no_if "off is kept: the default does not come back" called "docker run .*--memory [0-9]"
+run_k FAKE_MEM=$((16 * G)) FAKE_CPUS=8 -- limits --auto
+yes_if "limits --auto: back to half" called "docker update --memory 8g --memory-swap $((16 * G)) --cpus 4 $KEEL_NAME"
+for bad in "--memory 6" "--memory lots" "--memory 500m" "--cpus many" "--cpus 1.2.3"; do
+  # shellcheck disable=SC2086  # the option and its value
+  run_k -- limits $bad
+  no_if "limits $bad: refused" test "$rc" = 0
+done
+run_k FAKE_MEM=$((16 * G)) FAKE_CPUS=8 FAKE_UPDATE_FAIL=1 -- limits --memory 2g
+no_if "Docker refuses: it says so" test "$rc" = 0
+has "Docker refuses: why" "$out" "could not change the limits"
+rm -f "$XDG_CONFIG_HOME/keel2/$KEEL_NAME.limits"
 
 # ------------------------------------------------------------------ 4: guard_busy
 echo "guard_busy: an unknown answer is not 'no agents'"

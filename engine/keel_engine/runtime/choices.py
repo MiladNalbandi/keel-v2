@@ -136,6 +136,16 @@ CATALOGUE: dict[tuple[str, str], tuple[str, str, str]] = {
                                    "a text from the sections you tick, shown to you first; nothing is posted yet"),
     ("review-pr:post", "keep"): ("Do not post", NONE, "nothing is posted; copy the text yourself if you want"),
     ("review-pr:post", "post"): ("Post it on the PR", NONE, "post this text as one comment on the PR (gh pr comment)"),
+    # design review (EGM goldfish, 0.20.0)
+    ("design-review:report_gate", "resolve"): ("Resolve the findings", OPTIONAL, "an agent fixes the findings your note names "
+                                               "(all blockers and majors when it names none) in the document, and argues against the wrong ones"),
+    ("design-review:report_gate", "again"): ("Review again", NONE, "a fresh goldfish review of the document as it is now"),
+    ("design-review:report_gate", "done"): ("Done", NONE, "end here; the report stays on this flow"),
+    ("design-review:resolve_gate", "again"): ("Review again", NONE, "a fresh goldfish review of the changed document"),
+    ("design-review:resolve_gate", "more"): ("Send a note", REQUIRED, "your note goes back to the resolver"),
+    ("design-review:resolve_gate", "done"): ("Done", NONE, "end here; the change stays in the folder, not committed"),
+    ("harness:plan_gate", "goldfish"): ("Goldfish review", NONE, "fresh reviewers read the plan in a flow of their own; this gate waits here"),
+    ("feature:spec_gate", "goldfish"): ("Goldfish review", NONE, "EGM's fresh reviewers read the spec in a flow of their own; this gate waits here"),
     # hunt
     ("hunt:confirm_lenses", "confirm"): ("Run these lenses", OPTIONAL, "sweep with the lenses ticked (or named in your note)"),
     ("hunt:confirm_lenses", "stop"): ("Stop the hunt", NONE, "end here; nothing is swept"),

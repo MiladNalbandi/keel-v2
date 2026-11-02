@@ -9,7 +9,7 @@ from keel_engine.workflows.validate import validate
 def test_templates_are_valid_and_have_phases():
     ids = [t.id for t in templates()]
     assert ids == ["feature", "change", "quick", "address", "small", "implement", "spike", "clarify", "fix", "diagnose", "review", "review-pr", "init", "knowledge-refresh", "cover", "ship", "hunt", "hunt-next", "lint",
-                   "plugin", "harness"]
+                   "plugin", "harness", "design-review"]
     for t in templates():
         assert validate(t) == [], t.id
         assert all(s.phase for s in t.steps), t.id
@@ -34,7 +34,7 @@ def test_feature_template_shape():
     assert loop == ["red", "red_amend", "red_to_amend", "red_blocked", "red_stuck", "verify_red", "green", "green_amend",
                     "green_to_amend", "green_blocked", "green_stuck", "verify_green", "refactor", "refactor_commit", "ac_suite", "ac_review", "ac_gate"]
     assert t.step("ac_gate").back == "red" and t.step("spec_gate").back == "spec"
-    assert list(t.step("spec_gate").choices) == ["approve", "edit", "rewrite", "review", "order", "reject"]
+    assert list(t.step("spec_gate").choices) == ["approve", "edit", "rewrite", "review", "goldfish", "order", "reject"]
     main = [s.id for s in t.steps[:t.steps.index(t.step("close")) + 1] if not s.per_ac and not s.id.startswith("ship_")]
     assert main == ["preflight", "web_check", "web_docs", "interview", "interview_gate", "spec", "explore_areas", "explore", "maps",
                     "plan", "spec_sync", "spec_gate", "freeze", "options", "contract", "contract_check", "contract_diff", "contract_gate",
@@ -119,7 +119,7 @@ def test_api_validate_and_estimate(client):
     tpls = client.get("/templates").json()
     # (a plugin's own workflow comes after these, with "plugin": the CI/CD plugin's ci-fix, plugins/ci/engine/tests)
     assert [t["id"] for t in tpls] == ["feature", "change", "quick", "address", "small", "implement", "spike", "clarify", "fix", "diagnose", "review", "review-pr", "init", "knowledge-refresh", "cover", "ship", "hunt", "hunt-next", "lint",
-                   "plugin", "harness"]
+                   "plugin", "harness", "design-review"]
     assert "plugin" not in tpls[0]
     good = tpls[0]["yaml"]
     r = client.post("/workflows/validate", json={"yaml": good}).json()
