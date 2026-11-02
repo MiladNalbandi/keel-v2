@@ -75,4 +75,22 @@ export const helpApi = {
   updates: () => get<UpdatesView>("/updates"),
   saveUpdates: (body: { check_daily: boolean; channel?: string | null }) => put<UpdatesView>("/updates/settings", body),
   checkUpdates: () => post<UpdatesView>("/updates/check"),
+  resources: () => get<ResourcesView>("/resources"),
+  saveResources: (body: { max_agents?: number; low_priority?: boolean }) => put<ResourcesView>("/resources", body),
+};
+
+/** 0.20.0 Settings › Access › Resources (engine runtime/resources.py). Sizes in bytes; null: no limit, or not known. */
+export type ResourcesView = {
+  max_agents: number;
+  auto_agents: number;
+  agents_limit: number;
+  max: number;
+  low_priority: boolean;
+  running: number;
+  waiting: number;
+  memory_used: number | null;
+  memory_limit: number | null;
+  oom_kills: number;
+  cpu_limit: number | null;
+  cpus: number | null;
 };

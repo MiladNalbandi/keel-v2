@@ -29,6 +29,8 @@
 #   keel2 auth key              print the sign-in key, for your own terminal apps (xal's keel plugin); agents never may
 #   keel2 logs                  follow keel's log (Ctrl+C to leave)
 #   keel2 doctor                check Docker, the port, the image and the project, and say how to fix problems
+#   keel2 limits [--memory 6g|off] [--cpus 4|off] [--auto]   how much memory and CPU keel's container may use: without
+#                               options it shows them; a change counts at once, with no restart, and is kept
 #   keel2 update                get the newest image and restart keel if it is running (native: the newest
 #                               release; keel2 update --rollback goes back one version)
 #   keel2 token <claude|codex|copilot|anthropic|openai|github>   save a login or key (encrypted, input hidden);
@@ -66,6 +68,7 @@
 # --core.
 # Native: KEEL2_HOME (default ~/.keel2), KEEL_YES=1 (yes to the native warning, and to restore's question), KEEL_NATIVE_CLIS=0 (no agent CLIs),
 # KEEL_RELEASE_URL (where releases are downloaded from).
+# Limits: KEEL_MEMORY (6g, off), KEEL_CPUS (4, off): see keel2 limits.
 # Phone: KEEL_BIND (127.0.0.1 default; --wifi = 0.0.0.0), KEEL_LAN_IP (the Wi-Fi address to show, when the guess is wrong),
 # KEEL_CLOUDFLARED_IMAGE (the tunnel's image when cloudflared is not installed), KEEL_YES=1 (yes to the tunnel's question).
 # Added folders are listed in ${XDG_CONFIG_HOME:-~/.config}/keel2/<KEEL_NAME>.folders (one path per line).
@@ -73,7 +76,7 @@
 # data volume, so they survive restarts and new images. Nothing from your computer is copied into the container.
 set -euo pipefail
 
-KEEL2_VERSION="0.19.2"
+KEEL2_VERSION="0.20.0"
 IMAGE="${KEEL_IMAGE:-ghcr.io/miladnalbandi/keel-v2:latest}"
 # keel's core only (docs/plugins/16-steps5-7-contract.md, step 6): keel2 start --core, unless KEEL_IMAGE is set
 CORE_IMAGE="ghcr.io/miladnalbandi/keel-v2:core"
@@ -522,6 +525,9 @@ cmd_start() {
   # label), and on the network (--wifi) this computer's own name and <name>.local, so http://server.local:8088 works
   local hosts; hosts="$(allowed_hosts "$bind")"
   if [ -n "$hosts" ]; then args+=(-e "KEEL_ALLOWED_HOSTS=$hosts" --label "keel2.hosts=$hosts"); fi
+  # 0.20.0 keel and its agents may not take the whole machine: keel2 limits
+  limit_args
+  [ ${#LIMIT_ARGS[@]} = 0 ] || args+=("${LIMIT_ARGS[@]}")
 
   info "Starting keel for ${B}$project${N}…"
   [ ${#added[@]} = 0 ] || info "  ${D}and ${#added[@]} added folder(s): ${added[*]}${N}"
@@ -1153,6 +1159,122 @@ check_other_keels() {
 
 # A local image (built here, like keel-v2:dev) has no registry in its name: there is nothing to download.
 image_is_local() { case "${1%%@*}" in */*) return 1 ;; *) return 0 ;; esac; }
+
+# 0.20.0 how much of the machine keel's container may use. KEEL_MEMORY / KEEL_CPUS, else what keel2 limits saved, else half
+# of what Docker has (memory: at least 2g, at most 8g; CPUs: at least 2). `off` = no limit. Without a limit, a flow's
+# parallel agents and the project's builds in the container could take the whole machine.
+limits_file() { echo "${XDG_CONFIG_HOME:-$HOME/.config}/keel2/$NAME.limits"; }
+limit_saved() { [ -f "$(limits_file)" ] && sed -n "s/^$1=//p" "$(limits_file)" | tail -1; return 0; }
+limit_check() {  # limit_check <memory|cpus> <value>
+  case "$1:$2" in
+    *:off) ;;
+    memory:*[!0-9mMgG]*|memory:[mMgG]*|memory:*[mMgG]*[0-9mMgG]*|memory:*[0-9]) die "--memory takes a size like 6g or 4096m, or off (it is '$2')." ;;
+    cpus:*[!0-9.]*|cpus:|cpus:.*|cpus:*.*.*) die "--cpus takes a number like 4 or 1.5, or off (it is '$2')." ;;
+  esac
+  if [ "$1:$2" != memory:off ] && [ "$1" = memory ] && [ "$(limit_bytes "$2")" -lt 1073741824 ]; then
+    die "keel needs at least 1g of memory (it is '$2')."
+  fi
+  return 0
+}
+limit_bytes() {  # 6g -> bytes (an integer size, limit_check sees to that)
+  local n="${1%[mMgG]}"
+  case "$1" in *[gG]) echo $((n * 1073741824)) ;; *) echo $((n * 1048576)) ;; esac
+}
+limit_auto() {  # limit_auto <memory|cpus>: half of what Docker has; nothing when Docker does not say
+  local have half
+  if [ "$1" = memory ]; then
+    have="$(docker info -f '{{.MemTotal}}' 2>/dev/null || true)"
+    case "$have" in ""|*[!0-9]*) return 0 ;; esac
+    half=$((have / 2 / 1073741824))
+    [ "$half" -ge 2 ] || half=2
+    [ "$half" -le 8 ] || half=8
+    echo "${half}g"
+  else
+    have="$(docker info -f '{{.NCPU}}' 2>/dev/null || true)"
+    case "$have" in ""|*[!0-9]*) return 0 ;; esac
+    half=$(((have + 1) / 2))
+    [ "$half" -ge 2 ] || half=2
+    echo "$half"
+  fi
+}
+limit_value() {  # limit_value <memory|cpus>
+  local v
+  if [ "$1" = memory ]; then v="${KEEL_MEMORY:-}"; else v="${KEEL_CPUS:-}"; fi
+  [ -n "$v" ] || v="$(limit_saved "$1")"
+  [ -n "$v" ] || v="$(limit_auto "$1")"
+  [ -z "$v" ] || limit_check "$1" "$v"
+  echo "$v"
+}
+# The docker flags for one memory value. Swap as much again as memory: docker refuses a memory above the swap limit it has.
+limit_memory_flags() { LIMIT_FLAGS=(--memory "$1" --memory-swap "$(($(limit_bytes "$1") * 2))"); }
+limit_args() {  # sets LIMIT_ARGS for docker run (bash 3.2 on a Mac: no mapfile)
+  local m c
+  LIMIT_ARGS=()
+  m="$(limit_value memory)" || exit 1
+  c="$(limit_value cpus)" || exit 1
+  if [ -n "$m" ] && [ "$m" != off ]; then limit_memory_flags "$m"; LIMIT_ARGS+=("${LIMIT_FLAGS[@]}"); fi
+  if [ -n "$c" ] && [ "$c" != off ]; then LIMIT_ARGS+=(--cpus "$c"); fi
+  return 0
+}
+cmd_limits() {
+  need_docker
+  local mem="" cpus="" auto=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --memory) [ $# -ge 2 ] || die "usage: keel2 limits --memory 6g|off"; mem="$2"; shift 2 ;;
+      --cpus) [ $# -ge 2 ] || die "usage: keel2 limits --cpus 4|off"; cpus="$2"; shift 2 ;;
+      --auto) auto=1; shift ;;
+      *) die "Unknown option: $1" "usage: keel2 limits [--memory 6g|off] [--cpus 4|off] [--auto]" ;;
+    esac
+  done
+  if [ -z "$mem$cpus" ] && [ "$auto" = 0 ]; then
+    local m c
+    m="$(limit_value memory)"; c="$(limit_value cpus)"
+    info "keel ($NAME) may use: memory ${m:-no limit}, CPUs ${c:-no limit}."
+    if container_exists; then
+      info "  ${D}running now: $(docker inspect -f 'memory {{.HostConfig.Memory}} bytes, {{.HostConfig.NanoCpus}} nano-CPUs (0 = no limit)' "$NAME" 2>/dev/null || true)${N}"
+    fi
+    info "  ${D}Change it: keel2 limits --memory 6g --cpus 4 (off = no limit; --auto = half of what Docker has)${N}"
+    return 0
+  fi
+  [ -z "$mem" ] || limit_check memory "$mem"
+  [ -z "$cpus" ] || limit_check cpus "$cpus"
+  local f saved_m saved_c
+  f="$(limits_file)"
+  mkdir -p "$(dirname "$f")"
+  if [ "$auto" = 1 ]; then rm -f "$f"; saved_m=""; saved_c=""; else saved_m="$(limit_saved memory)"; saved_c="$(limit_saved cpus)"; fi
+  [ -z "$mem" ] || saved_m="$mem"
+  [ -z "$cpus" ] || saved_c="$cpus"
+  if [ -n "$saved_m$saved_c" ]; then
+    { [ -z "$saved_m" ] || echo "memory=$saved_m"; [ -z "$saved_c" ] || echo "cpus=$saved_c"; } > "$f"
+  fi
+  # KEEL_MEMORY / KEEL_CPUS do not hide what was just asked for
+  local m c; m="${mem:-$(KEEL_MEMORY="" limit_value memory)}"; c="${cpus:-$(KEEL_CPUS="" limit_value cpus)}"
+  if container_exists; then
+    # off on a running container: docker update ignores --memory 0 and --cpus 0 (the old limit stays), so all of what
+    # Docker has is the limit until the next start, which then runs with none
+    local flags=() have
+    if [ "$m" = off ]; then
+      have="$(docker info -f '{{.MemTotal}}' 2>/dev/null || true)"
+      case "$have" in
+        ""|*[!0-9]*) die "Docker does not say how much memory it has." "Run keel2 restart: it starts keel with no memory limit." ;;
+      esac
+      flags+=(--memory "$have" --memory-swap "$((have * 2))")
+    elif [ -n "$m" ]; then limit_memory_flags "$m"; flags+=("${LIMIT_FLAGS[@]}"); fi
+    if [ "$c" = off ]; then
+      have="$(docker info -f '{{.NCPU}}' 2>/dev/null || true)"
+      case "$have" in
+        ""|*[!0-9]*) die "Docker does not say how many CPUs it has." "Run keel2 restart: it starts keel with no CPU limit." ;;
+      esac
+      flags+=(--cpus "$have")
+    elif [ -n "$c" ]; then flags+=(--cpus "$c"); fi
+    [ ${#flags[@]} = 0 ] || docker update "${flags[@]}" "$NAME" >/dev/null \
+      || die "Docker could not change the limits of $NAME." "The memory may be lower than keel uses now: try a larger one, or keel2 restart with KEEL_MEMORY set."
+    ok "keel ($NAME) may use now: memory ${m:-no limit}, CPUs ${c:-no limit}. No restart needed; keel2 restart and update keep it."
+  else
+    ok "saved: memory ${m:-no limit}, CPUs ${c:-no limit}. keel uses them when it starts."
+  fi
+}
 
 # newest_tag <image>: the moving tag of a pinned keel release image (the tags .github/workflows/docker.yml puts on a
 # release): :1.2.3 and :1.2 -> :latest, :1.2.3-core -> :core, :1.2.3-product-beta -> :product-beta. Nothing for any
@@ -2564,6 +2686,7 @@ if native_mode && ! docker_keel_running; then
   cmd_status() { native_status; }
   cmd_doctor() { native_doctor; }
   cmd_update() { native_update "$@"; }
+  cmd_limits() { info "In native mode keel has no container to limit. Settings › Access › Resources sets how many agents run at once."; }
   cmd_backup() { native_backup "$@"; }
   cmd_restore() { native_restore "$@"; }
   cmd_uninstall() { native_uninstall "$@"; }
@@ -2643,6 +2766,7 @@ case "$cmd" in
   logs)             if native_mode && ! docker_keel_running; then [ -f "$ND/logs/keel.log" ] || die "keel has no log yet."; exec tail -n 100 -F "$ND/logs/keel.log"; fi
                     need_docker; container_exists || die "keel is not running."; exec docker logs -f --tail 100 "$NAME" ;;
   doctor|check)     cmd_doctor "$@" ;;
+  limits)           cmd_limits "$@" ;;
   update|upgrade)   cmd_update "$@" ;;
   token)            cmd_token "$@" ;;
   tokens)           cmd_tokens ;;

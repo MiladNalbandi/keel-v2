@@ -747,6 +747,34 @@ DOCS: dict[str, dict] = {
         "steps": ["commit: keel commits it (the secret scan first); more: a note back to the same session; reject: "
                   "stop, the change stays in the folder."],
     },
+    # 0.20.0 the design-review flow, Google's Elephant-Goldfish Model (runtime/design_actions.py)
+    "design_doc": {
+        "summary": "Finds the document to review, splits it into its feature part and its implementation plan, and "
+                   "lists the goldfish reviewers of each of EGM's stages.",
+        "steps": ["The document: data.doc, the seed (a path, or the text of a harness plan), or a .md path in the request.",
+                  "The split: the plan's heading (## Implementation Plan and its synonyms).",
+                  "The preset: full (5 stages), feature (1-4) or implementation (5)."],
+    },
+    "design_stage1": {
+        "summary": "Gives the second zoom-out reviewer what the first one found.",
+        "steps": ["Stage 1's finding lines go into stage 4's item."],
+    },
+    "design_collect": {
+        "summary": "Gathers every goldfish's findings for the agent that groups them; the same place and text become one.",
+        "steps": ["Fewer than four findings: nothing to group, no agent runs."],
+    },
+    "design_report": {
+        "summary": "One report from every goldfish's findings (EGM's synthesizer), blockers first.",
+        "steps": ["The groups the synthesizer agent names become one finding, at the highest severity, with every place "
+                  "and reviewer. A finding it left out stays as it was.",
+                  "A reviewer that answered in no known form is named as not reviewed, never counted as clean.",
+                  "The comprehension reviewer's paraphrase is kept, for you to compare with what you meant."],
+    },
+    "design_resolve_show": {
+        "summary": "Shows what the resolver did: its answer per finding and the document's diff.",
+        "steps": ["again: a fresh review of the changed document; more: a note back to the resolver; done: the change "
+                  "stays in the folder, not committed."],
+    },
 }
 
 

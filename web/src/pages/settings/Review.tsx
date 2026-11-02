@@ -21,6 +21,7 @@ import {
   findText,
   LETTERS,
   modelText,
+  GOLDFISH_REVIEWERS,
   NEW_REVIEWER,
   reviewSetup,
   slug,
@@ -187,6 +188,13 @@ export function ReviewTab({ pid }: { pid: string }) {
       : revs.slice(0, n);
     saveRevs(next, `${n} reviewer${n === 1 ? "" : "s"} now.`);
   };
+  // 0.20.0 the goldfish preset: the first reviewer stays (correctness and security), three fresh reviewers read the change
+  // through the EGM lenses (each a session of its own: the classic run; the harness run is one session)
+  const goldfish = () => {
+    const list = [...revs.slice(0, 1), ...GOLDFISH_REVIEWERS.map(({ lens, ...g }) => ({ ...NEW_REVIEWER, ...g, lenses: [lens] }))];
+    setRevs(list);
+    void save({ find_runs: "classic", reviewers: clean(list) }, "Goldfish reviewers on: classic run, your first reviewer and three goldfish.");
+  };
   // a name or focus is saved when you leave its field, and only when it changed
   const blurSave = () => {
     if (JSON.stringify(clean(revs)) !== JSON.stringify(clean(view.config.reviewers))) saveRevs(revs);
@@ -285,6 +293,13 @@ export function ReviewTab({ pid }: { pid: string }) {
             </span>
           </label>
         </div>
+        <p className="ss-help">
+          <button type="button" className="ss-btn" disabled={busy || readOnly || !GOLDFISH_REVIEWERS.every((g) => known.has(g.lens))} onClick={goldfish}>
+            Goldfish reviewers
+          </button>{" "}
+          Keeps your first reviewer and adds three fresh ones from Google's Elephant-Goldfish Model: zoom out, design critic,
+          codebase details. It uses the Classic run, because each one needs a session of its own.
+        </p>
         {view.depths && (
           <div className="ss-rv-depths" role="radiogroup" aria-label="Review depth">
             {(view.limits.depths ?? (["quick", "standard", "full"] as Depth[])).map((d) => {

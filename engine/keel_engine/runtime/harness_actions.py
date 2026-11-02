@@ -48,6 +48,7 @@ def plan_show(a):
     parts.append(md.section("Your choice", md.bullets([
         "**approve**: the same harness session builds this plan",
         "**change**: your note goes back to the same session, which plans again",
+        "**goldfish**: fresh reviewers read the plan in a flow of their own (design review); this gate waits here",
         "**reject**: stop here; nothing was changed"])))
     return _ok("plan ready for your look", update={"show": md.doc(*parts)})
 

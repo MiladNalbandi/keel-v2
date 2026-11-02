@@ -85,7 +85,7 @@ def test_preflight_own_branch_explorers_after_the_criteria_and_the_freeze(client
     assert "MAP (api)" in plan.prompt and "MAP (data)" in plan.prompt and "ORDER: <one line>" in plan.prompt
     w = s["waiting"]
     assert w["step"] == "spec_gate" and w["options"] == ["approve"]
-    assert w["choices"] == ["approve", "edit", "rewrite", "review", "order", "reject"]
+    assert w["choices"] == ["approve", "edit", "rewrite", "review", "goldfish", "order", "reject"]
     assert f"Spec: `{SPEC}`" in w["detail"] and "- `AC-1` [API]" in w["detail"] and "## Spec check" in w["detail"]
     # 0.18.25 the gate is a Markdown document: one ## part each, the spec's own Plan heading under the gate's
     for head in ("## Spec\n", "## Criteria\n", "## Plan (files per criterion, contract delta, test layer)", "## Your choice"):
@@ -156,6 +156,20 @@ def test_spec_gate_review_first_shows_the_reviewer_word_for_word(client, repo, m
     assert not any(e["step"].endswith("__fix") for e in client.bus.of(tid, "step.started")), "a spec review fixes nothing"
     s = decide(client, tid, payload={"choice": "edit"}, why="AC-2 names the message")
     assert "Spec review" not in s["waiting"]["detail"]
+
+
+def test_spec_gate_goldfish_reviews_the_spec_file_in_its_own_flow_and_the_gate_waits(client, repo, monkeypatch):
+    seen = by_step(monkeypatch, {})
+    tid = start(client, repo)
+    wait(client, tid)
+    s = decide(client, tid, payload={"choice": "goldfish"})
+    assert s["waiting"]["step"] == "spec_gate", s                       # the gate waits; the review is its own flow
+    child = next(c for c in s["children"] if c["workflow"] == "design-review")
+    r = wait(client, child["thread_id"])
+    assert r["waiting"]["step"] == "report_gate", r
+    fish = [q for q in seen if q.agent.startswith("egm-")]
+    assert fish and all(SPEC in q.prompt for q in fish)                 # the spec's file, and the feature preset
+    assert "egm-implementation-readiness" not in [q.agent for q in fish]
 
 
 def test_spec_gate_change_order_writes_the_plan_again(client, repo, monkeypatch):

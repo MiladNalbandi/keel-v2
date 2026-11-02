@@ -183,6 +183,30 @@ describe("Settings › Review", () => {
     await waitFor(() => expect(within(count).getByRole("radio", { name: "2" })).toHaveAttribute("aria-checked", "true"));
   });
 
+  it("0.20.0 the Goldfish reviewers button keeps the first reviewer and adds the three EGM lenses on the classic run", async () => {
+    const own = ["egm-zoom-out", "egm-design", "egm-codebase-details"];
+    let current = viewOf(TWO, { runs: "harness", own });
+    const saved: Record<string, unknown>[] = [];
+    server.use(
+      http.get("/api/projects/:pid/review-setup", () => HttpResponse.json(current)),
+      http.put("/api/projects/:pid/review-setup", async ({ request }) => {
+        const patch = (await request.json()) as Record<string, unknown>;
+        saved.push(patch);
+        current = viewOf(patch.reviewers as typeof TWO, { runs: patch.find_runs as string, own });
+        return HttpResponse.json(current);
+      }),
+    );
+    location.hash = "#/settings/review";
+    render(<App />);
+    await userEvent.click(await screen.findByRole("button", { name: "Goldfish reviewers" }));
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect(saved[0].find_runs).toBe("classic");
+    const revs = saved[0].reviewers as { name: string; lenses: string[] }[];
+    expect(revs.map((r) => r.name)).toEqual(["correctness and security", "Zoom out", "Design critic", "Codebase details"]);
+    expect(revs[0].lenses).toEqual(["data-migration"]);
+    expect(revs.slice(1).map((r) => r.lenses)).toEqual([["egm-zoom-out"], ["egm-design"], ["egm-codebase-details"]]);
+  });
+
   it("names a lens file from its title and words the Review page's text by the count", () => {
     expect(slug("Money rounding!")).toBe("money-rounding");
     expect(slug("../../etc")).toBe("etc");

@@ -1,0 +1,8 @@
+# keel's own skill egm-review-loop (content/skills in keel-v2), kept in this repo: skills/egm-review-loop/<version>.md
+name: egm-review-loop
+title: "Goldfish Review: Loop (Orchestration Driver)"
+publisher: keel
+category: other
+summary: "Executes the Antagonistic-Review process from the Elephant-Goldfish Model (EGM) via an automated multi-agent review loop to audit documents against qualitative standards and structural templates, and automatically apply approved fixes."
+tags: [egm, keel]
+keel: ">=0.20.0"

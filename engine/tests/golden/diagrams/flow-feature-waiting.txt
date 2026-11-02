@@ -22,6 +22,7 @@ usage    15,400 tokens of 500,000 - $0.42
         edit -> edit the spec
         rewrite -> edit the spec
         review -> review the spec before approving
+        goldfish -> goldfish review of the spec
         order -> plan under the criteria  (loops back)
         reject -> the interview starts again
         send back -> spec  (loops back)
@@ -30,6 +31,9 @@ usage    15,400 tokens of 500,000 - $0.42
       \       then -> spec approval  (loops back)
       \ [ ] review the spec before approving  (agent lens-reviewer)
       \ [ ] criteria + plan + the review for the gate  (code spec_sync)
+      \       then -> spec approval  (loops back)
+      \ [ ] goldfish review of the spec  (code start_flow)
+      \       starts the design-review flow
       \       then -> spec approval  (loops back)
       \ [ ] the interview starts again  (code spec_restart)
       \       then -> spec  (loops back)
@@ -53,8 +57,4 @@ usage    15,400 tokens of 500,000 - $0.42
       \       stop -> stop the flow
       \ [ ] build the other criterion first  (code amend_reorder)
       \       then -> red  (loops back)
-      \ [ ] move the criterion to the end  (code amend_reorder)
-      \       then -> red  (loops back)
-      \ [ ] the amendment again with your note  (code amend_with_note)
-      \       then -> spec amendment
-... 127 more (zoom with id=contract)
+... 131 more (zoom with id=contract)

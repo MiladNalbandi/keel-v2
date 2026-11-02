@@ -1,0 +1,8 @@
+# keel's own skill egm-drift-report (content/skills in keel-v2), kept in this repo: skills/egm-drift-report/<version>.md
+name: egm-drift-report
+title: "Detect Drift In Designs and Code"
+publisher: keel
+category: other
+summary: "Runs drift detection on all design documents to check for document and code consistency."
+tags: [egm, keel]
+keel: ">=0.20.0"

@@ -145,6 +145,7 @@
     "edit": "spec_edit",
     "rewrite": "spec_edit",
     "review": "spec_review",
+    "goldfish": "spec_goldfish",
     "order": "plan",
     "reject": "spec_restart"
    }
@@ -1170,6 +1171,20 @@
    "then": "spec_gate"
   },
   {
+   "id": "spec_goldfish",
+   "kind": "code",
+   "name": "goldfish review of the spec",
+   "phase": "spec",
+   "action": "start_flow",
+   "flow": "design-review",
+   "seed": {
+    "title": "Goldfish review of the spec",
+    "doc": "$spec",
+    "preset": "feature"
+   },
+   "then": "spec_gate"
+  },
+  {
    "id": "spec_restart",
    "kind": "code",
    "name": "the interview starts again",
@@ -1537,6 +1552,7 @@
        "spec_edit_sync",
        "spec_review",
        "spec_review_sync",
+       "spec_goldfish",
        "spec_restart"
       ]
      },
@@ -2158,6 +2174,7 @@
    "ship_memory_skip": "ship_memory_gate",
    "spec_edit": "spec_gate",
    "spec_edit_sync": "spec_gate",
+   "spec_goldfish": "spec_gate",
    "spec_restart": "spec_gate",
    "spec_review": "spec_gate",
    "spec_review_sync": "spec_gate"

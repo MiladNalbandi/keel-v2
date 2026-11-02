@@ -261,7 +261,7 @@ new_case "the api's JVM: a quarter of the memory and Serial GC by default; JAVA_
 plan "up 3"
 start_bg KEEL_API_CMD=
 wait_exit
-check "default heap cap and GC" logs "java opts: -XX:MaxRAMPercentage=25 -XX:+UseSerialGC$"
+check "default heap cap and GC" logs "java opts: -XX:MaxRAMPercentage=25 -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -Xss512k$"
 new_case "JAVA_OPTS set: used as they are"
 plan "up 3"
 start_bg KEEL_API_CMD= JAVA_OPTS="-Xmx512m"

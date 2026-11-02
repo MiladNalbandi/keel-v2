@@ -489,6 +489,22 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
             out["demo"] = request.app.state.demo
         return out
 
+    @app.get("/resources")
+    async def resources_view():
+        from .runtime import resources
+
+        return resources.view()
+
+    @app.put("/resources")
+    async def resources_save(body: dict):
+        from .runtime import resources
+
+        try:
+            resources.save(body)
+        except ValueError as exc:
+            raise EngineError(400, str(exc)) from None
+        return resources.view()
+
     @app.get("/addons")
     async def get_addons():
         """The add-ons this engine loaded (KEEL_ADDONS), and the ones it left out with the reason."""

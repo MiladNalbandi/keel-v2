@@ -99,7 +99,7 @@ class SkillService(
                 }
             } else emptyList()
             val (agents, whenText) = defaultAssignment(id)
-            SkillDef(id, kindOf(id), source, stackOf(id), VERSION, fm["description"]?.toString() ?: "", body, Files.size(file), refs, agents, whenText)
+            SkillDef(id, kindOf(id), if (id.startsWith(EGM_PREFIX)) EGM_SOURCE else source, stackOf(id), VERSION, fm["description"]?.toString() ?: "", body, Files.size(file), refs, agents, whenText)
         }
     }
 
@@ -359,7 +359,8 @@ class SkillService(
             id.endsWith("-implementation") -> "implementation"
             id == "architecture" -> "placement"
             id == "debugging" || id == "diagnose" -> "debugging"
-            id == "security" || id == "review" -> "review"
+            id == "security" || id == "review" || id in EGM_REVIEW -> "review"
+            id == "egm-brainstorm" || id == "egm-draft" -> "authoring"
             id == "memory" -> "knowledge"
             id == "spec-clarify" || id == "spec-writing" -> "authoring"
             id in FLOW_SKILLS -> "flow"
@@ -385,6 +386,13 @@ class SkillService(
         /** keel's own skills ship with keel v2 (content/), so they carry its version line. */
         const val VERSION = "v2"
 
+        /** 0.20.0 Google's Elephant-Goldfish Model (content/NOTICE.md). The goldfish personas and standards are keel agents
+         *  (content/agents/egm-*.md) and the design-review flow is EGM's orchestration, so only egm-resolve goes on an agent;
+         *  the others (they start subagents, or talk to the person section by section) are there on demand. */
+        const val EGM_PREFIX = "egm-"
+        const val EGM_SOURCE = "EGM (Google)"
+        val EGM_REVIEW = setOf("egm-review", "egm-review-loop", "egm-resolve", "egm-drift-report")
+
         val FLOW_SKILLS = setOf("feature", "fix", "change", "hunt", "hunt-next", "init", "ship", "cover", "status")
 
         fun defaultAssignment(id: String): Pair<List<String>, String> = when {
@@ -398,6 +406,7 @@ class SkillService(
             id == "memory" -> listOf("librarian") to "memory"
             id == "playwright" -> listOf("e2e-author") to "e2e"
             id == "review" -> listOf("lens-reviewer") to "ship"
+            id == "egm-resolve" -> listOf("egm-resolver") to "the design-review flow"
             id in FLOW_SKILLS -> emptyList<String>() to "the $id flow"
             else -> emptyList<String>() to "on demand"
         }

@@ -28,6 +28,7 @@ ABOUT = {
     "diagnose": "a bug nobody can make fail yet: find its cause, read-only",
     "review": "review the branch's diff through a lens, read-only",
     "review-pr": "review a pull request (or ticket) and share the findings",
+    "design-review": "fresh reviewers read a design document in five stages (Elephant-Goldfish Model); one merged report",
     "cover": "tests for code that already exists, where coverage is missing",
     "ship": "the release checks, reviews and the PR for a finished branch",
     "hunt": "a read-only bug hunt through lenses: proven findings and a backlog",

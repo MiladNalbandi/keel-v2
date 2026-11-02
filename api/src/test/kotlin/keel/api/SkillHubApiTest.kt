@@ -1,6 +1,7 @@
 package keel.api
 
 import keel.api.support.ApiTest
+import keel.api.skills.SkillService
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
@@ -27,6 +28,28 @@ class SkillHubApiTest : ApiTest() {
             .contains("references/acceptance-criteria.md", "references/ui-mockup.md", "references/request-path.md")
         // only content/skills and the packs are keel's: nothing else is scanned
         assertThat(byId.keys).containsExactlyInAnyOrder("kotlin-spring-testing", "spec-clarify", "spec-writing", "django-testing")
+    }
+
+    @Test
+    fun `0_20_0 the EGM skills sort as review and authoring, and only egm-resolve goes on an agent by default`() {
+        assertThat(SkillService.kindOf("egm-review")).isEqualTo("review")
+        assertThat(SkillService.kindOf("egm-resolve")).isEqualTo("review")
+        assertThat(SkillService.kindOf("egm-draft")).isEqualTo("authoring")
+        assertThat(SkillService.defaultAssignment("egm-resolve").first).containsExactly("egm-resolver")
+        for (id in listOf("egm-review", "egm-review-loop", "egm-brainstorm", "egm-draft", "egm-bootstrap", "egm-drift-report")) {
+            assertThat(SkillService.defaultAssignment(id).first).isEmpty()
+        }
+    }
+
+    @Test
+    fun `0_20_0 Resources asks the engine, and a tool below the admin level cannot change it`() {
+        engine.extraRoutes["/resources"] = { _ -> 200 to mapOf("max_agents" to 3, "low_priority" to true) }
+        assertThat(get("/api/resources").andExpect(status().isOk).json()["max_agents"].asInt()).isEqualTo(3)
+        put("/api/resources", mapOf("max_agents" to 3)).andExpect(status().isOk)
+        assertThat(engine.lastBody("/resources")!!["max_agents"].asInt()).isEqualTo(3)
+        val mcp = mapOf("X-Keel-Via" to "mcp", "X-Keel-Client" to "test", "X-Keel-Tool" to "t")
+        put("/api/resources", mapOf("max_agents" to 1), mcp).andExpect(status().isForbidden)
+        engine.extraRoutes.remove("/resources")
     }
 
     @Test

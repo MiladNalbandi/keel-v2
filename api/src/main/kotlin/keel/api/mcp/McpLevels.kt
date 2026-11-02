@@ -317,6 +317,7 @@ class McpLevelGuard(
             put("^/api/notification-settings$"),
             // 0.18.66 the update check (its setting, and Check now: a call to GitHub) and the first-run welcome
             put("^/api/updates/settings$"),
+            put("^/api/resources$"),
             post("^/api/updates/check$"),
             put("^/api/help/welcome$"),
             post("^/api/notifications/(read-all|[^/]+/read)$"),

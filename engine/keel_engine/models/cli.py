@@ -243,9 +243,22 @@ def guard_intact(env: dict | None) -> None:
 
 async def run_cli(tool: str, argv: list[str], *, stdin: str = "", cwd: str | None = None, env: dict | None = None,
                   timeout: int = 1800, on_line: Callable[[str], None] | None = None) -> tuple[str, str]:
+    """One agent CLI, when there is a free place (0.20.0 runtime/resources.py: Settings › Access › Resources). Its timeout
+    starts when it starts, not while it waits."""
+    from ..runtime import resources
+
+    async with resources.gate().slot():
+        return await _run_cli(tool, argv, stdin=stdin, cwd=cwd, env=env, timeout=timeout, on_line=on_line)
+
+
+async def _run_cli(tool: str, argv: list[str], *, stdin: str = "", cwd: str | None = None, env: dict | None = None,
+                   timeout: int = 1800, on_line: Callable[[str], None] | None = None) -> tuple[str, str]:
+    from ..runtime import resources
+
     proc = await asyncio.create_subprocess_exec(
         *argv, cwd=cwd, env=env, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE, start_new_session=True, limit=16 * 1024 * 1024)
+    resources.lower_priority(proc.pid)
 
     def kill(sig):
         try:

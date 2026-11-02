@@ -1,0 +1,8 @@
+# keel's own skill egm-resolve (content/skills in keel-v2), kept in this repo: skills/egm-resolve/<version>.md
+name: egm-resolve
+title: "Goldfish Review: Resolve"
+publisher: keel
+category: other
+summary: "The Elephant resolution skill."
+tags: [egm, keel]
+keel: ">=0.20.0"

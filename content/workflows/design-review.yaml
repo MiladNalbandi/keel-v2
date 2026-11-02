@@ -1,0 +1,57 @@
+id: design-review
+name: design review (keel)
+keel_rules: true
+own_branch: false
+version: 1
+# keel 0.20.0 Google's Elephant-Goldfish Model (EGM, https://github.com/google/elephant-goldfish-model): a design document
+# (a spec, a plan) is read by goldfish, reviewers in a fresh session each with no history, that see only the document and
+# the files it names. EGM's five stages run in order (keel_engine/runtime/design_actions.py); keel merges the findings
+# (EGM's synthesizer) and the person picks what to fix. Inputs (StartThread.data, the api's `options`, or a start_flow
+# seed): doc (a path in the project; or named in the request), text (a document with no file: the harness plan), preset
+# (full | feature | implementation). The stages read and change nothing; only the resolve step edits, and only the document.
+steps:
+  - { id: doc, kind: code, name: the document and its stages, action: design_doc, lock: true, phase: review }
+  - { id: zoom_out, kind: parallel, name: "stage 1: zoom out", agent: egm-zoom-out, model: default, from: design_zoom_out, phase: review, markers: [GOLDFISH],
+      instructions: "{{data.design_brief}}" }
+  - { id: comprehension, kind: parallel, name: "stage 2: comprehension", agent: egm-comprehension, model: default, from: design_comprehension, phase: review, markers: [GOLDFISH],
+      instructions: "{{data.design_brief}}" }
+  - { id: critic, kind: parallel, name: "stage 3: design critique", agent: egm-design, model: default, from: design_critic, phase: review, markers: [GOLDFISH],
+      instructions: "{{data.design_brief}}" }
+  - { id: stage1, kind: code, name: stage 1's findings for stage 4, action: design_stage1, phase: review }
+  - { id: zoom_again, kind: parallel, name: "stage 4: zoom out again", agent: egm-zoom-out, model: default, from: design_zoom_again, phase: review, markers: [GOLDFISH],
+      instructions: "{{data.design_brief}}" }
+  - { id: readiness, kind: parallel, name: "stage 5: implementation readiness", agent: egm-implementation-readiness, model: default, from: design_readiness, phase: review, markers: [GOLDFISH],
+      instructions: "{{data.design_brief}}" }
+  - { id: collect, kind: code, name: every goldfish's findings, action: design_collect, phase: review }
+  - id: synthesize
+    kind: agent
+    name: group the findings that say the same thing
+    agent: egm-synthesizer
+    model: default
+    phase: review
+    keep: true
+    when: { data: design_group, equals: "yes" }
+    instructions: >-
+      The findings (id | severity | where | finding | change):
+
+      {{data.design_raw}}
+  - { id: report, kind: code, name: one report, action: design_report, phase: review }
+  - { id: report_gate, kind: gate, name: the goldfish report, phase: gate, lock: true, choices: { resolve: resolve, again: doc, done: end } }
+  - id: resolve
+    kind: agent
+    name: resolve the findings (the elephant)
+    agent: egm-resolver
+    model: default
+    phase: spec
+    session: thread
+    keep: true
+    when: { data: design_file_set, equals: "yes" }
+    instructions: >-
+      The person chose what to do with this goldfish review of `{{data.design.path}}`. Their note:
+      {{data.report_gate_answer.why}} {{data.resolve_gate_answer.why}}
+
+      The report:
+
+      {{data.design_report_text}}
+  - { id: resolve_show, kind: code, name: the change for your look, action: design_resolve_show, phase: spec }
+  - { id: resolve_gate, kind: gate, name: look at the change, phase: gate, lock: true, choices: { again: doc, more: resolve, done: end } }

@@ -164,6 +164,29 @@ describe("Settings › Access", () => {
     expect(wifi).toHaveAttribute("aria-checked", "true");
   });
 
+  it("0.20.0 Resources: what keel uses and may use, agents at once, their priority, the keel2 limits command", async () => {
+    const user = userEvent.setup();
+    location.hash = "#/settings/access";
+    render(<App />);
+    const card = await screen.findByRole("region", { name: "Resources" });
+    expect(await within(card).findByTestId("res-now")).toHaveTextContent("Memory: 1.0 GB used, limit 8.0 GB · CPUs: 4 (this machine has 8) · Agents: 1 running");
+    expect(within(card).queryByRole("alert")).toBeNull();
+    await user.selectOptions(within(card).getByRole("combobox", { name: "Agents at the same time" }), "2");
+    await waitFor(() => expect(db.calls.some((c) => c.path === "/api/resources" && (c.body as { max_agents?: number }).max_agents === 2)).toBe(true));
+    await user.click(within(card).getByRole("checkbox", { name: /low CPU priority/ }));
+    await waitFor(() => expect(db.calls.some((c) => c.path === "/api/resources" && (c.body as { low_priority?: boolean }).low_priority === false)).toBe(true));
+    expect(within(card).getByLabelText("keel2 limits command")).toHaveTextContent("keel2 limits --memory 6g --cpus 4");
+  });
+
+  it("0.20.0 Resources says when the memory limit stopped a process", async () => {
+    db.resources = { ...db.resources, oom_kills: 2, memory_limit: null, cpu_limit: null };
+    location.hash = "#/settings/access";
+    render(<App />);
+    const card = await screen.findByRole("region", { name: "Resources" });
+    expect(await within(card).findByRole("alert")).toHaveTextContent("stopped a process 2 times");
+    expect(within(card).getByTestId("res-now")).toHaveTextContent("limit none · CPUs: no limit");
+  });
+
   it("the AI tools keel saw, and the updates part: check every day, the channel, the command", async () => {
     const user = userEvent.setup();
     db.mcpClients = [claudeCode, { ...claudeCode, client: "keel TUI 0.18.66", via: "tui", level: "you", today: 0 }];

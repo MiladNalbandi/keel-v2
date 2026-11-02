@@ -1,0 +1,8 @@
+# keel's own skill egm-review (content/skills in keel-v2), kept in this repo: skills/egm-review/<version>.md
+name: egm-review
+title: "Review, Validation & Automated Remediation"
+publisher: keel
+category: other
+summary: "Orchestrates the EGM Goldfish Review Protocol."
+tags: [egm, keel]
+keel: ">=0.20.0"

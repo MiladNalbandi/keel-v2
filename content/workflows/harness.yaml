@@ -40,7 +40,10 @@ steps:
     phase: gate
     lock: true
     when: { data: plan_first, equals: "yes" }
-    choices: { approve: build, change: plan, reject: close }
+    choices: { approve: build, change: plan, goldfish: plan_goldfish, reject: close }
+  # 0.20.0 a goldfish review of the plan before anything is built: its own flow (design-review), this gate waits here
+  - { id: plan_goldfish, kind: code, name: goldfish review of the plan, action: start_flow, flow: design-review, then: plan_gate, phase: triage,
+      seed: { title: Goldfish review of the plan, text: $data.plan_text, source: the harness plan, preset: feature } }
   - id: build
     kind: agent
     name: the harness builds the plan

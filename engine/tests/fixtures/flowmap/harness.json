@@ -59,8 +59,24 @@
    "choices": {
     "approve": "build",
     "change": "plan",
+    "goldfish": "plan_goldfish",
     "reject": "close"
    }
+  },
+  {
+   "id": "plan_goldfish",
+   "kind": "code",
+   "name": "goldfish review of the plan",
+   "phase": "triage",
+   "action": "start_flow",
+   "flow": "design-review",
+   "seed": {
+    "title": "Goldfish review of the plan",
+    "text": "$data.plan_text",
+    "source": "the harness plan",
+    "preset": "feature"
+   },
+   "then": "plan_gate"
   },
   {
    "id": "build",
@@ -195,7 +211,9 @@
     "nodes": [
      {
       "step": "plan_gate",
-      "side": []
+      "side": [
+       "plan_goldfish"
+      ]
      }
     ]
    },
@@ -261,6 +279,8 @@
    }
   ],
   "orphans": [],
-  "parent_of": {}
+  "parent_of": {
+   "plan_goldfish": "plan_gate"
+  }
  }
 }

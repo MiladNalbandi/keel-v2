@@ -41,3 +41,13 @@ telemetry is turned off in the image (`CODEGRAPH_TELEMETRY=0`, `DO_NOT_TRACK=1`)
 
 CodeGraph is licensed under the MIT License (Copyright (c) Colby McHenry); the full text ships with the package
 (`npm view @colbymchenry/codegraph license`).
+
+## Elephant-Goldfish Model (EGM)
+
+The `content/skills/egm-*` skills (with their references) and the `content/agents/egm-*` reviewer personas come from
+Google's **Elephant-Goldfish Model** (https://github.com/google/elephant-goldfish-model, commit `403d8881`), licensed
+under the Apache License 2.0 (full text: `content/skills/egm-review/LICENSE`). keel added a note at the top of each skill,
+an "In keel" answer format at the end of each persona, and inlined the matching document standard in it; the rest of the
+text is EGM's, unchanged. `content/agents/egm-resolver.md`, `content/agents/egm-synthesizer.md` and `content/review-lenses/egm-*.md` are keel's own
+wording, adapted from EGM's resolve skill and personas. EGM is not an officially supported Google product, and Google does not
+endorse keel.
