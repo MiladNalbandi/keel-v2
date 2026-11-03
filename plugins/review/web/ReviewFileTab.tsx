@@ -366,6 +366,7 @@ export function ReviewFileTab({
           path={path}
           line={focus?.line ?? null}
           changed={isChanged}
+          mode={mode}
           anchors={anchors}
           picked={picked}
           onLine={onLine("code")}

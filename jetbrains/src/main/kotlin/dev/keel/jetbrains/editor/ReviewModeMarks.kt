@@ -58,7 +58,7 @@ import javax.swing.JComponent
  * Review mode in the normal editors: the PR's changed lines in a gutter layer of their own (green added, blue
  * modified, a red ▶ where lines were removed; separate from the IDE's local-change marks), the review threads between
  * the lines (outdated ones as a note at the top), and on a changed block: Ask KeelBot what changed here (the answer in
- * a small card), Comment on this change, Show old.
+ * a small card), Comment on this change, Show old, and Old | New (0.4.0: the whole file side by side).
  */
 @Service(Service.Level.PROJECT)
 class ReviewModeMarks(private val project: Project) : Disposable {
@@ -167,6 +167,7 @@ class ReviewModeMarks(private val project: Project) : Disposable {
                 KeelUi.link("Ask KeelBot what changed here") { close(); askWhatChanged(editor, path, r) },
                 KeelUi.link("Comment on this change") { close(); commentOn(path, r) },
                 KeelUi.link("Show old") { close(); PrDiffEditor.open(project, path, if (r.kind == ChangeKind.DELETED) r.oldStart else r.start, if (r.kind == ChangeKind.DELETED) "LEFT" else "RIGHT") },
+                KeelUi.link("Old | New") { close(); OldNewDiff.open(project, path) },
                 gap = 10,
             ).full(),
         )

@@ -26,6 +26,8 @@ import { reviewApi } from "./reviewApi";
 import * as R from "./store";
 import { wordAt } from "./keymap";
 import { rowsOf, useLineRange, type Point, type Span } from "./range";
+import { fileChanges, peekAfter, sideBySide, type Change } from "./wholeFile";
+import { ChangeGutter, ChangeKey, ChangePeek } from "./WholeFileMarks";
 
 export type Side = "RIGHT" | "LEFT";
 export type LineRef = { path: string; line: number; side: Side };
@@ -365,7 +367,8 @@ export function ReviewDiff({
 /**
  * A whole file of the reviewed commit (Jump to source, Go to declaration), with ⌘-click to keep jumping. Its line
  * numbers start a comment on the new side, one line or several, like the diff's (a line outside the diff goes into
- * the review's text when it is sent).
+ * the review's text when it is sent). 0.21.1 a changed file shows its changes: a bar next to a changed line, a ▶
+ * where lines were deleted, a click shows the old code; side by side, the old file is on the left.
  */
 export function FileAtView({
   pid,
@@ -375,6 +378,7 @@ export function FileAtView({
   onWord,
   onBackToDiff,
   changed,
+  mode = "inline",
   anchors = [],
   picked = null,
   onLine,
@@ -386,6 +390,8 @@ export function FileAtView({
   changed: boolean;
   onWord: (word: string, l: LineRef | null) => void;
   onBackToDiff: () => void;
+  /** a changed file: its new lines with the changes marked, or the old file next to the new one */
+  mode?: "split" | "inline";
   /** what sits under a line (new side only: the whole file is the head commit's) */
   anchors?: Anchor[];
   picked?: Picked | null;
@@ -397,6 +403,18 @@ export function FileAtView({
     () => reviewApi.file(pid, reviewKey, path),
     { live: false },
   );
+  // the same diff (and cache key) as the Changes view
+  const baseSha = R.review(pid, reviewKey).view?.base_sha ?? "";
+  const d = useLoad(
+    changed ? `review-diff:${pid}:${reviewKey}:${path}:${baseSha}` : null,
+    () => reviewApi.diff(pid, reviewKey, path),
+    { live: false },
+  );
+  const fc = useMemo(
+    () => (changed && d.data && !d.data.binary ? fileChanges(parseDiff(d.data.diff).rows) : null),
+    [changed, d.data],
+  );
+  const [peek, setPeek] = useState<number | null>(null);
   const box = useRef<HTMLDivElement>(null);
   const lang = languageOf(path);
   useLanguage(lang);
@@ -408,6 +426,12 @@ export function FileAtView({
     if (!f.data || !line) return;
     scrollToCenter(box.current, box.current?.querySelector<HTMLElement>(`[data-line="${line}"]`));
   }, [f.data, line]);
+  const lines = useMemo(() => {
+    const all = f.data ? f.data.text.split("\n") : [];
+    if (all.length && all[all.length - 1] === "") all.pop();
+    return all;
+  }, [f.data]);
+  const side = mode === "split" && fc ? sideBySide(lines, fc) : null;
   if (f.error)
     return (
       <div className="ed-note">
@@ -422,19 +446,72 @@ export function FileAtView({
         </span>
       </div>
     );
-  const lines = f.data.text.split("\n");
-  if (lines.length && lines[lines.length - 1] === "") lines.pop();
   const right = anchors.filter((a) => a.side === "RIGHT");
-  const rowOf = (side: Side, n: number) => (side === "RIGHT" && n >= 1 && n <= lines.length ? n - 1 : undefined);
+  // the row a new line is drawn in: its index, or its row of the two columns
+  const newRow = new Map<number, number>();
+  side?.forEach((r, i) => r.right && newRow.set(r.right.line, i));
+  const rowOf = (s: Side, n: number) =>
+    s !== "RIGHT" || n < 1 || n > lines.length ? undefined : side ? newRow.get(n) : n - 1;
   const marked = marks(right, picked, rowOf);
   const sel = range.rows ?? marked.picked;
+  const rowCls = (i: number, n: number | null) =>
+    `${n != null && line === n ? " cur" : ""}${sel && i >= sel[0] && i <= sel[1] ? " sel" : ""}${marked.ranges.has(i) ? " rng" : ""}`;
+  const total = fc?.changes.length ?? 0;
+  const open = peek != null ? fc?.changes[peek - 1] ?? null : null;
+  const go = (n: number) => {
+    setPeek(n);
+    const c = fc?.changes[n - 1];
+    if (!c) return;
+    const at = c.first ?? Math.max(1, c.after);
+    scrollToCenter(box.current, box.current?.querySelector<HTMLElement>(`[data-line="${at}"]`));
+  };
+  const pick = (c: Change) => (peek === c.n ? setPeek(null) : setPeek(c.n));
+  const peekBox = (n: number) =>
+    open && peekAfter(open) === n ? (
+      <ChangePeek change={open} total={total} lang={lang} onGo={go} onClose={() => setPeek(null)} />
+    ) : null;
+  const number = (i: number, n: number) =>
+    onLine ? (
+      <button
+        type="button"
+        className="dv-ln rv-ln"
+        tabIndex={-1}
+        aria-label={`Comment on line ${n}`}
+        title="Shift-click or drag for several lines"
+        {...range.on({ row: i, line: n, side: "RIGHT" })}
+      >
+        {n}
+      </button>
+    ) : (
+      <span className="dv-ln">{n}</span>
+    );
+  const code = (t: string, n: number | null, s: "old" | "new", cls = "") => (
+    <code
+      className={`dv-code${cls}`}
+      data-side={side ? s : undefined}
+      onClick={(e) => {
+        if (n != null && (e.metaKey || e.ctrlKey)) {
+          const w = wordFromClick(e);
+          if (w) onWord(w, { path, line: n, side: s === "old" ? "LEFT" : "RIGHT" });
+        }
+      }}
+      dangerouslySetInnerHTML={{ __html: highlight(t, lang) ?? esc(t) }}
+    />
+  );
+  const under = (n: number) =>
+    right
+      .filter((a) => a.line === n)
+      .map((a, k) => (
+        <Fragment key={k}>{a.node}</Fragment>
+      ));
   return (
-    <div className="dv rv-file">
+    <div className={`dv rv-file${fc ? " wf-on" : ""}${side ? " split" : ""}`}>
       <div className="dv-head">
         <span>
           <b className="mono">{path}</b> as it is in {f.data.ref}{" "}
           <span className="mono rv-dim">{f.data.sha.slice(0, 7)}</span>
         </span>
+        {fc && <ChangeKey peek={!side} />}
         {changed && (
           <button type="button" className="btn sm ghost" onClick={onBackToDiff}>
             Show its changes
@@ -448,47 +525,55 @@ export function FileAtView({
         role="region"
         aria-label={`${path} in the reviewed commit`}
       >
-        {lines.map((t, i) => (
-          <Fragment key={i}>
-          <div
-            className={`rv-fl${line === i + 1 ? " cur" : ""}${sel && i >= sel[0] && i <= sel[1] ? " sel" : ""}${marked.ranges.has(i) ? " rng" : ""}`}
-            data-line={i + 1}
-          >
-            {onLine ? (
-              <button
-                type="button"
-                className="dv-ln rv-ln"
-                tabIndex={-1}
-                aria-label={`Comment on line ${i + 1}`}
-                title="Shift-click or drag for several lines"
-                {...range.on({ row: i, line: i + 1, side: "RIGHT" })}
-              >
-                {i + 1}
-              </button>
-            ) : (
-              <span className="dv-ln">{i + 1}</span>
-            )}
-            <code
-              className="dv-code"
-              onClick={(e) => {
-                if (e.metaKey || e.ctrlKey) {
-                  const w = wordFromClick(e);
-                  if (w) onWord(w, { path, line: i + 1, side: "RIGHT" });
-                }
-              }}
-              dangerouslySetInnerHTML={{ __html: highlight(t, lang) ?? esc(t) }}
-            />
-          </div>
-          {right
-            .filter((a) => a.line === i + 1)
-            .map((a, k) => (
-              <Fragment key={k}>{a.node}</Fragment>
-            ))}
-          </Fragment>
-        ))}
+        {side
+          ? side.map((r, i) => (
+              <Fragment key={i}>
+                <div className={`dv-srow wf-srow${rowCls(i, r.right?.line ?? null)}`} data-line={r.right?.line}>
+                  <span className="dv-ln">{r.left?.line ?? ""}</span>
+                  <span className="wf-g">{r.left?.kind === "del" && <i className="wf-bar del" aria-hidden="true" />}</span>
+                  {r.left ? code(r.left.text, r.left.line, "old") : <code className="dv-code none" data-side="old" />}
+                  {r.right ? number(i, r.right.line) : <span className="dv-ln" />}
+                  <span className="wf-g">
+                    {r.right && r.right.kind !== "ctx" && <i className={`wf-bar ${r.right.kind}`} aria-hidden="true" />}
+                  </span>
+                  {r.right ? code(r.right.text, r.right.line, "new") : <code className="dv-code none" data-side="new" />}
+                </div>
+                {r.right && under(r.right.line)}
+              </Fragment>
+            ))
+          : (
+            <>
+              {peekBox(0)}
+              {lines.map((t, i) => (
+                <Fragment key={i}>
+                  <div className={`rv-fl${rowCls(i, i + 1)}`} data-line={i + 1}>
+                    {number(i, i + 1)}
+                    {fc && (
+                      <ChangeGutter
+                        line={i + 1}
+                        mark={fc.marks.get(i + 1)}
+                        cut={fc.cuts.get(i + 1)}
+                        cutBelow={i === lines.length - 1 ? fc.cuts.get(i + 2) : undefined}
+                        open={peek}
+                        onPick={pick}
+                      />
+                    )}
+                    {code(t, i + 1, "new")}
+                  </div>
+                  {peekBox(i + 1)}
+                  {under(i + 1)}
+                </Fragment>
+              ))}
+            </>
+          )}
         {f.data.truncated && (
           <div className="ed-note">
             The file is longer: keel shows its first 1 MB.
+          </div>
+        )}
+        {d.data?.truncated && (
+          <div className="ed-note">
+            The diff is long: the marks stop where keel cut it.
           </div>
         )}
       </div>

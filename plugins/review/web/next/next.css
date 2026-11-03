@@ -902,6 +902,48 @@
   white-space: pre;
   padding-right: 20px;
 }
+/* 0.21.1 Whole file: the marks' column next to the number (review.css .wf-*), and the old file next to the new one */
+.rvn-btn.rvn-btn-sm {
+  min-height: 24px;
+  padding: 0 8px;
+}
+.rvn-wf-key {
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.rvn-whole .wf-peek {
+  margin-left: 64px;
+}
+.rvn-whole.split {
+  overflow-x: hidden;
+}
+.rvn-sl {
+  display: grid;
+  grid-template-columns: 48px 14px minmax(0, 1fr) 48px 14px minmax(0, 1fr);
+}
+.rvn-sl .rvn-dl-t,
+.rvn-sl-t {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 0 12px 0 6px;
+}
+.rvn-sl-t {
+  border-right: 1px solid var(--border);
+}
+.rvn-sl-n {
+  padding-right: 10px;
+  color: var(--dim);
+  font: 12px/20px var(--f-mono);
+  text-align: right;
+  user-select: none;
+}
+.rvn-sl .none {
+  background: repeating-linear-gradient(-45deg, transparent 0 5px, color-mix(in srgb, var(--fg) 4%, transparent) 5px 6px);
+}
+.rvn-dl.wf-l .rvn-dl-t {
+  padding-left: 6px;
+}
 .rvn-mark {
   display: flex;
   align-items: center;

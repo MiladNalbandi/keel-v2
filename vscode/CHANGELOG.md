@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0
+
+- Review mode: **Old | New (whole file)** opens a changed file side by side in VS Code's diff editor, the old file (the
+  pull request's base) on the left and the new one on the right. From the editor's title bar, the hover over a changed
+  block, a changed file in the Review view, or the command palette. A new file has an empty left side, a deleted one
+  an empty right side; a renamed file shows its old path on the left.
+
 ## 0.1.0
 
 - The keel sidebar: Flows, Inbox, Review, Changed files (in review mode) and KeelBot.

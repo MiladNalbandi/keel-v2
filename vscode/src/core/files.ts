@@ -40,6 +40,13 @@ export function refDocs(): vscode.Disposable {
   });
 }
 
+/** 0.21.1 a read-only document (keel-ref:) holding `text`, titled by `label` */
+export function refUri(label: string, query: string, text: string): vscode.Uri {
+  const uri = vscode.Uri.from({ scheme: REF_SCHEME, path: `/${label}`, query });
+  refTexts.set(uri.toString(), text);
+  return uri;
+}
+
 /**
  * Opens a path keel names as `ref` has it (a KeelBot answer made on another branch, a PR head it read with git show):
  * the local file when the ref is the folder's checked-out branch (or keel cannot read it), else the file's text from

@@ -85,6 +85,17 @@ fun rangeAt(ranges: List<ChangeRange>, line: Int): ChangeRange? =
     ranges.firstOrNull { it.kind != ChangeKind.DELETED && line in it.start..it.end } ?: ranges.firstOrNull { it.touches(line) }
 
 /** A changed file's badge in the project view and the Changed files list. */
+/**
+ * 0.4.0 Old | New: which files to read for the two sides. The old side is the base's file (a renamed file's old path),
+ * none for a new file; the new side is the head's file, none for a deleted one.
+ */
+fun oldNewPaths(path: String, file: ChangedFile?): Pair<String?, String?> {
+    val status = prFileStatusOf(file?.status ?: "")
+    val old = if (status == PrFileStatus.NEW) null else file?.from?.takeIf { it.isNotBlank() } ?: path
+    val new = if (status == PrFileStatus.DELETED) null else path
+    return old to new
+}
+
 enum class PrFileStatus(val mark: String, val word: String) {
     NEW("✚", "new"), MODIFIED("●", "changed"), RENAMED("●", "renamed"), DELETED("✖", "deleted")
 }

@@ -19,6 +19,7 @@ import type {
   PrList,
   Project,
   RefFile,
+  ReviewFile,
   ReviewView,
   RunRow,
   StartFlowBody,
@@ -230,6 +231,14 @@ export class KeelApi {
     return this.call(
       "GET",
       `${this.r(pid)}/diff?key=${enc(key)}&path=${enc(path)}`,
+    );
+  }
+
+  /** 0.21.1 the whole file as the review's head (or base) commit has it */
+  reviewFile(pid: string, key: string, path: string, side: "head" | "base"): Promise<ReviewFile> {
+    return this.call(
+      "GET",
+      `${this.r(pid)}/file?key=${enc(key)}&path=${enc(path)}&side=${side}`,
     );
   }
 

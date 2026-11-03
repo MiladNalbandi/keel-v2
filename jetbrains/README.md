@@ -45,7 +45,9 @@ mode or when another PR is chosen, and it stays while files are closed and opene
 - **Editors**: the PR's changed lines vs its base in a gutter layer of their own, beside the IDE's local-change marks:
   a green bar for added lines, a blue bar for modified ones, a red ▶ where lines were removed ("changed in PR #7").
   A click shows the old text with **Ask KeelBot what changed here** (the answer appears in a small card under the
-  block, with Open in KeelBot), **Comment on this change** (a pending comment) and **Show old** (the PR diff). The
+  block, with Open in KeelBot), **Comment on this change** (a pending comment), **Show old** (the PR diff) and
+  **Old | New** (0.4.0: the whole file side by side in the IDE's diff viewer, the base on the left; also Tools › keel ›
+  PR File: Old | New). The
   same two actions are in the editor menu on a changed block. Review threads sit between the lines (folded); outdated
   ones and comments on removed lines are a note at the top of the file.
 - **Review tab**: the PR's +/−, files and threads; Changed files (N) (a click opens the normal file, a deleted one its

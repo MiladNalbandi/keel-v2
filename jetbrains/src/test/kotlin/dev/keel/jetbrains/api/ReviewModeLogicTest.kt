@@ -67,6 +67,15 @@ class ReviewModeLogicTest {
     }
 
     @Test
+    fun `Old and New read the base's file (a renamed one's old path) and the head's, none where a side has no file`() {
+        assertEquals("src/A.kt" to "src/A.kt", oldNewPaths("src/A.kt", ChangedFile("src/A.kt", "modified")))
+        assertEquals("src/Old.kt" to "src/New.kt", oldNewPaths("src/New.kt", ChangedFile("src/New.kt", "renamed", from = "src/Old.kt")))
+        assertEquals(null to "src/N.kt", oldNewPaths("src/N.kt", ChangedFile("src/N.kt", "added")))
+        assertEquals("src/D.kt" to null, oldNewPaths("src/D.kt", ChangedFile("src/D.kt", "removed")))
+        assertEquals("src/X.kt" to "src/X.kt", oldNewPaths("src/X.kt", null))
+    }
+
+    @Test
     fun `file status from the host's words and git's letters`() {
         assertEquals(PrFileStatus.NEW, prFileStatusOf("added"))
         assertEquals(PrFileStatus.NEW, prFileStatusOf("A"))

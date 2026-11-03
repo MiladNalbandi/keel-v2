@@ -58,6 +58,15 @@ export async function run(): Promise<void> {
     await vscode.commands.executeCommand("keel.review.nextChange");
     assert.strictEqual(vscode.window.activeTextEditor!.selection.active.line, 1);
   });
+  await check("Old | New opens the whole file side by side: the base on the left, the head on the right", async () => {
+    await vscode.commands.executeCommand("keel.review.compareFile", "src/cart.ts");
+    const input = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
+    assert.ok(input instanceof vscode.TabInputTextDiff, "a diff editor is open");
+    const left = await vscode.workspace.openTextDocument(input.original);
+    const right = await vscode.workspace.openTextDocument(input.modified);
+    assert.ok(left.getText().includes("TAX = 0.2;"), "the old file is on the left");
+    assert.ok(right.getText().includes("TAX = 0.21;"), "the new file is on the right");
+  });
   await check("exit review mode", async () => {
     await vscode.commands.executeCommand("keel.review.exit");
     assert.ok(!api.review.active);

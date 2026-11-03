@@ -1699,3 +1699,35 @@ describe("threads in the code (the file tab)", () => {
     ).toHaveValue("Saved on purpose");
   });
 });
+
+describe("Code › Review: the whole file with its changes marked (0.21.1)", () => {
+  it("marks the added lines next to their numbers and shows what was there before", async () => {
+    reviewServer();
+    const side = await openPr(7);
+    const tab = await openFile(side, "src/Prefs.kt");
+    await userEvent.click(within(tab).getByRole("button", { name: "Whole file" }));
+    // lines 2–5 are new: a bar each, one change
+    const bars = await within(tab).findAllByRole("button", { name: "Change 1: added. Show the old code" });
+    expect(bars).toHaveLength(4);
+    expect(within(tab).getByText("deleted here")).toBeInTheDocument();
+    await userEvent.click(bars[0]);
+    const peek = within(tab).getByRole("group", { name: "Change 1 of 1: added" });
+    expect(within(peek).getByText("lines 2–5")).toBeInTheDocument();
+    expect(within(peek).getByText("Nothing was here before. These 4 lines are new.")).toBeInTheDocument();
+    await userEvent.click(within(peek).getByRole("button", { name: "Close" }));
+    expect(within(tab).queryByRole("group", { name: "Change 1 of 1: added" })).not.toBeInTheDocument();
+    // the line numbers still start a comment
+    expect(within(tab).getByRole("button", { name: "Comment on line 3" })).toBeInTheDocument();
+  });
+
+  it("side by side, puts the old file on the left, with an empty cell next to each added line", async () => {
+    localStorage.setItem("keel2.repo.diff", JSON.stringify("split"));
+    reviewServer();
+    const side = await openPr(7);
+    const tab = await openFile(side, "src/Prefs.kt");
+    await userEvent.click(within(tab).getByRole("button", { name: "Whole file" }));
+    await waitFor(() => expect(tab.querySelectorAll(".wf-srow")).toHaveLength(6));
+    expect(tab.querySelectorAll('.wf-srow .dv-code.none[data-side="old"]')).toHaveLength(4);
+    expect(tab.querySelectorAll(".wf-srow .wf-bar.add")).toHaveLength(4);
+  });
+});

@@ -169,6 +169,13 @@ const diffs = {
   "src/legacy-totals.ts":
     "diff --git a/src/legacy-totals.ts b/src/legacy-totals.ts\ndeleted file mode 100644\n--- a/src/legacy-totals.ts\n+++ /dev/null\n@@ -1,4 +0,0 @@\n-// totals in floats (replaced by cents)\n-export function legacyTotal(prices: number[]) {\n-  return prices.reduce((a, b) => a + b, 0);\n-}\n",
 };
+// 0.21.1 the whole files of Old | New: cart.ts as the head (the fixture) and the base have it
+const wholeFiles = {
+  "head:src/cart.ts":
+    "import { Item } from './item';\nexport const TAX = 0.21;\n\n// totals in integer cents\nexport function total(items: Item[]): number {\n  return items.reduce((s, i) => s + i.cents, 0);\n}\n",
+  "base:src/cart.ts":
+    "import { Item } from './item';\nexport const TAX = 0.2;\n\nexport function total(items: Item[]): number {\n  let sum = 0;\n  return items.reduce((s, i) => s + i.cents, 0);\n}\n",
+};
 let reviewThreads = [
   {
     id: "RT_1",
@@ -370,6 +377,13 @@ const server = http.createServer(async (req, res) => {
     const key = url.searchParams.get("key");
     if (key === "pr:7") return send(res, 200, reviewView());
     return send(res, 200, { key, number: Number(key?.slice(3)), title: "Checkout: show the SHOPS-1234 notice", base: "main", branch: "feat/notice", files: [], threads: [], me: "ana" });
+  }
+  if (p === "/api/projects/shop/review/file") {
+    const side = url.searchParams.get("side") === "base" ? "base" : "head";
+    const path = url.searchParams.get("path");
+    const text = wholeFiles[`${side}:${path}`];
+    if (text == null) return send(res, 404, { error: `${path} is not in ${side === "base" ? "main" : "#7"}` });
+    return send(res, 200, { path, ref: side === "base" ? "main" : "#7", sha: side === "base" ? "b".repeat(40) : "a".repeat(40), text, truncated: false });
   }
   if (p === "/api/projects/shop/review/diff") {
     const path = url.searchParams.get("path");
