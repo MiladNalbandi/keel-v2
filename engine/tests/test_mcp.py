@@ -464,7 +464,7 @@ def test_module_help():
 
 def test_agents_get_the_read_only_builtin():
     spec = mcp_tools.keel_server_spec()
-    assert spec["command"] == sys.executable and spec["args"] == ["-m", "keel_engine.mcp", "--read-only"]
+    assert spec["command"] == sys.executable and spec["args"] == ["-P", "-m", "keel_engine.mcp", "--read-only"]
     assert "KEEL_API_URL" in spec["env"]
     # the api's seeded entry gets KEEL_API_URL too; nothing else is added
     seeded = {"name": "keel", "command": "/opt/engine/.venv/bin/python", "args": ["-m", "keel_engine.mcp", "--read-only"]}

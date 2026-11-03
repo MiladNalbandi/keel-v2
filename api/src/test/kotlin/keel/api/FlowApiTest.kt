@@ -39,7 +39,7 @@ class FlowApiTest : ApiTest() {
         assertThat(body["settings"]["cap_tokens"].asInt()).isEqualTo(200000)
         assertThat(body["settings"]["gates_mode"].asText()).isEqualTo("every-ac")
         assertThat(body["mcp"].map { it["name"].asText() }).containsExactly("keel")
-        assertThat(body["mcp"][0]["args"].map { it.asText() }).containsExactly("-m", "keel_engine.mcp", "--read-only")
+        assertThat(body["mcp"][0]["args"].map { it.asText() }).containsExactly("-P", "-m", "keel_engine.mcp", "--read-only")
         assertThat(body["skills"]["test-author"].asText()).contains("Kotlin + Spring Boot test patterns")
         assertThat(body["acs"][0]["id"].asText()).isEqualTo("AC-001")
         val green = body["workflow"]["steps"].first { it["id"].asText() == "green" }

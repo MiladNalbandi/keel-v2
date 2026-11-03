@@ -253,7 +253,7 @@ class McpService(
     }
 
     companion object {
-        val KEEL_ARGS = listOf("-m", "keel_engine.mcp", "--read-only")
+        val KEEL_ARGS = listOf("-P", "-m", "keel_engine.mcp", "--read-only")
         const val KEEL_V1 = "keel-v1"
         const val SECRET_REF = "secret:"
         /** 0.18.64 what GET shows for an env value that is not a secret reference; sent back, it keeps the value. */

@@ -104,7 +104,7 @@ def test_its_mcp_server_runs_from_the_plugin_folder_and_only_reads():
     tools = asyncio.run(server.build().list_tools())
     assert {t.name for t in tools} == READ_TOOLS and all(t.annotations.readOnlyHint for t in tools)
     [spec] = extensions.server_specs(["git"], "pk_x")
-    assert spec["name"] == "keel-git" and spec["args"] == ["-m", "keel_plugin_git.server"]
+    assert spec["name"] == "keel-git" and spec["args"] == ["-P", "-m", "keel_plugin_git.server"]
     assert spec["env"]["PYTHONPATH"] == ENGINE and spec["env"]["KEEL_PLUGIN_KEY"] == "pk_x"
     # the real process, as the CLI starts it: no plugin variables, only its spec's environment
     res = asyncio.run(mcp_tools.list_tools(spec))

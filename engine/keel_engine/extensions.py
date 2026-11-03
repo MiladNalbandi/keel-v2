@@ -338,7 +338,7 @@ def server_specs(names: list[str], key: str) -> list[dict]:
             if folder := _package_folder(p):
                 env["PYTHONPATH"] = folder
             out.append({"name": p.mcp["server"], "command": sys.executable,
-                        "args": ["-m", p.mcp["module"], *[str(x) for x in p.mcp.get("args") or []]], "env": env})
+                        "args": ["-P", "-m", p.mcp["module"], *[str(x) for x in p.mcp.get("args") or []]], "env": env})
     return out
 
 
