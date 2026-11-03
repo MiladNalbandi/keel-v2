@@ -375,12 +375,31 @@ def test_a_new_event_ends_the_stall_and_a_later_one_gets_its_own_look(client, re
         assert again != last
         assert client.get(f"/threads/{tid}/supervisor/status").json()["state"] != "escalated"
         # well past the stall time: the look of the first stall may still send an event after `again` was read
-        assert stalls(client, time.monotonic() + 3600) == [tid]
+        now = time.monotonic() + 3600
+        got = stalls(client, now)
+        assert got == [tid], why_no_stall(client, tid, now)
         idle(client)
     finally:
         go_on.set()
     wait(client, tid)
     idle(client)
+
+
+def why_no_stall(client, tid, now):
+    """What check_stalls saw, for a failure message."""
+    sup = sup_of(client)
+
+    async def look():
+        async with sup.engine.conn.execute("select thread_id, status from keel_threads") as cur:
+            rows = [tuple(r) for r in await cur.fetchall()]
+        try:
+            sset = await sup.settings(tid)
+        except Exception as e:  # noqa: BLE001 - only for the message
+            sset = repr(e)
+        return rows, sset
+    rows, sset = client.portal.call(look)
+    return {"threads": rows, "settings": sset, "last": sup.last.get(tid), "stalled": sup.stalled.get(tid), "now": now,
+            "tasks": len(sup.tasks)}
 
 
 def test_a_stall_over_budget_still_asks_without_a_turn(client, repo, script, monkeypatch):
