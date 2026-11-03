@@ -256,3 +256,26 @@ def test_keels_own_stacks_pass_the_check():
     for d in stacks.shipped():
         out = stack_edit.check(None, open(d["_file"]).read())
         assert out["ok"], (d["name"], out["errors"])
+
+
+def test_turning_a_stack_off_leaves_a_committed_config_unchanged(tmp_path):
+    """0.22.0 a field report: keel_stack_off wrote into the committed .keel/config.yml, the tree was dirty, and keel then
+    refused every flow. A committed config stays as it is; this clone keeps the switch inside .git, for its worktrees too."""
+    import subprocess
+
+    root = _project(tmp_path, {"build.gradle.kts": "", "src/main/kotlin/A.kt": "class A",
+                               ".keel/config.yml": "backend:\n  dir: .\nstacks:\n  ignore:\n  - go\n"})
+    env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x",
+           "HOME": str(tmp_path), "PATH": "/usr/bin:/bin"}
+    for args in (["init", "-q", "-b", "main"], ["add", "-A"], ["commit", "-q", "-m", "init"]):
+        subprocess.run(["git", *args], cwd=root, check=True, capture_output=True, env=env)
+    before = (root / ".keel/config.yml").read_text()
+    out = stack_edit.set_off(str(root), "kotlin-spring", True)
+    assert out["where"] == "this computer" and out["all"] == ["go", "kotlin-spring"]
+    assert (root / ".keel/config.yml").read_text() == before
+    assert subprocess.run(["git", "status", "--porcelain"], cwd=root, capture_output=True, text=True).stdout == ""
+    assert stacks.turned_off(str(root)) == {"go", "kotlin-spring"}
+    assert stack_edit.set_off(str(root), "go", False)["all"] == ["kotlin-spring"]      # a committed one, on here only
+    wt = tmp_path / "wt"
+    subprocess.run(["git", "worktree", "add", "-q", str(wt)], cwd=root, check=True, capture_output=True, env=env)
+    assert stacks.turned_off(str(wt)) == {"kotlin-spring"}                               # its worktrees see it too

@@ -121,7 +121,10 @@ def switch(api: KeelApi, name: str, off: bool = True, project: str | None = None
     p = _project(api, project)
     r = api.put(f"/projects/{_q(p['id'])}/stacks/{_q(name)}/off", {"off": off}) or {}
     return (f"{name} is turned {'off' if off else 'on again'} for {p['id']}"
-            + (f"; turned off there now: {', '.join(r['all'])}." if r.get("all") else "; no stack is turned off there now."))
+            + (f"; turned off there now: {', '.join(r['all'])}." if r.get("all") else "; no stack is turned off there now.")
+            # 0.22.0 a committed .keel/config.yml stays unchanged (the tree stays clean): this computer keeps the switch
+            + (" This computer keeps it (.keel/config.yml is committed, so it stays unchanged and flows can start); "
+               "to share it, add the stack to stacks.ignore in .keel/config.yml and commit it." if r.get("where") else ""))
 
 
 def market_install(api: KeelApi, name: str, version: str | None = None, replace: bool = False,

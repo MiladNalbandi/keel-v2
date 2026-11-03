@@ -1212,7 +1212,8 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
     @reg(rw)
     async def keel_stack_off(stack: str, off: bool = True, project: str | None = None, ctx: Context | None = None) -> str:
         """Turn a stack off for the project (keel does not use it there: no detection, its tools never run), or on again
-        with off=false. Needs .keel/config.yml."""
+        with off=false. Needs .keel/config.yml. When that file is committed, this computer keeps the switch and the
+        file stays unchanged, so the tree stays clean."""
         return await act(ctx, "keel_stack_off", f"turn the stack {stack} {'off' if off else 'on'}", stk.switch, api, stack, off,
                          project)
 

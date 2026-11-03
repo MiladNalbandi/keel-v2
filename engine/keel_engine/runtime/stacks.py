@@ -241,17 +241,48 @@ def detects(detect: dict, root: str) -> bool:
     return False
 
 
+LOCAL_STACKS = "keel/stacks.json"
+
+
+def local_file(root: str) -> Path | None:
+    """0.22.0 this clone's own stack switches: <git common dir>/keel/stacks.json, shared by its worktrees, never in a
+    commit and out of the agents' reach (they never write inside .git). None outside git."""
+    import subprocess
+
+    try:
+        r = subprocess.run(["git", "rev-parse", "--git-common-dir"], cwd=root, capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if r.returncode != 0 or not r.stdout.strip():
+        return None
+    return (Path(root) / r.stdout.strip()).resolve() / LOCAL_STACKS
+
+
+def local_switches(root: str) -> dict:
+    """{off: [...], on: [...]} of this clone (local_file); empty when there are none."""
+    f = local_file(root)
+    try:
+        doc = json.loads(f.read_text()) if f and f.is_file() else {}
+    except (OSError, ValueError):
+        return {"off": [], "on": []}
+    doc = doc if isinstance(doc, dict) else {}
+    return {"off": _strings(doc.get("off")), "on": _strings(doc.get("on"))}
+
+
 def turned_off(root: str) -> set[str]:
     """The stacks this project turned off (keel 0.18.9): `stacks: {ignore: [name, ...]}` in .keel/config.yml (not `off`:
     YAML 1.1 reads that key as false). keel's own stack that detection matched wrongly is turned off here; it stays in
-    keel, only this project does not use it."""
+    keel, only this project does not use it. 0.22.0 plus this clone's own switches (local_switches): a tracked
+    config.yml is not changed by a switch, so the tree stays clean and the next flow can start."""
     f = Path(root) / ".keel" / "config.yml"
     try:
         doc = yaml.safe_load(f.read_text()) if f.is_file() else None
     except (OSError, yaml.YAMLError):
-        return set()
+        doc = None
     block = doc.get("stacks") if isinstance(doc, dict) else None
-    return set(_strings(block.get("ignore"))) if isinstance(block, dict) else set()
+    shared = set(_strings(block.get("ignore"))) if isinstance(block, dict) else set()
+    mine = local_switches(root)
+    return (shared | set(mine["off"])) - set(mine["on"])
 
 
 def matched(root: str) -> list[dict]:
