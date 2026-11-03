@@ -446,7 +446,21 @@ def _ask_person(api: KeelApi, pid: str, title: str, command: str, sleep=time.sle
         if not a.get("waiting"):
             return a.get("decision") == "allow", a.get("why") or ""
         sleep(ASK_POLL)
-    return False, "Nobody answered in keel's Inbox in 10 minutes."
+    return False, NO_ANSWER
+
+
+NO_ANSWER = "Nobody answered in keel's Inbox in 10 minutes."
+
+
+def inbox_refusal(why: str) -> str:
+    """0.22.0 the words for a part tool the person did not approve in keel's Inbox: "said no" only when someone did. A
+    question nobody answered (here, or the engine's own 10 minutes) still needs the person's approval."""
+    from . import approvals
+
+    if not why or why in (NO_ANSWER, approvals.TIMEOUT_WHY):
+        return ("Not done: this needs the person's approval in keel's Inbox, and nobody answered yet. Ask them to "
+                "approve it there, then call the tool again.")
+    return f"The person said no in keel's Inbox: {why}".strip()
 # 0.18.9 a new stack, a removed one and one from the marketplace (turning one off is easy to undo: no question)
 CONFIRM |= {"keel_stack_create", "keel_stack_remove", "keel_stack_market_install"}
 
@@ -584,12 +598,13 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
             bound = _bound(fn, a, kw)
             strict = confirm_mod.out_of_band(name, bound.get("action"))
 
-            def no_form(bad: bool = False) -> str:
+            def no_form(bad: bool = False, closed: bool = False) -> str:
                 qid, why = _confirm_question(mine, bound, name, what, client)
                 if strict and not qid:
                     return confirm_mod.no_inbox_text(what, why)
-                text = confirm_mod.bad_text if bad else confirm_mod.ask_text
-                return text(name, what, tokens.issue(name, key, qid), qid, strict)
+                if bad:
+                    return confirm_mod.bad_text(name, what, tokens.issue(name, key, qid), qid, strict)
+                return confirm_mod.ask_text(name, what, tokens.issue(name, key, qid), qid, strict, closed=closed)
 
             given = confirm_mod.GIVEN.get()
             if given:
@@ -620,7 +635,9 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
                     log.info("keel mcp: the client's form failed for %s", name, exc_info=True)
                     return await anyio.to_thread.run_sync(no_form)
                 if res.action != "accept" or not getattr(res.data, "confirm", False):
-                    return f"keel: not done — you said no to {what}."
+                    # 0.22.0 a form that came back without a yes is not a "no": a client that cannot show the form
+                    # declines or closes it by itself. Nothing is done; the question waits in keel's Inbox.
+                    return await anyio.to_thread.run_sync(lambda: no_form(closed=True))
         return await anyio.to_thread.run_sync(lambda: guard(fn, *a, **kw))
 
     async def ask_first(ctx, project, thread_id, decision, why, answers, choice, ask_person):

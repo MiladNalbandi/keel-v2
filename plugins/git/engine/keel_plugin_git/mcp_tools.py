@@ -6,7 +6,7 @@ from __future__ import annotations
 import time
 
 from mcp.server.fastmcp import Context
-from keel_engine.mcp_server import KeelApi, _ask_person, _plugin_on, _project
+from keel_engine.mcp_server import KeelApi, _ask_person, _plugin_on, _project, inbox_refusal
 
 
 def git_status(api: KeelApi, project: str | None = None) -> str:
@@ -32,7 +32,7 @@ def git_act(api: KeelApi, op: str, project: str | None = None, sleep=time.sleep,
             "pr": f"open the pull request: {body.get('title', '')}"}[op]
     ok, why = _ask_person(api, pid, f"Claude Code: {what.split(':')[0]}?", what, sleep)
     if not ok:
-        return f"The person said no in keel's Inbox: {why}".strip()
+        return inbox_refusal(why)
     r = api.post(f"/projects/{pid}/git/{op}", body)
     if op == "commit":
         return f"Committed {r['sha'][:7]} {r['subject']} ({len(r['files'])} file(s))."

@@ -157,7 +157,7 @@ async def test_a_token_for_a_kind_that_is_not_dangerous_still_works_once(monkeyp
     srv = server(api, level="admin")
     first = await call(srv, "keel_stop_flow", {"thread_id": "t-1"})
     assert "This needs the person's OK: stop the flow. Ask the person" in first and not acted(api)
-    assert "keel also put the question in its Inbox" in first and api.posts[-1][0] == "/api/projects/shop/plugins/ask"
+    assert "It waits in keel's Inbox" in first and api.posts[-1][0] == "/api/projects/shop/plugins/ask"
     token = token_of(first)
     # another call's arguments do not take it, and it is used up
     other = await call(srv, "keel_stop_flow", {"thread_id": "t-2", "confirm": token})

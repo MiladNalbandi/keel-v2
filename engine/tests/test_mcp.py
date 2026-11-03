@@ -782,7 +782,11 @@ async def test_a_client_that_confirms(stub):
     stub.posts.clear()
     async with create_connected_server_and_client_session(srv, elicitation_callback=say_no) as s:
         res = await s.call_tool("keel_stop_flow", {})
-        assert "you said no" in res.content[0].text
+        text = res.content[0].text
+        # 0.22.0 a form that came back without a yes (a client may decline it by itself) is never "you said no": it
+        # needs the person's approval, and nothing was done
+        assert "you said no" not in text and "nothing was done" in text
+    assert not any(p.endswith("/stop") for p, *_ in stub.posts)
 
 
 def test_secret_files_are_never_read(stub):
@@ -919,3 +923,19 @@ def test_a_refused_start_says_how_on_ignore_a_path_allow_dirty_or_force(stub):
         mcp_server.start_flow(stub.api, "feature", "SHOPS-1234: rounding", sleep=lambda s: None, wait=0)
     mcp_server.start_flow(stub.api, "feature", "SHOPS-1234: rounding", sleep=lambda s: None, wait=0, force=True)
     assert stub.posts[-1][1]["force"] is True
+
+
+def test_an_unanswered_inbox_question_is_not_a_no():
+    from keel_engine import approvals
+
+    for why in ("", mcp_server.NO_ANSWER, approvals.TIMEOUT_WHY):
+        text = mcp_server.inbox_refusal(why)
+        assert "said no" not in text and "needs the person's approval" in text
+    assert mcp_server.inbox_refusal("not now") == "The person said no in keel's Inbox: not now"
+
+
+def test_a_form_without_a_yes_waits_in_the_inbox():
+    from keel_engine import mcp_confirm
+
+    text = mcp_confirm.ask_text("keel_agent_model", "change the model", "ok-x", "q-1", closed=True)
+    assert "you said no" not in text and "needs the person's approval" in text and "waits in keel's Inbox (q-1)" in text
