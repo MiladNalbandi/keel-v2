@@ -192,7 +192,9 @@ def _atomic(p: Path, data: bytes) -> None:
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(data)
-        os.chmod(tmp, 0o600)
+        from ..tools import agent_user
+
+        os.chmod(tmp, agent_user.private_mode())    # 0.21.3 the agents' user reads it (tools/agent_user.py)
         os.replace(tmp, p)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)

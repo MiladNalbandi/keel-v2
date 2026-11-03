@@ -39,7 +39,8 @@ import java.net.URI
  *  7. anything else: 401 with how to sign in (`keel2 open`).
  * A wrong token is refused (403), never treated as "no token"; a cookie never lifts an MCP call to a person's access.
  * Open without a sign-in: GET /api/health and POST /api/devices/pair (a phone's one-time pairing code).
- * Wrong web keys, cookies and device tokens are counted per client ([AuthLimiter]): too many in a minute → 429.
+ * Wrong web keys, cookies and device tokens are counted per client ([AuthLimiter]): too many in a minute → 429 for
+ * the next wrong one (0.21.3: a right one always passes).
  * Host: besides the names above, an IP address (a phone on the Wi-Fi: DNS rebinding always comes with a name) and the
  * hosts keel2 registered ([DeviceAddresses]: the Tailscale and tunnel names).
  */
@@ -80,14 +81,13 @@ class LocalAuth(
             if (props.internalToken.isNotEmpty() && McpTokens.same(t, props.internalToken)) return pass(request, response, chain, "internal")
             return refuse(response, HttpServletResponse.SC_FORBIDDEN, "Wrong X-Keel-Token", HINT)
         }
+        // 0.21.3 the credential first: a right one always passes, and only a wrong one meets the limit ([AuthLimiter])
         request.getHeader("Authorization")?.let { a ->
-            if (limiter.blocked(AuthLimiter.Kind.SIGN_IN, request)) return tooMany(response)
             val bearer = if (a.startsWith("Bearer ")) a.removePrefix("Bearer ").trim() else ""
             if (bearer.startsWith(DeviceStore.PREFIX)) {
                 val d = devices.byToken(bearer)
                 if (d == null) {
-                    limiter.fail(AuthLimiter.Kind.SIGN_IN, request)
-                    return refuse(response, HttpServletResponse.SC_FORBIDDEN, DEVICE_GONE, DEVICE_GONE_HINT)
+                    return wrongTry(request, response) { refuse(response, HttpServletResponse.SC_FORBIDDEN, DEVICE_GONE, DEVICE_GONE_HINT) }
                 }
                 if (path.startsWith("/internal/")) {
                     return refuse(response, HttpServletResponse.SC_FORBIDDEN, "A device cannot call keel's internal routes", null)
@@ -97,11 +97,9 @@ class LocalAuth(
                 return pass(request, response, chain, "device")
             }
             if (key.matches(bearer)) return pass(request, response, chain, "person")
-            limiter.fail(AuthLimiter.Kind.SIGN_IN, request)
-            return refuse(response, HttpServletResponse.SC_FORBIDDEN, "Wrong sign-in key", HINT)
+            return wrongTry(request, response) { refuse(response, HttpServletResponse.SC_FORBIDDEN, "Wrong sign-in key", HINT) }
         }
         val cookie = key.cookieOf(request)
-        if (cookie != null && limiter.blocked(AuthLimiter.Kind.SIGN_IN, request)) return tooMany(response)
         if (cookie != null && signedIn(cookie, request, response)) {
             if (request.method in SAFE) return pass(request, response, chain, "browser")
             if (request.getHeader(WEB_HEADER) != "1") {
@@ -113,8 +111,15 @@ class LocalAuth(
             }
             return pass(request, response, chain, "browser")
         }
-        if (cookie != null) limiter.fail(AuthLimiter.Kind.SIGN_IN, request)
+        if (cookie != null) return wrongTry(request, response) { refuse(response, HttpServletResponse.SC_UNAUTHORIZED, SIGN_IN, HINT, signIn = true) }
         refuse(response, HttpServletResponse.SC_UNAUTHORIZED, SIGN_IN, HINT, signIn = true)
+    }
+
+    /** A wrong credential: 429 while this client (or all) tried too often, else it is counted and [answer] says no. */
+    private inline fun wrongTry(request: HttpServletRequest, response: HttpServletResponse, answer: () -> Unit) {
+        if (limiter.blocked(AuthLimiter.Kind.SIGN_IN, request)) return tooMany(response)
+        limiter.fail(AuthLimiter.Kind.SIGN_IN, request)
+        answer()
     }
 
     /**
@@ -122,13 +127,13 @@ class LocalAuth(
      * A cookie from before 0.18.64 held the web key itself: it is swapped for a session once, so nobody has to sign in again.
      */
     private fun signedIn(cookie: String, request: HttpServletRequest, response: HttpServletResponse): Boolean =
-        when (sessions.check(cookie)) {
+        when (sessions.check(cookie, host = WebSessions.hostOf(request))) {
             WebSessions.Check.YES -> true
             WebSessions.Check.MOVED -> true.also {
                 response.addHeader(org.springframework.http.HttpHeaders.SET_COOKIE, sessions.cookie(request, cookie).toString())
             }
             WebSessions.Check.NO -> key.matches(cookie).also { old ->
-                if (old) response.addHeader(org.springframework.http.HttpHeaders.SET_COOKIE, sessions.cookie(request, sessions.open()).toString())
+                if (old) response.addHeader(org.springframework.http.HttpHeaders.SET_COOKIE, sessions.cookie(request, sessions.open(host = WebSessions.hostOf(request))).toString())
             }
         }
 

@@ -71,9 +71,18 @@ def plugin(root: Path, name: str, version: str = "1.0.0", *, needs: dict | None 
     return d
 
 
-def installed(data: Path, entries: dict) -> None:
+def installed(data: Path, entries: dict, *, as_installer: bool = True) -> None:
+    """installed.json. `as_installer`: each entry whose store folder is there gets the tree_sha256 keel's installer
+    records (0.21.3), as if it had installed it; False writes the entries as they are (a planted folder)."""
+    from keel_engine.pluginhost import manifest as _m
+
     f = data / "plugins" / "installed.json"
     f.parent.mkdir(parents=True, exist_ok=True)
+    if as_installer:
+        entries = {n: ({**e, "tree_sha256": _m.tree_sha256(store(data) / n / e["version"])}
+                       if isinstance(e, dict) and isinstance(e.get("version"), str) and "tree_sha256" not in e
+                       and (store(data) / n / e["version"]).is_dir() else e)
+                   for n, e in entries.items()}
     f.write_text(json.dumps({"plugins": entries}))
 
 

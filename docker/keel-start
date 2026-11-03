@@ -28,6 +28,66 @@ mkdir -p "$KEEL_DATA"
 mkdir -p "$KEEL_DATA/run"
 (umask 077; printf '%s' "$KEEL_INTERNAL_TOKEN" > "$KEEL_DATA/run/internal-token")
 
+# keel 0.21.3 the agents' own user (engine/keel_engine/tools/agent_user.py, Dockerfile): the agent CLIs and every
+# command keel runs for a project start as KEEL_AGENT_USER (`agent`), through sudo and keel-as-agent. It works only when
+# the sudo rule does; else agents run as keel's own user, as before, and the log says so. Native mode (keel2 start
+# --native) never has a second user: agents run as the person there, as before.
+AGENT_USER=""
+if [ -n "${KEEL_AGENT_USER:-}" ] && [ "${KEEL_NATIVE:-0}" != 1 ]; then
+  if id "$KEEL_AGENT_USER" > /dev/null 2>&1 && [ "$(id -u "$KEEL_AGENT_USER")" != "$(id -u)" ] \
+      && sudo -n -E -u "$KEEL_AGENT_USER" -- /usr/local/bin/keel-as-agent true > /dev/null 2>&1; then
+    AGENT_USER=$KEEL_AGENT_USER
+  else
+    echo "agents: the user $KEEL_AGENT_USER does not work here (sudo rule?), so agents run as keel's own user"
+  fi
+fi
+if [ -n "$AGENT_USER" ]; then export KEEL_AGENT_USER="$AGENT_USER"; else unset KEEL_AGENT_USER; fi
+
+# lock_data: keel's own files are keel's only; the agents' user (in keel's group) may pass through $KEEL_DATA (0710:
+# it cannot list it) into the folders it works in: the CLIs' homes, the code index and the demo project. Run at every
+# start of the loop: a plugin install (exit 75) adds folders to plugins/store.
+lock_data() {
+  [ -n "$AGENT_USER" ] || return 0
+  chmod 0710 "$KEEL_DATA" 2> /dev/null || true
+  chmod 0700 "$HOME" 2> /dev/null || true
+  local f name
+  for f in "$KEEL_DATA"/* "$KEEL_DATA"/.[!.]*; do
+    [ -e "$f" ] && [ ! -L "$f" ] || continue
+    name=${f##*/}
+    case "$name" in
+      agent-home | codex-home | index | demo)
+        chmod -R g+rwX,o-rwx "$f" 2> /dev/null || true ;;
+      plugins)
+        # the plugins' code is read by keel's MCP server, which an agent CLI starts; nothing else of keel's there
+        chmod 0710 "$f"
+        local g
+        for g in "$f"/* "$f"/.[!.]*; do
+          [ -e "$g" ] && [ ! -L "$g" ] || continue
+          if [ "$g" = "$f/store" ]; then chmod -R g+rX,g-w,o-rwx "$g" 2> /dev/null || true; else chmod -R go-rwx "$g" 2> /dev/null || true; fi
+        done ;;
+      *)
+        chmod go-rwx "$f" 2> /dev/null || true ;;
+    esac
+  done
+  chmod 0700 "$KEEL_DATA/run" && chmod 0600 "$KEEL_DATA/run/internal-token"
+}
+
+if [ -n "$AGENT_USER" ]; then
+  # everything keel's api and engine write from here on is their own (0600, 0700); the engine shares the project
+  # folders with the agents itself (tools/agent_user.py share), and git keeps .git group-readable (sharedRepository)
+  umask 077
+  agent_home=$(getent passwd "$AGENT_USER" | cut -d: -f6)
+  if [ -n "$agent_home" ] && [ -d "$agent_home" ] && [ ! -f "$agent_home/.claude.json" ]; then
+    echo '{"hasCompletedOnboarding": true}' > "$agent_home/.claude.json" && chmod 0660 "$agent_home/.claude.json" || true
+  fi
+  # keel2 --docker: the project's tests (the agents' user) use the host's Docker as before. Docker reaches everything
+  # of the host, keel's data volume too: with the socket, the separate user does not keep an agent from keel's files.
+  if [ -S /var/run/docker.sock ]; then
+    sudo -n /usr/local/bin/keel-stack-setup agent-docker || echo "agents: could not give $AGENT_USER the Docker socket"
+  fi
+  echo "agents: run as the user $AGENT_USER (uid $(id -u "$AGENT_USER")), not as keel"
+fi
+
 # Claude Code asks for onboarding on a fresh home; headless runs only need this flag. (Native mode: the agent CLIs get
 # their own home under $KEEL_DATA, engine models/cli.py; the person's own home is never written.)
 if [ "${KEEL_NATIVE:-0}" != 1 ]; then
@@ -185,6 +245,7 @@ trap 'stop_both; exit 130' INT
 # ---------------------------------------------------------------- the loop
 fallback=0
 while :; do
+  lock_data
   if [ "$fallback" = 1 ]; then resolve --only "$LAST_GOOD"; else resolve; fi
   load_env
   plugins="$(plugin_set "$RUN/resolved.json")"

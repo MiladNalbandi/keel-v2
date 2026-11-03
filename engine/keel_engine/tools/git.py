@@ -8,6 +8,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from . import agent_user
+
 # keel's own engine files in a project: written by the engine, never staged or guarded.
 ENGINE_FILES = (".keel/ladder.json", ".keel/agents/")
 
@@ -27,6 +29,9 @@ SECRET_HINTS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL")
 KEEP_ENV = {"KEEL_GIT_TOKEN_FILE", "KEEL_GIT_HOST"}
 SAFE_ARGS = ("-c", "protocol.ext.allow=never", "-c", f"core.hooksPath={os.devnull}", "-c", "core.fsmonitor=false")
 SAFE_ARGS_HOOKS = ("-c", "protocol.ext.allow=never", "-c", "core.fsmonitor=false")      # git.hooks: on, a local command
+# 0.21.3 agents run as their own user, in keel's group (tools/agent_user.py), and keel runs with umask 077: what keel's
+# git writes in .git (the index, objects, refs) stays readable and writable for the agent's own git
+SHARED_ARGS = ("-c", "core.sharedRepository=group")
 NETWORK = {"fetch", "push", "pull", "ls-remote", "clone", "submodule", "remote", "archive"}
 ALLOW_PROTOCOL = "https:ssh:file"
 # 0.18.64 the person's choice: `git.hooks: on` in .keel/config.yml lets the project's own hooks (husky, lint-staged, a
@@ -84,6 +89,8 @@ def git(root: str, *args: str, check: bool = False, env: dict | None = None, tim
     if verb in NETWORK:
         run_env.setdefault("GIT_ALLOW_PROTOCOL", ALLOW_PROTOCOL)
     safe = SAFE_ARGS_HOOKS if verb in LOCAL_HOOK_VERBS and project_hooks(root) else SAFE_ARGS
+    if agent_user.enabled():
+        safe = (*safe, *SHARED_ARGS)
     kw: dict = {"encoding": "utf-8", "errors": "replace"} if text else {}
     try:
         return subprocess.run(["git", *safe, *args], cwd=root, capture_output=True, check=check, env=run_env,

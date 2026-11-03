@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1
+
+- The sign-in key from `keel2 auth key` is sent only to the keel that keel2 runs on this computer. `keel.useLocalKeel2`
+  is now a user setting (not a workspace one).
+
 ## 0.2.0
 
 - Review mode: **Old | New (whole file)** opens a changed file side by side in VS Code's diff editor, the old file (the

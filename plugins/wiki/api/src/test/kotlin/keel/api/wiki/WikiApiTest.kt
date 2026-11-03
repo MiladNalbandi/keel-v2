@@ -42,6 +42,28 @@ class WikiApiTest : ApiTest() {
     }
 
     @Test
+    fun `a decision is never read through a symlink, a file or a folder that leads outside the project`() {
+        val (pid, root) = newProject("wiki-adr-links", mapOf("README.md" to "# demo\n", ".keel/config.yml" to "commands: {}\n"))
+        val outside = Files.createTempDirectory("wiki-outside")
+        Files.writeString(outside.resolve("secret.md"), "# Outside secret\n")
+        // docs/adr is a link to a folder outside the project
+        Files.createDirectories(root.resolve("docs"))
+        Files.createSymbolicLink(root.resolve("docs/adr"), outside)
+        // .keel/adr holds a symlinked file
+        Files.createDirectories(root.resolve(".keel/adr"))
+        Files.createSymbolicLink(root.resolve(".keel/adr/linked.md"), outside.resolve("secret.md"))
+        Files.writeString(root.resolve(".keel/adr/0001-real.md"), "# Real decision\n")
+        val decisions = get("/api/projects/$pid/wiki").json()["sections"].first { it["id"].asText() == "decisions" }["items"].map { it["id"].asText() }
+        assertThat(decisions).doesNotContain("adr:secret.md", "adr:linked.md")
+        get("/api/projects/$pid/wiki/page?id=adr:secret.md").andExpect(status().isNotFound)
+        get("/api/projects/$pid/wiki/page?id=adr:linked.md").andExpect(status().isNotFound)
+        assertThat(get("/api/projects/$pid/wiki").andReturn().response.contentAsString).doesNotContain("Outside secret")
+        if (decisions.contains("adr:0001-real.md")) {
+            assertThat(get("/api/projects/$pid/wiki/page?id=adr:0001-real.md").json()["title"].asText()).isEqualTo("Real decision")
+        }
+    }
+
+    @Test
     fun `wiki refresh starts the knowledge-refresh template with one AC per stale section`() {
         val (pid, root) = newProject("v2-wiki", mapOf(
             "docs/knowledge/architecture.md" to "# A\n\nStarts in `src/A.kt:1`.\n",

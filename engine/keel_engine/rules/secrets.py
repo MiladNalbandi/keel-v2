@@ -488,9 +488,12 @@ def git_ignored(folder: str, rels: list[str]) -> set[str]:
     """The ones of these paths (relative to `folder`) that git ignores there; none when it is no git folder."""
     if not rels:
         return set()
+    from ..tools.git import SAFE_ARGS, scrubbed
+
     try:
-        res = subprocess.run(["git", "-C", str(folder), "check-ignore", "--stdin", "-z"], input="\0".join(rels) + "\0",
-                             capture_output=True, text=True, timeout=10)
+        # 0.21.3 the repo's hooks and fsmonitor are off and git gets no keys, as for every git keel runs (tools/git.py)
+        res = subprocess.run(["git", *SAFE_ARGS, "-C", str(folder), "check-ignore", "--stdin", "-z"],
+                             input="\0".join(rels) + "\0", capture_output=True, text=True, timeout=10, env=scrubbed())
     except (OSError, subprocess.SubprocessError):
         return set()
     if res.returncode not in (0, 1):

@@ -3,10 +3,10 @@ the code at a commit uses a word. Nothing is checked out or written."""
 
 from __future__ import annotations
 
-import os
 import re
 import subprocess
 
+from keel_engine.tools import git as kgit
 from keel_engine.tools.git import git
 
 MAX_FILE = 1_000_000
@@ -31,8 +31,9 @@ def read_many(root: str, sha: str, paths: list[str]) -> dict[str, str | None]:
         return {}
     req = "".join(f"{sha}:{p}\n" for p in paths).encode()
     try:
-        r = subprocess.run(["git", "cat-file", "--batch"], cwd=root, input=req, capture_output=True, timeout=120,
-                           env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})
+        # 0.21.3 no repo hook or fsmonitor runs, and git gets no keys (keel_engine/tools/git.py)
+        r = subprocess.run(["git", *kgit.SAFE_ARGS, "cat-file", "--batch"], cwd=root, input=req, capture_output=True,
+                           timeout=120, env={**kgit.scrubbed(), "GIT_TERMINAL_PROMPT": "0"})
     except subprocess.TimeoutExpired:
         return {p: None for p in paths}
     out: dict[str, str | None] = {}

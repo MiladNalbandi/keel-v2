@@ -199,12 +199,24 @@ COPY docker/keel-start /usr/local/bin/keel-start
 # background through this root helper (docker/keel-stack-setup). sudo lets keel's user run it only as
 # `keel-stack-setup apt ...`, nothing else; the helper also refuses any other first argument.
 COPY docker/keel-stack-setup /usr/local/bin/keel-stack-setup
+# keel 0.21.3 the agents' own user (engine/keel_engine/tools/agent_user.py): the coding-agent CLIs and every command keel
+# runs for a project start as `agent` through keel-as-agent, never as keel. Its primary group is keel's (the project
+# folders are shared through it); keel's own files are not (docker/keel-start: /data 0710, secrets 0600, umask 077).
+# sudo lets keel's user run only keel-as-agent, only as agent (SETENV: keel passes the environment it prepared, -E).
+COPY docker/keel-as-agent /usr/local/bin/keel-as-agent
 RUN chmod +x /usr/local/bin/keel-start /opt/keel-v2/cli/keel-tui.mjs && ln -s /opt/keel-v2/cli/keel-tui.mjs /usr/local/bin/keel-tui \
     && (id -u ubuntu >/dev/null 2>&1 && userdel -r ubuntu || true) \
-    && useradd -m -u 1000 keel && mkdir -p /data /workspace && chown keel:keel /data /workspace \
-    && chown root:root /usr/local/bin/keel-stack-setup && chmod 0755 /usr/local/bin/keel-stack-setup \
+    && useradd -m -u 1000 keel && mkdir -p /data /workspace && chown keel:keel /data /workspace && chmod 0700 /home/keel \
+    && useradd -M -d /home/agent -u 1001 -g keel -s /bin/bash agent && install -d -o agent -g keel -m 2770 /home/agent \
+    && chown root:root /usr/local/bin/keel-stack-setup /usr/local/bin/keel-as-agent \
+    && chmod 0755 /usr/local/bin/keel-stack-setup /usr/local/bin/keel-as-agent \
     && echo 'keel ALL=(root) NOPASSWD: /usr/local/bin/keel-stack-setup apt *' > /etc/sudoers.d/keel-stack-setup \
-    && chmod 0440 /etc/sudoers.d/keel-stack-setup && visudo -cf /etc/sudoers.d/keel-stack-setup
+    && echo 'keel ALL=(root) NOPASSWD: /usr/local/bin/keel-stack-setup agent-docker' >> /etc/sudoers.d/keel-stack-setup \
+    && chmod 0440 /etc/sudoers.d/keel-stack-setup && visudo -cf /etc/sudoers.d/keel-stack-setup \
+    && printf '%s\n' 'Defaults:keel !use_pty, !pam_session, !lecture' \
+        'keel ALL=(agent) NOPASSWD:SETENV: /usr/local/bin/keel-as-agent' > /etc/sudoers.d/keel-agent \
+    && chmod 0440 /etc/sudoers.d/keel-agent && visudo -cf /etc/sudoers.d/keel-agent
+ENV KEEL_AGENT_USER=agent
 
 USER keel
 WORKDIR /workspace

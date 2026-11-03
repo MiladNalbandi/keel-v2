@@ -32,6 +32,7 @@ class Found:
     version: str
     dir: Path
     source: str
+    tree: str | None = None     # 0.21.3 a store folder: the tree_sha256 keel's installer recorded (installed.json)
 
 
 @dataclass
@@ -153,7 +154,8 @@ def _choose(res: Resolution, entries: dict, only: set[tuple[str, str]] | None) -
             absent[name] = OFF
             continue
         if res.mode == "on" and entry.get("version"):
-            f = Found(name, entry["version"], state.store_dir() / name / entry["version"], str(entry.get("source") or "file"))
+            f = Found(name, entry["version"], state.store_dir() / name / entry["version"], str(entry.get("source") or "file"),
+                      entry.get("tree_sha256") if isinstance(entry.get("tree_sha256"), str) else None)
             if not f.dir.is_dir():
                 res.problem(name, f.version, f.dir, "installed, but its folder in the store is missing")
                 absent[name] = LEFT_OUT
@@ -188,6 +190,14 @@ def check(f: Found) -> Manifest:
     for why in (manifest.missing_part(m, f.dir), manifest.check_sums(f.dir)):
         if why:
             raise ManifestError(why)
+    if f.source != "image":
+        # 0.21.3 only what keel's installer put there and checked: a folder planted in the store (with an installed.json
+        # entry of its own), or one changed after the install, never loads
+        if not f.tree:
+            raise ManifestError("refused: keel's installer did not install this folder (installed.json has no "
+                                "tree_sha256 for it; a plugin installed before keel 0.21.3: install it again)")
+        if manifest.tree_sha256(f.dir) != f.tree:
+            raise ManifestError("refused: its files changed after keel installed it (tree_sha256)")
     if m.sdk != SDK:
         raise ManifestError(f"needs plugin SDK {m.sdk}, this keel has {SDK}")
     if not satisfies(config.VERSION, m.keel):

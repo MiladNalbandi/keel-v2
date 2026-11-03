@@ -18,7 +18,13 @@ from pathlib import Path
 from keel_engine.runtime import finding_decisions, run_mode
 from keel_engine.runtime.compiler import answer_problem
 
-NEVER = frozenset({"budget", "dependency", "secrets", "readonly", "note", "final-review", "pr"})
+# 0.21.3 "publish": a gate whose own step or the step right after it starts, merges, pushes or publishes something (another
+# flow, a PR, a ticket comment, a release): repo and PR text the Supervisor reads before it answers is not trusted, and
+# an answer here acts outside the flow's own branch
+NEVER = frozenset({"budget", "dependency", "secrets", "readonly", "note", "final-review", "pr", "publish"})
+# the actions (workflow `action:`, the plugins' too) that act outside the flow: by name
+OUTSIDE_ACTION = re.compile(r"^(?:start_flow|open_pr|pr|ship_ready|ticket_record|amend_start)$"
+                            r"|(?:^|_)(?:push|merge|publish|release|share|comment|post|deploy|ship|tag|upload|send)(?:_|$)")
 DEFAULTS = {
     "spec": "escalate", "contract": "escalate", "escalate": "escalate", "rounds": "escalate", "rung": "escalate",
     "clarify": "may", "ac": "may", "findings": "may", "choice": "may", "skip-menu": "may", "already-met": "may",
@@ -114,5 +120,16 @@ def evidence_problem(evidence: list, root: str, acs: list[dict]) -> str | None:
     return None
 
 
-def kind_of(question: dict, step, flow: str, prev_actions, per_ac: bool) -> str:
-    return run_mode.classify(question, step, flow=flow, prev_actions=prev_actions, per_ac=per_ac)
+def outside_actions(*steps) -> list[str]:
+    """The actions of these workflow steps that act outside the flow (OUTSIDE_ACTION)."""
+    return [a for s in steps if s is not None for a in (s.actions() if hasattr(s, "actions") else [])
+            if OUTSIDE_ACTION.search(a)]
+
+
+def kind_of(question: dict, step, flow: str, prev_actions, per_ac: bool, next_step=None) -> str:
+    """run_mode's kind, except "publish" (never) when the gate step or the step its answer leads to starts, merges, pushes
+    or publishes something (0.21.3)."""
+    kind = run_mode.classify(question, step, flow=flow, prev_actions=prev_actions, per_ac=per_ac)
+    if kind not in NEVER and step is not None and outside_actions(step, next_step):
+        return "publish"
+    return kind

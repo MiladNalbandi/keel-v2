@@ -12,15 +12,20 @@
 #                                       install. The lists are always fetched fresh (apt-get update), so a re-created
 #                                       container downloads again.
 #
-# It does nothing else: no other first argument, no shell commands. A stack's setup.run commands run as keel's own
-# user, never through this helper.
+#   keel-stack-setup agent-docker       0.21.3 adds the agents' user (`agent`, engine/keel_engine/tools/agent_user.py)
+#                                       to the group of /var/run/docker.sock, so the project's tests can use Docker
+#                                       (keel2 --docker gives keel's user that group with --group-add; sudo starts the
+#                                       agents' user with the groups /etc/group names). Never the root group.
+#
+# It does nothing else: no other first argument, no shell commands. A stack's setup.run commands run as the agents'
+# own user (keel's own user before 0.21.3), never through this helper.
 set -euo pipefail
 
 CACHE=/var/cache/keel-apt
 export DEBIAN_FRONTEND=noninteractive LC_ALL=C.UTF-8
 
 usage() {
-  echo "usage: keel-stack-setup apt <package>..." >&2
+  echo "usage: keel-stack-setup apt <package>... | keel-stack-setup agent-docker" >&2
   exit 2
 }
 
@@ -58,6 +63,18 @@ case "${1:-}" in
     done
     apt-get install -y -q --no-install-recommends "${opts[@]}" -- "$@"
     echo "keel-stack-setup: installed $*"
+    ;;
+  agent-docker)
+    [ "$#" = 1 ] || usage
+    sock=/var/run/docker.sock
+    [ -S "$sock" ] || { echo "keel-stack-setup: no Docker socket at $sock" >&2; exit 1; }
+    gid=$(stat -c %g "$sock")
+    [[ "$gid" =~ ^[0-9]+$ ]] && [ "$gid" != 0 ] || { echo "keel-stack-setup: the Docker socket's group is root's: not shared" >&2; exit 1; }
+    id agent > /dev/null 2>&1 || { echo "keel-stack-setup: no user agent" >&2; exit 1; }
+    group=$(getent group "$gid" | cut -d: -f1)
+    if [ -z "$group" ]; then group=keel-docker; groupadd -g "$gid" "$group"; fi
+    usermod -aG "$group" agent
+    echo "keel-stack-setup: agent is in group $group ($gid) of the Docker socket"
     ;;
   *) usage ;;
 esac

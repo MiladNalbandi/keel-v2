@@ -39,7 +39,7 @@ import uuid
 from pathlib import Path
 
 from .. import rules
-from ..tools import git
+from ..tools import agent_user, git
 from . import ci_config, verdict_actions, verdicts
 
 TIMEOUT_MIN = 15
@@ -294,14 +294,18 @@ def run_local(run: dict, root: str, idx: int, nonce: str, ext_mode: str, timeout
     try:
         _write_scripts(copy, [(idx, run)], nonce, False, ext_mode)
         env = {**_local_env(), "KEEL_CI_WORK": copy}
+        # 0.21.3 the project's script runs as the agents' own user (tools/agent_user.py), like its other commands
+        agent_user.share(copy, agent=False)
+        argv, env = agent_user.wrap(["sh", f"{copy}/.keel-ci/run-{idx}.sh"], env)
         try:
-            p = subprocess.run(["sh", f"{copy}/.keel-ci/run-{idx}.sh"], cwd=copy, capture_output=True, text=True,
+            p = subprocess.run(argv, cwd=copy, capture_output=True, text=True,
                                errors="replace", timeout=timeout, env=env, start_new_session=True)
         except subprocess.TimeoutExpired as exc:
             out = exc.stdout if isinstance(exc.stdout, str) else ""
             return 124, (out or "") + f"\ntimed out after {timeout}s"
         return p.returncode, (p.stdout or "") + (p.stderr or "")
     finally:
+        agent_user.share(copy, keel=False)          # what the agents' user made there, so keel can remove it
         shutil.rmtree(copy, ignore_errors=True)
 
 

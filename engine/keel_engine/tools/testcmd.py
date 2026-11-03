@@ -317,24 +317,50 @@ def ac_test_passed(output: str, ac: str) -> bool | None:
     return False
 
 
+def _start(root: str, command: str, env: dict | None, as_agent: bool) -> subprocess.Popen:
+    """`command` in a shell, in its own process group; 0.21.3 as the agents' own user when `as_agent` (a project's
+    command: tools/agent_user.py), as keel's user for keel's own commands (gh with keel's GitHub token)."""
+    from . import agent_user
+
+    posix = os.name == "posix"
+    if as_agent and agent_user.enabled():
+        agent_user.share(root, agent=False)
+        argv, run_env = agent_user.wrap(agent_user.shell(command), env)
+        return subprocess.Popen(argv, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                errors="replace", env=run_env, start_new_session=True, stdin=subprocess.DEVNULL)
+    return subprocess.Popen(command, shell=True, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                            errors="replace", env=env, start_new_session=posix)
+
+
+def _kill(proc: subprocess.Popen) -> None:
+    from . import agent_user
+
+    try:
+        if os.name == "posix":
+            agent_user.kill_group(proc.pid, signal.SIGKILL)
+        else:
+            proc.kill()
+    except OSError:
+        pass
+
+
+def _done(root: str, as_agent: bool) -> None:
+    from . import agent_user
+
+    if as_agent:
+        agent_user.share(root, keel=False)
+
+
 def run_split(root: str, command: str, timeout: int = 120, env: dict | None = None,
-              limit: int = 50_000_000) -> tuple[int, str, str]:
+              limit: int = 50_000_000, as_agent: bool = False) -> tuple[int, str, str]:
     """A command whose stdout is data (gh's JSON): (exit code, stdout, stderr), kept apart and never cut at the front
     (run() keeps the tail of both mixed, which cuts a long JSON answer in the middle). Output past `limit` is an error
-    (exit 125), not half a document. A timeout is exit 124."""
-    posix = os.name == "posix"
-    proc = subprocess.Popen(command, shell=True, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                            errors="replace", env=env, start_new_session=posix)
+    (exit 125), not half a document. A timeout is exit 124. keel's own command by default (as_agent False)."""
+    proc = _start(root, command, env, as_agent)
     try:
         stdout, stderr = proc.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
-        try:
-            if posix:
-                os.killpg(proc.pid, signal.SIGKILL)
-            else:
-                proc.kill()
-        except OSError:
-            pass
+        _kill(proc)
         try:
             _out, err = proc.communicate(timeout=5)
         except subprocess.TimeoutExpired:
@@ -345,25 +371,19 @@ def run_split(root: str, command: str, timeout: int = 120, env: dict | None = No
     return proc.returncode, stdout or "", (stderr or "")[-20000:]
 
 
-def run(root: str, command: str, timeout: int = 600, env: dict | None = None) -> tuple[int, str]:
+def run(root: str, command: str, timeout: int = 600, env: dict | None = None, as_agent: bool = True) -> tuple[int, str]:
     """Run a shell command in the repo. Returns (exit code, combined output trimmed to the tail).
 
     The shell runs in its own process group: on a timeout the whole group is killed (gradle and the JVM it started
-    too), not only the `sh` in front of them."""
-    posix = os.name == "posix"
-    proc = subprocess.Popen(command, shell=True, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                            errors="replace", env=env, start_new_session=posix)
+    too), not only the `sh` in front of them. 0.21.3 a project's command (as_agent, the default) runs as the agents'
+    own user (tools/agent_user.py); keel's own commands that carry a token pass as_agent=False."""
+    proc = _start(root, command, env, as_agent)
     try:
         stdout, stderr = proc.communicate(timeout=timeout)
+        _done(root, as_agent)
         return proc.returncode, ((stdout or "") + (stderr or ""))[-20000:]
     except subprocess.TimeoutExpired:
-        try:
-            if posix:
-                os.killpg(proc.pid, signal.SIGKILL)
-            else:
-                proc.kill()
-        except OSError:
-            pass
+        _kill(proc)
         try:
             out, err = proc.communicate(timeout=5)
         except subprocess.TimeoutExpired:       # a grandchild outside the group still holds the pipes: give up on them

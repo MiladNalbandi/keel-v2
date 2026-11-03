@@ -86,12 +86,60 @@ object Proc {
     fun inTerminal(shellLine: String, mac: Boolean = System.getProperty("os.name").orEmpty().lowercase().contains("mac")): List<String> =
         if (mac) listOf("script", "-q", "/dev/null", "sh", "-c", shellLine) else listOf("script", "-qfec", shellLine, "/dev/null")
 
+    /**
+     * 0.21.3 the git settings every git keel's api runs gets (the same as the engine's tools/git.py SAFE_ARGS): an agent
+     * can write the project's .git/config (core.fsmonitor, core.hooksPath) or a hook, and the api's own `git status`
+     * would run that program inside the api. No hook, no fsmonitor, no ext transport.
+     */
+    val GIT_SAFE_ARGS = listOf("-c", "protocol.ext.allow=never", "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false")
+
+    /**
+     * 0.21.3 the only variables of the api's own environment a child gets. The api holds KEEL_INTERNAL_TOKEN and the
+     * keys of Connections in its environment; a git (or a program it starts: an fsmonitor, a credential helper) must
+     * not see them. What the child needs beyond these the caller passes in `env`.
+     */
+    val CHILD_ENV = setOf(
+        "PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LANGUAGE", "TERM", "TZ", "TMPDIR",
+        "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy",
+        "DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG", "DOCKER_CERT_PATH", "DOCKER_TLS_VERIFY",
+    )
+
+    /**
+     * 0.21.3 agents run as their own user in keel's group (engine tools/agent_user.py; docker/keel-start sets
+     * KEEL_AGENT_USER and umask 077): what the api's git writes in .git stays readable and writable for the agent's git.
+     */
+    private val agentsApart = !System.getenv("KEEL_AGENT_USER").isNullOrBlank() && System.getenv("KEEL_NATIVE") != "1"
+
+    /** `cmd` with [GIT_SAFE_ARGS] after the program when it is git (`git` or a path to it), else as it is. */
+    fun hardened(cmd: List<String>, shared: Boolean = agentsApart): List<String> {
+        val exe = cmd.firstOrNull() ?: return cmd
+        if (exe != "git" && !exe.endsWith("/git")) return cmd
+        return listOf(exe) + GIT_SAFE_ARGS + (if (shared) listOf("-c", "core.sharedRepository=group") else emptyList()) + cmd.drop(1)
+    }
+
+    /** The environment of a child: [CHILD_ENV] and LC_* of the api's own, then `env`, then keel's fixed git settings. */
+    fun childEnv(env: Map<String, String> = emptyMap(), parent: Map<String, String> = System.getenv()): Map<String, String> {
+        val out = parent.filterKeys { it in CHILD_ENV || it.startsWith("LC_") }.toMutableMap()
+        out.putAll(env)
+        out["GIT_TERMINAL_PROMPT"] = "0"
+        out.putIfAbsent("GIT_ALLOW_PROTOCOL", "https:ssh:file")
+        return out
+    }
+
+    /** Sets up `pb` the way [run] does: hardened git arguments are the caller's (see [hardened]); a clean environment. */
+    fun cleanEnv(pb: ProcessBuilder, env: Map<String, String> = emptyMap()): ProcessBuilder {
+        val e = pb.environment()
+        val clean = childEnv(env, e.toMap())
+        e.clear()
+        e.putAll(clean)
+        return pb
+    }
+
     fun run(cmd: List<String>, cwd: Path? = null, timeoutSec: Long = 10, env: Map<String, String> = emptyMap()): ProcResult {
         return try {
-            val pb = ProcessBuilder(cmd)
+            val pb = ProcessBuilder(hardened(cmd))
             if (cwd != null) pb.directory(cwd.toFile())
-            pb.environment().putAll(env)
-            pb.environment()["GIT_TERMINAL_PROMPT"] = "0"
+            cleanEnv(pb, env)
             val outFile = File.createTempFile("keel-out", ".txt")
             val errFile = File.createTempFile("keel-err", ".txt")
             try {

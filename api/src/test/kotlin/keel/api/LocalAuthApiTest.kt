@@ -224,6 +224,40 @@ class LocalAuthApiTest : ApiTest() {
     }
 
     @Test
+    fun `0_21_2 a session works only on the host and port it was opened on`(@Autowired sessions: keel.api.auth.WebSessions) {
+        val c = signInCookie()   // opened on localhost:80 (MockMvc's default)
+        bare.perform(rget("/api/projects").cookie(c)).andExpect(status().isOk)
+        // browsers send a localhost cookie to every port: another server on localhost:3000 that passes it on is refused
+        bare.perform(rget("/api/projects").cookie(c).with { it.serverPort = 3000; it }).andExpect(status().isUnauthorized)
+        bare.perform(rget("/api/projects").cookie(c).with { it.serverName = "127.0.0.1"; it }).andExpect(status().isUnauthorized)
+        // and the session stays for its own address
+        bare.perform(rget("/api/projects").cookie(c)).andExpect(status().isOk)
+        // a session from before 0.21.3 (no address yet) is bound at its first use
+        val old = sessions.open()
+        assertThat(sessions.check(old, host = "localhost:8088")).isNotEqualTo(keel.api.auth.WebSessions.Check.NO)
+        assertThat(sessions.check(old, host = "localhost:8089")).isEqualTo(keel.api.auth.WebSessions.Check.NO)
+        assertThat(sessions.check(old, host = "localhost:8088")).isNotEqualTo(keel.api.auth.WebSessions.Check.NO)
+    }
+
+    @Test
+    fun `0_21_2 keel's page has a Content-Security-Policy, scripts only from keel itself`() {
+        val page = bare.perform(rget("/flow/x")).andReturn().response
+        val csp = page.getHeader("Content-Security-Policy")!!
+        assertThat(csp).contains("script-src 'self'").contains("object-src 'none'").contains("frame-ancestors 'none'")
+            .contains("connect-src 'self'").doesNotContain("unsafe-eval")
+        assertThat(csp.substringAfter("script-src").substringBefore(";")).doesNotContain("unsafe-inline")
+        assertThat(page.getHeader("X-Content-Type-Options")).isEqualTo("nosniff")
+        // the api's own answers keep theirs (a raw file sets a sandbox one)
+        assertThat(bare.perform(rget("/api/health")).andReturn().response.getHeader("Content-Security-Policy")).isNull()
+        // index.html's inline import map is allowed by its hash, and nothing else inline
+        val html = "<script type=\"importmap\">{\"imports\":{}}</script><script type=\"module\" src=\"/assets/i.js\"></script>"
+        val hashes = keel.api.common.PageSecurity.inlineScriptHashes(html)
+        assertThat(hashes).containsExactly("sha256-" + java.util.Base64.getEncoder().encodeToString(
+            java.security.MessageDigest.getInstance("SHA-256").digest("{\"imports\":{}}".toByteArray())))
+        assertThat(keel.api.common.PageSecurity.policyFor(hashes)).contains("script-src 'self' '${hashes[0]}';")
+    }
+
+    @Test
     fun `the web key is kept in a file only its owner reads`() {
         assertThat(key.value).hasSize(64)
         assertThat(Files.readString(key.file).trim()).isEqualTo(key.value)

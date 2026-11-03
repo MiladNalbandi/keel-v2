@@ -43,6 +43,7 @@ def test_install_downloads_checks_and_unpacks_into_the_store(market):
     assert out["pending_restart"] == {"pending": True, "changes": [{"name": "hello", "now": None, "next": "1.0.0"}]}
     e = entries()["hello"]
     e.pop("installed_at")
+    assert len(e.pop("tree_sha256")) == 64          # 0.21.3 the folder as keel's installer checked it
     assert e == {"version": "1.0.0", "on": True, "source": "marketplace", "sha256": market.plugins["hello"]["versions"][0]["sha256"],
                  "by": "person", "catalog": "test", "publisher": "keel", "trust": "web",
                  "permissions": {"workspace": "read"}, "previous": None}

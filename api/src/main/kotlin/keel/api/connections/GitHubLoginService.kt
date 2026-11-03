@@ -136,7 +136,7 @@ class GitHubLoginService(
     private fun ghCmd(): List<String> = gh.trim().split(Regex("\\s+"))
 
     private fun ghAvailable(): Boolean = runCatching {
-        capture(ProcessBuilder(ghCmd() + "--version").redirectErrorStream(true), minOf(10L, runTimeoutSeconds))?.second == 0
+        capture(keel.api.common.Proc.cleanEnv(ProcessBuilder(ghCmd() + "--version").redirectErrorStream(true)), minOf(10L, runTimeoutSeconds))?.second == 0
     }.getOrDefault(false)
 
     /**

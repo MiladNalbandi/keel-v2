@@ -79,7 +79,7 @@
 # data volume, so they survive restarts and new images. Nothing from your computer is copied into the container.
 set -euo pipefail
 
-KEEL2_VERSION="0.21.2"
+KEEL2_VERSION="0.21.3"
 IMAGE="${KEEL_IMAGE:-ghcr.io/miladnalbandi/keel-v2:latest}"
 # keel's core only (docs/plugins/16-steps5-7-contract.md, step 6): keel2 start --core, unless KEEL_IMAGE is set
 CORE_IMAGE="ghcr.io/miladnalbandi/keel-v2:core"
@@ -105,6 +105,23 @@ ask_yes() {  # ask_yes "question" → 0 for yes
   case "$a" in y|Y|yes|YES) return 0 ;; *) return 1 ;; esac
 }
 os() { case "$(uname -s)" in Darwin) echo mac ;; Linux) echo linux ;; MINGW*|MSYS*|CYGWIN*) echo windows ;; *) echo other ;; esac; }
+# 0.21.3 keel's container can write the project folders, their .git/config too. git on this computer must never run
+# what such a config names (core.fsmonitor, hooks, an ssh command, a filter, a pager), as the person: every git call
+# keel2 makes goes through hgit. A config's filters are switched off where git could run them (hgit_filters_off).
+hgit() {
+  GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0 GIT_OPTIONAL_LOCKS=0 git --no-pager -c core.fsmonitor= -c core.hooksPath=/dev/null \
+    -c core.sshCommand= -c protocol.ext.allow=never -c safe.bareRepository=explicit -c core.pager=cat "$@"
+}
+hgit_filters_off() {  # hgit_filters_off <repo> — sets HGIT_OFF to -c options that empty every filter the repo's config names
+  local k n
+  HGIT_OFF=()
+  while IFS= read -r k; do
+    n="${k#filter.}"; n="${n%.*}"
+    [ -n "$n" ] || continue
+    HGIT_OFF+=(-c "filter.$n.clean=" -c "filter.$n.smudge=" -c "filter.$n.process=" -c "filter.$n.required=false")
+  done < <(hgit -C "$1" config --name-only --get-regexp '^filter\..*\.(clean|smudge|process)$' 2>/dev/null || true)
+  return 0
+}
 
 # ---------------------------------------------------------------- docker checks
 docker_install_hint() {
@@ -278,9 +295,9 @@ check_git() {  # a git repo, or a folder of git repos; offers git init
   ls -d "$p"/*/.git >/dev/null 2>&1 && return 0
   warn "$p is not a git repository. keel works on its own git branch and commits there."
   if command -v git >/dev/null 2>&1 && ask_yes "Make it a git repository now (git init, plus a first commit of what is there)?"; then
-    git -C "$p" init -q
-    git -C "$p" add -A
-    git -C "$p" -c user.name="${GIT_AUTHOR_NAME:-keel2}" -c user.email="${GIT_AUTHOR_EMAIL:-keel2@localhost}" commit -qm "Initial commit" --allow-empty
+    hgit -C "$p" init -q
+    hgit -C "$p" add -A
+    hgit -C "$p" -c user.name="${GIT_AUTHOR_NAME:-keel2}" -c user.email="${GIT_AUTHOR_EMAIL:-keel2@localhost}" commit -qm "Initial commit" --allow-empty
     ok "git repository created"
     return 0
   fi
@@ -317,16 +334,64 @@ is_repo() { [ -d "$1/.git" ] || [ -f "$1/.git" ]; }
 # 0.18.17 a git worktree (or submodule) has a .git FILE ("gitdir: /path/main/.git/worktrees/x"): its repository is
 # outside the folder, so in keel's container, which mounts only the folder, every git call failed ("fatal: not a git
 # repository"). keel2 start mounts the repository's common git dir too, at the same path, so the gitdir line works.
-git_common_dir() {  # git_common_dir <folder> — the absolute common git dir of a folder whose .git is a file, or nothing
-  [ -f "$1/.git" ] && command -v git >/dev/null 2>&1 || return 0
-  local d; d="$(git -C "$1" rev-parse --git-common-dir 2>/dev/null)" || return 0
-  [ -n "$d" ] || return 0
+# 0.21.3 keel's container can write that .git file, so it could name any repository on this computer and get it mounted
+# (read-write). A git dir outside the folders the person gave is mounted only when that repository itself says the
+# folder is its worktree (worktrees/<x>/gitdir) or its submodule (core.worktree): the container cannot write there.
+# The .git file is read here; git does not run for it.
+real_dir() { (cd "$1" 2>/dev/null && pwd -P) || true; }   # an existing folder as a real path, or nothing
+git_file_dir() {  # git_file_dir <folder> — the real path of the git dir its .git file names, or nothing
+  [ -f "$1/.git" ] && [ ! -L "$1/.git" ] || return 0
+  local line d; line="$(head -1 "$1/.git" 2>/dev/null || true)"; line="${line%$'\r'}"
+  case "$line" in "gitdir: "?*) d="${line#gitdir: }" ;; *) return 0 ;; esac
   case "$d" in /*) ;; *) d="$1/$d" ;; esac
-  (cd "$d" 2>/dev/null && pwd) || true
+  real_dir "$d"
 }
-git_dirs() {  # git_dirs <folder> — git_common_dir of the folder and of the repos one level down (a folder of repos)
-  local r; git_common_dir "$1"
-  for r in "$1"/*/; do r="${r%/}"; [ -f "$r/.git" ] && git_common_dir "$r"; done
+git_common_of() {  # git_common_of <git dir> — its common git dir (a worktree's: commondir), as a real path
+  local c=""
+  if [ -f "$1/commondir" ]; then
+    c="$(head -1 "$1/commondir" 2>/dev/null || true)"; c="${c%$'\r'}"
+    [ -n "$c" ] || return 0
+    case "$c" in /*) ;; *) c="$1/$c" ;; esac
+    real_dir "$c"
+  else echo "$1"; fi
+}
+in_folders() {  # in_folders <path> <folder>… — the path is one of the folders or inside one
+  local p="$1" f; shift
+  for f in "$@"; do case "$p" in "$f"|"$f"/*) return 0 ;; esac; done
+  return 1
+}
+git_dir_vouched() {  # git_dir_vouched <folder> <git dir> <common dir> — the repository names the folder as its own
+  local f="$1" gd="$2" c="$3" back wt
+  if [ "$gd" != "$c" ]; then   # a worktree: <common>/worktrees/<name>/gitdir is "<folder>/.git"
+    case "$gd" in "$c"/worktrees/*/*) return 1 ;; "$c"/worktrees/?*) ;; *) return 1 ;; esac
+    back="$(head -1 "$gd/gitdir" 2>/dev/null || true)"; back="${back%$'\r'}"
+    case "$back" in */.git) ;; *) return 1 ;; esac
+    case "$back" in /*) ;; *) back="$gd/$back" ;; esac
+    [ "$(real_dir "${back%/.git}")" = "$f" ]
+  else                         # a submodule: <git dir>/config has core.worktree = the folder
+    wt="$(hgit config --file "$gd/config" --get core.worktree 2>/dev/null || true)"
+    [ -n "$wt" ] || return 1
+    case "$wt" in /*) ;; *) wt="$gd/$wt" ;; esac
+    [ "$(real_dir "$wt")" = "$f" ]
+  fi
+}
+printable() { printf '%s' "$1" | LC_ALL=C tr -d '\000-\037\177'; }   # a path from a folder keel can write, safe to print
+git_common_dir() {  # git_common_dir <folder> <given folder>… — the common git dir to mount for a folder whose .git is a file
+  local f="$1" gd c; shift
+  gd="$(git_file_dir "$f")"; [ -n "$gd" ] || return 0
+  c="$(git_common_of "$gd")"; [ -n "$c" ] || return 0
+  if in_folders "$c" "$@"; then echo "$c"; return 0; fi
+  local g ok=1; for g in "$@"; do in_folders "$g" "$c" && ok=0; done   # never a folder that holds a given one
+  if [ "$ok" = 1 ] && git_dir_vouched "$f" "$gd" "$c"; then echo "$c"; return 0; fi
+  local repo="$c"; case "$repo" in */.git) repo="${repo%/.git}" ;; esac
+  warn "$(printable "$f")/.git names the git folder $(printable "$c"), outside the folders keel has, and that repository does not list $(printable "$f") as its worktree. keel does not mount it." >&2
+  warn "  If it is your repository, add it on purpose: keel2 add \"$(printable "$repo")\"" >&2
+  return 0
+}
+git_dirs() {  # git_dirs <folder> <given folder>… — git_common_dir of the folder and of the repos one level down
+  local f="$1" r; shift
+  git_common_dir "$f" "$@"
+  for r in "$f"/*/; do r="${r%/}"; [ -f "$r/.git" ] && git_common_dir "$r" "$@"; done
   return 0
 }
 json_str() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }   # a string for inside JSON quotes
@@ -415,7 +480,7 @@ save_options() {  # save_options <docker 0|1> <bind> <core 0|1> <keel v1 folder>
 }
 # What Settings › Resources asked (/data/start-wanted: docker=0|1, wifi=0|1) goes into the options file. An "on" only
 # after the person says yes on this computer: anything inside keel can write that file, and Docker access is as strong
-# as root here. Without a terminal to ask in (a script, keel2 update from a job) an "on" waits for the next start that
+# as root here. 0.21.3 the question says so (the request came from inside keel; not asked for = N). Without a terminal to ask in (a script, keel2 update from a job) an "on" waits for the next start that
 # can ask; an "off" is taken at once.
 start_take_wanted() {
   command -v docker >/dev/null 2>&1 && container_running || return 0
@@ -426,16 +491,23 @@ start_take_wanted() {
   v="$(printf '%s\n' "$w" | sed -n 's/^docker=//p' | tail -1)"
   if [ "$v" = 0 ]; then docker=0
   elif [ "$v" = 1 ] && [ "$docker" != 1 ]; then
-    if ! interactive; then wait=1; warn "keel's Settings asks to turn Docker access on. Run keel2 restart in a terminal to confirm it."
-    elif ask_yes "keel's Settings asks to turn Docker access on: keel's agents could then start containers on this computer (as strong as root). Turn it on?"; then docker=1
-    else info "  Docker access stays off."; fi
+    if ! interactive; then wait=1; warn "A request from inside keel asks to turn Docker access on. Run keel2 restart in a terminal to confirm it."
+    else
+      warn "A request from inside keel asks to turn Docker access on. It came from keel's Settings, the keel TUI, an MCP admin tool or anything else that runs in keel: keel2 cannot tell which."
+      warn "With it, keel's agents can start containers on this computer: that is as strong as root."
+      if ask_yes "If you did not ask for this yourself just now, answer N. Turn Docker access on?"; then docker=1
+      else info "  Docker access stays off."; fi
+    fi
   fi
   v="$(printf '%s\n' "$w" | sed -n 's/^wifi=//p' | tail -1)"
   if [ "$v" = 0 ]; then bind=127.0.0.1
   elif [ "$v" = 1 ] && [ "${bind:-127.0.0.1}" = 127.0.0.1 ]; then
-    if ! interactive; then wait=1; warn "keel's Settings asks to make keel reachable on your Wi-Fi. Run keel2 restart in a terminal to confirm it."
-    elif ask_yes "keel's Settings asks to make keel reachable on your Wi-Fi (plain http inside your network). Do it?"; then bind=0.0.0.0
-    else info "  keel stays on this computer only."; fi
+    if ! interactive; then wait=1; warn "A request from inside keel asks to make keel reachable on your Wi-Fi. Run keel2 restart in a terminal to confirm it."
+    else
+      warn "A request from inside keel asks to make keel reachable on your Wi-Fi (plain http inside your network). It came from keel's Settings, the keel TUI, an MCP admin tool or anything else that runs in keel: keel2 cannot tell which."
+      if ask_yes "If you did not ask for this yourself just now, answer N. Make keel reachable on your Wi-Fi?"; then bind=0.0.0.0
+      else info "  keel stays on this computer only."; fi
+    fi
   fi
   save_options "${docker:-0}" "${bind:-127.0.0.1}" "$(option_saved core)" "$(option_saved keelv1)"
   [ "$wait" = 1 ] || docker exec "$NAME" rm -f /data/start-wanted >/dev/null 2>&1 || true
@@ -555,7 +627,7 @@ cmd_start() {
       check_shared "$gd"
       args+=(-v "$gd:$gd"); same+=("$gd")
       info "  ${D}$f is a git worktree or submodule: its repository $gd is mounted too.${N}"
-    done < <(git_dirs "$f")
+    done < <(git_dirs "$f" "$project" ${added[@]+"${added[@]}"})
   done
   local v; for v in ANTHROPIC_API_KEY OPENAI_API_KEY GITHUB_TOKEN GH_TOKEN CLAUDE_CODE_OAUTH_TOKEN; do
     if [ -n "${!v:-}" ]; then args+=(-e "$v"); fi
@@ -763,7 +835,7 @@ cmd_state() {  # keel2 state [close] [folder]
   case "${1:-}" in close|show) sub="$1"; shift ;; esac
   dir="${1:-$PWD}"
   [ -d "$dir" ] || die "There is no folder $dir." "usage: keel2 state [close] [folder]"
-  dir="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null || (cd "$dir" && pwd))"
+  dir="$(hgit -C "$dir" rev-parse --show-toplevel 2>/dev/null || (cd "$dir" && pwd))"
   f="$dir/.keel/state.json"   # the state file keel v1 left
   if [ ! -f "$f" ]; then info "No keel v1 state file in $dir (.keel/state.json): no keel v1 flow blocks commits there."; return 0; fi
   flow="$(sed -n 's/.*"flow"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$f" | head -1)"
@@ -774,9 +846,14 @@ cmd_state() {  # keel2 state [close] [folder]
     info "  keel v1's hooks refuse commits while it names a flow. Archive it (nothing is deleted): keel2 state close${1:+ $1}"
     return 0
   fi
+  # 0.21.3 keel's container can write the project: a .keel/archive that is a link would move the file (and mkdir) anywhere
+  if [ -L "$dir/.keel/archive" ] || { [ -e "$dir/.keel/archive" ] && [ ! -d "$dir/.keel/archive" ]; }; then
+    die "$(printable "$dir")/.keel/archive is a link or a file, not a folder, so keel2 does not move anything there." \
+        "Look at it, remove it if you did not make it, then run keel2 state close again."
+  fi
   day="$(date +%F)"; mkdir -p "$dir/.keel/archive"
   dest="$dir/.keel/archive/state-$day.json"
-  while [ -e "$dest" ]; do dest="$dir/.keel/archive/state-$day-$n.json"; n=$((n + 1)); done
+  while [ -e "$dest" ] || [ -L "$dest" ]; do dest="$dir/.keel/archive/state-$day-$n.json"; n=$((n + 1)); done
   mv "$f" "$dest" || die "Could not move $f." "Check the folder's permissions."
   ok "archived the keel v1 flow ${flow:-?} (phase ${phase:-none}): .keel/state.json -> ${dest#"$dir"/}; it no longer blocks commits"
 }
@@ -1160,7 +1237,9 @@ cmd_doctor() {
   if [ -n "${1:-}" ]; then
     local p; p="$(project_path "$1")"
     if [ -d "$p/.git" ] || ls -d "$p"/*/.git >/dev/null 2>&1; then ok "project: $p is a git repository"
-      local dirty; dirty="$(git -C "$p" status --porcelain 2>/dev/null | { grep -v '^?? .keel/' || true; } | wc -l | tr -d ' ')"
+      local dirty; hgit_filters_off "$p"
+      dirty="$(hgit -C "$p" ${HGIT_OFF[@]+"${HGIT_OFF[@]}"} status --porcelain --ignore-submodules=all 2>/dev/null \
+        | { grep -v '^?? .keel/' || true; } | wc -l | tr -d ' ')"
       [ "$dirty" = 0 ] || warn "project has $dirty uncommitted change(s); keel will ask (or its Doctor helps) before a flow starts"
     else bad "project: $p is not a git repository (keel2 start offers git init)"; problems=$((problems + 1)); fi
     check_shared "$p"
@@ -1223,14 +1302,26 @@ limit_check() {  # limit_check <memory|cpus> <value>
     memory:*[!0-9mMgG]*|memory:[mMgG]*|memory:*[mMgG]*[0-9mMgG]*|memory:*[0-9]) die "--memory takes a size like 6g or 4096m, or off (it is '$2')." ;;
     cpus:*[!0-9.]*|cpus:|cpus:.*|cpus:*.*.*) die "--cpus takes a number like 4 or 1.5, or off (it is '$2')." ;;
   esac
-  if [ "$1:$2" != memory:off ] && [ "$1" = memory ] && [ "$(limit_bytes "$2")" -lt 1073741824 ]; then
-    die "keel needs at least 1g of memory (it is '$2')."
+  [ "$2" != off ] || return 0
+  # 0.21.3 sizes and numbers docker takes: 08g (bash read it as octal) or a size with 20 digits broke every start
+  local n="${2%[mMgG]}"; n="${n%%.*}"; n="${n#"${n%%[!0]*}"}"
+  if [ "$1" = memory ]; then
+    [ "${#n}" -le 7 ] || die "--memory $2 is more than any computer has." "Give a size like 6g or 4096m, or off."
+    [ "$(limit_bytes "$2")" -ge 1073741824 ] || die "keel needs at least 1g of memory (it is '$2')."
+  else
+    [ "${#n}" -le 4 ] || die "--cpus $2 is more than any computer has." "Give a number like 4 or 1.5, or off."
+    awk -v v="$2" 'BEGIN { exit !(v + 0 >= 0.01) }' || die "--cpus must be at least 0.01 (it is '$2')." "off means no limit."
   fi
   return 0
 }
-limit_bytes() {  # 6g -> bytes (an integer size, limit_check sees to that)
+limit_bytes() {  # 6g -> bytes (an integer size, limit_check sees to that); 10#: a leading 0 is not octal
   local n="${1%[mMgG]}"
-  case "$1" in *[gG]) echo $((n * 1073741824)) ;; *) echo $((n * 1048576)) ;; esac
+  case "$1" in *[gG]) echo $((10#$n * 1073741824)) ;; *) echo $((10#$n * 1048576)) ;; esac
+}
+limit_fits() {  # limit_fits <cpus> — not more CPUs than Docker has (docker run refuses that); true when Docker does not say
+  local have; have="$(docker info -f '{{.NCPU}}' 2>/dev/null || true)"
+  case "$have" in ""|*[!0-9]*) return 0 ;; esac
+  awk -v v="$1" -v h="$have" 'BEGIN { exit !(v + 0 <= h + 0) }'
 }
 limit_auto() {  # limit_auto <memory|cpus>: half of what Docker has; nothing when Docker does not say
   local have half
@@ -1270,6 +1361,8 @@ limits_take_wanted() {
   # checked in a subshell: limit_check dies, and a bad value in the file must not stop keel from starting
   if [ -n "$m" ] && ! (limit_check memory "$m") >/dev/null 2>&1; then m=""; fi
   if [ -n "$c" ] && ! (limit_check cpus "$c") >/dev/null 2>&1; then c=""; fi
+  if [ -n "$c" ] && [ "$c" != off ] && ! limit_fits "$c"; then c=""; fi
+  [ -n "$w" ] && [ -z "$m$c" ] && warn "Settings › Resources asked for limits keel2 cannot use ($(printable "$(printf '%s' "$w" | tr '\n' ' ' | cut -c1-80)")): ignored." >&2
   f="$(limits_file)"; saved_m="$(limit_saved memory)"; saved_c="$(limit_saved cpus)"
   [ -z "$m" ] || saved_m="$m"
   [ -z "$c" ] || saved_c="$c"
@@ -2442,6 +2535,92 @@ print_mcp_config() {  # print_mcp_config <--read-only|--write|--admin> [extra ar
 # and logs/. A native keel answers the same commands; when it exists, the Docker helpers below are replaced.
 ND="${KEEL2_HOME:-$HOME/.keel2}/$NAME"
 RELEASE_URL="${KEEL_RELEASE_URL:-https://github.com/MiladNalbandi/keel-v2/releases/download}"
+# 0.21.3 keel's releases are signed with minisign, by the key that signs keel's own plugins (content/trust/keel.pub;
+# docs/plugins/tools/setup-signing-keys.sh writes its key line here). keel2 checks a downloaded native tarball's
+# .minisig with it, and that the signature names this very file, before anything is unpacked. A release made before
+# signing has no .minisig: it is used with a warning (sha256 only), unless it is RELEASE_SIGNED_SINCE or newer.
+# KEEL2_RELEASE_KEY replaces the key (tests, a fork with its own releases).
+RELEASE_KEY="${KEEL2_RELEASE_KEY:-}"
+RELEASE_SIGNED_SINCE="${KEEL2_RELEASE_SIGNED_SINCE:-}"
+# Ed25519 (RFC 8032, section 6) and minisign's format in plain Python: no package to install, so it runs anywhere.
+MINISIG_PY='import base64, hashlib, sys
+p = 2**255 - 19; q = 2**252 + 27742317777372353535851937790883648493
+d = -121665 * pow(121666, p - 2, p) % p; I = pow(2, (p - 1) // 4, p)
+def add(P, Q):
+    A = (P[1] - P[0]) * (Q[1] - Q[0]) % p; B = (P[1] + P[0]) * (Q[1] + Q[0]) % p
+    C = 2 * P[3] * Q[3] * d % p; D = 2 * P[2] * Q[2] % p
+    E, F, G, H = B - A, D - C, D + C, B + A
+    return (E * F % p, G * H % p, F * G % p, E * H % p)
+def mul(s, P):
+    Q = (0, 1, 1, 0)
+    while s > 0:
+        if s & 1: Q = add(Q, P)
+        P = add(P, P); s >>= 1
+    return Q
+def xof(y, sign):
+    if y >= p: return None
+    x2 = (y * y - 1) * pow(d * y * y + 1, p - 2, p)
+    if x2 == 0: return None if sign else 0
+    x = pow(x2, (p + 3) // 8, p)
+    if (x * x - x2) % p: x = x * I % p
+    if (x * x - x2) % p: return None
+    return p - x if (x & 1) != sign else x
+def point(b):
+    y = int.from_bytes(b, "little"); sign = y >> 255; y &= (1 << 255) - 1
+    x = xof(y, sign)
+    return None if x is None else (x, y, 1, x * y % p)
+gy = 4 * pow(5, p - 2, p) % p; gx = xof(gy, 0); BASE = (gx, gy, 1, gx * gy % p)
+def ok(pub, msg, sig):
+    A = point(pub); R = point(sig[:32]); s = int.from_bytes(sig[32:], "little")
+    if A is None or R is None or s >= q: return False
+    h = int.from_bytes(hashlib.sha512(sig[:32] + pub + msg).digest(), "little") % q
+    P = mul(s, BASE); Q = add(R, mul(h, A))
+    return (P[0] * Q[2] - Q[0] * P[2]) % p == 0 and (P[1] * Q[2] - Q[1] * P[2]) % p == 0
+def die(why): print(why); sys.exit(1)
+path, sigpath, keyline, name = sys.argv[1:5]
+try:
+    key = base64.b64decode(keyline.strip(), validate=True)
+    lines = open(sigpath, encoding="utf-8").read().rstrip("\n").split("\n")
+    raw = base64.b64decode(lines[1].strip(), validate=True); glob = base64.b64decode(lines[3].strip(), validate=True)
+except Exception: die("the signature file is not in the minisign format")
+if len(key) != 42 or key[:2] != b"Ed": die("the release key is not a minisign Ed25519 key")
+if len(lines) != 4 or not lines[2].startswith("trusted comment: ") or len(raw) != 74 or len(glob) != 64:
+    die("the signature file is not in the minisign format")
+if raw[2:10] != key[2:10]: die("the file is signed with another key than keel'"'"'s")
+data = open(path, "rb").read()
+msg = hashlib.blake2b(data, digest_size=64).digest() if raw[:2] == b"ED" else data
+if raw[:2] not in (b"ED", b"Ed") or not ok(key[10:], msg, raw[10:]): die("the signature does not match the file")
+trusted = lines[2][len("trusted comment: "):]
+if not ok(key[10:], raw[10:] + trusted.encode("utf-8"), glob): die("the signature'"'"'s trusted comment was changed")
+if ("file:" + name) not in trusted.split("\t"): die("the signature is for another file (" + trusted + ")")
+'
+minisig_check() {  # minisig_check <file> <file.minisig> <expected file name> — 0 when keel's key signed exactly that file
+  local py=""
+  if command -v python3 >/dev/null 2>&1; then py=python3
+  elif command -v uv >/dev/null 2>&1; then py="uv run --quiet --no-project python"
+  else echo "there is no python3 (or uv) on this computer to check it with"; return 1; fi
+  $py -I -c "$MINISIG_PY" "$1" "$2" "$RELEASE_KEY" "$3"
+}
+release_signed() {  # release_signed <version> <folder> <file name> — fetches <file>.minisig and checks the file; dies on a bad one
+  local v="$1" dir="$2" name="$3" why
+  if [ -z "$RELEASE_KEY" ]; then
+    warn "This keel2 has no release key yet, so keel v2 $v is checked by its sha256 only (from the same release)." >&2
+    return 0
+  fi
+  if ! curl -fsSL "$RELEASE_URL/v$v/$name.minisig" -o "$dir/$name.minisig" 2>/dev/null; then
+    rm -f "$dir/$name.minisig"
+    if [ -n "$RELEASE_SIGNED_SINCE" ] && ! version_newer "$RELEASE_SIGNED_SINCE" "$v"; then
+      die "keel v2 $v has no signature ($name.minisig), and releases from $RELEASE_SIGNED_SINCE on are signed, so keel2 does not install it." \
+          "Someone may have changed the release. Try again later, or report it: https://github.com/MiladNalbandi/keel-v2/issues"
+    fi
+    warn "keel v2 $v has no signature (a release from before keel signed them): it is checked by its sha256 only." >&2
+    return 0
+  fi
+  why="$(minisig_check "$dir/$name" "$dir/$name.minisig" "$name" 2>&1)" \
+    || die "keel v2 $v failed the signature check, so keel2 does not install it: $why" \
+           "Someone may have changed the download. Try again later, or report it: https://github.com/MiladNalbandi/keel-v2/issues"
+  ok "signature checked: keel v2 $v is signed by keel's release key" >&2
+}
 native_mode() { [ -f "$ND/mode" ] && [ "$(cat "$ND/mode" 2>/dev/null)" = native ]; }
 native_pid() { cat "$ND/run/keel.pid" 2>/dev/null || true; }
 native_running() {  # the pid file's process is alive and is keel's own start script (not a pid reused after a reboot)
@@ -2485,6 +2664,7 @@ native_download() {
   curl -fsSL "$RELEASE_URL/v$v/$name" -o "$tmp/$name" && curl -fsSL "$RELEASE_URL/v$v/$name.sha256" -o "$tmp/$name.sha256" \
     || die "Could not download keel v2 $v ($RELEASE_URL/v$v/$name)." "Check your internet connection, or build it: keel2 start --native --from-source <keel-v2 checkout>"
   [ "$(sha256_of "$tmp/$name")" = "$(cut -d' ' -f1 "$tmp/$name.sha256")" ] || die "The download's checksum does not match, so keel does not use it." "Try again later."
+  release_signed "$v" "$tmp" "$name"
   echo "$tmp/$name"
 }
 

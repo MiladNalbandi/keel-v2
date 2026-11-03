@@ -5,6 +5,7 @@ for (docs/plugins/13-step4-contract.md)."""
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
@@ -234,6 +235,28 @@ def missing_part(m: Manifest, folder: Path) -> str | None:
 def file_sha256(path: Path) -> str:
     with open(path, "rb") as fh:
         return hashlib.file_digest(fh, "sha256").hexdigest()
+
+
+def tree_sha256(folder: Path) -> str:
+    """0.21.3 one sha256 of every file in a plugin folder (its path and its bytes), links too (by their target), the
+    bytecode Python writes next to the code (__pycache__, .pyc) left out. keel's installer keeps it in installed.json
+    (keel's own, under /data: agents run as another user and cannot write there), and the resolver loads a plugin of
+    the store only when its folder still has it: a folder put there by anything but the installer is refused."""
+    h = hashlib.sha256()
+    base = Path(folder)
+    for d, dirs, files in os.walk(base):
+        dirs[:] = sorted(x for x in dirs if x != "__pycache__")
+        for name in sorted(files):
+            if name.endswith(".pyc"):
+                continue
+            p = Path(d) / name
+            rel = p.relative_to(base).as_posix()
+            if p.is_symlink():
+                body = b"link:" + os.readlink(p).encode()
+            else:
+                body = bytes.fromhex(file_sha256(p))
+            h.update(rel.encode() + b"\0" + body + b"\0")
+    return h.hexdigest()
 
 
 def read_sums(folder: Path) -> list[tuple[str, str]]:

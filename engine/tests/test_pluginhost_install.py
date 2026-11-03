@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from keel_engine.pluginhost import PluginError, resolver, store as host_store
+from keel_engine.pluginhost import PluginError, manifest, resolver, store as host_store
 from keel_engine.pluginhost.cli import main
 from test_pluginhost import data, image, installed, plugin, sha, store  # noqa: F401 - fixtures and helpers
 
@@ -54,6 +54,7 @@ def test_install_unpacks_into_the_store_and_records_it(image, data, src, tmp_pat
     assert (target / "files.sha256").is_file() and (target / "keel-plugin.yml").is_file()
     entry = entries(data)["db"]
     assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", entry.pop("installed_at"))
+    assert entry.pop("tree_sha256") == manifest.tree_sha256(target)       # 0.21.3 what the resolver checks
     assert entry == {"version": "1.4.0", "on": True, "source": "file", "sha256": sha(file), "by": "cli"}
     assert [p.name for p in store(data).iterdir()] == ["db"]          # no temp folder left behind
     (p,) = resolver.resolve().plugins
@@ -197,3 +198,31 @@ def test_list_shows_what_would_load_what_is_off_and_the_problems(image, data, ca
     assert "loads, in this order:\n  tasks 1.0.0  (image)" in text
     assert "off:\n  map 1.0.0\n" in text and "left out:\n  x 1.0.0: needs plugin SDK 2, this keel has 1" in text
     assert not (data / "plugins/run").exists()                       # list writes nothing
+
+
+# ------------------------------------------------------------------ 0.21.3 only what keel's installer put in the store
+
+def test_a_folder_planted_in_the_store_is_refused_at_start(image, data, tmp_path):
+    # what an agent running as keel's user could do before 0.21.3: a plugin folder and an installed.json entry
+    plugin(store(data), "evil", "1.0.0", package="keel_plugin_evil", sums=True)
+    installed(data, {"evil": {"version": "1.0.0", "on": True, "source": "file", "sha256": "0" * 64}}, as_installer=False)
+    res = resolver.resolve()
+    assert "evil" not in [p.name for p in res.plugins]
+    assert "keel's installer did not install this folder" in {p["name"]: p["error"] for p in res.problems}["evil"]
+
+
+def test_a_file_changed_after_the_install_is_refused(image, data, src, tmp_path):
+    assert main(["install", str(kplug(tmp_path / "db-1.4.0.kplug", src))]) == 0
+    target = store(data) / "db" / "1.4.0"
+    assert [p.name for p in resolver.resolve().plugins] == ["db"]
+    (target / "engine" / "keel_plugin_db" / "extra.py").write_text("import os\n")     # files.sha256 does not list it
+    res = resolver.resolve()
+    assert res.plugins == [] and "changed after keel installed it" in res.problems[0]["error"]
+
+
+def test_python_bytecode_next_to_the_code_is_not_a_change(image, data, src, tmp_path):
+    assert main(["install", str(kplug(tmp_path / "db-1.4.0.kplug", src))]) == 0
+    cache = store(data) / "db" / "1.4.0" / "engine" / "keel_plugin_db" / "__pycache__"
+    cache.mkdir()
+    (cache / "__init__.cpython-312.pyc").write_bytes(b"x")
+    assert [p.name for p in resolver.resolve().plugins] == ["db"]

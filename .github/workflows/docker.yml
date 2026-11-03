@@ -227,8 +227,8 @@ jobs:
           for tg in "${tags[@]}"; do echo "$tg"; done
           docker buildx imagetools inspect "${tags[0]}"
 
-  # v0.16.1 the native release (keel2 start --native downloads it): keel-v2-<version>-native.tar.gz and its sha256,
-  # attached to the GitHub release of the tag when there is one, else kept as the run's artifact
+  # v0.16.1 the native release (keel2 start --native downloads it): keel-v2-<version>-native.tar.gz and its sha256
+  # (0.21.3 and keel2, each with a .minisig), attached to the GitHub release of the tag when there is one, else kept as the run's artifact
   native:
     needs: gate
     # a pre-release tag (v0.18.2-rc.1) tests the images only: the native release needs the engine's own version
@@ -245,13 +245,38 @@ jobs:
       # keel2 downloads v<version>/keel-v2-<version>-native.tar.gz: the tag must be the engine's version
       - run: test "v$(sed -n 's/^version = "\(.*\)"/\1/p' engine/pyproject.toml | head -1)" = "$GITHUB_REF_NAME"
       - run: scripts/build-native.sh dist
+      # 0.21.3 the release's files are signed with keel's key (the secret KEEL_PUBLISHER_KEY, the one that signs keel's
+      # plugins): keel2 checks the tarball's .minisig before it installs it, install.sh checks keel2's. keel2 is attached
+      # too, so install.sh installs a signed keel2 of this release. Without the secret: unsigned, with a warning.
+      - uses: astral-sh/setup-uv@v6
+      - name: sign
+        env:
+          KEEL_PUBLISHER_KEY: ${{ secrets.KEEL_PUBLISHER_KEY }}
+        run: |
+          set -euo pipefail
+          cp keel2 dist/keel2
+          if [ -z "$KEEL_PUBLISHER_KEY" ]; then
+            echo "::warning::The secret KEEL_PUBLISHER_KEY is not set: this release is not signed (docs/plugins/tools/setup-signing-keys.sh)."
+            exit 0
+          fi
+          kp=(uv run --quiet --project tools/keel-plugin keel-plugin)
+          for f in dist/*.tar.gz dist/keel2; do "${kp[@]}" sign "$f" --key-env KEEL_PUBLISHER_KEY; done
+          # the files must verify with the public key keel2 and install.sh carry
+          key="$(sed -n 's/^RELEASE_KEY="${KEEL2_RELEASE_KEY:-\(RW[A-Za-z0-9+/]*\)}"$/\1/p' keel2)"
+          if [ -n "$key" ]; then
+            for f in dist/*.tar.gz dist/keel2; do "${kp[@]}" verify "$f" --pub "$key"; done
+          else
+            echo "::warning::keel2 has no RELEASE_KEY yet: commit the key line setup-signing-keys.sh writes."
+          fi
       - name: attach to the release
         id: attach
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" dist/*.tar.gz dist/*.sha256 --clobber && echo "attached=1" >> "$GITHUB_OUTPUT"
+            files=(dist/*.tar.gz dist/*.sha256 dist/keel2)
+            for f in dist/*.minisig; do [ -e "$f" ] && files+=("$f"); done
+            gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber && echo "attached=1" >> "$GITHUB_OUTPUT"
           else
             echo "No GitHub release for $GITHUB_REF_NAME yet: the files are kept as this run's artifact."
           fi

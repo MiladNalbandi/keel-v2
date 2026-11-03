@@ -27,8 +27,9 @@ Approval (keel 0.18.33): a stack from the project's own .keel/stacks (a cloned r
 run on this machine, so none of its setup.apt / setup.run / setup.each_worktree runs until a person approved exactly
 those commands. The approval is keyed by a hash of (project, stack name, the command and package lists): a changed
 list is a new hash and asks again. keel's own stacks and packs need none. The ask is an Inbox card (approvals.py, kind
-"stack-setup"); installing a stack from the marketplace is itself the approval. Until then the status says
-"needs approval" and lists what waits.
+"stack-setup"). 0.21.3 a stack installed from the marketplace asks too (before, the install itself was the approval:
+one click ran its commands), and one from an unverified publisher with a setup block is not installed unless the rule
+"Allow unverified publishers" is on (stack_edit.save). Until then the status says "needs approval" and lists what waits.
 
     plan(union, present, ran, mode, found)   what the system part does now: pure, the unit tests' entry point
     SYSTEM.request(root?) / SYSTEM.status()  the background run and the line the dashboard shows
@@ -264,7 +265,7 @@ def make_asker(bus) -> Callable[[dict], None]:
 def describe(e: dict) -> str:
     """The exact commands the person is asked to allow (what the Inbox card shows)."""
     lines = []
-    for k, label in (("apt", "install system packages (as root)"), ("run", "run once, as keel's user"),
+    for k, label in (("apt", "install system packages (as root)"), ("run", "run once, as the agents' user"),
                      ("each_worktree", "run in every new worktree")):
         if e.get(k):
             lines.append(f"{label}:")
@@ -596,12 +597,16 @@ class SystemSetup:
 
     @staticmethod
     def _run_as_keel(command: str) -> tuple[int, str]:
-        """One setup.run command as this process's own user (keel's), in its home; recorded once it passed."""
+        """One setup.run command in the home of the user the project's commands run as, recorded once it passed.
+        0.21.3 that is the agents' own user in keel's image (tools/agent_user.py): what it installs into its home is
+        where the project's tests find it, and it never runs with keel's own rights."""
+        from ..tools import agent_user
         from ..tools.agent_tools import command_env
 
+        argv, env = agent_user.wrap(["bash", "-c", command], command_env())
         try:
-            r = subprocess.run(["bash", "-c", command], cwd=str(Path.home()), capture_output=True, text=True,
-                               timeout=RUN_TIMEOUT, stdin=subprocess.DEVNULL, env=command_env())
+            r = subprocess.run(argv, cwd=agent_user.home(), capture_output=True, text=True, timeout=RUN_TIMEOUT,
+                               stdin=subprocess.DEVNULL, env=env, start_new_session=True)
             code, out = r.returncode, ((r.stdout or "") + (r.stderr or ""))[-20000:]
         except subprocess.TimeoutExpired:
             return 124, f"timed out after {RUN_TIMEOUT}s"
