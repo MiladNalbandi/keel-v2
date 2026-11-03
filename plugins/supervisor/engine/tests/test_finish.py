@@ -326,6 +326,15 @@ def quiet_flow(client, repo, monkeypatch, sup=None):
     return tid, gate_open
 
 
+def settled_last(client, tid):
+    """The flow's last event time once its start has stopped sending events (a late one would move it)."""
+    sup, seen = sup_of(client), None
+    while seen != sup.last.get(tid):
+        seen = sup.last.get(tid)
+        time.sleep(0.3)
+    return seen
+
+
 def stalls(client, now):
     return client.portal.call(lambda: sup_of(client).check_stalls(now=now))
 
@@ -334,7 +343,7 @@ def test_a_quiet_flow_gets_one_look_per_stall_and_its_step_is_not_stopped(client
     script({"action": "escalate", "confidence": "low", "why": "x", "summary": "It seems to wait for a slow build."})
     tid, go_on = quiet_flow(client, repo, monkeypatch, {"stall_minutes": 10})
     try:
-        last = sup_of(client).last[tid]
+        last = settled_last(client, tid)
         assert stalls(client, last + 9 * 60) == []              # not yet
         assert stalls(client, last + 10 * 60) == [tid]
         idle(client)
@@ -358,7 +367,7 @@ def test_a_new_event_ends_the_stall_and_a_later_one_gets_its_own_look(client, re
     tid, go_on = quiet_flow(client, repo, monkeypatch, {"stall_minutes": 10})
     try:
         sup = sup_of(client)
-        last = sup.last[tid]
+        last = settled_last(client, tid)
         assert stalls(client, last + 600) == [tid]
         idle(client)
         client.bus.emit("agent.text", tid, "demo", data={"text": "working"})
