@@ -340,15 +340,10 @@ def stalls(client, now):
 
 
 def stall_after(client, tid, seconds):
-    """check_stalls `seconds` after the flow's last event, read in the same call. On a slow machine the flow's start
-    can still send an event after settled_last, which moves its last event past a time fixed before."""
+    """check_stalls `seconds` and one millisecond after the flow's last event: in floats (last + 600) - last can be
+    599.99999…, less than the stall time, depending on the clock's value."""
     sup = sup_of(client)
-    for _ in range(5):
-        seen = sup.last[tid]
-        got = client.portal.call(lambda: sup.check_stalls(now=seen + seconds))
-        if got or sup.last.get(tid) == seen:
-            return got
-    return got
+    return client.portal.call(lambda: sup.check_stalls(now=sup.last[tid] + seconds + 0.001))
 
 
 def test_a_quiet_flow_gets_one_look_per_stall_and_its_step_is_not_stopped(client, repo, script, monkeypatch):
