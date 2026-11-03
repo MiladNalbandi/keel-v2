@@ -2,6 +2,7 @@
 
     write(project, kind, ok, detail, commit)    one row per run; the history stays
     latest(project, kind) -> {kind, ok, detail, commit, at} | None
+    for_code(project, kind, head, tree)         the newest row about this code (0.22.0), else the newest row
 
 They live in the engine DB (table `verdicts`), not in the project: keel v1 wrote `.keel/<kind>.json` files instead.
 `detail` may carry `tree` (the git tree the check ran on), so a check that ran on uncommitted files is still current for
@@ -34,6 +35,23 @@ def latest(project: str, kind: str) -> dict | None:
     if not r:
         return None
     return {"kind": kind, "ok": bool(r[0]), "detail": db.loads(r[1], {}), "commit": r[2], "at": r[3]}
+
+
+def for_code(project: str, kind: str, head: str | None, tree: str | None, limit: int = 50) -> dict | None:
+    """0.22.0 the newest of the last `limit` rows that is about this code (fresh() for head/tree), else the newest row.
+    latest() alone forgot a pass as soon as any other run wrote a row: going back to code that already passed (a rebase
+    that gives the same tree, a branch switched back) ran the whole suite again."""
+    with db.connect() as conn:
+        rows = conn.execute('select ok, detail_json, "commit", at from verdicts where project = ? and kind = ? '
+                            "order by rowid desc limit ?", (project, kind, limit)).fetchall()
+    found = [{"kind": kind, "ok": bool(r[0]), "detail": db.loads(r[1], {}), "commit": r[2], "at": r[3]} for r in rows]
+    return next((v for v in found if fresh(v, head, tree)), found[0] if found else None)
+
+
+def same_files(v: dict | None, tree: str | None) -> bool:
+    """0.22.0 did the verdict's run see exactly these working files (its tree is `tree`)? Stricter than fresh(): a
+    commit match alone is not enough to skip a run, since uncommitted files may have changed since."""
+    return bool(v and tree and (v.get("detail") or {}).get("tree") == tree)
 
 
 def all_latest(project: str) -> dict[str, dict]:

@@ -699,9 +699,49 @@ def _release_verdict(a: ActionInput, ok: bool, cmd: str, out: str, flaky: list |
     return verdicts.write(a.key, "release", ok, detail, head)
 
 
+def _subsequence(small: list[str], big: list[str]) -> bool:
+    it = iter(big)
+    return all(w in it for w in small)
+
+
+def plain_coverage(cfg: dict) -> str | None:
+    """commands.coverage when it alone decides the coverage gate (no coverage.reports, coverage not turned off)."""
+    cov = cfg.get("coverage") or {}
+    cmd = str((cfg.get("commands") or {}).get("coverage") or "").strip()
+    return cmd if cmd and cov.get("enabled") is not False and not verdict_actions.reports_of(cfg) else None
+
+
+def coverage_runs_suite(cfg: dict, test_cmd: str | None, cov_cmd: str | None, rel: str = "") -> bool:
+    """0.22.0 does commands.coverage run the whole test suite, so its pass is the suite's pass too? coverage.runs_suite
+    (true / false) says so; else yes when the test command runs at the repo root and its words appear, in order, in the
+    coverage command (`pytest -q` in `pytest --cov=app -q`, `./gradlew test` in `./gradlew test jacocoTestReport`). A
+    coverage command that only reads reports (`coverage report`) does not."""
+    import shlex
+
+    flag = (cfg.get("coverage") or {}).get("runs_suite")
+    if isinstance(flag, bool):
+        return flag and bool(test_cmd and cov_cmd)
+    if not test_cmd or not cov_cmd or rel:
+        return False
+    try:
+        return _subsequence(shlex.split(test_cmd), shlex.split(cov_cmd))
+    except ValueError:
+        return False
+
+
+def _when(v: dict) -> str:
+    sha = str(v.get("commit") or "")[:7]
+    return f"{'commit ' + sha + ', ' if sha else ''}{str(v.get('at') or '')[:16].replace('T', ' ')}"
+
+
 async def verify_release(a: ActionInput) -> ActionResult:
     """The whole test suite (the module command); its result is the release verdict, pass or fail.
-    A failing run runs once more (loops.flaky_reruns, default 1): failed then passed is flaky, a pass with a warning."""
+    A failing run runs once more (loops.flaky_reruns, default 1): failed then passed is flaky, a pass with a warning.
+
+    0.22.0 one run per push: a release verdict that passed with the same command on exactly these files (a rebase that
+    gives the same tree, a second ship, a push after the flow) is kept, not run again. When commands.coverage runs the
+    suite (coverage_runs_suite), the coverage command runs instead and a pass writes both verdicts; its failure may be
+    the coverage threshold, not a test, so the plain suite then decides the release verdict."""
     if a.fake:
         return ActionResult(True, "Release suite: green (simulated, no verdict written).", "1 passed")
     # 0.18.17 a configured command runs in the folder of its key (api_* in backend.dir, docs/CONTRACT.md), like
@@ -711,8 +751,29 @@ async def verify_release(a: ActionInput) -> ActionResult:
     if cmd is None:
         out = "No test command found. Add commands to .keel/config.yml."
         return ActionResult(False, out, out)
-    reruns = int((rules.load_config(a.root).get("loops") or {}).get("flaky_reruns", 1) or 0)
+    cfg = rules.load_config(a.root)
+    reruns = int((cfg.get("loops") or {}).get("flaky_reruns", 1) or 0)
     show = testcmd.shown(cmd, rel)
+    head, tree = await asyncio.to_thread(verdicts.stamp, a.root)
+    prior = await asyncio.to_thread(verdicts.for_code, a.key, "release", head, tree)
+    if prior and prior.get("ok") and verdicts.same_files(prior, tree) and (prior.get("detail") or {}).get("command") == cmd:
+        via = (prior.get("detail") or {}).get("via")
+        return ActionResult(True, f"Release suite: already green on exactly these files ({_when(prior)}"
+                                  f"{', from `' + via + '`' if via else ''}); not run again.",
+                            f"$ {show}\n{tail(str((prior.get('detail') or {}).get('output') or ''), 1500)}")
+    cov = plain_coverage(cfg)
+    if cov and coverage_runs_suite(cfg, cmd, cov, rel):
+        if callable(a.progress):
+            a.progress(f"release suite and coverage in one run: $ {cov}", tool="verify_release", command=cov)
+        code, out = await asyncio.to_thread(testcmd.run, a.root, cov, 1800, command_env())
+        if code == 0 and not NO_COVERAGE_DRIVER.search(out or "") and not verdict_actions.ran_no_tests(cov, code, out):
+            await asyncio.to_thread(verdicts.write, a.key, "coverage", True,
+                                    {"command": cov, "tree": tree, "summary": None, "output": tail(out, 1500)}, head)
+            await asyncio.to_thread(verdicts.write, a.key, "release", True,
+                                    {"command": cmd, "via": cov, "tree": tree, "summary": None, "output": tail(out, 1500)}, head)
+            return ActionResult(True, f"Release suite: green, from one run of the coverage command `{cov}` (it runs the "
+                                      "suite); release and coverage verdicts recorded for this commit.",
+                                f"$ {cov}\n{tail(out, 1500)}")
     if callable(a.progress):
         a.progress(f"release suite: $ {show}", tool="verify_release", command=cmd)
     cwd = str(Path(a.root) / rel) if rel else None
@@ -781,6 +842,23 @@ async def verify_coverage(a: ActionInput) -> ActionResult:
         return ActionResult(True, "No coverage command in .keel/config.yml (commands.coverage); coverage is not checked.")
     if a.fake:
         return ActionResult(True, "Coverage: passed (simulated, no verdict written).")
+    # 0.22.0 one run per push: a coverage pass with this command on exactly these files is kept (verify_release may have
+    # made it, when the coverage command runs the suite); a coverage command that is the test command itself passed
+    # with the release suite already
+    head, tree = await asyncio.to_thread(verdicts.stamp, a.root)
+    prior = await asyncio.to_thread(verdicts.for_code, a.key, "coverage", head, tree)
+    if prior and prior.get("ok") and verdicts.same_files(prior, tree) and (prior.get("detail") or {}).get("command") == cmd:
+        return ActionResult(True, f"Coverage: already passed on exactly these files ({_when(prior)}); not run again.",
+                            f"$ {cmd}\n{tail(str((prior.get('detail') or {}).get('output') or ''), 1500)}")
+    test_cmd, rel = testcmd.located(a.root, None, "API")
+    release = await asyncio.to_thread(verdicts.for_code, a.key, "release", head, tree)
+    if (not rel and test_cmd == cmd and release and release.get("ok") and verdicts.same_files(release, tree)
+            and (release.get("detail") or {}).get("command") == cmd):
+        await asyncio.to_thread(verdicts.write, a.key, "coverage", True,
+                                {"command": cmd, "via": "release", "tree": tree, "summary": None,
+                                 "output": (release.get("detail") or {}).get("output")}, head)
+        return ActionResult(True, f"Coverage: `{cmd}` is the test command, and it passed on exactly these files in the "
+                                  "release suite; not run again.")
     code, out = await asyncio.to_thread(testcmd.run, a.root, cmd, 1800, command_env())
     if why := testcmd.env_down(code, out):
         return env_failure(a, cmd, out, "coverage", why)
@@ -788,10 +866,13 @@ async def verify_coverage(a: ActionInput) -> ActionResult:
         code = code or 1          # 0.18.75 nothing was measured: never a pass
         out = ("No coverage driver: nothing was measured. Install one where the tests run (PHP: pcov, or Xdebug with "
                "XDEBUG_MODE=coverage), or run coverage in the CI image.\n\n" + (out or ""))
-    head, tree = await asyncio.to_thread(verdicts.stamp, a.root)
     await asyncio.to_thread(verdicts.write, a.key, "coverage", code == 0,
                             {"command": cmd, "tree": tree, "summary": None if code == 0 else f"`{cmd}` exited {code}",
                              "output": tail(out, 1500)}, head)
+    if code == 0 and coverage_runs_suite(cfg, test_cmd, cmd, rel) and not verdict_actions.ran_no_tests(cmd, code, out):
+        # the coverage run ran the suite: it is the release verdict too, so the push gate does not run it again
+        await asyncio.to_thread(verdicts.write, a.key, "release", True,
+                                {"command": test_cmd, "via": cmd, "tree": tree, "summary": None, "output": tail(out, 1500)}, head)
     if code != 0:
         # 0.18.22 without coverage.reports there are no uncovered groups to work on: the cover loop asks at once
         # (data.coverage_no_reports) instead of measuring twice with nothing to decide in between

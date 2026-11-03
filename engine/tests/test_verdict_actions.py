@@ -453,3 +453,85 @@ def test_an_e2e_step_whose_files_keel_put_back_does_not_pass(proj):
     a.data = {"e2e": {"ids": ["CHG-2.3"], "run": True, "command": "true"}, "put_back": {"e2e": ["tests/Unit/WebhookTest.php"]}}
     r = fa.verify_e2e(a)
     assert not r.ok and "keel put back 1 file(s)" in r.note and "tests/Unit/WebhookTest.php" in r.detail
+
+
+# ------------------------------------------------------------------ 0.22.0 one suite run per push (#74)
+
+def counting(tmp_path, fail_with: str = ""):
+    """A suite that counts its runs in a file outside the repo; with `fail_with` as an argument it exits 1 (a coverage
+    threshold the tests themselves pass)."""
+    count, script = tmp_path / "runs", tmp_path / "suite.sh"
+    script.write_text(f"echo x >> {count}\necho '3 passed'\n" + (f'[ "$1" = "{fail_with}" ] && exit 1\n' if fail_with else "")
+                      + "exit 0\n")
+    return f"sh {script}", lambda: len(count.read_text().splitlines()) if count.exists() else 0
+
+
+def test_a_release_pass_on_the_same_files_is_kept_not_run_again(proj, tmp_path):
+    cmd, runs = counting(tmp_path)
+    config(proj, f"commands: {{api_test_module: \"{cmd}\"}}\n")
+    assert run("verify_release", ai(proj)).ok and runs() == 1
+    r = run("verify_release", ai(proj))
+    assert r.ok and "not run again" in r.note and runs() == 1
+    write(proj, "src/a.py", "x = 1\n")                    # other files: it runs
+    assert run("verify_release", ai(proj)).ok and runs() == 2
+    # a rebase or an amend that gives the same tree keeps it: the commit differs, the files do not
+    commit(proj, "feat: a")
+    git(proj, "commit", "-q", "--amend", "-m", "feat: a (reworded)")
+    r = run("verify_release", ai(proj))
+    assert r.ok and "not run again" in r.note and runs() == 2
+
+
+def test_a_failed_release_is_never_kept(proj):
+    config(proj, "commands: {api_test_module: 'false'}\n")
+    assert not run("verify_release", ai(proj)).ok
+    r = run("verify_release", ai(proj))
+    assert not r.ok and "not run again" not in r.note
+
+
+def test_a_coverage_command_that_runs_the_suite_serves_both_gates_in_one_run(proj, tmp_path):
+    from keel_engine.runtime import blockers
+
+    cmd, runs = counting(tmp_path)
+    config(proj, f"commands: {{api_test_module: \"{cmd}\", coverage: \"{cmd} --cov\"}}\n")
+    r = run("verify_release", ai(proj))
+    assert r.ok and "one run of the coverage command" in r.note and runs() == 1
+    r = run("verify_coverage", ai(proj))
+    assert r.ok and "not run again" in r.note and runs() == 1
+    assert [b["gate"] for b in blockers.push_blockers(str(proj), project="p1")] == []
+
+
+def test_a_coverage_threshold_failure_lets_the_plain_suite_decide_release(proj, tmp_path):
+    cmd, runs = counting(tmp_path, fail_with="--cov")
+    config(proj, f"commands: {{api_test_module: \"{cmd}\", coverage: \"{cmd} --cov\"}}\n")
+    r = run("verify_release", ai(proj))
+    assert r.ok and "one run" not in r.note and runs() == 2      # coverage failed, the suite itself passes
+    assert verdicts.latest("p1", "release")["ok"] is True
+
+
+def test_coverage_that_is_the_test_command_reuses_the_release_pass(proj, tmp_path):
+    cmd, runs = counting(tmp_path)
+    config(proj, f"commands: {{api_test_module: \"{cmd}\", coverage: \"{cmd}\"}}\n")
+    assert run("verify_release", ai(proj)).ok and runs() == 1
+    r = run("verify_coverage", ai(proj))
+    assert r.ok and runs() == 1 and verdicts.latest("p1", "coverage")["ok"] is True
+
+
+def test_coverage_runs_suite_rule():
+    from keel_engine.runtime.actions import coverage_runs_suite as runs_suite
+
+    assert runs_suite({}, "pytest -q", "pytest --cov=app -q") and runs_suite({}, "./gradlew test", "./gradlew test jacocoTestReport")
+    assert not runs_suite({}, "uv run pytest", "uv run coverage report") and not runs_suite({}, "npm test", "npm run coverage")
+    assert not runs_suite({}, "pytest -q", "pytest --cov -q", rel="backend")
+    assert runs_suite({"coverage": {"runs_suite": True}}, "npm test", "npm run coverage")
+    assert not runs_suite({"coverage": {"runs_suite": False}}, "pytest -q", "pytest -q --cov")
+
+
+def test_the_push_gate_finds_a_pass_for_this_code_behind_newer_rows(proj):
+    from keel_engine.runtime import blockers
+
+    head, tree = verdicts.stamp(str(proj))
+    verdicts.write("p1", "release", True, {"command": "t", "tree": tree}, head)
+    verdicts.write("p1", "release", False, {"command": "t", "tree": "other"}, "0" * 40)   # another branch's run
+    assert verdicts.latest("p1", "release")["ok"] is False
+    assert verdicts.for_code("p1", "release", head, verdicts.stamp(str(proj))[1])["ok"] is True
+    assert [b["gate"] for b in blockers.push_blockers(str(proj), project="p1")] == []
