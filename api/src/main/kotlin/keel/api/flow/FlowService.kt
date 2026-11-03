@@ -313,14 +313,15 @@ class FlowService(
         // out feat/review-<title> in the folder of a PR review)
         val readOnly = readOnly(start.workflow)
         // 0.18.64 (field report bug 4) the branch the flow's new branch starts from, when the person named one
-        val from = base?.trim()?.takeIf { it.isNotEmpty() }
-        if (from != null) {
-            if (readOnly) throw BadRequest("A read-only flow gets no branch of its own: base does not apply to it")
-            if (mode == "continue") throw BadRequest("base starts a new branch from it; branch continue stays on the folder's branch",
-                "Pass one of them.")
-            if (!ownBranch || !wantsOwnBranch(start.workflow))
-                throw BadRequest("This flow works on the branch the folder is on: it takes no base")
-        }
+        // 0.22.0 a flow that works on the folder's branch (goals-plan, hunt: own_branch false) or only reads takes no base:
+        // a given one is left out and the answer says so, instead of a refusal found one start at a time (a field report)
+        val takesBase = !readOnly && ownBranch && wantsOwnBranch(start.workflow)
+        val given = base?.trim()?.takeIf { it.isNotEmpty() }
+        val baseIgnored = if (given != null && !takesBase) "This flow works on the branch the folder is on" +
+            (if (readOnly) " and only reads" else "") + ": it takes no base, so base $given was left out." else null
+        val from = given?.takeIf { takesBase }
+        if (from != null && mode == "continue") throw BadRequest("base starts a new branch from it; branch continue stays on the folder's branch",
+            "Pass one of them.")
         // 0.18.64 every remote fetched before the flow's branch is made, so the branch can start from the newer code; the
         // engine's start note says how far the base is behind each remote and which fetch failed. Never fails the start.
         // A read-only flow fetches the refs it reads itself: none here, and [] tells the engine not to either.
@@ -342,7 +343,7 @@ class FlowService(
                     "create a local ${info.name} that tracks ${info.remote}, or pick another branch. Or start this flow with base ${info.remote}.")
         }
         // the project folder, or (v0.7.x) a worktree of its own next to the flow that runs or waits there
-        val wt = if (!readOnly && inWorktree(pid, where, root)) worktreeFor(pid, root, title, workflowId, from) else null
+        val wt = if (!readOnly && inWorktree(pid, where, root)) worktreeFor(pid, root, title, workflowId, from, takesBase) else null
         var madeBranch: MadeBranch? = null
         if (readOnly) {
             // nothing to do: the folder keeps its branch, its HEAD and its files
@@ -400,9 +401,10 @@ class FlowService(
         val note = start.capNote
         // 0.18.64 how far the base is behind each remote, a failed fetch said plainly (the engine's start note)
         val baseNote = res.get("base_note")?.asText()?.takeIf { it.isNotBlank() }
-        if ((note == null && baseNote == null && overlap == null) || state !is com.fasterxml.jackson.databind.node.ObjectNode) return state
+        if ((note == null && baseNote == null && overlap == null && baseIgnored == null) || state !is com.fasterxml.jackson.databind.node.ObjectNode) return state
         return state.deepCopy().also { s ->
             note?.let { s.put("cap_note", it) }; baseNote?.let { s.put("base_note", it) }; overlap?.let { s.put("overlap_note", it) }
+            baseIgnored?.let { s.put("base_ignored", it) }
         }
     }
 
@@ -630,7 +632,8 @@ class FlowService(
 
     /** A worktree for a flow, on its own branch (the branch pattern) from the base branch, not from what the folder has;
      *  0.18.64 from [from] when the start named a base. */
-    private fun worktreeFor(pid: String, root: Path, title: String, workflowId: String, from: String? = null): FlowWorktree {
+    private fun worktreeFor(pid: String, root: Path, title: String, workflowId: String, from: String? = null,
+                            fromBase: Boolean = true): FlowWorktree {
         if (!workspace.git(root, "rev-parse", "--git-dir").ok)
             throw Conflict("This project is not a git repository", "A flow next to another one needs git: its own worktree and branch.")
         val first = branchName(settings.effective(pid).branchPattern, title, workflowId)
@@ -638,9 +641,11 @@ class FlowService(
         var n = 2
         while (workspace.git(root, "rev-parse", "--verify", "--quiet", "refs/heads/$branch").ok) branch = "$first-${n++}"
         val name = "flow-${Slug.of(title).take(30)}-${java.util.UUID.randomUUID().toString().take(6)}"
-        // B7 from origin/<base> when the local base is behind it (0.18.65 the canonical remote's copy)
+        // B7 from origin/<base> when the local base is behind it (0.18.65 the canonical remote's copy). 0.22.0 a flow that
+        // works on the folder's branch (own_branch false: goals-plan) starts its worktree at the folder's commit: its local
+        // main and origin/main going their own ways is no reason to refuse it
         val res = engine.post("/worktrees", mapOf("root" to root.toString(), "name" to name, "branch" to branch,
-            "start" to (from ?: freshBase(root))))
+            "start" to (from ?: if (fromBase) freshBase(root) else "HEAD")))
         return FlowWorktree(name, res.path("branch").asText(branch), res.path("path").asText())
     }
 

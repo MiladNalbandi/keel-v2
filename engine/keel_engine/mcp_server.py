@@ -105,6 +105,7 @@ def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | 
         # 0.18.64 the flow's new branch starts from this branch: a local one or <remote>/<branch> (field report bug 4)
         if branch == "continue":
             raise ApiError("base starts a new branch from it; branch=continue stays on the folder's branch: pass one of them.")
+        # (a flow that works on the folder's branch, such as goals-plan, takes no base: keel leaves it out and says so)
         body["base"] = base
     ignored = []
     for path in ignore or []:
@@ -181,6 +182,8 @@ def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | 
                    f"waits, keel_read_gate(project={p['id']!r}, flow={tid!r}) and keel_answer(thread_id={tid!r}).")
     if state.get("cap_note"):
         out.append(str(state["cap_note"]))
+    if state.get("base_ignored"):
+        out.append(str(state["base_ignored"]))             # 0.22.0 a flow that takes no base: left out, not refused
     if state.get("overlap_note"):
         out.append(f"Overlap: {state['overlap_note']}")     # 0.22.0 a file both name: a warning, no longer a refusal
     if state.get("base_note"):
