@@ -110,7 +110,10 @@ class StubApi:
             if self.fake_keel and not body.get("allow_fake"):
                 return httpx.Response(409, json={"error": "These agents would use the fake model: explorer. It writes example "
                                                           "files, not real code.", "hint": "Pick a real model."})
-            return httpx.Response(200, json={**self.thread, "thread_id": "t-9", "title": body["title"]})
+            ran = body["workflow_id"]
+            if ran == "feature" and getattr(self, "harness", False) and (body.get("options") or {}).get("engine") != "flow":
+                ran = "harness"       # the api's Harness.route with build_runs: harness
+            return httpx.Response(200, json={**self.thread, "thread_id": "t-9", "title": body["title"], "workflow_id": ran})
         if req.method == "POST" and path == "/api/projects/shop/remotes/fetch":
             self.posts.append((path, json.loads(req.content or b"{}")))
             return httpx.Response(200, json={
@@ -939,3 +942,15 @@ def test_a_form_without_a_yes_waits_in_the_inbox():
 
     text = mcp_confirm.ask_text("keel_agent_model", "change the model", "ok-x", "q-1", closed=True)
     assert "you said no" not in text and "needs the person's approval" in text and "waits in keel's Inbox (q-1)" in text
+
+
+async def test_a_flow_keel_runs_instead_of_the_one_asked_is_named(stub):
+    """0.22.0 a field report: feature was asked for, harness ran, and the answer said "started feature"."""
+    stub.harness = True
+    srv = mcp_server.build_server(level="write", api=stub.api, yes=True)
+    text = await call(srv, "keel_start_flow", {"type": "feature", "request": "scores"})
+    assert "You asked for feature; keel runs harness instead" in text and "engine='flow'" in text
+    assert "started harness" in text
+    text = await call(srv, "keel_start_flow", {"type": "feature", "request": "scores", "engine": "flow"})
+    assert "instead" not in text and "started feature" in text
+    assert stub.posts[-1][1]["options"]["engine"] == "flow"

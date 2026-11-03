@@ -68,7 +68,8 @@ def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | 
                wait: float = START_WAIT, allow_fake: bool = False, title: str | None = None, request: str | None = None,
                ticket: str | None = None, pr: str | None = None, inputs: dict | None = None,
                run_mode: str | None = None, allow_dirty: bool = False, ignore: list[str] | None = None,
-               force: bool = False, branch: str | None = None, base: str | None = None) -> str:
+               force: bool = False, branch: str | None = None, base: str | None = None,
+               engine: str | None = None) -> str:
     """Start a flow through the dashboard's own endpoint (POST /api/projects/{id}/flows): the same guard, budget, run
     mode and records as a flow started in the web app. It runs until its first human gate, like any flow. No type:
     the flows the project can start, each with what it is for and its inputs."""
@@ -116,6 +117,11 @@ def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | 
         if run_mode not in ("manual", "important", "auto", "readonly"):
             raise ApiError("run_mode is one of manual, important, auto, readonly.")
         body["run_mode"] = run_mode
+    if engine:
+        # 0.22.0 flow: the flow asked for, even when Settings › Who does the work sends new work to the harness
+        if engine not in ("flow", "harness"):
+            raise ApiError("engine is flow (keel's own flow, as asked) or harness (the agent's own session builds it).")
+        body["options"] = {**(body.get("options") or {}), "engine": engine}
     try:
         state = api.post(f"/projects/{p['id']}/flows", body, timeout=START_POST) or {}
     except ApiError as exc:
@@ -154,8 +160,14 @@ def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | 
     started = bool(at or state.get("status") not in (None, "", "running"))
     now = (f"The flow is {state.get('status')}{at}." if started
            else "The flow is starting: it has not reached its first step yet.")
-    out = [f'started {type} "{title}" on {p["id"]} (thread {tid}) in {state.get("run_mode") or run_mode or "the project\'s"} mode, '
+    ran = state.get("workflow_id") or type
+    out = [f'started {ran} "{title}" on {p["id"]} (thread {tid}) in {state.get("run_mode") or run_mode or "the project\'s"} mode, '
            "recorded as started via MCP.", f"Status: {state.get('status') if started else 'starting'}. {now}"]
+    if ran != type:
+        # 0.22.0 never a silent swap (a field report: feature was asked for, harness ran, and the answer said feature)
+        out.insert(0, f"You asked for {type}; keel runs {ran} instead, because the project's setting Settings › Who does "
+                      f"the work (build_runs: {ran}) sends new work to the agent's own session. To run {type} itself, "
+                      f"start it with engine='flow'.")
     if ignored:
         out.insert(0, "ignored on this computer (.git/info/exclude): " + ", ".join(ignored))
     if first:
@@ -830,7 +842,7 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
                               run_mode: Literal["manual", "important", "auto", "readonly"] | None = None,
                               allow_dirty: bool = False, ignore: list[str] | None = None, force: bool = False,
                               branch: Literal["new", "continue"] | None = None, base: str | None = None, wait: int = 0,
-                              ctx: Context | None = None) -> str:
+                              engine: Literal["flow", "harness"] | None = None, ctx: Context | None = None) -> str:
         """Start a keel flow on the project, as the dashboard's "Start a flow" does. No type: every flow the project can
         start (quick, small, implement, change, feature, fix, spike, clarify, review-pr, ...), one line each on what it is for
         and the inputs it reads. type: the workflow id; request (or idea): in your words what to build, fix or find out (a flow that builds
@@ -849,6 +861,8 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         continue for the flows that finish a branch (ship, cover, review, lint, address), new for the others.
         base: the branch the flow's new branch starts from, a local branch or <remote>/<branch> (e.g. upstream/main);
         keel fetches every remote at the start and its answer says how far the base is behind each one.
+        engine: flow runs the flow asked for; harness hands a build flow to the agent's own session. Default the
+        project's setting (Settings › Who does the work); the answer says when keel ran another flow than the one asked.
 
         It answers at once with the thread id, its status (starting, running or waiting) and how to follow it
         (keel_status, keel_flows; keel_read_gate and keel_answer when it waits); wait: up to that many seconds (at most
@@ -858,7 +872,7 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
             return guard(startable, api, project)
         return await act(ctx, "keel_start_flow", f"start a {type} flow", start_flow, api, type, idea, project,
                          time.sleep, wait, allow_fake, title, request, ticket, pr, inputs, run_mode,
-                         allow_dirty, ignore, force, branch, base)
+                         allow_dirty, ignore, force, branch, base, engine)
 
     @reg(rw)
     async def keel_answer(decision: Literal["approve", "reject"] = "approve", project: str | None = None,
