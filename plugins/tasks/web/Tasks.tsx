@@ -14,6 +14,7 @@ import {
 import {
   DEFAULT_FLOW, STATUS_LABEL, tasksApi, type NewTask, type Task, type TaskEvent, type TaskItem, type TaskList, type TaskStatus, type TaskType,
 } from "./tasksApi";
+import { trackerName } from "./taskModel";
 import { AutomationItem, AutomationsDrawer } from "./Automations";
 
 /** The board's columns, in order; Blocked shows only when a task is blocked, cancelled tasks sit under Done. */
@@ -24,7 +25,7 @@ const STATUS_TONE: Record<TaskStatus, PillTone> = {
   todo: "idle", in_progress: "run", in_review: "warn", testing_pp: "warn", ready_prod: "warn", done: "ok", cancelled: "idle", blocked: "bad",
 };
 const TYPE_LABEL: Record<TaskType, string> = { bug: "bug", story: "story", task: "task" };
-const ACTOR: Record<TaskEvent["actor"], string> = { user: "you", keel: "keel", jira: "Jira" };
+const ACTOR: Record<TaskEvent["actor"], string> = { user: "you", keel: "keel", jira: "Jira", github: "GitHub" };
 
 const nameOf = (t: Task) => t.external_key ?? `task ${t.id.slice(0, 8)}`;
 const prLabel = (url: string) => url.match(/\/pull\/(\d+)/)?.[1] ? `PR #${url.match(/\/pull\/(\d+)/)![1]}` : "PR";
@@ -42,7 +43,7 @@ function TaskCard({ t, onOpen }: { t: Task; onOpen: () => void }) {
     <li className={`tk-card s-${t.status}`} data-testid="task-card">
       <button type="button" className="tk-card-btn" onClick={onOpen} aria-label={`${nameOf(t)}: ${t.title}`}>
         <span className="tk-card-top">
-          <span className="tag" title={t.external_key ? "Jira ticket" : "a local task (no Jira ticket)"}>{t.external_key ?? "local"}</span>
+          <span className="tag" title={t.external_key ? `${trackerName(t.source, t.external_url)} ticket` : "a local task (no ticket)"}>{t.external_key ?? "local"}</span>
           <span className={`tk-type t-${t.type}`}>{TYPE_LABEL[t.type]}</span>
           {t.status === "cancelled" && <Pill tone="idle">cancelled</Pill>}
           {t.waiting.length > 0 && <b className="amber tk-needs" title="waiting for you in the Inbox">◆ needs you</b>}
@@ -109,9 +110,9 @@ export function NewTaskDrawer({ pid, onClose, onMade }: { pid: string; onClose: 
         <textarea id="nt-desc" value={description} onChange={(e) => setDescription(e.target.value)} rows={5} placeholder="What you know: the goal, the place, how to check it." />
       </div>
       <div className="field">
-        <label htmlFor="nt-key">Jira key (optional)</label>
-        <input type="text" id="nt-key" value={key} onChange={(e) => setKey(e.target.value)} placeholder="ABC-123" />
-        <span className="hint">The real ticket this task belongs to. Without a Jira connection keel asks you to move it by hand.</span>
+        <label htmlFor="nt-key">Ticket key (optional)</label>
+        <input type="text" id="nt-key" value={key} onChange={(e) => setKey(e.target.value)} placeholder="ABC-123 or #12" />
+        <span className="hint">The real ticket this task belongs to: a Jira key, or a GitHub issue (#12). Without a connection keel asks you to move it by hand.</span>
       </div>
       <div className="field">
         <label htmlFor="nt-rev">GitHub reviewers (optional)</label>
@@ -244,7 +245,7 @@ function StartBox({ t, pid, onStarted }: { t: Task; pid: string; onStarted: (t: 
           {!wfs && <option value="">Loading…</option>}
           {wfs?.map((w) => <option key={w.id} value={w.id}>{w.name}{w.id === DEFAULT_FLOW[t.type] ? " (for a " + t.type + ")" : ""}</option>)}
         </select>
-        <span className="hint">The flow gets the title{t.description ? ", the description" : ""}{t.external_key ? " and the Jira key" : ""} as its request.</span>
+        <span className="hint">The flow gets the title{t.description ? ", the description" : ""}{t.external_key ? (trackerName(t.source, t.external_url) === "GitHub" ? " and the issue number" : " and the Jira key") : ""} as its request.</span>
       </div>
       <RunModePicker value={mode} onChange={setMode} />
       {/* Same help as Start a flow: the Doctor sorts the files (commit / stash / hide on this computer / .gitignore). */}
@@ -358,9 +359,9 @@ function TaskDrawer({ id, pid, onClose, onChanged }: { id: string; pid: string; 
           <div className="tk-head">
             <Pill tone={STATUS_TONE[t.status]}>{STATUS_LABEL[t.status]}</Pill>
             <span className={`tk-type t-${t.type}`}>{t.type}</span>
-            <span className="sub">{t.source === "jira" ? "Jira" : "local"}</span>
-            {t.external_status && <span className="sub">Jira: <b>{t.external_status}</b></span>}
-            {t.external_url && <a className="btn sm ghost" href={t.external_url} target="_blank" rel="noreferrer">Open in Jira ↗</a>}
+            <span className="sub">{t.source === "local" ? "local" : trackerName(t.source, t.external_url)}</span>
+            {t.external_status && <span className="sub">{trackerName(t.source, t.external_url)}: <b>{t.external_status}</b></span>}
+            {t.external_url && <a className="btn sm ghost" href={t.external_url} target="_blank" rel="noreferrer">Open in {trackerName(t.source, t.external_url)} ↗</a>}
           </div>
           <dl className="kv tk-kv">
             {t.assignee && <><dt>Assignee</dt><dd>{t.assignee}</dd></>}
@@ -482,14 +483,14 @@ function SyncLine({ data, busy }: { data: TaskList; busy: boolean }) {
   if (!s.connected) {
     return (
       <p className="tk-sync" data-testid="sync-line">
-        <span className="sub">Not connected to Jira: tasks stay in keel, with their history.</span>{" "}
-        <a className="btn sm ghost" href={settingsHash("connections")}>Connect Jira</a>
+        <span className="sub">No tracker connected: tasks stay in keel, with their history.</span>{" "}
+        <a className="btn sm ghost" href={settingsHash("connections")}>Connect Jira or GitHub Issues</a>
       </p>
     );
   }
   return (
     <p className="tk-sync" data-testid="sync-line">
-      <span className="sub">Jira {s.kind === "server" ? "Server" : "Cloud"}{s.me ? ` as ${s.me}` : ""} · </span>
+      <span className="sub">{s.tracker === "github" ? `GitHub Issues · ${s.where ?? "?"}` : `Jira ${s.kind === "server" ? "Server" : "Cloud"}`}{s.me ? ` as ${s.me}` : ""} · </span>
       <span className="sub">{s.last_sync_at ? `synced ${agoText(s.last_sync_at)}` : "not synced yet"}{s.poll_minutes ? `, every ${s.poll_minutes} min` : ", only by hand"}</span>
       {s.last_sync_error && <span className="badc tk-sync-err" role="alert">Last sync failed: {s.last_sync_error}</span>}
       {busy && <span className="sub"> · syncing…</span>}

@@ -17,4 +17,4 @@ sets:
   - id: tickets
     title: Tickets
     summary: Start flows from your issues.
-    plugins: [tasks, jira]
+    plugins: [tasks, jira, github-issues]

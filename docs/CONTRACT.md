@@ -1220,12 +1220,30 @@ POST   /api/projects/{pid}/jira/test  [unsaved JiraSettings + token]  → { ok, 
 GET    /api/projects/{pid}/jira/discover?key=       → { statuses, transitions (of that ticket), fields (reviewer candidates), suggested, keel_statuses }
 GET    /api/projects/{pid}/mcp-catalog              → CatalogEntry[]   { id, name, about, url, license, command, ready, why, server, added }
 POST   /api/projects/{pid}/mcp-catalog/jira         → McpServer       (added turned off)
+GET    /api/projects/{pid}/github-issues            → GhIssuesView { connected, settings, repo, repo_from: settings|origin|null, origin, repo_url, host,
+                                                        token_set, status_map (every status), last_sync_at, last_sync_error, me, other_tracker }
+PUT    /api/projects/{pid}/github-issues  GhIssuesSettings → GhIssuesView   (null keeps a value; repo "" = the origin; 409 while another tracker is connected)
+DELETE /api/projects/{pid}/github-issues            → { ok }
+POST   /api/projects/{pid}/github-issues/test  [{ repo? }]  → { ok, user?, repo?, error?, hint?, read_only }   (GET /user and /repos/{repo})
+GET    /api/projects/{pid}/github-issues/labels     → string[]   (the repo's labels)
 type Task = { id, project_id, title, description, type, status, source, external_key, external_url, external_status, assignee, priority,
               thread_id, workflow_id, pr_url, reviewers, blocked_reason, created_at, updated_at,
               flow: { thread_id, workflow_id, status, phase, current, title } | null, waiting: TaskItem[] }
 type JiraSettings = { kind: cloud|server, base_url, email (cloud), project_key, board_id, jql, status_map: {keel status: Jira status|transition|"-"},
                       reviewer_field, jira_reviewers: string[], github_reviewers: string[], poll_minutes (0 = only Sync now) }
+type GhIssuesSettings = { repo: "owner/repo" | null (the origin), follow: assigned|label|all, label, comment: bool, closes_on_merge: bool,
+                          status_map: {keel status: "-"|open|closed|"closed:not planned"|"label:<name>"}, github_reviewers: string[], poll_minutes }
 ```
+- **0.22.0 trackers** (issue #64): the Tasks plugin's `TicketTracker` beans are the Jira plugin's and the GitHub Issues
+  plugin's (`plugins/github-issues`); a project uses the one it is connected to (one at a time: each refuses to connect
+  while the other is). A task's `source` is `local`, `jira` or `github`; a ticket key is a Jira key (`ABC-123`) or a
+  GitHub issue (`#12`). `sync` gains `tracker` (jira | github | null) and `where` (Jira's address, GitHub's owner/repo);
+  `kind` is `github` for GitHub Issues. GitHub's status words are `open`, `closed`, `closed:not planned` and
+  `label:<name>` (open with that status label); a task event's `actor` can be `github`. A started flow's data gains
+  `pr_line` (`Closes #12` when `closes_on_merge`; `Closes owner/repo#12` when the issues are in another repo), the first
+  line of its pull request; the engine also takes `#12` as a ticket (commits end with ` [#12]`). The connection is the
+  plugin's own setting `plugins.github-issues.connection`; the token is Connections › GitHub's (`GITHUB_REPO_TOKEN`),
+  sent only to its host.
 - **Start**: the workflow is `workflow_id`, else by type: bug → `fix`, story → `feature`, task → `change`. The flow's title is
   `KEY: title`; its request is title + description + "Jira ticket: KEY (url)"; its data has `ticket: KEY` (0.18.55: every
   keel commit of the flow ends with ` [KEY]`, `feat(AC-2): … [KEY]`, so the ticket scan links them). A refused start (a used-up cap, uncommitted
@@ -3567,3 +3585,55 @@ Commands: `task <title> [@name] [| text]`, `assign <task> @name`, `start <flow> 
 
 The Tasks board has a filter **Assigned to**; `assignee` is a label.
 
+
+## keel 0.22.0: fixes from real use (issues #65–#80)
+
+```
+GET /api/access          += {instance: "keel-v2" | KEEL_NAME, host: KEEL_HOST_NAME | null, workspace: KEEL_WORKSPACE | null}
+Project (GET /api/projects) += host: the folder on the person's computer | null (root is where keel sees it)
+POST /api/projects/{pid}/flows  answer += overlap_note?: string, base_ignored?: string
+engine thread view       += base_behind?: string   // the start's base check, when it started behind a remote or a fetch failed
+keel_flows(catalog=false)          // the flow types only with catalog=true
+keel_start_flow(..., engine: flow | harness)
+keel_agent_start(..., model)       // an alias or an exact id; the answer names the model and where it came from
+<git common dir>/keel/stacks.json  {off: [...], on: [...]}   // this clone's stack switches when .keel/config.yml is committed
+```
+
+- **#65** `keel_health` prints `instance <name> on <host> · native|in Docker · main folder <host path> (keel sees it as
+  <path>)`; `keel_status`'s first line ends with the project's folder the same way. keel2 passes `KEEL_HOST_NAME`.
+- **#66** a hand-over flow fetches at its start too; a KeelBot side or ask agent's start fetches first
+  (`FlowService.fetchForStart`). A start behind its remote is a warning in the MCP answer, a `WARNING` line in
+  `keel_status` and a banner on the flow page (`base_behind`).
+- **#68** a confirm form that comes back without a yes (declined or closed, maybe by the client itself) puts the question
+  in keel's Inbox and answers "needs the person's approval"; a part tool whose Inbox question nobody answered says so.
+- **#69** with a committed `.keel/config.yml`, `keel_stack_off` writes the switch to `<git common dir>/keel/stacks.json`
+  (answer `where: "this computer"`) and leaves the file unchanged; engine and api read both.
+- **#70** a gradlew / pom.xml in a folder that is a Python project with no Java or Kotlin source does not pick the JVM
+  test command; a Django project without pytest settings runs `python manage.py test`. The feature preflight's note
+  names the test command, warns when several api stacks match, and says when a JVM build file was passed over.
+- **#71** the one-owner check refuses only for the same ticket or branch; a file the request names that another flow
+  changed is `overlap_note`. The other flow's title is no longer read as files.
+- **#72** `migrations-immutable` protects a migration that is in the merge base of the base branch and HEAD; one the
+  branch added counts as new for the phase rules. Without git or a base: as strict as before.
+- **#73** a flow that takes no base (`own_branch: false`, read-only) leaves a given base out (`base_ignored`) instead of
+  a 400; in a worktree it starts at the folder's HEAD (no `freshBase`, so a diverged main does not refuse it).
+- **#79** `keel_start_flow` names the flow that runs when Settings › Who does the work swapped it (`harness`), and why.
+- **#67** `testcmd.env_down(code, out)`: a failed test run whose output says Docker / Testcontainers is unreachable or a
+  database or broker refused the connection. The test steps, the release and coverage gates and the harness's check
+  then ask the person (question type `environment`: recheck | skip | stop) instead of retrying the agent; the repeat
+  guard no longer counts such a run as a network blip. The feature preflight warns (strict: stops) when the project
+  uses Testcontainers and Docker cannot be reached.
+- **#74** `verify_release` reuses a passed release verdict with the same command on the same tree
+  (`verdicts.for_code`: the newest of the recent rows that fits this code, also used by the push blockers). When the
+  coverage command runs the test suite (`coverage.runs_suite: true`, or the test command inside it at the root, no
+  `coverage.reports`), one coverage run writes both verdicts.
+- **#75** an e2e skip (the skip menu's `e2e`, the e2e_tool gate's `e2e-run`) is kept for the branch as a verdict row of
+  kind `e2e_skip` {branch, reason, sha} (`runtime/kept_skips.py`): it holds while no file the e2e tests cover changed
+  since that sha (web code and tests, e2e tests, the contract file, or the new `e2e.watch` globs). Otherwise keel asks
+  again and names the changed files.
+- **#76** `-x test` / `-x check` are refused only for a gradle / gradlew part (`-x`, `--exclude-task`, optional `:module:`
+  prefix, also inside `bash -c`): `pytest -x` passes. A refused `git push` (or an in-flow `git commit`) inside a compound
+  command says that nothing ran and names the other parts to run on their own.
+- **#77** `tools.existing()` drops the files git ignores (`git check-ignore --no-index`, so a tracked but ignored file
+  such as a generated `next-env.d.ts` is caught too): the lint scope, after-edit and pre-commit tools never get them. A
+  manual tool that runs on the whole folder (`eslint .`) follows the tool's own ignore settings.

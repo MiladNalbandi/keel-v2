@@ -159,6 +159,42 @@ def cannot_run(code: int, output: str) -> bool:
     return code == 127 or (code != 0 and bool(CANNOT_RUN.search((output or "")[:2000])))
 
 
+# 0.22.0 the tests started, but what they need around them did not: Docker for Testcontainers, a database or a broker
+# that refuses the connection. Fixing the code cannot change that, so a flow must not send it back to the agent (#67).
+_DB_PORTS = r"(?:5432|3306|6379|27017|5672|9092|1433|1521|11211)"
+ENV_DOWN: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"Could not find a valid Docker environment|DockerClientProviderStrategy|"
+                r"Could not find a working container runtime strategy|Cannot connect to the Docker daemon|could not connect to docker|"
+                r"attempts to find a Docker environment failed|"
+                r"Error while fetching server API version|docker\.sock[^\n]{0,120}(?:permission denied|no such file|"
+                r"connection refused)|(?:permission denied|no such file or directory|connection refused)[^\n]{0,120}"
+                r"docker\.sock", re.I), "Docker is not reachable from where the tests run (Testcontainers needs it)"),
+    (re.compile(r"PSQLException: Connection to \S+ refused|connection to server at [^\n]{0,160}failed: Connection refused|"
+                r"could not connect to server: Connection refused|Is the server running on host", re.I),
+     "the PostgreSQL database the tests use is not reachable"),
+    (re.compile(r"Communications link failure|Can't connect to MySQL server|"
+                r"Connection refused[^\n]{0,40}\b3306\b", re.I), "the MySQL database the tests use is not reachable"),
+    (re.compile(r"ECONNREFUSED\s+\S*:" + _DB_PORTS + r"\b|Connection refused[^\n]{0,120}[:\s]" + _DB_PORTS + r"\b|"
+                r"[:\s]" + _DB_PORTS + r"\b[^\n]{0,120}Connection refused", re.I),
+     "a database or service the tests connect to is not reachable"),
+]
+
+
+def env_down(code: int, output: str) -> str | None:
+    """0.22.0 why a failed test run is the environment's fault, not the code's: Docker or a database the tests need
+    cannot be reached (ENV_DOWN). None for a run that passed, one that could not start at all (cannot_run), and any
+    other failure. Both a non-zero exit and the runner's own error text are needed, so a passing test that prints such
+    text never counts."""
+    if code == 0 or cannot_run(code, output):
+        return None
+    text = output or ""
+    text = text if len(text) <= 400_000 else text[:200_000] + text[-200_000:]
+    for pattern, why in ENV_DOWN:
+        if pattern.search(text):
+            return why
+    return None
+
+
 def config_commands(root: str) -> dict:
     """The detected commands in .keel/config.yml form ({AC} / {AC_KEY} placeholders), for init to write. They are made
     for detected_dir(root): init writes that folder as backend.dir, where configured commands run."""
@@ -239,14 +275,67 @@ def _plain_pytest(r: Path) -> bool:
     return False
 
 
+JVM_CODE = (".java", ".kt", ".groovy", ".scala")
+PY_FILES = ("pyproject.toml", "pytest.ini", "setup.py", "manage.py", "requirements.txt")
+
+
+def _has_code(r: Path, exts: tuple[str, ...], budget: int = 5000) -> bool:
+    """Is there a source file with one of these extensions in the folder (at most `budget` entries looked at)?"""
+    todo, seen = [r], 0
+    while todo:
+        d = todo.pop()
+        try:
+            items = list(d.iterdir())
+        except OSError:
+            continue
+        for p in items:
+            seen += 1
+            if seen > budget:
+                return True                     # too big to tell: keep the build file's word
+            if p.is_dir():
+                if not p.name.startswith(".") and p.name not in _SKIP_DIRS:
+                    todo.append(p)
+            elif p.suffix in exts:
+                return True
+    return False
+
+
+def jvm_build_without_code(root: str) -> bool:
+    """0.22.0 a JVM build file (gradlew, pom.xml) in a folder that is a Python project and has no JVM source: a leftover
+    or a tool's file, not the project's build (a field report: a pom.xml next to a Django app made flows run Maven
+    against its Python criteria)."""
+    r = Path(root)
+    if not any((r / f).exists() for f in ("gradlew", "mvnw", "pom.xml")):
+        return False
+    python = any((r / f).exists() for f in PY_FILES) or _plain_pytest(r)
+    return python and not _has_code(r, JVM_CODE)
+
+
+def _pytest_configured(r: Path) -> bool:
+    if (r / "pytest.ini").exists() or (r / "conftest.py").exists():
+        return True
+    for f in ("pyproject.toml", "setup.cfg", "tox.ini"):
+        try:
+            if "pytest" in (r / f).read_text(errors="replace"):
+                return True
+        except OSError:
+            continue
+    return False
+
+
 def _detect_in(root: str, ac: str | None = None) -> str | None:
     """The test command for the build files in one folder."""
     r = Path(root)
-    if (r / "gradlew").exists():
+    jvm = not jvm_build_without_code(root)
+    if jvm and (r / "gradlew").exists():
         return fill("./gradlew -q test --tests '*{AC}*'", ac) if ac else "./gradlew -q test"
-    if (r / "mvnw").exists() or (r / "pom.xml").exists():
+    if jvm and ((r / "mvnw").exists() or (r / "pom.xml").exists()):
         mvn = "./mvnw" if (r / "mvnw").exists() else "mvn"
         return fill(f"{mvn} -q test -Dtest='*{{AC}}*'", ac) if ac else f"{mvn} -q test"
+    if (r / "manage.py").exists() and not _pytest_configured(r):
+        # 0.22.0 a Django project without pytest's settings runs Django's own runner (-k: Django 3.0 and newer)
+        base = "python manage.py test"
+        return f"{base} -k {shlex.quote(_pytest_key(ac))}" if ac else base
     if (r / "pyproject.toml").exists() or (r / "pytest.ini").exists() or (r / "setup.py").exists():
         base = "python -m pytest -q"
         return f"{base} -k {shlex.quote(_pytest_key(ac))}" if ac else base

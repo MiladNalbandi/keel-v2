@@ -241,16 +241,33 @@ describe("Tasks (new page): the board", () => {
     await openTasks();
     expect(await screen.findByText("No task yet")).toBeInTheDocument();
     expect(screen.getByTestId("sync-line")).toHaveTextContent(
-      "Not connected to Jira",
+      "No tracker connected",
     );
     expect(
       within(screen.getByTestId("sync-line")).getByRole("link", {
-        name: "Connect Jira",
+        name: "Connect Jira or GitHub Issues",
       }),
     ).toHaveAttribute("href", "#/settings/connections");
     expect(
-      main().getAllByRole("link", { name: "Connect Jira" })[0],
+      main().getAllByRole("link", { name: "Connect a tracker" })[0],
     ).toHaveAttribute("href", "#/settings/connections");
+  });
+
+  it("a project on GitHub Issues: its sync line, a GitHub filter, and Open in GitHub on an issue's task", async () => {
+    const user = userEvent.setup();
+    Object.assign(db.tk.sync, { kind: "github", tracker: "github", where: "acme/ludus", me: "mili-dev" });
+    const t = db.tk.tasks[0];
+    Object.assign(t, { source: "github", external_key: "#12", external_url: "https://github.com/acme/ludus/issues/12", external_status: "open" });
+    await openTasks();
+    expect(await screen.findByTestId("sync-line")).toHaveTextContent("GitHub Issues · acme/ludus as mili-dev");
+    const filters = main().getByRole("group", { name: "Source" });
+    await user.click(within(filters).getByRole("button", { name: /GitHub/ }));
+    expect(main().getAllByText(t.title).length).toBeGreaterThan(0);
+    await user.click(main().getAllByText(t.title)[0]);
+    const d = await screen.findByRole("dialog");
+    expect(within(d).getByRole("link", { name: "Open in GitHub ↗" })).toHaveAttribute("href", "https://github.com/acme/ludus/issues/12");
+    expect(d).toHaveTextContent("GitHub: open");
+    expect(d).toHaveTextContent("GitHub issue");
   });
 
   it("New task makes a task and opens it", async () => {
@@ -267,7 +284,7 @@ describe("Tasks (new page): the board", () => {
       within(d).getByLabelText("Description"),
       "CSV for the admins.",
     );
-    await user.type(within(d).getByLabelText("Jira key (optional)"), "ABC-9");
+    await user.type(within(d).getByLabelText("Ticket key (optional)"), "ABC-9");
     await user.type(
       within(d).getByLabelText("GitHub reviewers (optional)"),
       "ana, bo",

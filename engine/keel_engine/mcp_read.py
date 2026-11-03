@@ -128,7 +128,10 @@ def read_gate(api: KeelApi, project: str | None = None, flow: str | None = None,
 def status(api: KeelApi, project: str | None = None) -> str:
     p = _project(api, project)
     thread, workflow = _flow(api, p["id"])
-    head = f"project   {p['id']} · branch {p.get('branch') or '-'}"
+    # 0.22.0 the folder keel works in, on the person's computer when keel knows it (keel's own clone may not be theirs)
+    host, root = p.get("host"), p.get("root")
+    folder = f"{host} (keel sees it as {root})" if host and root and host != root else (host or root)
+    head = f"project   {p['id']} · branch {p.get('branch') or '-'}" + (f" · folder {folder}" if folder else "")
     if not thread:
         out = f"{head}\nflow      none. Start one in the dashboard (Flow › Start a flow)."
         other = None if project else _waiting_elsewhere(api, p["id"])
@@ -136,6 +139,8 @@ def status(api: KeelApi, project: str | None = None) -> str:
     out = [head, f"flow      {_flow_name(thread, workflow)} · \"{thread.get('title', '')}\" · {thread.get('status')} · thread {thread.get('thread_id')}",
            f"step      {thread.get('current') or '-'} · phase {thread.get('phase') or 'none'}" + (f" · {thread['ac']}" if thread.get("ac") else "")
            + (f" · run mode {thread['run_mode']}" if thread.get("run_mode") not in (None, "", "manual") else "")]
+    if thread.get("base_behind"):
+        out.append(f"WARNING   the flow started from an old base: {thread['base_behind']}")     # 0.22.0
     acs = thread.get("acs") or []
     if acs:
         done = sum(1 for a in acs if a.get("status") in ("done", "already-met"))

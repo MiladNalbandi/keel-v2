@@ -69,10 +69,27 @@ export function createTaskDb() {
           status_map: {}, reviewer_field: null, jira_reviewers: [], github_reviewers: ["ana"], poll_minutes: 5 },
       },
     } as Record<string, JiraView>,
+    /** 0.22.0 the GitHub Issues plugin's connections (none at first) */
+    ghIssues: {} as Record<string, Record<string, unknown>>,
     catalogAdded: false,
   };
 }
 export type TaskDb = ReturnType<typeof createTaskDb>;
+
+const STATUSES = ["todo", "in_progress", "in_review", "testing_pp", "ready_prod", "done", "cancelled", "blocked"];
+const GH_DEFAULT = { repo: null, follow: "assigned", label: null, status_map: {}, comment: true, closes_on_merge: true, github_reviewers: [], poll_minutes: 5 };
+
+/** GET /api/projects/{pid}/github-issues as the plugin answers it (a copy of plugins/github-issues/web/ghIssuesApi.ts's GhIssuesView). */
+function ghView(db: TaskDb, pid: string) {
+  const s = (db.ghIssues[pid] ?? GH_DEFAULT) as typeof GH_DEFAULT & { status_map: Record<string, string> };
+  const origin = pid === "ludus-engine" ? "acme/ludus" : "acme/platform";
+  const map = Object.fromEntries(STATUSES.map((st) => [st, s.status_map[st] ?? (st === "done" ? "closed" : st === "cancelled" ? "closed:not planned" : "-")]));
+  return {
+    connected: !!db.ghIssues[pid], settings: s, repo: s.repo ?? origin, repo_from: s.repo ? "settings" : "origin", origin, repo_url: `https://github.com/${s.repo ?? origin}`,
+    host: "github.com", token_set: true, status_map: map, last_sync_at: null, last_sync_error: null, me: db.ghIssues[pid] ? "mili-dev" : null,
+    other_tracker: db.jira[pid] ? "Jira" : null,
+  };
+}
 
 const NEXT_ITEM: Partial<Record<TaskStatus, { stage: string; title: (k: string) => string }>> = {
   testing_pp: { stage: "pp", title: (k) => `Confirm PP testing for ${k}` },
@@ -167,6 +184,28 @@ export function taskHandlers(db: TaskDb, log: (req: Request) => Promise<Record<s
       return HttpResponse.json(withItems(t));
     }),
 
+    // 0.22.0 the GitHub Issues plugin (plugins/github-issues): its connection per project; ludus-engine follows Jira
+    http.get("/api/projects/:pid/github-issues", ({ params }) => HttpResponse.json(ghView(db, params.pid as string))),
+    http.put("/api/projects/:pid/github-issues", async ({ request, params }) => {
+      const b = await log(request);
+      const pid = params.pid as string;
+      if (db.jira[pid]) return err(409, "This project follows Jira already", "A project follows one tracker: remove its Jira connection first (Settings › Connections).");
+      if (b.follow === "label" && !b.label) return err(400, "Which label?", "Name the label whose issues become tasks.");
+      const cur = (db.ghIssues[pid] ?? GH_DEFAULT) as Record<string, unknown>;
+      db.ghIssues[pid] = { ...cur, ...b, repo: b.repo === "" ? null : (b.repo ?? cur.repo) };
+      return HttpResponse.json(ghView(db, pid));
+    }),
+    http.delete("/api/projects/:pid/github-issues", async ({ request, params }) => {
+      await log(request);
+      delete db.ghIssues[params.pid as string];
+      return HttpResponse.json({ ok: true });
+    }),
+    http.post("/api/projects/:pid/github-issues/test", async ({ request }) => {
+      const b = await log(request);
+      return HttpResponse.json(b.repo === "acme/nope" ? { ok: false, error: "GitHub did not find it (404) while reading acme/nope.", hint: "Check the repository name." }
+        : { ok: true, user: "mili-dev", repo: b.repo || "acme/platform", read_only: false });
+    }),
+    http.get("/api/projects/:pid/github-issues/labels", () => HttpResponse.json(["bug", "enhancement", "in progress", "in review"])),
     http.get("/api/projects/:pid/jira", ({ params }) => HttpResponse.json(db.jira[params.pid as string] ?? {
       connected: false, token_set: false, token_hint: null, default_jql: "assignee = currentUser() AND statusCategory != Done ORDER BY priority DESC",
       jql: "assignee = currentUser() AND statusCategory != Done ORDER BY priority DESC", last_sync_at: null, last_sync_error: null, me: null, mcp_server: null,

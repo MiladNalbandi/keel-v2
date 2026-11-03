@@ -87,6 +87,17 @@ def _n(k: int) -> str:
     return f"{k} commit{'' if k == 1 else 's'}"
 
 
+def behind_note(check: dict | None) -> str | None:
+    """0.22.0 the start's base check in one warning when the flow started behind a remote (or a fetch failed), else
+    None: shown loudly on the flow page and in keel_status, not only in the start's answer (a field report: the clone
+    was 35 commits behind and nothing said so)."""
+    rows = (check or {}).get("remotes") or []
+    if not any((r.get("behind") or r.get("default_behind") or not r.get("ok", True)) for r in rows):
+        return None
+    lines = [x for x in (check or {}).get("lines") or [] if "behind" in x or "failed" in x or "starts from the local" in x]
+    return "; ".join(lines) or None
+
+
 def report(root: str, fetched: list[dict] | None, start: str | None = None, cfg: dict | None = None) -> dict:
     """{base, remotes: [{remote, ok, error?, branch?, ahead?, behind?, default?, default_ahead?, default_behind?}],
     lines, note}: for each remote, how far the local base branch is behind (and ahead of) the remote's branch of the

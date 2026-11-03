@@ -26,6 +26,16 @@ that **you** start.
 - **The plan is a person's.** Its gate is `person: true`: no run mode and no Supervisor answers it.
 - **You say when it is done.** keel counts steps. It does not know if the goal is reached.
 
+## What planning needs to start
+
+The planning flow (`goals-plan`) checks these at its start, and none of them stops it:
+
+- **No base.** It only reads and works on the branch the project folder is on, so it takes no base. A base given to it is left out, and the
+  answer says so.
+- **Uncommitted files are fine.** It changes no file of the project, so it starts with the person's own changes in the folder.
+- **A busy folder.** When another flow runs in the project folder, planning runs in a worktree at the folder's commit. A local main that went
+  its own way from origin/main does not stop it.
+
 ## What goes to the model company
 
 The goal's words when you press Plan it, and each step's words when you start it, and what its agents read, as in any flow. On screen, too.

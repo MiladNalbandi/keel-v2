@@ -46,6 +46,9 @@ CATALOGUE: dict[tuple[str, str], tuple[str, str, str]] = {
     ("blocked", "skip"): ("Skip this criterion", NONE, GENERIC["skip"][2]),
     ("cannot-run", "skip"): ("Skip this criterion", NONE, GENERIC["skip"][2]),
     ("cannot-run", "recheck"): ("Check again", NONE, "run the check again after you fixed .keel/config.yml"),
+    # 0.22.0 the tests need Docker or a database that is not reachable (actions.env_failure)
+    ("environment", "skip"): ("Skip this criterion", NONE, GENERIC["skip"][2]),
+    ("environment", "recheck"): ("Check again", NONE, "run the check again once Docker or the database is reachable"),
     # keel 0.18.22 the flow's first step could not set up the stack (Compiler.setup_gate, runtime/stack_setup.py)
     ("setup", "retry"): ("I fixed it, try again", NONE, "run the stack setup again (the packages, then each_worktree)"),
     ("setup", "skip"): ("Skip the setup", OPTIONAL, "go on without it; the flow's tests may fail until it is done"),

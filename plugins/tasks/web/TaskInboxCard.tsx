@@ -4,10 +4,11 @@
 import { useState } from "react";
 import { ErrorBox, errorParts, go, Pill, Since, Ticks, useApp, type InboxCardProps, type InboxTask } from "@keel/web-sdk";
 import { tasksApi } from "./tasksApi";
+import { trackerName } from "./taskModel";
 import { AUTOMATION_KINDS, AutomationItem } from "./Automations";
 
 /** The kinds of a task's items, with their label in the Inbox (its pill and its Kind filter). */
-export const TASK_ITEM_KINDS: Record<string, string> = { task: "task", "jira-manual": "move in Jira", ...AUTOMATION_KINDS };
+export const TASK_ITEM_KINDS: Record<string, string> = { task: "task", "jira-manual": "move the ticket", ...AUTOMATION_KINDS };
 
 /** v0.5.0: a task's item — confirm PP testing, confirm the release, or say the Jira ticket was moved by hand; 0.18.52
  *  keel's proposal or a KeelBot-owned ticket's review comment. */
@@ -42,7 +43,7 @@ function AutomationCard({ item: it, cardKey, kindLabel, onDone }: InboxCardProps
           await onDone(`${t.key ?? t.title}: ${done[action] ?? "done"}.`);
         }} />
       <div className="row">
-        {t.url && <a className="btn sm ghost" href={t.url} target="_blank" rel="noreferrer">Open in Jira ↗</a>}
+        {t.url && <a className="btn sm ghost" href={t.url} target="_blank" rel="noreferrer">Open in {trackerName(null, t.url)} ↗</a>}
         <button className="btn sm ghost inbox-open" type="button" onClick={openTask} aria-label={`Open task ${t.key ?? t.title} in ${it.project_name}`}>Open task ▸</button>
       </div>
     </article>
@@ -104,7 +105,7 @@ function TaskItemCard({ item: it, cardKey, kindLabel, onDone }: InboxCardProps) 
         {t.actions.map((a, n) => (
           <button key={a.id} className={`btn sm${n === 0 ? " warn" : ""}`} type="button" disabled={busy} onClick={() => void act(a)}>{a.label}</button>
         ))}
-        {t.url && <a className="btn sm ghost" href={t.url} target="_blank" rel="noreferrer">Open in Jira ↗</a>}
+        {t.url && <a className="btn sm ghost" href={t.url} target="_blank" rel="noreferrer">Open in {trackerName(null, t.url)} ↗</a>}
         <button className="btn sm ghost inbox-open" type="button" onClick={openTask} aria-label={`Open task ${t.key ?? t.title} in ${it.project_name}`}>Open task ▸</button>
       </div>
       {err && <ErrorBox error={err} />}

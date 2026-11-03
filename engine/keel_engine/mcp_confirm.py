@@ -101,18 +101,25 @@ def _minutes(question: str | None) -> int:
     return (INBOX_TTL if question else TTL) // 60
 
 
-def ask_text(name: str, what: str, token: str, question: str | None = None, inbox_only: bool = False) -> str:
+def ask_text(name: str, what: str, token: str, question: str | None = None, inbox_only: bool = False,
+             closed: bool = False) -> str:
     """The answer of a tool that needs the person's OK, for a client that cannot show a form. It keeps 0.16.0's opening
     words ("cannot ask you to confirm ...") so a client or a script that read them still finds them. 0.18.64 it no
-    longer offers `--yes` (the model read it as a way around the person), and says to never confirm by itself."""
-    head = (f"keel: this MCP client cannot ask you to confirm {what} in a form, so nothing was done yet. This needs the "
-            f"person's OK: {what}. Ask the person; never confirm by yourself.")
+    longer offers `--yes` (the model read it as a way around the person), and says to never confirm by itself.
+    0.22.0 `closed`: the client's form came back without a yes (declined or closed, maybe by the client itself): never
+    "you said no", it needs the person's approval and waits in the Inbox."""
+    if closed:
+        head = (f"keel: the confirm form came back without a yes (declined or closed), so nothing was done: {what} needs "
+                "the person's approval. Ask the person; never confirm by yourself.")
+    else:
+        head = (f"keel: this MCP client cannot ask you to confirm {what} in a form, so nothing was done yet. This needs "
+                f"the person's OK: {what}. Ask the person; never confirm by yourself.")
     again = f'call {name} again with the same arguments and confirm: "{token}" within {_minutes(question)} minutes (it works once)'
     if inbox_only:
         return (f"{head} keel put the question in its Inbox ({question}): the person approves it there (the dashboard, "
                 f"keel TUI or the phone app). After they approved it, {again}. The token alone does not do it.")
     if question:
-        return (f"{head} keel also put the question in its Inbox ({question}). Only when the person said yes (here, or "
+        return (f"{head} It waits in keel's Inbox ({question}). Only when the person said yes (here, or "
                 f"by approving it in keel's Inbox), {again}.")
     return f"{head} Only when the person said yes, {again}."
 

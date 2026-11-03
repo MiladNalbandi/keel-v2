@@ -21,14 +21,14 @@ class McpApiTest : ApiTest() {
         assertThat(keel["builtin"].asBoolean()).isTrue()
         assertThat(keel["enabled"].asBoolean()).isTrue()
         assertThat(keel["command"].asText()).matches(".*python3?")
-        assertThat(keel["args"].map { it.asText() }).containsExactly("-m", "keel_engine.mcp", "--read-only")
+        assertThat(keel["args"].map { it.asText() }).containsExactly("-P", "-m", "keel_engine.mcp", "--read-only")
         put("/api/mcp-servers/keel", mapOf("args" to listOf("-m", "keel_engine.mcp", "--write"))).andExpect(status().isConflict)
         delete("/api/mcp-servers/keel").andExpect(status().isConflict)
 
         // An install that still points keel at keel v1's server.js is switched over on the next start.
         jdbc.update("UPDATE mcp_servers SET command = 'node', args_json = '[\"/old/keel/mcp/server.js\"]' WHERE name = 'keel'")
         mcp.seed()
-        assertThat(mcp.get("keel").args).containsExactly("-m", "keel_engine.mcp", "--read-only")
+        assertThat(mcp.get("keel").args).containsExactly("-P", "-m", "keel_engine.mcp", "--read-only")
     }
 
     @Test

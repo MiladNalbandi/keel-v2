@@ -227,7 +227,10 @@ class StubJira private constructor(private val server: HttpServer, val kind: Str
     }
 }
 
-/** GitHub's two pull-request calls tasks make: request reviewers, read reviews (Bearer [token]). */
+/**
+ * GitHub's two pull-request calls tasks make (request reviewers, read reviews), and 0.22.0 the issue calls of the GitHub
+ * Issues plugin: /user, the repo, its issues (list, read, close / reopen, labels, comments) and labels (Bearer [token]).
+ */
 class StubGitHub private constructor(private val server: HttpServer) {
     private val mapper = jacksonObjectMapper()
     val url: String get() = "http://127.0.0.1:${server.address.port}"
@@ -241,8 +244,67 @@ class StubGitHub private constructor(private val server: HttpServer) {
 
     fun review(login: String, state: String) = mapOf("user" to mapOf("login" to login), "state" to state)
 
+    /** 0.22.0 the token's user, and one repo's issues. */
+    @Volatile var login = "mili-dev"
+    @Volatile var issuesRepo = "acme/app"
+    @Volatile var hasIssues = true
+    @Volatile var canPush = true
+    data class Issue(val number: Int, var title: String, var body: String = "", var state: String = "open", var reason: String? = null,
+                     val labels: MutableList<String> = CopyOnWriteArrayList(), var assignees: List<String> = emptyList(),
+                     val comments: MutableList<Pair<String, String>> = CopyOnWriteArrayList(), val pr: Boolean = false)
+    val issues = ConcurrentHashMap<Int, Issue>()
+    val repoLabels = CopyOnWriteArrayList(listOf("bug", "enhancement", "in progress", "in review"))
+
+    fun issue(number: Int, title: String, assignees: List<String> = listOf(login), labels: List<String> = emptyList(), body: String = ""): Issue =
+        Issue(number, title, body, labels = CopyOnWriteArrayList(labels), assignees = assignees).also { issues[number] = it }
+
     fun reset() {
-        calls.clear(); reviews.clear()
+        calls.clear(); reviews.clear(); issues.clear(); login = "mili-dev"; issuesRepo = "acme/app"; hasIssues = true; canPush = true
+        repoLabels.clear(); repoLabels += listOf("bug", "enhancement", "in progress", "in review")
+    }
+
+    private fun issueJson(i: Issue) = mapOf("number" to i.number, "title" to i.title, "body" to i.body, "state" to i.state, "state_reason" to i.reason,
+        "labels" to i.labels.map { mapOf("name" to it) }, "assignees" to i.assignees.map { mapOf("login" to it) },
+        "html_url" to "https://github.com/$issuesRepo/issues/${i.number}") + (if (i.pr) mapOf("pull_request" to mapOf("url" to "x")) else emptyMap())
+
+    /** The issue calls, or null when [path] is not one. */
+    private fun issueCall(method: String, path: String, query: Map<String, String>, body: JsonNode?): Pair<Int, Any>? {
+        if (path == "/user") return 200 to mapOf("login" to login, "name" to "Mili Dev")
+        val r = Regex("^/repos/([^/]+/[^/]+)(/.*)?$").find(path) ?: return null
+        if (r.groupValues[1] != issuesRepo) return 404 to mapOf("message" to "Not Found")
+        val rest = r.groupValues[2]
+        fun one(n: String) = issues[n.toInt()]
+        return when {
+            rest.isEmpty() -> 200 to mapOf("full_name" to issuesRepo, "has_issues" to hasIssues, "private" to true, "permissions" to mapOf("push" to canPush))
+            rest == "/labels" -> 200 to repoLabels.map { mapOf("name" to it) }
+            rest == "/issues" && method == "GET" -> {
+                val page = query["page"]?.toInt() ?: 1
+                val list = issues.values.sortedBy { it.number }.filter { it.state == (query["state"] ?: "open") }
+                    .filter { q -> query["assignee"]?.let { it == "*" || it in q.assignees } ?: true }
+                    .filter { q -> query["labels"]?.let { it in q.labels } ?: true }
+                200 to (if (page == 1) list.map { issueJson(it) } else emptyList())
+            }
+            else -> {
+                val m = Regex("^/issues/(\\d+)(/comments|/labels(?:/(.+))?)?$").find(rest) ?: return 404 to mapOf("message" to "Not Found")
+                val i = one(m.groupValues[1]) ?: return 404 to mapOf("message" to "Not Found")
+                when {
+                    m.groupValues[2].isEmpty() && method == "GET" -> 200 to issueJson(i)
+                    m.groupValues[2].isEmpty() && method == "PATCH" -> {
+                        if (!canPush) return 403 to mapOf("message" to "Resource not accessible by integration")
+                        body?.get("state")?.asText()?.let { i.state = it; i.reason = if (it == "open") "reopened" else body.get("state_reason")?.asText() ?: "completed" }
+                        200 to issueJson(i)
+                    }
+                    m.groupValues[2] == "/comments" && method == "POST" -> { i.comments += login to (body?.get("body")?.asText() ?: ""); 201 to mapOf("id" to i.comments.size) }
+                    m.groupValues[2] == "/comments" -> 200 to i.comments.map { mapOf("user" to mapOf("login" to it.first), "body" to it.second) }
+                    m.groupValues[2] == "/labels" && method == "POST" -> { body?.get("labels")?.forEach { l -> if (l.asText() !in i.labels) i.labels += l.asText() }; 200 to i.labels.map { mapOf("name" to it) } }
+                    m.groupValues[3].isNotEmpty() && method == "DELETE" -> {
+                        val name = URLDecoder.decode(m.groupValues[3], Charsets.UTF_8)
+                        if (i.labels.remove(name)) 200 to i.labels.map { mapOf("name" to it) } else 404 to mapOf("message" to "Label does not exist")
+                    }
+                    else -> 404 to mapOf("message" to "Not Found")
+                }
+            }
+        }
     }
 
     private fun handle(ex: HttpExchange) {
@@ -251,8 +313,12 @@ class StubGitHub private constructor(private val server: HttpServer) {
         val path = ex.requestURI.path
         calls += Call(ex.requestMethod, path, body)
         val m = Regex("^/repos/([^/]+)/([^/]+)/pulls/(\\d+)/(requested_reviewers|reviews)$").find(path)
+        val query = (ex.requestURI.rawQuery ?: "").split("&").filter { "=" in it }
+            .associate { it.substringBefore("=") to URLDecoder.decode(it.substringAfter("="), Charsets.UTF_8) }
+        val issueAnswer = if (m == null && ex.requestHeaders.getFirst("Authorization") == "Bearer $token") issueCall(ex.requestMethod, path, query, body) else null
         val (code, res) = when {
             ex.requestHeaders.getFirst("Authorization") != "Bearer $token" -> 401 to mapOf("message" to "Bad credentials")
+            issueAnswer != null -> issueAnswer
             m == null -> 404 to mapOf("message" to "Not Found")
             m.groupValues[4] == "requested_reviewers" && ex.requestMethod == "POST" -> 201 to mapOf("number" to m.groupValues[3].toInt())
             m.groupValues[4] == "reviews" -> 200 to reviews["${m.groupValues[1]}/${m.groupValues[2]}#${m.groupValues[3]}"].orEmpty()

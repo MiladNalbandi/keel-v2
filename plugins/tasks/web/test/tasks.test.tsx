@@ -78,8 +78,8 @@ describe("Tasks board", () => {
     db.tk.sync.connected = false;
     await openTasks();
     expect(await screen.findByText("No task yet")).toBeInTheDocument();
-    expect(screen.getByTestId("sync-line")).toHaveTextContent("Not connected to Jira");
-    expect(main().getAllByRole("link", { name: "Connect Jira" })[0]).toHaveAttribute("href", "#/settings/connections");
+    expect(screen.getByTestId("sync-line")).toHaveTextContent("No tracker connected");
+    expect(main().getAllByRole("link", { name: "Connect Jira or GitHub Issues" })[0]).toHaveAttribute("href", "#/settings/connections");
   });
 
   it("New task makes a task and opens it", async () => {
@@ -91,7 +91,7 @@ describe("Tasks board", () => {
     await user.type(within(d).getByLabelText("Title"), "Export the scores");
     await user.click(within(d).getByRole("radio", { name: /bug/ }));
     await user.type(within(d).getByLabelText("Description"), "CSV for the admins.");
-    await user.type(within(d).getByLabelText("Jira key (optional)"), "ABC-9");
+    await user.type(within(d).getByLabelText("Ticket key (optional)"), "ABC-9");
     await user.type(within(d).getByLabelText("GitHub reviewers (optional)"), "ana, bo");
     await user.click(within(d).getByRole("button", { name: "Create task" }));
     await waitFor(() => expect(calls("POST", "/api/projects/ludus-engine/tasks")).toHaveLength(1));
@@ -283,7 +283,7 @@ describe("Inbox task items", () => {
     await waitFor(() => expect(calls("POST", "/api/inbox/tasks/100/act")[0]?.body).toEqual({ action: "send_back", note: "wrong totals" }));
 
     const manual = await screen.findByRole("article", { name: /Move OPS-7 to In Progress in Jira/ });
-    expect(manual).toHaveTextContent("move in Jira");
+    expect(manual).toHaveTextContent("move the ticket");
     await user.click(within(manual).getByRole("button", { name: "Done" }));
     await waitFor(() => expect(calls("POST", "/api/inbox/tasks/101/act")[0]?.body).toEqual({ action: "done" }));
     expect(await screen.findByText("Nothing is waiting for you")).toBeInTheDocument();

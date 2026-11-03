@@ -27,6 +27,11 @@ data class AccessView(
     val folder: String?,
     /** 0.18.68 keel2's absolute path on the person's computer (KEEL2_PATH), for the MCP snippets; null: an older keel2 */
     val keel2Path: String? = null,
+    /** 0.22.0 this keel (KEEL_NAME, keel-v2 when keel2 did not say), the computer it runs on (KEEL_HOST_NAME) and where
+     *  it sees the main project folder (KEEL_WORKSPACE): keel_health tells keels on several computers apart */
+    val instance: String = "keel-v2",
+    val host: String? = null,
+    val workspace: String? = null,
 )
 
 @RestController
@@ -49,7 +54,10 @@ class AccessController(private val addresses: DeviceAddresses, private val props
         }
         return AccessView(mode, bind, wifi, names, tailscale, known.firstOrNull { it.kind == "tunnel" }?.url,
             System.getenv("KEEL_NATIVE") == "1", props.hostWorkspace.trim().ifEmpty { null },
-            System.getenv("KEEL2_PATH")?.trim()?.takeIf { it.startsWith("/") && PATH_OK.matches(it) })
+            System.getenv("KEEL2_PATH")?.trim()?.takeIf { it.startsWith("/") && PATH_OK.matches(it) },
+            props.name.trim().ifEmpty { "keel-v2" },
+            System.getenv("KEEL_HOST_NAME")?.trim()?.takeIf { HOST.matches(it) },
+            props.workspace.trim().ifEmpty { null })
     }
 
     companion object {

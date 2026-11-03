@@ -33,14 +33,18 @@ _q = q
 
 # ---------------------------------------------------------------- read
 
-def flows(api: KeelApi, project: str | None = None, limit: int = 10) -> str:
+def flows(api: KeelApi, project: str | None = None, limit: int = 10, catalog: bool = False) -> str:
+    """The project's flows, newest first. 0.22.0 the flow types it can start (about 35 lines) only with `catalog`: they
+    hid the flows asked about on every call."""
     p = _project(api, project)
     rows = api.get(f"/projects/{p['id']}/runs", limit=max(1, min(int(limit or 10), 50))) or []
-    try:
-        from .mcp_flows import startable
-        can = "\n\n" + startable(api, p["id"])
-    except ApiError:
-        can = ""
+    can = f"\n\nThe flow types {p['id']} can start: keel_flows(catalog=true) or keel_start_flow()."
+    if catalog:
+        try:
+            from .mcp_flows import startable
+            can = "\n\n" + startable(api, p["id"])
+        except ApiError:
+            can = ""
     if not rows:
         return f"no flow has run on {p['id']} yet." + can
     return "\n".join(

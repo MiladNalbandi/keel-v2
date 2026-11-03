@@ -79,7 +79,7 @@
 # data volume, so they survive restarts and new images. Nothing from your computer is copied into the container.
 set -euo pipefail
 
-KEEL2_VERSION="0.21.3"
+KEEL2_VERSION="0.22.0"
 IMAGE="${KEEL_IMAGE:-ghcr.io/miladnalbandi/keel-v2:latest}"
 # keel's core only (docs/plugins/16-steps5-7-contract.md, step 6): keel2 start --core, unless KEEL_IMAGE is set
 CORE_IMAGE="ghcr.io/miladnalbandi/keel-v2:core"
@@ -640,6 +640,8 @@ cmd_start() {
   # phone access: --wifi / KEEL_BIND publishes keel on the network instead of 127.0.0.1 (remembered by the label)
   local i; for i in "${!args[@]}"; do [ "${args[$i]}" = "127.0.0.1:$port:8080" ] && args[i]="$(publish_host "$bind"):$port:8080"; done
   args+=(-e KEEL_NAME="$NAME" --label "keel2.bind=$bind")
+  # 0.22.0 keel_health and Settings › Access say which computer this keel runs on (inside Docker the name is the container's)
+  args+=(-e "KEEL_HOST_NAME=$(own_name)")
   # 0.18.66 keel's Settings › Access shows where it answers (KEEL_BIND) and the update command for the image it runs
   # (KEEL_IMAGE: a pinned tag needs KEEL_IMAGE=<new tag> keel2 update); nothing in the container acts on them
   args+=(-e "KEEL_BIND=$bind" -e "KEEL_IMAGE=$IMAGE")
@@ -1929,7 +1931,7 @@ cmd_mcp() {
     if [ -n "$ntz" ]; then export TZ="$ntz"; fi
     KEEL_API_URL="http://127.0.0.1:$p" KEEL_INTERNAL_TOKEN="$(cat "$ND/run/token")" KEEL_PUBLIC_URL="${KEEL_PUBLIC_URL:-http://localhost:$p}" \
       KEEL_DATA="$ND/data" KEEL_PLUGINS_IMAGE="$ND/current/plugins" \
-      exec "$ND/current/engine/.venv/bin/python" -m keel_engine.mcp "$mode" ${extra[@]+"${extra[@]}"}
+      exec "$ND/current/engine/.venv/bin/python" -P -m keel_engine.mcp "$mode" ${extra[@]+"${extra[@]}"}
   fi
   need_docker >&2
   # 0.18.64 a client that starts keel2 mcp while keel restarts (keel2 add, update) waits for it, a little longer each
@@ -1947,9 +1949,9 @@ cmd_mcp() {
   # v0.16.1 the internal token file (docker/keel-start writes it) lets the server ask the api for its level's token
   local server=(docker exec -i -e KEEL_PUBLIC_URL="$public" -e KEEL_INTERNAL_TOKEN_FILE=/data/run/internal-token
     -e KEEL_CLIENT_CWD="$(in_container "$(pwd -P)")" ${tz:+-e "TZ=$tz"} -e KEEL_MCP_RELAY_N "$NAME"
-    /opt/engine/.venv/bin/python -m keel_engine.mcp "$mode" ${extra[@]+"${extra[@]}"})
+    /opt/engine/.venv/bin/python -P -m keel_engine.mcp "$mode" ${extra[@]+"${extra[@]}"})
   if [ "${KEEL_MCP_RELAY:-1}" != 0 ] && command -v python3 >/dev/null 2>&1; then
-    exec python3 -c "$MCP_RELAY_PY" "$NAME" "${server[@]}"
+    exec python3 -I -c "$MCP_RELAY_PY" "$NAME" "${server[@]}"
   fi
   exec "${server[@]}"
 }
@@ -2356,7 +2358,7 @@ muxy_hook() {  # keel2 muxy hook [--project <name>] [--pane <id>] [--wait] [--fe
   if [ "$test" = 1 ]; then
     public="the dashboard"
     if keel_running; then public="${KEEL_PUBLIC_URL:-http://localhost:$(running_port)}"; fi
-    if [ "$py" = 1 ]; then python3 -c "$MUXY_HOOK_PY" "$NAME" "" "$public" "" "$pane" "" "$sock" --test; return; fi
+    if [ "$py" = 1 ]; then python3 -I -c "$MUXY_HOOK_PY" "$NAME" "" "$public" "" "$pane" "" "$sock" --test; return; fi
     muxy_send "$sock" "$pane" "keel · test: a question waits for you" "This is how keel questions look in Muxy. Answer in keel2 tui or $public/inbox" \
       && { info "sent a test notification to Muxy"; return 0; }
     die "Muxy is not running: nothing was sent ($sock)"
@@ -2373,7 +2375,7 @@ muxy_hook() {  # keel2 muxy hook [--project <name>] [--pane <id>] [--wait] [--fe
     key="$(muxy_web_key)"
     [ -n "$key" ] || die "This keel has no sign-in key yet (keel 0.18.1 and newer make one)." "Update keel: keel2 update"
     rc=0
-    KEEL_WEB_KEY="$key" python3 -c "$MUXY_HOOK_PY" "$NAME" "http://127.0.0.1:$port/api" "$public" "$project" "$pane" \
+    KEEL_WEB_KEY="$key" python3 -I -c "$MUXY_HOOK_PY" "$NAME" "http://127.0.0.1:$port/api" "$public" "$project" "$pane" \
       "$(muxy_seen_dir)" "$sock" ${flags[@]+"${flags[@]}"} || rc=$?
     case "$rc" in
       0) return 0 ;;
@@ -2750,7 +2752,7 @@ native_start() {  # native_start <project> <tarball or ""> <source checkout or "
   KEEL_APP="$ND/current" KEEL_DATA="$ND/data" KEEL_WORKSPACE="$project" KEEL_PROJECT_NAME="$(basename "$project")" KEEL_HOST_WORKSPACE="$project" \
     KEEL_FOLDERS="$folders" KEEL_PORT="$port" KEEL_ENGINE_PORT="$eport" KEEL_NPM="$ND/npm" KEEL_INTERNAL_TOKEN="$tok" \
     KEEL_PLUGINS="${NATIVE_PLUGINS:-${KEEL_PLUGINS:-on}}" KEEL_BIND="$bind" KEEL_NAME="$NAME" KEEL2_PATH="$(self_path)" \
-    nohup "$ND/current/keel-native-start" >> "$ND/logs/keel.log" 2>&1 < /dev/null &
+    KEEL_HOST_NAME="$(own_name)" nohup "$ND/current/keel-native-start" >> "$ND/logs/keel.log" 2>&1 < /dev/null &
   echo $! > "$ND/run/keel.pid"
   local i; for i in $(seq 1 180); do
     curl -fs "$(api "$port")/health" >/dev/null 2>&1 && break

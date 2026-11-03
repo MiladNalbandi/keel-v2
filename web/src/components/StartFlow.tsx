@@ -238,7 +238,9 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
       if (p !== pid) setProjectId(p);
       await reloadProjects();
       const there = inWorktree ? " It runs in a worktree of its own, next to the project folder's flow." : "";
-      toast(state?.cap_note ? `Flow started.${there} ${state.cap_note}` : `Flow started as a new LangGraph thread.${there}`);
+      // 0.22.0 a file the request names that another flow changes: said, no longer a refusal
+      const overlap = state?.overlap_note ? ` Overlap: ${state.overlap_note}` : "";
+      toast(state?.cap_note ? `Flow started.${there} ${state.cap_note}${overlap}` : `Flow started as a new LangGraph thread.${there}${overlap}`);
       onClose();
       if (inWorktree && state?.thread_id) go("flow", state.thread_id);
       else go("flow");

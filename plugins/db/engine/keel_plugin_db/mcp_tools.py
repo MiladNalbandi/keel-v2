@@ -6,7 +6,7 @@ from __future__ import annotations
 import time
 
 from mcp.server.fastmcp import Context
-from keel_engine.mcp_server import KeelApi, _ask_person, _plugin_on, _project
+from keel_engine.mcp_server import KeelApi, _ask_person, _plugin_on, _project, inbox_refusal
 
 
 ACCESS = {"none": "not offered to agents", "read": "read only", "write_approve": "read; a change after the person's OK"}
@@ -67,7 +67,7 @@ def db_change(api: KeelApi, sql: str, project: str | None = None, connection: st
     dry = api.post(f"/projects/{pid}/db/query", {"sql": sql, "connection": connection or "", "change": True})
     ok, why = _ask_person(api, pid, f"Claude Code: change {dry['changed']} row(s) in {dry['connection']}?", dry["sql"], sleep)
     if not ok:
-        return f"The person said no in keel's Inbox: {why}".strip()
+        return inbox_refusal(why)
     r = api.post(f"/projects/{pid}/db/query", {"sql": sql, "connection": connection or "", "change": True, "confirm": True})
     return f"{r['changed']} row(s) changed in {r['connection']}."
 

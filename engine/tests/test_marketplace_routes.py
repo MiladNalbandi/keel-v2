@@ -150,7 +150,7 @@ def test_the_sets_say_what_is_missing_and_what_is_off(client, image):
     assert list(sets) == ["developer", "review", "knowledge", "tickets"]
     assert sets["developer"]["plugins"] == ["code", "git", "review", "db", "ci", "graph", "keelbot"]
     assert sets["review"] == {**sets["review"], "title": "Review", "missing": ["review", "keelbot"], "off": ["git"]}
-    assert sets["tickets"]["plugins"] == ["tasks", "jira"] and sets["knowledge"]["plugins"] == ["wiki", "map", "graph"]
+    assert sets["tickets"]["plugins"] == ["tasks", "jira", "github-issues"] and sets["knowledge"]["plugins"] == ["wiki", "map", "graph"]
 
 
 def test_the_routes_need_the_internal_token(client, monkeypatch):

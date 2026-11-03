@@ -100,6 +100,9 @@ class HelperService(
         if (body.mode !in MODES) throw BadRequest("Unknown KeelBot mode ${body.mode}", "Use ask, edit, fix or side.")
         // 0.18.57 one owner per task: a side agent on what a flow or another side agent already works on is refused
         if (body.mode == "side" && !body.force) flows.refuseOwners(pid, java.nio.file.Paths.get(project.root), body.title, null, null)
+        // 0.22.0 a side or ask agent decides from git ("is this merged?"): fresh remote refs first (a field report: one
+        // said a merged branch was not, from a clone that had not fetched in days). At most a few seconds; never fails.
+        if (body.mode != "fix") flows.fetchForStart(pid, java.nio.file.Paths.get(project.root))
         val thread = if (body.mode == "fix") waitingThread(pid) else null
         val threadId = thread?.path("thread_id")?.asText()
         return engine.post("/helper/sessions", mapOf(

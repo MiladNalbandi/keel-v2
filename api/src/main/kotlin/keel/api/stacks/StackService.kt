@@ -9,6 +9,7 @@ import keel.api.common.Conflict
 import keel.api.common.Hash
 import keel.api.common.KeelProperties
 import keel.api.common.NotFound
+import keel.api.common.Proc
 import keel.api.common.Yaml
 import keel.api.engine.EngineClient
 import keel.api.engine.EngineError
@@ -119,12 +120,20 @@ class StackService(
         return shipped().filter { it.name !in names } + project
     }
 
-    /** `stacks: {ignore: [...]}` in the project's .keel/config.yml (the engine writes it: runtime/stack_edit.py). */
+    /** `stacks: {ignore: [...]}` in the project's .keel/config.yml (the engine writes it: runtime/stack_edit.py). 0.22.0
+     *  plus this clone's own switches, <git common dir>/keel/stacks.json {off, on} (engine runtime/stacks.py local_file):
+     *  a committed config.yml is not changed by a switch, so the tree stays clean. */
     private fun turnedOff(root: Path): Set<String> {
         val f = root.resolve(".keel/config.yml")
-        if (!Files.isRegularFile(f)) return emptySet()
-        val block = runCatching { Yaml.readMap(Files.readString(f)) }.getOrNull()?.get("stacks") as? Map<*, *> ?: return emptySet()
-        return strings(block["ignore"]).toSet()
+        val block = if (Files.isRegularFile(f)) runCatching { Yaml.readMap(Files.readString(f)) }.getOrNull()?.get("stacks") as? Map<*, *> else null
+        val shared = block?.let { strings(it["ignore"]).toSet() }.orEmpty()
+        val common = runCatching { Proc.run(listOf("git", "rev-parse", "--git-common-dir"), root, 10) }.getOrNull()
+            ?.takeIf { it.ok }?.out?.trim()?.ifEmpty { null } ?: return shared
+        val local = root.resolve(common).normalize().resolve("keel/stacks.json")
+        val mine = if (Files.isRegularFile(local)) runCatching { mapper.readTree(Files.readString(local)) }.getOrNull() else null
+        val off = mine?.path("off")?.mapNotNull { it.asText(null) }.orEmpty()
+        val on = mine?.path("on")?.mapNotNull { it.asText(null) }.orEmpty()
+        return (shared + off) - on.toSet()
     }
 
     /** .keel/stacks/.installed.json: the stacks a marketplace install saved. */

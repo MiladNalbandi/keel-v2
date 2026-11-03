@@ -115,7 +115,7 @@ def _proxy_tool(proxy: Proxy, tool, ask: Callable[[str, str, dict], tuple[bool, 
         if not reads and ask is not None:
             ok, why = await anyio.to_thread.run_sync(lambda: ask(proxy.name, tool.name, arguments))
             if not ok:
-                return f"keel: not done — {proxy.name}'s {tool.name} needs the person's OK in keel's Inbox: {why or 'they said no'}."
+                return f"keel: not done — {proxy.name}'s {tool.name} needs the person's OK in keel's Inbox: {why or 'nobody approved it yet'}."
         res = await proxy.session.call_tool(tool.name, arguments)
         text = answer_text(res)
         if getattr(res, "isError", False):

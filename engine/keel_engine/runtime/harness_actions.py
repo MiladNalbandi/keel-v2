@@ -65,6 +65,12 @@ def check(a):
     shown = testcmd.shown(cmd, rel)
     if code == 0 and not testcmd.ran_no_tests(out):
         return _ok(f"tests pass: `{shown}`", tail(out, 1500))
+    if why := testcmd.env_down(code, out):
+        # 0.22.0 Docker or the database the tests need is down: the build session cannot fix that, so no round back to
+        # it; the person decides (#67)
+        from .actions import env_failure
+
+        return env_failure(a, shown, out, "the change", why)
     why = "ran no tests" if code == 0 else f"exited {code}"
     return _fail(f"The project's tests failed: `{shown}` {why}.",
                  f"keel ran `{shown}` after your change and it {why}. Fix the cause in this session and run it again.\n\n"

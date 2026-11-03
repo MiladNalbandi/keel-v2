@@ -170,7 +170,7 @@ def test_an_addon_parts_tools_routes_and_errors(acme, repo):
     assert extensions.read_tools()["keel-acme"] == {"acme_look"}
     assert hook.plugin_read_tool("mcp__keel-acme__acme_look") and not hook.plugin_read_tool("mcp__keel-acme__acme_poke")
     [spec] = extensions.server_specs(["acme", "graph"], "pk_x")
-    assert spec["name"] == "keel-acme" and spec["args"] == ["-m", "keel_part_addon.server", "x"]
+    assert spec["name"] == "keel-acme" and spec["args"] == ["-P", "-m", "keel_part_addon.server", "x"]
     assert spec["env"]["KEEL_PLUGIN_KEY"] == "pk_x"
     # a plugin's server runs its own module: its package's folder is on that process's PYTHONPATH
     assert spec["env"]["PYTHONPATH"] == str(Path(FIXTURES).resolve())

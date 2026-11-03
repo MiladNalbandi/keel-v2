@@ -110,7 +110,10 @@ class StubApi:
             if self.fake_keel and not body.get("allow_fake"):
                 return httpx.Response(409, json={"error": "These agents would use the fake model: explorer. It writes example "
                                                           "files, not real code.", "hint": "Pick a real model."})
-            return httpx.Response(200, json={**self.thread, "thread_id": "t-9", "title": body["title"]})
+            ran = body["workflow_id"]
+            if ran == "feature" and getattr(self, "harness", False) and (body.get("options") or {}).get("engine") != "flow":
+                ran = "harness"       # the api's Harness.route with build_runs: harness
+            return httpx.Response(200, json={**self.thread, "thread_id": "t-9", "title": body["title"], "workflow_id": ran})
         if req.method == "POST" and path == "/api/projects/shop/remotes/fetch":
             self.posts.append((path, json.loads(req.content or b"{}")))
             return httpx.Response(200, json={
@@ -150,7 +153,7 @@ class StubApi:
             self.dirty = [d for d in self.dirty if d != body["path"]]
             return httpx.Response(200, json={"results": [], "remaining": [], "clean": True})
         routes = {
-            "/api/projects": PROJECTS,
+            "/api/projects": getattr(self, "projects", PROJECTS),
             "/api/projects/shop/flow": {"thread": self.thread, "workflow": {"id": "feature", "name": "Feature"}},
             "/api/projects/shop/flows/t-1": {"thread": self.thread, "workflow": {"id": "feature", "name": "Feature"}},
             "/api/projects/blog/flow": {"thread": None, "workflow": None},
@@ -158,6 +161,8 @@ class StubApi:
             "/api/jobs": JOBS,
             "/api/projects/shop/workflows": [{"id": "feature"}, {"id": "fix"}],
             "/api/health": {"ok": True, "engine": True, "version": "0.18.64", "fake": False},
+            "/api/access": {"instance": "keel-v2", "host": "studio", "native": False, "folder": "/home/ada/keel-projects/shop",
+                            "workspace": "/workspace"},
             "/api/jobs/j2/prompt": {"id": "j2", "agent": "explorer", "step": "explore", "at": "2026-10-05T10:02:00Z",
                                     "system": "You are the explorer.", "prompt": "Read the code. Note: keep the retry rule.",
                                     "system_cut": False, "prompt_cut": False},
@@ -464,7 +469,7 @@ def test_module_help():
 
 def test_agents_get_the_read_only_builtin():
     spec = mcp_tools.keel_server_spec()
-    assert spec["command"] == sys.executable and spec["args"] == ["-m", "keel_engine.mcp", "--read-only"]
+    assert spec["command"] == sys.executable and spec["args"] == ["-P", "-m", "keel_engine.mcp", "--read-only"]
     assert "KEEL_API_URL" in spec["env"]
     # the api's seeded entry gets KEEL_API_URL too; nothing else is added
     seeded = {"name": "keel", "command": "/opt/engine/.venv/bin/python", "args": ["-m", "keel_engine.mcp", "--read-only"]}
@@ -675,7 +680,7 @@ async def test_start_flow_takes_a_base_and_says_how_far_it_is_behind(stub):
     srv = mcp_server.build_server(write=True, api=stub.api)
     text = await call(srv, "keel_start_flow", {"type": "feature", "idea": "Player scores", "base": "upstream/main"})
     assert stub.posts[-1][1]["base"] == "upstream/main"
-    assert "Base: main is 2 commits behind upstream/main." in text
+    assert "WARNING — the base is not up to date: main is 2 commits behind upstream/main." in text
     refused = await call(srv, "keel_start_flow", {"type": "feature", "idea": "x", "base": "upstream/main", "branch": "continue"})
     assert "base starts a new branch" in refused
 
@@ -782,7 +787,11 @@ async def test_a_client_that_confirms(stub):
     stub.posts.clear()
     async with create_connected_server_and_client_session(srv, elicitation_callback=say_no) as s:
         res = await s.call_tool("keel_stop_flow", {})
-        assert "you said no" in res.content[0].text
+        text = res.content[0].text
+        # 0.22.0 a form that came back without a yes (a client may decline it by itself) is never "you said no": it
+        # needs the person's approval, and nothing was done
+        assert "you said no" not in text and "nothing was done" in text
+    assert not any(p.endswith("/stop") for p, *_ in stub.posts)
 
 
 def test_secret_files_are_never_read(stub):
@@ -919,3 +928,42 @@ def test_a_refused_start_says_how_on_ignore_a_path_allow_dirty_or_force(stub):
         mcp_server.start_flow(stub.api, "feature", "SHOPS-1234: rounding", sleep=lambda s: None, wait=0)
     mcp_server.start_flow(stub.api, "feature", "SHOPS-1234: rounding", sleep=lambda s: None, wait=0, force=True)
     assert stub.posts[-1][1]["force"] is True
+
+
+def test_an_unanswered_inbox_question_is_not_a_no():
+    from keel_engine import approvals
+
+    for why in ("", mcp_server.NO_ANSWER, approvals.TIMEOUT_WHY):
+        text = mcp_server.inbox_refusal(why)
+        assert "said no" not in text and "needs the person's approval" in text
+    assert mcp_server.inbox_refusal("not now") == "The person said no in keel's Inbox: not now"
+
+
+def test_a_form_without_a_yes_waits_in_the_inbox():
+    from keel_engine import mcp_confirm
+
+    text = mcp_confirm.ask_text("keel_agent_model", "change the model", "ok-x", "q-1", closed=True)
+    assert "you said no" not in text and "needs the person's approval" in text and "waits in keel's Inbox (q-1)" in text
+
+
+async def test_a_flow_keel_runs_instead_of_the_one_asked_is_named(stub):
+    """0.22.0 a field report: feature was asked for, harness ran, and the answer said "started feature"."""
+    stub.harness = True
+    srv = mcp_server.build_server(level="write", api=stub.api, yes=True)
+    text = await call(srv, "keel_start_flow", {"type": "feature", "request": "scores"})
+    assert "You asked for feature; keel runs harness instead" in text and "engine='flow'" in text
+    assert "started harness" in text
+    text = await call(srv, "keel_start_flow", {"type": "feature", "request": "scores", "engine": "flow"})
+    assert "instead" not in text and "started feature" in text
+    assert stub.posts[-1][1]["options"]["engine"] == "flow"
+
+
+async def test_health_and_status_say_which_keel_and_which_folder(stub, monkeypatch):
+    """0.22.0 a field report: three keels on two computers, and keel's own clone of the project was not where the
+    person looked. keel_health names the instance, its computer and the folder; keel_status the project's folder."""
+    monkeypatch.delenv("KEEL_MCP_RELAY_N", raising=False)
+    text = await call(mcp_server.build_server(api=stub.api), "keel_health")
+    assert "instance    keel-v2 on studio · in Docker · main folder /home/ada/keel-projects/shop (keel sees it as /workspace)" in text
+    stub.projects = [{**PROJECTS[0], "host": "/home/ada/keel-projects/shop"}, PROJECTS[1]]
+    text = await call(mcp_server.build_server(api=stub.api), "keel_status", {"project": "shop"})
+    assert "folder /home/ada/keel-projects/shop (keel sees it as /workspace/shop)" in text.splitlines()[0]

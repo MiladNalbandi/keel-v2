@@ -227,3 +227,15 @@ def test_the_engine_syncs_a_waiting_flow_and_its_next_step_starts_at_the_new_bas
         return (await graph.aget_state(engine._cfg(tid))).values
 
     assert client.portal.call(values)["base_head"] == body["base_head"]
+
+
+def test_a_start_behind_its_remote_is_said_loudly():
+    """0.22.0 the flow page and keel_status warn when a flow started from a base its remote is ahead of."""
+    ok = {"remotes": [{"remote": "origin", "ok": True, "behind": 0}], "lines": ["main is up to date with origin/main"]}
+    assert branch_sync.behind_note(ok) is None and branch_sync.behind_note(None) is None
+    old = {"remotes": [{"remote": "origin", "ok": True, "behind": 35}],
+           "lines": ["main is 35 commits behind origin/main", "the flow starts from the local main: to start from the "
+                     "newer code, start it with base origin/main"]}
+    assert branch_sync.behind_note(old).startswith("main is 35 commits behind origin/main; the flow starts from the local")
+    failed = {"remotes": [{"remote": "origin", "ok": False}], "lines": ["fetch from origin failed: timeout; the base may be stale"]}
+    assert "fetch from origin failed" in branch_sync.behind_note(failed)

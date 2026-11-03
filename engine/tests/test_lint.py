@@ -325,3 +325,20 @@ def test_a_fixer_that_fails_on_two_commits_in_a_row_is_said_once_in_the_gate_log
         if n == 1:
             assert "exit 16" in loud[0] and "maximum 8.3" in loud[0] and ".keel/config.yml" in loud[0]
         a.data = r.update.get("data") or a.data
+
+
+def test_files_git_ignores_are_never_linted_tracked_or_not(repo):
+    """0.22.0 issue #77: a build-generated file (next-env.d.ts, committed before it was ignored, and build output) is
+    left out of the lint scope and of the edit and pre-commit tools."""
+    (repo / "next-env.d.ts").write_text("/// <reference types='next' />\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "chore: next")
+    (repo / ".gitignore").write_text("next-env.d.ts\nout/\n")
+    (repo / "out").mkdir()
+    (repo / "out" / "app.js").write_text("x\n")
+    git(repo, "add", ".gitignore")
+    git(repo, "commit", "-q", "-m", "chore: ignore")
+    files, _label = lint_actions.scope_files(ai(repo), {}, "all")
+    assert "next-env.d.ts" not in files and "out/app.js" not in files and "src/scores/__init__.py" in files
+    assert tools.existing(str(repo), ["next-env.d.ts", "out/app.js", "src/scores/__init__.py", "gone.py"]) == \
+        ["src/scores/__init__.py"]

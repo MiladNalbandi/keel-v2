@@ -3,7 +3,7 @@ name: plan a goal
 keel_rules: true
 own_branch: false
 version: 1
-about: An agent splits one goal into steps, each one flow. You approve the plan; then you start each step yourself.
+about: An agent splits one goal into steps, each one flow. You approve the plan; then you start each step yourself. It only reads and works on the folder's branch, so it takes no base and may start with uncommitted files.
 # Started from the Goals page (the plugin's api), with the goal as the flow's request. The agent only reads. The gate is a person's: no run
 # mode and no Supervisor answers it. The plugin reads the plan from the gate's event and makes the steps when it hears the approval.
 steps:

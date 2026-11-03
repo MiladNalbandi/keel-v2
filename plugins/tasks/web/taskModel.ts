@@ -110,7 +110,7 @@ export function askOf(t: Task): string {
         : it.stage === "pr"
           ? "paste the PR link"
           : "confirm it works on PP";
-    if (it.kind === "jira-manual") return "move the Jira ticket by hand";
+    if (it.kind === "jira-manual") return "move the ticket by hand";
     if (it.kind === "task-proposal") return "keel proposes a flow";
     if (it.kind === "task-review") return "a review comment";
     return it.title;
@@ -269,3 +269,7 @@ export function flowTone(status: string): PillTone {
 export function flowWords(status: string): string {
   return status === "waiting" ? "waits for you" : status;
 }
+
+/** 0.22.0 the tracker a ticket lives in, for what the page says ("Open in GitHub"): its source, else its link. */
+export const trackerName = (source?: string | null, url?: string | null): "GitHub" | "Jira" =>
+  source === "github" || (!source && /\/issues\/\d+\/?$/.test(url ?? "")) ? "GitHub" : "Jira";

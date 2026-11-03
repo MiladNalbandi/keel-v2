@@ -139,6 +139,14 @@ export function FlowPage({ pid }: { pid: string }) {
           <InitFlow pid={pid} f={f as Required<FlowView> & { thread: ThreadState; workflow: Workflow }} onStart={() => setStart(true)} reload={flow.reload} />
         ) : (
           <>
+            {f.thread.base_behind && (
+              <div className="rh-banner" role="alert" aria-label="The base is not up to date">
+                <div className="rh-banner-t">
+                  <b>This flow started from an old base</b>
+                  <span className="sub">{f.thread.base_behind}</span>
+                </div>
+              </div>
+            )}
             <ThreadView pid={pid} thread={f.thread} workflow={f.workflow} reload={flow.reload} onStart={() => setStart(true)} />
             <AppliedPanel key={f.thread.thread_id} tid={f.thread.thread_id} />
           </>

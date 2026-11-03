@@ -116,7 +116,10 @@ def startable(api: KeelApi, project: str | None = None, header: bool = True) -> 
     out = ["flows you can start (keel_start_flow type=<id>, title, request; ticket / pr / inputs when the flow reads them):"] if header else []
     for w in rows:
         ins = inputs_of(w)
-        out.append(f"  {w['id']:<18} {about_of(w)}" + (f"  [inputs: {', '.join(k for k, _ in ins)}]" if ins else ""))
+        # 0.22.0 a flow that cuts no branch says so: it takes no base and works on the folder's branch
+        own = w.get("own_branch") is False or bool(re.search(r"(?m)^own_branch:\s*false\b", str(w.get("yaml") or "")))
+        out.append(f"  {w['id']:<18} {about_of(w)}" + (f"  [inputs: {', '.join(k for k, _ in ins)}]" if ins else "")
+                   + ("  [works on the folder's branch; takes no base]" if own else ""))
     return "\n".join(out)
 
 

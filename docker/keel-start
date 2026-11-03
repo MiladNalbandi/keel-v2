@@ -151,14 +151,14 @@ load_env() {
 # plugin_set <json file>: one "name version" line per plugin, sorted; nothing when the file is missing or broken
 plugin_set() {
   [ -f "$1" ] || return 0
-  "$PYTHON" -c 'import json, sys
+  "$PYTHON" -I -c 'import json, sys
 for p in sorted(json.load(open(sys.argv[1])).get("plugins") or [], key=lambda p: p["name"]):
     print(p["name"], p["version"])' "$1" 2>/dev/null || true
 }
 
 # save_last_good: the plugins of this healthy start, for the next start that fails
 save_last_good() {
-  "$PYTHON" - "$RUN/resolved.json" "$LAST_GOOD" << 'EOF' || echo "plugins: could not write $LAST_GOOD"
+  "$PYTHON" -I - "$RUN/resolved.json" "$LAST_GOOD" << 'EOF' || echo "plugins: could not write $LAST_GOOD"
 import datetime, json, os, sys
 src, dst = sys.argv[1], sys.argv[2]
 plugins = [{"name": p["name"], "version": p["version"]} for p in json.load(open(src)).get("plugins") or []]
@@ -193,8 +193,11 @@ start_api() {
     # GC: one GC thread instead of one per CPU (9 on an 11-core Mac), the smallest footprint for a heap this size.
     # 0.20.0 C1 only: the api waits on the engine and the database, C2's compiler threads cost more CPU and memory at start
     # than they ever give back; a smaller thread stack (40 threads at idle).
+    # The api's settings come from the jar and the environment only: no application.* or loader.properties from the
+    # folder it starts in (the project folder in the image, any folder in native mode).
     # shellcheck disable=SC2086  # JAVA_OPTS holds several options
     KEEL_SUPERVISED=1 java ${JAVA_OPTS:--XX:MaxRAMPercentage=25 -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -Xss512k} -Dloader.path="$KEEL_PLUGIN_LOADER_PATH" \
+      -Dloader.home="$(dirname "$API_JAR")" -Dspring.config.location=optional:classpath:/,optional:classpath:/config/ \
       -cp "$API_JAR" org.springframework.boot.loader.launch.PropertiesLauncher &
   fi
   api=$!

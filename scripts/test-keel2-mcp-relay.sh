@@ -10,7 +10,7 @@ here="$(cd "$(dirname "$0")/.." && pwd)"
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 awk "/^MCP_RELAY_PY='/{f=1;next} f&&/^'\$/{exit} f" "$here/keel2" > "$tmp/relay.py"
 [ -s "$tmp/relay.py" ] || { echo "FAIL: no relay in keel2"; exit 1; }
-grep -q 'exec python3 -c "$MCP_RELAY_PY"' "$here/keel2" || { echo "FAIL: keel2 mcp does not use the relay"; exit 1; }
+grep -q 'exec python3 -I -c "$MCP_RELAY_PY"' "$here/keel2" || { echo "FAIL: keel2 mcp does not use the relay"; exit 1; }
 mkdir -p "$tmp/bin"
 cat > "$tmp/bin/docker" <<'D'
 #!/usr/bin/env bash

@@ -37,7 +37,7 @@ from pathlib import Path
 from .. import layout, rules
 from ..tools import git, testcmd
 from ..tools.agent_tools import command_env
-from . import contract_delta, md, prompts, spec_check, stacks, verdict_actions
+from . import contract_delta, kept_skips, md, prompts, spec_check, stacks, verdict_actions
 from . import flow_actions
 from . import choices as choices_mod
 from .flow_actions import _fail, _markers, _ok
@@ -172,6 +172,22 @@ def _criteria_lines(acs: list[dict]) -> list[str]:
 
 # ------------------------------------------------------------------ preflight
 
+def _stack_notes(root: str) -> list[str]:
+    """0.22.0 which test command a flow runs and which backend stacks keel sees, said at the start: the reason for a
+    wrong one was hidden deep inside a gate's text (a field report: Maven ran against a Python project)."""
+    out = []
+    cmd = testcmd.command_for(root, None, "API")
+    if cmd:
+        out.append(f"tests: {cmd}")
+    api = [d["name"] for d in stacks.matched(root) if str(d.get("lane") or "api") == "api"]
+    if len(api) > 1:
+        out.append(f"warning: several backend stacks match ({', '.join(api)}); if one is wrong, turn it off "
+                   "(Settings › Stacks or keel_stack_off) or set the test commands in .keel/config.yml")
+    if testcmd.jvm_build_without_code(root):
+        out.append("a JVM build file here has no Java or Kotlin code next to it: keel runs the Python tests")
+    return out
+
+
 def preflight(a):
     """keel v1 `keel preflight`: the tree is a git repository with a test command, and the flow works on its own
     branch. On the base branch (base_branch, main or master) it creates feat/<slug> (settings.branch_pattern; the api
@@ -196,6 +212,8 @@ def preflight(a):
         return _fail("Not ready: no test command found.",
                      "Add commands (api_test_ac, api_test_module) to .keel/config.yml, or run the init flow first.")
     cfg = rules.load_config(a.root)
+    if not a.fake:
+        notes.extend(_stack_notes(a.root))
     cur = git.branch(a.root) or ""
     from . import bases as bases_mod
 
@@ -242,6 +260,42 @@ def _docker_up(root: str) -> bool:
     return code == 0
 
 
+# 0.22.0 where a project declares Testcontainers (its tests start their database in Docker), in the root and backend.dir
+TESTCONTAINERS_FILES = ("build.gradle", "build.gradle.kts", "gradle/libs.versions.toml", "pom.xml", "package.json",
+                        "pyproject.toml", "requirements.txt", "requirements-dev.txt", "requirements/test.txt", "setup.cfg",
+                        "conftest.py", "tests/conftest.py", "composer.json", "go.mod", "Gemfile")
+
+
+def uses_testcontainers(root: str, cfg: dict | None = None) -> str | None:
+    """The first build or test file that names Testcontainers (relative path), else None. Cheap: a few known files, the
+    first 512 KB of each."""
+    base = Path(root)
+    folders = [""] + [d for d in [str(((cfg or {}).get("backend") or {}).get("dir") or "").strip("/")] if d and d != "."]
+    for folder in folders:
+        for name in TESTCONTAINERS_FILES:
+            f = base / folder / name if folder else base / name
+            try:
+                with open(f, "rb") as fh:
+                    if b"testcontainers" in fh.read(512 * 1024).lower():
+                        return str(f.relative_to(base))
+            except OSError:
+                continue
+    return None
+
+
+def docker_warning(a, cfg: dict) -> str | None:
+    """0.22.0 the tests start their database with Testcontainers, and Docker cannot be reached from here: every test
+    that needs it fails, whatever the code does (#67). Said before the build, not after rounds of fixes."""
+    if a.fake:
+        return None
+    where = uses_testcontainers(a.root, cfg)
+    if not where or _docker_up(a.root):
+        return None
+    return (f"the tests use Testcontainers ({where}), but Docker cannot be reached here: tests that need their "
+            "database cannot start. Start keel with Docker access (`keel2 start --docker`), or point the tests at a "
+            "database keel can reach")
+
+
 def preflight_warnings(a, cfg: dict) -> list[str]:
     """keel v1 `keel preflight` parity, as warnings for a project that adopted keel (.keel/config.yml): the setup ladder
     never ran or did not pass; Docker is needed (a compose file, commands.services or a container-backed test) but not
@@ -254,9 +308,10 @@ def preflight_warnings(a, cfg: dict) -> list[str]:
     root = Path(a.root)
     # 0.18.64 a keel v1 flow nobody runs any more still blocks commits through keel v1's hooks
     left = v1_state.leftover(a.root)
+    docker = docker_warning(a, cfg)
     if not (root / ".keel" / "config.yml").is_file():
-        return [left] if left else []
-    out: list[str] = [left] if left else []
+        return [w for w in (left, docker) if w]
+    out: list[str] = [w for w in (left, docker) if w]
     cmds = cfg.get("commands") or {}
     rungs = ladder.previous(a.root)
     if not rungs:
@@ -269,7 +324,7 @@ def preflight_warnings(a, cfg: dict) -> list[str]:
     services = str(cmds.get("services") or "")
     needs_docker = "docker" in services or "compose" in services or bool(str(cmds.get("testcontainers_test") or "").strip()) \
         or any((root / f).is_file() for f in init_gates.COMPOSE)
-    if needs_docker and not a.fake and not _docker_up(a.root):
+    if needs_docker and not docker and not a.fake and not _docker_up(a.root):
         out.append("Docker is needed (a compose file, commands.services or a container-backed test) but is not running")
     contract = (cfg.get("contract") or {}).get("file")
     if ((contract and (root / str(contract)).is_file()) or (root / "docs" / "contract").is_dir()) \
@@ -1160,18 +1215,34 @@ def e2e_scope(a):
                                "- write: the specs are written and committed but not run; the final review and the PR "
                                "body say so (an unrun test must not read as a passing one)\n"
                                "- check: you set commands.e2e now; keel looks again"}
+    keep = kept_skips.kept(a.key, a.root, "e2e-run") if crit and not cmd else None
+    if keep:
+        # 0.22.0 #75 "write, do not run" was chosen earlier on this branch and no file the e2e tests cover changed since:
+        # kept, the e2e_tool gate does not ask again
+        unrun = e2e_unrun(replace(a, data=data), keep["note"])
+        mk = _markers(a, {"E2E": "yes", "TOOL": "kept"})
+        return _ok(f"e2e: {len(crit)} criteria; no e2e command, the specs are written, not run ({keep['note']})",
+                   update={**unrun.update, "markers": mk})
+    if crit and not cmd and (again := kept_skips.stale(a.key, a.root, "e2e-run")):
+        data["e2e_tool_detail"] = f"{again}\n\n{data['e2e_tool_detail']}"
     mk = _markers(a, {"E2E": "yes" if crit else "no", "TOOL": "yes" if cmd else "no"})
     return _ok(f"e2e: {len(crit)} criteria" + ("" if crit else ", nothing to write") + (f"; runs `{cmd}`" if cmd else "; no e2e command"),
                update={"data": data, "markers": mk})
 
 
-def e2e_unrun(a):
+E2E_UNRUN_WHY = "no e2e command (commands.e2e): the @e2e specs are written, not run"
+
+
+def e2e_unrun(a, kept_note: str = ""):
+    """The e2e_tool gate's "write": the specs are written, not run. 0.22.0 #75 kept for the branch (runtime/kept_skips)."""
     e2e = {**(a.data.get("e2e") or {}), "run": False,
            "note": "No e2e command is configured: write the specs, do not run them, and say so in your answer."}
     skipped = [x for x in a.data.get("ship_skipped") or [] if x.get("step") != "e2e-run"] + [
-        {"step": "e2e-run", "band": "optional", "reason": "no e2e command (commands.e2e): the @e2e specs are written, not run"}]
+        {"step": "e2e-run", "band": "optional", "reason": f"{E2E_UNRUN_WHY} ({kept_note})" if kept_note else E2E_UNRUN_WHY}]
     gates = _gates(a)
-    gates["log"].append("e2e: specs written without running them (no e2e command)")
+    gates["log"].append("e2e: specs written without running them (no e2e command)" + (f", {kept_note}" if kept_note else ""))
+    if not kept_note:
+        kept_skips.remember(a.key, a.root, [{"step": "e2e-run", "reason": E2E_UNRUN_WHY}])
     return _ok("e2e specs will be written, not run", update={"data": {**a.data, "e2e": e2e, "ship_skipped": skipped}, "gates": gates})
 
 

@@ -517,7 +517,7 @@ def final_report(root: str, key: str, state: dict, title: str, thread_id: str = 
     for kind in VERDICT_ROWS:
         if kind == "ci" and not ci:
             continue            # a project without a CI pipeline run has no row for it
-        res, summary = _mark(verdicts.latest(key, kind), head, tree)
+        res, summary = _mark(verdicts.for_code(key, kind, head, tree), head, tree)
         out.append(f"| {kind} | {res} | {summary} |")
     sec, sec_lines = verdict_actions.security_summary(state)
     out.append(f"| security | {sec} | {'; '.join(x.strip(' -') for x in sec_lines if not x.startswith('  '))[:200] or '—'} |")

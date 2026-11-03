@@ -147,7 +147,12 @@ data class TaskItem(
 )
 
 /** The Tasks page's sync line: the project's tracker connection (Jira), or not connected. */
-data class SyncInfo(val connected: Boolean, val kind: String?, val lastSyncAt: String?, val lastSyncError: String?, val me: String?, val pollMinutes: Int?) {
+/**
+ * The Tasks page's sync line. [kind]: Jira's cloud | server, "github" for GitHub Issues. 0.22.0 [tracker]: the tracker's
+ * source ("jira", "github"; null without one) and [where]: what it follows (GitHub: owner/repo).
+ */
+data class SyncInfo(val connected: Boolean, val kind: String?, val lastSyncAt: String?, val lastSyncError: String?, val me: String?, val pollMinutes: Int?,
+                    val tracker: String? = null, val where: String? = null) {
     companion object {
         val NONE = SyncInfo(false, null, null, null, null, null)
     }
@@ -157,7 +162,7 @@ data class TaskList(val tasks: List<TaskView>, val sync: SyncInfo)
 /** "Sync now": the tracker's tickets to tasks (when connected), then the PR reviews of the tasks in review. */
 data class SyncResult(
     val ok: Boolean,
-    /** false: the project has no Jira connection (only the PR reviews were read). */
+    /** false: the project has no tracker connection, Jira or GitHub Issues (only the PR reviews were read). */
     val jira: Boolean,
     val total: Int = 0,
     val created: Int = 0,

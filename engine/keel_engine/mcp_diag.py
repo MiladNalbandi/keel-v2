@@ -35,6 +35,25 @@ def _iso(ts: float) -> str:
     return datetime.fromtimestamp(ts, timezone.utc).isoformat()
 
 
+def _where(api: KeelApi) -> str | None:
+    """0.22.0 which keel answers and where its project lives (a field report: three keels on two computers, and an hour
+    spent on the wrong one's files): the instance, the computer, native or Docker, the main folder on that computer and
+    where keel sees it. None from an older keel."""
+    try:
+        a = api.get("/access") or {}
+    except ApiError:
+        return None
+    if not a.get("instance"):
+        return None
+    on = f" on {a['host']}" if a.get("host") else ""
+    how = "native" if a.get("native") else "in Docker"
+    line = f"instance    {a['instance']}{on} · {how}"
+    folder, inside = a.get("folder"), a.get("workspace")
+    if folder:
+        line += f" · main folder {folder}" + (f" (keel sees it as {inside})" if inside and inside != folder else "")
+    return line
+
+
 def health(api: KeelApi, now: float | None = None) -> str:
     """keel's api and engine, their version against this server's, and this connection: when its server started, and
     (with keel2 mcp's relay) how often the relay started it again after a keel restart."""
@@ -55,6 +74,8 @@ def health(api: KeelApi, now: float | None = None) -> str:
         if version not in ("?", "dev") and version != config.VERSION:
             lines.append(f"versions    this MCP server is {config.VERSION}, keel is {version}: reconnect (keel_reconnect, or "
                          "restart the MCP client) for keel's newest tools")
+        if where := _where(api):
+            lines.append(where)
     except ApiError as exc:
         lines.append(f"keel        not answering: {exc}")
     relay_n = os.environ.get("KEEL_MCP_RELAY_N", "").strip()

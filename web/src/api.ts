@@ -171,6 +171,10 @@ export type ThreadState = {
   checkpoints: number;
   /** v0.4.2, only in the answer to POST /flows: what the project's caps changed for this flow */
   cap_note?: string;
+  /** 0.22.0 only in the answer to POST /flows: another flow or side agent changes a file the request names */
+  overlap_note?: string;
+  /** 0.22.0 the flow started behind its base's remote, or a fetch failed (engine branch_sync.behind_note) */
+  base_behind?: string;
   error?: string;
   updated_at: string;
   /** v0.2: what still blocks shipping (computed by push_check, refreshed after every commit). */

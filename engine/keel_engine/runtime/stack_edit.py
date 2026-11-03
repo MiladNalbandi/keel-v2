@@ -30,6 +30,7 @@ from pathlib import Path
 import yaml
 
 from ..marketplace.kinds import PACK_NAME, stack_review
+from ..tools import git
 from . import stacks, tools
 
 MAX_BYTES = 64 << 10
@@ -796,7 +797,8 @@ def remove(root: str, name: str) -> dict:
 
 def set_off(root: str, name: str, off: bool) -> dict:
     """Turn a stack off (or on again) for this project: `stacks: {ignore: [...]}` in .keel/config.yml; the other lines of
-    the file stay. A stack turned off is not used here: not detected, its tools never run. Returns {name, off, all}."""
+    the file stay. A stack turned off is not used here: not detected, its tools never run. Returns {name, off, all}.
+    0.22.0 a config.yml that is committed is not changed: this clone keeps the switch (stacks.local_file), `where`."""
     from .rules_view import _blocks
 
     if not isinstance(name, str) or not PACK_NAME.match(name):
@@ -807,6 +809,18 @@ def set_off(root: str, name: str, off: bool) -> dict:
     if not f.is_file():
         raise StackError(409, "This project has no .keel/config.yml yet.",
                          "Run keel init first (the Flow page). Until then keel only uses the stacks it detects.")
+    if git.tracked_in_head(root, ".keel/config.yml") and (local := stacks.local_file(root)):
+        # 0.22.0 a committed config.yml stays as it is: a changed one made the tree dirty, and keel then refused every
+        # flow (a field report). This clone keeps the switch itself; committing stacks.ignore shares it with others.
+        mine = stacks.local_switches(root)
+        off_now, on_now = set(mine["off"]) - {name}, set(mine["on"]) - {name}
+        (off_now if off else on_now).add(name)
+        local.parent.mkdir(parents=True, exist_ok=True)
+        tmp = local.with_name(local.name + ".keel-tmp")
+        tmp.write_text(json.dumps({"off": sorted(off_now), "on": sorted(on_now)}, indent=2) + "\n")
+        os.replace(tmp, local)
+        stacks.forget(root)
+        return {"name": name, "off": off, "all": sorted(stacks.turned_off(root)), "where": "this computer"}
     text = f.read_text()
     try:
         raw = yaml.safe_load(text) or {}

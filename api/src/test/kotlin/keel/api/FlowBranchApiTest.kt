@@ -81,6 +81,26 @@ class FlowBranchApiTest : ApiTest() {
     }
 
     @Test
+    fun `a flow that takes no base leaves a given base out and starts its worktree at the folder's commit`() {
+        val hunt = engine.featureTemplate + mapOf("id" to "hunt", "name" to "hunt (keel)",
+            "yaml" to "id: hunt\nname: hunt (keel)\nown_branch: false\nsteps: []\n")
+        engine.extraTemplates += hunt
+        try {
+            val (pid, _) = newProject("hunt-no-base")
+            engine.nextThreadIds.add("t-busy")
+            post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "Scores", "allow_fake" to true))
+                .andExpect(status().isOk)
+            // 0.22.0 no refusal for the base: it is left out and said; the folder is busy, so a worktree at HEAD
+            val res = post("/api/projects/$pid/flows", mapOf("workflow_id" to "hunt", "title" to "Bug hunt on scores",
+                "allow_fake" to true, "base" to "main")).andExpect(status().isOk).json()
+            assertThat(res["base_ignored"].asText()).contains("takes no base").contains("base main was left out")
+            assertThat(engine.lastBody("/worktrees")!!["start"].asText()).isEqualTo("HEAD")
+        } finally {
+            engine.extraTemplates -= hunt
+        }
+    }
+
+    @Test
     fun `a start the engine refuses leaves the checkout on its own branch and drops the new one`() {
         val fix = engine.featureTemplate + mapOf("id" to "fix", "name" to "fix (keel)")
         engine.extraTemplates += fix

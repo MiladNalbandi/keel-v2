@@ -306,21 +306,22 @@ class FlowService(
         val mode = if (branch == DEFAULT_BRANCH) defaultBranch(workflowId, start.workflow.basedOn) else branch
         val root = Paths.get(start.root)
         refuseFake(start, root, allowFake)
-        if (force == false) refuseOwners(pid, root, title, request, options, if (mode == "continue") projects.branch(root) else null)
+        val overlap = if (force == false) refuseOwners(pid, root, title, request, options, if (mode == "continue") projects.branch(root) else null) else null
         // 0.18.57 a read-only flow (review, review-pr: every step in a phase that may edit nothing) reads refs and works
         // in throwaway worktrees the engine removes: it never gets a branch or a worktree of its own, never checks
         // anything out in the person's folder and does not mind their uncommitted files (keel 0.18.56 made and checked
         // out feat/review-<title> in the folder of a PR review)
         val readOnly = readOnly(start.workflow)
         // 0.18.64 (field report bug 4) the branch the flow's new branch starts from, when the person named one
-        val from = base?.trim()?.takeIf { it.isNotEmpty() }
-        if (from != null) {
-            if (readOnly) throw BadRequest("A read-only flow gets no branch of its own: base does not apply to it")
-            if (mode == "continue") throw BadRequest("base starts a new branch from it; branch continue stays on the folder's branch",
-                "Pass one of them.")
-            if (!ownBranch || !wantsOwnBranch(start.workflow))
-                throw BadRequest("This flow works on the branch the folder is on: it takes no base")
-        }
+        // 0.22.0 a flow that works on the folder's branch (goals-plan, hunt: own_branch false) or only reads takes no base:
+        // a given one is left out and the answer says so, instead of a refusal found one start at a time (a field report)
+        val takesBase = !readOnly && ownBranch && wantsOwnBranch(start.workflow)
+        val given = base?.trim()?.takeIf { it.isNotEmpty() }
+        val baseIgnored = if (given != null && !takesBase) "This flow works on the branch the folder is on" +
+            (if (readOnly) " and only reads" else "") + ": it takes no base, so base $given was left out." else null
+        val from = given?.takeIf { takesBase }
+        if (from != null && mode == "continue") throw BadRequest("base starts a new branch from it; branch continue stays on the folder's branch",
+            "Pass one of them.")
         // 0.18.64 every remote fetched before the flow's branch is made, so the branch can start from the newer code; the
         // engine's start note says how far the base is behind each remote and which fetch failed. Never fails the start.
         // A read-only flow fetches the refs it reads itself: none here, and [] tells the engine not to either.
@@ -342,7 +343,7 @@ class FlowService(
                     "create a local ${info.name} that tracks ${info.remote}, or pick another branch. Or start this flow with base ${info.remote}.")
         }
         // the project folder, or (v0.7.x) a worktree of its own next to the flow that runs or waits there
-        val wt = if (!readOnly && inWorktree(pid, where, root)) worktreeFor(pid, root, title, workflowId, from) else null
+        val wt = if (!readOnly && inWorktree(pid, where, root)) worktreeFor(pid, root, title, workflowId, from, takesBase) else null
         var madeBranch: MadeBranch? = null
         if (readOnly) {
             // nothing to do: the folder keeps its branch, its HEAD and its files
@@ -400,14 +401,18 @@ class FlowService(
         val note = start.capNote
         // 0.18.64 how far the base is behind each remote, a failed fetch said plainly (the engine's start note)
         val baseNote = res.get("base_note")?.asText()?.takeIf { it.isNotBlank() }
-        if ((note == null && baseNote == null) || state !is com.fasterxml.jackson.databind.node.ObjectNode) return state
-        return state.deepCopy().also { s -> note?.let { s.put("cap_note", it) }; baseNote?.let { s.put("base_note", it) } }
+        if ((note == null && baseNote == null && overlap == null && baseIgnored == null) || state !is com.fasterxml.jackson.databind.node.ObjectNode) return state
+        return state.deepCopy().also { s ->
+            note?.let { s.put("cap_note", it) }; baseNote?.let { s.put("base_note", it) }; overlap?.let { s.put("overlap_note", it) }
+            baseIgnored?.let { s.put("base_ignored", it) }
+        }
     }
 
     /** 0.18.64 every remote of the project fetched before a start (engine POST /remotes/fetch: all at once, at most 20 s
      *  each), with keel's GitHub login for a remote on its host: the result per remote, or null when the engine could
-     *  not answer. Never fails the start. */
-    private fun fetchForStart(pid: String, root: Path): JsonNode? =
+     *  not answer. Never fails the start. 0.22.0 a side agent's start too (KeelBot's Helper): its "merged or not" reads
+     *  the remote refs. */
+    fun fetchForStart(pid: String, root: Path): JsonNode? =
         runCatching { engine.post("/remotes/fetch", mapOf("root" to root.toString(), "keys" to contributedKeys(pid).takeIf { it.isNotEmpty() }), long = true) }
             .onFailure { log.warn("no fetch before the start in {}: {}", pid, it.message) }
             .getOrNull()?.get("fetched")?.takeIf { it.isArray }
@@ -482,12 +487,13 @@ class FlowService(
             val st = runCatching { mapper.readTree(json ?: "{}") }.getOrNull()
             val theirTicket = ticketOf(st?.path("data")?.path("ticket")?.asText(null), t.orEmpty(), null)
             val dir = if (wt.isNullOrBlank()) root else root.resolve(".keel/worktrees").resolve(wt)
-            val why = when {
-                ticket != null && ticket == theirTicket -> "the same ticket $ticket"
-                branch != null && br != null && branch == br -> "the same branch $branch"
-                else -> sharedFiles(wanted, changedFiles(dir, base) + pathsIn(t.orEmpty()))?.let { "the same files: ${it.take(5).joinToString()}" }
+            // 0.22.0 only the files the other flow really changed: a path in its title is prose, like one in a request
+            val (on, why) = when {
+                ticket != null && ticket == theirTicket -> "ticket" to "the same ticket $ticket"
+                branch != null && br != null && branch == br -> "branch" to "the same branch $branch"
+                else -> sharedFiles(wanted, changedFiles(dir, base))?.let { "files" to "the same files: ${it.take(5).joinToString()}" }
             } ?: return@forEach
-            out += mapOf("kind" to "flow", "id" to id, "who" to "flow ${t ?: id.take(8)} at ${current ?: "its start"}", "why" to why)
+            out += mapOf("kind" to "flow", "id" to id, "who" to "flow ${t ?: id.take(8)} at ${current ?: "its start"}", "why" to why, "on" to on)
         }
         val sessions = runCatching { engine.get("/helper/sessions?project={pid}", mapOf("pid" to pid)) }.getOrNull()
         sessions?.forEach { s ->
@@ -496,22 +502,26 @@ class FlowService(
             val path = s.path("worktree").asText("")
             if (path.isBlank() || !java.nio.file.Files.isDirectory(Paths.get(path))) return@forEach
             val t = s.path("title").asText("")
-            val why = when {
-                ticket != null && ticket == ticketOf(null, t, null) -> "the same ticket $ticket"
-                branch != null && branch == s.path("branch").asText("") -> "the same branch $branch"
-                else -> sharedFiles(wanted, changedFiles(Paths.get(path), s.path("base_sha").asText(null)) + pathsIn(t))
-                    ?.let { "the same files: ${it.take(5).joinToString()}" }
+            val (on, why) = when {
+                ticket != null && ticket == ticketOf(null, t, null) -> "ticket" to "the same ticket $ticket"
+                branch != null && branch == s.path("branch").asText("") -> "branch" to "the same branch $branch"
+                else -> sharedFiles(wanted, changedFiles(Paths.get(path), s.path("base_sha").asText(null)))
+                    ?.let { "files" to "the same files: ${it.take(5).joinToString()}" }
             } ?: return@forEach
-            out += mapOf("kind" to "side", "id" to sid, "who" to "side agent $sid (${t.take(60)})", "why" to why)
+            out += mapOf("kind" to "side", "id" to sid, "who" to "side agent $sid (${t.take(60)})", "why" to why, "on" to on)
         }
         return out
     }
 
-    /** The owners as a refusal (409 with `owners`): who works on it, and how to start anyway. */
+    /** The owners as a refusal (409 with `owners`): who works on it, and how to start anyway. 0.22.0 only the same ticket
+     *  or branch refuses: files are matched from the request's words (a file named as an example is no planned change,
+     *  a field report), so a shared file is a warning, returned as the words the start's answer shows (null: none). */
     fun refuseOwners(pid: String, root: Path, title: String, request: String?, options: Map<String, Any?>?, branch: String? = null,
-                     exceptSession: String? = null) {
-        val found = owners(pid, root, title, request, options, branch, exceptSession)
-        if (found.isEmpty()) return
+                     exceptSession: String? = null): String? {
+        val all = owners(pid, root, title, request, options, branch, exceptSession)
+        val found = all.filter { it["on"] != "files" }
+        if (found.isEmpty()) return all.takeIf { it.isNotEmpty() }?.joinToString("; ") { "${it["who"]} changes ${it["why"].orEmpty().removePrefix("the same files: ")}" }
+            ?.let { "$it, which the request names. Watch for edits that overlap." }
         val lines = found.joinToString("; ") { "${it["who"]} works on ${it["why"]}" }
         throw ApiException(HttpStatus.CONFLICT, "Someone already works on this: $lines",
             "Two agents on one task write over each other. Wait for it, stop it, or start anyway (force).",
@@ -622,7 +632,8 @@ class FlowService(
 
     /** A worktree for a flow, on its own branch (the branch pattern) from the base branch, not from what the folder has;
      *  0.18.64 from [from] when the start named a base. */
-    private fun worktreeFor(pid: String, root: Path, title: String, workflowId: String, from: String? = null): FlowWorktree {
+    private fun worktreeFor(pid: String, root: Path, title: String, workflowId: String, from: String? = null,
+                            fromBase: Boolean = true): FlowWorktree {
         if (!workspace.git(root, "rev-parse", "--git-dir").ok)
             throw Conflict("This project is not a git repository", "A flow next to another one needs git: its own worktree and branch.")
         val first = branchName(settings.effective(pid).branchPattern, title, workflowId)
@@ -630,9 +641,11 @@ class FlowService(
         var n = 2
         while (workspace.git(root, "rev-parse", "--verify", "--quiet", "refs/heads/$branch").ok) branch = "$first-${n++}"
         val name = "flow-${Slug.of(title).take(30)}-${java.util.UUID.randomUUID().toString().take(6)}"
-        // B7 from origin/<base> when the local base is behind it (0.18.65 the canonical remote's copy)
+        // B7 from origin/<base> when the local base is behind it (0.18.65 the canonical remote's copy). 0.22.0 a flow that
+        // works on the folder's branch (own_branch false: goals-plan) starts its worktree at the folder's commit: its local
+        // main and origin/main going their own ways is no reason to refuse it
         val res = engine.post("/worktrees", mapOf("root" to root.toString(), "name" to name, "branch" to branch,
-            "start" to (from ?: freshBase(root))))
+            "start" to (from ?: if (fromBase) freshBase(root) else "HEAD")))
         return FlowWorktree(name, res.path("branch").asText(branch), res.path("path").asText())
     }
 

@@ -90,9 +90,13 @@ _TRANSIENT = ("timed out", "timeout", "tls handshake", "connection reset", "conn
 
 
 def transient(output: str) -> bool:
-    """True when a command failed on the network (a timeout, a TLS handshake, a reset), not on what it was asked."""
+    """True when a command failed on the network (a timeout, a TLS handshake, a reset), not on what it was asked.
+    0.22.0 not when the tests could not reach Docker or their database (testcmd.env_down): "connection refused" there
+    stays refused until something changes, so running the same tests again is a repeat like any other (#67)."""
+    from ..tools import testcmd
+
     low = str(output or "").lower()
-    return any(t in low for t in _TRANSIENT)
+    return any(t in low for t in _TRANSIENT) and not testcmd.env_down(1, str(output or ""))
 
 
 def remember(folder: str | Path | None, root: str, command: str, output: str = "") -> dict:

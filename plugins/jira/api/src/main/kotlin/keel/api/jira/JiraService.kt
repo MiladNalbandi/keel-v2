@@ -90,6 +90,7 @@ class JiraService(
     private val secrets: SecretService,
     private val projects: ProjectService,
     private val mapper: ObjectMapper,
+    private val trackers: org.springframework.beans.factory.ObjectProvider<keel.api.tasks.TicketTracker>,
 ) {
     /** How long a Jira call may take (a sync makes a few). */
     @Volatile var timeoutSeconds: Long = 20
@@ -134,6 +135,10 @@ class JiraService(
 
     fun save(pid: String, body: JiraSave): JiraView {
         requireOwner(pid)
+        // 0.22.0 a project follows one tracker
+        if (pid != KEEL_WIDE) trackers.orderedStream().toList().firstOrNull { it.source != "jira" && it.connection(pid) != null }?.let {
+            throw Conflict("This project follows ${it.title} issues already", "A project follows one tracker: remove its ${it.title} Issues connection first (Settings › Connections).")
+        }
         val cur = settings(pid) ?: JiraSettings()
         val next = check(merge(cur, body))
         val token = body.token?.filterNot { it.isWhitespace() }?.takeIf { it.isNotEmpty() }

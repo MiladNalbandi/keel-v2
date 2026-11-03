@@ -439,14 +439,12 @@ class Engine:
     async def _base_check(self, root: str, body: dict, head: str | None) -> dict | None:
         """0.18.64 (field report bug 4) the flow's base against every remote: what the api's start fetched
         (data.remotes_fetched: it fetched before it made the branch, so the branch could start from the newer code),
-        else a fetch here (every remote at once, git.FETCH_EACH s each). A hand-over works on its parent's branch: its
-        parent's start said it. Never fails the start: a failed fetch is a line of the note."""
+        else a fetch here (every remote at once, git.FETCH_EACH s each), for a hand-over too (0.22.0). Never fails the start: a failed fetch is a line of the note."""
         data = body.get("data") or {}
         fetched = data.get("remotes_fetched")
         try:
             if not isinstance(fetched, list):
-                if body.get("parent"):
-                    return None
+                # 0.22.0 a hand-over fetches too: its parent's start may be long ago, and it decides from the remote refs
                 fetched = await asyncio.to_thread(branch_sync.fetch_all, root, body.get("keys"))
             if not fetched:
                 return None
@@ -605,6 +603,10 @@ class Engine:
             # 0.18.57 the branch or ref the flow's file:line citations are about (the Code page opens them there)
             "source_ref": await asyncio.to_thread(source_ref.flow_source_ref, row["root"], v.get("data")),
         }
+        # 0.22.0 the flow started behind its base's remote (or a fetch failed): said on the page, not only at the start
+        behind = branch_sync.behind_note((v.get("data") or {}).get("base_check"))
+        if behind:
+            out["base_behind"] = behind
         harness = (v.get("data") or {}).get("harness")
         if harness:
             # 0.19.0 harness mode: the coding harness session this flow keeps, and how a person opens it themselves

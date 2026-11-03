@@ -68,7 +68,8 @@ def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | 
                wait: float = START_WAIT, allow_fake: bool = False, title: str | None = None, request: str | None = None,
                ticket: str | None = None, pr: str | None = None, inputs: dict | None = None,
                run_mode: str | None = None, allow_dirty: bool = False, ignore: list[str] | None = None,
-               force: bool = False, branch: str | None = None, base: str | None = None) -> str:
+               force: bool = False, branch: str | None = None, base: str | None = None,
+               engine: str | None = None) -> str:
     """Start a flow through the dashboard's own endpoint (POST /api/projects/{id}/flows): the same guard, budget, run
     mode and records as a flow started in the web app. It runs until its first human gate, like any flow. No type:
     the flows the project can start, each with what it is for and its inputs."""
@@ -104,6 +105,7 @@ def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | 
         # 0.18.64 the flow's new branch starts from this branch: a local one or <remote>/<branch> (field report bug 4)
         if branch == "continue":
             raise ApiError("base starts a new branch from it; branch=continue stays on the folder's branch: pass one of them.")
+        # (a flow that works on the folder's branch, such as goals-plan, takes no base: keel leaves it out and says so)
         body["base"] = base
     ignored = []
     for path in ignore or []:
@@ -116,6 +118,11 @@ def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | 
         if run_mode not in ("manual", "important", "auto", "readonly"):
             raise ApiError("run_mode is one of manual, important, auto, readonly.")
         body["run_mode"] = run_mode
+    if engine:
+        # 0.22.0 flow: the flow asked for, even when Settings › Who does the work sends new work to the harness
+        if engine not in ("flow", "harness"):
+            raise ApiError("engine is flow (keel's own flow, as asked) or harness (the agent's own session builds it).")
+        body["options"] = {**(body.get("options") or {}), "engine": engine}
     try:
         state = api.post(f"/projects/{p['id']}/flows", body, timeout=START_POST) or {}
     except ApiError as exc:
@@ -154,8 +161,14 @@ def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | 
     started = bool(at or state.get("status") not in (None, "", "running"))
     now = (f"The flow is {state.get('status')}{at}." if started
            else "The flow is starting: it has not reached its first step yet.")
-    out = [f'started {type} "{title}" on {p["id"]} (thread {tid}) in {state.get("run_mode") or run_mode or "the project\'s"} mode, '
+    ran = state.get("workflow_id") or type
+    out = [f'started {ran} "{title}" on {p["id"]} (thread {tid}) in {state.get("run_mode") or run_mode or "the project\'s"} mode, '
            "recorded as started via MCP.", f"Status: {state.get('status') if started else 'starting'}. {now}"]
+    if ran != type:
+        # 0.22.0 never a silent swap (a field report: feature was asked for, harness ran, and the answer said feature)
+        out.insert(0, f"You asked for {type}; keel runs {ran} instead, because the project's setting Settings › Who does "
+                      f"the work (build_runs: {ran}) sends new work to the agent's own session. To run {type} itself, "
+                      f"start it with engine='flow'.")
     if ignored:
         out.insert(0, "ignored on this computer (.git/info/exclude): " + ", ".join(ignored))
     if first:
@@ -169,8 +182,14 @@ def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | 
                    f"waits, keel_read_gate(project={p['id']!r}, flow={tid!r}) and keel_answer(thread_id={tid!r}).")
     if state.get("cap_note"):
         out.append(str(state["cap_note"]))
+    if state.get("base_ignored"):
+        out.append(str(state["base_ignored"]))             # 0.22.0 a flow that takes no base: left out, not refused
+    if state.get("overlap_note"):
+        out.append(f"Overlap: {state['overlap_note']}")     # 0.22.0 a file both name: a warning, no longer a refusal
     if state.get("base_note"):
-        out.append(f"Base: {state['base_note']}.")        # 0.18.64 how far the base is behind each remote
+        # 0.18.64 how far the base is behind each remote; 0.22.0 loudly when it is (or a fetch failed)
+        old = state.get("base_behind") or any(w in state["base_note"] for w in (" behind ", "failed"))
+        out.append(("WARNING — the base is not up to date: " if old else "Base: ") + f"{state['base_note']}.")
     out.append(f"Watch it: {dashboard_url(api, 'flow', p['id'])}")
     return "\n".join(out)
 
@@ -446,7 +465,21 @@ def _ask_person(api: KeelApi, pid: str, title: str, command: str, sleep=time.sle
         if not a.get("waiting"):
             return a.get("decision") == "allow", a.get("why") or ""
         sleep(ASK_POLL)
-    return False, "Nobody answered in keel's Inbox in 10 minutes."
+    return False, NO_ANSWER
+
+
+NO_ANSWER = "Nobody answered in keel's Inbox in 10 minutes."
+
+
+def inbox_refusal(why: str) -> str:
+    """0.22.0 the words for a part tool the person did not approve in keel's Inbox: "said no" only when someone did. A
+    question nobody answered (here, or the engine's own 10 minutes) still needs the person's approval."""
+    from . import approvals
+
+    if not why or why in (NO_ANSWER, approvals.TIMEOUT_WHY):
+        return ("Not done: this needs the person's approval in keel's Inbox, and nobody answered yet. Ask them to "
+                "approve it there, then call the tool again.")
+    return f"The person said no in keel's Inbox: {why}".strip()
 # 0.18.9 a new stack, a removed one and one from the marketplace (turning one off is easy to undo: no question)
 CONFIRM |= {"keel_stack_create", "keel_stack_remove", "keel_stack_market_install"}
 
@@ -584,12 +617,13 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
             bound = _bound(fn, a, kw)
             strict = confirm_mod.out_of_band(name, bound.get("action"))
 
-            def no_form(bad: bool = False) -> str:
+            def no_form(bad: bool = False, closed: bool = False) -> str:
                 qid, why = _confirm_question(mine, bound, name, what, client)
                 if strict and not qid:
                     return confirm_mod.no_inbox_text(what, why)
-                text = confirm_mod.bad_text if bad else confirm_mod.ask_text
-                return text(name, what, tokens.issue(name, key, qid), qid, strict)
+                if bad:
+                    return confirm_mod.bad_text(name, what, tokens.issue(name, key, qid), qid, strict)
+                return confirm_mod.ask_text(name, what, tokens.issue(name, key, qid), qid, strict, closed=closed)
 
             given = confirm_mod.GIVEN.get()
             if given:
@@ -620,7 +654,9 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
                     log.info("keel mcp: the client's form failed for %s", name, exc_info=True)
                     return await anyio.to_thread.run_sync(no_form)
                 if res.action != "accept" or not getattr(res.data, "confirm", False):
-                    return f"keel: not done — you said no to {what}."
+                    # 0.22.0 a form that came back without a yes is not a "no": a client that cannot show the form
+                    # declines or closes it by itself. Nothing is done; the question waits in keel's Inbox.
+                    return await anyio.to_thread.run_sync(lambda: no_form(closed=True))
         return await anyio.to_thread.run_sync(lambda: guard(fn, *a, **kw))
 
     async def ask_first(ctx, project, thread_id, decision, why, answers, choice, ask_person):
@@ -693,10 +729,11 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
     extensions.keel_mcp(PartServer(reg, act, "read"), api, guard, write=False)
 
     @reg(ro)
-    def keel_flows(project: str | None = None, limit: int = 10) -> str:
-        """The project's flows, newest first: type, title, status, step, criteria, tokens, cost, branch; then every
-        flow it can start, one line each on what it is for and the inputs it reads (keel_start_flow starts one)."""
-        return guard(more.flows, api, project, limit)
+    def keel_flows(project: str | None = None, limit: int = 10, catalog: bool = False) -> str:
+        """The project's flows, newest first: type, title, status, step, criteria, tokens, cost, branch. catalog=true
+        adds every flow type it can start, one line each on what it is for and the inputs it reads (keel_start_flow
+        starts one)."""
+        return guard(more.flows, api, project, limit, catalog)
 
     @reg(ro)
     def keel_inbox(project: str | None = None) -> str:
@@ -812,7 +849,7 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
                               run_mode: Literal["manual", "important", "auto", "readonly"] | None = None,
                               allow_dirty: bool = False, ignore: list[str] | None = None, force: bool = False,
                               branch: Literal["new", "continue"] | None = None, base: str | None = None, wait: int = 0,
-                              ctx: Context | None = None) -> str:
+                              engine: Literal["flow", "harness"] | None = None, ctx: Context | None = None) -> str:
         """Start a keel flow on the project, as the dashboard's "Start a flow" does. No type: every flow the project can
         start (quick, small, implement, change, feature, fix, spike, clarify, review-pr, ...), one line each on what it is for
         and the inputs it reads. type: the workflow id; request (or idea): in your words what to build, fix or find out (a flow that builds
@@ -831,6 +868,8 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         continue for the flows that finish a branch (ship, cover, review, lint, address), new for the others.
         base: the branch the flow's new branch starts from, a local branch or <remote>/<branch> (e.g. upstream/main);
         keel fetches every remote at the start and its answer says how far the base is behind each one.
+        engine: flow runs the flow asked for; harness hands a build flow to the agent's own session. Default the
+        project's setting (Settings › Who does the work); the answer says when keel ran another flow than the one asked.
 
         It answers at once with the thread id, its status (starting, running or waiting) and how to follow it
         (keel_status, keel_flows; keel_read_gate and keel_answer when it waits); wait: up to that many seconds (at most
@@ -840,7 +879,7 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
             return guard(startable, api, project)
         return await act(ctx, "keel_start_flow", f"start a {type} flow", start_flow, api, type, idea, project,
                          time.sleep, wait, allow_fake, title, request, ticket, pr, inputs, run_mode,
-                         allow_dirty, ignore, force, branch, base)
+                         allow_dirty, ignore, force, branch, base, engine)
 
     @reg(rw)
     async def keel_answer(decision: Literal["approve", "reject"] = "approve", project: str | None = None,
@@ -966,12 +1005,14 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
 
     @reg(rw)
     async def keel_agent_start(task: str, mode: Literal["side", "ask"] = "side", project: str | None = None,
-                               force: bool = False, ctx: Context | None = None) -> str:
+                               force: bool = False, model: str | None = None, ctx: Context | None = None) -> str:
         """Start an agent of the person's own on a task: side works in its own git worktree and branch (the project's
         folder stays as it is), ask only reads. It works on its own; keel_agent shows how it does. A side agent on what a
         flow or another side agent already works on (the same ticket or files) is refused, naming it; force starts it
-        anyway (only when the person said so)."""
-        return await act(ctx, "keel_agent_start", f"start an agent: {task[:60]}", tui.agent_start, api, task, mode, project, force)
+        anyway (only when the person said so). The answer names the model it runs on and why; model: another one for
+        this agent (an alias such as opus, or an exact id such as claude-opus-5-5; keel_models lists them)."""
+        return await act(ctx, "keel_agent_start", f"start an agent: {task[:60]}", tui.agent_start, api, task, mode, project,
+                         force, model)
 
     @reg(rw)
     async def keel_keelbot_ask(text: str, chat: str | None = None, mode: Literal["ask", "edit", "fix", "side"] = "ask", wait: int = 120,
@@ -1171,7 +1212,8 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
     @reg(rw)
     async def keel_stack_off(stack: str, off: bool = True, project: str | None = None, ctx: Context | None = None) -> str:
         """Turn a stack off for the project (keel does not use it there: no detection, its tools never run), or on again
-        with off=false. Needs .keel/config.yml."""
+        with off=false. Needs .keel/config.yml. When that file is committed, this computer keeps the switch and the
+        file stays unchanged, so the tree stays clean."""
         return await act(ctx, "keel_stack_off", f"turn the stack {stack} {'off' if off else 'on'}", stk.switch, api, stack, off,
                          project)
 

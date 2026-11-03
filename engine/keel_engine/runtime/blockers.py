@@ -119,13 +119,13 @@ def push_blockers(root: str, base: str | None = None, secrets: list[dict] | None
     cfg = rules.load_config(root)
     key = project or root
 
-    _verdict(out, "release", verdicts.latest(key, "release"), head, tree,
+    _verdict(out, "release", verdicts.for_code(key, "release", head, tree), head, tree,
              "run the whole test suite on this commit (the flow's verify_release step)",
              "make the whole test suite pass, then run verify_release again",
              "no release verdict for this commit", "the test suite failed")
     if (cfg.get("coverage") or {}).get("enabled") is not False and ((cfg.get("commands") or {}).get("coverage")
                                                                    or ((cfg.get("coverage") or {}).get("reports"))):
-        _verdict(out, "coverage", verdicts.latest(key, "coverage"), head, tree,
+        _verdict(out, "coverage", verdicts.for_code(key, "coverage", head, tree), head, tree,
                  "run the coverage command on this commit (the flow's verify_coverage step)",
                  "add tests until commands.coverage passes", "no coverage verdict for this commit", "below the threshold")
     out += [{k: g[k] for k in ("gate", "why", "fix")} for g in _scanner_gates(root, base, cfg, key) if g["required"]]

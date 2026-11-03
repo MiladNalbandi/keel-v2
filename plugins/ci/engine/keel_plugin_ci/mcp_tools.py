@@ -6,7 +6,7 @@ from __future__ import annotations
 import time
 
 from mcp.server.fastmcp import Context
-from keel_engine.mcp_server import KeelApi, _ask_person, _plugin_on, _project
+from keel_engine.mcp_server import KeelApi, _ask_person, _plugin_on, _project, inbox_refusal
 
 
 def ci_runs(api: KeelApi, project: str | None = None, branch: str | None = None) -> str:
@@ -35,7 +35,7 @@ def ci_rerun(api: KeelApi, run_id: int, project: str | None = None, sleep=time.s
     _plugin_on(api, pid, "ci")
     ok, why = _ask_person(api, pid, f"Claude Code: run the failed jobs of run #{int(run_id)} again?", f"gh run rerun {int(run_id)} --failed", sleep)
     if not ok:
-        return f"The person said no in keel's Inbox: {why}".strip()
+        return inbox_refusal(why)
     api.post(f"/projects/{pid}/ci/runs/{int(run_id)}/rerun", {})
     return f"The failed jobs of run #{int(run_id)} run again."
 

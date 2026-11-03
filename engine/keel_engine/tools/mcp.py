@@ -33,7 +33,7 @@ def keel_server_env() -> dict:
 
 def keel_server_spec() -> dict:
     """keel v2's own MCP server, read-only: an agent can read the flow but never approve its own gate."""
-    return {"name": "keel", "command": sys.executable, "args": ["-m", "keel_engine.mcp", "--read-only"],
+    return {"name": "keel", "command": sys.executable, "args": ["-P", "-m", "keel_engine.mcp", "--read-only"],
             "env": keel_server_env()}
 
 

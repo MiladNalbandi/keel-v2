@@ -70,6 +70,12 @@ class Stub:
             return ok({"session": "s-1", "call_id": "c-9"})
         if m == "GET" and path == "/api/projects/shop/helper/sessions/s-1":
             return ok(self.session)
+        if m == "PATCH" and path == "/api/projects/shop/helper/sessions/s-1":
+            self.session = {**self.session, **body}
+            return ok(self.session)
+        if m == "GET" and path == "/api/providers/models":
+            from keel_engine.models import catalog
+            return ok({"claude": {"modes": {"subscription": catalog.CLAUDE_SUBSCRIPTION}, "efforts": []}})
         if m == "GET" and path.endswith("/changes"):
             return ok([{"path": "docs/health.md", "status": "A", "added": 3, "removed": 0, "diff": "+# Health"}])
         if m == "POST" and path.endswith("/done"):
@@ -181,3 +187,14 @@ async def test_keels_own_agents_get_none_of_the_acting_ones(stub):
         names = {t.name for t in (await s.list_tools()).tools}
     assert {"keel_agents", "keel_agent", "keel_diagram", "keel_workflows"} <= names
     assert not names & {"keel_stop_flows", "keel_run_mode", "keel_agent_start", "keel_keelbot_ask", "keel_keelbot_keep"}
+
+
+async def test_a_side_agent_says_which_model_it_runs_on(stub):
+    """0.22.0 a field report: side agents ran on another model than the person thought, and nothing said so."""
+    stub.session = {**stub.session, "model": {"provider": "claude", "mode": "subscription", "model": "sonnet"}}
+    text = await call(server(stub), "keel_agent_start", {"task": "write the docs for /health"})
+    assert "It runs on" in text and "sonnet" in text.lower() and "KeelBot's model" in text
+    text = await call(server(stub), "keel_agent_start", {"task": "write the docs for /health", "model": "claude-opus-5-5"})
+    assert ("PATCH", "/api/projects/shop/helper/sessions/s-1",
+            {"model": {"provider": "claude", "mode": "subscription", "model": "claude-opus-5-5"}}) in stub.calls
+    assert "asked for in this call" in text

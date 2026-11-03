@@ -37,7 +37,7 @@ import {
 } from "./taskModel";
 import "./tasks.css";
 
-type Source = "all" | "jira" | "local";
+type Source = "all" | "jira" | "github" | "local";
 type Who = "all" | "mine";
 type Layout = "board" | "list";
 
@@ -140,7 +140,7 @@ function SyncLine({
       />
       {s.connected ? (
         <span className="sub">
-          Jira {s.kind === "server" ? "Server" : "Cloud"}
+          {s.tracker === "github" ? `GitHub Issues · ${s.where ?? "?"}` : `Jira ${s.kind === "server" ? "Server" : "Cloud"}`}
           {s.me ? ` as ${s.me}` : ""} ·{" "}
           {s.last_sync_at
             ? `synced ${agoText(s.last_sync_at)}`
@@ -149,8 +149,8 @@ function SyncLine({
         </span>
       ) : (
         <span className="sub">
-          Not connected to Jira: tasks stay in keel, with their history.{" "}
-          <a href={settingsHash("connections")}>Connect Jira</a> in Settings ›
+          No tracker connected: tasks stay in keel, with their history.{" "}
+          <a href={settingsHash("connections")}>Connect Jira or GitHub Issues</a> in Settings ›
           Connections.
         </span>
       )}
@@ -192,7 +192,7 @@ export function TaskBoardPage({
   const [source, setSource] = useStored<Source>(
     `keel2.tasks.source.${pid}`,
     "all",
-    { valid: (v) => v === "all" || v === "jira" || v === "local" },
+    { valid: (v) => v === "all" || v === "jira" || v === "github" || v === "local" },
   );
   const [q, setQ] = useState("");
   const [layout, setLayout] = useStored<Layout>("keel2.tasks.layout", "board", {
@@ -242,7 +242,7 @@ export function TaskBoardPage({
             ? `Synced: ${s.created} new, ${s.updated} changed, ${s.moved} moved${s.reviews_checked ? `; ${s.reviews_checked} PR(s) read` : ""}${s.comments_checked ? `; ${s.comments_checked} review comment(s) checked` : ""}.`
             : s.reviews_checked
               ? `${s.reviews_checked} PR(s) read, ${s.reviews_moved} approved.`
-              : "Nothing to sync: Jira is not connected.",
+              : "Nothing to sync: no tracker is connected.",
         );
       await Promise.all([r.reload(), reloadProjects()]);
     } catch (e) {
@@ -331,6 +331,10 @@ export function TaskBoardPage({
           options={[
             ["all", "All", total],
             ["jira", "Jira", all.filter((t) => t.source === "jira").length],
+            // 0.22.0 GitHub issues: shown once the project has one, or follows GitHub Issues
+            ...(r.data?.sync.tracker === "github" || all.some((t) => t.source === "github")
+              ? [["github", "GitHub", all.filter((t) => t.source === "github").length] as [Source, string, number]]
+              : []),
             ["local", "Local", all.filter((t) => t.source === "local").length],
           ]}
         />
@@ -424,13 +428,13 @@ export function TaskBoardPage({
                   </button>
                 ) : (
                   <a className="btn" href={settingsHash("connections")}>
-                    Connect Jira
+                    Connect a tracker
                   </a>
                 )}
               </>
             }
           >
-            Create one, or connect Jira to bring in your tickets. You can still
+            Create one, or connect Jira or GitHub Issues to bring in your tickets. You can still
             start a flow directly on the Flow page.
           </EmptyState>
         </div>
