@@ -181,6 +181,8 @@ def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | 
                    f"waits, keel_read_gate(project={p['id']!r}, flow={tid!r}) and keel_answer(thread_id={tid!r}).")
     if state.get("cap_note"):
         out.append(str(state["cap_note"]))
+    if state.get("overlap_note"):
+        out.append(f"Overlap: {state['overlap_note']}")     # 0.22.0 a file both name: a warning, no longer a refusal
     if state.get("base_note"):
         # 0.18.64 how far the base is behind each remote; 0.22.0 loudly when it is (or a fetch failed)
         old = state.get("base_behind") or any(w in state["base_note"] for w in (" behind ", "failed"))

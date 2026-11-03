@@ -306,7 +306,7 @@ class FlowService(
         val mode = if (branch == DEFAULT_BRANCH) defaultBranch(workflowId, start.workflow.basedOn) else branch
         val root = Paths.get(start.root)
         refuseFake(start, root, allowFake)
-        if (force == false) refuseOwners(pid, root, title, request, options, if (mode == "continue") projects.branch(root) else null)
+        val overlap = if (force == false) refuseOwners(pid, root, title, request, options, if (mode == "continue") projects.branch(root) else null) else null
         // 0.18.57 a read-only flow (review, review-pr: every step in a phase that may edit nothing) reads refs and works
         // in throwaway worktrees the engine removes: it never gets a branch or a worktree of its own, never checks
         // anything out in the person's folder and does not mind their uncommitted files (keel 0.18.56 made and checked
@@ -400,8 +400,10 @@ class FlowService(
         val note = start.capNote
         // 0.18.64 how far the base is behind each remote, a failed fetch said plainly (the engine's start note)
         val baseNote = res.get("base_note")?.asText()?.takeIf { it.isNotBlank() }
-        if ((note == null && baseNote == null) || state !is com.fasterxml.jackson.databind.node.ObjectNode) return state
-        return state.deepCopy().also { s -> note?.let { s.put("cap_note", it) }; baseNote?.let { s.put("base_note", it) } }
+        if ((note == null && baseNote == null && overlap == null) || state !is com.fasterxml.jackson.databind.node.ObjectNode) return state
+        return state.deepCopy().also { s ->
+            note?.let { s.put("cap_note", it) }; baseNote?.let { s.put("base_note", it) }; overlap?.let { s.put("overlap_note", it) }
+        }
     }
 
     /** 0.18.64 every remote of the project fetched before a start (engine POST /remotes/fetch: all at once, at most 20 s
@@ -483,12 +485,13 @@ class FlowService(
             val st = runCatching { mapper.readTree(json ?: "{}") }.getOrNull()
             val theirTicket = ticketOf(st?.path("data")?.path("ticket")?.asText(null), t.orEmpty(), null)
             val dir = if (wt.isNullOrBlank()) root else root.resolve(".keel/worktrees").resolve(wt)
-            val why = when {
-                ticket != null && ticket == theirTicket -> "the same ticket $ticket"
-                branch != null && br != null && branch == br -> "the same branch $branch"
-                else -> sharedFiles(wanted, changedFiles(dir, base) + pathsIn(t.orEmpty()))?.let { "the same files: ${it.take(5).joinToString()}" }
+            // 0.22.0 only the files the other flow really changed: a path in its title is prose, like one in a request
+            val (on, why) = when {
+                ticket != null && ticket == theirTicket -> "ticket" to "the same ticket $ticket"
+                branch != null && br != null && branch == br -> "branch" to "the same branch $branch"
+                else -> sharedFiles(wanted, changedFiles(dir, base))?.let { "files" to "the same files: ${it.take(5).joinToString()}" }
             } ?: return@forEach
-            out += mapOf("kind" to "flow", "id" to id, "who" to "flow ${t ?: id.take(8)} at ${current ?: "its start"}", "why" to why)
+            out += mapOf("kind" to "flow", "id" to id, "who" to "flow ${t ?: id.take(8)} at ${current ?: "its start"}", "why" to why, "on" to on)
         }
         val sessions = runCatching { engine.get("/helper/sessions?project={pid}", mapOf("pid" to pid)) }.getOrNull()
         sessions?.forEach { s ->
@@ -497,22 +500,26 @@ class FlowService(
             val path = s.path("worktree").asText("")
             if (path.isBlank() || !java.nio.file.Files.isDirectory(Paths.get(path))) return@forEach
             val t = s.path("title").asText("")
-            val why = when {
-                ticket != null && ticket == ticketOf(null, t, null) -> "the same ticket $ticket"
-                branch != null && branch == s.path("branch").asText("") -> "the same branch $branch"
-                else -> sharedFiles(wanted, changedFiles(Paths.get(path), s.path("base_sha").asText(null)) + pathsIn(t))
-                    ?.let { "the same files: ${it.take(5).joinToString()}" }
+            val (on, why) = when {
+                ticket != null && ticket == ticketOf(null, t, null) -> "ticket" to "the same ticket $ticket"
+                branch != null && branch == s.path("branch").asText("") -> "branch" to "the same branch $branch"
+                else -> sharedFiles(wanted, changedFiles(Paths.get(path), s.path("base_sha").asText(null)))
+                    ?.let { "files" to "the same files: ${it.take(5).joinToString()}" }
             } ?: return@forEach
-            out += mapOf("kind" to "side", "id" to sid, "who" to "side agent $sid (${t.take(60)})", "why" to why)
+            out += mapOf("kind" to "side", "id" to sid, "who" to "side agent $sid (${t.take(60)})", "why" to why, "on" to on)
         }
         return out
     }
 
-    /** The owners as a refusal (409 with `owners`): who works on it, and how to start anyway. */
+    /** The owners as a refusal (409 with `owners`): who works on it, and how to start anyway. 0.22.0 only the same ticket
+     *  or branch refuses: files are matched from the request's words (a file named as an example is no planned change,
+     *  a field report), so a shared file is a warning, returned as the words the start's answer shows (null: none). */
     fun refuseOwners(pid: String, root: Path, title: String, request: String?, options: Map<String, Any?>?, branch: String? = null,
-                     exceptSession: String? = null) {
-        val found = owners(pid, root, title, request, options, branch, exceptSession)
-        if (found.isEmpty()) return
+                     exceptSession: String? = null): String? {
+        val all = owners(pid, root, title, request, options, branch, exceptSession)
+        val found = all.filter { it["on"] != "files" }
+        if (found.isEmpty()) return all.takeIf { it.isNotEmpty() }?.joinToString("; ") { "${it["who"]} changes ${it["why"].orEmpty().removePrefix("the same files: ")}" }
+            ?.let { "$it, which the request names. Watch for edits that overlap." }
         val lines = found.joinToString("; ") { "${it["who"]} works on ${it["why"]}" }
         throw ApiException(HttpStatus.CONFLICT, "Someone already works on this: $lines",
             "Two agents on one task write over each other. Wait for it, stop it, or start anyway (force).",

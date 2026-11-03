@@ -83,6 +83,23 @@ class FlowStartChecksApiTest : ApiTest() {
     }
 
     @Test
+    fun `a file the request only names is a warning, not a refusal`() {
+        val (pid, root) = newProject("named")
+        engine.nextThreadIds.add("t-named-a")
+        start(pid, "title" to "Euro prices").andExpect(status().isOk)
+        // the running flow changed src/Price.kt on its branch; the next request names that file as an example
+        git(root, "switch", "-q", "-c", "feat/euro")
+        Files.createDirectories(root.resolve("src"))
+        Files.writeString(root.resolve("src/Price.kt"), "class Price\n")
+        git(root, "add", "-A")
+        git(root, "commit", "-q", "-m", "feat: euro")
+        engine.nextThreadIds.add("t-named-b")
+        val res = start(pid, "title" to "Cart badge", "request" to "A badge on the cart, styled like src/Price.kt does it.")
+            .andExpect(status().isOk).json()
+        assertThat(res["overlap_note"].asText()).contains("Euro prices").contains("src/Price.kt")
+    }
+
+    @Test
     fun `the project's doctor lists stale commands from the engine's config check`() {
         val (pid, root) = newProject("stale")
         engine.extraRoutes["/config-check"] = { _ -> 200 to mapOf("stale" to listOf(mapOf("key" to "smoke", "line" to 3)),
