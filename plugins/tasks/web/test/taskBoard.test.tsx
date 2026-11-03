@@ -247,10 +247,10 @@ describe("Tasks (new page): the board", () => {
       within(screen.getByTestId("sync-line")).getByRole("link", {
         name: "Connect Jira",
       }),
-    ).toHaveAttribute("href", "#/connections");
+    ).toHaveAttribute("href", "#/settings/connections");
     expect(
       main().getAllByRole("link", { name: "Connect Jira" })[0],
-    ).toHaveAttribute("href", "#/connections");
+    ).toHaveAttribute("href", "#/settings/connections");
   });
 
   it("New task makes a task and opens it", async () => {

@@ -5,6 +5,7 @@ Fake model only (KEEL_FAKE_SUPERVISOR)."""
 import asyncio
 import json
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
@@ -364,7 +365,8 @@ def test_a_new_event_ends_the_stall_and_a_later_one_gets_its_own_look(client, re
         again = sup.last[tid]
         assert again != last
         assert client.get(f"/threads/{tid}/supervisor/status").json()["state"] != "escalated"
-        assert stalls(client, again + 600) == [tid]
+        # well past the stall time: the look of the first stall may still send an event after `again` was read
+        assert stalls(client, time.monotonic() + 3600) == [tid]
         idle(client)
     finally:
         go_on.set()
