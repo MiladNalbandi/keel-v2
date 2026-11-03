@@ -325,3 +325,32 @@ def test_normalize_keeps_the_meaning_and_the_header_comment():
     assert "    match: [a, b]\n" in tidy and tidy.index("  - id: r") < tidy.index("    kind: bash") < tidy.index("    reason:")
     long = messy.replace("[a, b]", "[" + ", ".join(f"pattern-number-{i}" for i in range(6)) + "]")
     assert "    match:\n      - pattern-number-0\n" in packs.normalize(long)
+
+
+# ------------------------------------------------------------------ 0.22.0 one part of a compound command (issue #76)
+
+def test_only_gradles_x_skips_tests(root):
+    cfg = rules.make_config()
+    for cmd in ("./gradlew build -x test", "gradle check -x :app:test", "cd api && ./gradlew build --exclude-task check",
+                "FOO=1 ./gradlew build --exclude-task=test", 'bash -c "./gradlew build -x test"',
+                'bash -c "cd api && ./gradlew build -x test"'):
+        v = rules.check_bash("none", cmd, cfg)
+        assert not v.ok and "skips checks" in v.reason, cmd
+    for cmd in ("uv run pytest -x tests/test_scores.py::test_rank", "pytest -x -k rank", "python -m pytest -x tests",
+                "./gradlew test --tests 'x.ScoreTest' -x lint", "tar -x test.tar"):
+        assert rules.check_bash("none", cmd, cfg).ok, cmd
+
+
+def test_a_refused_push_names_the_part_that_may_run_alone(tmp_path, root):
+    gate = [{"gate": "release", "why": "no release verdict for this commit", "fix": "run the whole test suite"}]
+    c = ctx(tmp_path, root, phase="none", push_blockers=gate)
+    why = refused("Bash", {"command": "cd api && sed -i 's/a/b/' x.txt && git push origin feat"}, c)
+    assert "push gate: release" in why
+    assert "Nothing in this command ran. Run the other part on its own: sed -i 's/a/b/' x.txt" in why
+    assert "push after the gate clears" in why
+    assert "Nothing in this command ran" not in refused("Bash", {"command": "git push origin feat"}, c)
+
+
+def test_a_refused_commit_in_a_flow_names_the_part_that_may_run_alone(root):
+    v = rules.check_bash("green", "ruff format src && git commit -am x", rules.make_config())
+    assert not v.ok and "commit step" in v.reason and "Run the other part on its own: ruff format src" in v.reason

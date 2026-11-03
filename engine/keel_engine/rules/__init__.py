@@ -275,7 +275,8 @@ BUILTINS: list[dict] = [
     {"id": "read-build-output", "kind": "read", "phases": "always", "can_off": True,
      "words": "Build output (build/, node_modules/, target/ ...) is not read: it wastes the agent's context."},
     {"id": "skip-test-flags", "kind": "shell", "phases": "always", "can_off": True,
-     "words": "-x test and -x check are refused: they skip the tests in a Gradle build."},
+     "words": "-x test and -x check are refused in a Gradle command: they skip the tests in a Gradle build. Other "
+              "tools' -x (pytest -x stops at the first failure) are not."},
     {"id": "new-dependency", "kind": "shell", "phases": "in a flow", "can_off": True,
      "words": "Installing a new package is a decision for the spec and a gate, not for an agent."},
     {"id": "read-twice", "kind": "read", "phases": "always", "can_off": True,
@@ -728,8 +729,11 @@ def push_gate(cfg: dict, cmd: str, blockers: list[dict] | None) -> Verdict | Non
         return None
     first = blockers[0]
     more = f" ({len(blockers) - 1} more: {', '.join(b.get('gate', '') for b in blockers[1:])})" if len(blockers) > 1 else ""
+    # 0.22.0 a hook refuses the whole call: say that only the push part waits, and what may run on its own
+    rest = other_parts(cmd, lambda part: any(runs_command(part, c) for c in r.get("push_gate_commands") or []))
+    alone = f"{_run_alone(rest)}; push after the gate clears." if rest else ""
     return Verdict(False, reason=f'"{hit}" waits for keel\'s push gate: {first.get("gate")}: {first.get("why")}. '
-                                 f'{str(first.get("fix") or "").rstrip(".")}.{more}')
+                                 f'{str(first.get("fix") or "").rstrip(".")}.{more}{alone}')
 
 
 _SEGMENTS = re.compile(r"&&|\|\||[;|&\n`()]")
@@ -1112,6 +1116,55 @@ def rule_file_write(command: str) -> str | None:
     return None
 
 
+_GRADLE = re.compile(r"(?:^|/)gradlew?(?:\.bat)?$")
+_GRADLE_TEST_TASK = re.compile(r"^(?::?[\w.-]+:)*:?(?:test|check)$")
+_SHELLS = {"bash", "sh", "zsh", "dash"}
+
+
+def gradle_skips_tests(cmd: str, depth: int = 0) -> str | None:
+    """0.22.0 the words of a Gradle run that leave out its tests (`-x test`, `--exclude-task :app:check`), or None. Each
+    part of the line on its own (a `bash -c "..."` looked into): only a gradle or gradlew program counts, so `pytest -x`
+    and other tools' -x pass."""
+    for seg in _SEGMENT.split(str(cmd or "")):
+        words = _words(seg)
+        if not words:
+            continue
+        prog = words[0].rsplit("/", 1)[-1]
+        if prog in _SHELLS and "-c" in words[1:-1] and depth < 3:
+            hit = gradle_skips_tests(words[words.index("-c", 1) + 1], depth + 1)
+            if hit:
+                return hit
+            continue
+        if not _GRADLE.search(words[0]):
+            continue
+        words = [w.strip("\"'") for w in words]       # a part of a quoted `bash -c "..."` line keeps its quote
+        for i, w in enumerate(words[1:], 1):
+            if w in ("-x", "--exclude-task") and i + 1 < len(words) and _GRADLE_TEST_TASK.match(words[i + 1]):
+                return f"{w} {words[i + 1]}"
+            if w.startswith("--exclude-task=") and _GRADLE_TEST_TASK.match(w.split("=", 1)[1]):
+                return w
+    return None
+
+
+def other_parts(cmd: str, refused) -> list[str]:
+    """0.22.0 the parts of a shell line (split on && || ; | & newline) that `refused(part)` does not match: a hook can
+    only refuse a whole call, so its reason names what the person or agent may run on its own. `cd` parts are left out."""
+    out = []
+    for seg in _SEGMENT.split(str(cmd or "")):
+        part = seg.strip()
+        if part and not refused(part) and not re.match(r"^cd(\s|$)", part):
+            out.append(part)
+    return out
+
+
+def _run_alone(parts: list[str]) -> str:
+    if not parts:
+        return ""
+    shown = " && ".join(parts)
+    shown = shown if len(shown) <= 200 else shown[:197] + "..."
+    return f" Nothing in this command ran. Run the other part on its own: {shown}"
+
+
 _SHELL_WRITE = re.compile(r"(?<!>)>{1,2}\s*([^\s;|&<>()]+)|(?:sed\s+-i(?:\s+\S+)?|tee|perl\s+-pi)\s+([^\s;|&]+)")
 
 
@@ -1123,7 +1176,11 @@ def check_bash(phase: str, command: str, cfg: dict | None = None, *, root: str |
     cmd = str(command or "")
     skip_flags = is_off(cfg, "skip-test-flags")
     for pat in NEVER_DENY_ALWAYS + [p for p in cfg["guards"]["bash_deny_always"] if p not in NEVER_DENY_ALWAYS]:
-        if skip_flags and pat in SKIP_TEST_FLAGS:
+        if pat in SKIP_TEST_FLAGS:
+            # 0.22.0 Gradle's -x only: `pytest -x tests/x.py` (stop at the first failure) is not a skipped test
+            hit = None if skip_flags else gradle_skips_tests(cmd)
+            if hit:
+                return Verdict(False, reason=f'"{hit}" is not allowed: it skips checks that keel relies on.')
             continue
         if pat in cmd:
             return Verdict(False, reason=f'"{pat}" is not allowed: it skips checks that keel relies on.')
@@ -1182,8 +1239,10 @@ def check_bash(phase: str, command: str, cfg: dict | None = None, *, root: str |
         return Verdict(True)
     if re.search(r"^\s*git\s+commit\b", cmd) or re.search(r"&&\s*git\s+commit\b", cmd):
         # 0.18.64 a refused commit names the flow that blocks it (`flow`: its title and thread, from the guard context)
+        rest = other_parts(cmd, lambda part: re.match(r"^\s*git\s+commit\b", part))
         return Verdict(False, reason=f'Commits are made by the engine\'s commit step, which checks them against phase "{phase}".'
-                       + (f" The flow that blocks this commit: the keel v2 flow {flow}, phase {phase}." if flow else ""))
+                       + (f" The flow that blocks this commit: the keel v2 flow {flow}, phase {phase}." if flow else "")
+                       + (f"{_run_alone(rest)}." if rest else ""))
     for pat in NEVER_DENY_IN_FLOW + [p for p in cfg["guards"]["bash_deny_in_flow"] if p not in NEVER_DENY_IN_FLOW]:
         if pat in cmd:
             return Verdict(False, reason=f'"{pat}" is blocked during a keel flow.')
