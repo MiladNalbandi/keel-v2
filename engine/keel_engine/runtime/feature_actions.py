@@ -260,6 +260,42 @@ def _docker_up(root: str) -> bool:
     return code == 0
 
 
+# 0.22.0 where a project declares Testcontainers (its tests start their database in Docker), in the root and backend.dir
+TESTCONTAINERS_FILES = ("build.gradle", "build.gradle.kts", "gradle/libs.versions.toml", "pom.xml", "package.json",
+                        "pyproject.toml", "requirements.txt", "requirements-dev.txt", "requirements/test.txt", "setup.cfg",
+                        "conftest.py", "tests/conftest.py", "composer.json", "go.mod", "Gemfile")
+
+
+def uses_testcontainers(root: str, cfg: dict | None = None) -> str | None:
+    """The first build or test file that names Testcontainers (relative path), else None. Cheap: a few known files, the
+    first 512 KB of each."""
+    base = Path(root)
+    folders = [""] + [d for d in [str(((cfg or {}).get("backend") or {}).get("dir") or "").strip("/")] if d and d != "."]
+    for folder in folders:
+        for name in TESTCONTAINERS_FILES:
+            f = base / folder / name if folder else base / name
+            try:
+                with open(f, "rb") as fh:
+                    if b"testcontainers" in fh.read(512 * 1024).lower():
+                        return str(f.relative_to(base))
+            except OSError:
+                continue
+    return None
+
+
+def docker_warning(a, cfg: dict) -> str | None:
+    """0.22.0 the tests start their database with Testcontainers, and Docker cannot be reached from here: every test
+    that needs it fails, whatever the code does (#67). Said before the build, not after rounds of fixes."""
+    if a.fake:
+        return None
+    where = uses_testcontainers(a.root, cfg)
+    if not where or _docker_up(a.root):
+        return None
+    return (f"the tests use Testcontainers ({where}), but Docker cannot be reached here: tests that need their "
+            "database cannot start. Start keel with Docker access (`keel2 start --docker`), or point the tests at a "
+            "database keel can reach")
+
+
 def preflight_warnings(a, cfg: dict) -> list[str]:
     """keel v1 `keel preflight` parity, as warnings for a project that adopted keel (.keel/config.yml): the setup ladder
     never ran or did not pass; Docker is needed (a compose file, commands.services or a container-backed test) but not
@@ -272,9 +308,10 @@ def preflight_warnings(a, cfg: dict) -> list[str]:
     root = Path(a.root)
     # 0.18.64 a keel v1 flow nobody runs any more still blocks commits through keel v1's hooks
     left = v1_state.leftover(a.root)
+    docker = docker_warning(a, cfg)
     if not (root / ".keel" / "config.yml").is_file():
-        return [left] if left else []
-    out: list[str] = [left] if left else []
+        return [w for w in (left, docker) if w]
+    out: list[str] = [w for w in (left, docker) if w]
     cmds = cfg.get("commands") or {}
     rungs = ladder.previous(a.root)
     if not rungs:
@@ -287,7 +324,7 @@ def preflight_warnings(a, cfg: dict) -> list[str]:
     services = str(cmds.get("services") or "")
     needs_docker = "docker" in services or "compose" in services or bool(str(cmds.get("testcontainers_test") or "").strip()) \
         or any((root / f).is_file() for f in init_gates.COMPOSE)
-    if needs_docker and not a.fake and not _docker_up(a.root):
+    if needs_docker and not docker and not a.fake and not _docker_up(a.root):
         out.append("Docker is needed (a compose file, commands.services or a container-backed test) but is not running")
     contract = (cfg.get("contract") or {}).get("file")
     if ((contract and (root / str(contract)).is_file()) or (root / "docs" / "contract").is_dir()) \

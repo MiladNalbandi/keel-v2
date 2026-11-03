@@ -217,6 +217,39 @@ def cannot_run(a: ActionInput, cmd: str, out: str, what: str) -> ActionResult:
         "choices": choices}, context="cannot-run"))
 
 
+ENV_HINT = ("Start keel with Docker access (`keel2 start --docker`) so Testcontainers can start its database, or point the "
+            "tests at a database keel's container can reach (the test settings or .env.local), then check again.")
+
+
+def env_failure(a: ActionInput, cmd: str, out: str, what: str, why: str) -> ActionResult:
+    """0.22.0 the tests ran, but Docker or the database they need cannot be reached (testcmd.env_down): no test result,
+    no retry of the agent (no code change makes the database start), no budget spent on rounds that cannot pass. The
+    person chooses, as for a command that cannot run: recheck, skip, stop (#67)."""
+    label = (a.ac or {}).get("id") or "the suite"
+    detail = f"$ {cmd}\n{tail(out, 2000)}"
+    choices = ["recheck", "skip", "stop"] if a.ac else ["recheck", "stop"]
+    lines = [f"The tests for {label} could not reach what they need: {why}. This is not a test failure, so keel does "
+             f"not send it back to the agent: no change to the code can fix it, and {what} cannot be checked until it "
+             "is reachable.", "", ENV_HINT, "", detail, "", choices_mod.how_to(),
+             "- recheck: run the check again (after Docker or the database is reachable)"]
+    if a.ac:
+        lines.append(f"- skip: move {label} to the end of the list and go on with the next criterion")
+    lines.append("- stop: stop the flow here (the commits so far stay)")
+    title = f"The test environment can't start ({why}): this is not a test failure"
+    return ActionResult(False, f"The test environment for {label} can't start: {why}.", detail, ask=choices_mod.for_question({
+        "type": "environment", "kind": "fix", "title": title, "detail": "\n".join(lines), "choices": choices},
+        context="environment"))
+
+
+def unrunnable(a: ActionInput, cmd: str, code: int, out: str, what: str) -> ActionResult | None:
+    """The question for a test run that is no test result: the command could not start (cannot_run), or the environment
+    it needs is down (env_failure). None for a real result, pass or fail."""
+    if testcmd.cannot_run(code, out):
+        return cannot_run(a, cmd, out, what)
+    why = testcmd.env_down(code, out)
+    return env_failure(a, cmd, out, what, why) if why else None
+
+
 async def verify_red(a: ActionInput) -> ActionResult:
     if not a.ac and bug_mod.of(a.acs):
         return await verify_bug_red(a, bug_mod.current(a))
@@ -236,8 +269,8 @@ async def verify_red(a: ActionInput) -> ActionResult:
     cmd, code, out = await _tests(a)
     if cmd is None:
         return ActionResult(False, out, out)
-    if testcmd.cannot_run(code, out):
-        return cannot_run(a, cmd, out, "red")
+    if bad := unrunnable(a, cmd, code, out, "red"):
+        return bad
     if testcmd.ran_no_tests(out):
         return ActionResult(False, f"No test for {ac_id} ran, so this is not a red state.",
                             f"$ {cmd}\n{tail(out, 3000)}\nWrite a failing test whose name contains {ac_id}.")
@@ -259,6 +292,9 @@ async def verify_red(a: ActionInput) -> ActionResult:
         return ActionResult(False, f"The tests for {ac_id} already pass, so this is not a red state.",
                             f"$ {cmd}\n{tail(out, 3000)}\nEither the behaviour already exists or the test asserts nothing.")
     kind = rules.classify_failure(out)
+    if kind["kind"] == "setup" and "docker" in str(kind.get("matched") or "").lower():
+        # 0.22.0 Docker missing is the environment's setup, not the test's: the person, not another round (#67)
+        return env_failure(a, cmd, out, "red", "Docker is not reachable from where the tests run")
     if kind["kind"] == "setup":
         return ActionResult(False, f"The tests for {ac_id} fail from a setup problem, not an assertion (matched \"{kind['matched']}\").",
                             f"$ {cmd}\n{tail(out, 3000)}")
@@ -300,8 +336,8 @@ async def _refactor_baseline(a: ActionInput) -> ActionResult:
         cmd, code, out = await _tests(a, whole_suite=True, layer=layer)
         if cmd is None:
             return ActionResult(False, out, out)
-        if testcmd.cannot_run(code, out):
-            return cannot_run(a, cmd, out, "the tests before the refactor")
+        if bad := unrunnable(a, cmd, code, out, "the tests before the refactor"):
+            return bad
         if code != 0:
             detail = await failure_detail(a, cmd, code, out, layer)
             lines = [f"{ac_id} is a refactor: its proof is that the existing tests pass before and after the change. They "
@@ -336,8 +372,8 @@ async def verify_bug_red(a: ActionInput, bug: dict) -> ActionResult:
         cmd, code, out = await _tests(replace(a, ac=bug))
         if cmd is None:
             return ActionResult(False, out, out)
-        if testcmd.cannot_run(code, out):
-            return cannot_run(a, cmd, out, "red")
+        if bad := unrunnable(a, cmd, code, out, "red"):
+            return bad
     hint = testcmd.name_hint(a.root, bid)
     if not a.fake and (testcmd.ran_no_tests(out) or (code == 5 and "deselected" in out)):
         return ActionResult(False, f"No test for {bid} ran, so the bug is not reproduced.",
@@ -374,8 +410,8 @@ async def _bug_green(a: ActionInput, bug: dict) -> ActionResult:
     cmd, code, out = await _tests(replace(a, ac=bug))
     if cmd is None:
         return ActionResult(False, out, out)
-    if testcmd.cannot_run(code, out):
-        return cannot_run(a, cmd, out, "green")
+    if bad := unrunnable(a, cmd, code, out, "green"):
+        return bad
     if testcmd.ran_no_tests(out) or (code == 5 and "deselected" in out):
         return ActionResult(False, f"No test for {bid} ran, so the fix cannot be checked.", f"$ {cmd}\n{tail(out, 3000)}")
     if code != 0:
@@ -463,8 +499,8 @@ async def _verify_green(a: ActionInput) -> ActionResult:
     cmd, code, out = await _tests(a)
     if cmd is None:
         return ActionResult(False, out, out)
-    if testcmd.cannot_run(code, out):
-        return cannot_run(a, cmd, out, "green")
+    if bad := unrunnable(a, cmd, code, out, "green"):
+        return bad
     if testcmd.ran_no_tests(out):
         return ActionResult(False, f"No test for {ac_id} ran, so it cannot be green.",
                             f"$ {cmd}\n{tail(out, 3000)}\nThe RED test for {ac_id} is missing. Rewind to its red step.")
@@ -509,8 +545,8 @@ async def _whole_suite_green(a: ActionInput) -> ActionResult:
         cmd, code, out = await _tests(a, whole_suite=True, layer=layer)
         if cmd is None:
             return ActionResult(False, out, out)
-        if testcmd.cannot_run(code, out):
-            return cannot_run(a, cmd, out, "green")
+        if bad := unrunnable(a, cmd, code, out, "green"):
+            return bad
         what = "web" if layer == "WEB" else "api"
         if verdict_actions.ran_no_tests(cmd, code, out):
             # 0.18.17 the whole suite with no test is not green (vitest exits 0 with "No test files found")
@@ -616,8 +652,8 @@ async def verify_after_green(a: ActionInput) -> ActionResult:
             continue
         code, out = await asyncio.to_thread(testcmd.run, str(Path(a.root) / rel) if rel else a.root, cmd, 1800, command_env())
         show = testcmd.shown(cmd, rel)
-        if testcmd.cannot_run(code, out):
-            return cannot_run(a, show, out, "the tests outside it")
+        if bad := unrunnable(a, show, code, out, "the tests outside it"):
+            return bad
         if code != 0:
             failed = (layer, show, code, out)
             break
@@ -683,6 +719,8 @@ async def verify_release(a: ActionInput) -> ActionResult:
     r = await asyncio.to_thread(verdict_actions.run_suite, a.root, cmd, "release suite", reruns, cwd)
     await asyncio.to_thread(_release_verdict, a, r["ok"], cmd, r["out"], r["flaky"])
     upd = verdict_actions.flaky_update(a, r["flaky"])
+    if not r["ok"] and (why := testcmd.env_down(1, r["out"])):
+        return env_failure(a, show, r["out"], "the release suite", why)
     if not r["ok"]:
         what = "ran no test" if r.get("no_tests") else "fails"
         return ActionResult(False, f"The release suite {what}.", f"$ {show}\n{tail(r['out'], 3000)}")
@@ -723,6 +761,8 @@ async def verify_coverage(a: ActionInput) -> ActionResult:
                                         {"command": cmd, "summary": "no coverage driver", "output": tail(out, 1500)}, None, a.root)
                 return ActionResult(False, "Coverage was not measured: no coverage driver.", f"{why}\n\n$ {cmd}\n{tail(out, 2000)}",
                                     {"data": {**a.data, "coverage_groups": [], "coverage_error": why}})
+            if why := testcmd.env_down(code, out):
+                return env_failure(a, cmd, out, "coverage", why)
             if code != 0:
                 await asyncio.to_thread(verdict_actions.record_verdict, a.key, "coverage", False,
                                         {"command": cmd, "summary": f"`{cmd}` exited {code}", "output": tail(out, 1500)}, None, a.root)
@@ -742,6 +782,8 @@ async def verify_coverage(a: ActionInput) -> ActionResult:
     if a.fake:
         return ActionResult(True, "Coverage: passed (simulated, no verdict written).")
     code, out = await asyncio.to_thread(testcmd.run, a.root, cmd, 1800, command_env())
+    if why := testcmd.env_down(code, out):
+        return env_failure(a, cmd, out, "coverage", why)
     if NO_COVERAGE_DRIVER.search(out or ""):
         code = code or 1          # 0.18.75 nothing was measured: never a pass
         out = ("No coverage driver: nothing was measured. Install one where the tests run (PHP: pcov, or Xdebug with "
