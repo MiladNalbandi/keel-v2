@@ -172,6 +172,22 @@ def _criteria_lines(acs: list[dict]) -> list[str]:
 
 # ------------------------------------------------------------------ preflight
 
+def _stack_notes(root: str) -> list[str]:
+    """0.22.0 which test command a flow runs and which backend stacks keel sees, said at the start: the reason for a
+    wrong one was hidden deep inside a gate's text (a field report: Maven ran against a Python project)."""
+    out = []
+    cmd = testcmd.command_for(root, None, "API")
+    if cmd:
+        out.append(f"tests: {cmd}")
+    api = [d["name"] for d in stacks.matched(root) if str(d.get("lane") or "api") == "api"]
+    if len(api) > 1:
+        out.append(f"warning: several backend stacks match ({', '.join(api)}); if one is wrong, turn it off "
+                   "(Settings › Stacks or keel_stack_off) or set the test commands in .keel/config.yml")
+    if testcmd.jvm_build_without_code(root):
+        out.append("a JVM build file here has no Java or Kotlin code next to it: keel runs the Python tests")
+    return out
+
+
 def preflight(a):
     """keel v1 `keel preflight`: the tree is a git repository with a test command, and the flow works on its own
     branch. On the base branch (base_branch, main or master) it creates feat/<slug> (settings.branch_pattern; the api
@@ -196,6 +212,8 @@ def preflight(a):
         return _fail("Not ready: no test command found.",
                      "Add commands (api_test_ac, api_test_module) to .keel/config.yml, or run the init flow first.")
     cfg = rules.load_config(a.root)
+    if not a.fake:
+        notes.extend(_stack_notes(a.root))
     cur = git.branch(a.root) or ""
     from . import bases as bases_mod
 

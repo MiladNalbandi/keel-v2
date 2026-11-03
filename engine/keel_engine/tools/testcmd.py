@@ -239,14 +239,67 @@ def _plain_pytest(r: Path) -> bool:
     return False
 
 
+JVM_CODE = (".java", ".kt", ".groovy", ".scala")
+PY_FILES = ("pyproject.toml", "pytest.ini", "setup.py", "manage.py", "requirements.txt")
+
+
+def _has_code(r: Path, exts: tuple[str, ...], budget: int = 5000) -> bool:
+    """Is there a source file with one of these extensions in the folder (at most `budget` entries looked at)?"""
+    todo, seen = [r], 0
+    while todo:
+        d = todo.pop()
+        try:
+            items = list(d.iterdir())
+        except OSError:
+            continue
+        for p in items:
+            seen += 1
+            if seen > budget:
+                return True                     # too big to tell: keep the build file's word
+            if p.is_dir():
+                if not p.name.startswith(".") and p.name not in _SKIP_DIRS:
+                    todo.append(p)
+            elif p.suffix in exts:
+                return True
+    return False
+
+
+def jvm_build_without_code(root: str) -> bool:
+    """0.22.0 a JVM build file (gradlew, pom.xml) in a folder that is a Python project and has no JVM source: a leftover
+    or a tool's file, not the project's build (a field report: a pom.xml next to a Django app made flows run Maven
+    against its Python criteria)."""
+    r = Path(root)
+    if not any((r / f).exists() for f in ("gradlew", "mvnw", "pom.xml")):
+        return False
+    python = any((r / f).exists() for f in PY_FILES) or _plain_pytest(r)
+    return python and not _has_code(r, JVM_CODE)
+
+
+def _pytest_configured(r: Path) -> bool:
+    if (r / "pytest.ini").exists() or (r / "conftest.py").exists():
+        return True
+    for f in ("pyproject.toml", "setup.cfg", "tox.ini"):
+        try:
+            if "pytest" in (r / f).read_text(errors="replace"):
+                return True
+        except OSError:
+            continue
+    return False
+
+
 def _detect_in(root: str, ac: str | None = None) -> str | None:
     """The test command for the build files in one folder."""
     r = Path(root)
-    if (r / "gradlew").exists():
+    jvm = not jvm_build_without_code(root)
+    if jvm and (r / "gradlew").exists():
         return fill("./gradlew -q test --tests '*{AC}*'", ac) if ac else "./gradlew -q test"
-    if (r / "mvnw").exists() or (r / "pom.xml").exists():
+    if jvm and ((r / "mvnw").exists() or (r / "pom.xml").exists()):
         mvn = "./mvnw" if (r / "mvnw").exists() else "mvn"
         return fill(f"{mvn} -q test -Dtest='*{{AC}}*'", ac) if ac else f"{mvn} -q test"
+    if (r / "manage.py").exists() and not _pytest_configured(r):
+        # 0.22.0 a Django project without pytest's settings runs Django's own runner (-k: Django 3.0 and newer)
+        base = "python manage.py test"
+        return f"{base} -k {shlex.quote(_pytest_key(ac))}" if ac else base
     if (r / "pyproject.toml").exists() or (r / "pytest.ini").exists() or (r / "setup.py").exists():
         base = "python -m pytest -q"
         return f"{base} -k {shlex.quote(_pytest_key(ac))}" if ac else base
