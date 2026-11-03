@@ -1359,6 +1359,12 @@ and no CPU); the load comes from its agents and the project's builds. Since 0.20
 - **Low CPU priority** for agents (on by default), so your own work on the computer stays quick. The project's tests that an
   agent starts run at the same low priority.
 
+- **How keel starts** (0.21.2): **Docker access** for the project's tests (`--docker`) and **reachable on your Wi-Fi**
+  (`--wifi`). keel2 remembers both, so a `keel2 start` without the flag keeps them (`--no-docker`, `--no-wifi` turn them
+  off). The page, keel TUI's `/settings` and the MCP tool `keel_start_options` (admin) save a change for keel2's next
+  start; `keel2 restart` takes it, and asks you on that computer before it turns one on: anything inside keel could write
+  the request, and Docker access is as strong as root there.
+
 In native mode there is no container: only the two agent settings apply.
 
 ## The Supervisor
@@ -1395,7 +1401,7 @@ keel has an MCP server with three levels; each includes the one below:
 |---|---|---|
 | read (default) | `keel2 mcp` | status, timeline, next step, phase rules, dashboard links, flows, Inbox, live agents, budget, specs (with history), knowledge, search, read a file, read a file of any registered project (`keel_read_project_file`), engine actions, keel's rules, workflows, agents (one agent's steps live), KeelBot's chats and changes, diagrams in ASCII (`keel_diagram`), skills, stacks, the formats and checks that save nothing (`keel_format`, `keel_workflow_check`, `keel_rule_check`, `keel_stack_check`), keel's spec check on a spec or clarify file (`keel_spec_check`) and the check of every `path:line` it cites (`keel_citations_check`, also on a text), a flow's document or spec from its file (`keel_flow_document`), fetch every remote and say how far the base is behind (`keel_fetch_remotes`), the prompt an agent call really got (`keel_agent_prompt`), what a step's retry changed (`keel_flow_diff`), keel's and the connection's health (`keel_health`, `keel_reconnect`), keel's flow state with a state file keel v1 left (`keel_state`; its `close` needs `--write`), the last report of the project's CI jobs run on CI's versions (`keel_ci_report`), the marketplace search, the Database, Git and CI/CD read tools |
 | write | `keel2 mcp --write` | decide or send back a gate, answer the Inbox (several answers, a choice and a reason; questions in a form when the client can show one), start a flow (no type: every flow with what it is for and its inputs, like ticket or pr for review-pr; `base`: the branch it starts from), bring a flow's branch up to its base (`keel_branch_sync`: merge or rebase, conflicts resolved and committed by keel), stop and resume flows, set a run mode, start an agent, ask KeelBot (`keel_keelbot_ask`, also `mode=edit`) and keep or undo its changes, create workflows, rule packs, agents, skills and stacks, attach skills, set an agent's model and effort, restore a spec, replace a waiting flow's document (`keel_flow_document` with `text`), send a clarify result back with your own draft (`keel_reject_with_document`) or hand it over to the next flow (`keel_handover`), archive keel v1's leftover state (`keel_state action=close`), run the project's CI jobs on CI's versions in throw-away containers (`keel_ci_run`), git / PR / CI / database writes, Code Review comments and submits |
-| admin | `keel2 mcp --admin` | delete flows, pause (`keel_pause`; `keel_resume` goes on), add and remove projects, switch the project the dashboard and keel TUI show (`keel_focus`), connect GitHub with a one-time code (`keel_connect_github`: it returns the code and the link, never the token), change workflows, install and change rules |
+| admin | `keel2 mcp --admin` | delete flows, pause (`keel_pause`; `keel_resume` goes on), add and remove projects, switch the project the dashboard and keel TUI show (`keel_focus`), connect GitHub with a one-time code (`keel_connect_github`: it returns the code and the link, never the token), change workflows, install and change rules, and how keel2 starts keel (`keel_start_options`: Docker access and the Wi-Fi, for keel2's next start; it asks first, and keel2 asks again on that computer before it turns one on) |
 
 ```bash
 keel2 mcp --print-config                                 # the Claude Code line and Claude Desktop JSON per level
@@ -1490,7 +1496,7 @@ and a proposal for buttons: [muxy.md](muxy.md), [muxy-proposal.md](muxy-proposal
 |---|---|
 | `keel2` | in a terminal while keel runs: keel TUI; otherwise the help (`KEEL_TUI_DEFAULT=0`: always the help) |
 | `keel2 start [folder]` | start keel for a project (default: this folder) and open the browser |
-| `keel2 start --docker [dir]` | the same, and the project's tests may use your Docker (Testcontainers, compose) |
+| `keel2 start --docker [dir]` | the same, and the project's tests may use your Docker (Testcontainers, compose). keel2 remembers it (and `--wifi`, `--core`): a later `keel2 start` keeps them; `--no-docker` turns it off |
 | `keel2 start --native [dir]` | keel on this computer without Docker (see [Native mode](#native-mode-no-docker)) |
 | `keel2 start --core` · `--safe` · `--with-keel-v1 <checkout>` | core only · only the image's plugins · also keel v1's MCP server |
 | `keel2 stop` · `restart` | stop keel / start it again with the same project, options and image (they ask when agents work; `--force` does not) |

@@ -141,12 +141,28 @@ describe("a keel TUI window that keeps its own project and chat", () => {
     t.r.unmount();
   });
 
+  it("0.21.2 /settings has keel's Docker access and Wi-Fi: a change waits for keel2's next start", async () => {
+    const stub = stubKeel();
+    const core = new KeelCore({ url: "http://keel.test", fetch: stub.fetch, noLive: true, settings: memorySettings({ sidebar: false }) });
+    await core.start();
+    const r = await run({ core, width: 100 }, "/settings");
+    expect(r.pick?.choices.map((c) => c.label)).toContain("keel: Docker access for tests  off");
+    const after = await r.pick!.then("docker");
+    expect(after.blocks[0].text).toMatch(/^Docker access on after keel's next start\. Run keel2 restart/);
+    expect(stub.calls.find((c) => c.method === "PUT" && c.path === "/api/resources")?.body).toEqual({ docker: true });
+    const again = await run({ core, width: 100 }, "/settings");
+    expect(again.pick?.choices.map((c) => c.label)).toContain("keel: Docker access for tests  off, on after keel2 restart");
+    core.stop();
+  });
+
   it("-c has no screen: /settings shows what keel TUI keeps (follow and the sidebar)", async () => {
     const stub = stubKeel();
     const core = new KeelCore({ url: "http://keel.test", fetch: stub.fetch, noLive: true, settings: memorySettings({ sidebar: false }) });
     await core.start();
     const r = await run({ core, width: 100 }, "/settings");
-    expect(r.pick?.choices.map((c) => c.label)).toEqual(["Follow other keel windows  on", "Sidebar                    off"]);
+    // what keel TUI keeps, then keel's own (0.21.2: how keel2 starts it)
+    expect(r.pick?.choices.map((c) => c.label)).toEqual(["Follow other keel windows      on", "Sidebar                        off",
+      "keel: Docker access for tests  off", "keel: reachable on your Wi-Fi  off"]);
     const after = await r.pick!.then("follow");
     expect(after.blocks[0].text).toMatch(/^follow off/);
     expect(core.settings.get().follow).toBe(false);

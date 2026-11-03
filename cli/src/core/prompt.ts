@@ -45,3 +45,23 @@ export function moveRow(line: string, cursor: number, dir: -1 | 1): number | nul
   const startOf = all.slice(0, row).reduce((n, r) => n + r.length + 1, 0);
   return startOf + Math.min(at.col, all[row].length);
 }
+
+// 0.21.2 a word: letters, digits and _. Going a word left or right first passes the spaces and signs next to the
+// cursor, then the word, as a shell's Alt+B / Alt+F do.
+const isWord = (ch: string | undefined) => ch !== undefined && /[\p{L}\p{N}_]/u.test(ch);
+
+/** Where the cursor goes one word to the left: the start of the word before it. */
+export function wordLeft(line: string, cursor: number): number {
+  let i = Math.max(0, Math.min(cursor, line.length));
+  while (i > 0 && !isWord(line[i - 1])) i--;
+  while (i > 0 && isWord(line[i - 1])) i--;
+  return i;
+}
+
+/** Where the cursor goes one word to the right: the end of the word after it. */
+export function wordRight(line: string, cursor: number): number {
+  let i = Math.max(0, Math.min(cursor, line.length));
+  while (i < line.length && !isWord(line[i])) i++;
+  while (i < line.length && isWord(line[i])) i++;
+  return i;
+}

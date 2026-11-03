@@ -2,6 +2,7 @@
 // the other keel windows and /settings (0.18.63), `!command`.
 
 import { api, type Project } from "../sdk";
+import { helpApi, type ResourcesView } from "../../../../web/src/helpApi";
 import * as fmt from "../format";
 import { parseThemeName, type ThemeName } from "../theme";
 import { P, errorReply, fail, join, needProject, ok, text } from "./base";
@@ -26,10 +27,17 @@ export function followText(on: boolean): string {
 
 /** keel 0.18.63 /settings: keel TUI's settings in a picker, each with its value now; Enter changes the marked one.
  *  Follow and the sidebar are kept for the next start (settings.ts); the mouse and the palette are for this run. */
-function settingsPick(ctx: Ctx): Reply {
+async function settingsPick(ctx: Ctx): Promise<Reply> {
   const core = ctx.core;
   const v = ctx.view;
   const onOff = (b: boolean) => (b ? "on" : "off");
+  // 0.21.2 how keel2 starts keel (Settings › Resources): Docker access and the Wi-Fi, for keel2's next start
+  const res: ResourcesView | null = await helpApi.resources().catch(() => null);
+  const start = res?.in_container !== false ? res?.start : undefined;
+  const wanted = res?.start_wanted ?? {};
+  const startNow = (k: "docker" | "wifi") =>
+    wanted[k] === undefined ? onOff(start![k]) : `${onOff(start![k])}, ${onOff(wanted[k]!)} after keel2 restart`;
+  const startHint = "keel2 takes it at its next start (keel2 restart) and asks you on that computer before it turns it on; kept";
   const rows: { label: string; value: string; now: string; hint: string }[] = [
     { label: "Follow other keel windows", value: "follow", now: onOff(core.follows),
       hint: "the project and KeelBot chat move with the dashboard and other keel TUIs, both ways (/follow); kept" },
@@ -39,18 +47,32 @@ function settingsPick(ctx: Ctx): Reply {
       { label: "Mouse", value: "mouse", now: onOff(v.mouse), hint: "the wheel scrolls, a drag copies (/mouse); this run (--no-mouse at the start)" },
       { label: "Theme", value: "theme", now: v.theme, hint: "keel, dark, light or auto (/theme); this run (KEEL_TUI_THEME at the start)" },
     ] : []),
+    ...(start ? [
+      { label: "keel: Docker access for tests", value: "docker", now: startNow("docker"),
+        hint: `the project's tests may use this computer's Docker (--docker, as strong as root there); ${startHint}` },
+      { label: "keel: reachable on your Wi-Fi", value: "wifi", now: startNow("wifi"), hint: `for the phone app (--wifi); ${startHint}` },
+    ] : []),
   ];
   const w = Math.max(...rows.map((r) => r.label.length)) + 2;
   return { blocks: [], pick: {
     title: "keel TUI settings (Enter changes the marked one, Esc leaves)",
     choices: rows.map((r) => ({ label: `${r.label.padEnd(w)}${r.now}`, value: r.value, hint: r.hint })),
-    then: (which): Reply => {
+    then: (which): Promise<Reply> | Reply => {
       if (which === "follow") {
         const on = !core.follows;
         core.setFollow(on);
         return { blocks: [{ kind: "ok", text: `follow ${onOff(on)}: ${followText(on)}` }] };
       }
       if (which === "sidebar") return { blocks: [], sidebar: "toggle" };
+      if ((which === "docker" || which === "wifi") && start) {
+        const on = !(wanted[which] ?? start[which]);
+        const name = which === "docker" ? "Docker access" : "the Wi-Fi";
+        return helpApi.saveResources({ [which]: on }).then(
+          (r): Reply => ((r.start_wanted ?? {})[which] === undefined
+            ? { blocks: [{ kind: "ok", text: `${name}: ${onOff(on)}, as keel runs now (nothing waits for keel2)` }] }
+            : { blocks: [{ kind: "ok", text: `${name} ${onOff(on)} after keel's next start. Run keel2 restart on the computer that runs keel; it asks there before it turns it on, and remembers it.` }] }),
+          (e: unknown) => errorReply(e));
+      }
       if (which === "mouse") return { blocks: [], mouse: "toggle" };
       if (which === "theme") return { blocks: [], pick: { title: "Theme", index: Math.max(0, THEMES.indexOf(v?.theme as ThemeName)),
         choices: THEMES.map((t) => ({ label: t + (t === v?.theme ? " (now)" : ""), value: t })),

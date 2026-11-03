@@ -150,3 +150,29 @@ def test_settings_saves_the_limits_it_wants_for_keel2_to_take(client, data):
         r = client.put("/resources", json=bad)
         assert r.status_code == 400 and why in r.json()["error"], bad
     assert client.put("/resources", json={"max_agents": 2}).json()["max_agents"] == 2
+
+
+def test_settings_saves_docker_access_and_the_wifi_for_keel2_to_take_at_its_next_start(client, data, monkeypatch):
+    """0.21.2 keel2 starts keel: Settings can only ask it, in <data>/start-wanted (keel2 confirms an "on" there)."""
+    from pathlib import Path
+
+    monkeypatch.setenv("KEEL_BIND", "127.0.0.1")
+    monkeypatch.setattr(resources, "start_now", lambda: {"docker": False, "wifi": False})
+    got = client.get("/resources").json()
+    assert got["start"] == {"docker": False, "wifi": False} and got["start_wanted"] == {}
+    got = client.put("/resources", json={"docker": True}).json()
+    assert got["start_wanted"] == {"docker": True}
+    assert (Path(data) / "start-wanted").read_text() == "docker=1\n"                    # keel2 reads it with sed
+    assert client.put("/resources", json={"wifi": True}).json()["start_wanted"] == {"docker": True, "wifi": True}
+    # back to how keel runs now: nothing waits
+    assert client.put("/resources", json={"docker": False, "wifi": False}).json()["start_wanted"] == {}
+    assert not (Path(data) / "start-wanted").exists()
+    r = client.put("/resources", json={"docker": "yes"})
+    assert r.status_code == 400 and "docker" in r.json()["error"]
+
+
+def test_how_keel_runs_now_comes_from_the_socket_and_the_address(monkeypatch):
+    monkeypatch.setenv("KEEL_BIND", "0.0.0.0")
+    assert resources.start_now()["wifi"] is True
+    monkeypatch.setenv("KEEL_BIND", "127.0.0.1")
+    assert resources.start_now()["wifi"] is False

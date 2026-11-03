@@ -10,7 +10,7 @@ import { App, type Probe } from "../src/ui/App";
 import { KeelCore } from "../src/core/keel";
 import { makeTheme } from "../src/core/theme";
 import { stripAnsi } from "../src/script";
-import { isNewline, moveRow, promptRows, PROMPT_ROWS } from "../src/core/prompt";
+import { isNewline, moveRow, promptRows, PROMPT_ROWS, wordLeft, wordRight } from "../src/core/prompt";
 import { findEditor } from "../src/core/editor";
 import { imagesIn } from "../src/core/mentions";
 import { stubKeel, tick, waitFor } from "./stub";
@@ -113,6 +113,61 @@ describe("prompt history", () => {
     expect(a.prompt()).toContain("/help");
     await a.key(UP);
     expect(a.prompt()).toContain("an older question");
+    a.r.unmount();
+  });
+});
+
+describe("word keys and fast typing (0.21.2)", () => {
+  it("a word left goes to the start of the word before the cursor, a word right to the end of the next one", () => {
+    const t = "fix the  late-order bug";
+    expect(wordLeft(t, t.length)).toBe(20);              // before "bug"
+    expect(wordLeft(t, 20)).toBe(14);                    // before "order", past the space
+    expect(wordLeft(t, 14)).toBe(9);                     // before "late", past the "-"
+    expect(wordLeft(t, 2)).toBe(0);
+    expect(wordRight(t, 0)).toBe(3);
+    expect(wordRight(t, 3)).toBe(7);                     // past the space, to the end of "the"
+    expect(wordRight(t, 7)).toBe(13);                    // past both spaces, to the end of "late"
+    expect(wordRight(t, t.length)).toBe(t.length);
+    expect(wordLeft("ändra ön", 8)).toBe(6);             // letters of any language are a word
+  });
+
+  it("keys that arrive together build on each other: the second never overwrites the first", async () => {
+    const a = await app();
+    a.r.stdin.write("a");
+    a.r.stdin.write("b");
+    a.r.stdin.write("c");
+    await tick(60);
+    expect(a.prompt()).toContain("abc");
+    // two edits before one render: a backspace, then a letter
+    a.r.stdin.write("\x7f");
+    a.r.stdin.write("d");
+    await tick(60);
+    expect(a.prompt()).toContain("abd");
+    a.r.unmount();
+  });
+
+  it("Option / Alt + ← → jump a word, Option+Delete and Ctrl+W delete one, Alt+D the next one", async () => {
+    const a = await app();
+    await a.key("hello big world");
+    await a.key(ESC + "b");                                // Option+← in macOS Terminal
+    await a.key("X");
+    expect(a.prompt()).toContain("hello big Xworld");
+    await a.key("\x1b[1;3D");                             // Alt+← in xterm, iTerm2 and others
+    await a.key("\x1b[1;3D");
+    await a.key("Y");
+    expect(a.prompt()).toContain("hello Ybig Xworld");
+    await a.key(ESC + "f");                                // Option+→: to the end of "Ybig"
+    await a.key("\x1b[1;5C");                             // Ctrl+→: to the end of "Xworld"
+    await a.key("!");
+    expect(a.prompt()).toContain("hello Ybig Xworld!");
+    await a.key(ESC + "\x7f");                            // Option+Delete: "Xworld!" goes, the space stays
+    expect(a.prompt()).toContain("hello Ybig");
+    expect(a.prompt()).not.toContain("Xworld");
+    await a.key("\x17");                                  // Ctrl+W
+    expect(a.prompt()).toMatch(/hello\s*$/m);
+    await a.key("\x1b[1;3D");
+    await a.key(ESC + "d");                                // Alt+D: the word after the cursor
+    expect(a.prompt()).not.toContain("hello");
     a.r.unmount();
   });
 });

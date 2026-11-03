@@ -1350,6 +1350,16 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
     # ---------------------------------------------------------------- the marketplace (step 4)
     # last at every level (keel 0.16.1's list keeps its order); asking for a plugin is allowed read-only
 
+    @reg(rw)
+    async def keel_start_options(docker: bool | None = None, wifi: bool | None = None, ctx: Context | None = None) -> str:
+        """How keel2 starts this keel: Docker access for the project's tests (--docker) and reachable on the Wi-Fi
+        (--wifi). No arguments: how it runs now and what waits. docker / wifi: true or false, saved for keel2's next start
+        (keel2 restart on that computer); keel2 asks the person there before it turns one on, and remembers the choice."""
+        if docker is None and wifi is None:
+            return guard(more.start_options, api)
+        what = ", ".join(f"{'turn' if v else 'turn off'} {k}{' on' if v else ''}" for k, v in (("Docker access", docker), ("the Wi-Fi", wifi)) if v is not None)
+        return await act(ctx, "keel_start_options", f"{what} at keel's next start", more.start_options, api, docker, wifi)
+
     @reg(ro)
     def keel_marketplace_search(q: str = "", category: str | None = None) -> str:
         """Search the plugin catalogs keel reads: each plugin's name, title, trust level (content, web or code),

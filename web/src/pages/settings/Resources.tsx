@@ -5,6 +5,8 @@
 //   Now       Memory 1.0 GB used, limit 8.0 GB · CPUs 4 · Agents 1 running
 //   Limits    Memory [6g] CPUs [4] [Save]    waits for keel2: `keel2 limits` applies it now
 //   Agents    Agents at the same time [auto (4)] · low CPU priority
+//   Start     [x] Docker access for the project's tests  [ ] Reachable on your Wi-Fi   (0.21.2: keel2 takes them at its
+//             next start; it asks on that computer before it turns one on)
 
 import { useEffect, useState } from "react";
 import { errorParts } from "../../api";
@@ -87,6 +89,9 @@ export function ResourcesTab() {
                 ) : null}
               </section>
             )}
+            {v.in_container !== false && v.start && (
+              <StartOptions now={v.start} wanted={v.start_wanted ?? {}} onSave={(b) => void save(b)} />
+            )}
             <section className="ss-cardp" aria-labelledby="res-agents-h">
               <h2 id="res-agents-h" className="ss-h2">Agents</h2>
               <label className="ss-label">
@@ -111,5 +116,47 @@ export function ResourcesTab() {
         )}
       </div>
     </SettingsFrame>
+  );
+}
+
+/** 0.21.2 how keel2 starts this keel. A container cannot change these itself: keel2 takes them at its next start, and asks
+ *  on that computer before it turns one on (Docker access is as strong as root there). keel2 remembers them. */
+function StartOptions({ now, wanted, onSave }: {
+  now: { docker: boolean; wifi: boolean };
+  wanted: { docker?: boolean; wifi?: boolean };
+  onSave: (b: { docker?: boolean; wifi?: boolean }) => void;
+}) {
+  const docker = wanted.docker ?? now.docker;
+  const wifi = wanted.wifi ?? now.wifi;
+  const waits = wanted.docker !== undefined || wanted.wifi !== undefined;
+  const state = (on: boolean, w: boolean | undefined) => (w === undefined ? (on ? "on" : "off") : `${on ? "on" : "off"} now, ${w ? "on" : "off"} after the next start`);
+  return (
+    <section className="ss-cardp" aria-labelledby="res-start-h">
+      <h2 id="res-start-h" className="ss-h2">How keel starts</h2>
+      <p className="ss-help">
+        keel2 remembers these, also for <span className="ss-mono">keel2 start</span> without the flag. Before it turns one on, it asks you on the computer
+        that runs keel.
+      </p>
+      <label className="acc-check">
+        <input type="checkbox" checked={docker} onChange={(e) => onSave({ docker: e.target.checked })} />
+        Docker access for the project's tests (Testcontainers, compose): <span className="ss-mono">--docker</span>
+      </label>
+      <span className="ss-help" data-testid="res-docker">
+        {state(now.docker, wanted.docker)}. keel's agents can then start containers on that computer, which is as strong as root there.
+      </span>
+      <label className="acc-check">
+        <input type="checkbox" checked={wifi} onChange={(e) => onSave({ wifi: e.target.checked })} />
+        Reachable on your Wi-Fi, for the phone app: <span className="ss-mono">--wifi</span>
+      </label>
+      <span className="ss-help" data-testid="res-wifi">{state(now.wifi, wanted.wifi)}. Plain http inside your network.</span>
+      {waits && (
+        <>
+          <p className="ss-row" role="status" style={{ margin: "12px 0 0" }}>
+            Saved, not applied yet. keel starts this way after a restart. Run this on the computer that runs keel, and say yes when it asks:
+          </p>
+          <CopyBlock text="keel2 restart" label="keel2 restart command" />
+        </>
+      )}
+    </section>
   );
 }

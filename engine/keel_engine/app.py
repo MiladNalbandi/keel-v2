@@ -503,6 +503,8 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
         try:
             if "memory" in body or "cpus" in body:
                 resources.save_wanted(body.get("memory"), body.get("cpus"))
+            if any(k in body for k in resources.START_KEYS):
+                resources.save_start_wanted({k: body[k] for k in resources.START_KEYS if k in body})
             resources.save({k: v for k, v in body.items() if k in resources.DEFAULTS})
         except ValueError as exc:
             raise EngineError(400, str(exc)) from None

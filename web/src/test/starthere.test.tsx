@@ -184,6 +184,26 @@ describe("Settings › Access", () => {
     await waitFor(() => expect(db.calls.some((c) => c.path === "/api/resources" && (c.body as { low_priority?: boolean }).low_priority === false)).toBe(true));
   });
 
+  it("0.21.2 Resources › How keel starts: Docker access and the Wi-Fi wait for keel2's next start, which asks first", async () => {
+    const user = userEvent.setup();
+    location.hash = "#/settings/resources";
+    render(<App />);
+    const docker = await screen.findByRole("checkbox", { name: /Docker access for the project's tests/ });
+    expect(docker).not.toBeChecked();
+    expect(screen.getByTestId("res-docker")).toHaveTextContent(/^off\./);
+    expect(screen.queryByLabelText("keel2 restart command")).toBeNull();
+    await user.click(docker);
+    await waitFor(() => expect(db.calls.some((c) => c.path === "/api/resources" && (c.body as { docker?: boolean }).docker === true)).toBe(true));
+    await waitFor(() => expect(screen.getByTestId("res-docker")).toHaveTextContent("off now, on after the next start"));
+    expect(docker).toBeChecked();
+    expect(screen.getByLabelText("keel2 restart command")).toHaveTextContent("keel2 restart");
+    // back to how keel runs now: nothing waits
+    await user.click(docker);
+    await waitFor(() => expect(screen.queryByLabelText("keel2 restart command")).toBeNull());
+    await user.click(screen.getByRole("checkbox", { name: /Reachable on your Wi-Fi/ }));
+    await waitFor(() => expect(screen.getByTestId("res-wifi")).toHaveTextContent("off now, on after the next start"));
+  });
+
   it("0.20.1 Resources says when the memory limit stopped a process, and has no limits in native mode", async () => {
     db.resources = { ...db.resources, oom_kills: 2, memory_limit: null, cpu_limit: null, in_container: false };
     location.hash = "#/settings/resources";
@@ -191,6 +211,7 @@ describe("Settings › Access", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("stopped a process 2 times");
     expect(screen.getByTestId("res-now")).toHaveTextContent("limit none · CPUs: no limit");
     expect(screen.queryByRole("button", { name: "Save the limits" })).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: /Docker access/ })).toBeNull();
   });
 
   it("the AI tools keel saw, and the updates part: check every day, the channel, the command", async () => {

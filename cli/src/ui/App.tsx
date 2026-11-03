@@ -27,7 +27,7 @@ import { makeGatePick } from "./gatePick";
 import { diffLines, promptView } from "./promptView";
 import { CTRL_PANEL, INLINE_MODE_ROWS, LIVE_TOOL_ROWS, THEME_WORDS, type Item, type PanelId, type Question } from "./hooks/types";
 import { headerLine, isMouse, MOUSE, SCREEN, view, wheel, wrap } from "../core/lines";
-import { isNewline, moveRow } from "../core/prompt";
+import { isNewline, moveRow, wordLeft, wordRight } from "../core/prompt";
 import { editText, findEditor } from "../core/editor";
 import { copyText, NATIVE_SELECT, pickCopy } from "../core/clipboard";
 import { colsOn, highlight } from "../core/select";
@@ -99,8 +99,20 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
   const [items, setItems] = useState<Item[]>([]);
   const [epoch, setEpoch] = useState(0);
   const [started, setStarted] = useState(false);
-  const [line, setLine] = useState("");
-  const [cursor, setCursor] = useState(0);
+  // 0.21.2 the prompt's text and cursor also live in refs, set with the state: two keys that arrive before the next
+  // render (fast typing) each build on the one before, instead of both on the old text (the second overwrote the first)
+  const [line, setLineState] = useState("");
+  const [cursor, setCursorState] = useState(0);
+  const lineRef = useRef("");
+  const cursorRef = useRef(0);
+  const setLine = useCallback((t: string) => {
+    lineRef.current = t;
+    setLineState(t);
+  }, []);
+  const setCursor = useCallback((c: number | ((was: number) => number)) => {
+    cursorRef.current = typeof c === "function" ? c(cursorRef.current) : c;
+    setCursorState(cursorRef.current);
+  }, []);
   const { pending, setPending, pendingRef, pickIdx, setPickIdx, pickFilter, setPickFilter, ticked, setTicked } = usePending();
   const [panels, setPanels] = useState<PanelId[]>([]);
   const pastes = useRef(new Pastes());
@@ -531,6 +543,9 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
   const { shownRef } = useMouse({ screen, mode, stdout, lines, line, owners, viewRef, promptRef, clicks, toggleToolRef, selRef, setSel, setFlash, scroll, shown, setOffset });
 
   useInput((input, key) => {
+    // the prompt as the keys before this one left it (not as the last render saw it)
+    const line = lineRef.current;
+    const cursor = cursorRef.current;
     // the mouse's reports are read below, from the raw input; never typed into the prompt
     if (isMouse(input) || isMouse("\x1b" + input)) return;
     // a key ends what the mouse selected, and the "copied" notice
@@ -736,6 +751,21 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
         return;
       }
       void submit(line);
+      return;
+    }
+    // 0.21.2 a word at a time: Option / Alt (or Ctrl) + ← → jump a word (macOS Terminal sends Option+← → as ESC b / ESC
+    // f); Option+Delete and Ctrl+W delete the word before the cursor, Alt+D the word after it
+    if ((key.leftArrow && (key.meta || key.ctrl)) || (key.meta && input === "b")) return setCursor(wordLeft(line, cursor));
+    if ((key.rightArrow && (key.meta || key.ctrl)) || (key.meta && input === "f")) return setCursor(wordRight(line, cursor));
+    if (((key.backspace || key.delete) && key.meta) || (key.ctrl && input === "w")) {
+      setHIdx(-1);
+      const to = wordLeft(line, cursor);
+      setText(line.slice(0, to) + line.slice(cursor), to);
+      return;
+    }
+    if (key.meta && input === "d") {
+      setHIdx(-1);
+      setText(line.slice(0, cursor) + line.slice(wordRight(line, cursor)), cursor);
       return;
     }
     if (key.backspace || key.delete) {

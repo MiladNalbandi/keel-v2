@@ -32,6 +32,11 @@ AUTO_MIN, AUTO_MAX = 2, 6
 WAKE_S = 5                   # a waiting agent looks at the limit again: the person may raise it while the others run long
 DEFAULTS = {"max_agents": 0, "low_priority": True}
 WANTED = "limits-wanted"
+# 0.21.2 how keel2 starts this keel: Docker access for the project's tests, and the address (this computer or the Wi-Fi).
+# Only the host can change them (a new container); Settings saves what the person wants here, and keel2 takes it at its
+# next start, restart or update. keel2 asks on that computer before it turns one of them on.
+START_WANTED = "start-wanted"
+START_KEYS = ("docker", "wifi")
 MEMORY = re.compile(r"^([0-9]+)([mg])$")
 CPUS = re.compile(r"^[0-9]+(\.[0-9]+)?$")
 
@@ -97,6 +102,44 @@ def save_wanted(memory: str | None, cpus: str | None) -> None:
     if text:
         f.parent.mkdir(parents=True, exist_ok=True)
         f.write_text(text)
+    else:
+        f.unlink(missing_ok=True)
+
+
+def start_now() -> dict:
+    """How this keel was started: Docker access (the host's Docker socket is mounted) and the Wi-Fi (KEEL_BIND)."""
+    return {"docker": Path("/var/run/docker.sock").exists(),
+            "wifi": os.environ.get("KEEL_BIND", "127.0.0.1") not in ("", "127.0.0.1", "localhost")}
+
+
+def _start_file() -> Path:
+    return config.data_dir() / START_WANTED
+
+
+def start_wanted() -> dict:
+    """What Settings asked keel2 to change at the next start: {"docker": True, ...}; {} when nothing waits."""
+    try:
+        lines = _start_file().read_text().splitlines()
+    except OSError:
+        return {}
+    return {k: v == "1" for k, _, v in (line.partition("=") for line in lines) if k in START_KEYS and v in ("0", "1")}
+
+
+def save_start_wanted(patch: dict) -> None:
+    """docker / wifi: true or false (ValueError otherwise). A value equal to how keel runs now waits for nothing.
+    keel2 reads this file with sed: one `name=0|1` per line."""
+    for k in START_KEYS:
+        if k in patch and not isinstance(patch[k], bool):
+            raise ValueError(f"{k} is true or false.")
+    now, want = start_now(), start_wanted()
+    for k in START_KEYS:
+        if k in patch:
+            want[k] = patch[k]
+    want = {k: v for k, v in want.items() if v != now[k]}
+    f = _start_file()
+    if want:
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text("".join(f"{k}={1 if v else 0}\n" for k, v in want.items()))
     else:
         f.unlink(missing_ok=True)
 
@@ -193,4 +236,5 @@ def view() -> dict:
     return {**s, "auto_agents": auto_agents(), "agents_limit": s["max_agents"] or auto_agents(), "max": MAX_AGENTS,
             "running": g.running if g else 0, "waiting": g.waiting if g else 0,
             "memory_used": mem["used"], "memory_limit": mem["limit"], "oom_kills": mem["oom_kills"],
-            "cpu_limit": cpu_limit(), "cpus": os.cpu_count(), "wanted": wanted(), "in_container": Path("/.dockerenv").exists()}
+            "cpu_limit": cpu_limit(), "cpus": os.cpu_count(), "wanted": wanted(), "in_container": Path("/.dockerenv").exists(),
+            "start": start_now(), "start_wanted": start_wanted()}

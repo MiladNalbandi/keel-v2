@@ -136,7 +136,7 @@ export function createDb() {
     startFlow: null as StartView["flow"],
     access: { mode: "local", bind: "127.0.0.1", wifi: [], names: [], tailscale: null, tunnel: null, native: false, folder: "/home/ana/code/my-app" } as AccessView,
     resources: { max_agents: 0, auto_agents: 4, agents_limit: 4, max: 32, low_priority: true, running: 1, waiting: 0, memory_used: 1073741824,
-      memory_limit: 8589934592, oom_kills: 0, cpu_limit: 4, cpus: 8 } as Record<string, unknown>,
+      memory_limit: 8589934592, oom_kills: 0, cpu_limit: 4, cpus: 8, start: { docker: false, wifi: false }, start_wanted: {} } as Record<string, unknown>,
     updates: {
       current: "0.18.66", latest: "0.18.66", newer: false, name: "keel v2 0.18.66", notes: "", url: "https://github.com/MiladNalbandi/keel-v2/releases/tag/v0.18.66",
       published_at: null, checked_at: "2026-10-28T09:00:00Z", error: null, check_daily: true, channel: "stable", edition: "full",
@@ -230,8 +230,12 @@ export function handlers(db: Db) {
     http.put("/api/resources", async ({ request }) => {
       const body = (await request.json()) as Record<string, unknown>;
       db.calls.push({ method: "PUT", path: "/api/resources", body });
-      const { memory, cpus, ...rest } = body;
-      db.resources = { ...db.resources, ...rest, ...(memory || cpus ? { wanted: { memory, cpus } } : {}) };
+      const { memory, cpus, docker, wifi, ...rest } = body;
+      // 0.21.2 Docker access and the Wi-Fi wait for keel2's next start (a value equal to how keel runs now waits for nothing)
+      const now = db.resources.start as { docker: boolean; wifi: boolean };
+      const want = { ...(db.resources.start_wanted as Record<string, boolean>), ...(docker !== undefined ? { docker } : {}), ...(wifi !== undefined ? { wifi } : {}) };
+      const startWanted = Object.fromEntries(Object.entries(want).filter(([k, v]) => v !== now[k as "docker" | "wifi"]));
+      db.resources = { ...db.resources, ...rest, start_wanted: startWanted, ...(memory || cpus ? { wanted: { memory, cpus } } : {}) };
       return HttpResponse.json(db.resources);
     }),
     http.get("/api/updates", () => HttpResponse.json(db.updates)),
