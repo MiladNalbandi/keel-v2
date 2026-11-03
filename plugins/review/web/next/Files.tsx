@@ -33,9 +33,15 @@ import * as R from "../store";
 import { firstLine } from "../Threads";
 import { same, threadPill } from "./model";
 import { Tag } from "./ui";
+import { fileChanges, peekAfter, sideBySide } from "../wholeFile";
+import { ChangeGutter, ChangeKey, ChangePeek } from "../WholeFileMarks";
 
 type Side = "RIGHT" | "LEFT";
 const isText = (v: unknown): v is string => typeof v === "string";
+type Show = "diff" | "file";
+type Layout = "one" | "split";
+const isShow = (v: unknown): v is Show => v === "diff" || v === "file";
+const isLayout = (v: unknown): v is Layout => v === "one" || v === "split";
 
 export function FilesTab({
   pid,
@@ -213,6 +219,183 @@ function FileDiff({
         : null;
   const err = R.review(pid, reviewKey).err;
 
+  // 0.21.1 Whole file: the new file with its changes marked (a click on a mark shows the old code), or the old file
+  // next to the new one. The marks come from the same diff; the choice stays in this browser.
+  const [show, setShow] = useStored<Show>("keel2.review.next.show", "diff", { valid: isShow, store: "local" });
+  const [layout, setLayout] = useStored<Layout>("keel2.review.next.layout", "one", { valid: isLayout, store: "local" });
+  const whole = show === "file" && !d.data?.binary;
+  const f = useLoad(
+    whole ? `review-file:${pid}:${reviewKey}:${path}` : null,
+    () => reviewApi.file(pid, reviewKey, path),
+    { live: false },
+  );
+  const fc = useMemo(
+    () => (whole && d.data && !d.data.binary ? fileChanges(rows) : null),
+    [whole, d.data, rows],
+  );
+  const lines = useMemo(() => {
+    const all = f.data ? f.data.text.split("\n") : [];
+    if (all.length && all[all.length - 1] === "") all.pop();
+    return all;
+  }, [f.data]);
+  const pairs = useMemo(
+    () => (fc && layout === "split" ? sideBySide(lines, fc) : null),
+    [fc, layout, lines],
+  );
+  const [peek, setPeek] = useState<number | null>(null);
+  const total = fc?.changes.length ?? 0;
+  const open = peek != null ? (fc?.changes[peek - 1] ?? null) : null;
+  const goChange = (n: number) => {
+    setPeek(n);
+    const c = fc?.changes[n - 1];
+    if (!c) return;
+    const line = c.first ?? Math.max(1, c.after);
+    code.current
+      ?.querySelector<HTMLElement>(`[data-rvn-line="${CSS.escape(`${path}:${line}`)}"]`)
+      ?.scrollIntoView?.({ block: "center" });
+  };
+  const toSplit = () => {
+    setLayout("split");
+    setPeek(null);
+  };
+  const peekBox = (n: number) =>
+    open && peekAfter(open) === n ? (
+      <ChangePeek
+        change={open}
+        total={total}
+        lang={null}
+        onGo={goChange}
+        onClose={() => setPeek(null)}
+        onSideBySide={toSplit}
+      />
+    ) : null;
+
+  // a line number starts a comment on that line
+  const number = (ln: [number, Side] | null) =>
+    ln && (
+      <button
+        type="button"
+        aria-label={`Comment on line ${ln[0]}${ln[1] === "LEFT" ? " (old)" : ""}`}
+        onClick={() => {
+          setAt({ line: ln[0], side: ln[1] });
+          setText("");
+        }}
+      >
+        {ln[0]}
+      </button>
+    );
+  // under a line: its comments, your pending ones, the comment you are writing
+  const extras = (ln: [number, Side] | null) => {
+    const marks = ln
+      ? view.threads.filter(
+          (t) =>
+            t.path === path &&
+            t.line === ln[0] &&
+            (t.side ?? "RIGHT") === ln[1],
+        )
+      : [];
+    const drafts = ln
+      ? view.drafts.filter(
+          (x) =>
+            x.path === path &&
+            x.line === ln[0] &&
+            (x.side ?? "RIGHT") === ln[1],
+        )
+      : [];
+    const composing = !!ln && at?.line === ln[0] && at.side === ln[1];
+    return (
+      <>
+        {marks.map((t) => {
+          const [pill, tone] = threadPill(
+            t,
+            view,
+            ai,
+            running.includes(`judge:${t.id}`),
+          );
+          const first = t.comments[0];
+          return (
+            <button
+              key={t.id}
+              type="button"
+              className="rvn-mark"
+              aria-label={`Open the comment of ${first?.author ?? "someone"} on line ${t.line}`}
+              onClick={() => onOpenThread(t.id)}
+            >
+              <b>
+                {first
+                  ? same(first.author, view.me)
+                    ? "You"
+                    : first.author
+                  : "Comment"}
+              </b>
+              <span className="rvn-mark-t">
+                {firstLine(first?.body ?? "")}
+              </span>
+              <Tag tone={tone}>{pill}</Tag>
+            </button>
+          );
+        })}
+        {drafts.map((x) => (
+          <div key={x.id} className="rvn-mark pending">
+            <Tag tone="run">pending</Tag>
+            <span className="rvn-mark-t">{firstLine(x.body)}</span>
+            <button
+              type="button"
+              className="rvn-x"
+              aria-label={`Remove the pending comment on line ${x.line}`}
+              onClick={() => void R.deleteDraft(pid, reviewKey, x)}
+            >
+              ×
+            </button>
+          </div>
+        ))}
+        {composing && (
+          <form
+            className="rvn-compose"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void add();
+            }}
+          >
+            <textarea
+              className="rvn-ta"
+              rows={2}
+              autoFocus
+              aria-label={`Your comment on line ${at!.line}`}
+              placeholder="Your comment on this line (pending until you submit)"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setAt(null);
+                if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                  e.preventDefault();
+                  void add();
+                }
+              }}
+            />
+            <div className="rvn-row">
+              <button
+                type="submit"
+                className="rvn-btn primary"
+                disabled={!text.trim() || running.includes("draft")}
+              >
+                Add to my review
+              </button>
+              <button
+                type="button"
+                className="rvn-btn"
+                onClick={() => setAt(null)}
+              >
+                Cancel
+              </button>
+            </div>
+            {err && <ErrorBox error={err} />}
+          </form>
+        )}
+      </>
+    );
+  };
+
   // 0.18.63 the bar over selected lines: Search the project for them, ask KeelBot about them, or have it review them
   const code = useRef<HTMLDivElement>(null);
   const assistant = useSlot<AssistantItem>(SLOTS.assistant)[0] ?? null;
@@ -257,6 +440,54 @@ function FileDiff({
         <span className="rvn-mono rvn-diff-p" title={path}>
           {path}
         </span>
+        <span className="rvn-switch" role="group" aria-label="Show">
+          <button type="button" aria-pressed={!whole} onClick={() => setShow("diff")}>
+            Changes
+          </button>
+          <button
+            type="button"
+            aria-pressed={whole}
+            disabled={!!d.data?.binary}
+            onClick={() => setShow("file")}
+          >
+            Whole file
+          </button>
+        </span>
+        {whole && (
+          <span className="rvn-switch" role="group" aria-label="Layout">
+            <button type="button" aria-pressed={layout === "one"} onClick={() => setLayout("one")}>
+              New file
+            </button>
+            <button type="button" aria-pressed={layout === "split"} onClick={toSplit}>
+              Old | New
+            </button>
+          </span>
+        )}
+        {whole && total > 0 && (
+          <span className="rvn-row">
+            <button
+              type="button"
+              className="rvn-btn rvn-btn-sm"
+              aria-label="Previous change"
+              title="Previous change"
+              onClick={() => goChange(peek && peek > 1 ? peek - 1 : total)}
+            >
+              ‹
+            </button>
+            <span className="rvn-dim">
+              {peek ? `Change ${peek} of ${total}` : `${total} change${total === 1 ? "" : "s"}`}
+            </span>
+            <button
+              type="button"
+              className="rvn-btn rvn-btn-sm"
+              aria-label="Next change"
+              title="Next change"
+              onClick={() => goChange(peek && peek < total ? peek + 1 : 1)}
+            >
+              ›
+            </button>
+          </span>
+        )}
         <span className="rvn-dim">Click a line number to comment</span>
         <button
           type="button"
@@ -285,7 +516,12 @@ function FileDiff({
         <p className="rvn-empty">A binary file: no lines to show.</p>
       )}
       {d.data && !d.data.binary && <SelectionBar within={code} actions={actions} />}
-      {d.data && !d.data.binary && (
+      {whole && fc && (
+        <div className="rvn-wf-key">
+          <ChangeKey peek={layout === "one"} />
+        </div>
+      )}
+      {d.data && !d.data.binary && !whole && (
         <div className="rvn-code" ref={code}>
           {rows.map((r, i) => {
             if (r.kind === "hunk" || r.kind === "meta")
@@ -295,23 +531,6 @@ function FileDiff({
                 </div>
               );
             const ln = lineOf(r);
-            const marks = ln
-              ? view.threads.filter(
-                  (t) =>
-                    t.path === path &&
-                    t.line === ln[0] &&
-                    (t.side ?? "RIGHT") === ln[1],
-                )
-              : [];
-            const drafts = ln
-              ? view.drafts.filter(
-                  (x) =>
-                    x.path === path &&
-                    x.line === ln[0] &&
-                    (x.side ?? "RIGHT") === ln[1],
-                )
-              : [];
-            const composing = !!ln && at?.line === ln[0] && at.side === ln[1];
             return (
               <div
                 key={i}
@@ -322,112 +541,13 @@ function FileDiff({
                 data-rvn-n={ln ? `${ln[1] === "LEFT" ? "-" : ""}${ln[0]}` : undefined}
               >
                 <div className={`rvn-dl ${r.kind}`}>
-                  <span className="rvn-dl-n">
-                    {ln && (
-                      <button
-                        type="button"
-                        aria-label={`Comment on line ${ln[0]}${ln[1] === "LEFT" ? " (old)" : ""}`}
-                        onClick={() => {
-                          setAt({ line: ln[0], side: ln[1] });
-                          setText("");
-                        }}
-                      >
-                        {ln[0]}
-                      </button>
-                    )}
-                  </span>
+                  <span className="rvn-dl-n">{number(ln)}</span>
                   <span className="rvn-dl-m" aria-hidden="true">
                     {r.kind === "add" ? "+" : r.kind === "del" ? "−" : ""}
                   </span>
                   <span className="rvn-dl-t">{r.text || " "}</span>
                 </div>
-                {marks.map((t) => {
-                  const [pill, tone] = threadPill(
-                    t,
-                    view,
-                    ai,
-                    running.includes(`judge:${t.id}`),
-                  );
-                  const first = t.comments[0];
-                  return (
-                    <button
-                      key={t.id}
-                      type="button"
-                      className="rvn-mark"
-                      aria-label={`Open the comment of ${first?.author ?? "someone"} on line ${t.line}`}
-                      onClick={() => onOpenThread(t.id)}
-                    >
-                      <b>
-                        {first
-                          ? same(first.author, view.me)
-                            ? "You"
-                            : first.author
-                          : "Comment"}
-                      </b>
-                      <span className="rvn-mark-t">
-                        {firstLine(first?.body ?? "")}
-                      </span>
-                      <Tag tone={tone}>{pill}</Tag>
-                    </button>
-                  );
-                })}
-                {drafts.map((x) => (
-                  <div key={x.id} className="rvn-mark pending">
-                    <Tag tone="run">pending</Tag>
-                    <span className="rvn-mark-t">{firstLine(x.body)}</span>
-                    <button
-                      type="button"
-                      className="rvn-x"
-                      aria-label={`Remove the pending comment on line ${x.line}`}
-                      onClick={() => void R.deleteDraft(pid, reviewKey, x)}
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
-                {composing && (
-                  <form
-                    className="rvn-compose"
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      void add();
-                    }}
-                  >
-                    <textarea
-                      className="rvn-ta"
-                      rows={2}
-                      autoFocus
-                      aria-label={`Your comment on line ${at!.line}`}
-                      placeholder="Your comment on this line (pending until you submit)"
-                      value={text}
-                      onChange={(e) => setText(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Escape") setAt(null);
-                        if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                          e.preventDefault();
-                          void add();
-                        }
-                      }}
-                    />
-                    <div className="rvn-row">
-                      <button
-                        type="submit"
-                        className="rvn-btn primary"
-                        disabled={!text.trim() || running.includes("draft")}
-                      >
-                        Add to my review
-                      </button>
-                      <button
-                        type="button"
-                        className="rvn-btn"
-                        onClick={() => setAt(null)}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                    {err && <ErrorBox error={err} />}
-                  </form>
-                )}
+                {extras(ln)}
               </div>
             );
           })}
@@ -435,6 +555,84 @@ function FileDiff({
             <p className="rvn-dim rvn-pad">
               The diff is long: keel shows its start.
             </p>
+          )}
+        </div>
+      )}
+      {whole && f.error && <ErrorBox error={f.error} onRetry={() => void f.reload()} />}
+      {whole && !f.data && !f.error && (
+        <span className="pg-spin rvn-pad" role="status">
+          Opening {path}…
+        </span>
+      )}
+      {whole && f.data && (
+        <div className={`rvn-code rvn-whole${pairs ? " split" : ""}`} ref={code}>
+          {pairs ? (
+            pairs.map((r, i) => {
+              const ln: [number, Side] | null = r.right ? [r.right.line, "RIGHT"] : null;
+              return (
+                <div
+                  key={i}
+                  className="rvn-dl-w"
+                  data-rvn-line={ln ? `${path}:${ln[0]}` : undefined}
+                  data-rvn-n={ln ? `${ln[0]}` : r.left ? `-${r.left.line}` : undefined}
+                >
+                  <div className="rvn-sl">
+                    <span className="rvn-sl-n">{r.left?.line ?? ""}</span>
+                    <span className="wf-g">
+                      {r.left?.kind === "del" && <i className="wf-bar del" aria-hidden="true" />}
+                    </span>
+                    <span className={`rvn-sl-t${r.left ? "" : " none"}`}>{r.left ? r.left.text || " " : ""}</span>
+                    <span className="rvn-dl-n">{number(ln)}</span>
+                    <span className="wf-g">
+                      {r.right && r.right.kind !== "ctx" && (
+                        <i className={`wf-bar ${r.right.kind}`} aria-hidden="true" />
+                      )}
+                    </span>
+                    <span className={`rvn-dl-t${r.right ? "" : " none"}`}>{r.right ? r.right.text || " " : ""}</span>
+                  </div>
+                  {r.left?.kind === "del" && extras([r.left.line, "LEFT"])}
+                  {extras(ln)}
+                </div>
+              );
+            })
+          ) : (
+            <>
+              {peekBox(0)}
+              {lines.map((t, i) => {
+                const ln: [number, Side] = [i + 1, "RIGHT"];
+                return (
+                  <div
+                    key={i}
+                    className="rvn-dl-w"
+                    data-rvn-line={`${path}:${i + 1}`}
+                    data-rvn-n={`${i + 1}`}
+                  >
+                    <div className="rvn-dl wf-l">
+                      <span className="rvn-dl-n">{number(ln)}</span>
+                      {fc && (
+                        <ChangeGutter
+                          line={i + 1}
+                          mark={fc.marks.get(i + 1)}
+                          cut={fc.cuts.get(i + 1)}
+                          cutBelow={i === lines.length - 1 ? fc.cuts.get(i + 2) : undefined}
+                          open={peek}
+                          onPick={(c) => setPeek(peek === c.n ? null : c.n)}
+                        />
+                      )}
+                      <span className="rvn-dl-t">{t || " "}</span>
+                    </div>
+                    {peekBox(i + 1)}
+                    {extras(ln)}
+                  </div>
+                );
+              })}
+            </>
+          )}
+          {f.data.truncated && (
+            <p className="rvn-dim rvn-pad">The file is longer: keel shows its first 1 MB.</p>
+          )}
+          {d.data?.truncated && (
+            <p className="rvn-dim rvn-pad">The diff is long: the marks stop where keel cut it.</p>
           )}
         </div>
       )}

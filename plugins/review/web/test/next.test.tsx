@@ -8,6 +8,7 @@
 
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { http, HttpResponse } from "msw";
 import { afterEach, describe, expect, it } from "vitest";
 import { App } from "../../../../web/src/App";
 import { db, server } from "../../../../web/src/test/setup";
@@ -435,6 +436,70 @@ describe("the new Review view: one pull request", () => {
       "aria-expanded",
       "true",
     );
+  });
+
+  it("Files: Whole file marks the changed lines, shows a change's old code, and Old | New puts the old file next to the new", async () => {
+    start();
+    const filler = ["from decimal import Decimal", "", "from .models import Order, Refund", "", "", "class RefundTooLarge(Exception):", "    pass", "", ""];
+    const refunds = [
+      ...filler,
+      "def refundable_amount(order: Order) -> Decimal:",
+      '    """What can still be refunded on this order."""',
+      "    already = sum(r.amount for r in order.refunds)",
+      "    return order.paid_total - already",
+      "",
+      "",
+      "def refund(order: Order, amount: Decimal, reason: str) -> Refund:",
+      "    if amount <= 0:",
+      '        raise ValueError("amount must be positive")',
+      "    # never give back more than the customer paid",
+      "    if amount > refundable_amount(order):",
+      "        raise RefundTooLarge(order.id)",
+      "    item = Refund(order=order, amount=amount, reason=reason)",
+      "    order.refunds.append(item)",
+      "    return item",
+    ];
+    server.use(
+      http.get("/api/projects/:pid/review/file", ({ request }) =>
+        HttpResponse.json({
+          path: new URL(request.url).searchParams.get("path"),
+          ref: "#42",
+          sha: "b".repeat(40),
+          text: refunds.join("\n") + "\n",
+          truncated: false,
+        }),
+      ),
+    );
+    const { pr } = await openPr(42);
+    await userEvent.click(tab(pr, /^Files/));
+    const diff = await within(pr).findByRole("region", { name: "Changes of orders/refunds.py" });
+    await within(diff).findByText(/return order\.paid_total - already/);
+    await userEvent.click(within(diff).getByRole("button", { name: "Whole file" }));
+
+    // the whole file, also the lines outside the diff, and a bar next to each changed line
+    expect(await within(diff).findByText("from decimal import Decimal")).toBeInTheDocument();
+    expect(within(diff).getAllByRole("button", { name: "Change 3: added. Show the old code" })).toHaveLength(4);
+    await userEvent.click(within(diff).getByRole("button", { name: "Change 1: changed. Show the old code" }));
+    const peek = within(diff).getByRole("group", { name: "Change 1 of 3: changed" });
+    expect(within(peek).getByText("line 13, was 1 line")).toBeInTheDocument();
+    expect(within(peek).getByText("return order.total - already")).toBeInTheDocument();
+    await userEvent.click(within(peek).getByRole("button", { name: "Next change" }));
+    const peek2 = within(diff).getByRole("group", { name: "Change 2 of 3: added" });
+    expect(within(peek2).getByText("Nothing was here before. This line is new.")).toBeInTheDocument();
+    expect(within(diff).getByText("Change 2 of 3")).toBeInTheDocument();
+    // a line outside the diff still takes a comment
+    expect(within(diff).getByRole("button", { name: "Comment on line 3" })).toBeInTheDocument();
+
+    // Old | New: the removed line next to the line that replaced it
+    await userEvent.click(
+      within(within(diff).getByRole("group", { name: "Layout" })).getByRole("button", { name: "Old | New" }),
+    );
+    const old = await within(diff).findByText("return order.total - already");
+    expect(old.closest(".rvn-sl")).toHaveTextContent("return order.paid_total - already");
+    expect(within(diff).queryByRole("group", { name: /^Change \d of 3/ })).not.toBeInTheDocument();
+    // the choice stays in this browser
+    expect(localStorage.getItem("keel2.review.next.show")).toContain("file");
+    expect(localStorage.getItem("keel2.review.next.layout")).toContain("split");
   });
 
   it("Problems: Find problems, then Add as comment and Dismiss, grouped Blocking / Should fix / Already there before", async () => {

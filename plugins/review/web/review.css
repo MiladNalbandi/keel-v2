@@ -339,3 +339,49 @@
 .rv-check.t-bad .rv-check-state { color: var(--bad); }
 .rv-check-link { color: var(--accent); text-decoration: none; white-space: nowrap; }
 .rv-check-link:hover { text-decoration: underline; }
+
+/* 0.21.1 the whole file with its changes marked (WholeFileMarks.tsx): a bar next to the line number (green added, blue
+   changed), a red ▶ where lines were deleted, and the peek with the old code. Shared by the classic view and the
+   Review page. */
+.wf-g { position: relative; display: flex; justify-content: center; width: 14px; align-self: stretch; }
+.wf-bar { --wf-c: var(--ok); }
+.wf-bar.mod { --wf-c: var(--run); }
+i.wf-bar { display: inline-block; width: 4px; background: var(--wf-c); }
+button.wf-bar { display: block; width: 14px; height: 100%; min-height: 1em; padding: 0; border: 0; border-radius: 0; cursor: pointer; background: linear-gradient(var(--wf-c), var(--wf-c)) center / 4px 100% no-repeat; }
+button.wf-bar:hover, button.wf-bar.open { background-size: 7px 100%; }
+button.wf-bar:focus-visible, .wf-cut:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+.wf-cut { position: absolute; left: 2px; top: -7px; z-index: 1; width: 12px; height: 14px; padding: 0; border: 0; background: none; cursor: pointer; }
+.wf-cut::before { content: ""; position: absolute; left: 2px; top: 1px; border-top: 6px solid transparent; border-bottom: 6px solid transparent; border-left: 8px solid var(--bad); }
+.wf-cut.below { top: auto; bottom: -7px; }
+.wf-cut:hover::before, .wf-cut.open::before { border-left-width: 10px; }
+.wf-peek { margin: 4px 12px 8px 7ch; max-width: 110ch; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); box-shadow: var(--shadow); font: 13px/1.5 var(--f-body); white-space: normal; overflow: hidden; }
+.wf-peek-h { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 6px 8px 6px 10px; border-bottom: 1px solid var(--border); }
+.wf-peek-k { width: 4px; height: 16px; background: var(--ok); }
+.wf-peek-k.mod { background: var(--run); }
+.wf-peek-k.del { background: var(--bad); }
+.wf-peek-a { margin-left: auto; display: inline-flex; gap: 4px; }
+.wf-btn { border: 1px solid var(--border); background: none; color: var(--fg); border-radius: 6px; padding: 0 8px; font: 12px/22px var(--f-body); cursor: pointer; }
+.wf-btn:hover { border-color: var(--accent); }
+.wf-btn.wf-x { border-color: transparent; color: var(--dim); font-size: 16px; }
+.wf-dim { color: var(--dim); }
+.wf-old { overflow-x: auto; padding: 4px 0 6px; font: 13px/20px var(--f-mono); }
+.wf-old-h { padding: 0 10px 2px; font: 12px var(--f-body); }
+.wf-old-l { display: flex; width: max-content; min-width: 100%; background: var(--del-bg); }
+.wf-old-n { flex: none; width: 5ch; padding-right: 1ch; text-align: right; color: var(--dim); user-select: none; }
+.wf-old-m { flex: none; width: 2ch; color: var(--bad); user-select: none; }
+.wf-old-l code { white-space: pre; padding-right: 16px; font: inherit; }
+.wf-none { margin: 0; padding: 8px 10px; color: var(--dim); }
+.wf-key { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; font-size: 12px; color: var(--dim); }
+.wf-key > span { display: inline-flex; align-items: center; gap: 6px; }
+.wf-key i.wf-bar { height: 13px; }
+.wf-key i.wf-cut { position: relative; left: auto; top: auto; display: inline-block; width: 10px; height: 13px; }
+.wf-key i.wf-cut::before { left: 0; top: 0; }
+.wf-bar.del { --wf-c: var(--bad); }
+.wf-g > i.wf-bar { height: 100%; }
+/* the classic view's whole file: the marks' column between the number and the code; side by side, one per side */
+.rv-file.wf-on .rv-fl { grid-template-columns: 5.5ch 14px max-content; }
+.rv-file.wf-on .rv-fl .dv-code { padding-left: 6px; }
+.rv-file .dv-head .wf-key { margin-left: auto; }
+.wf-srow { grid-template-columns: 4.6ch 14px minmax(0, 1fr) 4.6ch 14px minmax(0, 1fr); }
+.wf-srow .rv-ln { align-self: start; padding: 0 8px 0 0; }
+.wf-srow i.wf-bar { background: var(--wf-c); } /* not the diff's pale .dv-srow .add / .del cell */
