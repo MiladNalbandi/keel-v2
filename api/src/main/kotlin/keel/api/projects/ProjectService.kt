@@ -37,6 +37,8 @@ data class Project(
     val flows: Int = 0,
     /** keel 0.18.55 keel knows this project: it has a .keel/config.yml (the init flow writes it) */
     val configured: Boolean = false,
+    /** 0.22.0 the folder on the person's computer ([root] is where keel sees it); null when keel does not know it */
+    val host: String? = null,
 )
 
 /**
@@ -282,7 +284,8 @@ class ProjectService(
         val waiting = inbox.getObject().waiting(row.id)
         val running = jdbc.queryForObject("SELECT COUNT(*) FROM agent_calls WHERE project_id = ? AND status = 'running'", Int::class.java, row.id) ?: 0
         val flows = jdbc.queryForObject("SELECT COUNT(*) FROM threads WHERE project_id = ? AND status IN ('running','waiting')", Int::class.java, row.id) ?: 0
-        return Project(row.id, row.name, row.root, branch(root), flow, phase, acs, waiting, running, flows, configured(root))
+        val host = if (mount.known) mount.hostOf(row.root) else runCatching { kv.get<String>(hostKey(row.id)) }.getOrNull()
+        return Project(row.id, row.name, row.root, branch(root), flow, phase, acs, waiting, running, flows, configured(root), host)
     }
 
     /** keel 0.18.55 the same test as the engine's (rules/__init__.py `configured`): the project has a .keel/config.yml. */

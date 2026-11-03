@@ -406,8 +406,9 @@ class FlowService(
 
     /** 0.18.64 every remote of the project fetched before a start (engine POST /remotes/fetch: all at once, at most 20 s
      *  each), with keel's GitHub login for a remote on its host: the result per remote, or null when the engine could
-     *  not answer. Never fails the start. */
-    private fun fetchForStart(pid: String, root: Path): JsonNode? =
+     *  not answer. Never fails the start. 0.22.0 a side agent's start too (KeelBot's Helper): its "merged or not" reads
+     *  the remote refs. */
+    fun fetchForStart(pid: String, root: Path): JsonNode? =
         runCatching { engine.post("/remotes/fetch", mapOf("root" to root.toString(), "keys" to contributedKeys(pid).takeIf { it.isNotEmpty() }), long = true) }
             .onFailure { log.warn("no fetch before the start in {}: {}", pid, it.message) }
             .getOrNull()?.get("fetched")?.takeIf { it.isArray }

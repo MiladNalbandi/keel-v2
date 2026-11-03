@@ -153,7 +153,7 @@ class StubApi:
             self.dirty = [d for d in self.dirty if d != body["path"]]
             return httpx.Response(200, json={"results": [], "remaining": [], "clean": True})
         routes = {
-            "/api/projects": PROJECTS,
+            "/api/projects": getattr(self, "projects", PROJECTS),
             "/api/projects/shop/flow": {"thread": self.thread, "workflow": {"id": "feature", "name": "Feature"}},
             "/api/projects/shop/flows/t-1": {"thread": self.thread, "workflow": {"id": "feature", "name": "Feature"}},
             "/api/projects/blog/flow": {"thread": None, "workflow": None},
@@ -161,6 +161,8 @@ class StubApi:
             "/api/jobs": JOBS,
             "/api/projects/shop/workflows": [{"id": "feature"}, {"id": "fix"}],
             "/api/health": {"ok": True, "engine": True, "version": "0.18.64", "fake": False},
+            "/api/access": {"instance": "keel-v2", "host": "studio", "native": False, "folder": "/home/ada/keel-projects/shop",
+                            "workspace": "/workspace"},
             "/api/jobs/j2/prompt": {"id": "j2", "agent": "explorer", "step": "explore", "at": "2026-10-05T10:02:00Z",
                                     "system": "You are the explorer.", "prompt": "Read the code. Note: keep the retry rule.",
                                     "system_cut": False, "prompt_cut": False},
@@ -678,7 +680,7 @@ async def test_start_flow_takes_a_base_and_says_how_far_it_is_behind(stub):
     srv = mcp_server.build_server(write=True, api=stub.api)
     text = await call(srv, "keel_start_flow", {"type": "feature", "idea": "Player scores", "base": "upstream/main"})
     assert stub.posts[-1][1]["base"] == "upstream/main"
-    assert "Base: main is 2 commits behind upstream/main." in text
+    assert "WARNING — the base is not up to date: main is 2 commits behind upstream/main." in text
     refused = await call(srv, "keel_start_flow", {"type": "feature", "idea": "x", "base": "upstream/main", "branch": "continue"})
     assert "base starts a new branch" in refused
 
@@ -954,3 +956,14 @@ async def test_a_flow_keel_runs_instead_of_the_one_asked_is_named(stub):
     text = await call(srv, "keel_start_flow", {"type": "feature", "request": "scores", "engine": "flow"})
     assert "instead" not in text and "started feature" in text
     assert stub.posts[-1][1]["options"]["engine"] == "flow"
+
+
+async def test_health_and_status_say_which_keel_and_which_folder(stub, monkeypatch):
+    """0.22.0 a field report: three keels on two computers, and keel's own clone of the project was not where the
+    person looked. keel_health names the instance, its computer and the folder; keel_status the project's folder."""
+    monkeypatch.delenv("KEEL_MCP_RELAY_N", raising=False)
+    text = await call(mcp_server.build_server(api=stub.api), "keel_health")
+    assert "instance    keel-v2 on studio · in Docker · main folder /home/ada/keel-projects/shop (keel sees it as /workspace)" in text
+    stub.projects = [{**PROJECTS[0], "host": "/home/ada/keel-projects/shop"}, PROJECTS[1]]
+    text = await call(mcp_server.build_server(api=stub.api), "keel_status", {"project": "shop"})
+    assert "folder /home/ada/keel-projects/shop (keel sees it as /workspace/shop)" in text.splitlines()[0]

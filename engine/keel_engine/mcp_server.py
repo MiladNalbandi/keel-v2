@@ -182,7 +182,9 @@ def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | 
     if state.get("cap_note"):
         out.append(str(state["cap_note"]))
     if state.get("base_note"):
-        out.append(f"Base: {state['base_note']}.")        # 0.18.64 how far the base is behind each remote
+        # 0.18.64 how far the base is behind each remote; 0.22.0 loudly when it is (or a fetch failed)
+        old = state.get("base_behind") or any(w in state["base_note"] for w in (" behind ", "failed"))
+        out.append(("WARNING — the base is not up to date: " if old else "Base: ") + f"{state['base_note']}.")
     out.append(f"Watch it: {dashboard_url(api, 'flow', p['id'])}")
     return "\n".join(out)
 

@@ -640,6 +640,8 @@ cmd_start() {
   # phone access: --wifi / KEEL_BIND publishes keel on the network instead of 127.0.0.1 (remembered by the label)
   local i; for i in "${!args[@]}"; do [ "${args[$i]}" = "127.0.0.1:$port:8080" ] && args[i]="$(publish_host "$bind"):$port:8080"; done
   args+=(-e KEEL_NAME="$NAME" --label "keel2.bind=$bind")
+  # 0.22.0 keel_health and Settings › Access say which computer this keel runs on (inside Docker the name is the container's)
+  args+=(-e "KEEL_HOST_NAME=$(own_name)")
   # 0.18.66 keel's Settings › Access shows where it answers (KEEL_BIND) and the update command for the image it runs
   # (KEEL_IMAGE: a pinned tag needs KEEL_IMAGE=<new tag> keel2 update); nothing in the container acts on them
   args+=(-e "KEEL_BIND=$bind" -e "KEEL_IMAGE=$IMAGE")
@@ -2750,7 +2752,7 @@ native_start() {  # native_start <project> <tarball or ""> <source checkout or "
   KEEL_APP="$ND/current" KEEL_DATA="$ND/data" KEEL_WORKSPACE="$project" KEEL_PROJECT_NAME="$(basename "$project")" KEEL_HOST_WORKSPACE="$project" \
     KEEL_FOLDERS="$folders" KEEL_PORT="$port" KEEL_ENGINE_PORT="$eport" KEEL_NPM="$ND/npm" KEEL_INTERNAL_TOKEN="$tok" \
     KEEL_PLUGINS="${NATIVE_PLUGINS:-${KEEL_PLUGINS:-on}}" KEEL_BIND="$bind" KEEL_NAME="$NAME" KEEL2_PATH="$(self_path)" \
-    nohup "$ND/current/keel-native-start" >> "$ND/logs/keel.log" 2>&1 < /dev/null &
+    KEEL_HOST_NAME="$(own_name)" nohup "$ND/current/keel-native-start" >> "$ND/logs/keel.log" 2>&1 < /dev/null &
   echo $! > "$ND/run/keel.pid"
   local i; for i in $(seq 1 180); do
     curl -fs "$(api "$port")/health" >/dev/null 2>&1 && break
