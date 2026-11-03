@@ -108,6 +108,10 @@ class KeelApi(
 
     suspend fun diff(pid: String, key: String, path: String): FileDiff = call("GET", "${r(pid)}/diff?key=${enc(key)}&path=${enc(path)}")
 
+    /** 0.4.0 the whole file as the review's head or base commit has it (side: head | base) */
+    suspend fun reviewFile(pid: String, key: String, path: String, side: String): ReviewFile =
+        call("GET", "${r(pid)}/file?key=${enc(key)}&path=${enc(path)}&side=$side")
+
     suspend fun reply(pid: String, key: String, threadId: String, body: String): ReviewView =
         call("POST", "${r(pid)}/threads/${enc(threadId)}/reply", KeyBody(key, body = body))
 

@@ -276,7 +276,15 @@ data class ReviewThread(
 )
 
 @Serializable
-data class ChangedFile(val path: String, val status: String = "", val added: Int = 0, val removed: Int = 0, val binary: Boolean = false)
+data class ChangedFile(
+    val path: String,
+    val status: String = "",
+    val added: Int = 0,
+    val removed: Int = 0,
+    val binary: Boolean = false,
+    /** a renamed file: its old path */
+    val from: String? = null,
+)
 
 @Serializable
 data class Draft(val id: String, val path: String? = null, val line: Int? = null, val side: String = "RIGHT", val body: String = "", val createdAt: String = "")
@@ -316,6 +324,10 @@ data class ReviewView(
     val me: String? = null,
     val notes: List<String> = emptyList(),
 )
+
+/** 0.4.0 a whole file as the review's head (or base) commit has it (GET /review/file) */
+@Serializable
+data class ReviewFile(val path: String = "", val ref: String = "", val sha: String = "", val text: String = "", val truncated: Boolean = false)
 
 @Serializable
 data class FileDiff(val path: String = "", val diff: String = "", val binary: Boolean = false, val truncated: Boolean = false)

@@ -25,6 +25,7 @@ import com.intellij.util.Consumer
 import dev.keel.jetbrains.api.PrFileStatus
 import dev.keel.jetbrains.core.ReviewMode
 import dev.keel.jetbrains.core.ReviewSession
+import dev.keel.jetbrains.editor.OldNewDiff
 import dev.keel.jetbrains.editor.ReviewModeMarks
 import java.awt.Component
 import java.awt.event.MouseEvent
@@ -228,6 +229,22 @@ class NextChangeAction : AnAction("Next PR Change"), DumbAware {
 
     override fun actionPerformed(e: AnActionEvent) {
         ReviewModeText.nextChange(e.project ?: return)
+    }
+}
+
+/** 0.4.0 the file in the editor, whole, old next to new (OldNewDiff); only for a changed file of the review. */
+class OldNewAction : AnAction("PR File: Old | New"), DumbAware {
+    override fun getActionUpdateThread() = ActionUpdateThread.BGT
+    override fun update(e: AnActionEvent) {
+        val mode = e.project?.getServiceIfCreated(ReviewMode::class.java)
+        val file = e.getData(CommonDataKeys.VIRTUAL_FILE)
+        e.presentation.isEnabledAndVisible = mode?.active == true && file != null && mode.relPath(file) != null
+    }
+
+    override fun actionPerformed(e: AnActionEvent) {
+        val project = e.project ?: return
+        val file = e.getData(CommonDataKeys.VIRTUAL_FILE) ?: return
+        OldNewDiff.open(project, ReviewMode.of(project).relPath(file) ?: return)
     }
 }
 

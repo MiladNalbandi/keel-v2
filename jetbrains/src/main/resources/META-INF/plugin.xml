@@ -45,6 +45,8 @@
               description="Show keel's flows and the questions that wait for you"/>
       <action id="keel.NextChange" class="dev.keel.jetbrains.ui.NextChangeAction" text="Next PR Change"
               description="Review mode: the next changed block of the pull request"/>
+      <action id="keel.OldNew" class="dev.keel.jetbrains.ui.OldNewAction" text="PR File: Old | New"
+              description="Review mode: this file, whole, the old version next to the new one"/>
       <action id="keel.ExitReviewMode" class="dev.keel.jetbrains.ui.ExitReviewModeAction" text="Exit Review Mode"
               description="End keel's review mode for this project"/>
     </group>

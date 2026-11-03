@@ -160,6 +160,16 @@ class KeelApiTest {
     }
 
     @Test
+    fun `Old and New read the review's whole file at its base and its head`() = runBlocking {
+        server.enqueue(json(200, """{"path":"src/A b.kt","ref":"main","sha":"b2","text":"old\n","truncated":false}"""))
+        server.enqueue(json(200, """{"path":"src/A b.kt","ref":"#7","sha":"a1","text":"new\n","truncated":false}"""))
+        assertEquals("old\n", api().reviewFile("p1", "pr:7", "src/A b.kt", "base").text)
+        assertEquals("#7", api().reviewFile("p1", "pr:7", "src/A b.kt", "head").ref)
+        assertEquals("/api/projects/p1/review/file?key=pr%3A7&path=src%2FA%20b.kt&side=base", server.takeRequest().path)
+        assertEquals("/api/projects/p1/review/file?key=pr%3A7&path=src%2FA%20b.kt&side=head", server.takeRequest().path)
+    }
+
+    @Test
     fun `the chat's model is set with the session PATCH`() = runBlocking {
         server.enqueue(json(200, """{"id":"s1","model":{"provider":"copilot","mode":"subscription","model":"sonnet 5.5","effort":"max"}}"""))
         val s = api().setChatModel("p1", "s1", Model("copilot", "subscription", "sonnet 5.5", "max"))
