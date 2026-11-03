@@ -56,7 +56,7 @@ case "$1" in
       "{{.Image}}") cat "$S/imgid" ;;
       "{{.Config.Image}}") cat "$S/cfgimage" ;;
       *keel2.project*) cat "$S/project" ;;
-      *keel2.docker*) echo 0 ;;
+      *keel2.docker*) echo "${FAKE_LABEL_DOCKER:-0}" ;;
     esac
     exit 0 ;;
   port) [ "$(cat "$S/running" 2>/dev/null)" = true ] && echo "127.0.0.1:${FAKE_RUNNING_PORT:-$PORT}"; exit 0 ;;
@@ -73,6 +73,7 @@ case "$1" in
   exec)
     case "$*" in
       *"cat /data/limits-wanted"*) printf '%b' "${FAKE_WANTED:-}"; exit 0 ;;
+      *"cat /data/start-wanted"*) printf '%b' "${FAKE_START_WANTED:-}"; exit 0 ;;
       *internal-token*) [ "${FAKE_NO_TOKEN:-0}" = 1 ] && exit 1; printf 'faketoken' ;;
       *" python3 "*) shift; while [ "$1" != python3 ]; do shift; done; shift; exec python3 "$@" ;;
     esac
@@ -392,6 +393,45 @@ else
   check "without a rollback keel2 start follows the script" "$(cat "$ND/current/VERSION")" "$script_v" || true
   [ "$(cat "$ND/current/VERSION")" = "$script_v" ] || printf '%s\n' "$out" | tail -8
 fi
+
+# ------------------------------------------------------------------ 0.21.2 start remembers its choices
+echo "start: keel2 remembers Docker access and the address"
+fakebin="$scratch/bin"
+opts_file="$XDG_CONFIG_HOME/keel2/$KEEL_NAME.options"
+sock="$scratch/docker.sock"
+python3 -c "import socket, sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])" "$sock"
+run_line() { grep 'docker run' "$FAKE_CALLS" | grep -- ' --name ' | tail -1; }
+reset; rm -f "$opts_file"
+run_k DOCKER_HOST="unix://$sock" -- start --docker --wifi "$project"
+check "start --docker --wifi: it starts" "$rc" 0
+has "the choices are saved: Docker access" "$(cat "$opts_file" 2>/dev/null)" "docker=1"
+has "the choices are saved: the address" "$(cat "$opts_file" 2>/dev/null)" "bind=0.0.0.0"
+: > "$FAKE_CALLS"
+run_k DOCKER_HOST="unix://$sock" -- start "$project"
+has "a start without flags keeps Docker access" "$(run_line)" "$sock:/var/run/docker.sock"
+has "a start without flags keeps --wifi" "$(run_line)" "0.0.0.0:"
+has "it says Docker access is on and remembered" "$out" "keel2 remembers it"
+: > "$FAKE_CALLS"
+run_k DOCKER_HOST="unix://$sock" -- start --no-docker --no-wifi "$project"
+hasnt "--no-docker turns Docker access off" "$(run_line)" "docker.sock"
+has "--no-wifi goes back to this computer only" "$(run_line)" "127.0.0.1:"
+has "and the off is saved" "$(cat "$opts_file" 2>/dev/null)" "docker=0"
+# a keel started by an older keel2 has no file: its container's labels say what it had
+reset; seed "$LATEST" sha256:old; rm -f "$opts_file"
+run_k DOCKER_HOST="unix://$sock" FAKE_LABEL_DOCKER=1 -- start "$project"
+has "no file yet: Docker access comes from the running keel's label" "$(run_line)" "$sock:/var/run/docker.sock"
+has "and is saved from then on" "$(cat "$opts_file" 2>/dev/null)" "docker=1"
+# what Settings › Resources asked: an "off" is taken at once, an "on" waits for a terminal to say yes in
+: > "$FAKE_CALLS"
+run_k DOCKER_HOST="unix://$sock" FAKE_START_WANTED='docker=0\nwifi=1\n' -- restart
+hasnt "Settings asked Docker access off: restart takes it" "$(run_line)" "docker.sock"
+has "Settings asked the Wi-Fi on: with no terminal to ask in, it waits" "$out" "Run keel2 restart in a terminal to confirm"
+has "...and keel stays on this computer only" "$(run_line)" "127.0.0.1:"
+no_if "...and the request stays for the next start" called "rm -f /data/start-wanted"
+: > "$FAKE_CALLS"
+run_k DOCKER_HOST="unix://$sock" FAKE_START_WANTED='docker=1\n' -- restart
+hasnt "Settings asked Docker access on: never without a yes on this computer" "$(run_line)" "docker.sock"
+has "...it says how to confirm" "$out" "asks to turn Docker access on"
 
 echo
 if [ "$fails" = 0 ]; then echo "all launcher checks passed"; else echo "$fails check(s) failed"; exit 1; fi

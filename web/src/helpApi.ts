@@ -79,7 +79,7 @@ export const helpApi = {
   saveResources: (body: ResourcesBody) => put<ResourcesView>("/resources", body),
 };
 
-export type ResourcesBody = { max_agents?: number; low_priority?: boolean; memory?: string; cpus?: string };
+export type ResourcesBody = { max_agents?: number; low_priority?: boolean; memory?: string; cpus?: string; docker?: boolean; wifi?: boolean };
 
 /** 0.20.0 Settings › Resources (engine runtime/resources.py). Sizes in bytes; null: no limit, or not known. */
 export type ResourcesView = {
@@ -98,4 +98,8 @@ export type ResourcesView = {
   /** 0.20.1 the limits Settings saved that keel2 has not taken yet */
   wanted?: { memory?: string; cpus?: string };
   in_container?: boolean;
+  /** 0.21.2 how keel2 started this keel: Docker access for the project's tests, reachable on the Wi-Fi */
+  start?: { docker: boolean; wifi: boolean };
+  /** 0.21.2 what Settings asked keel2 to change at its next start (it asks on that computer before turning one on) */
+  start_wanted?: { docker?: boolean; wifi?: boolean };
 };

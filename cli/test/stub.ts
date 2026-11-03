@@ -33,6 +33,8 @@ export function stubKeel() {
     // P1-3 the project's chats for /chats (with last_message and message_count); null: just the open one, if any
     // 0.18.18 the person's earlier prompts of the project, newest first (GET …/helper/prompts, keel TUI's ↑ / ↓)
     prompts: [] as string[],
+    // 0.21.2 Settings › Resources: how keel2 started keel, and what waits for its next start
+    resources: { in_container: true, start: { docker: false, wifi: false }, start_wanted: {} as Record<string, boolean> },
     // 0.18.18 what the engine says of the images a turn named: the ones sent, and the others with why not
     turnImages: { images: [] as string[], images_skipped: [] as { path: string; why: string }[] },
     // 0.18.18 what keel's guarded run answers for keel TUI's `!command` (POST …/helper/sessions/s1/run)
@@ -106,6 +108,14 @@ export function stubKeel() {
       case "GET /api/projects/demo/runs": return [200, [{ thread_id: "t1", title: "Add a health endpoint", workflow_id: "feature", status: "waiting", phase: "spec",
         current: "spec_gate", waiting: "spec approval", acs_done: 0, acs_total: 2, tokens: 15400, where: "folder", branch: "keel/health", error: null,
         created_at: AT, updated_at: AT, cost_usd: 0.42, latest: true }]];
+      case "GET /api/resources": return [200, state.resources];
+      case "PUT /api/resources": {
+        const b = body as Record<string, boolean>;
+        const now = state.resources.start;
+        const want = { ...state.resources.start_wanted, ...b };
+        state.resources = { ...state.resources, start_wanted: Object.fromEntries(Object.entries(want).filter(([k, v]) => v !== now[k as "docker" | "wifi"])) };
+        return [200, state.resources];
+      }
       case "GET /api/projects/demo/budget/now": return [200, { today: { tokens: 15400, cost_usd: 0.42 }, month: { tokens: 99000, cost_usd: 3.1 }, flows: [], caps: [] }];
       case "POST /api/diagrams/ascii": return [200, { kind: body.kind, text: `DIAGRAM ${body.kind} ${body.data?.workflow?.id ?? ""} w=${body.width}\n`, lines: 1 }];
       case "POST /api/projects/demo/doctor/workspace/exclude":

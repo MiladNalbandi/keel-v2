@@ -12,7 +12,8 @@ RANK = {"read": 0, "write": 1, "admin": 2}
 CONFIRM = {"keel_delete_run", "keel_stop_flow", "keel_pause", "keel_stop_flows", "keel_remove_project", "keel_edit_workflow", "keel_restore_doc",
            "keel_rule_edit", "keel_keelbot_keep", "keel_keelbot_undo",
            "keel_workflow_create", "keel_rule_create", "keel_agent_create", "keel_agent_model",
-           "keel_skill_create", "keel_skill_import", "keel_skill_attach", "keel_skill_market_install"}
+           "keel_skill_create", "keel_skill_import", "keel_skill_attach", "keel_skill_market_install",
+           "keel_start_options"}
 CONFIRM_ACTIONS = {"open_pr", "pr"}        # keel_run_action actions that publish something: the person is asked first
 
 
@@ -109,7 +110,9 @@ TOOLS: dict[str, tuple[str, ...]] = {
               "keel_pause", "keel_focus",
               # 0.18.30 connect GitHub with a one-time code (the token is never returned)
               "keel_connect_github",
-              "keel_edit_workflow", "keel_rule_install", "keel_rule_edit"),
+              "keel_edit_workflow", "keel_rule_install", "keel_rule_edit",
+              # 0.21.2 how keel2 starts keel: Docker access, the Wi-Fi (asks first)
+              "keel_start_options"),
 }
 # the marketplace's tools (step 4), after every tool keel 0.16.1 lists, at every level; keel_plugin_request only asks
 MARKET_TOOLS = ("keel_marketplace_search", "keel_plugin_info", "keel_plugins_installed", "keel_plugin_request")

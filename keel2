@@ -2,7 +2,9 @@
 # keel2 — start and manage keel v2 (one Docker container, or natively with --native) for your project.
 #
 #   keel2 start [folder]        start keel for a project (default: this folder) and open the browser
-#   keel2 start --docker [dir]  same, and let the project's tests use your Docker (Testcontainers, compose)
+#   keel2 start --docker [dir]  same, and let the project's tests use your Docker (Testcontainers, compose).
+#                               keel2 remembers it, and --wifi / --bind, --core, --with-keel-v1: a later start without the
+#                               flag keeps them (--no-docker, --no-wifi, --no-core, --without-keel-v1 turn them off)
 #   keel2 start --native [dir]  keel on this computer without Docker (Java 21, uv, git; agents run as you).
 #                               --from-tarball <file> or --from-source <keel-v2 checkout> instead of the download
 #   keel2 start --with-keel-v1 <keel-checkout> [dir]
@@ -55,8 +57,8 @@
 #   keel2 uninstall [--all]     remove the container, or stop a native keel (--all: also keel's data, after you confirm)
 #
 # Use keel from your phone (keel's Android app; pair it in the dashboard: Settings › Access › Pair a phone):
-#   keel2 start --wifi [dir]    reachable on your Wi-Fi (plain http inside the network); restart keeps it, a start
-#                               without --wifi goes back to this computer only (KEEL_BIND=0.0.0.0 or an address: the same)
+#   keel2 start --wifi [dir]    reachable on your Wi-Fi (plain http inside the network); restart and later starts keep
+#                               it, --no-wifi goes back to this computer only (KEEL_BIND=0.0.0.0 or an address: the same)
 #   keel2 share tailscale       https on your tailnet with `tailscale serve` (keel itself stays on 127.0.0.1)
 #   keel2 share tunnel          a public https address (Cloudflare quick tunnel; asks first: anyone can reach the page,
 #                               a phone still has to pair and the dashboard still needs your sign-in)
@@ -394,10 +396,59 @@ register_added() {  # register_added <port> <folder>… — every git repo in th
   info "  ${D}More repos? All projects › Add projects lets you pick them.${N}"
 }
 
+# 0.21.2 keel2 start remembers its choices per keel: Docker access, the address (--wifi / --bind), --core and
+# --with-keel-v1, in ${XDG_CONFIG_HOME:-~/.config}/keel2/<KEEL_NAME>.options. A start without a flag keeps what the last
+# one chose (before, a plain start turned Docker access and --wifi off); a flag changes it and is saved. A keel started
+# by an older keel2 has no file yet: its container's labels say what it had. Safe mode (--safe) is never remembered.
+options_file() { echo "${XDG_CONFIG_HOME:-$HOME/.config}/keel2/$NAME.options"; }
+option_saved() {  # option_saved <key>: the saved value, else the running container's label, else nothing
+  local f; f="$(options_file)"
+  if [ -f "$f" ]; then sed -n "s/^$1=//p" "$f" | tail -1; return 0; fi
+  if command -v docker >/dev/null 2>&1 && container_exists; then label "$1"; fi
+  return 0
+}
+save_options() {  # save_options <docker 0|1> <bind> <core 0|1> <keel v1 folder>
+  local f; f="$(options_file)"
+  mkdir -p "$(dirname "$f")" 2>/dev/null || return 0
+  printf 'docker=%s\nbind=%s\ncore=%s\nkeelv1=%s\n' "$1" "$2" "$3" "$4" > "$f.tmp" 2>/dev/null && mv "$f.tmp" "$f"
+  return 0
+}
+# What Settings › Resources asked (/data/start-wanted: docker=0|1, wifi=0|1) goes into the options file. An "on" only
+# after the person says yes on this computer: anything inside keel can write that file, and Docker access is as strong
+# as root here. Without a terminal to ask in (a script, keel2 update from a job) an "on" waits for the next start that
+# can ask; an "off" is taken at once.
+start_take_wanted() {
+  command -v docker >/dev/null 2>&1 && container_running || return 0
+  local w docker bind v wait=0
+  w="$(docker exec "$NAME" cat /data/start-wanted 2>/dev/null || true)"
+  [ -n "$w" ] || return 0
+  docker="$(option_saved docker)"; bind="$(option_saved bind)"
+  v="$(printf '%s\n' "$w" | sed -n 's/^docker=//p' | tail -1)"
+  if [ "$v" = 0 ]; then docker=0
+  elif [ "$v" = 1 ] && [ "$docker" != 1 ]; then
+    if ! interactive; then wait=1; warn "keel's Settings asks to turn Docker access on. Run keel2 restart in a terminal to confirm it."
+    elif ask_yes "keel's Settings asks to turn Docker access on: keel's agents could then start containers on this computer (as strong as root). Turn it on?"; then docker=1
+    else info "  Docker access stays off."; fi
+  fi
+  v="$(printf '%s\n' "$w" | sed -n 's/^wifi=//p' | tail -1)"
+  if [ "$v" = 0 ]; then bind=127.0.0.1
+  elif [ "$v" = 1 ] && [ "${bind:-127.0.0.1}" = 127.0.0.1 ]; then
+    if ! interactive; then wait=1; warn "keel's Settings asks to make keel reachable on your Wi-Fi. Run keel2 restart in a terminal to confirm it."
+    elif ask_yes "keel's Settings asks to make keel reachable on your Wi-Fi (plain http inside your network). Do it?"; then bind=0.0.0.0
+    else info "  keel stays on this computer only."; fi
+  fi
+  save_options "${docker:-0}" "${bind:-127.0.0.1}" "$(option_saved core)" "$(option_saved keelv1)"
+  [ "$wait" = 1 ] || docker exec "$NAME" rm -f /data/start-wanted >/dev/null 2>&1 || true
+}
+
 # ---------------------------------------------------------------- commands
 cmd_start() {
-  local docker_mode="${KEEL_DOCKER:-0}" folder="" keel_v1="" plugins="${KEEL_PLUGINS:-}" core=0 native=0 tgz="" src=""
-  local bind="${KEEL_BIND:-127.0.0.1}"
+  local docker_mode folder="" keel_v1 plugins="${KEEL_PLUGINS:-}" core native=0 tgz="" src="" bind
+  start_take_wanted
+  docker_mode="${KEEL_DOCKER:-$(option_saved docker)}"; [ "$docker_mode" = 1 ] || docker_mode=0
+  bind="${KEEL_BIND:-$(option_saved bind)}"; bind="${bind:-127.0.0.1}"
+  core="$(option_saved core)"; [ "$core" = 1 ] || core=0
+  keel_v1="$(option_saved keelv1)"; [ -n "$keel_v1" ] && [ ! -d "$keel_v1" ] && keel_v1=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --wifi) bind=0.0.0.0 ;;
@@ -407,6 +458,7 @@ cmd_start() {
       --no-docker) docker_mode=0 ;;
       --safe) plugins=image ;;
       --core) core=1 ;;
+      --no-core) core=0 ;;
       --with-keel-v1)
         [ $# -ge 2 ] || die "--with-keel-v1 needs the folder of a keel v1 checkout" "For example: keel2 start --with-keel-v1 ~/Projects/keel ."
         keel_v1="$(keel_v1_path "$2")"; shift ;;
@@ -542,6 +594,8 @@ cmd_start() {
     die "Docker could not start the container." "Run 'keel2 doctor' to find out why."
   fi
   wait_healthy "$port"
+  save_options "$docker_mode" "$bind" "$core" "$keel_v1"
+  if [ "$docker_mode" = 1 ]; then info "  ${D}Docker access is on, and keel2 remembers it (keel2 start --no-docker turns it off).${N}"; fi
   ok "keel is running: ${B}http://localhost:$port${N}"
   show_reach "$port" "$bind"
   publish_addresses "$port" "$bind"
@@ -590,15 +644,12 @@ cmd_restart() {  # keel2 restart [--safe] [--force]; safe mode lasts until the n
   done
   need_docker
   container_exists || die "keel has not been started yet." "Start it: keel2 start /path/to/project"
-  local p d v1; p="$(label project)"; d="$(label docker)"; v1="$(label keelv1)"
+  local p; p="$(label project)"
   [ -n "$p" ] || die "This container was started by an older keel2 and does not say which project it has." "Start it again: keel2 start /path/to/project"
   local port; port="$(running_port || true)"
   if [ -n "$port" ] && [ -z "${PORT:-}" ]; then WANT_PORT="$port"; fi
-  local extra=(); if [ -n "$v1" ] && [ -f "$v1/mcp/server.js" ]; then extra=(--with-keel-v1 "$v1"); fi
-  if [ "$(label core)" = 1 ]; then extra+=(--core); fi
-  local b; b="$(label bind)"; if [ -n "$b" ] && [ -z "${KEEL_BIND:-}" ]; then extra+=(--bind "$b"); fi
-  extra+=(${safe[@]+"${safe[@]}"})
-  if [ "$d" = 1 ]; then cmd_start --docker ${extra[@]+"${extra[@]}"} "$p"; else cmd_start --no-docker ${extra[@]+"${extra[@]}"} "$p"; fi
+  # 0.21.2 Docker access, the address, --core and --with-keel-v1: what keel2 remembers (else the container's labels)
+  cmd_start ${safe[@]+"${safe[@]}"} "$p"
 }
 
 cmd_add() {  # keel2 add <folder>… — saves the folders in the list, then restarts keel once
@@ -882,7 +933,7 @@ show_reach() {  # show_reach <port> <bind>: where a phone finds keel, after a st
   while IFS= read -r u; do ok "On your Wi-Fi: ${B}$u${N}"; n=1; done < <(wifi_urls "$1" "$2")
   [ "$n" = 1 ] || warn "keel listens on the network ($2), but keel2 found no Wi-Fi address of this computer. Set KEEL_LAN_IP=<address>."
   warn "Inside the Wi-Fi this is plain http: others on the network could read the traffic. Phones pair first (Settings › Access)."
-  info "  ${D}https from anywhere: keel2 share tailscale · back to this computer only: keel2 start (without --wifi)${N}"
+  info "  ${D}https from anywhere: keel2 share tailscale · back to this computer only: keel2 start --no-wifi${N}"
 }
 
 tunnel_alive() {

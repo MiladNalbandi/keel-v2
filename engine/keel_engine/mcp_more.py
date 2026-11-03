@@ -557,6 +557,23 @@ def connect_github(api: KeelApi, host: str | None = None) -> str:
             "you allow access, saves the token encrypted and shows who is connected in Connections › GitHub. The token is never shown here.")
 
 
+def start_options(api: KeelApi, docker: bool | None = None, wifi: bool | None = None) -> str:
+    """0.21.2 how keel2 starts this keel (Docker access, the Wi-Fi), and what waits for its next start."""
+    body = {k: v for k, v in (("docker", docker), ("wifi", wifi)) if v is not None}
+    v = (api.put("/resources", body) if body else api.get("/resources")) or {}
+    now, want = v.get("start") or {}, v.get("start_wanted") or {}
+    if not now:
+        return "keel does not run in a container here (native mode): keel2 start --native has no Docker access or Wi-Fi switch to change."
+    word = lambda b: "on" if b else "off"
+    lines = []
+    for k, name in (("docker", "Docker access for the project's tests (--docker)"), ("wifi", "reachable on the Wi-Fi (--wifi)")):
+        lines.append(f"{name}: {word(now.get(k))}" + (f", {word(want[k])} after keel2's next start" if k in want else ""))
+    if want:
+        lines.append("keel2 takes it at its next start: run `keel2 restart` on the computer that runs keel. It asks the person there "
+                     "before it turns one on; keel2 remembers the choice.")
+    return "\n".join(lines)
+
+
 def remove_project(api: KeelApi, project: str) -> str:
     p = _project(api, project)
     api.delete(f"/projects/{p['id']}")

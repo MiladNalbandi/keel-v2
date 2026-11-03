@@ -247,3 +247,31 @@ async def test_start_flow_takes_the_run_mode_the_person_named(api):
     assert api.posts[-1][1]["run_mode"] == "important" and "important mode" in text
     await call(srv(api), "keel_start_flow", {"type": "spike", "request": "Kafka or SQS"})
     assert "run_mode" not in api.posts[-1][1]
+
+
+# ---------------------------------------------------------------- 0.21.2 how keel2 starts keel
+
+def test_start_options_says_how_keel_runs_and_saves_a_change_for_keel2():
+    from keel_engine import mcp_more
+
+    class Api:
+        def __init__(self):
+            self.puts = []
+            self.view = {"start": {"docker": False, "wifi": True}, "start_wanted": {}}
+
+        def get(self, path):
+            assert path == "/resources"
+            return self.view
+
+        def put(self, path, body):
+            self.puts.append((path, body))
+            self.view = {**self.view, "start_wanted": {"docker": True}}
+            return self.view
+
+    api = Api()
+    text = mcp_more.start_options(api)
+    assert "Docker access for the project's tests (--docker): off" in text and "Wi-Fi (--wifi): on" in text and not api.puts
+    text = mcp_more.start_options(api, docker=True)
+    assert api.puts == [("/resources", {"docker": True})]
+    assert "off, on after keel2's next start" in text and "keel2 restart" in text and "asks the person there" in text
+    assert mcp_server.tool_level("keel_start_options") == "admin" and "keel_start_options" in mcp_server.CONFIRM
