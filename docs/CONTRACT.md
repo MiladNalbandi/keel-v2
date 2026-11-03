@@ -3618,3 +3618,16 @@ keel_agent_start(..., model)       // an alias or an exact id; the answer names 
 - **#73** a flow that takes no base (`own_branch: false`, read-only) leaves a given base out (`base_ignored`) instead of
   a 400; in a worktree it starts at the folder's HEAD (no `freshBase`, so a diverged main does not refuse it).
 - **#79** `keel_start_flow` names the flow that runs when Settings › Who does the work swapped it (`harness`), and why.
+- **#67** `testcmd.env_down(code, out)`: a failed test run whose output says Docker / Testcontainers is unreachable or a
+  database or broker refused the connection. The test steps, the release and coverage gates and the harness's check
+  then ask the person (question type `environment`: recheck | skip | stop) instead of retrying the agent; the repeat
+  guard no longer counts such a run as a network blip. The feature preflight warns (strict: stops) when the project
+  uses Testcontainers and Docker cannot be reached.
+- **#74** `verify_release` reuses a passed release verdict with the same command on the same tree
+  (`verdicts.for_code`: the newest of the recent rows that fits this code, also used by the push blockers). When the
+  coverage command runs the test suite (`coverage.runs_suite: true`, or the test command inside it at the root, no
+  `coverage.reports`), one coverage run writes both verdicts.
+- **#75** an e2e skip (the skip menu's `e2e`, the e2e_tool gate's `e2e-run`) is kept for the branch as a verdict row of
+  kind `e2e_skip` {branch, reason, sha} (`runtime/kept_skips.py`): it holds while no file the e2e tests cover changed
+  since that sha (web code and tests, e2e tests, the contract file, or the new `e2e.watch` globs). Otherwise keel asks
+  again and names the changed files.
