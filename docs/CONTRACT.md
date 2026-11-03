@@ -3585,3 +3585,36 @@ Commands: `task <title> [@name] [| text]`, `assign <task> @name`, `start <flow> 
 
 The Tasks board has a filter **Assigned to**; `assignee` is a label.
 
+
+## keel 0.22.0: fixes from real use (issues #65–#80)
+
+```
+GET /api/access          += {instance: "keel-v2" | KEEL_NAME, host: KEEL_HOST_NAME | null, workspace: KEEL_WORKSPACE | null}
+Project (GET /api/projects) += host: the folder on the person's computer | null (root is where keel sees it)
+POST /api/projects/{pid}/flows  answer += overlap_note?: string, base_ignored?: string
+engine thread view       += base_behind?: string   // the start's base check, when it started behind a remote or a fetch failed
+keel_flows(catalog=false)          // the flow types only with catalog=true
+keel_start_flow(..., engine: flow | harness)
+keel_agent_start(..., model)       // an alias or an exact id; the answer names the model and where it came from
+<git common dir>/keel/stacks.json  {off: [...], on: [...]}   // this clone's stack switches when .keel/config.yml is committed
+```
+
+- **#65** `keel_health` prints `instance <name> on <host> · native|in Docker · main folder <host path> (keel sees it as
+  <path>)`; `keel_status`'s first line ends with the project's folder the same way. keel2 passes `KEEL_HOST_NAME`.
+- **#66** a hand-over flow fetches at its start too; a KeelBot side or ask agent's start fetches first
+  (`FlowService.fetchForStart`). A start behind its remote is a warning in the MCP answer, a `WARNING` line in
+  `keel_status` and a banner on the flow page (`base_behind`).
+- **#68** a confirm form that comes back without a yes (declined or closed, maybe by the client itself) puts the question
+  in keel's Inbox and answers "needs the person's approval"; a part tool whose Inbox question nobody answered says so.
+- **#69** with a committed `.keel/config.yml`, `keel_stack_off` writes the switch to `<git common dir>/keel/stacks.json`
+  (answer `where: "this computer"`) and leaves the file unchanged; engine and api read both.
+- **#70** a gradlew / pom.xml in a folder that is a Python project with no Java or Kotlin source does not pick the JVM
+  test command; a Django project without pytest settings runs `python manage.py test`. The feature preflight's note
+  names the test command, warns when several api stacks match, and says when a JVM build file was passed over.
+- **#71** the one-owner check refuses only for the same ticket or branch; a file the request names that another flow
+  changed is `overlap_note`. The other flow's title is no longer read as files.
+- **#72** `migrations-immutable` protects a migration that is in the merge base of the base branch and HEAD; one the
+  branch added counts as new for the phase rules. Without git or a base: as strict as before.
+- **#73** a flow that takes no base (`own_branch: false`, read-only) leaves a given base out (`base_ignored`) instead of
+  a 400; in a worktree it starts at the folder's HEAD (no `freshBase`, so a diverged main does not refuse it).
+- **#79** `keel_start_flow` names the flow that runs when Settings › Who does the work swapped it (`harness`), and why.
