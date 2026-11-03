@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 
-from . import choices as choices_mod, clarify, flow_actions, flow_doc, init_gates, knowledge, markers, md, notice, prompts, ship as ship_mod, spec_check
+from . import choices as choices_mod, clarify, flow_actions, flow_doc, init_gates, kept_skips, knowledge, markers, md, notice, prompts, ship as ship_mod, spec_check
 from .. import rules
 from ..workflows.model import Loop, Step
 from .gate_state import deep_gates
@@ -340,7 +340,20 @@ class GateMixin:
         out = ["Optional steps (decided here with this approval, so the flow does not stop again to ask):"]
         for j in self._menu_steps(i):
             out += ["", f"— {self.wf.steps[j].name} —", ship_mod.skip_menu_detail(self.wf.steps, j)]
+            if any(u["name"] == "e2e" for u in ship_mod.skip_units(self.wf.steps, j)) and (note := self._e2e_note()):
+                out.append(note)
         return "\n".join(out)
+
+    def _e2e_note(self) -> str:
+        """0.22.0 #75 an e2e skip made earlier on this branch: kept while no file the e2e tests cover changed, said
+        here; else, when one changed, which files (so keel asks again)."""
+        key = self.ctx.project_id or self.ctx.root
+        keep = kept_skips.kept(key, self.ctx.root, "e2e")
+        if keep:
+            return (f"Note: e2e stays skipped on this branch, {keep['note']} (no file the e2e tests cover changed "
+                    "since). To run it this time, answer with run: [e2e].")
+        again = kept_skips.stale(key, self.ctx.root, "e2e")
+        return f"Note: {again}" if again else ""
 
     def _folded_answer(self, i: int, state: FlowState) -> tuple[str, dict] | None:
         """(gate id, payload) when an earlier gate with menus: true was approved and so answers the menu at step i."""
@@ -364,6 +377,8 @@ class GateMixin:
             drift = ship_mod.base_warning(self.ctx.root)
             if drift:
                 detail = f"Note: {drift}.\n\n{detail}"
+        if any(u["name"] == "e2e" for u in units) and (note := self._e2e_note()):
+            detail = f"{note}\n\n{detail}"
         title, extra_all = step.name, {}
         mode_payload: dict = {}
         folded = self._folded_answer(i, state)
@@ -390,6 +405,7 @@ class GateMixin:
                 data["ship_skipped"] = [x for x in data.get("ship_skipped") or [] if x.get("step") not in names] + skips
                 if lenses:
                     data["lenses_chosen"] = lenses
+                self._keep_e2e(skips, payload, data)
                 self._gate_mode(i, gates, payload)
                 gates["log"].append(f"gate {step.id} approve: chosen at {gid}")
                 for sk in skips:
@@ -441,6 +457,7 @@ class GateMixin:
         data["ship_skipped"] = [x for x in data.get("ship_skipped") or [] if x.get("step") not in names] + skips
         if lenses:
             data["lenses_chosen"] = lenses
+        self._keep_e2e(skips, got, data)
         self._gate_mode(i, gates, got if ship_mod.gate_mode_of(got) else mode_payload)
         gates["log"].append(f"gate {step.id} approve" + (f": {why}" if why else ""))
         for sk in skips:
@@ -449,6 +466,14 @@ class GateMixin:
                                                           "skipped": skips, **({"lenses": lenses} if lenses else {})})
         note = ("skipped: " + ", ".join(f"{s['step']} ({s['reason']})" for s in skips)) if skips else "every step runs"
         return {**extra_all, "gates": gates, "data": data, "note": note[:300]}, self.nav.after(i)
+
+    def _keep_e2e(self, skips: list[dict], payload: dict, data: dict) -> None:
+        """0.22.0 #75 an e2e skip with its reason is kept for the branch (runtime/kept_skips); `run: [e2e]` in the
+        answer runs e2e this time even while a kept skip holds."""
+        kept_skips.remember(self.ctx.project_id or self.ctx.root, self.ctx.root, skips)
+        run = (payload or {}).get("run")
+        if run == "e2e" or (isinstance(run, list) and "e2e" in run):
+            data["e2e_run"] = True
 
     def _gate_mode(self, i: int, gates: dict, payload: dict) -> None:
         """keel v1's start picker: a skip menu before the per-criterion loop may set the AC gates for this flow only

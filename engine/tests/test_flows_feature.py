@@ -981,3 +981,37 @@ def test_a_spec_outside_the_project_or_not_a_file_is_not_taken(tmp_path):
     (root / "docs/specs/link.md").symlink_to(tmp_path / "out.md")
     assert spec_check.start_spec(str(root), "docs/specs/link.md") is None
 
+
+
+def test_an_e2e_skip_is_kept_for_the_next_flow_on_the_branch(client, repo, monkeypatch):
+    # 0.22.0 #75 the reason was "recorded", and the next flow on the same branch asked again
+    seen = by_step(monkeypatch, {})
+    tid = start(client, repo)
+    wait(client, tid)
+    s = decide(client, tid, payload={"choice": "approve", "skip": {"e2e": "no UI change on this branch", **SKIPS}})
+    to(client, tid, s, "ship_final_review")
+    assert {"step": "e2e", "band": "optional", "reason": "no UI change on this branch"} in values(client, tid)["data"]["ship_skipped"]
+    seen.clear()
+    tid2 = start(client, repo)
+    s = wait(client, tid2)
+    assert "e2e stays skipped on this branch, kept from" in s["waiting"]["detail"]
+    s = decide(client, tid2, payload={"choice": "approve", "skip": SKIPS})          # e2e not named: the kept skip holds
+    to(client, tid2, s, "ship_final_review")
+    kept = [x for x in values(client, tid2)["data"]["ship_skipped"] if x["step"] == "e2e"]
+    assert kept and kept[0]["reason"].startswith("kept from ") and "no UI change" in kept[0]["reason"]
+
+
+def test_run_e2e_runs_it_although_a_skip_is_kept(client, repo, monkeypatch):
+    seen = by_step(monkeypatch, {})
+    tid = start(client, repo)
+    wait(client, tid)
+    s = decide(client, tid, payload={"choice": "approve", "skip": {"e2e": "no UI change on this branch", **SKIPS}})
+    to(client, tid, s, "ship_final_review")
+    tid2 = start(client, repo)
+    wait(client, tid2)
+    s = decide(client, tid2, payload={"choice": "approve", "skip": SKIPS, "run": ["e2e"]})
+    to(client, tid2, s, "ship_final_review")
+    d = values(client, tid2)["data"]
+    assert d.get("e2e_run") is True
+    # the kept skip does not hold (this demo has no UI, so its own "nothing to drive" skip still does)
+    assert not any("kept from" in str(x.get("reason")) for x in d.get("ship_skipped") or [])

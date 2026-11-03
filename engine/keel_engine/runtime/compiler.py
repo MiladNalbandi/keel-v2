@@ -36,7 +36,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
 from .. import addons, agent_names, extensions, models, rules
-from . import doc_history, md, review_config, test_scope, thread_models
+from . import doc_history, kept_skips, md, review_config, test_scope, thread_models
 from ..models import catalog
 from ..models import usage as provider_usage
 from ..models.base import AgentRequest, AgentResult, ModelError
@@ -585,6 +585,17 @@ class Compiler(AgentMixin, FindingsMixin, CodeMixin, GateMixin):
                 while j + 1 < len(self.wf.steps) and self.wf.steps[j + 1].skippable and ship_mod.unit_of(self.wf.steps[j + 1]) == unit:
                     j += 1
                 return f"{unit} skipped: {skip.get('reason') or 'no reason given'}", self.nav.after(j)
+            data = state.get("data") or {}
+            keep = kept_skips.kept(self.ctx.project_id or self.ctx.root, self.ctx.root, "e2e") \
+                if unit == "e2e" and not data.get("e2e_run") else None
+            if keep:
+                # 0.22.0 #75 e2e skipped earlier on this branch, and no file the e2e tests cover changed since
+                j = i
+                while j + 1 < len(self.wf.steps) and self.wf.steps[j + 1].skippable and ship_mod.unit_of(self.wf.steps[j + 1]) == unit:
+                    j += 1
+                kept = [x for x in data.get("ship_skipped") or [] if x.get("step") != "e2e"]
+                return f"e2e skipped: {keep['note']}", self.nav.after(j), {"data": {**data, "ship_skipped": [
+                    *kept, {"step": "e2e", "band": "optional", "reason": keep["note"]}]}}
         if step.phase == "e2e":
             # 0.18.57 B12 any flow's e2e steps: a project with no UI and no HTTP layer (a library, a CLI) has nothing an
             # end-to-end test could drive; the whole run of e2e steps is passed over and the PR body says why

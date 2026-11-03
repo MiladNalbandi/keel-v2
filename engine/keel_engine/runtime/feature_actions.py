@@ -37,7 +37,7 @@ from pathlib import Path
 from .. import layout, rules
 from ..tools import git, testcmd
 from ..tools.agent_tools import command_env
-from . import contract_delta, md, prompts, spec_check, stacks, verdict_actions
+from . import contract_delta, kept_skips, md, prompts, spec_check, stacks, verdict_actions
 from . import flow_actions
 from . import choices as choices_mod
 from .flow_actions import _fail, _markers, _ok
@@ -1215,18 +1215,34 @@ def e2e_scope(a):
                                "- write: the specs are written and committed but not run; the final review and the PR "
                                "body say so (an unrun test must not read as a passing one)\n"
                                "- check: you set commands.e2e now; keel looks again"}
+    keep = kept_skips.kept(a.key, a.root, "e2e-run") if crit and not cmd else None
+    if keep:
+        # 0.22.0 #75 "write, do not run" was chosen earlier on this branch and no file the e2e tests cover changed since:
+        # kept, the e2e_tool gate does not ask again
+        unrun = e2e_unrun(replace(a, data=data), keep["note"])
+        mk = _markers(a, {"E2E": "yes", "TOOL": "kept"})
+        return _ok(f"e2e: {len(crit)} criteria; no e2e command, the specs are written, not run ({keep['note']})",
+                   update={**unrun.update, "markers": mk})
+    if crit and not cmd and (again := kept_skips.stale(a.key, a.root, "e2e-run")):
+        data["e2e_tool_detail"] = f"{again}\n\n{data['e2e_tool_detail']}"
     mk = _markers(a, {"E2E": "yes" if crit else "no", "TOOL": "yes" if cmd else "no"})
     return _ok(f"e2e: {len(crit)} criteria" + ("" if crit else ", nothing to write") + (f"; runs `{cmd}`" if cmd else "; no e2e command"),
                update={"data": data, "markers": mk})
 
 
-def e2e_unrun(a):
+E2E_UNRUN_WHY = "no e2e command (commands.e2e): the @e2e specs are written, not run"
+
+
+def e2e_unrun(a, kept_note: str = ""):
+    """The e2e_tool gate's "write": the specs are written, not run. 0.22.0 #75 kept for the branch (runtime/kept_skips)."""
     e2e = {**(a.data.get("e2e") or {}), "run": False,
            "note": "No e2e command is configured: write the specs, do not run them, and say so in your answer."}
     skipped = [x for x in a.data.get("ship_skipped") or [] if x.get("step") != "e2e-run"] + [
-        {"step": "e2e-run", "band": "optional", "reason": "no e2e command (commands.e2e): the @e2e specs are written, not run"}]
+        {"step": "e2e-run", "band": "optional", "reason": f"{E2E_UNRUN_WHY} ({kept_note})" if kept_note else E2E_UNRUN_WHY}]
     gates = _gates(a)
-    gates["log"].append("e2e: specs written without running them (no e2e command)")
+    gates["log"].append("e2e: specs written without running them (no e2e command)" + (f", {kept_note}" if kept_note else ""))
+    if not kept_note:
+        kept_skips.remember(a.key, a.root, [{"step": "e2e-run", "reason": E2E_UNRUN_WHY}])
     return _ok("e2e specs will be written, not run", update={"data": {**a.data, "e2e": e2e, "ship_skipped": skipped}, "gates": gates})
 
 
