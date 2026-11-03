@@ -15,7 +15,7 @@ The [README](../README.md) is the short version. This page has the details.
 - [Quality](#quality)
 - [Inbox and run modes](#inbox-and-run-modes)
 - [Usage and caps](#usage-and-caps)
-- [Tasks and Jira](#tasks-and-jira)
+- [Tasks, Jira and GitHub Issues](#tasks-jira-and-github-issues)
 - [Logins](#logins)
 - [Signing in](#signing-in)
 - [Use keel from Claude Code or Claude Desktop (MCP)](#use-keel-from-claude-code-or-claude-desktop-mcp)
@@ -876,7 +876,7 @@ the budget and connections. Each other part is a plugin with its own version:
 | **Git**, **Code Review**, **Database**, **CI/CD** | their panels in Code, their workflow steps and agent tools | Code (CI/CD also Git) |
 | **KeelBot** | the chat (⌘I) and its commands | |
 | **Map**, **Graph**, **Wiki** | their pages | |
-| **Tasks**, **Jira** | the task board and Jira tickets | Jira needs Tasks |
+| **Tasks**, **Jira**, **GitHub Issues** | the task board, Jira tickets and GitHub issues | Jira and GitHub Issues need Tasks |
 | **keel Product** (beta) | initiatives and teams | Tasks and Jira |
 | **Answers** | drafts answers to a customer's questions from your code and docs, with sources; you approve each one | |
 | **Record** | one page and one file per flow: who asked, what ran, gate answers, commits, cost | |
@@ -1260,7 +1260,7 @@ tokens and money of today and this month; `/budget` and `keel_budget` show the r
   hours for a Claude or Codex subscription, Copilot premium requests this month (300 by default), and USD spent on API
   keys this month (100 by default). 0 = not set.
 
-## Tasks and Jira
+## Tasks, Jira and GitHub Issues
 
 **Tasks** is a board of your work: your own tasks, or the tickets of a Jira board or query (Settings › Connections › Jira, per
 project: Jira Cloud with email + API token, or Server / Data Center with a personal access token).
@@ -1270,6 +1270,22 @@ ticket to In progress, to In review when the PR opens (and asks the reviewers on
 (PP) when the PR is approved. Then the Inbox asks you to confirm PP testing and the release. When keel cannot reach
 Jira, the Inbox asks you to move the real ticket by hand. Without Jira, tasks stay in keel with their history.
 Details: [CONTRACT.md](CONTRACT.md), "v0.5.0: tasks and Jira".
+
+**GitHub Issues** (0.21.4) works the same way with a repository's issues (Settings › Connections › GitHub Issues, per
+project). It uses keel's GitHub sign-in (Settings › Connections › GitHub); there is no other token to paste.
+
+- **Which repo**: the project's origin on GitHub, or another `owner/repo`.
+- **Which issues** become tasks: the open ones assigned to you (the default), the ones with a label, or all open ones.
+  Pull requests are left out. An issue's key is `#12`; a `bug` label makes a bug, `enhancement` or `feature` a story.
+- **When a task moves** keel can leave the issue, close it, close it as not planned, reopen it, or give it a status label
+  (keel takes its other status labels off). By default: Done closes the issue, Cancelled closes it as not planned, the
+  rest leave it alone. keel also comments on the issue (the flow, the pull request, a review); that can be turned off.
+- **The pull request** of a task's flow starts with `Closes #12`, so merging it closes the issue on GitHub; keel's commits
+  end with ` [#12]`.
+- A change made on GitHub (closed, reopened, a status label) comes back on the next sync and moves the task; keel never
+  sends it back.
+
+A project follows one tracker: Jira or GitHub Issues.
 
 ## Logins
 

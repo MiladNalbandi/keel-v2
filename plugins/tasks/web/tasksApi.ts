@@ -15,7 +15,7 @@ export const STATUS_LABEL: Record<TaskStatus, string> = {
 export const DEFAULT_FLOW: Record<TaskType, string> = { bug: "fix", story: "feature", task: "change" };
 
 export type Reviewer = { login: string; on: "github" | "jira"; state: "wanted" | "requested" | "approved" | "changes_requested" | "commented" | "set" };
-export type TaskEvent = { id: number; task_id: string; at: string; kind: string; from_status: string | null; to_status: string | null; note: string | null; actor: "user" | "keel" | "jira" };
+export type TaskEvent = { id: number; task_id: string; at: string; kind: string; from_status: string | null; to_status: string | null; note: string | null; actor: "user" | "keel" | "jira" | "github" };
 export type TaskItem = {
   id: number; task_id: string; project_id: string; kind: "task" | "jira-manual" | "task-proposal" | "task-review"; stage: string | null;
   title: string; detail: string; created_at: string; done_at: string | null;
@@ -32,7 +32,7 @@ export type Task = {
   description: string;
   type: TaskType;
   status: TaskStatus;
-  source: "local" | "jira";
+  source: "local" | "jira" | "github";
   external_key: string | null;
   external_url: string | null;
   external_status: string | null;
@@ -50,7 +50,11 @@ export type Task = {
   /** GET /tasks/{id} only */
   events?: TaskEvent[] | null;
 };
-export type SyncInfo = { connected: boolean; kind: "cloud" | "server" | null; last_sync_at: string | null; last_sync_error: string | null; me: string | null; poll_minutes: number | null };
+/** 0.21.4 tracker: the project's tracker (jira, github; null without one); where: what it follows (GitHub: owner/repo). */
+export type SyncInfo = {
+  connected: boolean; kind: "cloud" | "server" | "github" | null; last_sync_at: string | null; last_sync_error: string | null; me: string | null; poll_minutes: number | null;
+  tracker?: "jira" | "github" | null; where?: string | null;
+};
 export type TaskList = { tasks: Task[]; sync: SyncInfo };
 export type SyncResult = {
   ok: boolean; jira: boolean; total: number; created: number; updated: number; moved: number; at: string | null;

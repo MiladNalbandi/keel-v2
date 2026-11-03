@@ -1057,6 +1057,10 @@ def pr_body(root: str, project: str, state: dict, title: str, base: str | None, 
                 if "no gate here" in line or "accepted:" in line or line.startswith("escalation-override")]
     auto = [f"- {line}" for line in gates.get("log") or [] if run_modes.is_auto_line(line)]
     out = [f"# {title}", ""] + ([f"Spec: `{spec}`", ""] if spec else [])
+    # 0.21.4 the ticket's own line (the api passes it for a task: GitHub's "Closes #12", so merging closes the issue)
+    pr_line = " ".join(str(data.get("pr_line") or "").split())[:200]
+    if pr_line:
+        out += [pr_line, ""]
     if extract:
         out += ["<details><summary>Spec extract</summary>", "", *tools.fenced(extract, "markdown"), "</details>", ""]
     # 0.18.65 keel init's setup commits at the branch's bottom are not this change's (runtime/bases.py own_base)

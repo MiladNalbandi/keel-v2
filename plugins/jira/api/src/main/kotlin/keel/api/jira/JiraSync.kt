@@ -52,7 +52,7 @@ class JiraSync(
     override fun syncInfo(pid: String): SyncInfo {
         val s = jira.settings(pid)
         val last = jira.lastSync(pid)
-        return SyncInfo(s != null, s?.kind, last?.first, last?.second, jira.me(pid)?.name, s?.pollMinutes)
+        return SyncInfo(s != null, s?.kind, last?.first, last?.second, jira.me(pid)?.name, s?.pollMinutes, "jira", s?.baseUrl)
     }
 
     /** "Sync now" of the Tasks page: Jira, when the project is connected (the Tasks plugin reads the PR reviews after). */

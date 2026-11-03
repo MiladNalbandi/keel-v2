@@ -67,7 +67,7 @@ class TaskPicker(
         val ids = list.map { it["id"]!! }
         val default = defaultFor(t, kind, ids)
         val comments = t.externalKey?.let { key ->
-            runCatching { trackers.orderedStream().findFirst().orElse(null)?.client(t.projectId)?.comments(key, 8) }.getOrNull()
+            runCatching { (trackers.bySource(t.source) ?: trackers.forProject(t.projectId))?.client(t.projectId)?.comments(key, 8) }.getOrNull()
         }.orEmpty()
         val facts = runCatching { knowledge.memory(t.projectId).facts.take(10).map { "${it.title}: ${it.text}".take(300) } }.getOrDefault(emptyList())
         val ticket = linkedMapOf<String, Any?>("key" to t.externalKey, "type" to t.type, "status" to (t.externalStatus ?: TaskStatus.LABELS[t.status]),

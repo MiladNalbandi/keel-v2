@@ -155,7 +155,7 @@ describe("registerSlot and useSlot", () => {
   it("keel's built-in parts fill the step 2 slots", () => {
     const ids = (slot: string) => slotItems(slot).map((i) => i.id);
     // keel 0.18.57 Settings › Connections: the logins for every project first, then Jira per project
-    expect(ids(SLOTS.connectionsKind)).toEqual(["github", "gitlab", "jira", "linear", "notify", "slack"]);
+    expect(ids(SLOTS.connectionsKind)).toEqual(["github", "gitlab", "jira", "github-issues", "linear", "notify", "slack"]);
     // the Database plugin's Databases is a Settings tab of its own
     expect(ids(SLOTS.settingsTab)).toEqual(["databases", "notify", "slack"]);
     expect(ids(SLOTS.jobsTab)).toEqual(["pipelines", "supervisor"]);

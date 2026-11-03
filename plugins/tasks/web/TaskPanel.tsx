@@ -57,6 +57,7 @@ import {
   stepsOf,
   STATUS_WORDS,
   suggestFor,
+  trackerName,
 } from "./taskModel";
 
 type Err = { message: string; hint?: string };
@@ -64,6 +65,7 @@ const ACTOR: Record<TaskEvent["actor"], string> = {
   user: "you",
   keel: "keel",
   jira: "Jira",
+  github: "GitHub",
 };
 const PICKING = "keel is picking a flow… the proposal will be in your Inbox.";
 /** A workflow's name without keel's "(keel)" mark: "fix (keel)" → "fix". */
@@ -553,7 +555,7 @@ function SuggestCard({
           </label>
           <span className="hint">
             The flow gets the title{t.description ? ", the description" : ""}
-            {t.external_key ? " and the Jira key" : ""} as its request.
+            {t.external_key ? (trackerName(t.source, t.external_url) === "GitHub" ? " and the issue number" : " and the Jira key") : ""} as its request.
           </span>
         </>
       )}
@@ -873,7 +875,7 @@ export function TaskPanel({
       )}
       {ask === "delete" && (
         <Confirm
-          text={`Delete ${nameOf(t)} and its history? The Jira ticket stays.`}
+          text={`Delete ${nameOf(t)} and its history? The ${trackerName(t.source, t.external_url)} ticket stays.`}
           yes="Delete"
           busy={busy}
           onYes={() => void remove(t)}
@@ -1003,7 +1005,7 @@ export function TaskPanel({
                 target="_blank"
                 rel="noreferrer"
               >
-                Open in Jira ↗
+                Open in {trackerName(t.source, t.external_url)} ↗
               </a>
             )}
           </div>
@@ -1014,7 +1016,7 @@ export function TaskPanel({
               {t.external_status ? (
                 <>
                   {" "}
-                  · Jira: <b>{t.external_status}</b>
+                  · {trackerName(t.source, t.external_url)}: <b>{t.external_status}</b>
                 </>
               ) : null}
             </dd>
@@ -1034,7 +1036,9 @@ export function TaskPanel({
             <dd>
               {t.source === "jira"
                 ? "Jira ticket"
-                : "Local task (no Jira ticket)"}
+                : t.source === "github"
+                  ? "GitHub issue"
+                  : "Local task (no ticket)"}
             </dd>
           </dl>
 
@@ -1057,7 +1061,7 @@ export function TaskPanel({
                 run(
                   () => tasksApi.act(it.id, action, nt),
                   action === "done"
-                    ? "Recorded: you moved it in Jira."
+                    ? `Recorded: you moved it in ${trackerName(t.source, t.external_url)}.`
                     : action === "confirm"
                       ? "Confirmed."
                       : action === "pr"

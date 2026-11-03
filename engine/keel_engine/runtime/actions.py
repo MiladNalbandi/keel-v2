@@ -1058,13 +1058,14 @@ def commit_args(root: str, settings: dict | None, cfg: dict) -> tuple[list[str],
     return who, (["-m", COAUTHOR] if coauthor else [])
 
 
-TICKET = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,29}-\d{1,9}$")
-_TITLE_TICKET = re.compile(r"^\s*([A-Z][A-Z0-9_]{0,29}-\d{1,9})\s*:\s")
+# a Jira key (SHOPS-4) or, 0.21.4, a GitHub issue (#12)
+TICKET = re.compile(r"^(?:[A-Za-z][A-Za-z0-9_]{0,29}-\d{1,9}|#\d{1,9})$")
+_TITLE_TICKET = re.compile(r"^\s*([A-Z][A-Z0-9_]{0,29}-\d{1,9}|#\d{1,9})\s*:\s")
 
 
 def ticket_key(a: ActionInput) -> str | None:
-    """The ticket a flow works on: data.ticket (the api passes a task's Jira key), else a "SHOPS-4: ..." flow title (how
-    a task names its flow). None when there is none."""
+    """The ticket a flow works on: data.ticket (the api passes a task's ticket key: Jira's SHOPS-4 or a GitHub issue's
+    #12), else a "SHOPS-4: ..." / "#12: ..." flow title (how a task names its flow). None when there is none."""
     given = str((a.data or {}).get("ticket") or "").strip()
     if TICKET.match(given):
         return given.upper()

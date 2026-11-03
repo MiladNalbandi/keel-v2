@@ -81,7 +81,7 @@ class TaskAutomations(
     fun view(pid: String): AutomationView {
         projects.require(pid)
         return AutomationView(auto.settings(pid), RULE_STATUSES, AutomationSettings.MODES, judges.ifAvailable != null,
-            trackers.orderedStream().findFirst().orElse(null)?.connection(pid) != null, auto.autoStartsToday(pid))
+            trackers.forProject(pid)?.connection(pid) != null, auto.autoStartsToday(pid))
     }
 
     fun save(pid: String, b: AutomationSave): AutomationView {
@@ -411,12 +411,13 @@ class TaskAutomations(
         }
         val next = if (replied) "keel replied on the pull request (allowed by the project's switch)." else "Waiting for a decision in keel."
         val key = t.externalKey
-        val client = key?.let { trackers.orderedStream().findFirst().orElse(null)?.client(t.projectId) }
+        val tracker = trackers.bySource(t.source) ?: trackers.forProject(t.projectId)
+        val client = key?.let { tracker?.client(t.projectId) }
         if (key != null && client != null) {
             try {
                 client.comment(key, "keel: ${th.lastAuthor} commented on the pull request${where?.let { " ($it)" } ?: ""}: \"$said\" $check $next")
             } catch (e: TicketException) {
-                store.event(t.id, "jira_error", null, null, "Jira: the review comment note was not added. ${e.message}", "keel")
+                store.event(t.id, "jira_error", null, null, "${tracker?.title ?: "Jira"}: the review comment note was not added. ${e.message}", "keel")
             }
         }
         store.event(t.id, "automation", null, null, "${th.lastAuthor} commented${where?.let { " on $it" } ?: ""}: \"${plain(th.lastBody, 160)}\" $check", "keel")

@@ -1220,12 +1220,30 @@ POST   /api/projects/{pid}/jira/test  [unsaved JiraSettings + token]  → { ok, 
 GET    /api/projects/{pid}/jira/discover?key=       → { statuses, transitions (of that ticket), fields (reviewer candidates), suggested, keel_statuses }
 GET    /api/projects/{pid}/mcp-catalog              → CatalogEntry[]   { id, name, about, url, license, command, ready, why, server, added }
 POST   /api/projects/{pid}/mcp-catalog/jira         → McpServer       (added turned off)
+GET    /api/projects/{pid}/github-issues            → GhIssuesView { connected, settings, repo, repo_from: settings|origin|null, origin, repo_url, host,
+                                                        token_set, status_map (every status), last_sync_at, last_sync_error, me, other_tracker }
+PUT    /api/projects/{pid}/github-issues  GhIssuesSettings → GhIssuesView   (null keeps a value; repo "" = the origin; 409 while another tracker is connected)
+DELETE /api/projects/{pid}/github-issues            → { ok }
+POST   /api/projects/{pid}/github-issues/test  [{ repo? }]  → { ok, user?, repo?, error?, hint?, read_only }   (GET /user and /repos/{repo})
+GET    /api/projects/{pid}/github-issues/labels     → string[]   (the repo's labels)
 type Task = { id, project_id, title, description, type, status, source, external_key, external_url, external_status, assignee, priority,
               thread_id, workflow_id, pr_url, reviewers, blocked_reason, created_at, updated_at,
               flow: { thread_id, workflow_id, status, phase, current, title } | null, waiting: TaskItem[] }
 type JiraSettings = { kind: cloud|server, base_url, email (cloud), project_key, board_id, jql, status_map: {keel status: Jira status|transition|"-"},
                       reviewer_field, jira_reviewers: string[], github_reviewers: string[], poll_minutes (0 = only Sync now) }
+type GhIssuesSettings = { repo: "owner/repo" | null (the origin), follow: assigned|label|all, label, comment: bool, closes_on_merge: bool,
+                          status_map: {keel status: "-"|open|closed|"closed:not planned"|"label:<name>"}, github_reviewers: string[], poll_minutes }
 ```
+- **0.21.4 trackers** (issue #64): the Tasks plugin's `TicketTracker` beans are the Jira plugin's and the GitHub Issues
+  plugin's (`plugins/github-issues`); a project uses the one it is connected to (one at a time: each refuses to connect
+  while the other is). A task's `source` is `local`, `jira` or `github`; a ticket key is a Jira key (`ABC-123`) or a
+  GitHub issue (`#12`). `sync` gains `tracker` (jira | github | null) and `where` (Jira's address, GitHub's owner/repo);
+  `kind` is `github` for GitHub Issues. GitHub's status words are `open`, `closed`, `closed:not planned` and
+  `label:<name>` (open with that status label); a task event's `actor` can be `github`. A started flow's data gains
+  `pr_line` (`Closes #12` when `closes_on_merge`; `Closes owner/repo#12` when the issues are in another repo), the first
+  line of its pull request; the engine also takes `#12` as a ticket (commits end with ` [#12]`). The connection is the
+  plugin's own setting `plugins.github-issues.connection`; the token is Connections › GitHub's (`GITHUB_REPO_TOKEN`),
+  sent only to its host.
 - **Start**: the workflow is `workflow_id`, else by type: bug → `fix`, story → `feature`, task → `change`. The flow's title is
   `KEY: title`; its request is title + description + "Jira ticket: KEY (url)"; its data has `ticket: KEY` (0.18.55: every
   keel commit of the flow ends with ` [KEY]`, `feat(AC-2): … [KEY]`, so the ticket scan links them). A refused start (a used-up cap, uncommitted

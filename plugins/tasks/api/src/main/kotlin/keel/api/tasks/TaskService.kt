@@ -27,9 +27,9 @@ import java.util.concurrent.ConcurrentHashMap
 /**
  * Tasks: create and edit them, start a flow for one, and walk it through review, PP testing and production. Every change
  * goes through [fire]: the [TaskMachine] plans it, this class writes the status and the history, opens or closes Inbox
- * items, and does what the plan asks outside keel — move and comment the Jira ticket, ask for reviewers on GitHub and in
- * Jira. When Jira cannot be reached (or there is no connection) for a task with a Jira key, an Inbox item asks the user
- * to move the real ticket by hand. Jira itself is the Jira plugin's: it is the [TicketTracker] (none without it).
+ * items, and does what the plan asks outside keel — move and comment the real ticket, ask for reviewers on GitHub and in
+ * Jira. When the tracker cannot be reached (or there is no connection) for a task with a ticket key, an Inbox item asks
+ * the user to move the real ticket by hand. The trackers are plugins (Jira, GitHub Issues): each is a [TicketTracker].
  */
 @Service
 class TaskService(
@@ -50,8 +50,14 @@ class TaskService(
     private val effectLocks = ConcurrentHashMap<String, Any>()
     private fun effectLock(id: String) = effectLocks.computeIfAbsent(id) { Any() }
 
-    /** The tracker that holds the real tickets (the Jira plugin), or null. */
-    private fun tracker(): TicketTracker? = trackers.orderedStream().findFirst().orElse(null)
+    /** The tracker [pid] is connected to (Jira, GitHub Issues), or null. */
+    private fun tracker(pid: String): TicketTracker? = trackers.forProject(pid)
+
+    /** The tracker of [t]'s ticket: the one its source names, else the project's. */
+    private fun tracker(t: Task): TicketTracker? = trackers.bySource(t.source) ?: tracker(t.projectId)
+
+    /** The tracker's name for what keel writes about [t]'s ticket: the tracker's, else by the task's source. */
+    private fun named(tr: TicketTracker?, t: Task) = tr?.title ?: if (t.source == "github") "GitHub" else "Jira"
 
     // ---- reads ---------------------------------------------------------------------------------
 
@@ -64,7 +70,7 @@ class TaskService(
     fun list(pid: String, source: String? = null): TaskList {
         projects.require(pid)
         val tasks = store.list(pid).filter { source.isNullOrBlank() || it.source == source }.map { view(it) }
-        return TaskList(tasks, tracker()?.syncInfo(pid) ?: SyncInfo.NONE)
+        return TaskList(tasks, tracker(pid)?.syncInfo(pid) ?: SyncInfo.NONE)
     }
 
     fun get(id: String): TaskView = view(store.require(id), events = true)
@@ -78,13 +84,13 @@ class TaskService(
         if (title.length > 300) throw BadRequest("The title is too long (300 characters at most)")
         val type = b.type?.trim()?.lowercase()?.ifEmpty { null } ?: "task"
         if (type !in TaskTypes.ALL) throw BadRequest("type must be bug, story or task")
-        val key = key(b.externalKey)
+        val (key, tr) = key(pid, b.externalKey)
         if (key != null && store.byKey(pid, key) != null) throw Conflict("A task for $key already exists", "Open it on the Tasks page.")
         val now = Time.now()
         val t = store.insert(Task(
             id = TaskStore.newId(), projectId = pid, title = title, description = b.description?.trim()?.take(20_000).orEmpty(), type = type,
-            status = TaskStatus.TODO, source = if (key != null) "jira" else "local", externalKey = key,
-            externalUrl = url(b.externalUrl) ?: key?.let { browse(pid, it) }, externalStatus = null,
+            status = TaskStatus.TODO, source = if (key != null) tr?.source ?: "jira" else "local", externalKey = key,
+            externalUrl = url(b.externalUrl) ?: key?.let { tr?.ticketUrl(pid, it) }, externalStatus = null,
             assignee = b.assignee?.trim()?.ifEmpty { null }, priority = b.priority?.trim()?.ifEmpty { null }, threadId = null, workflowId = null,
             prUrl = null, reviewers = logins(b.reviewers).map { Reviewer(it, "github", "wanted") }, blockedReason = null, createdAt = now, updatedAt = now,
         ))
@@ -107,11 +113,12 @@ class TaskService(
             if (it != t.type) { n = n.copy(type = it); what += "type" }
         }
         if (b.externalKey != null) {
-            val key = key(b.externalKey)
+            val (key, tr) = key(t.projectId, b.externalKey)
             if (key != t.externalKey) {
                 if (key != null && store.byKey(t.projectId, key)?.let { it.id != t.id } == true) throw Conflict("A task for $key already exists")
-                n = n.copy(externalKey = key, source = if (key != null) "jira" else "local", externalUrl = key?.let { browse(t.projectId, it) }, externalStatus = null)
-                what += "Jira key"
+                n = n.copy(externalKey = key, source = if (key != null) tr?.source ?: "jira" else "local",
+                    externalUrl = key?.let { tr?.ticketUrl(t.projectId, it) }, externalStatus = null)
+                what += "ticket key"
             }
         }
         b.externalUrl?.let { if (url(it) != n.externalUrl) { n = n.copy(externalUrl = url(it)); what += "link" } }
@@ -156,16 +163,19 @@ class TaskService(
         val running = t.threadId?.let { store.flow(it) }?.takeIf { it.status in setOf("running", "waiting") }
         if (running != null) throw Conflict("A flow already runs for ${t.label}", "Open it on the Flow page, or stop it first.")
         val title = (t.externalKey?.let { "$it: " } ?: "") + (b.title?.trim()?.ifEmpty { null } ?: t.title)
+        val tr = tracker(t)
         val request = buildString {
             append(b.request?.trim()?.ifEmpty { null } ?: ticketText(t))
-            if (t.externalKey != null) append("\n\nJira ticket: ").append(t.externalKey).append(t.externalUrl?.let { " ($it)" } ?: "")
+            if (t.externalKey != null) append("\n\n${named(tr, t)} ticket: ").append(t.externalKey).append(t.externalUrl?.let { " ($it)" } ?: "")
         }
+        // 0.21.4 the line the PR carries for the ticket (GitHub: "Closes #12", so merging the PR closes the issue)
+        val prLine = t.externalKey?.let { k -> runCatching { tr?.prLine(t.projectId, k) }.getOrNull() }
         val state = try {
             flows.start(t.projectId, wid, title.take(200), criteria(t.description),
                 FlowCap(capTokens = b.capTokens, runMode = b.runMode?.trim()?.ifEmpty { null }),
                 allowFake = b.allowFake, allowDirty = b.allowDirty, request = request, branch = "new",
                 // the engine names the ticket in every commit of the flow (data.ticket), so the ticket scan links them
-                options = t.externalKey?.let { mapOf("ticket" to it) }, force = b.force)
+                options = t.externalKey?.let { k -> mapOf("ticket" to k) + (prLine?.let { mapOf("pr_line" to it) } ?: emptyMap()) }, force = b.force)
         } catch (e: ApiException) {
             // A used-up cap, uncommitted files, the fake model, an unknown workflow: the task stays where it is and its history says why.
             store.event(id, "start_refused", t.status, t.status, "The $wid flow did not start: ${e.message}${e.hint?.let { " $it" } ?: ""}", "keel")
@@ -305,7 +315,7 @@ class TaskService(
     /** "Sync now": the tracker's tickets (when the project is connected), then the PR reviews of its tasks in review. */
     fun syncNow(pid: String): SyncResult {
         projects.require(pid)
-        val r = tracker()?.sync(pid) ?: SyncResult(ok = true, jira = false, at = Time.now())
+        val r = tracker(pid)?.sync(pid) ?: SyncResult(ok = true, jira = false, at = Time.now())
         val (checked, moved) = checkReviews(pid)
         return r.copy(reviewsChecked = checked, reviewsMoved = moved)
     }
@@ -353,7 +363,8 @@ class TaskService(
         // task. Their own lock keeps one task's outside steps in order.
         synchronized(effectLock(id)) {
             if (plan.stopFlow) stopFlow(next)
-            if (plan.actor != "jira") effects(next, plan)
+            // a move the tracker made (Jira, GitHub) is never sent back to it
+            if (tr !is Trigger.JiraMoved) effects(next, plan)
         }
         changed(next.projectId)
         return try { store.require(id) } catch (e: ApiException) { next }
@@ -390,23 +401,24 @@ class TaskService(
     private fun effects(start: Task, plan: Plan): Task {
         var t = start
         val key = t.externalKey
-        val tracker = tracker()
+        val tracker = tracker(t)
+        val name = named(tracker, t)
         val conn = tracker?.connection(t.projectId)
         val client = if (key != null) tracker?.client(t.projectId) else null
         if (plan.moveJira && key != null) {
             val target = TaskMachine.jiraTarget(plan.to, conn?.statusMap.orEmpty())
             if (target != null) {
                 if (client == null) {
-                    byHand(t, target, "no Jira connection for this project")
+                    byHand(t, target, "no $name connection for this project", name)
                 } else try {
                     val m = client.transitionTo(key, target)
-                    store.event(t.id, "jira", null, null, if (m.moved) "Jira: moved $key from ${m.from ?: "?"} to ${m.to}." else "Jira: $key is already in ${m.to}.", "keel")
+                    store.event(t.id, "jira", null, null, if (m.moved) "$name: moved $key from ${m.from ?: "?"} to ${m.to}." else "$name: $key is already in ${m.to}.", "keel")
                     t = patch(t.id) { it.copy(externalStatus = m.to) }
-                    // keel reached Jira this time: an older "move it by hand" is out of date
+                    // keel reached the tracker this time: an older "move it by hand" is out of date
                     store.openItems(t.id).filter { it.kind == "jira-manual" && it.stage != "reviewers" }.forEach { closeItem(it.id) }
                 } catch (e: TicketException) {
-                    store.event(t.id, "jira_error", null, null, "Jira: could not move $key to $target. ${e.message}", "keel")
-                    byHand(t, target, e.message)
+                    store.event(t.id, "jira_error", null, null, "$name: could not move $key to $target. ${e.message}", "keel")
+                    byHand(t, target, e.message, name)
                 }
             }
         }
@@ -414,7 +426,7 @@ class TaskService(
             try {
                 client.comment(key, plan.comment)
             } catch (e: TicketException) {
-                store.event(t.id, "jira_error", null, null, "Jira: the comment was not added. ${e.message}", "keel")
+                store.event(t.id, "jira_error", null, null, "$name: the comment was not added. ${e.message}", "keel")
             }
         }
         if (plan.askReviewers) t = askReviewers(t, conn, client)
@@ -465,11 +477,11 @@ class TaskService(
     }
 
     /** keel could not move the real ticket: the Inbox asks the user to do it (an older such item is replaced). */
-    private fun byHand(t: Task, target: String, why: String) {
+    private fun byHand(t: Task, target: String, why: String, name: String) {
         store.openItems(t.id).filter { it.kind == "jira-manual" && it.stage != "reviewers" }.forEach { closeItem(it.id) }
-        openItem(t, "jira-manual", target, "Move ${t.externalKey} to $target in Jira (keel could not: ${why.trimEnd('.')})",
+        openItem(t, "jira-manual", target, "Move ${t.externalKey} to $target in $name (keel could not: ${why.trimEnd('.')})",
             "keel moved the task to ${TaskStatus.LABELS[t.status] ?: t.status}. Move the real ticket by hand, then press Done.")
-        store.event(t.id, "jira_manual", null, null, "Asked you to move ${t.externalKey} to $target in Jira by hand.", "keel")
+        store.event(t.id, "jira_manual", null, null, "Asked you to move ${t.externalKey} to $target in $name by hand.", "keel")
     }
 
     /** Opens an Inbox item and its notification (the phone, Muxy and the IDE follow the Inbox's notifications). */
@@ -529,12 +541,16 @@ class TaskService(
 
     fun link(t: Task) = "${props.publicUrl.trim().trimEnd('/').ifBlank { "http://127.0.0.1:8080" }}/#/tasks/${t.id}"
 
-    private fun browse(pid: String, key: String) = tracker()?.connection(pid)?.baseUrl?.let { "$it/browse/$key" }
-
-    private fun key(raw: String?): String? {
-        val k = raw?.trim()?.uppercase()?.ifEmpty { null } ?: return null
-        if (!Regex("^[A-Z][A-Z0-9_]{0,29}-\\d{1,9}$").matches(k)) throw BadRequest("\"$raw\" is not a Jira key", "Like ABC-123.")
-        return k
+    /**
+     * [raw] as a ticket key and the tracker it belongs to: the project's tracker first, then any other (a Jira key on a
+     * project without a connection stays a Jira key). (null, null) for a blank key.
+     */
+    private fun key(pid: String, raw: String?): Pair<String?, TicketTracker?> {
+        val r = raw?.trim()?.ifEmpty { null } ?: return null to null
+        val all = trackers.orderedStream().toList()
+        for (tr in listOfNotNull(all.forProject(pid)) + all) tr.key(r)?.let { return it to tr }
+        if (JIRA_KEY.matches(r.uppercase())) return r.uppercase() to null      // a Jira key without the Jira plugin, as before
+        throw BadRequest("\"$raw\" is not a ticket key", "Like ABC-123 (Jira) or #12 (a GitHub issue).")
     }
 
     private fun url(raw: String?): String? {

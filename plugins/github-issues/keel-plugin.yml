@@ -1,0 +1,17 @@
+# GitHub Issues as a plugin, next to Jira (issue #64). scripts/build-plugin.sh packs it: github-issues-<version>.kplug.
+# Paths are relative to the plugin folder. Each part, and requires.plugins, is written on one line (scripts/build-plugin.sh
+# and api/build.gradle.kts read them). Its settings are its own plugin settings (plugins.github-issues.connection); the
+# GitHub token is core's (Connections › GitHub).
+schema: 1
+name: github-issues
+title: GitHub Issues
+version: 1.0.0
+publisher: keel
+summary: A GitHub Issues connection per project - its issues become tasks, and keel comments, labels and closes the real issue as the task moves.
+requires:
+  sdk: 1
+  plugins: { tasks: ">=1.0.0" }
+parts:
+  api: { jars: [api/keel-plugin-github-issues.jar] }
+  web: { entry: web/index.js }
+per_project: false

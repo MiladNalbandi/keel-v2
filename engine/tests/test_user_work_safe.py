@@ -36,6 +36,24 @@ def test_preexisting_changes_stay_out_of_keel_commits(tmp_path):
     assert " M app.py" in status and "?? notes.md" in status          # still there, still uncommitted
 
 
+def test_a_flow_from_a_github_issue_names_it_in_every_criterion_commit(tmp_path):
+    # 0.21.4 a task from a GitHub issue: data.ticket is "#12", or the flow title starts with "#12: "
+    root = repo(tmp_path)
+    (root / "tests").mkdir()
+    (root / "tests" / "test_new.py").write_text("def test_x():\n    assert True\n")
+    a = ActionInput(root=str(root), phase="red", title="Coupons", ac={"id": "AC-2", "title": "a coupon applies once"},
+                    acs=[{"id": "AC-2"}], fake=True, flow="feature", data={"ticket": "#12"})
+    res = asyncio.run(commit(a)) if asyncio.iscoroutinefunction(commit) else commit(a)
+    assert res.ok, res
+    assert sh(root, "log", "-1", "--format=%s").strip() == "test(AC-2): a coupon applies once [#12]"
+    (root / "tests" / "test_two.py").write_text("def test_y():\n    assert True\n")
+    b = ActionInput(root=str(root), phase="red", title="#7: Coupons", ac={"id": "AC-3", "title": "x"}, acs=[{"id": "AC-3"}],
+                    fake=True, flow="feature")
+    res = asyncio.run(commit(b)) if asyncio.iscoroutinefunction(commit) else commit(b)
+    assert res.ok, res
+    assert sh(root, "log", "-1", "--format=%s").strip().endswith(" [#7]")
+
+
 def test_a_flow_from_a_ticket_names_its_key_in_every_criterion_commit(tmp_path):
     # e2e 0.18.54: feat(AC-2) commits of a task with a Jira key had no key, so the ticket scan did not link them
     root = repo(tmp_path)

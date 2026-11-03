@@ -420,6 +420,14 @@ def test_a_spec_extract_with_its_own_code_block_stays_inside_the_pr_bodys_fold(r
     assert "````markdown" in body and body.index("</details>") > body.index("formatEuro") and body.count("````") == 2
 
 
+def test_the_tickets_pr_line_comes_first_in_the_pr_body(repo):
+    """0.21.4 a task from a GitHub issue: the api passes data.pr_line ("Closes #12"), so merging the PR closes it."""
+    from keel_engine.runtime import verdict_actions
+    body = verdict_actions.pr_body(str(repo), "demo", {"data": {"pr_line": "Closes #12", "ticket": "#12"}}, "Coupons", None)
+    assert body.splitlines()[:3] == ["# Coupons", "", "Closes #12"]
+    assert "Closes" not in verdict_actions.pr_body(str(repo), "demo", {"data": {"ticket": "SHOPS-4"}}, "Coupons", None)
+
+
 def test_an_e2e_criterion_tested_outside_an_e2e_folder_is_traced(proj):
     """0.18.72 a field report: no e2e folder set (a PHP library), the [E2E] criteria's tests under tests/, and the
     strict trace said "no test commit" for them anyway."""

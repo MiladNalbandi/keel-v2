@@ -55,9 +55,9 @@ HERE = Path(__file__).resolve().parent
 PROJECT = "shop"
 
 PLUGINS = ["code", "git", "review", "db", "ci", "keelbot", "map", "graph", "wiki", "tasks", "jira",
-           "answers", "record", "notify", "desk", "library", "links", "goals", "slack", "supervisor"]
+           "answers", "record", "notify", "desk", "library", "links", "goals", "slack", "supervisor", "github-issues"]
 NEEDS = {"ci": ["git"], "jira": ["tasks"], "review": ["keelbot"], "product": ["tasks", "jira"],
-         "desk": ["tasks"], "slack": ["tasks"]}
+         "desk": ["tasks"], "slack": ["tasks"], "github-issues": ["tasks"]}
 PER_PROJECT = ["ci", "db", "git", "review"]
 # one GET of each plugin's api: it answers (not 404) when the plugin is on, 404 when it is off (answers is content only: no api)
 ROUTE = {
@@ -67,7 +67,7 @@ ROUTE = {
     "tasks": "/projects/{pid}/tasks", "jira": "/projects/{pid}/jira", "product": "/product",
     "record": "/projects/{pid}/record/flows", "notify": "/plugins/notify/channels", "desk": "/projects/{pid}/desk/requests",
     "library": "/projects/{pid}/library/docs", "links": "/plugins/links/linear", "goals": "/projects/{pid}/goals",
-    "slack": "/plugins/slack", "supervisor": "/supervisor/switch",
+    "slack": "/plugins/slack", "supervisor": "/supervisor/switch", "github-issues": "/projects/{pid}/github-issues",
 }
 # the paths of each plugin's api, for the walk: a page must not ask an off plugin
 WEB_ROUTES = {
@@ -81,6 +81,7 @@ WEB_ROUTES = {
     "desk": r"^/api/projects/[^/]+/desk(/|$)", "library": r"^/api/projects/[^/]+/library(/|$)", "links": r"^/api/plugins/links(/|$)",
     "goals": r"^/api/projects/[^/]+/goals(/|$)", "slack": r"^/api/plugins/slack(/|$)",
     "supervisor": r"^/api/supervisor(/|$)|^/api/projects/[^/]+/(supervisor|flows/[^/]+/supervisor)(/|$)",
+    "github-issues": r"^/api/projects/[^/]+/github-issues(/|$)",
 }
 MCP_TOOLS = {
     "git": ["keel_git_status", "keel_pr_status", "keel_git_commit", "keel_git_push", "keel_pr_create"],
