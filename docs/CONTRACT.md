@@ -3631,3 +3631,9 @@ keel_agent_start(..., model)       // an alias or an exact id; the answer names 
   kind `e2e_skip` {branch, reason, sha} (`runtime/kept_skips.py`): it holds while no file the e2e tests cover changed
   since that sha (web code and tests, e2e tests, the contract file, or the new `e2e.watch` globs). Otherwise keel asks
   again and names the changed files.
+- **#76** `-x test` / `-x check` are refused only for a gradle / gradlew part (`-x`, `--exclude-task`, optional `:module:`
+  prefix, also inside `bash -c`): `pytest -x` passes. A refused `git push` (or an in-flow `git commit`) inside a compound
+  command says that nothing ran and names the other parts to run on their own.
+- **#77** `tools.existing()` drops the files git ignores (`git check-ignore --no-index`, so a tracked but ignored file
+  such as a generated `next-env.d.ts` is caught too): the lint scope, after-edit and pre-commit tools never get them. A
+  manual tool that runs on the whole folder (`eslint .`) follows the tool's own ignore settings.
