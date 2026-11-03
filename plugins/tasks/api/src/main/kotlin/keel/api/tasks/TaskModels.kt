@@ -148,7 +148,7 @@ data class TaskItem(
 
 /** The Tasks page's sync line: the project's tracker connection (Jira), or not connected. */
 /**
- * The Tasks page's sync line. [kind]: Jira's cloud | server, "github" for GitHub Issues. 0.21.4 [tracker]: the tracker's
+ * The Tasks page's sync line. [kind]: Jira's cloud | server, "github" for GitHub Issues. 0.22.0 [tracker]: the tracker's
  * source ("jira", "github"; null without one) and [where]: what it follows (GitHub: owner/repo).
  */
 data class SyncInfo(val connected: Boolean, val kind: String?, val lastSyncAt: String?, val lastSyncError: String?, val me: String?, val pollMinutes: Int?,

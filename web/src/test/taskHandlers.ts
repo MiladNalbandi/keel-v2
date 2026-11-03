@@ -69,7 +69,7 @@ export function createTaskDb() {
           status_map: {}, reviewer_field: null, jira_reviewers: [], github_reviewers: ["ana"], poll_minutes: 5 },
       },
     } as Record<string, JiraView>,
-    /** 0.21.4 the GitHub Issues plugin's connections (none at first) */
+    /** 0.22.0 the GitHub Issues plugin's connections (none at first) */
     ghIssues: {} as Record<string, Record<string, unknown>>,
     catalogAdded: false,
   };
@@ -184,7 +184,7 @@ export function taskHandlers(db: TaskDb, log: (req: Request) => Promise<Record<s
       return HttpResponse.json(withItems(t));
     }),
 
-    // 0.21.4 the GitHub Issues plugin (plugins/github-issues): its connection per project; ludus-engine follows Jira
+    // 0.22.0 the GitHub Issues plugin (plugins/github-issues): its connection per project; ludus-engine follows Jira
     http.get("/api/projects/:pid/github-issues", ({ params }) => HttpResponse.json(ghView(db, params.pid as string))),
     http.put("/api/projects/:pid/github-issues", async ({ request, params }) => {
       const b = await log(request);

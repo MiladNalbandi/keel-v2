@@ -331,7 +331,7 @@ export function TaskBoardPage({
           options={[
             ["all", "All", total],
             ["jira", "Jira", all.filter((t) => t.source === "jira").length],
-            // 0.21.4 GitHub issues: shown once the project has one, or follows GitHub Issues
+            // 0.22.0 GitHub issues: shown once the project has one, or follows GitHub Issues
             ...(r.data?.sync.tracker === "github" || all.some((t) => t.source === "github")
               ? [["github", "GitHub", all.filter((t) => t.source === "github").length] as [Source, string, number]]
               : []),

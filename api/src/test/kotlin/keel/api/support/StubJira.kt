@@ -228,7 +228,7 @@ class StubJira private constructor(private val server: HttpServer, val kind: Str
 }
 
 /**
- * GitHub's two pull-request calls tasks make (request reviewers, read reviews), and 0.21.4 the issue calls of the GitHub
+ * GitHub's two pull-request calls tasks make (request reviewers, read reviews), and 0.22.0 the issue calls of the GitHub
  * Issues plugin: /user, the repo, its issues (list, read, close / reopen, labels, comments) and labels (Bearer [token]).
  */
 class StubGitHub private constructor(private val server: HttpServer) {
@@ -244,7 +244,7 @@ class StubGitHub private constructor(private val server: HttpServer) {
 
     fun review(login: String, state: String) = mapOf("user" to mapOf("login" to login), "state" to state)
 
-    /** 0.21.4 the token's user, and one repo's issues. */
+    /** 0.22.0 the token's user, and one repo's issues. */
     @Volatile var login = "mili-dev"
     @Volatile var issuesRepo = "acme/app"
     @Volatile var hasIssues = true

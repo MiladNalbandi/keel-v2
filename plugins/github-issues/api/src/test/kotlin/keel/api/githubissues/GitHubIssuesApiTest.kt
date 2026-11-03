@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Test
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 
 /**
- * 0.21.4 (issue #64) the GitHub Issues plugin with the Tasks plugin: a project's connection (the repo from its origin,
+ * 0.22.0 (issue #64) the GitHub Issues plugin with the Tasks plugin: a project's connection (the repo from its origin,
  * the token of Connections › GitHub), the sync (the issues it follows become tasks), and a task's moves on the real
  * issue: comments, a status label, closed when done, "Closes #N" in the PR, and GitHub's own moves coming back.
  */

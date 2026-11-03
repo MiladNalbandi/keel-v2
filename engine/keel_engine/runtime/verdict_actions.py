@@ -1057,7 +1057,7 @@ def pr_body(root: str, project: str, state: dict, title: str, base: str | None, 
                 if "no gate here" in line or "accepted:" in line or line.startswith("escalation-override")]
     auto = [f"- {line}" for line in gates.get("log") or [] if run_modes.is_auto_line(line)]
     out = [f"# {title}", ""] + ([f"Spec: `{spec}`", ""] if spec else [])
-    # 0.21.4 the ticket's own line (the api passes it for a task: GitHub's "Closes #12", so merging closes the issue)
+    # 0.22.0 the ticket's own line (the api passes it for a task: GitHub's "Closes #12", so merging closes the issue)
     pr_line = " ".join(str(data.get("pr_line") or "").split())[:200]
     if pr_line:
         out += [pr_line, ""]

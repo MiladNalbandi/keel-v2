@@ -1271,7 +1271,7 @@ ticket to In progress, to In review when the PR opens (and asks the reviewers on
 Jira, the Inbox asks you to move the real ticket by hand. Without Jira, tasks stay in keel with their history.
 Details: [CONTRACT.md](CONTRACT.md), "v0.5.0: tasks and Jira".
 
-**GitHub Issues** (0.21.4) works the same way with a repository's issues (Settings › Connections › GitHub Issues, per
+**GitHub Issues** (0.22.0) works the same way with a repository's issues (Settings › Connections › GitHub Issues, per
 project). It uses keel's GitHub sign-in (Settings › Connections › GitHub); there is no other token to paste.
 
 - **Which repo**: the project's origin on GitHub, or another `owner/repo`.

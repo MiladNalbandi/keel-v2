@@ -270,6 +270,6 @@ export function flowWords(status: string): string {
   return status === "waiting" ? "waits for you" : status;
 }
 
-/** 0.21.4 the tracker a ticket lives in, for what the page says ("Open in GitHub"): its source, else its link. */
+/** 0.22.0 the tracker a ticket lives in, for what the page says ("Open in GitHub"): its source, else its link. */
 export const trackerName = (source?: string | null, url?: string | null): "GitHub" | "Jira" =>
   source === "github" || (!source && /\/issues\/\d+\/?$/.test(url ?? "")) ? "GitHub" : "Jira";

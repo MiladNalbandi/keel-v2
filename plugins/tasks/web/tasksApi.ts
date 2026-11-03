@@ -50,7 +50,7 @@ export type Task = {
   /** GET /tasks/{id} only */
   events?: TaskEvent[] | null;
 };
-/** 0.21.4 tracker: the project's tracker (jira, github; null without one); where: what it follows (GitHub: owner/repo). */
+/** 0.22.0 tracker: the project's tracker (jira, github; null without one); where: what it follows (GitHub: owner/repo). */
 export type SyncInfo = {
   connected: boolean; kind: "cloud" | "server" | "github" | null; last_sync_at: string | null; last_sync_error: string | null; me: string | null; poll_minutes: number | null;
   tracker?: "jira" | "github" | null; where?: string | null;

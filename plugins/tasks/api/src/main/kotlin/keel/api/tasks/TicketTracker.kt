@@ -3,7 +3,7 @@ package keel.api.tasks
 import org.springframework.beans.factory.ObjectProvider
 
 /**
- * The outside tracker that holds a task's real ticket: the Jira plugin (plugins/jira) and, since 0.21.4, the GitHub
+ * The outside tracker that holds a task's real ticket: the Jira plugin (plugins/jira) and, since 0.22.0, the GitHub
  * Issues plugin (plugins/github-issues) each give one bean; the Tasks plugin works without any. A project uses the
  * tracker it is connected to ([forProject]). Without a connection, a task with a ticket key asks the user, in the Inbox,
  * to move the ticket by hand.

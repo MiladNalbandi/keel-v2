@@ -38,7 +38,7 @@ sealed interface Trigger {
     data class Move(val to: String, val note: String?) : Trigger { override val actor = "user" }
 
     /** Someone moved the ticket in Jira; [keel] is the keel status it maps to (null: none, the task stays). */
-    /** The ticket moved in its tracker: [actor] is the tracker's source ("jira", 0.21.4 "github"). */
+    /** The ticket moved in its tracker: [actor] is the tracker's source ("jira", 0.22.0 "github"). */
     data class JiraMoved(val from: String?, val to: String, val keel: String?, override val actor: String = "jira") : Trigger
 }
 

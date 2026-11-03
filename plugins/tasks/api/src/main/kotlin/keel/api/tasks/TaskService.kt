@@ -168,7 +168,7 @@ class TaskService(
             append(b.request?.trim()?.ifEmpty { null } ?: ticketText(t))
             if (t.externalKey != null) append("\n\n${named(tr, t)} ticket: ").append(t.externalKey).append(t.externalUrl?.let { " ($it)" } ?: "")
         }
-        // 0.21.4 the line the PR carries for the ticket (GitHub: "Closes #12", so merging the PR closes the issue)
+        // 0.22.0 the line the PR carries for the ticket (GitHub: "Closes #12", so merging the PR closes the issue)
         val prLine = t.externalKey?.let { k -> runCatching { tr?.prLine(t.projectId, k) }.getOrNull() }
         val state = try {
             flows.start(t.projectId, wid, title.take(200), criteria(t.description),

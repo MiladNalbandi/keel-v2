@@ -135,7 +135,7 @@ class JiraService(
 
     fun save(pid: String, body: JiraSave): JiraView {
         requireOwner(pid)
-        // 0.21.4 a project follows one tracker
+        // 0.22.0 a project follows one tracker
         if (pid != KEEL_WIDE) trackers.orderedStream().toList().firstOrNull { it.source != "jira" && it.connection(pid) != null }?.let {
             throw Conflict("This project follows ${it.title} issues already", "A project follows one tracker: remove its ${it.title} Issues connection first (Settings › Connections).")
         }

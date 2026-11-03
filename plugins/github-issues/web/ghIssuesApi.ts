@@ -1,4 +1,4 @@
-// 0.21.4 api calls of the GitHub Issues plugin (issue #64): a project's connection. The tasks themselves are the Tasks
+// 0.22.0 api calls of the GitHub Issues plugin (issue #64): a project's connection. The tasks themselves are the Tasks
 // plugin's; the GitHub token is core's (Settings › Connections › GitHub).
 
 import { del, get, post, put } from "@keel/web-sdk";

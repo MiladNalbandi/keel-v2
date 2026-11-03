@@ -1234,7 +1234,7 @@ type JiraSettings = { kind: cloud|server, base_url, email (cloud), project_key, 
 type GhIssuesSettings = { repo: "owner/repo" | null (the origin), follow: assigned|label|all, label, comment: bool, closes_on_merge: bool,
                           status_map: {keel status: "-"|open|closed|"closed:not planned"|"label:<name>"}, github_reviewers: string[], poll_minutes }
 ```
-- **0.21.4 trackers** (issue #64): the Tasks plugin's `TicketTracker` beans are the Jira plugin's and the GitHub Issues
+- **0.22.0 trackers** (issue #64): the Tasks plugin's `TicketTracker` beans are the Jira plugin's and the GitHub Issues
   plugin's (`plugins/github-issues`); a project uses the one it is connected to (one at a time: each refuses to connect
   while the other is). A task's `source` is `local`, `jira` or `github`; a ticket key is a Jira key (`ABC-123`) or a
   GitHub issue (`#12`). `sync` gains `tracker` (jira | github | null) and `where` (Jira's address, GitHub's owner/repo);

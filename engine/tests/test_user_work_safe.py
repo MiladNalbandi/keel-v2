@@ -37,7 +37,7 @@ def test_preexisting_changes_stay_out_of_keel_commits(tmp_path):
 
 
 def test_a_flow_from_a_github_issue_names_it_in_every_criterion_commit(tmp_path):
-    # 0.21.4 a task from a GitHub issue: data.ticket is "#12", or the flow title starts with "#12: "
+    # 0.22.0 a task from a GitHub issue: data.ticket is "#12", or the flow title starts with "#12: "
     root = repo(tmp_path)
     (root / "tests").mkdir()
     (root / "tests" / "test_new.py").write_text("def test_x():\n    assert True\n")

@@ -1,4 +1,4 @@
-// 0.21.4 (issue #64) the GitHub Issues plugin's card inside keel's web, as the full image has it (web/src/test/setup.ts
+// 0.22.0 (issue #64) the GitHub Issues plugin's card inside keel's web, as the full image has it (web/src/test/setup.ts
 // runs every plugin's setup()): Settings › Connections › GitHub Issues, one card per project.
 
 import { render, screen, within } from "@testing-library/react";
