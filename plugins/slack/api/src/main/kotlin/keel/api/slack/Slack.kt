@@ -987,7 +987,7 @@ class SlackService(
         const val BLOCK_MAX = 2900
 
         /** The Supervisor's never list (plugins/supervisor policy.NEVER; engine/tests checks they stay the same): these stay in keel. */
-        val NEVER = setOf("budget", "dependency", "secrets", "readonly", "note", "final-review", "pr")
+        val NEVER = setOf("budget", "dependency", "secrets", "readonly", "note", "final-review", "pr", "publish")
 
         /** What no setting ever gives a button: money and secrets. */
         val ALWAYS = setOf("budget", "secrets")

@@ -584,11 +584,11 @@ has "doctor still counts the change" "$out" "uncommitted change"
 no_if "doctor: core.fsmonitor did not run" test -e "$scratch/pwned-fsmonitor"
 no_if "doctor: the filter did not run" test -e "$scratch/pwned-filter"
 no_if "doctor: the pager did not run" test -e "$scratch/pwned-pager"
-mkdir -p "$trap_repo/.keel" "$scratch/elsewhere"; echo '{"flow":"x"}' > "$trap_repo/.keel/state.json"
+mkdir -p "$trap_repo/.keel" "$scratch/elsewhere"; echo '{"flow":"x"}' > "$trap_repo/.keel/state.json"  # v1's left state file, for state close to archive
 ln -s "$scratch/elsewhere" "$trap_repo/.keel/archive"
 run_k -- state close "$trap_repo"
 no_if "state close: a linked .keel/archive is refused" test "$rc" = 0
-yes_if "...and the state file stays" test -f "$trap_repo/.keel/state.json"
+yes_if "...and the left state file stays" test -f "$trap_repo/.keel/state.json"
 check "...and nothing lands where the link points" "$(ls -A "$scratch/elsewhere")" ""
 no_if "keel2 state: git ran nothing the config names" test -e "$scratch/pwned-fsmonitor"
 yes_if "every host git call in keel2 goes through hgit" test -z "$(grep -nE '(^|[;&|(]|\$\()[[:space:]]*git -' "$keel2" | grep -vE '^[0-9]+:[[:space:]]*(#|die |warn |info )' || true)"
