@@ -484,15 +484,17 @@ def secret_files(folder: str | Path, cfg: dict | None = None, root: str | None =
     return out, True
 
 
-def git_ignored(folder: str, rels: list[str]) -> set[str]:
-    """The ones of these paths (relative to `folder`) that git ignores there; none when it is no git folder."""
+def git_ignored(folder: str, rels: list[str], no_index: bool = False) -> set[str]:
+    """The ones of these paths (relative to `folder`) that git ignores there; none when it is no git folder.
+    0.22.0 `no_index`: also a tracked file that an ignore rule matches (a generated file committed before it was
+    ignored)."""
     if not rels:
         return set()
     from ..tools.git import SAFE_ARGS, scrubbed
 
     try:
         # 0.21.3 the repo's hooks and fsmonitor are off and git gets no keys, as for every git keel runs (tools/git.py)
-        res = subprocess.run(["git", *SAFE_ARGS, "-C", str(folder), "check-ignore", "--stdin", "-z"],
+        res = subprocess.run(["git", *SAFE_ARGS, "-C", str(folder), "check-ignore", *(["--no-index"] if no_index else []), "--stdin", "-z"],
                              input="\0".join(rels) + "\0", capture_output=True, text=True, timeout=10, env=scrubbed())
     except (OSError, subprocess.SubprocessError):
         return set()

@@ -333,7 +333,13 @@ def failing(results: list[dict], modes=("block", "warn", "fix")) -> list[dict]:
 # ------------------------------------------------------------------ the hooks
 
 def existing(root: str, files: list[str]) -> list[str]:
-    return sorted({f for f in files if (Path(root) / f).is_file()})
+    """The files that are there, without the ones git ignores. 0.22.0 a generated file (next-env.d.ts, a build's
+    output) is never linted or formatted, tracked or not."""
+    from ..rules.secrets import git_ignored
+
+    there = sorted({f for f in files if (Path(root) / f).is_file()})
+    ignored = git_ignored(root, there, no_index=True)
+    return [f for f in there if f not in ignored]
 
 
 def after_edit(root: str, files: list[str], *, include_stacks: bool = True, emit=None) -> dict:
