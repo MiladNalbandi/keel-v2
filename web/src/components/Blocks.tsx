@@ -546,6 +546,7 @@ function Face({ ctx, s, row, head, cls = "", children }: {
   if (s.kind === "gate" && cond) tags.push(`asks only if ${cond}`);
   else if (s.kind !== "branch" && cond) tags.push(`only if ${cond}`);
   if (s.retry_only) tags.push("only after a send-back");
+  if (s.person) tags.push("only a person answers");
   if (s.skip_menu) tags.push("you pick which steps run");
   if (s.report === "verdicts") tags.push("shows every verdict");
   if (s.soft) tags.push("soft check");

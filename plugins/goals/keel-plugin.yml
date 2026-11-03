@@ -1,0 +1,22 @@
+# Goals as a plugin. scripts/build-plugin.sh packs it: goals-<version>.kplug. A goal with limits, split into steps by an agent, each
+# step a flow that a person starts. Nothing starts by itself. Each part is written on one line (scripts/build-plugin.sh reads them).
+schema: 1
+name: goals
+title: Goals
+version: 0.1.0
+publisher: keel
+summary: One goal with its limits - an agent splits it into steps, you approve the plan, and each step is a flow you start. Shows how far it is and what it cost.
+requires:
+  sdk: 1
+  keel: ">=0.20.2"   # the step key person: true (only a person answers a gate)
+parts:
+  api: { jars: [api/keel-plugin-goals.jar] }
+  web: { entry: web/index.js }
+  content: content
+  migrations: migrations
+per_project: false
+permissions:
+  workspace: read
+  flows: start
+  tables: [goals_goal, goals_step]
+  pages: true

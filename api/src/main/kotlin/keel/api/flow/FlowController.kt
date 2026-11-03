@@ -73,8 +73,12 @@ class FlowController(private val flows: FlowService) {
     @PostMapping("/projects/{pid}/flows")
     fun start(@PathVariable pid: String, @RequestBody body: StartFlow): JsonNode =
         flows.start(pid, body.workflowId, body.title, body.acs, FlowCap(body.capTokens, body.onCap, body.runMode), body.allowFake, body.allowDirty,
-            body.request, body.options, body.where, branch = when (body.branch) { "continue", "new" -> body.branch; else -> DEFAULT_BRANCH },
+            body.request, clientOptions(body.options), body.where, branch = when (body.branch) { "continue", "new" -> body.branch; else -> DEFAULT_BRANCH },
             force = body.force, base = body.base)
+
+    /** 0.21.0 only the Slack plugin says a flow came from Slack, and from whom: a client of this route cannot claim that in a flow's record. */
+    private fun clientOptions(options: Map<String, Any?>?): Map<String, Any?>? =
+        options?.filterKeys { it != "started_by" }?.let { o -> if (o["started_via"] == "slack") o - "started_via" else o }
 
     /** 0.18.64 every remote of the project fetched (20 s each at most): one result per remote, how far the base is behind. */
     @PostMapping("/projects/{pid}/remotes/fetch")
@@ -119,7 +123,11 @@ class FlowController(private val flows: FlowService) {
     fun removeWorktree(@PathVariable tid: String): JsonNode = flows.removeWorktree(tid)
 
     @PostMapping("/threads/{tid}/resume")
-    fun resume(@PathVariable tid: String, @RequestBody body: Resume): JsonNode = flows.resume(tid, body.decision, body.why, body.payload)
+    fun resume(@PathVariable tid: String, @RequestBody body: Resume, request: jakarta.servlet.http.HttpServletRequest): JsonNode {
+        val level = request.getAttribute(keel.api.mcp.McpLevelGuard.LEVEL_ATTR)
+        if (level != null && level != "admin") flows.requirePerson(tid)
+        return flows.resume(tid, body.decision, body.why, body.payload)
+    }
 
     /** 0.18.74 a stopped flow you finished yourself: commit the folder's changes, mark criteria done, end it as done. */
     @PostMapping("/threads/{tid}/finish-by-hand")

@@ -109,6 +109,8 @@ def classify(question: dict, step=None, *, flow: str = "", prev_actions: list[st
         return "findings"
     if step is None:
         return "gate"
+    if getattr(step, "person", None):
+        return "note"        # the workflow says so: only a person answers this gate
     if flow == "init" and step.id == "rung_gate":
         return "rung"
     if flow == "init" and step.id in ("audit_now", "git_repo"):

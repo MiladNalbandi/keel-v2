@@ -5,11 +5,12 @@
 schema: 1
 name: supervisor
 title: Supervisor
-version: 0.1.0
+version: 0.2.0
 publisher: keel
 summary: a strong model that watches your flows, answers their gates from the project's own context, and calls you when it is unsure, stuck or out of budget.
 requires:
   sdk: 1
+  keel: ">=0.21.0"   # the slots flow.chip and inbox.note, gate_kind on gate.decided, a fix run's guard (shell_readonly)
 parts:
   engine: { path: engine, package: keel_plugin_supervisor }
   api: { jars: [api/keel-plugin-supervisor.jar] }

@@ -92,3 +92,44 @@ def test_the_flows_token_cap_counts_what_side_agents_spent(client, repo):
     side_usage.record(tid2, "supervisor", {"tokens_in": 10_000_000})
     s2 = decide(client, tid2)
     assert s2["status"] == "waiting" and s2["waiting"]["title"] == "Token cap reached", s2
+
+
+def test_a_decided_gate_carries_the_kind_of_the_pause(client, repo):
+    tid, _ = run_to_gate(client, repo)
+    decide(client, tid, "approve", "fine")
+    wait(client, tid)
+    assert decided(client, tid)[0]["gate_kind"] == "spec"
+
+
+def test_a_run_mode_answer_carries_no_kind_of_a_person(client, repo):
+    tid = start(client, repo, workflow=wf(GATED), settings={**SETTINGS, "run_mode": "auto"})
+    wait(client, tid)
+    assert all("gate_kind" not in d for d in decided(client, tid))
+
+
+def test_shell_readonly_lets_a_run_edit_but_refuses_a_shell_that_changes_git(repo):
+    """0.21.0 the Supervisor's small fix: the ToolBox (API-key models) and the hook (CLI models) refuse the same commands."""
+    from keel_engine import hook
+    from keel_engine.tools.agent_tools import ToolBox
+
+    box = ToolBox(str(repo), "green", agent="supervisor-fix")
+    box.shell_readonly = True
+    ctx = {"root": str(repo), "phase": "green", "shell_readonly": True, "agent": "supervisor-fix"}
+    for cmd in ("git push origin HEAD", "git merge main", "git commit -m x", "git reset HEAD~1", "rm README.md"):
+        assert box.run_command(cmd).startswith("REFUSED"), cmd
+        assert hook.decide("Bash", {"command": cmd}, dict(ctx)), cmd
+    assert hook.decide("Bash", {"command": "ls"}, dict(ctx)) is None
+    assert hook.decide("Bash", {"command": "git push origin HEAD"}, {**ctx, "shell_readonly": False}) is None     # a flow's own agents: as before
+    assert box.write_file("src/shell_readonly_edit.py", "x = 1\n").startswith("Wrote")
+
+
+def test_the_context_file_carries_shell_readonly(repo):
+    from types import SimpleNamespace
+
+    from keel_engine.runtime import guard_ctx
+    from keel_engine.tools.agent_tools import ToolBox
+
+    box = ToolBox(str(repo), "green")
+    box.shell_readonly = True
+    req = SimpleNamespace(toolbox=box, root=str(repo), phase="green", ac=None, agent="supervisor-fix", thread="t", model={})
+    assert guard_ctx.context_for(req)["shell_readonly"] is True

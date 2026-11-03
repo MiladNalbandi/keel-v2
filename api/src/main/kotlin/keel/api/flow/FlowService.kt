@@ -9,6 +9,7 @@ import keel.api.agents.Knowledge
 import keel.api.common.ApiException
 import keel.api.common.BadRequest
 import keel.api.common.Conflict
+import keel.api.common.Forbidden
 import keel.api.common.KeelProperties
 import keel.api.common.Slug
 import keel.api.workspace.Workspace
@@ -853,17 +854,27 @@ class FlowService(
         return (if (wt.isNullOrBlank()) root else root.resolve(".keel/worktrees").resolve(wt)).toString()
     }
 
-    fun resume(tid: String, decision: String, why: String?, payload: Map<String, Any?>?): JsonNode {
+    fun resume(tid: String, decision: String, why: String?, payload: Map<String, Any?>?, by: String? = null): JsonNode {
         if (decision !in setOf("approve", "reject")) throw BadRequest("decision must be approve or reject")
         val keys = keysForThread(tid).takeIf { it.isNotEmpty() }
         // The gate's notification is done once the engine took the answer; one that arrives meanwhile (the next gate) stays.
         val open = notifications.openGateId(tid)
         val state = engine.resume(tid, mapOf("decision" to decision, "why" to why, "payload" to payload, "keys" to keys,
-            "root" to rootNow(tid)).filterValues { it != null })
+            "root" to rootNow(tid), "by" to by).filterValues { it != null })
         save(tid, state)
         if (open != null) notifications.markDone(tid, open)
         threadProject(tid)?.let { hub.publish(it, "project.changed", mapOf("id" to it)) }
         return state
+    }
+
+    /**
+     * A gate a workflow says only a person answers (`person: true`): an MCP client below the admin level is refused here,
+     * as for an approval the api asked itself. The Flow page, the Inbox and keel TUI act as the person at the keyboard.
+     */
+    fun requirePerson(tid: String) {
+        if (engine.thread(tid).path("waiting").path("person").asBoolean(false)) {
+            throw Forbidden("Only a person answers this gate", "Answer it in keel: the Flow page or the Inbox.")
+        }
     }
 
     /** v0.4.1: the thread's run mode from its next pause on (the engine keeps it with the thread). */

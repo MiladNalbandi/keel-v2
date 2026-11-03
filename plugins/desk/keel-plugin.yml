@@ -1,0 +1,24 @@
+# Desk as a plugin. scripts/build-plugin.sh packs it: desk-<version>.kplug. Support requests a person pastes in: an agent
+# sorts each one, past cases are found on this computer without a model, and a person picks what happens next. Each part,
+# and requires.plugins, is written on one line (scripts/build-plugin.sh and api/build.gradle.kts read them).
+schema: 1
+name: desk
+title: Desk
+version: 0.1.0
+publisher: keel
+summary: Paste a support request - an agent sorts it, keel finds past cases, and you choose a fix flow, a task or a reply.
+requires:
+  sdk: 1
+  keel: ">=0.20.2"   # the step key person: true (only a person answers a gate)
+  plugins: { tasks: ">=1.0.0" }
+parts:
+  api: { jars: [api/keel-plugin-desk.jar] }
+  web: { entry: web/index.js }
+  content: content
+  migrations: migrations
+per_project: false
+permissions:
+  workspace: read
+  flows: start
+  tables: [desk_request]
+  pages: true

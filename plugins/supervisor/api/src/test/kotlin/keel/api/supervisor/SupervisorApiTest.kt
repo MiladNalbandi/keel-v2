@@ -68,6 +68,55 @@ class SupervisorApiTest : ApiTest() {
         post("/api/projects/$pid/supervisor/flow", mapOf("mode" to "act"), mcp).andExpect(status().isForbidden)
     }
 
+    private fun decided(pid: String, tid: String, step: String, data: Map<String, Any?>) = post("/internal/events", listOf(mapOf(
+        "type" to "gate.decided", "thread_id" to tid, "project_id" to pid, "step" to step, "at" to java.time.Instant.now().toString(),
+        "data" to data)), mapOf("X-Keel-Token" to TOKEN)).andExpect(status().isOk)
+
+    @Test
+    fun `0_21_0 past answers are the person's own at the same kind of gate, in other flows, newest first and short`() {
+        val (pid, _) = newProject("sup-past")
+        val (other, _) = newProject("sup-past-other")
+        decided(pid, "t_old", "g9", mapOf("gate" to "check", "decision" to "reject", "why" to "old event, same step"))
+        decided(pid, "t_a", "g1", mapOf("gate" to "check", "gate_kind" to "ac", "decision" to "approve", "why" to "x".repeat(900)))
+        decided(pid, "t_b", "g2", mapOf("gate" to "check", "gate_kind" to "ac", "decision" to "reject", "why" to "too big", "by" to "slack:Sam (U1)"))
+        decided(pid, "t_c", "g2", mapOf("gate_kind" to "spec", "decision" to "approve", "why" to "another kind"))
+        decided(pid, "t_d", "g2", mapOf("gate_kind" to "ac", "decision" to "approve", "why" to "supervisor: sure", "by" to "supervisor"))
+        decided(pid, "t_e", "g2", mapOf("gate_kind" to "ac", "decision" to "approve", "why" to "auto-approved (mode auto)"))
+        decided(pid, "t_f", "g2", mapOf("gate_kind" to "ac", "decision" to "approve", "why" to "waived: not needed"))
+        decided(pid, "t_g", "g2", mapOf("gate_kind" to "ac", "decision" to "approve", "why" to "condition", "by" to "engine"))
+        decided(pid, "t_now", "g2", mapOf("gate_kind" to "ac", "decision" to "reject", "why" to "this very flow"))
+        decided(other, "t_x", "g2", mapOf("gate_kind" to "ac", "decision" to "reject", "why" to "another project"))
+        val res = get("/api/projects/$pid/supervisor/past-answers?kind=ac&step=g9&notThread=t_now").andExpect(status().isOk).json()["answers"]
+        assertThat(res.map { it["why"].asText().take(20) }).containsExactly("too big", "x".repeat(20), "old event, same step")
+        assertThat(res[1]["why"].asText()).hasSize(200)
+        assertThat(res[0].has("by")).isFalse()
+        val one = get("/api/projects/$pid/supervisor/past-answers?kind=ac&limit=1").andExpect(status().isOk).json()["answers"]
+        assertThat(one.map { it["why"].asText() }).containsExactly("this very flow")
+        // a project that does not exist is the usual 404; the old event has no kind and no step was asked: not counted
+        get("/api/projects/nobody-here/supervisor/past-answers?kind=ac").andExpect(status().isNotFound)
+    }
+
+    @Test
+    fun `0_21_0 only the person or an admin client turns on fix mode for a flow`() {
+        val (pid, _) = newProject("sup-fix-mode")
+        flowOf(pid)
+        val write = post("/api/mcp/token", mapOf("level" to "write"), mapOf("X-Keel-Token" to TOKEN)).json()["token"].asText()
+        val mcp = mapOf("X-Keel-Via" to "mcp", "X-Keel-Mcp-Token" to write)
+        post("/api/projects/$pid/flows/t_sup/supervisor", mapOf("mode" to "fix"), mcp).andExpect(status().isForbidden)
+        post("/api/projects/$pid/flows/t_sup/supervisor", mapOf("fix_max_lines" to 200), mcp).andExpect(status().isForbidden)
+        post("/api/projects/$pid/flows/t_sup/supervisor", mapOf("mode" to "fix")).andExpect(status().isOk)
+    }
+
+    @Test
+    fun `0_21_0 the flow's chip and note pass through for its own project only`() {
+        val (pid, _) = newProject("sup-status")
+        val (other, _) = newProject("sup-status-other")
+        flowOf(pid)
+        engine.extraRoutes["/threads/t_sup/supervisor/status"] = { _ -> 200 to mapOf("state" to "looking", "on" to true) }
+        assertThat(get("/api/projects/$pid/flows/t_sup/supervisor/status").andExpect(status().isOk).json()["state"].asText()).isEqualTo("looking")
+        get("/api/projects/$other/flows/t_sup/supervisor/status").andExpect(status().isNotFound)
+    }
+
     @Test
     fun `another project's flow is a 404`() {
         val (pid, _) = newProject("sup-mine")

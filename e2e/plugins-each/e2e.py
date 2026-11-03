@@ -5,7 +5,7 @@
     python3 e2e/plugins-each/e2e.py --image keel-v2:fin --product-image keel-v2:fin-product [--only ci,db] [--keep]
         [--name keel-each --port 8091]   (another name and port let several runs go side by side; the volume is <name>-data)
 
-For each of keel's 11 plugins (and keel Product on the product image) it sets the plugins with
+For each of keel's plugins in PLUGINS (and keel Product on the product image) it sets the plugins with
 `keel-engine plugins set <name> on|off` inside the container, then restarts keel (POST /api/plugins/restart
 {now: true}: keel-start starts keel again in the same container), in three ways:
 
@@ -54,15 +54,20 @@ NAME, VOLUME, PORT = E.name, E.volume, E.port
 HERE = Path(__file__).resolve().parent
 PROJECT = "shop"
 
-PLUGINS = ["code", "git", "review", "db", "ci", "keelbot", "map", "graph", "wiki", "tasks", "jira"]
-NEEDS = {"ci": ["git"], "jira": ["tasks"], "review": ["keelbot"], "product": ["tasks", "jira"]}
+PLUGINS = ["code", "git", "review", "db", "ci", "keelbot", "map", "graph", "wiki", "tasks", "jira",
+           "answers", "record", "notify", "desk", "library", "links", "goals", "slack", "supervisor"]
+NEEDS = {"ci": ["git"], "jira": ["tasks"], "review": ["keelbot"], "product": ["tasks", "jira"],
+         "desk": ["tasks"], "slack": ["tasks"]}
 PER_PROJECT = ["ci", "db", "git", "review"]
-# one GET of each plugin's api: it answers (not 404) when the plugin is on, 404 when it is off
+# one GET of each plugin's api: it answers (not 404) when the plugin is on, 404 when it is off (answers is content only: no api)
 ROUTE = {
     "code": "/projects/{pid}/repo/tree", "git": "/projects/{pid}/git/status", "review": "/projects/{pid}/review/prs",
     "db": "/projects/{pid}/db/connections", "ci": "/projects/{pid}/ci/runs", "keelbot": "/projects/{pid}/helper/sessions",
     "map": "/projects/{pid}/map", "graph": "/projects/{pid}/graph", "wiki": "/projects/{pid}/wiki",
     "tasks": "/projects/{pid}/tasks", "jira": "/projects/{pid}/jira", "product": "/product",
+    "record": "/projects/{pid}/record/flows", "notify": "/plugins/notify/channels", "desk": "/projects/{pid}/desk/requests",
+    "library": "/projects/{pid}/library/docs", "links": "/plugins/links/linear", "goals": "/projects/{pid}/goals",
+    "slack": "/plugins/slack", "supervisor": "/supervisor/switch",
 }
 # the paths of each plugin's api, for the walk: a page must not ask an off plugin
 WEB_ROUTES = {
@@ -72,11 +77,18 @@ WEB_ROUTES = {
     "map": r"^/api/projects/[^/]+/map(/|$)", "graph": r"^/api/projects/[^/]+/(graph|index)(/|$)",
     "wiki": r"^/api/projects/[^/]+/wiki(/|$)", "tasks": r"^/api/projects/[^/]+/tasks(/|$)|^/api/(tasks|inbox/tasks)(/|$)",
     "jira": r"^/api/projects/[^/]+/(jira|mcp-catalog)(/|$)", "product": r"^/api/(product|initiatives)(/|$)",
+    "answers": r"^/api/plugins/answers(/|$)", "record": r"^/api/projects/[^/]+/record(/|$)", "notify": r"^/api/plugins/notify(/|$)",
+    "desk": r"^/api/projects/[^/]+/desk(/|$)", "library": r"^/api/projects/[^/]+/library(/|$)", "links": r"^/api/plugins/links(/|$)",
+    "goals": r"^/api/projects/[^/]+/goals(/|$)", "slack": r"^/api/plugins/slack(/|$)",
+    "supervisor": r"^/api/supervisor(/|$)|^/api/projects/[^/]+/(supervisor|flows/[^/]+/supervisor)(/|$)",
 }
 MCP_TOOLS = {
     "git": ["keel_git_status", "keel_pr_status", "keel_git_commit", "keel_git_push", "keel_pr_create"],
     "ci": ["keel_ci_runs", "keel_ci_failure", "keel_ci_rerun"],
-    "db": ["keel_db_schema", "keel_db_query", "keel_db_change"],
+    "db": ["keel_db_schema", "keel_db_query", "keel_db_change", "keel_db_connections"],
+    "review": ["keel_review_prs", "keel_review_files", "keel_review_diff", "keel_review_findings", "keel_review_notes",
+               "keel_review_explain", "keel_review_comment", "keel_review_reply", "keel_review_resolve", "keel_review_submit"],
+    "supervisor": ["keel_supervisor", "keel_supervisor_set"],
 }
 FIXTURE = {
     "README.md": "# Shop\n\nA tiny shop: prices with tax, in Python.\n\nRun the tests: `python -m pytest -q`\n",
@@ -277,11 +289,14 @@ def scenario(plugin: str, way: str, on: set[str], every: list[str], pid: str, ou
     run.check(names == on and not host.get("problems"), "/api/plugin-host lists exactly the expected plugins, no problem",
               f"loaded {sorted(names)}, problems {host.get('problems')}")
     for name in every:
+        if name not in ROUTE:
+            continue
         code, _, text = http("GET", "/api" + ROUTE[name].replace("{pid}", pid))
         if name in on:
             run.check(code != 404 and code < 500, f"{name}'s api answers ({code})", text[:200])
         else:
-            run.check(code == 404, f"{name}'s api is 404 when it is off ({code})", text[:200])
+            # /api/plugins/slack is also keel's own POST /api/plugins/{name}, so with slack off a GET there is 405
+            run.check(code == 404 or (name == "slack" and code == 405), f"{name}'s api is 404 when it is off ({code})", text[:200])
     tools = mcp_tools()
     for name, names_ in MCP_TOOLS.items():
         if name not in every:
@@ -370,7 +385,7 @@ def phase(image: str, every: list[str], targets: list[str], ws: Path, out: Path,
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--image", default="keel-v2:fin", help="the normal image (the 11 plugins inside)")
+    ap.add_argument("--image", default="keel-v2:fin", help="the normal image (the plugins in PLUGINS inside)")
     ap.add_argument("--product-image", default="keel-v2:fin-product", help="the product image ('' to skip Product)")
     ap.add_argument("--only", default="", help="only these plugins (comma separated; product for keel Product)")
     ap.add_argument("--keep", action="store_true", help="leave keel-each running at the end")

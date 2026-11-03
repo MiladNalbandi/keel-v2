@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import logging
 from functools import lru_cache
 from pathlib import Path
 
-from ..model import Workflow, load_yaml
+from ..model import Workflow, WorkflowError, load_yaml
 
 from ... import addons
 from ...config import content_dir
 
+log = logging.getLogger("keel.templates")
 ORDER = ["feature", "change", "quick", "address", "small", "implement", "spike", "clarify", "fix", "diagnose", "review", "review-pr", "init", "knowledge-refresh", "cover", "ship", "hunt", "hunt-next", "lint",
          "plugin", "harness", "design-review"]
 
@@ -26,7 +28,13 @@ def _load(name: str) -> Workflow | None:
     for addon, d in addons.folders("workflows"):
         f = d / f"{name}.yaml"
         if f.is_file():
-            wf = load_yaml(f.read_text())
+            # docs/plugins/02-plugin-package.md: a broken plugin never stops keel. One bad file took /templates down
+            # with it, so every workflow page failed. It is left out, and the log says why.
+            try:
+                wf = load_yaml(f.read_text())
+            except WorkflowError as exc:
+                log.warning("the workflow %s of %s does not load, so it is left out: %s", name, addon, exc)
+                return None
             wf.addon = addon
             return wf
     return None

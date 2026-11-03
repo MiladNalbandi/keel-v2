@@ -308,7 +308,7 @@ def test_retry_mode_answers_nothing_but_a_retry_note(client, repo, script):
     """0.18.75 mode retry: it may try a stuck step again with its note (medium confidence is enough there), and only
     suggests every other answer, a plain gate approve included."""
     from keel_plugin_supervisor.supervisor import MODES, _is_retry
-    assert MODES == ("shadow", "retry", "act")
+    assert MODES == ("shadow", "retry", "act", "fix")
     assert _is_retry({"choices": ["retry", "skip", "edit", "stop"]}, {"choice": "retry"})
     assert not _is_retry({"choices": ["retry", "skip"]}, {"choice": "skip"})
     assert not _is_retry({"options": ["approve", "reject"]}, {})

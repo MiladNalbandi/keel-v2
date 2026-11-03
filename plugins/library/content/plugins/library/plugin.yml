@@ -1,0 +1,17 @@
+# The Library plugin (plugins/library, engine keel_plugin_library). Turned on per project in Control › Plugins: only then do
+# KeelBot and the agents that may use it read the library. Its page works either way.
+name: library
+title: Library
+installable: true
+description: Your company's policies and rules in one place, which agents can search and quote with the source.
+tools:
+  server: keel-library
+  read: [library_search, library_read]
+shows_in: [keelbot, workflows]
+
+commands:
+  - name: policy
+    description: Look up what the company's library says about something, with quotes
+    prompt: |
+      Search the library (library_search) for what it says about: {{args}}
+      Quote the words that matter and name each source as library:<id>. If it says nothing, say so. Do not fill the gap.

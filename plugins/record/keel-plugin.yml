@@ -1,0 +1,17 @@
+# Record as a plugin. scripts/build-plugin.sh packs it: record-<version>.kplug. It holds no data of its own: it only reads
+# what keel already keeps about a flow (threads, events, agent_calls, flow_applied) and joins it. Each part is written on
+# one line (scripts/build-plugin.sh reads them). No tables, no secrets, no network, no agent tools.
+schema: 1
+name: record
+title: Record
+version: 0.1.0
+publisher: keel
+summary: One page and one export per flow - who asked, what ran, how each gate was answered, the commits and the cost.
+requires:
+  sdk: 1
+parts:
+  api: { jars: [api/keel-plugin-record.jar] }
+  web: { entry: web/index.js }
+per_project: false
+permissions:
+  pages: true

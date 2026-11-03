@@ -156,6 +156,8 @@ def validate(wf: Workflow) -> list[str]:
             errors.append(f"{where}: only agent and code steps are retry_only.")
         if (s.skip_menu or s.report or s.choices or s.on_skip) and s.kind != "gate":
             errors.append(f"{where}: skip_menu, report, choices and on_skip belong to a gate.")
+        if s.person and s.kind != "gate":
+            errors.append(f"{where}: only a gate takes person (only a person answers it).")
         if isinstance(s.choices, dict):
             if not s.choices:
                 errors.append(f"{where}: choices needs at least one exit.")

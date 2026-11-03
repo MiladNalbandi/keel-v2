@@ -1,0 +1,11 @@
+# The Links plugin (plugins/links, engine keel_plugin_links). Turned on per project in Control › Plugins. KeelBot and the agents that
+# may use it read Linear through its tools; a comment or a new issue waits for the person's OK in the Inbox.
+name: links
+title: Links
+installable: true
+description: Link keel to Linear with your own key. Agents read issues, and a comment or a new issue happens only after your OK.
+needs: [links-linear]
+tools:
+  server: keel-links
+  read: [links_search, links_issue]
+shows_in: [connections, keelbot, inbox]

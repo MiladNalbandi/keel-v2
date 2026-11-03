@@ -11,8 +11,8 @@ import {
   Drawer,
   ErrorBox,
   errorParts,
-  hashForScreen as hashFor,
   Loading,
+  settingsHash,
   useApp,
   type RunMode,
 } from "@keel/web-sdk";
@@ -83,7 +83,7 @@ function StatusMap({
           This project has no Jira connection, so keel moves no ticket. Tasks
           stay in keel, with their history.
         </p>
-        <a className="btn" href={hashFor("connections")}>
+        <a className="btn" href={settingsHash("connections")}>
           Connect Jira in Settings › Connections
         </a>
       </div>
@@ -158,7 +158,7 @@ function StatusMap({
         {link.settings.kind === "server" ? "Jira Server" : "Jira Cloud"}
         {link.me ? ` as ${link.me.name}` : ""}), the reviewers and how often
         keel syncs:{" "}
-        <a href={hashFor("connections")}>Settings › Connections ›</a>
+        <a href={settingsHash("connections")}>Settings › Connections ›</a>
       </p>
     </>
   );

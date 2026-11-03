@@ -57,6 +57,8 @@ export type Step = {
   /** v0.17.5 this gate also asks the skip menus after it (the spec gate) */
   menus?: boolean;
   report?: string;
+  /** A gate only a person answers: no run mode and no Supervisor decides it. */
+  person?: boolean;
   markers?: string[];
   instructions?: string;
   /** Set by the engine's include: where the step came from, outermost include first ("ship", "ship/cover"). */

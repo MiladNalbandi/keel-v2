@@ -60,6 +60,8 @@ data class Step(
     /** v0.17.5 this gate also asks the skip menus after it (the spec gate): they do not stop the flow again. */
     val menus: Boolean? = null,
     val report: String? = null,
+    /** A gate only a person answers: no run mode and no Supervisor decides it (engine run_mode.classify). */
+    val person: Boolean? = null,
     /** A list (one choice per loop item, cover) or a map of named exits {name: step id | "end"} (hunt). */
     val choices: Any? = null,
     val onSkip: Map<String, Any?>? = null,

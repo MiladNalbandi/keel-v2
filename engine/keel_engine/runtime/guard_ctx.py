@@ -14,6 +14,9 @@ ask: {url, key, session} in KeelBot's Fix and side modes: a shell command that c
 OK (runtime/permissions.py asks at `url`, the full address; keel_engine/approvals.py waits); the key only asks, it
 cannot answer.
 
+shell_readonly (0.21.0, the Supervisor's small fix): edits are allowed by the phase's rules as always, but a shell
+command that changes files or git is refused, with the same word list as readonly.
+
 readonly_label, readonly_note (keel 0.18.18, KeelBot's Ask mode): a read-only refusal in its own words, and what to do
 instead (runtime/run_mode.py relabel).
 
@@ -264,6 +267,7 @@ def context_for(req) -> dict:
             "agent": req.agent, "thread": getattr(req, "thread", "") or "",
             "knowledge_allowed": list(k["sections"]) if k else None, "knowledge_strict": bool(k and k.get("strict")),
             "readonly": bool(getattr(tb, "readonly", False)), "ask": getattr(tb, "ask", None),
+            **({"shell_readonly": True} if getattr(tb, "shell_readonly", False) else {}),
             "confine": bool(getattr(tb, "confine", False)), "read_tools": read_tools(),
             "push_blockers": list(getattr(tb, "push_blockers", None) or []),
             # keel 0.18.64 the other projects (a flow's agents only: KeelBot's ToolBox is not told, others is None)

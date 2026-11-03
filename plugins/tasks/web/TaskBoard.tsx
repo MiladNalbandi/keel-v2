@@ -10,7 +10,7 @@ import {
   ErrorBox,
   errorParts,
   go,
-  hashForScreen as hashFor,
+  settingsHash,
   Loading,
   PageHead,
   Pill,
@@ -150,7 +150,7 @@ function SyncLine({
       ) : (
         <span className="sub">
           Not connected to Jira: tasks stay in keel, with their history.{" "}
-          <a href={hashFor("connections")}>Connect Jira</a> in Settings ›
+          <a href={settingsHash("connections")}>Connect Jira</a> in Settings ›
           Connections.
         </span>
       )}
@@ -182,6 +182,10 @@ export function TaskBoardPage({
   const { arg } = useRoute();
   const narrow = useNarrow(760);
   const r = useLoad(`tasks:${pid}`, () => tasksApi.list(pid));
+  // 0.21.0 a name on a task (from Slack's `assign`, or Jira's assignee): a filter of its own. It is a label, not an account
+  const [named, setNamed] = useStored<string>(`keel2.tasks.named.${pid}`, "", {
+    valid: (v) => typeof v === "string",
+  });
   const [who, setWho] = useStored<Who>(`keel2.tasks.who.${pid}`, "all", {
     valid: (v) => v === "all" || v === "mine",
   });
@@ -213,11 +217,13 @@ export function TaskBoardPage({
     return all.filter(
       (t) =>
         (who === "all" || !t.assignee || t.assignee === me) &&
+        (!named || t.assignee === named) &&
         (source === "all" || t.source === source) &&
         (!needle ||
           `${t.external_key ?? ""} ${t.title}`.toLowerCase().includes(needle)),
     );
-  }, [all, who, source, q, me]);
+  }, [all, who, source, q, me, named]);
+  const names = useMemo(() => [...new Set(all.flatMap((t) => (t.assignee ? [t.assignee] : [])))].sort(), [all]);
   const needy = all.filter(needsYou);
   const list = narrow || layout === "list";
   const groups = GROUPS.filter(
@@ -252,6 +258,7 @@ export function TaskBoardPage({
   const clear = () => {
     setSource("all");
     setWho("all");
+    setNamed("");
     setQ("");
   };
 
@@ -336,6 +343,15 @@ export function TaskBoardPage({
             ["mine", "Mine"],
           ]}
         />
+        {names.length > 0 && (
+          <label className="tkn-named" title="A name on a task is a label, not an account: keel has one person.">
+            Assigned to{" "}
+            <select value={named} onChange={(e) => setNamed(e.target.value)} aria-label="Assigned to">
+              <option value="">anyone</option>
+              {names.map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </label>
+        )}
         <label className="tkn-search">
           <svg
             width="16"
@@ -407,7 +423,7 @@ export function TaskBoardPage({
                     Sync now
                   </button>
                 ) : (
-                  <a className="btn" href={hashFor("connections")}>
+                  <a className="btn" href={settingsHash("connections")}>
                     Connect Jira
                   </a>
                 )}

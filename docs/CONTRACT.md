@@ -117,6 +117,7 @@ type Step = {
   redo?: string;               // review: where the flow goes on after a fix (default the review)
   skippable?: "deferred" | "optional"; group?: string;   // the skip menu may turn it off; a group is skipped as one
   skip_menu?: boolean; report?: "verdicts";             // gates: the opening skip menu; the final review's verdict table
+  person?: boolean;                                     // gate: only a person answers it (no run mode, no Supervisor), also when its `when` does not hold
   choices?: string[] | Record<string, string>; on_skip?: { choice?: string; record?: string };   // list in a for_each loop: one choice per item; list outside a loop: named exits as markers CHOICE/WHY; map: named exits {name: step id | "end"}
   // v0.4.0 review, diagnose, fix, change (section "v0.4.0 additions: review, diagnose, fix and change"):
   instructions?: string;       // agent: extra task text; "{{data.report}}" is replaced by that state value
@@ -3512,3 +3513,52 @@ type BaseMissing = { name, remote, remotes, branches, text, choices: [{id: remot
   fc00::/7, fe80::/10).
 - **Supervisor**: `POST /api/projects/{pid}/flows/{tid}/supervisor` (and `/supervisor/flow`) with `policy: {rung: may}`
   needs `"i_understand": "commands run without you"` (else 400); an MCP token below admin never sends `policy` (403).
+
+## keel 0.21.0: the Supervisor acts when stuck, Slack does more (docs/plans/finish-slack-supervisor.md)
+
+Every new power is off by default; a new install behaves as 0.20.1 did.
+
+### Core
+
+```ts
+// engine event
+"gate.decided".data += { gate_kind?: string }   // the kind of the pause a person answered (run_mode.KINDS). None for a run mode's own answer.
+
+// engine: ToolBox, and the hook's context file
+ToolBox.shell_readonly: boolean                 // edits by the phase's rules, but a shell command that changes files or git is refused (the words of readonly)
+guard.json += { shell_readonly?: true }
+
+// engine: thread.started
+"thread.started".data += { via: "slack", by?: "slack:<name> (<member id>)" }   // data.started_via, data.started_by. `by` only with via slack
+// api: POST /api/projects/{pid}/flows drops options.started_by, and options.started_via when it says slack: only the Slack plugin says that (FlowService.start)
+
+// web slots
+SLOTS.flowChip  = "flow.chip"                   // FlowChipItem  { component(FlowChipProps { pid, thread, readOnly }) }: in the flow's header
+SLOTS.inboxNote = "inbox.note"                  // InboxNoteItem { component(InboxNoteProps { item, fill(InboxFill { why?, choice?, answers? }) }) }: on a flow's Inbox card. fill() only fills in the form
+```
+
+### Supervisor (plugin 0.2.0, needs keel >= 0.21.0)
+
+```
+GET  /api/projects/{pid}/supervisor/past-answers?kind=&step=&notThread=&limit=   {answers: [{at, step, kind, gate, decision, choice, why}]}  newest first, at most 10; the person's own (no `by`, or by slack:)
+GET  /api/projects/{pid}/flows/{tid}/supervisor/status                            {state, on, off_by, mode, note: {summary, code, reason, confidence, suggestion: {decision, choice, answers, why} | null, patch} | null}
+GET  /api/supervisor/defaults                                                     {on, mode, stall_minutes, modes, stall_min, stall_max}
+POST /api/supervisor/defaults  {on?, mode?, stall_minutes?}                       admin level. 400: an unknown mode, a stall time outside 5..1440
+POST /api/projects/{pid}/flows/{tid}/supervisor {mode: "fix"}                     an MCP token below admin: 403
+```
+
+`state`: `off | watching | looking | acted | escalated | paused-budget | paused-repeats`. Modes: `shadow | retry | act | fix`. Settings: `plugins.supervisor.mode` (default `shadow`), `plugins.supervisor.stall_minutes` (default 30), General only; a flow's `settings.supervisor` wins, and also takes `stall_minutes`, `fix_max_files` (3), `fix_max_lines` (40).
+
+Events: `supervisor.diagnosis {source: failed | stall | failure | findings, summary, confidence, evidence}`, `supervisor.fixed {files, lines, why}`, and `supervisor.escalated` with the new codes `stalled`, `fix-off`, `fix-no-check`, `fix-not-own-branch`, `fix-readonly`, `fix-no-phase`, `fix-no-change`, `fix-too-big`, `fix-never-file`, `fix-git-moved`. The log's new outcomes: `diagnosed`, `skipped`. A row has `patch` (a fix it put back).
+
+### Slack (plugin 0.2.0, needs keel >= 0.21.0, gets an engine part)
+
+```
+POST /api/plugins/slack  += {allow_chat, chat_day_usd, chat_day_tokens, allow_start, allow_all_gates, strict_allowed: [{id, name}]}   // strict_allowed must be part of allowed: else 400. A cap <= 0: 400
+engine: POST /slack/chat {project_id, root, model, keys, text, history, status} -> {status, text, tokens, cost_usd, error}   // ToolBox(readonly=True), no MCP server; events slack.chat.started/finished are agent calls
+```
+
+Commands: `task <title> [@name] [| text]`, `assign <task> @name`, `start <flow> [in <project>:] <what>`. Button action ids: `keel_answer`, `keel_answer_form`, `keel_answer_kept`, `keel_start`, `keel_start_cancel`. Modals: `keel_form` (a question whose options take a reason has one box under it, one line per ticked option, `name: reason`; the answer goes as `payload.answers` and `payload.reasons`, as from the Inbox), `keel_kept`. Budget and secret gates (`gate_kind` budget or secrets, `kind` budget or usage, a title that names a cap) get no button and no answer whatever is set.
+
+The Tasks board has a filter **Assigned to**; `assignee` is a label.
+

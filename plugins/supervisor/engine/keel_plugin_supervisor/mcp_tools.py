@@ -3,7 +3,8 @@
     keel_supervisor       read: its switches (keel-wide, project, plugin, the flow), mode and tokens, and its last
                           decisions with their reasons
     keel_supervisor_set   --write: turn it on or off keel-wide, for the project or for the flow now (on: null = follow),
-                          or change the flow's mode; "act" asks the person first (it lets the Supervisor answer gates).
+                          or change the flow's mode; "act" asks the person first (it lets the Supervisor answer gates);
+                          "fix" also needs the admin level (the api refuses it below that).
                           The never-kinds cannot be changed from here.
 """
 
@@ -122,9 +123,10 @@ def register(srv, api: KeelApi, guard, write: bool) -> None:
                                   ctx: Context | None = None) -> str:
         """Supervisor plugin: turn the Supervisor on or off. scope "keel" = everywhere (off: nothing runs), "project" =
         this project (follow=true: it follows keel-wide again), "flow" = the flow now (follow=true: it follows the
-        project). mode (flow only): shadow (it only suggests) or act (it answers gates when it is sure; asks the person
-        first). It never answers a cap, the final review or the PR gate, whatever the mode."""
+        project). mode (flow only): shadow (it only suggests), retry, or act (it answers gates when it is sure; asks the
+        person first). Mode fix needs keel2 mcp --admin. It never answers a cap, the final review or the PR gate, whatever the
+        mode."""
         if act is None:
             return guard(supervisor_set, api, on, mode, project, thread_id, scope, follow)
         return await act(ctx, "keel_supervisor_set", "change the Supervisor's switch", supervisor_set, api, on, mode, project,
-                         thread_id, scope, follow, confirm=(mode == "act" or (on is True and scope == "keel")))
+                         thread_id, scope, follow, confirm=(mode in ("act", "fix") or (on is True and scope == "keel")))

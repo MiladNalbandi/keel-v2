@@ -34,9 +34,10 @@ export type RowGroup = Exclude<EventFilter, "all"> | "other";
 export type Tone = "ok" | "warn" | "bad" | "idle" | "run";
 export type Decision = { tone: Tone; label: string };
 /** Who gave an answer: the person, keel's Supervisor, the flow's run mode, or keel itself (a waived or empty gate). */
-export type Who = "you" | "supervisor" | "auto" | "keel";
+export type Who = "you" | "slack" | "supervisor" | "auto" | "keel";
 export const WHO_LABEL: Record<Who, string> = {
   you: "you",
+  slack: "a person in Slack",
   supervisor: "supervisor",
   auto: "auto (run mode)",
   keel: "keel",
@@ -113,6 +114,7 @@ export function decisionOf(
 export function whoOf(data: Record<string, unknown>): Who {
   const by = str(data.by).toLowerCase();
   if (by === "supervisor") return "supervisor";
+  if (by.startsWith("slack:")) return "slack";
   if (by === "engine" || by === "keel") return "keel";
   const why = str(data.why);
   if (why.includes("auto-approved (mode ")) return "auto";
@@ -383,6 +385,24 @@ export function eventRow(
         label: "supervisor",
         text: "supervisor paused: it answered too often in this flow",
       };
+    case "supervisor.diagnosis":
+      return {
+        kind: "supervisor",
+        group: "gates",
+        label: "supervisor",
+        note: str(d.summary) || undefined,
+        text: `supervisor's diagnosis of ${d.source === "failed" ? "the failed flow" : humanize(str(d.source)) || "this step"}`,
+      };
+    case "supervisor.fixed": {
+      const files = Array.isArray(d.files) ? d.files.map(String) : [];
+      return {
+        kind: "supervisor",
+        group: "gates",
+        label: "supervisor",
+        note: str(d.why) || undefined,
+        text: `supervisor made a small fix · ${files.join(", ") || "no files"} · ${str(d.lines)} changed lines`,
+      };
+    }
     case "guard.refused":
       return {
         kind: "guard",

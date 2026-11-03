@@ -6,10 +6,12 @@ import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 import { App } from "../../../../web/src/App";
+import { AppProvider } from "../../../../web/src/state";
 import { slotItems, SLOTS } from "../../../../web/src/sdk";
 import { server } from "../../../../web/src/test/setup";
 import plugin from "../index";
-import { outcomeText, type Decision } from "../Supervisor";
+import { outcomeText, type Decision, type Defaults, type FlowStatus, type Note } from "../Supervisor";
+import { SupervisorChip, SupervisorNote, SupervisorSettingsRow } from "../SupervisorParts";
 
 const row = (over: Partial<Decision>): Decision => ({
   id: "d1", thread_id: "t-sup", step: "g1", ac: "AC-1", kind: "ac", action: "answer", decision: "approve", choice: null,
@@ -141,5 +143,102 @@ describe("the Supervisor plugin's web part", () => {
     location.hash = "#/jobs/supervisor";
     render(<App />);
     expect(await screen.findByText("The Supervisor has not looked at anything yet.")).toBeInTheDocument();
+  });
+});
+
+describe("0.21.0 the Supervisor's chip, note and settings row", () => {
+  const thread = (status: string) => ({ thread_id: "t-sup", project_id: "p1", status, waiting: { id: "q1" } }) as never;
+  const flowStatus = (over: Partial<FlowStatus> = {}): FlowStatus => ({ state: "watching", on: true, off_by: null, mode: "shadow", note: null, ...over });
+  const route = "/api/projects/p1/flows/t-sup/supervisor/status";
+
+  it.each([
+    ["watching", "Supervisor: watching"],
+    ["looking", "Supervisor: looking…"],
+    ["acted", "Supervisor: acted"],
+    ["escalated", "Supervisor: escalated"],
+    ["paused-budget", "Supervisor: paused (budget)"],
+    ["paused-repeats", "Supervisor: paused (repeats)"],
+    ["off", "Supervisor: off"],
+  ] as [FlowStatus["state"], string][])("the chip says %s", async (state, text) => {
+    server.use(http.get(route, () => HttpResponse.json(flowStatus({ state, off_by: state === "off" ? "project" : null }))));
+    render(<AppProvider><SupervisorChip pid="p1" thread={thread("running")} readOnly={false} /></AppProvider>);
+    expect(await screen.findByText(text)).toBeInTheDocument();
+    expect(screen.getByTestId("supervisor-chip")).toHaveAttribute("href", "#/jobs/supervisor");
+  });
+
+  it("no chip while it is off keel-wide, for an earlier run, or when the call fails", async () => {
+    let asked = 0;
+    server.use(http.get(route, () => { asked += 1; return HttpResponse.json(flowStatus({ state: "off", off_by: "keel" })); }));
+    const chip = (status: string, readOnly: boolean) => <AppProvider><SupervisorChip pid="p1" thread={thread(status)} readOnly={readOnly} /></AppProvider>;
+    const { rerender } = render(chip("running", false));
+    await waitFor(() => expect(asked).toBeGreaterThan(0));
+    expect(screen.queryByTestId("supervisor-chip")).toBeNull();
+    rerender(chip("running", true));
+    expect(screen.queryByTestId("supervisor-chip")).toBeNull();
+    server.use(http.get(route, () => HttpResponse.json({ error: "gone" }, { status: 503 })));
+    rerender(chip("waiting", false));
+    await waitFor(() => expect(screen.queryByTestId("supervisor-chip")).toBeNull());
+  });
+
+  const item = { project_id: "p1", thread_id: "t-sup", id: "q1" } as never;
+  const note = (over: Partial<Note> = {}): Note => ({ summary: "Test and review are clean.", code: "shadow", reason: "shadow mode: it only suggests", confidence: "high",
+    suggestion: { decision: "approve", choice: "retry", answers: {}, why: "the test passes" }, patch: null, ...over });
+
+  it("Use suggestion only fills in: it sends nothing", async () => {
+    const posted: unknown[] = [];
+    server.use(http.get(route, () => HttpResponse.json(flowStatus({ note: note() }))),
+      http.post("/api/threads/:tid/resume", async ({ request }) => { posted.push(await request.json()); return HttpResponse.json({}); }));
+    const filled: unknown[] = [];
+    render(<AppProvider><SupervisorNote item={item} fill={(f) => filled.push(f)} /></AppProvider>);
+    expect(await screen.findByText(/Test and review are clean/)).toBeInTheDocument();
+    expect(screen.getByText(/It suggests: retry/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Use suggestion" }));
+    expect(filled).toEqual([{ why: "the test passes", choice: "retry", answers: undefined }]);
+    expect(screen.getByRole("status")).toHaveTextContent("Nothing is sent until you send it");
+    expect(posted).toEqual([]);
+  });
+
+  it("a note with no answer has no button, and a fix it put back shows its patch", async () => {
+    server.use(http.get(route, () => HttpResponse.json(flowStatus({ note: note({ suggestion: null, code: "fix-too-big", reason: "its fix is over the size limit, so it put it back", patch: "--- a/src/x.py" }) }))));
+    render(<AppProvider><SupervisorNote item={item} fill={() => undefined} /></AppProvider>);
+    expect(await screen.findByText("--- a/src/x.py")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Use suggestion" })).toBeNull();
+  });
+
+  it("no note when it said nothing about the waiting question", async () => {
+    let asked = 0;
+    server.use(http.get(route, () => { asked += 1; return HttpResponse.json(flowStatus()); }));
+    render(<AppProvider><SupervisorNote item={item} fill={() => undefined} /></AppProvider>);
+    await waitFor(() => expect(asked).toBeGreaterThan(0));
+    expect(screen.queryByTestId("supervisor-note")).toBeNull();
+  });
+
+  it("Settings' row changes the keel-wide mode and stall time, and warns about fix mode", async () => {
+    const sent: Record<string, unknown>[] = [];
+    let d: Defaults = { on: false, mode: "shadow", stall_minutes: 30, modes: ["shadow", "retry", "act", "fix"], stall_min: 5, stall_max: 1440 };
+    server.use(http.get("/api/supervisor/defaults", () => HttpResponse.json(d)),
+      http.post("/api/supervisor/defaults", async ({ request }) => {
+        const b = (await request.json()) as Record<string, unknown>;
+        sent.push(b);
+        d = { ...d, ...b };
+        return HttpResponse.json(d);
+      }));
+    render(<AppProvider><SupervisorSettingsRow pid="" scope="general" /></AppProvider>);
+    expect(await screen.findByLabelText("Mode")).toHaveValue("shadow");
+    expect(screen.getByLabelText("On for the whole keel")).not.toBeChecked();
+    expect(screen.queryByRole("note")).toBeNull();
+    await userEvent.selectOptions(screen.getByLabelText("Mode"), "fix");
+    expect(await screen.findByRole("note")).toHaveTextContent("at most 3 files and 40 lines");
+    const stall = screen.getByLabelText(/quiet for/);
+    await userEvent.clear(stall);
+    await userEvent.type(stall, "45");
+    await userEvent.tab();
+    await userEvent.click(screen.getByLabelText("On for the whole keel"));
+    await waitFor(() => expect(sent).toEqual([{ mode: "fix" }, { stall_minutes: 45 }, { on: true }]));
+  });
+
+  it("a project's Settings points at General", () => {
+    render(<AppProvider><SupervisorSettingsRow pid="p1" scope="project" /></AppProvider>);
+    expect(screen.getByText(/under General/)).toBeInTheDocument();
   });
 });

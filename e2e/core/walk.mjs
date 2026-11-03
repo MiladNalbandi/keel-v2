@@ -224,8 +224,8 @@ try {
   });
   const sets = await (await ctx.request.get(`${base}/api/plugins/sets`)).json().then((s) => (s.sets ?? s).map((x) => x.title ?? x.id), () => []);
   const groups = menu.groups.map((g) => g.group);
-  await check("the menu has Run, Build and Control, and its Project group is the 'No pages yet' box (+ Add pages)",
-    /No pages yet/.test(menu.box) && /\+ Add pages/.test(menu.box) && groups.join(",") === "Run,Project,Build,Control" && menu.groups[1].pages.length === 0,
+  await check("the menu has Run, Build, Control and Help, and its Project group is the 'No pages yet' box (+ Add pages)",
+    /No pages yet/.test(menu.box) && /\+ Add pages/.test(menu.box) && groups.join(",") === "Run,Project,Build,Control,Help" && menu.groups[1].pages.length === 0,
     `groups ${groups.join(", ")}; box: ${menu.box}`);
   await check("the tag next to the logo says core", /core/.test(menu.brand), menu.brand);
   const pluginPages = menu.groups.flatMap((g) => g.pages).filter((p) => /^#\/(tasks|repo|code|helper|keelbot|map|graph|wiki)\b/.test(p.href));

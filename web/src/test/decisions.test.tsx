@@ -8,7 +8,7 @@ import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 import { App } from "../App";
-import { decisionsOf, logDecision } from "../components/eventRows";
+import { decisionsOf, eventRow, logDecision } from "../components/eventRows";
 import { db, server } from "./setup";
 import { ANSWERS, openShopFlow, SHOP_TID, shopEvent, shopWorkflow } from "./shopFlow";
 
@@ -125,5 +125,18 @@ describe("A gate step's panel", () => {
     await user.click(screen.getByRole("button", { name: /^wait for you, spec approval, / }));
     expect(await screen.findByText("Not answered in this run yet.")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Decided" })).toHaveAttribute("aria-selected", "true");
+  });
+});
+
+describe("0.21.0 the log shows the Supervisor's diagnosis and its small fix", () => {
+  const ev = (type: string, data: Record<string, unknown>) => ({ type, thread_id: SHOP_TID, project_id: "shop", step: "g1", at: "2026-10-02T10:00:00Z", data }) as never;
+
+  it("in words", () => {
+    const d = eventRow(ev("supervisor.diagnosis", { source: "failed", summary: "The disk is full." }));
+    expect(d?.text).toBe("supervisor's diagnosis of the failed flow");
+    expect(d?.note).toBe("The disk is full.");
+    const f = eventRow(ev("supervisor.fixed", { files: ["src/a.py"], lines: 2, why: "a check was missing" }));
+    expect(f?.text).toBe("supervisor made a small fix · src/a.py · 2 changed lines");
+    expect(f?.note).toBe("a check was missing");
   });
 });

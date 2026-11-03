@@ -106,6 +106,10 @@ class Step(BaseModel):
     # payload.skip decides them, so they do not stop the flow again). A skip that is wrong there still asks at the menu.
     menus: bool | None = None
     report: Literal["verdicts"] | None = None
+    # A gate only a person answers: no run mode and no Supervisor decides it (run_mode.classify: "note"), and a `when`
+    # that does not hold still asks instead of approving unasked. A plugin's gate where a wrong "yes" becomes a promise
+    # to someone outside (the Answers plugin's drafted answers). Such a plugin says requires.keel, so an older keel leaves it out.
+    person: bool | None = None
     choices: list[str] | dict[str, str] | None = None
     on_skip: dict | None = None
     # A parallel step with `from`: "item" runs each agent in its item's folder (item["root"]), read only. An add-on uses

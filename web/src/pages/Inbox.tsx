@@ -11,7 +11,8 @@ import { api, errorParts } from "../api";
 import { ClarifyForm, type ClarifyAnswers } from "../components/ClarifyForm";
 import { questionsPayload, reasonsMissing } from "../questions";
 import { ChoiceForm } from "../components/ChoiceForm";
-import { clearDraft, DraftKept, dropOtherDrafts, noKeys, questionKey, useAnswerDraft } from "../drafts";
+import { clearDraft, DraftKept, draftKey, dropOtherDrafts, noKeys, questionKey, useAnswerDraft } from "../drafts";
+import { writeStored } from "../storage";
 import { RunModeNote } from "../components/RunMode";
 import { EmptyState } from "../components/EmptyState";
 import { GateDetail } from "./Flow";
@@ -20,7 +21,7 @@ import { ApprovalCard } from "../components/ApprovalCard";
 import { ErrorBox, Loading, PageHead, Pill, Since, Ticks } from "../components/ui";
 import { inboxApi, type InboxAnswer, type InboxItem } from "../inboxApi";
 import { useHasPage, useSlot } from "../sdk/registry";
-import { SLOTS, type InboxCardItem } from "../sdk/slots";
+import { SLOTS, type InboxCardItem, type InboxFill, type InboxNoteItem } from "../sdk/slots";
 import { queryValue } from "../routes";
 import { go, useApp, useLoad, useRoute } from "../state";
 import "../components/inbox.css";
@@ -195,6 +196,9 @@ function InboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) => Pro
   const [err, setErr] = useState<{ message: string; hint?: string } | null>(null);
   const hid = `inbox-${it.thread_id}`;
   const whyId = `${hid}-why`;
+  const notes = useSlot<InboxNoteItem>(SLOTS.inboxNote);
+  // a filled-in choice is a draft the choice form reads when it comes again
+  const [choiceForm, setChoiceForm] = useState(0);
 
   // keel 0.18.13 the engine says what each named choice means: one card each (ChoiceForm), its own reason box
   const info = (it.kind === "gate" || it.kind === "fix" || it.kind === "usage") && it.choice_info?.length ? it.choice_info : null;
@@ -233,6 +237,21 @@ function InboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) => Pro
     go("flow");
   };
 
+  // 0.21.0 a note's suggestion goes into the form; nothing is sent
+  const fill = (f: InboxFill) => {
+    if (f.answers) setPicked((p) => ({ ...p, ...f.answers }));
+    if (info) {
+      if (f.choice) writeStored(draftKey(place, "choice"), { v: f.choice, at: Date.now() }, "local");
+      // a choice that takes no reason has no box: words the person cannot see never go out in their name
+      const target = info.find((c) => c.name === f.choice) ?? info.find((c) => c.default) ?? info[0];
+      if (f.why != null && target?.why !== "none") writeStored(draftKey(place, "choice-why"), { v: f.why, at: Date.now() }, "local");
+      setChoiceForm((n) => n + 1);
+    } else if (f.why != null) {
+      setWhy(f.why);
+      setAskWhy(true);
+    }
+  };
+
   const choices = it.choices ?? [];
   return (
     <article className={`inbox-item k-${it.kind}`} aria-labelledby={hid} data-testid="inbox-item" data-key={keyOf(it)} tabIndex={-1}>
@@ -242,6 +261,7 @@ function InboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) => Pro
         {it.since && <span className="hint inbox-since">waiting <Since from={it.since} /></span>}
       </div>
       <h2 id={hid} className="inbox-title"><Ticks text={it.title} /></h2>
+      {notes.map((n) => <n.component key={n.id} item={it} fill={fill} />)}
       <RunModeNote mode={it.run_mode} kind={it.kind} title={it.title} auto={{ count: it.auto_approved ?? 0, last: it.last_auto }} />
       {it.kind === "clarify" && it.questions?.length ? (
         <ClarifyForm questions={it.questions} picked={picked} typed={typed}
@@ -261,7 +281,7 @@ function InboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) => Pro
         </div>
       )}
       {info && (
-        <ChoiceForm id={hid} choices={info} busy={busy} draft={place}
+        <ChoiceForm key={choiceForm} id={hid} choices={info} busy={busy} draft={place}
           onSend={(choice, said) => act("approve", { choice }, `${it.project_name}: ${info.find((c) => c.name === choice)?.label || choice}.`, said)} />
       )}
       <div className="row inbox-actions">

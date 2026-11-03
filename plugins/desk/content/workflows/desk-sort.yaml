@@ -1,0 +1,21 @@
+id: desk-sort
+name: sort a support request
+keel_rules: true
+own_branch: false
+version: 1
+about: An agent sorts one support request (what it is, how urgent, which part of the code) and you choose what happens next.
+# Started from the Desk page (the plugin's api), with the request and its past cases as the flow's request. The agent only
+# reads. The gate is a person's: no run mode and no Supervisor answers it. A fix or a change is a new flow with its own
+# gates; a task or a close is done by the Desk plugin when it hears the gate's answer.
+steps:
+  - id: sort
+    kind: agent
+    name: sort the request
+    agent: desk-sorter
+    model: default
+    phase: review
+    keep: true
+    markers: [KIND, URGENCY, AREA, NEXT]
+  - { id: decide, kind: gate, name: what to do with this request, phase: gate, person: true, lock: true, when: { data: sort_text }, choices: { make_task: end, fix_flow: hand_fix, change_flow: hand_change, close: end } }
+  - { id: hand_fix, kind: code, name: start a fix flow, action: start_flow, flow: fix, then: end, phase: gate, seed: { title: $title, evidence: $data.sort_text } }
+  - { id: hand_change, kind: code, name: start a change flow, action: start_flow, flow: change, then: end, phase: gate, seed: { title: $title, evidence: $data.sort_text } }

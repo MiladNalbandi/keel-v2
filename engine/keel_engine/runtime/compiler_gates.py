@@ -33,7 +33,7 @@ class GateMixin:
                         **flow_actions.stuck_counted(state, ac["id"], None)}, self.nav.after(i)
         if step.when:
             label, values = self._when(state, step.when)
-            if not self._holds(step.when, values):
+            if not self._holds(step.when, values) and not step.person:
                 # Not this time (a --semi gate in an --auto run, a question with nothing to ask): approved unasked.
                 why = f"not asked, {label}: {self._shown_values(values)}"
                 gates["log"].append(f"gate {step.id} approve: {why}")
@@ -130,6 +130,8 @@ class GateMixin:
         if step.menus and not no_criteria:
             detail = f"{detail}\n\n{self._folded_menus(i)}"
         question = {"step": step.id, "kind": "gate", "title": title, "detail": detail, "options": options}
+        if step.person:
+            question["person"] = True       # the api refuses an MCP client's answer below the admin level (FlowService.requirePerson)
         if (state.get("data") or {}).get(f"{step.id}_doc") and not no_criteria:
             question["doc"] = str(state["data"][f"{step.id}_doc"])
         # 0.18.55 the notification's short lines: what a step before wrote for it (the init hand-over), or from the
@@ -474,10 +476,10 @@ class GateMixin:
         title, extra_all = f"{step.name} · {item['id']}", {}
         while True:
             ask = choices_mod.for_question({"step": step.id, "kind": "gate", "title": title, "detail": detail,
-                                            "options": ["approve"], "choices": list(step.choices)},
+                                            "options": ["approve"], "choices": list(step.choices), **({"person": True} if step.person else {})},
                                            f"{self.wf.flow}:{step.id}", default=step.choices[0],
                                            needs_why={skip_choice: choices_mod.REQUIRED} if skip_choice else None)
-            answer, extra = self._ask(state, ask, gate="choice")
+            answer, extra = self._ask(state, ask, gate="note" if step.person else "choice")
             extra_all.update(extra)
             state = {**state, **extra}
             payload = answer.get("payload") or {}

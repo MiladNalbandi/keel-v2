@@ -24,14 +24,28 @@ export type Decision = {
   tokens: number;
   outcome: string;
   at: string;
+  /** 0.21.0 a small fix: what it changed, also when it put it back */
+  patch?: string | null;
 };
 
 type Switches = { keel: boolean; plugin: boolean; project: boolean; flow: boolean | null; off_by: string | null };
-type Settings = { on: boolean; mode: "shadow" | "retry" | "act"; effort?: string; cap_tokens: number; switches?: Switches };
+type Settings = { on: boolean; mode: "shadow" | "retry" | "act" | "fix"; effort?: string; cap_tokens: number; switches?: Switches };
 type ProjectSwitch = { on: boolean; keel: boolean; project: boolean; own: boolean | null; plugin: boolean };
 type FlowPatch = { on?: boolean | null; mode?: Settings["mode"] };
 type FlowView = { thread: { thread_id: string; title?: string; status?: string } | null };
 type SupView = { settings: Settings; used: { tokens: number } };
+
+export type Note = {
+  summary: string;
+  code: string | null;
+  reason: string;
+  confidence: string | null;
+  suggestion: { decision: string; choice: string | null; answers: Record<string, string | string[]>; why: string } | null;
+  patch: string | null;
+};
+export type ChipState = "off" | "watching" | "looking" | "acted" | "escalated" | "paused-budget" | "paused-repeats";
+export type FlowStatus = { state: ChipState; on: boolean; off_by: string | null; mode: string; note: Note | null };
+export type Defaults = { on: boolean; mode: Settings["mode"]; stall_minutes: number; modes: Settings["mode"][]; stall_min: number; stall_max: number };
 
 const base = (pid: string) => `/projects/${encodeURIComponent(pid)}`;
 export const supervisor = {
@@ -40,6 +54,9 @@ export const supervisor = {
   settings: (pid: string, tid: string) => get<SupView>(`${base(pid)}/flows/${encodeURIComponent(tid)}/supervisor`),
   change: (pid: string, tid: string, body: FlowPatch) =>
     post<SupView>(`${base(pid)}/flows/${encodeURIComponent(tid)}/supervisor`, body),
+  status: (pid: string, tid: string) => get<FlowStatus>(`${base(pid)}/flows/${encodeURIComponent(tid)}/supervisor/status`),
+  defaults: () => get<Defaults>("/supervisor/defaults"),
+  setDefaults: (body: Partial<Pick<Defaults, "on" | "mode" | "stall_minutes">>) => post<Defaults>("/supervisor/defaults", body),
   keel: () => get<{ on: boolean }>("/supervisor/switch"),
   setKeel: (on: boolean) => post<{ on: boolean }>("/supervisor/switch", { on }),
   project: (pid: string) => get<ProjectSwitch>(`${base(pid)}/supervisor/switch`),
@@ -104,8 +121,12 @@ function Switches({ pid, onChanged }: { pid: string; onChanged: () => void }) {
 
 /** One row's result in plain words. */
 export function outcomeText(d: Decision): string {
+  if (d.outcome === "applied" && d.action === "fix") return "made a small fix";
   if (d.outcome === "applied") return d.action === "send_back" || d.decision === "reject" ? "sent back" : `answered ${d.choice ?? d.decision ?? ""}`.trim();
   if (d.outcome === "suggested") return "suggested";
+  if (d.outcome === "diagnosed") return "wrote a diagnosis";
+  if (d.outcome === "skipped") return "did not look";
+  if (d.outcome === "cancelled") return "was turned off";
   if (d.outcome === "stale") return "too late (you answered)";
   return "asked you";
 }
@@ -144,6 +165,7 @@ function FlowSwitch({ pid, tid, title, version, onChanged }: { pid: string; tid:
               <option value="shadow">shadow: only suggests</option>
               <option value="retry">retry: only tries a stuck step again, with its note</option>
               <option value="act">act: answers when sure</option>
+              <option value="fix">fix: also makes small fixes on the flow's own branch</option>
             </select>
           </label>{" "}
           <span>

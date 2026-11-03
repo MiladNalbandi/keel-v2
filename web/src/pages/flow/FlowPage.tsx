@@ -19,7 +19,8 @@ import { FlowRuns } from "../../components/FlowRuns";
 import { ResumeRow } from "../../components/ResumeRow";
 import { RunHistory } from "../../components/RunHistory";
 import { CiteLinks } from "../../components/Markdown";
-import { hasPage } from "../../sdk/registry";
+import { hasPage, useSlot } from "../../sdk/registry";
+import { SLOTS, type FlowPanelItem } from "../../sdk/slots";
 import { StartFlowDrawer } from "../../components/StartFlow";
 import { initOffered, isInitFlow, markInitOffered, needsInit } from "../../components/InitAsk";
 import { dropOtherDrafts } from "../../drafts";
@@ -232,6 +233,7 @@ function ThreadView({ pid, thread, workflow, reload, onStart, readOnly }: {
   readOnly?: ReadOnly;
 }) {
   const { history, est, job, jobs, actual, facts, totals, perAc, visited, started } = useThreadBits(pid, thread, workflow);
+  const panels = useSlot<FlowPanelItem>(SLOTS.flowPanel);
   const tokens = useMemo(() => perStep(workflow, est.data?.per_step), [workflow, est.data]);
   // v0.15.2 the agents of this flow that work now: a click on the step one of them works in shows that step "now"
   const running = useMemo(() => (jobs.data ?? []).filter((j) => j.thread_id === thread.thread_id && j.status === "running"), [jobs.data, thread.thread_id]);
@@ -290,6 +292,7 @@ function ThreadView({ pid, thread, workflow, reload, onStart, readOnly }: {
         <BudgetMeter thread={thread} estimate={est.data?.tokens ?? null} />
         <AcsPanel thread={thread} />
         <BeforeShipPanel blockers={thread.blockers} />
+        {panels.map((p) => <p.component key={p.id} pid={pid} thread={thread} readOnly={!!readOnly} />)}
       </div>
     </CiteLinks.Provider>
   );
