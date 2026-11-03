@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import type { ChangedFile, ReviewThread, ReviewView } from "../api/models";
-import { localFile } from "../core/files";
+import { localFile, refUri } from "../core/files";
 import type { KeelState } from "../core/state";
 import { ago, threadStateOf } from "../logic/format";
 import {
@@ -269,6 +269,32 @@ export class ReviewMode
     await vscode.window.showTextDocument(local, opts);
   }
 
+  /**
+   * 0.21.1 Old | New: the whole file side by side in VS Code's diff editor, the old file (the review's base) on the
+   * left and the new one (its head) on the right. A new file has an empty left side, a deleted one an empty right one.
+   */
+  async compareFile(path: string): Promise<void> {
+    const key = this.key;
+    if (!key) return;
+    const f = this.files.find((x) => x.path === path);
+    const status = prFileStatusOf(f?.status);
+    const read = (p: string, side: "head" | "base") =>
+      this.state.call((api, pid) => api.reviewFile(pid, key, p, side), true);
+    const [base, head] = await Promise.all([
+      status === "new" ? undefined : read(f?.from || path, "base"),
+      status === "deleted" ? undefined : read(path, "head"),
+    ]);
+    if (!base && !head) {
+      vscode.window.showErrorMessage(`keel: could not read ${path} from the pull request.`);
+      return;
+    }
+    const name = path.slice(path.lastIndexOf("/") + 1);
+    const left = refUri(`${f?.from || path} @ ${base?.ref ?? "base"}`, `${key}|base`, base?.text ?? "");
+    const right = refUri(`${path} @ ${head?.ref ?? "head"}`, `${key}|head`, head?.text ?? "");
+    const pr = this.number ? `PR #${this.number}` : key;
+    await vscode.commands.executeCommand("vscode.diff", left, right, `${name}: Old | New (${pr})`, { preview: true });
+  }
+
   private async setFileContext(
     e: vscode.TextEditor | undefined,
   ): Promise<void> {
@@ -317,7 +343,7 @@ export class ReviewMode
     if (!r) return undefined;
     const md = new vscode.MarkdownString(undefined, true);
     md.isTrusted = {
-      enabledCommands: ["keel.review.askAboutChange", "keel.review.nextChange"],
+      enabledCommands: ["keel.review.askAboutChange", "keel.review.nextChange", "keel.review.compareFile"],
     };
     md.appendMarkdown(
       `**Changed in PR #${this.number ?? "?"}** · ${rangeLabel(r)}\n\n`,
@@ -333,8 +359,9 @@ export class ReviewMode
       md.appendMarkdown("New lines.\n\n");
     }
     const args = encodeURIComponent(JSON.stringify([path, r.start]));
+    const file = encodeURIComponent(JSON.stringify([path]));
     md.appendMarkdown(
-      `[$(sparkle) Ask KeelBot what changed here](command:keel.review.askAboutChange?${args}) · [$(arrow-down) Next change](command:keel.review.nextChange)`,
+      `[$(sparkle) Ask KeelBot what changed here](command:keel.review.askAboutChange?${args}) · [$(arrow-down) Next change](command:keel.review.nextChange) · [$(split-horizontal) Old | New](command:keel.review.compareFile?${file})`,
     );
     return new vscode.Hover(md);
   }

@@ -289,6 +289,8 @@ export interface ReviewThread {
 export interface ChangedFile {
   path: string;
   status?: string;
+  /** a renamed file: its old path */
+  from?: string | null;
   added?: number;
   removed?: number;
   binary?: boolean;
@@ -349,6 +351,15 @@ export interface AnswerSource {
 }
 
 /** 0.18.57 a file as a branch, review ref or commit has it (GET /api/projects/{pid}/repo/file-at) */
+/** 0.21.1 a whole file as the review's head (or base) commit has it (GET /review/file) */
+export interface ReviewFile {
+  path: string;
+  ref: string;
+  sha: string;
+  text: string;
+  truncated: boolean;
+}
+
 export interface RefFile {
   path: string;
   ref: string;

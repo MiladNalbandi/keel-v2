@@ -88,6 +88,15 @@ describe("KeelApi", () => {
     expect(f.seen[1].url).toBe("http://192.168.1.20:8088/api/projects/shop/review/diff?key=pr%3A7&path=src%2Fa%20b.ts");
   });
 
+  it("reads the review's whole file at its head and its base (Old | New)", async () => {
+    const f = fakeFetch([json(200, { path: "src/a b.ts", ref: "#7", sha: "a1", text: "new\n", truncated: false }), json(200, { path: "src/a.ts", ref: "main", sha: "b2", text: "old\n", truncated: false })]);
+    const a = api(f);
+    expect((await a.reviewFile("shop", "pr:7", "src/a b.ts", "head")).text).toBe("new\n");
+    expect((await a.reviewFile("shop", "pr:7", "src/a.ts", "base")).ref).toBe("main");
+    expect(f.seen[0].url).toBe("http://192.168.1.20:8088/api/projects/shop/review/file?key=pr%3A7&path=src%2Fa%20b.ts&side=head");
+    expect(f.seen[1].url).toBe("http://192.168.1.20:8088/api/projects/shop/review/file?key=pr%3A7&path=src%2Fa.ts&side=base");
+  });
+
   it("starts a flow with snake_case body and reads job steps", async () => {
     const f = fakeFetch([json(200, { thread_id: "t9", title: "Add refunds" }), json(200, { steps: [{ n: 1, kind: "read", path: "src/orders.ts" }], running: true })]);
     const a = api(f);

@@ -2,7 +2,7 @@
   "name": "keel-vscode",
   "displayName": "keel",
   "description": "keel v2 in VS Code: your flows and their live activity, the questions they wait at, pull request review in the editor, and KeelBot.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "keel",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -232,6 +232,12 @@
         "category": "keel"
       },
       {
+        "command": "keel.review.compareFile",
+        "title": "Old | New (whole file)",
+        "category": "keel",
+        "icon": "$(split-horizontal)"
+      },
+      {
         "command": "keel.review.reply",
         "title": "Reply",
         "category": "keel"
@@ -297,6 +303,11 @@
           "command": "keel.review.open",
           "when": "view == keel.review && viewItem == pr",
           "group": "inline"
+        },
+        {
+          "command": "keel.review.compareFile",
+          "when": "view == keel.review && viewItem == pr-file",
+          "group": "inline"
         }
       ],
       "editor/context": [
@@ -316,6 +327,11 @@
           "command": "keel.review.nextChange",
           "when": "keel.reviewMode && keel.reviewFile",
           "group": "navigation@50"
+        },
+        {
+          "command": "keel.review.compareFile",
+          "when": "keel.reviewMode && keel.reviewFile",
+          "group": "navigation@51"
         }
       ],
       "comments/commentThread/context": [
@@ -341,6 +357,10 @@
         {
           "command": "keel.openFlow",
           "when": "false"
+        },
+        {
+          "command": "keel.review.compareFile",
+          "when": "keel.reviewMode"
         },
         {
           "command": "keel.answerItem",
@@ -399,7 +419,7 @@
     "typecheck": "tsc --noEmit -p . && tsc --noEmit -p src/webview",
     "test": "vitest run",
     "test:smoke": "node esbuild.mjs && tsc -p test/smoke && node out/smoke/test/smoke/run.js",
-    "package": "node esbuild.mjs --production && vsce package --no-dependencies -o keel-vscode-0.1.0.vsix",
+    "package": "node esbuild.mjs --production && vsce package --no-dependencies -o keel-vscode-0.2.0.vsix",
     "vscode:prepublish": "node esbuild.mjs --production"
   },
   "devDependencies": {

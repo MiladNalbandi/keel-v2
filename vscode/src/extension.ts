@@ -299,6 +299,25 @@ export function activate(ctx: vscode.ExtensionContext): KeelExtension {
     await review.openThread(t);
   });
   cmd("keel.review.nextChange", () => review.nextChange());
+  // 0.21.1 the whole file, old next to new
+  cmd("keel.review.compareFile", async (arg?: string | ReviewNode) => {
+    const ed = vscode.window.activeTextEditor;
+    // a path (the hover's link), a changed file in the Review view (its menu), or the file in the editor
+    if (arg && typeof arg !== "string" && arg.kind === "file" && review.key !== arg.key && !(await review.enter(arg.key))) return;
+    const p =
+      typeof arg === "string"
+        ? arg
+        : arg?.kind === "file"
+          ? arg.file.path
+          : ed
+            ? review.prPath(ed.document.uri)
+            : undefined;
+    if (!p) {
+      vscode.window.showInformationMessage("keel: open a changed file of the pull request first.");
+      return;
+    }
+    await review.compareFile(p);
+  });
   cmd("keel.review.askAboutChange", async (path?: string, line?: number) => {
     let p = path;
     let l = line;
