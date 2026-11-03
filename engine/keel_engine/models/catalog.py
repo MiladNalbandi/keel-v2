@@ -153,9 +153,6 @@ OPENCODE_EFFORTS = ["low", "medium", "high"]
 # the fake model takes an effort only to record it (tests, trying the pickers without a real model)
 FAKE_EFFORTS = ["low", "medium", "high"]
 
-CLAUDE_SUBSCRIPTION = [{"id": "opus", "label": "Claude Opus", "efforts": CLAUDE_EFFORTS},
-                       {"id": "sonnet", "label": "Claude Sonnet", "efforts": CLAUDE_EFFORTS},
-                       {"id": "haiku", "label": "Claude Haiku", "efforts": []}]
 CLAUDE_API = [{"id": "opus", "label": "Claude Opus (claude-opus-5-5)", "efforts": CLAUDE_EFFORTS},
               {"id": "sonnet", "label": "Claude Sonnet (claude-sonnet-5-5)", "efforts": CLAUDE_EFFORTS},
               {"id": "haiku", "label": "Claude Haiku (claude-haiku-4-5)", "efforts": []},
@@ -165,6 +162,11 @@ CLAUDE_API = [{"id": "opus", "label": "Claude Opus (claude-opus-5-5)", "efforts"
               {"id": "claude-sonnet-5-5", "label": "Claude Sonnet 5.5", "efforts": CLAUDE_EFFORTS},
               {"id": "claude-sonnet-5", "label": "Claude Sonnet 5", "efforts": CLAUDE_EFFORTS},
               {"id": "claude-haiku-4-5", "label": "Claude Haiku 4.5", "efforts": []}]
+# 0.22.0 the exact ids too: Claude Code takes them with a subscription, and an alias may move to another model
+CLAUDE_SUBSCRIPTION = [{"id": "opus", "label": "Claude Opus", "efforts": CLAUDE_EFFORTS},
+                       {"id": "sonnet", "label": "Claude Sonnet", "efforts": CLAUDE_EFFORTS},
+                       {"id": "haiku", "label": "Claude Haiku", "efforts": []},
+                       *[m for m in CLAUDE_API if m["id"].startswith("claude-")]]
 
 CODEX_BUILTIN = [{"id": "gpt-5.5", "label": "GPT-5.5", "efforts": CODEX_EFFORTS},
                  {"id": "gpt-5.5-mini", "label": "GPT-5.5 mini", "efforts": CODEX_EFFORTS},

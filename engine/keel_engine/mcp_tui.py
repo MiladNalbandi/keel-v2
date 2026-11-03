@@ -191,9 +191,12 @@ def agent(api: KeelApi, agent_id: str, project: str | None = None, steps: int = 
     return "\n".join(out)
 
 
-def agent_start(api: KeelApi, task: str, mode: str = "side", project: str | None = None, force: bool = False) -> str:
+def agent_start(api: KeelApi, task: str, mode: str = "side", project: str | None = None, force: bool = False,
+                model: str | None = None) -> str:
     """An agent of the person's own: a KeelBot chat in its own worktree (side) or one that only reads (ask). 0.18.57 a
-    side agent on a task a flow or another side agent works on is refused with who; force starts it anyway."""
+    side agent on a task a flow or another side agent works on is refused with who; force starts it anyway. 0.22.0 the
+    answer names the model it runs on and where that came from; `model` picks another one for this agent (an alias
+    such as opus, or an exact id such as claude-opus-5-5)."""
     if mode not in ("side", "ask"):
         raise ApiError("mode is side (its own worktree and branch) or ask (it only reads).")
     if not task.strip():
@@ -208,8 +211,18 @@ def agent_start(api: KeelApi, task: str, mode: str = "side", project: str | None
             raise ApiError(f"refused: someone already works on this: {who}. Wait for it or stop it; to start anyway call "
                            "keel_agent_start again with force=true.", exc.status, exc.body) from exc
         raise
+    runs = s.get("model") or {}
+    why = ("KeelBot's model: the helper agent's on the Agents page, else the project's default model; another one: "
+           "keel_agent_start(..., model='opus' or an exact id)")
+    if model:
+        from .mcp_models import _next_model
+
+        runs = _next_model(api.get("/providers/models") or {}, runs, None, None, model.strip(), None)
+        api.patch(f"/projects/{p['id']}/helper/sessions/{_q(s['id'])}", {"model": runs})
+        why = "asked for in this call"
     api.post(f"/projects/{p['id']}/helper/sessions/{_q(s['id'])}/turn", {"text": task.strip()})
-    return (f"agent {s['id']} started: \"{s.get('title')}\" ({'its own worktree and branch' if mode == 'side' else 'it only reads'}). "
+    on = f" It runs on {model_text(runs, effort_default=False)} ({why})." if runs else ""
+    return (f"agent {s['id']} started: \"{s.get('title')}\" ({'its own worktree and branch' if mode == 'side' else 'it only reads'}).{on} "
             f"keel_agent {s['id']} shows how it does; keel_agents lists every one.")
 
 

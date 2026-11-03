@@ -998,12 +998,14 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
 
     @reg(rw)
     async def keel_agent_start(task: str, mode: Literal["side", "ask"] = "side", project: str | None = None,
-                               force: bool = False, ctx: Context | None = None) -> str:
+                               force: bool = False, model: str | None = None, ctx: Context | None = None) -> str:
         """Start an agent of the person's own on a task: side works in its own git worktree and branch (the project's
         folder stays as it is), ask only reads. It works on its own; keel_agent shows how it does. A side agent on what a
         flow or another side agent already works on (the same ticket or files) is refused, naming it; force starts it
-        anyway (only when the person said so)."""
-        return await act(ctx, "keel_agent_start", f"start an agent: {task[:60]}", tui.agent_start, api, task, mode, project, force)
+        anyway (only when the person said so). The answer names the model it runs on and why; model: another one for
+        this agent (an alias such as opus, or an exact id such as claude-opus-5-5; keel_models lists them)."""
+        return await act(ctx, "keel_agent_start", f"start an agent: {task[:60]}", tui.agent_start, api, task, mode, project,
+                         force, model)
 
     @reg(rw)
     async def keel_keelbot_ask(text: str, chat: str | None = None, mode: Literal["ask", "edit", "fix", "side"] = "ask", wait: int = 120,
