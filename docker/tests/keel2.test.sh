@@ -93,13 +93,16 @@ EOF
 chmod +x "$BIN"/*
 
 export KEEL_TEST_DIR="$WORK" PATH="$BIN:$PATH" KEEL_OPEN=0 PORT=18997 NO_COLOR=1
-unset KEEL_IMAGE KEEL_PLUGINS KEEL_DOCKER
+# keel2 remembers its start options per keel (0.21.2): a test name and its own folders, never this computer's keel
+export KEEL_NAME=keel-test-core XDG_CONFIG_HOME="$WORK/config" KEEL2_HOME="$WORK/keel2-home" HOME="$WORK/home"
+mkdir -p "$XDG_CONFIG_HOME" "$KEEL2_HOME" "$HOME"
+unset KEEL_IMAGE KEEL_PLUGINS KEEL_DOCKER KEEL_BIND
 
 check() {  # check "what" <command…>
   local what="$1"; shift
   if "$@"; then echo "  ok   $what"; else echo "  FAIL $what"; failures=$((failures + 1)); fi
 }
-reset() { rm -f "$WORK/log" "$WORK/state.json"; }
+reset() { rm -f "$WORK/log" "$WORK/state.json" "$XDG_CONFIG_HOME/keel2/$KEEL_NAME.options"; }
 ran_with() { grep '^docker run ' "$WORK/log" | tail -1 | grep -q -- "$1"; }
 pulled() { grep -q "^docker pull $1\$" "$WORK/log"; }
 
@@ -155,7 +158,7 @@ KEEL_TEST_DOCKER_ARCH=aarch64 KEEL_TEST_IMAGE_ARCH=amd64 "$KEEL2" doctor > "$WOR
 check "doctor: an amd64 image on an arm64 Docker is emulation" grep -q "built for amd64, but Docker runs on arm64: it runs under emulation" "$WORK/out"
 check "doctor: and how to get the native one" grep -q "docker pull --platform linux/arm64" "$WORK/out"
 reset
-KEEL_TEST_DOCKER_ARCH=aarch64 KEEL_TEST_IMAGE_ARCH=arm64 KEEL_TEST_PS="keel-v2 ghcr.io/miladnalbandi/keel-v2:latest
+KEEL_TEST_DOCKER_ARCH=aarch64 KEEL_TEST_IMAGE_ARCH=arm64 KEEL_TEST_PS="keel-test-core ghcr.io/miladnalbandi/keel-v2:latest
 keel-e2e ghcr.io/miladnalbandi/keel-v2:0.18.55
 db postgres:16" "$KEEL2" doctor > "$WORK/out" 2>&1 || true
 check "doctor: aarch64 and arm64 are the same CPU" grep -q "image runs natively (arm64)" "$WORK/out"

@@ -147,7 +147,7 @@ no_if() { if "${@:2}"; then fail "$1"; else pass "$1"; fi; }
 has() { if printf '%s' "$2" | grep -qF -- "$3"; then pass "$1"; else fail "$1 (no '$3' in: $2)"; fi; }
 hasnt() { if printf '%s' "$2" | grep -qF -- "$3"; then fail "$1 ('$3' in: $2)"; else pass "$1"; fi; }
 sent() { cat "$S/addresses" 2>/dev/null || true; }
-reset() { rm -f "$S"/*; : > "$FAKE_CALLS"; }
+reset() { rm -f "$S"/* "$XDG_CONFIG_HOME/keel2/$KEEL_NAME.options"; : > "$FAKE_CALLS"; }  # a fresh keel: nothing remembered
 orig_path="$PATH"
 fakebin="$scratch/bin"
 run_k() {  # run_k <env…> -- <args…>: keel2 with the fakes first on PATH; sets rc and out
@@ -187,7 +187,10 @@ has "restart sends the address again" "$(sent)" "192.168.1.20"
 
 : > "$FAKE_CALLS"
 run_k -- start "$project"
-yes_if "a start without --wifi is this computer only again" called "docker run .*-p 127.0.0.1:$PORT:8080"
+yes_if "a start without flags keeps --wifi (0.21.2: keel2 remembers it)" called "docker run .*-p 0.0.0.0:$PORT:8080"
+: > "$FAKE_CALLS"
+run_k -- start --no-wifi "$project"
+yes_if "a start --no-wifi is this computer only again" called "docker run .*-p 127.0.0.1:$PORT:8080"
 
 : > "$FAKE_CALLS"
 run_k KEEL_BIND=192.168.1.20 -- start "$project"
@@ -317,10 +320,12 @@ check "native start --wifi works" "$rc" 0
 check "keel-native-start gets KEEL_BIND=0.0.0.0 and the name" "$(native_env)" "0.0.0.0 keel-test-remote"
 has "native --wifi prints the Wi-Fi URL" "$out" "On your Wi-Fi: http://192.168.1.20:"
 has "keel learns its Wi-Fi address (native)" "$(sent)" '"kind":"wifi"'
-rm -f "$S/native-env"; run_k -- restart
+rm -f "$S/native-env"; run_k KEEL_NATIVE_CLIS=0 -- restart
 check "native restart keeps --wifi" "$(native_env)" "0.0.0.0 keel-test-remote"
 rm -f "$S/native-env"; run_k KEEL_NATIVE_CLIS=0 -- start --native "$project"
-check "a native start without --wifi is 127.0.0.1 again" "$(native_env)" "127.0.0.1 keel-test-remote"
+check "a native start without flags keeps --wifi" "$(native_env)" "0.0.0.0 keel-test-remote"
+rm -f "$S/native-env"; run_k KEEL_NATIVE_CLIS=0 -- start --native --no-wifi "$project"
+check "a native start --no-wifi is 127.0.0.1 again" "$(native_env)" "127.0.0.1 keel-test-remote"
 run_k -- stop --force
 check "native stop works" "$rc" 0
 
