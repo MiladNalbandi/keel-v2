@@ -180,7 +180,9 @@ async def test_start_flow_without_a_type_lists_every_flow_with_its_line_and_inpu
     assert "review-pr" in text and "[inputs: pr, ticket]" in text and "My own flow, for docs" in text
     assert not api.posts
     flows = await call(srv(api, "read"), "keel_flows")
-    assert "no flow has run on shop yet." in flows and "flows you can start" in flows and "review-pr" in flows
+    assert "no flow has run on shop yet." in flows and "review-pr" not in flows and "keel_flows(catalog=true)" in flows
+    flows = await call(srv(api, "read"), "keel_flows", {"catalog": True})       # 0.22.0 the catalogue only when asked
+    assert "flows you can start" in flows and "review-pr" in flows
 
 
 async def test_start_flow_takes_title_request_and_the_flows_inputs(api):

@@ -710,10 +710,11 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
     extensions.keel_mcp(PartServer(reg, act, "read"), api, guard, write=False)
 
     @reg(ro)
-    def keel_flows(project: str | None = None, limit: int = 10) -> str:
-        """The project's flows, newest first: type, title, status, step, criteria, tokens, cost, branch; then every
-        flow it can start, one line each on what it is for and the inputs it reads (keel_start_flow starts one)."""
-        return guard(more.flows, api, project, limit)
+    def keel_flows(project: str | None = None, limit: int = 10, catalog: bool = False) -> str:
+        """The project's flows, newest first: type, title, status, step, criteria, tokens, cost, branch. catalog=true
+        adds every flow type it can start, one line each on what it is for and the inputs it reads (keel_start_flow
+        starts one)."""
+        return guard(more.flows, api, project, limit, catalog)
 
     @reg(ro)
     def keel_inbox(project: str | None = None) -> str:
