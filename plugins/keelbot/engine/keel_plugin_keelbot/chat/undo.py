@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import difflib
 import json
-import subprocess
 from pathlib import Path
 
 from keel_engine.tools.agent_tools import command_env
@@ -21,7 +20,7 @@ DIFF_MAX = 40_000
 def _head_bytes(root: str, rel: str) -> bytes | None:
     if not git.tracked_in_head(root, rel):
         return None
-    r = subprocess.run(["git", "show", f"HEAD:{rel}"], cwd=root, capture_output=True, timeout=30)
+    r = git.git(root, "show", f"HEAD:{rel}", timeout=30, text=False)      # 0.21.3 hardened like every keel git
     return r.stdout if r.returncode == 0 else None
 
 

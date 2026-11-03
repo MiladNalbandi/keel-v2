@@ -19,7 +19,7 @@ import time
 from pathlib import Path
 
 from .. import config
-from ..tools import git, mcp
+from ..tools import agent_user, git, mcp
 from ..tools.agent_tools import failed as failed_command, unified_diff
 from .base import AgentRequest, AgentResult, Emit, ModelError
 from .. import hook
@@ -394,11 +394,14 @@ NO_SESSION = re.compile(r"no conversation found|session .{0,40}not found|invalid
 
 def claude_home() -> str:
     """claude's config folder on /data: its sessions survive a keel restart (the home folder does not)."""
+    from ..tools import agent_user
+
     d = config.data_dir() / "agent-home" / "claude"
     d.mkdir(parents=True, exist_ok=True)
     marker = d / ".claude.json"
     if not marker.exists():
         marker.write_text('{"hasCompletedOnboarding": true}')
+        agent_user.shared(d.parent)          # 0.21.3 claude runs as the agents' user and writes its sessions here
     return str(d)
 
 
@@ -826,6 +829,9 @@ class OpenCodeRunner:
                 state["error"] = json.dumps(ev.get("error") or ev)[:400]
 
         env = safe_env({guard_ctx.ENV: guard_ctx.ensure(req, scratch), "OPENCODE_CONFIG_DIR": conf})
+        # 0.21.3 opencode runs as the agents' user (tools/agent_user.py): its login, saved in keel's own home
+        # (Connections; api ConnectionService.opencodeAuthPath), is copied into the agents' home
+        await asyncio.to_thread(agent_user.copy_login, ".local/share/opencode/auth.json")
         try:
             await run_cli("opencode", argv, cwd=req.root, env=env, timeout=req.timeout, on_line=on_line)
         except ModelError as exc:

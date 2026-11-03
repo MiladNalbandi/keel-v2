@@ -1,0 +1,19 @@
+#!/bin/sh
+# keel 0.21.3 the agents' own user (engine/keel_engine/tools/agent_user.py). keel's user starts every agent CLI and every
+# command it runs for a project through this helper:
+#
+#   sudo -n -E -u agent -- /usr/local/bin/keel-as-agent <program> <args>
+#
+# /etc/sudoers.d/keel-agent lets keel's user run this one program, only as `agent` (fewer rights than keel's own, never
+# root). It sets umask 002 (the project folders are shared through keel's group), the PATH keel gave in KEEL_AGENT_PATH
+# (sudo's secure_path replaced PATH), the nice value of KEEL_AGENT_NICE, and execs the program.
+umask 002
+if [ -n "${KEEL_AGENT_PATH:-}" ]; then PATH=$KEEL_AGENT_PATH; export PATH; fi
+nice_by=${KEEL_AGENT_NICE:-}
+unset KEEL_AGENT_PATH KEEL_AGENT_NICE SUDO_COMMAND SUDO_USER SUDO_UID SUDO_GID SUDO_HOME SUDO_PS1
+[ "$#" -gt 0 ] || { echo "usage: keel-as-agent <program> [args]" >&2; exit 2; }
+case "$nice_by" in
+  '' ) exec "$@" ;;
+  *[!0-9]* ) exec "$@" ;;
+  * ) exec nice -n "$nice_by" "$@" ;;
+esac

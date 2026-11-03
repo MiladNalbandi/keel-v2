@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -74,6 +75,9 @@ def _save(folder: str | Path, seen: dict) -> None:
         f = Path(folder) / FILE
         tmp = f.with_name(f.name + ".tmp")
         tmp.write_text(json.dumps(seen))
+        from ..tools import agent_user
+
+        os.chmod(tmp, agent_user.private_mode())        # 0.21.3 the hook reads it as the agents' user
         tmp.replace(f)
     except OSError:
         pass

@@ -72,30 +72,42 @@ class WebKey(private val props: KeelProperties) {
  * 0.18.64 a browser's sign-in: a random session id per browser, kept as its SHA-256 (table web_sessions). It ends 30
  * days after its last use ([TTL], each use moves the end), at sign-out (this one) or at "sign out everywhere" (all).
  * Until 0.18.63 the cookie was the web key itself, for 400 days, and a sign-out never ended it.
+ * 0.21.3 a session is bound to the host and port it was opened on ([hostOf], column host): browsers keep cookies by
+ * host, not by port, so they send keel's cookie to every other server on localhost too; a cookie that comes in on
+ * another host or port than its own is refused (a session from before 0.21.3 is bound at its next use).
  */
 @Component
 class WebSessions(private val jdbc: JdbcTemplate, private val key: WebKey) {
 
-    /** A new session; returns its id (only the browser's cookie has it). */
-    fun open(now: Long = System.currentTimeMillis()): String {
+    /** A new session, for the address [host] ([hostOf]); returns its id (only the browser's cookie has it). */
+    fun open(now: Long = System.currentTimeMillis(), host: String? = null): String {
         val id = PREFIX + Hash.hex(ByteArray(32).also { random.nextBytes(it) })
         jdbc.update("DELETE FROM web_sessions WHERE expires_ms < ?", now)
-        jdbc.update("INSERT INTO web_sessions(id_hash, created_at, last_seen_at, expires_ms) VALUES (?, ?, ?, ?)",
-            Hash.sha256Hex(id), Time.iso(now), Time.iso(now), now + TTL.toMillis())
+        jdbc.update("INSERT INTO web_sessions(id_hash, created_at, last_seen_at, expires_ms, host) VALUES (?, ?, ?, ?, ?)",
+            Hash.sha256Hex(id), Time.iso(now), Time.iso(now), now + TTL.toMillis(), host)
         return id
     }
 
     enum class Check { NO, YES, MOVED }
 
-    /** Is this a live session? A use moves its end to [TTL] from now (written at most once per [MOVE_EVERY]: MOVED). */
-    fun check(id: String?, now: Long = System.currentTimeMillis()): Check {
+    /**
+     * Is this a live session, on its own address [host] ([hostOf]; null: any)? A use moves its end to [TTL] from now
+     * (written at most once per [MOVE_EVERY]: MOVED). On another address: NO, and the session stays for its own one.
+     */
+    fun check(id: String?, now: Long = System.currentTimeMillis(), host: String? = null): Check {
         if (id == null || !id.startsWith(PREFIX) || id.length != PREFIX.length + 64) return Check.NO
         val hash = Hash.sha256Hex(id)
-        val until = jdbc.query("SELECT expires_ms FROM web_sessions WHERE id_hash = ?", { rs, _ -> rs.getLong(1) }, hash).firstOrNull()
+        val (until, bound) = jdbc.query("SELECT expires_ms, host FROM web_sessions WHERE id_hash = ?",
+            { rs, _ -> rs.getLong(1) to rs.getString(2) }, hash).firstOrNull()
             ?: return Check.NO
         if (until < now) {
             jdbc.update("DELETE FROM web_sessions WHERE id_hash = ?", hash)
             return Check.NO
+        }
+        if (host != null) {
+            val own = bound ?: if (jdbc.update("UPDATE web_sessions SET host = ? WHERE id_hash = ? AND host IS NULL", host, hash) == 1) host
+                else jdbc.query("SELECT host FROM web_sessions WHERE id_hash = ?", { rs, _ -> rs.getString(1) }, hash).firstOrNull()
+            if (own != host) return Check.NO
         }
         if (now + TTL.toMillis() - until < MOVE_EVERY.toMillis()) return Check.YES
         jdbc.update("UPDATE web_sessions SET last_seen_at = ?, expires_ms = ? WHERE id_hash = ?", Time.iso(now), now + TTL.toMillis(), hash)
@@ -120,6 +132,9 @@ class WebSessions(private val jdbc: JdbcTemplate, private val key: WebKey) {
         val TTL: Duration = Duration.ofDays(30)
         val MOVE_EVERY: Duration = Duration.ofHours(1)
         private val random = SecureRandom()
+
+        /** The address a request came to, as a session is bound to it: the Host header's name and port (localhost:8088). */
+        fun hostOf(request: HttpServletRequest): String = "${(request.serverName ?: "").lowercase()}:${request.serverPort}"
 
         /** keel itself on https, or behind a proxy that says so. */
         fun https(request: HttpServletRequest): Boolean =

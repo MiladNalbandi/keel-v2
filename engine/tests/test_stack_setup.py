@@ -238,10 +238,18 @@ def test_the_helper_needs_a_package():
 def test_sudo_allows_keels_user_only_the_helpers_apt():
     dockerfile = (HELPER_FILE.parents[1] / "Dockerfile").read_text()
     lines = [ln for ln in dockerfile.splitlines() if "sudoers" in ln and "echo" in ln]
-    assert len(lines) == 1
+    assert len(lines) == 2
     assert "echo 'keel ALL=(root) NOPASSWD: /usr/local/bin/keel-stack-setup apt *' > /etc/sudoers.d/keel-stack-setup" \
         in lines[0]
+    # 0.21.3 and one more fixed verb as root: the agents' user joins the Docker socket's group (keel2 --docker)
+    assert "echo 'keel ALL=(root) NOPASSWD: /usr/local/bin/keel-stack-setup agent-docker' >> /etc/sudoers.d/keel-stack-setup" \
+        in lines[1]
     assert "visudo -cf /etc/sudoers.d/keel-stack-setup" in dockerfile
+    # 0.21.3 the agents' own user: keel's user runs only keel-as-agent, only as agent (never root)
+    rules = [ln for ln in dockerfile.splitlines() if "ALL=(" in ln]
+    assert [r for r in rules if "(agent)" in r] == ["        'keel ALL=(agent) NOPASSWD:SETENV: /usr/local/bin/keel-as-agent' > /etc/sudoers.d/keel-agent \\"]
+    assert all("(root)" in r or "(agent)" in r for r in rules)
+    assert "visudo -cf /etc/sudoers.d/keel-agent" in dockerfile
     text = HELPER_FILE.read_text()
     assert "bash -c" not in text and "\n  run)" not in text and "eval" not in text
 

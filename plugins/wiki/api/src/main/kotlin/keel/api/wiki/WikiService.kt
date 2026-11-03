@@ -73,7 +73,7 @@ class WikiService(
             WikiItem("wf:${it.id}", it.name, kind = "workflow", label = it.name, source = it.source, addon = it.addon, basedOn = it.basedOn)
         }
             .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
-        val adrs = lay.adrDirs.flatMap { d -> listMd(root.resolve(d)).filterNot { isIndex(it) }.map { "$d/${it.fileName}" } }
+        val adrs = lay.adrDirs.flatMap { d -> listMd(root.resolve(d)).filter { inside(root, it) && !isIndex(it) }.map { "$d/${it.fileName}" } }
             .distinctBy { it.substringAfterLast('/') }
             .map { rel -> doc("adr:${rel.substringAfterLast('/')}", "decision", root, rel) }
             .sortedWith(ORDER)
@@ -138,7 +138,8 @@ class WikiService(
             id.startsWith("adr:") -> {
                 val name = id.removePrefix("adr:")
                 if (name.contains('/') || name.contains("..")) throw BadRequest("Bad page id")
-                val rel = Layout.resolve(root).adrDirs.map { "$it/$name" }.firstOrNull { Files.isRegularFile(root.resolve(it)) }
+                // 0.21.3 a symlinked decision, or one in a folder that links outside the project, is not read (as the list skips it)
+                val rel = Layout.resolve(root).adrDirs.map { "$it/$name" }.firstOrNull { inside(root, root.resolve(it)) }
                     ?: throw NotFound("No decision called $name")
                 val f = root.resolve(rel)
                 WikiPage(id, title(f), Files.readString(f), mapOf("path" to rel, "updated" to mtime(f)))
@@ -240,6 +241,17 @@ class WikiService(
     }.getOrNull()
 
     private fun regular(f: Path) = Files.isRegularFile(f) && !Files.isSymbolicLink(f)
+
+    /**
+     * 0.21.3 a regular file, no symlink, whose real folder is in the project (or, in keel v1's external layout, in the
+     * folder .keel links to). A cloned repo could link docs/adr (or a file in it) to a folder outside it.
+     */
+    internal fun inside(root: Path, f: Path): Boolean {
+        if (!regular(f)) return false
+        val real = runCatching { f.parent.toRealPath() }.getOrNull() ?: return false
+        val bases = listOfNotNull(runCatching { root.toRealPath() }.getOrNull(), runCatching { root.resolve(".keel").toRealPath() }.getOrNull())
+        return bases.any { real.startsWith(it) }
+    }
 
     companion object {
         /** The number a spec or decision file starts with: SPEC-101-x, ADR_0002-x, 001-x, 0004 (not v1.1.0-x). */

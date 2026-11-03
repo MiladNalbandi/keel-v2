@@ -57,12 +57,23 @@ def codex_login_env(keys: dict | None = None) -> dict:
     auth = (keys or {}).get("codex_auth")
     if not auth:
         return {}
+    from ..tools import agent_user
+
     home = Path(os.environ.get("KEEL_DATA", "./.data")).resolve() / "codex-home"
     home.mkdir(parents=True, exist_ok=True)
-    os.chmod(home, 0o700)
+    # 0.21.3 agents run as their own user (tools/agent_user.py): codex reads and refreshes the login there, as that user
+    shared = agent_user.enabled()
+    os.chmod(home, 0o770 if shared else 0o700)
     f = home / "auth.json"
-    if not f.exists() or f.read_text() != auth:
+    try:
+        same = f.exists() and f.read_text() == auth
+    except OSError:                 # codex rewrote it as the agents' user with a mode of its own
+        f.unlink(missing_ok=True)
+        same = False
+    if not same:
         write_private(f, auth)
+    if shared:
+        agent_user.shared(home)
     return {"CODEX_HOME": str(home)}
 
 
@@ -253,18 +264,24 @@ async def run_cli(tool: str, argv: list[str], *, stdin: str = "", cwd: str | Non
 
 async def _run_cli(tool: str, argv: list[str], *, stdin: str = "", cwd: str | None = None, env: dict | None = None,
                    timeout: int = 1800, on_line: Callable[[str], None] | None = None) -> tuple[str, str]:
-    from ..runtime import resources
+    from ..runtime import guard_ctx, resources
+    from ..tools import agent_user
 
+    # 0.21.3 the CLI runs as the agents' own user (tools/agent_user.py): keel's files for this run are readable by it,
+    # not writable, and the project folder is shared with it (and back with keel when the CLI ends)
+    if agent_user.enabled():
+        ctx = (env or {}).get(guard_ctx.ENV)
+        await asyncio.to_thread(agent_user.readable, os.path.dirname(ctx) if ctx else None)
+        await asyncio.to_thread(agent_user.share, cwd, agent=False)
+    nice = resources.NICE if resources.settings()["low_priority"] else None
+    run_argv, run_env = agent_user.wrap(argv, env, nice=nice)
     proc = await asyncio.create_subprocess_exec(
-        *argv, cwd=cwd, env=env, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+        *run_argv, cwd=cwd, env=run_env, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE, start_new_session=True, limit=16 * 1024 * 1024)
     resources.lower_priority(proc.pid)
 
     def kill(sig):
-        try:
-            os.killpg(proc.pid, sig)
-        except (ProcessLookupError, PermissionError):
-            pass
+        agent_user.kill_group(proc.pid, sig)
 
     out_lines: list[str] = []
     err_chunks: list[bytes] = []
@@ -303,6 +320,9 @@ async def _run_cli(tool: str, argv: list[str], *, stdin: str = "", cwd: str | No
         asyncio.get_running_loop().call_later(KILL_GRACE, kill, signal.SIGKILL)
         raise
     stdout, stderr = "\n".join(out_lines), b"".join(err_chunks).decode(errors="replace")
+    await asyncio.to_thread(agent_user.share, cwd, keel=False)
+    for home in {(env or {}).get("CLAUDE_CONFIG_DIR"), (env or {}).get("CODEX_HOME")} - {None}:
+        await asyncio.to_thread(agent_user.share, home, keel=False)     # keel reads the sessions' costs there
     guard_intact(env)
     if proc.returncode != 0:
         raise classify_failure(tool, stdout, stderr, proc.returncode)

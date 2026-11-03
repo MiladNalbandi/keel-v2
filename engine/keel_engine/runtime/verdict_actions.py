@@ -1229,7 +1229,7 @@ def _open_pr(a):
 
         env = git_auth.gh_env(a.root, token)
         cmd = f"gh pr create --title {shlex.quote(title)} --body-file {shlex.quote(path)}"
-        code, out = testcmd.run(a.root, cmd, 120, env)
+        code, out = testcmd.run(a.root, cmd, 120, env, as_agent=False)      # keel's GitHub token: keel's own user
     finally:
         Path(path).unlink(missing_ok=True)
     if code != 0:

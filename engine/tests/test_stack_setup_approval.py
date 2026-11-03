@@ -113,14 +113,32 @@ def test_keels_own_stacks_and_packs_need_no_approval():
         assert not stack_setup.needs_approval(d), d["name"]
 
 
-def test_installing_from_the_marketplace_is_the_approval_but_a_plain_save_is_not(tmp_path, monkeypatch):
+def test_a_marketplace_install_waits_for_the_persons_ok_like_a_plain_save(tmp_path, monkeypatch):
+    # 0.21.3 before, the install itself approved the setup commands: one click ran them
     root = _project(tmp_path)
     (root / ".keel" / "stacks" / "stack.yml").unlink()
     monkeypatch.setattr(stack_setup, "known_roots", lambda: [("cloned", str(root))])
     stack_edit.save(str(root), STACK, source="project")
     assert [e["stack"] for e in stack_setup.held(str(root))] == ["evil"]
-    stack_edit.save(str(root), STACK, replace=True, source="marketplace", market={"version": "1.0.0", "catalog": "x"})
-    assert stack_setup.held(str(root)) == []
+    stack_edit.save(str(root), STACK, replace=True, source="marketplace",
+                    market={"version": "1.0.0", "catalog": "x", "verified": True})
+    assert [e["stack"] for e in stack_setup.held(str(root))] == ["evil"]
+
+
+def test_an_unverified_publishers_setup_block_is_refused_unless_the_person_allows_it(tmp_path, monkeypatch):
+    from keel_engine.marketplace import sources
+
+    root = _project(tmp_path)
+    (root / ".keel" / "stacks" / "stack.yml").unlink()
+    monkeypatch.setattr(stack_setup, "known_roots", lambda: [("cloned", str(root))])
+    monkeypatch.setattr(sources, "read_rules", lambda: {"allow_unverified": False})
+    with pytest.raises(stack_edit.StackError) as e:
+        stack_edit.save(str(root), STACK, source="marketplace", market={"version": "1.0.0", "catalog": "x", "verified": False})
+    assert e.value.status == 409 and "unverified publisher" in str(e.value)
+    assert not (root / ".keel" / "stacks" / "evil.yml").exists()
+    monkeypatch.setattr(sources, "read_rules", lambda: {"allow_unverified": True})
+    stack_edit.save(str(root), STACK, source="marketplace", market={"version": "1.0.0", "catalog": "x", "verified": False})
+    assert [e["stack"] for e in stack_setup.held(str(root))] == ["evil"]          # and its setup still waits
 
 
 def test_the_inbox_card_approves_on_yes_and_stays_closed_on_no(tmp_path, monkeypatch):

@@ -153,6 +153,7 @@ def test_an_engine_part_that_did_not_load_brings_no_content_and_one_that_did_kee
     broken = file_plugin(data, name="broken", files=notes_files(), package="keel_tmp_notes")
     (broken / "engine/keel_tmp_notes/__init__.py").write_text("raise ImportError('broken on purpose')\n")
     write_sums(broken)
+    installed(data, {"broken": {"version": "1.0.0", "on": True, "source": "file"}})    # installed as it is now
     env = resolver.resolve().env()
     monkeypatch.setenv("KEEL_PLUGIN_PATHS", env["KEEL_PLUGIN_PATHS"])
     monkeypatch.setenv("KEEL_PLUGIN_ADDONS", env["KEEL_PLUGIN_ADDONS"])

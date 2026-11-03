@@ -11,6 +11,8 @@ export type SlackView = {
     on: boolean; channel: string; allowed: SlackPerson[]; send_detail: boolean; project: string | null; team_name: string | null };
   log: { at: string; who: string; what: string; ok: boolean }[];
   sends_slack: string; sends_model: string;
+  /** set by a save that dropped the tokens (a new Slack address): paste them again */
+  notice?: string | null;
 };
 
 const PATH = "/plugins/slack";
@@ -134,6 +136,7 @@ export function SlackTab() {
           </Panel>
           <Panel title="The link" extra={<Pill tone={TONE[v.state] ?? "idle"}>{v.state}{v.config.team_name ? ` · ${v.config.team_name}` : ""}</Pill>}>
             {v.problem && <Note tone="err">{v.problem}</Note>}
+            {v.notice && <Note tone="warn" role="status">{v.notice}</Note>}
             <Form key={`${v.bot_hint}-${v.app_hint}`} v={v} onSaved={(x) => view.setData(x)} />
           </Panel>
           <Panel title="Choices">

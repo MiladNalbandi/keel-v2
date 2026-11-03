@@ -171,6 +171,9 @@ def index(project: str, root: str, rebuild: bool = False) -> dict:
     if r.returncode != 0:
         why = [x for x in (r.stderr or r.stdout).splitlines() if x.strip()][-3:]
         return {"ok": False, "error": "codegraph failed: " + (" ".join(why) or f"exit {r.returncode}")[:500], "index_dir": index_dir}
+    from keel_engine.tools import agent_user
+
+    agent_user.shared(index_dir)        # 0.21.3 the agents' codegraph MCP server reads it as the agents' user
     st = status(root)
     if st and st.get("initialized") is False:
         return {"ok": False, "error": "codegraph finished but wrote no index.", "index_dir": index_dir}

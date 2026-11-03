@@ -36,22 +36,25 @@ class WebSignInController(
         request: HttpServletRequest,
         response: HttpServletResponse,
     ) {
-        // keel reachable from the Wi-Fi or a tunnel: wrong codes count like wrong keys (AuthLimiter)
-        if (limiter.blocked(AuthLimiter.Kind.SIGN_IN, request)) {
-            response.status = 429
-            response.setHeader("Retry-After", limiter.retryAfter().toString())
-            return
-        }
-        if (!codes.use(code)) {
-            if (!code.isNullOrBlank()) limiter.fail(AuthLimiter.Kind.SIGN_IN, request)
+        // 0.18.64 a session of this browser's own, never the web key; 0.21.3 bound to the address it was opened on
+        if (codes.use(code)) {
+            response.addHeader(HttpHeaders.SET_COOKIE, sessions.cookie(request, sessions.open(host = WebSessions.hostOf(request))).toString())
             response.status = HttpServletResponse.SC_FOUND
-            response.setHeader(HttpHeaders.LOCATION, "/?signin=expired")
+            response.setHeader(HttpHeaders.LOCATION, safeNext(next))
             return
         }
-        // 0.18.64 a session of this browser's own, never the web key
-        response.addHeader(HttpHeaders.SET_COOKIE, sessions.cookie(request, sessions.open()).toString())
+        // keel reachable from the Wi-Fi or a tunnel: wrong codes count like wrong keys (AuthLimiter); 0.21.3 checked
+        // after the code, so a right code always signs in
+        if (!code.isNullOrBlank()) {
+            if (limiter.blocked(AuthLimiter.Kind.SIGN_IN, request)) {
+                response.status = 429
+                response.setHeader("Retry-After", limiter.retryAfter().toString())
+                return
+            }
+            limiter.fail(AuthLimiter.Kind.SIGN_IN, request)
+        }
         response.status = HttpServletResponse.SC_FOUND
-        response.setHeader(HttpHeaders.LOCATION, safeNext(next))
+        response.setHeader(HttpHeaders.LOCATION, "/?signin=expired")
     }
 
     /** Signs this browser out: its session ends and the cookie goes; other browsers stay signed in. */

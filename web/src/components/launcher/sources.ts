@@ -181,11 +181,23 @@ export const askAction = (
   disabled: ctx.pid ? undefined : "Choose a project first",
   run: () => ctx.ask(q),
 });
+/** 0.21.3 only an http(s) address opens in a new tab: a part's link could be javascript:, data: or file:. */
+export function webUrl(url: string): boolean {
+  try {
+    const u = new URL(url, window.location.href);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
 export const linkAction = (label: string, url: string): Action => ({
   id: "web",
   label,
   keys: "meta+o",
-  run: () => void window.open(url, "_blank", "noopener"),
+  disabled: webUrl(url) ? undefined : "Only http and https links open here",
+  run: () => {
+    if (webUrl(url)) window.open(url, "_blank", "noopener");
+  },
 });
 
 // ---------- one result of each kind (keel's own; the parts make theirs)

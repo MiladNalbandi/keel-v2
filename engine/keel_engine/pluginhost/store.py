@@ -4,7 +4,8 @@
       1. every member: no absolute path, no '..', no link, no device
       2. keel-plugin.yml at the top is a valid schema 1 manifest
       3. unpack into store/.install-<random>/ (tarfile's "data" filter too); check the parts and files.sha256
-      4. rename it to store/<name>/<version>/, then write the installed.json entry
+      4. rename it to store/<name>/<version>/, then write the installed.json entry (0.21.3 with the folder's
+         tree_sha256: the resolver loads only a store folder that still has it)
 Installing only unpacks files: no plugin code runs until keel starts again.
 """
 
@@ -75,7 +76,8 @@ def _move_into_place(tmp: Path, target: Path) -> None:
         shutil.rmtree(old, ignore_errors=True)
 
 
-def _unpack(tar: tarfile.TarFile, members: list[tarfile.TarInfo], m: Manifest, target: Path) -> None:
+def _unpack(tar: tarfile.TarFile, members: list[tarfile.TarInfo], m: Manifest, target: Path) -> str:
+    """Returns the folder's tree_sha256 as checked here (installed.json keeps it: the resolver's check 2)."""
     store = state.store_dir()
     store.mkdir(parents=True, exist_ok=True)
     tmp = Path(tempfile.mkdtemp(prefix=".install-", dir=store))
@@ -83,7 +85,9 @@ def _unpack(tar: tarfile.TarFile, members: list[tarfile.TarInfo], m: Manifest, t
         tar.extractall(tmp, members=members, filter="data")
         os.chmod(tmp, 0o755)
         _check_unpacked(tmp, m)
+        tree = manifest.tree_sha256(tmp)
         _move_into_place(tmp, target)
+        return tree
     except BaseException:
         shutil.rmtree(tmp, ignore_errors=True)
         raise
@@ -136,10 +140,10 @@ def install(file: str | Path, *, on: bool = True, force: bool = False, source: s
             target = state.store_dir() / m.name / m.version
             if target.exists() and not force:
                 raise PluginError(f"{m.name} {m.version} is already installed in {target} (--force replaces it)")
-            _unpack(tar, members, m, target)
+            tree = _unpack(tar, members, m, target)
     except (tarfile.TarError, gzip.BadGzipFile, EOFError, zlib.error) as exc:
         raise _bad_package(path, exc) from exc
-    fixed = {"version": m.version, "on": on, "source": source, "sha256": sha}
+    fixed = {"version": m.version, "on": on, "source": source, "sha256": sha, "tree_sha256": tree}
     data["plugins"][m.name] = {**fixed, "installed_at": state.now(), "by": "cli",
                                **{k: v for k, v in (meta or {}).items() if k not in fixed}}
     state.write_installed(data)

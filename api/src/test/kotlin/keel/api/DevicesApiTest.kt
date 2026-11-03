@@ -2,6 +2,7 @@ package keel.api
 
 import com.fasterxml.jackson.databind.JsonNode
 import keel.api.auth.AuthLimiter
+import keel.api.auth.ClientIp
 import keel.api.auth.WebKey
 import keel.api.common.Hash
 import keel.api.devices.PairingCodes
@@ -108,12 +109,74 @@ class DevicesApiTest : ApiTest() {
     }
 
     @Test
-    fun `wrong sign-in keys from another address are limited too`() {
+    fun `wrong sign-in keys from another address are limited too, a right key always passes (0_21_2)`() {
         repeat(20) {
             bare.perform(rget("/api/projects").from("203.0.113.9").header("Authorization", "Bearer wrong$it")).andExpect(status().isForbidden)
         }
-        bare.perform(rget("/api/projects").from("203.0.113.9").person()).andExpect(status().isTooManyRequests)
-        bare.perform(rget("/api/projects").from("203.0.113.10").person()).andExpect(status().isOk)
+        bare.perform(rget("/api/projects").from("203.0.113.9").header("Authorization", "Bearer wrong-more")).andExpect(status().isTooManyRequests)
+        bare.perform(rget("/api/projects").from("203.0.113.9").person()).andExpect(status().isOk)
+        bare.perform(rget("/api/projects").from("203.0.113.10").header("Authorization", "Bearer wrong")).andExpect(status().isForbidden)
+    }
+
+    @Test
+    fun `0_21_2 wrong tries from everywhere never lock out a right key, cookie or device token`() {
+        val (token, _) = paired()
+        // 200 wrong tokens a minute from ten addresses: the limit of all clients together
+        repeat(10) { n -> repeat(20) { bare.perform(rget("/api/projects").from("198.51.100.$n").header("Authorization", "Bearer kd_wrong$it")) } }
+        // a new wrong try from a new address waits now (the limit of all clients together slows new guesses)...
+        bare.perform(rget("/api/projects").from("198.51.100.99").header("Authorization", "Bearer wrong")).andExpect(status().isTooManyRequests)
+        // ...but the person's key, a paired phone and a signed-in browser still get in, from anywhere
+        bare.perform(rget("/api/projects").from("198.51.100.99").person()).andExpect(status().isOk)
+        bare.perform(rget("/api/projects").from("172.17.0.1").device(token)).andExpect(status().isOk)
+        val code = post("/api/web/code").andExpect(status().isOk).body()["code"].asText()
+        val login = bare.perform(rget("/web/login").from("172.17.0.1").param("code", code)).andExpect(status().isFound).andReturn()
+        assertThat(login.response.getHeader("Location")).isEqualTo("/")
+        val cookie = login.response.getCookie(key.cookieName)!!
+        bare.perform(rget("/api/projects").from("172.17.0.1").cookie(cookie)).andExpect(status().isOk)
+        // a wrong sign-in code is still held back
+        bare.perform(rget("/web/login").from("198.51.100.99").param("code", "wrong")).andExpect(status().isTooManyRequests)
+    }
+
+    @Test
+    fun `0_21_2 a caller on the Wi-Fi cannot name other addresses to dodge its own limit`() {
+        repeat(20) {
+            bare.perform(rget("/api/projects").from("192.168.1.50").header("X-Forwarded-For", "10.9.9.$it").header("Authorization", "Bearer wrong$it"))
+                .andExpect(status().isForbidden)
+        }
+        bare.perform(rget("/api/projects").from("192.168.1.50").header("X-Forwarded-For", "10.9.9.200").header("Cf-Connecting-Ip", "10.9.9.201")
+            .header("Authorization", "Bearer wrong")).andExpect(status().isTooManyRequests)
+        // keel2's proxies (cloudflared, tailscale serve) on this computer still name the client
+        repeat(20) {
+            bare.perform(rget("/api/projects").from("127.0.0.1").header("Cf-Connecting-Ip", "203.0.113.70").header("Authorization", "Bearer wrong$it"))
+        }
+        bare.perform(rget("/api/projects").from("127.0.0.1").header("Cf-Connecting-Ip", "203.0.113.70").header("Authorization", "Bearer wrong"))
+            .andExpect(status().isTooManyRequests)
+        bare.perform(rget("/api/projects").from("127.0.0.1").header("Cf-Connecting-Ip", "203.0.113.71").header("Authorization", "Bearer wrong"))
+            .andExpect(status().isForbidden)
+    }
+
+    @Test
+    fun `0_21_2 forwarded headers count only from trusted proxies (loopback, the container's gateway)`() {
+        fun req(remote: String, xff: String?) = org.springframework.mock.web.MockHttpServletRequest().apply {
+            remoteAddr = remote; if (xff != null) addHeader("X-Forwarded-For", xff)
+        }
+        try {
+            ClientIp.trustedForTests = setOf("172.17.0.1")
+            assertThat(ClientIp.of(req("172.17.0.1", "203.0.113.5"))).isEqualTo("203.0.113.5")
+            assertThat(ClientIp.of(req("127.0.0.1", "1.2.3.4, 203.0.113.6"))).isEqualTo("203.0.113.6")
+            assertThat(ClientIp.of(req("192.168.1.50", "203.0.113.5"))).isEqualTo("192.168.1.50")
+            assertThat(ClientIp.of(req("10.0.0.7", "203.0.113.5"))).isEqualTo("10.0.0.7")
+            assertThat(ClientIp.of(req("203.0.113.9", "127.0.0.1"))).isEqualTo("203.0.113.9")
+        } finally {
+            ClientIp.trustedForTests = null
+        }
+        val route = listOf(
+            "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT",
+            "eth0\t00000000\t010011AC\t0003\t0\t0\t0\t00000000\t0\t0\t0",
+            "eth0\t000011AC\t00000000\t0001\t0\t0\t0\t0000FFFF\t0\t0\t0",
+        )
+        assertThat(ClientIp.gatewayOf(route)).isEqualTo("172.17.0.1")
+        assertThat(ClientIp.gatewayOf(route.take(1))).isNull()
     }
 
     @Test

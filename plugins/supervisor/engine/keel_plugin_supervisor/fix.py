@@ -19,7 +19,7 @@ from pathlib import Path
 
 from keel_engine import rules
 from keel_engine.rules import checks
-from keel_engine.tools import git
+from keel_engine.tools import git, guard
 
 PATCH_MAX = 12_000
 _CI = re.compile(r"(^|/)(\.github/|\.gitlab/|\.circleci/|\.buildkite/|\.gitlab-ci\.ya?ml$|\.travis\.ya?ml$|Jenkinsfile$|"
@@ -53,6 +53,7 @@ class Before:
     refs: str
     prints: dict[str, str] = field(default_factory=dict)      # the changed files then: {path: fingerprint}
     bytes_of: dict[str, bytes | None] = field(default_factory=dict)  # and what they held (None: the file was gone)
+    gitmeta: dict = field(default_factory=dict)     # 0.21.3 the repo's git settings (tools/guard.py git_meta)
 
     @classmethod
     def take(cls, root: str) -> "Before":
@@ -61,7 +62,7 @@ class Before:
         for rel in prints:
             p = Path(root) / rel
             held[rel] = p.read_bytes() if p.is_file() else None
-        return cls(_head(root), _refs(root), prints, held)
+        return cls(_head(root), _refs(root), prints, held, guard.git_meta(root))
 
 
 def _head(root: str) -> str:
@@ -147,6 +148,10 @@ def check(root: str, before: Before, max_files: int, max_lines: int) -> Report:
         patch += diff
         lines += sum(1 for d in diff if d[:1] in "+-" and d[:3] not in ("+++", "---"))
     text = "".join(patch)[:PATCH_MAX]
+    # 0.21.3 a hook, an fsmonitor or a config the turn wrote in .git is put back at once, whatever else it did
+    if settings := guard.restore_git_meta(root, before.gitmeta) if before.gitmeta else []:
+        return Report(paths, lines, "fix-git-moved", "the fix changed the repo's git settings: "
+                      + ", ".join(r["path"] for r in settings) + " (put back)", text)
     if _head(root) != before.head or _refs(root) != before.refs:
         return Report(paths, lines, "fix-git-moved", "git changed during the fix", text)
     if own := next(((p, w) for p in paths if (w := never_file(root, p, not (Path(root) / p).exists()))), None):

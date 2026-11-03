@@ -92,7 +92,8 @@ listed.
 6. Write outside `/data/plugins/data/<name>/` and the project workspace (if it has `workspace: write`).
 7. Install, turn on or update another plugin. Only a person does that.
 8. Load code from the internet at run time. A web part may load only files from its own folder; the page's
-   Content-Security-Policy allows scripts only from keel itself.
+   Content-Security-Policy allows scripts only from keel itself (0.21.3, api `common/PageSecurity`: `script-src 'self'`
+   plus the hash of index.html's import map; no eval, no inline script, no other site).
 9. Give an agent an "install" tool. Agents can only **ask** (see 04).
 
 Points 2, 3, 7 and 9 keel enforces in code. Points 5, 6 and 8 the SDK enforces for plugins that use it. A plugin that

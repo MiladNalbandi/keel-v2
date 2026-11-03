@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import jakarta.annotation.PreDestroy
 import keel.api.common.ApiException
 import keel.api.common.BadRequest
+import keel.api.common.Hosts
 import keel.api.common.KvStore
 import keel.api.common.Time
 import keel.api.connections.ConnectionField
@@ -90,6 +91,8 @@ data class SlackLogRow(val at: String, val who: String, val what: String, val ok
 data class SlackView(
     val linked: Boolean, val state: String, val problem: String?, val config: SlackConfig, val botHint: String?, val appHint: String?, val log: List<SlackLogRow>,
     val sendsSlack: String, val sendsModel: String,
+    /** 0.21.3 what the last save did that the person must act on (tokens dropped for a new address) */
+    val notice: String? = null,
 )
 
 /** The message keel posted for a question, so an answer can close it. */
@@ -189,12 +192,24 @@ class SlackService(
         } catch (e: SlackError) {
             throw BadRequest(e.message ?: "Slack refused it.", "Nothing was kept.")
         }
+        // 0.21.3 the saved tokens belong to the saved address: a new host drops them (as Jira, GitLab and a local model
+        // server's key do), so the next connect never sends them to a server the person did not paste them for
+        var notice: String? = null
+        if (!Hosts.sameSite(before.apiUrl, c.apiUrl)) {
+            val dropped = listOfNotNull(BOT.takeIf { bot == null && secrets.has(it) }, APP.takeIf { app == null && secrets.has(it) })
+            dropped.forEach { secrets.delete(it) }
+            if (bot == null) c = c.copy(team = null, teamName = null, botUser = null)
+            if (dropped.isNotEmpty()) {
+                val what = if (dropped.size == 2) "bot token and app-level token" else if (dropped[0] == BOT) "bot token" else "app-level token"
+                notice = "The Slack address changed, so keel dropped the saved $what. Paste ${if (dropped.size == 2) "them" else "it"} again for ${c.apiUrl}."
+            }
+        }
         bot?.let { secrets.put(BOT, it) }
         app?.let { secrets.put(APP, it) }
         kv.put(CONFIG, c)
         // a choice on the page does not drop the connection; only what the connection itself depends on does
         if (bot != null || app != null || c.on != before.on || c.apiUrl != before.apiUrl || socket == null) restart()
-        return view()
+        return view().copy(notice = notice)
     }
 
     private fun checkedPeople(list: List<SlackPerson>): List<SlackPerson> = list.map { p ->
@@ -972,7 +987,7 @@ class SlackService(
         const val BLOCK_MAX = 2900
 
         /** The Supervisor's never list (plugins/supervisor policy.NEVER; engine/tests checks they stay the same): these stay in keel. */
-        val NEVER = setOf("budget", "dependency", "secrets", "readonly", "note", "final-review", "pr")
+        val NEVER = setOf("budget", "dependency", "secrets", "readonly", "note", "final-review", "pr", "publish")
 
         /** What no setting ever gives a button: money and secrets. */
         val ALWAYS = setOf("budget", "secrets")

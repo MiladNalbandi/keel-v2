@@ -159,7 +159,10 @@ class MarketStacks(
                     "Install it with replace to write over it.")
             }
         }
-        val market = mapOf("catalog" to fetched.path("catalog").asText(), "version" to version, "sha256" to fetched.path("sha256").asText())
+        // 0.21.3 verified: the engine refuses an unverified publisher's setup block unless the person allows it, and a
+        // stack's setup never runs before the person's OK in the Inbox (engine runtime/stack_edit.py save)
+        val market = mapOf("catalog" to fetched.path("catalog").asText(), "version" to version, "sha256" to fetched.path("sha256").asText(),
+            "verified" to fetched.path("verified").asBoolean(false))
         val saved = stacks.save(pid, StackText(yaml = fetched.path("yaml").asText(""), replace = here != null), "marketplace", market) as ObjectNode
         saved.set<JsonNode>("market", mapper.createObjectNode().put("catalog", fetched.path("catalog").asText()).put("name", name)
             .put("version", version).put("sha256", fetched.path("sha256").asText()))

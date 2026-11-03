@@ -75,6 +75,62 @@ KEEL_KEY_WORDS = re.compile(r"/run/keel/signing-key|/run/(?:internal-token|web-k
                             r"|\bKEEL_INTERNAL_TOKEN\b|\bKEEL_WEB_KEY\b|X-Keel-(?:Mcp-)?Token|Authorization:\s*Bearer\s+\$\("
                             r"|\bkeel2\s+auth\s+key\b", re.I)
 
+# 0.21.3 defense in depth for the rule above (the real fix: agents run as their own user, tools/agent_user.py). The
+# words are matched again after the shell's quoting is taken out ("/data/"run, /data/r\un), a word with a glob
+# (/data/ru[n]/internal-token, /da?a/master.ke*) is matched against keel's key files, the key files' own names count
+# alone (cd /data; cat run/internal-token), and another process's environment (/proc/<pid>/environ, its memory) is
+# never read.
+KEEL_KEY_NAMES = re.compile(r"(?<![\w.-])(?:internal-token|web-key|hook-token|signing-key)(?![\w.-])", re.I)
+# master.key and keel.db alone are ordinary words (`git grep keel.db` in keel's own source): only with a folder change
+# or the data folder in the same command
+DATA_NAMES = re.compile(r"(?<![\w.-])(?:master\.key|keel\.db(?:-wal|-shm|-journal)?)(?![\w.-])", re.I)
+DATA_PLACE = re.compile(r"(?:^|[\s;&|(`])(?:cd|pushd)\s|KEEL_DATA|/data\b|\.keel2/", re.I)
+PROC_SECRET = re.compile(r"/proc/[^\s;|&<>()]*/?(?:environ|mem)\b|/proc/[^\s;|&<>()]*[*?\[][^\s;|&<>()]*", re.I)
+CD_DATA = re.compile(r"(?:^|[\s;&|(`])(?:cd|pushd)\s+(?:/data|\$\{?KEEL_DATA\}?)/*(?:run|plugins)?/*(?=$|[\s;&|)`])")
+_KEY_PATHS = ("/data/run/internal-token", "/data/run/web-key", "/data/run/hook-token", "/data/master.key", "/data/keel.db",
+              "/data/keel.db-wal", "/data/keel.db-shm", "/data/plugins/installed.json", "/run/keel/signing-key")
+
+
+# 0.21.3 the coding-agent CLI's own login. The CLI and the shell commands its model runs are the same user and the same
+# process tree, so whatever the CLI logs in with (CLAUDE_CODE_OAUTH_TOKEN in its environment, codex's auth.json in
+# CODEX_HOME, opencode's auth.json) its shell can read: no user split can keep it from them. Claude Code's own
+# CLAUDE_CODE_SUBPROCESS_ENV_SCRUB needs bubblewrap and forces the default permission mode, so keel does not turn it on.
+# What keel can do: no command that names the login (defense in depth only: a program the agent writes reads its
+# environment without naming it).
+CLI_LOGIN = re.compile(r"\b(?:CLAUDE_CODE_OAUTH_TOKEN|ANTHROPIC_AUTH_TOKEN|COPILOT_GITHUB_TOKEN)\b"
+                       r"|(?:codex-home|\$\{?CODEX_HOME\}?|\.codex|opencode)/auth\.json\b|\.credentials\.json\b", re.I)
+
+
+def _unquoted(cmd: str) -> str:
+    """The command with the shell's quotes and backslashes taken out ("/data/"run → /data/run)."""
+    return re.sub(r"[\\'\"]", "", cmd)
+
+
+def keel_key_loose(cmd: str) -> bool:
+    """0.21.3 the ways around KEEL_KEY_WORDS that only change how a path is written (see KEEL_KEY_NAMES)."""
+    import fnmatch
+
+    plain = _unquoted(cmd)
+    if KEEL_KEY_WORDS.search(plain) or KEEL_KEY_NAMES.search(plain) or PROC_SECRET.search(plain) or CD_DATA.search(plain):
+        return True
+    if DATA_NAMES.search(plain) and DATA_PLACE.search(plain):
+        return True
+    if CLI_LOGIN.search(plain):
+        return True
+    try:
+        from .. import config
+        data = str(config.data_dir().resolve()).replace("\\", "/")
+    except Exception:  # noqa: BLE001 - the rule must never crash the guard
+        data = "/data"
+    paths = _KEY_PATHS + tuple(data + p[len("/data"):] for p in _KEY_PATHS if p.startswith("/data/"))
+    for word in re.split(r"[\s;|&<>()`]+", plain):
+        word = re.sub(r"\$\{?KEEL_DATA\}?", data, word)
+        if word and any(c in word for c in "*?[") and "/" in word:
+            if any(fnmatch.fnmatchcase(p, word) or fnmatch.fnmatchcase(p, word.rstrip("/") + "/*") for p in paths):
+                return True
+    return False
+
+
 # keel 0.18.22 the root helper that installs a stack's setup.apt in keel's container (sudo allows keel's user that one
 # program, only as `keel-stack-setup apt ...`): keel's stack setup runs it; an agent never does, in any phase.
 STACK_SETUP_HELPER = re.compile(r"keel-stack-setup\b")
@@ -85,7 +141,7 @@ def keel_key_file(path: str | Path | None) -> bool:
     if not path:
         return False
     p = str(path).replace("\\", "/")
-    if KEEL_KEY_FILES.search(p):
+    if KEEL_KEY_FILES.search(p) or re.match(r"^/proc/[^/]+/(?:environ|mem)$", p):     # 0.21.3 another process's secrets
         return True
     try:
         from .. import config
@@ -1049,7 +1105,7 @@ def check_bash(phase: str, command: str, cfg: dict | None = None, *, root: str |
     danger = git_danger(cmd)   # the same rule, with the flag anywhere in the command
     if danger.startswith("git push"):
         return Verdict(False, reason=f'"{danger}" is not allowed: it skips checks that keel relies on.')
-    if KEEL_KEY_WORDS.search(cmd):
+    if KEEL_KEY_WORDS.search(cmd) or keel_key_loose(cmd):
         return Verdict(False, "keel-keys", "This command reads or sends one of keel's own keys; agents never do. "
                                            "Use keel's MCP tools instead.")
     found = shell_secret(cmd, cfg, root=root, cwd=cwd)

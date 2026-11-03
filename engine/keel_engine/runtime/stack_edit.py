@@ -721,6 +721,8 @@ def save(root: str, text: str, replace: bool = False, source: str = "project", m
         raise StackError(422, "keel did not save the stack: " + "; ".join(out["errors"]),
                          "Fix it and check again (nothing was saved).", out["errors"])
     name = out["name"]
+    if source == "marketplace" and market:
+        _market_setup_allowed(text, market)
     mine = next((d for d in stacks.project_defs(root) if d["name"] == name), None)
     target = Path(mine["_file"]) if mine else _dir(root) / f"{name}.yml"
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -735,12 +737,32 @@ def save(root: str, text: str, replace: bool = False, source: str = "project", m
         doc.pop(name, None)
     _write_installed(root, doc)
     stacks.forget(root)
-    if source == "marketplace" and market:
-        # the person installed it through keel: that approves its setup commands as they are (runtime/stack_setup.py)
-        from . import stack_setup
-
-        stack_setup.approve_project_stack(root, name)
+    # 0.21.3 a marketplace install no longer approves the stack's setup commands by itself (one click ran them): like a
+    # stack a cloned repo carries, nothing of its setup runs until the person answered the Inbox card that shows the
+    # exact commands (runtime/stack_setup.py held, make_asker)
     return {"name": name, "path": _rel(root, target), "replaced": bool(mine), "check": out}
+
+
+def _market_setup_allowed(text: str, market: dict) -> None:
+    """0.21.3 a stack with a setup block (commands and packages that run on this machine) from an unverified publisher
+    is refused unless the rule "Allow unverified publishers" is on (Control › Plugins › Marketplace), as for a plugin
+    with code. The api passes the publisher's `verified` from the catalog."""
+    from ..marketplace import sources
+    from . import stack_setup
+
+    try:
+        doc = yaml.safe_load(text)
+    except yaml.YAMLError:
+        return
+    setup = stack_setup.block(doc if isinstance(doc, dict) else {})
+    if not any(setup[k] for k in stacks.SETUP_KEYS) or market.get("verified") is True:
+        return
+    if sources.read_rules().get("allow_unverified"):
+        return
+    raise StackError(409, "This stack is from an unverified publisher, and its setup block runs commands and installs "
+                          "packages on this machine.",
+                     "keel installs it only when the rule 'Allow unverified publishers' is on (Control › Plugins › "
+                     "Marketplace). Its setup still waits for your OK in the Inbox after the install.")
 
 
 def remove(root: str, name: str) -> dict:

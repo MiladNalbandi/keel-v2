@@ -5,6 +5,7 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { KeelApi, KeelError, normalizeBase, say } from "../api/client";
 import { deviceName } from "../logic/format";
+import { isLocal, localKeyAllowed, portOf, statusPort, urlFromWorkspace } from "../logic/localKey";
 
 const DEFAULT_URL = "http://localhost:8088";
 
@@ -17,9 +18,12 @@ export type AuthKind = "key" | "device" | "local";
  * memory only. No secret is ever written to a log or shown.
  */
 export class Auth {
-  private localKey: string | undefined;
+  /** keel2's key, and the address it was read for: it is never sent anywhere else. */
+  private localKey: { base: string; key: string } | undefined;
   /** When keel2 auth key was last tried (0: never); a failed try is repeated after a minute (keel may start later). */
   private localTriedAt = 0;
+  /** The port keel2 reports for the keel it runs (keel2 status), checked again after a minute. */
+  private localPort: { port: number | undefined; at: number } | undefined;
   /** Signed out by hand: keel2's key is not read on its own until the next Connect. */
   private signedOut = false;
   private readonly changed = new vscode.EventEmitter<void>();
@@ -55,25 +59,44 @@ export class Auth {
     if (fromEnv) return fromEnv;
     const stored = await this.ctx.secrets.get(this.secretKey());
     if (stored) return stored;
-    if (this.localKey) return this.localKey;
-    const allowed = vscode.workspace
-      .getConfiguration("keel")
-      .get<boolean>("useLocalKeel2", true);
-    if (allowed && !this.signedOut && Date.now() - this.localTriedAt > 60_000 && isLocal(this.baseUrl())) {
+    // 0.21.3 keel2's key goes only to the keel keel2 runs (its port), at an address from the person's user settings
+    const base = this.baseUrl();
+    if (!(await this.mayUseLocal(base))) return undefined;
+    if (this.localKey?.base === base) return this.localKey.key;
+    // a workspace cannot turn this on: only the user setting counts
+    const allowed = vscode.workspace.getConfiguration("keel").inspect<boolean>("useLocalKeel2")?.globalValue ?? true;
+    if (allowed && !this.signedOut && Date.now() - this.localTriedAt > 60_000) {
       this.localTriedAt = Date.now();
       try {
-        this.localKey = await readLocalKey();
+        this.localKey = { base, key: await readLocalKey() };
       } catch {
         this.localKey = undefined; // keel2 missing or keel down: the Connect command says why
       }
     }
-    return this.localKey;
+    return this.localKey?.base === base ? this.localKey.key : undefined;
+  }
+
+  /** Whether keel2's key may go to [base] now (keel2 status is asked at most once a minute). */
+  private async mayUseLocal(base: string, fresh = false): Promise<boolean> {
+    const setting = vscode.workspace.getConfiguration("keel").inspect<string>("url");
+    if (!isLocal(base) || urlFromWorkspace(setting)) return false;
+    if (fresh || !this.localPort || Date.now() - this.localPort.at > 60_000) {
+      let port: number | undefined;
+      try {
+        port = await readLocalPort();
+      } catch {
+        port = undefined;
+      }
+      this.localPort = { port, at: Date.now() };
+    }
+    return localKeyAllowed(base, setting, this.localPort.port);
   }
 
   /** keel refused the sign-in: forget it (a removed device, or keel2 auth reset made a new key). */
   async removed(): Promise<void> {
     this.localKey = undefined;
     this.localTriedAt = 0;
+    this.localPort = undefined;
     const k = this.kind();
     if (k === "key" || k === "device") {
       await this.ctx.secrets.delete(this.secretKey());
@@ -149,11 +172,28 @@ export class Auth {
     if (!how) return false;
     try {
       if (how.id === "local") {
+        // 0.21.3 only to the keel keel2 runs: localhost, keel2's port, and an address from the user settings
+        if (!(await this.mayUseLocal(base, true))) {
+          const port = this.localPort?.port;
+          throw new KeelError(
+            401,
+            !isLocal(base)
+              ? "keel2's key is only for a keel on this computer (localhost)."
+              : urlFromWorkspace(vscode.workspace.getConfiguration("keel").inspect<string>("url"))
+                ? "This workspace sets keel.url, so keel2's key is not sent there."
+                : port === undefined
+                  ? "keel2 status shows no running keel."
+                  : `keel2 runs keel on port ${port}, not ${portOf(base) ?? "?"}.`,
+            port === undefined
+              ? "Start it (keel2 start), or connect with an API key or a pairing code."
+              : `Use http://localhost:${port} as keel's address in your user settings.`,
+          );
+        }
         const key = await readLocalKey();
         await this.check(base, key);
         await this.ctx.secrets.delete(this.secretKey(base));
         await this.ctx.globalState.update(this.kindKey(base), "local");
-        this.localKey = key;
+        this.localKey = { base, key };
         this.signedOut = false;
       } else if (how.id === "key") {
         const key = await vscode.window.showInputBox({
@@ -211,17 +251,7 @@ export class Auth {
   }
 }
 
-/** Whether keel2 on this computer can know this keel's key (it only knows the keel it runs). */
-export function isLocal(base: string): boolean {
-  try {
-    const h = new URL(base).hostname;
-    return (
-      h === "localhost" || h === "127.0.0.1" || h === "[::1]" || h === "::1"
-    );
-  } catch {
-    return false;
-  }
-}
+export { isLocal } from "../logic/localKey";
 
 /** Where keel2 usually is: the PATH, then the install script's places (an editor started from the Dock has a short PATH). */
 export function keel2Candidates(
@@ -239,20 +269,12 @@ export function keel2Candidates(
   );
 }
 
-/** keel's sign-in key from `keel2 auth key`, or an error with keel2's own words (never the key itself). */
-export function readLocalKey(timeoutMs = 30_000): Promise<string> {
-  const exe = keel2Candidates().find((p) => existsSync(p));
-  if (!exe)
-    return Promise.reject(
-      new KeelError(
-        401,
-        "keel2 was not found.",
-        "Install keel (install.sh), or connect with an API key or a pairing code.",
-      ),
-    );
+/** keel2's environment: the install script's places on the PATH (an editor started from the Dock has a short PATH). */
+function keel2Env(): NodeJS.ProcessEnv {
   const home = os.homedir();
-  const env = {
+  return {
     ...process.env,
+    NO_COLOR: "1",
     PATH: [
       process.env.PATH ?? "",
       "/usr/local/bin",
@@ -264,6 +286,35 @@ export function readLocalKey(timeoutMs = 30_000): Promise<string> {
       .filter(Boolean)
       .join(path.delimiter),
   };
+}
+
+function keel2NotFound(): KeelError {
+  return new KeelError(
+    401,
+    "keel2 was not found.",
+    "Install keel (install.sh), or connect with an API key or a pairing code.",
+  );
+}
+
+/** 0.21.3 the port of the keel keel2 runs (from `keel2 status`), or undefined when none runs. */
+export function readLocalPort(timeoutMs = 30_000): Promise<number | undefined> {
+  const exe = keel2Candidates().find((p) => existsSync(p));
+  if (!exe) return Promise.reject(keel2NotFound());
+  return new Promise((resolve) => {
+    execFile(
+      exe,
+      ["status"],
+      { env: keel2Env(), timeout: timeoutMs, maxBuffer: 1 << 20 },
+      (err, stdout) => resolve(err ? undefined : statusPort(String(stdout))),
+    );
+  });
+}
+
+/** keel's sign-in key from `keel2 auth key`, or an error with keel2's own words (never the key itself). */
+export function readLocalKey(timeoutMs = 30_000): Promise<string> {
+  const exe = keel2Candidates().find((p) => existsSync(p));
+  if (!exe) return Promise.reject(keel2NotFound());
+  const env = keel2Env();
   return new Promise((resolve, reject) => {
     execFile(
       exe,

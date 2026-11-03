@@ -78,6 +78,31 @@ class SlackApiTest : ApiTest() {
     }
 
     @Test
+    fun `a new Slack address drops the saved tokens, and the answer says to paste them again`() {
+        val other = FakeSlack().start()
+        try {
+            // the same address again keeps them
+            post("/api/plugins/slack", mapOf("api_url" to fake.url, "channel" to "C2")).andExpect(status().isOk)
+            assertThat(secrets.has(SlackService.BOT)).isTrue()
+            assertThat(secrets.has(SlackService.APP)).isTrue()
+            val v = post("/api/plugins/slack", mapOf("api_url" to other.url)).andExpect(status().isOk).andReturn().response.contentAsString.let { json.readTree(it) }
+            assertThat(secrets.has(SlackService.BOT)).isFalse()
+            assertThat(secrets.has(SlackService.APP)).isFalse()
+            assertThat(v["linked"].asBoolean()).isFalse()
+            assertThat(v["notice"].asText()).contains("Paste them again")
+            assertThat(v["config"]["team"].isNull).isTrue()
+            Thread.sleep(300)
+            assertThat(other.sent("auth.test") + other.sent("apps.connections.open")).isEmpty()
+            // a fresh token pasted with the new address is checked there and kept; the other one is dropped
+            val w = post("/api/plugins/slack", mapOf("api_url" to fake.url, "bot_token" to "xoxb-again")).andExpect(status().isOk).andReturn().response.contentAsString.let { json.readTree(it) }
+            assertThat(secrets.get(SlackService.BOT)).isEqualTo("xoxb-again")
+            assertThat(w["notice"].isNull).isTrue()
+        } finally {
+            other.stop()
+        }
+    }
+
+    @Test
     fun `the page says what goes to Slack and to the model company, and who may act must be member ids`() {
         val v = get("/api/plugins/slack").json()
         assertThat(v["state"].asText()).isEqualTo("connected")

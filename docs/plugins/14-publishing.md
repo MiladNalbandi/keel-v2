@@ -21,7 +21,7 @@ image. The secret keys live only in GitHub Actions secrets.
 
 | key         | it signs                        | secret key (Actions secret)                          | public key                                                         |
 | ----------- | ------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------ |
-| **keel**    | each `.kplug` of keel's plugins | `KEEL_PUBLISHER_KEY` in `MiladNalbandi/keel-v2`      | `content/trust/keel.pub`, `publishers/keel.yml` in the marketplace |
+| **keel**    | each `.kplug` of keel's plugins; 0.21.3 also keel's releases (the native tarball and `keel2`) | `KEEL_PUBLISHER_KEY` in `MiladNalbandi/keel-v2`      | `content/trust/keel.pub`, `publishers/keel.yml` in the marketplace; `RELEASE_KEY` in `keel2` and `install.sh` |
 | **catalog** | the catalog index `index.json`  | `KEEL_CATALOG_KEY` in `keel-studio/keel-marketplace` | `content/trust/catalog.pub` (keel checks the index with it)        |
 
 The format is minisign (Ed25519). A public key is one line that starts with `RW`. keel's secret key is one line that
@@ -113,8 +113,12 @@ installs a revoked version and warns where one is installed.
 
    It makes both keys in a temporary folder, stores the secret keys with `gh secret set` (as
    `KEEL_CATALOG_KEY` and `KEEL_PUBLISHER_KEY`), deletes them, and writes only the public keys into
-   `content/trust/catalog.pub`, `content/trust/keel.pub` and `docs/plugins/marketplace-repo/publishers/keel.yml`.
-   Commit these three files on `plugin-base`. No private key ever passes through Claude.
+   `content/trust/catalog.pub`, `content/trust/keel.pub` and `docs/plugins/marketplace-repo/publishers/keel.yml`
+   (0.21.3 and the `RELEASE_KEY` line of `keel2` and `install.sh`: the release workflow, docker.yml, signs the native
+   tarball and `keel2` with the keel key, and keel2 / install.sh check those signatures). Commit these files on
+   `plugin-base` (and the `keel2` / `install.sh` lines on `main`). Once a signed release is out, set
+   `RELEASE_SIGNED_SINCE` in `keel2` to its version: from then on a release without a signature is refused, not only
+   warned about. No private key ever passes through Claude.
 
 2. **Make the token `KEEL_STUDIO_TOKEN`.** The release workflow needs it to make releases in keel-studio. At
    <https://github.com/settings/personal-access-tokens/new>: resource owner `keel-studio`, repositories: the

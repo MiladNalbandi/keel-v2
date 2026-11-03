@@ -526,12 +526,13 @@ class Supervisor:
             step_for = None
         else:
             step_for = step
-        prev = None
+        prev = nxt = None
         if step_for is not None:
             i = next((n for n, s in enumerate(wf.steps) if s.id == step_for.id), 0)
             prev = wf.steps[i - 1] if i else None
+            nxt = wf.steps[i + 1] if i + 1 < len(wf.steps) else None
         per_ac = bool(step_for is not None and step_for.per_ac and st.get("ac"))
-        return policy.kind_of(q, step_for, wf.flow, prev.actions() if prev else (), per_ac)
+        return policy.kind_of(q, step_for, wf.flow, prev.actions() if prev else (), per_ac, nxt)
 
     async def _turn(self, tid: str, st: dict, sset: dict, text: str, row: dict, call_id: str, system: str = brief.SYSTEM,
                     agent: str = "supervisor", writes: bool = False):

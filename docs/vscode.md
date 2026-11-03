@@ -23,7 +23,7 @@ now, the questions they wait at, pull request review in the normal editors, and 
 
 ```sh
 cd vscode && npm ci && npm run package
-code --install-extension keel-vscode-0.2.0.vsix
+code --install-extension keel-vscode-0.2.1.vsix
 ```
 
 ## Connect

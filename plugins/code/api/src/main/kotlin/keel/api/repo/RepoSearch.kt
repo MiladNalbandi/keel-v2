@@ -88,8 +88,8 @@ class RepoSearch(private val projects: ProjectService) {
     private fun grep(root: Path, cmd: List<String>, cap: Int, pattern: Pattern): Run {
         val errFile = File.createTempFile("keel-grep", ".err")
         try {
-            val pb = ProcessBuilder(cmd).directory(root.toFile())
-            pb.environment()["GIT_TERMINAL_PROMPT"] = "0"
+            // 0.21.3 the repo's fsmonitor and hooks never run, and git gets none of the api's secrets (Proc.run)
+            val pb = keel.api.common.Proc.cleanEnv(ProcessBuilder(keel.api.common.Proc.hardened(cmd)).directory(root.toFile()))
             pb.redirectError(errFile).redirectInput(ProcessBuilder.Redirect.from(File("/dev/null")))
             val p = pb.start()
             val timedOut = AtomicBoolean(false)

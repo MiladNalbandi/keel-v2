@@ -9,6 +9,9 @@
 #   4. guard_busy: when keel does not say if agents work (403, no token), keel2 asks (or refuses); it does not guess "none"
 #   5. token: no hang on a stdin that never ends; a token on the command line gets a warning; `-` reads stdin
 #   6. docker stop and the container's stop timeout match keel-start's KEEL_STOP_TIMEOUT (20 s) plus a grace
+#   0.21.3 a native release's .minisig is checked; limits Settings asked that docker would refuse are ignored; the
+#      start-wanted question says the request came from inside keel; a .git file mounts only a repository that lists
+#      the folder; git on this computer runs nothing a project's .git/config names; a linked .keel/archive is refused
 # KEEL2_BIN=<file> runs another copy of keel2 (to see this test fail on the old one).
 set -euo pipefail
 
@@ -270,6 +273,28 @@ limits_reset; : > "$FAKE_CALLS"
 run_k FAKE_MEM=$((16 * G)) FAKE_CPUS=8 FAKE_PULL_NEW=1 FAKE_WANTED='memory=lots\ncpus=many\n' -- update
 check "Settings: a bad value does not stop keel" "$rc" 0
 yes_if "Settings: a bad value keeps the default" called "docker run .*--memory 8g .*--cpus 4 "
+# 0.21.3 values that passed the check but broke every start: 08g (octal in bash), a size with 20 digits, more CPUs than
+# Docker has (docker run refuses it)
+for wanted in 'memory=08g\n' 'memory=99999999999999999999g\n' 'cpus=64\n' 'cpus=0.001\n' 'cpus=99999\n'; do
+  limits_reset; : > "$FAKE_CALLS"
+  run_k FAKE_MEM=$((16 * G)) FAKE_CPUS=8 FAKE_PULL_NEW=1 FAKE_WANTED="$wanted" -- update
+  check "Settings asked ${wanted%\\n}: keel still starts" "$rc" 0
+  yes_if "Settings asked ${wanted%\\n}: a container is started" called "docker run .* --name "
+  run_k FAKE_MEM=$((16 * G)) FAKE_CPUS=8 FAKE_PULL_NEW=1 -- update
+  check "Settings asked ${wanted%\\n}: the next start works too" "$rc" 0
+done
+limits_reset; : > "$FAKE_CALLS"
+run_k FAKE_MEM=$((16 * G)) FAKE_CPUS=8 FAKE_PULL_NEW=1 FAKE_WANTED='memory=08g\n' -- update
+yes_if "Settings asked 08g: docker gets 8g's swap" called "docker run .*--memory 08g --memory-swap $((16 * G)) "
+limits_reset; : > "$FAKE_CALLS"
+run_k FAKE_MEM=$((16 * G)) FAKE_CPUS=8 FAKE_PULL_NEW=1 FAKE_WANTED='cpus=64\n' -- update
+no_if "Settings asked 64 CPUs of 8: not passed to docker" called "docker run .*--cpus 64 "
+has "...and it says it ignored it" "$out" "ignored"
+for bad in "--memory 08" "--memory 99999999999999999999g" "--cpus 0.001" "--cpus 99999"; do
+  # shellcheck disable=SC2086  # the option and its value
+  run_k -- limits $bad
+  no_if "limits $bad: refused" test "$rc" = 0
+done
 rm -f "$XDG_CONFIG_HOME/keel2/$KEEL_NAME.limits"
 
 # ------------------------------------------------------------------ 4: guard_busy
@@ -392,6 +417,44 @@ else
   run_k PATH="$scratch/fakejava:$orig_path" -- start --native "$scratch/project2"
   check "without a rollback keel2 start follows the script" "$(cat "$ND/current/VERSION")" "$script_v" || true
   [ "$(cat "$ND/current/VERSION")" = "$script_v" ] || printf '%s\n' "$out" | tail -8
+  # 0.21.3 a release's .minisig is checked with keel's release key before anything is unpacked
+  echo "native update: the release's signature"
+  kp=(uv run --quiet --project "$here/tools/keel-plugin" keel-plugin)
+  if "${kp[@]}" keygen keel --dir "$scratch/keys" >/dev/null 2>&1; then
+    pub="$(sed -n 2p "$scratch/keys/keel.pub")"
+    sign_release() { KEEL_PUBLISHER_KEY="$(cat "$scratch/keys/keel.key")" "${kp[@]}" sign "$scratch/releases/v$1/keel-v2-$1-native.tar.gz" --key-env KEEL_PUBLISHER_KEY >/dev/null; }
+    make_release 98.0.0; sign_release 98.0.0
+    echo '{"tag_name": "v98.0.0"}' > "$scratch/api.json"
+    run_k KEEL_RELEASES_API="file://$scratch/api.json" KEEL2_RELEASE_KEY="$pub" -- update
+    check "a signed release is installed" "$(cat "$ND/current/VERSION")" 98.0.0
+    has "...and keel2 says the signature was checked" "$out" "signature checked"
+    # a signature of another release's file (a swapped tarball) and a changed tarball are refused
+    make_release 98.1.0; sign_release 98.1.0; make_release 98.2.0
+    cp "$scratch/releases/v98.1.0/keel-v2-98.1.0-native.tar.gz.minisig" "$scratch/releases/v98.2.0/keel-v2-98.2.0-native.tar.gz.minisig"
+    echo '{"tag_name": "v98.2.0"}' > "$scratch/api.json"
+    run_k KEEL_RELEASES_API="file://$scratch/api.json" KEEL2_RELEASE_KEY="$pub" -- update
+    no_if "a signature of another file: update fails" test "$rc" = 0
+    has "...it says why" "$out" "failed the signature check"
+    check "...and nothing was installed" "$(cat "$ND/current/VERSION")" 98.0.0
+    make_release 98.3.0; sign_release 98.3.0
+    tgz3="$scratch/releases/v98.3.0/keel-v2-98.3.0-native.tar.gz"; echo extra >> "$tgz3"
+    (cd "$(dirname "$tgz3")" && if command -v sha256sum >/dev/null 2>&1; then sha256sum "$(basename "$tgz3")"; else shasum -a 256 "$(basename "$tgz3")"; fi > "$(basename "$tgz3").sha256")
+    echo '{"tag_name": "v98.3.0"}' > "$scratch/api.json"
+    run_k KEEL_RELEASES_API="file://$scratch/api.json" KEEL2_RELEASE_KEY="$pub" -- update
+    no_if "a changed tarball (its sha256 changed too): update fails" test "$rc" = 0
+    check "...and nothing was installed" "$(cat "$ND/current/VERSION")" 98.0.0
+    # a release from before signing: a warning, still installed; from RELEASE_SIGNED_SINCE on: refused
+    make_release 98.4.0
+    echo '{"tag_name": "v98.4.0"}' > "$scratch/api.json"
+    run_k KEEL_RELEASES_API="file://$scratch/api.json" KEEL2_RELEASE_KEY="$pub" KEEL2_RELEASE_SIGNED_SINCE=98.4.0 -- update
+    no_if "an unsigned release from RELEASE_SIGNED_SINCE on: refused" test "$rc" = 0
+    check "...and nothing was installed" "$(cat "$ND/current/VERSION")" 98.0.0
+    run_k KEEL_RELEASES_API="file://$scratch/api.json" KEEL2_RELEASE_KEY="$pub" -- update
+    check "an unsigned (older) release: still installed" "$(cat "$ND/current/VERSION")" 98.4.0
+    has "...with a warning" "$out" "has no signature"
+  else
+    echo "  skip keel-plugin could not make a key (uv could not get its packages)"
+  fi
 fi
 
 # ------------------------------------------------------------------ 0.21.2 start remembers its choices
@@ -432,6 +495,103 @@ no_if "...and the request stays for the next start" called "rm -f /data/start-wa
 run_k DOCKER_HOST="unix://$sock" FAKE_START_WANTED='docker=1\n' -- restart
 hasnt "Settings asked Docker access on: never without a yes on this computer" "$(run_line)" "docker.sock"
 has "...it says how to confirm" "$out" "asks to turn Docker access on"
+
+# with a terminal (keel2 asks): the question says the request came from inside keel; an N keeps Docker access off
+tty_k() {  # tty_k <answer> <args…>: keel2 on a pseudo terminal, the answer typed at the first [y/N]; sets out
+  out="$(PATH="$fakebin:$orig_path" DOCKER_HOST="unix://$sock" FAKE_START_WANTED="${TTY_WANTED:-}" python3 - "$@" <<'PY'
+import os, pty, select, sys
+answer, args = sys.argv[1], sys.argv[2:]
+pid, fd = pty.fork()
+if pid == 0:
+    os.execvp(args[0], args)
+out, sent = b"", False
+while True:
+    r, _, _ = select.select([fd], [], [], 60)
+    if not r:
+        break
+    try:
+        data = os.read(fd, 4096)
+    except OSError:
+        break
+    if not data:
+        break
+    out += data
+    if not sent and b"[y/N]" in out:
+        os.write(fd, (answer + "\n").encode()); sent = True
+os.waitpid(pid, 0)
+sys.stdout.write(out.decode("utf-8", "replace"))
+PY
+)"
+}
+: > "$FAKE_CALLS"
+TTY_WANTED='docker=1\n' tty_k n "$keel2" restart
+has "0.21.3 the question says the request came from inside keel" "$out" "A request from inside keel asks to turn Docker access on"
+has "...names where it can come from" "$out" "an MCP admin tool"
+has "...and says: not asked for, answer N" "$out" "If you did not ask for this yourself just now, answer N."
+hasnt "...an N keeps Docker access off" "$(run_line)" "docker.sock"
+: > "$FAKE_CALLS"
+TTY_WANTED='wifi=1\n' tty_k n "$keel2" restart
+has "the Wi-Fi question says so too" "$out" "A request from inside keel asks to make keel reachable on your Wi-Fi"
+has "...an N keeps keel on this computer" "$(run_line)" "127.0.0.1:"
+
+# ------------------------------------------------------------------ 0.21.3 git dirs the container could name
+echo "start: a .git file mounts only a repository that is the person's (not one the container named)"
+g() { git -c user.name=t -c user.email=t@t -c init.defaultBranch=main "$@" >/dev/null 2>&1; }
+gp="$scratch/gproj"; other="$scratch/other"; rm -rf "$gp" "$other" "$scratch/owt"
+g init -q "$gp"; g init -q "$other"; echo x > "$other/f"; g -C "$other" add -A; g -C "$other" commit -qm one
+g -C "$other" worktree add -q -b owt "$scratch/owt"
+gp="$(cd "$gp" && pwd -P)"; other="$(cd "$other" && pwd -P)"
+mkdir -p "$gp/evil" "$gp/evil2" "$gp/evil3" "$gp/fake"
+printf 'gitdir: %s/.git\n' "$other" > "$gp/evil/.git"                     # a plain repository elsewhere
+printf 'gitdir: %s/.git/worktrees/owt\n' "$other" > "$gp/evil2/.git"      # another folder's real worktree
+printf 'gitdir: %s/fake\n' "$gp" > "$gp/evil3/.git"                       # a made-up worktree inside the project
+printf '%s/.git\n' "$other" > "$gp/fake/commondir"; printf '%s/evil3/.git\n' "$gp" > "$gp/fake/gitdir"
+reset; rm -f "$opts_file"
+run_k -- start "$gp"
+check "a project with planted .git files starts" "$rc" 0
+hasnt "a .git file naming another repository: it is not mounted" "$(run_line)" "$other/.git"
+has "...it says which, and how to add it on purpose" "$out" "keel2 add \"$other\""
+has "...naming the folder" "$out" "$gp/evil/.git names the git folder $other/.git"
+has "...also for another folder's worktree" "$out" "$gp/evil2/.git names the git folder"
+has "...and for a made-up worktree" "$out" "$gp/evil3/.git names the git folder"
+reset
+run_k -- start "$scratch/owt"
+has "a real worktree (its repository lists it): the repository is mounted" "$(run_line)" "-v $other/.git:$other/.git "
+printf 'gitdir: %s/.git\n' "$other" > "$gp/.git.tmp"; rm -rf "$gp/.git.real"; mv "$gp/.git" "$gp/.git.real"; mv "$gp/.git.tmp" "$gp/.git"
+reset
+run_k -- start "$gp"
+hasnt "the project's own .git replaced by a file: the other repository is not mounted" "$(run_line)" "$other/.git"
+rm -f "$gp/.git"; mv "$gp/.git.real" "$gp/.git"
+mkdir -p "$gp/evil4"; printf 'gitdir: %s/x\033[31m\n' "$other" > "$gp/evil4/.git"; mkdir -p "$other/x$(printf '\033')[31m"
+reset
+run_k -- start "$gp"
+hasnt "a path with control characters is never printed raw" "$out" "$(printf '\033')"
+
+echo "git on this computer never runs what a project's .git/config names"
+trap_repo="$scratch/trap"; rm -rf "$trap_repo"; g init -q "$trap_repo"
+echo a > "$trap_repo/a.txt"; echo '* filter=evil' > "$trap_repo/.gitattributes"
+g -C "$trap_repo" add -A; g -C "$trap_repo" commit -qm one
+git -C "$trap_repo" config core.fsmonitor "touch $scratch/pwned-fsmonitor; false"
+git -C "$trap_repo" config filter.evil.clean "touch $scratch/pwned-filter; cat"
+git -C "$trap_repo" config core.pager "touch $scratch/pwned-pager; cat"
+echo b > "$trap_repo/a.txt"
+# the trap is real: plain git runs it
+git -C "$trap_repo" status --porcelain >/dev/null 2>&1 || true
+yes_if "(the trap works with plain git)" test -e "$scratch/pwned-fsmonitor"
+rm -f "$scratch"/pwned-*
+run_k -- doctor "$trap_repo"
+has "doctor still counts the change" "$out" "uncommitted change"
+no_if "doctor: core.fsmonitor did not run" test -e "$scratch/pwned-fsmonitor"
+no_if "doctor: the filter did not run" test -e "$scratch/pwned-filter"
+no_if "doctor: the pager did not run" test -e "$scratch/pwned-pager"
+mkdir -p "$trap_repo/.keel" "$scratch/elsewhere"; echo '{"flow":"x"}' > "$trap_repo/.keel/state.json"  # v1's left state file, for state close to archive
+ln -s "$scratch/elsewhere" "$trap_repo/.keel/archive"
+run_k -- state close "$trap_repo"
+no_if "state close: a linked .keel/archive is refused" test "$rc" = 0
+yes_if "...and the left state file stays" test -f "$trap_repo/.keel/state.json"
+check "...and nothing lands where the link points" "$(ls -A "$scratch/elsewhere")" ""
+no_if "keel2 state: git ran nothing the config names" test -e "$scratch/pwned-fsmonitor"
+yes_if "every host git call in keel2 goes through hgit" test -z "$(grep -nE '(^|[;&|(]|\$\()[[:space:]]*git -' "$keel2" | grep -vE '^[0-9]+:[[:space:]]*(#|die |warn |info )' || true)"
 
 echo
 if [ "$fails" = 0 ]; then echo "all launcher checks passed"; else echo "$fails check(s) failed"; exit 1; fi

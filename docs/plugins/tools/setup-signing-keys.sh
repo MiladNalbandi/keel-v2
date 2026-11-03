@@ -11,6 +11,7 @@
 #                     (with --org also the keel-studio organisation secret KEEL_PUBLISHER_KEY: the plugin repos'
 #                     release.yml signs with it, docs/plugins/16-steps5-7-contract.md step 5)
 #                     public key -> content/trust/keel.pub and docs/plugins/marketplace-repo/publishers/keel.yml
+#                     (0.21.3 it signs keel's releases too: the key line also goes into keel2 and install.sh)
 #
 #   --org        also store the keel key as the organisation secret KEEL_PUBLISHER_KEY of keel-studio, for all its
 #                repos (on GitHub Free an organisation secret reaches the public repos: the plugin repos are public)
@@ -99,6 +100,14 @@ cp "$tmp/keel.pub" "$root/content/trust/keel.pub"
 awk -v key="$keel_pub" '/^keys:/ { print "keys: [" key "]"; next } { print }' "$publisher" > "$tmp/keel.yml"
 grep -qF "keys: [$keel_pub]" "$tmp/keel.yml" || die "could not write the key into $publisher"
 cat "$tmp/keel.yml" > "$publisher"
+# 0.21.3 the same key signs keel's releases: keel2 and install.sh check the native tarball and keel2 with it
+for f in "$root/keel2" "$root/install.sh"; do
+  [ -f "$f" ] || continue
+  awk -v key="$keel_pub" '/^RELEASE_KEY="\$\{KEEL2_RELEASE_KEY:-[^}]*\}"$/ { print "RELEASE_KEY=\"${KEEL2_RELEASE_KEY:-" key "}\""; next } { print }' \
+    "$f" > "$tmp/release-key"
+  grep -qF "RELEASE_KEY=\"\${KEEL2_RELEASE_KEY:-$keel_pub}\"" "$tmp/release-key" || die "could not write the key into $f"
+  cat "$tmp/release-key" > "$f"
+done
 
 if [ "$to_org" = 1 ]; then
   org_note="stored (--org)."
@@ -114,6 +123,7 @@ written:
   content/trust/catalog.pub
   content/trust/keel.pub
   docs/plugins/marketplace-repo/publishers/keel.yml (keys:)
+  keel2 and install.sh (RELEASE_KEY: keel's releases are signed with the keel key too)
 
 Next:
   1. Look at the change (git -C "$root" diff --stat) and commit it on plugin-base.

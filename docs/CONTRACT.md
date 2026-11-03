@@ -2459,7 +2459,12 @@ any local program, or a web page through the browser, could approve a gate, star
 - **Wrong tries** (`auth/AuthLimiter`): wrong web keys, cookies, device tokens and sign-in codes count per client
   (Cf-Connecting-Ip or the last X-Forwarded-For when a local proxy calls, else the address): 20 a minute from one
   client, 200 from all → 429 with `Retry-After`. A direct call from this computer (loopback, no proxy header) is never
-  counted; the internal and MCP tokens never are.
+  counted; the internal and MCP tokens never are. 0.21.3: the credential is checked first, so a right one always passes
+  and only the next wrong one gets the 429 (a phone's pairing code is still refused before it is checked); the proxy
+  headers count only from loopback, the container's gateway and `KEEL_TRUSTED_PROXIES`, not from any private address.
+  A browser session is bound to the host and port it was opened on (another port of localhost: 401). The web app's
+  pages send a Content-Security-Policy (`common/PageSecurity`: scripts only from keel, plus index.html's import map by
+  its hash).
 - **keel2**: `--wifi` / `KEEL_BIND` publish `-p <bind>:<port>:8080` (label `keel2.bind`, kept by restart) or native
   `SERVER_ADDRESS`; `share tailscale` runs `tailscale serve --bg --https=443` (keel's port when another serve has 443)
   and `share off` runs `tailscale serve --https=<that port> off` only; `share tunnel` runs `cloudflared tunnel --url

@@ -79,4 +79,40 @@ class HttpFetchTest {
             .hasMessageContaining("failed")
         assertThat(Duration.ofNanos(System.nanoTime() - t0)).isLessThan(Duration.ofSeconds(4))
     }
+
+    @Test
+    fun `0_21_2 it connects to the address it checked, so a name that changes its answer cannot reach a private one`() {
+        var seen: String? = null
+        val s = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
+        s.createContext("/a") { ex ->
+            seen = ex.requestHeaders.getFirst("Host")
+            val b = "pinned".toByteArray(); ex.sendResponseHeaders(200, b.size.toLong()); ex.responseBody.write(b); ex.close()
+        }
+        s.start(); servers += s
+        // a name only this test knows: the first answer is checked, any later one would be 169.254.169.254
+        var lookups = 0
+        val rebinding: (String) -> Array<InetAddress> = { host ->
+            assertThat(host).isEqualTo("rebind.test")
+            lookups++
+            arrayOf(if (lookups == 1) InetAddress.getLoopbackAddress() else InetAddress.getByName("169.254.169.254"))
+        }
+        assertThat(HttpFetch.get("http://rebind.test:${s.address.port}/a", 1000, texts, allowLoopback = true, resolve = rebinding)).isEqualTo("pinned")
+        assertThat(lookups).isEqualTo(1)
+        assertThat(seen).isEqualTo("rebind.test:${s.address.port}")
+        // a name with one private answer among public ones is refused before any connection
+        val mixed: (String) -> Array<InetAddress> = { arrayOf(InetAddress.getByName("93.184.216.34"), InetAddress.getByName("169.254.169.254")) }
+        assertThatThrownBy { HttpFetch.get("http://mixed.test/a", 1000, texts, resolve = mixed) }.hasMessageContaining("private network")
+    }
+
+    @Test
+    fun `a chunked body is read and capped`() {
+        val s = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
+        s.createContext("/c") { ex ->
+            ex.sendResponseHeaders(200, 0)   // 0: chunked
+            ex.responseBody.write("hello ".toByteArray()); ex.responseBody.flush(); ex.responseBody.write("world".toByteArray()); ex.close()
+        }
+        s.start(); servers += s
+        assertThat(HttpFetch.get(url(s, "/c"), 1000, texts, allowLoopback = true)).isEqualTo("hello world")
+        assertThatThrownBy { HttpFetch.get(url(s, "/c"), 8, texts, allowLoopback = true) }.hasMessage("too big")
+    }
 }
