@@ -9,6 +9,8 @@ or when its turn would pass a budget cap. It never raises a cap, pushes, merges 
     brief.py       the context it gets before it thinks, and its system prompt
     verdict.py     the model's answer (one JSON object) and the gate answer made from it
     ledger.py      the audit log: every look, answer and escalation with its reason
+    past.py        the person's earlier answers to the same kind of gate, for the brief (one read call to the api)
+    fix.py         mode fix: the limits keel checks in code after a small fix, and putting it back
     supervisor.py  the watcher, its queue and its turns
     mcp_tools.py   keel_supervisor (read) and keel_supervisor_set (--write) in keel's own MCP server
     routes.py      /supervisor (its decisions and status) and /threads/{id}/supervisor (on, mode, model, effort, caps)
@@ -22,7 +24,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 # the same version as ../../keel-plugin.yml (tests/test_supervisor.py checks it)
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 CONTENT = Path(__file__).resolve().parents[2] / "content"   # content/plugins/supervisor/plugin.yml: the per-project list
 _SUPERVISOR = None
 
@@ -52,10 +54,12 @@ async def _lifespan(app):
 
 def _fake(req):
     """The fake model's verdict for the supervisor agent (tests; KEEL_FAKE_SUPERVISOR scripts it)."""
+    from .verdict import fake_fix, fake_verdict
+
+    if req.agent == "supervisor-fix":
+        return None, "", fake_fix(req), {}
     if req.agent != "supervisor":
         return None
-    from .verdict import fake_verdict
-
     return None, "", fake_verdict(req), {}
 
 

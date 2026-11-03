@@ -730,9 +730,12 @@ class Compiler(AgentMixin, FindingsMixin, CodeMixin, GateMixin):
         """
         answer = self._auto_answer(state, question, gate, review)
         self.ctx.answer_by = None
+        self.ctx.answer_kind = None
         if answer is None:
-            answer = ask_once(question)
+            kind = gate or run_mode.classify(question)
+            answer = ask_once({**question, "gate_kind": kind})
             self.ctx.answer_by = answer.get("by") or None
+            self.ctx.answer_kind = kind
         payload = answer.get("payload") or {}
         new = normalize_unlocks(payload.get("unlock"), state.get("phase") or "none", "user")
         if not new:

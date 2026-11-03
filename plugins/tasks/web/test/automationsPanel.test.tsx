@@ -152,7 +152,7 @@ describe("Tasks › Automations (new page)", () => {
     expect(tab).toHaveTextContent("Jira Cloud as Dev One");
     expect(
       within(tab).getByRole("link", { name: "Settings › Connections ›" }),
-    ).toHaveAttribute("href", "#/connections");
+    ).toHaveAttribute("href", "#/settings/connections");
     await user.click(
       within(tab).getByRole("button", { name: "Find statuses in Jira" }),
     );
@@ -215,7 +215,7 @@ describe("Tasks › Automations (new page)", () => {
       within(off).getByRole("link", {
         name: "Connect Jira in Settings › Connections",
       }),
-    ).toHaveAttribute("href", "#/connections");
+    ).toHaveAttribute("href", "#/settings/connections");
   });
 
   it("Jira statuses when the Jira plugin is off (its api answers 404) says so too", async () => {

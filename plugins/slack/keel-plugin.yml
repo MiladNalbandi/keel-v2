@@ -1,0 +1,23 @@
+# Slack as a plugin. scripts/build-plugin.sh packs it: slack-<version>.kplug. Two-way: keel connects out to Slack (Socket Mode), so a keel on a
+# laptop needs no public address. Its tokens live in keel's encrypted secret store (plugin.slack.*). Each part, and requires.plugins, is written on
+# one line (scripts/build-plugin.sh and api/build.gradle.kts read them).
+schema: 1
+name: slack
+title: Slack
+version: 0.2.0
+publisher: keel
+summary: Ask keel how a task or flow goes, answer a gate, make and assign a task from Slack. A read-only chat, starting flows and every gate are off until you turn them on. Only people you allow; keel connects out, so it needs no public address.
+requires:
+  sdk: 1
+  keel: ">=0.21.0"   # who answered and who started (slack:<who>), the kind of a pause, the plugin engine part
+  plugins: { tasks: ">=1.0.0" }
+parts:
+  engine: { path: engine, package: keel_plugin_slack }
+  api: { jars: [api/keel-plugin-slack.jar] }
+  web: { entry: web/index.js }
+per_project: false
+permissions:
+  secrets: [slack]
+  network: [from-connections]
+  workspace: read    # the chat's agent reads the project's files, only when you turn the chat on
+  pages: true

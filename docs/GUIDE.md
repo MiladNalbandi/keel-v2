@@ -878,6 +878,15 @@ the budget and connections. Each other part is a plugin with its own version:
 | **Map**, **Graph**, **Wiki** | their pages | |
 | **Tasks**, **Jira** | the task board and Jira tickets | Jira needs Tasks |
 | **keel Product** (beta) | initiatives and teams | Tasks and Jira |
+| **Answers** | drafts answers to a customer's questions from your code and docs, with sources; you approve each one | |
+| **Record** | one page and one file per flow: who asked, what ran, gate answers, commits, cost | |
+| **Notify** | a chat or mail message when a flow waits for you, through a channel you add | |
+| **Desk** | paste a support request: an agent sorts it, keel finds past cases, you choose what happens | Tasks |
+| **Library** | your company's rules, which agents can search and quote; you decide what they may read | |
+| **Links** | Linear with your own key: agents read issues, a write waits for your OK | |
+| **Slack** | ask how work goes, answer a gate, make and assign a task from Slack; off until you turn them on: a read-only chat, starting flows, every gate. keel connects out, so it needs no public address | Tasks |
+| **Supervisor** | a strong model that looks at each gate from your project's context; it suggests, or answers, retries and makes small fixes in the mode you pick (below) | |
+| **Goals** | one goal with limits, split into steps by an agent; you approve the plan and start each flow | |
 
 **Settings › Plugins** (`#/settings/plugins`) has these tabs:
 
@@ -1351,6 +1360,32 @@ and no CPU); the load comes from its agents and the project's builds. Since 0.20
   agent starts run at the same low priority.
 
 In native mode there is no container: only the two agent settings apply.
+
+## The Supervisor
+
+Off until you turn it on: Settings › General › **Supervisor**, then per project in Jobs › Supervisor. It looks at each gate a flow waits at and suggests an answer. In a mode you pick it does more:
+
+| Mode | It may also |
+| --- | --- |
+| `shadow` (default) | nothing: it only suggests |
+| `retry` | try a stuck step again, with a note |
+| `act` | answer gates and send findings back, when it is sure |
+| `fix` | make one small fix: at most 3 files and 40 lines, on the flow's own branch, and keel's check runs again. It never commits, pushes or merges |
+
+It never answers a cap, a new dependency, a secret, the final review or the pull request. A flow's header shows a chip with where it stands, and the flow's Inbox item shows its note: **Use suggestion** fills in the
+answer, and you still send it. A flow that fails gets a diagnosis in its log. A flow with no event for 30 minutes (you can change this) gets one look, and it asks you: it never stops a running step. Details: `plugins/supervisor/README.md`.
+
+## Slack
+
+Settings › **Slack** links your own Slack app: `plugins/slack/README.md` has the steps. **It has never run against the real Slack**, only a local stand-in, so the first real use may need a fix.
+
+Only people on your list can act. They can ask `status` and `waiting`, answer gates (a gate with several questions opens a form), and make tasks: `task Fix the export @sara` puts Sara's name on it and sends her a direct message. A name is a label, not an account: keel has one person.
+
+Three things are off until you turn them on, on that page:
+
+- **Let people ask keel in Slack**: a message that is no command goes to your model company, with the thread's messages, keel's status lines and the files the model reads. It can only read; keel enforces that in code. It has a daily cap per person, and it counts on the Budget page.
+- **Let people start flows from Slack**: `start change in shop: add a late filter`, with one button only you can press.
+- **Allow every gate from Slack**: gates only a person answers get buttons for a shorter list of people, with a reason and one confirm. Budget and secret gates stay in keel whatever you set.
 
 ## Use keel from Claude Code or Claude Desktop (MCP)
 

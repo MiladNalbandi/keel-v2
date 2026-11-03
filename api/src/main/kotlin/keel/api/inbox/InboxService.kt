@@ -168,9 +168,10 @@ class InboxService(
 
     /**
      * Answers one inbox item the way the Flow page does; refuses when the thread now waits for something else.
-     * [mayDecide]: the caller may answer an approval the api asked itself (a person, keel itself or the MCP admin level).
+     * [mayDecide]: the caller may answer an approval the api asked itself (a person, keel itself or the MCP admin level),
+     * and a gate only a person answers. [by]: who answers, when a part of the api does it for someone (never from a body).
      */
-    fun act(tid: String, body: InboxAct, mayDecide: Boolean = true): JsonNode {
+    fun act(tid: String, body: InboxAct, mayDecide: Boolean = true, by: String? = null): JsonNode {
         if (body.decision !in setOf("approve", "reject")) throw BadRequest("decision must be approve or reject")
         if (jdbc.query("SELECT 1 FROM threads WHERE id = ?", { _, _ -> 1 }, tid).firstOrNull() == null) {
             // P4 an approval keel or a part asked itself (keel Product's send to Jira) is no flow: approve or deny it
@@ -199,7 +200,8 @@ class InboxService(
             }
         }
         cache.remove(tid)
-        return flows.resume(tid, body.decision, body.why, body.payload).also { cache.remove(tid) }
+        if (!mayDecide) flows.requirePerson(tid)
+        return flows.resume(tid, body.decision, body.why, body.payload, by).also { cache.remove(tid) }
     }
 
     private fun stateOf(row: Row): JsonNode? {

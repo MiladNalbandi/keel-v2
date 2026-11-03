@@ -1,0 +1,66 @@
+id: answers-questionnaire
+name: answer a questionnaire
+keel_rules: true
+version: 1
+about: Drafts an answer to each question from the project's code and docs, with its source. You approve every answer, then the whole document.
+# The request holds the questions, or names a file in the repo that does. One drafter and one checker per question
+# (read-only), then a gate per answer that only a person answers (person: true: no run mode, no Supervisor). Only what the
+# person approved reaches the document; the last gate shows the real diff before the commit. keel never pushes it.
+steps:
+  - id: read
+    kind: agent
+    name: split the request into questions
+    agent: answers-reader
+    model: default
+    phase: review
+    collect: questions
+  - { id: no_questions, kind: gate, name: no questions found, phase: gate, when: { data: questions, absent: true }, choices: { again: read, stop: end } }
+  - id: draft
+    kind: parallel
+    name: one drafter per question
+    agent: answers-drafter
+    model: default
+    phase: review
+    from: questions
+    cap: 200
+    batch: 4
+    collect: drafts
+    tools: ["mcp:keel-library:*"]
+  - id: check
+    kind: parallel
+    name: check each draft against its sources
+    agent: answers-checker
+    model: default
+    phase: review
+    from: drafts
+    cap: 200
+    batch: 4
+    collect: checked
+    tools: ["mcp:keel-library:*"]
+  - { id: approve, kind: gate, name: approve this answer, phase: gate, for_each: checked, person: true, lock: true, choices: [approve, change, drop], on_skip: { choice: drop, record: answers_dropped } }
+  - id: save
+    kind: agent
+    name: put the approved answer in the document
+    agent: answers-writer
+    model: default
+    phase: close
+    per_item: true
+  - id: finish
+    kind: agent
+    name: finish the document
+    agent: answers-writer
+    model: default
+    phase: close
+    instructions: >-
+      All answers were decided. Add a last section "Not answered" to the document with each question of the list below
+      that has no answer in the document, and say why when a reason is given. Change no answer, unless the person sent
+      the document back and says so. Dropped by the person:
+
+      {{data.answers_dropped}}
+
+      The questions:
+
+      {{data.questions}}
+  - { id: show, kind: code, name: the document as it is now, action: show_diff, phase: close }
+  - { id: final, kind: gate, name: the whole document, phase: gate, person: true, lock: true, back: finish }
+  - { id: commit, kind: code, name: commit the document, action: commit, phase: close }

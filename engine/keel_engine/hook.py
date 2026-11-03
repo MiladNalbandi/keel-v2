@@ -400,7 +400,7 @@ def decide(tool: str, ti: dict, ctx: dict) -> str | None:
         return already_read(ctx.get("_path"), rel, full, ti.get("offset"), ti.get("limit"))
     if tool == "Bash":
         refused = knowledge(str(ti.get("command") or ""))
-        if not refused and readonly:
+        if not refused and (readonly or ctx.get("shell_readonly")):
             why = run_mode.readonly_bash(str(ti.get("command") or ""))
             refused = ro(why) if why else None
         if not refused and ctx.get("no_repeat") and ctx.get("_path"):

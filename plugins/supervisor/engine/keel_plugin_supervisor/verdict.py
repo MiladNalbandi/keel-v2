@@ -1,6 +1,6 @@
 """The Supervisor's answer: one JSON object (the "verdict"), and the gate answer keel makes from it.
 
-    {"action": "answer" | "send_back" | "escalate",
+    {"action": "answer" | "send_back" | "escalate" | "fix",      (fix: mode fix only; `plan` says what to change)
      "decision": "approve" | "reject", "choice": "retry", "answers": {"q1": "Postgres"},
      "commands": ["composer update -W"]   (a choice that takes commands: init's own_fix)
      "why": "...", "confidence": "high" | "medium" | "low",
@@ -16,7 +16,7 @@ import json
 import os
 import re
 
-ACTIONS = ("answer", "send_back", "escalate")
+ACTIONS = ("answer", "send_back", "escalate", "fix")
 LEVELS = ("high", "medium", "low")
 _FENCE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.S)
 
@@ -56,6 +56,7 @@ def normalize(v: dict) -> dict:
         "commands": [str(c).strip() for c in (v.get("commands") if isinstance(v.get("commands"), list) else
                                               str(v.get("commands") or "").splitlines()) if str(c).strip()][:20],
         "why": str(v.get("why") or "").strip()[:1200],
+        "plan": str(v.get("plan") or "").strip()[:2000],
         "confidence": level if level in LEVELS else "low",
         "evidence": [str(e) for e in (ev if isinstance(ev, list) else [ev])][:20],
         "risks": [str(r) for r in (v.get("risks") or [])][:10] if isinstance(v.get("risks"), list) else [],
@@ -102,6 +103,24 @@ def fake_verdict(req) -> str:
         elif isinstance(script, dict):
             v = script
     return "Looked at it.\n```json\n" + json.dumps(v) + "\n```"
+
+
+def fake_fix(req) -> str:
+    """KEEL_FAKE_SUPERVISOR_FIX: a JSON file {path: content}: the fake model's small fix, written straight to the folder,
+    as a CLI model could: what counts is the check keel makes after the turn. A content of null deletes the file."""
+    path = os.environ.get("KEEL_FAKE_SUPERVISOR_FIX", "")
+    if path and os.path.isfile(path):
+        with open(path) as f:
+            files = json.load(f)
+        for rel, content in files.items():
+            full = os.path.join(req.root, rel)
+            if content is None:
+                os.remove(full)
+                continue
+            os.makedirs(os.path.dirname(full), exist_ok=True)
+            with open(full, "w") as out:
+                out.write(content)
+    return "Fixed.\n```json\n" + json.dumps({"summary": "made the fix"}) + "\n```"
 
 
 def reset_fake() -> None:

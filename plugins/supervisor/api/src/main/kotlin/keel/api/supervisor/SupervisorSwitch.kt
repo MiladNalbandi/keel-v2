@@ -1,6 +1,7 @@
 package keel.api.supervisor
 
 import com.fasterxml.jackson.databind.JsonNode
+import keel.api.common.BadRequest
 import keel.api.engine.EngineClient
 import keel.api.plugins.PluginService
 import keel.api.plugins.PluginSwitched
@@ -42,6 +43,19 @@ class SupervisorSwitch(
     private val log = LoggerFactory.getLogger(SupervisorSwitch::class.java)
 
     fun keelOn(): Boolean = settings.plugin(NAME).general()[KEY] == true
+
+    /** 0.21.0 keel-wide mode and stall time (Settings › General › Supervisor). A flow's own value wins. */
+    fun mode(): String = settings.plugin(NAME).general()[MODE_KEY]?.toString()?.takeIf { it in MODES } ?: "shadow"
+
+    fun stallMinutes(): Int = (settings.plugin(NAME).general()[STALL_KEY] as? Number)?.toInt()?.coerceIn(STALL_MIN, STALL_MAX) ?: STALL_DEFAULT
+
+    fun setDefaults(on: Boolean?, mode: String?, stall: Int?) {
+        val patch = mutableMapOf<String, Any?>()
+        on?.let { patch[SETTING] = it }
+        mode?.let { patch[MODE_SETTING] = it }
+        stall?.let { patch[STALL_SETTING] = it }
+        if (patch.isNotEmpty()) settings.updateGeneral(patch)
+    }
 
     /** The project's own switch: true, false, or null (it follows General). */
     fun own(pid: String): Boolean? = settings.plugin(NAME).overrides(pid)[KEY] as? Boolean
@@ -87,7 +101,7 @@ class SupervisorSwitch(
     /** Sends the switches to the engine: the keel-wide one and one project's, or every project's (pid null). */
     fun push(pid: String?) {
         val ids = if (pid == null) projects.rows().map { it.id } else listOf(pid)
-        val body = mapOf("keel" to keelOn(),
+        val body = mapOf("keel" to keelOn(), "defaults" to mapOf("mode" to mode(), "stall_minutes" to stallMinutes()),
             "projects" to ids.associateWith { mapOf("on" to projectOn(it), "plugin" to pluginOn(it)) })
         runCatching { engine.post("/supervisor/switch", body) }
             .onFailure { log.warn("could not send the Supervisor's switches to the engine: {}", it.message) }
@@ -110,20 +124,33 @@ class SupervisorSwitch(
         const val NAME = "supervisor"
         const val KEY = "on"
         const val SETTING = "plugins.supervisor.on"
+        const val MODE_KEY = "mode"
+        const val MODE_SETTING = "plugins.supervisor.mode"
+        const val STALL_KEY = "stall_minutes"
+        const val STALL_SETTING = "plugins.supervisor.stall_minutes"
+        const val STALL_DEFAULT = 30
+        const val STALL_MIN = 5
+        const val STALL_MAX = 1440
+        val MODES = listOf("shadow", "retry", "act", "fix")
     }
 }
 
-/** Its key in keel's settings: off until the person turns it on. */
+/** Its keys in keel's settings: off until the person turns it on, and then it only suggests. */
 @Configuration
 class SupervisorSettings {
     @Bean
     fun supervisorSettingsSection(): SettingsSection = SimpleSettingsSection("supervisor", "Supervisor",
-        listOf(SettingKey(SupervisorSwitch.SETTING, "bool", false)), 90)
+        listOf(SettingKey(SupervisorSwitch.SETTING, "bool", false),
+            SettingKey(SupervisorSwitch.MODE_SETTING, "choice", "shadow", SupervisorSwitch.MODES, generalOnly = true),
+            SettingKey(SupervisorSwitch.STALL_SETTING, "int", SupervisorSwitch.STALL_DEFAULT, generalOnly = true)), 90)
 }
 
 /**
  *     GET|POST /api/supervisor/switch                    {on}: the keel-wide switch
  *     GET|POST /api/projects/{pid}/supervisor/switch     {on: true | false | null}: the project's (null = follow General)
+ *     GET|POST /api/supervisor/defaults                  {on, mode, stall_minutes}: the row on Settings › General. It is not
+ *                                                        on the MCP write list ([SupervisorMcpRoutes]): a mode that answers
+ *                                                        gates for every flow is the person's call, or an admin client's
  */
 @RestController
 @RequestMapping("/api")
@@ -137,6 +164,22 @@ class SupervisorSwitchController(private val switch: SupervisorSwitch, private v
     fun setKeel(@RequestBody body: Map<String, Any?>): Map<String, Any?> {
         switch.setKeel(body["on"] == true)
         return keel()
+    }
+
+    @GetMapping("/supervisor/defaults")
+    fun defaults(): Map<String, Any?> = mapOf("on" to switch.keelOn(), "mode" to switch.mode(), "stall_minutes" to switch.stallMinutes(),
+        "modes" to SupervisorSwitch.MODES, "stall_min" to SupervisorSwitch.STALL_MIN, "stall_max" to SupervisorSwitch.STALL_MAX)
+
+    @PostMapping("/supervisor/defaults")
+    fun setDefaults(@RequestBody body: Map<String, Any?>): Map<String, Any?> {
+        val mode = body["mode"]?.toString()
+        if (mode != null && mode !in SupervisorSwitch.MODES) throw BadRequest("\"$mode\" is not a Supervisor mode", "Pick one of: ${SupervisorSwitch.MODES.joinToString()}.")
+        val stall = body["stall_minutes"]?.let { (it as? Number)?.toInt() ?: it.toString().toIntOrNull()
+            ?: throw BadRequest("The stall time must be a number of minutes") }
+        if (stall != null && stall !in SupervisorSwitch.STALL_MIN..SupervisorSwitch.STALL_MAX)
+            throw BadRequest("The stall time must be ${SupervisorSwitch.STALL_MIN} to ${SupervisorSwitch.STALL_MAX} minutes")
+        switch.setDefaults(body["on"] as? Boolean, mode, stall)
+        return defaults()
     }
 
     @GetMapping("/projects/{pid}/supervisor/switch")

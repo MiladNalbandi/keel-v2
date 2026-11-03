@@ -18,7 +18,8 @@ import { Zoom } from "../../components/Zoom";
 import { GoButton, Panel, Pill, Prov, type PillTone } from "../../components/ui";
 import { kfmt, shortDur, usd } from "../../format";
 import { go, useApp, useLoad } from "../../state";
-import { useHasPage } from "../../sdk/registry";
+import { useHasPage, useSlot } from "../../sdk/registry";
+import { SLOTS, type FlowChipItem } from "../../sdk/slots";
 import { askAssistant } from "../../sdk/assistant";
 import { fixRequest } from "../../askFix";
 import { CopyId, GateCard } from "./Gate";
@@ -130,6 +131,7 @@ export function FlowBar({ thread, workflow, estimate, started, onStart, onJump, 
   readOnly?: boolean; branch?: string | null;
 }) {
   const { project, toast } = useApp();
+  const chips = useSlot<FlowChipItem>(SLOTS.flowChip);
   const [busy, setBusy] = useState(false);
   // v0.15.3 Stop flow asks first
   const [confirmStop, setConfirmStop] = useState(false);
@@ -153,6 +155,7 @@ export function FlowBar({ thread, workflow, estimate, started, onStart, onJump, 
             return <span>branch <span className="mono fl-branch" title={b}>{b}</span></span>;
           })()}
           <CopyId id={thread.thread_id} />
+          {chips.map((c) => <c.component key={c.id} pid={thread.project_id} thread={thread} readOnly={!!readOnly} />)}
         </div>
       </div>
       <div className="fl-stats">

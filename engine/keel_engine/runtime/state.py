@@ -113,6 +113,9 @@ class ThreadContext:
     # gate.decided of that step carries it as `by`, so the timeline, the final review and the PR body can tell. Memory
     # only; Compiler._ask sets it at every pause, step.finished clears it.
     answer_by: str | None = None
+    # 0.21.0 the kind of the pause a person just answered: gate.decided carries it (the Supervisor's brief finds earlier
+    # answers to the same kind of gate by it)
+    answer_kind: str | None = None
 
     @property
     def fake(self) -> bool:
@@ -139,10 +142,14 @@ class ThreadContext:
         return added
 
     def emit(self, type: str, *, step: str | None = None, call_id: str | None = None, data: dict | None = None):
-        if type == "gate.decided" and self.answer_by and "by" not in (data or {}):
-            data = {**(data or {}), "by": self.answer_by}
+        if type == "gate.decided":
+            if self.answer_by and "by" not in (data or {}):
+                data = {**(data or {}), "by": self.answer_by}
+            if self.answer_kind and "gate_kind" not in (data or {}):
+                data = {**(data or {}), "gate_kind": self.answer_kind}
         elif type == "step.finished":
             self.answer_by = None
+            self.answer_kind = None
         if self.bus:
             self.bus.emit(type, self.thread_id, self.project_id, step=step, call_id=call_id, data=data)
 

@@ -560,12 +560,13 @@ separate commit series; nothing is merged into main or released without the pers
 
 ---
 
-## 17. Status: what is built (2026-10-22)
+## 17. Status: what is built (2026-11-02, keel 0.21.0)
 
 ```
- P0 core seams ✔ ── P1 shadow ✔ ── P2 answers ✔ ── switches ✔ ── P3 acts ✗ ── P5 real check ✗
-                       └── P4 UI: Jobs tab ✔, TUI ✔, MCP ✔, flow chip / Inbox note ✗, Settings page row ✗
+ P0 core seams ✔ ── P1 shadow ✔ ── P2 answers ✔ ── switches ✔ ── P3 acts ✔ ── P5 real check: shadow and act ✔, fix ✗
+                       └── P4 UI: Jobs tab ✔, TUI ✔, MCP ✔, flow chip ✔, Inbox note ✔, Settings row ✔
 ```
+All on the fake model. It has never run on a real model; that is P5, docs/plans/finish-slack-supervisor.md C4.
 
 | part | where | what |
 |---|---|---|
@@ -607,21 +608,35 @@ the project's, else keel-wide) is on. Turning any of them off while it looks can
 |---|---|---|---|
 | 1 | spec and contract approval | only suggested (`escalate`) | `settings.supervisor.policy: {spec: may}` per flow |
 | 2 | confidence bar | `high` only | code (`supervisor.py`) |
-| 3 | code fixes | none: it answers, retries through offered choices, sends back with a reason; it never edits | P3, not built |
+| 3 | code fixes | only in mode `fix`, which you pick: at most 3 files and 40 lines, in code (`fix.py`); below that mode it never edits | `settings.supervisor.mode`, `fix_max_files`, `fix_max_lines` |
 | 4 | stop or rewind a flow | never | — |
 | 5 | budget | 150,000 tokens per flow for its own turns, 500,000 per project per day; its tokens count toward the flow's cap; a turn is skipped when it would pass the flow's cap (30,000 estimate) | `settings.supervisor.cap_tokens`, `day_cap_tokens`, `estimate` |
 | 6 | model and effort | the flow's `supervisor` model if set, else its default model, with effort `high` | `settings.supervisor.model`, `effort` |
 | 7 | plugin or core | a plugin (`plugins/supervisor`), per project | — |
 | 8 | shadow mode first | yes: mode `shadow` is the default; `act` must be chosen | `/supervisor act`, the Jobs tab, `keel_supervisor_set` |
-| 9 | version | plugin 0.1.0; keel's version not bumped | release time |
+| 9 | version | plugin 0.2.0, keel 0.21.0 | release time |
 | — | on or off | off keel-wide until the person turns it on | the table above |
+
+### Built in 0.21.0 (P3 and the rest of P4)
+
+| part | where | what |
+|---|---|---|
+| diagnosis | `supervisor.py` `_diagnose`, `_note_look` | `thread.failed` wakes it; every mode; event `supervisor.diagnosis`, row `diagnosed` (`skipped` over budget). A look at kinds `failure` and `findings` also writes one |
+| stall | `supervisor.py` `check_stalls` | no event for `stall_minutes` (default 30; §13's 15 was the first idea) in a running flow: one read-only look per stall, then `supervisor.escalated` code `stalled`. It stops nothing. Its own events are no sign of life |
+| mode `fix` | `fix.py`, `supervisor.py` `_fix` | §7's limits, in code after the turn; `ToolBox.shell_readonly` for the turn; only at a gate that offers `recheck` or `retry`; event `supervisor.fixed` |
+| chip, note | `supervisor.py` `status`, `web/SupervisorParts.tsx` | new core slots `flow.chip`, `inbox.note`; `GET /threads/{id}/supervisor/status` |
+| Settings row | `SupervisorSwitch.kt`, `web/SupervisorParts.tsx` | `plugins.supervisor.mode`, `plugins.supervisor.stall_minutes`; `GET|POST /api/supervisor/defaults`, admin level |
+| past answers | `past.py`, `Supervisor.kt` `pastAnswers`, `brief.py` | `gate_kind` on `gate.decided`; last 10, short, the person's only, as JSON lines marked as data; a failed call means no such section |
+
+Choices made while building it:
+
+- KeelBot's `flow_fix` is not used: the Supervisor would then need the KeelBot plugin, and a chat session gives keel no way to check the limits before the answer goes. It has its own writing turn.
+- "keel's tests must pass" means keel's own check runs again through the gate's `recheck` or `retry`. A fix at a gate that offers neither is not made.
+- A shell that changes files or git is refused for the turn. So the model cannot run a formatter or a test that writes: that is on purpose.
+- A medium-confidence retry note is taken in mode `retry` and up (it was `retry` only before): the plan's tree says "retry and up". A fix always needs high confidence.
 
 ### Postponed
 
-- P3: diagnosing a failed thread, the stall timer, small fixes under KeelBot's fix rules.
-- "The person's past answers" across flows in the brief (it has this flow's gate log and its own earlier looks): the
-  engine keeps no event history of other flows; it needs a query on the api's events.
-- The switch as a row on the Settings page: the page shows core keys only (a plugin's own keys are not in its
-  General/project values yet), so the switches are in Jobs › Supervisor, the TUI and MCP.
-- The dashboard's flow-header chip and the note on the flow's own Inbox item (no web slot for them yet: core change).
-- The real-model check (P5): only with the person's OK.
+- The real-model check (P5) of mode `fix`, the diagnosis and the stall timer: only with the person's OK. Shadow and act were checked on 2026-11-03.
+- `/supervisor fix` in keel TUI: the mode is set in Jobs › Supervisor or with `keel2 mcp --admin`.
+- A project's own mode and stall time: they are keel-wide, or per flow.

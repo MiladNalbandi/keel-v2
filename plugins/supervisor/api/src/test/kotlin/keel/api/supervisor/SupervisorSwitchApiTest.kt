@@ -36,6 +36,27 @@ class SupervisorSwitchApiTest : ApiTest() {
         events.publishEvent(PluginsReloaded(emptyList()))
     }
 
+    @Test
+    fun `0_21_0 Settings has the keel-wide mode and stall time, and a new keel only suggests`() {
+        val first = get("/api/supervisor/defaults").andExpect(status().isOk).json()
+        assertThat(first["mode"].asText()).isEqualTo("shadow")
+        assertThat(first["stall_minutes"].asInt()).isEqualTo(30)
+        try {
+            post("/api/supervisor/defaults", mapOf("mode" to "retry", "stall_minutes" to 45)).andExpect(status().isOk)
+            assertThat((sent.last()["defaults"] as Map<*, *>)["mode"]).isEqualTo("retry")
+            assertThat((sent.last()["defaults"] as Map<*, *>)["stall_minutes"]).isEqualTo(45)
+            post("/api/supervisor/defaults", mapOf("mode" to "everything")).andExpect(status().isBadRequest)
+            post("/api/supervisor/defaults", mapOf("stall_minutes" to 1)).andExpect(status().isBadRequest)
+            // a write-level MCP client may use the on/off switch, not this row
+            val write = post("/api/mcp/token", mapOf("level" to "write"), mapOf("X-Keel-Token" to TOKEN)).json()["token"].asText()
+            val mcp = mapOf("X-Keel-Via" to "mcp", "X-Keel-Mcp-Token" to write)
+            post("/api/supervisor/defaults", mapOf("mode" to "act"), mcp).andExpect(status().isForbidden)
+            assertThat(get("/api/supervisor/defaults").json()["mode"].asText()).isEqualTo("retry")
+        } finally {
+            post("/api/supervisor/defaults", mapOf("mode" to "shadow", "stall_minutes" to 30)).andExpect(status().isOk)
+        }
+    }
+
     @Suppress("UNCHECKED_CAST")
     private fun projectSent(pid: String) = (sent.last()["projects"] as Map<String, Map<String, Any?>>)[pid]
 

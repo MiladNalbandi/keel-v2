@@ -3,6 +3,7 @@ package keel.api.supervisor
 import com.fasterxml.jackson.databind.JsonNode
 import jakarta.servlet.http.HttpServletRequest
 import keel.api.common.BadRequest
+import keel.api.common.Json
 import keel.api.common.Forbidden
 import keel.api.common.NotFound
 import keel.api.common.Time
@@ -14,6 +15,7 @@ import keel.api.flow.FlowService
 import keel.api.mcp.McpLevelGuard
 import keel.api.notifications.NotificationService
 import keel.api.projects.ProjectService
+import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Component
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -31,15 +33,43 @@ import java.nio.charset.StandardCharsets
  *
  *     GET  /api/projects/{pid}/supervisor/decisions?threadId=&limit=   the audit log, newest first
  *     GET  /api/projects/{pid}/flows/{tid}/supervisor                   a flow's Supervisor settings, tokens, last rows
+ *     GET  /api/projects/{pid}/flows/{tid}/supervisor/status            the flow's chip and its note for the waiting question
  *     POST /api/projects/{pid}/flows/{tid}/supervisor                   {on, mode, model, effort, cap_tokens, max_answers, policy}
  *                                                                       (policy rung: may also needs i_understand: [RUNG_OK])
  *     GET|POST /api/projects/{pid}/supervisor/flow                      the same for the project's flow now (keel TUI's
  *                                                                       /supervisor: a plugin's TUI command calls its own routes)
+ *     GET  /api/projects/{pid}/supervisor/past-answers?kind=&step=&notThread=&limit=
+ *                                                                       the person's earlier answers to this kind of gate in
+ *                                                                       other flows of the project (the look's brief)
  */
 @RestController
 @RequestMapping("/api/projects/{pid}")
 class SupervisorController(private val engine: EngineClient, private val projects: ProjectService,
-                           private val flows: FlowService) {
+                           private val flows: FlowService, private val jdbc: JdbcTemplate) {
+    /**
+     * 0.21.0 what the person answered at the same kind of gate before, newest first, short. Only a person's answers: not
+     * the Supervisor's, not keel's own (a run mode's auto-approve, a waived gate, a condition that did not hold). An
+     * event from before 0.21.0 has no gate_kind: the same step counts then. It reads only the newest [PAST_SCAN] answers
+     * of the project, so a long history costs nothing.
+     */
+    @GetMapping("/supervisor/past-answers")
+    fun pastAnswers(@PathVariable pid: String, @RequestParam kind: String, @RequestParam(required = false) step: String?,
+                    @RequestParam(required = false) notThread: String?, @RequestParam(defaultValue = "10") limit: Int): Map<String, Any?> {
+        projects.require(pid)
+        val rows = jdbc.query(
+            "SELECT thread_id, step, at, data_json FROM events WHERE project_id = ? AND type = 'gate.decided' ORDER BY id DESC LIMIT ?",
+            { rs, _ -> PastEvent(rs.getString(1), rs.getString(2), rs.getString(3), Json.readMap(rs.getString(4))) }, pid, PAST_SCAN)
+        val answers = rows.asSequence()
+            .filter { it.thread != notThread && byPerson(it.data) }
+            .filter { e -> e.data["gate_kind"]?.toString()?.let { it == kind } ?: (!step.isNullOrBlank() && e.step == step) }
+            .take(limit.coerceIn(1, 10))
+            .map { e ->
+                mapOf("at" to e.at, "step" to e.step, "kind" to e.data["gate_kind"], "gate" to e.data["gate"]?.toString()?.take(PAST_TEXT),
+                    "decision" to e.data["decision"], "choice" to e.data["choice"], "why" to e.data["why"]?.toString()?.take(PAST_TEXT))
+            }.toList()
+        return mapOf("answers" to answers)
+    }
+
     @GetMapping("/supervisor/decisions")
     fun decisions(@PathVariable pid: String, @RequestParam(required = false) threadId: String?,
                   @RequestParam(defaultValue = "100") limit: Int): JsonNode {
@@ -54,12 +84,19 @@ class SupervisorController(private val engine: EngineClient, private val project
         return engine.get("/threads/${enc(tid)}/supervisor")
     }
 
+    /** 0.21.0 the flow's chip, and the note on its Inbox item. */
+    @GetMapping("/flows/{tid}/supervisor/status")
+    fun status(@PathVariable pid: String, @PathVariable tid: String): JsonNode {
+        own(pid, tid)
+        return engine.get("/threads/${enc(tid)}/supervisor/status")
+    }
+
     @PostMapping("/flows/{tid}/supervisor")
     fun change(@PathVariable pid: String, @PathVariable tid: String, @RequestBody body: Map<String, Any?>,
                request: HttpServletRequest): JsonNode {
         own(pid, tid)
         checkPolicy(body, request)
-        val allowed = setOf("on", "mode", "model", "effort", "cap_tokens", "max_answers", "policy")
+        val allowed = setOf("on", "mode", "model", "effort", "cap_tokens", "max_answers", "policy", "stall_minutes", "fix_max_files", "fix_max_lines")
         return engine.post("/threads/${enc(tid)}/supervisor", body.filterKeys { it in allowed })
     }
 
@@ -77,8 +114,12 @@ class SupervisorController(private val engine: EngineClient, private val project
      * policy (keel_supervisor_set does not send one).
      */
     private fun checkPolicy(body: Map<String, Any?>, request: HttpServletRequest) {
-        val policy = body["policy"] as? Map<*, *> ?: return
         val level = request.getAttribute(McpLevelGuard.LEVEL_ATTR)
+        // 0.21.0 mode fix lets it write code: only the person (or an admin client) turns that on
+        if ((body["mode"] == "fix" || "fix_max_files" in body || "fix_max_lines" in body) && level != null && level != "admin") {
+            throw Forbidden("Only you turn on the Supervisor's fix mode", "Change it in keel (Jobs › Supervisor), or with keel2 mcp --admin.")
+        }
+        val policy = body["policy"] as? Map<*, *> ?: return
         if (level != null && level != "admin") {
             throw Forbidden("Only you change the Supervisor's policy", "Change it in keel (the flow's Supervisor panel), or with keel2 mcp --admin.")
         }
@@ -107,8 +148,20 @@ class SupervisorController(private val engine: EngineClient, private val project
         val NO_FLOW = mapOf("thread_id" to null, "note" to "No flow runs in this project: start one first.")
         /** 0.18.64 what a body must say to set policy rung: may ([checkPolicy]). */
         const val RUNG_OK = "commands run without you"
+        const val PAST_SCAN = 500
+        const val PAST_TEXT = 200
+
+        /** Who answered, from the event: nobody named or a person in Slack is the person. The gate's unlock line is no answer. */
+        internal fun byPerson(d: Map<String, Any?>): Boolean {
+            val by = d["by"]?.toString()
+            val why = d["why"]?.toString().orEmpty()
+            return d["gate"] != "unlock" && (by == null || by.startsWith("slack:")) && d["auto"] != true && !why.startsWith("supervisor:") &&
+                !why.contains("auto-approved (mode ") && !why.startsWith("waived")
+        }
     }
 }
+
+private class PastEvent(val thread: String, val step: String?, val at: String?, val data: Map<String, Any?>)
 
 /**
  * The Supervisor's engine events. Each model turn is an agent call (agent "supervisor": the Budget page, Live agents and

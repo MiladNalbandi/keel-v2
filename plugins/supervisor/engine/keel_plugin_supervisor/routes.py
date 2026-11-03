@@ -2,11 +2,12 @@
 
     GET  /supervisor/decisions?thread_id=&project_id=&limit=   its audit log, newest first
     GET  /supervisor/switch?project_id=                         the keel-wide switch (and a project's), what it looks at now
-    POST /supervisor/switch  {keel, projects: {pid: {on, plugin}}}
+    POST /supervisor/switch  {keel, projects: {pid: {on, plugin}}, defaults: {mode, stall_minutes}}
                                     keel's api sends every change of its switches (Settings, Control › Plugins); off
                                     stops at once (switch.py)
     GET  /threads/{tid}/supervisor                              the flow's Supervisor settings, its tokens, its last rows
-    POST /threads/{tid}/supervisor  {on, mode, model, effort, cap_tokens, max_answers, policy}
+    GET  /threads/{tid}/supervisor/status                       the flow's chip, and its note for the waiting question
+    POST /threads/{tid}/supervisor  {on, mode, model, effort, cap_tokens, max_answers, policy, stall_minutes, fix_max_files, fix_max_lines}
                                     changes them during a run (stored with the thread's settings, like the run mode);
                                     `on: null` follows the project again; off stops its look at once; turned on while the
                                     flow waits, it looks at the waiting gate at once
@@ -31,6 +32,7 @@ router = APIRouter()
 class SwitchBody(BaseModel):
     keel: bool | None = None
     projects: dict[str, dict[str, bool | None]] | None = None
+    defaults: dict | None = None
 
 
 class SupervisorBody(BaseModel):
@@ -41,6 +43,13 @@ class SupervisorBody(BaseModel):
     cap_tokens: int | None = None
     max_answers: int | None = None
     policy: dict[str, str] | None = None
+    stall_minutes: int | None = None
+    fix_max_files: int | None = None
+    fix_max_lines: int | None = None
+
+
+# no setting takes a small fix or the stall time past these (docs/plans/supervisor.md section 7)
+BOUNDS = {"stall_minutes": (5, 1440), "fix_max_files": (1, 10), "fix_max_lines": (1, 200)}
 
 
 def _sup(request: Request):
@@ -68,7 +77,7 @@ async def get_switch(request: Request, project_id: str | None = None):
 
 @router.post("/supervisor/switch")
 async def set_switch(body: SwitchBody, request: Request):
-    return await _sup(request).set_switch(body.keel, body.projects)
+    return await _sup(request).set_switch(body.keel, body.projects, body.defaults)
 
 
 @router.get("/threads/{tid}/supervisor")
@@ -80,12 +89,24 @@ async def get_settings(tid: str, request: Request):
         raise HTTPException(exc.status, exc.error) from exc
 
 
+@router.get("/threads/{tid}/supervisor/status")
+async def get_status(tid: str, request: Request):
+    try:
+        return await _sup(request).status(tid)
+    except EngineError as exc:
+        raise HTTPException(exc.status, exc.error) from exc
+
+
 @router.post("/threads/{tid}/supervisor")
 async def set_settings(tid: str, body: SupervisorBody, request: Request):
     sup = _sup(request)
     eng = sup.engine
     if body.mode is not None and body.mode not in MODES:
         raise HTTPException(400, f'"{body.mode}" is not a Supervisor mode. Pick one of: {", ".join(MODES)}.')
+    for name, (low, high) in BOUNDS.items():
+        got = getattr(body, name)
+        if got is not None and not low <= got <= high:
+            raise HTTPException(400, f"{name} must be {low} to {high}.")
     for kind, want in (body.policy or {}).items():
         if kind in policy.NEVER or want not in policy.RULES:
             raise HTTPException(400, f'"{kind}: {want}" cannot be set: only you answer {kind} gates.' if kind in policy.NEVER

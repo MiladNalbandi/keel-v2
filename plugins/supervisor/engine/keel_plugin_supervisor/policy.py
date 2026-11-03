@@ -46,6 +46,16 @@ CODES = {
     "shadow": "shadow mode: it only suggests",
     "model-error": "its model failed",
     "stale": "the flow moved on before it answered",
+    "stalled": "the flow has been quiet for a long time",
+    "fix-off": "it wants to make a small fix, but fix mode is off",
+    "fix-no-check": "this gate cannot check a fix again",
+    "fix-not-own-branch": "a fix is only made on the flow's own branch",
+    "fix-readonly": "this flow runs read-only",
+    "fix-no-phase": "the flow has no phase whose rules would hold for a fix",
+    "fix-no-change": "its fix changed nothing",
+    "fix-too-big": "its fix is over the size limit, so it put it back",
+    "fix-never-file": "its fix touched a file only you change, so it put it back",
+    "fix-git-moved": "its fix changed git (a commit, a branch or a push)",
 }
 
 

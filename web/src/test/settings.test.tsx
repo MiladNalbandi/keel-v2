@@ -19,7 +19,7 @@ const open = (hash: string) => {
 const fold = (name: string) => screen.findByRole("button", { name });
 
 describe("Settings: the tabs and their links", () => {
-  it("has one menu with the nine tabs (Review since 0.18.65, Resources since 0.20.1); each opens at #/settings/<tab>", async () => {
+  it("has one menu with the eleven tabs (Review since 0.18.65, Resources since 0.20.1, the Notify and Slack plugins'); each opens at #/settings/<tab>", async () => {
     const user = userEvent.setup();
     open("#/settings");
     const menu = await screen.findByRole("navigation", {
@@ -38,6 +38,8 @@ describe("Settings: the tabs and their links", () => {
       "Resources",
       "Plugins",
       "Databases",
+      "Notify",
+      "Slack",
       "Access",
     ]);
     expect(within(menu).getByRole("link", { name: "General" })).toHaveAttribute(

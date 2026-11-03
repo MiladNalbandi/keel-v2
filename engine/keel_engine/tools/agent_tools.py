@@ -60,6 +60,9 @@ class ToolBox:
         self.knowledge = knowledge   # {sections, strict, ...}: with strict on, other docs/knowledge sections are refused
         self._reads: dict[str, tuple[int, int]] = {}   # what this run read (file|range → mtime, size)
         self.readonly = readonly     # run mode readonly: no write, no shell command that changes files or git
+        # 0.21.0 the Supervisor's small fix: it may write files (the phase's rules hold), but no shell command that
+        # changes files or git: no commit, no push, no merge (the same word list as readonly; the hook reads it too)
+        self.shell_readonly = False
         # KeelBot's Fix and side modes: `ask` goes into the guard context (CLI hooks ask the engine at its url), `asker`
         # asks for this ToolBox's own commands (API-key models); both wait for the person's OK (keel_engine/approvals.py)
         self.ask = ask
@@ -177,7 +180,7 @@ class ToolBox:
         return f"Wrote {rel} ({len(content)} bytes)."
 
     def run_command(self, command: str, timeout: int = 300) -> str:
-        why = run_mode.readonly_bash(command) if self.readonly else None
+        why = run_mode.readonly_bash(command) if self.readonly or self.shell_readonly else None
         if why:
             return self._refuse("run_command", "", run_mode.relabel(why, self.readonly_label, self.readonly_note),
                                 command=command)

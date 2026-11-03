@@ -1,0 +1,17 @@
+# Answers as a plugin: content only, so no code of its own runs in keel (docs/plugins/03-security.md, trust level
+# content). scripts/build-plugin.sh packs it: answers-<version>.kplug. engine/tests checks this file, the workflow and
+# what a person must answer in it.
+schema: 1
+name: answers
+title: Answers
+version: 0.1.0
+publisher: keel
+summary: Drafts answers to a customer's or auditor's questions from your code and docs, each with its source. You approve every answer before it goes in the document.
+requires:
+  sdk: 1
+  keel: ">=0.20.2"   # the step key person: true (only a person answers a gate)
+parts:
+  content: content
+per_project: false
+permissions:
+  workspace: read

@@ -51,7 +51,7 @@ describe("registerPage", () => {
         menuGroups()
           .find((g) => g.id === "know")
           ?.pages.map(([id]) => id),
-      ).toEqual(["repo", "review", "helper", "map", "demo-page", "graph", "wiki"]);
+      ).toEqual(["repo", "review", "helper", "map", "demo-page", "graph", "wiki", "library"]);
     } finally {
       off();
     }
@@ -155,20 +155,22 @@ describe("registerSlot and useSlot", () => {
   it("keel's built-in parts fill the step 2 slots", () => {
     const ids = (slot: string) => slotItems(slot).map((i) => i.id);
     // keel 0.18.57 Settings › Connections: the logins for every project first, then Jira per project
-    expect(ids(SLOTS.connectionsKind)).toEqual(["github", "gitlab", "jira"]);
+    expect(ids(SLOTS.connectionsKind)).toEqual(["github", "gitlab", "jira", "linear", "notify", "slack"]);
     // the Database plugin's Databases is a Settings tab of its own
-    expect(ids(SLOTS.settingsTab)).toEqual(["databases"]);
+    expect(ids(SLOTS.settingsTab)).toEqual(["databases", "notify", "slack"]);
     expect(ids(SLOTS.jobsTab)).toEqual(["pipelines", "supervisor"]);
-    expect(ids(SLOTS.toolsCard)).toEqual(["jira-catalog"]);
+    expect(ids(SLOTS.toolsCard)).toEqual(["jira-catalog", "links"]);
     expect(ids(SLOTS.workflowActions).sort()).toEqual(["db", "git"]);
     expect(ids(SLOTS.codeActivity).sort()).toEqual(["db", "git", "review"]);
     expect(ids(SLOTS.codeTab).sort()).toEqual(["branch", "db", "review"]);
     expect(ids(SLOTS.assistant)).toEqual(["keelbot"]);
-    expect(ids(SLOTS.launcherSource)).toEqual(["review", "code", "tasks"]);
+    expect(ids(SLOTS.launcherSource)).toEqual(["review", "code", "tasks", "library"]);
     // the Code Review plugin's thread settings (a section that draws itself)
-    expect(ids(SLOTS.settingsSection)).toEqual(["review-threads"]);
+    expect(ids(SLOTS.settingsSection)).toEqual(["review-threads", "supervisor"]);
+    expect(ids(SLOTS.flowChip)).toEqual(["supervisor"]);
+    expect(ids(SLOTS.inboxNote)).toEqual(["supervisor"]);
     // step 3: the Tasks plugin's cards in the Inbox
-    expect(ids(SLOTS.inboxCard)).toEqual(["tasks"]);
+    expect(ids(SLOTS.inboxCard)).toEqual(["desk", "goals", "tasks"]);
   });
 
   it("Settings shows a part's section after keel's own", async () => {
@@ -269,8 +271,11 @@ describe("the menu and the links stay as they were", () => {
       pages: [
         ["flow", "Flow"],
         ["tasks", "Tasks"],
+        ["goals", "Goals"],
+        ["desk", "Desk"],
         ["inbox", "Inbox"],
         ["live", "Live agents"],
+        ["record", "Record"],
         ["jobs", "Jobs"],
       ],
     },
@@ -285,6 +290,7 @@ describe("the menu and the links stay as they were", () => {
         ["map", "Map"],
         ["graph", "Graph"],
         ["wiki", "Wiki"],
+        ["library", "Library"],
       ],
     },
     {

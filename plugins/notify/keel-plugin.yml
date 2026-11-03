@@ -1,0 +1,19 @@
+# Notify as a plugin. scripts/build-plugin.sh packs it: notify-<version>.kplug. Nothing is sent until a person adds a
+# channel in Settings › Notify. Channels live in keel's kv table, their webhook addresses and passwords in keel's encrypted
+# secret store (plugin.notify.<id>.*). Each part is written on one line (scripts/build-plugin.sh reads them).
+schema: 1
+name: notify
+title: Notify
+version: 0.1.0
+publisher: keel
+summary: A chat or mail message when a flow waits for you in the Inbox. It sends only through a channel you add, and only short lines, never code.
+requires:
+  sdk: 1
+parts:
+  api: { jars: [api/keel-plugin-notify.jar] }
+  web: { entry: web/index.js }
+per_project: false
+permissions:
+  secrets: [notify-chat, notify-mail]
+  network: [from-connections]
+  pages: true

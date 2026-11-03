@@ -47,7 +47,7 @@ def test_a_content_name_of_keels_is_an_error(tmp_path, run):
 
 def test_keels_own_plugins_use_none_of_keels_names():
     folders = [p for p in sorted((REPO / "plugins").iterdir()) if (p / "keel-plugin.yml").is_file()] + [REPO / "product"]
-    assert len(folders) == 13
+    assert len(folders) == 21
     for folder in folders:
         report = Report(str(folder))
         _content_names(folder, read(folder), report)

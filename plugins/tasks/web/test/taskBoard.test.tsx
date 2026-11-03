@@ -247,10 +247,10 @@ describe("Tasks (new page): the board", () => {
       within(screen.getByTestId("sync-line")).getByRole("link", {
         name: "Connect Jira",
       }),
-    ).toHaveAttribute("href", "#/connections");
+    ).toHaveAttribute("href", "#/settings/connections");
     expect(
       main().getAllByRole("link", { name: "Connect Jira" })[0],
-    ).toHaveAttribute("href", "#/connections");
+    ).toHaveAttribute("href", "#/settings/connections");
   });
 
   it("New task makes a task and opens it", async () => {
@@ -287,6 +287,23 @@ describe("Tasks (new page): the board", () => {
       await screen.findByRole("dialog", { name: "ABC-9 · Export the scores" }),
     ).toBeInTheDocument();
   });
+});
+
+describe("Tasks (new page): a name on a task", () => {
+  it("is a filter of its own, and the board says it is a label", async () => {
+    addTesting();
+    await openTasks();
+    const board = await main().findByLabelText("Task board");
+    const pick = main().getByLabelText("Assigned to");
+    expect(pick.closest("label")).toHaveAttribute("title", expect.stringContaining("a label, not an account"));
+    expect(within(board).getByText("Cart totals in cents")).toBeInTheDocument();
+    await userEvent.selectOptions(pick, "Someone Else");
+    await waitFor(() => expect(within(board).queryByText("Cart totals in cents")).toBeNull());
+    expect(within(board).getByText("Coupon codes ignore case")).toBeInTheDocument();
+    await userEvent.selectOptions(pick, "");
+    expect(await within(board).findByText("Cart totals in cents")).toBeInTheDocument();
+  });
+
 });
 
 describe("Tasks: the Classic view switch", () => {

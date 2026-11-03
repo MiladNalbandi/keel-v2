@@ -45,6 +45,7 @@ create table if not exists keel_threads (
 
 
 CONTINUE_GRACE = float(os.environ.get("KEEL_CONTINUE_GRACE", "60"))
+REQUEST_RECORD_MAX = 20_000     # the most of a flow's request its thread.started event keeps
 
 
 class EngineError(Exception):
@@ -416,11 +417,17 @@ class Engine:
                    "acs": len(state["acs"]), "fake": ctx.fake}
         if body.get("parent"):
             started["parent"] = body["parent"]
+        if ctx.request:
+            started["request"] = ctx.request[:REQUEST_RECORD_MAX]    # what the person asked for, in their words (the Record plugin)
         if isinstance((body.get("data") or {}).get("worktree"), dict):
             started["worktree"] = body["data"]["worktree"]      # its own worktree (bug.own_worktree): the api records it
         via = (body.get("data") or {}).get("started_via")
-        if via in ("mcp", "tui", "xal"):
+        if via in ("mcp", "tui", "xal", "slack"):
             started["via"] = via            # v0.15.8 keel_start_flow (keel2 mcp --write), keel TUI's /flow, xal: the timeline says so
+        # 0.21.0 a start from Slack names who pressed its button (the api's route never lets a client send this)
+        by = (body.get("data") or {}).get("started_by")
+        if via == "slack" and isinstance(by, str) and by.startswith("slack:"):
+            started["by"] = by[:200]
         if check and check.get("note"):
             started["note"] = check["note"]  # 0.18.64 how far the base is behind each remote; a failed fetch said plainly
             started["remotes"] = check["remotes"]
@@ -620,6 +627,10 @@ class Engine:
                                                                    str(waiting.get("step") or ""))
             if waiting.get("id"):
                 out["waiting"]["id"] = waiting["id"]
+            if waiting.get("person"):
+                out["waiting"]["person"] = True     # a workflow's person: true: only a person answers it
+            if waiting.get("gate_kind"):
+                out["waiting"]["gate_kind"] = waiting["gate_kind"]      # run_mode.KINDS: what kind of pause this is
             if waiting.get("ac"):
                 # 0.18.64 an AC gate names its criterion: the web loads its code (GET /threads/{tid}/ac-code)
                 out["waiting"]["ac"] = waiting["ac"]
@@ -715,8 +726,8 @@ class Engine:
 
     async def resume(self, tid: str, decision: str, why: str | None, payload: dict | None,
                      question_id: str | None = None, by: str | None = None) -> dict:
-        """`by` names who answers when it is not the person (an in-process caller only, the Supervisor: no route passes
-        it); the step's gate.decided events carry it (ThreadContext.answer_by)."""
+        """`by` names who answers when it is not at keel's own screens (the Supervisor in process; the api's Slack plugin, with
+        the internal token: slack:<who>); the step's gate.decided events carry it (ThreadContext.answer_by)."""
         # The checks below await; without the lock two calls both pass "not running" and start two drivers on one thread.
         async with self._resuming.setdefault(tid, asyncio.Lock()):
             return await self._resume(tid, decision, why, payload, question_id, by)

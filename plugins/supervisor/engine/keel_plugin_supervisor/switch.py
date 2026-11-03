@@ -10,10 +10,13 @@ A flow's own switch (settings.supervisor.on: true, false or unset) is in the flo
 
     get_keel() -> bool                   project(pid) -> {"on": bool, "plugin": bool} | None
     put(keel=None, projects=None)        projects: {pid: {"on": bool | None, "plugin": bool | None}}
+    defaults() -> {mode, stall_minutes}  keel-wide (Settings › General › Supervisor); a flow's own settings win
+    put_defaults(values)
 """
 
 from __future__ import annotations
 
+import json
 from contextlib import contextmanager
 
 from keel_engine.runtime import db
@@ -22,7 +25,11 @@ KEEL = "*"
 _TABLE = """create table if not exists supervisor_switch (
   scope text primary key, on_ integer, plugin integer, at text not null
 )"""
+_DEFAULTS_TABLE = """create table if not exists supervisor_defaults (
+  name text primary key, value text not null, at text not null
+)"""
 _ready: set[str] = set()
+DEFAULT_KEYS = ("mode", "stall_minutes")
 
 
 @contextmanager
@@ -31,6 +38,7 @@ def _db():
         p = str(db.path())
         if p not in _ready:
             conn.execute(_TABLE)
+            conn.execute(_DEFAULTS_TABLE)
             _ready.add(p)
         yield conn
 
@@ -50,6 +58,20 @@ def project(pid: str) -> dict | None:
     if r is None:
         return None
     return {"on": bool(r[0]), "plugin": None if r[1] is None else bool(r[1])}
+
+
+def defaults() -> dict:
+    with _db() as conn:
+        rows = conn.execute("select name, value from supervisor_defaults").fetchall()
+    return {k: json.loads(v) for k, v in rows if k in DEFAULT_KEYS}
+
+
+def put_defaults(values: dict | None) -> None:
+    with _db() as conn:
+        for k, v in (values or {}).items():
+            if k in DEFAULT_KEYS and v is not None:
+                conn.execute("insert into supervisor_defaults (name, value, at) values (?,?,?) on conflict(name) do update "
+                             "set value = excluded.value, at = excluded.at", (k, json.dumps(v), db.now()))
 
 
 def _put(conn, scope: str, on: bool | None, plugin: bool | None) -> None:

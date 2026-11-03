@@ -18,15 +18,16 @@ _TABLE = """create table if not exists supervisor_decisions (
   kind text, title_key text, trigger text not null, action text not null, decision text, choice text, answers_json text,
   why text, confidence text, evidence_json text, code text, summary text, model text, effort text,
   tokens integer not null default 0, cost_usd real not null default 0, ms integer not null default 0,
-  outcome text not null, at text not null, commands_json text
+  outcome text not null, at text not null, commands_json text, patch text
 )"""
 # 0.18.64 the commands of an own_fix verdict: a table made before has no such column yet
 _ADD = "alter table supervisor_decisions add column commands_json text"
+_ADD_PATCH = "alter table supervisor_decisions add column patch text"    # 0.21.0 a fix it put back
 _INDEX = "create index if not exists supervisor_decisions_thread on supervisor_decisions (thread_id, at)"
 _ready: set[str] = set()
 COLS = ("id", "project_id", "thread_id", "question_id", "step", "ac", "kind", "title_key", "trigger", "action",
         "decision", "choice", "answers_json", "why", "confidence", "evidence_json", "code", "summary", "model", "effort",
-        "tokens", "cost_usd", "ms", "outcome", "at", "commands_json")
+        "tokens", "cost_usd", "ms", "outcome", "at", "commands_json", "patch")
 
 
 @contextmanager
@@ -36,8 +37,11 @@ def _db():
         if p not in _ready:
             conn.execute(_TABLE)
             conn.execute(_INDEX)
-            if "commands_json" not in {r[1] for r in conn.execute("pragma table_info(supervisor_decisions)")}:
+            have = {r[1] for r in conn.execute("pragma table_info(supervisor_decisions)")}
+            if "commands_json" not in have:
                 conn.execute(_ADD)
+            if "patch" not in have:
+                conn.execute(_ADD_PATCH)
             _ready.add(p)
         yield conn
 

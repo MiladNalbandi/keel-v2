@@ -4,13 +4,14 @@
 //   Connections ─ connections.kind     Jobs ─ jobs.tab          Tools ─ tools.card       Settings ─ settings.section
 //   Workflows ── workflow.actions      Code ─ code.activity, code.tab, assistant        ⌘K ─ launcher.source
 //   Inbox ────── inbox.card (step 3)   Map (the Map plugin's page, step 3) ─ map.er.query
+//   Flow ─────── flow.panel (a part's panel under a flow's steps: the Record plugin)
 //   KeelBot ──── keelbot.card (step 3: a plugin's button for its blocks in an answer, ```keel-query```, ```keel-git```)
 //   the shell ── nav.badge, shell.watch (0.15.2: KeelBot's count of new answers on its menu entry, and its watcher)
 //   ⌘/ ───────── keys.area (0.15.4: a part's keys in the key cheat sheet: Code, Code Review, KeelBot)
 //   the bell ─── notes.setting       Settings › This browser ─ settings.browser (0.15.2: KeelBot's own sound)
 
 import type { ComponentType, ReactNode } from "react";
-import type { GraphHit, HelperSelection } from "../api";
+import type { GraphHit, HelperSelection, ThreadState } from "../api";
 import type { KeyArea } from "../keys";
 import type { InboxItem } from "../inboxApi";
 import type { Item, Kind, Query, Recent } from "../components/launcher/model";
@@ -55,6 +56,12 @@ export const SLOTS = {
   settingsBrowser: "settings.browser",
   /** keel 0.18.57 Settings: a part's own tab in the settings menu (the Database plugin's Databases), #/settings/<id> */
   settingsTab: "settings.tab",
+  /** the Flow page: a part's panel under a flow's steps, for the flow shown (live or an earlier run) */
+  flowPanel: "flow.panel",
+  /** 0.21.0 the Flow page: a small chip in the flow's header (the Supervisor's state) */
+  flowChip: "flow.chip",
+  /** 0.21.0 Inbox: a note on a flow's own card, which may fill in the answer (the Supervisor's suggestion) */
+  inboxNote: "inbox.note",
 } as const;
 
 /** A part's piece is shown only while this project has the plugin on (Control › Plugins), when it names one. */
@@ -120,6 +127,19 @@ export type SettingsSectionProps = { pid: string; scope: "general" | "project" }
 /** Workflows: a code step whose action starts with `prefix` is a plugin's block: it takes `with:` settings, and the
  *  editor says so when the plugin is off. */
 export type WorkflowActionsItem = SlotItem & ForPlugin & { prefix: string };
+
+/** the Flow page: a panel under a flow's steps. `readOnly`: an earlier run, opened read only. */
+export type FlowPanelProps = { pid: string; thread: ThreadState; readOnly: boolean };
+export type FlowPanelItem = SlotItem & { component: ComponentType<FlowPanelProps> };
+
+/** 0.21.0 the Flow page's header: a chip. `readOnly`: an earlier run. */
+export type FlowChipProps = { pid: string; thread: ThreadState; readOnly: boolean };
+export type FlowChipItem = SlotItem & { component: ComponentType<FlowChipProps> };
+
+/** 0.21.0 what a note may put in the card's form. It only fills it in: the person still sends the answer. */
+export type InboxFill = { why?: string; choice?: string; answers?: Record<string, string | string[]> };
+export type InboxNoteProps = { item: InboxItem; fill: (f: InboxFill) => void };
+export type InboxNoteItem = SlotItem & { component: ComponentType<InboxNoteProps> };
 
 /** Inbox: what a card gets. `cardKey` goes on the card's root as data-key (with data-testid="inbox-item" and
  *  tabIndex -1): after an answer the Inbox moves the focus to the next card. */
