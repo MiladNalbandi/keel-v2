@@ -256,7 +256,8 @@ BUILTINS: list[dict] = [
      "words": "keel's own keys (its internal token and the sign-in key) are never read, printed, changed or sent by an "
               "agent: with them anyone could act as keel or as you."},
     {"id": "migrations-immutable", "kind": "edit", "phases": "always", "can_off": False,
-     "words": "An existing database migration is never changed; a new migration file is added instead."},
+     "words": "A database migration that is on the base branch is never changed; a new migration file is added "
+              "instead. A migration the current branch added may still be corrected before it merges."},
     {"id": "force-push", "kind": "shell", "phases": "always", "can_off": False,
      "words": "git push --force and git push -f are refused: they can delete other people's work."},
     {"id": "no-verify", "kind": "shell", "phases": "always", "can_off": False,
@@ -548,6 +549,27 @@ def unlocked(unlocks: list[dict] | None, rel: str, phase: str) -> bool:
     return any(_rel(u.get("path", "")) == rel and u.get("phase") == phase for u in unlocks or [])
 
 
+def migration_on_base(root: str | None, rel: str) -> bool:
+    """0.22.0 is this migration already on the branch's base (the merge base of the base branch and HEAD)? Only those
+    are immutable: a migration the current branch added, committed or not, may still be corrected before it merges.
+    True whenever keel cannot tell (no root, no git, no base), so the guard stays as strict as before."""
+    if not root:
+        return True
+    from ..runtime import verdict_actions
+    from ..tools import git
+
+    try:
+        if not git.is_repo(root):
+            return True
+        base = verdict_actions.base_ref(root, load_config(root))
+        mb = git.git(root, "merge-base", base, "HEAD") if base else None
+        if not mb or mb.returncode != 0 or not mb.stdout.strip():
+            return True
+        return git.git(root, "cat-file", "-e", f"{mb.stdout.strip()}:{rel}").returncode == 0
+    except Exception:  # noqa: BLE001 a broken repository keeps the strict rule
+        return True
+
+
 def check_edit(phase: str, path: str, cfg: dict | None = None, *, exists: bool = False,
                lane: str | None = None, flow_active: bool = True, unlocks: list[dict] | None = None) -> Verdict:
     """May a file be written in this phase? `exists` = the file is already there (for new-only rules)."""
@@ -567,7 +589,10 @@ def check_edit(phase: str, path: str, cfg: dict | None = None, *, exists: bool =
     if bucket in ALWAYS_DENY:
         return Verdict(False, bucket, f"{rel} {ALWAYS_DENY[bucket]}")
     if bucket == "migration" and exists:
-        return Verdict(False, bucket, f"{rel} is an existing migration and is immutable. Add a new migration file instead.")
+        if migration_on_base(cfg.get("root"), rel):
+            return Verdict(False, bucket, f"{rel} is a migration on the base branch and is immutable. Add a new "
+                                          "migration file instead.")
+        exists = False  # this branch added it: for the phase rules ("new-only") it is still a new file
     if unlocked(unlocks, rel, phase):
         return Verdict(True, bucket, note="unlocked")
     v = pack_verdict(cfg, "edit", phase, rel, lane)
