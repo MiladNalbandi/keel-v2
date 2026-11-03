@@ -339,15 +339,27 @@ def stalls(client, now):
     return client.portal.call(lambda: sup_of(client).check_stalls(now=now))
 
 
+def stall_after(client, tid, seconds):
+    """check_stalls `seconds` after the flow's last event, read in the same call. On a slow machine the flow's start
+    can still send an event after settled_last, which moves its last event past a time fixed before."""
+    sup = sup_of(client)
+    for _ in range(5):
+        seen = sup.last[tid]
+        got = client.portal.call(lambda: sup.check_stalls(now=seen + seconds))
+        if got or sup.last.get(tid) == seen:
+            return got
+    return got
+
+
 def test_a_quiet_flow_gets_one_look_per_stall_and_its_step_is_not_stopped(client, repo, script, monkeypatch):
     script({"action": "escalate", "confidence": "low", "why": "x", "summary": "It seems to wait for a slow build."})
     tid, go_on = quiet_flow(client, repo, monkeypatch, {"stall_minutes": 10})
     try:
-        last = settled_last(client, tid)
-        assert stalls(client, last + 9 * 60) == []              # not yet
-        assert stalls(client, last + 10 * 60) == [tid]
+        settled_last(client, tid)
+        assert stall_after(client, tid, 9 * 60) == []           # not yet
+        assert stall_after(client, tid, 10 * 60) == [tid], why_no_stall(client, tid, None)
         idle(client)
-        assert stalls(client, last + 30 * 60) == []             # once per stall
+        assert stall_after(client, tid, 30 * 60) == []          # once per stall
         idle(client)
         got = events(client, tid, "supervisor.escalated")
         assert [e["code"] for e in got] == ["stalled"] and got[0]["summary"] == "It seems to wait for a slow build."
@@ -367,8 +379,9 @@ def test_a_new_event_ends_the_stall_and_a_later_one_gets_its_own_look(client, re
     tid, go_on = quiet_flow(client, repo, monkeypatch, {"stall_minutes": 10})
     try:
         sup = sup_of(client)
-        last = settled_last(client, tid)
-        assert stalls(client, last + 600) == [tid]
+        settled_last(client, tid)
+        assert stall_after(client, tid, 600) == [tid], why_no_stall(client, tid, None)
+        last = sup.last[tid]
         idle(client)
         client.bus.emit("agent.text", tid, "demo", data={"text": "working"})
         again = sup.last[tid]
@@ -406,7 +419,7 @@ def test_a_stall_over_budget_still_asks_without_a_turn(client, repo, script, mon
     script(GOOD)
     tid, go_on = quiet_flow(client, repo, monkeypatch, {"stall_minutes": 10, "cap_tokens": 0})
     try:
-        assert stalls(client, sup_of(client).last[tid] + 600) == [tid]
+        assert stall_after(client, tid, 600) == [tid], why_no_stall(client, tid, None)
         idle(client)
         [esc, skipped] = rows(tid)
         assert esc["code"] == "stalled" and "10 minutes" in esc["summary"] and skipped["code"] == "budget-own" and not esc["tokens"]
