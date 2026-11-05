@@ -1,0 +1,10 @@
+# The Cluster plugin (plugins/cluster, engine keel_plugin_cluster). Turned on per project in Control › Plugins. KeelBot and the
+# agents that may use it read the cluster through its tools; a command or a change follows the context's access in Cluster › Connect.
+name: cluster
+title: Cluster
+installable: true
+description: See Kubernetes clusters like k9s - pods, IPs, logs, events - and which commit runs where. A change waits for your OK.
+tools:
+  server: keel-cluster
+  read: [cluster_find, cluster_logs, cluster_describe]
+shows_in: [keelbot, inbox]

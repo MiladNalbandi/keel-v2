@@ -79,7 +79,7 @@
 # data volume, so they survive restarts and new images. Nothing from your computer is copied into the container.
 set -euo pipefail
 
-KEEL2_VERSION="0.22.0"
+KEEL2_VERSION="0.23.0"
 IMAGE="${KEEL_IMAGE:-ghcr.io/miladnalbandi/keel-v2:latest}"
 # keel's core only (docs/plugins/16-steps5-7-contract.md, step 6): keel2 start --core, unless KEEL_IMAGE is set
 CORE_IMAGE="ghcr.io/miladnalbandi/keel-v2:core"
@@ -594,6 +594,11 @@ cmd_start() {
   # keel v1 is not part of keel v2: a checkout given with --with-keel-v1 is mounted read-only, and only its MCP
   # server is offered (off) in Tools, like any other MCP server.
   if [ -n "$keel_v1" ]; then args+=(-v "$keel_v1:/opt/keel-v1-optional:ro"); fi
+  # keel 0.23.0 the Cluster plugin runs kubectl with this computer's kubeconfig: ~/.kube is mounted read-only (KEEL2_KUBE=0:
+  # not mounted). keel copies no token; kubectl's cache goes to keel's data, not to ~/.kube.
+  if [ "${KEEL2_KUBE:-1}" != 0 ] && [ -d "$HOME/.kube" ]; then
+    args+=(-v "$HOME/.kube:/home/keel/.kube:ro")
+  fi
   if [ "$docker_mode" = 1 ]; then
     # The host's Docker runs the containers tests start. The project is mounted at the SAME path as on this
     # computer, so bind mounts that tests ask the host Docker for (Testcontainers, compose) point at real folders.
