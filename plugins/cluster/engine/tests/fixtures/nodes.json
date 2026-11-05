@@ -1,0 +1,6 @@
+{"items": [{"kind": "Node", "metadata": {"name": "node-a", "labels": {"node-role.kubernetes.io/control-plane": ""}},
+  "status": {"addresses": [{"type": "InternalIP", "address": "192.168.49.2"}], "conditions": [{"type": "Ready", "status": "True"}],
+             "nodeInfo": {"kubeletVersion": "v1.31.2"}, "allocatable": {"cpu": "4", "memory": "8Gi"}}},
+ {"kind": "Node", "metadata": {"name": "node-b", "labels": {}},
+  "status": {"addresses": [{"type": "InternalIP", "address": "192.168.49.3"}], "conditions": [{"type": "Ready", "status": "False"}],
+             "nodeInfo": {"kubeletVersion": "v1.31.2"}, "allocatable": {"cpu": "4", "memory": "8Gi"}}}]}

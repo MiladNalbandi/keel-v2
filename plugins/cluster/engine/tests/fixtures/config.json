@@ -1,0 +1,8 @@
+{"current-context": "kind-dev",
+ "clusters": [{"name": "kind-dev", "cluster": {"server": "https://127.0.0.1:42133", "certificate-authority-data": "DATA+OMITTED"}},
+              {"name": "staging", "cluster": {"server": "https://k8s.staging.example.net"}},
+              {"name": "far", "cluster": {"server": "https://10.9.9.9:6443"}}],
+ "contexts": [{"name": "kind-dev", "context": {"cluster": "kind-dev", "user": "kind-dev"}},
+              {"name": "staging-eu", "context": {"cluster": "staging", "user": "me", "namespace": "shop"}},
+              {"name": "far-away", "context": {"cluster": "far", "user": "me"}}],
+ "users": [{"name": "me", "user": {"token": "REDACTED"}}]}

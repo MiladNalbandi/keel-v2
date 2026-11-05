@@ -1,0 +1,24 @@
+# Cluster as a plugin (issue #82). scripts/build-plugin.sh packs it: cluster-<version>.kplug. The version must equal VERSION in
+# engine/keel_plugin_cluster/__init__.py (engine/tests/test_cluster.py checks it). Each part is written on one line.
+# Everything goes through kubectl with the person's own kubeconfig: keel copies no token. Reading is always allowed on a context
+# that is on; a change (exec, delete, restart, scale) follows the context's access, and an agent's change waits for the person's
+# OK in the Inbox (keel_engine/approvals.py) unless the context is a local one the person set to "change without asking".
+schema: 1
+name: cluster
+title: Cluster
+version: 0.1.0
+publisher: keel
+summary: See the project's Kubernetes clusters like k9s - find a pod by name or IP, read its logs, run a command, and see which commit runs where.
+requires:
+  sdk: 1
+parts:
+  engine: { path: engine, package: keel_plugin_cluster }
+  api: { jars: [api/keel-plugin-cluster.jar] }
+  web: { entry: web/index.js }
+  content: content
+per_project: true
+permissions:
+  network: [from-kubeconfig]
+  workspace: read
+  agent_tools: act
+  pages: true

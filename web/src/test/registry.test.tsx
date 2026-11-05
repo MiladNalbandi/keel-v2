@@ -276,6 +276,7 @@ describe("the menu and the links stay as they were", () => {
         ["inbox", "Inbox"],
         ["live", "Live agents"],
         ["record", "Record"],
+        ["cluster", "Cluster"],  // 0.23.0 the Cluster plugin
         ["jobs", "Jobs"],
       ],
     },

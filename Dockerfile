@@ -157,6 +157,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && git config --system --add safe.directory '*' \
     && git config --system user.name "keel" && git config --system user.email "keel@localhost"
 
+# kubectl for the Cluster plugin (plugins/cluster): a pinned release, checked against its sha256. keel2 mounts the host's
+# ~/.kube read-only, so kubectl uses the person's own kubeconfig.
+ARG KUBECTL_VERSION=v1.32.3
+ARG KUBECTL_SHA256_AMD64=ab209d0c5134b61486a0486585604a616a5bb2fc07df46d304b3c95817b2d79f
+ARG KUBECTL_SHA256_ARM64=6c2c91e760efbf3fa111a5f0b99ba8975fb1c58bb3974eca88b6134bcf3717e2
+RUN arch="$(dpkg --print-architecture)"; \
+    case "$arch" in amd64) sum="$KUBECTL_SHA256_AMD64" ;; arm64) sum="$KUBECTL_SHA256_ARM64" ;; *) echo "no kubectl for $arch" >&2; exit 1 ;; esac; \
+    curl -fsSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${arch}/kubectl" \
+    && echo "$sum  /usr/local/bin/kubectl" | sha256sum -c - \
+    && chmod 0755 /usr/local/bin/kubectl && kubectl version --client >/dev/null
+
 # The agent CLIs, and CodeGraph (the code index agents query through MCP; content/NOTICE.md). CodeGraph is pinned:
 # keel parses its `status --json` and starts `serve --mcp`.
 ARG CODEGRAPH_VERSION=1.6.2

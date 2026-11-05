@@ -887,6 +887,7 @@ the budget and connections. Each other part is a plugin with its own version:
 | **Slack** | ask how work goes, answer a gate, make and assign a task from Slack; off until you turn them on: a read-only chat, starting flows, every gate. keel connects out, so it needs no public address | Tasks |
 | **Supervisor** | a strong model that looks at each gate from your project's context; it suggests, or answers, retries and makes small fixes in the mode you pick (below) | |
 | **Goals** | one goal with limits, split into steps by an agent; you approve the plan and start each flow | |
+| **Cluster** | Kubernetes like k9s, with your own kubeconfig: find a pod by name or IP, read its logs, run a command, see which commit runs where; a change follows the cluster's access, and an agent's change waits for your OK | |
 
 **Settings › Plugins** (`#/settings/plugins`) has these tabs:
 

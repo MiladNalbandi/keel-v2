@@ -3637,3 +3637,30 @@ keel_agent_start(..., model)       // an alias or an exact id; the answer names 
 - **#77** `tools.existing()` drops the files git ignores (`git check-ignore --no-index`, so a tracked but ignored file
   such as a generated `next-env.d.ts` is caught too): the lint scope, after-edit and pre-commit tools never get them. A
   manual tool that runs on the whole folder (`eslint .`) follows the tool's own ignore settings.
+
+
+## keel 0.23.0: the Cluster plugin (issue #82)
+
+A new plugin, `cluster` 0.1.0 (plugins/cluster, README there): Kubernetes through kubectl with the person's own kubeconfig. The image
+has kubectl (pinned, sha256 checked); `keel2` mounts `~/.kube` read-only at `/home/keel/.kube` (`KEEL2_KUBE=0`: not mounted), and
+kubectl's cache goes to `$KEEL_DATA/cluster/cache`.
+
+```
+GET  /api/plugins/cluster/contexts        -> {kubectl, kubectl_version, kubeconfig, in_docker, contexts: [{name, cluster, server, namespace, current, local, on, access}]}
+PUT  /api/plugins/cluster/settings        {clusters: {name: {on?, access?: read|ask|free}}}   // partial; "free" on a context that is not local is saved as "ask"; another access: 400
+POST /api/plugins/cluster/test            {context} -> {ok, ms, version?, nodes?, error?, hint?}   // also for a context that is off
+GET  /api/plugins/cluster/snapshot        ?context&ns -> {context, at, namespaces, pods, deployments, services, nodes, events, ingresses, problems, metrics, warnings}
+GET  /api/plugins/cluster/logs            ?context&ns&name&container&previous&tail -> {lines, container, containers, note?}
+GET  /api/plugins/cluster/describe        ?context&kind&ns&name -> {text}   // not secret or configmap
+POST /api/plugins/cluster/exec            {context, ns, name, container, command} -> {output, code}   // sh -c, 30 s, 64 KB
+POST /api/plugins/cluster/change          {context, action: delete|restart|scale, kind, ns, name, replicas} -> {done, message}
+GET  /api/plugins/cluster/runs            ?pid -> {repo: {remote, web, base, head} | null, contexts, apps: [{name, ns, by: {ctx: {commit, state, behind, subject, pr}}}], errors}
+GET  /api/plugins/cluster/history         -> {items: [{at, who, context, action, target, result}]}
+engine: POST /plugins/cluster/{op}        the same ops; the api adds access and who for exec and change, root and the contexts that are on for runs
+```
+
+A context that is off answers 403 for every call but `test`; exec and change on `read` answer 403. A kubectl failure is 409
+`{error, hint}`. Agent tools (server keel-cluster): read `cluster_find`, `cluster_logs`, `cluster_describe`; act `cluster_exec`,
+`cluster_change`. Their rules come with the call as the key `cluster:access` (`{context: access}` of the contexts that are on, only
+for a project with the plugin on); `ask` opens an approval (kind `plugin`, source `plugin:cluster`) and runs only after a yes. Every
+exec and change is a line in `$KEEL_DATA/cluster/history.jsonl`.
