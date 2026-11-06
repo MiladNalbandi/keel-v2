@@ -3664,3 +3664,22 @@ A context that is off answers 403 for every call but `test`; exec and change on 
 `cluster_change`. Their rules come with the call as the key `cluster:access` (`{context: access}` of the contexts that are on, only
 for a project with the plugin on); `ask` opens an approval (kind `plugin`, source `plugin:cluster`) and runs only after a yes. Every
 exec and change is a line in `$KEEL_DATA/cluster/history.jsonl`.
+
+## keel 0.23.1: GKE sign-in without gcloud (issue #85)
+
+The `cluster` plugin 0.2.0 signs in to GKE contexts with a Google service account instead of gcloud's `gke-gcloud-auth-plugin`.
+
+```
+GET  /api/plugins/cluster/google          -> {source: vertex|own|off, email, own_key_set, own_email, vertex_email}   // never a key
+PUT  /api/plugins/cluster/google          {source?, credentials_json?, clear_credentials?} -> the same   // 400: another source, a JSON that is not a service-account key, own without a key
+GET  /api/plugins/cluster/contexts        each context also has auth: gke|gke-path|gcp|exec|kubeconfig; the answer also has google (as above)
+POST /api/plugins/cluster/test            -> also as: the account a GKE context signed in as; note (ok with nodes null): reached, but may not list the nodes
+engine: POST /plugins/cluster/{op}        test, snapshot, logs, describe, exec, change and runs also take google: the key JSON, or null
+```
+
+`source` `vertex` (the default) uses the secret `VERTEX_CREDENTIALS` of Connections › Vertex AI, `own` the secret
+`CLUSTER_GOOGLE_CREDENTIALS`, `off` none. Agent calls of a project with the plugin on carry the key as `cluster:google`. For a context
+whose user runs `gke-gcloud-auth-plugin` (by that name), the engine makes an access token from the key (google-auth, scopes
+cloud-platform and userinfo.email, made again shortly before it runs out) and runs kubectl with `$KEEL_DATA/cluster/bin` first on
+its PATH: keel's `gke-gcloud-auth-plugin` there prints the token from its environment as an `ExecCredential`. Other contexts never
+get the token. A failed kubectl run's error is now kubectl's own error line (not its last line, which can be a link).

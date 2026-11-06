@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -105,7 +106,8 @@ def test_contexts_give_names_and_servers_only(kube_env):
     c = kube.contexts()
     assert c["kubectl"] and c["kubectl_version"] == "v1.32.3"
     by = {r["name"]: r for r in c["contexts"]}
-    assert set(by) == {"kind-dev", "staging-eu", "far-away"}
+    assert set(by) == {"kind-dev", "staging-eu", "far-away", "gke-prod"}
+    assert by["gke-prod"]["auth"] == "gke" and by["staging-eu"]["auth"] == "kubeconfig"
     assert by["kind-dev"]["local"] and by["kind-dev"]["current"] and not by["staging-eu"]["local"]
     assert by["staging-eu"]["namespace"] == "shop"
     assert "REDACTED" not in json.dumps(c) and "token" not in json.dumps(c)
@@ -307,3 +309,233 @@ def test_web_urls_and_pull_requests():
     assert core.web_url("git@github.com:example/shop.git") == "https://github.com/example/shop"
     assert core.web_url("https://token@gitlab.example.net/team/app.git") == "https://gitlab.example.net/team/app"
     assert core.pr_of("Merge pull request #81 from x/y") == "#81" and core.pr_of("Fix (#7)") == "#7" and core.pr_of("Fix") is None
+
+
+# ---------- GKE sign-in with a Google service account (issue #85) ----------
+
+def _sa_key(email="keel-clusters@demo-project.iam.gserviceaccount.com") -> str:
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    pem = rsa.generate_private_key(public_exponent=65537, key_size=2048).private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()).decode()
+    return json.dumps({"type": "service_account", "project_id": "demo-project", "private_key_id": "k1", "private_key": pem,
+                       "client_email": email, "client_id": "1", "token_uri": "https://oauth2.googleapis.com/token"})
+
+
+@pytest.fixture
+def google(kube_env, monkeypatch):
+    """A service-account key whose token Google 'gives' without the network; the fake cluster accepts that token."""
+    from google.oauth2 import service_account
+    from keel_plugin_cluster import gke
+
+    made = []
+
+    def refresh(self, _request):
+        import datetime as dt
+        made.append(self.service_account_email)
+        self.token = f"ya29.token-{len(made)}"
+        self.expiry = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None) + dt.timedelta(hours=1)  # google-auth: naive UTC
+
+    monkeypatch.setattr(service_account.Credentials, "refresh", refresh)
+    monkeypatch.setattr(gke, "_CREDS", {})
+    monkeypatch.setenv("FAKE_GKE_ACCEPTS", "ya29.token-1")
+    kube_env.made = made
+    return _sa_key()
+
+
+def _creds_seen(kube_env) -> list[dict]:
+    p = Path(str(Path(kube_env.dir).parent / "calls.log") + ".cred")
+    return [json.loads(line) for line in p.read_text().splitlines()] if p.exists() else []
+
+
+def test_a_gke_context_without_a_google_key_says_where_to_set_one(kube_env):
+    r = kube.test("gke-prod")
+    assert not r["ok"] and "gke-gcloud-auth-plugin" in r["error"]
+    assert "Cluster › Connect › Google Cloud" in r["hint"]
+
+
+def test_a_gke_context_signs_in_with_the_key_and_the_token_stays_out_of_argv(kube_env, google):
+    from keel_plugin_cluster import gke
+
+    with gke.signin(google):
+        r = kube.test("gke-prod")
+        assert r["ok"] and r["nodes"] == 2 and r["as"] == "keel-clusters@demo-project.iam.gserviceaccount.com"
+        kube.snapshot("gke-prod")
+    creds = _creds_seen(kube_env)
+    assert creds and all(c["status"]["token"] == "ya29.token-1" and c["apiVersion"] == "client.authentication.k8s.io/v1beta1"
+                         for c in creds)
+    assert creds[0]["status"]["expirationTimestamp"].endswith("Z")
+    assert kube_env.made == ["keel-clusters@demo-project.iam.gserviceaccount.com"]  # one token, used again until it runs out
+    assert "ya29" not in json.dumps(kube_env()) and "private_key" not in json.dumps(kube_env())
+    # nothing of the token on disk, only keel's small helper
+    data = Path(os.environ["KEEL_DATA"])
+    assert all("ya29" not in p.read_text(errors="ignore") for p in data.rglob("*") if p.is_file())
+    assert (data / "cluster" / "bin" / "gke-gcloud-auth-plugin").stat().st_mode & 0o777 == 0o700
+
+
+def test_other_contexts_never_get_the_google_token(kube_env, google, monkeypatch):
+    from keel_plugin_cluster import gke
+
+    seen = []
+    real = subprocess.run
+
+    def spy(cmd, **kw):
+        seen.append(("--context" in cmd and cmd[cmd.index("--context") + 1], "KEEL_GKE_TOKEN" in (kw.get("env") or {})))
+        return real(cmd, **kw)
+
+    monkeypatch.setattr(kube.subprocess, "run", spy)
+    with gke.signin(google):
+        kube.snapshot("kind-dev")
+        kube.test("gke-prod")
+    assert ("kind-dev", False) in seen and ("gke-prod", True) in seen
+    assert not any(tok for ctx, tok in seen if ctx != "gke-prod")
+
+
+def test_a_key_the_cluster_does_not_accept_names_the_account_and_the_role(kube_env, google, monkeypatch):
+    from keel_plugin_cluster import gke
+
+    monkeypatch.setenv("FAKE_GKE_ACCEPTS", "another-token")
+    with gke.signin(google):
+        r = kube.test("gke-prod")
+    assert not r["ok"] and "Unauthorized" in r["error"]
+    assert "keel-clusters@demo-project.iam.gserviceaccount.com" in r["hint"] and "Kubernetes Engine Viewer" in r["hint"]
+
+
+@pytest.mark.parametrize("raw,words", [("not json", "not JSON"), ('{"type": "authorized_user"}', "not a service-account key")])
+def test_a_bad_google_key_is_a_400(kube_env, raw, words):
+    from keel_plugin_cluster import gke
+
+    with gke.signin(raw), pytest.raises(kube.ClusterError) as e:
+        kube.snapshot("gke-prod")
+    assert e.value.status == 400 and words in str(e.value)
+
+
+def test_a_user_that_may_not_list_nodes_still_reaches_the_cluster(kube_env):
+    r = kube.test("staging-eu")
+    assert r["ok"] and r["nodes"] is None and "may not list the nodes" in r["note"]
+    assert not kube.test("far-away")["ok"]
+
+
+def test_the_error_is_kubectls_error_line_not_its_link():
+    text = ("Unable to connect to the server: getting credentials: exec: executable gke-gcloud-auth-plugin not found\n\n"
+            "It looks like you are trying to use a client-go credential plugin that is not installed.\n\n"
+            "To learn more about this feature, consult the documentation available at:\n      https://kubernetes.io/docs/x\n")
+    assert kube.error_line(text, 1).startswith("Unable to connect to the server: getting credentials")
+    assert kube.error_line("something odd\n", 1) == "something odd" and kube.error_line("", 3) == "kubectl stopped with code 3."
+
+
+def test_the_kubeconfigs_sign_in_kinds():
+    from keel_plugin_cluster import gke
+
+    assert gke.auth_of({"exec": {"command": "gke-gcloud-auth-plugin"}}) == "gke"
+    assert gke.auth_of({"exec": {"command": "/usr/lib/google-cloud-sdk/bin/gke-gcloud-auth-plugin"}}) == "gke-path"
+    assert gke.auth_of({"exec": {"command": "aws"}}) == "exec"
+    assert gke.auth_of({"auth-provider": {"name": "gcp"}}) == "gcp"
+    assert gke.auth_of({"token": "x"}) == "kubeconfig"
+
+
+def test_routes_and_agents_take_the_key_with_the_call(kube_env, google, bus):
+    app = FastAPI()
+    app.include_router(router)
+    with TestClient(app) as http:
+        assert http.post("/plugins/cluster/test", json={"context": "gke-prod", "google": google}).json()["ok"] is True
+        assert http.post("/plugins/cluster/test", json={"context": "gke-prod"}).json()["ok"] is False
+    call = {"keys": {"cluster:access": json.dumps({"gke-prod": "read"}), "cluster:google": google}, "bus": bus}
+    assert "[gke-prod] access read, 2 nodes" in tools.call_tool(call, "cluster_find", {"context": "gke-prod"})
+    call["keys"].pop("cluster:google")
+    assert "Cluster › Connect › Google Cloud" in tools.call_tool(call, "cluster_find", {"context": "gke-prod"})
+
+
+def _real_kubectl() -> str | None:
+    import os as _os
+
+    return _os.environ.get("KEEL_TEST_KUBECTL") or shutil.which("kubectl")
+
+
+@pytest.mark.skipif(_real_kubectl() is None, reason="needs a real kubectl (KEEL_TEST_KUBECTL or kubectl on PATH)")
+def test_real_kubectl_runs_keels_helper_and_sends_the_token(tmp_path, monkeypatch):
+    """The whole way with the real kubectl: it finds keel's gke-gcloud-auth-plugin on PATH, runs it, and sends its token to the API
+    server (a small stand-in that answers only with that token). HTTPS, as GKE is: kubectl runs no exec helper for a plain http server."""
+    import base64
+    import datetime as dt
+    import ipaddress
+    import ssl
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.x509.oid import NameOID
+
+    from keel_plugin_cluster import gke
+
+    seen: list[str] = []
+    resources = {"kind": "APIResourceList", "groupVersion": "v1", "resources": [
+        {"name": "nodes", "singularName": "node", "namespaced": False, "kind": "Node", "verbs": ["get", "list"]}]}
+    answers = {"/version": {"major": "1", "minor": "31", "gitVersion": "v1.31.2"},
+               "/api": {"kind": "APIVersions", "versions": ["v1"]},
+               "/apis": {"kind": "APIGroupList", "apiVersion": "v1", "groups": []},
+               "/api/v1": resources,
+               "/api/v1/nodes": {"kind": "NodeList", "apiVersion": "v1", "metadata": {},
+                                 "items": [n | {"apiVersion": "v1", "kind": "Node"} for n in json.loads((FIX / "nodes.json").read_text())["items"]]}}
+
+    class Api(BaseHTTPRequestHandler):
+        def log_message(self, *_a):
+            pass
+
+        def do_GET(self):  # noqa: N802
+            seen.append(self.headers.get("Authorization") or "")
+            path = self.path.split("?")[0]
+            ok = self.headers.get("Authorization") == "Bearer ya29.real-run"
+            body = answers.get(path) if ok else {"kind": "Status", "status": "Failure", "message": "Unauthorized", "code": 401}
+            code = 200 if ok and body is not None else (404 if ok else 401)
+            data = json.dumps(body or {"kind": "Status", "code": 404}).encode()
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+    pk = ec.generate_private_key(ec.SECP256R1())
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "127.0.0.1")])
+    now = dt.datetime.now(dt.timezone.utc)
+    cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(pk.public_key()).serial_number(1)
+            .not_valid_before(now - dt.timedelta(minutes=1)).not_valid_after(now + dt.timedelta(hours=1))
+            .add_extension(x509.SubjectAlternativeName([x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]), critical=False)
+            .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+            .sign(pk, hashes.SHA256()))
+    pem = cert.public_bytes(serialization.Encoding.PEM)
+    (tmp_path / "srv.crt").write_bytes(pem)
+    (tmp_path / "srv.key").write_bytes(pk.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                                        serialization.NoEncryption()))
+    tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    tls.load_cert_chain(tmp_path / "srv.crt", tmp_path / "srv.key")
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Api)
+    srv.socket = tls.wrap_socket(srv.socket, server_side=True)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    cfg = tmp_path / "kubeconfig"
+    cfg.write_text(yaml.safe_dump({
+        "apiVersion": "v1", "kind": "Config", "current-context": "gke-real",
+        "clusters": [{"name": "c", "cluster": {"server": f"https://127.0.0.1:{srv.server_port}",
+                                               "certificate-authority-data": base64.b64encode(pem).decode()}}],
+        "contexts": [{"name": "gke-real", "context": {"cluster": "c", "user": "u"}}],
+        "users": [{"name": "u", "user": {"exec": {"apiVersion": "client.authentication.k8s.io/v1beta1", "command": "gke-gcloud-auth-plugin",
+                                                  "provideClusterInfo": True, "interactiveMode": "Never"}}}]}))
+    monkeypatch.setenv("KEEL_KUBECTL", _real_kubectl())
+    monkeypatch.setenv("KUBECONFIG", str(cfg))
+    monkeypatch.setenv("KUBECACHEDIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("KEEL_DATA", str(tmp_path / "data"))
+    monkeypatch.setattr(kube, "_CTX_CACHE", (0.0, []))
+    monkeypatch.setattr(gke, "token", lambda _raw: ("ya29.real-run", "2099-01-01T00:00:00Z"))
+    try:
+        r = kube.test("gke-real")
+        assert not r["ok"] and "gke-gcloud-auth-plugin not found" in r["error"]          # no key: kubectl finds no helper
+        assert "Cluster › Connect › Google Cloud" in r["hint"]
+        with gke.signin(_sa_key()):
+            r = kube.test("gke-real")
+        assert r["ok"], r
+        assert r["nodes"] == 2 and r["version"] == "v1.31.2"
+        assert seen and all(h == "Bearer ya29.real-run" for h in seen)
+    finally:
+        srv.shutdown()

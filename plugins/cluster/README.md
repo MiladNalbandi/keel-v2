@@ -19,7 +19,8 @@ runs where. Everything goes through **kubectl with your own kubeconfig**: keel c
 1. **kubectl and a kubeconfig.** keel's Docker image has kubectl. `keel2` mounts your `~/.kube` read-only into keel
    (`KEEL2_KUBE=0 keel2 start` does not). In native mode keel uses your own kubectl and `KUBECONFIG`.
 2. Settings › Plugins: turn **Cluster** on (for agents, per project).
-3. Cluster › **Connect**: every context of your kubeconfig is listed. Test it, turn it on or off, and choose what keel may do:
+3. A **GKE** cluster: see [GKE without gcloud](#gke-without-gcloud).
+4. Cluster › **Connect**: every context of your kubeconfig is listed. Test it, turn it on or off, and choose what keel may do:
 
 | access | the person on the page | an agent |
 | --- | --- | --- |
@@ -30,6 +31,30 @@ runs where. Everything goes through **kubectl with your own kubeconfig**: keel c
 "Change" is a command in a pod, deleting a pod, restarting or scaling a deployment. Reading (pods, logs, describe, events) is
 always allowed on a context that is on. Every command and change is written down (Overview › Recent changes), also when it was
 refused.
+
+## GKE without gcloud
+
+A GKE context in a kubeconfig signs in with a helper program, `gke-gcloud-auth-plugin`, which needs gcloud and a gcloud login.
+keel's image has neither. So keel signs in itself, with a **Google service account**:
+
+```
+ kubectl ─ runs gke-gcloud-auth-plugin ─▶ keel's own small helper ─ prints the token keel made ─▶ GKE
+                                             ▲
+            keel makes a short-lived access token from the service-account key (google-auth), for each kubectl run
+```
+
+Cluster › Connect › **Google Cloud (GKE)** chooses the key:
+
+| choice | the key |
+| --- | --- |
+| **The service account of Connections › Vertex AI** (the default) | the key saved for Vertex AI, if there is one |
+| **A key for clusters only** | a service-account JSON key pasted there (stored encrypted, never shown again) |
+| **Off** | none: the kubeconfig's own sign-in (it needs gcloud and the helper where keel runs, as in native mode) |
+
+The account needs a GKE role in the cluster's Google Cloud project: **Kubernetes Engine Viewer** to read, **Kubernetes Engine
+Developer** to run commands and change things. The kubeconfig is not changed. The token is only in kubectl's environment for that
+run, never on disk, and only for contexts whose user runs `gke-gcloud-auth-plugin` by that name (`gcloud container clusters
+get-credentials` writes it so). Agents of a project with the plugin on get the same key with their call.
 
 ## What runs where
 
@@ -45,6 +70,7 @@ pull request.
 | Logs, events and describe an **agent** reads | **your model company**. Logs can hold secrets: keel does not filter them |
 | What **you** read on the page | nowhere: it stays between keel and your cluster |
 | Your kubeconfig and its tokens | nowhere: kubectl reads them where keel runs; keel shows only context names and server addresses |
+| A Google service-account key (GKE) | to Google only, to make an access token; the token goes to your cluster |
 
 ## What it does not do (yet)
 
@@ -55,8 +81,8 @@ pull request.
 - **A cluster on 127.0.0.1 (kind, minikube, k3d) is not reachable from keel in Docker**: 127.0.0.1 inside keel is keel's own
   container. For kind: `docker network connect kind <keel's container>` and the kubeconfig from `kind get kubeconfig --internal`.
   Native mode has no such problem.
-- A kubeconfig that signs in with a helper program (`exec`: aws, gcloud, kubelogin) needs that program where keel runs; the image does
-  not have them.
+- A kubeconfig that signs in with another helper program (`exec`: aws, kubelogin) needs that program where keel runs; the image does
+  not have them. GKE works without gcloud, see above.
 - CPU and memory use need metrics-server in the cluster; without it the page shows each node's size.
 - Only pods, deployments, services, nodes, events and ingresses. No StatefulSets list, no Helm, no YAML editing.
 - The page asks the cluster again every 5 seconds (logs every 3 s while Follow is on), not with a watch.

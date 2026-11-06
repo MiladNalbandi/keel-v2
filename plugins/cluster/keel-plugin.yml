@@ -6,7 +6,7 @@
 schema: 1
 name: cluster
 title: Cluster
-version: 0.1.0
+version: 0.2.0
 publisher: keel
 summary: See the project's Kubernetes clusters like k9s - find a pod by name or IP, read its logs, run a command, and see which commit runs where.
 requires:

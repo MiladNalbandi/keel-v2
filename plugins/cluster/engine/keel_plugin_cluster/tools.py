@@ -1,12 +1,12 @@
 """What the Cluster tools answer an agent or KeelBot. The rules come with the agent call (key cluster:access, the api's ClusterKeys:
-{context: read|ask|free} of the contexts that are on). A command or a change on an "ask" context shows the person the exact
+{context: read|ask|free} of the contexts that are on; key cluster:google, the Google key GKE contexts sign in with). A command or a change on an "ask" context shows the person the exact
 command in keel's Inbox and runs only after their yes; on a "read" or an off context it is refused. Every one is recorded."""
 
 from __future__ import annotations
 
 import json
 
-from . import core, kube
+from . import core, gke, kube
 from .kube import ClusterError
 
 AGE_UNITS = ((86400, "d"), (3600, "h"), (60, "m"))
@@ -69,7 +69,7 @@ def find(call: dict, query: str, context: str, kind: str) -> str:
         try:
             snap = kube.snapshot(ctx)
         except ClusterError as exc:
-            out.append(f"[{ctx}] not reached: {exc}")
+            out.append(f"[{ctx}] not reached: {exc} {exc.hint}".rstrip())
             continue
         out.append(f"[{ctx}] access {rules.get(ctx, 'read')}, {len(snap['nodes'])} nodes, {len(snap['pods'])} pods")
         if not q and kind in ("", "problems"):
@@ -163,6 +163,11 @@ def change(call: dict, a: dict) -> str:
 
 
 def call_tool(call: dict, tool: str, args: dict) -> str:
+    with gke.signin((call.get("keys") or {}).get("cluster:google")):
+        return _call_tool(call, tool, args)
+
+
+def _call_tool(call: dict, tool: str, args: dict) -> str:
     try:
         if tool == "cluster_find":
             return find(call, str(args.get("query") or ""), str(args.get("context") or ""), str(args.get("kind") or ""))

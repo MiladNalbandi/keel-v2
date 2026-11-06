@@ -1,4 +1,5 @@
-"""kubectl, with the person's own kubeconfig: keel copies no token and keeps no cluster address of its own. Each call is one
+"""kubectl, with the person's own kubeconfig: keel copies no token and keeps no cluster address of its own (a GKE context can sign
+in with a Google service account instead of gcloud, gke.py). Each call is one
 `kubectl --context <name> ...` with a timeout; its JSON becomes the small rows the page and the tools show (the contract in
 plugins/cluster/README.md). Names are checked before they reach kubectl, and kubectl gets them as separate arguments, never
 through a shell."""
@@ -85,15 +86,27 @@ def run(args: list[str], context: str | None = None, timeout: int = TIMEOUT) -> 
     if not exe:
         raise ClusterError(409, "kubectl is not installed where keel runs.",
                            "Install kubectl (https://kubernetes.io/docs/tasks/tools/), or use keel's Docker image, which has it.")
+    from . import gke
+
     cmd = [exe] + (["--context", context] if context else []) + args
+    env = gke.env_for(auth_of(context), kube_env()) if context else kube_env()
     try:
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL, env=kube_env())
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL, env=env)
     except subprocess.TimeoutExpired:
         raise ClusterError(409, f"kubectl took longer than {timeout} s.", "Is the cluster reachable from where keel runs?") from None
     if p.returncode != 0:
-        words = (p.stderr or p.stdout or "").strip().splitlines()
-        raise ClusterError(409, (words[-1] if words else f"kubectl stopped with code {p.returncode}.")[:600], hint_for(context, p.stderr or ""))
+        raise ClusterError(409, error_line(p.stderr or p.stdout or "", p.returncode), hint_for(context, p.stderr or ""))
     return p.stdout
+
+
+ERROR_START = re.compile(r"^(error:|Error from server|Unable to connect|The connection to the server)")
+
+
+def error_line(text: str, code: int) -> str:
+    """kubectl's own error line: its last one that starts like an error (after it may come an explanation and a link), else its last line."""
+    lines = [ln.strip() for ln in text.strip().splitlines() if ln.strip()]
+    pick = next((ln for ln in reversed(lines) if ERROR_START.match(ln)), lines[-1] if lines else f"kubectl stopped with code {code}.")
+    return pick[:600]
 
 
 def run_json(args: list[str], context: str | None = None, timeout: int = TIMEOUT) -> dict:
@@ -104,8 +117,18 @@ def run_json(args: list[str], context: str | None = None, timeout: int = TIMEOUT
         raise ClusterError(409, "kubectl did not answer JSON.") from None
 
 
+def auth_of(context: str | None) -> str:
+    """How the context's user signs in (gke.auth_of); kubeconfig when keel does not know the context."""
+    return next((c.get("auth", "kubeconfig") for c in _contexts_cached() if c["name"] == context), "kubeconfig") if context else "kubeconfig"
+
+
 def hint_for(context: str | None, err: str) -> str:
+    from . import gke
+
     low = err.lower()
+    google = gke.hint(auth_of(context), err)
+    if google:
+        return google
     if "forbidden" in low:
         return "Your kubeconfig user may not do this. keel can only do what kubectl can do with it."
     if "connection refused" in low or "no such host" in low or "i/o timeout" in low or "unable to connect" in low:
@@ -156,15 +179,18 @@ def contexts() -> dict:
         out["kubectl_version"] = (v.get("clientVersion") or {}).get("gitVersion")
     except ClusterError:
         pass
+    from . import gke
+
     cfg = run_json(["config", "view"], timeout=8)
     servers = {c.get("name"): (c.get("cluster") or {}).get("server") or "" for c in cfg.get("clusters") or []}
+    users = {u.get("name"): u.get("user") or {} for u in cfg.get("users") or []}
     current = cfg.get("current-context") or ""
     rows = []
     for c in cfg.get("contexts") or []:
         name, ctx = c.get("name") or "", c.get("context") or {}
         server = servers.get(ctx.get("cluster"), "")
         rows.append({"name": name, "cluster": ctx.get("cluster") or "", "server": server, "namespace": ctx.get("namespace") or "",
-                     "current": name == current, "local": is_local(server)})
+                     "current": name == current, "local": is_local(server), "auth": gke.auth_of(users.get(ctx.get("user")) or {})})
     out["contexts"] = rows
     _CTX_CACHE = (time.time(), rows)
     return out
@@ -184,11 +210,19 @@ def test(ctx: str) -> dict:
         ctx = check_context(ctx)
         known(ctx)
         v = run_json(["version", "--request-timeout=6s"], ctx, timeout=10)
-        nodes = run_json(["get", "nodes", "--request-timeout=6s"], ctx, timeout=10)
+        note = None
+        try:
+            count = len(run_json(["get", "nodes", "--request-timeout=6s"], ctx, timeout=10).get("items") or [])
+        except ClusterError as exc:
+            if "forbidden" not in str(exc).lower():
+                raise
+            count, note = None, "Reached, but this user may not list the nodes."
     except ClusterError as exc:
         return {"ok": False, "ms": int((time.monotonic() - t) * 1000), "error": str(exc), "hint": exc.hint}
+    from . import gke
+
     return {"ok": True, "ms": int((time.monotonic() - t) * 1000), "version": (v.get("serverVersion") or {}).get("gitVersion"),
-            "nodes": len(nodes.get("items") or [])}
+            "nodes": count, "note": note, "as": gke.email() if auth_of(ctx) == "gke" else None}
 
 
 # ---------- rows ----------
