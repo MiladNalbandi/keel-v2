@@ -1,6 +1,6 @@
 """The Cluster plugin's engine routes: the person's own calls from the Cluster page, through the api (plugins/cluster/api). The api
-sends the context's access with each command or change ("read", "ask", "free", or none when the context is off); a ClusterError
-becomes {error, hint} with its status."""
+sends the context's access with each command or change ("read", "ask", "free", or none when the context is off), and the Google
+service-account key GKE contexts sign in with (gke.py), if any; a ClusterError becomes {error, hint} with its status."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import os
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
-from . import core, kube
+from . import core, gke, kube
 from .kube import ClusterError
 
 router = APIRouter()
@@ -31,11 +31,16 @@ class ClusterBody(BaseModel):
     contexts: list[str] = Field(default_factory=list)
     access: str | None = None
     who: str = "person"
+    google: str | None = None
 
 
 @router.post("/plugins/cluster/{op}")
 async def post_cluster(op: str, body: ClusterBody):
-    b = body
+    with gke.signin(body.google):  # asyncio.to_thread copies the context, so the key reaches kubectl's runs
+        return await _post(op, body)
+
+
+async def _post(op: str, b: ClusterBody):
     if op == "contexts":
         return await asyncio.to_thread(kube.contexts)
     if op == "test":

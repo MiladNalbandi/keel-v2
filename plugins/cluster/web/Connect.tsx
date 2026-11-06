@@ -1,10 +1,11 @@
 // Cluster › Connect: the contexts of the kubeconfig on this computer, each one on or off, and what keel may do there (only look,
 // change after you approve, change without asking: only for a cluster on this computer). A test reaches the cluster with kubectl.
-// keel copies no token: kubectl reads the kubeconfig itself.
+// keel copies no token: kubectl reads the kubeconfig itself. A GKE context can sign in with a Google service account instead of
+// gcloud (the Google Cloud panel: the Vertex AI connection's account, a key for clusters only, or off).
 
 import { useEffect, useState } from "react";
 import { errorParts, Note, Panel, Pill, Switch, useApp } from "@keel/web-sdk";
-import { ACCESS_WORDS, clusterApi, loopback, type Access, type Contexts, type TestResult } from "./clusterApi";
+import { ACCESS_WORDS, clusterApi, isGke, loopback, type Access, type Contexts, type GoogleSource, type GoogleView, type TestResult } from "./clusterApi";
 
 const TOOLS: [string, string, boolean][] = [
   ["cluster_find", "List pods, deployments, services and nodes; search by name or IP", false],
@@ -23,7 +24,10 @@ export function Connect({ contexts: c, onSaved }: { contexts: Contexts; onSaved:
   const [tests, setTests] = useState<Record<string, TestResult | "busy">>({});
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [google, setGoogle] = useState<GoogleView | undefined>(c.google);
   useEffect(() => setDraft(draftOf(c)), [c]);
+  useEffect(() => setGoogle(c.google), [c.google]);
+  const anyGke = c.contexts.some((x) => isGke(x.auth));
   const dirty = c.contexts.some((x) => draft[x.name] && (draft[x.name].on !== x.on || draft[x.name].access !== x.access));
 
   const test = async (name: string) => {
@@ -73,6 +77,7 @@ export function Connect({ contexts: c, onSaved }: { contexts: Contexts; onSaved:
                   <b className="mono" style={{ overflowWrap: "anywhere" }}>{x.name}{x.current ? <span className="sub"> · current</span> : null}</b>
                   <span className="sub" style={{ overflowWrap: "anywhere" }}>{x.server}{x.local ? " · on this computer" : ""}</span>
                 </span>
+                {isGke(x.auth) && <Pill tone={x.auth === "gke" && google?.email ? "ok" : "warn"} title={x.auth === "gke" && google?.email ? `keel signs in as ${google.email}` : undefined}>GKE</Pill>}
               </div>
               <label className="sub" style={{ display: "flex", gap: 8, alignItems: "center" }}>keel may
                 <select className="kc-in" aria-label={`What keel may do on ${x.name}`} value={d.access} disabled={!d.on} onChange={(e) => set(x.name, { access: e.target.value as Access })} style={{ color: "var(--fg)" }}>
@@ -83,7 +88,7 @@ export function Connect({ contexts: c, onSaved }: { contexts: Contexts; onSaved:
               </label>
               <button className="btn sm" type="button" onClick={() => void test(x.name)} disabled={t === "busy"}>{t === "busy" ? "Testing…" : "Test"}</button>
               {t && t !== "busy" && (t.ok
-                ? <Pill tone="ok">{[t.version, t.nodes != null ? `${t.nodes} node${t.nodes === 1 ? "" : "s"}` : null, `${t.ms} ms`].filter(Boolean).join(" · ")}</Pill>
+                ? <Pill tone="ok">{[t.version, t.nodes != null ? `${t.nodes} node${t.nodes === 1 ? "" : "s"}` : null, `${t.ms} ms`, t.as ? `as ${t.as}` : null].filter(Boolean).join(" · ")}</Pill>
                 : <Pill tone="bad" title={t.hint ?? undefined}>not reached{t.error ? `: ${t.error}` : ""}</Pill>)}
               {c.in_docker && loopback(x.server) && (
                 <div style={{ flexBasis: "100%" }}>
@@ -92,6 +97,7 @@ export function Connect({ contexts: c, onSaved }: { contexts: Contexts; onSaved:
                 </div>
               )}
               {t && t !== "busy" && !t.ok && t.hint && <div className="sub" style={{ flexBasis: "100%" }}>{t.hint}</div>}
+              {t && t !== "busy" && t.ok && t.note && <div className="sub" style={{ flexBasis: "100%" }}>{t.note}</div>}
             </div>
           );
         })}
@@ -100,7 +106,9 @@ export function Connect({ contexts: c, onSaved }: { contexts: Contexts; onSaved:
         </p>
       </Panel>
 
-      <Panel title="2 · What agents may do (MCP)" body={false}>
+      <GoogleSignIn view={google} anyGke={anyGke} onSaved={setGoogle} />
+
+      <Panel title="3 · What agents may do (MCP)" body={false}>
         {TOOLS.map(([name, what, change]) => (
           <div className="kc-row" key={name}>
             <span className="mono" style={{ fontWeight: 600, flex: "0 0 180px" }}>{name}</span>
@@ -120,5 +128,81 @@ export function Connect({ contexts: c, onSaved }: { contexts: Contexts; onSaved:
         {!dirty && <span className="sub">Nothing to save.</span>}
       </div>
     </div>
+  );
+}
+
+const SOURCES: [GoogleSource, string][] = [
+  ["vertex", "The service account of Connections › Vertex AI"],
+  ["own", "A key for clusters only"],
+  ["off", "Off: the kubeconfig's own sign-in"],
+];
+
+/** How GKE contexts sign in. keel makes a short-lived token from the key for each kubectl run; the key never reaches the page. */
+function GoogleSignIn({ view, anyGke, onSaved }: { view?: GoogleView; anyGke: boolean; onSaved: (v: GoogleView) => void }) {
+  const { toast } = useApp();
+  const [source, setSource] = useState<GoogleSource>(view?.source ?? "vertex");
+  const [json, setJson] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  useEffect(() => setSource(view?.source ?? "vertex"), [view?.source]);
+  if (!view) return null;
+  const dirty = source !== view.source || json.trim() !== "";
+  const save = async (clear = false) => {
+    setBusy(true);
+    setProblem(null);
+    try {
+      const v = await clusterApi.google({ source, ...(json.trim() ? { credentials_json: json.trim() } : {}), ...(clear ? { clear_credentials: true } : {}) });
+      setJson("");
+      onSaved(v);
+      toast(clear ? "Key removed." : "Saved.");
+    } catch (err) {
+      const p = errorParts(err);
+      setProblem(p.hint ? `${p.message} ${p.hint}` : p.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const account = (k: GoogleSource) =>
+    k === "vertex" ? view.vertex_email : k === "own" ? view.own_email : null;
+
+  return (
+    <Panel title="2 · Google Cloud (GKE)" body={false}>
+      <div style={{ padding: "12px 16px", display: "grid", gap: 10 }} role="radiogroup" aria-label="How GKE clusters sign in">
+        <span className="sub">
+          A GKE cluster signs in with Google. keel can do this itself with a Google service account, so gcloud is not needed where keel runs.
+          {!anyGke && " None of your contexts is a GKE cluster now."}
+        </span>
+        {SOURCES.map(([k, words]) => (
+          <label key={k} style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
+            <input type="radio" name="kc-google" checked={source === k} onChange={() => setSource(k)} />
+            <span>{words}</span>
+            {k !== "off" && <span className="sub mono" style={{ overflowWrap: "anywhere" }}>{account(k) ?? "no key saved yet"}</span>}
+            {k === "off" && <span className="sub">needs gcloud and <span className="mono">gke-gcloud-auth-plugin</span> where keel runs</span>}
+          </label>
+        ))}
+        {source === "own" && (
+          <>
+            <label htmlFor="kc-google-key" className="sub">Service-account key (JSON)</label>
+            <textarea id="kc-google-key" className="kc-in mono" rows={3} spellCheck={false} value={json} onChange={(e) => setJson(e.target.value)}
+              placeholder={view.own_key_set ? `saved: ${view.own_email ?? "a service account"} (paste a new key to replace it)` : "paste the key file"} />
+          </>
+        )}
+        {source === "vertex" && !view.vertex_email && (
+          <Note tone="warn">Connections › Vertex AI has no service-account key saved, so GKE clusters use the kubeconfig's own sign-in.</Note>
+        )}
+        <span className="sub">
+          The account needs a GKE role in the cluster's Google Cloud project: Kubernetes Engine Viewer to read, Kubernetes Engine Developer to run commands and change things.
+          The key is stored encrypted and never shown again.
+        </span>
+        {problem && <Note tone="err" role="alert">{problem}</Note>}
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <button className="btn sm primary" type="button" onClick={() => void save()} disabled={busy || !dirty}>{busy ? "Saving…" : "Save sign-in"}</button>
+          {view.own_key_set && source !== "own" && (
+            <button className="btn sm" type="button" onClick={() => void save(true)} disabled={busy}>Remove the clusters-only key</button>
+          )}
+          {view.email && <span className="sub">GKE clusters sign in as <span className="mono">{view.email}</span>.</span>}
+        </div>
+      </div>
+    </Panel>
   );
 }

@@ -158,6 +158,36 @@ describe("the Cluster page", () => {
     expect([...(within(dev).getByRole("combobox") as HTMLSelectElement).options].map((o) => o.value)).toContain("free");
   });
 
+  it("Connect marks a GKE context and saves a key for clusters only, never showing it again", async () => {
+    contexts = {
+      ...contexts,
+      contexts: [...contexts.contexts, { name: "gke-prod", cluster: "gke_demo_europe-west1_prod", server: "https://203.0.113.10", namespace: "", current: false, local: false, on: true, access: "read", auth: "gke" }],
+      google: { source: "vertex", email: null, own_key_set: false, own_email: null, vertex_email: null },
+    };
+    const sent: unknown[] = [];
+    server.use(
+      http.put("/api/plugins/cluster/google", async ({ request }) => {
+        sent.push(await request.json());
+        return HttpResponse.json({ source: "own", email: "gke@demo.iam.gserviceaccount.com", own_key_set: true, own_email: "gke@demo.iam.gserviceaccount.com", vertex_email: null });
+      }),
+      http.post("/api/plugins/cluster/test", () => HttpResponse.json({ ok: true, ms: 120, version: "v1.31.2", nodes: 3, as: "gke@demo.iam.gserviceaccount.com" })),
+    );
+    open("#/cluster/connect");
+    const gke = await main().findByRole("group", { name: "gke-prod" });
+    expect(within(gke).getByText("GKE")).toBeTruthy();
+    const panel = main().getByRole("radiogroup", { name: "How GKE clusters sign in" });
+    expect(within(panel).getByText(/no service-account key saved/)).toBeTruthy();
+    await userEvent.click(within(panel).getByRole("radio", { name: /A key for clusters only/ }));
+    const key = '{"type":"service_account","client_email":"gke@demo.iam.gserviceaccount.com","private_key":"x"}';
+    fireEvent.change(within(panel).getByLabelText("Service-account key (JSON)"), { target: { value: key } });
+    await userEvent.click(within(panel).getByRole("button", { name: "Save sign-in" }));
+    await waitFor(() => expect(sent).toEqual([{ source: "own", credentials_json: key }]));
+    expect(await within(panel).findByText(/GKE clusters sign in as/)).toBeTruthy();
+    expect((within(panel).getByLabelText("Service-account key (JSON)") as HTMLTextAreaElement).value).toBe("");
+    await userEvent.click(within(gke).getByRole("button", { name: "Test" }));
+    expect(await within(gke).findByText(/as gke@demo\.iam\.gserviceaccount\.com/)).toBeTruthy();
+  });
+
   it("imports only react, @keel/web-sdk and its own files", () => {
     const here = join(__dirname, "..");
     const outside = readdirSync(here).filter((f) => /\.tsx?$/.test(f))

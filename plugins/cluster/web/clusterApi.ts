@@ -5,10 +5,19 @@ import { get, post, put } from "@keel/web-sdk";
 
 export type Access = "read" | "ask" | "free";
 
+/** How a context's kubeconfig user signs in: gke (gke-gcloud-auth-plugin, keel can sign in for it), gke-path (the same helper by a
+ *  full path), gcp (the old gcp sign-in kubectl no longer has), exec (another helper), kubeconfig (a token or certificate in the file). */
+export type Auth = "gke" | "gke-path" | "gcp" | "exec" | "kubeconfig";
 export type Context = {
-  name: string; cluster: string; server: string; namespace: string; current: boolean; local: boolean; on: boolean; access: Access;
+  name: string; cluster: string; server: string; namespace: string; current: boolean; local: boolean; on: boolean; access: Access; auth?: Auth;
 };
-export type Contexts = { kubectl: boolean; kubectl_version?: string | null; kubeconfig?: string | null; in_docker: boolean; contexts: Context[] };
+export type GoogleSource = "vertex" | "own" | "off";
+/** How GKE contexts sign in: email is the account in use (none: the kubeconfig's own sign-in). */
+export type GoogleView = { source: GoogleSource; email: string | null; own_key_set: boolean; own_email: string | null; vertex_email: string | null };
+export type GoogleBody = { source: GoogleSource; credentials_json?: string; clear_credentials?: boolean };
+export type Contexts = {
+  kubectl: boolean; kubectl_version?: string | null; kubeconfig?: string | null; in_docker: boolean; contexts: Context[]; google?: GoogleView;
+};
 
 export type Pod = {
   name: string; ns: string; ready: string; status: string; restarts: number; ip: string | null; node: string | null; age: number | null;
@@ -28,7 +37,9 @@ export type Snapshot = {
   events: KEvent[]; ingresses: Ing[]; problems: Problem[]; metrics: boolean; warnings: string[];
 };
 export type Logs = { lines: string[]; container: string; containers: string[] };
-export type TestResult = { ok: boolean; ms: number; version?: string | null; nodes?: number | null; error?: string | null; hint?: string | null };
+export type TestResult = {
+  ok: boolean; ms: number; version?: string | null; nodes?: number | null; error?: string | null; hint?: string | null; as?: string | null; note?: string | null;
+};
 export type RunCell = { commit: string | null; state: "same" | "behind" | "ahead" | "diverged" | "unknown"; behind?: number | null; subject?: string | null; pr?: string | null };
 export type Runs = {
   repo: { remote: string; web: string | null; base: string | null; head: string | null } | null; contexts: string[];
@@ -44,6 +55,7 @@ const q = (o: Record<string, string | number | boolean | undefined>) =>
 export const clusterApi = {
   contexts: () => get<Contexts>(`${P}/contexts`),
   save: (clusters: Record<string, { on: boolean; access: Access }>) => put<Contexts>(`${P}/settings`, { clusters }),
+  google: (b: GoogleBody) => put<GoogleView>(`${P}/google`, b),
   test: (context: string) => post<TestResult>(`${P}/test`, { context }),
   snapshot: (context: string, ns = "") => get<Snapshot>(`${P}/snapshot?${q({ context, ns })}`),
   logs: (b: { context: string; ns: string; name: string; container?: string; previous?: boolean; tail?: number }) =>
@@ -54,6 +66,9 @@ export const clusterApi = {
   runs: (pid: string) => get<Runs>(`${P}/runs?${q({ pid })}`),
   history: () => get<{ items: HistoryItem[] }>(`${P}/history`),
 };
+
+/** A context that signs in with Google (GKE). */
+export const isGke = (a: Auth | undefined) => a === "gke" || a === "gke-path" || a === "gcp";
 
 /** 45s, 12m, 3h, 6d: as kubectl shows an age. */
 export function age(s: number | null | undefined): string {
