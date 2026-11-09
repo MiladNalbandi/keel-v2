@@ -70,7 +70,7 @@ def test_the_web_app_is_served_with_a_single_page_fallback(keel):
         assert r.status_code == 404 and r.json() == {"error": "Not found", "hint": missing}
     # never the web app: plugin web files and keel v1's old dashboard go to the Kotlin api
     assert keel.client.get("/plugins/tasks/1.0.0/web/index.js").json()["from"] == "kotlin"
-    assert keel.client.get("/keel-v1/").json()["from"] == "kotlin"
+    assert keel.client.get("/keel-v1").json()["from"] == "kotlin"
     # a change on a web path is the Kotlin api's to answer (it says the method is not allowed)
     assert keel.client.post("/settings", json={}).json()["from"] == "kotlin"
     assert keel.back.seen[-1].url.path == "/settings"
