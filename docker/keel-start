@@ -9,10 +9,15 @@
 #      with only the last good plugins (--only last-good.json).
 #   5. wait. Exit code 75 (the api asks for a restart, for example after a plugin install): stop both, back to 1.
 #      Any other exit stops both and the container, as before.
+# 0.24.0 the Python api (api-py/, `keel-api`) stands in front: it answers on KEEL_PORT, after the Kotlin api is healthy,
+# and passes every route it does not answer yet to the Kotlin api, which then listens on 127.0.0.1:KEEL_BACK_PORT
+# (8081) only (docs/plans/python-api.md). KEEL_FRONT: auto (the default: on when keel-api is installed), 1, or 0 (the
+# Kotlin api alone on KEEL_PORT, as before). Exit code 75 from either api restarts them all.
 #
 # Tests (docker/tests/keel-start.test.sh) set the commands, health urls and timeouts through the environment:
 # KEEL_RESOLVE_CMD, KEEL_ENGINE_CMD, KEEL_API_CMD, KEEL_ENGINE_HEALTH_URL, KEEL_API_HEALTH_URL,
-# KEEL_ENGINE_START_TIMEOUT (30 s), KEEL_API_START_TIMEOUT (90 s), KEEL_STOP_TIMEOUT (20 s), KEEL_START_POLL (0.5 s).
+# KEEL_ENGINE_START_TIMEOUT (30 s), KEEL_API_START_TIMEOUT (90 s), KEEL_STOP_TIMEOUT (20 s), KEEL_START_POLL (0.5 s);
+# the Python api: KEEL_FRONT, KEEL_FRONT_CMD, KEEL_BACK_HEALTH_URL, KEEL_FRONT_START_TIMEOUT (30 s).
 #
 # v0.16.1 native mode (keel2 start --native) runs this same loop: docker/keel-native-start sets KEEL_NATIVE=1 and the
 # release's own files (KEEL_ENGINE_EXE, KEEL_API_JAR, KEEL_PYTHON, KEEL_PLUGINS_IMAGE: paths may hold spaces) and the
@@ -117,7 +122,18 @@ ENGINE_TIMEOUT="${KEEL_ENGINE_START_TIMEOUT:-30}"
 API_TIMEOUT="${KEEL_API_START_TIMEOUT:-90}"
 STOP_TIMEOUT="${KEEL_STOP_TIMEOUT:-20}"
 POLL="${KEEL_START_POLL:-0.5}"
-engine="" api="" resolved=0
+FRONT_EXE="${KEEL_FRONT_EXE:-keel-api}"
+FRONT_CMD="${KEEL_FRONT_CMD:-}"
+BACK_PORT="${KEEL_BACK_PORT:-8081}"
+FRONT_TIMEOUT="${KEEL_FRONT_START_TIMEOUT:-30}"
+case "${KEEL_FRONT:-auto}" in
+  1 | on) FRONT_ON=1 ;;
+  0 | off) FRONT_ON=0 ;;
+  *) if [ -n "$FRONT_CMD" ] || command -v "$FRONT_EXE" > /dev/null 2>&1; then FRONT_ON=1; else FRONT_ON=0; fi ;;
+esac
+# the Kotlin api's own health: behind the Python api it answers on 127.0.0.1:BACK_PORT, else on KEEL_PORT
+if [ "$FRONT_ON" = 1 ]; then BACK_HEALTH="${KEEL_BACK_HEALTH_URL:-http://127.0.0.1:$BACK_PORT/api/health}"; else BACK_HEALTH="$API_HEALTH"; fi
+engine="" api="" front="" resolved=0
 
 # ---------------------------------------------------------------- plugins
 
@@ -183,9 +199,12 @@ start_engine() {
 }
 
 start_api() {
+  # behind the Python api, the Kotlin api listens on 127.0.0.1:BACK_PORT only
+  local back=(KEEL_SUPERVISED=1)
+  if [ "$FRONT_ON" = 1 ]; then back+=(KEEL_PORT="$BACK_PORT" SERVER_ADDRESS=127.0.0.1); fi
   if [ -n "${KEEL_API_CMD:-}" ]; then
     # shellcheck disable=SC2086
-    KEEL_SUPERVISED=1 $KEEL_API_CMD &
+    env "${back[@]}" $KEEL_API_CMD &
   else
     # keel's plain jar; PropertiesLauncher adds the plugin jars (loader.path) and finds Start-Class by itself.
     # The heap: a quarter of the container's memory, not 60%. The api uses 70-300 MB; 60% of Docker Desktop's VM
@@ -196,11 +215,18 @@ start_api() {
     # The api's settings come from the jar and the environment only: no application.* or loader.properties from the
     # folder it starts in (the project folder in the image, any folder in native mode).
     # shellcheck disable=SC2086  # JAVA_OPTS holds several options
-    KEEL_SUPERVISED=1 java ${JAVA_OPTS:--XX:MaxRAMPercentage=25 -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -Xss512k} -Dloader.path="$KEEL_PLUGIN_LOADER_PATH" \
+    env "${back[@]}" java ${JAVA_OPTS:--XX:MaxRAMPercentage=25 -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -Xss512k} -Dloader.path="$KEEL_PLUGIN_LOADER_PATH" \
       -Dloader.home="$(dirname "$API_JAR")" -Dspring.config.location=optional:classpath:/,optional:classpath:/config/ \
       -cp "$API_JAR" org.springframework.boot.loader.launch.PropertiesLauncher &
   fi
   api=$!
+}
+
+start_front() {
+  local env=(KEEL_SUPERVISED=1 KEEL_PORT="$API_PORT" KEEL_BACK_URL="http://127.0.0.1:$BACK_PORT")
+  # shellcheck disable=SC2086
+  if [ -n "$FRONT_CMD" ]; then env "${env[@]}" $FRONT_CMD & else env "${env[@]}" "$FRONT_EXE" & fi
+  front=$!
 }
 
 healthy() { curl -fs --max-time 5 "$1" > /dev/null 2>&1; }
@@ -216,30 +242,37 @@ wait_up() {
   done
 }
 
-both_running() { kill -0 "$engine" 2>/dev/null && kill -0 "$api" 2>/dev/null; }
+all_running() {
+  local pid
+  for pid in $engine $api $front; do kill -0 "$pid" 2>/dev/null || return 1; done
+}
 
-# wait_any: waits until the engine or the api stops, and returns its exit code
+# wait_any: waits until the engine or an api stops, and returns its exit code
 wait_any() {
-  if ((BASH_VERSINFO[0] * 100 + BASH_VERSINFO[1] >= 501)) && both_running; then
-    wait -n "$engine" "$api"
+  if ((BASH_VERSINFO[0] * 100 + BASH_VERSINFO[1] >= 501)) && all_running; then
+    # shellcheck disable=SC2086  # front is empty without the Python api
+    wait -n $engine $api $front
   else
     # one has stopped already, or bash is older than 5.1 (no wait -n for given ids; macOS runs the tests with
     # bash 3.2): look every POLL seconds
-    while both_running; do sleep "$POLL"; done
-    if kill -0 "$engine" 2>/dev/null; then wait "$api"; else wait "$engine"; fi
+    while all_running; do sleep "$POLL"; done
+    local pid
+    for pid in $front $api $engine; do
+      if ! kill -0 "$pid" 2>/dev/null; then wait "$pid"; return; fi
+    done
   fi
 }
 
-# stop_both: TERM to the engine and the api, KILL after KEEL_STOP_TIMEOUT seconds, and wait for them
+# stop_both: TERM to the apis and the engine, KILL after KEEL_STOP_TIMEOUT seconds, and wait for them
 stop_both() {
   local pid end=$((SECONDS + STOP_TIMEOUT))
-  for pid in $api $engine; do kill -TERM "$pid" 2>/dev/null || true; done
-  for pid in $api $engine; do
+  for pid in $front $api $engine; do kill -TERM "$pid" 2>/dev/null || true; done
+  for pid in $front $api $engine; do
     while kill -0 "$pid" 2>/dev/null && [ "$SECONDS" -lt "$end" ]; do sleep "$POLL"; done
     kill -KILL "$pid" 2>/dev/null || true
     wait "$pid" 2>/dev/null || true
   done
-  engine="" api=""
+  engine="" api="" front=""
 }
 
 trap 'stop_both; exit 143' TERM
@@ -267,7 +300,18 @@ while :; do
   start_api
   echo "keel v2 is starting on http://localhost:$API_PORT"
   up=0
-  wait_up "$api" "$API_HEALTH" "$API_TIMEOUT" || up=$?
+  wait_up "$api" "$BACK_HEALTH" "$API_TIMEOUT" || up=$?
+  if [ "$up" = 0 ] && [ "$FRONT_ON" = 1 ]; then
+    start_front
+    wait_up "$front" "$API_HEALTH" "$FRONT_TIMEOUT" || up=$?
+    if [ "$up" = 2 ] && ! kill -0 "$front" 2>/dev/null; then
+      code=0
+      wait "$front" || code=$?
+      echo "the Python api stopped before it was healthy (exit $code)"
+      stop_both
+      exit "$code"
+    fi
+  fi
   if [ "$up" = 0 ]; then
     if [ "$resolved" = 1 ]; then save_last_good; fi
   elif [ "$fallback" = 0 ] && [ -f "$LAST_GOOD" ] && [ "$plugins" != "$(plugin_set "$LAST_GOOD")" ]; then

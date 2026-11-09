@@ -17,6 +17,7 @@ jobs:
     outputs:
       engine: ${{ steps.f.outputs.engine }}
       api: ${{ steps.f.outputs.api }}
+      api_py: ${{ steps.f.outputs.api_py }}
       product: ${{ steps.f.outputs.product }}
       web: ${{ steps.f.outputs.web }}
       cli: ${{ steps.f.outputs.cli }}
@@ -33,6 +34,8 @@ jobs:
             ci: &ci ['.github/workflows/ci.yml']
             engine: [*ci, 'engine/**', 'content/**', 'plugins/**', 'product/engine/**', 'scripts/test-plugins.sh', 'docker/**', 'Dockerfile']
             api: [*ci, 'api/**', 'plugins/*/api/**', 'content/**', 'engine/keel_engine/rules/**']
+            # the Python api's tests run on the Kotlin api's own schema (api/.../db/migration)
+            api_py: [*ci, 'api-py/**', 'api/src/main/resources/db/migration/**']
             product: [*ci, 'product/**', 'api/**', 'engine/**']
             web: [*ci, 'web/**', 'plugins/*/web/**', 'content/**', 'product/web/**']
             cli: [*ci, 'cli/**', 'web/src/**', 'content/**']
@@ -199,6 +202,16 @@ jobs:
         working-directory: engine
       # every plugin's engine tests (plugins/<name>/engine/tests), each with its own engine folder on PYTHONPATH
       - run: scripts/test-plugins.sh
+  api-py:
+    needs: changes
+    if: needs.changes.outputs.api_py == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with: { enable-cache: true }
+      - run: uv sync && uv run pytest -q
+        working-directory: api-py
   api:
     needs: changes
     if: needs.changes.outputs.api == 'true'

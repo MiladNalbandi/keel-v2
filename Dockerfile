@@ -1,4 +1,4 @@
-# keel v2 — one image: web + api (Kotlin) + engine (Python, LangGraph) + keel v2's content + the agent CLIs.
+# keel v2 — one image: web + api (Python in front, Kotlin behind) + engine (Python, LangGraph) + keel v2's content + the agent CLIs.
 # Everything is installed or built inside the image; nothing comes from your computer except this repo's source.
 # keel v1 is a separate project and is not in the image (keel2 start --with-keel-v1 can mount one for its MCP server).
 #
@@ -187,6 +187,18 @@ COPY engine/ ./
 # CPU for each agent tool call (the PreToolUse hook, python -m keel_engine.hook) and ~3 s at each start. Compile it here.
 RUN uv sync --no-dev --python /usr/bin/python3 $( [ -f uv.lock ] && echo --frozen ) \
     && /opt/engine/.venv/bin/python -m compileall -q -j 0 /opt/engine/keel_engine
+
+# 0.24.0 the Python api (api-py/): the front door on :8080, in its own venv; the Kotlin api behind it on 127.0.0.1:8081
+# (docker/keel-start, docs/plans/python-api.md). It serves the web app from /opt/web.
+WORKDIR /opt/api-py
+COPY api-py/pyproject.toml api-py/uv.lock ./
+RUN UV_PROJECT_ENVIRONMENT=/opt/api-py/.venv uv sync --no-dev --no-install-project --python /usr/bin/python3 --frozen
+COPY api-py/keel_api ./keel_api
+RUN UV_PROJECT_ENVIRONMENT=/opt/api-py/.venv uv sync --no-dev --python /usr/bin/python3 --frozen \
+    && /opt/api-py/.venv/bin/python -m compileall -q -j 0 /opt/api-py/keel_api \
+    && ln -s /opt/api-py/.venv/bin/keel-api /usr/local/bin/keel-api
+COPY --from=web /src/web/dist /opt/web
+ENV KEEL_WEB_DIR=/opt/web
 
 # The api (built above) and the start script
 COPY --from=api /app.jar /opt/api/app.jar

@@ -1,0 +1,28 @@
+[project]
+name = "keel-api"
+version = "0.23.1"
+description = "keel v2 api in Python: the front door on :8080, taking over from the Kotlin api step by step"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "pydantic>=2.7",
+    "httpx>=0.27",
+]
+
+[project.scripts]
+keel-api = "keel_api.main:run"
+
+[dependency-groups]
+dev = ["pytest>=8", "pytest-asyncio>=0.23"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["keel_api"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

@@ -62,13 +62,30 @@ cat > "$BIN/api" << 'EOF'
 #!/bin/sh
 t="$KEEL_TEST_DIR"
 n=$(( $(cat "$t/api.count" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$t/api.count"
-echo "api start $n supervised=$KEEL_SUPERVISED loader=$KEEL_PLUGIN_LOADER_PATH" >> "$t/log"
+echo "api start $n supervised=$KEEL_SUPERVISED loader=$KEEL_PLUGIN_LOADER_PATH port=${KEEL_PORT:-} address=${SERVER_ADDRESS:-}" >> "$t/log"
 set -- $(sed -n "${n}p" "$t/api.plan")
 trap 'rm -f "$t/api.up"; echo "api stop" >> "$t/log"; kill $s 2>/dev/null; exit 143' TERM
 case "${1:-up}" in
   exit) echo "api exit $2" >> "$t/log"; exit "$2" ;;
   up) touch "$t/api.up"
       if [ -n "${2:-}" ]; then sleep 3; rm -f "$t/api.up"; echo "api exit $2" >> "$t/log"; exit "$2"; fi ;;
+esac
+sleep 30 & s=$!
+wait $s
+EOF
+
+# The Python api in front: like the api, from $KEEL_TEST_DIR/front.plan, healthy through front.up
+cat > "$BIN/front" << 'EOF'
+#!/bin/sh
+t="$KEEL_TEST_DIR"
+n=$(( $(cat "$t/front.count" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$t/front.count"
+echo "front start $n supervised=$KEEL_SUPERVISED port=$KEEL_PORT back=$KEEL_BACK_URL" >> "$t/log"
+set -- $(sed -n "${n}p" "$t/front.plan" 2>/dev/null)
+trap 'rm -f "$t/front.up"; echo "front stop" >> "$t/log"; kill $s 2>/dev/null; exit 143' TERM
+case "${1:-up}" in
+  exit) echo "front exit $2" >> "$t/log"; exit "$2" ;;
+  up) touch "$t/front.up"
+      if [ -n "${2:-}" ]; then sleep 3; rm -f "$t/front.up"; echo "front exit $2" >> "$t/log"; exit "$2"; fi ;;
 esac
 sleep 30 & s=$!
 wait $s
@@ -198,7 +215,7 @@ start_bg
 wait_exit
 check "exit code 3 (from the second start)" is "$code" 3
 check "the second resolve used --only last-good.json" logs "resolve --only $T/data/plugins/last-good.json"
-check "the second api start has no plugin jar" logs "api start 2 supervised=1 loader=$"
+check "the second api start has no plugin jar" logs "api start 2 supervised=1 loader= port"
 check "the first api was stopped" is "$(count 'api stop')" 1
 check "it says why" says "keel did not start with these plugins"
 
@@ -246,7 +263,7 @@ wait_exit
 check "exit code 3 (the api ran)" is "$code" 3
 check "it says why" says "plugins: the resolver failed (exit 2), so keel starts with no plugins"
 check "the engine gets no plugins (not the old run/env)" logs "engine start paths= addons= port=8090"
-check "the api gets no plugin jar" logs "api start 1 supervised=1 loader=$"
+check "the api gets no plugin jar" logs "api start 1 supervised=1 loader= port"
 check "the old resolved.json is gone (the api sees no plugins)" missing "$T/data/plugins/run/resolved.json"
 check "no last-good.json from a start without the resolver" missing "$T/data/plugins/last-good.json"
 
@@ -267,6 +284,34 @@ plan "up 3"
 start_bg KEEL_API_CMD= JAVA_OPTS="-Xmx512m"
 wait_exit
 check "the person's options" logs "java opts: -Xmx512m$"
+
+new_case "0.24.0 the Python api in front: the Kotlin api moves to 127.0.0.1:8081; TERM stops all three"
+start_bg KEEL_FRONT_CMD="$BIN/front" KEEL_BACK_HEALTH_URL="file://$T/api.up" KEEL_API_HEALTH_URL="file://$T/front.up"
+wait_file "$T/data/plugins/last-good.json"
+check "the Kotlin api listens on 127.0.0.1:8081 only" logs "api start 1 supervised=1 .* port=8081 address=127.0.0.1"
+check "the Python api answers on 8080 and passes on to the Kotlin api" \
+  logs "front start 1 supervised=1 port=8080 back=http://127.0.0.1:8081"
+check "the Python api starts after the Kotlin api" \
+  is "$(grep -n -m1 'front start' "$T/log" | cut -d: -f1)" "$(($(grep -n -m1 '^api start' "$T/log" | cut -d: -f1) + 1))"
+kill -TERM "$pid"
+wait_exit
+check "TERM stopped the engine and both apis" is "$(count 'stop$')" 3
+
+new_case "0.24.0 exit 75 from the Python api restarts all"
+printf 'up 75\nup\n' > "$T/front.plan"
+start_bg KEEL_FRONT_CMD="$BIN/front" KEEL_BACK_HEALTH_URL="file://$T/api.up" KEEL_API_HEALTH_URL="file://$T/front.up"
+wait_file "$T/front.count"; sleep 5
+check "the Python api started twice" is "$(count 'front start')" 2
+check "the Kotlin api started twice" is "$(count 'api start')" 2
+kill -TERM "$pid"
+wait_exit
+
+new_case "0.24.0 KEEL_FRONT=0: the Kotlin api alone on KEEL_PORT, as before"
+plan "up 3"
+start_bg KEEL_FRONT=0 KEEL_FRONT_CMD="$BIN/front"
+wait_exit
+check "no Python api" is "$(count 'front start')" 0
+check "the Kotlin api keeps its own port" logs "api start 1 supervised=1 .* port= address="
 
 echo
 if [ "$failures" != 0 ]; then
