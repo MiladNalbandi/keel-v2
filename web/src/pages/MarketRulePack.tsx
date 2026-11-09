@@ -191,7 +191,7 @@ export function RulesMarket() {
         <div className="mk-note mk-local wfm-none" role="note" aria-label="No rule pack catalog">
           <b>{down || r.error ? "No rule pack catalog answers yet." : "The catalogs list no rule packs yet."}</b> Rule packs
           come from the same signed catalogs as plugins and workflows. Add a catalog in Sources and rules, or install a
-          pack from keel's library on Build › Rules.
+          pack from keel's library on Build › Safety & History.
           {r.error && (
             <span className="sub" style={{ display: "block" }}>
               {r.error.message}
@@ -209,7 +209,7 @@ export function RulesMarket() {
               Sources and rules
             </a>
             <a className="btn sm" href="#/rules" style={{ textDecoration: "none" }}>
-              Build › Rules
+              Build › Safety & History
             </a>
           </span>
         </div>
@@ -440,7 +440,7 @@ export function PackUpdateDialog({
       </p>
       {edited ? (
         <div className="field" role="radiogroup" aria-label="Your changed copy">
-          <span className="lab">You changed this pack here (Build › Rules)</span>
+          <span className="lab">You changed this pack here (Build › Safety & History)</span>
           <label className="radio">
             <input type="radio" name="rpmode" checked={mode === "keep"} onChange={() => setMode("keep")} />
             <span>
@@ -450,7 +450,7 @@ export function PackUpdateDialog({
           <label className="radio">
             <input type="radio" name="rpmode" checked={mode === "replace"} onChange={() => setMode("replace")} />
             <span>
-              <b>Replace it with {to}</b> — your changes are gone (export it first from Build › Rules to keep them)
+              <b>Replace it with {to}</b> — your changes are gone (export it first from Build › Safety & History to keep them)
             </span>
           </label>
         </div>

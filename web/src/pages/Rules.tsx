@@ -1,12 +1,16 @@
 // v0.17.2 Build › Rules: every rule keel applies in this project, in plain words — what it does, when (phases), which
 // engines check it before the action or only after the step, and where it is saved. Rule packs install from a library
 // like workflows, or you write your own (form or YAML).
+// Safety & History (#89): the page is now "Safety & History", with the rules as its first tab and the project's
+// history of tool calls (components/SafetyHistory.tsx) as the second (#/rules/history).
 
 import { useRef, useState, type ReactNode } from "react";
 import { errorParts } from "../api";
-import { Async, Confirm, ErrorBox, PageHead, Panel } from "../components/ui";
+import { Async, Confirm, ErrorBox, PageHead, Panel, Tabs } from "../components/ui";
+import { SafetyHistory } from "../components/SafetyHistory";
 import { LibraryDrawer, PackDrawer, ImportPackDrawer } from "../components/RuleDrawers";
-import { useApp, useLoad } from "../state";
+import { SCREEN } from "../routes";
+import { go, useApp, useLoad, useRoute } from "../state";
 import { rulesApi, KIND_WORDS, WHEN_WORDS, type Engine, type Enforced, type RuleList, type RulePack, type RulesView, type When } from "../rulesApi";
 
 const SOURCE_WORDS: Record<string, string> = { library: "from keel's library", file: "your own", marketplace: "from the marketplace" };
@@ -34,7 +38,23 @@ function EngineHead() {
   return <>{ENGINES.map(([id, name]) => <th key={id} className="rl-eng" scope="col">{name}</th>)}</>;
 }
 
+type Tab = "rules" | "history";
+
 export function RulesPage({ pid }: { pid: string }) {
+  const { arg } = useRoute();
+  const tab: Tab = arg === "history" ? "history" : "rules";
+  return (
+    <>
+      <PageHead title="Safety & History"
+        sub="What agents may and may not do in this project, and a record of every tool call they made and what keel decided." />
+      <Tabs<Tab> label="Safety & History" value={tab} onChange={(t) => go(SCREEN.rules, t === "history" ? "history" : undefined)}
+        options={[["rules", "Safety rules"], ["history", "History"]]} />
+      {tab === "history" ? <SafetyHistory pid={pid} /> : <RulesTab pid={pid} />}
+    </>
+  );
+}
+
+function RulesTab({ pid }: { pid: string }) {
   const view = useLoad(`rules:${pid}`, () => rulesApi.view(pid), { live: false });
   const [drawer, setDrawer] = useState<"library" | "new" | "import" | null>(null);
   const [editing, setEditing] = useState<RulePack | null>(null);
@@ -62,13 +82,14 @@ export function RulesPage({ pid }: { pid: string }) {
   };
   return (
     <>
-      <PageHead title="Rules"
-        sub="What agents may and may not do in this project. keel checks every rule; some engines check it before the action, others only after the step."
-        actions={<>
+      <div className="row rl-actions">
+        <p className="sub" style={{ margin: 0 }}>keel checks every rule; some engines check it before the action, others only after the step.</p>
+        <span className="row" style={{ marginLeft: "auto" }}>
           <button className="btn" type="button" id="rulesLibrary" onClick={() => setDrawer("library")}>Library</button>
           <button className="btn" type="button" onClick={() => setDrawer("import")}>Import</button>
           <button className="btn primary" type="button" id="newRule" onClick={() => setDrawer("new")}>New rule</button>
-        </>} />
+        </span>
+      </div>
       <Async r={view} what="Loading the rules">
         {(v) => (
           <div className="grid rl-page">

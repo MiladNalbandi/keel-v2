@@ -490,7 +490,7 @@ the confirmed facts (URL + quote), every URL it tried, what a person must supply
 
 ## Rules
 
-keel checks every agent with rules. **Build › Rules** shows all of them in plain words.
+keel checks every agent with rules. **Build › Safety & History** shows all of them in plain words.
 
 ```
  an agent wants to act ──► keel's hook checks it ──► allowed ──► it runs

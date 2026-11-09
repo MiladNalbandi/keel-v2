@@ -260,6 +260,10 @@ BUILTINS: list[dict] = [
               "instead. A migration the current branch added may still be corrected before it merges."},
     {"id": "force-push", "kind": "shell", "phases": "always", "can_off": False,
      "words": "git push --force and git push -f are refused: they can delete other people's work."},
+    # keel-gate (keel_engine/safety): the tier T3 of a call, read the way a shell would read it
+    {"id": "catastrophic", "kind": "edit, shell", "phases": "always", "can_off": True,
+     "words": "A command that cannot be undone is refused, however it is written: rm -rf / or ~, formatting a disk, "
+              "DROP TABLE, terraform destroy, deleting a branch on the server, a command hidden in base64 or escapes."},
     {"id": "no-verify", "kind": "shell", "phases": "always", "can_off": False,
      "words": "--no-verify is refused: it skips the checks keel relies on."},
     {"id": "commit-in-flow", "kind": "shell", "phases": "in a flow", "can_off": False,

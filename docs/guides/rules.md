@@ -17,7 +17,33 @@ write the failing test, or green: write the code).
 
 ## Open the Rules page
 
-Open **Build › Rules**. It shows every rule. In keel TUI type `/rules`.
+Open **Build › Safety & History**. The tab **Safety rules** shows every rule. In keel TUI type `/rules`.
+
+## Safety tiers: what can not be undone
+
+After keel's own rules say yes, keel asks one more question: how bad is the worst outcome of this call? It reads a
+command the way a shell would, so a hidden command (base64, escapes, `eval`, `sh -c`) is judged by what it really runs.
+
+```text
+ T0  reads only           ls, git status, cat a file             runs
+ T1  can be undone        an edit in the project, a commit        runs
+ T2  hard to undo         git push, a deploy, a hidden command    KeelBot asks you first; in a flow it runs, and the History shows it
+ T3  cannot be undone     rm -rf /, DROP TABLE, terraform destroy refused, always
+```
+
+The agent gets the reason back and is told to stop and ask you, not to try another way. The rule is called
+`catastrophic`; you can switch it off for a project (keel's rules you can switch off).
+
+## History
+
+The tab **History** shows every tool call of this project's agents (flows and KeelBot), newest first, grouped by run:
+its tier, whether it ran or was blocked, and why. Filter by decision, tier or kind, or search for a command or a file.
+
+Each line of the record holds the hash of the line before it. If someone changes, removes or moves a line, the page
+says **The record was changed** and names the line. keel writes the record in its own data folder. In keel's Docker
+image agents run as their own user and can not read or change it. In native mode (`keel2 start --native`) agents run as
+you, so they could; the hash check then shows a line changed by hand, but it is not a signature: someone who rewrites the
+whole file can make a new chain.
 
 ## Always on
 

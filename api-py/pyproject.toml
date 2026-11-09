@@ -1,6 +1,6 @@
 [project]
 name = "keel-api"
-version = "0.23.1"
+version = "0.24.0"
 description = "keel v2 api in Python: the front door on :8080, taking over from the Kotlin api step by step"
 requires-python = ">=3.12"
 dependencies = [

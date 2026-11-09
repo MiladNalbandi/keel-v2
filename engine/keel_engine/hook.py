@@ -374,7 +374,7 @@ def decide(tool: str, ti: dict, ctx: dict) -> str | None:
         got = other_projects.find(others, _locate(root, path)[1]) if path and others else None
         if got and Path(_locate(root, path)[0]).is_absolute():
             return other_projects.read_only(path, got[0])
-        return (edit(path) or content(path)) if path else None
+        return (edit(path) or content(path) or catastrophic(tool, ti, cfg, root)) if path else None
     if tool in SEARCH_TOOLS:
         return search(tool, ti, ctx, cfg, others, knowledge)
     if tool == "Read":
@@ -419,9 +419,14 @@ def decide(tool: str, ti: dict, ctx: dict) -> str | None:
                              cwd=ctx.get("_cwd") if isinstance(ctx.get("_cwd"), str) and os.path.isdir(ctx["_cwd"]) else None)
         if not v.ok:
             return v.reason
-        # a run that may ask (KeelBot's Fix and side modes): a command that changes something waits for the person's OK
-        # (runtime/permissions.py asks at the context's URL; keel_engine/approvals.py does the waiting)
-        if ctx.get("ask") and permissions.needs_ask(str(ti.get("command") or "")):
+        cwd = ctx.get("_cwd") if isinstance(ctx.get("_cwd"), str) and os.path.isdir(ctx["_cwd"]) else root
+        refused = catastrophic(tool, ti, cfg, cwd)
+        if refused:
+            return refused
+        # a run that may ask (KeelBot's Fix and side modes): a command that changes something, or one that is hard to
+        # undo (safety tier T2), waits for the person's OK (runtime/permissions.py asks at the context's URL;
+        # keel_engine/approvals.py does the waiting)
+        if ctx.get("ask") and (permissions.needs_ask(str(ti.get("command") or "")) or hard_to_undo(ti, cwd)):
             ok, why = permissions.ask_engine(ctx["ask"], "command", str(ti.get("command") or ""))
             return None if ok else why
         return None
@@ -432,6 +437,25 @@ def decide(tool: str, ti: dict, ctx: dict) -> str | None:
             return ro(run_mode.READONLY_MCP)
         return check_mcp(tool, ti, phase, cfg, edit)
     return None
+
+
+def catastrophic(tool: str, ti: dict, cfg: dict, cwd: str | None) -> str | None:
+    """keel-gate's T3 (keel_engine/safety): a call whose worst outcome cannot be undone, read the way a shell would read
+    it (base64, escapes, eval, sh -c ...). Checked after keel's own rules; the project may switch the rule off."""
+    if rules.is_off(cfg, "catastrophic"):
+        return None
+    from . import safety   # here, not at the top: only shell commands and edits need it
+
+    risk = safety.judge(tool, ti, cwd)
+    return safety.refusal(risk) if risk is not None and risk.tier >= safety.Tier.T3 else None
+
+
+def hard_to_undo(ti: dict, cwd: str | None) -> bool:
+    """A shell command of safety tier T2 (a push, a deploy, a hidden command): a run that may ask asks first."""
+    from . import safety
+
+    risk = safety.judge("Bash", ti, cwd)
+    return risk is not None and risk.tier >= safety.Tier.T2
 
 
 def _scratch(ctx: dict) -> list[str]:

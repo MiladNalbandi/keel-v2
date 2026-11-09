@@ -119,7 +119,7 @@ GET /marketplace/search?q=&category=&kind=plugin|workflow|rules|all
 
   The exact list per engine comes from the rules session's api (each engine's real support), not from this page.
 - **Install** into this project (or all projects): the rules session's `POST …/rule-packs` with the verified YAML and
-  the marketplace's name, version and catalog (so Build › Rules can show "from marketplace · 1.0.0"). **Update** and
+  the marketplace's name, version and catalog (so Build › Safety & History can show "from marketplace · 1.0.0"). **Update** and
   **Remove** through the same api.
 - Trust level: **content**. The rule "allow unverified publishers" does not block a pack (it only refuses), but the
   preview always shows everything it blocks.
@@ -230,7 +230,7 @@ remove: POST /api/projects/{pid}/rule-packs/uninstall {name} (the rules api)
 
 `MarketRulePacks.kt` (service + controller, package `keel.api.rules`). Install needs the MCP **admin** level
 (`McpLevels`: `rule-packs/(install|uninstall|market/install)`). keel records `source: marketplace` and the version in
-`.keel/rules/.installed.json`; Build › Rules shows the pack "from the marketplace" (and "edited" after a change there).
+`.keel/rules/.installed.json`; Build › Safety & History shows the pack "from the marketplace" (and "edited" after a change there).
 
 ### web
 
@@ -255,7 +255,7 @@ remove: POST /api/projects/{pid}/rule-packs/uninstall {name} (the rules api)
   `test/marketRulePackHandlers.ts`; installs land in the rules db).
 - `e2e/marketplace/e2e.py` round `rule_packs` (also alone: `--only rules`): no-npm-install 1.0.0 / 1.1.0 linted, signed
   and indexed with keel-plugin; search; the page (keel's reading, who enforces it); install into the project; the rules
-  api lists it with source marketplace and Build › Rules shows it; **keel's PreToolUse hook in the container refuses
+  api lists it with source marketplace and Build › Safety & History shows it; **keel's PreToolUse hook in the container refuses
   `npm install left-pad` with "(rule no-npm-install/no-install)"** and lets `ls` through; installed here + update;
   409 again and without replace; update with replace; the web (`rules-web.mjs`: the kind switch, the card, the page's
   table and who enforces it; it saves `rt_rules_view.png` and `rt_rule_pack_page.png`); uninstall (the guard no

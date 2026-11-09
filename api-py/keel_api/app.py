@@ -29,6 +29,7 @@ from .common.web import WebApp, policy_for, web_path
 from .devices.store import DeviceAddresses, DeviceStore
 from .mcp.levels import McpTokens
 from .proxy import Back
+from .safety.routes import router as safety_routes
 from .settings import Settings
 
 ALL_METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
@@ -118,6 +119,7 @@ def create_app(settings: Settings | None = None, ctx: Ctx | None = None) -> Fast
     app.state.mcp_tokens = ctx.mcp_tokens
     errors.install(app)
     app.include_router(auth_routes)
+    app.include_router(safety_routes)
 
     # last: whatever no route above answers. The web app's files when this api has them, else the Kotlin api.
     @app.api_route("/{rest:path}", methods=ALL_METHODS, include_in_schema=False)

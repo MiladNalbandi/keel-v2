@@ -357,7 +357,7 @@ function Editor({ pid, wid, agents, rail, row, folders, onFolder, onSaved, onRep
                 onChange={(e) => {
                   setDraft({ ...w, keel_rules: e.target.checked });
                   b.clear();
-                  toast(e.target.checked ? "keel rules on: gates and test checks are locked again." : "keel rules off: every step can be removed, even spec approval, the test checks and the final review. keel's guard still checks every agent's edits and commands (Build › Rules).");
+                  toast(e.target.checked ? "keel rules on: gates and test checks are locked again." : "keel rules off: every step can be removed, even spec approval, the test checks and the final review. keel's guard still checks every agent's edits and commands (Build › Safety & History).");
                 }} /> keel rules {w.keel_rules ? "on" : "off"}</label>
               {dirty ? <span className="hint amber wf-dirty">unsaved changes</span> : <span className="hint">saved</span>}
               {dirty && <button className="btn sm ghost" type="button" onClick={discard}>Discard</button>}

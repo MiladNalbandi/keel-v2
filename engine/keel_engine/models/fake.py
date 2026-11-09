@@ -436,7 +436,7 @@ class FakeRunner:
             out = req.toolbox.run_command(command, timeout=60)
             refused = out.startswith("REFUSED")
             emit("guard" if refused else "tool", out if refused else command, tool="run_command",
-                 **({} if refused else {"output": out[:2000]}), ok=not refused)
+                 **({"command": command[:500]} if refused else {"output": out[:2000]}), ok=not refused)
             await pause()
         if path:
             msg = req.toolbox.write_file(path, content)

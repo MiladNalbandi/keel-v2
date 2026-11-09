@@ -410,6 +410,11 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
         app.state.engine = engine
         app.state.scanner = scan.Scanner(bus)
         app.state.bus = bus
+        # Safety & History: every tool call and answer, per project, hash-chained (keel_engine/safety/recorder.py)
+        from .safety.recorder import Recorder
+
+        app.state.safety_history = Recorder(config.data_dir())
+        bus.listen(app.state.safety_history.hear)
         app.state.demo = None
         if workspace_missing() and os.environ.get("KEEL_DEMO", "1") != "0":
             try:
@@ -431,6 +436,7 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
                 yield
         finally:
             catalogs.cancel()
+            bus.unlisten(app.state.safety_history.hear)
             await engine.close()
             await bus.stop()
 
