@@ -9,6 +9,7 @@ It answers the routes ported so far and passes every other one on to the Kotlin 
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
@@ -27,6 +28,8 @@ from .common.api_path import clean
 from .common.db import Db
 from .common.web import WebApp, policy_for, web_path
 from .devices.store import DeviceAddresses, DeviceStore
+from .events.hub import EventHub
+from .events.routes import router as event_routes
 from .mcp.levels import McpTokens
 from .proxy import Back
 from .settings import Settings
@@ -48,6 +51,7 @@ class Ctx:
     mcp_tokens: McpTokens
     web: WebApp | None
     back: Back
+    hub: EventHub
 
 
 def make_ctx(settings: Settings, back_transport: httpx.AsyncBaseTransport | None = None,
@@ -69,6 +73,7 @@ def make_ctx(settings: Settings, back_transport: httpx.AsyncBaseTransport | None
         mcp_tokens=McpTokens(settings.internal_token),
         web=WebApp(web_root) if web_root else None,
         back=Back(settings.back_url, back_transport),
+        hub=EventHub(),
     )
 
 
@@ -107,6 +112,7 @@ def create_app(settings: Settings | None = None, ctx: Ctx | None = None) -> Fast
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         ctx.key.value  # made at start: a terminal app reads the file before its first request
+        ctx.hub.bind(asyncio.get_running_loop())
         yield
         await ctx.back.close()
         ctx.db.close()
@@ -118,6 +124,7 @@ def create_app(settings: Settings | None = None, ctx: Ctx | None = None) -> Fast
     app.state.mcp_tokens = ctx.mcp_tokens
     errors.install(app)
     app.include_router(auth_routes)
+    app.include_router(event_routes)
 
     # last: whatever no route above answers. The web app's files when this api has them, else the Kotlin api.
     @app.api_route("/{rest:path}", methods=ALL_METHODS, include_in_schema=False)

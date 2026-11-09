@@ -62,7 +62,7 @@ cat > "$BIN/api" << 'EOF'
 #!/bin/sh
 t="$KEEL_TEST_DIR"
 n=$(( $(cat "$t/api.count" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$t/api.count"
-echo "api start $n supervised=$KEEL_SUPERVISED loader=$KEEL_PLUGIN_LOADER_PATH port=${KEEL_PORT:-} address=${SERVER_ADDRESS:-}" >> "$t/log"
+echo "api start $n supervised=$KEEL_SUPERVISED loader=$KEEL_PLUGIN_LOADER_PATH port=${KEEL_PORT:-} address=${SERVER_ADDRESS:-} hub=${KEEL_HUB_URL:-}" >> "$t/log"
 set -- $(sed -n "${n}p" "$t/api.plan")
 trap 'rm -f "$t/api.up"; echo "api stop" >> "$t/log"; kill $s 2>/dev/null; exit 143' TERM
 case "${1:-up}" in
@@ -288,7 +288,8 @@ check "the person's options" logs "java opts: -Xmx512m$"
 new_case "0.24.0 the Python api in front: the Kotlin api moves to 127.0.0.1:8081; TERM stops all three"
 start_bg KEEL_FRONT_CMD="$BIN/front" KEEL_BACK_HEALTH_URL="file://$T/api.up" KEEL_API_HEALTH_URL="file://$T/front.up"
 wait_file "$T/data/plugins/last-good.json"
-check "the Kotlin api listens on 127.0.0.1:8081 only" logs "api start 1 supervised=1 .* port=8081 address=127.0.0.1"
+check "the Kotlin api listens on 127.0.0.1:8081 only" logs "api start 1 supervised=1 .* port=8081 address=127.0.0.1 "
+check "the Kotlin api sends its events to the Python api's hub" logs "api start 1 .* hub=http://127.0.0.1:8080/internal/hub$"
 check "the Python api answers on 8080 and passes on to the Kotlin api" \
   logs "front start 1 supervised=1 port=8080 back=http://127.0.0.1:8081"
 check "the Python api starts after the Kotlin api" \
@@ -311,7 +312,7 @@ plan "up 3"
 start_bg KEEL_FRONT=0 KEEL_FRONT_CMD="$BIN/front"
 wait_exit
 check "no Python api" is "$(count 'front start')" 0
-check "the Kotlin api keeps its own port" logs "api start 1 supervised=1 .* port= address="
+check "the Kotlin api keeps its own port" logs "api start 1 supervised=1 .* port= address= hub=$"
 
 echo
 if [ "$failures" != 0 ]; then

@@ -33,6 +33,9 @@ data class KeelProperties(
     val name: String = "",
     /** 0.18.57 the main project folder's path on the person's computer (KEEL_HOST_WORKSPACE, set by keel2); blank = unknown. */
     val hostWorkspace: String = "",
+    /** 0.24.0 the Python api's event hub (KEEL_HUB_URL, set by docker/keel-start when the Python api is in front): it answers
+     *  /api/events, so every event goes there (events/EventHub.kt). Blank = this api streams its events itself. */
+    val hubUrl: String = "",
 ) {
     /** The command for keel's builtin MCP server. */
     val mcpPythonCommand: String by lazy {

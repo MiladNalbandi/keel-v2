@@ -24,6 +24,8 @@ def run() -> None:
         proxy_headers=False,
         server_header=False,
         log_level="warning",
+        # the live streams never end by themselves: a stop or restart closes them after 3 seconds
+        timeout_graceful_shutdown=3,
     )
 
 
