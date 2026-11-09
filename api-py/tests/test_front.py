@@ -42,14 +42,15 @@ def test_every_cookie_and_status_of_the_kotlin_answer_comes_back(keel):
     assert r.headers["x-keel-thing"] == "y"
 
 
-def test_the_live_stream_is_passed_on_as_it_comes(keel):
+def test_a_stream_from_the_kotlin_api_is_passed_on_as_it_comes(keel):
+    # /api/events is this api's own now (test_events.py); a plugin's stream still comes from the Kotlin api
     async def events():
         yield b": connected\n\n"
         yield b"event: notification\ndata: {}\n\n"
 
-    keel.back.answers["/api/events"] = lambda req: httpx.Response(
+    keel.back.answers["/api/plugins/x/stream"] = lambda req: httpx.Response(
         200, headers={"content-type": "text/event-stream"}, content=events())
-    with keel.client.stream("GET", "/api/events?project=*", headers=INTERNAL) as r:
+    with keel.client.stream("GET", "/api/plugins/x/stream?project=*", headers=INTERNAL) as r:
         assert r.headers["content-type"] == "text/event-stream"
         assert b"".join(r.iter_bytes()) == b": connected\n\nevent: notification\ndata: {}\n\n"
 

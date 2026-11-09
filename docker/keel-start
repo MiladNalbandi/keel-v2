@@ -199,9 +199,12 @@ start_engine() {
 }
 
 start_api() {
-  # behind the Python api, the Kotlin api listens on 127.0.0.1:BACK_PORT only
+  # behind the Python api, the Kotlin api listens on 127.0.0.1:BACK_PORT only, and sends its events to the Python
+  # api's hub, which answers /api/events (0.24.0)
   local back=(KEEL_SUPERVISED=1)
-  if [ "$FRONT_ON" = 1 ]; then back+=(KEEL_PORT="$BACK_PORT" SERVER_ADDRESS=127.0.0.1); fi
+  if [ "$FRONT_ON" = 1 ]; then
+    back+=(KEEL_PORT="$BACK_PORT" SERVER_ADDRESS=127.0.0.1 KEEL_HUB_URL="http://127.0.0.1:$API_PORT/internal/hub")
+  fi
   if [ -n "${KEEL_API_CMD:-}" ]; then
     # shellcheck disable=SC2086
     env "${back[@]}" $KEEL_API_CMD &

@@ -184,3 +184,19 @@ flush), switch it off in Kotlin in the **same** PR with a `keel.*` flag. Otherwi
 - Checked live: the real Kotlin jar behind the Python front gives the same status and body for every refusal
   (no sign-in, odd paths, wrong keys and tokens, wrong host); a sign-in made by Python works on Kotlin routes; an MCP
   token from Kotlin works in Python; the SSE stream passes through.
+
+## Phase 2 notes (what was built)
+- `api-py/keel_api/events/`: the hub (`hub.py`) and `GET /api/events` + `POST /internal/hub` (`routes.py`). Same
+  frames as Spring's SseEmitter (`:connected`, `event:<type>` / `data:<json>`, no space after the colon),
+  `Content-Type: text/event-stream` with no charset, the same `project` / `project=*` / `notify=all` rules.
+- A `:ping` goes out after 20 s without a frame (Kotlin pinged every 20 s on a timer); either way a dead client is
+  found within 20 s. Each client has its own queue (2000 frames): a client that falls that far behind is dropped and
+  reconnects, so a slow phone never slows keel down.
+- The Kotlin api: with `KEEL_HUB_URL` set (`docker/keel-start` sets it with the front on), `EventHub.publish` hands each
+  event to `HubForward`. One thread posts the waiting events in order, up to 500 per POST, with the internal token.
+  The data goes as JSON text, so Python sends it on byte for byte. A batch that cannot be sent is dropped: while the
+  Python api is down, nobody is connected to it. Without `KEEL_HUB_URL` the Kotlin hub works as before.
+- `POST /internal/events` (the engine's events) stays in Kotlin: engine → Python front → Kotlin → hub → streams.
+- The uvicorn server stops open streams 3 s after a stop or restart (`timeout_graceful_shutdown`).
+- Checked live: an engine event posted to :8080 reached a stream on :8080 through the real Kotlin jar, with the same
+  bytes and headers Kotlin sent before.

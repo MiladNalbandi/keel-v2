@@ -1,20 +1,31 @@
 package keel.api.events
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import keel.api.common.KeelProperties
 import org.slf4j.LoggerFactory
 import org.springframework.http.MediaType
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter
+import java.net.URI
+import java.net.http.HttpClient
+import java.net.http.HttpRequest
+import java.net.http.HttpResponse
+import java.time.Duration
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.LinkedBlockingQueue
 
 /**
  * SSE registry. A client subscribes to one project (or to all with no project) and gets
  * `event: <type>` / `data: <json>` frames. A comment heartbeat goes out every 20 seconds.
+ *
+ * 0.24.0 behind the Python api ([KeelProperties.hubUrl] set), the Python api answers /api/events: every event goes to its
+ * hub instead ([HubForward]), and this hub has no subscribers.
  */
 @Component
-class EventHub(private val mapper: ObjectMapper) {
+class EventHub(private val mapper: ObjectMapper, props: KeelProperties) {
     private val log = LoggerFactory.getLogger(javaClass)
+    private val forward = props.hubUrl.takeIf { it.isNotBlank() }?.let { HubForward(it, props.internalToken, mapper) }
 
     /**
      * [light]: `project=*` — every project, but only the events the bell needs.
@@ -43,6 +54,10 @@ class EventHub(private val mapper: ObjectMapper) {
 
     /** Sends to subscribers of [project] and to subscribers of every project. */
     fun publish(project: String?, type: String, data: Any?) {
+        if (forward != null) {
+            forward.send(project, type, mapper.writeValueAsString(data))
+            return
+        }
         // no open tab or terminal: nothing to write (live text arrives every 80 ms per agent, up to 20k characters each)
         if (subs.isEmpty()) return
         val json = mapper.writeValueAsString(data)
@@ -94,5 +109,65 @@ class EventHub(private val mapper: ObjectMapper) {
                 subs.remove(sub)
             }
         }
+    }
+}
+
+/**
+ * Sends this api's events to the Python api's hub (POST [url], the internal token), in the order they were published.
+ * One thread posts them, as many as are waiting in one batch, so [send] never waits on the network. While the Python api
+ * is down or restarting its streams are gone too, so a batch that cannot be sent is dropped, not retried.
+ */
+internal class HubForward(url: String, private val token: String, private val mapper: ObjectMapper) {
+    private val log = LoggerFactory.getLogger(javaClass)
+    private val uri = URI.create(url)
+    private val client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build()
+    private val queue = LinkedBlockingQueue<Map<String, String?>>(MAX_WAITING)
+
+    @Volatile
+    private var full = false
+
+    init {
+        Thread(::run, "keel-hub-forward").apply { isDaemon = true }.start()
+    }
+
+    /** [json]: the event's data, already written as JSON; the hub sends it on as it is. */
+    fun send(project: String?, type: String, json: String) {
+        if (!queue.offer(mapOf("project" to project, "type" to type, "data" to json)) && !full) {
+            full = true
+            log.warn("the Python api's event hub does not keep up: dropping events")
+        }
+    }
+
+    private fun run() {
+        val batch = ArrayList<Map<String, String?>>()
+        while (true) {
+            try {
+                batch += queue.take()
+                queue.drainTo(batch, MAX_BATCH - 1)
+                post(batch)
+            } catch (e: InterruptedException) {
+                return
+            } catch (e: Exception) {
+                log.debug("event hub: {}", e.toString())
+            } finally {
+                batch.clear()
+            }
+        }
+    }
+
+    private fun post(batch: List<Map<String, String?>>) {
+        val request = HttpRequest.newBuilder(uri)
+            .timeout(Duration.ofSeconds(10))
+            .header("Content-Type", "application/json")
+            .header("X-Keel-Token", token)
+            .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(batch)))
+            .build()
+        val status = client.send(request, HttpResponse.BodyHandlers.discarding()).statusCode()
+        if (status == 200) full = false else log.debug("event hub answered {}", status)
+    }
+
+    companion object {
+        const val MAX_WAITING = 10_000
+        const val MAX_BATCH = 500
     }
 }
