@@ -3,7 +3,7 @@
 //
 //   Run      Flow 10 · Tasks 20 · Inbox 30 · Live agents 40 · Jobs 50
 //   Project  Code 10 · KeelBot 20 · Map 30 · Graph 40 · Wiki 50
-//   Build    Workflows 10 · Rules 15 · Agents 20 · Skill hub 30 · Stacks 40 · Tools (MCP) 50 · Quality 60
+//   Build    Workflows 10 · Safety & History 15 · Agents 20 · Skill hub 30 · Stacks 40 · Tools (MCP) 50 · Quality 60
 //   Control  Settings 20 (its tabs: General · Models & logins · Review · Connections · Budget · Plugins · Databases · Access)
 //   Help     Start here 10 (keel 0.18.66; #/help/<guide> is one short guide)
 //
@@ -68,10 +68,11 @@ registerPage({
   order: 10,
   component: WorkflowsPage,
 });
-// v0.17.2 keel's rules stay core: the guard that applies them is core (rule packs install into the project)
+// v0.17.2 keel's rules stay core: the guard that applies them is core (rule packs install into the project); #89 the
+// page is Safety & History: the rules and the project's history of tool calls
 registerPage({
   id: SCREEN.rules,
-  label: "Rules",
+  label: "Safety & History",
   group: "build",
   order: 15,
   component: RulesPage,

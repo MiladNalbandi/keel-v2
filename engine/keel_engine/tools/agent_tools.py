@@ -173,6 +173,10 @@ class ToolBox:
             v = rules.check_content(rel, rules.checks.added_text(old, content), self.cfg)
         if not v.ok:
             return self._refuse("write_file", rel, v.reason)
+        from ..hook import catastrophic   # keel-gate's T3, as the hook judges it (keel_engine/safety)
+        why = catastrophic("Write", {"file_path": path}, self.cfg, self.root)
+        if why:
+            return self._refuse("write_file", rel, why)
         full.parent.mkdir(parents=True, exist_ok=True)
         full.write_text(content)
         diff = unified_diff(rel, old, content)
@@ -197,7 +201,11 @@ class ToolBox:
         if not v.ok:
             # path is the file the command tried to write (empty for a refused command with no target).
             return self._refuse("run_command", v.path, v.reason, command=command)
-        if self.asker and permissions.needs_ask(command):
+        from ..hook import catastrophic, hard_to_undo   # keel-gate's tiers, as the hook judges them (keel_engine/safety)
+        why = catastrophic("Bash", {"command": command}, self.cfg, self.root)
+        if why:
+            return self._refuse("run_command", "", why, command=command)
+        if self.asker and (permissions.needs_ask(command) or hard_to_undo({"command": command}, self.root)):
             ok, why = self.asker(command)
             if not ok:
                 return self._refuse("run_command", "", why, command=command)

@@ -184,7 +184,8 @@ class APIRunner:
         refused = out.startswith("REFUSED")
         ok = not out.startswith("ERROR")
         if refused:
-            emit("guard", out, tool=name, path=args.get("path"), ok=False, ms=ms)
+            emit("guard", out, tool=name, path=args.get("path"), ok=False, ms=ms,
+                 command=str(args["command"])[:500] if args.get("command") else None)
             return
         if name == "write_file":
             w = req.toolbox.writes[-1] if req.toolbox.writes else {}

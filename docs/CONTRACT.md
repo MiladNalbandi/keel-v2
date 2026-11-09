@@ -3683,3 +3683,38 @@ whose user runs `gke-gcloud-auth-plugin` (by that name), the engine makes an acc
 cloud-platform and userinfo.email, made again shortly before it runs out) and runs kubectl with `$KEEL_DATA/cluster/bin` first on
 its PATH: keel's `gke-gcloud-auth-plugin` there prints the token from its environment as an `ExecCredential`. Other contexts never
 get the token. A failed kubectl run's error is now kubectl's own error line (not its last line, which can be a link).
+
+## keel 0.24.0: Safety & History (issue #89)
+
+keel-gate's safety tiers in keel's guard, and a per-project history of every tool call (`engine/keel_engine/safety/`).
+
+```
+GET /api/projects/{pid}/history          -> {items: HistoryLine[] (newest first), more, next: seq|null,
+                                              counts: {total, action: {allow, deny}, tier: {T0..T3}, rule: {<rule>: n}}}
+    ?thread= ?action=allow|deny ?tier=T0|T1|T2|T3 ?kind=read|write|edit|tool|approval ?q=<text> ?before=<seq> ?limit=1..500 (200)
+GET /api/projects/{pid}/history/verify   -> {ok, text}      // "N lines, chain intact" or the first line that does not fit
+```
+
+Both routes are the Python api's own (`api-py/keel_api/safety/`); 404 `No project called "<pid>"`.
+
+`HistoryLine`: `{seq, at, prev, hash, thread, step, agent, source: flow|keelbot|<approval source>, kind, tool, server?, text,
+path?, action: allow|deny, ok, tier: T0..T3|null, rule?, reason?, undo?}`; an answer to a question (kind `approval`) also has
+`{answer: once|always|deny|null, status, by, question}`. The engine writes `$KEEL_DATA/history/<pid>.jsonl` from its own events
+(`agent.step`, `helper.step`, `approval.answered`), as keel's user: in keel's image agents (their own user) cannot read or
+change it; in native mode they run as the person. The chain finds a changed, removed or moved line; it is not a signature. `hash` =
+sha256(`prev` + the line without `hash` as canonical JSON); secret values are masked before a line is written.
+
+**The guard:** after keel's own rules allow a shell command or an edit, the hook judges its tier, reading the command the way a
+shell would (quotes, `$IFS`, base64, hex and printf escapes, `eval`, `sh -c`, heredocs into a shell, `$(echo rm)`):
+
+| Tier | Meaning | keel |
+|---|---|---|
+| T0 | reads only | runs |
+| T1 | can be undone | runs |
+| T2 | hard to undo (`git push`, a deploy, a hidden command) | a run that may ask (KeelBot) asks first; otherwise it runs and the history shows it |
+| T3 | catastrophic (`rm -rf /`, `DROP TABLE`, `terraform destroy`, deleting a branch on the server, a disk format) | refused: `… This cannot be undone, so keel never runs it (<rule>, T3). Do not try another way …` |
+
+The built-in rule `catastrophic` (can be switched off in `.keel/config.yml` `rules.off`) turns the T3 refusal off for a project.
+
+Web: Build › Rules is now **Build › Safety & History**: the tab "Safety rules" is the old Rules page, unchanged; the tab
+"History" (`#/rules/history`) shows the history with its filters and the chain check.

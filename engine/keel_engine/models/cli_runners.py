@@ -376,7 +376,7 @@ class ClaudeStream:
                     if args.get("command"):
                         item["command"] = str(args["command"])[:500]
                     self.refusals.append(item)
-                    self.emit("guard", reason, tool=name, path=rel or None, ok=False)
+                    self.emit("guard", reason, tool=name, path=rel or None, ok=False, command=item.get("command"))
                     continue
                 if name == "Bash" and b.get("is_error"):
                     self.failed = failed_command((self.inputs.get(call_id) or {}).get("command"), text)
@@ -869,7 +869,7 @@ def opencode_tool(steps: "Steps", part: dict) -> dict | None:
         item = {"tool": part.get("tool", "tool"), "path": rel, "reason": reason}
         if args.get("command"):
             item["command"] = str(args["command"])[:500]
-        steps.emit("guard", reason, tool=item["tool"], path=rel or None, ok=False)
+        steps.emit("guard", reason, tool=item["tool"], path=rel or None, ok=False, command=item.get("command"))
         return item
     tm = st.get("time") or {}
     ms = int(tm["end"] - tm["start"]) if isinstance(tm.get("end"), (int, float)) and isinstance(tm.get("start"), (int, float)) else None

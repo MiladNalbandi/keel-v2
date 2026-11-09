@@ -95,7 +95,7 @@ describe("Marketplace › Rules: the cards", () => {
     open("#/settings/plugins?tab=market&kind=rules");
     const note = await screen.findByRole("note", { name: "No rule pack catalog" });
     expect(note).toHaveTextContent("No rule pack catalog answers yet.");
-    expect(within(note).getByRole("link", { name: "Build › Rules" })).toHaveAttribute("href", "#/rules");
+    expect(within(note).getByRole("link", { name: "Build › Safety & History" })).toHaveAttribute("href", "#/rules");
     expect(within(note).getByRole("link", { name: "Sources and rules" })).toBeInTheDocument();
   });
 

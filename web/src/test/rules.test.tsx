@@ -16,8 +16,9 @@ describe("Rules page", () => {
   it("is in Build and shows each rule with when, the engines and where it is saved", async () => {
     location.hash = "#/rules";
     render(<App />);
-    expect(await screen.findByRole("heading", { name: "Rules", level: 1 })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Rules/ })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Safety & History", level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Safety & History/ })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Safety rules" })).toHaveAttribute("aria-selected", "true");
     const always = (await screen.findByRole("heading", { name: /Always on/ })).closest("section") as HTMLElement;
     const env = within(always).getByText(/\.env files hold secrets/).closest("tr") as HTMLElement;
     expect(within(env).getByLabelText(/Claude checked before the action/)).toBeInTheDocument();
@@ -191,6 +192,6 @@ describe("Rules now on the Flow page", () => {
     act(() => FakeEventSource.emit(e.type, e));
     await waitFor(() => expect(db.calls.length).toBeGreaterThanOrEqual(n));
     await user.click(screen.getByRole("button", { name: "All rules ›" }));
-    expect(await screen.findByRole("heading", { name: "Rules", level: 1 })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Safety & History", level: 1 })).toBeInTheDocument();
   });
 });
