@@ -144,7 +144,7 @@ export function FlowBar({ thread, workflow, estimate, started, onStart, onJump, 
   return (
     <header className="fl-bar" role="region" aria-label="This flow">
       <div className="fl-bar-main">
-        <div className="crumb">{project?.name ?? thread.project_id} › Run</div>
+        <div className="crumb">{project?.name ?? thread.project_id} › Work</div>
         <h1>{thread.title || workflow.name}</h1>
         <div className="fl-facts">
           <span><b>{workflow.name}</b> v{workflow.version}</span>

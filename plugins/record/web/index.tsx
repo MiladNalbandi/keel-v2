@@ -9,8 +9,8 @@ export function setup(sdk: KeelSdk) {
   sdk.registerPage({
     id: "record",
     label: "Record",
-    group: "run",
-    order: 45,
+    group: "watch",
+    order: 30,
     icon: <path d="M7 3h7l5 5v13H7zM14 3v5h5M10 13h6M10 17h6" />,
     component: RecordPage,
   });

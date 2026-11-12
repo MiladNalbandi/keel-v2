@@ -24,7 +24,8 @@ export type PageRegistration = {
   id: string;
   /** its name in the menu */
   label: string;
-  /** the menu group: "run", "know", "build" or "control" (routes.ts GROUP_HEADS) */
+  /** the menu group (routes.ts GROUP_HEADS): "home" (beside the Inbox), "run" (Work), "watch", "know" (Project),
+   *  "build", "control" or "help". Another name puts the page in Build (#93), so it is still in the menu. */
   group: string;
   /** its place in the group: lower first */
   order: number;

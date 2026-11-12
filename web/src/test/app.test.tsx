@@ -10,7 +10,11 @@ describe("navigation and project switching", () => {
     render(<App />);
     await screen.findByRole("button", { name: /^Project: ludus-engine/ });
     const n = within(nav());
-    for (const g of ["Run", "Project", "Build", "Control"]) expect(n.getAllByText(g).length).toBeGreaterThan(0);
+    // #93 the groups with a header; the Inbox right under All projects; Settings and Start here at the foot
+    for (const g of ["Work", "Watch", "Project", "Build"]) expect(n.getByRole("button", { name: new RegExp(`^${g}`) })).toHaveAttribute("aria-expanded", "true");
+    const links = n.getAllByRole("link").map((a) => a.querySelector(".nav-l")?.textContent);
+    expect(links.slice(0, 2)).toEqual(["All projects", "Inbox"]);
+    expect(links.slice(-2)).toEqual(["Settings", "Start here"]);
     for (const l of ["Flow", "Live agents", "Jobs", "Code", "Map", "Graph", "Wiki", "Workflows", "Agents", "Skill hub", "Stacks", "Tools (MCP)", "Settings"]) {
       expect(n.getByRole("link", { name: new RegExp(`^${l.replace(/[()]/g, "\\$&")}`) })).toBeInTheDocument();
     }
@@ -19,10 +23,31 @@ describe("navigation and project switching", () => {
     expect(screen.getByRole("link", { name: /All projects/ })).toHaveTextContent("◆ 1");
   });
 
+  it("#93 folds a group from its header, keeps the page you are on, and remembers the fold", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByText(/AC gate — AC-002/);
+    const n = within(nav());
+    const build = n.getByRole("button", { name: /^Build/ });
+    await user.click(build);
+    expect(build).toHaveAttribute("aria-expanded", "false");
+    expect(n.getByRole("link", { name: "Workflows" })).toHaveClass("nav-folded");
+    expect(JSON.parse(localStorage.getItem("keel.nav.folded") ?? "[]")).toEqual(["build"]);
+    // the Flow page is open: folding Work hides the other pages and keeps Flow
+    await user.click(n.getByRole("button", { name: /^Work/ }));
+    expect(n.getByRole("link", { name: /^Flow/ })).not.toHaveClass("nav-folded");
+    expect(n.getByRole("link", { name: /^Tasks/ })).toHaveClass("nav-folded");
+    // the keys still count every page: Tasks keeps its number
+    expect(n.getByRole("link", { name: /^Tasks/ })).toHaveAttribute("title", expect.stringMatching(/Tasks/));
+    await user.click(build);
+    expect(n.getByRole("link", { name: "Workflows" })).not.toHaveClass("nav-folded");
+    expect(JSON.parse(localStorage.getItem("keel.nav.folded") ?? "[]")).toEqual(["run"]);
+  });
+
   it("moves between screens with the hash and shows the breadcrumb", async () => {
     render(<App />);
     expect(await screen.findByText(/AC gate — AC-002/)).toBeInTheDocument();
-    expect(screen.getByText("ludus-engine › Run")).toBeInTheDocument();
+    expect(screen.getByText("ludus-engine › Work")).toBeInTheDocument();
     await act(async () => { location.hash = "#/repo"; window.dispatchEvent(new HashChangeEvent("hashchange")); });
     expect(await screen.findByRole("heading", { name: "Code" })).toBeInTheDocument();
     expect(screen.getByText("ludus-engine › Project")).toBeInTheDocument();
@@ -39,7 +64,7 @@ describe("navigation and project switching", () => {
     expect(await screen.findByText("Nothing running here yet")).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("Now showing YegiResearcher");
     expect(localStorage.getItem("keel2.project")).toBe("yegi");
-    expect(screen.getByText("YegiResearcher › Run")).toBeInTheDocument();
+    expect(screen.getByText("YegiResearcher › Work")).toBeInTheDocument();
   });
 
   it("opens a project from All projects", async () => {

@@ -20,7 +20,7 @@ const explains = () =>
   calls("POST", "/api/projects/ludus-engine/workflows/explain-step");
 
 describe("the Wiki plugin's web part", () => {
-  it("is a plugin whose setup() puts the Wiki page in the menu, in the Project group right after Graph", async () => {
+  it("is a plugin whose setup() puts the Wiki page in the menu, in the Project group right after KeelBot (#93)", async () => {
     expect(plugin.name).toBe("wiki");
     expect(typeof plugin.setup).toBe("function");
     location.hash = "#/flow";
@@ -28,7 +28,7 @@ describe("the Wiki plugin's web part", () => {
     const nav = await screen.findByRole("navigation", { name: "Screens" });
     const links = within(nav).getAllByRole("link");
     const names = links.map((l) => l.textContent?.trim());
-    expect(names.indexOf("Wiki")).toBe(names.indexOf("Graph") + 1);
+    expect(names.indexOf("Wiki")).toBe(names.indexOf("KeelBot") + 1);
     expect(links[names.indexOf("Wiki")]).toHaveAttribute("href", "#/wiki");
   });
 });

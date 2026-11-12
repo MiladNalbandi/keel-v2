@@ -73,8 +73,8 @@ const podTable = () => main().findByRole("table", { name: "Pods" });
 const rows = (t: HTMLElement) => within(t).getAllByRole("row").slice(1);
 
 describe("the Cluster page", () => {
-  it("is in the menu under Run, after Record", () => {
-    const run = allPages().filter((p) => p.group === "run").sort((a, b) => a.order - b.order).map((p) => p.id);
+  it("is in the menu under Watch, after Record (#93)", () => {
+    const run = allPages().filter((p) => p.group === "watch").sort((a, b) => a.order - b.order).map((p) => p.id);
     expect(run.indexOf("cluster")).toBe(run.indexOf("record") + 1);
   });
 

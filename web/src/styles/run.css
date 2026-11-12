@@ -29,6 +29,21 @@
 .nav .nav-home .count { background: transparent; color: var(--warn); padding: 0; }
 .nav .nav-h { padding: 0 10px; line-height: 16px; }
 .app .nav-sec { gap: 1px; }
+/* #93 a group folds when its header is clicked: the page you are on stays, and so do the counts of the pages it hides.
+   Settings and Start here sit at the foot of the menu. */
+button.nav-h { display: flex; flex-direction: row; align-items: center; gap: 8px; width: 100%; border: 0; background: none; cursor: pointer;
+  text-align: left; font: inherit; color: inherit; padding: 2px 10px; border-radius: 6px; min-height: 22px; }
+button.nav-h:hover > span:first-child { color: var(--fg); }
+button.nav-h:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button.nav-h::after { content: ""; flex: none; margin-left: auto; width: 5px; height: 5px; border-right: 1.5px solid var(--faint); border-bottom: 1.5px solid var(--faint);
+  transform: translateY(-2px) rotate(45deg); transition: transform .15s; }
+button.nav-h[aria-expanded="false"]::after { transform: rotate(-45deg); }
+.nav-h-counts { display: inline-flex; gap: 4px; }
+.nav .nav-h-counts .count, .ms-nav .nav-h-counts .count { margin-left: 0; }
+.nav a.nav-folded, .ms-nav a.nav-folded { display: none; }
+.nav-foot-gap { flex: 1 0 4px; }
+.nav-sec.foot { border-top: 1px solid var(--border); padding-top: 8px; }
+.rail-group.foot { margin-top: auto; }
 .side-foot { margin-top: 0; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 4px 0; border-top: 1px solid var(--border); }
 .side-foot .ver { font-size: 11px; }
 .side-foot .row { display: contents; }
@@ -56,6 +71,10 @@
     mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent); }
   .app .side .nav-sec, .app .side .nav-sec.cur { display: flex; flex-direction: row; overflow: visible; gap: 2px; margin-left: 6px; padding-left: 6px; border-left: 1px solid var(--border); }
   .app .side .nav-h { display: none; }
+  /* #93 the phone row shows every page: no folding, no foot */
+  .app .side .nav a.nav-folded { display: flex; }
+  .app .side .nav-foot-gap { display: none; }
+  .app .side .nav-sec.foot { border-top: 0; padding-top: 0; }
   .app .side .nav a { white-space: nowrap; padding: 5px 10px; min-height: 32px; flex: none; }
   .app .side .nav .nav-home { font-weight: 500; color: var(--dim); }
   .app .side .nav .nav-home[aria-current="page"] { color: var(--fg); }
@@ -74,9 +93,9 @@
 .ms-nav { display: grid; gap: 12px; }
 .ms-nav .nav-sec { display: grid; gap: 1px; }
 .ms-nav .nav-h { display: flex; flex-direction: row; align-items: baseline; gap: 8px; padding: 0 10px 2px; }
-.ms-nav .nav-h span { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--faint); font-weight: 700; }
+.ms-nav .nav-h > span:first-child { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--faint); font-weight: 700; }
 .ms-nav .nav-h small { font-size: 11px; color: var(--faint); }
-.ms-nav .nav-sec.cur .nav-h span { color: var(--accent); }
+.ms-nav .nav-sec.cur .nav-h > span:first-child { color: var(--accent); }
 .ms-nav a { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border-radius: 7px; color: var(--dim); text-decoration: none; font-weight: 500; }
 .ms-nav a:hover { background: var(--panel-2); color: var(--fg); }
 .ms-nav a[aria-current="page"] { background: var(--accent-soft); color: var(--fg); }

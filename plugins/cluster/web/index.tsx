@@ -9,8 +9,8 @@ export function setup(sdk: KeelSdk) {
   sdk.registerPage({
     id: "cluster",
     label: "Cluster",
-    group: "run",
-    order: 47,
+    group: "watch",
+    order: 40,
     needsProject: "optional",
     icon: (
       <>

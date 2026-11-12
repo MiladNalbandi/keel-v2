@@ -38,26 +38,45 @@ const OWN = new Set<string>(
   Object.values(SCREEN).filter((s) => s !== SCREEN.addon),
 );
 
-/** The menu's groups, in order. Their pages come from the page registry. */
-export type GroupHead = { id: string; label: string; hint: string };
+/** The menu's groups, in order. Their pages come from the page registry. `bare`: the menu shows its pages without a
+ *  header (and it never folds). `foot`: the group sits at the bottom of the menu. */
+export type GroupHead = { id: string; label: string; hint: string; bare?: boolean; foot?: boolean };
+// #93 the menu by what a person comes to do: what waits for me (the Inbox, right under All projects), give work (Work,
+// the group id stays "run" for the plugins that name it), see what runs (Watch), the project, how agents work, and
+// Settings and Start here at the bottom.
+//
+//   Inbox    Inbox 10
+//   Work     Flow 10 · Tasks 20 · Goals 22 · Org 24 · Desk 25
+//   Watch    Live agents 10 · Jobs 20 · Record 30 · Cluster 40
+//   Project  Code 10 · Review 15 · Map 30 · Graph 40 · KeelBot 45 · Wiki 50 · Library 55
+//   Build    Workflows 10 · Agents 20 · Skill hub 30 · Stacks 40 · Tools (MCP) 50 · Safety & History 55 · Quality 60
+//   (foot)   Settings · Start here
 export const GROUP_HEADS: GroupHead[] = [
-  { id: "run", label: "Run", hint: "what is happening now" },
+  { id: "home", label: "Inbox", hint: "what waits for you", bare: true },
+  { id: "run", label: "Work", hint: "give work and follow it" },
+  { id: "watch", label: "Watch", hint: "what runs now" },
   { id: "know", label: "Project", hint: "what this project is" },
   { id: "build", label: "Build", hint: "how agents work" },
-  { id: "control", label: "Control", hint: "cost, limits, accounts" },
+  { id: "control", label: "Control", hint: "cost, limits, accounts", bare: true, foot: true },
   // keel 0.18.66 Start here and the short guides
-  { id: "help", label: "Help", hint: "start here, short guides" },
+  { id: "help", label: "Help", hint: "start here, short guides", bare: true, foot: true },
 ];
+
+/** #93 where a page goes when its group is not one of GROUP_HEADS (a plugin made for another keel): the last group
+ *  with a header, so it is still in the menu. */
+export const FALLBACK_GROUP = "build";
 
 export type Group = GroupHead & { pages: [ScreenId, string][] };
 
 /** The menu: each group with its registered pages, by their order. */
 export function menuGroups(): Group[] {
   const pages = allPages();
+  const known = new Set(GROUP_HEADS.map((g) => g.id));
+  const groupOfPage = (group: string) => (known.has(group) ? group : FALLBACK_GROUP);
   return GROUP_HEADS.map((g) => ({
     ...g,
     pages: pages
-      .filter((p) => p.group === g.id)
+      .filter((p) => groupOfPage(p.group) === g.id)
       .sort((a, b) => a.order - b.order)
       .map((p): [ScreenId, string] => [p.id, p.label]),
   }));

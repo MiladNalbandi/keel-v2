@@ -3771,3 +3771,12 @@ the mission's), `org:report` (the review's `keel-org-report` block as the report
 Web slot (#92): `SLOTS.marketKind = "market.kind"` — `MarketKindItem {id, title, line, component()}`: a kind of a part's own
 in Settings › Plugins › Marketplace, after keel's (Plugins · Workflows · Rules · Skills · Stacks); `?kind=<id>` opens it, an
 id keel uses itself is never a part's. The Org plugin's is `orgs`.
+
+## Next: the menu's groups (issue #93)
+
+`PageRegistration.group` (web SDK) is one of `home` (beside the Inbox, no header), `run` (shown as **Work**), `watch`,
+`know` (shown as **Project**), `build`, `control` and `help` (both at the foot, no header). A page whose group keel does
+not know goes to Build, so it is still in the menu. The Inbox is `home` 10; Live agents and Jobs moved to `watch` (10, 20),
+and so did the Record and Cluster plugins' pages (30, 40); KeelBot is `know` 45 and Safety & History `build` 55. A group
+with a header folds when its header is clicked (kept per browser under `keel.nav.folded`); a folded group still shows the
+page you are on and the counts of the pages it hides.
