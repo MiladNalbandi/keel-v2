@@ -1,0 +1,22 @@
+id: lead-intake
+name: lead a mission
+keel_rules: true
+own_branch: false
+version: 1
+about: The first flow of an Org mission. The lead reads the mission and the code, asks you what it must, plans, and gives the work to its team (each member runs its own flow). It only reads.
+budget: { max_tokens: 300000, on_limit: pause }
+# Started by the Org plugin's runner, with the mission as the request and data.org (the mission, its key, the role, the
+# role's autonomy). The plan gate asks only when the role's autonomy is "propose"; "act" goes on by itself.
+steps:
+  - id: plan
+    kind: agent
+    name: read the mission and the code, plan the team's work
+    agent: org-tech-lead
+    model: default
+    phase: review
+    asks: true
+    keep: true
+  - { id: questions, kind: gate, name: the lead's questions, phase: review, when: { state: clarify.questions } }
+  - { id: check, kind: code, name: check the plan against the org's rules, action: "org:check", phase: review }
+  - { id: plan_gate, kind: gate, name: the lead's plan, phase: gate, back: plan, when: { data: org.autonomy, equals: propose } }
+  - { id: delegate, kind: code, name: give the work to the team, action: "org:delegate", phase: review }

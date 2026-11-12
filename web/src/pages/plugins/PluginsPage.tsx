@@ -4,10 +4,11 @@ import { ErrorBox, Pill } from "../../components/ui";
 import { marketApi, pendingOf, sourcesOf, updateOf } from "../../marketplaceApi";
 import { queryValue, settingsHash } from "../../routes";
 import { SettingsFrame } from "../settings/frame";
-import { type PageProps } from "../../sdk/registry";
+import { useSlot, type PageProps } from "../../sdk/registry";
+import { SLOTS, type MarketKindItem } from "../../sdk/slots";
 import { useApp, useLoad, useRoute } from "../../state";
 import { PluginDetailPage, titleOf, type Err } from "../PluginDetail";
-import { KindSwitch, MarketWorkflowPage, WorkflowsMarket, type MarketKind } from "../MarketWorkflow";
+import { CORE_KINDS, KindSwitch, MarketWorkflowPage, WorkflowsMarket } from "../MarketWorkflow";
 import { MarketRulePackPage, RulesMarket } from "../MarketRulePack";
 import { MarketSkillPage, SkillsMarket } from "../MarketSkill";
 import { MarketStackPage, StacksMarket } from "../MarketStack";
@@ -58,10 +59,13 @@ export function PluginsPage({ rest }: PageProps & { rest?: string }) {
       ? asked
       : null;
   const [tab, setTab] = useState<Tab>(linked ?? "installed");
-  // the Marketplace's kind: #/settings/plugins?tab=market&kind=workflows|rules (the link is the truth)
+  // the Marketplace's kind: #/settings/plugins?tab=market&kind=workflows|rules (the link is the truth); #92 or a part's
+  // own kind (slot market.kind: the Org plugin's orgs)
   const askedKind = queryValue(route, "kind");
-  const kind: MarketKind =
-    askedKind === "workflows" || askedKind === "rules" || askedKind === "skills" || askedKind === "stacks" ? askedKind : "plugins";
+  const partKinds = useSlot<MarketKindItem>(SLOTS.marketKind).filter((p) => !CORE_KINDS.includes(p.id));
+  const partKind = partKinds.find((p) => p.id === askedKind) ?? null;
+  const kind: string =
+    askedKind && (CORE_KINDS.includes(askedKind) || partKind) ? askedKind : "plugins";
   useEffect(() => {
     if (linked) setTab(linked);
   }, [linked, route.query]);
@@ -165,7 +169,8 @@ export function PluginsPage({ rest }: PageProps & { rest?: string }) {
       : tab === "market" && kind === "rules" ? SUB_RULES
         : tab === "market" && kind === "skills" ? SUB_SKILLS
           : tab === "market" && kind === "stacks" ? SUB_STACKS
-            : SUB[tab];
+            : tab === "market" && partKind ? partKind.line
+              : SUB[tab];
   const TABS: [Tab, string][] = [
     ["installed", count === undefined ? "Installed" : `Installed (${count})`],
     ["market", "Marketplace"],
@@ -207,6 +212,7 @@ export function PluginsPage({ rest }: PageProps & { rest?: string }) {
         {tab === "market" && kind === "rules" && <RulesMarket />}
         {tab === "market" && kind === "skills" && <SkillsMarket />}
         {tab === "market" && kind === "stacks" && <StacksMarket />}
+        {tab === "market" && partKind && kind === partKind.id && <partKind.component />}
         {tab === "market" && kind === "plugins" && (
           <MarketTab view={view.data} onInstall={(name) => setPlan({ install: [name] })} onChanged={() => void view.reload()} />
         )}

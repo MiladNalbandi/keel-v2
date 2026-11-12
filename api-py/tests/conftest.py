@@ -53,11 +53,29 @@ class BackStub:
         return httpx.Response(r.status_code, headers=r.headers.multi_items(), content=chunks())
 
 
+class EngineStub:
+    """keel's engine for the routes of its plugin parts: records each request, answers what `answers` says."""
+
+    def __init__(self) -> None:
+        self.seen: list[httpx.Request] = []
+        self.down = False
+        self.answers: dict = {}
+
+    async def handle(self, request: httpx.Request) -> httpx.Response:
+        if self.down:
+            raise httpx.ConnectError("connection refused", request=request)
+        await request.aread()
+        self.seen.append(request)
+        made = self.answers.get(request.url.path)
+        return made(request) if made is not None else httpx.Response(200, json={"from": "engine", "path": request.url.path})
+
+
 @dataclass
 class Keel:
     client: TestClient
     ctx: Ctx
     back: BackStub
+    engine: EngineStub
 
     def code(self) -> str:
         r = self.client.post("/api/web/code", headers={"X-Keel-Token": TOKEN})
@@ -88,9 +106,11 @@ def make_keel(tmp_path: Path, client=("127.0.0.1", 50000), **extra) -> Keel:
                 trusted_proxies="")
     opts.update(extra)
     back = BackStub()
-    ctx = make_ctx(Settings(**opts), httpx.MockTransport(back.handle), trusted_for_tests=set())
+    engine = EngineStub()
+    ctx = make_ctx(Settings(**opts), httpx.MockTransport(back.handle), trusted_for_tests=set(),
+                   engine_transport=httpx.MockTransport(engine.handle))
     tc = TestClient(create_app(ctx=ctx), base_url="http://localhost:8080", client=client, follow_redirects=False)
-    return Keel(tc, ctx, back)
+    return Keel(tc, ctx, back, engine)
 
 
 @pytest.fixture

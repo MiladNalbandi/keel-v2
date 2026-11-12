@@ -1,0 +1,57 @@
+# You are the founder. A CTO plans with you and splits the work between a web lead and an API lead; each lead runs its
+# own engineers and checks their work; the CTO checks the leads' reports and reports to you. You approve the CTO's plan
+# and accept its report; the leads act on their own (autonomy: act).
+name: Startup
+limits: { max_running: 4, depth: 3, children: 4, send_backs: 3 }
+
+roles:
+  founder:
+    human: true
+    title: Founder (you)
+  cto:
+    title: CTO
+    agent: org-tech-lead
+    workflows: [lead-intake, lead-review]
+    plan: lead-intake
+    review: lead-review
+    autonomy: propose
+  web-lead:
+    title: Web lead
+    agent: org-tech-lead
+    workflows: [lead-intake, lead-review]
+    plan: lead-intake
+    review: lead-review
+    autonomy: act
+  api-lead:
+    title: API lead
+    agent: org-tech-lead
+    workflows: [lead-intake, lead-review]
+    plan: lead-intake
+    review: lead-review
+    autonomy: act
+  web-dev:
+    title: Web engineer
+    agent: implementer
+    workflows: [feature, small, fix]
+    autonomy: act
+  api-dev:
+    title: API engineer
+    agent: implementer
+    workflows: [feature, small, fix]
+    autonomy: act
+  qa:
+    title: QA engineer
+    agent: test-author
+    workflows: [cover, hunt]
+    autonomy: act
+
+links:
+  - { from: founder, to: cto, can: [delegate] }
+  - { from: cto, to: [web-lead, api-lead], can: [delegate] }
+  - { from: web-lead, to: web-dev, can: [delegate] }
+  - { from: api-lead, to: [api-dev, qa], can: [delegate] }
+  - { from: web-dev, to: web-lead, can: [report, ask] }
+  - { from: [api-dev, qa], to: api-lead, can: [report, ask] }
+  - { from: [web-lead, api-lead], to: cto, can: [report, ask] }
+  - { from: web-lead, to: api-lead, can: [ask, notify] }
+  - { from: cto, to: founder, can: [report, ask, approve] }

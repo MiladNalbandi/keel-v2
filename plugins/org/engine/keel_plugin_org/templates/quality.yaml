@@ -1,0 +1,37 @@
+# A quality lead with a test writer, a bug hunter and a linter: give it a part of the code to harden. The lead splits
+# it, each one works in its own worktree, and the lead reports what they found and fixed.
+name: Quality team
+limits: { max_running: 3, depth: 2, children: 4, send_backs: 3 }
+
+roles:
+  me:
+    human: true
+  qa-lead:
+    title: Quality lead
+    agent: org-tech-lead
+    workflows: [lead-intake, lead-review]
+    plan: lead-intake
+    review: lead-review
+    autonomy: propose
+  tester:
+    title: Test writer
+    agent: test-author
+    workflows: [cover]
+    autonomy: act
+  hunter:
+    title: Bug hunter
+    agent: hunter
+    workflows: [hunt]
+    autonomy: act
+  linter:
+    title: Linter
+    agent: implementer
+    workflows: [lint]
+    autonomy: act
+
+links:
+  - { from: me, to: qa-lead, can: [delegate] }
+  - { from: qa-lead, to: [tester, hunter, linter], can: [delegate] }
+  - { from: [tester, hunter, linter], to: qa-lead, can: [report, ask] }
+  - { from: hunter, to: tester, can: [notify] }
+  - { from: qa-lead, to: me, can: [report, ask, approve] }

@@ -259,6 +259,7 @@ SDK major working for a long time, so a plugin does not need a new release for e
 | `flow.panel`                            | core               | Record's panel under a flow's steps |
 | `flow.chip`                             | core               | the Supervisor's chip in a flow's header |
 | `inbox.note`                            | core               | the Supervisor's note on a flow's Inbox item; it may fill in the form, never send |
+| `market.kind`                           | core               | the Org plugin's Orgs in Settings › Plugins › Marketplace |
 | `assistant`                             | core               | KeelBot answers `askAssistant()`  |
 | `code.activity`, `code.tab`, `code.scm` | **Code** plugin    | Git, Code Review, Database, CI/CD |
 | `keelbot.command`, `keelbot.card`       | **KeelBot** plugin | Git `/commit`, Database `/query`  |

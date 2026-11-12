@@ -272,6 +272,7 @@ describe("the menu and the links stay as they were", () => {
         ["flow", "Flow"],
         ["tasks", "Tasks"],
         ["goals", "Goals"],
+        ["org", "Org"],  // #92 the Org plugin
         ["desk", "Desk"],
         ["inbox", "Inbox"],
         ["live", "Live agents"],

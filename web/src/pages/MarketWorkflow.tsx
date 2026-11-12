@@ -21,6 +21,8 @@ import { Drawer, ErrorBox, Loading, Pill } from "../components/ui";
 import { ReviewList, UpdateDialog } from "../components/WorkflowMarket";
 import { Zoom } from "../components/Zoom";
 import type { PluginsView } from "../marketplaceApi";
+import { useSlot } from "../sdk/registry";
+import { SLOTS, type MarketKindItem } from "../sdk/slots";
 import { useApp, useLoad } from "../state";
 import {
   MARKET_WORKFLOWS,
@@ -79,12 +81,17 @@ export function ReviewShort({ h }: { h: Pick<WorkflowHit, "review"> }) {
 }
 
 export type MarketKind = "plugins" | "workflows" | "rules" | "skills" | "stacks";
+/** keel's own kinds; a part's kind (slot market.kind, #92) is any other id */
+export const CORE_KINDS: readonly string[] = ["plugins", "workflows", "rules", "skills", "stacks"];
 
 /** The kind switch of the Marketplace tab: Plugins · Workflows · Rules. The link keeps ?tab=market. */
-export function KindSwitch({ kind }: { kind: MarketKind }) {
-  const to = (k: MarketKind) => {
+export function KindSwitch({ kind }: { kind: string }) {
+  // #92 a part's kinds after keel's own (the Org plugin's Orgs)
+  const parts = useSlot<MarketKindItem>(SLOTS.marketKind).filter((p) => !CORE_KINDS.includes(p.id));
+  const to = (k: string) => {
     const h = k === "workflows" ? MARKET_WORKFLOWS : k === "rules" ? MARKET_RULES : k === "skills" ? MARKET_SKILLS
-      : k === "stacks" ? MARKET_STACKS : "#/settings/plugins?tab=market";
+      : k === "stacks" ? MARKET_STACKS : k === "plugins" ? "#/settings/plugins?tab=market"
+        : `#/settings/plugins?tab=market&kind=${encodeURIComponent(k)}`;
     if (location.hash !== h) location.hash = h;
   };
   return (
@@ -104,6 +111,11 @@ export function KindSwitch({ kind }: { kind: MarketKind }) {
       <button type="button" aria-pressed={kind === "stacks"} onClick={() => to("stacks")}>
         Stacks
       </button>
+      {parts.map((p) => (
+        <button key={p.id} type="button" aria-pressed={kind === p.id} onClick={() => to(p.id)}>
+          {p.title}
+        </button>
+      ))}
     </div>
   );
 }

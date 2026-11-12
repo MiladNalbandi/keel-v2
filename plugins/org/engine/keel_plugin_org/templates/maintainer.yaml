@@ -1,0 +1,38 @@
+# For an open-source project: a triage lead reads each issue and gives it to a fixer, a pull-request reviewer or a docs
+# writer. You approve the plan and accept the report.
+name: Open-source maintainer
+limits: { max_running: 3, depth: 2, children: 4, send_backs: 3 }
+
+roles:
+  me:
+    human: true
+    title: Maintainer (you)
+  triage:
+    title: Issue triager
+    agent: org-tech-lead
+    workflows: [lead-intake, lead-review]
+    plan: lead-intake
+    review: lead-review
+    autonomy: propose
+  fixer:
+    title: Fixer
+    agent: implementer
+    workflows: [fix, small, address]
+    autonomy: act
+  reviewer:
+    title: PR reviewer
+    agent: pr-reviewer
+    workflows: [review-pr]
+    autonomy: act
+  docs:
+    title: Docs writer
+    agent: implementer
+    workflows: [small, quick]
+    autonomy: act
+
+links:
+  - { from: me, to: triage, can: [delegate] }
+  - { from: triage, to: [fixer, reviewer, docs], can: [delegate] }
+  - { from: [fixer, reviewer, docs], to: triage, can: [report, ask] }
+  - { from: reviewer, to: fixer, can: [ask] }
+  - { from: triage, to: me, can: [report, ask, approve] }
