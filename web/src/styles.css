@@ -315,9 +315,9 @@ button.skilltag:hover { border-color: var(--accent); color: var(--accent); }
 .nav-groups { display: none; }
 .nav-sec { display: flex; flex-direction: column; gap: 2px; }
 .nav-h { display: flex; flex-direction: column; padding: 0 10px 4px; }
-.nav-h span { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--faint); font-weight: 700; }
+.nav-h > span:first-child { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--faint); font-weight: 700; }
 .nav-h small { font-size: 11px; color: var(--faint); }
-.nav-sec.cur .nav-h span { color: var(--accent); }
+.nav-sec.cur .nav-h > span:first-child { color: var(--accent); }
 .crumb { font-size: 11.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--accent); font-weight: 700; margin-bottom: 2px; min-height: 1em; }
 @media (max-width: 900px) {
   .side { flex-direction: column; align-items: stretch; gap: 8px; overflow: visible; }

@@ -1,0 +1,31 @@
+# A triage lead with a fixer and a test writer. Give it a bug (a ticket key or the steps): the lead reads it, the fixer
+# reproduces and fixes it, the test writer covers it, and the lead reports with the proof.
+name: Bug squad
+limits: { max_running: 3, depth: 2, children: 4, send_backs: 3 }
+
+roles:
+  me:
+    human: true
+  triage:
+    title: Triage lead
+    agent: org-tech-lead
+    workflows: [lead-intake, lead-review]
+    plan: lead-intake
+    review: lead-review
+    autonomy: propose
+  fixer:
+    title: Fixer
+    agent: implementer
+    workflows: [fix, diagnose]
+    autonomy: act
+  tester:
+    title: Test writer
+    agent: test-author
+    workflows: [cover]
+    autonomy: act
+
+links:
+  - { from: me, to: triage, can: [delegate] }
+  - { from: triage, to: [fixer, tester], can: [delegate] }
+  - { from: [fixer, tester], to: triage, can: [report, ask] }
+  - { from: triage, to: me, can: [report, ask, approve] }

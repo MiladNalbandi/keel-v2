@@ -3718,3 +3718,65 @@ The built-in rule `catastrophic` (can be switched off in `.keel/config.yml` `rul
 
 Web: Build › Rules is now **Build › Safety & History**: the tab "Safety rules" is the old Rules page, unchanged; the tab
 "History" (`#/rules/history`) shows the history with its filters and the chain check.
+
+## Next: the Org plugin (issue #92)
+
+An org of agents: roles and links in YAML, missions given to a role, each role's flows started by the plugin's runner
+(`plugins/org`). Python only: the routes are the engine part's, and the Python api forwards `/api/org/*` to the engine's
+`/org/*` with the internal token (`api-py/keel_api/engine_parts.py`). The caller's own credentials never reach the engine.
+
+```
+GET    /api/org/orgs                       -> OrgView[]
+GET    /api/org/example                    -> {yaml}
+GET    /api/org/templates                  -> OrgTemplate[] (the ready-made orgs, in their order)
+GET    /api/org/templates/{tid}            -> OrgTemplate                          404 No org template called <tid>
+POST   /api/org/check {yaml}               -> {ok, problems: string[], roles: string[]}
+GET    /api/org/orgs/{oid}                 -> OrgView                              404 No org called <oid>
+PUT    /api/org/orgs/{oid} {yaml}          -> OrgView                              400 the problems, one per line in the error
+DELETE /api/org/orgs/{oid}                 -> {ok}                                 409 while a mission of it is open
+GET    /api/org/orgs/{oid}/missions        -> MissionRow[] (the missions you gave, newest first)   ?limit=1..200 (50)
+POST   /api/org/orgs/{oid}/missions {role, project_id, title, request?, source?, workflow?, cap_tokens?} -> Mission
+GET    /api/org/missions/{mid}             -> {mission: MissionTree, rollup, flows: [{thread_id, stage, at}], history: [{at, kind, text, data}]}
+POST   /api/org/missions/{mid}/start       -> Mission    (proposed -> queued)
+POST   /api/org/missions/{mid}/stop        -> Mission    (it and every open mission under it; their flows stop)
+POST   /api/org/missions/{mid}/accept {why?} -> Mission  409 unless reported
+```
+
+`OrgView`: `{id, name, yaml, updated_at, problems, roles: [{id, title, human, agent, workflows, plan, review, autonomy:
+watch|propose|act, team, boss}], links: [{from, to, can}], limits?, projects?}`. `Mission`: `{id, org_id, role, parent_id,
+project_id, title, request, source, workflow, stage: plan|work|review, status: proposed|queued|running|delegated|reported|done|failed|stopped,
+thread_id, cap_tokens, used_tokens, send_backs, depth, report, decision: {choice: accept|send_back, why}|null, note, created_at,
+updated_at}`; a `MissionTree` adds `children`, `running_tokens` and `waiting: {step, title, person}|null`; a `MissionRow` adds
+`rollup: {tokens, counts}`, `children_count` and the first `waiting` in its tree (with its `role` and `thread_id`).
+
+`OrgTemplate`: `{id, title, summary, people, agents, levels, workflows: string[], roles, links, yaml}` (roles and links as in
+`OrgView`). The templates (`solo`, `small-team`, `bug-squad`, `startup`, `maintainer`, `quality`) come with the plugin
+(`keel_plugin_org/templates/`), name no project and only workflows keel has; the web shows them in Settings › Plugins ›
+Marketplace › Orgs (slot `market.kind`, below) and on New org (`#/org/new~<tid>` opens it with one filled in).
+
+Assign refuses (400) a role the org does not have, a human role, a role no human role delegates to, a workflow the role may
+not run, and a project outside the org's `projects`. A mission's flows are normal flows started through
+`POST /api/projects/{pid}/flows` with `options.org = {org, mission, key, role, stage, autonomy, level}` and `options.ticket`;
+`level` is `top` for the mission you gave and `team` for one a boss gave out. A team member's flow has `where: worktree`;
+`run_mode` is `auto` for autonomy `act` and `manual` for `propose`. A mission a boss gives to a role that has a team of its
+own starts at that role's `plan` (stage `plan`, its team listed in its request), like a mission you give. `lead-review`'s
+report gate (`person: true`) asks only at `level: top`: a branch goes around it for a team's mission, whose report goes up
+to its boss's review (`org:close` then keeps no decision).
+
+Workflow actions (plugin part `org`): `org:check` (the plan against the links, workflows and limits; writes
+`data.<gate>_detail`, default `plan_gate`), `org:delegate` (makes the child missions; refuses a flow whose `data.org.key` is not
+the mission's), `org:report` (the review's `keel-org-report` block as the report; writes `data.<gate>_detail`, default
+`accept`), `org:close` (keeps `data.<gate>_answer`). MCP levels: `GET /api/org/**` read; every other org route admin.
+
+Web slot (#92): `SLOTS.marketKind = "market.kind"` — `MarketKindItem {id, title, line, component()}`: a kind of a part's own
+in Settings › Plugins › Marketplace, after keel's (Plugins · Workflows · Rules · Skills · Stacks); `?kind=<id>` opens it, an
+id keel uses itself is never a part's. The Org plugin's is `orgs`.
+
+## Next: the menu's groups (issue #93)
+
+`PageRegistration.group` (web SDK) is one of `home` (beside the Inbox, no header), `run` (shown as **Work**), `watch`,
+`know` (shown as **Project**), `build`, `control` and `help` (both at the foot, no header). A page whose group keel does
+not know goes to Build, so it is still in the menu. The Inbox is `home` 10; Live agents and Jobs moved to `watch` (10, 20),
+and so did the Record and Cluster plugins' pages (30, 40); KeelBot is `know` 45 and Safety & History `build` 55. A group
+with a header folds when its header is clicked (kept per browser under `keel.nav.folded`); a folded group still shows the
+page you are on and the counts of the pages it hides.

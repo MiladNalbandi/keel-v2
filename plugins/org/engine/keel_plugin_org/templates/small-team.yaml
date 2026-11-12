@@ -1,0 +1,32 @@
+# One tech lead with a frontend and a backend engineer. The lead plans, you approve the plan, the engineers work side
+# by side (each in its own worktree), the lead checks their work and reports to you.
+name: Small team
+limits: { max_running: 3, depth: 2, children: 4, send_backs: 3 }
+
+roles:
+  me:
+    human: true
+  lead:
+    title: Tech lead
+    agent: org-tech-lead
+    workflows: [lead-intake, lead-review]
+    plan: lead-intake
+    review: lead-review
+    autonomy: propose
+  fe:
+    title: Frontend engineer
+    agent: implementer
+    workflows: [small, feature, fix]
+    autonomy: act
+  be:
+    title: Backend engineer
+    agent: implementer
+    workflows: [small, feature, fix]
+    autonomy: act
+
+links:
+  - { from: me, to: lead, can: [delegate] }
+  - { from: lead, to: [fe, be], can: [delegate] }
+  - { from: [fe, be], to: lead, can: [report, ask] }
+  - { from: lead, to: me, can: [report, ask, approve] }
+  - { from: fe, to: be, can: [ask] }

@@ -1,0 +1,23 @@
+# Org as a plugin: a hierarchy of agents you draw yourself (roles + links, kept in keel's data and edited as YAML). You give a
+# mission to a role; it plans, gives work to the roles it links to (each runs its own flow, in its own worktree), reviews
+# their work and reports to you. Python only: the engine part runs it and the Python api forwards /api/org/* to it.
+# The version must equal VERSION in engine/keel_plugin_org/__init__.py (engine/tests/test_org.py checks it). Each part is
+# written on one line (scripts/build-plugin.sh reads them).
+schema: 1
+name: org
+title: Org
+version: 0.1.0
+publisher: keel
+summary: Draw an org of agents - roles and links - and give a mission to any role. A lead plans, splits the work for its team, checks it and reports to you.
+requires:
+  sdk: 1
+  keel: ">=0.25.0"   # the Python api forwards /api/org/* to the engine part
+parts:
+  engine: { path: engine, package: keel_plugin_org }
+  web: { entry: web/index.js, css: [web/style.css] }
+  content: content
+per_project: false
+permissions:
+  workspace: read
+  flows: start
+  pages: true

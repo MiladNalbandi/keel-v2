@@ -1,11 +1,14 @@
 // keel's own pages in the menu and the router. The parts' pages (Tasks, Code, KeelBot, Map, Graph, Wiki) register
 // themselves (web/src/builtins.ts) in the same list; `order` places each page in its group.
 //
-//   Run      Flow 10 · Tasks 20 · Inbox 30 · Live agents 40 · Jobs 50
-//   Project  Code 10 · KeelBot 20 · Map 30 · Graph 40 · Wiki 50
-//   Build    Workflows 10 · Safety & History 15 · Agents 20 · Skill hub 30 · Stacks 40 · Tools (MCP) 50 · Quality 60
-//   Control  Settings 20 (its tabs: General · Models & logins · Review · Connections · Budget · Plugins · Databases · Access)
-//   Help     Start here 10 (keel 0.18.66; #/help/<guide> is one short guide)
+// #93 the groups (routes.ts GROUP_HEADS):
+//   Inbox    Inbox 10 (right under All projects)
+//   Work     Flow 10 · Tasks 20 · Goals 22 · Org 24 · Desk 25            (group id "run")
+//   Watch    Live agents 10 · Jobs 20 · Record 30 · Cluster 40
+//   Project  Code 10 · Review 15 · Map 30 · Graph 40 · KeelBot 45 · Wiki 50 · Library 55   (group id "know")
+//   Build    Workflows 10 · Agents 20 · Skill hub 30 · Stacks 40 · Tools (MCP) 50 · Safety & History 55 · Quality 60
+//   (foot)   Settings 20 (its tabs: General · Models & logins · Review · Connections · Budget · Plugins · Databases · Access)
+//            Start here 10 (keel 0.18.66; #/help/<guide> is one short guide)
 //
 // And keel's own piece in a part's place: Settings › Connections › GitHub (slot connections.kind, order 5: first, then
 // GitLab and Jira). Its token is core: the Git plugin pushes with it, and a flow's ship step opens the pull request.
@@ -36,12 +39,12 @@ registerPage({
   order: 10,
   component: FlowPage,
 });
-// the Inbox spans every project: it needs no chosen one
+// the Inbox spans every project: it needs no chosen one. #93 it is the first link under All projects
 registerPage({
   id: SCREEN.inbox,
   label: "Inbox",
-  group: "run",
-  order: 30,
+  group: "home",
+  order: 10,
   needsProject: false,
   product: true,
   component: InboxPage,
@@ -49,15 +52,15 @@ registerPage({
 registerPage({
   id: SCREEN.live,
   label: "Live agents",
-  group: "run",
-  order: 40,
+  group: "watch",
+  order: 10,
   component: LivePage,
 });
 registerPage({
   id: SCREEN.jobs,
   label: "Jobs",
-  group: "run",
-  order: 50,
+  group: "watch",
+  order: 20,
   component: JobsPage,
 });
 
@@ -69,12 +72,12 @@ registerPage({
   component: WorkflowsPage,
 });
 // v0.17.2 keel's rules stay core: the guard that applies them is core (rule packs install into the project); #89 the
-// page is Safety & History: the rules and the project's history of tool calls
+// page is Safety & History: the rules and the project's history of tool calls. #93 after what agents use, before Quality
 registerPage({
   id: SCREEN.rules,
   label: "Safety & History",
   group: "build",
-  order: 15,
+  order: 55,
   component: RulesPage,
 });
 registerPage({

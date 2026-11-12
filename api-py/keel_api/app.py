@@ -27,7 +27,8 @@ from .common.api_path import clean
 from .common.db import Db
 from .common.web import WebApp, policy_for, web_path
 from .devices.store import DeviceAddresses, DeviceStore
-from .mcp.levels import McpTokens
+from .engine_parts import EngineParts, part_of
+from .mcp.levels import McpTokens, guard
 from .proxy import Back
 from .safety.routes import router as safety_routes
 from .settings import Settings
@@ -49,10 +50,11 @@ class Ctx:
     mcp_tokens: McpTokens
     web: WebApp | None
     back: Back
+    parts: EngineParts
 
 
 def make_ctx(settings: Settings, back_transport: httpx.AsyncBaseTransport | None = None,
-             trusted_for_tests: set[str] | None = None) -> Ctx:
+             trusted_for_tests: set[str] | None = None, engine_transport: httpx.AsyncBaseTransport | None = None) -> Ctx:
     db = Db(settings.db_file)
     key = WebKey(settings.data_dir)
     client_ip = ClientIp(settings.trusted_proxies, trusted_for_tests)
@@ -70,6 +72,7 @@ def make_ctx(settings: Settings, back_transport: httpx.AsyncBaseTransport | None
         mcp_tokens=McpTokens(settings.internal_token),
         web=WebApp(web_root) if web_root else None,
         back=Back(settings.back_url, back_transport),
+        parts=EngineParts(settings.engine_url, settings.internal_token, engine_transport),
     )
 
 
@@ -110,6 +113,7 @@ def create_app(settings: Settings | None = None, ctx: Ctx | None = None) -> Fast
         ctx.key.value  # made at start: a terminal app reads the file before its first request
         yield
         await ctx.back.close()
+        await ctx.parts.close()
         ctx.db.close()
 
     # no /docs, /redoc or /openapi.json: those paths belong to the web app
@@ -128,6 +132,11 @@ def create_app(settings: Settings | None = None, ctx: Ctx | None = None) -> Fast
         raw_path = raw.decode("latin-1").split("?", 1)[0] or request.url.path
         if ctx.web and request.method in ("GET", "HEAD") and web_path(clean(raw_path)):
             return ctx.web.answer(raw_path)
+        # a plugin part that lives in the engine only (the Org plugin): its routes go to the engine
+        path = clean(raw_path)
+        if part_of(path):
+            guard(request)          # an MCP call stays within its token's level (Kotlin's guard never sees these routes)
+            return await ctx.parts.forward(request, path)
         return await ctx.back.forward(request, ctx.client_ip)
 
     # Starlette runs the middleware added last first: PageSecurity, then LocalAuth, then the routes

@@ -1,0 +1,29 @@
+id: lead-review
+name: review the team's work
+keel_rules: true
+own_branch: false
+version: 1
+about: The last flow of an Org mission. The lead checks what each member of its team did, writes a report with proof, and you accept it or send it back with a note.
+budget: { max_tokens: 300000, on_limit: pause }
+# Started by the Org plugin's runner when every mission the lead gave out has ended; the request lists their reports.
+# The report gate is a person's: no run mode and no Supervisor answers it. It asks only for the mission you gave
+# (org.level top); a lead in the middle of the org goes around it (the branch `yours`) and its report goes up to its
+# boss, whose own review checks it.
+steps:
+  - id: review
+    kind: agent
+    name: check the team's work and write the report
+    agent: org-tech-lead
+    model: default
+    phase: review
+    keep: true
+  - { id: report, kind: code, name: keep the report, action: "org:report", phase: review }
+  # a person's gate always asks (a `when` never skips it), so the branch goes around it for a team's mission
+  - { id: yours, kind: branch, name: the mission is one you gave, when: { data: org.level, equals: top }, no: close, phase: review }
+  - id: accept
+    kind: gate
+    name: the lead's report
+    phase: gate
+    person: true
+    choices: { accept: close, send_back: close }
+  - { id: close, kind: code, name: your answer to the report, action: "org:close", phase: review }

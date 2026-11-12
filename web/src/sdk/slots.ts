@@ -9,6 +9,7 @@
 //   the shell ── nav.badge, shell.watch (0.15.2: KeelBot's count of new answers on its menu entry, and its watcher)
 //   ⌘/ ───────── keys.area (0.15.4: a part's keys in the key cheat sheet: Code, Code Review, KeelBot)
 //   the bell ─── notes.setting       Settings › This browser ─ settings.browser (0.15.2: KeelBot's own sound)
+//   Settings › Plugins › Marketplace ─ market.kind (#92: the Org plugin's org templates)
 
 import type { ComponentType, ReactNode } from "react";
 import type { GraphHit, HelperSelection, ThreadState } from "../api";
@@ -62,6 +63,9 @@ export const SLOTS = {
   flowChip: "flow.chip",
   /** 0.21.0 Inbox: a note on a flow's own card, which may fill in the answer (the Supervisor's suggestion) */
   inboxNote: "inbox.note",
+  /** #92 Settings › Plugins › Marketplace: a kind of its own after keel's (Plugins · Workflows · Rules · Skills · Stacks):
+   *  the Org plugin's Orgs. ?kind=<id> opens it */
+  marketKind: "market.kind",
 } as const;
 
 /** A part's piece is shown only while this project has the plugin on (Control › Plugins), when it names one. */
@@ -337,6 +341,16 @@ export type SettingsTabItem = SlotItem & {
   line: string;
   component: ComponentType<{ pid: string }>;
   actions?: ComponentType<{ pid: string }>;
+};
+
+/** #92 Settings › Plugins › Marketplace: a kind of a part's own. `title` is its button after keel's kinds, `line` the one
+ *  line under the tabs; the component draws the list (keel draws the tabs, the catalog line and the kind switch). Its
+ *  link is #/settings/plugins?tab=market&kind=<id>; an id keel uses itself (plugins, workflows, rules, skills, stacks)
+ *  is never a part's. */
+export type MarketKindItem = SlotItem & {
+  title: string;
+  line: string;
+  component: ComponentType<Record<string, never>>;
 };
 
 // ---------- the launcher (⌘K) ----------

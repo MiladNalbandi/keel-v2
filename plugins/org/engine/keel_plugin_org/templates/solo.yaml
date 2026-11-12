@@ -1,0 +1,21 @@
+# You and two agents, no lead: you give each mission straight to the one who does it, and you accept its report.
+name: Solo developer
+limits: { max_running: 2, depth: 1, children: 1, send_backs: 3 }
+
+roles:
+  me:
+    human: true
+  dev:
+    title: Developer
+    agent: implementer
+    workflows: [small, feature, fix, quick]
+    autonomy: act
+  scout:
+    title: Scout
+    agent: explorer
+    workflows: [spike, diagnose]
+    autonomy: act
+
+links:
+  - { from: me, to: [dev, scout], can: [delegate] }
+  - { from: [dev, scout], to: me, can: [report, ask] }

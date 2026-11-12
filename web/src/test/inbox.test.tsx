@@ -53,14 +53,14 @@ async function openInbox() {
 }
 
 describe("inbox", () => {
-  it("is in the Run group with a live badge for every project's waiting flows", async () => {
+  it("is first under All projects (#93), with a live badge for every project's waiting flows", async () => {
     inboxServer(items());
     await openInbox();
     const nav = screen.getByRole("navigation", { name: "Screens" });
     const link = within(nav).getByRole("link", { name: /^Inbox/ });
     expect(link).toHaveAttribute("aria-current", "page");
     expect(within(link).getByTestId("inbox-count")).toHaveTextContent("1");      // fixtures: ludus-engine waits once
-    expect(screen.getByText("All projects › Run")).toBeInTheDocument();
+    expect(screen.getByText("All projects › Inbox")).toBeInTheDocument();
     // another project starts to wait: the api sends project.changed and the badge follows
     db.projects[1].waiting = 2;
     act(() => FakeEventSource.emit("project.changed", { id: "platform" }));

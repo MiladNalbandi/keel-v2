@@ -59,7 +59,7 @@ export function setup(sdk: KeelSdk) {
     id: "helper",
     label: "KeelBot",
     group: "know",
-    order: 20,
+    order: 45,
     aliases: ["keelbot"],
     product: true,
     icon: (

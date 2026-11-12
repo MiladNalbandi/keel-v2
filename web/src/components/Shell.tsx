@@ -25,6 +25,7 @@ import { hashFor, hashForScreen, type ScreenId } from "../routes";
 import { usePages, useSlot } from "../sdk/registry";
 import { SLOTS, type NavBadgeItem, type ShellWatchItem } from "../sdk/slots";
 import { useApp, useRoute } from "../state";
+import { useStored } from "../storage";
 import { Mascot } from "./Mascot";
 import { BudgetBar } from "./BudgetBar";
 import { Launcher, openLauncher } from "./launcher/Launcher";
@@ -221,7 +222,13 @@ function PartWatches() {
   );
 }
 
-/** The screens: All projects, then the four groups. `onPick` runs after a link is used (the phone menu closes). */
+/** #93 the groups a person folded, kept in this browser (the side menu and the phone menu share them). */
+const FOLDED_KEY = "keel.nav.folded";
+const isNames = (v: unknown) => Array.isArray(v) && v.every((x) => typeof x === "string");
+
+/** The screens: All projects, the Inbox, the groups, then Settings and Start here at the foot. A group with a header
+ *  folds when its header is clicked; a folded group still shows the page you are on, and the counts of the pages it
+ *  hides. `onPick` runs after a link is used (the phone menu closes). */
 function NavLinks({ onPick, hints }: { onPick?: () => void; hints?: boolean }) {
   const route = useRoute();
   const { page } = route;
@@ -233,6 +240,9 @@ function NavLinks({ onPick, hints }: { onPick?: () => void; hints?: boolean }) {
   const coreOnly = isCoreOnly(features, view, pages);
   const current = page === "addon" ? route.screen : page;
   const { project, projects } = useApp();
+  const [folded, setFolded] = useStored<string[]>(FOLDED_KEY, [], { store: "local", valid: isNames });
+  const fold = (id: string) =>
+    setFolded((f) => (f.includes(id) ? f.filter((x) => x !== id) : [...f, id]));
   const running = project?.running ?? 0;
   // flows that wait for a person in every project (the project list follows the event stream)
   const waitingAll = projects.reduce((a, p) => a + (p.waiting || 0), 0);
@@ -274,32 +284,54 @@ function NavLinks({ onPick, hints }: { onPick?: () => void; hints?: boolean }) {
           </span>
         )}
       </a>
-      {navGroups(features, view).map((g) => (
-        <Fragment key={g.id}>
-          <div
-            className={`nav-sec ${g.pages.some((p) => p.id === current) ? "cur" : ""}`}
-          >
-            <div className="nav-h" title={g.hint}>
-              <span>{g.label}</span>
-              {hints && g.hint && <small>{g.hint}</small>}
+      {navGroups(features, view).map((g, i, all) => {
+        const shut = !g.bare && folded.includes(g.id);
+        const firstFoot = g.foot && !all[i - 1]?.foot;
+        return (
+          <Fragment key={g.id}>
+            {firstFoot && <div className="nav-foot-gap" aria-hidden="true" />}
+            <div
+              className={`nav-sec${g.pages.some((p) => p.id === current) ? " cur" : ""}${g.bare ? " bare" : ""}${firstFoot ? " foot" : ""}`}
+              data-folded={shut ? "" : undefined}
+            >
+              {!g.bare && (
+                <button
+                  type="button"
+                  className="nav-h"
+                  title={shut ? `${g.hint} (folded: click to open)` : `${g.hint} (click to fold)`}
+                  aria-expanded={!shut}
+                  onClick={() => fold(g.id)}
+                >
+                  <span>{g.label}</span>
+                  {hints && g.hint && <small>{g.hint}</small>}
+                  {shut && (
+                    <span className="nav-h-counts">
+                      {g.pages.filter((p) => p.id !== current && !p.addon).map((p) => (
+                        <Fragment key={p.id}>{badge(p.id)}</Fragment>
+                      ))}
+                    </span>
+                  )}
+                </button>
+              )}
+              {g.pages.map((p) => (
+                <a
+                  key={p.id}
+                  href={p.addon ? hashForScreen(p.id) : hashFor(p.id)}
+                  className={shut && current !== p.id ? "nav-folded" : undefined}
+                  aria-current={current === p.id ? "page" : undefined}
+                  onClick={onPick}
+                  title={keyTip(p.label, ++n)}
+                >
+                  <span className="nav-l">{p.label}</span>
+                  {p.addon ? null : badge(p.id)}
+                  <PartBadges page={p.id} kind="nav" />
+                </a>
+              ))}
             </div>
-            {g.pages.map((p) => (
-              <a
-                key={p.id}
-                href={p.addon ? hashForScreen(p.id) : hashFor(p.id)}
-                aria-current={current === p.id ? "page" : undefined}
-                onClick={onPick}
-                title={keyTip(p.label, ++n)}
-              >
-                <span className="nav-l">{p.label}</span>
-                {p.addon ? null : badge(p.id)}
-                <PartBadges page={p.id} kind="nav" />
-              </a>
-            ))}
-          </div>
-          {coreOnly && g.id === "run" && <NoPagesYet onPick={onPick} />}
-        </Fragment>
-      ))}
+            {coreOnly && g.id === "run" && <NoPagesYet onPick={onPick} />}
+          </Fragment>
+        );
+      })}
     </>
   );
 }
@@ -345,8 +377,8 @@ function RailLinks() {
   return (
     <nav className="rail-nav" aria-label="Screens (icons)">
       {link("projects", "All projects")}
-      {navGroups(features, view).map((g) => (
-        <div key={g.id} className="rail-group" title={g.label}>
+      {navGroups(features, view).map((g, i, all) => (
+        <div key={g.id} className={`rail-group${g.foot && !all[i - 1]?.foot ? " foot" : ""}`} title={g.label}>
           {g.pages.map((p) => link(p.id, p.label, p.addon))}
         </div>
       ))}

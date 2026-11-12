@@ -261,10 +261,11 @@ export function saveView(v: View) {
 const productKeeps = (id: string) => pageOf(id)?.product === true;
 
 export type NavPage = { id: string; label: string; addon?: string };
-export type NavGroup = { id: string; label: string; hint: string; pages: NavPage[] };
+/** bare: no header, never folds (the Inbox); foot: at the bottom of the menu (Settings, Start here). #93 */
+export type NavGroup = { id: string; label: string; hint: string; pages: NavPage[]; bare?: boolean; foot?: boolean };
 
-/** The menu for this mode and view: the add-ons' groups first, then keel's own groups (with the parts' pages) with
- *  what stays. */
+/** The menu for this mode and view: the Inbox, the add-ons' groups, then keel's own groups (with the parts' pages)
+ *  with what stays. */
 export function navGroups(features: Features, view: View): NavGroup[] {
   const productOn = Object.entries(features.parts).some(([p, on]) => p !== "dev" && on);
   const devOn = features.parts.dev !== false;
@@ -277,8 +278,10 @@ export function navGroups(features: Features, view: View): NavGroup[] {
     pages: screens.map((s) => ({ id: s.id, label: s.label, addon: s.addon })),
   }));
   const own = menuGroups().map((g: Group) => ({
-    id: g.id, label: g.label, hint: g.hint,
+    id: g.id, label: g.label, hint: g.hint, bare: g.bare, foot: g.foot,
     pages: g.pages.filter(([id]) => fullDev || productKeeps(id)).map(([id, label]) => ({ id, label })),
   })).filter((g) => g.pages.length > 0);
-  return [...addonGroups, ...own];
+  // #93 the Inbox stays first, right under All projects; the add-ons' groups follow it
+  const home = own.filter((g) => g.id === "home");
+  return [...home, ...addonGroups, ...own.filter((g) => g.id !== "home")];
 }

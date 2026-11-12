@@ -21,6 +21,8 @@ class Settings:
     trusted_proxies: str = field(default_factory=lambda: _env("KEEL_TRUSTED_PROXIES"))
     # The Kotlin api behind this one: every route not ported yet is passed on to it.
     back_url: str = field(default_factory=lambda: _env("KEEL_BACK_URL", "http://127.0.0.1:8081"))
+    # keel's Python engine: a plugin's engine routes (/api/org/* → /org/*) are passed on to it.
+    engine_url: str = field(default_factory=lambda: _env("KEEL_ENGINE_URL", "http://127.0.0.1:8090"))
     # The built web app (web/dist). Empty: the web's files are passed on to the Kotlin api, which has them in its jar.
     web_dir: str = field(default_factory=lambda: _env("KEEL_WEB_DIR"))
     host: str = field(default_factory=lambda: _env("SERVER_ADDRESS", "0.0.0.0"))

@@ -213,6 +213,7 @@ export type {
   KeysAreaItem,
   LauncherSourceItem,
   MapErQueryItem,
+  MarketKindItem,
   NavBadgeItem,
   NotesSettingItem,
   ScmPanelParts,

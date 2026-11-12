@@ -45,7 +45,7 @@ const box = (c: HTMLElement, id: string) =>
   c.querySelector<SVGGElement>(`[data-tid="${id}"]`)!;
 
 describe("the Map plugin's web part", () => {
-  it("is a plugin whose setup() puts the Map page in the menu, in the Project group between KeelBot and Graph", async () => {
+  it("is a plugin whose setup() puts the Map page in the menu, in the Project group between Review and Graph (#93)", async () => {
     expect(plugin.name).toBe("map");
     expect(typeof plugin.setup).toBe("function");
     location.hash = "#/flow";
@@ -54,7 +54,7 @@ describe("the Map plugin's web part", () => {
     const links = within(nav)
       .getAllByRole("link")
       .map((l) => l.textContent?.trim());
-    expect(links.indexOf("Map")).toBe(links.indexOf("KeelBot") + 1);
+    expect(links.indexOf("Map")).toBe(links.indexOf("Review") + 1);
     expect(links.indexOf("Graph")).toBe(links.indexOf("Map") + 1);
   });
 });

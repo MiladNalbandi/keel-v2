@@ -51,7 +51,7 @@ describe("registerPage", () => {
         menuGroups()
           .find((g) => g.id === "know")
           ?.pages.map(([id]) => id),
-      ).toEqual(["repo", "review", "helper", "map", "demo-page", "graph", "wiki", "library"]);
+      ).toEqual(["repo", "review", "map", "demo-page", "graph", "helper", "wiki", "library"]);
     } finally {
       off();
     }
@@ -263,21 +263,30 @@ describe("askAssistant", () => {
 });
 
 describe("the menu and the links stay as they were", () => {
+  // #93 the groups by what a person comes to do; every page and link of before is still here
   const TODAY = [
+    { id: "home", label: "Inbox", hint: "what waits for you", bare: true, pages: [["inbox", "Inbox"]] },
     {
       id: "run",
-      label: "Run",
-      hint: "what is happening now",
+      label: "Work",
+      hint: "give work and follow it",
       pages: [
         ["flow", "Flow"],
         ["tasks", "Tasks"],
         ["goals", "Goals"],
+        ["org", "Org"],  // #92 the Org plugin
         ["desk", "Desk"],
-        ["inbox", "Inbox"],
+      ],
+    },
+    {
+      id: "watch",
+      label: "Watch",
+      hint: "what runs now",
+      pages: [
         ["live", "Live agents"],
+        ["jobs", "Jobs"],
         ["record", "Record"],
         ["cluster", "Cluster"],  // 0.23.0 the Cluster plugin
-        ["jobs", "Jobs"],
       ],
     },
     {
@@ -287,9 +296,9 @@ describe("the menu and the links stay as they were", () => {
       pages: [
         ["repo", "Code"],
         ["review", "Review"],
-        ["helper", "KeelBot"],
         ["map", "Map"],
         ["graph", "Graph"],
+        ["helper", "KeelBot"],
         ["wiki", "Wiki"],
         ["library", "Library"],
       ],
@@ -300,11 +309,11 @@ describe("the menu and the links stay as they were", () => {
       hint: "how agents work",
       pages: [
         ["workflows", "Workflows"],
-        ["rules", "Safety & History"], // v0.17.2: a core page, after Workflows; #89 renamed from Rules
         ["agents", "Agents"],
         ["skills", "Skill hub"],
         ["stacks", "Stacks"],
         ["tools", "Tools (MCP)"],
+        ["rules", "Safety & History"], // v0.17.2 a core page; #89 renamed from Rules; #93 after what agents use
         ["quality", "Quality"],
       ],
     },
@@ -312,22 +321,35 @@ describe("the menu and the links stay as they were", () => {
       id: "control",
       label: "Control",
       hint: "cost, limits, accounts",
+      bare: true,
+      foot: true,
       // keel 0.18.57 one Settings page: Budget, Connections, Plugins and the Database plugin's Databases are its tabs
       pages: [["settings", "Settings"]],
     },
     // keel 0.18.66 Help › Start here and the short guides
-    { id: "help", label: "Help", hint: "start here, short guides", pages: [["help", "Start here"]] },
+    { id: "help", label: "Help", hint: "start here, short guides", bare: true, foot: true, pages: [["help", "Start here"]] },
   ];
 
   it("has the same groups, pages, labels and order as before the registry", () => {
     expect(GROUP_HEADS.map((g) => g.id)).toEqual([
+      "home",
       "run",
+      "watch",
       "know",
       "build",
       "control",
       "help",
     ]);
     expect(menuGroups()).toEqual(TODAY);
+  });
+
+  it("#93 puts a page whose group keel does not know in Build, so it is still in the menu", () => {
+    const off = registerPage({ id: "odd-page", label: "Odd", group: "elsewhere", order: 99, component: () => null });
+    try {
+      expect(menuGroups().find((g) => g.id === "build")?.pages.at(-1)).toEqual(["odd-page", "Odd"]);
+    } finally {
+      off();
+    }
   });
 
   it("keeps a Product-only keel's menu: the Inbox, KeelBot and Control", () => {
@@ -342,7 +364,7 @@ describe("the menu and the links stay as they were", () => {
     expect(
       navGroups(product, "all").map((g) => [g.id, g.pages.map((p) => p.id)]),
     ).toEqual([
-      ["run", ["inbox"]],
+      ["home", ["inbox"]],
       ["know", ["helper"]],
       ["control", ["settings"]],
       ["help", ["help"]],
