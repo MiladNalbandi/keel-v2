@@ -12,36 +12,31 @@ import type { RulesDb } from "./rulesHandlers";
 
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v));
 
+// #101 one engine: keel's harness. Its ToolBox (edits, reads, shell commands) and MCP guard check before the action;
+// the diff guard checks an edit rule again after the step.
 const ENGINES = [
-  { engine: "claude", title: "Claude Code", protection: "before", words: "every edit, shell command, read and MCP call is checked before it runs" },
-  { engine: "opencode", title: "OpenCode", protection: "before", words: "every edit, shell command, read and MCP call is checked before it runs" },
-  { engine: "codex", title: "Codex", protection: "before", words: "every edit, shell command, read and MCP call is checked before it runs" },
-  { engine: "copilot", title: "Copilot", protection: "partial", words: "shell commands of git, gh, the package managers and file printers are checked before they run; file edits are checked after each step" },
-  { engine: "api", title: "API-key models", protection: "before", words: "every edit, shell command, read and MCP call is checked before it runs" },
+  { engine: "harness", title: "keel's harness", protection: "before", words: "every edit, shell command, read and MCP call is checked before it runs" },
 ] as MarketRulePack["engines"];
 
-const HOOK = { when: "before" as const, who: "hook", label: "keel's PreToolUse hook", engines: ["claude", "opencode", "codex"] as const };
-const TOOLBOX = { when: "before" as const, who: "toolbox", label: "keel's ToolBox", engines: ["api"] as const };
-const WRAPPERS = { when: "before" as const, who: "wrappers", label: "keel's command wrappers", engines: ["copilot"] as const };
-const DIFF = { when: "after" as const, who: "diff-guard", label: "the diff guard", engines: ["claude", "opencode", "codex", "copilot", "api"] as const };
+const TOOLBOX = { when: "before" as const, who: "toolbox", label: "keel's ToolBox", engines: ["harness"] as const };
+const MCP = { when: "before" as const, who: "mcp-guard", label: "keel's MCP guard", engines: ["harness"] as const };
+const DIFF = { when: "after" as const, who: "diff-guard", label: "the diff guard", engines: ["harness"] as const };
+const BEFORE = { before: ["harness"], engines: { harness: "before" } };
 
 const DEPS_RULES = [
   {
     id: "no-install", kind: "bash", match: ["npm install", "pnpm add"], how: "contains", phases: "all",
     reason: "Adding a package is a person's decision.",
-    enforced: { before: ["claude", "opencode", "codex", "copilot", "api"], after: false,
-      engines: { claude: "before", opencode: "before", codex: "before", copilot: "wrapped", api: "before" }, by: [HOOK, TOOLBOX, WRAPPERS] },
+    enforced: { ...BEFORE, after: false, by: [TOOLBOX] },
   },
   {
     id: "no-lockfile", kind: "edit", match: ["**/package-lock.json"], how: "glob", phases: ["green", "refactor"], lanes: ["web"],
     except: ["web/fixtures/**"], reason: "The lock file follows package.json.",
-    enforced: { before: ["claude", "opencode", "codex", "api"], after: true,
-      engines: { claude: "before", opencode: "before", codex: "before", copilot: "after", api: "before" }, by: [HOOK, TOOLBOX, DIFF] },
+    enforced: { ...BEFORE, after: true, by: [TOOLBOX, DIFF] },
   },
   {
     id: "no-manifest", kind: "edit", match: ["**/package.json"], how: "glob", phases: "all", reason: "A person changes the dependencies.",
-    enforced: { before: ["claude", "opencode", "codex", "api"], after: true,
-      engines: { claude: "before", opencode: "before", codex: "before", copilot: "after", api: "before" }, by: [HOOK, TOOLBOX, DIFF] },
+    enforced: { ...BEFORE, after: true, by: [TOOLBOX, DIFF] },
   },
 ] as unknown as ReadRule[];
 
@@ -69,14 +64,11 @@ rules:
 const GIT_RULES = [
   {
     id: "no-force", kind: "bash", match: ["git push --force"], how: "contains", phases: "in-flow", reason: "History stays as it is.",
-    enforced: { before: ["claude", "opencode", "codex", "copilot", "api"], after: false,
-      engines: { claude: "before", opencode: "before", codex: "before", copilot: "wrapped", api: "before" }, by: [HOOK, TOOLBOX, WRAPPERS] },
+    enforced: { ...BEFORE, after: false, by: [TOOLBOX] },
   },
   {
     id: "no-gh-merge", kind: "mcp", match: ["merge_pull_request"], how: "name", phases: "all", reason: "A person merges.",
-    enforced: { before: ["claude", "opencode", "codex"], after: false,
-      engines: { claude: "before", opencode: "before", codex: "before", copilot: "none", api: "none" },
-      by: [{ when: "before", who: "mcp-guard", label: "keel's MCP guard", engines: ["claude", "opencode", "codex"] }] },
+    enforced: { ...BEFORE, after: false, by: [MCP] },
   },
 ] as unknown as ReadRule[];
 

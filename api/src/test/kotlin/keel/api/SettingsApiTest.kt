@@ -47,6 +47,9 @@ class SettingsApiTest : ApiTest() {
         assertThat(e1["hint"].asText()).contains("gates_mode")
         put("/api/settings/general", mapOf("gates_mode" to "sometimes")).andExpect(status().isBadRequest)
         put("/api/settings/general", mapOf("cap_tokens" to "lots")).andExpect(status().isBadRequest)
+        // #101 plan windows and harness mode are gone with the coding-agent apps
+        for (k in listOf("usage_warn", "usage_pause", "build_runs", "harness_plan", "fix_runs"))
+            put("/api/settings/general", mapOf(k to "flow")).andExpect(status().isBadRequest)
     }
 
     @Test

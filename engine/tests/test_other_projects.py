@@ -4,9 +4,7 @@ Two projects in tmp folders: `here` (the flow's) and `upstream` (another registe
 opt-in: both turn it on (`on`), and a project that did not is kept to itself."""
 
 import json
-import os
 import subprocess
-import sys
 from pathlib import Path
 
 import httpx
@@ -15,8 +13,6 @@ from mcp.shared.memory import create_connected_server_and_client_session
 
 from conftest import start, wait
 from keel_engine import hook, mcp_server, models
-from keel_engine.models.base import AgentRequest
-from keel_engine.models.cli_runners import ClaudeCLIRunner
 from keel_engine.runtime import guard_ctx, other_projects
 from keel_engine.tools.agent_tools import ToolBox
 
@@ -227,28 +223,6 @@ def test_the_hook_without_others_in_its_context_changes_nothing(tmp_path, here, 
 
 
 # ------------------------------------------------------------------ the claude runner
-
-async def test_claude_gets_each_other_project_as_a_folder_and_the_hook_its_list(tmp_path, monkeypatch, here, upstream, others):
-    out = tmp_path / "out"
-    out.mkdir()
-    res = {"type": "result", "result": "done", "usage": {}}
-    bin_ = tmp_path / "claude"
-    bin_.write_text(f"#!/bin/sh\ncat > /dev/null\nprintf '%s\\n' \"$@\" > {out}/argv\necho '{json.dumps(res)}'\n")
-    bin_.chmod(0o755)
-    monkeypatch.setenv("KEEL_CLAUDE_BIN", str(bin_))
-    work = tmp_path / "work"
-    work.mkdir()
-    req = AgentRequest(agent="explorer", system="", prompt="go", root=str(here), phase="spec",
-                       model={"provider": "claude", "mode": "subscription", "model": "haiku"},
-                       toolbox=box(here, others), workdir=str(work), thread="t9")
-    await ClaudeCLIRunner().run(req, lambda *a, **k: None)
-    argv = (out / "argv").read_text().splitlines()
-    assert argv[argv.index("--add-dir") + 1] == str(upstream.resolve())
-    ctx = json.loads((work / "guard.json").read_text())
-    assert ctx["others"] == others and ctx["outside_refused"] is True and ctx["others_off"] is False
-    # an API-key model runs keel's own ToolBox: the CLI's refusal is not there to pre-empt
-    assert guard_ctx.context_for(AgentRequest(agent="explorer", system="", prompt="", root=str(here), phase="spec",
-                                              model={"provider": "claude", "mode": "api"}, toolbox=box(here, others)))["outside_refused"] is False
 
 
 # ------------------------------------------------------------------ a flow

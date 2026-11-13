@@ -1,7 +1,7 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
-import { flowUse, providerChip, toneOf } from "../components/BudgetBar";
+import { flowUse, toneOf } from "../components/BudgetBar";
 import { db, FakeEventSource } from "./setup";
 
 const bar = () => screen.findByRole("region", { name: "Budget at a glance" });
@@ -10,7 +10,7 @@ const nowCalls = () => db.calls.filter((c) => c.method === "GET" && c.path.endsW
 describe("Budget bar on top of every page", () => {
   afterEach(() => vi.useRealTimers());
 
-  it("shows today, this month, the running flow against its cap and the providers, on any page", async () => {
+  it("shows today, this month and the running flow against its cap, on any page", async () => {
     location.hash = "#/agents";
     render(<App />);
     const b = await bar();
@@ -24,7 +24,7 @@ describe("Budget bar on top of every page", () => {
     expect(flow).toHaveTextContent("184k/ 600k");
     expect(flow).toHaveTextContent("31%");
     expect(flow).toHaveAttribute("href", "#/flow");
-    expect(within(b).getByTestId("bb-prov-claude")).toHaveTextContent("Claude 5h 62%");
+    expect(within(b).queryByTestId("bb-providers")).toBeNull();           // #101 no provider plan windows
     expect(b).toHaveClass("bb-ok");
     // outside the page itself: a page's own queries do not see it
     expect(document.getElementById("main")!.contains(b)).toBe(false);
@@ -81,7 +81,6 @@ describe("Budget bar on top of every page", () => {
     const b = await bar();
     expect(await within(b).findByRole("link", { name: "No project yet: the budget starts with the first one" })).toHaveAttribute("href", "#/projects");
     expect(within(b).queryByTestId("bb-today")).toBeNull();
-    expect(await within(b).findByTestId("bb-prov-claude")).toBeInTheDocument();
   });
 
   it("live events reload it, at most once every 5 seconds", async () => {
@@ -108,12 +107,5 @@ describe("Budget bar on top of every page", () => {
     expect(flowUse(f)).toEqual({ used: "$4.50", cap: "$5.00", pct: 90 });               // the tighter cap wins
     expect(flowUse({ ...f, cap_usd: null })).toEqual({ used: "100k", cap: "600k", pct: 17 });
     expect(flowUse({ ...f, cap_usd: null, cap_tokens: null })).toEqual({ used: "100k", cap: null, pct: null });
-    const now = Date.parse("2026-10-05T12:00:00Z");
-    expect(providerChip({ id: "claude", name: "Claude", kind: "subscription", source: "last run", live: false, can_refresh: true,
-      windows: [{ window: "five_hour", label: "5-hour", status: "allowed", resets_at: "2026-10-05T14:00:00Z" }] }, now)).toEqual({ text: "Claude 5h ok", pct: null });
-    expect(providerChip({ id: "claude", name: "Claude", kind: "subscription", source: "last run", live: false, can_refresh: true,
-      windows: [{ window: "five_hour", label: "5-hour", status: "rejected", resets_at: "2026-10-05T14:00:00Z" }] }, now)).toEqual({ text: "Claude 5h full", pct: 100 });
-    expect(providerChip({ id: "api", name: "API keys", kind: "api", source: "keel", live: true, can_refresh: false,
-      windows: [{ window: "month", label: "this month", used: 30, cap: 100 }] }, now)).toEqual({ text: "API keys $30.00", pct: 30 });
   });
 });

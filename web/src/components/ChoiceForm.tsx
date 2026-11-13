@@ -1,9 +1,8 @@
-// keel 0.18.13 a waiting question's named choices (a gate's exits, a stuck criterion's retry / skip / edit / stop, a
-// plan window's continue / wait / cheaper / stop) as one card per choice: its label and what it does, the engine's
-// default marked. A click selects; a choice that needs a reason shows the reason box and Send is refused (with a line
-// that says so) until it has text; an optional reason shows the box as optional. The number keys 1–9 pick a choice
-// while the focus is in the form (not while typing). Flow's gate card and the Inbox send the same answer: approve with
-// payload {choice: name} and the reason.
+// keel 0.18.13 a waiting question's named choices (a gate's exits, a stuck criterion's retry / skip / edit / stop) as
+// one card per choice: its label and what it does, the engine's default marked. A click selects; a choice that needs a
+// reason shows the reason box and Send is refused (with a line that says so) until it has text; an optional reason
+// shows the box as optional. The number keys 1–9 pick a choice while the focus is in the form (not while typing).
+// Flow's gate card and the Inbox send the same answer: approve with payload {choice: name} and the reason.
 // keel 0.18.64 `draft`: the picked choice and the reason are kept until sent (drafts.tsx), with a quiet "draft kept".
 import { useState } from "react";
 import type { ChoiceInfo } from "../api";

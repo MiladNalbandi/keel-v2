@@ -7,8 +7,14 @@ import { signInNeeded } from "./signIn";
 
 /** 0.18.46 vertex (Google Vertex AI) and local (a model server: Ollama, LM Studio, vLLM, llama.cpp) run in mode "api". */
 export type Provider = "fake" | "claude" | "codex" | "copilot" | "vertex" | "local";
-export type Mode = "subscription" | "api" | "opencode";
-export type Model = { provider: Provider; mode: Mode; model: string; effort?: string };
+/** #101 keel runs every model in its own harness, on the provider's API: "api" is the only mode. */
+export type Mode = "api";
+/** A model saved before #101 may still say "subscription" or "opencode": it runs on the API all the same, and the web
+ *  shows it as API (`asApi`). */
+export type SavedMode = Mode | "subscription" | "opencode";
+export type Model = { provider: Provider; mode: SavedMode; model: string; effort?: string };
+/** A model as keel runs it: always on the API. */
+export const asApi = (m: Model): Model => (m.mode === "api" ? m : { ...m, mode: "api" });
 
 /** "include" only shows in a stored workflow the engine has not expanded yet (the engine replaces it with the steps). */
 export type StepKind = "agent" | "code" | "gate" | "branch" | "parallel" | "include";
@@ -142,8 +148,6 @@ export type ThreadState = {
   source_ref?: string | null;
   thread_id: string;
   project_id: string;
-  /** 0.19.0 harness mode: the coding harness session this flow keeps (open: the command that opens it) */
-  harness?: { provider: string; model?: string | null; session: string; open?: string | null };
   workflow_id: string;
   title: string;
   status: ThreadStatus;
@@ -152,11 +156,11 @@ export type ThreadState = {
   ac: string | null;
   acs: { id: string; layer: string; title: string; status: AcStatus }[];
   waiting?: {
-    step: string; kind: "gate" | "budget" | "fix" | "clarify" | "usage"; title: string; detail: string; options: ("approve" | "reject")[];
+    step: string; kind: "gate" | "budget" | "fix" | "clarify"; title: string; detail: string; options: ("approve" | "reject")[];
     /** v0.3.1: the question's id (the inbox sends it back so a stale page cannot answer the next question) */
     id?: string;
     labels?: { approve?: string; reject?: string }; questions?: ClarifyQuestion[];
-    /** kind "usage": continue | wait | cheaper | stop; kind "gate": the gate's named exits. Resume with payload.choice */
+    /** kind "gate" (or "fix"): the gate's named exits. Resume with payload.choice */
     choices?: string[];
     /** keel 0.18.13 the choices' labels, descriptions and reasons; missing from an older engine (raw `choices` then) */
     choice_info?: ChoiceInfo[];
@@ -795,7 +799,8 @@ export type CapsLeft = { caps: CapLeft[]; next_flow: FlowLimits };
 /** 0.18.46 badge: "local" for a model on a local server; tools: false = it cannot call tools (ask-type uses only);
  *  context: its window in tokens, when the server says. */
 export type CatalogModel = { id: string; label: string; efforts?: string[]; badge?: string; tools?: boolean; context?: number };
-export type CatalogSource = "cli" | "cache" | "builtin" | "server";
+/** builtin: keel's own list; server: read from a local model server */
+export type CatalogSource = "builtin" | "server";
 export type CatalogProvider = {
   label: string;
   /** Only the modes this provider has. */
@@ -803,7 +808,7 @@ export type CatalogProvider = {
   /** Default effort choices for this provider ([] = no effort setting). */
   efforts: string[];
   default: { mode: Mode; model: string; effort?: string };
-  /** Where the list came from: cli = asked the installed CLI. */
+  /** Where the list came from: keel's own list, or a local model server. */
   source: CatalogSource;
 };
 export type Catalog = Record<string, CatalogProvider>;
@@ -906,24 +911,8 @@ export type GraphHit = { id: string; name: string; kind: string; file: string; l
 export type BudgetNow = { today: Spend; month: Spend; flows: FlowSpend[]; caps: CapLeft[];
   /** 0.18.55 every project together (keel Product's own runs too) */
   all_today?: Spend; all_month?: Spend };
-export type Limit = {
-  id: string; name: string; unit: string; used: number; cap: number; note: string;
-  /** The provider's own numbers (usage dashboard); absent = only the manual cap and keel's own count. */
-  source?: string | null; window?: string | null; used_pct?: number | null; remaining?: number | null;
-  resets_at?: string | null; fetched_at?: string | null;
-};
-
-/** One window of a provider's plan (`GET /api/usage/providers`): used_pct is 0..1, null when the source does not say. */
-export type UsageWindow = {
-  window: string; label: string; used_pct?: number | null; used?: number | null; cap?: number | null;
-  remaining?: number | null; resets_at?: string | null; status?: string | null;
-};
-/** A usage card: only providers that are set up get one. */
-export type ProviderUsage = {
-  id: "claude" | "codex" | "copilot" | "api" | string; name: string; kind: "subscription" | "api";
-  source: string; fetched_at?: string | null; windows: UsageWindow[]; live: boolean; can_refresh: boolean;
-  error?: string | null; note?: string | null;
-};
+/** An account's use across all projects, as keel counted it (`GET /api/limits`), against the limit you set (0: none). */
+export type Limit = { id: string; name: string; unit: string; used: number; cap: number; note: string };
 
 export type GatesMode = "every-ac" | "end-of-lane" | "end";
 export type OnCap = "pause" | "cheaper" | "stop";
@@ -941,9 +930,6 @@ export type Settings = {
   local_only?: boolean;
   cap_tokens: number;
   on_cap: OnCap;
-  /** warn / pause before a subscription agent when its plan window is this used (0..1) */
-  usage_warn?: number;
-  usage_pause?: number;
   branch_pattern: string;
   web_lane_worktree: boolean;
   push_pr: string;
@@ -960,29 +946,22 @@ export type Settings = {
   mcp: string[];
   /** 0.18.57 the repo's own skills are loaded for their agents (Skills › Found in the repo) */
   repo_skills?: boolean;
-  /** 0.19.0 who builds new work: the coding harness (one session of its own) or keel's flows */
-  build_runs?: "harness" | "flow";
-  /** 0.19.0 harness mode: the harness plans first and waits for your OK */
-  harness_plan?: boolean;
-  /** 0.19.0 who fixes a review finding: the coding harness or a keel flow */
-  fix_runs?: "harness" | "flow";
 };
 export type ProjectSettings = { general: Settings; overrides: Partial<Settings>; effective: Settings;
   /** B15 the General keys someone saved (the others are keel's defaults). */
   general_saved?: string[] };
 
+/** `GET /api/connections` (#101): each provider has only its API mode (copilot's is GitHub Models, ready with a
+ *  GITHUB_TOKEN or the token of Connections › GitHub's sign-in), and `machine` the programs keel finds (node, git, java,
+ *  docker). */
 export type Connections = {
   providers: {
     id: Provider;
     label: string;
-    // need: what a mode that is not ready misses (keel 0.18.12+): the CLI, or keel's login for it
-    modes: { id: Mode; label: string; ready: boolean; detail: string; need?: "cli" | "login" | null }[];
+    modes: { id: Mode; label: string; ready: boolean; detail: string }[];
     selected: Mode;
     key_set: boolean;
     key_hint?: string;
-    login_secret?: string | null;  // CLI login secret name (subscription), e.g. CLAUDE_CODE_OAUTH_TOKEN
-    login_set?: boolean;
-    login_hint?: string | null;
   }[];
   machine: { name: string; ok: boolean; version?: string }[];
 };
@@ -1115,13 +1094,11 @@ export const patch = <T>(path: string, body: unknown) => request<T>("PATCH", pat
 export const del = <T = void>(path: string) => request<T>("DELETE", path);
 export const getText = (path: string) => request<string>("GET", path, undefined, { text: true });
 
-// ---- login helper ----
+// ---- GitHub sign-in ----
 /** Connections › GitHub: is a token set, and when it came from "Sign in with GitHub", who it is (never the token). */
 export type GitHubState = { set: boolean; hint: string | null; from: "keel" | "env" | null; login?: string | null; scopes?: string[]; host?: string; via?: "gh" | "oauth" | null };
 export type GitHubLoginView = { id: string; status: "starting" | "waiting" | "done" | "failed" | "cancelled"; host: string; url: string | null; code: string | null;
   message: string; login: string | null; scopes: string[]; via: string | null };
-export type LoginView = { id: string; provider: string; status: "starting" | "waiting" | "code_needed" | "done" | "failed" | "cancelled";
-  url?: string | null; code?: string | null; message: string; hint?: string | null; error?: string | null };
 
 // ---- workspace Doctor ----
 export type DoctorAction = "commit" | "stash" | "exclude" | "ignore" | "keep";
@@ -1156,6 +1133,24 @@ export type Features = {
 /** A plugin's web part: its ES module and its stylesheets, served by the api under /plugins/<name>/<version>/web/. */
 export type PluginWeb = { entry: string; css: string[] };
 export type PluginInfo = { name: string; title: string; version: string; web: PluginWeb | null };
+
+/** #101 part 3 keel's flow doctor: the improvement report of the crash log (engine flowdoctor/report.py) */
+export type CrashEnd = "repaired" | "retried" | "waiting" | "stopped" | "failed" | "repairing";
+export type CrashKind = {
+  kind: string; title: string; fix: string; count: number;
+  repaired: number; retried: number; waiting: number; stopped: number; failed: number;
+  last_at: string | null; steps: string[]; providers: string[]; where: string[]; advice: string;
+  example: { error?: string; thread?: string; project?: string; workflow?: string; step?: string; agent?: string; provider?: string; model?: string };
+};
+export type Crash = {
+  at: string | null; thread?: string; project?: string; workflow?: string; step?: string; agent?: string; provider?: string;
+  model?: string; kind?: string; title?: string; end?: CrashEnd; action?: string; tries?: number; where?: string; error?: string;
+};
+export type DoctorReport = {
+  days: number; since: string; until: string; total: number; flows: number;
+  repaired: number; retried: number; waiting: number; stopped: number; failed: number;
+  kinds: CrashKind[]; recent: Crash[]; markdown: string;
+};
 
 export const api = {
   health: () => get<Health>("/health"),
@@ -1195,10 +1190,6 @@ export const api = {
   qualityStop: (id: string) => post<QualityRun>(`/quality/runs/${e(id)}/stop`),
   qualitySchedule: (body: QualitySchedule) => put<QualitySchedule>("/quality/schedule", body),
   removeWorktree: (tid: string) => post<{ ok: boolean; worktree: string }>(`/threads/${e(tid)}/worktree/remove`),
-  startLogin: (provider: string) => post<LoginView>("/logins", { provider }),
-  login: (id: string) => get<LoginView>(`/logins/${e(id)}`),
-  loginCode: (id: string, code: string) => post<LoginView>(`/logins/${e(id)}/code`, { code }),
-  cancelLogin: (id: string) => del<LoginView>(`/logins/${e(id)}`),
   doctorWorkspace: (pid: string) => post<Diagnosis>(`/projects/${e(pid)}/doctor/workspace`),
   applyDoctor: (pid: string, plan: { action: DoctorAction; files: string[]; message?: string | null; patterns?: string[] | null; title?: string }[]) =>
     post<DoctorApplied>(`/projects/${e(pid)}/doctor/workspace/apply`, { plan }),
@@ -1349,8 +1340,9 @@ export const api = {
   saveCap: (pid: string, c: Cap) => put<Cap>(`/projects/${e(pid)}/caps/${e(c.id)}`, c),
   deleteCap: (pid: string, id: string) => del(`/projects/${e(pid)}/caps/${e(id)}`),
   limits: () => get<Limit[]>("/limits"),
-  usageProviders: () => get<ProviderUsage[]>("/usage/providers"),
-  refreshUsage: (id: string) => post<ProviderUsage>(`/usage/providers/${e(id)}/refresh`),
+  /** #101 part 3 the flow doctor: what crashed in keel's flows, what keel repaired, what to improve */
+  doctorReport: (days = 7) => get<DoctorReport>(`/flow-doctor/report?days=${days}`),
+  clearCrashes: () => del<{ removed: number }>("/flow-doctor/crashes"),
   saveLimits: (l: Limit[]) => put<Limit[]>("/limits", l),
   generalSettings: () => get<Settings>("/settings/general"),
   saveGeneralSettings: (s: Partial<Settings>) => put<Settings>("/settings/general", s),
@@ -1358,7 +1350,6 @@ export const api = {
   saveProjectSettings: (pid: string, s: Partial<Record<keyof Settings, unknown>>) =>
     put<ProjectSettings>(`/projects/${e(pid)}/settings`, s),
   connections: () => get<Connections>("/connections"),
-  setMode: (provider: string, mode: Mode) => put<void>(`/connections/${e(provider)}`, { mode }),
   setSecret: (name: string, value: string) => put<{ hint: string }>(`/secrets/${e(name)}`, { value }),
   // 0.18.46 local model servers and Vertex AI
   localModels: () => get<LocalModels>("/providers/local"),

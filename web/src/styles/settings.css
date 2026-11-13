@@ -1,4 +1,4 @@
-/* keel 0.18.57 Settings: one page with its own menu (General · Models & logins · Connections · Budget · Plugins ·
+/* keel 0.18.57 Settings: one page with its own menu (General · Models & keys · Connections · Budget · Plugins ·
    Databases · Devices), in the look of the redesign's Settings mockups. Quiet chrome: thin borders, one accent, colour
    only for state. Every value is a theme token, so light and dark both work. The pieces are components/settingsUi.tsx. */
 
@@ -833,7 +833,7 @@ select.ss-input {
   gap: 8px;
 }
 
-/* a model's row (Models & logins): the picker and the effort */
+/* a model's row (Models & keys): the picker and the effort */
 .ss-model {
   flex: 1 1 360px;
   min-width: 0;
@@ -1031,31 +1031,7 @@ select.ss-input {
   color: var(--warn);
 }
 
-/* Budget: the providers' cards, the month's numbers, the chart and the accounts */
-.ss-ucards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 12px;
-}
-.ss-ucard {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 14px 16px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--panel);
-  min-width: 0;
-}
-.ss-ucard-h {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.ss-ucard-h b {
-  flex: 1;
-  font-weight: 600;
-}
+/* Budget: the month's numbers, the chart and the accounts */
 .ss-swatch {
   flex: none;
   width: 10px;

@@ -124,9 +124,6 @@ class SettingsService(
         if (unknown.isNotEmpty()) throw BadRequest("Unknown setting: ${unknown.joinToString()}", "Known settings: ${Settings.KEYS.joinToString()}")
         for ((k, v) in corePatch) {
             if (v == null && !allowNull) throw BadRequest("$k cannot be empty in General settings")
-            if (v != null && k in setOf("usage_warn", "usage_pause") && (v.toString().toDoubleOrNull() ?: -1.0) !in 0.0..1.0) {
-                throw BadRequest("$k must be a number from 0 to 1", "For example 0.8 for 80%.")
-            }
             if (v != null && k == "commit_author" && v.toString().isNotBlank() && !Settings.AUTHOR.matches(v.toString())) {
                 throw BadRequest("commit_author must look like Name <email>", "For example: Ada Lovelace <ada@example.com>. Leave it empty for the project's git name.")
             }

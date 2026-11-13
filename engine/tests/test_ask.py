@@ -1,8 +1,5 @@
 """POST /agents/ask: one question to a model, used by the api's Doctor."""
-import os
-import stat
-
-from keel_engine.models import cli as cli_mod
+from scripted_model import scripted
 
 
 def test_fake_model_answers_fake_so_the_caller_uses_its_rules(client):
@@ -11,30 +8,22 @@ def test_fake_model_answers_fake_so_the_caller_uses_its_rules(client):
     assert r.json()["ok"] is True and r.json()["fake"] is True
 
 
-def test_claude_subscription_gets_the_login_and_the_prompt(client, tmp_path, monkeypatch):
-    monkeypatch.setenv("KEEL_FAKE", "0")
-    # a stand-in claude CLI that prints the stream-json "result" line, and records what it got
-    seen = tmp_path / "seen.txt"
-    stub = tmp_path / "claude"
-    stub.write_text("#!/bin/sh\n"
-                    f'echo "TOKEN=$CLAUDE_CODE_OAUTH_TOKEN" > {seen}\n'
-                    f'cat >> {seen}\n'
-                    'echo \'{"type":"result","subtype":"success","result":"{\\"summary\\":\\"ok\\"}","usage":{"input_tokens":12,"output_tokens":5}}\'\n')
-    stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
-    monkeypatch.setenv("KEEL_CLAUDE_BIN", str(stub))
+def test_a_claude_model_asks_through_the_api_with_its_key(client, monkeypatch):
+    # #101 no CLI and no login: one question goes to the model's API with keel's API key, whatever mode was saved
+    sm = scripted(monkeypatch, '{"summary": "ok"}')
     r = client.post("/agents/ask", json={"model": {"provider": "claude", "mode": "subscription", "model": "sonnet"},
                                          "system": "You are the doctor.", "prompt": "Look at these files.",
-                                         "keys": {"claude_oauth": "tok-123"}})
+                                         "keys": {"claude": "sk-ant-test", "claude_oauth": "tok-123"}})
     body = r.json()
     assert body["ok"], body
-    assert '"summary"' in body["text"]
-    text = seen.read_text()
-    assert "TOKEN=tok-123" in text and "Look at these files." in text
+    assert '"summary"' in body["text"] and body["tokens_in"] == 10
+    [call] = sm.calls
+    assert call.key == "sk-ant-test" and call.model["mode"] == "api"
+    assert call.req.system == "You are the doctor." and call.last_user_text() == "Look at these files." and not call.req.tools
 
 
-def test_a_missing_cli_is_a_clear_error(client, monkeypatch):
+def test_without_a_key_the_answer_says_where_to_add_one(client, monkeypatch):
     monkeypatch.setenv("KEEL_FAKE", "0")
-    monkeypatch.setenv("KEEL_CODEX_BIN", "/nope/codex")
-    monkeypatch.setattr(cli_mod.shutil, "which", lambda *_: None)
-    r = client.post("/agents/ask", json={"model": {"provider": "codex", "mode": "subscription", "model": "gpt-5"}, "prompt": "x"})
-    assert r.json()["ok"] is False
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    r = client.post("/agents/ask", json={"model": {"provider": "claude", "mode": "api", "model": "sonnet"}, "prompt": "x"}).json()
+    assert r["ok"] is False and "No Anthropic API key" in r["error"] and "Settings" in r["error"]

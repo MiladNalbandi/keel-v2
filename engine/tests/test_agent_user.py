@@ -114,21 +114,3 @@ def test_readable_opens_keels_run_files_for_reading_only(monkeypatch, tmp_path):
     assert agent_user.private_mode() == 0o640
 
 
-def test_agent_cli_starts_as_the_agents_user(monkeypatch, tmp_path):
-    import asyncio
-
-    from keel_engine.models import cli
-
-    _fake_user(monkeypatch)
-    seen = []
-    monkeypatch.setattr(agent_user, "share", lambda *a, **k: None)
-    monkeypatch.setattr(agent_user, "kill_group", lambda *a, **k: None)
-
-    def fake_wrap(argv, env=None, nice=None):
-        seen.append((argv, dict(env or {})))
-        return ["/bin/echo", "ok"], {"PATH": os.environ["PATH"]}
-
-    monkeypatch.setattr(agent_user, "wrap", fake_wrap)
-    out, _err = asyncio.run(cli._run_cli("claude", ["claude", "-p"], cwd=str(tmp_path), env={"HOME": "/x"}, timeout=20))
-    assert out.strip() == "ok"
-    assert seen[0][0] == ["claude", "-p"] and seen[0][1]["HOME"] == "/x"

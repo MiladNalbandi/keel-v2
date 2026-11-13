@@ -33,8 +33,6 @@ class MachineTools(
         return names.map { n -> cache[n]?.tool ?: MachineTool(display(n), false) }
     }
 
-    fun check(name: String): MachineTool = check(listOf(name)).first()
-
     private fun display(name: String) = if (name == DOCKER) "docker" else name
 
     private fun probe(name: String): MachineTool = if (name == DOCKER) docker() else {
@@ -64,7 +62,7 @@ class MachineTools(
         /** The key of the Docker engine check (`docker version`), next to plain `--version` checks. */
         const val DOCKER = "docker-engine"
 
-        /** Eight threads at most (one per program Connections checks); idle ones end after 30 s. */
+        /** Eight threads at most (more than the programs Connections checks); idle ones end after 30 s. */
         private val sharedPool: ExecutorService = ThreadPoolExecutor(8, 8, 30, TimeUnit.SECONDS, LinkedBlockingQueue()) { r ->
             Thread(r, "keel-machine-tools").apply { isDaemon = true }
         }.apply { allowCoreThreadTimeOut(true) }

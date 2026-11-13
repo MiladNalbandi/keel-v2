@@ -1,4 +1,4 @@
-// keel 0.18.57 Settings: one page with its own menu — General · Models & logins · Connections · Budget · Plugins ·
+// keel 0.18.57 Settings: one page with its own menu — General · Models & keys · Connections · Budget · Plugins ·
 // Databases · Access — at #/settings/<tab> (#/settings/general/<project> is one project's own settings). The pages that
 // were their own before (Budget, Connections, Plugins, the Database plugin's Databases) are tabs now; their old links
 // open the tab (routes.ts). A part adds a tab of its own (slot settings.tab: the Database plugin's Databases).

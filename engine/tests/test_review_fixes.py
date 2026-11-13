@@ -350,16 +350,6 @@ def test_no_continue_without_a_resumable_session():
             assert len(r.reqs) == 1
 
 
-def test_claude_max_turns_is_marked():
-    import json
-
-    from keel_engine.models import cli
-
-    out = json.dumps({"type": "result", "subtype": "error_max_turns", "num_turns": 30, "usage": {"input_tokens": 5}})
-    err = cli.classify_failure("claude", out, "", 1)
-    assert err.max_turns and err.usage["tokens_in"] == 5 and "continued its session" in err.hint
-
-
 # ------------------------------------------------------------------ 5b. fewer approve-only stops
 
 IMPORTANT = {"gates_mode": "every-ac", "cap_tokens": 0, "on_cap": "pause", "run_mode": "important"}

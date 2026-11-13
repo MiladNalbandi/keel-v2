@@ -208,10 +208,10 @@ def effective(root: str | None) -> dict:
 
 def find_text(cfg: dict) -> str:
     """What the Review page says above "Find problems": the review flow and its depth (0.18.67), or, classic, how many
-    reviewers read the change and what each looks at; harness (0.19.0): the project's coding harness reads it."""
+    reviewers read the change and what each looks at; harness (0.19.0): one session of keel's harness reads it."""
     if cfg.get("find_runs", "harness") == "harness":
         info = HARNESS_DEPTH.get(cfg.get("depth") or "standard") or HARNESS_DEPTH["standard"]
-        return (f"Your coding harness (the project's default model: Claude Code, Codex, Copilot CLI or OpenCode) reviews "
+        return (f"keel's harness (the project's default model) reviews "
                 f"the change in one session of its own, with your project's rules: {info} Then a fresh run checks "
                 "every serious claim against the code. Only checked findings are shown here; nothing is posted.")
     if cfg.get("find_runs", "harness") == "flow":

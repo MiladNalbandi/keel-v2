@@ -20,9 +20,10 @@ def test_each_try_again_approval_runs_the_agent_once(client, repo, monkeypatch):
     tid = start(client, repo, workflow=flow)
     s = wait(client, tid)
     assert s["waiting"]["title"] == "work failed" and len(calls) == 1
-    # A resume runs the node again from its top (one run that fails before it reaches the answer), then the real try:
-    # two runs for every approval, the same for the first and the tenth. Before, approval k cost k + 1 runs.
+    # #101 part 3 the answer is read before the step runs again (flowdoctor repair.answer_first): one run for every
+    # approval, the same for the first and the tenth. Before, a resume first ran the node again from its top (two runs
+    # per approval), and before that approval k cost k + 1 runs.
     for j in (1, 2, 3):
         s = decide(client, tid, "approve")
         assert s["waiting"]["title"] == "work failed", s
-        assert len(calls) == 1 + 2 * j, f"after {j} approvals the agent ran {len(calls)} times"
+        assert len(calls) == 1 + j, f"after {j} approvals the agent ran {len(calls)} times"

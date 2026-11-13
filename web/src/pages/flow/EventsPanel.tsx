@@ -81,7 +81,7 @@ function EventList({ pid, thread, history, step, all, readOnly, workflow, filter
         <div className="tabs ev-filter" role="group" aria-label="Which events">
           {EVENT_FILTERS.map(([k, label]) => (
             <button key={k} type="button" aria-pressed={filter === k} onClick={() => setFilter(k)}
-              title={k === "all" ? "Every event but token usage" : k === "usage" ? "Token usage: an agent's tokens so far, a provider's limits" : undefined}>{label}</button>
+              title={k === "all" ? "Every event but token usage" : k === "usage" ? "Token usage: an agent's tokens so far" : undefined}>{label}</button>
           ))}
         </div>
         <span className="ev-order sub" data-testid="events-order">↓ Newest first{hidden ? ` · ${hidden} usage hidden` : ""}</span>

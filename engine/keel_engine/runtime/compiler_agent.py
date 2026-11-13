@@ -7,9 +7,10 @@ import tempfile
 import time
 import uuid
 
-from . import agent_knowledge, blockers as push_gates, choices as choices_mod, clarify, flow_actions, guard_ctx, markers, memory as memory_mod, other_projects, prompts, security_actions, spec_check, stacks, test_scope, tools as tool_runner
+from . import agent_knowledge, blockers as push_gates, clarify, flow_actions, guard_ctx, markers, memory as memory_mod, other_projects, prompts, security_actions, spec_check, stacks, test_scope, tools as tool_runner
 from .. import addons, agent_names, extensions, models, rules
-from ..models import catalog, cli_runners, usage as provider_usage
+from ..flowdoctor import repair as doctor
+from ..models import catalog
 from ..models.base import AgentRequest, AgentResult
 from ..models.stream import DeltaThrottle
 from ..tools import git, guard, mcp
@@ -104,8 +105,10 @@ class AgentMixin:
             key += "|" + ((await asyncio.to_thread(git.head, root)) or "")[:12]
         prev = await mem.get(key) if mem and know["memory"] else None
         same = bool(prev and prev["provider"] == model["provider"] and prev["root"] == root)
-        can_resume = model.get("mode") != "api" and model["provider"] in _c.RESUMABLE
+        can_resume = model["provider"] in _c.RESUMABLE        # #101 the harness continues any provider's session
         resuming = bool(same and can_resume and prev.get("session"))
+        if step.id in ctx.doctor.get("fresh", ()):
+            resuming = False     # #101 part 3 the flow doctor: the conversation got too long, so this try starts a new one
         session = prev["session"] if resuming else (str(uuid.uuid4()) if can_resume and model["provider"] in _c.NAMED_SESSION else None)
         if mem:
             await mem.start(key, model["provider"], root, session, keep_trail=same)
@@ -255,7 +258,6 @@ class AgentMixin:
             req.guard_ctx = gfile.path
             live = [gfile, toolbox]
             ctx.guards.extend(live)
-            t0 = time.time()
             try:
                 res = await _c.run_or_continue(models.runner_for(model), req, emit, can_resume,
                                             lambda: mem.get(key) if mem else None)
@@ -284,7 +286,6 @@ class AgentMixin:
                 for g in live:
                     ctx.guards.remove(g)
                 extensions.close_call(plugin_key)
-                self._usage_event(step, model["provider"], t0)
         if mem:
             await mem.finish(key, "done", res.text or "")
         if not res.cost_usd and model.get("mode") == "api" and model["provider"] != "fake":
@@ -300,13 +301,6 @@ class AgentMixin:
         return res, model, toolbox
 
     # ------------------------------------------------------------ budget
-
-    def _usage_event(self, step: Step, provider: str, since: float):
-        """provider.usage: the plan's windows this run reported (claude's rate_limit_event), for the api's usage cards."""
-        entry = provider_usage.LATEST.get(provider)
-        if entry and entry["at"] >= since:
-            self.ctx.emit("provider.usage", step=step.id, data={"provider": provider, "windows": entry["windows"],
-                                                                "source": entry["source"], "at": provider_usage.iso(entry["at"])})
 
     def _first_cap(self) -> int:
         """The token cap the flow started with (initial_state): the settings' (or start request's) cap_tokens, else the
@@ -328,53 +322,6 @@ class AgentMixin:
             ctx.emit("budget.warn", step=step.id, data={
                 "used": used, "cap": cap, "pct": round(used * 100 / cap), "running": True,
                 "detail": f"This flow has used {used:,} of {cap:,} tokens while {step.name} still runs. keel asks before the next step."})
-
-    async def _provider_window(self, state: FlowState, step: Step) -> dict:
-        """Before a subscription agent: warn when its plan window is nearly used (settings.usage_warn, default 0.80) and
-        pause at settings.usage_pause (default 0.95): continue, wait for the reset, use the cheaper model, or stop."""
-        ctx = self.ctx
-        model = self._model(state, step, step.agent or "")
-        provider = model.get("provider")
-        if model.get("mode") == "api" or provider in (None, "fake"):
-            return {}
-        await provider_usage.refresh_before_step(model, ctx.keys)
-        w = provider_usage.fullest(provider)
-        warn, pause = float(ctx.settings.get("usage_warn") or 0.8), float(ctx.settings.get("usage_pause") or 0.95)
-        if not w or w["used_pct"] < warn:
-            return {}
-        seen = dict(state.get("usage_seen") or {})
-        key = f"{provider}:{w['window']}:{w.get('resets_at') or ''}"
-        info = {"provider": provider, "window": w["window"], "used_pct": w["used_pct"], "resets_at": provider_usage.iso(w.get("resets_at")),
-                "detail": provider_usage.headline(provider, w), "kind": "usage"}
-        if w["used_pct"] < pause or seen.get(key) == "ok":
-            if seen.get(key):
-                return {}
-            ctx.emit("budget.warn", step=step.id, data=info)
-            return {"usage_seen": {**seen, key: "warn"}}
-        qkey = (ctx.thread_id, step.id, key)
-        question = provider_usage.QUESTIONS.setdefault(qkey, {
-            "step": step.id, "kind": "usage", "title": info["detail"], "options": _c.OPTIONS, "choices": ["continue", "wait", "cheaper", "stop"],
-            "detail": "Continue uses the plan anyway (the provider may refuse when it is full). Wait sleeps until the window resets, "
-                      "then goes on. Cheaper switches to the cheaper model in settings. Stop ends the flow here.",
-            "choice_info": choices_mod.choice_info(["continue", "wait", "cheaper", "stop"], context="usage")})
-        answer, extra = self._ask(state, question)
-        provider_usage.QUESTIONS.pop(qkey, None)
-        choice = ((answer or {}).get("payload") or {}).get("choice")
-        if (answer or {}).get("decision") != "approve" or choice == "stop":
-            ctx.emit("budget.stop", step=step.id, data={**info, "why": (answer or {}).get("why")})
-            return {**extra, "status": "stopped", "note": f"stopped: {info['detail']}"}
-        upd = {**extra, "usage_seen": {**seen, key: "ok"}}
-        cheaper = _c._real_cheaper(ctx)
-        if choice == "cheaper" and cheaper:
-            ctx.emit("budget.warn", step=step.id, data={**info, "action": "cheaper", "model": cheaper})
-            return {**upd, "model_override": cheaper, "note": "plan window nearly used; switched to the cheaper model"}
-        if choice == "cheaper":
-            return {**upd, "note": "no real cheaper model is set (Settings › Cheaper model): went on with the same model"}
-        if choice == "wait" and w.get("resets_at"):
-            delay = min(max(0.0, w["resets_at"] - time.time()) + 30, 8 * 24 * 3600)
-            ctx.emit("budget.warn", step=step.id, data={**info, "action": "wait", "seconds": int(delay)})
-            await asyncio.sleep(delay)
-        return upd
 
     def _budget(self, state: FlowState, step: Step) -> dict:
         """Before an agent step: the flow's token cap (usage.cap_tokens), its dollar cap (usage.cap_usd, against the
@@ -461,15 +408,14 @@ class AgentMixin:
     async def agent_step(self, i: int, step: Step, state: FlowState):
         ctx = self.ctx
         ctx.running_warned = None
+        # #101 part 3 an answer to this step's failure pause is read before its agents run again: reject stops the flow
+        first = doctor.answer_first(self, step, state, "fix")
+        if first:
+            return first
         upd = self._budget(state, step)
         if upd.get("status") == "stopped":
             return upd, END
         state = {**state, **upd}
-        plan = await self._provider_window(state, step)
-        upd = {**upd, **plan}
-        if plan.get("status") == "stopped":
-            return upd, END
-        state = {**state, **plan}
 
         calls: list[tuple[str, int]] = []
         code_lanes: list[str] = []
@@ -578,15 +524,23 @@ class AgentMixin:
                 raise
             except Exception as exc:
                 _c.log.warning("step %s failed: %s", step.id, exc, exc_info=True)
+                # #101 part 3 the flow doctor: a crash keel can repair by itself (a busy or unreachable provider, a
+                # conversation too long, a stale git lock) runs the step again first; the agents that finished stay done
+                if await doctor.before_asking(self, step, state, exc):
+                    continue
+                tries = ctx.doctor.get("repairs", {}).get(doctor.step_key(step, state), 0)
+                crash, _asked = doctor.asking(self, step, state, exc)
                 if len(calls) > 1:
                     kept = sum(1 for key in done if key.startswith(attempt + "|"))
                     if kept:
                         exc.args = (f"{exc} ({kept} of {len(calls)} agents finished; try again runs only the others)",)
-                answer, extra = self._ask(state, {"step": step.id, "kind": "fix", "title": f"{step.name} failed",
-                                                  "detail": f"{exc}{(' ' + exc.hint) if getattr(exc, 'hint', '') else ''}\n\nApprove to try again, reject to stop the flow.",
-                                                  "options": _c.OPTIONS})
+                answer, extra = self._ask(state, {**doctor.pause_of(step, "fix"),
+                                                  "detail": f"{doctor.question_text(crash, exc, tries)}\n\n"
+                                                            "Approve to try again, reject to stop the flow.",
+                                                  "options": _c.OPTIONS, "crash": crash.as_dict()})
                 upd.update(extra)
                 state = {**state, **extra}
+                doctor.answered(self, step, state, exc, (answer or {}).get("decision") == "approve")
                 if (answer or {}).get("decision") != "approve":
                     return {**upd, **self._booked(state), "status": "failed", "error": str(exc)[:500],
                             "note": f"{step.name} failed"}, END
@@ -596,6 +550,7 @@ class AgentMixin:
 
         for key in [key for key in done if key.startswith(attempt + "|")]:
             del done[key]
+        doctor.went_through(self, step, state)
         agent_results = [o for o in out if isinstance(o, tuple)]
         lane_notes = [o.note for o in out if isinstance(o, ActionResult)]
         for o in out:
@@ -673,14 +628,12 @@ class AgentMixin:
                 upd["data"] = data
                 state = {**state, "data": data}
         if step.session == "thread" and agent_results and ctx.memory:
-            # 0.19.0 harness mode: the session this flow keeps, and how a person opens it in their own terminal
+            # 0.19.0 the session this flow keeps (#101 a session of keel's own harness: no app to open it in)
             got = await ctx.memory.get(memory_mod.THREAD_KEY) or {}
             m = agent_results[-1][1]
             if got.get("session"):
                 data = dict(upd.get("data") or state.get("data") or {})
-                data["harness"] = {"provider": m["provider"], "model": m.get("model"), "session": got["session"],
-                                   "open": memory_mod.open_command(m["provider"], got["session"], m.get("mode"),
-                                                                   cli_runners.claude_home())}
+                data["harness"] = {"provider": m["provider"], "model": m.get("model"), "session": got["session"]}
                 upd["data"] = data
                 state = {**state, "data": data}
         upd.update(self._outputs(step, state, [r[0] for r in agent_results], item_of))

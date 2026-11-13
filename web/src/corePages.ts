@@ -4,10 +4,10 @@
 // #93 the groups (routes.ts GROUP_HEADS):
 //   Inbox    Inbox 10 (right under All projects)
 //   Work     Flow 10 · Tasks 20 · Goals 22 · Org 24 · Desk 25            (group id "run")
-//   Watch    Live agents 10 · Jobs 20 · Record 30 · Cluster 40
+//   Watch    Live agents 10 · Jobs 20 · Flow doctor 25 · Record 30 · Cluster 40
 //   Project  Code 10 · Review 15 · Map 30 · Graph 40 · KeelBot 45 · Wiki 50 · Library 55   (group id "know")
 //   Build    Workflows 10 · Agents 20 · Skill hub 30 · Stacks 40 · Tools (MCP) 50 · Safety & History 55 · Quality 60
-//   (foot)   Settings 20 (its tabs: General · Models & logins · Review · Connections · Budget · Plugins · Databases · Access)
+//   (foot)   Settings 20 (its tabs: General · Models & keys · Review · Connections · Budget · Plugins · Databases · Access)
 //            Start here 10 (keel 0.18.66; #/help/<guide> is one short guide)
 //
 // And keel's own piece in a part's place: Settings › Connections › GitHub (slot connections.kind, order 5: first, then
@@ -18,6 +18,7 @@ import { AgentsPage } from "./pages/Agents";
 import { HelpPage } from "./pages/Help";
 import { GitHubSection } from "./components/GitHubToken";
 import { FlowPage } from "./pages/Flow";
+import { FlowDoctorPage } from "./pages/FlowDoctor";
 import { InboxPage } from "./pages/Inbox";
 import { JobsPage } from "./pages/Jobs";
 import { LivePage } from "./pages/Live";
@@ -62,6 +63,15 @@ registerPage({
   group: "watch",
   order: 20,
   component: JobsPage,
+});
+// #101 part 3 what crashed in keel's flows (every project), what keel repaired by itself, and what to improve
+registerPage({
+  id: SCREEN.doctor,
+  label: "Flow doctor",
+  group: "watch",
+  order: 25,
+  needsProject: false,
+  component: FlowDoctorPage,
 });
 
 registerPage({
@@ -118,7 +128,7 @@ registerPage({
   component: QualityPage,
 });
 
-// keel 0.18.57 one Settings page with its own menu: General, Models & logins, Connections, Budget, Plugins, (the
+// keel 0.18.57 one Settings page with its own menu: General, Models & keys, Connections, Budget, Plugins, (the
 // Database plugin's) Databases and Devices are its tabs (#/settings/<tab>). Budget, Connections and Plugins were pages
 // of their own before; their old links (#/budget, #/connections, #/plugins/<name>) open the tab (routes.ts).
 registerPage({

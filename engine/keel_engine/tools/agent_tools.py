@@ -23,7 +23,7 @@ SECRET_HINTS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL")
 
 
 def command_env() -> dict:
-    from ..models.cli import project_env
+    from ..models.env import project_env
     return project_env({k: v for k, v in os.environ.items() if not any(h in k.upper() for h in SECRET_HINTS)})
 
 
@@ -37,6 +37,138 @@ def failed(command: str, output: str, code=None) -> dict:
     """keel v1 post-failure (state.last_failure): the command and the first line of what it said."""
     first = next((line.strip() for line in str(output or "").splitlines() if line.strip()), "")
     return {"command": str(command or "")[:300], "output": (first or (f"exit {code}" if code is not None else "failed"))[:300]}
+
+
+def _closest_line(text: str, old: str) -> str:
+    """A hint for an Edit that did not match: the file's line most like old_string's first line."""
+    first = next((x.strip() for x in old.splitlines() if x.strip()), "")
+    if len(first) < 4:
+        return ""
+    best = difflib.get_close_matches(first, [x.strip() for x in text.splitlines()], n=1, cutoff=0.6)
+    return f" The closest line is: {best[0][:200]!r}" if best else ""
+
+
+def _rg() -> str | None:
+    import shutil
+
+    return shutil.which("rg")
+
+
+def _rg_files(base: Path, pattern: str) -> list[Path] | None:
+    """`rg --files --glob <pattern>` (git's ignores apply), or None when ripgrep is not installed."""
+    import subprocess
+
+    rg = _rg()
+    if not rg:
+        return None
+    try:
+        out = subprocess.run([rg, "--files", "--hidden", "--no-config", "--glob", "!.git", "--glob", pattern, "."], cwd=base,
+                             capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return [base / line for line in out.stdout.splitlines() if line.strip()]
+
+
+def _grep(base: Path, pattern: str, glob: str | None, type_: str | None, mode: str, ignore_case: bool, context: int,
+          multiline: bool, may_read: Callable[[str], bool], root: str, before: int = 0,
+          after: int = 0) -> tuple[list[str] | None, int | str]:
+    """(output lines, how many files were left out) — or (None, why) when the search could not run. Paths in the output
+    are relative to the project."""
+    import re
+    import subprocess
+
+    def rel(p: str) -> str:
+        try:
+            return (base / p).resolve().relative_to(root).as_posix()
+        except ValueError:
+            return p
+
+    rg = _rg()
+    if rg:
+        argv = [rg, "--no-config", "--color=never", "--hidden", "--glob", "!.git", "--no-heading", "--with-filename"]
+        argv += {"files_with_matches": ["-l"], "count": ["-c"], "content": ["-n"]}[mode]
+        if ignore_case:
+            argv.append("-i")
+        if multiline:
+            argv += ["-U", "--multiline-dotall"]
+        if mode == "content":
+            if context:
+                argv += ["-C", str(context)]
+            if before:
+                argv += ["-B", str(before)]
+            if after:
+                argv += ["-A", str(after)]
+        for g in (glob or "").split():
+            argv += ["--glob", g]
+        if type_:
+            argv += ["--type", type_]
+        argv += ["-e", pattern, "."]
+        try:
+            res = subprocess.run(argv, cwd=base, capture_output=True, text=True, timeout=60)
+        except subprocess.TimeoutExpired:
+            return None, "the search took longer than 60 seconds: search a smaller folder or give a glob."
+        if res.returncode == 2 and not res.stdout:
+            return None, (res.stderr.strip().splitlines() or ["ripgrep failed"])[0][:300]
+        raw = res.stdout.splitlines()
+    else:      # no ripgrep: git's file list (its ignores apply), else every file, and Python's re
+        try:
+            flags = (re.IGNORECASE if ignore_case else 0) | (re.DOTALL | re.MULTILINE if multiline else 0)
+            rx = re.compile(pattern, flags)
+        except re.error as exc:
+            return None, f"not a valid pattern: {exc}"
+        ls = subprocess.run(["git", "ls-files", "-co", "--exclude-standard"], cwd=base, capture_output=True, text=True)
+        names = ls.stdout.splitlines() if ls.returncode == 0 else \
+            [str(p.relative_to(base)) for p in base.rglob("*") if p.is_file() and ".git" not in p.parts]
+        import fnmatch
+
+        globs = (glob or "").split()
+        raw = []
+        for name in names:
+            if globs and not any(fnmatch.fnmatch(name, g) or fnmatch.fnmatch(name.rsplit("/", 1)[-1], g) for g in globs):
+                continue
+            try:
+                text = (base / name).read_text(errors="replace")
+            except (OSError, UnicodeDecodeError):
+                continue
+            hits = [i for i, line in enumerate(text.splitlines(), 1) if rx.search(line)]
+            if not hits:
+                continue
+            if mode == "files_with_matches":
+                raw.append(f"./{name}")
+            elif mode == "count":
+                raw.append(f"./{name}:{len(hits)}")
+            else:
+                lines = text.splitlines()
+                b, a = max(context, before), max(context, after)
+                if not (b or a):
+                    raw += [f"./{name}:{i}:{lines[i - 1]}" for i in hits]
+                    continue
+                # lines before and after each match, as ripgrep prints them: path-N-text, groups apart by "--"
+                shown: list[int] = []
+                for i in hits:
+                    for j in range(max(1, i - b), min(len(lines), i + a) + 1):
+                        if not shown or j > shown[-1]:
+                            shown.append(j)
+                hit, last = set(hits), None
+                for j in shown:
+                    if last is not None and j > last + 1:
+                        raw.append("--")
+                    raw.append(f"./{name}:{j}:{lines[j - 1]}" if j in hit else f"./{name}-{j}-{lines[j - 1]}")
+                    last = j
+    out, left = [], set()
+    for line in raw:
+        if line == "--":
+            out.append(line)
+            continue
+        path = line.split(":", 1)[0] if mode != "files_with_matches" else line
+        if mode == "content" and "-" in line.split(":", 1)[0] and not (base / path).exists():
+            path = re.split(r"-\d+-", line, maxsplit=1)[0]       # a context line: path-N-text
+        r = rel(path)
+        if not may_read(r):
+            left.add(r)
+            continue
+        out.append(r + line[len(path):] if line.startswith(path) else line)
+    return out, len(left)
 
 
 class ToolBox:
@@ -183,7 +315,10 @@ class ToolBox:
         self.writes.append({"path": rel, "diff": diff, "new": not old})
         return f"Wrote {rel} ({len(content)} bytes)."
 
-    def run_command(self, command: str, timeout: int = 300) -> str:
+    def check_command(self, command: str) -> str | None:
+        """keel's rules for a shell command, before it runs: None when it may run, else the refusal ("REFUSED: …",
+        already reported through on_refuse). The run mode, a command that failed the same way before, another project,
+        the phase's rules, keel-gate's tiers, the person's OK where it needs one."""
         why = run_mode.readonly_bash(command) if self.readonly or self.shell_readonly else None
         if why:
             return self._refuse("run_command", "", run_mode.relabel(why, self.readonly_label, self.readonly_note),
@@ -209,7 +344,15 @@ class ToolBox:
             ok, why = self.asker(command)
             if not ok:
                 return self._refuse("run_command", "", why, command=command)
-        code, out = testcmd.run(self.root, command, timeout=timeout, env=command_env())
+        return None
+
+    def run_command(self, command: str, timeout: int = 300, run_as: str | None = None) -> str:
+        """Run a shell command keel's rules allow. `run_as`: what actually runs when it differs from what was judged
+        (#101 the harness's Bash wraps the command to keep its working folder between calls)."""
+        refused = self.check_command(command)
+        if refused:
+            return refused
+        code, out = testcmd.run(self.root, run_as or command, timeout=timeout, env=command_env())
         if code != 0:
             self.failed_command = failed(command, out, code)
             repeats.remember(self.no_repeat, self.root, command, out)
@@ -224,6 +367,130 @@ class ToolBox:
             return "ERROR: no test command found. Add commands to .keel/config.yml."
         code, out = testcmd.run(self.root, cmd, env=command_env())
         return f"$ {cmd}\nexit {code}\n{out[-8000:]}"
+
+    # ------------------------------------------------------------------ keel's harness (issue #101): Edit, Glob, Grep
+
+    def read_bytes(self, path: str, limit: int = 5_000_000) -> bytes | str:
+        """A file's bytes (an image for the model), under the same read rules as read_file; a str is the refusal or error."""
+        r = self._resolve(path)
+        if not r:
+            return self._outside("read_file", path)
+        full, rel = r
+        v = rules.check_read(rel, self.cfg, full=full, ranged=True, phase=self.phase)
+        if not v.ok:
+            return self._refuse("read_file", rel, v.reason)
+        if not full.is_file():
+            return f"ERROR: {rel} does not exist."
+        if full.stat().st_size > limit:
+            return f"ERROR: {rel} is larger than {limit // 1_000_000} MB."
+        return full.read_bytes()
+
+    def edit_file(self, path: str, old: str, new: str, replace_all: bool = False) -> str:
+        """Replace `old` with `new` in a file (once: `old` must appear once; or every place with replace_all). An empty
+        `old` on a file that does not exist makes it. The write itself is write_file's: the phase's rules, the content
+        checks, keel-gate's tiers, the diff."""
+        r = self._resolve(path)
+        if not r:
+            return self.write_file(path, new)          # outside the project: write_file says why not
+        full, rel = r
+        if not full.exists():
+            if old:
+                return f"ERROR: {rel} does not exist. To make it, give an empty old_string (or use Write)."
+            return self.write_file(path, new)
+        v = rules.check_read(rel, self.cfg, full=full, ranged=True, phase=self.phase)
+        if not v.ok:
+            return self._refuse("Edit", rel, v.reason)
+        if not full.is_file():
+            return f"ERROR: {rel} is not a file."
+        text = full.read_text(errors="replace")
+        if not old:
+            return f"ERROR: {rel} exists: give the old_string to replace (or use Write for the whole file)."
+        if old == new:
+            return "ERROR: old_string and new_string are the same: nothing to change."
+        n = text.count(old)
+        if n == 0:
+            near = _closest_line(text, old)
+            return (f"ERROR: old_string was not found in {rel}. Read the file again and copy the text exactly "
+                    f"(spaces and indentation too).{near}")
+        if n > 1 and not replace_all:
+            return (f"ERROR: old_string appears {n} times in {rel}. Give more lines around it so it is unique, or set "
+                    "replace_all to change every one.")
+        out = text.replace(old, new) if replace_all else text.replace(old, new, 1)
+        said = self.write_file(path, out)
+        if said.startswith("Wrote "):
+            return f"Edited {rel}: {n if replace_all else 1} place(s) changed."
+        return said
+
+    def _place(self, tool: str, path: str | None) -> tuple[Path, str] | str:
+        """Where a search looks: the project (or a folder in it). A folder outside it is refused as a read would be."""
+        r = self._resolve(path or ".")
+        if not r:
+            return self._outside(tool, path or "")
+        full, rel = r
+        if not full.exists():
+            return f"ERROR: {rel or '.'} does not exist."
+        return full, rel
+
+    def glob(self, pattern: str, path: str | None = None, limit: int = 300) -> str:
+        """Files whose path matches a glob (src/**/*.ts), newest first; what git ignores is left out. Names only."""
+        got = self._place("Glob", path)
+        if isinstance(got, str):
+            return got
+        full, rel = got
+        names = _rg_files(full, pattern)
+        if names is None:
+            names = [p for p in full.glob(pattern) if p.is_file() and ".git" not in p.parts]
+        files = []
+        for p in names:
+            try:
+                files.append((p.stat().st_mtime, p))
+            except OSError:
+                continue
+        files.sort(key=lambda x: -x[0])
+        shown = [Path(p).resolve().relative_to(self.root).as_posix() for _, p in files[:limit]]
+        if not shown:
+            return f"No files match {pattern} in {rel or '.'}."
+        more = f"\n(+{len(files) - limit} more: narrow the pattern)" if len(files) > limit else ""
+        return "\n".join(shown) + more
+
+    def grep(self, pattern: str, path: str | None = None, glob: str | None = None, type: str | None = None,
+             mode: str = "files_with_matches", ignore_case: bool = False, context: int = 0, limit: int = 200,
+             multiline: bool = False, before: int = 0, after: int = 0, offset: int = 0) -> str:
+        """ripgrep over the project (git's ignores apply; hidden files are searched). The guard of the CLIs' Grep: a
+        secret file in its way is refused (hook.search); a file the agent may not read is left out of the answer."""
+        from .. import hook
+
+        got = self._place("Grep", path)
+        if isinstance(got, str):
+            return got
+        full, rel = got
+        ti = {"pattern": pattern, "path": path or "", "glob": glob or "", "type": type or "", "output_mode": mode}
+        ctx = {"root": self.root, "phase": self.phase, "_cwd": self.root}
+
+        def knowledge(r: str) -> str | None:
+            if not self.knowledge:
+                return None
+            v = rules.check_knowledge(r, self.agent, self.knowledge.get("sections"), bool(self.knowledge.get("strict")))
+            return None if v.ok else v.reason
+
+        why = hook.search("Grep", ti, ctx, self.cfg, self.others, knowledge)
+        if why:
+            return self._refuse("Grep", rel or ".", why)
+        mode = mode if mode in ("content", "files_with_matches", "count") else "files_with_matches"
+        clip = lambda n: max(0, min(int(n or 0), 20))  # noqa: E731
+        lines, hidden = _grep(full, pattern, glob, type, mode, ignore_case, clip(context), multiline,
+                              lambda r: rules.check_read(r, self.cfg, ranged=True, phase=self.phase).ok, self.root,
+                              clip(before), clip(after))
+        if lines is None:
+            return f"ERROR: {hidden}"
+        if not lines:
+            note = f" ({hidden} file(s) you may not read were left out)" if hidden else ""
+            return f"No matches for {pattern!r} in {rel or '.'}.{note}"
+        lines = lines[max(0, int(offset or 0)):]
+        out = lines[:limit]
+        tail = f"\n(+{len(lines) - limit} more lines: give offset {int(offset or 0) + limit} to see them)" if len(lines) > limit else ""
+        note = f"\n({hidden} file(s) you may not read were left out)" if hidden else ""
+        return "\n".join(out) + tail + note
 
     def langchain_tools(self) -> list:
         from langchain_core.tools import StructuredTool

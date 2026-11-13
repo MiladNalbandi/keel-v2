@@ -27,7 +27,6 @@ class FlowState(TypedDict, total=False):
     feedback: str | None        # why a gate or check sent work back; goes into the next agent's prompt
     model_override: dict | None # set by on_cap=cheaper
     warned: bool
-    usage_seen: dict            # "provider:window:resets_at" -> "warn" | "ok": plan-window warnings already given or passed
     spec: str | None
     branch: str | None
     git_head: str | None
@@ -116,6 +115,9 @@ class ThreadContext:
     # 0.21.0 the kind of the pause a person just answered: gate.decided carries it (the Supervisor's brief finds earlier
     # answers to the same kind of gate by it)
     answer_kind: str | None = None
+    # #101 part 3 the flow doctor's counts for this run (flowdoctor/repair.py): repairs and Retry answers per step,
+    # and the steps that run once in a new session (the conversation got too long)
+    doctor: dict[str, Any] = field(default_factory=dict)
 
     @property
     def fake(self) -> bool:

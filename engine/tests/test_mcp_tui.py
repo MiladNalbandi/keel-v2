@@ -75,7 +75,7 @@ class Stub:
             return ok(self.session)
         if m == "GET" and path == "/api/providers/models":
             from keel_engine.models import catalog
-            return ok({"claude": {"modes": {"subscription": catalog.CLAUDE_SUBSCRIPTION}, "efforts": []}})
+            return ok({"claude": {"modes": {"api": catalog.CLAUDE_API}, "efforts": []}})
         if m == "GET" and path.endswith("/changes"):
             return ok([{"path": "docs/health.md", "status": "A", "added": 3, "removed": 0, "diff": "+# Health"}])
         if m == "POST" and path.endswith("/done"):
@@ -196,5 +196,5 @@ async def test_a_side_agent_says_which_model_it_runs_on(stub):
     assert "It runs on" in text and "sonnet" in text.lower() and "KeelBot's model" in text
     text = await call(server(stub), "keel_agent_start", {"task": "write the docs for /health", "model": "claude-opus-5-5"})
     assert ("PATCH", "/api/projects/shop/helper/sessions/s-1",
-            {"model": {"provider": "claude", "mode": "subscription", "model": "claude-opus-5-5"}}) in stub.calls
+            {"model": {"provider": "claude", "mode": "api", "model": "claude-opus-5-5"}}) in stub.calls
     assert "asked for in this call" in text

@@ -81,13 +81,12 @@ describe("Settings › Review", () => {
     expect(await screen.findByLabelText("How keel checks")).toBeInTheDocument();
   });
 
-  it("0.20.1 who fixes a finding and keel's defaults for every project are here, not on General", async () => {
+  it("0.20.1 keel's defaults for every project are here, not on General; #101 no 'who fixes a finding' (a keel flow does)", async () => {
     db.plugins.review = true;
     const put: Record<string, unknown>[] = [];
     let threads = 0;
     server.use(
       http.get("/api/projects/:pid/review-setup", () => HttpResponse.json(viewOf(TWO, { runs: "flow" }))),
-      http.get("/api/projects/:pid/settings", () => HttpResponse.json({ general: { fix_runs: "harness" }, overrides: {}, effective: { fix_runs: "harness" } })),
       http.put("/api/projects/:pid/settings", async ({ request }) => {
         put.push((await request.json()) as Record<string, unknown>);
         return HttpResponse.json({});
@@ -114,13 +113,13 @@ describe("Settings › Review", () => {
     );
     location.hash = "#/settings/review";
     render(<App />);
-    await userEvent.selectOptions(await screen.findByRole("combobox", { name: "Who fixes a finding" }), "flow");
-    await waitFor(() => expect(put).toContainEqual({ fix_runs: "flow" }));
+    expect(await screen.findByRole("heading", { level: 2, name: "Checking and fixing a finding" })).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: /Who fixes a finding/ })).toBeNull();
     expect(threads).toBe(0);                                   // keel's defaults are folded until you open them
     await userEvent.click(screen.getByText("keel's defaults for every project"));
     await waitFor(() => expect(threads).toBe(1));
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Who fixes a finding, by default" }), "flow");
-    await waitFor(() => expect(put.some((p) => (p.general as { fix_runs?: string })?.fix_runs === "flow")).toBe(true));
+    expect(screen.queryByRole("combobox", { name: /Who fixes a finding/ })).toBeNull();
+    expect(put).toEqual([]);                                   // nothing sends fix_runs (the api answers 400 now)
   });
 
   it("0.18.67 runs one review flow at the depth you pick, and shows the standards every reviewer reads first", async () => {
@@ -154,10 +153,12 @@ describe("Settings › Review", () => {
     await userEvent.click(screen.getByRole("radio", { name: /Classic/ }));
     await waitFor(() => expect(saved.at(-1)).toEqual({ find_runs: "classic" }));
     expect(await screen.findByRole("radiogroup", { name: "Number of reviewers" })).toBeInTheDocument();
-    // 0.19.0 the coding harness reviews (keel's default)
-    await userEvent.click(screen.getByRole("radio", { name: /Your coding harness/ }));
+    // 0.19.0 one session reviews (keel's default); #101 in keel's own harness, no coding-agent app named
+    const one = screen.getByRole("radio", { name: /One session \(keel's harness\)/ });
+    expect(one.closest("label")).not.toHaveTextContent(/Claude Code|Codex|Copilot CLI|OpenCode|coding harness/);
+    await userEvent.click(one);
     await waitFor(() => expect(saved.at(-1)).toEqual({ find_runs: "harness" }));
-    await waitFor(() => expect(screen.getByRole("radio", { name: /Your coding harness/ })).toBeChecked());
+    await waitFor(() => expect(screen.getByRole("radio", { name: /One session \(keel's harness\)/ })).toBeChecked());
   });
 
   it("changes the number of reviewers, puts a lens on a reviewer, adds a lens and goes back to keel's default", async () => {

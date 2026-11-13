@@ -6,7 +6,7 @@
 import { get, post } from "./api";
 import { e, query, type Refusal } from "./marketHttp";
 import type { SourceStatus } from "./marketplaceApi";
-import { rulesApi, type Engine, type InstalledPack, type PackRule, type RulePack, type When } from "./rulesApi";
+import { ENGINE_TITLE, rulesApi, type Engine, type InstalledPack, type PackRule, type RulePack, type When } from "./rulesApi";
 
 /** What each rule blocks, as the catalog lists it (and keel computes it again at fetch). */
 export type PackBlock = {
@@ -73,8 +73,8 @@ export type RulePackVersion = {
   why_not?: string | null;
 };
 
-/** One mechanism that checks a rule: before the action (the hook, the MCP guard, the ToolBox, the wrappers) or after
- *  the step (the diff guard), and for which engines. */
+/** One mechanism that checks a rule: before the action (keel's ToolBox, keel's MCP guard) or after the step (the diff
+ *  guard), and for which engines (#101 one: keel's harness). */
 export type EnforcedBy = { when: "before" | "after"; who: string; label: string; engines: Engine[] };
 export type RuleEnforced = {
   before: Engine[];
@@ -145,15 +145,12 @@ export function packShort(r: RulePackReview | null | undefined): string {
   return [`${r.rules} ${r.rules === 1 ? "rule" : "rules"}`, ...kinds, phasesShort(r.phases)].join(" · ");
 }
 
-/** The engine names as people say them (the api sends them; this is the fallback). */
-const ENGINE_FALLBACK: Record<string, string> = {
-  claude: "Claude Code", opencode: "OpenCode", codex: "Codex", copilot: "Copilot", api: "API-key models",
-};
-
-/** "keel's PreToolUse hook (Claude Code, OpenCode)": one mechanism with its engines, from the api. */
+/** "keel's ToolBox": one mechanism, from the api. keel's harness is the one engine, so it is not named after each
+ *  mechanism; any other engine an api names still is ("the diff guard (X)"). */
 export function byWords(b: EnforcedBy, engines?: EngineInfo[]): string {
-  const title = (n: string) => engines?.find((x) => x.engine === n)?.title ?? ENGINE_FALLBACK[n] ?? n;
-  return b.engines.length ? `${b.label} (${b.engines.map(title).join(", ")})` : b.label;
+  const title = (n: string) => engines?.find((x) => x.engine === n)?.title ?? ENGINE_TITLE[n] ?? n;
+  const others = b.engines.filter((n) => n !== "harness");
+  return others.length ? `${b.label} (${others.map(title).join(", ")})` : b.label;
 }
 
 /** Who enforces a rule, as two lines: before the action, after the step (empty when nothing checks it then). */

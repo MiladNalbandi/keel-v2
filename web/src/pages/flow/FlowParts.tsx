@@ -330,9 +330,8 @@ export function StatusCard({ pid, thread, workflow, job, onDone, onCheckpoints, 
 }) {
   const step = workflow.steps.find((s) => s.id === (thread.current ?? "").replace(/__fix$/, ""));
   const keelbot = useHasPage("helper");
-  const harness = thread.harness?.open ? <HarnessLine harness={thread.harness} /> : null;
-  if (thread.status === "waiting" && thread.waiting) return <>{harness}<GateCard thread={thread} workflow={workflow} onDone={onDone} /></>;
-  if (thread.status === "running") return <>{harness}<RunningCard step={step} name={step?.name ?? thread.current ?? ""} ac={thread.ac} job={job} /></>;
+  if (thread.status === "waiting" && thread.waiting) return <GateCard thread={thread} workflow={workflow} onDone={onDone} />;
+  if (thread.status === "running") return <RunningCard step={step} name={step?.name ?? thread.current ?? ""} ac={thread.ac} job={job} />;
   void pid;
   const tone: PillTone = thread.status === "done" ? "ok" : thread.status === "failed" ? "bad" : "idle";
   return (
@@ -349,31 +348,6 @@ export function StatusCard({ pid, thread, workflow, job, onDone, onCheckpoints, 
       )}
       {thread.status !== "done" && (noResume ? <span className="hint">{noResume}</span> : <ResumeRow thread={thread} onDone={onDone} onCheckpoints={onCheckpoints} />)}
       {(thread.status === "stopped" || thread.status === "failed") && !noResume && <FinishByHand thread={thread} onDone={onDone} />}
-    </div>
-  );
-}
-
-const HARNESS_NAMES: Record<string, string> = { claude: "Claude Code", codex: "Codex", copilot: "Copilot CLI", opencode: "OpenCode" };
-
-/** 0.19.0 harness mode: which coding harness does this flow's work, and the command that opens its session yourself. */
-export function HarnessLine({ harness }: { harness: NonNullable<ThreadState["harness"]> }) {
-  const [copied, setCopied] = useState(false);
-  const kind = harness.open?.startsWith("opencode ") ? "opencode" : harness.provider;
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(harness.open ?? "");
-      setCopied(true);
-    } catch {
-      setCopied(false);
-    }
-  };
-  return (
-    <div className="fl-harness" aria-label="Harness session">
-      <span className="sub">
-        <b>{HARNESS_NAMES[kind] ?? kind}</b>{harness.model ? ` · ${harness.model}` : ""} does this work in one session. Open it in your terminal:
-      </span>
-      <code className="mono">{harness.open}</code>
-      <button type="button" className="btn sm ghost" onClick={() => void copy()}>{copied ? "Copied" : "Copy"}</button>
     </div>
   );
 }
@@ -499,7 +473,7 @@ export function BudgetMeter({ thread, estimate, title = "Budget for this flow" }
           <span className="num sub">estimate {estimate === null ? "…" : kfmt(estimate)}</span>
           <span className="num sub">cap {kfmt(u.cap_tokens)}</span>
         </div>
-        <span className="hint">Spent so far: {usd(u.cost_usd)} on API, {u.premium_requests} Copilot premium requests.</span>
+        <span className="hint">Spent so far: {usd(u.cost_usd)} at API prices.</span>
       </div>
     </Panel>
   );

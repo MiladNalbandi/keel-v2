@@ -127,15 +127,3 @@ def test_harness_steps_get_the_connected_servers_through_keel(client, repo, monk
     assert keel["env"].get("KEEL_PROJECT") == "demo"                  # keel's server stays on this flow's project
 
 
-def test_opencode_gets_the_steps_mcp_servers_in_a_private_config(tmp_path):
-    from pathlib import Path
-
-    from keel_engine.models import cli_runners
-
-    keel = {"name": "keel", "command": "/py", "args": ["-m", "keel_engine.mcp"], "env": {mcp_tools.GATEWAY_ENV: "[]"}}
-    conf = Path(cli_runners.write_opencode_plugin(tmp_path / "oc", servers=[keel]))
-    cfg = json.loads((conf / "opencode.json").read_text())
-    assert cfg["mcp"]["keel"] == {"type": "local", "command": ["/py", "-m", "keel_engine.mcp"], "enabled": True,
-                                  "environment": {mcp_tools.GATEWAY_ENV: "[]"}, "timeout": cli_runners.MCP_START_MS}
-    assert (conf / "opencode.json").stat().st_mode & 0o077 == 0
-    assert "mcp" not in json.loads((Path(cli_runners.write_opencode_plugin(tmp_path / "none")) / "opencode.json").read_text())

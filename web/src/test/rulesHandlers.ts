@@ -4,8 +4,8 @@
 import { http, HttpResponse } from "msw";
 import type { Enforced, RulePack, RulesNow, RulesView } from "../rulesApi";
 
-const ALL: Enforced = { claude: "before", opencode: "before", codex: "before", copilot: "after", api: "before" };
-const SHELL: Enforced = { ...ALL, copilot: "wrapped" };
+// #101 one engine: keel's harness checks every kind of rule before the action
+const ALL: Enforced = { harness: "before" };
 
 export const NO_DEPS_YAML = `schema: 1
 kind: rules
@@ -24,36 +24,30 @@ rules:
 export const libraryPacks = (): RulePack[] => [
   { id: "no-new-dependencies", name: "no-new-dependencies", title: "No new dependencies", version: "1.0.0", publisher: "keel",
     summary: "Agents never add a package.", yaml: NO_DEPS_YAML,
-    rules: [{ id: "no-install", kind: "bash", match: ["npm install", "pnpm add"], how: "contains", phases: "all", reason: "Adding a package is a person's decision.", enforced: SHELL }] },
+    rules: [{ id: "no-install", kind: "bash", match: ["npm install", "pnpm add"], how: "contains", phases: "all", reason: "Adding a package is a person's decision.", enforced: ALL }] },
   { id: "strict-secrets", name: "strict-secrets", title: "Strict secrets", version: "1.0.0", publisher: "keel",
     summary: "Key files are never read.", yaml: "schema: 1\nname: strict-secrets\n",
-    rules: [{ id: "no-key-files", kind: "read", match: ["**/*.pem"], how: "glob", phases: "all", reason: "Keys stay out of the conversation.", enforced: { ...ALL, copilot: "none" } }] },
+    rules: [{ id: "no-key-files", kind: "read", match: ["**/*.pem"], how: "glob", phases: "all", reason: "Keys stay out of the conversation.", enforced: ALL }] },
 ];
 
 export function rulesView(packs: RulePack[] = [], off: string[] = []): RulesView {
   return {
     configured: true, config_file: ".keel/config.yml", rules_folder: ".keel/rules",
     builtins: [
-      { id: "env-files", kind: "edit, read, shell", phases: "always", words: ".env files hold secrets: agents never read, print or change them.", can_off: false, off: false, enforced: { ...ALL, copilot: "none" }, saved_in: "keel (built in)" },
-      { id: "force-push", kind: "shell", phases: "always", words: "git push --force and git push -f are refused.", can_off: false, off: false, enforced: SHELL, saved_in: "keel (built in)" },
-      { id: "read-twice", kind: "read", phases: "always", words: "Reading the same unchanged file twice in one step is refused.", can_off: true, off: off.includes("read-twice"), enforced: { ...ALL, copilot: "none" }, saved_in: "keel (built in)" },
-      { id: "push-gate", kind: "shell", phases: "always", words: "An agent's git push waits for keel's push blockers.", can_off: true, off: off.includes("push-gate"), enforced: SHELL, saved_in: "keel (built in)" },
+      { id: "env-files", kind: "edit, read, shell", phases: "always", words: ".env files hold secrets: agents never read, print or change them.", can_off: false, off: false, enforced: ALL, saved_in: "keel (built in)" },
+      { id: "force-push", kind: "shell", phases: "always", words: "git push --force and git push -f are refused.", can_off: false, off: false, enforced: ALL, saved_in: "keel (built in)" },
+      { id: "read-twice", kind: "read", phases: "always", words: "Reading the same unchanged file twice in one step is refused.", can_off: true, off: off.includes("read-twice"), enforced: ALL, saved_in: "keel (built in)" },
+      { id: "push-gate", kind: "shell", phases: "always", words: "An agent's git push waits for keel's push blockers.", can_off: true, off: off.includes("push-gate"), enforced: ALL, saved_in: "keel (built in)" },
     ],
     lists: [
       { key: "guards.protected", kind: "edit, read, shell", words: "Files that hold secrets.", form: "globs", value: ["**/.env", "**/.env.*", "!**/.env.example"], default: [], enforced: ALL, saved_in: "keel's default (saved to .keel/config.yml when you change it)" },
       { key: "guards.read_guard_max_lines", kind: "read", words: "A file with more lines than this is read in parts. 0 = off.", form: "number", value: 2000, default: 2000, enforced: ALL, saved_in: ".keel/config.yml" },
-      { key: "rules.push_gate", kind: "shell", words: "The push gate.", form: "bool", value: true, default: true, enforced: SHELL, saved_in: "keel's default (saved to .keel/config.yml when you change it)" },
+      { key: "rules.push_gate", kind: "shell", words: "The push gate.", form: "bool", value: true, default: true, enforced: ALL, saved_in: "keel's default (saved to .keel/config.yml when you change it)" },
     ],
     packs: packs.map((p) => ({ ...p, off: off.includes(`pack/${p.id}`), file: `.keel/rules/${p.id}.yaml`, saved_in: `.keel/rules/${p.id}.yaml`,
       source: p.source ?? "file" })),
     pack_errors: [],
-    engines: [
-      { engine: "claude", protection: "before", words: "every edit, shell command, read and MCP call is checked before it runs" },
-      { engine: "opencode", protection: "before", words: "every edit, shell command, read and MCP call is checked before it runs" },
-      { engine: "codex", protection: "before", words: "every edit, shell command, read and MCP call is checked before it runs" },
-      { engine: "copilot", protection: "partial", words: "shell commands of git, gh, the package managers and file printers are checked before they run; file edits are checked after each step" },
-      { engine: "api", protection: "before", words: "every edit, shell command, read and MCP call is checked before it runs" },
-    ],
+    engines: [{ engine: "harness", protection: "before", words: "every edit, shell command, read and MCP call is checked before it runs" }],
     buckets: [{ bucket: "api-main", what: "backend production code" }, { bucket: "api-test", what: "backend tests" }],
     phases: [{ phase: "red", meaning: "Write the failing test.", matrix: { "api-main": "deny", "api-test": "allow" } },
              { phase: "green", meaning: "Make it pass.", matrix: { "api-main": "allow", "api-test": "deny" } }],
@@ -70,7 +64,7 @@ export function rulesNow(tid: string): RulesNow {
     packs: [{ pack: "no-new-dependencies", name: "No new dependencies", rule: "no-install", kind: "bash", reason: "Adding a package is a person's decision." }],
     unlocks: [{ path: "src/test/kotlin/FlakyTest.kt", phase: "green", reason: "fix the broken fixture" }],
     shell: ["git push --force and git push -f are refused."],
-    engine: { provider: "copilot", protection: "partial", words: "shell commands are checked before they run; file edits after each step" },
+    engine: { provider: "copilot", protection: "before", words: "every edit, shell command, read and MCP call is checked before it runs" },
     last_command_failure: { command: "./gradlew test", output: "3 tests failed", step: "green", agent: "implementer" },
     fired: [{ reason: "Adding a package is a person's decision. (rule no-new-dependencies/no-install)", rule: "no-new-dependencies/no-install",
       count: 2, phase: "green", examples: ["npm install left-pad"], source: "before the action" }],

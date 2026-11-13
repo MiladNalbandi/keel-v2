@@ -1,16 +1,15 @@
-// The budget bar on top of every page: this project today and this month (with its day and month caps), each running
-// flow against its own cap, and each provider's plan window. Amber from 80% used, red from 95%. It links to Budget.
+// The budget bar on top of every page: this project today and this month (with its day and month caps), and each
+// running flow against its own cap. Amber from 80% used, red from 95%. It links to Budget. (#101 no provider plan
+// windows: every model runs on its API, and keel's own count and caps are the budget.)
 
 import { useEffect, useRef } from "react";
-import { api, type BudgetNow, type CapLeft, type FlowSpend, type ProviderUsage, type UsageWindow } from "../api";
-import { kfmt, statusWord, usd } from "../format";
+import { api, type BudgetNow, type CapLeft, type FlowSpend } from "../api";
+import { kfmt, usd } from "../format";
 import { useApp, useLoad } from "../state";
-import { sourceText, usageLine } from "./UsageStrip";
 
 /** At most one reload per this many ms while live events arrive; and one per minute anyway. */
 const LIVE_MS = 5_000;
 const IDLE_MS = 60_000;
-const SHORT: Record<string, string> = { five_hour: "5h", seven_day: "week", month: "month" };
 
 type Tone = "ok" | "warn" | "bad";
 export const toneOf = (pct: number | null): Tone => (pct == null ? "ok" : pct >= 95 ? "bad" : pct >= 80 ? "warn" : "ok");
@@ -24,22 +23,6 @@ export function flowUse(f: FlowSpend): { used: string; cap: string | null; pct: 
   const byUsd = pctOf(f.cost_usd, f.cap_usd);
   if (byUsd != null && (byTokens == null || byUsd > byTokens)) return { used: usd(f.cost_usd), cap: usd(f.cap_usd), pct: byUsd };
   return { used: kfmt(f.tokens), cap: f.cap_tokens ? kfmt(f.cap_tokens) : null, pct: byTokens };
-}
-
-/** "Claude 5h 62%", "Claude 5h ok", "API $3.50": a provider's fullest window that has not reset yet. */
-export function providerChip(u: ProviderUsage, now = Date.now()): { text: string; pct: number | null } {
-  const live = u.windows.filter((w) => !w.resets_at || Date.parse(w.resets_at) > now);
-  if (u.kind === "api") {
-    const w = live[0];
-    return w ? { text: `${u.name} ${usd(w.used)}`, pct: pctOf(w.used ?? 0, w.cap) } : { text: u.name, pct: null };
-  }
-  const withPct = live.filter((w) => w.used_pct != null);
-  const top: UsageWindow | undefined = withPct.sort((a, b) => (b.used_pct ?? 0) - (a.used_pct ?? 0))[0] ?? live[0];
-  if (!top) return { text: u.name, pct: null };
-  const label = SHORT[top.window] ?? top.label;
-  if (top.used_pct != null) return { text: `${u.name} ${label} ${Math.round(top.used_pct * 100)}%`, pct: Math.round(top.used_pct * 100) };
-  const word = statusWord(top.status);
-  return { text: `${u.name} ${label} ${word}`, pct: top.status === "rejected" ? 100 : null };
 }
 
 function Meter({ pct }: { pct: number | null }) {
@@ -90,25 +73,9 @@ function FlowSeg({ flows }: { flows: FlowSpend[] }) {
   );
 }
 
-function Providers({ usage }: { usage: ProviderUsage[] }) {
-  return (
-    <a className="bb-seg bb-provs" href="#/settings/budget" data-testid="bb-providers">
-      {usage.map((u) => {
-        const c = providerChip(u);
-        return (
-          <span key={u.id} className={`bb-prov t-${toneOf(c.pct)}`} title={`${u.name}: ${usageLine(u)} (${sourceText(u)})`} data-testid={`bb-prov-${u.id}`}>
-            <i className={`c-${u.id === "api" ? "fake" : u.id}`} aria-hidden="true" />{c.text}
-          </span>
-        );
-      })}
-    </a>
-  );
-}
-
 export function BudgetBar() {
   const { pid, projectsLoaded, tick } = useApp();
   const now = useLoad(pid ? `budget-now:${pid}` : null, () => api.budgetNow(pid!), { live: false });
-  const usage = useLoad("usage:providers", () => api.usageProviders(), { live: false });
 
   // Live events come in bursts while an agent works: reload at most every LIVE_MS, and every IDLE_MS anyway.
   const last = useRef(Date.now());
@@ -126,20 +93,17 @@ export function BudgetBar() {
       if (document.hidden) return; // a background tab asks nothing; the live events catch it up when it is shown
       last.current = Date.now();
       void reload();
-      void usage.reload();
     }, IDLE_MS);
     return () => window.clearInterval(t);
-  }, [reload, usage.reload]);
+  }, [reload]);
 
   const b = now.data;
-  const provs = usage.data ?? [];
 
   const today = b?.caps.filter((c) => c.window === "day") ?? [];
   const month = b?.caps.filter((c) => c.window === "month") ?? [];
   const pcts = [
     ...(b?.caps ?? []).map((c) => pctOf(c.used, c.limit)),
     ...(b?.flows ?? []).map((f) => flowUse(f).pct),
-    ...provs.map((u) => providerChip(u).pct),
   ].filter((p): p is number => p != null);
   const tone = toneOf(pcts.length ? Math.max(...pcts) : null);
 
@@ -152,7 +116,6 @@ export function BudgetBar() {
       {b && <SpendSeg label="Today" spend={b.today} all={b.all_today} caps={today} hint="since 00:00 UTC" />}
       {b && <SpendSeg label="This month" spend={b.month} all={b.all_month} caps={month} hint="since the 1st, UTC" />}
       {b?.flows.length ? <FlowSeg flows={b.flows} /> : null}
-      {provs.length > 0 && <Providers usage={provs} />}
     </div>
   );
 }

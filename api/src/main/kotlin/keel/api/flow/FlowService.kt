@@ -28,7 +28,6 @@ import keel.api.mcp.McpService
 import keel.api.projects.ProjectService
 import keel.api.budget.CapPlanner
 import keel.api.budget.CapText
-import keel.api.budget.ProviderUsageService
 import keel.api.settings.LocalOnly
 import keel.api.settings.Model
 import keel.api.settings.SettingsService
@@ -50,10 +49,6 @@ data class ThreadSettings(
     val capTokens: Int,
     val onCap: String,
     val cheaperModel: Model?,
-    val usageWarn: Double? = null,
-    val usagePause: Double? = null,
-    /** The latest plan windows keel knows (provider_usage), for the engine's pause rule before each agent. */
-    val providerWindows: List<Map<String, Any?>>? = null,
     /** v0.4.2 project caps (budget/CapPlanner.kt): the flow's dollar cap against its reported cost, and what it does. */
     val capUsd: Double? = null,
     val onCapUsd: String? = null,
@@ -175,7 +170,6 @@ class FlowService(
     private val secrets: SecretService,
     private val workspace: Workspace,
     private val props: KeelProperties,
-    private val providerUsage: ProviderUsageService,
     private val notifications: keel.api.notifications.NotificationService,
     private val capPlanner: CapPlanner,
     private val contributors: ObjectProvider<FlowContributor>,
@@ -253,7 +247,6 @@ class FlowService(
             projectId = pid, root = project.root, workflow = wf.copy(steps = steps), title = title, acs = acs?.takeIf { it.isNotEmpty() },
             models = models,
             settings = ThreadSettings(s.gatesMode, cap?.runMode ?: s.runMode, limits.capTokens, limits.onCap, s.cheaperModel,
-                s.usageWarn, s.usagePause, providerUsage.windowsForEngine().takeIf { it.isNotEmpty() },
                 limits.capUsd, limits.onCapUsd, limits.stepCapTokens, limits.stepOnCap,
                 commitAuthor = s.commitAuthor.trim().ifBlank { null }, commitCoauthor = s.commitCoauthor,
                 contributed = contributedSettings(pid), pushPr = s.pushPr, branchPattern = s.branchPattern),
@@ -296,11 +289,8 @@ class FlowService(
               ownBranch: Boolean = true, branch: String? = null, force: Boolean? = null, base: String? = null): JsonNode {
         if (title.isBlank()) throw BadRequest("Give the flow a title", "One short line: what should this flow build or fix?")
         cap?.check()
-        // 0.19.0 harness mode: new work goes to the project's coding harness (Settings › Who does the work), when this
-        // engine has the harness flow (an older engine runs the flow that was asked for)
-        val (workflowId, options) = Harness.route(settings.effective(pid), workflowId, options, model)
-            .takeIf { (wf, _) -> wf != Harness.WORKFLOW || runCatching { workflows.get(Harness.WORKFLOW) }.isSuccess }
-            ?: (workflowId to options?.minus("engine"))
+        // #101 a start runs the workflow that was asked for: 0.19.0 harness mode's `engine` option is dropped
+        val options = options?.minus("engine")
         var start = buildStart(pid, workflowId, title, acs, cap, model)
         // B7 a start that named no branch mode: ship and the other flows that finish the folder's branch continue it
         val mode = if (branch == DEFAULT_BRANCH) defaultBranch(workflowId, start.workflow.basedOn) else branch
@@ -357,8 +347,8 @@ class FlowService(
         }
         // what the start fetched goes to the engine, which then does not fetch again (null: no remote, or no answer)
         val data = if (fetched == null) options?.takeIf { it.isNotEmpty() } else options.orEmpty() + ("remotes_fetched" to fetched)
-        // API keys for "api" models and CLI logins for subscription models, from the encrypted secrets table; the
-        // cheaper model's too, so a cap that switches to it mid-flow can run it.
+        // The models' API keys, from the encrypted secrets table; the cheaper model's too, so a cap that switches to it
+        // mid-flow can run it.
         val body = try {
             val keys = keysFor(start.models.values + listOfNotNull(start.settings.cheaperModel)) + contributedKeys(pid)
             val withRequest = start.copy(request = request?.trim()?.takeIf { it.isNotEmpty() }?.take(8000),
@@ -821,7 +811,7 @@ class FlowService(
     private fun threadProject(tid: String): String? =
         jdbc.query("SELECT project_id FROM threads WHERE id = ?", { rs, _ -> rs.getString(1) }, tid).firstOrNull()
 
-    /** API keys and CLI logins for these models, under the engine's names (never stored by the engine). */
+    /** API keys for these models, under the engine's names (never stored by the engine). */
     private fun keysFor(models: Collection<Model>): Map<String, String> =
         models.distinctBy { it.provider to it.mode }
             .fold(mutableMapOf()) { acc, m -> secrets.engineKeys(m.provider, m.mode).forEach { (k, v) -> acc.putIfAbsent(k, v) }; acc }

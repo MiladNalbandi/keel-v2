@@ -41,13 +41,13 @@ def test_project_commands_do_not_see_keels_own_python(monkeypatch):
     # pytest), and UV_PROJECT_ENVIRONMENT pointed a project's `uv sync` at keel's own venv.
     import os
     import sys
-    from keel_engine.models.cli import project_env, safe_env
+    from keel_engine.models.env import project_env
     from keel_engine.tools.agent_tools import command_env
     venv_bin = os.path.join(sys.prefix, "bin")
     monkeypatch.setenv("PATH", os.pathsep.join([venv_bin, "/usr/local/bin", "/usr/bin"]))
     monkeypatch.setenv("UV_PROJECT_ENVIRONMENT", "/opt/engine/.venv")
     monkeypatch.setenv("VIRTUAL_ENV", sys.prefix)
-    for env in (command_env(), safe_env()):
+    for env in (command_env(),):
         assert "UV_PROJECT_ENVIRONMENT" not in env and "VIRTUAL_ENV" not in env
         if sys.prefix != sys.base_prefix:                 # only a venv's own bin is removed
             assert venv_bin not in env["PATH"].split(os.pathsep)

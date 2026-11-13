@@ -127,19 +127,20 @@ describe("A rule pack's page", () => {
     const lock = rows[1];
     for (const text of ["no-lockfile", "edit", "**/package-lock.json", "glob", "green, refactor", "web", "web/fixtures/**",
       "The lock file follows package.json."]) expect(lock).toHaveTextContent(text);
-    // who enforces it: the api's mechanisms and engines, never a list of the page's own
+    // who enforces it: the api's mechanisms, never a list of the page's own; #101 one engine (keel's harness), so no
+    // coding-agent app is named after a mechanism
     const bash = screen.getByTestId("who-no-install");
-    expect(bash).toHaveTextContent(
-      "before the action keel's PreToolUse hook (Claude Code, OpenCode, Codex), keel's ToolBox (API-key models), keel's command wrappers (Copilot)",
-    );
+    expect(bash).toHaveTextContent("before the action keel's ToolBox");
     expect(bash).not.toHaveTextContent("after the step");
-    expect(screen.getByTestId("who-no-lockfile")).toHaveTextContent(
-      "after the step the diff guard (Claude Code, OpenCode, Codex, Copilot, API-key models)",
-    );
+    expect(screen.getByTestId("who-no-lockfile")).toHaveTextContent("before the action keel's ToolBox");
+    expect(screen.getByTestId("who-no-lockfile")).toHaveTextContent("after the step the diff guard");
     const who = screen.getByRole("region", { name: "Who enforces it" });
-    expect(who).toHaveTextContent("keel's PreToolUse hook (Claude Code, OpenCode, Codex) · every rule");
-    expect(who).toHaveTextContent("the diff guard (Claude Code, OpenCode, Codex, Copilot, API-key models) · no-lockfile, no-manifest");
-    expect(who).toHaveTextContent("Copilot");
+    expect(who).toHaveTextContent("keel's ToolBox · every rule");
+    expect(who).toHaveTextContent("the diff guard · no-lockfile, no-manifest");
+    expect(who).toHaveTextContent("keel's harness");
+    expect(who).toHaveTextContent("every edit, shell command, read and MCP call is checked before it runs");
+    expect(who).not.toHaveTextContent(/Claude Code|OpenCode|Codex|Copilot|API-key models|PreToolUse|wrappers|harness\)/);
+    expect(table).not.toHaveTextContent(/Claude Code|OpenCode|Copilot|PreToolUse|wrappers/);
     // the YAML, folded; requires; versions; checks; Open in Rules
     const yaml = screen.getByText("The YAML (installed as it is)").closest("details")!;
     expect(yaml).not.toHaveAttribute("open");

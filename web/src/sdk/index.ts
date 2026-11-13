@@ -122,7 +122,7 @@ export type { ClarifyAnswers } from "../components/ClarifyForm";
 export { ANSWERS_PREFIX, answersMessage, byRecommended, choiceProblem, choiceRows, defaultPick, parseQuestions, pickedMode, readAnswersMessage } from "../questions";
 export { ChoiceForm } from "../components/ChoiceForm";
 export { clock, kfmt } from "../format";
-export { agoText } from "../components/UsageStrip";
+export { agoText } from "../format";
 // starting a flow: the run mode picker, and the Doctor that cleans the project folder when a start is refused
 export { RunModePicker } from "../components/RunMode";
 export { WorkspaceDoctor } from "../components/WorkspaceDoctor";

@@ -2,16 +2,12 @@ package keel.api.connections
 
 import com.fasterxml.jackson.databind.JsonNode
 import keel.api.common.BadRequest
-import keel.api.common.KvStore
 import keel.api.common.NotFound
 import keel.api.engine.EngineClient
 import keel.api.settings.SettingsService
 import org.springframework.stereotype.Service
-import java.nio.file.Files
-import java.nio.file.Path
-import java.nio.file.Paths
 
-/** [need]: what a mode that is not ready misses: "cli" (not installed) or "login" (no login saved); null when ready. */
+/** [need]: what a mode that is not ready misses; null when ready. */
 data class ModeView(val id: String, val label: String, val ready: Boolean, val detail: String, val need: String? = null)
 
 data class ProviderView(
@@ -21,10 +17,6 @@ data class ProviderView(
     val selected: String,
     val keySet: Boolean,
     val keyHint: String? = null,
-    /** Secret name of the CLI login (subscription), e.g. CLAUDE_CODE_OAUTH_TOKEN; null when the provider has none. */
-    val loginSecret: String? = null,
-    val loginSet: Boolean = false,
-    val loginHint: String? = null,
 )
 
 data class MachineTool(val name: String, val ok: Boolean, val version: String? = null)
@@ -33,7 +25,6 @@ data class Connections(val providers: List<ProviderView>, val machine: List<Mach
 @Service
 class ConnectionService(
     private val secrets: SecretService,
-    private val kv: KvStore,
     private val engine: EngineClient,
     private val settings: SettingsService,
     private val servers: ModelServerService,
@@ -41,101 +32,59 @@ class ConnectionService(
     /** Programs on this machine, checked in parallel and cached for a minute (MachineTools). */
     internal var tools = MachineTools()
 
-    /** OpenCode's own login file, where keel's agents' opencode reads it (tests point it elsewhere). */
-    internal var opencodeAuthFile: () -> Path = { opencodeAuthPath(System.getenv()) }
-
-    /**
-     * Whether OpenCode has a GitHub Copilot login (`opencode auth login`): its auth.json names "github-copilot". keel
-     * reads only that key's presence, never the token. A brand-new volume has none, so the mode is not ready.
-     */
-    fun opencodeLoggedIn(): Boolean = runCatching {
-        val f = opencodeAuthFile()
-        Files.isRegularFile(f) && READER.readTree(f.toFile()).path(OPENCODE_PROVIDER).isObject
-    }.getOrDefault(false)
-
-    private fun selectedModes(): Map<String, String> = kv.get<Map<String, String>>(KEY) ?: emptyMap()
-
     private fun keyView(provider: String): Pair<Boolean, String?> {
         if (provider in ModelServerService.PROVIDERS) return servers.summary(provider).let { (ready, line) -> ready to line.takeIf { ready } }
+        if (provider == "copilot") return secrets.copilotKeyHint().let { (it != null) to it }
         val name = SecretService.KEY_NAMES[provider] ?: return false to null
         if (secrets.has(name)) return true to secrets.hintOf(name)
         val env = System.getenv(name)
         return if (!env.isNullOrBlank()) true to "from the environment" else false to null
     }
 
-    private fun loginView(provider: String): Triple<String?, Boolean, String?> {
-        val name = SecretService.LOGIN_NAMES[provider] ?: return Triple(null, false, null)
-        if (secrets.has(name)) return Triple(name, true, secrets.hintOf(name))
-        val env = System.getenv(name)
-        return if (!env.isNullOrBlank()) Triple(name, true, "from the environment") else Triple(name, false, null)
-    }
-
+    /** #101 keel's harness runs every model on its provider's API: each provider has that one mode, always selected. */
     fun connections(): Connections {
-        val sel = selectedModes()
         // Every program at once: the answer takes about the slowest single check (up to 5 s), not their sum.
         val machine = tools.check(MACHINE)
-        val found = MACHINE.zip(machine).toMap()
-        // A CLI mode is ready only when keel has its login too: keel's agents never use the person's own CLI login
-        // (in the container, or in native mode where they have their own home). OpenCode keeps its own login
-        // (`opencode auth login`, in its auth.json where keel's agents run): ready only when that file has one.
-        fun cliMode(id: String, label: String, bin: String, loginSet: Boolean = true): ModeView {
-            val t = found[bin] ?: tools.check(bin)
-            return when {
-                !t.ok -> ModeView(id, label, false, "$bin is not installed. Build the image with INSTALL_CLIS=1.", "cli")
-                !loginSet -> ModeView(id, label, false, "${CLI_NAMES[bin] ?: bin} found — add your login: ${LOGIN_HOW[bin] ?: "Set up login"}.", "login")
-                else -> ModeView(id, label, true, "${t.version ?: bin} found, login saved.")
-            }
-        }
         val providers = PROVIDERS.map { (id, label) ->
             val (keySet, hint) = keyView(id)
-            val (loginName, loginSet, loginHint) = loginView(id)
             val modes = when (id) {
                 "fake" -> listOf(ModeView("api", "Fake model (no network)", true, "Deterministic answers for demos and tests."))
-                "claude" -> listOf(
-                    cliMode("subscription", "Claude subscription (Claude Code CLI)", "claude", loginSet),
-                    ModeView("api", "Anthropic API key", keySet, if (keySet) "Key saved." else "Add ANTHROPIC_API_KEY."),
-                )
-                "codex" -> listOf(
-                    cliMode("subscription", "ChatGPT subscription (Codex CLI)", "codex", loginSet),
-                    ModeView("api", "OpenAI API key", keySet, if (keySet) "Key saved." else "Add OPENAI_API_KEY."),
-                )
-                "copilot" -> listOf(
-                    cliMode("subscription", "Copilot CLI", "copilot", loginSet),
-                    cliMode("opencode", "OpenCode", "opencode", opencodeLoggedIn()),
-                    ModeView("api", "GitHub Models (token)", keySet, if (keySet) "Token saved." else "Add GITHUB_TOKEN."),
-                )
+                "claude" -> listOf(ModeView("api", "Anthropic API key", keySet, if (keySet) "Key saved." else "Add ANTHROPIC_API_KEY."))
+                "codex" -> listOf(ModeView("api", "OpenAI API key", keySet, if (keySet) "Key saved." else "Add OPENAI_API_KEY."))
+                "copilot" -> listOf(ModeView("api", "GitHub Models (token)", keySet,
+                    if (!keySet) "Add GITHUB_TOKEN, or sign in with GitHub." else if (hint?.startsWith("from ") == true) "Token $hint." else "Token saved."))
                 "vertex" -> servers.summary(id).let { (ready, line) -> listOf(ModeView("api", "Vertex AI (Google Cloud)", ready, line)) }
                 "local" -> servers.summary(id).let { (ready, line) -> listOf(ModeView("api", "Local model server", ready, line)) }
                 else -> emptyList()
             }
-            val selected = sel[id] ?: modes.firstOrNull { it.ready }?.id ?: modes.first().id
-            ProviderView(id, label, modes, selected, keySet, hint, loginName, loginSet, loginHint)
+            ProviderView(id, label, modes, MODE, keySet, hint)
         }
         return Connections(providers, machine)
     }
 
+    /** #101 only "api" is left: a mode saved before (kv `connections`) is ignored. */
     fun select(provider: String, mode: String): Connections {
-        val p = connections().providers.firstOrNull { it.id == provider } ?: throw NotFound("No provider called \"$provider\"")
-        if (p.modes.none { it.id == mode }) throw BadRequest("$provider has no mode \"$mode\"", "Modes: ${p.modes.joinToString { it.id }}")
-        kv.put(KEY, selectedModes() + (provider to mode))
+        if (PROVIDERS.none { it.first == provider }) throw NotFound("No provider called \"$provider\"")
+        if (mode != MODE) throw BadRequest("$provider has no mode \"$mode\"", "keel runs every model on its API: the only mode is $MODE.")
         return connections()
     }
 
-    /** Asks the engine to run "Reply with exactly: OK" with the selected mode. */
+    /** Asks the engine to run "Reply with exactly: OK" on the provider's API. */
     fun test(provider: String): JsonNode {
-        val p = connections().providers.firstOrNull { it.id == provider } ?: throw NotFound("No provider called \"$provider\"")
+        if (PROVIDERS.none { it.first == provider }) throw NotFound("No provider called \"$provider\"")
         val general = settings.general()
         val chosen = listOf(general.defaultModel, general.implementerModel, general.reviewerModel, general.cheaperModel)
             .firstOrNull { it.provider == provider }?.model
         // local models: no agent uses one yet, so there is no model to ask: say whether keel reaches each server instead
         if (provider == "local" && chosen == null) return testServers()
         val model = chosen ?: DEFAULT_MODELS[provider] ?: provider
-        val body = mutableMapOf<String, Any?>("provider" to provider, "mode" to p.selected, "model" to model)
-        val secret = if (p.selected == "api") secrets.keyForProvider(provider) else secrets.loginFor(provider)
+        // #101 keel's harness runs every model on its API key, whatever mode was saved: the test does the same
+        val body = mutableMapOf<String, Any?>("provider" to provider, "mode" to MODE, "model" to model)
+        val secret = secrets.apiKey(provider)
         secret?.let { body["key"] = it }
         val res = engine.providerTest(body)
         // When the test fails, say what is wrong with the saved value's shape (never the value itself).
-        val problem = if (res.path("ok").asBoolean(false) || secret == null || provider in ModelServerService.PROVIDERS) null else shapeProblem(provider, p.selected, secret)
+        val problem = if (res.path("ok").asBoolean(false) || secret == null || provider in ModelServerService.PROVIDERS) null else shapeProblem(provider, secret)
         return if (problem == null) res else (res as com.fasterxml.jackson.databind.node.ObjectNode).put("error", problem)
     }
 
@@ -151,52 +100,24 @@ class ConnectionService(
         else out.put("ok", false).put("error", bad.joinToString(" ") { (n, r) -> "$n: ${r.path("error").asText("no answer")}" })
     }
 
-    /** Plain checks on a saved login or key; the message never contains the value. */
-    fun shapeProblem(provider: String, mode: String, v: String): String? {
+    /** Plain checks on a saved key; the message never contains the value. */
+    fun shapeProblem(provider: String, v: String): String? {
         val bad = v.filter { !(it.isLetterOrDigit() && it.code < 128) && it !in "-_.=" }
-        val what = if (mode == "api") "API key" else "login token"
         return when {
-            bad.isNotEmpty() -> "The saved $what has characters a token never has (${bad.toSet().joinToString("") { if (it.isWhitespace()) "␣" else it.toString() }}): " +
+            bad.isNotEmpty() -> "The saved API key has characters a token never has (${bad.toSet().joinToString("") { if (it.isWhitespace()) "␣" else it.toString() }}): " +
                 "probably a copy with spaces, line breaks or • dots. Paste it again in one piece."
-            provider == "claude" && mode == "subscription" && !v.startsWith("sk-ant-oat") ->
-                "The saved Claude login token does not start with sk-ant-oat (like sk-ant-oat01-; it has ${v.length} characters). Copy the whole token that `claude setup-token` prints and save it again."
-            provider == "claude" && mode == "api" && !v.startsWith("sk-ant-") -> "The saved Anthropic API key does not start with sk-ant-. Check that you pasted the right key."
+            provider == "claude" && !v.startsWith("sk-ant-") -> "The saved Anthropic API key does not start with sk-ant-. Check that you pasted the right key."
             else -> null
         }
     }
 
     companion object {
-        const val KEY = "connections"
+        /** #101 the one mode every provider has: its API (a key, a token or a model server). */
+        const val MODE = "api"
         val PROVIDERS = listOf("fake" to "Fake (demo)", "claude" to "Claude", "codex" to "GPT / Codex", "copilot" to "Copilot",
             "vertex" to "Vertex AI", "local" to "Local models")
         val DEFAULT_MODELS = mapOf("fake" to "fake", "claude" to "sonnet", "codex" to "gpt-5", "copilot" to "gpt-5", "vertex" to "claude-sonnet-5-5")
-        val CLI_NAMES = mapOf("claude" to "Claude Code", "codex" to "Codex", "copilot" to "Copilot CLI", "opencode" to "OpenCode")
-        /** How to get a CLI's login for keel (the mode's detail when it is missing). */
-        val LOGIN_HOW = mapOf(
-            "claude" to "claude setup-token, then Set up login",
-            "codex" to "codex login, then Set up login",
-            "copilot" to "Set up login",
-            "opencode" to "run opencode auth login (GitHub Copilot) inside keel's container",
-        )
-        /** OpenCode's provider id for GitHub Copilot (its auth.json key, and `-m github-copilot/<model>`). */
-        const val OPENCODE_PROVIDER = "github-copilot"
-        private val READER = com.fasterxml.jackson.databind.ObjectMapper()
-
-        /**
-         * Where opencode keeps its login for keel's agents, as the engine runs it (models/cli.py safe_env):
-         * `$XDG_DATA_HOME/opencode/auth.json`, else `$HOME/.local/share/…`; in native mode the agents' own home under
-         * keel's data folder (`$KEEL_DATA/agent-home/home/.local/share/…`), never the person's.
-         */
-        fun opencodeAuthPath(env: Map<String, String>): Path {
-            val data = if (env["KEEL_NATIVE"] == "1") {
-                Paths.get(env["KEEL_DATA"]?.ifBlank { null } ?: "./.data").toAbsolutePath().resolve("agent-home/home/.local/share")
-            } else {
-                env["XDG_DATA_HOME"]?.ifBlank { null }?.let { Paths.get(it) }
-                    ?: Paths.get(env["HOME"]?.ifBlank { null } ?: System.getProperty("user.home")).resolve(".local/share")
-            }
-            return data.resolve("opencode/auth.json")
-        }
         /** What "This machine" lists, in this order. */
-        val MACHINE = listOf("node", "git", "java", MachineTools.DOCKER, "claude", "codex", "copilot", "opencode")
+        val MACHINE = listOf("node", "git", "java", MachineTools.DOCKER)
     }
 }

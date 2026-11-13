@@ -5,8 +5,8 @@
 //                             "3 rules · bash 1 · edit 2 · every phase") and Install / Installed here (+ "edited") /
 //                             Update to x. No catalog: a note that says so, never an empty page
 //   #/settings/plugins/rules/<name>    a pack's page: every rule in a table (kind, what it matches, how, phases, lanes, except,
-//                             the reason) and who enforces it (before the action / after the step, from the api: the
-//                             engines' real support), requires, versions, checks, the YAML (folded); Install into this
+//                             the reason) and who enforces it (before the action / after the step, from the api: keel's
+//                             harness), requires, versions, checks, the YAML (folded); Install into this
 //                             project, Update (asks before it replaces a copy changed here), Remove, Open in Rules
 //
 // A pack installs into the project's .keel/rules/ through the rules api (source "marketplace"): no restart, the guard reads
@@ -524,7 +524,7 @@ function RulesTable({ rules, w }: { rules: ReadRule[]; w: MarketRulePack }) {
                       <span className="rpm-when after">after the step</span> {who.after.join(", ")}
                     </div>
                   )}
-                  {!who.before.length && !who.after.length && <span className="sub">no engine checks it</span>}
+                  {!who.before.length && !who.after.length && <span className="sub">nothing checks it</span>}
                 </td>
               </tr>
             );
@@ -741,7 +741,7 @@ export function MarketRulePackPage({ name }: { name: string }) {
       </div>
       <div className="mk-dgrid">
         <div className="mk-stack">
-          <PanelSection id="rpm-who" title="Who enforces it" extra={<span className="sub">from each engine's real support</span>}>
+          <PanelSection id="rpm-who" title="Who enforces it" extra={<span className="sub">in keel's harness</span>}>
             {w.rules.length ? <Enforcers w={w} /> : <p className="sub" style={{ margin: 0 }}>—</p>}
             <p className="mk-quote">
               A pack only refuses: it never allows what keel's own rules forbid. The refusal the agent reads ends with

@@ -336,7 +336,7 @@ describe("model picker: local and Vertex AI models", () => {
     expect(
       screen.getByTestId("t-model").querySelector("svg.pi"),
     ).toHaveAttribute("data-brand", "local");
-    expect(screen.getByLabelText("Runs on")).toHaveDisplayValue("Local server");
+    expect(screen.queryByLabelText("Runs on")).not.toBeInTheDocument();       // #101 one way: the API (here a local server)
     expect(screen.queryByTestId("t-noeffort")).toBeInTheDocument();
     await user.click(screen.getByTestId("t-model"));
     const list = screen.getByRole("listbox");
@@ -364,7 +364,7 @@ describe("model picker: local and Vertex AI models", () => {
 });
 
 describe("Settings: Local models only", () => {
-  it("is a row of Models & logins › Models", () => {
+  it("is a row of Models & keys › Models", () => {
     const row = MODEL_ROWS.find((r) => r.key === "local_only")!;
     expect(row.label).toBe("Local models only");
     expect(row.kind.t).toBe("bool");

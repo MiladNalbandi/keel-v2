@@ -834,8 +834,7 @@ function EstimatePanel({ est, error, acs, setAcs, dirty, w, tokens }: {
             <div className="stack" aria-label="tokens by provider">{by.map(([p, v]) => <i key={p} style={{ width: `${((v / tot) * 100).toFixed(1)}%`, background: PCOL[p] }} />)}</div>
             <div className="legend">{by.map(([p, v]) => <span key={p}><i style={{ border: 0, background: PCOL[p] }} />{PROV[p] ?? p} {kfmt(v)}</span>)}</div>
             <div className="kv">
-              <span>If all on API keys</span><b className="num">{usd(est.cost_usd)}</b>
-              <span>Copilot premium requests</span><b className="num">≈ {est.premium_requests}</b>
+              <span>API cost</span><b className="num">{usd(est.cost_usd)}</b>
             </div>
             {rows.length > 0 && (
               <div className="est-secs" aria-label="Tokens per section">

@@ -93,7 +93,8 @@ from .chat.toolevents import (  # noqa: F401 - re-exported: the routes and the t
 
 log = logging.getLogger(__name__)
 
-RESUMABLE = {"claude", "codex", "copilot", "opencode"}   # CLIs that continue their own session (runtime/compiler.py RESUMABLE)
+# #101 keel's own harness continues every provider's session (runtime/compiler.py RESUMABLE)
+RESUMABLE = {"claude", "codex", "copilot", "vertex", "local"}
 HISTORY_TURNS = 12                       # earlier messages an API-key model gets
 TURN_TIMEOUT = 900
 SHELL_TIMEOUT = 300                      # 0.18.18 a `!command` the person runs (keel TUI), once it may run
@@ -493,10 +494,10 @@ class HelperRunner:
             toolbox = ToolBox(root, "none", cfg=cfg, on_refuse=on_refuse, agent=AGENT, knowledge=know, readonly=True)
             toolbox.readonly_label, toolbox.readonly_note = ASK_LABEL, ASK_NOTE
         self.turn_keel[sid] = dict(body.get("keel") or {})
-        resumable = model.get("mode") != "api" and provider in RESUMABLE
+        resumable = provider in RESUMABLE
         session = s["engine_session"] if resumable else None
         resume = bool(session)
-        if resumable and not session and provider in ("claude", "copilot"):
+        if resumable and not session:
             session = str(uuid.uuid4())
         hist: list = []
         res: AgentResult | None = None

@@ -442,7 +442,7 @@ class ReviewApiTest : ApiTest() {
     }
 
     @Test
-    fun `Find problems in harness mode is one session of the project's harness, then the checker`() {
+    fun `Find problems in harness mode is one KeelBot session on the default model, then the checker`() {
         engine.extraRoutes["/review-config/view"] = { b ->
             val base = engine.reviewConfigView(b?.path("models")?.path("default"))
             @Suppress("UNCHECKED_CAST")
@@ -453,7 +453,7 @@ class ReviewApiTest : ApiTest() {
             view(pid, "pr:7")
             val s1 = post("/api/projects/$pid/review/ai/findings", mapOf("key" to "pr:7")).andExpect(status().isOk).json()
             val sessions = s1["findings"]["sessions"]
-            assertThat(sessions.map { it["role"].asText() }).containsExactly("find-a")       // one reviewer: the harness
+            assertThat(sessions.map { it["role"].asText() }).containsExactly("find-a")       // one reviewer
             val sid = sessions[0]["sid"].asText()
             assertThat(turnText(sid)).contains("reviewer A").contains("Read the diff only")           // quick
                 .contains("breaks of this project's own rules").contains("keel-review-findings")

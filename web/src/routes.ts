@@ -15,6 +15,8 @@ export const SCREEN = {
   flow: "flow",
   live: "live",
   jobs: "jobs",
+  /** #101 part 3 Watch › Flow doctor: the crash log and the improvement report */
+  doctor: "doctor",
   workflows: "workflows",
   /** v0.17.2 Build › Rules: keel's rules and the project's rule packs (core: the guard is core) */
   rules: "rules",
@@ -110,7 +112,7 @@ export type SettingsTabId = (typeof SETTINGS_TABS)[number];
 /** keel's own Settings tabs: id, name in the settings menu, order (a part's tab goes between them by its order). */
 export const CORE_SETTINGS_TABS: { id: SettingsTabId; label: string; order: number }[] = [
   { id: "general", label: "General", order: 10 },
-  { id: "models", label: "Models & logins", order: 20 },
+  { id: "models", label: "Models & keys", order: 20 },
   // keel 0.18.65 one project's review: the Review page's reviewers and lenses, the checker, the fix, the last review
   { id: "review", label: "Review", order: 25 },
   { id: "connections", label: "Connections", order: 30 },

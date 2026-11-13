@@ -1,10 +1,8 @@
 """keel's own PreToolUse hook (python -m keel_engine.hook pre-tool), its context file, live unlocks and the engine's
 unlock endpoints."""
 
-import dataclasses
 import json
 import os
-import shutil
 import stat
 import subprocess
 import sys
@@ -17,7 +15,6 @@ import pytest
 from conftest import decide, start, wait
 from keel_engine import hook, rules
 from keel_engine.models.base import AgentRequest
-from keel_engine.models.cli_runners import ClaudeCLIRunner, write_opencode_plugin
 from keel_engine.runtime import guard_ctx, migrate, permissions
 from keel_engine.runtime.state import ThreadContext
 from keel_engine.tools.agent_tools import ToolBox
@@ -284,18 +281,6 @@ def test_the_hook_process_exit_codes_and_isolation(tmp_path, root):
     assert run_hook(root, ctx, call("Read", file_path="x"), argv=[sys.executable, "-I", "-m", "keel_engine.hook"]).returncode == 2
 
 
-def test_the_settings_command_turns_any_failure_into_a_refusal(tmp_path, root):
-    cmd = guard_ctx.hook_command()
-    assert cmd == f'"{sys.executable}" -I -m keel_engine.hook pre-tool || exit 2'
-    ctx = ctx_file(tmp_path, root, "red")
-    ok = subprocess.run(["sh", "-c", cmd], input=call("Write", file_path=TEST), cwd=root, capture_output=True, text=True,
-                        env={**os.environ, guard_ctx.ENV: ctx})
-    assert ok.returncode == 0
-    broken = subprocess.run(["sh", "-c", cmd.replace("keel_engine.hook", "keel_engine.no_such_module")], input="{}", cwd=root,
-                            capture_output=True, text=True)
-    assert broken.returncode == 2                                     # Claude Code would let exit 1 through
-
-
 def test_latency_smoke(tmp_path, root):
     ctx = ctx_file(tmp_path, root, "red")
     for _ in range(5):
@@ -336,116 +321,6 @@ def test_thread_unlock_reaches_every_running_guard(tmp_path, root):
     assert added and ctx.add_unlocks([{"path": PROD, "phase": "red", "by": "api"}]) == []
     assert json.loads(Path(g.path).read_text())["unlocks"][0]["path"] == PROD
     assert tb.write_file(PROD, "class Score2\n").startswith("Wrote")
-
-
-async def test_claude_runner_writes_context_and_settings_outside_the_project(tmp_path, monkeypatch, root):
-    out = tmp_path / "out"
-    out.mkdir()
-    res = {"type": "result", "result": "done", "usage": {}}
-    bin_ = tmp_path / "claude"
-    bin_.write_text(f"#!/bin/sh\ncat > /dev/null\necho \"$@\" > {out}/argv\nenv > {out}/env\necho '{json.dumps(res)}'\n")
-    bin_.chmod(0o755)
-    monkeypatch.setenv("KEEL_CLAUDE_BIN", str(bin_))
-    work = tmp_path / "work"
-    work.mkdir()
-    req = AgentRequest(agent="implementer", system="", prompt="go", root=str(root), phase="green",
-                       model={"provider": "claude", "mode": "subscription", "model": "haiku"},
-                       toolbox=ToolBox(str(root), "green", lane="api", unlocks=[{"path": TEST, "phase": "green"}]),
-                       ac={"id": "AC-2", "layer": "API"}, workdir=str(work), thread="t9")
-    await ClaudeCLIRunner().run(req, lambda *a, **k: None)
-    env = dict(line.split("=", 1) for line in (out / "env").read_text().splitlines() if "=" in line)
-    assert env[guard_ctx.ENV] == str(work / "guard.json")
-    ctx = json.loads((work / "guard.json").read_text())
-    assert ctx == {"root": str(root.resolve()), "phase": "green", "ac": {"id": "AC-2", "layer": "API"}, "lane": "api",
-                   "unlocks": [{"path": TEST, "phase": "green"}], "agent": "implementer", "thread": "t9",
-                   "knowledge_allowed": None, "knowledge_strict": False, "readonly": False, "ask": None, "confine": False,
-                   "read_tools": guard_ctx.read_tools(), "push_blockers": []}
-    assert stat.S_IMODE(os.stat(work / "guard.json").st_mode) == 0o600
-    settings = json.loads((work / "keel-guard.json").read_text())
-    assert settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"].startswith(f'"{sys.executable}" -I -m keel_engine.hook pre-tool')
-    assert not list(root.rglob("guard.json")) and not list(root.rglob("keel-guard.json"))
-    # only keel's built-in tools are in the model's prompt (the others' descriptions cost ~17k tokens a turn)
-    argv = (out / "argv").read_text().split()
-    assert argv[argv.index("--tools") + 1] == "Read,Edit,Write,Bash,Glob,Grep"
-    # a read-only run (KeelBot's Ask) has no Edit or Write at all
-    ro = dataclasses.replace(req, toolbox=ToolBox(str(root), "none", readonly=True))
-    await ClaudeCLIRunner().run(ro, lambda *a, **k: None)
-    argv = (out / "argv").read_text().split()
-    assert argv[argv.index("--tools") + 1] == "Read,Bash,Glob,Grep"
-
-
-async def test_claude_runner_loads_no_plugins_or_skills_from_the_persons_claude_setup(tmp_path, monkeypatch, root):
-    """0.18.57 a keel agent must not load the plugins, skills, hooks or agents of the person's own Claude Code: the
-    project folder's .claude/settings.json and .claude/settings.local.json (enabledPlugins, hooks) and .claude/skills
-    are the person's setup, not keel's. claude reads only keel's own config home (the "user" source), and keel's guard
-    still comes in through --settings."""
-    out = tmp_path / "out"
-    out.mkdir()
-    res = {"type": "result", "result": "done", "usage": {}}
-    bin_ = tmp_path / "claude"
-    bin_.write_text(f"#!/bin/sh\ncat > /dev/null\nprintf '%s\\n' \"$@\" > {out}/argv\nenv > {out}/env\necho '{json.dumps(res)}'\n")
-    bin_.chmod(0o755)
-    monkeypatch.setenv("KEEL_CLAUDE_BIN", str(bin_))
-    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "persons-claude"))
-    (root / ".claude" / "skills" / "my-skill").mkdir(parents=True)
-    (root / ".claude" / "settings.local.json").write_text(json.dumps({"enabledPlugins": {"my-plugin@my-market": True}}))
-    work = tmp_path / "work"
-    work.mkdir()
-    req = AgentRequest(agent="clarifier", system="", prompt="go", root=str(root), phase="clarify",
-                       model={"provider": "claude", "mode": "subscription", "model": "haiku"},
-                       toolbox=ToolBox(str(root), "none", readonly=True), workdir=str(work), thread="t9")
-    await ClaudeCLIRunner().run(req, lambda *a, **k: None)
-    argv = (out / "argv").read_text().splitlines()
-    assert "--setting-sources" in argv, argv
-    assert argv[argv.index("--setting-sources") + 1] == "user"
-    assert "--plugin-dir" not in argv
-    assert "--settings" in argv                                    # keel's guard hook still loads
-    env = dict(line.split("=", 1) for line in (out / "env").read_text().splitlines() if "=" in line)
-    assert env["CLAUDE_CONFIG_DIR"] != str(tmp_path / "persons-claude")   # keel's own config home, never the person's
-
-
-@pytest.mark.skipif(not shutil.which("node"), reason="node is not installed")
-def test_opencode_plugin_refuses_through_the_hook(tmp_path, root):
-    """The generated plugin, run by node against the real hook (opencode itself is not needed for this half)."""
-    conf = write_opencode_plugin(tmp_path / "opencode")
-    plugin = Path(conf) / "plugins" / "keel-guard.js"
-    ctx = ctx_file(tmp_path, root, "red")
-    probe = tmp_path / "probe.mjs"
-    probe.write_text(f"""
-import {{ KeelGuard }} from {json.dumps(plugin.as_uri())};
-const hooks = await KeelGuard({{ directory: {json.dumps(str(root))}, worktree: {json.dumps(str(root))} }});
-const before = hooks['tool.execute.before'];
-const out = {{}};
-for (const [name, tool, args] of [
-  ['prod', 'write', {{ filePath: {json.dumps(str(root / PROD))} }}],
-  ['test', 'edit', {{ filePath: {json.dumps(str(root / TEST))} }}],
-  ['bash', 'bash', {{ command: 'ls' }}],
-  ['dep', 'bash', {{ command: 'npm install left-pad' }}],
-  ['patch', 'apply_patch', {{ patchText: '*** Begin Patch\\n*** Update File: {PROD}\\n*** End Patch' }}],
-  ['nopatch', 'apply_patch', {{ patchText: 'nothing' }}],
-  ['task', 'task', {{ subagent_type: 'implementer' }}],
-  ['mcp', 'github_create_issue', {{ title: 'x' }}],
-  ['glob', 'glob', {{ pattern: '*' }}],
-  ['grep_env', 'grep', {{ pattern: 'TOKEN', path: {json.dumps(str(root / '.env'))} }}],
-  ['grep_src', 'grep', {{ pattern: 'TOKEN', path: {json.dumps(str(root))}, include: '*.py' }}],
-]) {{
-  try {{ await before({{ tool }}, {{ args }}); out[name] = 'allowed'; }} catch (e) {{ out[name] = String(e.message); }}
-}}
-console.log(JSON.stringify(out));
-""")
-    r = subprocess.run(["node", str(probe)], capture_output=True, text=True, env={**os.environ, guard_ctx.ENV: ctx}, timeout=60)
-    assert r.returncode == 0, r.stderr
-    out = json.loads(r.stdout)
-    assert out["prod"].startswith("[keel guard] ") and "blocked in phase" in out["prod"]
-    assert out["test"] == "allowed" and out["bash"] == "allowed" and out["glob"] == "allowed"
-    assert "dependency" in out["dep"] and "blocked in phase" in out["patch"]
-    assert "no file could be read" in out["nopatch"] and "sub-agents are off" in out["task"]
-    assert "allowlist" in out["mcp"]
-    # 0.18.64 opencode's grep goes through the hook too (it said "nothing to guard" before)
-    assert "Reading .env is blocked" in out["grep_env"] and out["grep_src"] == "allowed"
-    r = subprocess.run(["node", str(probe)], capture_output=True, text=True,
-                       env={k: v for k, v in os.environ.items() if k != guard_ctx.ENV}, timeout=60)
-    assert "Only reads are allowed" in json.loads(r.stdout)["test"]          # no context: fails closed
 
 
 # ------------------------------------------------------------------ engine: unlock endpoints, legacy import
@@ -564,18 +439,6 @@ def test_toolbox_tells_the_agent_it_read_the_file_already(tmp_path):
     assert tb.read_file("a.md") == "hello\n"
     assert tb.read_file("a.md").startswith("NOTE: you already read a.md")
     assert tb.read_file("a.md", offset=1, limit=1) == "hello\n"
-
-
-def test_opencode_and_copilot_runs_leave_out_tools_a_step_never_needs(tmp_path):
-    """Like claude's --tools: tool descriptions a step never uses are not sent in every turn."""
-    from keel_engine.models import cli_runners
-    conf = cli_runners.write_opencode_plugin(tmp_path / "oc")
-    tools = json.loads((Path(conf) / "opencode.json").read_text())["tools"]
-    assert tools["webfetch"] is False and tools["task"] is False and "write" not in tools
-    conf = cli_runners.write_opencode_plugin(tmp_path / "oc2", readonly=True)
-    tools = json.loads((Path(conf) / "opencode.json").read_text())["tools"]
-    assert tools["write"] is False and tools["edit"] is False and "bash" not in tools
-    assert "--disable-builtin-mcps" in Path(cli_runners.__file__).read_text()
 
 
 # ------------------------------------------------------------------ the person's OK, and a side session's own worktree

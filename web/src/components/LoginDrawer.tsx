@@ -1,10 +1,10 @@
 // The one right-side panel that walks the person through a sign-in. keel 0.18.57: four numbered steps, one at a time —
-// 1 Start the login · 2 Open the page (and sign in) · 3 Paste the code from that page (Claude) or Type the code on that
-// page (a device code: Codex, Copilot, GitHub) · 4 Saved — and a second way, "Paste a token". Settings › Models & logins
-// (Claude, Codex, Copilot) and Settings › Connections › GitHub both use it; they differ only in an adapter
+// 1 Start the login · 2 Open the page (and sign in) · 3 Paste the code from that page, or Type the code on that page (a
+// device code) · 4 Saved — and a second way, "Paste a token". Settings › Connections › GitHub's "Sign in with GitHub"
+// uses it (#101 the AI providers' CLI logins are gone: they take an API key); a sign-in differs only in an adapter
 // (start / poll / cancel) and a few small slots, so the steps, the copy buttons and the error handling exist once.
 //
-// A refused code (Claude's OAuth 400: a code from an older tab) does not end the login: the server answers with the
+// A refused code (an OAuth 400: a code from an older tab) does not end the login: the server answers with the
 // error and a NEW link. The code step turns red with the error and "Start again", which goes back to step 2 with the
 // new link; the next code is sent to the same login. A login that fails or is cancelled says why at its step, and
 // "Start again" starts a new one.

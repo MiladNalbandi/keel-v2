@@ -1,6 +1,6 @@
 [project]
 name = "keel-engine"
-version = "0.25.0"
+version = "0.26.0"
 description = "keel v2 engine: runs keel workflows as LangGraph graphs"
 requires-python = ">=3.12"
 dependencies = [
@@ -13,7 +13,9 @@ dependencies = [
     "langgraph-checkpoint-sqlite>=2.0",
     "langchain-core>=0.3",
     "langchain-anthropic>=0.3",
-    "anthropic[vertex]>=1.0",       # Vertex AI: Claude through AnthropicVertex, google-auth for Gemini's token
+    "anthropic[vertex]>=1.0",       # #101 keel's harness: Claude's Messages API (and AnthropicVertex on Vertex AI)
+    "openai>=3.0",                  # #101 keel's harness: OpenAI, GitHub Models, local servers, Gemini on Vertex
+    "jsonschema>=4.0",              # #101 keel's harness checks every tool input against its schema
     "langchain-openai>=0.3",
     "langchain-mcp-adapters>=0.1",
     "mcp>=1.9",

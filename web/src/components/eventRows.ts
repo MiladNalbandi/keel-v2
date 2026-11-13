@@ -76,7 +76,8 @@ export function humanize(id: string | null | undefined): string {
     .trim();
 }
 
-/** Usage events (an agent's tokens so far, a provider's limits): many a minute, hidden unless asked for. */
+/** Usage events (an agent's tokens so far; an older run's provider.usage, from before #101): many a minute, hidden
+ *  unless asked for. */
 export const isUsage = (type: string) =>
   type === "agent.usage" ||
   type === "provider.usage" ||

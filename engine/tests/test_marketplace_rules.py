@@ -341,9 +341,7 @@ def test_fetch_refuses_an_old_catalog_a_revoked_version_and_a_pack_for_another_k
 
 # ------------------------------------------------------------------ keel's own reading: who enforces each rule
 
-def test_keel_reads_a_pack_and_says_who_enforces_each_rule(client, monkeypatch):
-    from keel_engine.models import cli_runners
-    monkeypatch.setattr(cli_runners, "codex_hooks", lambda: False)        # an older codex: no hook, the wrappers
+def test_keel_reads_a_pack_and_says_who_enforces_each_rule(client):
     text = RULES.format(name="no-new-deps", version="1.0.0", publisher="keel") + """  - id: no-db
     kind: mcp
     match: db_change
@@ -360,26 +358,18 @@ def test_keel_reads_a_pack_and_says_who_enforces_each_rule(client, monkeypatch):
     assert set(by_id) == {"no-install", "no-lockfile", "no-db", "no-keys"}
     bash = by_id["no-install"]
     assert bash["how"] == "regex" and bash["phases"] == "all" and bash["reason"] == "Adding a package is a person's decision."
-    # a regex naming npm (a program keel wraps): the wrappers check it for copilot and the older codex
-    assert bash["enforced"]["before"] == ["claude", "opencode", "codex", "copilot", "api"]
-    assert bash["enforced"]["after"] is False
-    assert [(b["who"], b["engines"]) for b in bash["enforced"]["by"]] == [
-        ("hook", ["claude", "opencode"]), ("toolbox", ["api"]), ("wrappers", ["codex", "copilot"])]
+    # #101 one engine, keel's harness: its ToolBox checks every shell command, edit and read before it runs
+    assert bash["enforced"]["before"] == ["harness"] and bash["enforced"]["after"] is False
+    assert [(b["who"], b["engines"]) for b in bash["enforced"]["by"]] == [("toolbox", ["harness"])]
     edit = by_id["no-lockfile"]
-    assert edit["enforced"]["before"] == ["claude", "opencode", "api"] and edit["enforced"]["after"] is True
-    assert edit["enforced"]["by"][-1] == {"when": "after", "who": "diff-guard", "label": "the diff guard",
-                                          "engines": ["claude", "opencode", "codex", "copilot", "api"]}
+    assert edit["enforced"]["before"] == ["harness"] and edit["enforced"]["after"] is True
+    assert edit["enforced"]["by"][-1] == {"when": "after", "who": "diff-guard", "label": "the diff guard", "engines": ["harness"]}
     assert edit["lanes"] == ["web"] and edit["phases"] == ["green", "refactor"]
     mcp = by_id["no-db"]
-    assert mcp["enforced"]["before"] == ["claude", "opencode"] and mcp["enforced"]["engines"]["api"] == "none"
-    assert [b["who"] for b in mcp["enforced"]["by"]] == ["mcp-guard"]
+    assert mcp["enforced"]["before"] == ["harness"] and [b["who"] for b in mcp["enforced"]["by"]] == ["mcp-guard"]
     read = by_id["no-keys"]
-    assert read["enforced"]["engines"]["copilot"] == "none" and read["enforced"]["after"] is False
-    assert [e["title"] for e in body["engines"]] == ["Claude Code", "OpenCode", "Codex", "Copilot", "API-key models"]
-    assert {e["who"] for e in body["enforcers"]} == {"hook", "mcp-guard", "toolbox", "wrappers", "diff-guard"}
-    # with codex's hooks the hook checks codex too
-    monkeypatch.setattr(cli_runners, "codex_hooks", lambda: True)
-    body = client.post("/rules/read", json={"yaml": text}).json()
-    assert [b["engines"] for b in body["rules"][0]["enforced"]["by"]][0] == ["claude", "opencode", "codex"]
+    assert read["enforced"]["engines"] == {"harness": "before"} and read["enforced"]["after"] is False
+    assert [e["title"] for e in body["engines"]] == ["keel's harness"]
+    assert {e["who"] for e in body["enforcers"]} == {"mcp-guard", "toolbox", "diff-guard"}
     bad = client.post("/rules/read", json={"yaml": "schema: 1\nname: x\n"})
     assert bad.status_code == 422 and bad.json()["error"] == "The rule pack is not valid."

@@ -52,18 +52,12 @@ class SecretService(
     private fun clean(name: String, value: String): String =
         if (name in TOKEN_NAMES || kinds.stream().anyMatch { name in it.tokens }) value.filterNot { it.isWhitespace() } else value
 
-    /** Refuses a login or key that cannot be right (PUT /api/secrets): a copy from a wrapped terminal line often has
+    /** Refuses a key that cannot be right (PUT /api/secrets): a copy from a wrapped terminal line often has
      *  extra characters. Only the shapes keel knows; the message names the bad characters, never the value. */
     fun checkShape(name: String, raw: String) {
         val value = clean(name, raw)
         if (value.isEmpty()) return
         val claude = SHAPES[name]
-        if (name == "CODEX_AUTH_JSON") {
-            val json = runCatching { com.fasterxml.jackson.databind.ObjectMapper().readTree(value) }.getOrNull()
-            if (json == null || !json.isObject) throw BadRequest("The Codex login is not the JSON of ~/.codex/auth.json.",
-                "Paste the whole file: it starts with { and ends with }.")
-            return
-        }
         if (name !in TOKEN_NAMES) return
         val allowed: (Char) -> Boolean = if (claude != null) { c -> (c.isLetterOrDigit() && c.code < 128) || c in "-_" }
             else { c -> (c.isLetterOrDigit() && c.code < 128) || c in "-_.=" }
@@ -72,9 +66,7 @@ class SecretService(
         if (bad.isNotEmpty()) throw BadRequest("The $what has characters a token never has ($bad).",
             "A token shown over two lines is often copied with extra characters. Copy it in one piece and save it again.")
         if (claude != null && !value.startsWith("sk-ant-")) throw BadRequest(
-            "The $what does not start with sk-ant- (it has ${value.length} characters).",
-            if (name == "CLAUDE_CODE_OAUTH_TOKEN") "Copy the whole token that `claude setup-token` prints and save it again."
-            else "Check that you pasted the right key.")
+            "The $what does not start with sk-ant- (it has ${value.length} characters).", "Check that you pasted the right key.")
     }
 
     fun put(name: String, raw: String): String {
@@ -135,24 +127,44 @@ class SecretService(
         return (get(name) ?: System.getenv(name)?.takeIf { it.isNotBlank() })?.let { clean(name, it) }
     }
 
-    /** The CLI login for a subscription provider (Claude setup-token, Codex auth.json, GitHub token): stored first, then the environment. */
-    fun loginFor(provider: String): String? {
-        val name = LOGIN_NAMES[provider] ?: return null
-        return (get(name) ?: System.getenv(name)?.takeIf { it.isNotBlank() })?.let { clean(name, it) }
-    }
-
     /**
-     * 0.18.64 keel's own logins and connections: the model keys and logins, the GitHub token, Vertex AI, the local model
-     * servers' keys and the tokens a part's connection kind names (GitLab). An MCP server never gets one (McpService).
+     * 0.18.64 keel's own logins and connections: the model keys (and the old CLI logins), the GitHub token, Vertex AI, the
+     * local model servers' keys and the tokens a part's connection kind names (GitLab). An MCP server never gets one (McpService).
      */
     fun keelOwn(name: String): Boolean =
-        name in TOKEN_NAMES || name in KEY_NAMES.values || name in LOGIN_NAMES.values || name in OWN ||
+        name in TOKEN_NAMES || name in KEY_NAMES.values || name in OWN ||
             name.startsWith(ModelServerService.secretOf("")) || kinds.stream().anyMatch { name in it.tokens }
 
-    /** The keys a flow or a test needs for this model, under the names the engine reads (StartThread.keys). */
+    /**
+     * The keys a flow or a test needs for this model, under the names the engine reads (StartThread.keys). #101 keel's
+     * own harness runs every model on its provider's API key, whatever mode was saved: no app login goes to the engine.
+     */
+    @Suppress("UNUSED_PARAMETER")
     fun engineKeys(provider: String, mode: String): Map<String, String> =
-        if (mode == "api" || provider in ModelServerService.PROVIDERS) keyForProvider(provider)?.let { mapOf(provider to it) } ?: emptyMap()
-        else loginFor(provider)?.let { mapOf(ENGINE_LOGIN_KEY.getValue(provider) to it) } ?: emptyMap()
+        apiKey(provider)?.let { mapOf(provider to it) } ?: emptyMap()
+
+    /**
+     * #101 the key keel's harness calls a model with: the provider's API key. GitHub Models also takes another GitHub
+     * token (GitHub's own `gh models` uses it the same way): see [copilotToken].
+     */
+    fun apiKey(provider: String): String? = if (provider == "copilot") copilotToken()?.first else keyForProvider(provider)
+
+    /** #101 where GitHub Models' token comes from, as Connections shows it: a saved key's hint, or where it was found. */
+    fun copilotKeyHint(): String? = copilotToken()?.second
+
+    /**
+     * #101 GitHub Models' token and its hint: GITHUB_TOKEN (saved, else the environment), else GH_TOKEN (saved by the old
+     * Copilot login, else the environment), else the token of keel's GitHub sign-in when it is for github.com (keel
+     * sends an Enterprise host's token to that host only).
+     */
+    private fun copilotToken(): Pair<String, String?>? {
+        for (name in listOf(KEY_NAMES.getValue("copilot"), GH_TOKEN)) {
+            get(name)?.let { return clean(name, it) to hintOf(name) }
+            System.getenv(name)?.takeIf { it.isNotBlank() }?.let { return clean(name, it) to "from the environment" }
+        }
+        if (githubHost() != "github.com") return null
+        return get(GITHUB_SIGN_IN)?.let { clean(GITHUB_SIGN_IN, it) to "from the GitHub sign-in" }
+    }
 
     private fun checkName(name: String) {
         if (!Regex("^[A-Za-z0-9_.-]{1,64}$").matches(name)) {
@@ -162,13 +174,19 @@ class SecretService(
 
     companion object {
         val KEY_NAMES = mapOf("claude" to "ANTHROPIC_API_KEY", "codex" to "OPENAI_API_KEY", "copilot" to "GITHUB_TOKEN")
-        val LOGIN_NAMES = mapOf("claude" to "CLAUDE_CODE_OAUTH_TOKEN", "codex" to "CODEX_AUTH_JSON", "copilot" to "GH_TOKEN")
-        /** Secret names whose value is a single token (whitespace is removed); CODEX_AUTH_JSON is a JSON file. */
-        val TOKEN_NAMES = setOf("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GITHUB_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "GH_TOKEN", "GITHUB_REPO_TOKEN")
-        /** 0.18.64 keel's other own secrets ([keelOwn]): the GitHub sign-in's account, Vertex AI's credentials. */
-        private val OWN = setOf("CODEX_AUTH_JSON", "GITHUB_REPO_INFO", "VERTEX_CREDENTIALS", "GITLAB_TOKEN")
+        /** #101 the old Copilot CLI login's GitHub token: GitHub Models' token when no GITHUB_TOKEN is set. */
+        const val GH_TOKEN = "GH_TOKEN"
+        /** The token of keel's GitHub sign-in (GitHubLoginService.TOKEN). */
+        private const val GITHUB_SIGN_IN = "GITHUB_REPO_TOKEN"
+        /** Secret names whose value is a single token (whitespace is removed). */
+        val TOKEN_NAMES = setOf("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GITHUB_TOKEN", GH_TOKEN, GITHUB_SIGN_IN)
+        /**
+         * 0.18.64 keel's other own secrets ([keelOwn]): the GitHub sign-in's account, Vertex AI's credentials. #101 also the
+         * old Claude and Codex CLI logins: unused now, but an old saved one never shows as a project's secret, never goes to
+         * an MCP server or the engine, and can still be deleted.
+         */
+        private val OWN = setOf("CLAUDE_CODE_OAUTH_TOKEN", "CODEX_AUTH_JSON", "GITHUB_REPO_INFO", "VERTEX_CREDENTIALS", "GITLAB_TOKEN")
         /** Secrets with a known Claude shape (sk-ant-…, only letters, digits, - and _), and what they are called. */
-        private val SHAPES = mapOf("CLAUDE_CODE_OAUTH_TOKEN" to "Claude login token", "ANTHROPIC_API_KEY" to "Anthropic API key")
-        private val ENGINE_LOGIN_KEY = mapOf("claude" to "claude_oauth", "codex" to "codex_auth", "copilot" to "copilot")
+        private val SHAPES = mapOf("ANTHROPIC_API_KEY" to "Anthropic API key")
     }
 }

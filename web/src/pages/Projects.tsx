@@ -9,9 +9,8 @@ import { AddProjectsDrawer } from "../components/AddProjects";
 import { EmptyState } from "../components/EmptyState";
 import { needsInit } from "../components/InitAsk";
 import { StartFlowDrawer } from "../components/StartFlow";
-import { agoText } from "../components/UsageStrip";
 import { ErrorBox, Loading, PageHead, Pill } from "../components/ui";
-import { plural } from "../format";
+import { agoText, plural } from "../format";
 import { hashFor } from "../routes";
 import { go, useApp, useLoad, useRoute } from "../state";
 

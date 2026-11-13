@@ -18,6 +18,9 @@ import { createStackDb, stackHandlers } from "./stackHandlers";
 type HelperFolder = { id: string; project: string; name: string; chats: number; created_at: string; updated_at: string };
 
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v));
+/** #101 settings the api no longer has (plan windows, harness mode): saving one is a 400, as the api answers. */
+const REMOVED_SETTINGS = ["usage_warn", "usage_pause", "build_runs", "harness_plan", "fix_runs"];
+const removedSetting = (b: unknown) => REMOVED_SETTINGS.find((k) => !!b && typeof b === "object" && k in (b as object));
 
 // ---- the JSON the Database and Git plugins' apis send, as these handlers build it ----
 // A copy of their types (plugins/db/web/dbApi.ts, plugins/git/web/gitApi.ts): keel's own type check runs before plugins/
@@ -79,7 +82,6 @@ export function createDb() {
     update: { ok: true, merged: true, conflicts: [] as string[], output: "Merge made by the 'ort' strategy.\n 1 file changed" },
     /** When set, PUT /workflows/:wid answers 422 with these validation errors. */
     yamlErrors: null as string[] | null,
-    usage: fx.usage(),
     /** GET /budget/now without its caps (they come from `caps` and `capUse`, as GET /caps/left). */
     budgetNow: fx.budgetNow(),
     /** GET /graph and GET /graph/node answers (tests change them). */
@@ -135,7 +137,7 @@ export function createDb() {
     // otherwise), the AI tools keel saw, where keel answers, and the release check (nothing newer)
     welcome: { seen: true, at: "2026-10-28T10:00:00Z", how: "finished" } as WelcomeState,
     mcpClients: [] as McpClientSeen[],
-    startModels: [{ provider: "claude", label: "Claude subscription (Claude Code CLI)", mode: "subscription" }] as StartView["models"],
+    startModels: [{ provider: "claude", label: "Claude (Anthropic API key)", mode: "api" }] as StartView["models"],
     startFlow: null as StartView["flow"],
     access: { mode: "local", bind: "127.0.0.1", wifi: [], names: [], tailscale: null, tunnel: null, native: false, folder: "/home/ana/code/my-app" } as AccessView,
     resources: { max_agents: 0, auto_agents: 4, agents_limit: 4, max: 32, low_priority: true, running: 1, waiting: 0, memory_used: 1073741824,
@@ -708,7 +710,7 @@ export function handlers(db: Db) {
       const sess: HelperSession = { id: `h_${n}`, project: String(params.pid), root: "/workspace", mode: b?.mode ?? "ask",
         thread_id: b?.mode === "fix" ? waiting!.thread_id : null, phase: b?.mode === "fix" ? "green" : null, title: b?.title || "New chat",
         ...(b?.mode === "side" ? { worktree: `/workspace/.keel/worktrees/helper-${n}`, branch: `keel/helper/${n}`, base_sha: "abc1234" } : {}),
-        model: { provider: "claude", mode: "subscription", model: "sonnet" }, status: "idle", tokens_in: 0, tokens_out: 0, tokens_cached: 0, cost_usd: 0,
+        model: { provider: "claude", mode: "api", model: "sonnet" }, status: "idle", tokens_in: 0, tokens_out: 0, tokens_cached: 0, cost_usd: 0,
         turns: 0, created_at: now, updated_at: now, messages: [], busy: false };
       db.helper.sessions.unshift(sess);
       return HttpResponse.json(sess);
@@ -850,27 +852,22 @@ export function handlers(db: Db) {
       return new HttpResponse(null, { status: 204 });
     }),
     http.get("/api/limits", () => HttpResponse.json(fx.limits)),
-    http.get("/api/usage/providers", () => HttpResponse.json(db.usage)),
-    http.post("/api/usage/providers/:id/refresh", async ({ request, params }) => {
-      await log(request);
-      const card = db.usage.find((u) => u.id === params.id);
-      if (!card) return HttpResponse.json({ error: `${params.id} is not set up` }, { status: 400 });
-      const fresh = { ...card, fetched_at: new Date().toISOString(), windows: card.windows.map((w) => ({ ...w, used_pct: 0.7 })) };
-      db.usage = db.usage.map((u) => (u.id === card.id ? fresh : u));
-      return HttpResponse.json(fresh);
-    }),
     http.put("/api/limits", async ({ request }) => HttpResponse.json(await log(request))),
     // the Code Review plugin's thread settings (a section of the Settings page that draws itself)
     ...["/api/review/settings", "/api/projects/:pid/review/settings"].map((u) => http.get(u, () => HttpResponse.json(reviewThreadSettings()))),
     http.get("/api/settings/general", () => HttpResponse.json(db.general)),
     http.put("/api/settings/general", async ({ request }) => {
       const b = await log(request);
+      const gone = removedSetting(b);
+      if (gone) return HttpResponse.json({ error: `Unknown setting: ${gone}` }, { status: 400 });
       Object.assign(db.general, b);
       return HttpResponse.json(db.general);
     }),
     http.get("/api/projects/:pid/settings", ({ params }) => HttpResponse.json(fx.projectSettings(db.overrides[params.pid as string] ?? {}))),
     http.put("/api/projects/:pid/settings", async ({ request, params }) => {
       const b = await log(request);
+      const gone = removedSetting(b);
+      if (gone) return HttpResponse.json({ error: `Unknown setting: ${gone}` }, { status: 400 });
       const pid = params.pid as string;
       const ov = { ...(db.overrides[pid] ?? {}) } as Record<string, unknown>;
       Object.entries(b).forEach(([k, v]) => { if (v === null) delete ov[k]; else ov[k] = v; });
@@ -880,6 +877,7 @@ export function handlers(db: Db) {
     http.get("/api/connections", () => HttpResponse.json(fx.connections)),
     http.put("/api/connections/:provider", async ({ request }) => { await log(request); return new HttpResponse(null, { status: 204 }); }),
     http.put("/api/secrets/:name", async ({ request }) => { await log(request); return HttpResponse.json({ hint: "…9KQ" }); }),
+    http.delete("/api/secrets/:name", async ({ request }) => { await log(request); return new HttpResponse(null, { status: 204 }); }),
     http.post("/api/connections/:provider/test", () => HttpResponse.json({ ok: true, text: "OK", ms: 900 })),
 
     http.get("/api/notifications", () => HttpResponse.json(db.notifications)),

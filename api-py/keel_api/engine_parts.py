@@ -1,6 +1,6 @@
 """A plugin part's routes that live in keel's engine, passed on to it: /api/<part>/<rest> → <engine>/<part>/<rest>.
 
-The Org plugin is Python only (plugins/org): no Kotlin jar answers its routes. LocalAuth has checked the caller
+The Org plugin is Python only (plugins/org): no Kotlin jar answers its routes; neither does the flow doctor (#101). LocalAuth has checked the caller
 already; the engine is asked with the internal token, and the caller's own credentials never reach it.
 
     PARTS     the parts whose routes the engine answers, by their path prefix under /api
@@ -14,7 +14,7 @@ from starlette.responses import Response
 
 from .common.errors import error_response
 
-PARTS = ("org",)
+PARTS = ("org", "flow-doctor")   # #101 part 3 the flow doctor's report and crash log
 # what the engine must not see from the caller: its credentials and the hop headers
 DROP = {"cookie", "authorization", "x-keel-token", "x-keel-mcp-token", "host", "content-length", "connection",
         "transfer-encoding", "keep-alive", "upgrade", "te", "trailer", "proxy-authorization", "proxy-connection"}

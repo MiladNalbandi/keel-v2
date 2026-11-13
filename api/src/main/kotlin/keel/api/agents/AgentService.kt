@@ -188,8 +188,8 @@ class AgentService(
     fun test(aid: String, pid: String): JsonNode {
         val agent = get(pid, aid)
         val m = agent.model
-        val body = mutableMapOf<String, Any?>("provider" to m.provider, "mode" to m.mode, "model" to m.model, "effort" to m.effort)
-        (if (m.mode == "api") secrets.keyForProvider(m.provider) else secrets.loginFor(m.provider))?.let { body["key"] = it }
+        val body = mutableMapOf<String, Any?>("provider" to m.provider, "mode" to "api", "model" to m.model, "effort" to m.effort)
+        secrets.apiKey(m.provider)?.let { body["key"] = it }        // #101 every model runs on its API key
         return engine.providerTest(body)
     }
 

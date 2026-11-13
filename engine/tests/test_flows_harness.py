@@ -112,16 +112,6 @@ def test_the_plan_gate_shows_the_plan_and_how_to_open_the_session(client, repo, 
     assert "--resume" not in shown          # the fake model has no open command (claude, codex, copilot, opencode have)
 
 
-def test_open_commands():
-    assert memory_mod.open_command("claude", "s1", "subscription", "/data/agent-home/claude") == \
-        "CLAUDE_CONFIG_DIR=/data/agent-home/claude claude --resume s1"
-    assert memory_mod.open_command("codex", "s1") == "codex resume s1"
-    assert memory_mod.open_command("copilot", "s1") == "copilot --resume s1"
-    assert memory_mod.open_command("copilot", "s1", "opencode") == "opencode -s s1"
-    assert memory_mod.open_command("claude", "s1", "api") is None
-    assert memory_mod.open_command("fake", "s1") is None
-
-
 def test_a_plain_python_project_with_a_tests_folder_runs_pytest(tmp_path):
     (tmp_path / "tests").mkdir()
     (tmp_path / "tests" / "test_books.py").write_text("def test_x():\n    pass\n")

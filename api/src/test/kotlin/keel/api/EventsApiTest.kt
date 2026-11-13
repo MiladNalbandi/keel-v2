@@ -94,6 +94,37 @@ class EventsApiTest : ApiTest() {
     }
 
     @Test
+    fun `a step's session and MCP gateway keys survive the api's workflow model`() {
+        // the api reads a workflow into its Step model and sends that to the engine: a field it does not know is lost
+        val yaml = WorkflowDoc.parse("""
+            name: one-session
+            steps:
+              - { id: plan, kind: agent, name: plan, agent: implementer, session: thread, mcp: gateway }
+        """.trimIndent()).toYaml()
+        listOf("session: thread", "mcp: gateway").forEach { assertThat(yaml).contains(it) }
+    }
+
+    @Test
+    fun `every real model's job bills its API key, whatever mode the engine named (#101)`(
+        @org.springframework.beans.factory.annotation.Autowired jdbc: org.springframework.jdbc.core.JdbcTemplate,
+    ) {
+        val (pid, _) = newProject("events-mode")
+        fun apiUsed() = get("/api/limits").json().first { it["id"].asText() == "api" }["used"].asDouble()
+        val before = apiUsed()
+        send(listOf(
+            ev("agent.started", pid, "t-mode", "m-api", data = mapOf("agent" to "implementer", "provider" to "claude", "mode" to "api")),
+            ev("agent.finished", pid, "t-mode", "m-api", data = mapOf("status" to "done", "cost_usd" to 1.25)),
+            ev("agent.started", pid, "t-mode", "m-old", data = mapOf("agent" to "implementer", "provider" to "codex", "mode" to "subscription")),
+            ev("agent.finished", pid, "t-mode", "m-old", data = mapOf("status" to "done", "cost_usd" to 0.5)),
+            ev("agent.started", pid, "t-mode", "m-fake", data = mapOf("agent" to "implementer", "provider" to "fake", "mode" to "api")),
+            ev("agent.finished", pid, "t-mode", "m-fake", data = mapOf("status" to "done", "cost_usd" to 7.5)),
+        )).andExpect(status().isOk)
+        assertThat(apiUsed() - before).isEqualTo(1.75)
+        val modes = jdbc.queryForList("SELECT id, mode FROM agent_calls WHERE thread_id = 't-mode'").associate { it["id"] to it["mode"] }
+        assertThat(modes).isEqualTo(mapOf("m-api" to "api", "m-old" to "api", "m-fake" to "fake"))
+    }
+
+    @Test
     fun `events need the internal token`() {
         bare.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/internal/events")
             .contentType("application/json").content("[]")).andExpect(status().isUnauthorized)

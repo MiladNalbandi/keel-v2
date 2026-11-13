@@ -3,7 +3,6 @@ package keel.api
 import keel.api.approvals.Approval
 import keel.api.approvals.ApprovalHandler
 import keel.api.approvals.ApprovalService
-import keel.api.budget.ProviderUsageStore
 import keel.api.engine.EngineClient
 import keel.api.events.AgentCalls
 import keel.api.events.EngineEvent
@@ -245,7 +244,7 @@ class ApprovalsApiTest : ApiTest() {
 
     @Test
     fun `engine events go to the handlers whose prefix matches, and a broken one stops nobody`(
-        @Autowired notifications: NotificationService, @Autowired usage: ProviderUsageStore,
+        @Autowired notifications: NotificationService,
         @Autowired publisher: ApplicationEventPublisher, @Autowired calls: AgentCalls,
         @Autowired docs: keel.api.knowledge.DocHistoryService,
     ) {
@@ -260,7 +259,7 @@ class ApprovalsApiTest : ApiTest() {
                 seen += "${event.type}@${event.at != null}"
             }
         }
-        val service = EventService(jdbc, notifications, hub, usage, publisher, calls, Provider(listOf(broken, mine)), docs)
+        val service = EventService(jdbc, notifications, hub, publisher, calls, Provider(listOf(broken, mine)), docs)
         val stored = service.ingest(listOf(
             EngineEvent("plugin.db.query", "t-h", "p-h", data = mapOf("sql" to "select 1")),
             EngineEvent("plugin.git.push", "t-h", "p-h"),

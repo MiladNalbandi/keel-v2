@@ -116,28 +116,3 @@ def test_a_server_without_the_internal_token_sends_the_token_it_was_given(monkey
     assert seen == ["given-read-token", "given-read-token"]
 
 
-async def test_codex_gets_keels_server_with_its_environment(tmp_path, monkeypatch):
-    """codex starts MCP servers with almost no environment: keel's own server gets the api and its read token. 0.18.64
-    from codex's environment (`env_vars` names them), not from its command line."""
-    import tomllib
-
-    from keel_engine.models.base import AgentRequest
-    from keel_engine.models.cli_runners import CodexCLIRunner
-    from keel_engine.tools.agent_tools import ToolBox
-
-    monkeypatch.setenv("KEEL_INTERNAL_TOKEN", "test-token")
-    exe = tmp_path / "codex"
-    exe.write_text(f'#!/bin/sh\ncat >/dev/null\nfor a in "$@"; do echo "$a"; done > {tmp_path}/argv\nenv > {tmp_path}/env\n')
-    exe.chmod(0o755)
-    monkeypatch.setenv("KEEL_CODEX_BIN", str(exe))
-    req = AgentRequest(agent="implementer", system="", prompt="go", root=str(tmp_path), phase="green",
-                       model={"provider": "codex", "mode": "subscription", "model": "gpt-5.5"},
-                       toolbox=ToolBox(str(tmp_path), "green"), workdir=str(tmp_path), tools_allow=["mcp:keel"])
-    await CodexCLIRunner().run(req, lambda *a, **k: None)
-    argv = (tmp_path / "argv").read_text().splitlines()
-    names_arg = next(a for a in argv if a.startswith("mcp_servers.keel.env_vars="))
-    names = tomllib.loads("v = " + names_arg.split("=", 1)[1])["v"]
-    assert {"KEEL_MCP_TOKEN", "KEEL_API_URL"} <= set(names)
-    assert not any(config.mcp_token("read") in a for a in argv)
-    env = dict(line.split("=", 1) for line in (tmp_path / "env").read_text().splitlines() if "=" in line)
-    assert env["KEEL_MCP_TOKEN"] == config.mcp_token("read") and env["KEEL_API_URL"] == config.api_url()

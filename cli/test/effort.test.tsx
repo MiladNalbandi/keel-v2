@@ -14,8 +14,8 @@ import { stripAnsi } from "../src/script";
 import { stubKeel, tick, waitFor } from "./stub";
 
 const CATALOG = {
-  claude: { label: "Claude", modes: { subscription: [{ id: "sonnet", label: "Sonnet" }, { id: "haiku", label: "Haiku", efforts: [] }] },
-    efforts: ["low", "medium", "high"], default: { mode: "subscription", model: "sonnet" }, source: "builtin" },
+  claude: { label: "Claude", modes: { api: [{ id: "sonnet", label: "Sonnet" }, { id: "haiku", label: "Haiku", efforts: [] }] },
+    efforts: ["low", "medium", "high"], default: { mode: "api", model: "sonnet" }, source: "builtin" },
   fake: { label: "Fake", modes: { api: [{ id: "fake", label: "Fake" }] }, efforts: [], default: { mode: "api", model: "fake" }, source: "builtin" },
 } as Catalog;
 
@@ -41,8 +41,10 @@ function keel() {
 
 describe("thinking effort", () => {
   it("takes a model's own efforts, else its provider's; [] = none", () => {
+    expect(effortsOf(CATALOG, "claude", "api", "sonnet")).toEqual(["low", "medium", "high"]);
+    expect(effortsOf(CATALOG, "claude", "api", "haiku")).toEqual([]);
+    // #101 a model saved for a subscription runs on the API: it gets the API's efforts
     expect(effortsOf(CATALOG, "claude", "subscription", "sonnet")).toEqual(["low", "medium", "high"]);
-    expect(effortsOf(CATALOG, "claude", "subscription", "haiku")).toEqual([]);
     expect(effortsOf(CATALOG, "fake", "api", "fake")).toEqual([]);
     expect(effortsOf(null, "claude", "subscription", "sonnet")).toEqual([]);
     expect(modelText({ provider: "claude", model: "sonnet", effort: "high" })).toBe("claude/sonnet · high");
@@ -59,8 +61,8 @@ describe("thinking effort", () => {
     expect(r2.pick?.choices.map((c) => c.value)).toEqual(["default", "low", "medium", "high"]);
     expect(r2.pick?.index).toBe(0);
     const r3 = await r2.pick!.then("high");
-    expect(core.snapshot.chat.model).toEqual({ provider: "claude", mode: "subscription", model: "sonnet", effort: "high" });
-    expect(r3.blocks[0].text).toBe("KeelBot answers with claude/sonnet · high (subscription).");
+    expect(core.snapshot.chat.model).toEqual({ provider: "claude", mode: "api", model: "sonnet", effort: "high" });
+    expect(r3.blocks[0].text).toBe("KeelBot answers with claude/sonnet · high (api).");
     // again: the title says what is set, the cursors start on it
     const again = await run(ctx, "/model");
     expect(again.pick?.title).toBe("KeelBot's model (now claude/sonnet · high)");
@@ -74,7 +76,7 @@ describe("thinking effort", () => {
     const r = await run(ctx, "/model");
     const r2 = await r.pick!.then(r.pick!.choices.find((c) => c.label === "claude/haiku")!.value);
     expect(r2.pick).toBeUndefined();
-    expect(core.snapshot.chat.model).toEqual({ provider: "claude", mode: "subscription", model: "haiku" });
+    expect(core.snapshot.chat.model).toEqual({ provider: "claude", mode: "api", model: "haiku" });
   });
 
   it("/effort high sets it on the open chat, /effort default clears it, a wrong one is refused", async () => {

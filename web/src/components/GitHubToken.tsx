@@ -1,9 +1,9 @@
-// v0.10.0 Connections › GitHub: the token keel's Git plugin pushes and opens pull requests with (its own, not the
-// Copilot login). Saved encrypted; only its last 3 characters are ever shown. It is keel's core (step 3): a flow's ship
+// v0.10.0 Connections › GitHub: the token keel's Git plugin pushes and opens pull requests with. #101 GitHub Models
+// (the GitHub Copilot row of Settings › Models & keys) uses it too when no GITHUB_TOKEN is saved there. Saved encrypted; only its last 3 characters are ever shown. It is keel's core (step 3): a flow's ship
 // step opens the pull request with it too, with or without the Git plugin (corePages.ts puts it in Connections).
-// v0.18.30 "Sign in with GitHub": a one-time code and a link (the device flow, like the Copilot login) instead of a
+// v0.18.30 "Sign in with GitHub": a one-time code and a link (the device flow) instead of a
 // pasted token; the result is who is connected (login, scopes, host). Pasting a token stays as the second way.
-// v0.18.31 the sign-in opens the same right-side panel as the providers' logins (LoginDrawer); the card shows only state.
+// v0.18.31 the sign-in opens a right-side panel of its own (LoginDrawer); the card shows only state.
 // keel 0.18.57 Settings › Connections › GitHub: one card — its state and Sign in / Sign out, then "or paste a token".
 
 import { useState } from "react";

@@ -14,7 +14,6 @@ import keel.api.events.EngineEventStored
 import keel.api.events.EventHub
 import keel.api.engine.EngineClient
 import keel.api.flow.FlowService
-import keel.api.flow.Harness
 import keel.api.helper.HelperCreate
 import keel.api.helper.HelperService
 import keel.api.helper.HelperTurn
@@ -313,9 +312,9 @@ class ReviewAiService(
             } else {
                 val find = setup.find(pid, helper.defaultModel(pid))
                 if (find.runs == "harness") {
-                    // 0.19.0 harness mode: the project's coding harness reviews the whole change in one session of its own
-                    // (KeelBot's ask mode on the default model); the checker gives every serious claim a second look
-                    val who = Harness.name(helper.defaultModel(pid))
+                    // one reviewer reviews the whole change in one session of its own (KeelBot's ask mode on the default
+                    // model, in keel's own harness #101); the checker gives every serious claim a second look
+                    val who = helper.defaultModel(pid).model
                     launch(pid, id, "find-a", "${label(view)} · review ($who)", harnessPrompt(pid, view, find))
                 } else if (find.runs == "flow" && view.host?.kind != "gitlab") {
                     // 0.18.67 the one review flow (review-pr) at Settings › Review's depth: every step on its Flow page
@@ -705,7 +704,7 @@ class ReviewAiService(
     }
 
     /**
-     * 0.19.0 harness mode: one reviewer, the project's coding harness, with keel's change reviewer role and the
+     * find_runs `harness`: one reviewer, one KeelBot session on the default model, with keel's change reviewer role and the
      * project's rules. The depth says how far it reads (review_config.HARNESS_DEPTH): quick the diff only, standard the
      * code around it, full the repo with every lens of Settings › Review. The answer is the classic reviewers' block.
      */

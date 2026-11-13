@@ -25,6 +25,8 @@ const ICONS: Record<string, ReactElement> = {
   ),
   live: <>{P("M3 12h4l3-7 4 14 3-7h4")}</>,
   jobs: <>{P("M4 8h16v12H4zM9 8V5h6v3M4 13h16")}</>,
+  // #101 part 3 Flow doctor: a cross (the doctor)
+  doctor: <>{P("M10 4h4v6h6v4h-6v6h-4v-6H4v-4h6z")}</>,
   workflows: <>{P("M3 4h7v5H3zM14 15h7v5h-7zM6.5 9v3.5h11V15")}</>,
   rules: <>{P("M12 2.5l7.5 3v6c0 4.5-3.2 8.3-7.5 10-4.3-1.7-7.5-5.5-7.5-10v-6zM8.5 12l2.5 2.5 4.5-5")}</>,
   agents: (

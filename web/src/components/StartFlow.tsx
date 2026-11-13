@@ -1,7 +1,7 @@
 // "Start a flow" drawer: pick the project and workflow, say what to build, and see the estimate before it starts.
 
 import { useEffect, useRef, useState } from "react";
-import { api, ApiError, errorParts, type CapsLeft, type Estimate, type FolderActivity, type FlowWhere, type Limit, type OnCap, type RunMode, type StartCheck, type TaskOwner, type Workflow } from "../api";
+import { api, ApiError, errorParts, type CapsLeft, type Estimate, type FolderActivity, type FlowWhere, type OnCap, type RunMode, type StartCheck, type TaskOwner, type Workflow } from "../api";
 import { kfmt, parseTokens, usd } from "../format";
 import { go, useApp } from "../state";
 import { settingsHash } from "../routes";
@@ -16,9 +16,6 @@ const ON_CAP: [OnCap, string][] = [["pause", "pause and ask me"], ["cheaper", "s
 
 /** 0.17.3 a flow started from a spec (the Wiki's "Start a flow from this spec"): the engine takes it as the flow's spec
  *  and its criteria (options.spec); acs is its number of criteria, for the estimate. */
-/** 0.19.0 the flows Settings › Who does the work sends to the coding harness (api flow/Harness.kt BUILD_FLOWS) */
-const HARNESS_FLOWS = new Set(["change", "quick", "small", "implement", "feature", "fix"]);
-
 export type StartFromSpec = { path: string; acs?: number };
 
 export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0, spec }: {
@@ -36,7 +33,6 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
   const [acs, setAcs] = useState(spec?.acs ? Math.min(10, Math.max(1, spec.acs)) : 3);
   const [est, setEst] = useState<Estimate | null>(null);
   const [estErr, setEstErr] = useState<{ message: string; hint?: string } | null>(null);
-  const [limits, setLimits] = useState<Limit[]>([]);
   const [capsLeft, setCapsLeft] = useState<CapsLeft | null>(null);
   const [cap, setCap] = useState("");
   // v0.17.5 the cap from Settings, while the person has not typed another one: it follows the estimate (with headroom)
@@ -53,8 +49,6 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
   const [model, setModel] = useState<{ provider: string; model: string; effort?: string } | null>(null);
   const [allowFake, setAllowFake] = useState(false);
   const [allowDirty, setAllowDirty] = useState(false);
-  // 0.19.0 harness mode: a build flow goes to the coding harness (Settings › Who does the work); this runs keel's own
-  const [keelFlow, setKeelFlow] = useState(false);
   const [doctor, setDoctor] = useState(false);
   const [lintScope, setLintScope] = useState<"diff" | "all">("diff");
   const isDemo = projects.find((x) => x.id === p)?.root === "/data/demo";
@@ -142,10 +136,6 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
   }, [p]);
 
   useEffect(() => {
-    api.limits().then(setLimits, () => undefined);
-  }, []);
-
-  useEffect(() => {
     setActivity(null);
     if (!p) return;
     let gone = false;
@@ -197,9 +187,6 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
   }, [p, acs, sizeIds]);
   const showSizes = sizes.length > 1 && (sizes.some((s) => s.id === wid) || wid === "fix");
 
-  const premium = limits.find((l) => /premium/i.test(l.name));
-  const claude = limits.find((l) => /claude/i.test(l.name));
-
   // Flows that build nothing (a review, a hunt, a lint …) need no "what to build": they get a title of their own.
   const needsTitle = !NO_BUILD.has(wid);
   const start = async (anyway = askedOk) => {
@@ -228,8 +215,7 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
         run_mode: runMode,
         // the lint flow reads its scope from the flow's data (docs/CONTRACT.md, v0.4.1); a flow from a spec its path
         ...(wid === "lint" ? { options: { scope: lintScope } }
-          : spec ? { options: { spec: spec.path, ...(keelFlow ? { engine: "flow" } : {}) } }
-          : keelFlow && HARNESS_FLOWS.has(wid) ? { options: { engine: "flow" } } : {}),
+          : spec ? { options: { spec: spec.path } } : {}),
         // 0.18.57 auto with a chat in the folder: the worktree this form recommends (the api's auto knows only flows)
         ...(where !== "auto" ? { where } : inWorktree && !folderBusy ? { where: "worktree" as const } : {}),
         ...(!inWorktree && offBase ? { branch: branchMode } : {}),
@@ -389,9 +375,9 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
       {model && (
         <div className={model.provider === "fake" && !isDemo ? "wbar warn" : "wbar"} role="note">
           <span>Agents use <b>{model.provider === "fake" ? "the fake model" : `${model.provider} · ${model.model}${model.effort ? ` · ${model.effort}` : ""}`}</b>
-            {model.provider === "fake" ? (isDemo ? " — fine for the demo." : ": it writes example files, not real code. Pick a real model in Settings › Models & logins › Use for all agents.") : "."}
+            {model.provider === "fake" ? (isDemo ? " — fine for the demo." : ": it writes example files, not real code. Pick a real model in Settings › Models & keys › Use for all agents.") : "."}
             {!isDemo && " The flow works on its own branch (Settings › Branch name)."}</span>
-          {model.provider === "fake" && !isDemo && <button className="btn sm" type="button" onClick={() => { onClose(); location.hash = settingsHash("models"); }}>Open Models &amp; logins</button>}
+          {model.provider === "fake" && !isDemo && <button className="btn sm" type="button" onClick={() => { onClose(); location.hash = settingsHash("models"); }}>Open Models &amp; keys</button>}
         </div>
       )}
       <div className="est-box" aria-live="polite">
@@ -403,10 +389,7 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
               <span className="sub">tokens expected{needsTitle ? ` for about ${acs} ACs` : ""} · range {kfmt(est.low)} – {kfmt(est.high)}</span>
             </div>
             <div className="kv">
-              <span>API cost if all on keys</span><b className="num">{usd(est.cost_usd)}</b>
-              <span>Copilot premium requests</span>
-              <b className="num">≈ {est.premium_requests}{premium ? ` (${Math.max(0, premium.cap - premium.used)} left)` : ""}</b>
-              {claude && <><span>{claude.name} now</span><b className="num">{claudeUse(claude)}</b></>}
+              <span>API cost</span><b className="num">{usd(est.cost_usd)}</b>
             </div>
           </>
         )}
@@ -462,11 +445,6 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
           <label className="chk"><input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} /> Start anyway — two agents on one task write over each other</label>
         </div>
       )}
-      {HARNESS_FLOWS.has(wid) && (
-        <label className="chk" title="Settings › Who does the work: new work goes to your coding harness (Claude Code, Codex, Copilot CLI or OpenCode)">
-          <input type="checkbox" checked={keelFlow} onChange={(e) => setKeelFlow(e.target.checked)} /> Run keel's own {wid} flow, not the coding harness
-        </label>
-      )}
       {(dirtyRefused || allowDirty) && (
         <label className="chk"><input type="checkbox" checked={allowDirty} onChange={(e) => setAllowDirty(e.target.checked)} /> Start anyway — my uncommitted files stay out of keel's commits</label>
       )}
@@ -499,14 +477,6 @@ const NO_BUILD = new Set(["review", "cover", "ship", "lint", "hunt", "hunt-next"
 const CONTINUE_FLOWS = new Set(["ship", "cover", "review", "lint", "address"]);
 const finishesBranch = (w: { id: string; based_on?: string | null }) =>
   CONTINUE_FLOWS.has(w.id) || CONTINUE_FLOWS.has((w.based_on ?? "").replace(/^keel\//, ""));
-
-/** The plan's use in words: the provider's own percentage when known, else against the cap you set, else just tokens.
- * (A missing cap once divided 3.7M tokens by 1 and showed "376640900% used".) */
-export function claudeUse(l: Limit): string {
-  const pct = l.used_pct != null ? l.used_pct * 100 : l.cap > 0 ? (l.used / l.cap) * 100 : null;
-  if (pct == null) return `${kfmt(l.used)} tokens · no cap set`;
-  return `${Math.round(pct)}% used${pct > 60 ? " — may pause" : ""}`;
-}
 
 /** v0.17.5 the cap a flow should get from the estimate: its high end plus 30%, when that is above the Settings cap
  *  (null when the Settings cap is enough, or there is none). */

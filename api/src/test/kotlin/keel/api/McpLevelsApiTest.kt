@@ -94,7 +94,7 @@ class McpLevelsApiTest : ApiTest() {
             "POST" to "/api/plugins/lv-hello/update", "POST" to "/api/plugins/lv-hello/rollback",
             "PUT" to "/api/plugins/sources", "PUT" to "/api/plugins/rules", "PUT" to "/api/plugins/lv-hello", "DELETE" to "/api/plugins/lv-hello",
             "PUT" to "/api/secrets/TOKEN_X", "DELETE" to "/api/secrets/TOKEN_X", "PUT" to "/api/settings/general",
-            "PUT" to "/api/connections/github", "POST" to "/api/connections/github/test", "POST" to "/api/logins",
+            "PUT" to "/api/connections/github", "POST" to "/api/connections/github/test",
             "POST" to "/api/github/login", "DELETE" to "/api/github", "DELETE" to "/api/github/login/x",
             "POST" to "/api/approvals/q1/decide",
         )

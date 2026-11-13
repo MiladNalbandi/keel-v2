@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -687,13 +687,14 @@ wheels = [
 
 [[package]]
 name = "keel-engine"
-version = "0.25.0"
+version = "0.26.0"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic", extra = ["vertex"] },
     { name = "cryptography" },
     { name = "fastapi" },
     { name = "httpx" },
+    { name = "jsonschema" },
     { name = "langchain-anthropic" },
     { name = "langchain-core" },
     { name = "langchain-mcp-adapters" },
@@ -701,6 +702,7 @@ dependencies = [
     { name = "langgraph" },
     { name = "langgraph-checkpoint-sqlite" },
     { name = "mcp" },
+    { name = "openai" },
     { name = "psycopg", extra = ["binary"] },
     { name = "pydantic" },
     { name = "pymysql" },
@@ -721,6 +723,7 @@ requires-dist = [
     { name = "cryptography", specifier = ">=44" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.27" },
+    { name = "jsonschema", specifier = ">=4.0" },
     { name = "langchain-anthropic", specifier = ">=0.3" },
     { name = "langchain-core", specifier = ">=0.3" },
     { name = "langchain-mcp-adapters", specifier = ">=0.1" },
@@ -728,6 +731,7 @@ requires-dist = [
     { name = "langgraph", specifier = ">=0.4" },
     { name = "langgraph-checkpoint-sqlite", specifier = ">=2.0" },
     { name = "mcp", specifier = ">=1.9" },
+    { name = "openai", specifier = ">=3.0" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
     { name = "pydantic", specifier = ">=2.7" },
     { name = "pymysql", specifier = ">=1.1" },

@@ -33,12 +33,12 @@ def test_view_lists_builtins_lists_packs_and_engines(client, tmp_path):
     v = client.get("/rules", params={"root": str(r)}).json()
     ids = {b["id"]: b for b in v["builtins"]}
     assert ids["env-files"]["can_off"] is False and ids["read-twice"]["can_off"] is True
-    assert set(ids["force-push"]["enforced"]) == {"claude", "opencode", "codex", "copilot", "api"}
+    assert ids["force-push"]["enforced"] == {"harness": "before"}       # #101 keel's harness checks every rule first
     lists = {x["key"]: x for x in v["lists"]}
     assert lists["guards.read_block"]["saved_in"] == ".keel/config.yml"
     assert lists["guards.protected"]["saved_in"].startswith("keel's default")
     assert lists["guards.read_guard_max_lines"]["value"] == 2000
-    assert {e["engine"] for e in v["engines"]} == {"claude", "opencode", "codex", "copilot", "api"}
+    assert [e["engine"] for e in v["engines"]] == ["harness"]
     assert any(b["bucket"] == "keel-rules" for b in v["buckets"])
     assert v["packs"] == [] and v["configured"] is True
 
@@ -131,7 +131,7 @@ def test_rules_now_outside_a_phase(tmp_path):
     assert out["phase"] == "none" and not out["may_not"] and "always-on" in out["meaning"]
     red = rules_view.now(str(r), "red", lane="web", unlocks=[{"path": "a.kt", "phase": "red"}, {"path": "b", "phase": "green"}],
                          provider="copilot")
-    assert red["engine"]["protection"] == "partial" and red["unlocks"] == [{"path": "a.kt", "phase": "red", "reason": None}]
+    assert red["engine"]["protection"] == "before" and red["unlocks"] == [{"path": "a.kt", "phase": "red", "reason": None}]
     assert any(i["bucket"] == "api-test" for i in red["may_not"])          # web lane: the api's tests are out of scope
 
 
@@ -211,15 +211,6 @@ def test_mcp_rules_text_and_edits(tmp_path):
     assert mcp_more.rule_edit(api, "off", rule="read-twice") == "read-twice is off."
     assert api.sent[-1] == ("PUT", "/projects/shop/rules/config", {"rules": {"off": ["read-twice"]}})
     assert "no rule pack nope" in mcp_more.rule_install(api, "nope")
-
-
-def test_shell_rules_say_when_only_the_wrappers_check_them():
-    assert rules_view.wrapped_only(["npm install", "git push"]) and not rules_view.wrapped_only(["kubectl apply"])
-    assert rules_view.wrapped_only([r"\b(npm|pnpm)\s+add", r"\bgo\s+get\b"], "regex")
-    assert not rules_view.wrapped_only([r"(^|;)\s*printenv"], "regex")
-    lib = {p["id"]: p for p in rules_view.library()}
-    install = next(r for r in lib["no-new-dependencies"]["rules"] if r["id"] == "no-install")
-    assert install["enforced"]["claude"] == "before" and install["enforced"]["copilot"] == "wrapped"
 
 
 # ------------------------------------------------------------------ v0.17.2 installable packs (library, file, marketplace)

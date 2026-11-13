@@ -3,11 +3,13 @@
 
 import { del, get, getText, post, put } from "./api";
 
-/** When an engine checks a rule: before the action, only for wrapped programs, after the step (put back), or not at all. */
-export type When = "before" | "wrapped" | "after" | "none";
-export type Engine = "claude" | "opencode" | "codex" | "copilot" | "api";
+/** When a rule is checked: before the action, after the step (put back), or not at all. */
+export type When = "before" | "after" | "none";
+/** #101 one engine: keel's own harness runs every agent and checks each edit, read, shell command and MCP call before it
+ *  runs (the coding-agent apps, their hooks and command wrappers are gone). */
+export type Engine = "harness";
 export type Enforced = Record<Engine, When>;
-export type Protection = "before" | "partial" | "after";
+export type Protection = "before";
 
 export type BuiltinRule = { id: string; kind: string; phases: string; words: string; can_off: boolean; off: boolean; enforced: Enforced; saved_in: string;
   /** 0.18.64 off until switched on (rules.on): other-projects */
@@ -30,7 +32,7 @@ export type RulePack = {
   source?: PackSource; edited?: boolean; update?: string;
 };
 export type InstalledPack = Pick<RulePack, "name" | "title" | "version" | "publisher" | "summary" | "requires" | "source" | "file" | "off" | "edited" | "update">;
-export type EngineProtection = { engine: Engine; protection: Protection; words: string };
+export type EngineProtection = { engine: Engine; protection: Protection; words: string; title?: string };
 export type RulesView = {
   configured: boolean; config_file: string; rules_folder: string;
   builtins: BuiltinRule[]; lists: RuleList[]; packs: RulePack[]; pack_errors: { file: string; errors: string[] }[];
@@ -106,7 +108,17 @@ export const KIND_WORDS: Record<PackRule["kind"], string> = {
 
 export const WHEN_WORDS: Record<When, string> = {
   before: "checked before the action",
-  wrapped: "checked before, for git, gh, package managers and file printers only",
   after: "checked after the step: keel puts the file back",
-  none: "not checked by this engine",
+  none: "not checked",
 };
+
+/** The engines by name (the api sends a title on the marketplace's reading; this is the fallback). */
+export const ENGINE_TITLE: Record<string, string> = { harness: "keel's harness" };
+/** When a rule is checked: keel's harness, else the weakest of whatever the api says. */
+export function whenOf(e: Partial<Record<string, When>> | null | undefined): When {
+  if (!e) return "none";
+  if (e.harness) return e.harness;
+  const order: When[] = ["before", "after", "none"];
+  const all = Object.values(e).filter((w): w is When => !!w && order.includes(w));
+  return all.length ? all.reduce((a, b) => (order.indexOf(b) > order.indexOf(a) ? b : a)) : "none";
+}

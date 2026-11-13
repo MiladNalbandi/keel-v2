@@ -231,7 +231,7 @@ type St = ReturnType<typeof useStartStatus>;
 
 const TEXT: Record<StepStatus["id"], string> = {
   project: "Pick a git repository on this computer. keel works only in the folders you add.",
-  model: "Use a subscription you already have, or an API key. keel never shows a key again after you save it.",
+  model: "Save an API key (Anthropic, OpenAI or a GitHub token), or set up a local model server. keel never shows a key again after you save it.",
   mcp: "Claude Code, opencode, Codex or Cursor can talk to keel over MCP: read the flow, answer gates, start flows. This step is optional.",
   init: "init finds the stack and the test commands, runs them once, and writes its notes for the next flows.",
   flow: "Say what you want in your words. keel picks the steps, or asks you first when it is not clear.",
@@ -269,7 +269,6 @@ function Step({ s, st, onBack, onNext }: { s: StepStatus; st: St; onBack: () => 
       rows = st.data?.models.length
         ? st.data.models.slice(0, 3).map((m) => ({ tone: "ok" as const, label: m.label, note: "ready" }))
         : [
-            { tone: "off", label: "Claude, Codex or Copilot (your subscription)", note: "sign in" },
             { tone: "off", label: "An API key", note: "Anthropic, OpenAI, GitHub" },
             { tone: "off", label: "A local model server", note: "Ollama, LM Studio…" },
           ];

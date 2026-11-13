@@ -213,7 +213,7 @@ export function ToolsPage({ pid }: { pid: string }) {
         </Section>
       </div>
       {cards.map((c) => <div key={c.id} className="tl-catwrap"><c.component pid={pid} onAdded={() => void mcpServers.reload()} /></div>)}
-      <Section title="Who may use what" sub="Tick a box to give an agent that server's tools. Applies to API-key agents and to CLI agents (a config file is written per call)."
+      <Section title="Who may use what" sub="Tick a box to give an agent that server's tools. Applies to every agent keel runs."
 >
         {(agents.data?.length ?? 0) > 8 && <div><SearchBox value={q} onChange={setQ} label="Find an agent" /></div>}
         <div className="panel tl-mpanel">

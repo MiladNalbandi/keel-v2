@@ -2,14 +2,14 @@ id: harness
 name: harness (keel)
 keel_rules: true
 version: 1
-# keel 0.19.0 harness mode: the project's coding harness (Claude Code, Codex, Copilot CLI or OpenCode: the provider of
-# the default model) does the work in ONE session of its own, the way a person works in it; keel is the control room.
+# keel 0.19.0 plan mode in one session: keel's harness (#101 keel's own agent harness, on the default model's API) does
+# the work in ONE session of its own, the way a person works in a coding agent; keel is the control room.
 # The harness plans (read only), you approve the plan (or send a note back to the same session), the same session
 # builds it with its tests, keel runs the project's tests (one fix round in the same session), you look at the change,
-# keel commits it, and the PR steps are as in ship. Settings › Who does the work picks this flow or keel's own flows
-# (change, feature, bug) for new work; data.intent says which one the person asked for, and the planner follows its
+# keel commits it, and the PR steps are as in ship. Start it by name (#101: new work is no longer sent here by a
+# setting); data.intent says what the person asked for (change, feature, bug, review-fix), and the planner follows its
 # expectations (a bug: reproduce it first; a feature: a criteria list). Plan mode is on by default (data.plan_first
-# "yes", Settings › Who does the work › harness_plan): "no" goes straight to the build. `mcp: gateway`: the project's
+# "yes"): "no" goes straight to the build. `mcp: gateway`: the project's
 # MCP servers (Settings › MCP) reach the harness through keel's own server only, which asks the person before a tool
 # that is not read-only runs (keel_engine/mcp_gateway.py).
 steps:

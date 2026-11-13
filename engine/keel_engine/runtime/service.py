@@ -251,6 +251,7 @@ class Engine:
             await self._hunt_link(ctx, snap.values, status)
             if status == "failed":
                 ctx.emit("thread.failed", data={"error": snap.values.get("error"), "status": status})
+                self._crash_line(ctx, snap.values.get("error"), snap.values.get("current"))
             else:
                 done = {"status": status, "usage": snap.values.get("usage")}
                 warned = (snap.values.get("data") or {}).get("warnings") or []
@@ -265,11 +266,47 @@ class Engine:
             raise
         except Exception as exc:
             log.exception("thread %s failed", tid)
+            if not getattr(exc, "keel_doctor_logged", False):
+                self._crash_line(ctx, exc, None)
             await self._set_status(tid, "failed", f"{type(exc).__name__}: {exc}"[:1000])
             await self._end_worktree_containers(tid, ctx)
             ctx.emit("thread.failed", data={"error": f"{type(exc).__name__}: {exc}"[:1000]})
         finally:
             ctx.resume_qid = None        # the answer it carried was used (or the run ended without it)
+
+    @staticmethod
+    def _crash_answer(ctx: ThreadContext, waiting: dict | None, decision: str, payload: dict | None) -> None:
+        """#101 part 3 the person answered a pause the flow doctor made (its question carries `crash`): the crash log
+        says whether they tried again or stopped. Kept here, where the answer arrives, so a restart between the pause
+        and the answer loses nothing. Never raises."""
+        crash = (waiting or {}).get("crash")
+        if not isinstance(crash, dict):
+            return
+        from ..flowdoctor import crashlog
+
+        stop = decision != "approve" or (payload or {}).get("choice") == "stop"
+        ctx.doctor["stopped_by_person"] = stop        # the flow that ends now is no crash of its own (_crash_line)
+        try:
+            crashlog.record(thread=ctx.thread_id, project=Path(ctx.root).name, workflow=ctx.workflow.id,
+                            step=(waiting or {}).get("step"), kind=crash.get("kind"), title=crash.get("title"),
+                            fix=crash.get("fix"), outcome="stopped" if stop else "retried")
+        except Exception:  # noqa: BLE001
+            log.warning("the crash log missed an answer in thread %s", ctx.thread_id)
+
+    @staticmethod
+    def _crash_line(ctx: ThreadContext, error, step: str | None) -> None:
+        """#101 part 3 a flow that ended failed goes into the flow doctor's crash log (never raises)."""
+        from ..flowdoctor import classify, crashlog
+
+        if ctx.doctor.pop("stopped_by_person", False):
+            return
+        try:
+            crash = classify.classify(error)
+            crashlog.record(thread=ctx.thread_id, project=Path(ctx.root).name, workflow=ctx.workflow.id, step=step,
+                            kind=crash.kind, title=crash.title, fix=crash.fix, error=classify.text_of(error) or "the flow failed",
+                            where=classify.where(error) if crash.kind == "keel-bug" else None, outcome="failed")
+        except Exception:  # noqa: BLE001
+            log.warning("the crash log missed thread %s", ctx.thread_id)
 
     async def _end_worktree_containers(self, tid: str, ctx: ThreadContext):
         """0.18.57 a flow that ends in a worktree takes the containers docker compose made there with it (an agent's
@@ -609,8 +646,8 @@ class Engine:
             out["base_behind"] = behind
         harness = (v.get("data") or {}).get("harness")
         if harness:
-            # 0.19.0 harness mode: the coding harness session this flow keeps, and how a person opens it themselves
-            out["harness"] = {k: harness.get(k) for k in ("provider", "model", "session", "open")}
+            # 0.19.0 the one session of keel's harness this flow keeps (#101: no app to open it in)
+            out["harness"] = {k: harness.get(k) for k in ("provider", "model", "session")}
         ctx = await self._context(tid)
         rungs = v.get("ladder")
         if self._has_ladder(ctx):
@@ -768,6 +805,7 @@ class Engine:
         if by:
             resume["by"] = by
         took = choices_mod.answered(self._waiting(snap), decision, payload)
+        self._crash_answer(await self._context(tid), self._waiting(snap), decision, payload)
         self._launch(tid, Command(resume=resume))
         # 0.18.64 what the answer did (the choice that runs): a reject with the choice edit runs edit, and keel_answer
         # printed "(reject)"

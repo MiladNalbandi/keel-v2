@@ -4,7 +4,6 @@ web tools. No model and no web call runs here."""
 
 from __future__ import annotations
 
-import dataclasses
 import json
 import re
 from pathlib import Path
@@ -13,7 +12,7 @@ import pytest
 import yaml
 
 from keel_engine import hook, rules
-from keel_engine.models import cli_runners, fake
+from keel_engine.models import fake
 from keel_engine.models.base import AgentRequest
 from keel_engine.runtime import guard_ctx, markers, prompts
 from keel_engine.tools.agent_tools import ToolBox
@@ -77,46 +76,6 @@ def fake_claude(tmp_path) -> Path:
 
 def flag(argv: list[str], name: str) -> list[str]:
     return argv[argv.index(name) + 1].split(",")
-
-
-async def test_claude_code_gives_websearch_and_webfetch_to_the_web_researcher_only(tmp_path, monkeypatch):
-    out = fake_claude(tmp_path)
-    monkeypatch.setenv("KEEL_CLAUDE_BIN", str(tmp_path / "claude"))
-    root = tmp_path / "proj"
-    root.mkdir()
-    work = tmp_path / "work"
-    work.mkdir()
-    req = AgentRequest(agent="web-researcher", system="", prompt="go", root=str(root), phase="spec",
-                       model={"provider": "claude", "mode": "subscription", "model": "sonnet"},
-                       toolbox=ToolBox(str(root), "spec"), workdir=str(work))
-    await cli_runners.ClaudeCLIRunner().run(req, lambda *a, **k: None)
-    argv = (out / "argv").read_text().split()
-    assert {"WebSearch", "WebFetch"} <= set(flag(argv, "--tools"))
-    assert {"WebSearch", "WebFetch"} <= set(flag(argv, "--allowedTools"))
-    hidden = flag(argv, "--disallowedTools")
-    assert "WebSearch" not in hidden and "WebFetch" not in hidden and "Task" in hidden
-    # a read-only run (run mode readonly) keeps them: they write nothing
-    ro = dataclasses.replace(req, toolbox=ToolBox(str(root), "spec", readonly=True))
-    await cli_runners.ClaudeCLIRunner().run(ro, lambda *a, **k: None)
-    argv = (out / "argv").read_text().split()
-    assert flag(argv, "--tools") == ["Read", "Bash", "Glob", "Grep", "WebSearch", "WebFetch"]
-    # any other agent still has no web
-    inv = dataclasses.replace(req, agent="investigator")
-    await cli_runners.ClaudeCLIRunner().run(inv, lambda *a, **k: None)
-    argv = (out / "argv").read_text().split()
-    assert "WebSearch" not in flag(argv, "--tools") and "WebFetch" in flag(argv, "--disallowedTools")
-
-
-def test_opencode_keeps_its_web_tools_on_for_an_agent_with_web_tools(tmp_path):
-    tools = json.loads((Path(cli_runners.write_opencode_plugin(tmp_path / "a", web=True)) / "opencode.json").read_text())["tools"]
-    assert "webfetch" not in tools and "websearch" not in tools and tools["task"] is False
-    tools = json.loads((Path(cli_runners.write_opencode_plugin(tmp_path / "b")) / "opencode.json").read_text())["tools"]
-    assert tools["webfetch"] is False and tools["websearch"] is False
-
-
-def test_claude_codes_web_tools_never_reach_the_hook():
-    # they write nothing, so keel's hook is not asked about them (its matcher leaves them out)
-    assert not re.fullmatch(guard_ctx.MATCHER, "WebSearch") and not re.fullmatch(guard_ctx.MATCHER, "WebFetch")
 
 
 @pytest.mark.parametrize("cmd", CURLS)

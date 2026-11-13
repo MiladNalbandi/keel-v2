@@ -773,9 +773,6 @@ details.file-card[open] > summary.file-bar::before { content: "▾"; }
 .choice-need { font-size: 11px; color: var(--warn); }
 .choice-problem { margin: 0; color: var(--bad); font-size: 13px; }
 
-/* usage dashboard: provider plan windows (components/UsageStrip.tsx) */
-.ucard-line { min-width: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-
 /* the budget bar on top of every page (components/BudgetBar.tsx): one 40px line that stays while the page scrolls.
    --bar-h is its height, for the page parts that stick under it. */
 .app-col { min-width: 0; display: flex; flex-direction: column; }
@@ -802,11 +799,6 @@ a.bb-seg:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px;
 .bb-dot.is-run { background: var(--run); animation: pulse 1.6s ease-in-out infinite; }
 .bb-dot.is-wait { background: var(--warn); }
 .bb-more { font-size: 11px; padding: 0 6px; border-radius: 8px; background: var(--panel-2); color: var(--dim); }
-.bb-seg.bb-provs { margin-left: auto; gap: 12px; flex: 0 1 auto; overflow: hidden; }
-.bb-seg.bb-provs::before { display: none; }
-.bb-prov { display: inline-flex; align-items: center; gap: 5px; color: var(--dim); }
-.bb-prov i { flex: none; width: 7px; height: 7px; border-radius: 50%; }
-.bb-prov.t-warn, .bb-prov.t-bad { font-weight: 600; }
 /* a laptop: the flow title and the cost of today and this month give way first */
 @media (max-width: 1280px) { .bb-title { max-width: 14ch; } }
 @media (max-width: 1100px) { .bb-cost, .bb-all, .bb-title { display: none; } }
@@ -816,7 +808,7 @@ a.bb-seg:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px;
   .bbar { position: static; height: auto; flex-wrap: wrap; gap: 2px 0; padding: 6px 8px; overflow: visible; }
   .bb-seg { padding: 4px 6px; }
   .bb-seg + .bb-seg { margin-left: 7px; }
-  .bb-seg.bb-flow, .bb-seg.bb-provs { flex: 1 1 100%; margin-left: 0; }
+  .bb-seg.bb-flow { flex: 1 1 100%; margin-left: 0; }
   .bb-seg.bb-flow::before { display: none; }
   .bb-title { display: inline; max-width: 16ch; }
 }
@@ -1403,6 +1395,4 @@ pre.prebox-pre { white-space: pre-wrap; overflow-wrap: anywhere; word-break: nor
 .fl-byhand { display: grid; gap: 8px; margin-top: 6px; }
 .fl-byhand fieldset { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; display: grid; gap: 4px; }
 .fl-byhand legend { font-size: 12px; color: var(--dim); padding: 0 4px; }
-.fl-harness { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-bottom: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; }
-.fl-harness code { overflow-wrap: anywhere; font-size: 12px; }
 .fl-byhand label.row { gap: 8px; align-items: flex-start; font-size: 13px; }

@@ -67,9 +67,6 @@ from pathlib import Path
 ENV = "KEEL_GUARD_CTX"
 FILE = "guard.json"
 SUM = ".sum"            # guard.json.sum: the sha256 of guard.json as the engine wrote it
-# The tools Claude Code runs the hook for (opencode's plugin maps its own names onto these). 0.18.64 Grep, Glob and LS
-# too: claude's Grep searched .env files (its ripgrep reads hidden files), and the hook never saw it.
-MATCHER = "Edit|Write|MultiEdit|NotebookEdit|Bash|Read|Grep|Glob|LS|mcp__.*"
 # keel's own files in the run's folder: no agent reads, writes or names them (hook.control_refusal)
 CONTROL_FILES = (FILE, FILE + SUM, "keel-guard.json", "mcp.json")
 CONTROL_DIRS = ("keel-bin", "opencode")
@@ -139,52 +136,6 @@ def hook_argv() -> list[str]:
     """The hook as an argv. `-I`: the project folder (the hook's cwd) is not on sys.path, so no file an agent
     writes there can stand in for a module the hook imports."""
     return [sys.executable, "-I", "-m", "keel_engine.hook", "pre-tool"]
-
-
-def hook_command() -> str:
-    """The shell command in Claude Code's settings. Any failure to start becomes exit 2 (a refusal): Claude Code
-    lets a call through on other exit codes, and a guard that cannot run must not allow anything."""
-    return f'"{sys.executable}" -I -m keel_engine.hook pre-tool || exit 2'
-
-
-def claude_settings(path: str | Path, timeout: int = 10) -> str:
-    """Writes the `--settings` file that loads keel's hook (and nothing else) into a Claude Code run. `timeout`: how long
-    one hook call may take (KeelBot's Fix mode waits for the person's OK on a command)."""
-    p = Path(path)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps({"hooks": {"PreToolUse": [{
-        "matcher": MATCHER,
-        "hooks": [{"type": "command", "command": hook_command(), "timeout": timeout}],
-    }]}}))
-    return seal(p)
-
-
-def write_shims(folder: str | Path) -> str:
-    """keel's command wrappers (keel_engine/shim.py) in `folder`: put it first on the PATH of a CLI with no hook keel can
-    load (copilot, older codex). Returns the folder."""
-    from ..shim import NAMES
-
-    d = Path(folder)
-    d.mkdir(parents=True, exist_ok=True)
-    for name in NAMES:
-        p = d / name
-        p.write_text(f'#!/bin/sh\nexec "{sys.executable}" -I -m keel_engine.shim {name} "$@"\n')
-        p.chmod(0o755)
-        seal(p)
-    return str(d)
-
-
-def shim_env(folder: str, path: str | None = None) -> dict:
-    """PATH (wrappers first) and KEEL_SHIM_DIR for an agent CLI's environment."""
-    return {"PATH": folder + os.pathsep + (path if path is not None else os.environ.get("PATH", "")), "KEEL_SHIM_DIR": folder}
-
-
-def codex_hook_args(timeout: int = 10) -> list[str]:
-    """codex 0.150+ runs Claude-shaped PreToolUse hooks from its config: keel's hook for every tool, given with -c so
-    nothing is written into CODEX_HOME. The trust flag: keel writes this hook itself for this run (codex asks a person
-    to trust a hook it found in a config file)."""
-    entry = '[{matcher=".*",hooks=[{type="command",command=%s,timeout=%d}]}]' % (json.dumps(hook_command()), timeout)
-    return ["-c", f"hooks.PreToolUse={entry}", "--dangerously-bypass-hook-trust"]
 
 
 def _atomic(p: Path, data: bytes) -> None:
@@ -282,13 +233,6 @@ def context_for(req) -> dict:
             **{k: v for k, v in (("readonly_label", getattr(tb, "readonly_label", "")),
                                  ("readonly_note", getattr(tb, "readonly_note", "")),
                                  ("no_repeat", bool(getattr(tb, "no_repeat", None)))) if v}}
-
-
-def ensure(req, folder: str | None = None) -> str:
-    """The run's context file: the one the engine wrote for it, else a new `<scratch>/guard.json` from the request."""
-    if getattr(req, "guard_ctx", ""):
-        return req.guard_ctx
-    return write_context(Path(folder or scratch(req)) / FILE, **context_for(req))
 
 
 def scratch(req) -> str:

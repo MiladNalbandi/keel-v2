@@ -10,7 +10,6 @@ from fastapi.testclient import TestClient
 from keel_engine import addons
 from keel_engine.app import create_app
 from keel_engine.events import EventBus
-from keel_engine.models import usage
 from keel_engine.runtime import prompts
 from keel_engine.workflows import templates
 
@@ -27,7 +26,6 @@ def env(tmp_path, monkeypatch):
     monkeypatch.delenv("KEEL_INTERNAL_TOKEN", raising=False)
     monkeypatch.setenv("KEEL_ENGINE_OPEN", "1")      # tests call the engine without a token
     monkeypatch.delenv("KEEL_FAKE_DELAY", raising=False)
-    usage.reset()
     addons.reload()
     templates.clear_cache()
     prompts._agent_file.cache_clear()

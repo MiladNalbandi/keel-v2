@@ -16,7 +16,8 @@ describe("navigation and project switching", () => {
     expect(links.slice(0, 2)).toEqual(["All projects", "Inbox"]);
     expect(links.slice(-2)).toEqual(["Settings", "Start here"]);
     for (const l of ["Flow", "Live agents", "Jobs", "Code", "Map", "Graph", "Wiki", "Workflows", "Agents", "Skill hub", "Stacks", "Tools (MCP)", "Settings"]) {
-      expect(n.getByRole("link", { name: new RegExp(`^${l.replace(/[()]/g, "\\$&")}`) })).toBeInTheDocument();
+      // (?! doctor): Watch › Flow doctor (#101) is not the Flow page
+      expect(n.getByRole("link", { name: new RegExp(`^${l.replace(/[()]/g, "\\$&")}(?! doctor)`) })).toBeInTheDocument();
     }
     // keel 0.18.57 Control has one entry: Budget, Connections, Databases and Plugins are Settings tabs
     for (const l of ["Budget", "Connections", "Databases", "Plugins"]) expect(n.queryByRole("link", { name: new RegExp(`^${l}`) })).toBeNull();
@@ -35,7 +36,7 @@ describe("navigation and project switching", () => {
     expect(JSON.parse(localStorage.getItem("keel.nav.folded") ?? "[]")).toEqual(["build"]);
     // the Flow page is open: folding Work hides the other pages and keeps Flow
     await user.click(n.getByRole("button", { name: /^Work/ }));
-    expect(n.getByRole("link", { name: /^Flow/ })).not.toHaveClass("nav-folded");
+    expect(n.getByRole("link", { name: /^Flow(?! doctor)/ })).not.toHaveClass("nav-folded");
     expect(n.getByRole("link", { name: /^Tasks/ })).toHaveClass("nav-folded");
     // the keys still count every page: Tasks keeps its number
     expect(n.getByRole("link", { name: /^Tasks/ })).toHaveAttribute("title", expect.stringMatching(/Tasks/));

@@ -8,33 +8,34 @@ import { App } from "../App";
 import * as fx from "./fixtures";
 import { db, server } from "./setup";
 
-const loggedIn = () => ({
+const keySaved = () => ({
   ...fx.connections,
-  providers: [{ ...fx.connections.providers[0], login_set: true, login_hint: "…9KQ",
-    modes: [{ id: "subscription", label: "Subscription", ready: true, detail: "Claude Code" }, { id: "api", label: "API key", ready: false, detail: "ANTHROPIC_API_KEY" }] }],
+  providers: [{ ...fx.connections.providers[0], key_set: true, key_hint: "…9KQ",
+    modes: [{ id: "api", label: "Anthropic API key", ready: true, detail: "ANTHROPIC_API_KEY" }] }],
 });
 
 describe("Connections: agents still on the fake model (B8a)", () => {
-  it("a logged-in Claude with a fake default model says so and Use Claude for all agents sets the three models", async () => {
-    server.use(http.get("/api/connections", () => HttpResponse.json(loggedIn())));
+  it("a Claude with its key and a fake default model says so and Use Claude for all agents sets the three models", async () => {
+    server.use(http.get("/api/connections", () => HttpResponse.json(keySaved())));
     const user = userEvent.setup();
     location.hash = "#/settings/models";
     render(<App />);
     const note = await screen.findByRole("note");
-    expect(note).toHaveTextContent("Claude is logged in, but the default model still uses the fake model");
+    expect(note).toHaveTextContent("Claude is ready, but the default model still uses the fake model");
     await user.click(screen.getByRole("button", { name: "Use Claude for all agents" }));
     await waitFor(() => expect(db.calls.find((c) => c.method === "PUT" && c.path === "/api/settings/general")).toBeTruthy());
     const body = db.calls.find((c) => c.method === "PUT" && c.path === "/api/settings/general")!.body as Record<string, { provider: string }>;
     expect(body.default_model.provider).toBe("claude");
     expect(body.implementer_model.provider).toBe("claude");
     expect(body.reviewer_model.provider).toBe("claude");
+    expect(body.default_model).toMatchObject({ provider: "claude", mode: "api" });
     await waitFor(() => expect(screen.queryByRole("note")).toBeNull());
   });
 
-  it("no note while the provider has no login", async () => {
+  it("no note while the provider has no key", async () => {
     render(<App />);
     location.hash = "#/settings/models";
-    await screen.findByLabelText(/Claude login token/);
+    await screen.findByLabelText(/^Anthropic API key/);
     expect(screen.queryByRole("note")).toBeNull();
   });
 });

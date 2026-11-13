@@ -64,13 +64,4 @@ describe("tools", () => {
   });
 });
 
-describe("plan use in Start a flow", () => {
-  it("never divides by a missing cap", async () => {
-    const { claudeUse } = await import("../components/StartFlow");
-    const base = { id: "c", name: "Claude subscription", unit: "tokens", note: "" };
-    expect(claudeUse({ ...base, used: 3766409, cap: 0 })).toBe("3.77M tokens · no cap set");
-    expect(claudeUse({ ...base, used: 3766409, cap: 0, used_pct: 0.62 })).toBe("62% used — may pause");
-    expect(claudeUse({ ...base, used: 100, cap: 1000 })).toBe("10% used");
-  });
-});
 

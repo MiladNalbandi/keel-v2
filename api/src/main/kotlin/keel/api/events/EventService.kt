@@ -1,6 +1,5 @@
 package keel.api.events
 
-import keel.api.budget.ProviderUsageStore
 import keel.api.common.Json
 import keel.api.common.Time
 import keel.api.notifications.NoticeText
@@ -42,7 +41,6 @@ class EventService(
     private val jdbc: JdbcTemplate,
     private val notifications: NotificationService,
     private val hub: EventHub,
-    private val usage: ProviderUsageStore,
     private val publisher: ApplicationEventPublisher,
     private val calls: AgentCalls,
     found: ObjectProvider<EngineEventHandler>,
@@ -107,7 +105,7 @@ class EventService(
         }
     }
 
-    /** Core's own side effects: threads, a flow's agent calls, gates, budget, provider usage and their notifications. */
+    /** Core's own side effects: threads, a flow's agent calls, gates, budget and their notifications. */
     private fun core(e: EngineEvent, at: String) {
         val d = e.data
         val link = if (e.projectId.isNotBlank()) "/projects/${e.projectId}/flow" else null
@@ -159,12 +157,6 @@ class EventService(
                 }
             }
 
-            "provider.usage" -> {
-                val provider = d.str("provider") ?: return
-                @Suppress("UNCHECKED_CAST")
-                val windows = (d["windows"] as? List<*>).orEmpty().filterIsInstance<Map<String, Any?>>()
-                usage.store(provider, windows, d.str("source") ?: "last run", d.str("at") ?: at)
-            }
             "gate.waiting" -> {
                 upsertThread(e, "waiting", at)
                 // 0.18.55 a title a person understands and the engine's short lines (older engines: lines from the detail)

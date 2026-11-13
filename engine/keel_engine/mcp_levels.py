@@ -57,7 +57,7 @@ def part_tools() -> dict[str, list[str]]:
 # keel's own tools by level, in 0.16.1's order. The parts' tools (Database, Git, CI/CD) come from the parts, in 0.16.1's
 # places: their read tools after keel_dashboard, their acting ones after keel_restore_doc (part_tools, build_server).
 TOOLS: dict[str, tuple[str, ...]] = {
-    "read": ("keel_status", "keel_read_gate", "keel_projects", "keel_timeline", "keel_next", "keel_explain", "keel_dashboard",
+    "read": ("keel_status", "keel_read_gate", "keel_flow_doctor", "keel_projects", "keel_timeline", "keel_next", "keel_explain", "keel_dashboard",
              "keel_flows", "keel_inbox", "keel_live", "keel_budget", "keel_specs", "keel_knowledge", "keel_search",
              "keel_read_file", "keel_actions", "keel_run_action", "keel_rules",
              # 0.18.64 a file of another registered project, read only, under an agent's read rules

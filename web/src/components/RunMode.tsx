@@ -21,7 +21,7 @@ export const runModeAbout = (m?: string | null) => RUN_MODES.find(([k]) => k ===
 /** The gate-log lines the run mode wrote ("… approve: auto-approved (mode auto)"). */
 export const autoLines = (log?: string[] | null) => (log ?? []).filter((l) => l.includes("auto-approved (mode "));
 
-const SAFETY_KINDS = new Set(["fix", "budget", "usage", "dependency"]);
+const SAFETY_KINDS = new Set(["fix", "budget", "dependency"]);
 
 /** Why this pause waits for a person in this run mode (null in manual, where every gate waits). */
 export function whyItWaits(mode: string | null | undefined, kind: string, title = ""): string | null {

@@ -67,3 +67,19 @@ def test_a_worktree_guards_the_common_config(tmp_path):
     refused = guard.guard_diff(str(wt), "none", before)
     assert any(os.path.basename(x["path"]) == "config" for x in refused)
     assert "hooksPath" not in (r / ".git" / "config").read_text()
+
+
+def test_keels_own_sharing_of_the_folder_is_not_a_change(tmp_path):
+    # #101 keel makes the project group rw before every command an agent runs (agent_user.share); the harness runs
+    # commands inside the step, so .git's files got g+rw during it and every step reported "changed the git settings"
+    r = _repo(tmp_path)
+    for f in [r / ".git" / "config", *(r / ".git" / "hooks").glob("*.sample")]:
+        f.chmod(f.stat().st_mode & ~0o070)
+    before = guard.snapshot(str(r))
+    subprocess.run(["chmod", "-R", "g+rwX", str(r / ".git")], check=True)
+    assert [x for x in guard.guard_diff(str(r), "none", before) if x["bucket"] == "git-settings"] == []
+    # a mode the step really changed still counts: a file the owner can now run
+    cfg = r / ".git" / "config"
+    cfg.chmod(cfg.stat().st_mode | 0o100)
+    refused = [x for x in guard.guard_diff(str(r), "none", before) if x["bucket"] == "git-settings"]
+    assert [x["path"] for x in refused] == [".git/config"] and not cfg.stat().st_mode & 0o100

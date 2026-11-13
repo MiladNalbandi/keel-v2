@@ -24,13 +24,6 @@ type GateLabels = {
 /** Button labels per waiting kind, so the choice is clear without reading the code. */
 export function gateLabels(w: NonNullable<ThreadState["waiting"]>, acId?: string, backName?: string): GateLabels {
   const t = w.title.toLowerCase();
-  if (w.kind === "usage") {
-    return {
-      approve: "Continue anyway", reject: "Stop here", needWhy: false,
-      explain: "A plan window of this provider is nearly used up. Continue uses it anyway (the provider may refuse when it is full), wait sleeps until it resets, the cheaper model is the one in Settings.",
-      approved: "The flow goes on.", rejected: "Stopped.", special: true,
-    };
-  }
   if (w.kind === "budget") {
     return { approve: "Continue over the cap", reject: "Stop here", needWhy: false, approved: "The flow continues over its cap.", rejected: "Stopped.", special: true };
   }
@@ -169,7 +162,7 @@ export function GateCard({ thread, workflow, onDone }: { thread: ThreadState; wo
 
   const showAc = w.kind === "gate" && !labels.special;
   // keel 0.18.13 the engine says what each named choice means: one card each (ChoiceForm), its own reason box
-  const info = (w.kind === "gate" || w.kind === "fix" || w.kind === "usage") && w.choice_info?.length ? w.choice_info : null;
+  const info = (w.kind === "gate" || w.kind === "fix") && w.choice_info?.length ? w.choice_info : null;
   // keel 0.18.11 a plain approve / send back gate says in plain words what you approve and what each button does
   const plain = w.kind === "gate" && !labels.special && !w.choices?.length && w.options.includes("approve") && w.options.includes("reject");
   const after = plain ? afterApprove(workflow, thread, step) : "";
@@ -257,13 +250,6 @@ export function GateCard({ thread, workflow, onDone }: { thread: ThreadState; wo
       )}
       {info ? (
         <ChoiceForm key={w.id ?? w.title} id={`gate-${thread.thread_id}`} choices={info} busy={busy} draft={place} onSend={(choice, said) => decide("approve", { choice }, said)} />
-      ) : w.kind === "usage" && w.choices ? (
-        <div className="row">
-          {w.choices.includes("continue") && <button className="btn warn" type="button" id="approve" disabled={busy} onClick={() => decide("approve", { choice: "continue" })}>Continue anyway</button>}
-          {w.choices.includes("wait") && <button className="btn" type="button" disabled={busy} onClick={() => decide("approve", { choice: "wait" })}>Wait for the reset</button>}
-          {w.choices.includes("cheaper") && <button className="btn" type="button" disabled={busy} onClick={() => decide("approve", { choice: "cheaper" })}>Use the cheaper model</button>}
-          {w.choices.includes("stop") && <button className="btn" type="button" id="sendback" disabled={busy} onClick={() => decide("reject")}>Stop here</button>}
-        </div>
       ) : (w.kind === "gate" || w.kind === "fix") && w.choices?.length ? (
         <div className="row" aria-label="Choose one">
           {w.choices.map((c, n) => (

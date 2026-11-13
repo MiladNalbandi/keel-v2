@@ -41,9 +41,8 @@ def test_choice_info_keeps_the_order_marks_one_default_and_knows_the_flow():
 
 @pytest.mark.parametrize("context,names,default,expect", [
     # (gate, choices, default, {name: (label, why)})
-    ("usage", ["continue", "wait", "cheaper", "stop"], "continue",
-     {"continue": ("Continue anyway", "none"), "wait": ("Wait for the reset", "none"),
-      "cheaper": ("Use the cheaper model", "none"), "stop": ("Stop the flow", "optional")}),
+    # #101 part 3 a step that crashed and keel could not repair (the flow doctor)
+    ("crash", ["retry", "stop"], "retry", {"retry": ("Retry the step", "none"), "stop": ("Stop the flow", "optional")}),
     ("stuck", ["retry", "skip", "edit", "stop"], "retry",
      {"retry": ("Try again", "optional"), "skip": ("Skip this criterion", "none"), "edit": ("Amend the spec first", "optional")}),
     ("cannot-run", ["recheck", "skip", "stop"], "recheck", {"recheck": ("Check again", "none"), "stop": ("Stop the flow", "optional")}),

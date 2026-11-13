@@ -1,4 +1,4 @@
-// keel 0.18.57 Settings: one page with its own menu (General · Models & logins · Connections · Budget · Plugins ·
+// keel 0.18.57 Settings: one page with its own menu (General · Models & keys · Connections · Budget · Plugins ·
 // Databases · Devices) at #/settings/<tab>; the old pages' links open their tab. General shows Every project or one
 // project (#/settings/general/<id>): a changed row says so, with Every project's value and Reset.
 
@@ -31,7 +31,7 @@ describe("Settings: the tabs and their links", () => {
         .map((a) => a.textContent),
     ).toEqual([
       "General",
-      "Models & logins",
+      "Models & keys",
       "Review",
       "Connections",
       "Budget",
@@ -453,7 +453,7 @@ describe("Settings › General", () => {
   });
 });
 
-describe("Settings › Models & logins: the models", () => {
+describe("Settings › Models & keys: the models", () => {
   it("says when the cheaper model is the fake model (a real flow pauses instead), and a project's own model", async () => {
     db.overrides["ludus-engine"] = {
       cheaper_model: { provider: "fake", mode: "api", model: "fake" },

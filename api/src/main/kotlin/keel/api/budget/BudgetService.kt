@@ -71,13 +71,6 @@ data class Limit(
     val used: Double = 0.0,
     val cap: Double = 0.0,
     val note: String = "",
-    // From the provider when keel can read it (usage dashboard); null = only the manual cap and keel's own count.
-    val source: String? = null,
-    val window: String? = null,
-    val usedPct: Double? = null,
-    val remaining: Double? = null,
-    val resetsAt: String? = null,
-    val fetchedAt: String? = null,
 )
 
 @Service
@@ -87,7 +80,6 @@ class BudgetService(
     private val settings: SettingsService,
     private val kv: KvStore,
     private val capService: CapService,
-    private val usage: ProviderUsageStore,
     private val planner: CapPlanner,
     private val mapper: ObjectMapper,
 ) {
@@ -196,20 +188,14 @@ class BudgetService(
         ) ?: 0L
         return stored().map { l ->
             when (l.id) {
-                "claude" -> withProvider(l.copy(used = tokens("claude", fiveHours).toDouble()))
-                "codex" -> withProvider(l.copy(used = tokens("codex", fiveHours).toDouble()))
-                "copilot" -> withProvider(l.copy(used = (jdbc.queryForObject("SELECT COALESCE(SUM(premium_requests), 0) FROM agent_calls WHERE started_at >= ?", Long::class.java, since) ?: 0L).toDouble()))
-                // Only jobs that billed an API key: a subscription run's notional cost is paid by the plan.
+                "claude" -> l.copy(used = tokens("claude", fiveHours).toDouble())
+                "codex" -> l.copy(used = tokens("codex", fiveHours).toDouble())
+                "copilot" -> l.copy(used = (jdbc.queryForObject("SELECT COALESCE(SUM(premium_requests), 0) FROM agent_calls WHERE started_at >= ?", Long::class.java, since) ?: 0L).toDouble())
+                // Only jobs that billed an API key (#101 every real model's job; a job of an older keel's plan login did not).
                 "api" -> l.copy(used = jdbc.queryForObject("SELECT COALESCE(SUM(cost_usd), 0) FROM agent_calls WHERE mode = 'api' AND started_at >= ?", Double::class.java, since) ?: 0.0)
                 else -> l
             }
         }
-    }
-
-    /** The provider's own numbers for this account (its fullest window), when keel has read them. */
-    private fun withProvider(l: Limit): Limit {
-        val (w, meta) = usage.windows(l.id).maxByOrNull { it.first.usedPct ?: -1.0 } ?: return l
-        return l.copy(source = meta.first, window = w.window, usedPct = w.usedPct, remaining = w.remaining, resetsAt = w.resetsAt, fetchedAt = meta.second)
     }
 
     fun saveLimits(limits: List<Limit>): List<Limit> {
@@ -223,8 +209,8 @@ class BudgetService(
         const val LIMITS = "limits"
         private const val TOKENS = "tokens_in + tokens_out + tokens_cached / 10"
         val DEFAULT_LIMITS = listOf(
-            Limit("claude", "Claude subscription", "tokens in the last 5 hours", 0.0, 0.0, "Set the cap your plan allows. 0 = not set."),
-            Limit("codex", "Codex (ChatGPT)", "tokens in the last 5 hours", 0.0, 0.0, "Set the cap your plan allows. 0 = not set."),
+            Limit("claude", "Claude", "tokens in the last 5 hours", 0.0, 0.0, "Set the cap you want. 0 = not set."),
+            Limit("codex", "GPT / Codex", "tokens in the last 5 hours", 0.0, 0.0, "Set the cap you want. 0 = not set."),
             Limit("copilot", "Copilot premium requests", "requests this month", 0.0, 300.0, "Resets on the 1st."),
             Limit("api", "API keys (all)", "USD spent this month", 0.0, 100.0, "Anthropic + OpenAI keys."),
         )

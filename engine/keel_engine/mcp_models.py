@@ -96,6 +96,9 @@ def _next_model(catalog: dict, now: dict, provider: str | None, mode: str | None
         nxt["mode"] = mode
     if model:
         nxt["model"] = model
+    modes = ((catalog or {}).get(nxt.get("provider") or "") or {}).get("modes") or {}
+    if nxt.get("mode") and modes and nxt["mode"] not in modes and "api" in modes:
+        nxt["mode"] = "api"     # #101 a model saved for a coding-agent app (subscription, opencode) runs on the API now
     if not nxt.get("provider") or not nxt.get("model"):
         raise ApiError("say which model: provider and model (keel_models lists them).")
     if provider or mode or model:

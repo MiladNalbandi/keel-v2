@@ -39,9 +39,3 @@ def test_knowledge_refresh_without_a_list_gives_each_librarian_a_section(client,
     assert None not in got and sorted(got) == sorted(["architecture", "domain", "conventions", "data", "integrations"])
 
 
-def test_a_failed_claude_run_still_counts_its_tokens():
-    from keel_engine.models.cli import classify_failure
-    out = ('{"type":"result","subtype":"error_max_turns","num_turns":31,"total_cost_usd":0.12,'
-           '"usage":{"input_tokens":100,"cache_creation_input_tokens":900,"output_tokens":4000,"cache_read_input_tokens":250000}}\n')
-    e = classify_failure("claude", out, "", 1)
-    assert e.usage == {"tokens_in": 1000, "tokens_out": 4000, "tokens_cached": 250000, "cost_usd": 0.12}

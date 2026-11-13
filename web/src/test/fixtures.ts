@@ -2,7 +2,7 @@
 
 import type {
   AcCode, Agent, Budget, BudgetNow, Cap, Catalog, Commit, Checkpoint, Connections, Estimate, Health, StackSetup, Job, JobStep, KeelDoc, KeelMap, LibraryItem, Limit,
-  McpServer, Memory, Notification, NotificationSettings, Project, ProjectSettings, ProviderUsage, Settings, Skill, SkillDetail,
+  McpServer, Memory, Notification, NotificationSettings, Project, ProjectSettings, Settings, Skill, SkillDetail,
   Stack, StepExplanation, StepRunFacts, ThreadState, WikiPage, WikiTree, Workflow,
 } from "../api";
 
@@ -283,8 +283,9 @@ export const library: LibraryItem[] = [
 
 export const agents: Agent[] = [
   { id: "explorer", label: "explorer", about: "Maps the code an AC touches, read-only.", custom: false, phases: ["spec"],
-    model: { provider: "claude", mode: "subscription", model: "sonnet" }, tools: ["mcp:keel"], skills: ["spec-authoring"], prompt: "You map code.", enabled: true, overridden: [] },
+    model: { provider: "claude", mode: "api", model: "sonnet" }, tools: ["mcp:keel"], skills: ["spec-authoring"], prompt: "You map code.", enabled: true, overridden: [] },
   { id: "implementer", label: "implementer", about: "Writes the minimum code to make the failing test pass.", custom: false, phases: ["green"],
+    // saved before #101 as the Copilot CLI: it runs on GitHub Models, and the web shows it as API
     model: { provider: "copilot", mode: "subscription", model: "gpt-5" }, tools: ["mcp:keel"], skills: [], prompt: "You implement.", enabled: true, overridden: ["model"],
     knowledge: { sections: ["architecture", "conventions", "data"], code_graph: true, memory: true, strict: false },
     knowledge_tokens: 1700, knowledge_files: { architecture: 1200, conventions: 500, domain: 300 } },
@@ -333,54 +334,44 @@ export const caps: Cap[] = [
   { id: "c1", scope: "flow", limit: 600000, unit: "tokens", action: "pause" },
   { id: "c2", scope: "api_month", limit: 100, unit: "usd", action: "stop" },
 ];
-/** v0.3 model catalog (CONTRACT.md "v0.3 additions"). */
+/** v0.3 model catalog (CONTRACT.md "v0.3 additions"); #101 every provider has only its API mode. */
 export const providerModels: Catalog = {
   claude: {
-    label: "Claude", source: "cli", efforts: ["low", "medium", "high", "max"],
-    default: { mode: "subscription", model: "sonnet" },
+    label: "Claude", source: "builtin", efforts: ["low", "medium", "high", "max"],
+    default: { mode: "api", model: "sonnet" },
     modes: {
-      subscription: [{ id: "opus", label: "Claude Opus" }, { id: "sonnet", label: "Claude Sonnet" }, { id: "haiku", label: "Claude Haiku", efforts: [] }],
-      api: [{ id: "claude-opus-4-1", label: "Opus 4.1 (API)" }, { id: "claude-sonnet-4-5", label: "Sonnet 4.5 (API)" }],
+      api: [{ id: "opus", label: "Claude Opus" }, { id: "sonnet", label: "Claude Sonnet" }, { id: "haiku", label: "Claude Haiku", efforts: [] }],
     },
   },
   codex: {
-    // as the engine sends it: codex models from the CLI cache, each with its own efforts (up to "ultra")
-    label: "GPT / Codex", source: "cache", efforts: ["low", "medium", "high", "ultra"],
-    default: { mode: "subscription", model: "gpt-5.6-sol", effort: "medium" },
+    // each model with its own efforts (up to "ultra")
+    label: "GPT / Codex", source: "builtin", efforts: ["low", "medium", "high", "ultra"],
+    default: { mode: "api", model: "gpt-5.6-sol", effort: "medium" },
     modes: {
-      subscription: [{ id: "gpt-5.6-sol", label: "GPT-5.6 Sol", efforts: ["low", "medium", "high", "ultra"] }, { id: "gpt-5-mini", label: "GPT-5 mini", efforts: ["low", "medium"] }],
-      api: [{ id: "gpt-5", label: "GPT-5 (API)", efforts: ["minimal", "low", "medium", "high"] }],
+      api: [{ id: "gpt-5.6-sol", label: "GPT-5.6 Sol", efforts: ["low", "medium", "high", "ultra"] }, { id: "gpt-5-mini", label: "GPT-5 mini", efforts: ["low", "medium"] },
+        { id: "gpt-5", label: "GPT-5", efforts: ["minimal", "low", "medium", "high"] }],
     },
   },
   copilot: {
+    // GitHub Models: several companies' models, no effort
     label: "GitHub Copilot", source: "builtin", efforts: [],
-    default: { mode: "subscription", model: "gpt-5" },
+    default: { mode: "api", model: "gpt-5" },
     modes: {
-      subscription: [{ id: "gpt-5", label: "GPT-5 (Copilot)" }, { id: "claude-sonnet-4.5", label: "Claude Sonnet 4.5 (Copilot)" }],
-      opencode: [{ id: "github-copilot/gpt-5", label: "GPT-5 via OpenCode" }],
-      api: [{ id: "openai/gpt-5", label: "GPT-5 (GitHub Models)" }],
+      api: [{ id: "gpt-5", label: "GPT-5 (GitHub Models)" }, { id: "deepseek/deepseek-r1", label: "DeepSeek R1 (GitHub Models)" }],
     },
   },
   fake: { label: "Fake", source: "builtin", efforts: [], default: { mode: "api", model: "fake" }, modes: { api: [{ id: "fake", label: "Fake model" }] } },
 };
-const inMin = (m: number) => new Date(Date.now() + m * 60_000).toISOString();
-const agoMin = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
-/** GET /api/usage/providers: Claude from its last run, Codex live. Copilot is not set up (no card). */
-export const usage = (): ProviderUsage[] => [
-  { id: "claude", name: "Claude", kind: "subscription", source: "last run", fetched_at: agoMin(12), live: false, can_refresh: true,
-    windows: [{ window: "five_hour", label: "5-hour", used_pct: 0.62, resets_at: inMin(72.5) }, { window: "seven_day", label: "weekly", used_pct: 0.31, resets_at: inMin(4000) }] },
-  { id: "codex", name: "Codex", kind: "subscription", source: "codex app-server", fetched_at: agoMin(0), live: true, can_refresh: true,
-    windows: [{ window: "five_hour", label: "5-hour", used_pct: 0.2, resets_at: inMin(100) }, { window: "seven_day", label: "weekly", used_pct: 0.08, resets_at: inMin(5000) }] },
-];
 
-export const limits: Limit[] = [{ id: "claude", name: "Claude Max", unit: "% of 5-hour window", used: 62, cap: 100, note: "resets in 1h 48m" }];
+/** GET /api/limits: keel's own count per account, across all projects (no cap set). */
+export const limits: Limit[] = [{ id: "claude", name: "Claude", unit: "tokens this month", used: 1_200_000, cap: 0, note: "" }];
 
 export const generalSettings: Settings = {
   gates_mode: "every-ac", fix_attempts: 3, coverage_min: 80,
   default_model: { provider: "fake", mode: "api", model: "fake" },
-  implementer_model: { provider: "claude", mode: "subscription", model: "opus" },
-  reviewer_model: { provider: "codex", mode: "subscription", model: "gpt-5.6-sol" },
-  cheaper_model: { provider: "claude", mode: "subscription", model: "haiku" },
+  implementer_model: { provider: "claude", mode: "api", model: "opus" },
+  reviewer_model: { provider: "codex", mode: "api", model: "gpt-5.6-sol" },
+  cheaper_model: { provider: "claude", mode: "api", model: "haiku" },
   cap_tokens: 500000, on_cap: "pause", branch_pattern: "feat/{slug}", web_lane_worktree: true, push_pr: "ask", notify: "all", env_names: [], mcp: ["keel"],
   commit_author: "", commit_coauthor: true,
 };
@@ -388,12 +379,13 @@ export function projectSettings(overrides: Partial<Settings>): ProjectSettings {
   return { general: generalSettings, overrides, effective: { ...generalSettings, ...overrides } };
 }
 
+/** GET /api/connections (#101): each provider has only its API mode; machine: node, git, java and docker. */
 export const connections: Connections = {
   providers: [
-    { id: "claude", label: "Claude", selected: "subscription", key_set: false, login_secret: "CLAUDE_CODE_OAUTH_TOKEN", login_set: false,
-      modes: [{ id: "subscription", label: "Subscription", ready: false, need: "login", detail: "Claude Code found — add your login: claude setup-token, then Set up login." }, { id: "api", label: "API key", ready: false, detail: "ANTHROPIC_API_KEY" }] },
+    { id: "claude", label: "Claude", selected: "api", key_set: false,
+      modes: [{ id: "api", label: "Anthropic API key", ready: false, detail: "ANTHROPIC_API_KEY" }] },
   ],
-  machine: [{ name: "git", ok: true, version: "2.47" }, { name: "serena", ok: false }],
+  machine: [{ name: "node", ok: true, version: "20.20.2" }, { name: "git", ok: true, version: "2.47" }, { name: "java", ok: true, version: "21" }, { name: "docker", ok: false }],
 };
 
 export const notifications: Notification[] = [

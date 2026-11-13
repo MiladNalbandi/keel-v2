@@ -132,20 +132,6 @@ def test_unmatched_node_pattern_is_not_already_met():
     assert not testcmd.ran_no_tests("# tests 5\n# suites 0\n# pass 1\n# fail 0\n# skipped 4\n")
 
 
-def test_turn_limit_is_explained_and_token_counts_are_not_a_rate_limit():
-    from keel_engine.models.cli import classify_failure
-    out = ('{"type":"assistant","message":{"usage":{"input_tokens":429}}}\n'
-           '{"type":"result","subtype":"error_max_turns","num_turns":21,"is_error":true,"modelUsage":{"claude-haiku-4-5":'
-           '{"inputTokens":429,"outputTokens":15,"contextWindow":200000}},"terminal_reason":"max_turns"}\n')
-    e = classify_failure("claude", out, "", 1)
-    assert str(e).startswith("The agent used all its turns (21)") and "{" not in str(e)
-    assert "maxTurns" in e.hint
-    e2 = classify_failure("claude", '{"type":"assistant","usage":{"input_tokens":429}}\n', "", 1)
-    assert "usage limit" not in str(e2) and "{" not in str(e2)
-    e3 = classify_failure("claude", "", "Error: 429 Too Many Requests", 1)
-    assert "usage limit" in str(e3)
-
-
 def test_the_spec_step_gives_the_explorer_more_turns(tmp_path, monkeypatch):
     from keel_engine.runtime import prompts
     (tmp_path / "agents").mkdir()
@@ -157,21 +143,3 @@ def test_the_spec_step_gives_the_explorer_more_turns(tmp_path, monkeypatch):
     assert prompts.max_turns("explorer", "red") == 20
 
 
-def test_not_logged_in_inside_claudes_json_is_reported_as_such():
-    from keel_engine.models.cli import classify_failure
-    out = ('{"type":"assistant","message":{"content":[{"type":"text","text":"Not logged in · Please run /login"}]}}\n'
-           '{"type":"result","subtype":"success","is_error":true,"result":"Not logged in · Please run /login"}\n')
-    assert "not logged in" in str(classify_failure("claude", out, "", 1))
-
-
-def test_not_logged_in_names_the_container_only_when_there_is_one(monkeypatch):
-    from keel_engine.models.cli import classify_failure
-    out = '{"type":"result","subtype":"success","is_error":true,"result":"Not logged in · Please run /login"}\n'
-    monkeypatch.delenv("KEEL_NATIVE", raising=False)
-    e = classify_failure("claude", out, "", 1)
-    assert "inside the container" in str(e) and "claude setup-token" in e.hint
-    monkeypatch.setenv("KEEL_NATIVE", "1")
-    n = classify_failure("claude", out, "", 1)
-    assert "container" not in str(n)
-    assert "is not logged in for keel" in str(n) and "your own Claude Code login is not used" in str(n)
-    assert "claude setup-token" in n.hint and "Native mode does not use your own Claude Code login." in n.hint

@@ -2,7 +2,7 @@
 // right (a segmented choice, a text field with ideas, a token count, a model), and — in one project's scope — where
 // its value comes from ("changed for shop", Every project's value and Reset). The saving is useScopedSettings: Every
 // project (PUT /settings/general) or one project's own (PUT /projects/<id>/settings, null = follow Every project).
-// General, Models & logins and Budget all use these, so a setting looks and saves the same on every tab.
+// General, Models & keys and Budget all use these, so a setting looks and saves the same on every tab.
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
@@ -339,7 +339,7 @@ export function useScopedSettings(projectId: string, projectName: string) {
 }
 export type Scoped = ReturnType<typeof useScopedSettings>;
 
-/** A setting of Every project on a tab without a scope switch (Models & logins, Budget): the row, and — when the chosen
+/** A setting of Every project on a tab without a scope switch (Models & keys, Budget): the row, and — when the chosen
  *  project changes it — that project's own value with Reset. */
 export function GeneralRow({
   row,

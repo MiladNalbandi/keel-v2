@@ -9,14 +9,11 @@
 import json
 import os
 import stat
-import tomllib
 from pathlib import Path
 
 from conftest import start, wait
 
 from keel_engine.models.base import AgentRequest
-from keel_engine.models.cli import codex_login_env, copilot_login_env
-from keel_engine.models.cli_runners import CodexCLIRunner, CopilotCLIRunner
 from keel_engine.tools import mcp as mcp_tools
 from keel_engine.tools.agent_tools import ToolBox
 
@@ -106,19 +103,6 @@ def fake_cli(tmp_path, monkeypatch, name):
     monkeypatch.setenv(f"KEEL_{name.upper()}_BIN", str(exe))
 
 
-async def test_codex_gets_mcp_env_in_its_environment_not_its_argv(tmp_path, monkeypatch):
-    fake_cli(tmp_path, monkeypatch, "codex")
-    await CodexCLIRunner().run(req(tmp_path, "codex"), lambda *a, **k: None)
-    argv = (tmp_path / "argv").read_text()
-    assert SECRET not in argv
-    lines = argv.splitlines()
-    names = next(a for a in lines if a.startswith("mcp_servers.tracker.env_vars="))
-    assert tomllib.loads("v = " + names.split("=", 1)[1])["v"] == ["TRACKER_TOKEN", "TRACKER_URL"]
-    excluded = next(a for a in lines if a.startswith("shell_environment_policy.exclude="))
-    assert "TRACKER_TOKEN" in excluded                       # codex's shell commands never see them
-    assert f"TRACKER_TOKEN={SECRET}" in (tmp_path / "env").read_text()
-
-
 def test_two_servers_with_one_name_keep_their_own_values():
     other = {"name": "other", "command": "o", "env": {"TRACKER_TOKEN": "another-fake", "PATH": "/x"}}
     shared, names, inline = mcp_tools.env_by_name([SERVER, other], {"PATH": "/usr/bin"})
@@ -126,41 +110,3 @@ def test_two_servers_with_one_name_keep_their_own_values():
     assert inline == {"other": {"TRACKER_TOKEN": "another-fake", "PATH": "/x"}}
 
 
-async def test_copilot_gets_mcp_config_from_a_private_file(tmp_path, monkeypatch):
-    fake_cli(tmp_path, monkeypatch, "copilot")
-    monkeypatch.setenv("GH_TOKEN", "fake-gh")
-    await CopilotCLIRunner().run(req(tmp_path, "copilot"), lambda *a, **k: None)
-    argv = (tmp_path / "argv").read_text().splitlines()
-    assert not any(SECRET in a for a in argv)
-    given = argv[argv.index("--additional-mcp-config") + 1]
-    assert given.startswith("@")
-    cfg = Path(given[1:])
-    assert mode(cfg) == 0o600 and json.loads(cfg.read_text())["mcpServers"]["tracker"]["env"]["TRACKER_TOKEN"] == SECRET
-
-
-async def test_copilot_never_gets_the_containers_github_token(tmp_path, monkeypatch):
-    for k in ("GH_TOKEN", "COPILOT_GITHUB_TOKEN"):
-        monkeypatch.delenv(k, raising=False)
-    monkeypatch.setenv("GITHUB_TOKEN", "fake-repo-token")
-    assert copilot_login_env({}) == {}
-    fake_cli(tmp_path, monkeypatch, "copilot")
-    # req.key is what models.key_for found (the container's GITHUB_TOKEN): the runner no longer uses it
-    await CopilotCLIRunner().run(req(tmp_path, "copilot", key="fake-repo-token"), lambda *a, **k: None)
-    assert "fake-repo-token" not in (tmp_path / "env").read_text()
-    assert copilot_login_env({"copilot": "fake-copilot"})["GH_TOKEN"] == "fake-copilot"
-
-
-def test_codex_auth_json_is_created_private(tmp_path, monkeypatch):
-    monkeypatch.setenv("KEEL_DATA", str(tmp_path))
-    seen = []
-    real = os.open
-
-    def spy(path, flags, mode=0o777, *a, **kw):
-        if str(path).endswith("auth.json"):
-            seen.append(mode)
-        return real(path, flags, mode, *a, **kw)
-
-    monkeypatch.setattr(os, "open", spy)
-    codex_login_env({"codex_auth": '{"tokens": {}}'})
-    assert seen == [0o600]
-    assert mode(tmp_path / "codex-home" / "auth.json") == 0o600

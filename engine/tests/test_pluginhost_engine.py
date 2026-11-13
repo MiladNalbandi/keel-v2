@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from keel_engine import addons, main
-from keel_engine.models.cli import project_env
+from keel_engine.models.env import project_env
 from keel_engine.tools.agent_tools import command_env
 from test_pluginhost import data, image, plugin  # noqa: F401 - fixtures and helpers
 

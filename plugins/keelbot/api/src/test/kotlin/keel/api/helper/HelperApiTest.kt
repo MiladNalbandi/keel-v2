@@ -215,7 +215,7 @@ class HelperApiTest : ApiTest() {
         fun ev(type: String, data: Map<String, Any?>) = mapOf("type" to type, "thread_id" to "h_abc", "project_id" to pid, "step" to "helper",
             "call_id" to "c-helper-1", "at" to java.time.Instant.now().toString(), "data" to data)
         post("/internal/events", listOf(
-            ev("helper.started", mapOf("agent" to "helper", "provider" to "claude", "model" to "sonnet", "mode" to "subscription", "phase" to "helper-ask")),
+            ev("helper.started", mapOf("agent" to "helper", "provider" to "claude", "model" to "sonnet", "mode" to "api", "phase" to "helper-ask")),
             ev("helper.step", mapOf("n" to 1, "kind" to "read", "text" to "line 1", "path" to "src/a.kt", "ok" to true)),
             ev("helper.finished", mapOf("agent" to "helper", "status" to "done", "tokens_in" to 1200, "tokens_out" to 300, "cost_usd" to 0.01, "result" to "It is in src/a.kt:1")),
         ), mapOf("X-Keel-Token" to TOKEN)).andExpect(status().isOk)
@@ -224,7 +224,7 @@ class HelperApiTest : ApiTest() {
         assertThat(row["thread_id"]).isEqualTo("h_abc")
         assertThat(row["status"]).isEqualTo("done")
         assertThat((row["tokens_in"] as Number).toInt()).isEqualTo(1200)
-        assertThat(row["mode"]).isEqualTo("subscription")
+        assertThat(row["mode"]).isEqualTo("api")
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM agent_steps WHERE call_id = 'c-helper-1'", Int::class.java)).isEqualTo(1)
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM threads WHERE id = 'h_abc'", Int::class.java)).isEqualTo(0)
         assertThat(get("/api/projects/$pid/budget/now").json()["today"]["tokens"].asLong()).isEqualTo(1500)
