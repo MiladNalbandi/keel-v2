@@ -348,21 +348,21 @@ with tempfile.TemporaryFile("w+") as f:
 }
 reset; seed "$LATEST" sha256:old
 export PATH="$scratch/bin:$orig_path"
-deadline 20 "KEEL_TOKEN_STDIN_TIMEOUT=2 '$keel2' token claude < <(sleep 60 2>/dev/null)"
+deadline 20 "KEEL_TOKEN_STDIN_TIMEOUT=2 '$keel2' token anthropic < <(sleep 60 2>/dev/null)"
 no_if "a stdin that never ends does not hang" test "$rc" = 124
 has "a stdin that never ends: it says nothing arrived" "$out" "Nothing arrived"
 rm -f "$FAKE_BODY"
-deadline 20 "printf 'sk-ant-oat01-test_ABC\n' | '$keel2' token claude"
+deadline 20 "printf 'sk-ant-api03-test_ABC\n' | '$keel2' token anthropic"
 check "a pipe still saves the token" "$rc" 0
-has "a pipe: saved" "$out" "saved CLAUDE_CODE_OAUTH_TOKEN"
+has "a pipe: saved" "$out" "saved ANTHROPIC_API_KEY"
 rm -f "$FAKE_BODY"
-deadline 20 "printf 'sk-ant-oat01-test_DEF\n' | '$keel2' token claude -"
+deadline 20 "printf 'sk-ant-api03-test_DEF\n' | '$keel2' token anthropic -"
 check "'-' reads stdin" "$rc" 0
-has "'-' : saved" "$out" "saved CLAUDE_CODE_OAUTH_TOKEN"
-deadline 20 "'$keel2' token claude sk-ant-oat01-test_GHI < /dev/null"
+has "'-' : saved" "$out" "saved ANTHROPIC_API_KEY"
+deadline 20 "'$keel2' token anthropic sk-ant-api03-test_GHI < /dev/null"
 check "a token on the command line is still saved" "$rc" 0
 has "a token on the command line: warning" "$out" "shows in 'ps'"
-deadline 20 "printf 'sk-ant-oat01-test_JKL\n' | '$keel2' token claude"
+deadline 20 "printf 'sk-ant-api03-test_JKL\n' | '$keel2' token anthropic"
 hasnt "a pipe gets no command-line warning" "$out" "shows in 'ps'"
 
 # ------------------------------------------------------------------ 3: native update

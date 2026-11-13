@@ -11,7 +11,7 @@ import java.util.concurrent.atomic.AtomicInteger
 /** Connections › This machine: the version checks run at the same time, so the answer takes about the slowest one. */
 class MachineToolsTest {
 
-    private val names = listOf("node", "git", "java", MachineTools.DOCKER, "claude", "codex", "copilot", "opencode")
+    private val names = listOf("node", "git", "java", MachineTools.DOCKER, "python3", "make", "curl", "gh")
 
     /** Stand-in programs that take `seconds` to print their version (docker prints its engine version). */
     private fun slowBin(seconds: Double): Path {
@@ -33,9 +33,9 @@ class MachineToolsTest {
         val found = tools.check(names)
         val ms = (System.nanoTime() - t0) / 1_000_000
         assertThat(ms).describedAs("8 checks of 1 s each, one after another, took 8 s").isLessThan(3_000)
-        assertThat(found.map { it.name }).containsExactly("node", "git", "java", "docker", "claude", "codex", "copilot", "opencode")
+        assertThat(found.map { it.name }).containsExactly("node", "git", "java", "docker", "python3", "make", "curl", "gh")
         assertThat(found.all { it.ok }).isTrue()
-        assertThat(found.first { it.name == "claude" }.version).isEqualTo("claude 1.0.0")
+        assertThat(found.first { it.name == "python3" }.version).isEqualTo("python3 1.0.0")
         assertThat(found.first { it.name == "docker" }.version).isEqualTo("engine 27.1.0")
 
         // cached for a minute: the second answer runs nothing
@@ -48,24 +48,24 @@ class MachineToolsTest {
     fun `each check keeps its timeout and a missing program runs nothing`() {
         val runs = AtomicInteger()
         val tools = MachineTools(
-            which = { n -> if (n == "copilot" || n == "docker") null else "/bin/$n" },
+            which = { n -> if (n == "curl" || n == "docker") null else "/bin/$n" },
             run = { cmd, timeout ->
                 runs.incrementAndGet()
                 assertThat(timeout).isEqualTo(5)
                 Thread.sleep(300)
-                if (cmd[0].endsWith("codex")) ProcResult(-1, "", "", timedOut = true) else ProcResult(0, "${cmd[0].substringAfterLast('/')} 2.0\nmore", "")
+                if (cmd[0].endsWith("make")) ProcResult(-1, "", "", timedOut = true) else ProcResult(0, "${cmd[0].substringAfterLast('/')} 2.0\nmore", "")
             },
         )
         val t0 = System.nanoTime()
         val found = tools.check(names).associateBy { it.name }
         assertThat((System.nanoTime() - t0) / 1_000_000).isLessThan(1_500)     // 6 × 300 ms one after another = 1.8 s
         assertThat(runs.get()).isEqualTo(6)
-        assertThat(found["copilot"]!!.ok).isFalse()
+        assertThat(found["curl"]!!.ok).isFalse()
         assertThat(found["docker"]!!.ok).isFalse()
         assertThat(found["docker"]!!.version).isEqualTo("not installed")
         assertThat(found["node"]!!.version).isEqualTo("node 2.0")
-        assertThat(found["codex"]!!.ok).isTrue()                               // installed, but it did not answer in time
-        assertThat(found["codex"]!!.version).isNull()
+        assertThat(found["make"]!!.ok).isTrue()                               // installed, but it did not answer in time
+        assertThat(found["make"]!!.version).isNull()
     }
 
     @Test

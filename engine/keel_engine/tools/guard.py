@@ -86,6 +86,12 @@ def _git_meta_now(root: str, before: dict[str, tuple[bytes, int]]) -> dict[str, 
     return now
 
 
+def _as_shared(mode: int) -> int:
+    """A mode as keel's own sharing leaves it (agent_user.share before every agent command: group rw, and group x where
+    the owner has x). Those bits are keel's doing, not the step's, so they never count as a change."""
+    return mode if mode < 0 else mode | 0o060 | (0o010 if mode & 0o100 else 0)
+
+
 def restore_git_meta(root: str, before: dict[str, tuple[bytes, int]] | None) -> list[dict]:
     """Puts back the repo's git settings as `before` had them. Returns [{path, bucket, reason}] for each file put
     back (path relative to `root` where it is inside it)."""
@@ -94,7 +100,7 @@ def restore_git_meta(root: str, before: dict[str, tuple[bytes, int]] | None) -> 
     refused = []
     for f, got in sorted(_git_meta_now(root, before).items()):
         want = before.get(f)
-        if got is not None and want is not None and got == want:
+        if got is not None and want is not None and got[0] == want[0] and _as_shared(got[1]) == _as_shared(want[1]):
             continue
         if got is None and want is None:
             continue

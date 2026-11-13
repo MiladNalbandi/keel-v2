@@ -69,7 +69,7 @@
 # KEEL_VOLUME (default keel-data for keel-v2, <KEEL_NAME>-data for any other name), KEEL_OPEN=0 (no browser), KEEL_DOCKER=1 (same as --docker),
 # KEEL_PLUGINS=on|image|off (which plugins load: all, only the image's (same as --safe), none). KEEL_IMAGE wins over
 # --core.
-# Native: KEEL2_HOME (default ~/.keel2), KEEL_YES=1 (yes to the native warning, and to restore's question), KEEL_NATIVE_CLIS=0 (no agent CLIs),
+# Native: KEEL2_HOME (default ~/.keel2), KEEL_YES=1 (yes to the native warning, and to restore's question), KEEL_NATIVE_CLIS=0 (no codegraph),
 # KEEL_RELEASE_URL (where releases are downloaded from).
 # Limits: KEEL_MEMORY (6g, off), KEEL_CPUS (4, off): see keel2 limits.
 # Phone: KEEL_BIND (127.0.0.1 default; --wifi = 0.0.0.0), KEEL_LAN_IP (the Wi-Fi address to show, when the guess is wrong),
@@ -634,7 +634,7 @@ cmd_start() {
       info "  ${D}$f is a git worktree or submodule: its repository $gd is mounted too.${N}"
     done < <(git_dirs "$f" "$project" ${added[@]+"${added[@]}"})
   done
-  local v; for v in ANTHROPIC_API_KEY OPENAI_API_KEY GITHUB_TOKEN GH_TOKEN CLAUDE_CODE_OAUTH_TOKEN; do
+  local v; for v in ANTHROPIC_API_KEY OPENAI_API_KEY GITHUB_TOKEN GH_TOKEN; do
     if [ -n "${!v:-}" ]; then args+=(-e "$v"); fi
   done
   # Plugins (docker/keel-start): on = the image's and the installed ones; image = safe mode; off = none
@@ -1510,23 +1510,19 @@ cmd_update() {
   else ok "updated. Start keel with: keel2 start /path/to/project"; fi
 }
 
-# keel2 token <claude|codex|copilot|anthropic|openai|github> [value]
-# Without a value it reads a pipe (pbpaste | keel2 token claude), or asks (hidden, not in shell history);
-# `token codex` reads ~/.codex/auth.json when there is one. The value is checked before it is saved.
+# keel2 token <anthropic|openai|github|copilot> [value]
+# Without a value it reads a pipe (pbpaste | keel2 token anthropic), or asks (hidden, not in shell history). The value is
+# checked before it is saved. #101 keel's own harness runs every model on its API key: there is no Claude or Codex login.
 token_clean() {  # token_clean <which> <value>: without what a copy adds (spaces, line breaks, a terminal's paste marks)
   local v="$2" a=$'\e[200~' b=$'\e[201~'
   v="${v//"$a"/}"; v="${v//"$b"/}"
-  if [ "$1" = codex ]; then printf '%s' "$v"; else printf '%s' "$v" | tr -d '[:space:]'; fi
+  printf '%s' "$v" | tr -d '[:space:]'
 }
 
 token_problem() {  # token_problem <which> <value>: why it cannot be a token of that kind (one line), or nothing
   local which="$1" v="$2" bad seen="" c i
-  if [ "$which" = codex ]; then
-    case "$v" in \{*\}) ;; *) echo "a Codex login is the JSON file ~/.codex/auth.json (it starts with { and ends with })." ;; esac
-    return 0
-  fi
   case "$which" in
-    claude|anthropic) bad="$(printf '%s' "$v" | LC_ALL=C tr -d 'A-Za-z0-9_-')" ;;
+    anthropic) bad="$(printf '%s' "$v" | LC_ALL=C tr -d 'A-Za-z0-9_-')" ;;
     *) bad="$(printf '%s' "$v" | LC_ALL=C tr -d 'A-Za-z0-9_.=-')" ;;
   esac
   if [ -n "$bad" ]; then
@@ -1535,7 +1531,6 @@ token_problem() {  # token_problem <which> <value>: why it cannot be a token of 
     return 0
   fi
   case "$which" in
-    claude) case "$v" in sk-ant-*) ;; *) echo "a Claude login token starts with sk-ant- (this one has ${#v} characters)." ;; esac ;;
     anthropic) case "$v" in sk-ant-*) ;; *) echo "an Anthropic API key starts with sk-ant- (this one has ${#v} characters)." ;; esac ;;
   esac
 }
@@ -1543,9 +1538,10 @@ token_problem() {  # token_problem <which> <value>: why it cannot be a token of 
 cmd_token() {
   local which="${1:-}" value="${2:-}" name
   case "$which" in
-    claude) name=CLAUDE_CODE_OAUTH_TOKEN ;; codex) name=CODEX_AUTH_JSON ;; copilot) name=GH_TOKEN ;;
-    anthropic) name=ANTHROPIC_API_KEY ;; openai) name=OPENAI_API_KEY ;; github) name=GITHUB_TOKEN ;;
-    *) die "usage: keel2 token <claude|codex|copilot|anthropic|openai|github> [value]" "Or from the clipboard: pbpaste | keel2 token claude" ;;
+    anthropic) name=ANTHROPIC_API_KEY ;; openai) name=OPENAI_API_KEY ;; github) name=GITHUB_TOKEN ;; copilot) name=GH_TOKEN ;;
+    claude|codex) die "keel no longer uses a $which login: it runs every model on its API key." \
+      "Save the key instead: keel2 token $( [ "$which" = claude ] && echo anthropic || echo openai )" ;;
+    *) die "usage: keel2 token <anthropic|openai|github|copilot> [value]" "Or from the clipboard: pbpaste | keel2 token anthropic" ;;
   esac
   need_docker
   container_running || die "keel is not running." "Start it first: keel2 start /path/to/project"
@@ -1563,9 +1559,7 @@ cmd_token() {
     else info "  ${D}No input arrived on stdin within ${secs}s.${N}"; fi
   fi
   [ "$given" = 0 ] || warn "A token on the command line shows in 'ps' and in your shell history. Safer: pbpaste | keel2 token $which" >&2
-  if [ -z "$value" ] && [ "$which" = codex ] && [ -f "$HOME/.codex/auth.json" ]; then value="$(cat "$HOME/.codex/auth.json")"; fi
   if [ -z "$value" ] && [ -t 0 ]; then
-    [ "$which" = claude ] && info "Get it with: claude setup-token   (or use the dashboard: Connections › Set up login)"
     # A long token is often shown over two lines, so a paste holds line breaks: read every line of the paste.
     local line="" more
     IFS= read -rsp "Paste $name (input hidden), then press Enter: " line || true; echo
@@ -1579,10 +1573,7 @@ cmd_token() {
   [ -n "$value" ] || die "Nothing arrived, so nothing was saved." "$mac" "$linux"
   local problem; problem="$(token_problem "$which" "$value")"
   if [ -n "$problem" ]; then
-    case "$which" in
-      codex) die "Not saved: $problem" "Run codex login, then: keel2 token codex (it reads ~/.codex/auth.json)." ;;
-      *) die "Not saved: $problem" "A token shown over two lines is often copied with extra characters. Copy it in one piece." "$mac" "$linux" ;;
-    esac
+    die "Not saved: $problem" "A token shown over two lines is often copied with extra characters. Copy it in one piece." "$mac" "$linux"
   fi
   # JSON is built inside keel's container (it has python3), so this computer needs no python.
   local body out code why
@@ -2538,7 +2529,7 @@ print_mcp_config() {  # print_mcp_config <--read-only|--write|--admin> [extra ar
 
 # ---------------------------------------------------------------- native mode (keel2 start --native, v0.16.1)
 # keel on this computer without Docker: ~/.keel2/<KEEL_NAME>/ holds app/<version> (api.jar, engine/.venv, content),
-# current -> app/<version>, data/ (KEEL_DATA), npm/ (keel's own agent CLIs and codegraph), run/ (pid, ports, token)
+# current -> app/<version>, data/ (KEEL_DATA), npm/ (codegraph), run/ (pid, ports, token)
 # and logs/. A native keel answers the same commands; when it exists, the Docker helpers below are replaced.
 ND="${KEEL2_HOME:-$HOME/.keel2}/$NAME"
 RELEASE_URL="${KEEL_RELEASE_URL:-https://github.com/MiladNalbandi/keel-v2/releases/download}"
@@ -2647,7 +2638,7 @@ native_hint() {
   esac
 }
 
-native_need() {  # what native mode needs on this computer: Java 21, uv, git, curl (Node only for the agent CLIs)
+native_need() {  # what native mode needs on this computer: Java 21, uv, git, curl (Node only for codegraph)
   local v; v="$(java -version 2>&1 | sed -n 's/.*version "\([0-9][0-9]*\).*/\1/p' | head -1)"
   { [ -n "$v" ] && [ "$v" -ge 21 ]; } 2>/dev/null || die "Native mode needs Java 21 or newer (java -version)." "Install it: $(native_hint java)"
   command -v uv >/dev/null 2>&1 || die "Native mode needs uv (it installs keel's Python packages)." "Install it: $(native_hint uv)"
@@ -2696,13 +2687,13 @@ native_install() {  # native_install [tarball] [version] — a release (default 
   ok "keel v2 $v installed ($ND/app/$v)"
 }
 
-native_clis() {  # keel's own agent CLIs and codegraph, pinned like the image, with npm --prefix (no sudo)
+native_clis() {  # codegraph, pinned like the image, with npm --prefix (no sudo); #101 no coding-agent apps any more
   [ "${KEEL_NATIVE_CLIS:-1}" = 1 ] || return 0
   [ -x "$ND/npm/bin/codegraph" ] && return 0
-  command -v npm >/dev/null 2>&1 || { warn "npm is missing, so keel's agent CLIs are not installed. Node 20+: $(native_hint node)"; return 0; }
-  info "Installing the agent CLIs and codegraph into $ND/npm (once)…"
-  npm i -g --prefix "$ND/npm" --no-audit --no-fund @anthropic-ai/claude-code @openai/codex @github/copilot opencode-ai \
-    "@colbymchenry/codegraph@1.6.2" >/dev/null 2>&1 || warn "npm could not install every agent CLI; see: keel2 doctor"
+  command -v npm >/dev/null 2>&1 || { warn "npm is missing, so codegraph is not installed. Node 20+: $(native_hint node)"; return 0; }
+  info "Installing codegraph into $ND/npm (once)…"
+  npm i -g --prefix "$ND/npm" --no-audit --no-fund "@colbymchenry/codegraph@1.6.2" >/dev/null 2>&1 \
+    || warn "npm could not install codegraph; see: keel2 doctor"
 }
 
 native_free() {  # native_free <from> [taken] — the first free port from <from>
@@ -2806,10 +2797,10 @@ native_doctor() {
   if [ -n "$v" ] && [ "$v" -ge 21 ] 2>/dev/null; then ok "Java $v"; else bad "Java 21 is missing: $(native_hint java)"; problems=$((problems + 1)); fi
   if command -v uv >/dev/null 2>&1; then ok "$(uv --version)"; else bad "uv is missing: $(native_hint uv)"; problems=$((problems + 1)); fi
   command -v git >/dev/null 2>&1 && ok "git" || { bad "git is missing"; problems=$((problems + 1)); }
-  command -v node >/dev/null 2>&1 && ok "node $(node --version)" || warn "node is missing: keel's agent CLIs need Node 20+ ($(native_hint node))"
+  command -v node >/dev/null 2>&1 && ok "node $(node --version)" || warn "node is missing: codegraph needs Node 20+ ($(native_hint node))"
   command -v sqlite3 >/dev/null 2>&1 && ok "sqlite3" || warn "sqlite3 is missing: only keel2 sql needs it ($(native_hint sqlite3))"
   [ -f "$ND/current/api.jar" ] && ok "keel v2 $(cat "$ND/current/VERSION") in $ND/current" || warn "keel is not installed yet (keel2 start --native installs it)"
-  [ -x "$ND/npm/bin/codegraph" ] && ok "agent CLIs and codegraph in $ND/npm" || warn "agent CLIs not installed yet (keel2 start --native installs them)"
+  [ -x "$ND/npm/bin/codegraph" ] && ok "codegraph in $ND/npm" || warn "codegraph not installed yet (keel2 start --native installs it)"
   mkdir -p "$ND" 2>/dev/null && [ -w "$ND" ] && ok "$ND is writable" || { bad "$ND is not writable"; problems=$((problems + 1)); }
   local p; p="$(native_port)"; if native_running; then ok "keel runs on port $p"; elif [ -n "$p" ] && port_busy "$p"; then warn "port $p is used by something else"; fi
   [ "$problems" = 0 ] && ok "no problems found" || die "$problems problem(s) found."

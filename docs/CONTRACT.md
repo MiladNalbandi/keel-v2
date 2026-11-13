@@ -3860,3 +3860,135 @@ full disk, reading that file killed the api with SIGBUS, and every open `keel2 m
 `TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE` to `/var/run/docker.sock` unless set, and `DOCKER_CONFIG` to the agent's home
 `.docker` unless set. `keel-start` logs `agents: Docker works for agent (host engine X)` or
 `agents: Docker does NOT work for agent: <why>`.
+
+## Next: keel's own agent harness, part 1 (issue #101)
+
+Every real model runs in keel's own harness (`engine/keel_engine/harness`), on its provider's API with an API key.
+`models.runner_for` gives `HarnessRunner` for every provider but `fake`; `models.ask` and `models.test_provider` ask the
+harness's provider directly (one turn, no tools). A model saved with mode `subscription` or `opencode` runs as `api`
+(`models.effective`), and the api's `SecretService.engineKeys` sends the provider's API key whatever the mode
+(`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GITHUB_TOKEN`; Vertex and local as their connections). `Harness.isHarness` is
+false: no flow is handed to a coding-agent app. The catalog (`GET /providers/models`) lists mode `api` only: Anthropic
+(Claude), OpenAI, GitHub Models (models.github.ai), Vertex AI, local servers, fake. `haiku` is `claude-haiku-5-5`.
+
+**Providers** (`harness/providers`):
+- **`claude`** goes through the official `anthropic` SDK on the beta Messages stream.
+  - Caching: a cached system block, plus top-level automatic caching of the conversation.
+  - Tools: `eager_input_streaming`.
+  - Thinking: `thinking: {type: adaptive, display: summarized}` with `output_config.effort` (default `high`) on the 4.6 family and later.
+  - Compaction: server-side (beta `compact-2026-01-12`, trigger at the smaller of 150K tokens and 60% of the window).
+  - Refusal fallback: `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`) on Opus 5.5 / 5, Fable 5.1 and Sonnet 5.5.
+  - Web search: the `web_search_20260209` server tool for an agent whose file names WebSearch.
+  - Vertex AI's Claude uses `AsyncAnthropicVertex`.
+- **`codex`, `copilot`, `local` and Vertex's Gemini** go through the official `openai` SDK (chat completions, streamed, function tools).
+  - `copilot` means GitHub Models: `https://models.github.ai/inference` with a GitHub token.
+
+Usage counts new input, cache writes and cache reads apart. Cost is keel's price table, with cache writes at 1.25x and
+cache reads at 0.1x of the input price.
+
+**Sessions** (`harness/transcript.py`): `$KEEL_DATA/harness/sessions/<id>.jsonl`, append-only (meta, msg, summary,
+todos), removed after 14 days.
+- Every provider continues a step's session: `runtime/compiler.py` `RESUMABLE` and `NAMED_SESSION` hold every real provider, and so does KeelBot's.
+- An assistant turn goes back exactly as it came (`raw`) while the model stays the same.
+- A tool call left without a result (keel stopped mid-tool) is answered as an error on load.
+
+**Tools** (`harness/tools.py`), the names keel's agent prompts use:
+- Read: numbered lines, 2,000 lines without a limit.
+- Write and Edit: they need a Read of the file in this session, and are refused when its mtime changed since.
+- Glob and Grep: ripgrep (in the image now), or `git ls-files` plus Python's `re`.
+- Bash, RunTests, TodoWrite (saved in the session) and Task (a read-only helper agent, 40 turns, effort low).
+- WebFetch: http(s) only, never a loopback, private or link-local address, and redirects are checked too.
+- The project's MCP tools.
+
+File and shell tools run on the ToolBox; Edit, Glob and Grep are new ToolBox methods, and Grep is judged by
+`hook.search`. MCP tools are judged by `hook.check_mcp`. Every input is validated against its JSON Schema
+(`jsonschema`); a bad input, an unknown tool, a tool that raises or a refusal is answered as a `tool_result`, never a
+crash. Read-only tools of one turn run side by side.
+
+**The loop** (`harness/runner.py`):
+- Turn limits: `KEEL_HARNESS_MAX_TURNS` (150), or the agent file's `maxTurns`, and the request's timeout.
+- Errors: a passing provider error (429, 5xx, a connection) retries the turn up to 6 times, waiting `retry-after` or 2^n seconds.
+- Length limit: a reply cut off is continued (3 times); a cut-off tool input is not run.
+- Stuck loops: the same calls with the same answers get a note after 3 times, and the run stops after 6.
+- Compaction: OpenAI-compatible models and Haiku 4.5 compact themselves at 75% of the window; the summary and the last 8 messages go on.
+- Running out of turns or time raises `ModelError(max_turns=True)` with the usage, so `run_or_continue` continues the session.
+
+**Like a coding agent** (the feature list is `docs/harness-parity.md`):
+- A new session starts with the environment, a git snapshot (branch, `git status --short`, the last 5 commits) and the
+  project's instructions: CLAUDE.md, AGENTS.md, .claude/CLAUDE.md, CLAUDE.local.md, with `@path` imports through the
+  read rules (`harness/context.py`). A folder's own CLAUDE.md / AGENTS.md comes with the first Read in that folder.
+- Bash keeps its working folder between calls, inside the project. `run_in_background` starts a shell; BashOutput reads
+  what it printed since the last look, KillShell stops it, and every one stops when the agent call ends (`harness/shells.py`).
+- Read takes images (PNG, JPEG, GIF, WebP: sent as images), PDFs (`pdftotext`, poppler-utils in the image; `pages`)
+  and notebooks (cells and outputs). NotebookEdit replaces, inserts or deletes a cell. Grep has `-A/-B/-C`.
+- Skill lists keel's skills and the project's `.claude/skills` and `.keel/skills` and loads one on demand; a project
+  skill goes through the read rules (`harness/skills.py`). Task takes `subagent_type`: one of keel's agents, with its
+  role and turn limit; a helper writes only when that agent may and the step is not read-only.
+- A note goes with the next turn when files changed since the agent read them (not by its own Write or Edit), and
+  every 10 turns when its task list has open items. `usage` is sent after every turn (`agent.usage` while it runs).
+
+**Keys**: `SecretService.apiKey(provider)` is the key for a flow (`engineKeys`), Connections › Test and an agent's
+Test: the provider's API key, and for GitHub Models also the GitHub sign-in's token when no `GITHUB_TOKEN` is saved.
+Both Test buttons send `mode: api`. A model saved for the Copilot CLI as `gpt-5` / `o3-mini` goes to GitHub Models as
+`openai/gpt-5` / `openai/o3-mini`. GitHub Models gets no effort.
+
+**The git-settings guard** (`tools/guard.py`): keel shares the project folder with the agents' user before every command
+an agent runs (`agent_user.share`: group rw, and group x where the owner has x). The harness runs commands inside the
+step, so those bits no longer count as the step changing `.git/config` or a hook; any other change of content or mode
+still does.
+
+**Tests**: `tests/scripted_model.py` stands in for the model API in flow tests (no key, no network) and records each
+run's agent, model, session and prompt. `tests/test_harness_http.py` runs both SDKs against a local server that answers
+like the Anthropic and OpenAI APIs, so every request keel builds is one the SDK takes. The plan-window pause (a Claude or
+Codex plan's 5-hour window) belonged to subscriptions: an API model never pauses for one; the token cap still pauses.
+
+## Next: keel's own agent harness, part 2: the coding-agent apps are gone (issue #101)
+
+keel no longer starts, installs or logs in to Claude Code, Codex, Copilot CLI or OpenCode. Every model runs on its
+provider's API with an API key in keel's harness (part 1); this part removes what only those apps needed.
+
+- **Engine:** `models/cli.py`, `models/cli_runners.py`, `models/api_runner.py`, `models/usage.py` (plan windows) and
+  `shim.py` (the command wrappers) are deleted. `models/env.py` keeps `project_env` and `write_private`. The catalog
+  probes no CLI. `POST /providers/usage`, the `provider.usage` event, the plan-window pause (question kind `usage`,
+  `state.usage_seen`) and the thread settings `usage_warn`, `usage_pause`, `provider_windows` are gone (an api that
+  still sends them is ignored). The rules view has one engine, `harness` ("keel's harness"): every rule is checked
+  `before`, by the ToolBox (`mcp-guard` for MCP rules) and, for edit rules, the diff guard after the step. A flow's
+  `data.harness` has `{provider, model, session}` (no `open` command).
+- **The harness flow** (`content/workflows/harness.yaml`) stays: one session plans, the person approves, the same
+  session builds. No setting sends work there; `keel_start_flow` with `engine: "harness"` and a build flow (change,
+  quick, small, implement, feature, fix) starts it with `options.intent` and `options.requested_workflow`.
+- **Api (Kotlin):** `/api/logins*` and `/api/usage/providers*` are gone (LoginService, ProviderUsage*), and so is
+  `flow/Harness.kt`. `GET /api/connections`: one mode per provider, `api` (`selected` is always `api`); ProviderView
+  has no `login_secret`, `login_set`, `login_hint`; `machine` lists node, git, java, docker. `PUT
+  /api/connections/{p}` takes only `api`. The settings `usage_warn`, `usage_pause`, `build_runs`, `harness_plan`,
+  `fix_runs` (and the sections `harness` and core `review`) are gone (saving one is 400). `/api/limits` rows have no
+  plan-window fields. GitHub Models' key: `GITHUB_TOKEN`, else `GH_TOKEN`, else the GitHub sign-in's token (github.com
+  only). An old `CLAUDE_CODE_OAUTH_TOKEN` or `CODEX_AUTH_JSON` stays keel's own (never shown as a project secret, never
+  sent to the engine) and can be deleted.
+- **Image and launcher:** the image installs CodeGraph only (`INSTALL_CLIS` keeps its name and now means CodeGraph).
+  `keel2 token <anthropic|openai|github|copilot>`; `keel2 token claude|codex` says which key to save instead. Native
+  mode installs only CodeGraph.
+
+## Next: keel's flow doctor (issue #101, part 3)
+
+A step that fails no longer ends the flow by itself, and every crash is kept so keel can be improved
+(`engine/keel_engine/flowdoctor`).
+
+- **Names a crash** (`classify.py`): `auth`, `no-key`, `billing`, `model-not-found`, `context`, `rate-limit`,
+  `overloaded`, `network`, `refusal`, `max-turns`, `stuck`, `disk-full`, `git-lock`, `keel-bug` (a Python error in
+  keel's code; `where` names the innermost place in keel_engine) and `unknown`, each with a title and what to do.
+- **Repairs by itself** (`repair.py`), at most twice per step, then asks: `wait` (rate limit, overload, network: 20 s,
+  then 90 s; `KEEL_DOCTOR_WAITS`), `fresh` (the conversation got too long: the step runs again in a new session),
+  `git-lock` (a `.git/index.lock` older than 30 s with no git running is removed). Events `doctor.crash`,
+  `doctor.repair {kind, title, action, attempt, wait}`, `doctor.repaired`.
+- **Asks** when it cannot repair: an agent step's existing pause (kind `fix`, approve = try again, reject = stop) now
+  says what happened and what to do; any other step that raises waits at a new pause of kind `crash` with the choices
+  `retry` and `stop` (never auto-answered by a run mode; after 5 Retry answers the flow fails as before).
+- **The crash log**: `$KEEL_DATA/doctor/crashes.jsonl`, one line per event `{at, thread, project, workflow, step, agent,
+  provider, model, kind, title, fix, error, where, outcome, action, attempt}`; outcome `retrying | repaired | asked |
+  retried | stopped | failed` (a flow that ends failed adds its line too). Secrets are masked; 5 MB, then one old file.
+- **The improvement report**: engine `GET /flow-doctor/report?days=7` → `{days, since, until, total, repaired, retried,
+  waiting, stopped, failed, flows, kinds: [{kind, title, fix, count, repaired, retried, waiting, stopped, failed,
+  last_at, steps, providers, where, example, advice}], recent, markdown}`; one crash per flow, step and kind.
+  `GET /flow-doctor/crashes?days&limit`, `DELETE /flow-doctor/crashes`. The Python api passes `/api/flow-doctor/*` to
+  the engine (an MCP token reads; clearing needs admin). MCP: `keel_flow_doctor {days}` (read) answers the Markdown.

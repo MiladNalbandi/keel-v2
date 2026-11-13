@@ -1,14 +1,13 @@
-// Settings › Budget (keel 0.18.57; Control › Budget before), in three parts that never mix: what the providers report
-// (their plan windows), what keel counted (this project this month, the tokens per day, and each account across all
-// projects against the limit you set), and the limits that stop a flow (the rules for every flow, saved in General,
-// plus this project's caps). Each part loads on its own.
+// Settings › Budget (keel 0.18.57; Control › Budget before), in two parts that never mix: what keel counted (this
+// project this month, the tokens per day, and each account across all projects against the limit you set), and the
+// limits that stop a flow (the rules for every flow, saved in General, plus this project's caps). Each part loads on its
+// own. (#101 every model runs on its provider's API: there are no plan windows to read any more.)
 
 import { useEffect, useState } from "react";
 import { api, errorParts, type Budget, type Cap, type CapLeft, type CapScope, type CapsLeft, type Limit, type Model } from "../api";
 import { EmptyState, Skeleton } from "../components/page";
 import { Note, RadioCards, Seg } from "../components/settingsUi";
 import { Drawer, ErrorBox, NoProject, Prov } from "../components/ui";
-import { UsageStrip } from "../components/UsageStrip";
 import { kfmt, parseTokens, PROV, usd } from "../format";
 import { useApp, useLoad, type Loaded } from "../state";
 import { SettingsFrame } from "./settings/frame";
@@ -75,8 +74,6 @@ export function UsageChart({ days }: { days: Budget["days"] }) {
   );
 }
 
-/** A limit keel can read from the provider is not typed by hand; its manual cap stays as the fallback. */
-const hasLiveSource = (l: Limit) => !!l.source && l.id !== "claude";
 const isMoney = (l: Pick<Limit, "unit">) => /\$|usd|spent/i.test(l.unit);
 const isPct = (l: Pick<Limit, "unit">) => /%|window/i.test(l.unit) && !/tokens|requests/i.test(l.unit);
 const isTokens = (l: Pick<Limit, "unit">) => /token/i.test(l.unit);
@@ -116,10 +113,8 @@ function LimitsDrawer({ limits, focus, onClose, onSaved }: { limits: Limit[]; fo
   return (
     <Drawer title="Account limits" onClose={onClose} className="ss-drawer"
       footer={<><button className="ss-btn" type="button" onClick={onClose}>Cancel</button><button className="ss-btn p" type="button" onClick={save} disabled={busy}>{busy ? "Saving…" : "Save"}</button></>}>
-      <p className="ss-sub">keel counts what its own agent runs use on each account, across all projects. Write the limit your plan allows to see how close you are. Leave it empty for no limit.</p>
-      {rows.map((l, i) => hasLiveSource(l) ? (
-        <div key={l.id} className="ss-label"><span>{l.name} <span className="ss-meta">({l.unit})</span></span><span className="ss-help">Read from {l.source}. No limit to type.</span></div>
-      ) : (
+      <p className="ss-sub">keel counts what its own agent runs use on each account, across all projects. Write a limit to see how close you are. Leave it empty for no limit.</p>
+      {rows.map((l, i) => (
         <div key={l.id} className="ss-label">
           <label htmlFor={`lim-${l.id}`}>{l.name} <span className="ss-meta">({l.unit})</span></label>
           <span className="ss-actions">
@@ -216,7 +211,7 @@ function CapDrawer({ pid, cap, onClose, onSaved }: { pid: string; cap: Cap | nul
         </span>
         {unit === "usd" && (scope === "step"
           ? <Note tone="warn" role="note">keel cannot count dollars per step: this cap would limit nothing. Pick tokens.</Note>
-          : <span className="ss-help">Dollars are the cost runs report: API-key runs, and Claude subscription runs at API prices (the plan pays those).{scope === "api_month" ? " This month counts API-key runs only." : ""}</span>)}
+          : <span className="ss-help">Dollars are the cost runs report, at the API's prices.{scope === "api_month" ? " This month counts API-key runs only." : ""}</span>)}
       </div>
       <div className="ss-label">
         <b style={{ fontWeight: 600, fontSize: 14 }}>When it is hit</b>
@@ -329,10 +324,9 @@ function AccountsPanel({ limits, onEdit }: { limits: Loaded<Limit[]>; onEdit: (f
       </div>
       {limits.error ? <div className="ss-row"><ErrorBox error={limits.error} onRetry={() => void limits.reload()} /></div>
         : !limits.data ? <div className="ss-row"><Skeleton lines={3} label="Counting" /></div>
-          : !limits.data.length ? <div className="ss-row"><EmptyState compact title="No account to count">keel counts an account once a provider is set up in Models &amp; logins.</EmptyState></div> : (
+          : !limits.data.length ? <div className="ss-row"><EmptyState compact title="No account to count">keel counts an account once a provider is set up in Models &amp; keys.</EmptyState></div> : (
             <ul aria-label="Accounts" style={{ listStyle: "none", margin: 0, padding: 0 }}>
               {limits.data.map((l) => {
-                const live = hasLiveSource(l);
                 const pc = l.cap > 0 ? (l.used / l.cap) * 100 : null;
                 const tone = pc == null ? "ok" : pc > 80 ? "bad" : pc > 60 ? "warn" : "ok";
                 return (
@@ -340,8 +334,7 @@ function AccountsPanel({ limits, onEdit }: { limits: Loaded<Limit[]>; onEdit: (f
                     <span className="ss-inline"><span className={`ss-swatch sw-${limitProv(l)}`} aria-hidden="true" /><b style={{ fontWeight: 500 }}>{l.name}</b></span>
                     <span style={{ fontSize: 13 }}><b style={{ fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{limitUsed(l)[0]}</b> {limitUsed(l)[1]}
                       {l.note && !/0 = not set/i.test(l.note) && <span className="ss-meta"> · {l.note}</span>}</span>
-                    {live ? <span className="ss-meta ss-small">its own window is above (read from {l.source})</span>
-                      : pc == null ? (
+                    {pc == null ? (
                         <span className="ss-inline"><span className="ss-meta">No cap set</span>
                           <button className="ss-btn sm g" type="button" onClick={() => onEdit(l.id)} aria-label={`Set a cap for ${l.name}`}>Set a cap</button></span>
                       ) : (
@@ -401,26 +394,21 @@ function MonthKpis({ b, name }: { b: Loaded<Budget>; name: string }) {
       {!m && <span className="sr-only" role="status">Loading this month's numbers…</span>}
       <div className="ss-kpis">
         <div className="ss-kpi"><span className="ss-meta">Tokens</span><b>{v(kfmt(m?.tokens))}</b></div>
-        <div className="ss-kpi"><span className="ss-meta">Cost at API prices</span><b>{v(usd(m?.cost_usd))}</b><span className="ss-meta ss-small">a plan pays for subscription runs</span></div>
+        <div className="ss-kpi"><span className="ss-meta">Cost at API prices</span><b>{v(usd(m?.cost_usd))}</b></div>
         <div className="ss-kpi"><span className="ss-meta">Flows</span><b>{v(m?.flows ?? 0)}</b></div>
-        <div className="ss-kpi"><span className="ss-meta">Copilot premium requests</span><b>{v((m?.premium_requests ?? 0).toLocaleString())}</b></div>
       </div>
     </section>
   );
 }
 
-/** The rules for every flow: the cap per flow and the plan-window thresholds (General's values, saved here). */
+/** The rules for every flow: the cap per flow and what a flow does when it is hit (General's values, saved here). */
 export const BUDGET_ROWS: Row[] = [
   { key: "cap_tokens", label: "Cap per flow (tokens)", kind: { t: "tokens" }, help: "A flow stops at this many tokens and does what you pick below. Start a flow can set its own cap." },
   { key: "on_cap", label: "When a cap is hit", kind: { t: "select", opts: [["pause", "pause and ask me"], ["cheaper", "switch to cheaper model"], ["stop", "stop"]] },
     help: "Pause and ask you, switch to the cheaper model, or stop the flow." },
-  { key: "usage_warn", label: "Warn when a plan window is", def: 0.8, kind: { t: "select", opts: [["0.7", "70% used"], ["0.8", "80% used"], ["0.9", "90% used"]] },
-    help: "Before a subscription agent runs: a warning in the flow when the provider's window is this full." },
-  { key: "usage_pause", label: "Pause before the next agent at", def: 0.95, kind: { t: "select", opts: [["0.9", "90% used"], ["0.95", "95% used"], ["0.99", "99% used"], ["1", "100% (only when full)"]] },
-    help: "Above this, keel asks: go on, wait for the reset, use the cheaper model, or stop." },
 ];
 
-/** For every flow: the rules, editable, and the cheaper model they switch to (it is chosen in Models & logins). */
+/** For every flow: the rules, editable, and the cheaper model they switch to (it is chosen in Models & keys). */
 function ForEveryFlow({ pid, name }: { pid: string; name: string }) {
   const s = useScopedSettings(pid, name);
   const cheap = (s.proj.data?.effective ?? s.general.data)?.cheaper_model as Model | undefined;
@@ -438,7 +426,7 @@ function ForEveryFlow({ pid, name }: { pid: string; name: string }) {
             {!cheap ? <span className="ss-meta">…</span> : cheap.provider === "fake"
               ? <span className="ss-warn-text">not set: a real flow pauses and asks instead</span>
               : <b style={{ fontWeight: 600 }}>{PROV[cheap.provider] ?? cheap.provider} {cheap.model}{cheap.effort ? ` · ${cheap.effort}` : ""}</b>}
-            {" · "}<a href="#/settings/models">change in Models &amp; logins</a>
+            {" · "}<a href="#/settings/models">change in Models &amp; keys</a>
           </span>
         </div>
       </div>
@@ -450,7 +438,7 @@ export function BudgetPage({ pid }: { pid: string }) {
   const { project } = useApp();
   const name = project?.name ?? pid;
   const [capEdit, setCapEdit] = useState<Cap | "new" | null>(null);
-  const line = `What ${pid ? name : "a project"} used, what each provider says is left, and the limits that stop a flow.`;
+  const line = `What ${pid ? name : "a project"} used, and the limits that stop a flow.`;
   if (!pid)
     return (
       <SettingsFrame tab="budget" title="Budget" line={line}>
@@ -476,15 +464,6 @@ function BudgetBody({ pid, name, capEdit, setCapEdit }: { pid: string; name: str
   const empty = (title: string, text: string) => <div className="ss-row"><EmptyState compact title={title}>{text}</EmptyState></div>;
   return (
     <>
-      <section className="ss-sec" aria-labelledby="b-prov">
-        <div>
-          <h2 id="b-prov" className="ss-h2">What the providers report</h2>
-          <p className="ss-sub">Plan windows read from Claude, Codex and Copilot themselves. They reset on the provider's clock; keel only reads them.</p>
-        </div>
-        <UsageStrip loading={<div className="ss-cardp"><Skeleton lines={2} label="Asking the providers" /></div>}
-          empty={<div className="ss-card"><EmptyState title="No provider is set up yet" action={<a className="ss-btn" href="#/settings/models">Open Models &amp; logins</a>}>Save a login or a key in Models &amp; logins to see its plan usage here.</EmptyState></div>} />
-      </section>
-
       <section className="ss-sec" aria-labelledby="b-count">
         <div>
           <h2 id="b-count" className="ss-h2">What keel counted</h2>
@@ -514,7 +493,7 @@ function BudgetBody({ pid, name, capEdit, setCapEdit }: { pid: string; name: str
                 <tbody>
                   {b.top.map((t, i) => (
                     <tr key={i}><td style={{ fontWeight: 600 }}>{t.agent}</td><td><Prov p={t.provider} /></td><td className="ss-mono" data-label="tokens">{kfmt(t.tokens)}</td>
-                      <td data-label="at API prices">{t.cost_usd ? usd(t.cost_usd) : <span className="ss-meta">subscription</span>}</td></tr>
+                      <td data-label="at API prices">{usd(t.cost_usd)}</td></tr>
                   ))}
                 </tbody>
               </table></div>
@@ -552,7 +531,7 @@ function BudgetBody({ pid, name, capEdit, setCapEdit }: { pid: string; name: str
         <CapsPanel pid={pid} name={name} caps={caps} left={left} onAdd={() => setCapEdit("new")} onEdit={(c) => setCapEdit(c)} onChanged={() => void left.reload()} />
       </section>
 
-      <p className="ss-sub ss-small">Where the numbers come from: the providers' own plan windows (Claude: its last run; Codex: codex app-server; Copilot: GitHub, unofficial); keel's count from LangChain usage metadata for API calls and each CLI's usage line.</p>
+      <p className="ss-sub ss-small">Where the numbers come from: keel counts the tokens each API call reports, and prices them with its price table.</p>
       {capEdit && <CapDrawer pid={pid} cap={capEdit === "new" ? null : capEdit} onClose={() => setCapEdit(null)}
         onSaved={(c) => {
           caps.setData((l) => (l ? (l.some((x) => x.id === c.id) ? l.map((x) => (x.id === c.id ? c : x)) : [...l, c]) : [c]));

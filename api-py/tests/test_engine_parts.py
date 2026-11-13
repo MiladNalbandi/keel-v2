@@ -72,3 +72,15 @@ def test_the_org_tools_routes_have_their_mcp_levels(keel):
     gone = keel.client.delete("/api/org/orgs/shop", headers=tok["write"])
     assert gone.status_code == 403 and "admin level" in gone.json()["error"]
     assert keel.client.delete("/api/org/orgs/shop", headers=tok["admin"]).status_code == 200
+
+
+def test_the_flow_doctor_goes_to_the_engine_and_an_mcp_reader_may_read_it_but_not_clear_it(keel):
+    """#101 part 3 the flow doctor's report and crash log live in the engine: /api/flow-doctor/* → /flow-doctor/*."""
+    r = keel.client.get("/api/flow-doctor/report?days=3", headers={"X-Keel-Token": TOKEN})
+    assert r.status_code == 200 and r.json()["path"] == "/flow-doctor/report"
+    assert keel.engine.seen[-1].url.query == b"days=3" and keel.back.seen == []
+    read = keel.ctx.mcp_tokens.token_for("read")
+    assert keel.client.get("/api/flow-doctor/report", headers={"X-Keel-Mcp-Token": read}).status_code == 200
+    n = len(keel.engine.seen)
+    no = keel.client.delete("/api/flow-doctor/crashes", headers={"X-Keel-Mcp-Token": read})
+    assert no.status_code == 403 and len(keel.engine.seen) == n

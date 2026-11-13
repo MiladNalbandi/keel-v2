@@ -10,7 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from keel_engine.models import api_runner, catalog, vertex
+from keel_engine.models import catalog, vertex
 from keel_engine.models.base import AgentRequest, ModelError
 from keel_engine.tools.agent_tools import ToolBox
 
@@ -162,30 +162,6 @@ def test_regional_hosts():
     assert vertex.api_host("us-east5") == "https://us-east5-aiplatform.googleapis.com"
     assert vertex.openai_base("p", "europe-west1") == \
         "https://europe-west1-aiplatform.googleapis.com/v1/projects/p/locations/europe-west1/endpoints/openapi"
-
-
-async def test_claude_on_vertex_runs_with_the_google_token_and_the_effort(fake, tmp_path):
-    steps, emit = collect()
-    res = await api_runner.APIRunner().run(req(tmp_path, "claude-sonnet-5-5", "high"), emit)
-    assert res.text == "OK from Vertex"
-    assert res.tokens_in == 50 and res.tokens_out == 9
-    assert res.cost_usd == round((50 * 2.0 + 9 * 10.0) / 1e6, 6)
-    call = fake.requests[0]
-    assert call["path"] == "/v1/projects/my-proj/locations/us-east5/publishers/anthropic/models/claude-sonnet-5-5:streamRawPredict"
-    assert call["auth"] == "Bearer ya29.fake-token"
-    assert call["body"]["output_config"] == {"effort": "high"} and "model" not in call["body"]
-    assert call["body"]["anthropic_version"].startswith("vertex-")
-    assert [t["name"] for t in call["body"]["tools"]][:2] == ["read_file", "write_file"]
-
-
-async def test_gemini_on_vertex_goes_through_the_openai_compatible_endpoint(fake, tmp_path):
-    res = await api_runner.APIRunner().run(req(tmp_path, "gemini-2.5-flash", "high"), collect()[1])
-    assert res.text == "OK from Gemini" and res.tokens_in == 30 and res.tokens_out == 4
-    assert res.cost_usd == round((30 * 0.3 + 4 * 2.5) / 1e6, 6)
-    call = fake.requests[0]
-    assert call["path"] == "/v1/projects/my-proj/locations/us-east5/endpoints/openapi/chat/completions"
-    assert call["body"]["model"] == "google/gemini-2.5-flash" and call["auth"] == "Bearer ya29.fake-token"
-    assert "reasoning_effort" not in call["body"]       # Gemini takes no effort here
 
 
 async def test_the_provider_test_and_ask(fake, monkeypatch):

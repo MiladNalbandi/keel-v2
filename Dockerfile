@@ -1,9 +1,9 @@
-# keel v2 — one image: web + api (Python in front, Kotlin behind) + engine (Python, LangGraph) + keel v2's content + the agent CLIs.
+# keel v2 — one image: web + api (Python in front, Kotlin behind) + engine (Python, LangGraph, keel's own agent harness) + keel v2's content.
 # Everything is installed or built inside the image; nothing comes from your computer except this repo's source.
 # keel v1 is a separate project and is not in the image (keel2 start --with-keel-v1 can mount one for its MCP server).
 #
-#   docker build -t keel-v2 .                                        (CLIs included, every plugin in plugins/ inside)
-#   docker build --build-arg INSTALL_CLIS=0 -t keel-v2:slim .        (no claude/codex/copilot/opencode)
+#   docker build -t keel-v2 .                                        (CodeGraph included, every plugin in plugins/ inside)
+#   docker build --build-arg INSTALL_CLIS=0 -t keel-v2:slim .        (no CodeGraph)
 #   docker build --build-arg EDITION=product -t keel-v2:product .    (also the keel Product plugin inside: beta)
 #   docker build --build-arg EDITION=core -t keel-v2:core .          (keel's core only, no plugin inside)
 #   docker build --build-arg PLUGINS=lock -t keel-v2 .               (the released plugins of plugins.lock, not plugins/)
@@ -139,14 +139,15 @@ ENV LANG=C.UTF-8 \
 
 # System tools, Python 3.12, Node.js (NodeSource) and the Docker CLI with compose + buildx (Docker's apt repo).
 # python3-pytest + python-is-python3: a plain Python project (and keel's demo) runs `python -m pytest` out of the box;
-# keel's own venv is kept off the PATH its projects and agents see (models/cli.py project_env).
+# keel's own venv is kept off the PATH its projects and agents see (models/env.py project_env).
 # gh (the GitHub CLI): Connections › GitHub › Sign in with GitHub runs `gh auth login --web` (device code) in a scratch HOME.
 # The Docker daemon is the host's: `keel2 --docker` mounts its socket, so tests can use Testcontainers or compose.
 # #100 socat: on Docker Desktop that socket is root's group (gid 0), so the agents' user reaches it through a copy
 # keel-stack-setup relays (agent-docker), never through root's group.
+# ripgrep (Grep, Glob) and poppler-utils (pdftotext, Read of a PDF): the tools of keel's own agent harness (#101).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 python3-venv python3-pip python3-pytest python-is-python3 git tini curl ca-certificates gnupg sqlite3 \
-        openssh-client make zip unzip sudo socat \
+        openssh-client make zip unzip sudo socat ripgrep poppler-utils \
     && curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - \
     && install -m 0755 -d /etc/apt/keyrings \
     && curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc \
@@ -170,12 +171,14 @@ RUN arch="$(dpkg --print-architecture)"; \
     && echo "$sum  /usr/local/bin/kubectl" | sha256sum -c - \
     && chmod 0755 /usr/local/bin/kubectl && kubectl version --client >/dev/null
 
-# The agent CLIs, and CodeGraph (the code index agents query through MCP; content/NOTICE.md). CodeGraph is pinned:
-# keel parses its `status --json` and starts `serve --mcp`.
+# CodeGraph (the code index agents query through MCP; content/NOTICE.md). It is pinned: keel parses its
+# `status --json` and starts `serve --mcp`. #101 the coding-agent apps (Claude Code, Codex, Copilot CLI, OpenCode) are
+# no longer in the image: keel's own harness runs every model on its API. INSTALL_CLIS keeps its name for old build
+# commands; it now says only whether CodeGraph is installed.
 ARG CODEGRAPH_VERSION=1.6.2
 RUN if [ "$INSTALL_CLIS" = "1" ]; then \
-      npm i -g --no-audit --no-fund @anthropic-ai/claude-code @openai/codex @github/copilot opencode-ai \
-        "@colbymchenry/codegraph@${CODEGRAPH_VERSION}" && npm cache clean --force && codegraph --version; \
+      npm i -g --no-audit --no-fund "@colbymchenry/codegraph@${CODEGRAPH_VERSION}" && npm cache clean --force \
+        && codegraph --version; \
     fi
 
 # The engine: installed with uv into a venv that uses this image's own Python

@@ -10,7 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from keel_engine.models import api_runner, catalog, local
+from keel_engine.models import catalog, local
 from keel_engine.models.base import AgentRequest, ModelError
 from keel_engine.tools.agent_tools import ToolBox
 
@@ -196,13 +196,6 @@ def test_model_ids_name_their_server():
 
 # ------------------------------------------------------------------ efforts, prices, context
 
-def test_local_models_take_no_effort_and_cost_nothing_unless_priced():
-    assert catalog.efforts_for("local", "api", "box/coder:7b") == []
-    assert catalog.effort_for({"provider": "local", "mode": "api", "model": "box/coder:7b", "effort": "high"}) is None
-    assert catalog.cost_usd("local", "box/coder:7b", 1_000_000, 1_000_000) == 0.0
-    priced = json.dumps({"endpoints": [{"name": "box", "url": "http://x", "price_in": 1.0, "price_out": 2.0}]})
-    assert api_runner.cost_usd("local", "box/coder:7b", priced, 1_000_000, 500_000) == 2.0
-
 
 def test_context_comes_from_the_endpoint_then_the_server(server):
     ep = {"name": "box", "kind": "ollama", "url": server.url}
@@ -223,33 +216,6 @@ def test_fit_drops_old_turns_then_the_middle_of_the_prompt():
 
 
 # ------------------------------------------------------------------ chat, tools, usage
-
-async def test_a_tool_calling_model_runs_the_tool_loop_and_counts_usage(server, tmp_path):
-    steps, emit = collect()
-    res = await api_runner.APIRunner().run(req(tmp_path, "box/coder:7b", cfg(server.url)), emit)
-    assert res.text == "done: OK"
-    assert res.tokens_in == 240 and res.tokens_out == 14 and res.cost_usd == 0.0
-    assert any(s["kind"] == "read" and s.get("path") == "README.md" for s in steps)
-    chats = [r for r in server.requests if r["path"] == "/v1/chat/completions"]
-    assert chats[0]["body"]["model"] == "coder:7b" and chats[0]["body"]["tools"]
-    # Ollama said it calls tools (/api/show): no probe request was needed
-    assert all(r["body"].get("stream") for r in chats)
-
-
-async def test_a_model_without_tools_is_refused_for_a_code_step(server, tmp_path):
-    with pytest.raises(ModelError) as e:
-        await api_runner.APIRunner().run(req(tmp_path, "box/plain:3b", cfg(server.url)), collect()[1])
-    assert "cannot call tools" in str(e.value) and "KeelBot Ask" in e.value.hint
-    assert not [r for r in server.requests if r["path"] == "/v1/chat/completions"]
-
-
-async def test_a_model_without_tools_answers_an_ask(server, tmp_path):
-    steps, emit = collect()
-    r = req(tmp_path, "box/plain:3b", cfg(server.url), agent="keelbot", phase="none", readonly=True)
-    res = await api_runner.APIRunner().run(r, emit)
-    assert res.text == "done: OK" and res.tokens_in == 120
-    chats = [x for x in server.requests if x["path"] == "/v1/chat/completions"]
-    assert len(chats) == 1 and "tools" not in chats[0]["body"]
 
 
 async def test_other_servers_are_probed_once_and_the_answer_is_remembered(tmp_path):
@@ -272,17 +238,6 @@ async def test_other_servers_are_probed_once_and_the_answer_is_remembered(tmp_pa
         s.close()
         catalog.clear_cache()
         local.forget_tools()
-
-
-async def test_a_long_prompt_is_packed_into_the_window(server, tmp_path):
-    steps, emit = collect()
-    big = "begin " + "y" * 60000 + " finish"
-    r = req(tmp_path, "box/plain:3b", cfg(server.url, context=2048), agent="keelbot", phase="none", readonly=True, prompt=big)
-    await api_runner.APIRunner().run(r, emit)
-    sent = [x for x in server.requests if x["path"] == "/v1/chat/completions"][0]["body"]["messages"]
-    user = sent[-1]["content"]
-    assert len(user) < 8000 and user.startswith("begin ") and user.endswith(" finish")
-    assert any("shortened" in s["text"] for s in steps)
 
 
 async def test_ask_and_the_provider_test_go_through_the_server(server, monkeypatch):

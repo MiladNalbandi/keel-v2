@@ -244,7 +244,7 @@ export function JobsPage({ pid }: { pid: string }) {
           {fresh && finCount !== null && finCount > list.length && list.length > 0 && (
             <p className="hint">The newest {list.length} of {finCount} finished calls. Search to find an older one.</p>
           )}
-          {showCost && <p className="hint">Cost shows only for API-key and Claude CLI calls; subscription CLIs report tokens without a price.</p>}
+          {showCost && <p className="hint">Cost is at the API's prices (keel's price table); a local model costs nothing.</p>}
         </section>
       )}
       {start && <StartFlowDrawer onClose={() => setStart(false)} />}

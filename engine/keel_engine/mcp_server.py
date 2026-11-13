@@ -64,6 +64,10 @@ START_POST = 30         # the start itself (branch, worktree, estimate) may take
 
 # ---------------------------------------------------------------- write tools (only with --write)
 
+# #101 the build flows the harness flow can stand in for (engine: harness), and what its planner is told (data.intent)
+HARNESS_INTENTS = {"change": "change", "quick": "change", "small": "change", "implement": "change", "feature": "feature",
+                   "fix": "bug"}
+
 def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | None = None, sleep=time.sleep,
                wait: float = START_WAIT, allow_fake: bool = False, title: str | None = None, request: str | None = None,
                ticket: str | None = None, pr: str | None = None, inputs: dict | None = None,
@@ -119,10 +123,14 @@ def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | 
             raise ApiError("run_mode is one of manual, important, auto, readonly.")
         body["run_mode"] = run_mode
     if engine:
-        # 0.22.0 flow: the flow asked for, even when Settings › Who does the work sends new work to the harness
+        # #101 flow: the flow asked for (the default); harness: the harness flow (one session plans, the person approves,
+        # the same session builds) with what was asked for as its intent. No setting sends work there any more.
         if engine not in ("flow", "harness"):
-            raise ApiError("engine is flow (keel's own flow, as asked) or harness (the agent's own session builds it).")
-        body["options"] = {**(body.get("options") or {}), "engine": engine}
+            raise ApiError("engine is flow (keel's own flow, as asked) or harness (one session plans and builds it).")
+        intent = HARNESS_INTENTS.get(str(body.get("workflow_id") or ""))
+        if engine == "harness" and intent:
+            body["options"] = {**(body.get("options") or {}), "intent": intent, "requested_workflow": body["workflow_id"]}
+            body["workflow_id"] = "harness"
     try:
         state = api.post(f"/projects/{p['id']}/flows", body, timeout=START_POST) or {}
     except ApiError as exc:
@@ -166,9 +174,9 @@ def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | 
            "recorded as started via MCP.", f"Status: {state.get('status') if started else 'starting'}. {now}"]
     if ran != type:
         # 0.22.0 never a silent swap (a field report: feature was asked for, harness ran, and the answer said feature)
-        out.insert(0, f"You asked for {type}; keel runs {ran} instead, because the project's setting Settings › Who does "
-                      f"the work (build_runs: {ran}) sends new work to the agent's own session. To run {type} itself, "
-                      f"start it with engine='flow'.")
+        out.insert(0, f"You asked for {type} with engine='harness': keel runs it as the harness flow (one session plans, "
+                      f"you approve the plan, the same session builds it). To run {type} itself, leave engine out."
+                      if ran == "harness" and engine == "harness" else f"You asked for {type}; keel runs {ran} instead.")
     if ignored:
         out.insert(0, "ignored on this computer (.git/info/exclude): " + ", ".join(ignored))
     if first:
@@ -690,6 +698,14 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         return guard(read_gate, api, project, flow, page)
 
     @reg(ro)
+    def keel_flow_doctor(days: int = 7) -> str:
+        """keel's flow doctor (#101): what crashed in keel's flows in the last `days` days (default 7), how often, what keel
+        repaired by itself, and what to improve, as Markdown (the improvement report). Each kind of crash has its count,
+        the steps and providers it hit, what to do, and an example error."""
+        return guard(lambda a: (a.get("/api/flow-doctor/report", days=max(1, min(int(days), 90))) or {}).get("markdown")
+                     or "No report.", api)
+
+    @reg(ro)
     def keel_projects() -> str:
         """Every keel project, one line each: id, branch, flow, phase, criteria done, and whether it waits on a human.
         Pass an id as `project` to the other keel tools."""
@@ -868,8 +884,8 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         continue for the flows that finish a branch (ship, cover, review, lint, address), new for the others.
         base: the branch the flow's new branch starts from, a local branch or <remote>/<branch> (e.g. upstream/main);
         keel fetches every remote at the start and its answer says how far the base is behind each one.
-        engine: flow runs the flow asked for; harness hands a build flow to the agent's own session. Default the
-        project's setting (Settings › Who does the work); the answer says when keel ran another flow than the one asked.
+        engine: flow (the default) runs the flow asked for; harness runs a build flow (change, quick, small, implement,
+        feature, fix) as the harness flow: one session plans, you approve the plan, the same session builds it.
 
         It answers at once with the thread id, its status (starting, running or waiting) and how to follow it
         (keel_status, keel_flows; keel_read_gate and keel_answer when it waits); wait: up to that many seconds (at most

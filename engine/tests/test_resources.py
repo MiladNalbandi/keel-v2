@@ -1,12 +1,9 @@
 """keel 0.20.0 how much of the machine keel may use (runtime/resources.py, Settings › Access › Resources)."""
 
 import asyncio
-import os
-import sys
 
 import pytest
 
-from keel_engine.models import cli
 from keel_engine.runtime import resources
 
 
@@ -115,17 +112,6 @@ async def test_a_raised_limit_frees_a_waiting_agent_and_a_cancelled_one_leaves_t
     assert await asyncio.wait_for(second, 2) == "ran" and not first.done()
     done.set()
     await first
-
-
-async def test_run_cli_runs_an_agent_at_a_lower_priority_when_asked(data):
-    base = os.nice(0)
-    # the priority is set just after the start, so the child reads it a moment later
-    long_argv = [sys.executable, "-c", "import os, time; time.sleep(0.3); print(os.nice(0))"]
-    out, _ = await cli.run_cli("probe", long_argv, timeout=30)
-    assert int(out.strip()) == max(base, resources.NICE)
-    resources.save({"low_priority": False})
-    out, _ = await cli.run_cli("probe", long_argv, timeout=30)
-    assert int(out.strip()) == base
 
 
 def test_the_engine_answers_and_refuses_a_bad_value(client):

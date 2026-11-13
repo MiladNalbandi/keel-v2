@@ -108,21 +108,8 @@ abstract class ApiTest {
             r.add("keel.tasks.github-api") { github.url }
             r.add("keel.tasks.github-from-env") { false }
             r.add("keel.tasks.public-url") { "http://keel.test" }
-            // Login helpers: no pseudo-terminal in tests, and stand-in CLIs that behave like the real ones.
+            // GitHub sign-in: no pseudo-terminal in tests, a stand-in gh (it writes its arguments to gh.log) and no real GitHub
             r.add("keel.login-pty") { false }
-            r.add("keel.login-commands.codex") {
-                "echo 'Open this link: https://auth.openai.com/codex/device'; echo 'Enter this one-time code: AB12-CD345'; sleep 1; " +
-                    "mkdir -p \"\$CODEX_HOME\"; echo '{\"tokens\":{\"access_token\":\"codex-from-device\"}}' > \"\$CODEX_HOME/auth.json\""
-            }
-            r.add("keel.login-commands.copilot") {
-                "echo 'To authenticate, visit https://github.com/login/device and enter code 32B2-75E8'; sleep 1; " +
-                    // like the real CLI 1.0.94 in a container: no keychain, so it asks before it writes the token, then stays open
-                    "printf 'System keychain unavailable. Store token in plaintext config file? (y/N) '; read answer; " +
-                    "if [ \"\$answer\" != y ]; then echo 'Login succeeded, but the token was not saved.'; exit 1; fi; " +
-                    "mkdir -p \"\$HOME/.copilot\"; echo '{\"token\":\"gho_abcdefghijklmnopqrstuvwxyz123456\"}' > \"\$HOME/.copilot/config.json\"; " +
-                    "echo 'Signed in successfully'; exec sleep 600"
-            }
-            // GitHub sign-in: a stand-in gh (it writes its arguments to gh.log) and no real GitHub
             val fakeGh = dataDir.resolve("fake-gh")
             Files.writeString(fakeGh, """#!/bin/sh
 echo "${'$'}*" >> "${'$'}(dirname "${'$'}0")/gh.log"
@@ -153,10 +140,6 @@ exit 0
 """)
             fakeGh.toFile().setExecutable(true)
             r.add("keel.github-login.gh") { fakeGh.toString() }
-            r.add("keel.login-commands.claude") {
-                "echo 'Browse to https://claude.com/cai/oauth/authorize?code=true&client_id=x'; printf 'Paste code here if prompted> '; read code; " +
-                    "if [ \"\$code\" = good-code ]; then echo 'Your OAuth token: sk-ant-oat01-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123'; else echo 'OAuth error: invalid code'; exit 1; fi"
-            }
         }
     }
 }

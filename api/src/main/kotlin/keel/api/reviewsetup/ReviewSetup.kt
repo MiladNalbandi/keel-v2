@@ -45,8 +45,8 @@ data class FindSetup(
     val fixRunMode: String?,
     val oneFlowPerFile: Boolean,
     val text: String,
-    /** 0.19.0 harness: Find problems runs in the project's coding harness (one KeelBot session on the default model,
-     *  then the checker); flow: the review flow (review-pr, 0.18.67) at [depth]; classic: the [reviewers] as KeelBot runs */
+    /** harness: Find problems runs as one KeelBot session on the default model, then the checker; flow: the review flow
+     *  (review-pr, 0.18.67) at [depth]; classic: the [reviewers] as KeelBot runs */
     val runs: String = "harness",
     val depth: String = "standard",
 )

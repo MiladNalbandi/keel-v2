@@ -334,7 +334,7 @@ export type NotesSettingItem = SlotItem & { component: ComponentType };
 export type SettingsBrowserItem = SlotItem & { component: ComponentType };
 
 /** keel 0.18.57 Settings: a part's tab. `title` is its name in the menu, `order` its place among keel's own (General 10,
- *  Models & logins 20, Connections 30, Budget 40, Plugins 50, Devices 70); `line` is the one line under its title. The
+ *  Models & keys 20, Connections 30, Budget 40, Plugins 50, Devices 70); `line` is the one line under its title. The
  *  component draws the tab's content (keel draws the head and the menu); `actions` go on the right of the head. */
 export type SettingsTabItem = SlotItem & {
   title: string;

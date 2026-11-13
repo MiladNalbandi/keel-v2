@@ -67,7 +67,7 @@ export function stepsOf(d: StartView | null, mcp: McpClientSeen[]): StepStatus[]
   const tool = mcp[0];
   const rows: [StepId, boolean, string][] = [
     ["project", (d?.projects ?? 0) > 0, p ? `Done: ${p.name}${(d?.projects ?? 0) > 1 ? ` and ${(d?.projects ?? 1) - 1} more` : ""}.` : "Pick a git repository on this computer."],
-    ["model", !!model, model ? `Done: ${model.label}.` : "Use a subscription you already have, or an API key."],
+    ["model", !!model, model ? `Done: ${model.label}.` : "Save an API key, or set up a local model server."],
     ["mcp", !!tool, tool ? `Done: keel saw ${tool.client} (${tool.level}).` : "Optional: your editor's AI talks to keel."],
     ["init", !!p?.configured, !p ? "Add a project first." : p.configured ? `Done: keel knows ${p.name}.` : p.init_running ? `init runs now on ${p.name}.` : `keel does not know ${p.name} yet.`],
     ["flow", !!d?.flow, d?.flow ? `Done: ${d.flow.title || d.flow.workflow || "a flow"}${d.flow.workflow ? ` (${d.flow.workflow})` : ""}.` : "Say what you want in your words."],

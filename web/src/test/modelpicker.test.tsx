@@ -1,5 +1,7 @@
 // v0.15.2 the model picker is one dropdown: a button that opens a list of every provider's models, grouped, each group
 // with its company's mark. Keys (↑↓, Home/End, Enter, Esc, letters), "Other model…" for any id, and where the list goes.
+// #101 every model runs on its provider's API: only API models, no runs-on select; a model saved as "subscription" or
+// "opencode" shows as API and is saved again as API.
 
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -13,7 +15,7 @@ import { brandOf, ProviderIcon } from "../components/ProviderIcon";
 import { providerModels } from "./fixtures";
 import { server } from "./setup";
 
-const sonnet: Model = { provider: "claude", mode: "subscription", model: "sonnet" };
+const sonnet: Model = { provider: "claude", mode: "api", model: "sonnet" };
 
 function setup(start: Model = sonnet, props: { provider?: boolean; mode?: boolean; effort?: boolean } = {}) {
   const changes: Model[] = [];
@@ -25,7 +27,7 @@ function setup(start: Model = sonnet, props: { provider?: boolean; mode?: boolea
   render(<Harness />);
   return { user, changes, button: () => screen.getByTestId("t-model") };
 }
-const ready = () => waitFor(() => expect(screen.getByTestId("t-source")).toHaveTextContent("from the CLI"));
+const ready = () => waitFor(() => expect(screen.getByTestId("t-source")).toHaveTextContent("built-in list"));
 const active = () => document.getElementById(screen.getByRole("listbox").getAttribute("aria-activedescendant") ?? "")!;
 
 describe("model picker: one dropdown", () => {
@@ -51,13 +53,17 @@ describe("model picker: one dropdown", () => {
     // the groups, in the catalog's order, each with the mark of its company and the mode its list is for
     const groups = within(list).getAllByRole("group");
     expect(groups.map((g) => [g.getAttribute("data-provider"), g.querySelector("svg.pi")?.getAttribute("data-brand")])).toEqual([
-      // v0.15.5 Copilot hosts several companies' models: one sub-group per company, with that company's mark
-      ["claude", "anthropic"], ["codex", "openai"], ["copilot", "openai"], ["copilot", "anthropic"], ["fake", "fake"],
+      // v0.15.5 GitHub Models hosts several companies' models: one sub-group per company, with that company's mark
+      // (one keel has no mark for wears its host's)
+      ["claude", "anthropic"], ["codex", "openai"], ["copilot", "openai"], ["copilot", "github"], ["fake", "fake"],
     ]);
-    expect(within(list).getByRole("group", { name: "Claude" })).toHaveTextContent("Subscription");
-    expect(within(groups[2]).getAllByRole("option").map((o) => o.getAttribute("aria-label"))).toEqual(["GPT-5 (Copilot)"]);
-    expect(within(groups[3]).getAllByRole("option").map((o) => o.getAttribute("aria-label"))).toEqual(["Claude Sonnet 4.5 (Copilot)"]);
-    expect(groups[3]).toHaveTextContent("Copilot · Claude");
+    // every group is reached through the provider's API
+    expect(within(list).getByRole("group", { name: "Claude" })).toHaveTextContent("API key");
+    expect(groups[2]).toHaveTextContent("API key (GitHub Models)");
+    expect(list).not.toHaveTextContent(/Subscription|OpenCode|Copilot CLI/);
+    expect(within(groups[2]).getAllByRole("option").map((o) => o.getAttribute("aria-label"))).toEqual(["GPT-5 (GitHub Models)"]);
+    expect(within(groups[3]).getAllByRole("option").map((o) => o.getAttribute("aria-label"))).toEqual(["DeepSeek R1 (GitHub Models)"]);
+    expect(groups[3]).toHaveTextContent("Copilot · DeepSeek");
     // the last item types any id
     expect(within(list).getAllByRole("option").at(-1)).toHaveAccessibleName("Other model…");
   });
@@ -84,7 +90,7 @@ describe("model picker: one dropdown", () => {
     expect(changes).toEqual([]);
 
     await user.keyboard("{ArrowUp}{ArrowUp}{Enter}");
-    expect(changes).toEqual([{ provider: "claude", mode: "subscription", model: "opus" }]);
+    expect(changes).toEqual([{ provider: "claude", mode: "api", model: "opus" }]);
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
     expect(button()).toHaveFocus();
     expect(button()).toHaveTextContent("Claude Opus");
@@ -135,26 +141,39 @@ describe("model picker: one dropdown", () => {
     expect(button().querySelector("svg.pi")).toHaveAttribute("data-brand", "fake");
   });
 
-  it("another provider's model brings its provider and default mode; its default model brings its default effort", async () => {
+  it("another provider's model brings its provider; its default model brings its default effort", async () => {
     const { user, button, changes } = setup({ provider: "claude", mode: "api", model: "claude-sonnet-4-5" });
     await ready();
     await user.click(button());
     const list = screen.getByRole("listbox");
     expect(within(list).getByRole("group", { name: "Claude" })).toHaveTextContent("API key");
-    expect(within(list).getByRole("group", { name: "GPT / Codex" })).toHaveTextContent("Subscription");
-    await user.click(within(list).getByRole("option", { name: "GPT-5 (Copilot)" }));
-    expect(changes.at(-1)).toEqual({ provider: "copilot", mode: "subscription", model: "gpt-5" });
+    expect(within(list).getByRole("group", { name: "GPT / Codex" })).toHaveTextContent("API key");
+    await user.click(within(list).getByRole("option", { name: "GPT-5 (GitHub Models)" }));
+    expect(changes.at(-1)).toEqual({ provider: "copilot", mode: "api", model: "gpt-5" });
     await user.click(button());
     await user.click(screen.getByRole("option", { name: "GPT-5.6 Sol" }));
-    expect(changes.at(-1)).toEqual({ provider: "codex", mode: "subscription", model: "gpt-5.6-sol", effort: "medium" });
+    expect(changes.at(-1)).toEqual({ provider: "codex", mode: "api", model: "gpt-5.6-sol", effort: "medium" });
     await user.click(button());
     // the same provider keeps the effort when the new model has it
     await user.click(screen.getByRole("option", { name: "GPT-5 mini" }));
-    expect(changes.at(-1)).toEqual({ provider: "codex", mode: "subscription", model: "gpt-5-mini", effort: "medium" });
+    expect(changes.at(-1)).toEqual({ provider: "codex", mode: "api", model: "gpt-5-mini", effort: "medium" });
     // another provider's model that is not its default starts on "effort: default"
     await user.click(button());
     await user.click(screen.getByRole("option", { name: "Claude Opus" }));
-    expect(changes.at(-1)).toEqual({ provider: "claude", mode: "subscription", model: "opus" });
+    expect(changes.at(-1)).toEqual({ provider: "claude", mode: "api", model: "opus" });
+  });
+
+  it("a model saved as subscription or OpenCode shows as API, and a change saves it as API", async () => {
+    const { user, button, changes } = setup({ provider: "copilot", mode: "opencode", model: "gpt-5" });
+    await waitFor(() => expect(screen.getByTestId("t-source")).toHaveTextContent("built-in list"));
+    expect(button()).toHaveAccessibleName("Model: GPT-5 (GitHub Models), GitHub Copilot");
+    expect(screen.queryByLabelText("Runs on")).not.toBeInTheDocument();
+    await user.click(button());
+    const chosen = screen.getByRole("option", { name: "GPT-5 (GitHub Models)" });
+    expect(chosen).toHaveAttribute("aria-selected", "true");
+    expect(chosen.closest('[role="group"]')).toHaveTextContent("API key (GitHub Models)");
+    await user.click(screen.getByRole("option", { name: "DeepSeek R1 (GitHub Models)" }));
+    expect(changes).toEqual([{ provider: "copilot", mode: "api", model: "deepseek/deepseek-r1" }]);
   });
 
   it("a click outside or on the button again closes the list without a change", async () => {
@@ -178,7 +197,7 @@ describe("model picker: one dropdown", () => {
     expect(box).toHaveFocus();
     expect(box).toHaveValue("");
     await user.type(box, "claude-opus-5{Enter}");
-    expect(changes).toEqual([{ provider: "claude", mode: "subscription", model: "claude-opus-5" }]);
+    expect(changes).toEqual([{ provider: "claude", mode: "api", model: "claude-opus-5" }]);
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
     expect(button()).toHaveFocus();
     expect(button()).toHaveTextContent("claude-opus-5");
@@ -197,14 +216,14 @@ describe("model picker: one dropdown", () => {
     expect(button()).toHaveFocus();
   });
 
-  it("where the place fixes the provider and the mode, only that provider's models show and no runs-on select", async () => {
+  it("where the place fixes the provider, only that provider's models show, with no way line", async () => {
     const { user, button } = setup(sonnet, { provider: false, mode: false });
     await ready();
     expect(screen.queryByLabelText("Runs on")).not.toBeInTheDocument();
     await user.click(button());
     const groups = within(screen.getByRole("listbox")).getAllByRole("group");
     expect(groups.map((g) => g.getAttribute("data-provider"))).toEqual(["claude"]);
-    expect(groups[0]).not.toHaveTextContent("Subscription");
+    expect(groups[0]).not.toHaveTextContent("API key");
   });
 
   it("the list stays inside the screen: moved left at the right edge, over the button at the bottom, full width on a phone", async () => {

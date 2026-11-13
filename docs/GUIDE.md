@@ -16,7 +16,7 @@ The [README](../README.md) is the short version. This page has the details.
 - [Inbox and run modes](#inbox-and-run-modes)
 - [Usage and caps](#usage-and-caps)
 - [Tasks, Jira and GitHub Issues](#tasks-jira-and-github-issues)
-- [Logins](#logins)
+- [Keys](#keys)
 - [Signing in](#signing-in)
 - [Use keel from Claude Code or Claude Desktop (MCP)](#use-keel-from-claude-code-or-claude-desktop-mcp)
 - [keel2 commands](#keel2-commands)
@@ -791,13 +791,12 @@ effort is slower and uses more tokens; less is quicker and cheaper. **default** 
   Each agent call keeps the effort it ran with, so the history shows it too.
 - **Which models have it**:
 
-| Engine | Efforts | How keel passes it |
+| Provider | Efforts | How keel passes it |
 |---|---|---|
-| Claude Code (subscription) | low, medium, high, xhigh, max (not Haiku) | `claude --effort` |
-| Claude API key | low, medium, high, xhigh, max (not Haiku) | `output_config.effort` |
-| Codex CLI and OpenAI key | what each model offers (from Codex's model list) | `-c model_reasoning_effort=…` / `reasoning_effort` |
-| Copilot through OpenCode | low, medium, high (newer GPT also xhigh; Gemini none) | `opencode run --variant` |
-| Copilot CLI, GitHub Models key | none | — |
+| Anthropic (Claude) API key | low, medium, high, xhigh, max (not Haiku 4.5) | `output_config.effort` |
+| OpenAI API key | what each model offers | `reasoning_effort` |
+| GitHub Models token | none | — |
+| Vertex AI | Claude as Anthropic; Gemini none | `output_config.effort` |
 | Fake model | low, medium, high (only noted, for tests) | — |
 
 A model without an effort setting shows "no effort setting", and keel ignores an effort it cannot pass on.
@@ -1238,13 +1237,10 @@ keel counts every agent call: tokens, money, model and effort. **Budget** shows 
 agent, and the caps. The bar on top of every page shows each provider's fullest window. keel TUI's top line shows the
 tokens and money of today and this month; `/budget` and `keel_budget` show the rest.
 
-- **Real numbers**: failed, cancelled and out-of-turns calls count too. A long step counts while it runs (Claude Code
-  and opencode report tokens as they go). A resumed Claude session is counted once.
-- **Plan usage**: for each provider that is set up, what its plan says is used and what remains (5 hours, week,
-  month), with where the number came from and how old it is. The Claude card shows the live weekly number. Before a
-  subscription agent, keel warns at 80% of a plan window and pauses at 95%.
-- **Copilot** costs its premium requests × the model's multiplier × $0.04 (models included in the plan cost $0). Set
-  your own multipliers and prices in `prices.json` in keel's data folder.
+- **Real numbers**: failed, cancelled and out-of-turns calls count too. A long step counts while it runs (keel's
+  harness reports tokens after every model turn). A continued session is counted once.
+- **Prices**: what each API call costs, from keel's price table. Set your own prices in `prices.json` in keel's data
+  folder.
 
 ```
  Start a flow ─ keel's estimate ─ cap = high end + 30% (when above the Settings cap)
@@ -1257,9 +1253,7 @@ tokens and money of today and this month; `/budget` and `keel_budget` show the r
 - **Token cap per flow**: Settings (default 500,000 tokens). **When a flow reaches its cap**: pause (default), go on
   with a cheaper model, or stop. A flow started without a cap (MCP, keel TUI, the API, a KeelBot button) gets the
   estimate's high end plus 30%, and says so.
-- **Your own caps** (Budget): per day, per flow, per step, and API spend per month. **Accounts**: tokens in the last 5
-  hours for a Claude or Codex subscription, Copilot premium requests this month (300 by default), and USD spent on API
-  keys this month (100 by default). 0 = not set.
+- **Your own caps** (Budget): per day, per flow, per step, and API spend per month (100 USD by default). 0 = not set.
 
 ## Tasks, Jira and GitHub Issues
 
@@ -1288,24 +1282,24 @@ project). It uses keel's GitHub sign-in (Settings › Connections › GitHub); t
 
 A project follows one tracker: Jira or GitHub Issues.
 
-## Logins
+## Keys
 
-The image has claude, codex, copilot and opencode installed. Nothing from your computer is copied in. Each login is
-saved encrypted in keel's own database (the `keel-data` volume), so it survives restarts and updates.
+keel runs every agent in its own harness, on the model provider's API (0.26.0). It needs an API key, not a
+subscription login: the coding-agent apps (Claude Code, Codex, Copilot CLI, OpenCode) are no longer in the image. Each
+key is saved encrypted in keel's own database (the `keel-data` volume), so it survives restarts and updates.
 
-| Tool | Log in from the dashboard | Or paste |
+| Provider | Key | Where to get it |
 |---|---|---|
-| Claude (subscription) | sign in on claude.com, paste the code it shows | `claude setup-token` on your computer |
-| Codex (ChatGPT) | open the device link, type the code | `~/.codex/auth.json` |
-| GitHub Copilot | open github.com/login/device, type the code | a token with "Copilot Requests" |
-| OpenCode (Copilot) | — (OpenCode keeps its own login) | `docker exec -it keel-v2 opencode auth login`, pick GitHub Copilot |
+| Anthropic (Claude) | `ANTHROPIC_API_KEY` (starts with `sk-ant-`) | console.anthropic.com › API keys |
+| OpenAI | `OPENAI_API_KEY` | platform.openai.com › API keys |
+| GitHub Models | `GITHUB_TOKEN`, or Settings › Connections › GitHub › Sign in with GitHub | github.com › Settings › Developer settings |
+| Vertex AI | the Google Cloud project and region (Settings › Models & keys) | Google Cloud console |
+| Local models | a model server's address (Ollama, LM Studio, vLLM …) | your own computer |
 
-From the terminal: `keel2 token <claude|codex|copilot|anthropic|openai|github>`, and `keel2 tokens` to list them. A long
-token is often shown over two lines; send it in one piece from the clipboard: `pbpaste | keel2 token claude` (Linux:
-`wl-paste | keel2 token claude`). keel checks the token before it saves it and says what is wrong. Settings › Models & logins shows a
-subscription as ready only when keel has its login; OpenCode only when its own login file (`opencode auth login`, where
-keel's agents run) has a GitHub Copilot login. In native mode keel's agents use their own home, so your own
-Claude Code login is not used.
+Add a key in Settings › Models & keys, or from the terminal: `keel2 token <anthropic|openai|github>`, and
+`keel2 tokens` to list them. A long key is often shown over two lines; send it in one piece from the clipboard:
+`pbpaste | keel2 token anthropic` (Linux: `wl-paste | keel2 token anthropic`). keel checks the key before it saves it
+and says what is wrong. A Claude or Codex login saved by an older keel is not used any more.
 
 ## Signing in
 
@@ -1687,7 +1681,7 @@ Run `keel2 doctor` first. The most common ones:
 | "Docker is not running" | start Docker Desktop (keel2 starts it on a Mac) |
 | "not a git repository" | say yes when keel2 offers `git init`; for a git worktree, see [Git worktree projects](#git-worktree-projects) |
 | port 8080 is busy | nothing: keel2 uses the next free port and tells you |
-| an agent "is not logged in" | Settings › Models & logins › Set up login |
+| an agent says its key is missing or refused | Settings › Models & keys › add or change the key |
 | your tests start containers | `keel2 start --docker <folder>` |
 | "Sign in to keel" in the browser | `keel2 open` |
 | copying in keel TUI does nothing (macOS Terminal) | `/mouse off`, then select |
@@ -1726,7 +1720,7 @@ How the parts talk: [CONTRACT.md](CONTRACT.md).
 
 ```bash
 docker build -t keel-v2 .                                 # everything is installed in the image
-docker build --build-arg INSTALL_CLIS=0 -t keel-v2:slim . # without the agent CLIs
+docker build --build-arg INSTALL_CLIS=0 -t keel-v2:slim . # without CodeGraph
 npx -y -p playwright@1 node docs/gif/record.js            # record the README's GIF from a running keel
 scripts/no-v1.sh                                          # lists anything that still depends on keel v1 (CI: 0)
 ```

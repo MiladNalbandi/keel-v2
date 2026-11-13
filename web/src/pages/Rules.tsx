@@ -1,5 +1,6 @@
-// v0.17.2 Build › Rules: every rule keel applies in this project, in plain words — what it does, when (phases), which
-// engines check it before the action or only after the step, and where it is saved. Rule packs install from a library
+// v0.17.2 Build › Rules: every rule keel applies in this project, in plain words — what it does, when (phases), whether
+// it is checked before the action or after the step, and where it is saved. #101 one engine: keel's own harness runs
+// every agent and checks each edit, read, shell command and MCP call before it runs. Rule packs install from a library
 // like workflows, or you write your own (form or YAML).
 // Safety & History (#89): the page is now "Safety & History", with the rules as its first tab and the project's
 // history of tool calls (components/SafetyHistory.tsx) as the second (#/rules/history).
@@ -11,15 +12,15 @@ import { SafetyHistory } from "../components/SafetyHistory";
 import { LibraryDrawer, PackDrawer, ImportPackDrawer } from "../components/RuleDrawers";
 import { SCREEN } from "../routes";
 import { go, useApp, useLoad, useRoute } from "../state";
-import { rulesApi, KIND_WORDS, WHEN_WORDS, type Engine, type Enforced, type RuleList, type RulePack, type RulesView, type When } from "../rulesApi";
+import { rulesApi, ENGINE_TITLE, KIND_WORDS, WHEN_WORDS, whenOf, type Enforced, type RuleList, type RulePack, type RulesView, type When } from "../rulesApi";
 
 const SOURCE_WORDS: Record<string, string> = { library: "from keel's library", file: "your own", marketplace: "from the marketplace" };
 
-const ENGINES: [Engine, string][] = [["claude", "Claude"], ["opencode", "OpenCode"], ["codex", "Codex"], ["copilot", "Copilot"], ["api", "API key"]];
-const ICON: Record<When, string> = { before: "✓", wrapped: "◐", after: "↺", none: "✗" };
+const ICON: Record<When, string> = { before: "✓", after: "↺", none: "✗" };
 
-export function WhenIcon({ when, engine }: { when: When; engine?: string }) {
-  return <span className={`rl-when rl-${when}`} title={`${engine ? engine + ": " : ""}${WHEN_WORDS[when]}`} aria-label={`${engine ?? ""} ${WHEN_WORDS[when]}`}>{ICON[when]}</span>;
+export function WhenIcon({ when }: { when: When }) {
+  const w = ICON[when] ? when : "none";
+  return <span className={`rl-when rl-${w}`} title={WHEN_WORDS[w]} aria-label={WHEN_WORDS[w]}>{ICON[w]}</span>;
 }
 
 export function RulesLegend() {
@@ -30,12 +31,9 @@ export function RulesLegend() {
   );
 }
 
-function EngineCells({ e }: { e?: Enforced }) {
-  return <>{ENGINES.map(([id, name]) => <td key={id} className="rl-eng"><WhenIcon when={e?.[id] ?? "none"} engine={name} /></td>)}</>;
-}
-
-function EngineHead() {
-  return <>{ENGINES.map(([id, name]) => <th key={id} className="rl-eng" scope="col">{name}</th>)}</>;
+/** When keel checks the rule (one engine: keel's harness). */
+function CheckedCell({ e }: { e?: Enforced }) {
+  return <td className="rl-eng"><WhenIcon when={whenOf(e)} /></td>;
 }
 
 type Tab = "rules" | "history";
@@ -83,7 +81,7 @@ function RulesTab({ pid }: { pid: string }) {
   return (
     <>
       <div className="row rl-actions">
-        <p className="sub" style={{ margin: 0 }}>keel checks every rule; some engines check it before the action, others only after the step.</p>
+        <p className="sub" style={{ margin: 0 }}>keel's harness checks every rule before the action runs; after each step keel also puts back a file the phase does not allow.</p>
         <span className="row" style={{ marginLeft: "auto" }}>
           <button className="btn" type="button" id="rulesLibrary" onClick={() => setDrawer("library")}>Library</button>
           <button className="btn" type="button" onClick={() => setDrawer("import")}>Import</button>
@@ -112,16 +110,16 @@ function RulesTab({ pid }: { pid: string }) {
 
 function Engines({ v }: { v: RulesView }) {
   return (
-    <Panel title="How each engine is checked">
+    <Panel title="How keel checks the agents">
       <div className="rl-engines">
         {v.engines.map((e) => (
           <div key={e.engine} className={`rl-engine rl-p-${e.protection}`}>
-            <b>{ENGINES.find(([id]) => id === e.engine)?.[1] ?? e.engine}</b>
+            <b>{e.title ?? ENGINE_TITLE[e.engine] ?? e.engine}</b>
             <span className="sub">{e.words}</span>
           </div>
         ))}
       </div>
-      <p className="hint" style={{ margin: "8px 0 0" }}>After every step keel also compares the files and puts back what the phase does not allow, for every engine.</p>
+      <p className="hint" style={{ margin: "8px 0 0" }}>After every step keel also compares the files and puts back what the phase does not allow.</p>
     </Panel>
   );
 }
@@ -199,13 +197,13 @@ function RuleTable({ rules, saved = true }: { rules: Row[]; saved?: boolean }) {
   return (
     <div className="rl-scroll">
       <table className="rl-table">
-        <thead><tr><th scope="col">Rule</th><th scope="col">When</th><EngineHead />{saved && <th scope="col">Saved in</th>}{rules.some((r) => r.action) && <th scope="col" />}</tr></thead>
+        <thead><tr><th scope="col">Rule</th><th scope="col">When</th><th scope="col" className="rl-eng">Checked</th>{saved && <th scope="col">Saved in</th>}{rules.some((r) => r.action) && <th scope="col" />}</tr></thead>
         <tbody>
           {rules.map((r) => (
             <tr key={r.key} data-rule={r.key}>
               <td>{r.what}{r.detail && <div className="sub">{r.detail}</div>}</td>
               <td className="nowrap">{r.when}</td>
-              <EngineCells e={r.enforced} />
+              <CheckedCell e={r.enforced} />
               {saved && <td className="sub mono">{r.saved}</td>}
               {rules.some((x) => x.action) && <td>{r.action}</td>}
             </tr>
@@ -308,7 +306,7 @@ function ListEditor({ pid, item, disabled, onView }: { pid: string; item: RuleLi
       <label htmlFor={id}><span className="mono">{item.key}</span></label>
       <span className="sub">{item.words}</span>
       <div className="row rl-list-meta"><span className="hint">saved in {item.saved_in}</span>
-        <span className="rl-mini">{ENGINES.map(([e, n]) => <WhenIcon key={e} when={item.enforced[e]} engine={n} />)}</span></div>
+        <span className="rl-mini"><WhenIcon when={whenOf(item.enforced)} /></span></div>
       {item.form === "bool" ? (
         <label className="chk"><input id={id} type="checkbox" checked={flag} disabled={disabled || busy}
           onChange={(e) => { const was = flag, now = e.target.checked; setFlag(now); void save(now).then((ok) => { if (!ok) setFlag(was); }); }} /> {flag ? "on" : "off"}</label>

@@ -727,12 +727,11 @@ DOCS: dict[str, dict] = {
     "harness_intent": {
         "summary": "Says which of keel's flows the person asked for (change, feature, bug, a review fix), so the "
                    "harness's planner follows what that flow expects, and whether the harness plans first.",
-        "steps": ["data.intent from the start (the api sets it when Settings › Who does the work sends the work to the "
-                  "coding harness); change when none was given.",
-                  "data.plan_first: yes unless the start said no (Settings › Who does the work › Plan first)."],
+        "steps": ["data.intent from the start's options; change when none was given.",
+                  "data.plan_first: yes unless the start said no."],
     },
     "harness_plan_show": {
-        "summary": "Shows the harness's plan at the plan gate, word for word, with the command that opens its session.",
+        "summary": "Shows the harness's plan at the plan gate, word for word.",
         "steps": ["The plan step's whole answer (goal, criteria, files, tests, risks).",
                   "approve: the same session builds it; change: the note goes back to that session; reject: stop."],
     },

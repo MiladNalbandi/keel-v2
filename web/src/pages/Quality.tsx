@@ -252,7 +252,7 @@ function StartPanel({
   const [a, setA] = useState<Model>(
     view.schedule.models[0] ?? {
       provider: "claude",
-      mode: "subscription",
+      mode: "api",
       model: "haiku",
     },
   );
@@ -260,7 +260,7 @@ function StartPanel({
   const [b, setB] = useState<Model>(
     view.schedule.models[1] ?? {
       provider: "claude",
-      mode: "subscription",
+      mode: "api",
       model: "sonnet",
     },
   );

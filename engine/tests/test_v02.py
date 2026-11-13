@@ -3,16 +3,12 @@
 import json
 import stat
 import subprocess
-import sys
 from pathlib import Path
 
 
 from conftest import decide, start, to_loop, wait
 from keel_engine import rules
-from keel_engine.models import login_keys
 from keel_engine.models.base import AgentRequest
-from keel_engine.models.cli import safe_env
-from keel_engine.models.cli_runners import ClaudeCLIRunner, CopilotCLIRunner, OpenCodeRunner
 from keel_engine.rules import checks
 from keel_engine.runtime import blockers, ladder, verdicts
 from keel_engine.runtime.actions import ActionInput, commit
@@ -396,119 +392,26 @@ def req(root, model, **kw):
                         toolbox=ToolBox(str(root), "red"), workdir=str(root), **kw)
 
 
-async def test_claude_runner_loads_keels_own_hook_oauth_and_hook_refusal(tmp_path, monkeypatch, repo):
-    monkeypatch.setenv("KEEL_CLAUDE_BIN", fake_claude(tmp_path, repo, tmp_path))
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-should-not-pass")
-    monkeypatch.setenv("GH_TOKEN", "gh-should-not-pass")
-    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "env-oauth")
-    steps = []
-    res = await ClaudeCLIRunner().run(req(repo, {"provider": "claude", "mode": "subscription", "model": "sonnet"},
-                                          keys={"claude_oauth": "key-oauth"}), lambda k, t="", **kw: steps.append((k, t, kw)))
-    argv = (tmp_path / "argv").read_text()
-    env = (tmp_path / "env").read_text()
-    # only keel's guard hook is loaded (no plugin), and it is keel v2's own: this venv's python, outside the project
-    assert "--plugin-dir" not in argv and "--settings" in argv
-    assert "--disallowedTools Skill,Task" in argv
-    settings = argv.split("--settings ")[1].split()[0]
-    assert not settings.startswith(str(repo))
-    hook = json.loads(open(settings).read())["hooks"]["PreToolUse"][0]
-    assert hook["hooks"][0]["command"] == f'"{sys.executable}" -I -m keel_engine.hook pre-tool || exit 2'
-    # 0.18.64 the search tools too: claude's Grep read .env files and the hook never saw it
-    assert hook["matcher"] == "Edit|Write|MultiEdit|NotebookEdit|Bash|Read|Grep|Glob|LS|mcp__.*"
-    ctx_file = next(line.split("=", 1)[1] for line in env.splitlines() if line.startswith("KEEL_GUARD_CTX="))
-    assert not ctx_file.startswith(str(repo))
-    ctx = json.loads((tmp_path / "guard.json").read_text())
-    assert ctx["phase"] == "red" and ctx["root"] == str(Path(repo).resolve()) and ctx["agent"] == "test-author"
-    assert "KEEL_BIN" not in env
-    assert "CLAUDE_CODE_OAUTH_TOKEN=key-oauth" in env
-    assert "ANTHROPIC_API_KEY" not in env and "GH_TOKEN" not in env
-    # the MCP servers are connected before the first model call (claude 2.1 -p connects them in the background)
-    assert "MCP_CONNECTION_NONBLOCKING=0" in env
-    guard = [s for s in steps if s[0] == "guard"]
-    assert guard and guard[0][1] == 'src/scores/x.py: editing api-main is blocked in phase "red".' and guard[0][2]["path"] == "src/scores/x.py"
-    assert res.data["refusals"][0]["path"] == "src/scores/x.py"
+def test_a_harness_flow_keeps_keels_rules_and_reports_what_they_refused(client, repo, monkeypatch):
+    # #101 keel's harness checks every tool call itself (Claude Code needed keel's hook and a guard context file for it)
+    from scripted_model import answer, scripted, tool
 
-    monkeypatch.delenv("KEEL_CLAUDE_BIN")
-    monkeypatch.setenv("KEEL_CLAUDE_BIN", fake_claude(tmp_path, repo, tmp_path))
-    await ClaudeCLIRunner().run(req(repo, {"provider": "claude", "mode": "subscription", "model": "sonnet"}), lambda *a, **k: None)
-    assert "CLAUDE_CODE_OAUTH_TOKEN=env-oauth" in (tmp_path / "env").read_text()
-
-
-def test_claude_flow_writes_the_guard_context_first_and_reports_hook_refusals(client, repo, tmp_path, monkeypatch):
-    monkeypatch.setenv("KEEL_FAKE", "0")
-    monkeypatch.setenv("KEEL_CLAUDE_BIN", fake_claude(tmp_path, repo, tmp_path))
+    sm = scripted(monkeypatch, [tool("Write", 1, file_path="src/scores/x.py", content="x = 1\n"),
+                                tool("Write", 2, file_path="src/scores/y.py", content="y = 1\n"), answer("done")])
     flow = wf([{"id": "r", "kind": "agent", "name": "red", "agent": "test-author", "phase": "red"}])
     tid = start(client, repo, workflow=flow, models={"default": {"provider": "claude", "mode": "subscription", "model": "sonnet"}},
                 settings={"gates_mode": "every-ac", "cap_tokens": 0, "on_cap": "pause",
                           "unlocks": [{"path": "src/scores/y.py", "phase": "red"}]})
     s = wait(client, tid)
     assert s["status"] == "done", s
-    seen = json.loads((tmp_path / "guard.json").read_text())
-    assert seen["phase"] == "red" and seen["thread"] == tid and seen["agent"] == "test-author"
-    assert seen["unlocks"][0]["path"] == "src/scores/y.py"
+    assert [r.phase for r in sm.runs] == ["red"] and sm.runs[0].agent == "test-author"
     refused = client.bus.of(tid, "guard.refused")
-    assert refused and refused[0]["data"]["source"] == "keel-hook"
-    assert refused[0]["data"]["path"] == "src/scores/x.py" and refused[0]["data"]["phase"] == "red"
+    assert refused and refused[0]["data"]["path"] == "src/scores/x.py" and refused[0]["data"]["phase"] == "red"
+    assert refused[0]["data"]["agent"] == "test-author" and refused[0]["data"]["tool"] == "write_file"
+    assert "REFUSED" in sm.calls[1].last_user_text()          # the model was told, and went on
+    assert not (Path(repo) / "src/scores/x.py").exists() and (Path(repo) / "src/scores/y.py").read_text() == "y = 1\n"
     assert not (Path(repo) / ".keel" / "state.json").exists()
 
-
-async def test_copilot_runner_gets_github_token_only_for_copilot(tmp_path, monkeypatch, repo):
-    bin_ = script(tmp_path, "copilot", f"env > {tmp_path}/env\necho done\n")
-    monkeypatch.setenv("KEEL_COPILOT_BIN", bin_)
-    monkeypatch.setenv("GH_TOKEN", "env-gh")
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-x")
-    model = {"provider": "copilot", "mode": "subscription", "model": "gpt-5"}
-    await CopilotCLIRunner().run(req(repo, model), lambda *a, **k: None)
-    env = (tmp_path / "env").read_text()
-    assert "GH_TOKEN=env-gh" in env and "ANTHROPIC_API_KEY" not in env
-    await CopilotCLIRunner().run(req(repo, model, keys={"copilot": "key-gh"}), lambda *a, **k: None)
-    env = (tmp_path / "env").read_text()
-    assert "GH_TOKEN=key-gh" in env and "COPILOT_GITHUB_TOKEN=key-gh" in env
-    assert "GH_TOKEN" not in safe_env() and "CLAUDE_CODE_OAUTH_TOKEN" not in safe_env()
-
-
-async def test_opencode_loads_keels_guard_plugin_from_the_run_folder(tmp_path, monkeypatch, repo):
-    old = Path(repo) / ".opencode" / "plugins" / "keel.js"          # keel v0.3 installed keel v1's adapter here
-    old.parent.mkdir(parents=True)
-    old.write_text("// keel's enforcement, for OpenCode.\n")
-    refused = {"type": "tool_use", "part": {"type": "tool", "tool": "write", "state": {
-        "status": "error", "input": {"filePath": str(Path(repo) / "src/scores/x.py")},
-        "error": 'Error: [keel guard] src/scores/x.py: editing api-main is blocked in phase "red".'}}}
-    done = {"type": "step_finish", "part": {"type": "step_finish", "tokens": {"input": 3, "output": 1}}}
-    out = "\n".join(json.dumps(x) for x in (refused, done))
-    (tmp_path / "oc.out").write_text(out + "\n")
-    monkeypatch.setenv("KEEL_OPENCODE_BIN", script(tmp_path, "opencode", f"env > {tmp_path}/env\ncat {tmp_path}/oc.out\n"))
-    notes = []
-    res = await OpenCodeRunner().run(req(repo, {"provider": "copilot", "mode": "opencode", "model": "gpt-5"}),
-                                     lambda k, t="", **kw: notes.append((k, t)))
-    assert res.tokens_in == 3
-    env = dict(line.split("=", 1) for line in (tmp_path / "env").read_text().splitlines() if "=" in line)
-    conf = Path(env["OPENCODE_CONFIG_DIR"])
-    plugin = (conf / "plugins" / "keel-guard.js").read_text()
-    assert json.dumps([sys.executable, "-I", "-m", "keel_engine.hook", "pre-tool"]) in plugin
-    assert "tool.execute.before" in plugin and "KEEL_BIN" not in plugin
-    assert not str(conf).startswith(str(repo)) and Path(env["KEEL_GUARD_CTX"]).is_file()
-    assert "KEEL_BIN" not in env
-    assert not old.exists() and any("keel v1's opencode adapter" in t for k, t in notes)
-    assert res.data["refusals"][0]["path"] == "src/scores/x.py" and "blocked in phase" in res.data["refusals"][0]["reason"]
-    assert git(repo, "status", "--porcelain").stdout == ""          # nothing of keel's is written into the project
-
-
-def test_provider_test_uses_login_rules(client, tmp_path, monkeypatch, repo):
-    assert login_keys("claude", "subscription", "t") == {"claude_oauth": "t"}
-    assert login_keys("copilot", "subscription", "t") == {"copilot": "t"}
-    assert login_keys("claude", "api", "t") == {}
-    monkeypatch.setenv("KEEL_FAKE", "0")
-    ok = json.dumps({"type": "result", "result": "OK", "usage": {}})
-    monkeypatch.setenv("KEEL_CLAUDE_BIN", script(tmp_path, "claude", f"cat >/dev/null\nenv > {tmp_path}/env\necho '{ok}'\n"))
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-x")
-    r = client.post("/providers/test", json={"provider": "claude", "mode": "subscription", "model": "sonnet", "key": "oat-1"}).json()
-    assert r["ok"], r
-    env = (tmp_path / "env").read_text()
-    assert "CLAUDE_CODE_OAUTH_TOKEN=oat-1" in env and "ANTHROPIC_API_KEY" not in env
-
-
-# ------------------------------------------------------------------ 6. knowledge-refresh
 
 def test_knowledge_refresh_with_sections(client, repo):
     tid = start(client, repo, workflow="knowledge-refresh", title="Refresh knowledge",

@@ -172,7 +172,7 @@ export function RecordView({ r }: { r: FlowRecord }) {
         <p>
           <b>{(r.cost.tokens_in + r.cost.tokens_out).toLocaleString()}</b> tokens (in {r.cost.tokens_in.toLocaleString()}, out{" "}
           {r.cost.tokens_out.toLocaleString()}, cached {r.cost.tokens_cached.toLocaleString()}), <b>{usd(r.cost.usd)}</b>, {r.cost.runs} runs.{" "}
-          <span className="sub">Plan logins show no cost per call, so the real bill may differ.</span>
+          <span className="sub">At keel's API prices; the provider's bill may differ a little.</span>
         </p>
       </Panel>
       {r.other.length > 0 && (

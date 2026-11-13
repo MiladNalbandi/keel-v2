@@ -1,24 +1,14 @@
-// keel 0.18.57 Settings › Models & logins: which accounts the agents use, which model each kind of agent runs on, and
-// what is installed. One row per provider (Claude, GPT / Codex, GitHub Copilot, Vertex AI, Local models, Fake): its
-// state ("Ready, logged in", "No login saved"), what it misses first, Set up login / Log in again / Add the key / Set
-// up, and Test; open, it shows how agents reach it (subscription, API key, OpenCode), its login and key (stored
-// encrypted, only the last characters shown), the model servers or the Google Cloud project, and "Use for all agents".
-// Then the model of each kind of agent with its effort, "Local models only", and This machine.
+// keel 0.18.57 Settings › Models & keys: which API keys the agents use, which model each kind of agent runs on, and
+// what is installed. #101 keel runs every model in its own harness, on the provider's API: no CLI, no subscription
+// login. One row per provider (Claude, GPT / Codex, GitHub Copilot, Vertex AI, Local models, Fake): its state ("API key
+// saved", "No API key"), Add the key / Set up, and Test; open, it shows how agents reach it (the provider's API), its
+// key (stored encrypted, only the last characters shown: add, change, remove), the model servers or the Google Cloud
+// project, and "Use for all agents". GitHub Copilot runs on GitHub Models: a GitHub token works, and so does the token
+// of Connections › GitHub's "Sign in with GitHub". Then the model of each kind of agent with its effort, "Local models
+// only", and This machine (the programs keel finds).
 
-import { useEffect, useRef, useState } from "react";
-import {
-  api,
-  errorParts,
-  type Connections,
-  type LoginView,
-  type Mode,
-  type Model,
-} from "../../api";
-import {
-  LoginDrawer,
-  type LoginAdapter,
-  type LoginCtx,
-} from "../../components/LoginDrawer";
+import { useEffect, useState } from "react";
+import { api, errorParts, type Connections, type Model } from "../../api";
 import { LocalServers, VertexSettings } from "../../components/ModelServers";
 import {
   defaultModel,
@@ -28,43 +18,26 @@ import {
   useCatalog,
 } from "../../components/ModelPicker";
 import { EmptyState, Spinner } from "../../components/page";
-import {
-  Note,
-  RadioCards,
-  Seg,
-  Tile,
-  TonePill,
-  type Tone,
-} from "../../components/settingsUi";
+import { Note, Seg, Tile, TonePill, type Tone } from "../../components/settingsUi";
 import { ErrorBox } from "../../components/ui";
-import { UsageLine } from "../../components/UsageStrip";
 import { useStored } from "../../storage";
 import { useApp, useLoad } from "../../state";
 import { SettingsFrame, setSettingsHint } from "./frame";
 import { GeneralRow, useScopedSettings, type Row } from "./rows";
 
+/** The secret that holds each provider's API key (GitHub Models: a GitHub token). */
 const SECRET: Record<string, string> = {
   claude: "ANTHROPIC_API_KEY",
   codex: "OPENAI_API_KEY",
   copilot: "GITHUB_TOKEN",
 };
-// How to get each CLI login; it is stored encrypted in keel's database and handed to the CLI inside the container.
-const LOGIN_HELP: Record<
-  string,
-  { label: string; how: string; multiline?: boolean }
-> = {
-  claude: {
-    label: "Claude login token",
-    how: "On your computer run `claude setup-token` and paste the token it prints.",
-  },
-  codex: {
-    label: "Codex login (auth.json)",
-    how: "On your computer run `codex login`, then paste the content of ~/.codex/auth.json.",
-    multiline: true,
-  },
+/** Where each key comes from. */
+const KEY_HELP: Record<string, { label: string; how: string }> = {
+  claude: { label: "Anthropic API key", how: "Create one at console.anthropic.com › API keys." },
+  codex: { label: "OpenAI API key", how: "Create one at platform.openai.com › API keys." },
   copilot: {
-    label: "GitHub token for Copilot",
-    how: "A GitHub token with Copilot access (github.com › Settings › Developer settings › Tokens).",
+    label: "GitHub token for GitHub Models",
+    how: "A GitHub token that may use GitHub Models (github.com › Settings › Developer settings › Tokens). Without one, keel uses the token of Connections › GitHub's “Sign in with GitHub”.",
   },
 };
 
@@ -87,74 +60,18 @@ const NAME: Record<string, string> = {
   fake: "Fake",
 };
 
-// ---- Login helper: log the CLI in from here (inside the container), or paste a token ----
-const HELP: Record<
-  string,
-  {
-    name: string;
-    here: string;
-    open?: string;
-    paste: { steps: string[]; link?: [string, string] };
-  }
-> = {
-  claude: {
-    name: "Claude",
-    here: "keel starts `claude setup-token` inside the container. You sign in on claude.com; the page then shows a code that you paste below. keel saves the long-lived token.",
-    open: "Open claude.com and sign in with your Claude account",
-    paste: {
-      steps: [
-        "On your computer run `claude setup-token`.",
-        "Copy the whole token it prints (starts with sk-ant-oat, for example sk-ant-oat01-).",
-        "Paste it below and press Save.",
-      ],
-    },
-  },
-  codex: {
-    name: "GPT / Codex",
-    here: "keel starts `codex login --device-auth` inside the container. You open a link, sign in with your ChatGPT account and type a short code. keel saves the login by itself.",
-    paste: {
-      steps: [
-        "On your computer run `codex login`.",
-        "Open ~/.codex/auth.json (for example: cat ~/.codex/auth.json | pbcopy).",
-        "Paste the whole file below and press Save.",
-      ],
-    },
-  },
-  copilot: {
-    name: "GitHub Copilot",
-    here: "keel starts `copilot login --device-code` inside the container. You open github.com/login/device and type a short code. keel saves the GitHub token by itself.",
-    paste: {
-      steps: [
-        "Create a fine-grained token on GitHub with the permission “Copilot Requests”. (Classic ghp_ tokens do not work.)",
-        "Copy it.",
-        "Paste it below and press Save.",
-      ],
-      link: [
-        "https://github.com/settings/personal-access-tokens/new",
-        "Create a token on GitHub",
-      ],
-    },
-  },
-};
-
 type Conn = Connections["providers"][number];
-type State = {
-  tone: Tone;
-  text: string;
-  need?: "login" | "key" | "cli" | "opencode";
-};
-const CLI: Record<string, string> = {
-  claude: "claude CLI",
-  codex: "codex CLI",
-  copilot: "Copilot CLI",
-};
 const PILL_TONE: Record<string, Tone> = { ok: "ok", warn: "warn", bad: "bad" };
 
-/** Can this provider's agents run now, and if not, what is missing (a login, a key, the CLI)? */
+/** GitHub Models is ready with the token of Connections › GitHub's sign-in when no GITHUB_TOKEN is saved. */
+const fromSignIn = (p: Pick<Conn, "id" | "key_set" | "key_hint">) =>
+  p.id === "copilot" && p.key_set && /github sign-in/i.test(p.key_hint ?? "");
+
+/** Can this provider's agents run now, and if not, what is missing (its key, or its setup)? */
 export function connState(p: Conn): {
   tone: "ok" | "warn" | "bad";
   text: string;
-  need?: State["need"];
+  need?: "key";
 } {
   if (p.id === "fake") return { tone: "ok", text: "Ready, no network" };
   if (CONFIGURED.has(p.id))
@@ -164,23 +81,14 @@ export function connState(p: Conn): {
           text: p.id === "local" ? "Ready, on your machines" : "Ready",
         }
       : { tone: "warn", text: "Not set up", need: "key" };
-  const m = p.modes.find((x) => x.id === p.selected);
-  if (p.selected === "api")
-    return p.key_set
-      ? { tone: "ok", text: "API key saved" }
-      : { tone: "warn", text: "No API key", need: "key" };
-  // OpenCode keeps its own login (opencode auth login), not keel's Copilot token: the api says whether it has one
-  if (p.selected === "opencode" && m && !m.ready && m.need === "login")
-    return { tone: "warn", text: "No OpenCode login", need: "opencode" };
-  if (m && !m.ready && m.need !== "login")
-    return {
-      tone: "bad",
-      text: `${p.selected === "opencode" ? "OpenCode" : (CLI[p.id] ?? "CLI")} not installed`,
-      need: "cli",
-    };
-  if (p.login_secret && !p.login_set)
-    return { tone: "warn", text: "No login saved", need: "login" };
-  return { tone: "ok", text: p.login_set ? "Ready, logged in" : "Ready" };
+  if (fromSignIn(p)) return { tone: "ok", text: "Ready, GitHub sign-in" };
+  return p.key_set
+    ? { tone: "ok", text: "API key saved" }
+    : {
+        tone: "warn",
+        text: p.id === "copilot" ? "No GitHub token" : "No API key",
+        need: "key",
+      };
 }
 
 /** B8a the agents' models that are still the fake model (default, implementer, reviewer), in words. */
@@ -206,7 +114,6 @@ function SecretField({
   how,
   set,
   hint,
-  multiline,
   onSaved,
   onRemoved,
 }: {
@@ -216,81 +123,52 @@ function SecretField({
   how: string;
   set: boolean;
   hint?: string | null;
-  multiline?: boolean;
   onSaved?: (hint: string) => void;
   onRemoved?: () => void;
 }) {
   const { toast } = useApp();
   const [value, setValue] = useState("");
-  const [isSet, setIsSet] = useState(set);
-  const [shown, setShown] = useState(hint ?? "");
   const [err, setErr] = useState<string | null>(null);
-  useEffect(() => {
-    setIsSet(set);
-    setShown(hint ?? "");
-  }, [set, hint]);
   const save = async () => {
     if (!value.trim()) return;
     setErr(null);
     try {
       const r = await api.setSecret(name, value.trim());
       setValue("");
-      setShown(r?.hint ?? "");
-      setIsSet(true);
       toast("Saved and encrypted.");
       onSaved?.(r?.hint ?? "");
     } catch (e) {
-      const er = errorParts(e); // a refused token says why and how to copy it again
+      const er = errorParts(e); // a refused key says why and how to copy it again
       setErr(er.hint ? `${er.message} ${er.hint}` : er.message);
     }
   };
   const remove = async () => {
     try {
       await api.deleteSecret(name);
-      setIsSet(false);
-      setShown("");
-      toast("Removed.");
+      toast("Key removed.");
       onRemoved?.();
     } catch (e) {
       toast(errorParts(e).message);
     }
   };
-  const placeholder = isSet
-    ? `${shown || "••••"} (saved)`
-    : multiline
-      ? "paste here"
-      : "paste the token";
   return (
     <div className="ss-label">
       <label htmlFor={id}>
         {label} <span className="ss-mono ss-meta">{name}</span>
       </label>
       <span className="ss-actions">
-        {multiline ? (
-          <textarea
-            id={id}
-            className="ss-input mono"
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            placeholder={placeholder}
-            rows={3}
-            aria-invalid={!!err}
-            style={{ flex: "1 1 220px" }}
-          />
-        ) : (
-          <input
-            type="password"
-            id={id}
-            className="ss-input mono"
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            autoComplete="off"
-            placeholder={placeholder}
-            aria-invalid={!!err}
-            style={{ flex: "1 1 200px" }}
-            onKeyDown={(e) => e.key === "Enter" && void save()}
-          />
-        )}
+        <input
+          type="password"
+          id={id}
+          className="ss-input mono"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          autoComplete="off"
+          placeholder={set ? `${hint || "••••"} (saved)` : "paste the key"}
+          aria-invalid={!!err}
+          style={{ flex: "1 1 200px" }}
+          onKeyDown={(e) => e.key === "Enter" && void save()}
+        />
         <button
           className="ss-btn sm"
           type="button"
@@ -298,9 +176,9 @@ function SecretField({
           disabled={!value.trim()}
           style={{ minHeight: 40 }}
         >
-          Save
+          {set ? "Change" : "Save"}
         </button>
-        {isSet && (
+        {set && (
           <button
             className="ss-btn sm q"
             type="button"
@@ -324,180 +202,6 @@ function SecretField({
   );
 }
 
-function LoginHelper({
-  p,
-  onClose,
-  onSaved,
-}: {
-  p: Conn;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const h = HELP[p.id];
-  const [busy, setBusy] = useState(false);
-  const [code, setCode] = useState("");
-  const [test, setTest] = useState<{ ok: boolean; text: string } | null>(null);
-  const live = useRef(true);
-  useEffect(
-    () => () => {
-      live.current = false;
-    },
-    [],
-  );
-
-  const adapter: LoginAdapter<LoginView> = {
-    start: () => {
-      setTest(null);
-      setCode("");
-      return api.startLogin(p.id);
-    },
-    poll: (id) => api.login(id),
-    cancel: (id) => api.cancelLogin(id),
-  };
-  // when it is saved: refresh the page behind and run the test once
-  const done = () => {
-    onSaved();
-    if (p.selected !== "api") {
-      api.testConnection(p.id).then(
-        (r) =>
-          live.current &&
-          setTest({
-            ok: r.ok,
-            text: r.ok
-              ? `${r.text ?? "OK"} · ${(r.ms / 1000).toFixed(1)}s`
-              : (r.error ?? "no answer"),
-          }),
-        (e) =>
-          live.current && setTest({ ok: false, text: errorParts(e).message }),
-      );
-    }
-  };
-  const send = async ({
-    login,
-    setLogin,
-    setErr,
-    sent,
-  }: LoginCtx<LoginView>) => {
-    if (!login || !code.trim()) return;
-    setBusy(true);
-    setErr(null);
-    try {
-      sent();
-      setLogin(await api.loginCode(login.id, code.trim()));
-      setCode("");
-    } catch (e) {
-      setErr(errorParts(e).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <LoginDrawer
-      title={`Set up ${h.name} login`}
-      intro={h.here}
-      adapter={adapter}
-      doneText={(v) => `${v.message} (${v.hint ?? "saved"})`}
-      onDone={done}
-      onClose={onClose}
-      openTitle={h.open}
-      codeStep={
-        p.id === "claude"
-          ? (ctx) =>
-              (
-                <div className="ss-label">
-                  <label htmlFor="login-code">
-                    After you sign in, the page shows a code. Paste it here:
-                  </label>
-                  <span className="ss-actions">
-                    <input
-                      id="login-code"
-                      type="text"
-                      className="ss-input mono"
-                      value={code}
-                      onChange={(e) => setCode(e.target.value)}
-                      autoComplete="off"
-                      placeholder="code from the Claude page"
-                      style={{ flex: "1 1 220px", minHeight: 48, fontSize: 15 }}
-                      onKeyDown={(e) => e.key === "Enter" && void send(ctx)}
-                    />
-                    <button
-                      className="ss-btn p"
-                      type="button"
-                      style={{ minHeight: 48 }}
-                      onClick={() => void send(ctx)}
-                      disabled={busy || !code.trim()}
-                    >
-                      Send
-                    </button>
-                  </span>
-                  <span className="ss-help">
-                    Use the link from this box; a code from an older tab will
-                    not work.
-                  </span>
-                </div>
-              )
-          : undefined
-      }
-      status={
-        test && (
-          <p
-            role="status"
-            className="ss-small"
-            style={{ margin: 0, color: test.ok ? "var(--ok)" : "var(--bad)" }}
-          >
-            {test.ok ? "Test: " : "Test failed: "}
-            {test.text}
-          </p>
-        )
-      }
-      paste={(saved) => (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <ol
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: 10,
-              margin: 0,
-              paddingLeft: 20,
-            }}
-          >
-            {h.paste.steps.map((x) => (
-              <li key={x}>{x}</li>
-            ))}
-          </ol>
-          {h.paste.link && (
-            <a
-              className="ss-btn sm"
-              style={{ alignSelf: "flex-start" }}
-              href={h.paste.link[0]}
-              target="_blank"
-              rel="noreferrer"
-            >
-              {h.paste.link[1]} <span aria-hidden="true">↗</span>
-            </a>
-          )}
-          {p.login_secret && (
-            <SecretField
-              id={`helper-${p.id}`}
-              name={p.login_secret}
-              label={LOGIN_HELP[p.id]?.label ?? "Login"}
-              how=""
-              set={!!p.login_set}
-              hint={p.login_hint}
-              multiline={LOGIN_HELP[p.id]?.multiline}
-              onSaved={(hint) => {
-                saved(`${h.name} login saved${hint ? ` (${hint})` : ""}`);
-                done();
-              }}
-            />
-          )}
-        </div>
-      )}
-    />
-  );
-}
-
 function ProviderRow({
   p,
   open,
@@ -512,68 +216,31 @@ function ProviderRow({
   fake?: string[];
 }) {
   const { toast } = useApp();
-  const [key, setKey] = useState("");
   const [hint, setHint] = useState(p.key_hint ?? "");
   const [keySet, setKeySet] = useState(p.key_set);
-  const [mode, setMode] = useState<Mode>(p.selected);
   const [test, setTest] = useState<{ ok?: boolean; text: string } | null>(null);
-  const [helper, setHelper] = useState(false);
   const catalog = useCatalog();
   useEffect(() => {
     setKeySet(p.key_set);
     setHint(p.key_hint ?? "");
-    setMode(p.selected);
-  }, [p.key_set, p.key_hint, p.selected]);
-  // The model "Use for all agents" sets: this provider, the mode picked above, a model and effort from the catalog.
+  }, [p.key_set, p.key_hint]);
+  // The model "Use for all agents" sets: this provider, a model and effort from the catalog.
   const [allModel, setAllModel] = useState<Model | null>(null);
-  const forAll: Model =
-    allModel && allModel.mode === mode
-      ? allModel
-      : defaultModel(catalog, p.id, mode);
+  const forAll: Model = allModel ?? defaultModel(catalog, p.id, "api");
   const secret = SECRET[p.id];
-  const state = connState({ ...p, selected: mode, key_set: keySet });
-  const name = HELP[p.id]?.name ?? NAME[p.id] ?? p.label;
-  const pick = async (m: Mode) => {
-    const old = mode;
-    setMode(m);
-    try {
-      await api.setMode(p.id, m);
-      toast(`${p.label}: ${p.modes.find((x) => x.id === m)?.label ?? m}`);
-      onChanged();
-    } catch (e) {
-      setMode(old);
-      toast(errorParts(e).message);
-    }
-  };
-  const saveKey = async () => {
-    if (!key.trim() || !secret) return;
-    try {
-      const r = await api.setSecret(secret, key.trim());
-      setKey("");
-      setHint(r?.hint ?? "");
-      setKeySet(true);
-      toast("Saved and encrypted.");
-    } catch (e) {
-      toast(errorParts(e).message);
-    }
-  };
-  const removeKey = async () => {
-    if (!secret) return;
-    try {
-      await api.deleteSecret(secret);
-      setKeySet(false);
-      setHint("");
-      toast("Key removed.");
-    } catch (e) {
-      toast(errorParts(e).message);
-    }
-  };
+  const now = { ...p, key_set: keySet, key_hint: hint };
+  const state = connState(now);
+  const signIn = fromSignIn(now);
+  const name = NAME[p.id] ?? p.label;
+  // #101 one way only: the provider's API (copilot: GitHub Models; vertex: Google Cloud; local: the model servers)
+  const way = p.modes.find((m) => m.id === "api") ?? p.modes[0];
+  const wayLabel = way?.label ?? modeLabel(p.id);
   const useForAll = async () => {
     const m: Model = {
       ...forAll,
       provider: p.id,
-      mode,
-      model: forAll.model.trim() || defaultModel(catalog, p.id, mode).model,
+      mode: "api",
+      model: forAll.model.trim() || defaultModel(catalog, p.id, "api").model,
     };
     try {
       await api.saveGeneralSettings({
@@ -582,7 +249,7 @@ function ProviderRow({
         reviewer_model: m,
       });
       toast(
-        `All agents now use ${p.label} ${m.model}${m.effort ? ` (${m.effort})` : ""} · ${p.modes.find((x) => x.id === mode)?.label ?? modeLabel(p.id, mode)}. Change single agents in Agents.`,
+        `All agents now use ${p.label} ${m.model}${m.effort ? ` (${m.effort})` : ""} · ${wayLabel}. Change single agents in Agents.`,
       );
       onChanged();
     } catch (e) {
@@ -618,11 +285,6 @@ function ProviderRow({
     );
   };
   const head = `conn-${p.id}`;
-  const loginAct = HELP[p.id]
-    ? p.login_set
-      ? "Log in again"
-      : "Set up login"
-    : null;
   const keyAct =
     state.need === "key" && secret
       ? "Add the key"
@@ -636,13 +298,6 @@ function ProviderRow({
       role="group"
       aria-labelledby={head}
     >
-      {helper && (
-        <LoginHelper
-          p={p}
-          onClose={() => setHelper(false)}
-          onSaved={onChanged}
-        />
-      )}
       <div className="ss-row0">
         <Tile>{name[0]}</Tile>
         <button
@@ -673,15 +328,6 @@ function ProviderRow({
           )}
         </span>
         <span className="ss-push">
-          {loginAct && (
-            <button
-              className={`ss-btn sm${state.need === "login" ? " p" : ""}`}
-              type="button"
-              onClick={() => setHelper(true)}
-            >
-              {loginAct}
-            </button>
-          )}
           {keyAct && (
             <button
               className="ss-btn sm p"
@@ -711,75 +357,48 @@ function ProviderRow({
             {open ? "▾" : "▸"}
           </button>
         </span>
-        {state.need === "login" && (
-          <Note tone="warn" className="ss-full">
-            keel has no {name} login yet, so its agents cannot use your
-            subscription. Set up login signs in from here, or paste a token.
+        {p.id === "copilot" && (
+          <span className="ss-help ss-full" data-testid="copilot-token-line">
+            {signIn ? "Ready with the token of " : "A GitHub token works, or the token of "}
+            <a href="#/settings/connections">Connections › GitHub</a>'s “Sign in with GitHub”
+            {signIn ? "." : ": either one runs GitHub Models."}
+          </span>
+        )}
+        {p.id !== "fake" && fake.length > 0 && state.tone === "ok" && (
+          <Note tone="info" role="note" className="ss-full">
+            {name} is ready, but {fake.join(", ")} still use
+            {fake.length === 1 ? "s" : ""} the fake model, so those agents do no
+            real work.{" "}
+            <button className="ss-btn sm p" type="button" onClick={useForAll}>
+              Use {p.label} for all agents
+            </button>
           </Note>
         )}
-        {state.need === "opencode" && (
-          <Note tone="warn" className="ss-full">
-            OpenCode has no GitHub Copilot login yet, so its agents cannot run.
-            Run <code>opencode auth login</code> inside keel's container (for
-            example <code>docker exec -it keel-v2 opencode auth login</code>),
-            then press Test.
-          </Note>
-        )}
-        {state.need === "cli" && (
-          <Note tone="warn" className="ss-full">
-            The {p.modes.find((x) => x.id === mode)?.label ?? "CLI"} is not
-            installed in keel's image. Pick another way below, or build the
-            image with INSTALL_CLIS=1.
-          </Note>
-        )}
-        {p.id !== "fake" &&
-          fake.length > 0 &&
-          state.tone === "ok" &&
-          (p.login_set || keySet) && (
-            <Note tone="info" role="note" className="ss-full">
-              {name} is {p.login_set ? "logged in" : "ready"}, but{" "}
-              {fake.join(", ")} still use{fake.length === 1 ? "s" : ""} the fake
-              model, so those agents do no real work.{" "}
-              <button className="ss-btn sm p" type="button" onClick={useForAll}>
-                Use {p.label} for all agents
-              </button>
-            </Note>
-          )}
       </div>
       {open && (
         <div className="ss-prow-b" id={`${head}-b`}>
-          <fieldset
+          <div
             style={{
               flex: "1 1 280px",
               display: "flex",
               flexDirection: "column",
               gap: 8,
-              margin: 0,
-              padding: 0,
-              border: 0,
             }}
           >
-            <legend
-              style={{ padding: "0 0 8px", fontSize: 13, fontWeight: 500 }}
-            >
+            <span style={{ fontSize: 13, fontWeight: 500 }}>
               How agents reach {name}
-            </legend>
-            <RadioCards
-              label={`How agents reach ${name}`}
-              value={mode}
-              onChange={(m) => void pick(m)}
-              options={p.modes.map((m) => ({
-                id: m.id,
-                title: m.label,
-                sub: m.detail,
-                side: (
-                  <span style={{ color: m.ready ? "var(--ok)" : "var(--dim)" }}>
-                    {m.ready ? "ready" : "not ready"}
-                  </span>
-                ),
-              }))}
-            />
-          </fieldset>
+            </span>
+            <span data-testid={`way-${p.id}`}>
+              <b style={{ fontWeight: 600 }}>{wayLabel}</b>
+              {way?.detail ? (
+                <span className="ss-meta"> · {way.detail}</span>
+              ) : null}
+            </span>
+            <span className="ss-help">
+              keel runs every model in its own agent harness, on the provider's
+              API.
+            </span>
+          </div>
           <div
             style={{
               flex: "1 1 300px",
@@ -797,64 +416,24 @@ function ProviderRow({
                 )}
               </div>
             )}
-            {p.login_secret && LOGIN_HELP[p.id] && (
-              <SecretField
-                id={`login-${p.id}`}
-                name={p.login_secret}
-                label={LOGIN_HELP[p.id].label}
-                how={LOGIN_HELP[p.id].how}
-                set={!!p.login_set}
-                hint={p.login_hint}
-                multiline={LOGIN_HELP[p.id].multiline}
-                onSaved={onChanged}
-                onRemoved={onChanged}
-              />
-            )}
             {secret && (
-              <div className="ss-label">
-                <label htmlFor={`key-${p.id}`} className="ss-mono">
-                  {secret}
-                </label>
-                <span className="ss-actions">
-                  <input
-                    type="password"
-                    id={`key-${p.id}`}
-                    className="ss-input mono"
-                    value={key}
-                    onChange={(e) => setKey(e.target.value)}
-                    autoComplete="off"
-                    placeholder={
-                      keySet ? `${hint || "••••"} (saved)` : "paste the key"
-                    }
-                    style={{ flex: "1 1 200px" }}
-                    onKeyDown={(e) => e.key === "Enter" && void saveKey()}
-                  />
-                  <button
-                    className="ss-btn sm"
-                    type="button"
-                    onClick={saveKey}
-                    disabled={!key.trim()}
-                    style={{ minHeight: 40 }}
-                  >
-                    Save
-                  </button>
-                  {keySet && (
-                    <button
-                      className="ss-btn sm q"
-                      type="button"
-                      onClick={removeKey}
-                      style={{ minHeight: 40 }}
-                    >
-                      Remove
-                    </button>
-                  )}
-                </span>
-                <span className="ss-help">
-                  For the API key way. Stored encrypted; only the last
-                  characters are shown. Subscription mode removes it from the
-                  CLI's environment.
-                </span>
-              </div>
+              <SecretField
+                id={`key-${p.id}`}
+                name={secret}
+                label={KEY_HELP[p.id]?.label ?? "API key"}
+                how={KEY_HELP[p.id]?.how ?? ""}
+                set={keySet && !signIn}
+                hint={hint}
+                onSaved={(h) => {
+                  setKeySet(true);
+                  setHint(h);
+                }}
+                onRemoved={() => {
+                  setKeySet(false);
+                  setHint("");
+                  onChanged();
+                }}
+              />
             )}
             {p.id !== "fake" && (
               <div
@@ -880,12 +459,10 @@ function ProviderRow({
                   </button>
                 </span>
                 <span className="ss-help">
-                  Sets the default, implementer and reviewer model, on the way
-                  chosen here.
+                  Sets the default, implementer and reviewer model.
                 </span>
               </div>
             )}
-            {p.id !== "fake" && <UsageLine provider={p.id} />}
           </div>
         </div>
       )}
@@ -943,7 +520,7 @@ export const MODEL_ROWS: Row[] = [
     help: (v) =>
       (v as Model | undefined)?.provider === "fake"
         ? "Not set: the fake model never runs a real flow, so keel pauses and asks instead. Claude Haiku is the usual choice."
-        : "Used only when a cap or a plan window is nearly used and you choose to switch. Claude Haiku by default.",
+        : "Used only when a cap is nearly used and you choose to switch. Claude Haiku by default.",
   },
   {
     key: "local_only",
@@ -957,7 +534,7 @@ export const MODEL_ROWS: Row[] = [
   },
 ];
 
-/** A model and its effort: the model's dropdown (grouped by provider, with how it runs) and the effort as a choice. */
+/** A model and its effort: the model's dropdown (grouped by provider) and the effort as a choice. */
 function ModelControl({
   id,
   value,
@@ -981,12 +558,8 @@ function ModelControl({
           onChange={(e) =>
             onSave(
               e
-                ? { ...value, effort: e }
-                : {
-                    provider: value.provider,
-                    mode: value.mode,
-                    model: value.model,
-                  },
+                ? { ...value, mode: "api", effort: e }
+                : { provider: value.provider, mode: "api", model: value.model },
             )
           }
           options={[
@@ -1012,10 +585,8 @@ export function ModelsTab({ pid }: { pid: string }) {
   const c = conns.data;
   const providers = c ? [...c.providers].sort(order) : null;
   const missing =
-    providers?.filter((p) => {
-      const st = connState(p);
-      return st.need === "login" || (st.need === "key" && !!SECRET[p.id]);
-    }).length ?? 0;
+    providers?.filter((p) => connState(p).need === "key" && !!SECRET[p.id])
+      .length ?? 0;
   const firstNeed = providers?.find((p) => connState(p).need)?.id ?? "";
   const [opened, setOpened] = useStored<string | null>(
     "keel2.settings.provider",
@@ -1033,8 +604,8 @@ export function ModelsTab({ pid }: { pid: string }) {
   return (
     <SettingsFrame
       tab="models"
-      title="Models & logins"
-      line="Which accounts the agents use, which model each kind of agent runs on, and what is installed. Keys are encrypted and never shown again in full."
+      title="Models & keys"
+      line="Which API keys the agents use, which model each kind of agent runs on, and what is installed. Keys are encrypted and never shown again in full."
     >
       {conns.error && (
         <ErrorBox error={conns.error} onRetry={() => void conns.reload()} />
@@ -1050,9 +621,9 @@ export function ModelsTab({ pid }: { pid: string }) {
               style={missing ? { color: "var(--warn)" } : undefined}
             >
               {!providers
-                ? "Checking each provider: which CLIs are installed and which logins and keys are saved."
+                ? "Checking each provider: which keys are saved."
                 : missing
-                  ? `${missing} provider${missing === 1 ? " needs" : "s need"} a login or a key before its agents can run.`
+                  ? `${missing} provider${missing === 1 ? " needs" : "s need"} a key before its agents can run.`
                   : "Every provider is ready."}
             </p>
           </div>

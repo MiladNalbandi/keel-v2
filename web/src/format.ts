@@ -6,7 +6,8 @@ export const PROV: Record<string, string> = { claude: "Claude", codex: "GPT / Co
 /** How an AC status reads in the UI. */
 export const AC_LABEL: Record<string, string> = { "already-met": "already met" };
 export const acLabel = (s: string) => AC_LABEL[s] ?? s;
-export const MODE_LABEL: Record<string, string> = { subscription: "Subscription", api: "API key", opencode: "OpenCode" };
+/** #101 how keel reaches a provider: always its API (a model saved as "subscription" or "opencode" runs there too). */
+export const MODE_LABEL: Record<string, string> = { api: "API key" };
 
 /** 1234 → "1k", 1_500_000 → "1.50M". */
 export function kfmt(n: number | null | undefined): string {
@@ -42,10 +43,6 @@ export const bytes = (n?: number) =>
 
 /** 1200 → "1.2k", 800 → "800". */
 export const k1 = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
-
-/** A provider window with no percentage: its status in words ("ok", "full", "no % yet"). */
-export const statusWord = (status: string | null | undefined) =>
-  status === "allowed" ? "ok" : status === "rejected" ? "full" : status ? status.replace(/_/g, " ") : "no % yet";
 
 /** "1h 12m", "41 min", "3 days" until an ISO time; "" when unknown or past. */
 export function untilText(iso?: string | null, now = Date.now()): string {

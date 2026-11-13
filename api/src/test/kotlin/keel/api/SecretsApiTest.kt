@@ -57,12 +57,17 @@ class SecretsApiTest : ApiTest() {
     fun `connections list every provider and the machine tools`() {
         val c = get("/api/connections").json()
         assertThat(c["providers"].map { it["id"].asText() }).containsExactly("fake", "claude", "codex", "copilot", "vertex", "local")
-        assertThat(c["providers"].first { it["id"].asText() == "copilot" }["modes"].map { it["id"].asText() })
-            .containsExactly("subscription", "opencode", "api")
-        // keel v1 is not part of keel v2 (0.4.1): the machine list has no "keel" row any more
-        assertThat(c["machine"].map { it["name"].asText() }).contains("node", "git", "java", "docker").doesNotContain("keel")
-        put("/api/connections/copilot", mapOf("mode" to "opencode")).andExpect(status().isOk)
-        assertThat(get("/api/connections").json()["providers"].first { it["id"].asText() == "copilot" }["selected"].asText()).isEqualTo("opencode")
-        put("/api/connections/copilot", mapOf("mode" to "teleport")).andExpect(status().isBadRequest)
+        // #101 keel's harness runs every model on its API: one mode each, always selected
+        for (p in c["providers"]) {
+            assertThat(p["modes"].map { it["id"].asText() }).describedAs(p["id"].asText()).containsExactly("api")
+            assertThat(p["selected"].asText()).isEqualTo("api")
+        }
+        assertThat(c["providers"].first { it["id"].asText() == "copilot" }["modes"][0]["label"].asText()).isEqualTo("GitHub Models (token)")
+        // keel v1 is not part of keel v2 (0.4.1), and no coding-agent app is listed any more (#101)
+        assertThat(c["machine"].map { it["name"].asText() }).containsExactly("node", "git", "java", "docker")
+        put("/api/connections/copilot", mapOf("mode" to "api")).andExpect(status().isOk)
+        for (mode in listOf("subscription", "opencode", "teleport"))
+            put("/api/connections/copilot", mapOf("mode" to mode)).andExpect(status().isBadRequest)
+        put("/api/connections/nobody", mapOf("mode" to "api")).andExpect(status().isNotFound)
     }
 }

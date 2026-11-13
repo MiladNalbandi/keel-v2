@@ -51,38 +51,6 @@ export type GeneralSection = {
 /** keel's own sections of General, in order. Add a setting here: one row in its section. */
 export const GENERAL_SECTIONS: GeneralSection[] = [
   {
-    // 0.19.0 harness mode: the coding harness does the work, keel is the control room around it
-    id: "harness",
-    title: "Who does the work",
-    sub: "Your coding harness (the default model's: Claude Code, Codex, Copilot CLI or OpenCode) in one session of its own, or keel's own flows.",
-    open: true,
-    rows: [
-      {
-        key: "build_runs",
-        label: "New work (change, feature, bug)",
-        def: "harness",
-        kind: {
-          t: "select",
-          opts: [
-            ["harness", "the coding harness"],
-            ["flow", "keel's flows"],
-          ],
-        },
-        help: (v) =>
-          String(v ?? "harness") === "harness"
-            ? "The harness plans and builds in one session; keel shows it live, runs your tests, and commits after your look. You can open the session in your own terminal."
-            : "keel's own flows: spec, criteria one by one (test first), reviews and gates.",
-      },
-      {
-        key: "harness_plan",
-        label: "Plan first",
-        def: true,
-        kind: { t: "bool", on: "yes", off: "no" },
-        help: "The harness writes a plan and waits for your OK (or your note) before it changes any file.",
-      },
-    ],
-  },
-  {
     id: "flow",
     title: "Flow and gates",
     sub: "How much a flow does by itself, and when it stops for you.",
@@ -268,8 +236,8 @@ export const GENERAL_SECTIONS: GeneralSection[] = [
 
 /** A project's setting that another tab shows (its models, its budget rules): where the scope line points to. */
 const OTHER_TAB: Record<string, [string, string]> = Object.fromEntries([
-  ...["default_model", "implementer_model", "reviewer_model", "cheaper_model", "local_only"].map((k) => [k, ["models", "Models & logins"]]),
-  ...["cap_tokens", "on_cap", "usage_warn", "usage_pause"].map((k) => [k, ["budget", "Budget"]]),
+  ...["default_model", "implementer_model", "reviewer_model", "cheaper_model", "local_only"].map((k) => [k, ["models", "Models & keys"]]),
+  ...["cap_tokens", "on_cap"].map((k) => [k, ["budget", "Budget"]]),
 ]);
 
 /** The last sections: after keel's and the parts' own. */
@@ -665,7 +633,7 @@ export function GeneralTab({
         </>
       )}
       <p className="ss-sub">
-        Models are in <a href="#/settings/models">Models &amp; logins</a>, the
+        Models are in <a href="#/settings/models">Models &amp; keys</a>, the
         budget rules in <a href="#/settings/budget">Budget</a>, phones in{" "}
         <a href="#/settings/access">Access</a>.
       </p>

@@ -8,7 +8,6 @@ from fastapi.testclient import TestClient
 from conftest import decide, start, to_loop, wait
 from keel_engine.app import create_app
 from keel_engine.events import EventBus
-from keel_engine.models.cli import safe_env
 from keel_engine.tools import guard, mcp
 from keel_engine.tools.agent_tools import ToolBox
 from keel_engine.workflows.model import load_yaml
@@ -59,15 +58,6 @@ def test_mcp_allowlist_parsing():
     # a bare server name is all its tools (Tools › "Who may use what" saves those); a built-in tool name is not a server
     assert mcp.parse_allow(["mcp:keel:keel_next", "mcp:serena:*", "mcp:x", "other", "Read"]) == \
         {"keel": {"keel_next"}, "serena": None, "x": None, "other": None}
-
-
-def test_subscription_env_has_no_keys(monkeypatch):
-    for k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GITHUB_TOKEN", "KEEL_INTERNAL_TOKEN"):
-        monkeypatch.setenv(k, "x")
-    env = safe_env()
-    assert not {"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GITHUB_TOKEN", "KEEL_INTERNAL_TOKEN"} & set(env)
-    assert "PATH" in env
-    assert safe_env({"GH_TOKEN": "t"})["GH_TOKEN"] == "t"
 
 
 def test_toolbox_refuses_by_phase(repo):

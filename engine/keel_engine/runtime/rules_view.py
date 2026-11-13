@@ -21,12 +21,12 @@ from typing import Any
 import yaml
 
 from .. import config, layout, rules
-from ..models import cli_runners
 from ..rules import packs as packs_mod
-from ..shim import NAMES as WRAPPED
 from . import explain
 
-ENGINES = ["claude", "opencode", "codex", "copilot", "api"]
+# #101 one engine: keel's own harness runs every agent, and its ToolBox checks each edit, read, shell command and MCP
+# call before it runs (the coding-agent apps and their hooks or command wrappers are gone)
+ENGINES = ["harness"]
 CONFIG = ".keel/config.yml"
 # the top-level blocks the Rules page may rewrite; 0.18.57 knowledge: the project notes on or off (the Wiki's switch)
 OWNED = ("guards", "mcp", "rules", "boundaries", "knowledge")
@@ -40,40 +40,10 @@ class RulesError(Exception):
 
 # ------------------------------------------------------------------ who checks what, when
 
-def wrapped_only(match: list[str] | None, how: str | None = None) -> bool:
-    """Does every pattern of a shell rule name a program keel wraps (shim.NAMES)? A regex counts when it names one."""
-    names = set(WRAPPED)
-    if not match:
-        return True
-    if how == "regex":
-        return all(any(re.search(rf"(?<![\w-]){re.escape(n)}(?![\w-])", re.sub(r"\\[bsSwWdD]", " ", m)) for n in names)
-                   for m in match)
-    return all(str(m).split() and str(m).split()[0] in names for m in match)
-
-
 def enforced(kind: str, match: list[str] | None = None, how: str | None = None) -> dict[str, str]:
-    """Per engine, when a rule of this kind is checked: before (the action is stopped), wrapped (shell: only commands of
-    the programs keel wraps), after (the diff guard puts the file back after the step), none (not checked)."""
-    codex_before = cli_runners.codex_hooks()
-    out: dict[str, str] = {}
-    for e in ENGINES:
-        p = cli_runners.protection(e, "api" if e == "api" else None)
-        if e == "codex" and not codex_before:
-            p = "partial"
-        if kind == "edit":
-            out[e] = "before" if p == "before" else "after"
-        elif kind == "shell":
-            if p == "before":
-                out[e] = "before"
-            else:
-                out[e] = "wrapped" if wrapped_only(match, how) else "none"
-        elif kind == "read":
-            out[e] = "before" if p == "before" else "none"
-        elif kind == "mcp":
-            out[e] = "none" if e == "api" or p != "before" else "before"
-        else:
-            out[e] = "before" if p == "before" else "after"
-    return out
+    """Per engine, when a rule of this kind is checked: before (the action is stopped). keel's harness checks every kind
+    before it runs (edits, reads and shell commands in its ToolBox, MCP calls with hook.check_mcp)."""
+    return {e: "before" for e in ENGINES}
 
 
 def _kinds(kind: str) -> list[str]:
@@ -88,33 +58,20 @@ def _merge_enforced(kind: str, match: list[str] | None = None, how: str | None =
 
 
 def engines() -> list[dict]:
-    words = {"before": "every edit, shell command, read and MCP call is checked before it runs",
-             "partial": "shell commands of git, gh, the package managers and file printers are checked before they run; "
-                        "file edits are checked after each step (the diff guard puts a refused file back)"}
-    out = []
-    for e in ENGINES:
-        p = cli_runners.protection(e, "api" if e == "api" else None)
-        out.append({"engine": e, "protection": p, "words": words.get(p, "only checked after each step")})
-    return out
+    return [{"engine": e, "protection": "before",
+             "words": "every edit, shell command, read and MCP call is checked before it runs"} for e in ENGINES]
 
 
 # ------------------------------------------------------------------ who enforces a pack rule (the marketplace's preview)
 
-ENGINE_TITLES = {"claude": "Claude Code", "opencode": "OpenCode", "codex": "Codex", "copilot": "Copilot",
-                 "api": "API-key models"}
+ENGINE_TITLES = {"harness": "keel's harness"}
 # Who checks a rule, by the code that does it:
-#   hook       keel_engine.hook (PreToolUse) runs rules.check_bash / check_edit / check_read for claude, opencode and
-#              codex 0.150+ (cli_runners.protection == "before")
-#   mcp-guard  the same hook's check_mcp: pack `mcp` rules on every mcp__<server>__<tool> call
-#   toolbox    tools/agent_tools.py ToolBox: an API-key model's read_file / write_file / run_command (no MCP)
-#   wrappers   keel_engine/shim.py: the command wrappers (git, gh, package managers, file printers) of an engine
-#              without a hook (copilot, an older codex)
-#   diff-guard tools/guard.py guard_diff → rules.check_edit after every step of every engine: a refused file is put back
+#   toolbox    tools/agent_tools.py ToolBox: every agent's file edits, reads and shell commands in keel's harness
+#   mcp-guard  hook.check_mcp, which the harness runs on every MCP call: pack `mcp` rules
+#   diff-guard tools/guard.py guard_diff → rules.check_edit after every step: a refused file is put back
 ENFORCERS = {
-    "hook": "keel's PreToolUse hook",
-    "mcp-guard": "keel's MCP guard",
     "toolbox": "keel's ToolBox",
-    "wrappers": "keel's command wrappers",
+    "mcp-guard": "keel's MCP guard",
     "diff-guard": "the diff guard",
 }
 
@@ -130,10 +87,7 @@ def enforcement(kind: str, match: list[str] | None = None, how: str | None = Non
         if engines_:
             by.append({"when": when, "who": who, "label": ENFORCERS[who], "engines": engines_})
 
-    hooked = [e for e in ENGINES if per[e] == "before" and e != "api"]
-    add("before", "mcp-guard" if kind == "mcp" else "hook", hooked)
-    add("before", "toolbox", [e for e in ENGINES if per[e] == "before" and e == "api"])
-    add("before", "wrappers", [e for e in ENGINES if per[e] == "wrapped"])
+    add("before", "mcp-guard" if kind == "mcp" else "toolbox", [e for e in ENGINES if per[e] == "before"])
     after = kind == "edit"          # guard_diff checks a step's changed files with check_edit, for every engine
     add("after", "diff-guard", list(ENGINES) if after else [])
     return {"before": before, "after": after, "engines": per, "by": by}
@@ -548,7 +502,7 @@ def now(root: str, phase: str | None, lane: str | None = None, unlocks: list[dic
     active = [{"pack": p["id"], "name": p["title"], "rule": r["id"], "kind": r["kind"], "reason": r["reason"]}
               for p in cfg.get("packs") or [] if f"pack/{p['id']}" not in set((cfg.get("rules") or {}).get("off") or [])
               for r in p["rules"] if packs_mod.phase_ok(r.get("phases"), phase) and (not r.get("lanes") or lane in r["lanes"])]
-    prot = cli_runners.protection(provider, mode) if provider else None
+    prot = "before" if provider else None
     return {"phase": phase, "meaning": explain.PHASE_MEANING.get(phase, "No flow phase: only keel's always-on rules apply.")
             if flow else "No flow phase: only keel's always-on rules apply.", "lane": lane,
             "may": may, "may_not": may_not, "always": always, "packs": active,

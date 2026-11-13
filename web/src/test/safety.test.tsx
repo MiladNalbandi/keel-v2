@@ -36,9 +36,9 @@ describe("flow safety", () => {
     render(<App />);
     await user.click(await screen.findByRole("button", { name: "Use for all agents" }));
     await waitFor(() => expect(db.calls.find((c) => c.method === "PUT" && c.path === "/api/settings/general")?.body).toEqual({
-      default_model: { provider: "claude", mode: "subscription", model: "sonnet" },
-      implementer_model: { provider: "claude", mode: "subscription", model: "sonnet" },
-      reviewer_model: { provider: "claude", mode: "subscription", model: "sonnet" },
+      default_model: { provider: "claude", mode: "api", model: "sonnet" },
+      implementer_model: { provider: "claude", mode: "api", model: "sonnet" },
+      reviewer_model: { provider: "claude", mode: "api", model: "sonnet" },
     }));
   });
 });

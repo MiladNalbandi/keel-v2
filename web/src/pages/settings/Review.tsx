@@ -11,7 +11,7 @@
 //   On the Review page    "Two keel reviewers read the change (A: …, B: …)…"   [Back to keel's default]
 
 import { useCallback, useEffect, useState } from "react";
-import { api, errorParts, type Model, type ProjectSettings } from "../../api";
+import { errorParts, type Model } from "../../api";
 import { ModelPicker } from "../../components/ModelPicker";
 import { useSlot } from "../../sdk/registry";
 import { SLOTS, type SettingsSectionItem } from "../../sdk/slots";
@@ -62,7 +62,7 @@ function ModelField({
   onChange: (value: ModelChoice | "flow", effort: string | null) => void;
 }) {
   const sel = isModel(value) ? PICK : value;
-  const fallback: Model = base ?? { provider: "claude", mode: "subscription", model: "sonnet" };
+  const fallback: Model = base ?? { provider: "claude", mode: "api", model: "sonnet" };
   return (
     <div className="ss-rv-model">
       <div className="ss-fields">
@@ -130,8 +130,7 @@ export function ReviewTab({ pid }: { pid: string }) {
   const [edit, setEdit] = useState("");
   // 0.18.74 the plugins' sections that belong here (the review plugin's Code Review threads), for this project
   const parts = useSlot<SettingsSectionItem>(SLOTS.settingsSection).filter((x) => x.page === "review");
-  // 0.20.1 who fixes a finding (it was on General), and keel's defaults for every project, also here
-  const [ps, setPs] = useState<ProjectSettings | null>(null);
+  // 0.20.1 keel's defaults for every project, also here (#101 "who fixes a finding" is gone: a keel flow fixes it)
   const [defaultsOpen, setDefaultsOpen] = useState(false);
 
   const take = useCallback((v: ReviewSetup) => {
@@ -149,25 +148,6 @@ export function ReviewTab({ pid }: { pid: string }) {
       live = false;
     };
   }, [pid, take]);
-
-  useEffect(() => {
-    let live = true;
-    api.projectSettings(pid).then((p) => live && setPs(p), () => undefined);
-    return () => {
-      live = false;
-    };
-  }, [pid]);
-  const saveFixRuns = async (to: "project" | "general", value: string) => {
-    setError(null);
-    try {
-      if (to === "project") await api.saveProjectSettings(pid, { fix_runs: value });
-      else await api.saveGeneralSettings({ fix_runs: value } as Parameters<typeof api.saveGeneralSettings>[0]);
-      setPs(await api.projectSettings(pid));
-      toast(to === "project" ? "Saved for this project." : "Saved for every project.");
-    } catch (e) {
-      setError(errorParts(e));
-    }
-  };
 
   const save = async (patch: Partial<ReviewConfig> | { reset: true }, said = "Saved in .keel/config.yml.") => {
     setBusy(true);
@@ -285,8 +265,8 @@ export function ReviewTab({ pid }: { pid: string }) {
               onChange={() => void save({ find_runs: "harness" })}
             />
             <span>
-              <b>Your coding harness</b> · the project's default model (Claude Code, Codex, Copilot CLI or OpenCode)
-              reviews the change in one session of its own, then a fresh run checks each serious claim (keel's default)
+              <b>One session (keel's harness)</b> · the project's default model reviews the change in one session of
+              its own, then a fresh run checks each serious claim (keel's default)
             </span>
           </label>
           <label>
@@ -569,19 +549,6 @@ export function ReviewTab({ pid }: { pid: string }) {
         <h2 id="rv-fix-h" className="ss-h2">
           Checking and fixing a finding
         </h2>
-        {ps && (
-          <label className="ss-label" style={{ marginBottom: 12 }}>
-            Who fixes a finding
-            <select
-              className="ss-input"
-              value={String(ps.effective.fix_runs ?? "harness")}
-              onChange={(e) => void saveFixRuns("project", e.target.value)}
-            >
-              <option value="harness">the coding harness</option>
-              <option value="flow">keel's flow</option>
-            </select>
-          </label>
-        )}
         <div className="ss-rv-two">
           <div className="ss-rv-card" role="group" aria-label="The checker">
             <b>The checker (“is the reviewer right?”)</b>
@@ -724,19 +691,6 @@ export function ReviewTab({ pid }: { pid: string }) {
       <details className="ss-cardp" onToggle={(e) => setDefaultsOpen(e.currentTarget.open)}>
         <summary className="ss-h2" style={{ cursor: "pointer" }}>keel's defaults for every project</summary>
         <p className="ss-help">What a project gets when it has not changed these itself.</p>
-        {ps && (
-          <label className="ss-label">
-            Who fixes a finding, by default
-            <select
-              className="ss-input"
-              value={String(ps.general.fix_runs ?? "harness")}
-              onChange={(e) => void saveFixRuns("general", e.target.value)}
-            >
-              <option value="harness">the coding harness</option>
-              <option value="flow">keel's flow</option>
-            </select>
-          </label>
-        )}
         {defaultsOpen &&
           parts.map((x) => (
             <div key={x.id}>

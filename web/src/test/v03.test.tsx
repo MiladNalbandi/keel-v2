@@ -208,20 +208,21 @@ describe("keel mascot", () => {
 
 describe("model pickers follow the catalog", () => {
   // v0.15.2 the model is one dropdown: every provider's models in groups with the company's mark, no typing
-  it("Agents drawer: one model dropdown grouped by provider, then runs on and effort from the catalog, with the source hint", async () => {
+  it("Agents drawer: one model dropdown grouped by provider, then the effort from the catalog, with the source hint", async () => {
     const user = userEvent.setup();
     location.hash = "#/agents";
     render(<App />);
     await user.click(await screen.findByText("Writes the minimum code to make the failing test pass."));
     const dlg = await screen.findByRole("dialog", { name: "implementer" });
     const d = within(dlg);
-    // copilot has no effort setting
+    // GitHub Models has no effort setting; #101 no runs-on select: every model runs on the provider's API
     await waitFor(() => expect(d.getByTestId("am-source")).toHaveTextContent("built-in list"));
     expect(d.queryByLabelText("Effort")).not.toBeInTheDocument();
     expect(d.queryByLabelText("Provider")).not.toBeInTheDocument();
-    expect([...d.getByLabelText("Runs on").querySelectorAll("option")].map((o) => o.textContent)).toEqual(["Copilot CLI", "OpenCode", "API key (GitHub Models)"]);
+    expect(d.queryByLabelText("Runs on")).not.toBeInTheDocument();
     const button = d.getByTestId("am-model");
-    expect(button).toHaveTextContent("GPT-5 (Copilot)");
+    // saved as the Copilot CLI before #101: shown as its GitHub Models model
+    expect(button).toHaveTextContent("GPT-5 (GitHub Models)");
     expect(button.querySelector("svg.pi")).toHaveAttribute("data-brand", "github");
 
     await user.click(button);
@@ -229,12 +230,10 @@ describe("model pickers follow the catalog", () => {
     expect(within(list).getAllByRole("group").map((g) => g.getAttribute("data-provider"))).toEqual(["claude", "codex", "copilot", "copilot", "fake"]);
     await user.click(within(list).getByRole("option", { name: "GPT-5.6 Sol" }));
     expect(d.queryByRole("listbox")).not.toBeInTheDocument();
-    expect(d.getByLabelText("Runs on")).toHaveValue("subscription");
     expect(button).toHaveTextContent("GPT-5.6 Sol");
     expect(button.querySelector("svg.pi")).toHaveAttribute("data-brand", "openai");
     expect(d.getByLabelText("Effort")).toHaveValue("medium");
     expect([...d.getByLabelText("Effort").querySelectorAll("option")].map((o) => o.getAttribute("value"))).toEqual(["", "low", "medium", "high", "ultra"]);
-    expect(d.getByTestId("am-source")).toHaveTextContent("from the CLI (cached)");
 
     // a model with its own effort list, chosen with the keyboard; an effort it does not have is dropped
     await user.selectOptions(d.getByLabelText("Effort"), "ultra");
@@ -246,8 +245,9 @@ describe("model pickers follow the catalog", () => {
     expect([...d.getByLabelText("Effort").querySelectorAll("option")].map((o) => o.getAttribute("value"))).toEqual(["", "low", "medium"]);
     expect(d.getByLabelText("Effort")).toHaveValue("");
 
-    await user.selectOptions(d.getByLabelText("Runs on"), "api");
-    expect(button).toHaveTextContent("GPT-5 (API)");
+    await user.click(button);
+    await user.click(d.getByRole("option", { name: "GPT-5" }));
+    expect(button).toHaveTextContent("GPT-5");
     await user.selectOptions(d.getByLabelText("Effort"), "high");
     await user.click(d.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(calls("PUT", "/api/projects/ludus-engine/agents/implementer")[0]?.body).toEqual({
@@ -267,7 +267,7 @@ describe("model pickers follow the catalog", () => {
     };
     await choose("Claude Sonnet");
     expect(d.getByTestId("am-model")).toHaveTextContent("Claude Sonnet");
-    expect(d.getByTestId("am-source")).toHaveTextContent("from the CLI");
+    expect(d.getByTestId("am-source")).toHaveTextContent("built-in list");
     expect(d.getByLabelText("Effort")).toBeInTheDocument();
     await choose("Claude Haiku");
     expect(d.queryByLabelText("Effort")).not.toBeInTheDocument();
@@ -278,12 +278,12 @@ describe("model pickers follow the catalog", () => {
     expect(d.getByLabelText("Effort")).toBeInTheDocument();
   });
 
-  it("Connections: 'Use for all agents' saves the picked model and effort on the selected mode", async () => {
+  it("Models & keys: 'Use for all agents' saves the picked model and effort, on the API", async () => {
     const user = userEvent.setup();
     location.hash = "#/settings/models";
     render(<App />);
     const picker = await screen.findByTestId("all-claude-picker");
-    await waitFor(() => expect(within(picker).getByTestId("all-claude-source")).toHaveTextContent("from the CLI"));
+    await waitFor(() => expect(within(picker).getByTestId("all-claude-source")).toHaveTextContent("built-in list"));
     expect(within(picker).queryByLabelText("Runs on")).not.toBeInTheDocument();
     await user.click(within(picker).getByTestId("all-claude-model"));
     // the place fixes the provider: only Claude's models
@@ -292,25 +292,36 @@ describe("model pickers follow the catalog", () => {
     await user.click(within(list).getByRole("option", { name: "Claude Opus" }));
     await user.selectOptions(within(picker).getByLabelText("Effort"), "high");
     await user.click(screen.getByRole("button", { name: "Use for all agents" }));
-    const m = { provider: "claude", mode: "subscription", model: "opus", effort: "high" };
+    const m = { provider: "claude", mode: "api", model: "opus", effort: "high" };
     await waitFor(() => expect(calls("PUT", "/api/settings/general")[0]?.body).toEqual({ default_model: m, implementer_model: m, reviewer_model: m }));
   });
 
-  it("Settings › Models & logins: the model rows show the effort as choices", async () => {
+  it("Settings › Models & keys: the model rows show the effort as choices", async () => {
     location.hash = "#/settings/models";
     render(<App />);
     const row = await screen.findByTestId("row-reviewer_model");
-    // the effort is a row of choices next to the model (Settings › Models & logins)
+    // the effort is a row of choices next to the model (Settings › Models & keys)
     await waitFor(() => expect(within(row).getByRole("group", { name: "Effort" })).toBeInTheDocument());
-    expect(within(row).getByLabelText("Runs on")).toHaveValue("subscription");
+    expect(within(row).queryByLabelText("Runs on")).not.toBeInTheDocument();
+    expect(within(row).getByTestId("set-reviewer_model-model")).toHaveTextContent("GPT-5.6 Sol");
   });
 
-  it("normalizes the older catalog shape and drops junk", () => {
-    const c = normalizeCatalog({ claude: [{ id: "opus", label: "Opus" }], junk: 3, codex: { modes: { api: [{ id: "gpt-5" }] }, efforts: ["low"], source: "cli" } });
-    expect(c.claude.modes.subscription?.[0]).toEqual({ id: "opus", label: "Opus" });
+  it("normalizes the older catalog shape and drops junk; only API lists (#101)", () => {
+    const c = normalizeCatalog({
+      claude: [{ id: "opus", label: "Opus" }], junk: 3,
+      codex: { modes: { api: [{ id: "gpt-5" }] }, efforts: ["low"], source: "cli" },
+      // an older keel's catalog: its subscription and OpenCode lists are dropped, its default moves to the API
+      copilot: { modes: { subscription: [{ id: "gpt-5" }], opencode: [{ id: "github-copilot/gpt-5" }], api: [{ id: "openai/gpt-5" }] },
+        default: { mode: "subscription", model: "gpt-5" } },
+      old: { modes: { subscription: [{ id: "x" }] } },
+    });
+    expect(c.claude.modes).toEqual({ api: [{ id: "opus", label: "Opus" }] });
     expect(c.claude.source).toBe("builtin");
     expect(c.codex.default).toEqual({ mode: "api", model: "gpt-5" });
-    expect(c.codex.source).toBe("cli");
+    expect(c.codex.source).toBe("builtin");
+    expect(Object.keys(c.copilot.modes)).toEqual(["api"]);
+    expect(c.copilot.default).toEqual({ mode: "api", model: "gpt-5" });
+    expect(c.old).toBeUndefined();
     expect(c.junk).toBeUndefined();
   });
 });

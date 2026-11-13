@@ -16,7 +16,6 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from . import addons, approvals, config, diagrams, extensions, models
-from .models import usage as provider_usage
 from .demo import create_demo, workspace_missing
 from .events import EventBus, bus as default_bus
 from .marketplace import MarketError
@@ -86,9 +85,6 @@ class Settings(BaseModel):
     unlocks: list[Unlock] | None = None   # unlocks: that path bypasses the guard matrix in that phase
     sections: list[str] | None = None     # knowledge-refresh: one librarian per section
     spec_check: bool | None = None        # send a spec back once when keel's spec check finds a gap (default: real models only)
-    usage_warn: float | None = Field(default=None, ge=0, le=1)    # warn before an agent when its plan window is this used (0.80)
-    usage_pause: float | None = Field(default=None, ge=0, le=1)   # pause before an agent at this (0.95)
-    provider_windows: list[dict[str, Any]] | None = None          # the api's latest plan windows: [{provider, window, used_pct, resets_at, ...}]
     # flow options (a parent flow's start_flow seed can give the same keys)
     fast: bool | None = None                    # init: no knowledge base unless named, re-use passed rungs; hunt: fast lenses
     fix_attempts_per_rung: int | None = Field(default=None, ge=1, le=10)   # unused since 0.18.22: the rung gate asks after each doctor round
@@ -364,11 +360,6 @@ class HuntClose(BaseModel):
     note: str
 
 
-class ProviderUsage(BaseModel):
-    provider: Literal["claude", "codex", "copilot"]
-    key: str | None = None       # the login: codex auth.json content, or the GitHub token; never logged
-
-
 class ProviderTest(BaseModel):
     provider: Literal["fake", "claude", "codex", "copilot", "local", "vertex"]
     mode: Literal["subscription", "api", "opencode"] = "api"
@@ -594,7 +585,6 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
         data["settings"] = body.settings.model_dump(exclude_none=True)
         data["mcp"] = [s.model_dump(exclude_none=True) for s in body.mcp]
         data["agents"] = {k: v.model_dump(exclude_none=True) for k, v in body.agents.items()}
-        provider_usage.absorb(data["settings"].pop("provider_windows", None))
         tid = await engine(request).start_thread(data)
         source = engine(request).sources.pop(tid, None)
         note = engine(request).base_notes.pop(tid, None)
@@ -1005,10 +995,28 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     async def post_provider_test(body: ProviderTest):
         return await models.test_provider(body.provider, body.mode, body.model, body.key, body.effort)
 
-    @app.post("/providers/usage")
-    async def post_provider_usage(body: ProviderUsage):
-        """What the provider says is used and what remains now (codex app-server, GitHub quota; claude: its last run)."""
-        return await provider_usage.read_live(body.provider, body.key)
+    # #101 part 3 the flow doctor: its improvement report and the crash log (the api forwards /api/flow-doctor/*)
+    @app.get("/flow-doctor/report")
+    async def get_flow_doctor_report(days: int = 7):
+        from .flowdoctor import report
+
+        return await asyncio.to_thread(report.build, max(1, min(int(days), 90)))
+
+    @app.get("/flow-doctor/crashes")
+    async def get_flow_doctor_crashes(days: int = 7, limit: int = 200):
+        import time as _time
+
+        from .flowdoctor import crashlog, report
+
+        rows = await asyncio.to_thread(crashlog.read, _time.time() - max(1, min(int(days), 90)) * 86_400,
+                                       max(1, min(int(limit), 2000)))
+        return {"crashes": [report._public(r) for r in rows][::-1]}
+
+    @app.delete("/flow-doctor/crashes")
+    async def delete_flow_doctor_crashes():
+        from .flowdoctor import crashlog
+
+        return {"removed": await asyncio.to_thread(crashlog.clear)}
 
     @app.post("/agents/ask")
     async def post_agents_ask(body: Ask):

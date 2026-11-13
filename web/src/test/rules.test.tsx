@@ -1,4 +1,4 @@
-// v0.17.2 Build › Rules: the rules in plain words with when and by which engine they are checked, the library drawer,
+// v0.17.2 Build › Rules: the rules in plain words with when and how they are checked (#101 one engine: keel's harness), the library drawer,
 // a new rule (form → YAML, check and dry-run), switches, removal, and "Rules now" on the Flow page.
 
 import { act, render, screen, waitFor, within } from "@testing-library/react";
@@ -13,7 +13,7 @@ import { db, FakeEventSource, server } from "./setup";
 const calls = (method: string, path: string) => db.calls.filter((c) => c.method === method && c.path === path);
 
 describe("Rules page", () => {
-  it("is in Build and shows each rule with when, the engines and where it is saved", async () => {
+  it("is in Build and shows each rule with when, how it is checked and where it is saved", async () => {
     location.hash = "#/rules";
     render(<App />);
     expect(await screen.findByRole("heading", { name: "Safety & History", level: 1 })).toBeInTheDocument();
@@ -21,12 +21,22 @@ describe("Rules page", () => {
     expect(screen.getByRole("tab", { name: "Safety rules" })).toHaveAttribute("aria-selected", "true");
     const always = (await screen.findByRole("heading", { name: /Always on/ })).closest("section") as HTMLElement;
     const env = within(always).getByText(/\.env files hold secrets/).closest("tr") as HTMLElement;
-    expect(within(env).getByLabelText(/Claude checked before the action/)).toBeInTheDocument();
-    expect(within(env).getByLabelText(/Copilot not checked by this engine/)).toBeInTheDocument();
+    // #101 one column, not one per coding-agent app: keel's harness checks it before the action
+    expect(within(env).getByLabelText("checked before the action")).toBeInTheDocument();
+    expect(env.querySelectorAll(".rl-eng")).toHaveLength(1);
+    const table = env.closest("table") as HTMLElement;
+    expect([...table.querySelectorAll("thead th")].map((t) => t.textContent)).toEqual(["Rule", "When", "Checked", "Saved in", ""]);
+    expect(table).not.toHaveTextContent(/Claude|OpenCode|Codex|Copilot|API key/);
     expect(within(env).getByText("keel (built in)")).toBeInTheDocument();
     expect(within(env).getByTitle("This rule cannot be switched off")).toBeInTheDocument();
     expect(screen.getByLabelText("Legend")).toHaveTextContent("checked after the step: keel puts the file back");
-    expect(screen.getByText(/shell commands of git, gh, the package managers/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Legend")).not.toHaveTextContent(/wrapped|git, gh/);
+    // how keel checks the agents: one engine, keel's harness
+    const how = screen.getByRole("heading", { name: "How keel checks the agents" }).closest("section") as HTMLElement;
+    expect(how.querySelectorAll(".rl-engine")).toHaveLength(1);
+    expect(how).toHaveTextContent("keel's harness");
+    expect(how).toHaveTextContent("every edit, shell command, read and MCP call is checked before it runs");
+    expect(how).not.toHaveTextContent(/for every engine|partial/);
     const list = document.querySelector('[data-list="guards.read_guard_max_lines"]') as HTMLElement;
     expect(within(list).getByText("saved in .keel/config.yml")).toBeInTheDocument();
     expect(screen.getByText(/No rule packs yet/)).toBeInTheDocument();
@@ -184,7 +194,8 @@ describe("Rules now on the Flow page", () => {
     expect(within(now).getByText(/🔒 \.env files/)).toBeInTheDocument();
     expect(within(now).getByText("src/test/kotlin/FlakyTest.kt")).toBeInTheDocument();
     expect(within(now).getByText(/2×/).closest("li")).toHaveTextContent("npm install left-pad");
-    expect(now).toHaveTextContent("copilot: shell commands checked before; file edits only after each step.");
+    expect(now).toHaveTextContent("copilot: keel's harness checks every action before it runs.");
+    expect(now).not.toHaveTextContent(/only after each step|puts back/);
     expect(now).toHaveTextContent("./gradlew test");
     const n = db.calls.length;
     const e: EngineEvent = { type: "guard.refused", thread_id: "th_7f3a", project_id: "ludus-engine", step: "green", at: new Date().toISOString(),

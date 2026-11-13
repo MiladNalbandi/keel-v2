@@ -1,11 +1,12 @@
-// Model (in groups by provider) → runs on (mode) → effort, used everywhere a model is chosen (Agents, Settings,
-// Connections, custom agents). The lists come from the model catalog (GET /api/providers/models,
-// CONTRACT.md "v0.3 additions"). v0.15.2: the model is one dropdown, grouped by provider with each company's mark;
-// "Other model…" still takes any id.
+// Model (in groups by provider) → effort, used everywhere a model is chosen (Agents, Settings, Connections, custom
+// agents). The lists come from the model catalog (GET /api/providers/models, CONTRACT.md "v0.3 additions"). v0.15.2:
+// the model is one dropdown, grouped by provider with each company's mark; "Other model…" still takes any id.
+// #101 every model runs on its provider's API in keel's own harness: the only mode is "api". A model saved as
+// "subscription" or "opencode" shows (and is saved again) as API.
 
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent as KeyEvent } from "react";
 import { createPortal } from "react-dom";
-import { api, type Catalog, type CatalogModel, type CatalogProvider, type Mode, type Model, type Provider } from "../api";
+import { api, asApi, type Catalog, type CatalogModel, type CatalogProvider, type Mode, type Model, type Provider, type SavedMode } from "../api";
 import { MODE_LABEL, PROV } from "../format";
 import { ProviderIcon } from "./ProviderIcon";
 
@@ -18,24 +19,23 @@ export const MODEL_SUGGESTIONS: Record<BuiltinProvider, string[]> = {
   fake: ["fake"],
 };
 export const MODES_FOR: Record<BuiltinProvider, Mode[]> = {
-  claude: ["subscription", "api"],
-  codex: ["subscription", "api"],
-  copilot: ["subscription", "opencode", "api"],
+  claude: ["api"],
+  codex: ["api"],
+  copilot: ["api"],
   fake: ["api"],
 };
 const BUILTIN_EFFORTS: Record<BuiltinProvider, string[]> = {
-  claude: ["low", "medium", "high", "max"],
+  claude: ["low", "medium", "high", "xhigh", "max"],
   codex: ["minimal", "low", "medium", "high"],
   copilot: [],
   fake: [],
 };
 const PROVIDER_ORDER = ["claude", "codex", "copilot", "vertex", "local", "fake"];
-const MODE_COPILOT: Record<string, string> = { subscription: "Copilot CLI", opencode: "OpenCode", api: "API key (GitHub Models)" };
-const MODE_OTHER: Record<string, Record<string, string>> = { vertex: { api: "Google Cloud" }, local: { api: "Local server" } };
-export const modeLabel = (p: Provider | string, m: Mode | string) =>
-  (p === "copilot" ? MODE_COPILOT[m] : MODE_OTHER[p]?.[m] ?? MODE_LABEL[m]) ?? m;
+/** How agents reach each provider: its API, whatever mode a saved model still says. */
+const REACH: Record<string, string> = { copilot: "API key (GitHub Models)", vertex: "Google Cloud", local: "Local server" };
+export const modeLabel = (p: Provider | string, _m?: SavedMode | string) => REACH[p] ?? MODE_LABEL.api;
 
-export const SOURCE_HINT: Record<string, string> = { cli: "from the CLI", cache: "from the CLI (cached)", builtin: "built-in list", server: "from the server" };
+export const SOURCE_HINT: Record<string, string> = { builtin: "built-in list", server: "from the server" };
 
 /** The catalog keel ships with, used until (or when) the api does not answer. */
 export const BUILTIN_CATALOG: Catalog = Object.fromEntries(
@@ -80,7 +80,8 @@ export function normalizeCatalog(raw: unknown): Catalog {
     }
     if (!isObj(v) || !isObj(v.modes)) continue;
     const modes: CatalogProvider["modes"] = {};
-    for (const [m, list] of Object.entries(v.modes)) if (Array.isArray(list)) modes[m as Mode] = models(list);  // the catalog's order
+    // #101 only the API mode: an older keel's subscription or OpenCode lists are not shown
+    for (const [m, list] of Object.entries(v.modes)) if (m === "api" && Array.isArray(list)) modes[m] = models(list);  // the catalog's order
     const modeIds = Object.keys(modes) as Mode[];
     if (!modeIds.length) continue;
     const d = isObj(v.default) ? v.default : {};
@@ -94,7 +95,7 @@ export function normalizeCatalog(raw: unknown): Catalog {
         model: typeof d.model === "string" && d.model ? d.model : modes[dMode]?.[0]?.id ?? "",
         ...(typeof d.effort === "string" && d.effort ? { effort: d.effort } : {}),
       },
-      source: v.source === "cli" || v.source === "cache" || v.source === "server" ? v.source : "builtin",
+      source: v.source === "server" ? "server" : "builtin",
     };
   }
   return Object.keys(out).length ? out : BUILTIN_CATALOG;
@@ -151,13 +152,13 @@ export function modelOptions(c: Catalog | null, p: string, mode?: Mode): Catalog
   return (mode && e.modes[mode]) || e.modes[e.default.mode] || Object.values(e.modes)[0] || [];
 }
 /** Effort choices: the model's own list, else the provider's. Empty = no effort setting. */
-export function effortsOf(c: Catalog | null, p: string, mode: Mode, model: string): string[] {
+export function effortsOf(c: Catalog | null, p: string, mode: SavedMode, model: string): string[] {
   const e = entryOf(c, p);
   if (!e) return [];
-  const m = modelOptions(c, p, mode).find((x) => x.id === model);
+  const m = modelOptions(c, p, mode === "api" ? mode : undefined).find((x) => x.id === model);
   return m?.efforts ?? e.efforts ?? [];
 }
-const bare = (m: Model): Model => ({ provider: m.provider, mode: m.mode, model: m.model });
+const bare = (m: Model): Model => ({ provider: m.provider, mode: "api", model: m.model });
 const keepEffort = (c: Catalog | null, m: Model): Model =>
   m.effort && !effortsOf(c, m.provider, m.mode, m.model).includes(m.effort) ? bare(m) : m;
 
@@ -173,12 +174,12 @@ export function defaultModel(c: Catalog | null, p: string, mode?: Mode): Model {
   return keepEffort(c, { provider: p as Provider, mode: md, model, ...(effort ? { effort } : {}) });
 }
 
-// v0.15.2 The dropdown's list: one group per provider (only the current one when the place fixes the provider). The
-// current provider lists the models of its chosen mode, the others those of their default mode, as switching did before.
+// v0.15.2 The dropdown's list: one group per provider (only the current one when the place fixes the provider), each
+// with its API models.
 type Opt = { key: string; provider: string; mode: Mode; id: string; label: string; custom?: boolean; badge?: string; tools?: boolean };
 type Group = { key: string; provider: string; label: string; mode: Mode; opts: Opt[]; /** v0.15.5 the company's mark, for a sub-group */ icon?: string };
 
-// v0.15.5 a host with many companies' models (Copilot, OpenCode) shows them in one sub-group per company
+// v0.15.5 a host with many companies' models (GitHub Models, a local server) shows them in one sub-group per company
 const VENDORS: [RegExp, string, string][] = [
   [/claude|anthropic/, "claude", "Claude"], [/gpt|openai|codex|^o[134]\b/, "openai", "GPT"], [/gemini|google/, "gemini", "Gemini"],
   [/grok|xai/, "grok", "Grok"], [/llama|meta\//, "meta", "Llama"], [/deepseek/, "deepseek", "DeepSeek"], [/kimi|moonshot/, "kimi", "Kimi"],
@@ -195,17 +196,21 @@ function groupsOf(c: Catalog | null, value: Model, all: boolean): Group[] {
   const ps = all ? providersOf(c) : [p];
   if (!ps.includes(p)) ps.unshift(p);
   return ps.flatMap((q) => {
-    const md = q === p && modesOf(c, q).includes(value.mode) ? value.mode : defaultModel(c, q).mode;
-    const list = modelOptions(c, q, q === p ? value.mode : md);
+    const md: Mode = "api";
+    const list = modelOptions(c, q, md);
     const opts: Opt[] = list.map((m) => ({ key: `${q}:${m.id}`, provider: q, mode: md, id: m.id, label: m.label || m.id, badge: m.badge, tools: m.tools }));
     // a model the list does not have (typed by hand, or from an older keel) still shows, as the chosen one
     if (q === p && value.model && !list.some((m) => m.id === value.model)) opts.unshift({ key: `${q}:${value.model}`, provider: q, mode: md, id: value.model, label: value.model, custom: true });
     const base = { provider: q, label: providerLabel(c, q), mode: md };
-    const vendors = [...new Set(opts.map((o) => vendorOf(o.id).key))];
+    // #101 a short id the company's own API takes ("opus" on Claude, "gpt-5.5" on Codex) is that company's model: Claude's
+    // list is not split into "Claude" and "Other"
+    const own = vendorOf(q);
+    const vendor = (id: string) => (vendorOf(id).key === "other" && own.key !== "other" ? own : vendorOf(id));
+    const vendors = [...new Set(opts.map((o) => vendor(o.id).key))];
     if (vendors.length < 2) return [{ ...base, key: q, opts }];
     return vendors.map((v) => {
-      const vo = opts.filter((o) => vendorOf(o.id).key === v);
-      return { ...base, key: `${q}:${v}`, label: `${base.label} · ${vendorOf(vo[0].id).name}`, icon: v, opts: vo };
+      const vo = opts.filter((o) => vendor(o.id).key === v);
+      return { ...base, key: `${q}:${v}`, label: `${base.label} · ${vendor(vo[0].id).name}`, icon: v, opts: vo };
     });
   }).filter((g) => g.opts.length || g.provider === p);
 }
@@ -215,7 +220,7 @@ const hits = (o: Opt, q: string) =>
   o.label.toLowerCase().startsWith(q) || o.id.toLowerCase().startsWith(q) || `${o.label} ${o.id}`.toLowerCase().split(/[\s/_.:()·-]+/).some((w) => w.startsWith(q));
 const printable = (e: KeyEvent) => e.key.length === 1 && e.key !== " " && !e.ctrlKey && !e.metaKey && !e.altKey;
 
-export function ModelPicker({ value, onChange, id, effort = true, provider = true, mode = true }: {
+export function ModelPicker({ value: saved, onChange, id, effort = true, provider = true, mode = true }: {
   value: Model;
   onChange: (m: Model) => void;
   id: string;
@@ -223,12 +228,13 @@ export function ModelPicker({ value, onChange, id, effort = true, provider = tru
   effort?: boolean;
   /** List every provider's models (off when the place already fixes the provider: only its own models show). */
   provider?: boolean;
-  /** Show the runs-on select (off when the place already picks the mode). */
+  /** Say in each group's head how agents reach the provider (API key, Google Cloud, Local server). */
   mode?: boolean;
 }) {
   const catalog = useCatalog();
+  // #101 a model saved as "subscription" or "opencode" runs on the API: shown, and changed, as API
+  const value = asApi(saved);
   const p = value.provider;
-  const modes = modesOf(catalog, p);
   const efforts = effortsOf(catalog, p, value.mode, value.model);
   const source = catalog ? entryOf(catalog, p)?.source : undefined;
   const pLabel = providerLabel(catalog, p);
@@ -422,16 +428,6 @@ export function ModelPicker({ value, onChange, id, effort = true, provider = tru
             setTyped(null);
           }} />
       )}
-      {mode && (
-        <select aria-label="Runs on" id={`${id}-mode`} value={value.mode} onChange={(e) => {
-          const md = e.target.value as Mode;
-          const model = modelOptions(catalog, p, md).some((x) => x.id === value.model) ? value.model : defaultModel(catalog, p, md).model;
-          onChange(keepEffort(catalog, { ...value, mode: md, model }));
-        }}>
-          {!modes.includes(value.mode) && <option value={value.mode}>{modeLabel(p, value.mode)}</option>}
-          {modes.map((m) => <option key={m} value={m}>{modeLabel(p, m)}</option>)}
-        </select>
-      )}
       {effort && efforts.length > 0 && (
         <select aria-label="Effort" id={`${id}-e`} value={value.effort ?? ""}
           onChange={(e) => onChange(e.target.value ? { ...value, effort: e.target.value } : bare(value))}>
@@ -439,17 +435,10 @@ export function ModelPicker({ value, onChange, id, effort = true, provider = tru
           {efforts.map((x) => <option key={x} value={x}>{x}</option>)}
         </select>
       )}
-      {/* the engine ignores an effort for a model without one (claude haiku, copilot subscription) */}
+      {/* the engine ignores an effort for a model without one (Claude Haiku 4.5, GitHub Models) */}
       {effort && catalog && value.model && efforts.length === 0 && <span className="hint" data-testid={`${id}-noeffort`}>no effort setting</span>}
       {source && <span className="hint" data-testid={`${id}-source`}>{SOURCE_HINT[source] ?? source}</span>}
       {current?.tools === false && <span className="hint amber" data-testid={`${id}-notools`}>no tool calls: Ask, review check and summaries only</span>}
-      {GUARD_NOTE[p] && value.mode !== "api" && <span className="hint amber" data-testid={`${id}-guard`}>{GUARD_NOTE[p]}</span>}
     </div>
   );
 }
-
-/** v0.17.2 engines keel cannot check before every action (Rules page, "How each engine is checked"). */
-const GUARD_NOTE: Record<string, string> = {
-  copilot: "keel checks Copilot's shell commands before they run; its file edits are only checked after each step.",
-  codex: "keel checks Codex before every action from codex 0.150 on; an older codex is only checked after each step.",
-};

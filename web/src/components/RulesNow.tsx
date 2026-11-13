@@ -1,5 +1,5 @@
 // v0.17.2 "Rules now" on the Flow page: in short sentences, what agents may and may not change in this phase, what you
-// allowed, your own rules, which rules stopped something, and how much the running engine is checked before it acts.
+// allowed, your own rules, which rules stopped something, and that keel's harness checks every action before it runs.
 
 import { go, useApp, useLoad } from "../state";
 import { rulesApi, type RulesNow as Now } from "../rulesApi";
@@ -8,9 +8,7 @@ import { FoldPanel } from "./FoldPanel";
 import { Async } from "./ui";
 
 const PROTECTION: Record<string, [string, string]> = {
-  before: ["✓", "checked before every action"],
-  partial: ["◐", "shell commands checked before; file edits only after each step"],
-  after: ["↺", "only checked after each step"],
+  before: ["✓", "keel's harness checks every action before it runs"],
 };
 
 export function RulesNowPanel({ thread }: { thread: ThreadState }) {
@@ -34,7 +32,6 @@ export function RulesNowBody({ n }: { n: Now }) {
       {prot && (
         <p className={`rn-engine rn-${n.engine.protection}`}>
           <span className="rn-ico" aria-hidden="true">{prot[0]}</span> <b>{n.engine.provider}</b>: {prot[1]}.
-          {n.engine.protection !== "before" && <> keel puts back any file the phase does not allow after each step.</>}
         </p>
       )}
       {n.may.length > 0 && (

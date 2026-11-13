@@ -227,7 +227,7 @@ def env_from_keys(keys: dict | None) -> tuple[dict, dict[str, dict]]:
 
 
 def write_private(path: Path | str, text: str) -> None:
-    from ..models.cli import write_private as write
+    from ..models.env import write_private as write
 
     write(path, text)
 

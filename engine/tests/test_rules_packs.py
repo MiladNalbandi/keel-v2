@@ -1,16 +1,12 @@
 """0.17.2 Rules: keel v1's hook gaps (push gate, content at write time, big reads, failed commands, wrappers, codex
 hooks) and rule packs (.keel/rules/*.yaml) through every guard path: the hook, the ToolBox and the diff guard."""
 
-import json
-import os
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
-from keel_engine import hook, rules, shim
-from keel_engine.models import cli_runners
+from keel_engine import hook, rules
 from keel_engine.runtime import blockers, guard_ctx
 from keel_engine.tools import guard
 from keel_engine.tools.agent_tools import ToolBox
@@ -235,19 +231,6 @@ def test_for_agents_lists_blockers_only_for_an_adopted_project(tmp_path):
     assert any(b["gate"] == "release" for b in blockers.for_agents(str(r), project="p-x"))
 
 
-def test_failed_commands_are_recorded(root):
-    tb = ToolBox(str(root), "none")
-    tb.run_command("ls no-such-folder")
-    assert tb.failed_command and tb.failed_command["command"] == "ls no-such-folder"
-    s = cli_runners.ClaudeStream(lambda *a, **k: None, str(root))
-    s.line(json.dumps({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "make x"}}]}}))
-    s.line(json.dumps({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "t1", "is_error": True, "content": "make: *** No rule"}]}}))
-    assert s.failed == {"command": "make x", "output": "make: *** No rule"}
-    state: dict = {}
-    cli_runners.codex_line(lambda *a, **k: None, str(root), {"type": "item.completed", "item": {"type": "command_execution", "command": "pytest", "exit_code": 1, "aggregated_output": "1 failed"}}, state)
-    assert state["failed"]["command"] == "pytest"
-
-
 # ------------------------------------------------------------------ codex and copilot
 
 def test_codex_tool_names_are_judged_as_bash_and_edit(tmp_path, root):
@@ -262,43 +245,6 @@ def test_codex_tool_names_are_judged_as_bash_and_edit(tmp_path, root):
     secret = f"*** Begin Patch\n*** Add File: {TEST}\n+val k = \"{AWS}\"\n*** End Patch\n"
     assert "AWS" in refused("apply_patch", {"input": secret}, c)
     assert "patch" in refused("apply_patch", {"input": "nonsense"}, c)
-
-
-def test_codex_gets_the_hook_and_the_wrappers(monkeypatch):
-    args = guard_ctx.codex_hook_args()
-    assert args[0] == "-c" and args[1].startswith("hooks.PreToolUse=[{matcher=\".*\"") and "keel_engine.hook" in args[1]
-    assert "--dangerously-bypass-hook-trust" in args
-    monkeypatch.setitem(cli_runners._codex_version, "v", (0, 160, 0))
-    assert cli_runners.protection("codex") == "before"
-    monkeypatch.setitem(cli_runners._codex_version, "v", (0, 120, 0))
-    assert cli_runners.protection("codex") == "partial"
-    assert cli_runners.protection("copilot") == "partial" and cli_runners.protection("claude") == "before"
-    assert cli_runners.protection("copilot", "api") == "before"
-
-
-def test_wrappers_refuse_through_the_hook_and_run_the_real_program(tmp_path, root):
-    folder = guard_ctx.write_shims(tmp_path / "keel-bin")
-    assert (Path(folder) / "git").stat().st_mode & 0o111
-    c = ctx(tmp_path, root, phase="red")
-    env = {**os.environ, guard_ctx.ENV: c, **guard_ctx.shim_env(folder)}
-    env.pop(shim.ACTIVE_ENV, None)
-    r = subprocess.run(["git", "commit", "-m", "x"], cwd=root, env=env, capture_output=True, text=True)
-    assert r.returncode == shim.REFUSED and "[keel guard]" in r.stderr
-    r = subprocess.run(["cat", ".env"], cwd=root, env=env, capture_output=True, text=True)
-    assert r.returncode == shim.REFUSED
-    r = subprocess.run(["git", "--version"], cwd=root, env=env, capture_output=True, text=True)
-    assert r.returncode == 0 and "git version" in r.stdout
-    r = subprocess.run(["head", "-1", "README.md"], cwd=root, env=env, capture_output=True, text=True)
-    assert r.returncode == 0 and r.stdout == "# p\n"
-    # no context: only reads would pass, and a shell command is not one
-    bad = {**env, guard_ctx.ENV: str(tmp_path / "missing.json")}
-    assert subprocess.run(["git", "status"], cwd=root, env=bad, capture_output=True).returncode == shim.REFUSED
-
-
-def test_opencode_plugin_sends_the_new_text(tmp_path):
-    conf = cli_runners.write_opencode_plugin(tmp_path / "oc")
-    js = (Path(conf) / "plugins" / "keel-guard.js").read_text()
-    assert "new_string: added" in js and "content: args.content" in js and "patchFiles" in js
 
 
 # ------------------------------------------------------------------ the editor (v0.17.2 feedback)

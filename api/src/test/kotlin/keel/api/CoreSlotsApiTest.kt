@@ -18,19 +18,18 @@ import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 class CoreSlotsApiTest : ApiTest() {
     @Autowired lateinit var settings: SettingsService
 
-    /** ThreadSettings as it was before step 2: the Plugins part's list was a field of its own. */
+    /** ThreadSettings as it was before step 2: the Plugins part's list was a field of its own (#101 no plan windows). */
     data class ThreadSettingsBefore(
-        val gatesMode: String, val runMode: String, val capTokens: Int, val onCap: String, val cheaperModel: Model?,
-        val usageWarn: Double?, val usagePause: Double?, val providerWindows: List<Map<String, Any?>>?, val capUsd: Double?,
+        val gatesMode: String, val runMode: String, val capTokens: Int, val onCap: String, val cheaperModel: Model?, val capUsd: Double?,
         val onCapUsd: String?, val stepCapTokens: Int?, val stepOnCap: String?, val commitAuthor: String?, val commitCoauthor: Boolean?,
         val plugins: List<String>?, val pushPr: String?, val branchPattern: String?,
     )
 
-    private fun before(plugins: List<String>?) = ThreadSettingsBefore("every-ac", "manual", 500_000, "pause", Model("claude", "subscription", "haiku"),
-        0.8, 0.95, null, 2.5, "stop", null, null, null, true, plugins, "ask", "feat/{slug}")
+    private fun before(plugins: List<String>?) = ThreadSettingsBefore("every-ac", "manual", 500_000, "pause", Model("claude", "api", "haiku"),
+        2.5, "stop", null, null, null, true, plugins, "ask", "feat/{slug}")
 
-    private fun now(contributed: Map<String, Any?>) = ThreadSettings("every-ac", "manual", 500_000, "pause", Model("claude", "subscription", "haiku"),
-        0.8, 0.95, null, 2.5, "stop", null, null, null, true, contributed = contributed, pushPr = "ask", branchPattern = "feat/{slug}")
+    private fun now(contributed: Map<String, Any?>) = ThreadSettings("every-ac", "manual", 500_000, "pause", Model("claude", "api", "haiku"),
+        2.5, "stop", null, null, null, true, contributed = contributed, pushPr = "ask", branchPattern = "feat/{slug}")
 
     @Test
     fun `flow settings are written byte for byte as before, the contributed ones where plugins was`() {
@@ -67,7 +66,7 @@ class CoreSlotsApiTest : ApiTest() {
     @Test
     fun `the settings sections hold every core key once, with its type and default`() {
         val sections = get("/api/settings/sections").andExpect(status().isOk).json()
-        assertThat(sections.map { it["id"].asText() }).containsExactly("mode", "harness", "review", "flow", "models", "budget", "git", "notify", "env")
+        assertThat(sections.map { it["id"].asText() }).containsExactly("mode", "flow", "models", "budget", "git", "notify", "env")
         val keys = sections.flatMap { s -> s["keys"].toList() }
         assertThat(keys.map { it["key"].asText() }).containsExactlyInAnyOrderElementsOf(Settings.KEYS)
         val byKey = keys.associateBy { it["key"].asText() }
@@ -75,7 +74,8 @@ class CoreSlotsApiTest : ApiTest() {
         assertThat(shape("push_pr")).isEqualTo("choice \"ask\"")
         assertThat(byKey.getValue("push_pr")["choices"].map { it.asText() }).containsExactly("ask", "auto", "never")
         assertThat(shape("cap_tokens")).isEqualTo("int 500000")
-        assertThat(shape("usage_warn")).isEqualTo("number 0.8")
+        // #101 no plan windows and no harness mode any more
+        assertThat(byKey).doesNotContainKeys("usage_warn", "usage_pause", "build_runs", "harness_plan", "fix_runs")
         assertThat(byKey).doesNotContainKey("keel_rules")      // v0.17.2: read by nothing, removed (a workflow keeps its own)
         assertThat(shape("branch_pattern")).isEqualTo("text \"feat/{slug}\"")
         assertThat(shape("mcp")).isEqualTo("list [\"keel\"]")

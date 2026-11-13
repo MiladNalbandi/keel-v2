@@ -34,13 +34,11 @@ GENERIC: dict[str, tuple[str, str, str]] = {
 }
 
 # (context, name) -> (label, why, description). The context is the gate's step id, or the kind of a check's question
-# (stuck, blocked, cannot-run, usage, item). The why values follow what each handler reads.
+# (stuck, blocked, cannot-run, crash, item). The why values follow what each handler reads.
 CATALOGUE: dict[tuple[str, str], tuple[str, str, str]] = {
-    # a provider's plan window nearly used (Compiler._provider_window)
-    ("usage", "continue"): ("Continue anyway", NONE, "use the plan anyway (the provider may refuse when it is full)"),
-    ("usage", "wait"): ("Wait for the reset", NONE, "sleep until the window resets, then go on"),
-    ("usage", "cheaper"): ("Use the cheaper model", NONE, "switch to the cheaper model in settings"),
-    ("usage", "stop"): ("Stop the flow", OPTIONAL, "end the flow here"),
+    # #101 part 3 a step that crashed and keel could not repair by itself (flowdoctor/repair.py)
+    ("crash", "retry"): ("Retry the step", NONE, "run this step again (after you fixed what the message says)"),
+    ("crash", "stop"): ("Stop the flow", OPTIONAL, "end the flow here; its commits so far stay"),
     # a check that keeps failing, a blocked agent, a command that cannot start (the criterion's skip reads no note)
     ("stuck", "skip"): ("Skip this criterion", NONE, GENERIC["skip"][2]),
     ("blocked", "skip"): ("Skip this criterion", NONE, GENERIC["skip"][2]),

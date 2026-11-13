@@ -270,8 +270,9 @@ def test_commands_endpoint(client, repo):
             "plugin": "core", "source": "keel"} in got
 
 
-@pytest.mark.parametrize("provider,resumes", [("claude", True), ("codex", True), ("copilot", True), ("opencode", True),
-                                             ("local", False)])
+# #101 keel's own harness continues every real provider's session; the fake model has none
+@pytest.mark.parametrize("provider,resumes", [("claude", True), ("codex", True), ("copilot", True), ("vertex", True),
+                                             ("local", True), ("fake", False)])
 def test_which_engines_continue_their_own_session(provider, resumes):
     assert (provider in helper.RESUMABLE) is resumes
 

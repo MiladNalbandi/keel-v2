@@ -27,7 +27,7 @@ import { go, useApp, useLoad, useRoute } from "../state";
 import "../components/inbox.css";
 
 const KIND_LABEL: Record<string, string> = {
-  gate: "gate", clarify: "questions", fix: "needs a fix", budget: "budget", usage: "plan window", dependency: "new dependency",
+  gate: "gate", clarify: "questions", fix: "needs a fix", budget: "budget", dependency: "new dependency",
   permission: "may it run?", "plugin-install": "install request", "stack-setup": "stack setup", "product-jira-send": "send to Jira",
 };
 const kindLabel = (k: string) => KIND_LABEL[k] ?? k;
@@ -201,7 +201,7 @@ function InboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) => Pro
   const [choiceForm, setChoiceForm] = useState(0);
 
   // keel 0.18.13 the engine says what each named choice means: one card each (ChoiceForm), its own reason box
-  const info = (it.kind === "gate" || it.kind === "fix" || it.kind === "usage") && it.choice_info?.length ? it.choice_info : null;
+  const info = (it.kind === "gate" || it.kind === "fix") && it.choice_info?.length ? it.choice_info : null;
   const act = async (decision: "approve" | "reject", payload?: Record<string, unknown>, msg?: string, said = why) => {
     // a gate's exit named "reject" sends back too: the engine wants the reason for it as well
     if ((decision === "reject" && b.needWhy || (payload?.choice === "reject" && !info)) && !said.trim()) {
@@ -256,7 +256,7 @@ function InboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) => Pro
   return (
     <article className={`inbox-item k-${it.kind}`} aria-labelledby={hid} data-testid="inbox-item" data-key={keyOf(it)} tabIndex={-1}>
       <div className="inbox-meta">
-        <Pill tone={it.kind === "fix" || it.kind === "budget" || it.kind === "usage" ? "bad" : "warn"}>{kindLabel(it.kind)}</Pill>
+        <Pill tone={it.kind === "fix" || it.kind === "budget" ? "bad" : "warn"}>{kindLabel(it.kind)}</Pill>
         <span className="sub"><b>{it.project_name}</b> · {it.flow}{it.workflow_id ? <> · <span className="mono">{it.workflow_id}</span></> : null}</span>
         {it.since && <span className="hint inbox-since">waiting <Since from={it.since} /></span>}
       </div>
@@ -285,14 +285,7 @@ function InboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) => Pro
           onSend={(choice, said) => act("approve", { choice }, `${it.project_name}: ${info.find((c) => c.name === choice)?.label || choice}.`, said)} />
       )}
       <div className="row inbox-actions">
-        {info ? null : it.kind === "usage" && choices.length ? (
-          <>
-            {choices.includes("continue") && <button className="btn warn sm" type="button" disabled={busy} onClick={() => act("approve", { choice: "continue" })}>Continue anyway</button>}
-            {choices.includes("wait") && <button className="btn sm" type="button" disabled={busy} onClick={() => act("approve", { choice: "wait" })}>Wait for the reset</button>}
-            {choices.includes("cheaper") && <button className="btn sm" type="button" disabled={busy} onClick={() => act("approve", { choice: "cheaper" })}>Use the cheaper model</button>}
-            {choices.includes("stop") && <button className="btn sm" type="button" disabled={busy} onClick={() => act("reject")}>Stop here</button>}
-          </>
-        ) : (it.kind === "gate" || it.kind === "fix") && choices.length ? (
+        {info ? null : (it.kind === "gate" || it.kind === "fix") && choices.length ? (
           <>
             {choices.map((c, n) => (
               <button key={c} className={`btn sm${n === 0 ? " warn" : ""}`} type="button" disabled={busy}

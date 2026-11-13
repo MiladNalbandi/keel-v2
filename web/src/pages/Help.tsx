@@ -85,7 +85,7 @@ function StartHerePage() {
           <StepCard s={by.model} current={current === "model"}>
             <p className="hs-line">
               {by.model.line} <a href="#/settings/connections">Connections ›</a>
-              {!by.model.done && <> · <a href="#/settings/models">Models &amp; logins ›</a></>}
+              {!by.model.done && <> · <a href="#/settings/models">Models &amp; keys ›</a></>}
             </p>
             {!by.model.done && <div><a className="btn primary" href="#/settings/connections">Open Connections</a></div>}
           </StepCard>

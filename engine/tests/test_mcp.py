@@ -16,7 +16,7 @@ from keel_engine.tools import mcp as mcp_tools
 # 0.16.1's places: plugins/ci, plugins/db and plugins/git engine tests; tests/test_db_part.py has the whole lists)
 # the marketplace's four tools come last at every level (keel_plugin_request only asks: docs/plugins/13-step4-contract.md §7)
 MARKET_TOOLS = ["keel_marketplace_search", "keel_plugin_info", "keel_plugins_installed", "keel_plugin_request"]
-READ_TOOLS = {"keel_status", "keel_read_gate", "keel_projects", "keel_timeline", "keel_next", "keel_explain",
+READ_TOOLS = {"keel_status", "keel_read_gate", "keel_flow_doctor", "keel_projects", "keel_timeline", "keel_next", "keel_explain",
               "keel_dashboard",                                                                    # v0.15.8 dashboard
               "keel_flows", "keel_inbox", "keel_live", "keel_budget", "keel_specs", "keel_knowledge",  # v0.16.0
               "keel_search", "keel_read_file", "keel_actions", "keel_run_action", "keel_rules",   # v0.17.2 rules
@@ -111,8 +111,6 @@ class StubApi:
                 return httpx.Response(409, json={"error": "These agents would use the fake model: explorer. It writes example "
                                                           "files, not real code.", "hint": "Pick a real model."})
             ran = body["workflow_id"]
-            if ran == "feature" and getattr(self, "harness", False) and (body.get("options") or {}).get("engine") != "flow":
-                ran = "harness"       # the api's Harness.route with build_runs: harness
             return httpx.Response(200, json={**self.thread, "thread_id": "t-9", "title": body["title"], "workflow_id": ran})
         if req.method == "POST" and path == "/api/projects/shop/remotes/fetch":
             self.posts.append((path, json.loads(req.content or b"{}")))
@@ -216,7 +214,7 @@ def test_the_marketplace_tools_come_after_every_tool_keel_listed_before_at_each_
     import asyncio
 
     names = lambda level: [t.name for t in asyncio.run(mcp_server.build_server(level=level, api=object()).list_tools())]
-    read = ["keel_status", "keel_read_gate", "keel_projects", "keel_timeline", "keel_next", "keel_explain", "keel_rules", "keel_dashboard", "keel_flows",
+    read = ["keel_status", "keel_read_gate", "keel_flow_doctor", "keel_projects", "keel_timeline", "keel_next", "keel_explain", "keel_rules", "keel_dashboard", "keel_flows",
             "keel_inbox", "keel_live", "keel_budget", "keel_specs", "keel_knowledge", "keel_search", "keel_read_file",
             "keel_spec_check", "keel_citations_check", "keel_read_project_file",          # 0.18.64 next to keel_read_file
             "keel_actions", "keel_run_action"]
@@ -947,15 +945,17 @@ def test_a_form_without_a_yes_waits_in_the_inbox():
 
 
 async def test_a_flow_keel_runs_instead_of_the_one_asked_is_named(stub):
-    """0.22.0 a field report: feature was asked for, harness ran, and the answer said "started feature"."""
-    stub.harness = True
+    """0.22.0 a field report: feature was asked for, harness ran, and the answer said "started feature". #101 only
+    engine='harness' runs the harness flow (no setting sends work there): the answer says so."""
     srv = mcp_server.build_server(level="write", api=stub.api, yes=True)
-    text = await call(srv, "keel_start_flow", {"type": "feature", "request": "scores"})
-    assert "You asked for feature; keel runs harness instead" in text and "engine='flow'" in text
+    text = await call(srv, "keel_start_flow", {"type": "feature", "request": "scores", "engine": "harness"})
+    assert "You asked for feature with engine='harness': keel runs it as the harness flow" in text
     assert "started harness" in text
+    assert stub.posts[-1][1]["workflow_id"] == "harness"
+    assert stub.posts[-1][1]["options"]["intent"] == "feature" and stub.posts[-1][1]["options"]["requested_workflow"] == "feature"
     text = await call(srv, "keel_start_flow", {"type": "feature", "request": "scores", "engine": "flow"})
     assert "instead" not in text and "started feature" in text
-    assert stub.posts[-1][1]["options"]["engine"] == "flow"
+    assert "engine" not in (stub.posts[-1][1].get("options") or {})
 
 
 async def test_health_and_status_say_which_keel_and_which_folder(stub, monkeypatch):

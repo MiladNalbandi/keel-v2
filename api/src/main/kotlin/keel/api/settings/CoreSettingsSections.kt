@@ -36,14 +36,6 @@ class CoreSettingsSections(private val mapper: ObjectMapper) {
     @Bean
     fun modeSettings(): SettingsSection = section("mode", "What this keel does", 0, "keel_mode")
 
-    /** 0.19.0 harness mode: the coding harness does the work, keel is the control room (flow/Harness.kt). */
-    @Bean
-    fun harnessSettings(): SettingsSection = section("harness", "Who does the work", 5, "build_runs", "harness_plan")
-
-    /** 0.20.1 who fixes a finding: on Settings › Review, with the rest of the review's settings. */
-    @Bean
-    fun reviewSettings(): SettingsSection = section("review", "Review", 6, "fix_runs")
-
     @Bean
     fun flowSettings(): SettingsSection =
         section("flow", "Flow and gates", 10, "run_mode", "gates_mode", "fix_attempts", "coverage_min")
@@ -53,7 +45,7 @@ class CoreSettingsSections(private val mapper: ObjectMapper) {
         section("models", "Models", 20, "default_model", "implementer_model", "reviewer_model", "cheaper_model", "local_only")
 
     @Bean
-    fun budgetSettings(): SettingsSection = section("budget", "Budget", 30, "cap_tokens", "on_cap", "usage_warn", "usage_pause")
+    fun budgetSettings(): SettingsSection = section("budget", "Budget", 30, "cap_tokens", "on_cap")
 
     @Bean
     fun gitSettings(): SettingsSection = section("git", "Git", 40,

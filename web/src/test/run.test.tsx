@@ -236,7 +236,7 @@ describe("shell", () => {
     const sheet = await screen.findByRole("dialog", { name: "Menu" });
     const nav = within(sheet).getByRole("navigation", { name: "All screens" });
     expect(within(nav).getByRole("link", { name: /^Settings/ })).toHaveAttribute("href", "#/settings");
-    expect(within(nav).getByRole("link", { name: /^Flow/ })).toHaveFocus();
+    expect(within(nav).getByRole("link", { name: /^Flow(?! doctor)/ })).toHaveFocus();
     expect(within(sheet).getByTestId("live")).toBeInTheDocument();
     const before = document.documentElement.dataset.theme;
     await user.click(within(sheet).getByRole("button", { name: /Switch to the (light|dark) theme/ }));

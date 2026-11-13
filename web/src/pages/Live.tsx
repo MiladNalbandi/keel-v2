@@ -11,9 +11,8 @@ import { FilesTouched, kindLabel, Outcome, StepView, useJumpToStep } from "../co
 import { EmptyState } from "../components/EmptyState";
 import { jobMatches, RunSearch, RunTabs, searchWords, useDebounced, useFinished, useRunTab } from "../components/RunSearch";
 import { StartFlowDrawer } from "../components/StartFlow";
-import { agoText } from "../components/UsageStrip";
 import { ErrorBox, GoButton, Loading, PageHead, Panel, Pill, Prov, Since, Tabs } from "../components/ui";
-import { kfmt, plainText, PROV, since } from "../format";
+import { agoText, kfmt, plainText, PROV, since } from "../format";
 import { go, useApp, useLoad, useRoute } from "../state";
 
 type Filter = "all" | "code" | "msg";

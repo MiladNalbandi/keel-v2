@@ -278,7 +278,6 @@ class McpLevelGuard(
             post("^/api/jobs/[^/]+/stop$"),
             post("^/api/quality/runs(/[^/]+/stop)?$"),
             put("^/api/quality/schedule$"),
-            post("^/api/usage/providers/[^/]+/refresh$"),
             // which project the dashboard and keel TUI look at (keel_focus is an admin tool)
             put("^/api/ui/focus$"),
             // plugins, the marketplace and the plugin host (0.18.64: its restart, like /api/plugins/restart)
@@ -301,9 +300,6 @@ class McpLevelGuard(
             put("^/api/settings/general$"),
             put("^/api/connections/[^/]+$"),
             post("^/api/connections/[^/]+/test$"),
-            post("^/api/logins$"),
-            post("^/api/logins/[^/]+/code$"),
-            delete("^/api/logins/[^/]+$"),
             put("^/api/providers/(local|vertex)$"),
             put("^/api/providers/local/endpoints/[^/]+$"),
             delete("^/api/providers/local/endpoints/[^/]+$"),

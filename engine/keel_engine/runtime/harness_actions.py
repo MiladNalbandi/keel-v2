@@ -1,8 +1,8 @@
 """keel 0.19.0 harness mode: the harness flow's own steps (content/workflows/harness.yaml).
 
-The project's coding harness (Claude Code, Codex, Copilot CLI, OpenCode) plans and builds in one session of its own
-(`session: thread` on the agent steps); these steps are keel's part around it: what the person asked for, the plan
-and the change shown at the gates, and keel's own run of the project's tests.
+keel's harness plans and builds in one session of its own (`session: thread` on the agent steps; #101 keel's own
+harness, on the default model's API, where 0.19.0 handed the session to a coding-agent app); these steps are keel's part
+around it: what the person asked for, the plan and the change shown at the gates, and keel's own run of the tests.
 """
 
 from __future__ import annotations

@@ -18,7 +18,7 @@ import keel_plugin_git
 from conftest import ENGINE
 from keel_engine import builtins, extensions, mcp_server
 from keel_engine.models.base import AgentRequest
-from keel_engine.models.cli import project_env
+from keel_engine.models.env import project_env
 from keel_engine.pluginhost import manifest as manifests
 from keel_engine.pluginhost import resolver, state
 from keel_engine.runtime import action_docs, guard_ctx

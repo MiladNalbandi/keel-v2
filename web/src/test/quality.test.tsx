@@ -11,12 +11,12 @@ import { db, server } from "./setup";
 
 const haiku = {
   provider: "claude" as const,
-  mode: "subscription" as const,
+  mode: "api" as const,
   model: "haiku",
 };
 const sonnet = {
   provider: "claude" as const,
-  mode: "subscription" as const,
+  mode: "api" as const,
   model: "sonnet",
 };
 const at = (d: number) => new Date(Date.now() - d * 86_400_000).toISOString();

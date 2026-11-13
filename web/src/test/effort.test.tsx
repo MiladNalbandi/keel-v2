@@ -73,7 +73,7 @@ describe("Agents: effort per agent", () => {
     await user.selectOptions(d.getByLabelText("Effort"), "high");
     await user.click(d.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(calls("PUT", "/api/projects/ludus-engine/agents/explorer")[0]?.body).toEqual({
-      model: { provider: "claude", mode: "subscription", model: "sonnet", effort: "high" },
+      model: { provider: "claude", mode: "api", model: "sonnet", effort: "high" },
     }));
   });
 
@@ -90,7 +90,7 @@ describe("Agents: effort per agent", () => {
     await user.selectOptions(d.getByLabelText("Effort"), "");
     await user.click(d.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(calls("PUT", "/api/projects/ludus-engine/agents/explorer")[0]?.body).toEqual({
-      model: { provider: "claude", mode: "subscription", model: "sonnet" },
+      model: { provider: "claude", mode: "api", model: "sonnet" },       // saved as subscription before #101: now the API
     }));
   });
 });
@@ -113,7 +113,7 @@ describe("model picker: no effort setting", () => {
 
   it("shows nothing when the place does not pick an effort", async () => {
     render(<Harness start={{ provider: "claude", mode: "subscription", model: "haiku" }} effort={false} />);
-    await waitFor(() => expect(screen.getByTestId("t-source")).toHaveTextContent("from the CLI"));
+    await waitFor(() => expect(screen.getByTestId("t-source")).toHaveTextContent("built-in list"));
     expect(screen.queryByTestId("t-noeffort")).toBeNull();
   });
 });

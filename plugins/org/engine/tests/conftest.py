@@ -15,7 +15,6 @@ from keel_engine import extensions
 from keel_engine.app import create_app
 from keel_engine.demo import create_demo
 from keel_engine.events import EventBus
-from keel_engine.models import usage
 from keel_engine.workflows.model import from_dict
 from keel_engine.workflows.templates import get_template
 
@@ -38,7 +37,6 @@ def env(tmp_path, monkeypatch):
     monkeypatch.delenv("KEEL_INTERNAL_TOKEN", raising=False)
     monkeypatch.setenv("KEEL_ENGINE_OPEN", "1")
     monkeypatch.delenv("KEEL_FAKE_DELAY", raising=False)
-    usage.reset()
     extensions.reload()
     yield tmp_path
     monkeypatch.delenv("KEEL_PLUGIN_PATHS", raising=False)

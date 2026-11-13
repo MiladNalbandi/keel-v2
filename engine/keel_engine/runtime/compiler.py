@@ -38,7 +38,6 @@ from langgraph.types import Command, interrupt
 from .. import addons, agent_names, extensions, models, rules
 from . import doc_history, kept_skips, md, review_config, test_scope, thread_models
 from ..models import catalog
-from ..models import usage as provider_usage
 from ..models.base import AgentRequest, AgentResult, ModelError
 from ..models.stream import DeltaThrottle
 from ..rules import checks as rule_checks
@@ -87,9 +86,9 @@ NO_REASON = ("The person sent this back but gave no reason. Do not do the same w
 SPEC_PATH = re.compile(r"(?<![\w./-])((?:\.{0,2}/)?[\w@.-]+(?:/[\w@.-]+)*\.md)\b")
 # The knowledge check's actions: a failure goes to the librarian, never fails the flow (Compiler._knowledge_failed).
 KNOWLEDGE_CHECKS = ("knowledge_check", "memory_check")
-RESUMABLE = {"claude", "codex", "copilot", "opencode"}   # CLIs whose sessions keel can continue (claude --resume, codex
-#                                                       # exec resume, copilot --session-id, opencode run -s)
-NAMED_SESSION = {"claude", "copilot"}                  # keel names a new session itself (the others report the id)
+# #101 keel's own harness keeps every provider's sessions (harness/transcript.py) and names a new one itself
+RESUMABLE = {"claude", "codex", "copilot", "vertex", "local"}
+NAMED_SESSION = RESUMABLE
 ALREADY_MET = "already-met"
 DONE = ("done", ALREADY_MET)        # AC statuses the per-AC loop is finished with
 ITEM_DONE = ("done", "skipped", "failed")   # item statuses a for_each loop is finished with (todo is the rest)
@@ -553,7 +552,21 @@ class Compiler(AgentMixin, FindingsMixin, CodeMixin, GateMixin):
             ctx.emit("step.started", step=step.id, data=started)
             # v0.15.9 keel's file history: what changed before this step (outside keel) and during it (runtime/doc_history.py)
             docs_before = doc_history.before_step(ctx.emit, ctx.root, phase, step.id)
-            update, goto = await fn(i, step, {**state, "phase": phase})
+            run_state = {**state, "phase": phase}
+            try:
+                update, goto = await fn(i, step, run_state)
+            except (asyncio.CancelledError, GraphBubbleUp):
+                raise
+            except Exception as exc:
+                # #101 part 3 the flow doctor: repair what keel can, else wait for the person's Retry or Stop
+                from ..flowdoctor import repair as doctor
+
+                update, goto = await doctor.treat(self, i, step, run_state, lambda: fn(i, step, run_state), exc)
+            else:
+                if ctx.doctor.get("waited"):
+                    from ..flowdoctor import repair as doctor
+
+                    doctor.went_through(self, step, run_state)     # a Retry the person asked for went through
             by_kind, by_name = doc_history.who(step)
             doc_history.after_step(ctx.emit, ctx.root, docs_before, by_kind, by_name, phase, step.id,
                                    (state.get("data") or {}).get("started_via"))

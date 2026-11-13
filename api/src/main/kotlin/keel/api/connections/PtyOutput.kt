@@ -1,6 +1,6 @@
 package keel.api.connections
 
-/** What the two login services share when they read a CLI's terminal output: the reader loop and the ANSI strip. */
+/** How the GitHub sign-in reads gh's terminal output: the reader loop and the ANSI strip. */
 internal object PtyOutput {
     private val csi = Regex("\u001B\\[[0-9;?]*[ -/]*[@-~]")
     private val osc = Regex("\u001B][^\u0007]*\u0007")

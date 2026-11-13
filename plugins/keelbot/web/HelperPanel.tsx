@@ -124,7 +124,7 @@ export function Answer({ text, onOpen, pid, onAsk, answered, later, source }: { 
     if (link) onOpen(link.path, link.line, sourceRef(source, link.path));
     return !!link;
   };
-  // 0.18.38 the tool calls an agent CLI printed before its answer: one folded line, the answer first
+  // 0.18.38 the tool calls an agent printed as text before its answer (an older chat's CLI): one folded line, the answer first
   const log = useMemo(() => splitToolLog(text), [text]);
   return (
     <AskKeelBot.Provider value={onAsk}>
@@ -148,7 +148,7 @@ export function Answer({ text, onOpen, pid, onAsk, answered, later, source }: { 
   );
 }
 
-/** 0.18.23 KeelBot's thinking, as opencode shows it: open while the model thinks ("Thinking"), folded to one line once
+/** 0.18.23 KeelBot's thinking, as coding agents show it: open while the model thinks ("Thinking"), folded to one line once
  *  the answer starts ("Thought for 12s"); a click opens or folds it. Quieter than the answer, never part of it. */
 export function ThinkingBlock({ text, answering, ms }: { text: string; answering: boolean; ms?: number }) {
   const [open, setOpen] = useState(!answering);
@@ -779,9 +779,9 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
       </header>
       {showModel && (
         <div className="hp-model">
-          <ModelPicker id="hp-model" value={model ?? { provider: "claude", mode: "subscription", model: "sonnet" }}
+          <ModelPicker id="hp-model" value={model ?? { provider: "claude", mode: "api", model: "sonnet" }}
             onChange={(m) => void setModel(m)} />
-          <p className="hp-hint">Claude and Codex continue their own session; other models get the conversation so far.</p>
+          <p className="hp-hint">Every model continues this chat's own session.</p>
         </div>
       )}
       <div className="hp-sessions">

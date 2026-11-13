@@ -42,7 +42,7 @@ describe("Help › Start here", () => {
     const project = screen.getByTestId("step-project");
     expect(within(project).getByRole("heading")).toHaveTextContent("(done)");
     expect(project).toHaveTextContent("Done: my-app and 2 more.");
-    expect(screen.getByTestId("step-model")).toHaveTextContent("Done: Claude subscription (Claude Code CLI).");
+    expect(screen.getByTestId("step-model")).toHaveTextContent("Done: Claude (Anthropic API key).");
     expect(screen.getByTestId("step-mcp")).toHaveTextContent("Waiting for the first call from Claude Code…");
     expect(screen.getByTestId("step-init")).toHaveTextContent("keel finds the stack and the test commands");
     expect(within(screen.getByTestId("step-init")).getByRole("button", { name: "Start init on my-app" })).toBeInTheDocument();

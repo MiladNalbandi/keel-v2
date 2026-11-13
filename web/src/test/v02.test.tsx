@@ -496,7 +496,7 @@ describe("Build v0.2", () => {
     const dlg = await screen.findByRole("dialog", { name: "implementer" });
     await waitFor(() =>
       expect(within(dlg).getByTestId("am-model")).toHaveTextContent(
-        "GPT-5 (Copilot)",
+        "GPT-5 (GitHub Models)",
       ),
     );
     await user.selectOptions(within(dlg).getByLabelText("Lane"), "api");

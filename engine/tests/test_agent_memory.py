@@ -5,9 +5,9 @@ import aiosqlite
 
 from conftest import decide, start, wait
 from keel_engine.models.base import AgentRequest
-from keel_engine.models.cli_runners import ClaudeCLIRunner
 from keel_engine.runtime import memory as mem
 from keel_engine.tools.agent_tools import ToolBox
+from scripted_model import scripted
 from test_v02 import script
 
 RESULT = {"type": "result", "result": "done", "usage": {"input_tokens": 10, "output_tokens": 2}}
@@ -58,44 +58,19 @@ def _req(root, **kw):
                         toolbox=ToolBox(str(root), "spec"), workdir=str(root), **kw)
 
 
-async def test_claude_new_session_resume_and_lost_session(tmp_path, monkeypatch, repo):
-    monkeypatch.setenv("KEEL_DATA", str(tmp_path / "data"))
-    monkeypatch.setenv("KEEL_CLAUDE_BIN", _claude(tmp_path, [RESULT]))
-    await ClaudeCLIRunner().run(_req(repo, session="s-1"), lambda *a, **k: None)
-    await ClaudeCLIRunner().run(_req(repo, session="s-1", resume=True), lambda *a, **k: None)
-    log = calls(tmp_path)
-    assert "--session-id s-1" in log[0] and "--no-session-persistence" not in log[0]
-    assert "--resume s-1" in log[1]
-    assert (tmp_path / "data" / "agent-home" / "claude" / ".claude.json").is_file()
-
-    # The saved session is gone: keel starts a new one instead of failing the step.
-    lost = {"type": "result", "subtype": "error_during_execution", "is_error": True,
-            "errors": ["No conversation found with session ID: s-9"]}
-    monkeypatch.setenv("KEEL_CLAUDE_BIN", script(tmp_path, "claude", f"""cat > /dev/null
-echo "=== CALL $@" >> {tmp_path}/argv.log
-case "$*" in *--resume*) echo '{json.dumps(lost)}' ;; *) echo '{json.dumps(RESULT)}' ;; esac
-"""))
-    new = []
-    res = await ClaudeCLIRunner().run(_req(repo, session="s-9", resume=True, on_session=new.append), lambda *a, **k: None)
-    assert res.text == "done" and len(new) == 1
-    assert f"--session-id {new[0]}" in calls(tmp_path)[-1]
-
-
-def test_a_send_back_continues_the_explorers_own_session(client, repo, tmp_path, monkeypatch):
-    monkeypatch.setenv("KEEL_FAKE", "0")
-    spec = {"type": "result", "result": "- **AC-1** [API] A player's rank is shown next to their best score",
-            "usage": {"input_tokens": 10, "output_tokens": 2}}
-    monkeypatch.setenv("KEEL_CLAUDE_BIN", _claude(tmp_path, [spec]))
+def test_a_send_back_continues_the_explorers_own_session(client, repo, monkeypatch):
+    # #101 the harness keeps the session itself: the spec step's second run reopens the first one's conversation
+    sm = scripted(monkeypatch, "- **AC-1** [API] A player's rank is shown next to their best score")
     tid = start(client, repo, models={"default": {"provider": "claude", "mode": "subscription", "model": "haiku"}})
     s = wait(client, tid)
     assert s["waiting"]["step"] == "spec_gate", s
-    # 0.18.21 web_check runs before the spec step: the spec step's own call is the one whose prompt is the spec step
-    asked = (tmp_path / "prompts.log").read_text().split("=== PROMPT")[1:]
-    first = calls(tmp_path)[next(i for i, p in enumerate(asked) if "Step: spec (keel phase: spec)" in p)]
-    sid = first.split("--session-id ")[1].split()[0]
-    n = len(calls(tmp_path))          # the spec, one explorer per area, the plan
+    first = sm.runs_of("spec")[0]
+    assert first.session and not first.resume
+    n, runs = len(sm.calls), len(sm.runs_of("spec"))      # a re-ask for a missing marker continues the session too
     s = decide(client, tid, "reject", why="ties must share a rank")
-    second = calls(tmp_path)[n]         # the spec step again, after the spec gate's reject
-    assert f"--resume {sid}" in second
-    prompt = (tmp_path / "prompts.log").read_text().split("=== PROMPT")[1:][n]
-    assert "earlier conversation" in prompt and "ties must share a rank" in prompt
+    again = sm.runs_of("spec")[runs]
+    assert again.session == first.session and again.resume
+    call = next(c for c in sm.calls[n:] if "ties must share a rank" in c.last_user_text())
+    assert "earlier conversation" in call.last_user_text()
+    told = [m for m in call.req.messages if m["role"] == "user"]
+    assert any("Step: spec (keel phase: spec)" in (b.get("text") or "") for m in told for b in m["content"])

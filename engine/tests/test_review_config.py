@@ -71,8 +71,7 @@ def test_nothing_written_is_todays_two_reviewers(tmp_path):
     assert [r["name"] for r in revs] == ["correctness and security", "tests, the description and design"]
     assert revs[0]["lenses"] == ["data-migration", "idempotency-retry", "error-handling-retry"]
     assert revs[1]["lenses"] == ["config-secrets", "test-quality"]
-    assert v["find_text"].startswith("Your coding harness (the project's default model: Claude Code, Codex, Copilot CLI or "
-                                     "OpenCode) reviews the change in one session of its own")
+    assert v["find_text"].startswith("keel's harness (the project's default model) reviews the change in one session of its own")
     flow = review_config.find_text({**v["config"], "find_runs": "flow"})
     assert flow.startswith("The review flow (Standard, ~60k tokens) reads the change with your project's rules")
     classic = review_config.find_text({**v["config"], "find_runs": "classic"})
@@ -153,9 +152,10 @@ def test_a_project_on_sonnet_gets_opus_for_the_final_review_step(tmp_path, monke
     monkeypatch.delenv("KEEL_FAKE", raising=False)
     root = project(tmp_path)
     c, wf = compiler_for(root, {"default": SONNET, "branch-reviewer": SONNET, "implementer": SONNET})
+    api = {**SONNET, "mode": "api"}         # #101 every model runs on its API key, whatever mode was saved
     step = {s.id: s for s in wf.steps}
-    assert c._model({}, step["code_review"], "branch-reviewer") == {**SONNET, "model": "opus", "effort": "high"}
-    assert c._model({}, step["green"], "implementer") == SONNET
+    assert c._model({}, step["code_review"], "branch-reviewer") == {**api, "model": "opus", "effort": "high"}
+    assert c._model({}, step["green"], "implementer") == api
     ship = {s.id: s for s in get_template("ship").steps}
     assert c._model({}, ship["review"], "lens-reviewer")["model"] == "opus"
     # the Flow page's model table says the same
@@ -166,12 +166,12 @@ def test_a_project_on_sonnet_gets_opus_for_the_final_review_step(tmp_path, monke
     c.ctx.models["step:code_review"] = {**SONNET, "effort": "low"}
     assert c._model({}, step["code_review"], "branch-reviewer")["effort"] == "low"
     c.ctx.models.pop("step:code_review")
-    assert c._model({"model_override": SONNET}, step["code_review"], "branch-reviewer") == SONNET
+    assert c._model({"model_override": SONNET}, step["code_review"], "branch-reviewer") == api
     # Settings › Review: the final review on the project's model, or on one it names
     (root / ".keel/config.yml").write_text("version: 4\nreview:\n  final: {model: default}\n")
-    assert c._model({}, step["code_review"], "branch-reviewer") == SONNET
+    assert c._model({}, step["code_review"], "branch-reviewer") == api
     (root / ".keel/config.yml").write_text("version: 4\nreview:\n  final:\n    model: {provider: codex, mode: subscription, model: gpt-5}\n    effort: high\n")
-    assert c._model({}, step["code_review"], "branch-reviewer") == {"provider": "codex", "mode": "subscription", "model": "gpt-5", "effort": "high"}
+    assert c._model({}, step["code_review"], "branch-reviewer") == {"provider": "codex", "mode": "api", "model": "gpt-5", "effort": "high"}
 
 
 def test_the_routes_the_api_calls(client, tmp_path):

@@ -86,13 +86,11 @@ class AgentCalls(private val jdbc: JdbcTemplate) {
         )
     }
 
-    /** How a job runs: the engine's "subscription" and "opencode" are both the plan; only "api" bills a key. */
+    /** How a job runs: the fake model, else (#101 keel's harness runs every model on its API) "api", which bills a key. */
     private fun modeOf(provider: String?, mode: String?): String? = when {
         provider == "fake" -> "fake"
-        provider == null -> null
-        mode == "api" -> "api"
-        mode == null -> null
-        else -> "subscription"
+        provider == null || mode == null -> null
+        else -> "api"
     }
 }
 

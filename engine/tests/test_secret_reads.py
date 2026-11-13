@@ -9,11 +9,8 @@ keel's real guard: the hook's decide (CLI agents), the ToolBox (API-key models),
 
 All secrets here are fake."""
 
-import asyncio
 import json
-import os
 import subprocess
-import sys
 from pathlib import Path
 
 import httpx
@@ -22,8 +19,6 @@ from mcp.shared.memory import create_connected_server_and_client_session
 
 from keel_engine import hook, mcp_server, rules
 from keel_engine.mcp_more import is_secret
-from keel_engine.models.base import ModelError
-from keel_engine.models.cli import run_cli
 from keel_engine.runtime import flow_actions, guard_ctx, other_projects
 from keel_engine.tools import mcp as mcp_tools
 from keel_engine.tools.agent_tools import ToolBox
@@ -81,13 +76,6 @@ def test_the_hook_and_the_toolbox_refuse_reading_a_key_file(tmp_path, root):
 
 
 # ------------------------------------------------------------------ F5a claude's Grep, Glob, LS
-
-def test_the_hook_matcher_names_the_search_tools():
-    import re
-
-    for tool in ("Grep", "Glob", "LS", "Read", "Bash", "mcp__keel__keel_status"):
-        assert re.fullmatch(guard_ctx.MATCHER, tool), tool
-
 
 @pytest.mark.parametrize("mode", ["content", "files_with_matches", "count"])
 def test_grep_on_a_secret_file_is_refused_in_every_mode(tmp_path, root, mode):
@@ -245,18 +233,6 @@ def test_a_rewritten_context_is_not_used_and_only_reads_pass(tmp_path, root):
     assert hook.pre_tool(raw, c["_path"]) == 2
     raw = json.dumps({"tool_name": "Read", "tool_input": {"file_path": str(root / "src/app.py")}, "cwd": str(root)})
     assert hook.pre_tool(raw, c["_path"]) == 0
-
-
-def test_the_engine_fails_the_step_when_the_cli_changed_its_guard_files(tmp_path, root):
-    path = guard_ctx.write_context(tmp_path / "run" / "guard.json", root=str(root), phase="green")
-    settings = guard_ctx.claude_settings(tmp_path / "run" / "keel-guard.json")
-    env = {**os.environ, guard_ctx.ENV: path}
-    # an agent CLI that left them alone
-    asyncio.run(run_cli("fake", [sys.executable, "-c", "print('ok')"], env=env))
-    # one that rewrote them (a write the hook did not see)
-    script = f"import json; open({settings!r}, 'w').write(json.dumps({{'hooks': {{}}}}))"
-    with pytest.raises(ModelError, match="changed keel's own files for this run"):
-        asyncio.run(run_cli("fake", [sys.executable, "-c", script], env=env))
 
 
 # ------------------------------------------------------------------ F16 keel's MCP server for a flow's agents

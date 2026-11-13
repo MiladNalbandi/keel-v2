@@ -285,6 +285,7 @@ describe("the menu and the links stay as they were", () => {
       pages: [
         ["live", "Live agents"],
         ["jobs", "Jobs"],
+        ["doctor", "Flow doctor"],  // #101 part 3
         ["record", "Record"],
         ["cluster", "Cluster"],  // 0.23.0 the Cluster plugin
       ],

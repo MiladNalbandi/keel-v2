@@ -1,12 +1,11 @@
-// keel 0.18.57 one smoke test per Settings tab (with the MSW handlers), and the login steps of a device code (Codex)
-// and of "Paste a token".
+// keel 0.18.57 one smoke test per Settings tab (with the MSW handlers), and a sign-in that fails (Connections ›
+// GitHub; #101 the AI providers take an API key: their CLI logins are gone).
 
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 import { App } from "../App";
-import * as fx from "./fixtures";
 import { db, server } from "./setup";
 
 const open = async (hash: string, title: string) => {
@@ -33,30 +32,32 @@ describe("each Settings tab renders with its parts", () => {
       await screen.findByRole("region", { name: "Flow and gates" }),
     ).toBeInTheDocument();
     expect(
-      within(screen.getByText(/^Models are in/)).getByRole("link", { name: "Models & logins" }),
+      within(screen.getByText(/^Models are in/)).getByRole("link", { name: "Models & keys" }),
     ).toHaveAttribute("href", "#/settings/models");
   });
 
-  it("Models & logins: a row per provider, the models with their effort, this machine", async () => {
-    await open("#/settings/models", "Models & logins");
+  it("Models & keys: a row per provider with its key, the models with their effort, this machine", async () => {
+    await open("#/settings/models", "Models & keys");
     const claude = await screen.findByTestId("conn-claude");
-    expect(within(claude).getByText("No login saved")).toBeInTheDocument();
-    // the row that needs something is open: how agents reach it, as radio cards
-    expect(
-      within(claude).getByRole("radiogroup", {
-        name: "How agents reach Claude",
-      }),
-    ).toBeInTheDocument();
+    expect(within(claude).getByText("No API key")).toBeInTheDocument();
+    // the row that needs something is open: how agents reach it (the provider's API, no other way) and its key
+    expect(within(claude).getByTestId("way-claude")).toHaveTextContent("Anthropic API key");
+    expect(within(claude).getByLabelText(/^Anthropic API key/)).toHaveAttribute("id", "key-claude");
+    expect(within(claude).queryByRole("radiogroup")).toBeNull();
+    expect(within(claude).queryByRole("button", { name: /log ?in/i })).toBeNull();
     expect(screen.getByRole("region", { name: "Models" })).toBeInTheDocument();
     expect(await screen.findByTestId("row-default_model")).toBeInTheDocument();
-    expect(
-      screen.getByRole("region", { name: "This machine" }),
-    ).toBeInTheDocument();
-    // the menu's hint: one provider needs a login
+    const machine = screen.getByRole("region", { name: "This machine" });
+    // whatever the api lists: node, git, java and docker (no agent CLI any more)
+    const chips = within(machine).getByLabelText("Installed programs");
+    expect(chips.querySelectorAll(".ss-tag")).toHaveLength(4);
+    for (const program of ["node", "git", "java", "docker"]) expect(chips).toHaveTextContent(program);
+    expect(within(chips).getByText("not installed")).toBeInTheDocument();
+    // the menu's hint: one provider needs a key
     await waitFor(() =>
       expect(
         screen.getByRole("navigation", { name: "Settings sections" }),
-      ).toHaveTextContent("Models & logins"),
+      ).toHaveTextContent("Models & keys"),
     );
   });
 
@@ -79,7 +80,7 @@ describe("each Settings tab renders with its parts", () => {
     ).toBeNull();
   });
 
-  it("Budget: the providers, what keel counted with the day chart, the limits; a click on a day says its numbers", async () => {
+  it("Budget: what keel counted with the day chart, the limits; a click on a day says its numbers", async () => {
     const user = userEvent.setup();
     await open("#/settings/budget", "Budget");
     expect(screen.getAllByRole("button", { name: "Add cap" })[0]).toHaveClass("p"); // the tab's main button
@@ -160,147 +161,37 @@ describe("each Settings tab renders with its parts", () => {
   });
 });
 
-describe("the login steps", () => {
-  it("a device code (Codex): start, open the page, type the code there, saved", async () => {
-    const user = userEvent.setup();
-    let done = false;
-    server.use(
-      http.get("/api/connections", () =>
-        HttpResponse.json({
-          ...fx.connections,
-          providers: [
-            {
-              ...fx.connections.providers[0],
-              id: "codex",
-              label: "GPT / Codex",
-              login_secret: "CODEX_AUTH_JSON",
-            },
-          ],
-        }),
-      ),
-      http.post("/api/logins", () =>
-        HttpResponse.json({
-          id: "C1",
-          provider: "codex",
-          status: "waiting",
-          url: "https://auth.openai.com/codex/device",
-          code: "WDJB-MJHT",
-          message: "Waiting for you to sign in.",
-        }),
-      ),
-      http.get("/api/logins/C1", () =>
-        HttpResponse.json(
-          done
-            ? {
-                id: "C1",
-                provider: "codex",
-                status: "done",
-                message: "Logged in. Saved encrypted.",
-                hint: "…Z9e",
-              }
-            : {
-                id: "C1",
-                provider: "codex",
-                status: "waiting",
-                url: "https://auth.openai.com/codex/device",
-                code: "WDJB-MJHT",
-                message: "Waiting for you to sign in.",
-              },
-        ),
-      ),
-    );
-    location.hash = "#/settings/models";
-    render(<App />);
-    await user.click(
-      await screen.findByRole("button", { name: "Set up login" }),
-    );
-    const dlg = screen.getByRole("dialog", {
-      name: "Set up GPT / Codex login",
-    });
-    const steps = () => within(dlg).getAllByRole("listitem");
-    expect(steps()[0]).toHaveAttribute("aria-current", "step");
-    await user.click(within(dlg).getByRole("button", { name: "Start login" }));
-    const link = await within(dlg).findByRole("link", {
-      name: "Open auth.openai.com",
-    });
-    expect(steps()[0]).toHaveClass("s-done");
-    expect(steps()[1]).toHaveTextContent("Open this page: auth.openai.com");
-    await user.click(link);
-    expect(await within(dlg).findByText("WDJB-MJHT")).toBeInTheDocument();
-    expect(steps()[2]).toHaveTextContent("Type the code on that page");
-    expect(within(steps()[2]).getByRole("status")).toHaveTextContent(
-      "Waiting for you to sign in.",
-    );
-    done = true;
-    expect(
-      await within(dlg).findByText(
-        /Logged in\. Saved encrypted\. \(…Z9e\)/,
-        {},
-        { timeout: 4000 },
-      ),
-    ).toBeInTheDocument();
-    expect(steps()[3]).toHaveClass("s-done");
-  });
-
-  it("a login that fails says why at its step, and Start again starts a new one", async () => {
+describe("the sign-in steps (Connections › GitHub)", () => {
+  it("a sign-in that fails says why at its step, and Start again starts a new one", async () => {
     const user = userEvent.setup();
     let starts = 0;
     server.use(
-      http.post("/api/logins", () => {
+      http.post("/api/github/login", () => {
         starts++;
         return HttpResponse.json({
           id: `F${starts}`,
-          provider: "claude",
           status: "failed",
-          url: "https://claude.com/cai/oauth/authorize",
-          message: "claude setup-token stopped: no browser.",
+          host: "github.com",
+          url: "https://github.com/login/device",
+          code: null,
+          message: "GitHub refused the device code.",
+          login: null,
+          scopes: [],
+          via: null,
         });
       }),
     );
-    location.hash = "#/settings/models";
+    location.hash = "#/settings/connections";
     render(<App />);
     await user.click(
-      await screen.findByRole("button", { name: "Set up login" }),
+      await screen.findByRole("button", { name: "Sign in with GitHub" }),
     );
-    const dlg = screen.getByRole("dialog", { name: "Set up Claude login" });
+    const dlg = screen.getByRole("dialog", { name: "Set up GitHub login" });
     await user.click(within(dlg).getByRole("button", { name: "Start login" }));
     const err = await within(dlg).findByRole("alert");
-    expect(err).toHaveTextContent("claude setup-token stopped: no browser.");
+    expect(err).toHaveTextContent("GitHub refused the device code.");
     expect(err.closest("li")).toHaveClass("s-failed");
     await user.click(within(err).getByRole("button", { name: "Start again" }));
     await waitFor(() => expect(starts).toBe(2));
-  });
-
-  it("Paste a token saves the login and shows step 4 done", async () => {
-    const user = userEvent.setup();
-    location.hash = "#/settings/models";
-    render(<App />);
-    await user.click(
-      await screen.findByRole("button", { name: "Set up login" }),
-    );
-    const dlg = screen.getByRole("dialog", { name: "Set up Claude login" });
-    await user.click(
-      within(
-        within(dlg).getByRole("group", { name: "How to log in" }),
-      ).getByRole("button", { name: "Paste a token" }),
-    );
-    expect(
-      within(dlg).getByText(/On your computer run `claude setup-token`/),
-    ).toBeInTheDocument();
-    await user.type(
-      within(dlg).getByLabelText(/Claude login token/),
-      "sk-ant-oat01-secret-9KQ",
-    );
-    await user.click(within(dlg).getByRole("button", { name: "Save" }));
-    await waitFor(() =>
-      expect(
-        db.calls.find((c) => c.path === "/api/secrets/CLAUDE_CODE_OAUTH_TOKEN")
-          ?.body,
-      ).toEqual({ value: "sk-ant-oat01-secret-9KQ" }),
-    );
-    expect(
-      await within(dlg).findByText(/Claude login saved \(…9KQ\)/),
-    ).toBeInTheDocument();
-    expect(within(dlg).getAllByRole("listitem").at(-1)).toHaveClass("s-done");
   });
 });

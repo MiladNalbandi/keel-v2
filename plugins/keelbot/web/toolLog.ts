@@ -1,6 +1,6 @@
-// 0.18.38 The tool calls an agent CLI prints at the top of its answer (Copilot CLI's plain text: "● cd src; cat -n …",
-// "│ …", "└ 220 lines…", "/ Search (grep) …", and "I'll start with …" between them; or a ```bash block of "$ command"
-// and what it printed). The answer shows them folded to one line ("✓ Ran 3 shell commands — … · 151 + 45 lines"), so
+// 0.18.38 The tool calls an agent printed at the top of its answer, as plain text (an older chat's Copilot CLI:
+// "● cd src; cat -n …", "│ …", "└ 220 lines…", "/ Search (grep) …", and "I'll start with …" between them; or a ```bash
+// block of "$ command" and what it printed). The answer shows them folded to one line ("✓ Ran 3 shell commands — … · 151 + 45 lines"), so
 // the answer itself comes first. Only a log at the very top counts: the same lines later in an answer stay as they are.
 
 export type ToolCall = { title: string; shell: boolean; lines: number | null };
