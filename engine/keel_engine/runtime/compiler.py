@@ -553,20 +553,19 @@ class Compiler(AgentMixin, FindingsMixin, CodeMixin, GateMixin):
             # v0.15.9 keel's file history: what changed before this step (outside keel) and during it (runtime/doc_history.py)
             docs_before = doc_history.before_step(ctx.emit, ctx.root, phase, step.id)
             run_state = {**state, "phase": phase}
+            from ..flowdoctor import repair as doctor
+
+            first = doctor.answer_first(self, step, run_state, "crash")   # #101 part 3 a Stop is read before the step reruns
             try:
-                update, goto = await fn(i, step, run_state)
+                if first:
+                    update, goto = first
+                else:
+                    update, goto = await fn(i, step, run_state)
             except (asyncio.CancelledError, GraphBubbleUp):
                 raise
             except Exception as exc:
                 # #101 part 3 the flow doctor: repair what keel can, else wait for the person's Retry or Stop
-                from ..flowdoctor import repair as doctor
-
                 update, goto = await doctor.treat(self, i, step, run_state, lambda: fn(i, step, run_state), exc)
-            else:
-                if ctx.doctor.get("waited"):
-                    from ..flowdoctor import repair as doctor
-
-                    doctor.went_through(self, step, run_state)     # a Retry the person asked for went through
             by_kind, by_name = doc_history.who(step)
             doc_history.after_step(ctx.emit, ctx.root, docs_before, by_kind, by_name, phase, step.id,
                                    (state.get("data") or {}).get("started_via"))

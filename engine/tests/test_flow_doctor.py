@@ -168,3 +168,46 @@ def test_the_report_and_the_crash_log_over_http(client):
     assert got[0]["thread"] == "t9" and got[0]["outcome"] == "asked"
     assert client.delete("/flow-doctor/crashes").json() == {"removed": 1}
     assert client.get("/flow-doctor/report").json()["total"] == 0
+
+
+def test_reject_stops_the_flow_even_when_the_step_would_go_through_now(client, repo, monkeypatch):
+    """The real app: Reject fix, and the flow went on, because LangGraph ran the step again before it read the answer
+    and this time the model answered. The answer is read first now."""
+    refused = ProviderError("Error code: 401 - invalid x-api-key", status=401)
+    sm = scripted(monkeypatch, [refused, answer("Done: looked at it.")])
+    tid = start(client, repo, workflow=ONE, models=CLAUDE)
+    assert wait(client, tid)["status"] == "waiting"
+    s = decide(client, tid, "reject", why="the key is wrong, later")
+    assert s["status"] in ("failed", "stopped"), s
+    assert len(sm.runs) == 1                     # the agent did not run again
+    assert crashlog.read()[-1]["outcome"] == "stopped"
+
+
+def test_approve_runs_the_step_once_more_and_goes_on(client, repo, monkeypatch):
+    refused = ProviderError("Error code: 401 - invalid x-api-key", status=401)
+    sm = scripted(monkeypatch, [refused, answer("Done: looked at it.")])
+    tid = start(client, repo, workflow=ONE, models=CLAUDE)
+    wait(client, tid)
+    assert decide(client, tid, "approve")["status"] == "done"
+    assert len(sm.runs) == 2
+
+
+def test_a_code_step_stop_is_read_before_it_runs_again(client, repo, monkeypatch):
+    from keel_engine.runtime import actions as actions_mod, flow_actions
+
+    calls = {"n": 0}
+
+    def flaky(a):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise KeyError("missing")
+        return actions_mod.ActionResult(True, "fine")
+
+    monkeypatch.setitem(flow_actions.ACTIONS, "investigation_note", flaky)
+    wf = from_dict({"name": "code", "keel_rules": False,
+                    "steps": [{"id": "act", "kind": "code", "name": "the action", "action": "investigation_note", "phase": "none"}]})
+    tid = start(client, repo, workflow=wf)
+    s = wait(client, tid)
+    assert s["status"] == "waiting" and s["waiting"]["kind"] == "crash", s
+    s = decide(client, tid, "reject", why="not now", payload={"choice": "stop"})
+    assert s["status"] == "stopped" and calls["n"] == 1, s

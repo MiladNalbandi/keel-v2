@@ -3983,10 +3983,16 @@ A step that fails no longer ends the flow by itself, and every crash is kept so 
   `doctor.repair {kind, title, action, attempt, wait}`, `doctor.repaired`.
 - **Asks** when it cannot repair: an agent step's existing pause (kind `fix`, approve = try again, reject = stop) now
   says what happened and what to do; any other step that raises waits at a new pause of kind `crash` with the choices
-  `retry` and `stop` (never auto-answered by a run mode; after 5 Retry answers the flow fails as before).
+  `retry` and `stop` (never auto-answered by a run mode; after 5 Retry answers the flow fails as before). Both pauses
+  are titled `<step> failed`, the same every time, so an answer is read before the step runs again
+  (`repair.answer_first`): stop (reject) ends the flow at once, try again runs the step in a new run of its node.
+  Before, LangGraph ran the paused step again first, and a step that went through that time ignored a reject.
+  The classifier reads the provider's HTTP status too (401/403 auth, 402 billing, 404 model, 413 context, 429 rate
+  limit, 5xx/529 overloaded); `where` (the place in keel's code) is kept for `keel-bug` only.
 - **The crash log**: `$KEEL_DATA/doctor/crashes.jsonl`, one line per event `{at, thread, project, workflow, step, agent,
   provider, model, kind, title, fix, error, where, outcome, action, attempt}`; outcome `retrying | repaired | asked |
-  retried | stopped | failed` (a flow that ends failed adds its line too). Secrets are masked; 5 MB, then one old file.
+  retried | stopped | failed` (a flow that ends failed adds its line too, unless the person stopped it; the person's
+  try again or stop is logged where the answer arrives, `Engine.resume`, so a restart in between loses nothing). Secrets are masked; 5 MB, then one old file.
 - **The improvement report**: engine `GET /flow-doctor/report?days=7` → `{days, since, until, total, repaired, retried,
   waiting, stopped, failed, flows, kinds: [{kind, title, fix, count, repaired, retried, waiting, stopped, failed,
   last_at, steps, providers, where, example, advice}], recent, markdown}`; one crash per flow, step and kind.

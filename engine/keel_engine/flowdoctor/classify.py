@@ -33,13 +33,14 @@ RULES: list[tuple[str, str, str, str, str | None]] = [
      "git was locked by a lock file", "keel removes a stale .git/index.lock by itself; retry if it is still there.", "git-lock"),
     ("billing", r"credit balance|insufficient_quota|billing|payment required|\b402\b",
      "The provider account has no credit", "Add credit or raise the limit at the provider, then retry.", None),
-    ("no-key", r"no api key|key is missing|no key (is )?(saved|set)|api key (is )?not set|add (the|an) .*key",
+    ("no-key", r"\bno (\w+ )?(api )?key\b|no key for|key is missing|api key (is )?not set|add (the|an) .*key|"
+               r"is not set up|no connection called|no local model server",
      "No API key for this model", "Add the key in Settings › Models & keys, then retry.", None),
-    ("auth", r"\b401\b|\b403\b|invalid (x-)?api[ -]?key|incorrect api key|authentication|unauthori[sz]ed|permission denied|"
-             r"bad credentials|forbidden",
+    ("auth", r"\b401\b|\b403\b|invalid (x-)?api[ -]?key|incorrect api key|did not accept the (api )?key|authentication|"
+             r"unauthori[sz]ed|permission denied|bad credentials|forbidden",
      "The provider refused the key", "Check the key in Settings › Models & keys (Test says what is wrong), then retry.", None),
     ("model-not-found", r"model\b.*\b(not found|does not exist|is not available|unknown)|unknown model|no such model|"
-                        r"\b404\b.*model",
+                        r"\b404\b.*model|does not know this model",
      "The model is not available", "Pick another model for this agent (Agents, or Settings › Models & keys), then retry.", None),
     ("context", r"prompt is too long|context (length|window)|maximum context|too many tokens|context_length_exceeded|"
                 r"input is too long|request too large|\b413\b",
@@ -49,7 +50,7 @@ RULES: list[tuple[str, str, str, str, str | None]] = [
     ("overloaded", r"\b529\b|overloaded|\b50[0234]\b|internal server error|bad gateway|service unavailable|"
                    r"server error|upstream",
      "The provider was overloaded or failed", "keel waits and runs the step again.", "wait"),
-    ("network", r"connect(ion)? ?(error|refused|reset|aborted|timed out)|connecterror|readtimeout|timed out|timeout|"
+    ("network", r"could not reach|connect(ion)? ?(error|refused|reset|aborted|timed out)|connecterror|readtimeout|timed out|timeout|"
                 r"temporary failure in name resolution|name or service not known|network is unreachable|"
                 r"remoteprotocolerror|server disconnected|eof occurred",
      "The provider could not be reached", "keel waits and runs the step again.", "wait"),
@@ -75,9 +76,28 @@ def text_of(error: BaseException | str | None) -> str:
     return str(error)
 
 
+# a provider error's HTTP status (keel's harness keeps it on the ProviderError a ModelError comes from)
+BY_STATUS = {401: "auth", 402: "billing", 403: "auth", 404: "model-not-found", 413: "context", 429: "rate-limit",
+             500: "overloaded", 502: "overloaded", 503: "overloaded", 504: "overloaded", 529: "overloaded"}
+
+
+def status_of(error) -> int | None:
+    for e in (error, getattr(error, "__cause__", None)):
+        st = getattr(e, "status", None) or getattr(e, "status_code", None)
+        if isinstance(st, int):
+            return st
+    return None
+
+
 def classify(error: BaseException | str | None) -> Crash:
     text = text_of(error)
     low = text.lower()
+    by_status = BY_STATUS.get(status_of(error) or 0)
+    if by_status:
+        for kind, _pat, title, fix, repair in _COMPILED:
+            if kind == by_status:
+                # a 400/413 that says the conversation is too long stays "context"; the status names the rest
+                return Crash(kind, title, fix, repair)
     for kind, pat, title, fix, repair in _COMPILED:
         if pat.search(low):
             return Crash(kind, title, fix, repair)

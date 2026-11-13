@@ -623,7 +623,7 @@ export function ModelsTab({ pid }: { pid: string }) {
               {!providers
                 ? "Checking each provider: which keys are saved."
                 : missing
-                  ? `${missing} provider${missing === 1 ? " needs" : "s need"} a key before its agents can run.`
+                  ? `${missing} provider${missing === 1 ? " needs a key before its" : "s need a key before their"} agents can run.`
                   : "Every provider is ready."}
             </p>
           </div>

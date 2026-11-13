@@ -94,7 +94,7 @@ def _line(comp, step, state: dict, crash: classify_mod.Crash, exc: BaseException
     return {"thread": ctx.thread_id, "project": Path(ctx.root).name, "workflow": comp.wf.id, "step": step.id,
             "agent": step.agent or None, "provider": model.get("provider"), "model": model.get("model"),
             "kind": crash.kind, "title": crash.title, "fix": crash.fix, "error": classify_mod.text_of(exc),
-            "where": classify_mod.where(exc) if crash.kind in ("keel-bug", "unknown") else None}
+            "where": classify_mod.where(exc) if crash.kind == "keel-bug" else None}
 
 
 async def before_asking(comp, step, state: dict, exc: BaseException) -> str | None:
@@ -155,14 +155,11 @@ def _went_through(comp, step, state: dict) -> None:
     if doc.get("repairs", {}).get(key):
         doc["repairs"][key] = 0
     done = doc.get("pending", {}).pop(key, None)
-    waited = doc.get("waited", {}).pop(key, None)
     if done:
         line, action = done
         crashlog.record(**line, outcome="repaired", action=action)
         comp.ctx.emit("doctor.repaired", step=step.id, data={"kind": line["kind"], "title": line["title"], "action": action})
-    elif waited:
-        crashlog.record(**waited, outcome="retried")     # the person's try again went through
-    doc.get("asked", {}).pop(key, None)
+    doc.get("asked", {}).pop(key, None)       # (the person's answer itself is logged by Engine.resume: _crash_answer)
 
 
 def asking(comp, step, state: dict, exc: BaseException) -> tuple[classify_mod.Crash, int]:
@@ -182,20 +179,44 @@ def _asking(comp, step, state: dict, exc: BaseException) -> tuple[classify_mod.C
     asked = doc.setdefault("asked", {}).get(key, 0) + 1
     doc["asked"][key] = asked
     doc.setdefault("repairs", {})[key] = 0          # an answer of try again gets the doctor's repairs again
-    line = _line(comp, step, state, crash, exc)
-    doc.setdefault("waited", {})[key] = line
-    crashlog.record(**line, outcome="asked", attempt=asked)
+    crashlog.record(**_line(comp, step, state, crash, exc), outcome="asked", attempt=asked)
     return crash, asked
 
 
 def answered(comp, step, state: dict, exc: BaseException, again: bool) -> None:
-    """The person answered the pause. Stop is logged here; a try again that goes through is logged by went_through."""
-    if not again:
-        try:
-            comp.ctx.doctor.get("waited", {}).pop(step_key(step, state), None)
-            crashlog.record(**_line(comp, step, state, classify_mod.classify(exc), exc), outcome="stopped")
-        except Exception:  # noqa: BLE001
-            log.warning("the flow doctor could not log the stop of step %s", step.id, exc_info=True)
+    """The person answered the pause. The answer itself is logged where it arrives (Engine.resume: _crash_answer), so a
+    restart between the pause and the answer loses nothing; nothing is left to do here."""
+    return None
+
+
+def pause_of(step, kind: str) -> dict:
+    """The failure pause of a step: kind "fix" (an agent step) or "crash" (any other step). Its id is the same every time
+    (step, kind, title), so a resume can be matched to it before the step runs again (answer_first)."""
+    return {"step": step.id, "kind": kind, "title": f"{step.name} failed"}
+
+
+def answer_first(comp, step, state: dict, kind: str):
+    """A resume that answers this step's failure pause is read before the step runs again. LangGraph runs a paused
+    node again from its start, so without this a step that went through on that run ignored a Stop (the bug the real
+    app showed: Reject fix, and the flow went on). Returns (update, goto): stop ends the flow, try again runs the step
+    again in a new run of its node; or None when no such answer waits."""
+    from ..runtime.compiler import END as _END, question_id
+
+    q = pause_of(step, kind)
+    if not comp.ctx.resume_qid or comp.ctx.resume_qid != question_id(q):
+        return None
+    extra_q = {"choices": ["retry", "stop"]} if kind == "crash" else {}
+    answer, extra = comp._ask(state, {**q, "detail": "", "options": ["approve", "reject"], **extra_q},
+                              gate="crash" if kind == "crash" else None)
+    comp.ctx.resume_qid = None          # read: the step's next run (try again) must not wait for it once more
+    choice = ((answer or {}).get("payload") or {}).get("choice")
+    if (answer or {}).get("decision") == "approve" and choice != "stop":
+        return {**extra, "note": f"{step.name}: trying again"}, step.id
+    why = ((answer or {}).get("why") or "").strip()
+    note = f"{step.name} failed; stopped" + (f": {why}" if why else "")
+    status = "stopped" if kind == "crash" else "failed"
+    booked = comp._booked(state) if hasattr(comp, "_booked") else {}
+    return {**extra, **booked, "status": status, "error": note[:500], "note": note}, _END
 
 
 def question_text(crash: classify_mod.Crash, exc: BaseException, tries: int = 0) -> str:
@@ -230,9 +251,9 @@ async def treat(comp, i: int, step, state: dict, run, exc: BaseException):
         from ..runtime import choices as choices_mod
 
         question = choices_mod.for_question({
-            "step": step.id, "kind": "crash", "title": f"{step.name} failed: {crash.title}" + (f" (time {asked})" if asked > 1 else ""),
-            "detail": question_text(crash, exc, tries) + "\n\nretry: run this step again (after you fixed it)\n"
-                                                         "stop: end the flow here; its commits so far stay",
+            **pause_of(step, "crash"),
+            "detail": question_text(crash, exc, tries) + (f"\n\nThis is time {asked} this step stopped here." if asked > 1 else "")
+                      + "\n\nretry: run this step again (after you fixed it)\nstop: end the flow here; its commits so far stay",
             "options": ["approve", "reject"], "choices": ["retry", "stop"], "crash": crash.as_dict()}, context="crash")
         answer, extra = comp._ask(state, question, gate="crash")
         choice = ((answer or {}).get("payload") or {}).get("choice")
@@ -241,12 +262,5 @@ async def treat(comp, i: int, step, state: dict, run, exc: BaseException):
         if not again:
             note = f"stopped after a crash: {crash.title}"
             return {**extra, "status": "stopped", "note": note, "error": f"{note}: {classify_mod.text_of(exc)[:300]}"}, END
-        try:
-            update, goto = await run()
-        except (asyncio.CancelledError, GraphBubbleUp):
-            raise
-        except Exception as again_exc:  # noqa: BLE001
-            exc = again_exc
-            continue
-        went_through(comp, step, state)
-        return {**extra, **update}, goto
+        # try again: the step runs again in a new run of its node (one pause per node run, as an agent step's try again)
+        return {**extra, "note": f"{step.name}: trying again"}, step.id

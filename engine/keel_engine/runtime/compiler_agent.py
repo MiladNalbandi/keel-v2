@@ -408,6 +408,10 @@ class AgentMixin:
     async def agent_step(self, i: int, step: Step, state: FlowState):
         ctx = self.ctx
         ctx.running_warned = None
+        # #101 part 3 an answer to this step's failure pause is read before its agents run again: reject stops the flow
+        first = doctor.answer_first(self, step, state, "fix")
+        if first:
+            return first
         upd = self._budget(state, step)
         if upd.get("status") == "stopped":
             return upd, END
@@ -530,9 +534,8 @@ class AgentMixin:
                     kept = sum(1 for key in done if key.startswith(attempt + "|"))
                     if kept:
                         exc.args = (f"{exc} ({kept} of {len(calls)} agents finished; try again runs only the others)",)
-                answer, extra = self._ask(state, {"step": step.id, "kind": "fix", "title": f"{step.name} failed",
-                                                  "detail": f"{exc}{(' ' + exc.hint) if getattr(exc, 'hint', '') else ''}\n\n"
-                                                            f"{doctor.question_text(crash, exc, tries)}\n\n"
+                answer, extra = self._ask(state, {**doctor.pause_of(step, "fix"),
+                                                  "detail": f"{doctor.question_text(crash, exc, tries)}\n\n"
                                                             "Approve to try again, reject to stop the flow.",
                                                   "options": _c.OPTIONS, "crash": crash.as_dict()})
                 upd.update(extra)

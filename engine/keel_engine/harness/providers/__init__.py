@@ -71,7 +71,7 @@ def resolve(model: dict, key: str | None) -> Provider:
                                     who=f"the local server {ep.get('name') or ''}".strip(), reasoning=False,
                                     tools=local.tool_support(ep, real))
     raise ProviderError(f"keel has no connection called {provider!r}.",
-                        hint="Pick Anthropic, OpenAI, GitHub Models, Vertex AI or a local model in Settings › Models & logins.")
+                        hint="Pick Anthropic, OpenAI, GitHub Models, Vertex AI or a local model in Settings › Models & keys.")
 
 
 __all__ = ["LABEL", "Provider", "ProviderError", "api_model", "resolve"]

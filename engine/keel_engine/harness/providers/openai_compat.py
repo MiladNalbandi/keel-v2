@@ -60,12 +60,12 @@ def _error(exc: Exception, who: str) -> ProviderError:
     import openai
 
     if isinstance(exc, openai.AuthenticationError):
-        return ProviderError(f"{who} did not accept the key.", status=401, hint="Check the key in Settings › Models & logins.")
+        return ProviderError(f"{who} did not accept the key.", status=401, hint="Check the key in Settings › Models & keys.")
     if isinstance(exc, openai.PermissionDeniedError):
         return ProviderError(f"{who} refused this request: {exc.message}", status=403)
     if isinstance(exc, openai.NotFoundError):
         return ProviderError(f"{who} does not know this model: {exc.message}", status=404,
-                             hint="Pick another model in Settings › Models & logins.")
+                             hint="Pick another model in Settings › Models & keys.")
     if isinstance(exc, openai.RateLimitError):
         after = exc.response.headers.get("retry-after") if exc.response is not None else None
         return ProviderError(f"{who}'s rate limit: waiting before the next try.", retry=True, status=429,
@@ -93,7 +93,7 @@ class OpenAICompatProvider:
         self._base = base_url
         self._client = client
         if client is None and not api_key:
-            raise ProviderError(f"No key for {who}.", hint="Add it in Settings › Models & logins.")
+            raise ProviderError(f"No key for {who}.", hint="Add it in Settings › Models & keys.")
 
     def client(self):
         if self._client is not None:

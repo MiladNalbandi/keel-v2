@@ -117,13 +117,13 @@ def _error(exc: Exception) -> ProviderError:
 
     if isinstance(exc, anthropic.AuthenticationError):
         return ProviderError("Anthropic did not accept the API key.", status=401,
-                             hint="Check the Anthropic API key in Settings › Models & logins.")
+                             hint="Check the Anthropic API key in Settings › Models & keys.")
     if isinstance(exc, anthropic.PermissionDeniedError):
         return ProviderError(f"Anthropic refused this request: {exc.message}", status=403,
                              hint="The key's workspace may not have this model, or its spend limit is reached.")
     if isinstance(exc, anthropic.NotFoundError):
         return ProviderError(f"Anthropic does not know this model: {exc.message}", status=404,
-                             hint="Pick another model in Settings › Models & logins.")
+                             hint="Pick another model in Settings › Models & keys.")
     if isinstance(exc, anthropic.RateLimitError):
         after = exc.response.headers.get("retry-after") if exc.response is not None else None
         return ProviderError("Anthropic's rate limit: waiting before the next try.", retry=True, status=429,
@@ -148,7 +148,7 @@ class AnthropicProvider:
             from anthropic import AsyncAnthropic
 
             if not api_key:
-                raise ProviderError("No Anthropic API key.", hint="Add one in Settings › Models & logins (or keel2 token anthropic).")
+                raise ProviderError("No Anthropic API key.", hint="Add one in Settings › Models & keys (or keel2 token anthropic).")
             # the SDK retries connection errors, 408, 409, 429 and 5xx itself; the harness retries a whole turn on top
             client = AsyncAnthropic(api_key=api_key, max_retries=3, timeout=600)
         self.client = client
