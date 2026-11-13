@@ -23,8 +23,10 @@ class ReviewController(private val reviews: ReviewService, private val ai: Revie
     @GetMapping("/branch")
     fun branch(@PathVariable pid: String) = reviews.thisBranch(pid)
 
+    /** The review; a thread whose author says "fixed" after a new commit is checked again in the background (never resolved). */
     @GetMapping("/view")
-    fun view(@PathVariable pid: String, @RequestParam key: String, @RequestParam(defaultValue = "false") refresh: Boolean) = reviews.view(pid, key, refresh)
+    fun view(@PathVariable pid: String, @RequestParam key: String, @RequestParam(defaultValue = "false") refresh: Boolean) =
+        judging.fixChecks(pid, reviews.view(pid, key, refresh))
 
     /** keel TUI's review mode and keel2 mcp (keel-plugin.yml contributes.tui.modes): a review from a person's words. */
     @GetMapping("/open")
@@ -67,7 +69,8 @@ class ReviewController(private val reviews: ReviewService, private val ai: Revie
     fun viewed(@PathVariable pid: String, @RequestBody b: ViewedBody) = mapOf("viewed" to reviews.setViewed(pid, b))
 
     @PostMapping("/threads/{threadId}/reply")
-    fun reply(@PathVariable pid: String, @PathVariable threadId: String, @RequestBody b: ReplyBody) = reviews.reply(pid, threadId, b)
+    fun reply(@PathVariable pid: String, @PathVariable threadId: String, @RequestBody b: ReplyBody) =
+        judging.fixChecks(pid, reviews.reply(pid, threadId, b))
 
     @PostMapping("/threads/{threadId}/resolve")
     fun resolve(@PathVariable pid: String, @PathVariable threadId: String, @RequestBody b: ResolveBody) = reviews.resolve(pid, threadId, b)

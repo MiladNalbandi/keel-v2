@@ -14,6 +14,7 @@ import type {
 } from "../reviewApi";
 import { decisionText } from "../reviewApi";
 import { waitsForYou } from "../Threads";
+import { fixNote, sidesOf, verdictLabel } from "../verdict";
 
 export type Tone = "ok" | "run" | "warn" | "bad" | "idle" | "accent";
 
@@ -124,34 +125,29 @@ export function whereOf(path: string | null, line: number | null): string {
 
 // ---------------------------------------------------------------- keel's check of a thread
 
-export type VerdictSum = "right" | "wrong" | "partly" | "unsure";
-export const VERDICT_LABEL: Record<VerdictSum, [string, Tone]> = {
-  right: ["Reviewer is right", "ok"],
-  wrong: ["Reviewer is not right", "bad"],
-  partly: ["Partly right", "warn"],
-  unsure: ["Not sure", "warn"],
-};
-export const POINT_LABEL: Record<Verdict, [string, Tone]> = {
-  reviewer_right: ["Right:", "ok"],
-  author_right: ["Not right:", "bad"],
-  partly: ["Partly:", "warn"],
-  unclear: ["Not sure:", "warn"],
+/** The tone of a verdict here (its words come from ../verdict, the same as the classic view's). */
+export const VERDICT_TONE: Record<Verdict, Tone> = {
+  reviewer_right: "ok",
+  author_right: "bad",
+  partly: "warn",
+  unclear: "warn",
 };
 
-/** One verdict for the whole thread, from keel's points: all right, all not right, a mix (partly), or not sure. */
-export function verdictOf(items: JudgeItem[]): VerdictSum | null {
+/** One verdict for the whole thread, from keel's points: all the reviewer's, all the author's, a mix (partly), or
+ *  unclear. */
+export function verdictOf(items: JudgeItem[]): Verdict | null {
   if (!items.length) return null;
   const right = items.filter((i) => i.verdict === "reviewer_right").length;
   const wrong = items.filter((i) => i.verdict === "author_right").length;
-  if (right === items.length) return "right";
-  if (wrong === items.length) return "wrong";
+  if (right === items.length) return "reviewer_right";
+  if (wrong === items.length) return "author_right";
   if (
     items.some((i) => i.verdict === "partly") ||
     (right > 0 && wrong > 0) ||
     right > 0
   )
     return "partly";
-  return "unsure";
+  return "unclear";
 }
 
 /** keel's finished check of a thread, or null (none, running, failed, or a flow it started). */
@@ -169,7 +165,8 @@ export const needsChange = (r: JudgeResult | null): boolean =>
     (i) => i.verdict === "reviewer_right" || i.verdict === "partly",
   );
 
-/** The pill of a thread: resolved, a fix running, keel checking, keel's verdict, waiting for you, or not checked. */
+/** The pill of a thread: resolved, keel saw the author's fix (Resolve waits for you), a fix running, keel checking,
+ *  keel's verdict, waiting for you, or not checked. */
 export function threadPill(
   t: ReviewThread,
   v: ReviewView,
@@ -178,10 +175,12 @@ export function threadPill(
 ): [string, Tone] {
   if (t.resolved) return ["resolved", "idle"];
   if (t.pending) return ["pending", "run"];
+  const fix = fixNote(ai?.fixed?.[t.id], t);
+  if (fix?.fixed) return [fix.text, "ok"];
   if (ai?.addressed?.[t.id]) return ["fix running", "run"];
   if (checking) return ["keel is checking", "run"];
   const sum = verdictOf(doneCheck(ai?.judges?.[t.id])?.items ?? []);
-  if (sum) return VERDICT_LABEL[sum];
+  if (sum) return [verdictLabel(sum, sidesOf(v, t)), VERDICT_TONE[sum]];
   if (waitsForYou(t, v.me)) return ["waits for you", "warn"];
   if (t.comments.length && same(t.comments[t.comments.length - 1].author, v.me))
     return ["you replied", "idle"];

@@ -4,19 +4,21 @@
 // confirm), ask KeelBot a follow-up, or let keel think harder. keel never posts by itself.
 //
 //   (Waiting for you 1) (Open 3) (Resolved 1)                      [Check all open (2)]
-//   ┌ refunds.py · line 20  alex  The amount comes from a form…  ● Reviewer is right  ▾ ┐
+//   ┌ refunds.py · line 20  alex  The amount comes from…  ● Reviewer (alex) is right  ▾ ┐
 //   │  19 + # never give back more than the customer paid                                 │
 //   │  20 + if amount > refundable_amount(order):                                         │
 //   │ (A) alex · 1 h ago  The amount comes from a form…                                   │
-//   │ ┌ keel: Reviewer is right ─────────────────────────────────────────────────┐       │
-//   │ │ • Right: A string can reach this check. … Fix: add a test …              │       │
+//   │ ┌ keel: Reviewer (alex) is right ──────────────────────────────────────────┐       │
+//   │ │ • Reviewer (alex) is right · A string can reach this check. … Fix: …     │       │
 //   │ │ [Use as my reply] [Address it] Ask a follow-up  Think harder             │       │
 //   │ └──────────────────────────────────────────────────────────────────────────┘       │
 //   │ [Reply] [Resolve] Show in the file                                                  │
 //   └─────────────────────────────────────────────────────────────────────────────────────┘
 //
 // The same store actions as the classic Threads panel (R.judge, R.judgeAll, R.address, R.reply, R.resolve), and the
-// same kept reply drafts (a reply you started in one view is in the other).
+// same kept reply drafts (a reply you started in one view is in the other). Comments that make the same point are one
+// check: each answer links the others, and one reply can go into all of their drafts. When the author says "fixed" and
+// pushes, keel checks the new code: "Fixed in abc1234 · Resolve" (only your click resolves it).
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -39,15 +41,30 @@ import {
   type ReviewView,
 } from "../reviewApi";
 import * as R from "../store";
-import { ago, estimate, firstLine, initials, quoteThread } from "../Threads";
+import {
+  ago,
+  estimate,
+  FillDraft,
+  firstLine,
+  initials,
+  quoteThread,
+  uncheckedPoints,
+} from "../Threads";
+import {
+  checkLines,
+  fixNote,
+  samePointLabel,
+  sidesOf,
+  useOnAllLabel,
+  verdictLabel,
+} from "../verdict";
 import {
   doneCheck,
   needsChange,
-  POINT_LABEL,
   same,
   threadPill,
   threadsOf,
-  VERDICT_LABEL,
+  VERDICT_TONE,
   verdictOf,
   whereOf,
   type ThreadFilter,
@@ -83,27 +100,28 @@ export function CommentsTab({
     },
   );
   const [openId, setOpenId] = useState<string | null>(null);
-  useEffect(() => {
-    if (!focus) return;
-    const t = view.threads.find((x) => x.id === focus.id);
+  // opens one comment and shows it (a marker in Files, or the same point's link)
+  const go = (id: string) => {
+    const t = view.threads.find((x) => x.id === id);
     if (!t) return;
-    setOpenId(focus.id);
+    setOpenId(id);
     if (t.resolved && filter !== "resolved") setFilter("resolved");
     if (!t.resolved && filter === "resolved") setFilter("open");
     window.setTimeout(
       () =>
         document
-          .querySelector(`[data-rvn-thread="${CSS.escape(focus.id)}"]`)
+          .querySelector(`[data-rvn-thread="${CSS.escape(id)}"]`)
           ?.scrollIntoView?.({ block: "nearest" }),
       0,
     );
+  };
+  useEffect(() => {
+    if (focus) go(focus.id);
   }, [focus?.n]); // eslint-disable-line react-hooks/exhaustive-deps
   const cfg = ai?.config;
   const quick = (cfg?.judge?.mode ?? "quick") === "quick";
-  const open = threadsOf(view, "open");
-  const unchecked = open.filter(
-    (t) => !t.pending && ai?.judges?.[t.id]?.status !== "done",
-  ).length;
+  // the same point in two comments is one check
+  const unchecked = uncheckedPoints(view, ai);
   const checkAllBusy = running.includes("judge-all");
   const list = threadsOf(view, filter);
   const chips: [ThreadFilter, string][] = [
@@ -144,7 +162,7 @@ export function CommentsTab({
             type="button"
             className="rvn-btn ghost accent"
             disabled={checkAllBusy}
-            title="One cheap call for every open comment keel has not checked yet"
+            title="One cheap call for every open point keel has not checked yet (the same point in two comments is one)"
             onClick={() => void R.judgeAll(pid, reviewKey)}
           >
             {checkAllBusy ? "Checking…" : `Check all open (${unchecked})`}
@@ -175,6 +193,7 @@ export function CommentsTab({
           t={t}
           open={openId === t.id}
           onToggle={() => setOpenId((o) => (o === t.id ? null : t.id))}
+          onGo={go}
           onShowInFile={onShowInFile}
         />
       ))}
@@ -282,6 +301,7 @@ function ThreadCard({
   t,
   open,
   onToggle,
+  onGo,
   onShowInFile,
 }: {
   pid: string;
@@ -292,6 +312,8 @@ function ThreadCard({
   t: ReviewThread;
   open: boolean;
   onToggle: () => void;
+  /** opens another comment (the same point) */
+  onGo: (threadId: string) => void;
   onShowInFile: (path: string, line: number | null) => void;
 }) {
   const assistant = useSlot(SLOTS.assistant).length > 0;
@@ -324,9 +346,12 @@ function ThreadCard({
     running.includes(`judge:${t.id}`) || run?.status === "running";
   const addressing = running.includes(`address:${t.id}`);
   const addressed = ai?.addressed?.[t.id];
+  // the author said fixed and pushed: keel's check of the new code (Resolve is your click)
+  const fix = fixNote(ai?.fixed?.[t.id], t);
   const canWork = view.kind === "pr" && !t.pending;
   const [pill, tone] = threadPill(t, view, ai, checking);
   const sum = verdictOf(check?.items ?? []);
+  const sides = sidesOf(view, t);
   const first = t.comments[0];
   const [lo, hi] = estimate(t);
   const failed = (fallback: string) =>
@@ -341,6 +366,13 @@ function ThreadCard({
     setText(s);
     setReplying(true);
     window.setTimeout(() => ta.current?.focus(), 0);
+  };
+  // the same point in other comments: keel checked them as one; its reply can go into each one's draft
+  const sameAs = check?.same_as ?? [];
+  const [fillOthers, setFillOthers] = useState<{ text: string; n: number } | null>(null);
+  const useOnAll = (s: string) => {
+    useReply(s);
+    setFillOthers((f) => ({ text: s, n: (f?.n ?? 0) + 1 }));
   };
   const send = async () => {
     setBusy(true);
@@ -379,7 +411,7 @@ function ThreadCard({
         `(commit ${view.head_sha.slice(0, 12)}):\n` +
         t.comments.map((c) => `${c.author}: ${c.body}`).join("\n\n") +
         (check?.items?.length
-          ? `\n\nkeel's check:\n${check.items.map((i) => `- ${i.verdict}: ${i.claim} — ${i.why}`).join("\n")}`
+          ? `\n\nkeel's check:\n${checkLines(check.items, sides)}`
           : "") +
         "\n\nMy question: ",
     );
@@ -434,6 +466,33 @@ function ThreadCard({
             />
           ))}
 
+          {fix && (
+            <p
+              className={`rvn-fixed t-${fix.fixed ? "ok" : "warn"}`}
+              role="group"
+              aria-label="keel checked the fix"
+            >
+              <span>{fix.text}</span>
+              {fix.fixed && view.can_post && !t.pending && (
+                <>
+                  {" · "}
+                  <button
+                    type="button"
+                    className="rvn-link"
+                    disabled={busy}
+                    onClick={() => {
+                      setBusy(true);
+                      void R.resolve(pid, reviewKey, t.id, true).finally(() =>
+                        setBusy(false),
+                      );
+                    }}
+                  >
+                    Resolve
+                  </button>
+                </>
+              )}
+            </p>
+          )}
           {canWork && !t.resolved && !run && !checking && (
             <button
               type="button"
@@ -481,10 +540,20 @@ function ThreadCard({
             )}
           {!checking && check && sum && (
             <section
-              className={`rvn-verdict t-${VERDICT_LABEL[sum][1]}`}
+              className={`rvn-verdict t-${VERDICT_TONE[sum]}`}
               aria-label="keel's check"
             >
-              <b className="rvn-verdict-h">keel: {VERDICT_LABEL[sum][0]}</b>
+              <b className="rvn-verdict-h">keel: {verdictLabel(sum, sides)}</b>
+              {sameAs.map((o) => (
+                <button
+                  key={o.thread_id}
+                  type="button"
+                  className="rvn-link rvn-same"
+                  onClick={() => onGo(o.thread_id)}
+                >
+                  {samePointLabel(o, view)}
+                </button>
+              ))}
               {run?.stale && (
                 <p className="rvn-dim">
                   The code changed since keel checked it.
@@ -493,9 +562,10 @@ function ThreadCard({
               <ul>
                 {(check.items ?? []).map((it, i) => (
                   <li key={i}>
-                    <span className={`rvn-pt t-${POINT_LABEL[it.verdict][1]}`}>
-                      {POINT_LABEL[it.verdict][0]}
-                    </span>{" "}
+                    <span className={`rvn-pt t-${VERDICT_TONE[it.verdict]}`}>
+                      {verdictLabel(it.verdict, sides)}
+                    </span>
+                    {" · "}
                     <b>{it.claim.replace(/\.$/, "")}.</b> {it.why}
                     {it.fix && <span className="rvn-dim"> Fix: {it.fix}</span>}
                   </li>
@@ -509,6 +579,16 @@ function ThreadCard({
                     onClick={() => useReply(check.reply!)}
                   >
                     Use as my reply
+                  </button>
+                )}
+                {view.can_post && !t.pending && check.reply && sameAs.length > 0 && (
+                  <button
+                    type="button"
+                    className="rvn-btn"
+                    title="keel's reply into the draft of each comment that makes this point (nothing is posted)"
+                    onClick={() => useOnAll(check.reply!)}
+                  >
+                    {useOnAllLabel(sameAs.length)}
                   </button>
                 )}
                 {canWork &&
@@ -610,6 +690,15 @@ function ThreadCard({
               </div>
             </div>
           )}
+          {sameAs.map((o) => (
+            <FillDraft
+              key={o.thread_id}
+              pid={pid}
+              reviewKey={reviewKey}
+              threadId={o.thread_id}
+              fill={fillOthers}
+            />
+          ))}
           {addressed && (
             <a
               className="rvn-flow"

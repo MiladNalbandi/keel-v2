@@ -113,8 +113,8 @@ keel is a small **core**. Everything else is a **plugin** that you turn on or of
 
 - **Review pull requests in keel:** the list (to review, assigned, mine), files, diff, checks, threads, multi-line comments and
   a pending review you send in one go (GitHub and GitLab).
-- **✦ Is the reviewer right?** keel checks a comment against the code and answers point by point (they're right, you're
-  right, partly, unclear) with a draft reply. One cheap call by default; the agent, model, effort and token cap are yours
+- **✦ Is the reviewer right?** keel checks a comment against the code and answers point by point ("Reviewer (ana) is
+  right", "Author (you) is right", partly, "Unclear: keel could not decide") with a draft reply. One cheap call by default; the agent, model, effort and token cap are yours
   to set (Settings › Code Review threads). Nothing is posted for you.
 - **✦ Address it** starts a small flow on the pull request's branch to make the change. keel never pushes.
 

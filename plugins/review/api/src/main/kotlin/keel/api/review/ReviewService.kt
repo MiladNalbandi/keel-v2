@@ -62,6 +62,8 @@ class ReviewService(
         const val MAX_FILE = 1_000_000
         /** your own pull requests the list reads approvals for (one host call each) */
         const val MAX_DECISIONS = 20
+        private val TEST_PATH = Regex("(^|/)(test|tests|spec|__tests__)/|[._-](test|spec)\\.[a-z]+$|Test\\.[a-z]+$", RegexOption.IGNORE_CASE)
+        fun isTest(path: String) = TEST_PATH.containsMatchIn(path)
     }
 
     private fun root(pid: String): Path {
@@ -293,7 +295,8 @@ class ReviewService(
         return ReviewView(key, "pr", n, pr.title, pr.author, pr.body, pr.base, pr.branch, r.base, r.head, pr.url, pr.state, pr.draft, pr.sameRepo,
             checks, decisions.approved, decisions.changes, files, files.sumOf { it.added }, files.sumOf { it.removed },
             repo.commits(root, 100, null, "${r.base}..${r.head}"), threads, conversation, drafts(pid, key), viewed(pid, key, r.head),
-            pr.state == "open", h.ref, me(h), notes, pr.author.equals(me(h), true), pr.mergeable, pr.mergeState)
+            pr.state == "open", h.ref, me(h), notes, pr.author.equals(me(h), true), pr.mergeable, pr.mergeState,
+            threadGroups = ReviewJudgeService.groups(ReviewJudgeService.open(threads)).filter { it.size > 1 }.map { g -> g.map { it.id } })
     }
 
     private fun fileOf(root: Path, r: Refs, path: String): ChangedFile =
@@ -347,7 +350,18 @@ class ReviewService(
             "(\\b$s\\s*[:=]\\s*(async\\s*)?(\\(|function\\b))")
     }
 
-    private fun isTest(path: String) = Regex("(^|/)(test|tests|spec|__tests__)/|[._-](test|spec)\\.[a-z]+$|Test\\.[a-z]+$", RegexOption.IGNORE_CASE).containsMatchIn(path)
+    /** One file's change from [from] to the review's head: what was pushed since a review point was made. */
+    fun changeSince(pid: String, key: String, from: String, path: String): String {
+        val r = ReviewGit.git(root(pid), "--literal-pathspecs", "diff", "--no-color", "--no-ext-diff", from, refs(pid, key).head, "--", cleanPath(path),
+            timeout = 30)
+        return if (r.ok) r.out.take(ReviewGit.MAX_DIFF) else ""
+    }
+
+    /** Every file in the review's head commit (at most [max]): the check of a thread looks up the files it names. */
+    fun paths(pid: String, key: String, max: Int = 50_000): List<String> {
+        val res = ReviewGit.git(root(pid), "ls-tree", "-r", "--name-only", "-z", refs(pid, key).head, timeout = 20)
+        return if (res.ok) res.out.split('\u0000').filter { it.isNotBlank() }.take(max) else emptyList()
+    }
 
     private fun places(pid: String, key: String, symbol: String, declarationsOnly: Boolean): Places {
         if (!SYMBOL.matches(symbol)) throw BadRequest("That is not a name keel can look for")

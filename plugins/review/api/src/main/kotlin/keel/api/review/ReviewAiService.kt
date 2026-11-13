@@ -64,6 +64,8 @@ data class AiState(
      *  "find": what Find problems runs (Settings › Review): its text, the reviewers, how a confirmed finding is fixed */
     val config: Map<String, Any?> = emptyMap(),
     val fixes: Map<String, Map<String, Any?>> = emptyMap(),
+    /** per thread: keel's check of the author's "fixed" against the commits since the point (ReviewJudgeService.fixChecks) */
+    val fixed: Map<String, AiRun> = emptyMap(),
 )
 
 /**
@@ -105,6 +107,7 @@ class ReviewAiService(
         const val ADDRESS = "address:"
         const val BUTTON = "button:"
         const val FIX = "fix:"
+        const val FIX_CHECK = "fixcheck:"
         /** An agent's role and skills in a reviewer's prompt: at most this much of each (keel 0.18.65). */
         const val ROLE_MAX = 4000
         private val LENS_HEAD = Regex("^[A-Z][A-Za-z ,]{2,40}:\\s+")
@@ -265,7 +268,8 @@ class ReviewAiService(
                 "fix" to mapOf("flow" to f.fixFlow, "one_flow_per_file" to f.oneFlowPerFile)))
         }.orEmpty()
         return AiState(latest(pid, key, "overview", head), latest(pid, key, "findings", head), decisions, judges, addressed,
-            latestByPrefix(pid, key, BUTTON, head), runCatching { conf.client(pid) }.getOrDefault(emptyMap()) + find, fixes)
+            latestByPrefix(pid, key, BUTTON, head), runCatching { conf.client(pid) }.getOrDefault(emptyMap()) + find, fixes,
+            latestByPrefix(pid, key, FIX_CHECK, head))
     }
 
     /** The newest run of each kind that starts with [prefix] ("judge:<thread>"), by the thread id after it. */

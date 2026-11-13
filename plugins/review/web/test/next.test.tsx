@@ -14,7 +14,7 @@ import { App } from "../../../../web/src/App";
 import { db, server } from "../../../../web/src/test/setup";
 import { registerReviewTab } from "../next/tabs";
 import { prPill } from "../next/model";
-import { nextDemo, PRS } from "./nextDemo";
+import { judged, nextDemo, PRS, run } from "./nextDemo";
 
 const MODE = "keel2.review.view";
 
@@ -256,19 +256,23 @@ describe("the new Review view: one pull request", () => {
     const demo = start();
     const { pr } = await openPr(42);
     const card = (name: RegExp) => within(pr).getByRole("article", { name });
-    // bo's comment: keel says the reviewer is not right
+    // bo's comment: keel says the author (you) is right; the same words as the classic view
     expect(
-      within(card(/refunds\.py · line 13/)).getByText("Reviewer is not right"),
+      within(card(/refunds\.py · line 13/)).getByText("Author (you) is right"),
     ).toBeInTheDocument();
 
     const th2 = card(/refunds\.py · line 20/);
-    expect(within(th2).getByText("Reviewer is right")).toBeInTheDocument();
+    expect(
+      within(th2).getByText("Reviewer (alex) is right"),
+    ).toBeInTheDocument();
     await userEvent.click(within(th2).getByRole("button", { name: /alex/ }));
     const check = within(th2).getByRole("region", { name: "keel's check" });
     expect(
-      within(check).getByText("keel: Reviewer is right"),
+      within(check).getByText("keel: Reviewer (alex) is right"),
     ).toBeInTheDocument();
-    expect(within(check).getByText("Right:")).toBeInTheDocument();
+    expect(
+      within(check).getByText("Reviewer (alex) is right", { selector: ".rvn-pt" }),
+    ).toBeInTheDocument();
     expect(
       within(check).getByText(/add a test that posts "abc"/),
     ).toBeInTheDocument();
@@ -348,9 +352,11 @@ describe("the new Review view: one pull request", () => {
       }),
     );
     expect(
-      await within(th3).findByText("keel: Partly right"),
+      await within(th3).findByText("keel: Reviewer (bo) is partly right"),
     ).toBeInTheDocument();
-    expect(within(th3).getByText("Not sure:")).toBeInTheDocument();
+    expect(
+      within(th3).getByText("Unclear: keel could not decide"),
+    ).toBeInTheDocument();
     expect(demo.calls.some((c) => c.path.endsWith("/threads/th3/judge"))).toBe(
       true,
     );
@@ -370,6 +376,121 @@ describe("the new Review view: one pull request", () => {
           ?.body,
       ).toMatchObject({ harder: true, again: true }),
     );
+  });
+
+  it("the same point in two comments: Check all counts it once, each answer links the other, one reply for both", async () => {
+    const demo = start();
+    const k = "pr:42";
+    const comment = (id: string, author: string, body: string) => ({
+      id,
+      author,
+      body,
+      at: new Date(Date.now() - 30 * 60000).toISOString(),
+    });
+    const on = (id: string, line: number, c: ReturnType<typeof comment>) => ({
+      id,
+      path: "orders/refunds.py",
+      line,
+      side: "RIGHT" as const,
+      resolved: false,
+      outdated: false,
+      comments: [c],
+    });
+    demo.views[k] = {
+      ...demo.views[k],
+      threads: [
+        ...demo.views[k].threads,
+        on("th6", 22, comment("c6", "alex", "A refund of 0 is let through.")),
+        on("th7", 24, comment("c7", "bo", "Refund of 0 goes through here.")),
+      ],
+      thread_groups: [["th6", "th7"]],
+    };
+    const { pr } = await openPr(42);
+    // th3, th6 and th7 are not checked: two points
+    const all = within(pr).getByRole("button", { name: "Check all open (2)" });
+    const reply = "Right: a refund must be more than 0. I add the check.";
+    const same = (id: string, line: number, author: string) => {
+      const r = judged(
+        [{ claim: "0 passes", verdict: "reviewer_right", why: "amount > 0 is not checked" }],
+        reply,
+      );
+      const as = [{ thread_id: id, path: "orders/refunds.py", line, author }];
+      return { ...r, result: { ...r.result!, same_as: as } };
+    };
+    demo.ai[k] = {
+      ...demo.ai[k],
+      judges: { ...demo.ai[k].judges, th6: same("th7", 24, "bo"), th7: same("th6", 22, "alex") },
+    };
+    await userEvent.click(all);
+    const card = (name: RegExp) => within(pr).getByRole("article", { name });
+    const th6 = card(/refunds\.py · line 22/);
+    await userEvent.click(within(th6).getByRole("button", { name: /alex/ }));
+    const check = within(th6).getByRole("region", { name: "keel's check" });
+    // the link opens the other comment
+    await userEvent.click(
+      within(check).getByRole("button", {
+        name: "Same point as the thread on line 24 (bo)",
+      }),
+    );
+    const th7 = card(/refunds\.py · line 24/);
+    expect(within(th7).getByRole("button", { name: /^refunds\.py · line 24/ }))
+      .toHaveAttribute("aria-expanded", "true");
+    expect(
+      within(th7).getByRole("button", {
+        name: "Same point as the thread on line 22 (alex)",
+      }),
+    ).toBeInTheDocument();
+    // one reply for both: each one's reply box has it, nothing is posted
+    await userEvent.click(
+      within(th7).getByRole("button", { name: "Use as my reply on both" }),
+    );
+    expect(within(th7).getByRole("textbox", { name: "Your reply" })).toHaveValue(reply);
+    await userEvent.click(within(th6).getByRole("button", { name: /alex/ }));
+    await userEvent.click(
+      within(th6).getByRole("button", { name: "Reply (draft kept)" }),
+    );
+    expect(within(th6).getByRole("textbox", { name: "Your reply" })).toHaveValue(reply);
+    expect(demo.calls.some((c) => c.path.endsWith("/reply"))).toBe(false);
+  });
+
+  it("Fixed → Resolve: a fix keel saw in the new commit offers Resolve, one it did not says what is open, none shows nothing", async () => {
+    const demo = start();
+    const k = "pr:42";
+    const fix = (fixed: boolean) =>
+      run("fixcheck", {
+        stage: "done" as const,
+        fixed,
+        sha: "abc1234",
+        why: "refunds.py:13 takes paid_total",
+        still_open: fixed ? "" : "no test sends a bad value yet",
+      });
+    demo.ai[k] = { ...demo.ai[k], fixed: { th1: fix(true), th2: fix(false) } };
+    const { pr } = await openPr(42);
+    const card = (name: RegExp) => within(pr).getByRole("article", { name });
+    const th1 = card(/refunds\.py · line 13/);
+    // the pill says it before you open the comment
+    expect(within(th1).getByText("Fixed in abc1234")).toBeInTheDocument();
+    await userEvent.click(within(th1).getByRole("button", { name: /bo/ }));
+    const note = within(th1).getByRole("group", { name: "keel checked the fix" });
+    expect(within(note).getByText("Fixed in abc1234")).toBeInTheDocument();
+    expect(demo.calls.some((c) => c.path.endsWith("/resolve"))).toBe(false);
+    await userEvent.click(within(note).getByRole("button", { name: "Resolve" }));
+    await waitFor(() =>
+      expect(
+        demo.calls.find((c) => c.path.endsWith("/threads/th1/resolve"))?.body,
+      ).toMatchObject({ key: k, resolved: true }),
+    );
+
+    const th2 = card(/refunds\.py · line 20/);
+    await userEvent.click(within(th2).getByRole("button", { name: /alex/ }));
+    expect(
+      within(th2).getByText("Still open: no test sends a bad value yet"),
+    ).toBeInTheDocument();
+    const th3 = card(/views\.py · line 7/);
+    await userEvent.click(within(th3).getByRole("button", { name: /bo/ }));
+    expect(
+      within(th3).queryByRole("group", { name: "keel checked the fix" }),
+    ).toBeNull();
   });
 
   it("Files: ticks a file viewed, adds a pending comment on a line, and a comment's marker opens it in Comments", async () => {

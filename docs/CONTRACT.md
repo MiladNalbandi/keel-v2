@@ -3998,3 +3998,34 @@ A step that fails no longer ends the flow by itself, and every crash is kept so 
   last_at, steps, providers, where, example, advice}], recent, markdown}`; one crash per flow, step and kind.
   `GET /flow-doctor/crashes?days&limit`, `DELETE /flow-doctor/crashes`. The Python api passes `/api/flow-doctor/*` to
   the engine (an MCP token reads; clearing needs admin). MCP: `keel_flow_doctor {days}` (read) answers the Markdown.
+
+## Next: Code Review threads, clearer and cheaper
+
+- **Who is right** (web only): keel's check of a thread names the role and the person, the same words in the classic
+  Threads panel, the new Comments tab and a follow-up question to KeelBot (`plugins/review/web/verdict.ts`):
+  "Reviewer (ana) is right", "Author (you) is right", "Reviewer (ana) is partly right", "Unclear: keel could not decide".
+  The reviewer is the first one in the thread who did not write the change. The verdict values stay `reviewer_right |
+  author_right | partly | unclear`.
+- **The same point in two threads**: open threads in one file and side, at most 10 lines apart, whose first comments
+  share two telling words or more (at least a third of the shorter one's), are one point
+  (`ReviewJudgeService.samePoint`). `ReviewView.thread_groups: string[][]` lists the groups (ids, two or more each).
+  Check all (`POST …/review/threads/judge`) asks once per point (one `T<n>` section with all of its threads) and a single
+  check (`POST …/threads/{id}/judge`) checks the whole group; each thread's run gets the same items and reply, and
+  `result.same_as: [{thread_id, path, line, author}]` names the others (`[]` alone). `batch_size` is the number of
+  threads the call covered. The web counts Check all open by point and offers "Use as my reply on both" (it fills the
+  reply drafts; nothing is posted). Threads on the host are never merged.
+- **What a check reads**: besides the thread's lines and diff hunk, the check reads from the head commit the files the
+  comments name (`path` or `path:line`), the tests they point to ("covered by test_refunds": a file named so, else the
+  test that declares it) and the test paired with the thread's file (`foo.py` ↔ `test_foo.py` / `foo_test.py`,
+  `Foo.kt` ↔ `FooTest.kt`, `foo.ts` ↔ `foo.test.ts`): at most 4 files in all, 60 lines of each other file and 150 in all
+  (30 each in Check all), fewer lines and then none when the token cap would be passed. `result.context` is
+  `{code_lines, hunk_lines, files, paths}` with the real count. `ReviewService.paths(pid, key)` lists the head commit's
+  files.
+- **Fixed → Resolve**: `GET …/review/view` (and `POST …/threads/{id}/reply`) checks, in the background, each open thread
+  whose last comment is the change's author saying fixed / done / addressed and whose head has a commit made after the
+  point it answers (`ReviewJudgeService.fixClaim`; git's author date against the comment's time): one cheap call
+  (`keel-review-fixed {fixed, why, still_open}`) with the thread's code at the new head, what the commits since changed
+  in its file and the other code a check reads. Quick mode only, the same token cap, once per thread, last comment and
+  head commit. `AiState.fixed: {thread id: AiRun}` (kind `fixcheck:<thread>`), result `{fixed, why, still_open, sha,
+  commits, context, …}`. The web shows "Fixed in <short sha> · Resolve" or "Still open: …" (nothing while the run is
+  stale); Resolve calls the existing `POST …/threads/{id}/resolve`. keel never resolves by itself.

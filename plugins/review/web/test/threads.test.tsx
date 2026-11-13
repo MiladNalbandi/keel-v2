@@ -11,6 +11,7 @@ import { server } from "../../../../web/src/test/setup";
 import type {
   AiRun,
   AiState,
+  FixResult,
   JudgeResult,
   ReviewThread,
   ReviewView,
@@ -22,10 +23,10 @@ import {
   estimate,
   HIDDEN_RUNS_CAP,
   ThreadsView,
-  verdictLabel,
   waitsForYou,
 } from "../Threads";
 import { ThreadSettings } from "../ThreadSettings";
+import { checkLines, sidesOf, verdictLabel } from "../verdict";
 
 const PID = "p1";
 const KEY = "pr:7";
@@ -463,7 +464,13 @@ describe("the review threads", () => {
       name: "keel checked this thread",
     });
     expect(box).toHaveAttribute("aria-live", "polite");
-    for (const label of ["THEY'RE RIGHT", "YOU'RE RIGHT", "PARTLY", "UNCLEAR"])
+    // who is right, by role and name: bo opened the thread, you wrote the change
+    for (const label of [
+      "Reviewer (bo) is right",
+      "Author (you) is right",
+      "Reviewer (bo) is partly right",
+      "Unclear: keel could not decide",
+    ])
       expect(within(box).getByText(label)).toBeInTheDocument();
     expect(
       within(box).getByText(
@@ -483,9 +490,123 @@ describe("the review threads", () => {
       within(card(/line 2–3/)).getByRole("textbox", { name: "Your reply" }),
     ).toHaveValue("Good point on the index: I add one in the migration.");
     expect(calls.filter((x) => x.method === "POST")).toEqual([]); // nothing posted
-    // the labels from the reviewer's side, and from neither
-    expect(verdictLabel("reviewer_right", "reviewer")[0]).toBe("YOU'RE RIGHT");
-    expect(verdictLabel("author_right", "other")[0]).toBe("AUTHOR'S RIGHT");
+    // the same words from the reviewer's side, and from neither side
+    const t = view().threads[0];
+    expect(
+      verdictLabel("reviewer_right", sidesOf({ me: "bo", author: "me" }, t)),
+    ).toBe("Reviewer (you) is right");
+    expect(
+      verdictLabel("author_right", sidesOf({ me: "alex", author: "me" }, t)),
+    ).toBe("Author (me) is right");
+    // and in the text a follow-up question to KeelBot carries
+    expect(
+      checkLines(
+        [{ claim: "indexes", verdict: "reviewer_right", why: "no index" }],
+        sidesOf(view(), t),
+      ),
+    ).toBe("- Reviewer (bo) is right: indexes — no index");
+  });
+
+  it("the same point in two threads: Check all counts it once, each answer links the other, one reply answers both", async () => {
+    const { calls } = api();
+    // bo (line 3) and ana (line 40) make the same point: the view says so
+    const v = { ...view(), thread_groups: [["T2", "T4"]] };
+    const first = show(AI(), v);
+    // three open threads keel has not checked, two points
+    expect(
+      screen.getByRole("button", { name: "✦ Check all open (2)" }),
+    ).toBeInTheDocument();
+    first.unmount();
+
+    const reply = "One factory is enough here: I keep it.";
+    const same = (id: string, line: number, author: string) =>
+      run(
+        {
+          stage: "done",
+          items: [
+            { claim: "a factory", verdict: "author_right", why: "one caller" },
+          ],
+          reply,
+          same_as: [{ thread_id: id, path: "src/Prefs.kt", line, author }],
+        },
+        { kind: `judge:${id}` },
+      );
+    show(AI({ judges: { T2: same("T4", 40, "ana"), T4: same("T2", 3, "bo") } }), v);
+    const t2 = card(/Thread on src\/Prefs\.kt line 3$/);
+    const t4 = card(/line 40/);
+    const scrolled: Element[] = [];
+    const before = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = function () {
+      scrolled.push(this as Element);
+    };
+    try {
+      await userEvent.click(
+        within(t2).getByRole("button", {
+          name: "Same point as the thread on line 40 (ana)",
+        }),
+      );
+    } finally {
+      HTMLElement.prototype.scrollIntoView = before;
+    }
+    expect(scrolled).toEqual([t4]);
+    expect(
+      within(t4).getByRole("button", {
+        name: "Same point as the thread on line 3 (bo)",
+      }),
+    ).toBeInTheDocument();
+    // one reply for both: each box has it, nothing is posted
+    await userEvent.click(
+      within(t2).getByRole("button", { name: "Use as my reply on both" }),
+    );
+    expect(within(t2).getByRole("textbox", { name: "Your reply" })).toHaveValue(
+      reply,
+    );
+    expect(within(t4).getByRole("textbox", { name: "Your reply" })).toHaveValue(
+      reply,
+    );
+    expect(calls.filter((x) => x.method === "POST")).toEqual([]);
+  });
+
+  it("Fixed → Resolve: a fix keel saw in the new commit offers Resolve, one it did not says what is open, none shows nothing", async () => {
+    const { calls } = api();
+    const fix = (fixed: boolean, extra: Partial<AiRun<FixResult>> = {}): AiRun<FixResult> => ({
+      ...run({ stage: "done" }),
+      kind: "fixcheck:x",
+      result: {
+        stage: "done",
+        fixed,
+        sha: "abc1234",
+        why: "src/Prefs.kt:3 reads the limit now",
+        still_open: fixed ? "" : "the max is still hard-coded",
+      },
+      ...extra,
+    });
+    // T1: fixed; T2: not fixed; T4: fixed, but the head moved on since (a new check comes); T3 resolved; none for the rest
+    show(AI({ fixed: { T1: fix(true), T2: fix(false), T4: fix(true, { stale: true }) } }));
+    const fixed = within(card(/line 2–3/)).getByRole("group", {
+      name: "keel checked the fix",
+    });
+    expect(within(fixed).getByText("Fixed in abc1234")).toBeInTheDocument();
+    const open = within(
+      card(/Thread on src\/Prefs\.kt line 3$/),
+    ).getByRole("group", { name: "keel checked the fix" });
+    expect(
+      within(open).getByText("Still open: the max is still hard-coded"),
+    ).toBeInTheDocument();
+    expect(within(open).queryByRole("button", { name: "Resolve" })).toBeNull();
+    expect(
+      within(card(/line 40/)).queryByRole("group", {
+        name: "keel checked the fix",
+      }),
+    ).toBeNull();
+    // keel resolved nothing; the person's click calls Resolve
+    expect(calls.filter((x) => x.method === "POST")).toEqual([]);
+    await userEvent.click(within(fixed).getByRole("button", { name: "Resolve" }));
+    await waitFor(() =>
+      expect(
+        calls.find((x) => x.path.endsWith("/threads/T1/resolve"))?.body,
+      ).toEqual({ key: KEY, resolved: true }),
+    );
   });
 
   it("asks keel to check a thread (with its estimate first) and says when it fails", async () => {
@@ -865,7 +986,7 @@ describe("dismissing keel's answer under a thread", () => {
       }),
     );
     expect(checkBox()).not.toBeNull();
-    expect(within(checkBox()!).getByText("UNCLEAR")).toBeInTheDocument();
+    expect(within(checkBox()!).getByText("Unclear: keel could not decide")).toBeInTheDocument();
     expect(calls.filter((x) => x.path.endsWith("/judge"))).toEqual([]);
     expect(JSON.parse(localStorage.getItem(HIDDEN)!)).toEqual([]);
   });

@@ -875,6 +875,176 @@ class ReviewApiTest : ApiTest() {
         assertThat(asks()).isEqualTo(1)
     }
 
+    @Test
+    fun `two threads that make the same point are one check, and each answer links the other`() {
+        val (pid, _) = githubPr()
+        val pr = hosts.github["acme/shop"]!![7]!!
+        val config = threadId(pid)                                        // bo on line 6: "Should 20 come from config?"
+        val a = hosts.thread(pr, "src/Prefs.kt", 3, "bo", "The page size cache is never cleared: it grows for every user.").id
+        val b = hosts.thread(pr, "src/Prefs.kt", 4, "alex", "This cache grows for every user and is never cleared.").id
+        // the view says which open threads make the same point: Check all open counts them as one
+        assertThat(view(pid, "pr:7")["thread_groups"].map { g -> g.map { it.asText() } }).containsExactly(listOf(a, b))
+        answer("```keel-review-judge\n{\"threads\": [" +
+            "{\"id\": \"T1\", \"items\": [{\"claim\": \"config\", \"verdict\": \"partly\", \"why\": \"a\"}], \"reply\": \"r1\"}," +
+            " {\"id\": \"T2\", \"items\": [{\"claim\": \"the cache grows\", \"verdict\": \"reviewer_right\", \"why\": \"src/Prefs.kt:2 is never cleared\"}]," +
+            " \"reply\": \"Right, I clear it on logout.\"}]}\n```", 6000, 900)
+        post("/api/projects/$pid/review/threads/judge", mapOf("key" to "pr:7")).andExpect(status().isOk)
+        assertThat(asks()).isEqualTo(1)
+        val p = engine.lastBody("/agents/ask")!!["prompt"].asText()
+        // one section per point: the config thread, then the cache point with both threads in it
+        assertThat(p).contains("### T1").contains("### T2").doesNotContain("### T3")
+        assertThat(p.substringAfter("### T2")).contains("The page size cache is never cleared").contains("This cache grows for every user")
+            .contains("src/Prefs.kt line 4")
+        assertThat(judgeOf(pid, config)["result"]["items"][0]["verdict"].asText()).isEqualTo("partly")
+        assertThat(judgeOf(pid, config)["result"]["same_as"].isEmpty).isTrue()
+        // the same answer on both threads, each linking the other
+        for ((one, other) in listOf(a to b, b to a)) {
+            val j = judgeOf(pid, one)["result"]
+            assertThat(j["items"][0]["claim"].asText()).isEqualTo("the cache grows")
+            assertThat(j["reply"].asText()).isEqualTo("Right, I clear it on logout.")
+            assertThat(j["batch_size"].asInt()).isEqualTo(3)                                // one call for three threads
+            assertThat(j["same_as"].single()["thread_id"].asText()).isEqualTo(other)
+        }
+        assertThat(judgeOf(pid, a)["result"]["same_as"][0].let { it["line"].asInt() to it["author"].asText() }).isEqualTo(4 to "alex")
+        assertThat(judgeOf(pid, b)["result"]["same_as"][0].let { it["line"].asInt() to it["author"].asText() }).isEqualTo(3 to "bo")
+        // checking one of them again shows the kept answer; the host's threads stay as they are (never merged there)
+        post("/api/projects/$pid/review/threads/$b/judge", mapOf("key" to "pr:7")).andExpect(status().isOk)
+        assertThat(asks()).isEqualTo(1)
+        assertThat(writes()).isEmpty()
+        assertThat(pr.threads.map { it.id }).contains(a, b)
+
+        // a single check of a thread in a group asks once for the group, too
+        hosts.github["acme/shop"]!![7]!!.threads.first { it.id == a }.comments += StubCodeHost.Comment(9998, "bo", "Still growing?")
+        answer("```keel-review-judge\n{\"items\": [{\"claim\": \"the cache grows\", \"verdict\": \"reviewer_right\", \"why\": \"x\"}], \"reply\": \"Yes.\"}\n```")
+        post("/api/projects/$pid/review/threads/$a/judge", mapOf("key" to "pr:7")).andExpect(status().isOk)
+        assertThat(asks()).isEqualTo(2)
+        assertThat(engine.lastBody("/agents/ask")!!["prompt"].asText()).contains("Still growing?").contains("This cache grows for every user")
+        assertThat(judgeOf(pid, b)["result"]["reply"].asText()).isEqualTo("Yes.")
+        assertThat(judgeOf(pid, b)["result"]["same_as"].single()["thread_id"].asText()).isEqualTo(a)
+    }
+
+    /**
+     * A commit on the pull request with a refund module, its test and a money helper (each with its test). The thread
+     * on refunds.py line 2: bo asks, names money.py:2, and ana (the author) says it is covered by test_refunds.
+     */
+    private fun refundsThread(pid: String, root: Path): String {
+        git(root, "switch", "-q", "feat/paging")
+        Files.createDirectories(root.resolve("shop"))
+        Files.createDirectories(root.resolve("tests"))
+        Files.writeString(root.resolve("shop/refunds.py"), "def refund(order, amount):\n    if amount > order.paid:\n" +
+            "        raise ValueError(\"more than paid\")\n    order.refunded += amount\n    return order\n")
+        Files.writeString(root.resolve("shop/money.py"), "def cents(x):\n    return round(x * 100)\n")
+        Files.writeString(root.resolve("tests/test_refunds.py"), "from shop.refunds import refund\n\n\n" +
+            "def test_refund_more_than_paid_is_refused(order):\n    with pytest.raises(ValueError):\n        refund(order, order.paid + 1)\n")
+        Files.writeString(root.resolve("tests/test_money.py"), "def test_cents_rounds():\n    assert cents(0.125) == 12\n")
+        git(root, "add", "-A")
+        git(root, "commit", "-qm", "Refunds")
+        git(root, "push", "-q", remotes.resolve("acme/shop.git").toString(), "feat/paging", "feat/paging:refs/pull/7/head")
+        git(root, "switch", "-q", "main")
+        val pr = hosts.github["acme/shop"]!![7]!!
+        pr.headSha = sha(root, "feat/paging")
+        val t = hosts.thread(pr, "shop/refunds.py", 2, "bo", "What stops a refund of more than was paid? And shop/money.py:2 rounds it, does that matter?")
+        t.comments += StubCodeHost.Comment(9990, "ana", "Covered by test_refunds.")
+        return t.id.also { view(pid, "pr:7") }
+    }
+
+    @Test
+    fun `a check also reads the files the thread names, the test the author points to and the file's own test`() {
+        val (pid, root) = githubPr()
+        val tid = refundsThread(pid, root)
+        // the fake model: with the test's code in front of it, the author is right; without it, it cannot tell
+        engine.extraRoutes["/agents/ask"] = { b ->
+            val sees = b?.path("prompt")?.asText().orEmpty().contains("def test_refund_more_than_paid_is_refused")
+            200 to mapOf("ok" to true, "fake" to false, "tokens_in" to 3000, "tokens_out" to 300, "text" to "```keel-review-judge\n" +
+                "{\"items\": [{\"claim\": \"a refund above the paid amount\", \"verdict\": \"${if (sees) "author_right" else "unclear"}\", " +
+                "\"why\": \"tests/test_refunds.py:4\"}], \"reply\": \"\"}\n```")
+        }
+        try {
+            post("/api/projects/$pid/review/threads/$tid/judge", mapOf("key" to "pr:7")).andExpect(status().isOk)
+            val p = engine.lastBody("/agents/ask")!!["prompt"].asText()
+            assertThat(p).contains(">    2      if amount > order.paid:")                        // its own lines, as before
+                .contains("tests/test_refunds.py").contains("def test_refund_more_than_paid_is_refused(order):")
+                .contains("shop/money.py").contains("    return round(x * 100)")
+            assertThat(engine.lastBody("/agents/ask")!!["system"].asText()).contains("other code keel read for it")
+            val j = judgeOf(pid, tid)["result"]
+            assertThat(j["items"][0]["verdict"].asText()).isEqualTo("author_right")
+            assertThat(j["context"]["files"].asInt()).isEqualTo(3)
+            assertThat(j["context"]["paths"].map { it.asText() }).containsExactly("shop/refunds.py", "shop/money.py", "tests/test_refunds.py")
+
+            // a thread that names nothing: its file and the test paired with it (money.py ↔ test_money.py)
+            val pr = hosts.github["acme/shop"]!![7]!!
+            val money = hosts.thread(pr, "shop/money.py", 2, "alex", "Why round here?").id
+            post("/api/projects/$pid/review/threads/$money/judge", mapOf("key" to "pr:7")).andExpect(status().isOk)
+            assertThat(engine.lastBody("/agents/ask")!!["prompt"].asText()).contains("tests/test_money.py").contains("assert cents(0.125) == 12")
+            assertThat(judgeOf(pid, money)["result"]["context"]["paths"].map { it.asText() }).containsExactly("shop/money.py", "tests/test_money.py")
+
+            // at most 4 files, however many the thread names
+            val many = hosts.thread(pr, "src/Orders.kt", 2, "bo", "See README.md, src/Prefs.kt, src/PrefsTest.kt, shop/money.py and tests/test_money.py.").id
+            post("/api/projects/$pid/review/threads/$many/judge", mapOf("key" to "pr:7")).andExpect(status().isOk)
+            assertThat(judgeOf(pid, many)["result"]["context"]["files"].asInt()).isEqualTo(4)
+            assertThat(writes()).isEmpty()
+        } finally {
+            engine.extraRoutes.remove("/agents/ask")
+        }
+    }
+
+    @Test
+    fun `after the author says fixed and pushes, keel checks the new commit and offers Resolve, and never resolves itself`() {
+        val (pid, root) = githubPr()
+        val pr = hosts.github["acme/shop"]!![7]!!
+        val now = java.time.Instant.now()
+        fun later(min: Long) = now.plusSeconds(min * 60).toString()
+        // two points made after the pull request's commits; ana (the author) answers both
+        val fix = hosts.thread(pr, "src/Prefs.kt", 6, "bo", "Read the default page size from config, not 20.", later(10))
+        fix.comments += StubCodeHost.Comment(9001, "ana", "Fixed.", later(20))
+        val open = hosts.thread(pr, "src/Prefs.kt", 2, "alex", "Bound the cache: it has no limit at all.", later(10))
+        open.comments += StubCodeHost.Comment(9002, "ana", "Done, thanks.", later(20))
+        engine.extraRoutes["/agents/ask"] = { b ->
+            val fixed = b?.path("prompt")?.asText().orEmpty().contains("Read the default page size from config")
+            200 to mapOf("ok" to true, "fake" to false, "tokens_in" to 2500, "tokens_out" to 200, "text" to "```keel-review-fixed\n" +
+                (if (fixed) "{\"fixed\": true, \"why\": \"src/Prefs.kt:6 reads PagingConfig\", \"still_open\": \"\"}"
+                else "{\"fixed\": false, \"why\": \"src/Prefs.kt:2\", \"still_open\": \"the cache still has no limit\"}") + "\n```")
+        }
+        try {
+            // "fixed", but no commit since the point: nothing to check, nothing shown
+            view(pid, "pr:7")
+            assertThat(asks()).isEqualTo(0)
+            assertThat(get("/api/projects/$pid/review/ai?key=pr:7").json()["fixed"].size()).isEqualTo(0)
+
+            // the author pushes a commit: keel checks both threads again against the new code (once each)
+            git(root, "switch", "-q", "feat/paging")
+            Files.writeString(root.resolve("src/Prefs.kt"), Files.readString(root.resolve("src/Prefs.kt")).replace("?: 20", "?: PagingConfig.default"))
+            val date = "${now.plusSeconds(30 * 60).epochSecond} +0000"
+            gitEnv(root, mapOf("GIT_AUTHOR_DATE" to date, "GIT_COMMITTER_DATE" to date), "commit", "-qam", "Read the page size from config")
+            git(root, "push", "-q", remotes.resolve("acme/shop.git").toString(), "feat/paging", "feat/paging:refs/pull/7/head")
+            git(root, "switch", "-q", "main")
+            pr.headSha = sha(root, "feat/paging")
+            view(pid, "pr:7")
+            assertThat(asks()).isEqualTo(2)
+            val ask = engine.calls.filter { it.path == "/agents/ask" }.first { it.body!!["prompt"].asText().contains("Read the default page size") }.body!!
+            assertThat(ask["system"].asText()).contains("keel-review-fixed").contains("no tools")
+            assertThat(ask["prompt"].asText()).contains("Fixed.").contains("+    fun pageSize(user: String) = cache[user] ?: PagingConfig.default")
+                .contains("${pr.headSha.take(7)}")
+            val fixed = get("/api/projects/$pid/review/ai?key=pr:7").json()["fixed"]
+            assertThat(fixed[fix.id]["status"].asText()).isEqualTo("done")
+            assertThat(fixed[fix.id]["result"]["fixed"].asBoolean()).isTrue()
+            assertThat(fixed[fix.id]["result"]["sha"].asText()).isEqualTo(pr.headSha.take(7))
+            assertThat(fixed[open.id]["result"]["fixed"].asBoolean()).isFalse()
+            assertThat(fixed[open.id]["result"]["still_open"].asText()).isEqualTo("the cache still has no limit")
+            // the same head and replies: no second check; keel resolved nothing
+            view(pid, "pr:7")
+            assertThat(asks()).isEqualTo(2)
+            assertThat(writes()).isEmpty()
+            assertThat(pr.threads.first { it.id == fix.id }.resolved).isFalse()
+
+            // the person's click resolves it, with the route Resolve always used
+            post("/api/projects/$pid/review/threads/${fix.id}/resolve", mapOf("key" to "pr:7", "resolved" to true)).andExpect(status().isOk)
+            assertThat(pr.threads.first { it.id == fix.id }.resolved).isTrue()
+        } finally {
+            engine.extraRoutes.remove("/agents/ask")
+        }
+    }
+
     // ---------------------------------------------------------------- the thread settings
 
     @Test

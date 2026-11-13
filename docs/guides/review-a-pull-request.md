@@ -28,8 +28,9 @@ it never builds or runs it. **Nothing is posted until you press Submit.**
 - **Find problems**: reviewers read the change, a checker checks each finding again, and you see only the
   confirmed findings. Each confirmed finding has **Fix it**. Set the reviewers in
   [Settings › Review](#/help/settings-review).
-- **✦ Is the reviewer right?** on a comment: keel checks the comment against the code and answers point by point
-  (they're right, you're right, partly, unclear), with a draft reply. Nothing is posted for you.
+- **✦ Is the reviewer right?** on a comment: keel checks the comment against the code and answers point by point,
+  naming the role and the person ("Reviewer (ana) is right", "Author (you) is right", "Reviewer (ana) is partly
+  right", "Unclear: keel could not decide"), with a draft reply. Nothing is posted for you.
 - **✦ Address it** on a thread: keel starts a small flow on the pull request's branch to make the change. keel never
   pushes.
 

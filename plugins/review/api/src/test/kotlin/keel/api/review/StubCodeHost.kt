@@ -26,7 +26,7 @@ class StubCodeHost private constructor(private val server: HttpServer) {
     val calls = CopyOnWriteArrayList<Call>()
     private val ids = AtomicInteger(1000)
 
-    data class Comment(val id: Int, val author: String, val body: String)
+    data class Comment(val id: Int, val author: String, val body: String, val at: String = "2026-10-08T09:00:00Z")
     /** [pending]: in its author's pending review (GitHub), not sent yet; [review] that review's id. */
     data class Thread(val id: String, val path: String, val line: Int, val side: String, var resolved: Boolean = false,
                       val comments: MutableList<Comment> = CopyOnWriteArrayList(), val startLine: Int? = null, val startSide: String? = null,
@@ -48,8 +48,8 @@ class StubCodeHost private constructor(private val server: HttpServer) {
         calls.clear(); github.clear(); gitlab.clear(); login = "me"
     }
 
-    fun thread(pr: Pr, path: String, line: Int, author: String, body: String): Thread =
-        Thread("PRRT_${ids.incrementAndGet()}", path, line, "RIGHT").also { it.comments += Comment(ids.incrementAndGet(), author, body); pr.threads += it }
+    fun thread(pr: Pr, path: String, line: Int, author: String, body: String, at: String = "2026-10-08T09:00:00Z"): Thread =
+        Thread("PRRT_${ids.incrementAndGet()}", path, line, "RIGHT").also { it.comments += Comment(ids.incrementAndGet(), author, body, at); pr.threads += it }
 
     /** A thread in the login's pending review [review] (GitHub): only its author sees it until the review is submitted. */
     fun pendingThread(pr: Pr, review: Int, path: String, line: Int, body: String): Thread =
@@ -192,7 +192,7 @@ class StubCodeHost private constructor(private val server: HttpServer) {
             mapOf("id" to t.id, "isResolved" to t.resolved, "isOutdated" to false, "path" to t.path, "line" to t.line, "originalLine" to t.line,
                 "diffSide" to t.side, "startLine" to t.startLine, "originalStartLine" to t.startLine, "startDiffSide" to t.startSide,
                 "comments" to mapOf("nodes" to t.comments.map {
-                    mapOf("id" to "PRRC_${it.id}", "databaseId" to it.id, "body" to it.body, "createdAt" to "2026-10-08T09:00:00Z", "url" to null,
+                    mapOf("id" to "PRRC_${it.id}", "databaseId" to it.id, "body" to it.body, "createdAt" to it.at, "url" to null,
                         "state" to if (t.pending) "PENDING" else "SUBMITTED", "author" to mapOf("login" to it.author))
                 }))
         }

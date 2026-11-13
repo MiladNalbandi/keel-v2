@@ -147,6 +147,8 @@ data class ReviewView(
     val baseChoice: String? = null,
     /** 0.18.65 keel init's setup commits at the branch's bottom, left out of the review */
     val setupLeftOut: List<String> = emptyList(),
+    /** open threads that make the same point (ReviewJudgeService.samePoint), by id: keel checks each group once */
+    val threadGroups: List<List<String>> = emptyList(),
 )
 
 /** 0.18.65 a base a branch review can compare against: [id] remote (the canonical remote's copy) or local. */

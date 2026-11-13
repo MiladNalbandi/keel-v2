@@ -1596,7 +1596,7 @@ describe("threads in the code (the file tab)", () => {
     expect(within(box).queryByRole("button", { name: /^Open src/ })).toBeNull();
     expect(
       within(box).getByRole("region", { name: "keel checked this thread" }),
-    ).toHaveTextContent("UNCLEAR");
+    ).toHaveTextContent("Unclear: keel could not decide");
     for (const name of [
       "Reply",
       "✦ Is the reviewer right?",

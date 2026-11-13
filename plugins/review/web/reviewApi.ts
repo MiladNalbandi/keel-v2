@@ -153,6 +153,8 @@ export type ReviewView = {
   base_choice?: "remote" | "local" | null;
   /** 0.18.65 keel init's setup commits at the branch's bottom, left out of the review */
   setup_left_out?: string[];
+  /** open threads that make the same point, by id: keel checks each group once */
+  thread_groups?: string[][];
 };
 export type CodePlace = {
   path: string;
@@ -238,6 +240,13 @@ export type JudgeItem = {
   why: string;
   fix?: string | null;
 };
+/** Another open thread that makes the same point: keel checked them as one. */
+export type SameAs = {
+  thread_id: string;
+  path: string | null;
+  line: number | null;
+  author: string | null;
+};
 /** keel's check of one thread ("Is the reviewer right?"), an extra button's answer, or the flow one started. */
 export type JudgeResult = {
   stage: "check" | "done" | "capped" | "flow";
@@ -259,12 +268,34 @@ export type JudgeResult = {
   over_cap?: boolean;
   checked_at?: string;
   batch_size?: number;
-  context?: { code_lines: number; hunk_lines: number; files: number };
+  /** the other threads of its group (the same point): the same answer is on each */
+  same_as?: SameAs[];
+  /** what the check read: lines, and the files (the thread's own, the ones its comments name, their tests) */
+  context?: {
+    code_lines: number;
+    hunk_lines: number;
+    files: number;
+    paths?: string[];
+  };
   /** a flow it started (workflow mode) */
   flow_id?: string;
   workflow?: string;
   title?: string;
   branch?: string | null;
+};
+/** keel's check of an author's "fixed" against the commits pushed since the point (it never resolves). */
+export type FixResult = {
+  stage: "check" | "done" | "capped";
+  thread_id?: string;
+  fixed?: boolean;
+  why?: string;
+  /** what keel still sees open, when it is not fixed */
+  still_open?: string;
+  /** the head commit it checked, short */
+  sha?: string;
+  commits?: string[];
+  model?: string;
+  tokens?: number;
 };
 export type ThreadButtonInfo = {
   id: string;
@@ -318,6 +349,8 @@ export type AiState = {
   config?: ThreadConfig;
   /** keel 0.18.65 per finding: the flow "Fix it" started */
   fixes?: Record<string, { flow_id: string; title: string; branch: string | null; workflow?: string; with?: number; at: string }>;
+  /** per thread: keel's check of the author's "fixed" against the new commits */
+  fixed?: Record<string, AiRun<FixResult>>;
 };
 export type AddressResult = {
   flow_id: string;

@@ -420,7 +420,8 @@ function OneReview({
     r.ai?.overview?.status === "running" ||
     r.ai?.findings?.status === "running" ||
     Object.values(r.ai?.judges ?? {}).some((j) => j.status === "running") ||
-    Object.values(r.ai?.buttons ?? {}).some((j) => j.status === "running");
+    Object.values(r.ai?.buttons ?? {}).some((j) => j.status === "running") ||
+    Object.values(r.ai?.fixed ?? {}).some((j) => j.status === "running");
   useEffect(() => {
     if (!running) return;
     const t = window.setInterval(() => {
