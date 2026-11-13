@@ -1,15 +1,16 @@
 // keel 0.18.9 KeelBot's thinking effort: the effort choices of a model (keel's catalog), how a model reads on screen
 // (claude/sonnet · high), and /model and /effort, which pick KeelBot's model and its effort.
 
-import { api, type Catalog, type Mode, type Model } from "./sdk";
+import { api, type Catalog, type Mode, type Model, type SavedMode } from "./sdk";
 import type { Choice, Ctx, Reply } from "./commands";
 
 /** Effort choices: the model's own list, else the provider's. Empty = this model has no effort setting (keel ignores
  *  one). The rule of web/src/components/ModelPicker.tsx's effortsOf, without its React. */
-export function effortsOf(c: Catalog | null, p: string, mode: Mode, model: string): string[] {
+export function effortsOf(c: Catalog | null, p: string, mode: SavedMode, model: string): string[] {
   const e = c?.[p];
   if (!e) return [];
-  const list = (mode && e.modes[mode]) || e.modes[e.default.mode] || Object.values(e.modes)[0] || [];
+  // #101 a model saved for a coding-agent app (subscription, opencode) runs on the API: its list is the API's
+  const list = (mode && e.modes[mode as Mode]) || e.modes[e.default.mode] || Object.values(e.modes)[0] || [];
   return list.find((x) => x.id === model)?.efforts ?? e.efforts ?? [];
 }
 
