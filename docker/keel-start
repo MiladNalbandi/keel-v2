@@ -89,6 +89,12 @@ if [ -n "$AGENT_USER" ]; then
   # of the host, keel's data volume too: with the socket, the separate user does not keep an agent from keel's files.
   if [ -S /var/run/docker.sock ]; then
     sudo -n /usr/local/bin/keel-stack-setup agent-docker || echo "agents: could not give $AGENT_USER the Docker socket"
+    # #100 say whether the agents really reach Docker, not only that the socket is there (on Docker Desktop they did not)
+    if out=$(sudo -n -E -u "$AGENT_USER" -- /usr/local/bin/keel-as-agent docker version --format '{{.Server.Version}}' 2>&1); then
+      echo "agents: Docker works for $AGENT_USER (host engine $out)"
+    else
+      echo "agents: Docker does NOT work for $AGENT_USER: $(printf '%s' "$out" | tail -n 1)"
+    fi
   fi
   echo "agents: run as the user $AGENT_USER (uid $(id -u "$AGENT_USER")), not as keel"
 fi

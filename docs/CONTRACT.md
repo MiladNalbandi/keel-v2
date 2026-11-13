@@ -3850,3 +3850,13 @@ write routes; `POST …/goals/{id}/limits` stays admin.
 `docker/keel-start` starts the Kotlin api with `-XX:+PerfDisableSharedMem` always, ahead of the default options or the
 person's `JAVA_OPTS`. The JVM keeps its counters in memory instead of a file mapped from `/tmp` (`hsperfdata`): with a
 full disk, reading that file killed the api with SIGBUS, and every open `keel2 mcp` session dropped with it.
+
+## Next: agents' Docker on Docker Desktop (issue #100)
+
+`keel-stack-setup agent-docker` with a socket of root's group (gid 0, Docker Desktop): `agent` joins no root group; socat
+(as root, in the image now) relays `/run/keel-docker/docker.sock` (root:keel-docker 0660, in a 0750 folder) to
+`/var/run/docker.sock`, and only `agent` is in `keel-docker`. A non-zero gid works as before (agent joins that group).
+`keel-as-agent` sets `DOCKER_HOST=unix:///run/keel-docker/docker.sock` when the copy exists and `DOCKER_HOST` is unset,
+`TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE` to `/var/run/docker.sock` unless set, and `DOCKER_CONFIG` to the agent's home
+`.docker` unless set. `keel-start` logs `agents: Docker works for agent (host engine X)` or
+`agents: Docker does NOT work for agent: <why>`.
