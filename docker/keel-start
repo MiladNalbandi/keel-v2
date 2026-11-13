@@ -89,6 +89,12 @@ if [ -n "$AGENT_USER" ]; then
   # of the host, keel's data volume too: with the socket, the separate user does not keep an agent from keel's files.
   if [ -S /var/run/docker.sock ]; then
     sudo -n /usr/local/bin/keel-stack-setup agent-docker || echo "agents: could not give $AGENT_USER the Docker socket"
+    # #100 say whether the agents really reach Docker, not only that the socket is there (on Docker Desktop they did not)
+    if out=$(sudo -n -E -u "$AGENT_USER" -- /usr/local/bin/keel-as-agent docker version --format '{{.Server.Version}}' 2>&1); then
+      echo "agents: Docker works for $AGENT_USER (host engine $out)"
+    else
+      echo "agents: Docker does NOT work for $AGENT_USER: $(printf '%s' "$out" | tail -n 1)"
+    fi
   fi
   echo "agents: run as the user $AGENT_USER (uid $(id -u "$AGENT_USER")), not as keel"
 fi
@@ -214,8 +220,11 @@ start_api() {
     # than they ever give back; a smaller thread stack (40 threads at idle).
     # The api's settings come from the jar and the environment only: no application.* or loader.properties from the
     # folder it starts in (the project folder in the image, any folder in native mode).
+    # #99 -XX:+PerfDisableSharedMem always, also with the person's JAVA_OPTS: the JVM's counters stay in memory, not in a
+    # file it maps from /tmp (hsperfdata). When the disk filled, reading that file killed the api with SIGBUS, and with
+    # it every open keel2 mcp session; now a full disk is an error the api answers, not its end.
     # shellcheck disable=SC2086  # JAVA_OPTS holds several options
-    env "${back[@]}" java ${JAVA_OPTS:--XX:MaxRAMPercentage=25 -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -Xss512k} -Dloader.path="$KEEL_PLUGIN_LOADER_PATH" \
+    env "${back[@]}" java -XX:+PerfDisableSharedMem ${JAVA_OPTS:--XX:MaxRAMPercentage=25 -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -Xss512k} -Dloader.path="$KEEL_PLUGIN_LOADER_PATH" \
       -Dloader.home="$(dirname "$API_JAR")" -Dspring.config.location=optional:classpath:/,optional:classpath:/config/ \
       -cp "$API_JAR" org.springframework.boot.loader.launch.PropertiesLauncher &
   fi

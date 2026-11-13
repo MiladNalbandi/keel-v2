@@ -51,12 +51,12 @@ function AddGoal({ pid, onAdded }: { pid: string; onAdded: (id: string) => void 
   };
   return (
     <form onSubmit={(e) => void add(e)} aria-label="Add a goal" className="grid" style={{ gap: 8 }}>
-      <div className="field"><label htmlFor="gl-f1">The goal</label> <input id="gl-f1" required value={f.title} onChange={set("title")} placeholder="People can export their invoices" /></div>
-      <div className="field"><label htmlFor="gl-f2">Done when</label> <input id="gl-f2" required value={f.done_when} onChange={set("done_when")} placeholder="Something a person can check" /></div>
-      <div className="field"><label htmlFor="gl-f3">Why (optional)</label> <input id="gl-f3" value={f.why} onChange={set("why")} /></div>
+      <div className="field"><label htmlFor="gl-f1">The goal</label> <input type="text" id="gl-f1" required value={f.title} onChange={set("title")} placeholder="People can export their invoices" /></div>
+      <div className="field"><label htmlFor="gl-f2">Done when</label> <input type="text" id="gl-f2" required value={f.done_when} onChange={set("done_when")} placeholder="Something a person can check" /></div>
+      <div className="field"><label htmlFor="gl-f3">Why (optional)</label> <input type="text" id="gl-f3" value={f.why} onChange={set("why")} /></div>
       <div className="row">
-        <div className="field"><label htmlFor="gl-f4">Most tokens, all flows together (optional)</label> <input id="gl-f4" inputMode="numeric" value={f.cap} onChange={set("cap")} /></div>
-        <div className="field"><label htmlFor="gl-f5">Most flows (optional)</label> <input id="gl-f5" inputMode="numeric" value={f.max} onChange={set("max")} /></div>
+        <div className="field"><label htmlFor="gl-f4">Most tokens, all flows together (optional)</label> <input type="text" id="gl-f4" inputMode="numeric" value={f.cap} onChange={set("cap")} /></div>
+        <div className="field"><label htmlFor="gl-f5">Most flows (optional)</label> <input type="text" id="gl-f5" inputMode="numeric" value={f.max} onChange={set("max")} /></div>
       </div>
       {problem && <Note tone="err" role="alert">{problem}</Note>}
       <div><button className="btn primary" type="submit">Add it</button></div>

@@ -17,6 +17,11 @@ import org.springframework.web.bind.annotation.RestController
 /** A call from keel2 mcp (an MCP client, an agent of the person's): the connection's Access applies to it. */
 internal fun HttpServletRequest.fromAgent(): Boolean = getAttribute(McpLevelGuard.LEVEL_ATTR) != null
 
+/** #96 what only the person may do (read a private result, change what MCP clients may): never an MCP call, at any level. */
+internal fun HttpServletRequest.personOnly(what: String) {
+    if (fromAgent()) throw Forbidden("Only the person may $what", "An MCP client never reads a private result or changes what MCP clients may do.")
+}
+
 /** keel 0.15's routes, by connection name: the project's connections as it uses them (its own and the globals it sees). */
 @RestController
 @RequestMapping("/api/projects/{pid}/db")
@@ -52,7 +57,26 @@ class DatabaseController(private val db: DatabaseService) {
         if (body.change && request.getAttribute(McpLevelGuard.LEVEL_ATTR) == "read") {
             throw Forbidden("This needs the MCP write level: run keel2 mcp --write", "A read-level MCP server can only read the database.")
         }
-        return db.query(pid, body, request.fromAgent())
+        return db.query(pid, body, request.fromAgent(), request.getHeader("X-Keel-Client"))
+    }
+
+    /** #96 the results of agents' queries on a private connection, for the person only (newest first, without rows). */
+    @GetMapping("/results")
+    fun results(@PathVariable pid: String, request: HttpServletRequest): JsonNode {
+        request.personOnly("read private results")
+        return db.results(pid)
+    }
+
+    @GetMapping("/results/{id}")
+    fun result(@PathVariable pid: String, @PathVariable id: String, request: HttpServletRequest): JsonNode {
+        request.personOnly("read private results")
+        return db.result(pid, id)
+    }
+
+    @DeleteMapping("/results/{id}")
+    fun forget(@PathVariable pid: String, @PathVariable id: String, request: HttpServletRequest): JsonNode {
+        request.personOnly("forget private results")
+        return db.forget(pid, id)
     }
 }
 
@@ -76,6 +100,16 @@ class DatabasesController(private val db: DatabaseService) {
     @PostMapping("/api/databases/server-databases")
     fun serverDatabases(@RequestBody body: DbConfigBody, @RequestParam(required = false) project: String?): JsonNode =
         db.serverDatabases(body, project)
+
+    /** #96 what keel's MCP server (Claude Code, OpenCode, Codex … through keel2 mcp) may do with databases, at most. */
+    @GetMapping("/api/databases/mcp")
+    fun mcpAccess(): DbMcpAccess = db.mcpAccess()
+
+    @PutMapping("/api/databases/mcp")
+    fun setMcpAccess(@RequestBody body: DbMcpAccess, request: HttpServletRequest): DbMcpAccess {
+        request.personOnly("change what MCP clients may do with databases")
+        return db.setMcpAccess(body)
+    }
 
     @GetMapping("/api/databases/{id}")
     fun one(@PathVariable id: String, request: HttpServletRequest): DbEntry = db.get(id, request.fromAgent())

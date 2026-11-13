@@ -142,9 +142,11 @@ ENV LANG=C.UTF-8 \
 # keel's own venv is kept off the PATH its projects and agents see (models/cli.py project_env).
 # gh (the GitHub CLI): Connections › GitHub › Sign in with GitHub runs `gh auth login --web` (device code) in a scratch HOME.
 # The Docker daemon is the host's: `keel2 --docker` mounts its socket, so tests can use Testcontainers or compose.
+# #100 socat: on Docker Desktop that socket is root's group (gid 0), so the agents' user reaches it through a copy
+# keel-stack-setup relays (agent-docker), never through root's group.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 python3-venv python3-pip python3-pytest python-is-python3 git tini curl ca-certificates gnupg sqlite3 \
-        openssh-client make zip unzip sudo \
+        openssh-client make zip unzip sudo socat \
     && curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - \
     && install -m 0755 -d /etc/apt/keyrings \
     && curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc \

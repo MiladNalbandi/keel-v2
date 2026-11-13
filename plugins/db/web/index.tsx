@@ -23,6 +23,7 @@ import {
 import { DatabasesTab } from "./Databases";
 import { DbExplorer, DbTab, dbPath, dbTabTitle } from "./DbTool";
 import { QueryCard } from "./QueryCard";
+import { ResultCard } from "./Private";
 import { QueryPanel } from "./QueryPanel";
 
 /** Code › Database: the connections and their tables; a click opens a table or a console as a tab. */
@@ -92,6 +93,13 @@ export function setup(sdk: KeelSdk) {
     id: "db",
     kind: "keel-query",
     component: QueryCard,
+  });
+
+  // #96 KeelBot: a keel-result block is a private result's card (rows only the person sees; they pick what to send)
+  sdk.registerSlot<KeelbotCardItem>(SLOTS.keelbotCard, {
+    id: "db-result",
+    kind: "keel-result",
+    component: ResultCard,
   });
 }
 

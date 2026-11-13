@@ -106,6 +106,9 @@ export function createDb() {
     features: { mode: "dev", modes: ["dev"], parts: { dev: true }, addons: [], screens: [], plugins: [] } as Features,
     dbConns: [] as DbConnection[],
     dbAnswer: null as DbResult | null,
+    /** #96 the Database plugin's switch for MCP clients, and the results only the person sees (plugins/db Private.tsx) */
+    dbMcp: "connection" as string,
+    dbResults: [] as Record<string, unknown>[],
     gitStatus: { branch: "feat/euro", base: "main", upstream: "origin/feat/euro", ahead: 2, behind: 0, base_ahead: 2, base_behind: 1, pushed: true,
       changes: [] } as GitStatus,
     pr: null as PullRequest | null,
@@ -555,6 +558,22 @@ export function handlers(db: Db) {
       return HttpResponse.json({ hint: "…789" });
     }),
     http.get("/api/projects/:pid/db/connections", () => HttpResponse.json(db.dbConns)),
+    http.get("/api/databases/mcp", () => HttpResponse.json({ access: db.dbMcp })),
+    http.put("/api/databases/mcp", async ({ request }) => {
+      const b = (await log(request)) as { access: string };
+      db.dbMcp = b.access;
+      return HttpResponse.json({ access: b.access });
+    }),
+    http.get("/api/projects/:pid/db/results", () => HttpResponse.json(db.dbResults.map(({ rows: _rows, ...r }) => r))),
+    http.get("/api/projects/:pid/db/results/:id", ({ params }) => {
+      const r = db.dbResults.find((x) => x.id === params.id);
+      return r ? HttpResponse.json(r) : HttpResponse.json({ error: "This result is gone." }, { status: 404 });
+    }),
+    http.delete("/api/projects/:pid/db/results/:id", async ({ request, params }) => {
+      await log(request);
+      db.dbResults = db.dbResults.filter((x) => x.id !== params.id);
+      return HttpResponse.json({ ok: true });
+    }),
     http.get("/api/projects/:pid/db/suggest", () => HttpResponse.json([{ name: "db", kind: "postgres", url: "postgres://app:app@localhost:15432/scores", // keel:allow-secret
       shown: "postgres://app:•••@localhost:15432/scores", env: "local", source: "docker-compose.yml (service db)", password: true }])),
     http.post("/api/projects/:pid/db/connections", async ({ request }) => {

@@ -194,6 +194,16 @@ class StubEngine private constructor(private val server: HttpServer) {
                 "source" to "docker-compose.yml (service db)", "shown" to "postgres://app:•••@localhost:15432/scores")) // keel:allow-secret
         path == "/plugins/db/schema" -> 200 to mapOf("connection" to body?.path("connection")?.path("name")?.asText(), "kind" to "postgres",
             "tables" to listOf(mapOf("name" to "scores", "columns" to emptyList<Any>(), "fks" to emptyList<Any>())))
+        // #96 an agent's query on a private connection: an id, never the rows; the person's results routes
+        path == "/plugins/db/query" && body?.path("private")?.asBoolean() == true -> 200 to mapOf("private" to true,
+            "id" to "r_000000000001", "connection" to body.path("connection").path("name").asText(), "columns" to listOf("n"))
+        path == "/plugins/db/results" -> 200 to listOf(mapOf("id" to "r_000000000001", "project" to body?.path("project")?.asText(),
+            "connection" to "local", "sql" to "select 1", "who" to "test", "columns" to listOf("n"), "count" to 1))
+        path == "/plugins/db/result" -> if (body?.path("id")?.asText() == "r_000000000001")
+            200 to mapOf("id" to "r_000000000001", "project" to body.path("project").asText(), "columns" to listOf("n"),
+                "rows" to listOf(listOf(1)), "count" to 1)
+            else 404 to mapOf("error" to "This result is gone.")
+        path == "/plugins/db/forget" -> 200 to mapOf("ok" to true)
         path == "/plugins/db/query" -> 200 to mapOf("connection" to body?.path("connection")?.path("name")?.asText(),
             "kind" to if (body?.path("change")?.asBoolean() == true) "change" else "read", "sql" to body?.path("sql")?.asText(),
             "columns" to listOf("n"), "rows" to listOf(listOf(1)), "count" to 1, "changed" to 2, "done" to (body?.path("confirm")?.asBoolean() == true))

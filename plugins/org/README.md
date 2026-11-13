@@ -65,6 +65,23 @@ Each role is a box, in levels from the top down the `delegate` links. A solid li
 goes; reports come back up it); a dotted line is a side link (`ask`, `approve`, `notify` between roles that do not give
 each other work). A dot marks where a line meets a box. Hover or focus a role to light its lines.
 
+## From an MCP client (#98)
+
+Claude Code, OpenCode, Codex or any client with `keel2 mcp` gets these tools:
+
+| Level | Tool | What it does |
+|---|---|---|
+| read | `keel_org_list`, `keel_org_show` | the orgs; one org's roles and links (`yaml: true` adds its YAML) |
+| read | `keel_org_templates` | the ready-made orgs |
+| read | `keel_org_missions`, `keel_org_mission` | an org's missions; one mission's tree, its report, and what waits for whom |
+| write | `keel_org_save` | create or change an org from YAML or a ready-made one (asks you first) |
+| write | `keel_org_give_mission` | give a mission to an agent role (its flow starts) |
+| write | `keel_org_stop_mission`, `keel_org_accept` | stop a mission and all under it; accept a reported one (both ask you first) |
+
+A gate a mission waits at (the plan, the report) is answered like any flow's: `keel_read_gate`, then `keel_resume` on the
+thread `keel_org_mission` names. keel's own agents get keel's MCP server at the read level only, so an agent never saves an
+org or gives a mission. Over MCP, deleting an org needs the admin level (no tool does it).
+
 ## What it keeps to
 
 - **keel checks every hand-over.** `org:delegate` gives work only to a role with a `delegate` link from this one, only with
@@ -91,9 +108,10 @@ each other work). A dot marks where a line meets a box. Hover or focus a role to
   (`runner.py`), the actions `org:check`, `org:delegate`, `org:report`, `org:close` (`actions.py`), and the routes
   (`routes.py`). keel's Python api forwards `/api/org/*` to them; there is no Kotlin part.
 - `engine/keel_plugin_org/templates/`: the ready-made orgs (`templates.py` lists them in order).
+- `engine/keel_plugin_org/mcp_tools.py`: its tools in keel's MCP server (#98).
 - `content/`: the `org-tech-lead` agent and the `lead-intake` and `lead-review` workflows.
-- `web/`: the Org page (Work › Org): missions, the chart (`Chart.tsx`), the YAML, each mission's tree, report and
+- `web/`: the Org page (Work › Org): missions, the chart (`Chart.tsx`), the YAML (keel's `CodeEditor`, highlighted), each mission's tree, report and
   history; the ready-made orgs (`Templates.tsx`) in the Marketplace's Orgs kind and on New org.
 
 Tests: `scripts/test-plugins.sh org` (the engine part, fake model), `plugins/org/web/test` (the chart and the ready-made
-orgs, in keel's web tests) and `api-py/tests/test_engine_parts.py` (the forwarding).
+orgs, in keel's web tests) and `api-py/tests/test_engine_parts.py` (the forwarding and the routes' MCP levels).

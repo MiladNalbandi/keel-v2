@@ -8,6 +8,7 @@ import keel.api.common.BadRequest
 import keel.api.common.Conflict
 import keel.api.common.Forbidden
 import keel.api.common.KeelProperties
+import keel.api.common.KvStore
 import keel.api.common.NotFound
 import keel.api.common.Time
 import keel.api.engine.EngineClient
@@ -24,6 +25,14 @@ data class DbConnectionBody(val name: String = "", val url: String? = null, val 
 /** mask: a model reads the rows, so columns that hold a secret come back as •••; an agent's call (keel2 mcp) is always masked. */
 data class DbQueryBody(val connection: String = "", val sql: String = "", val change: Boolean = false, val confirm: Boolean = false,
                        val mask: Boolean = false)
+
+/**
+ * #96 the most keel's MCP server may do with databases: what Claude Code, OpenCode, Codex or Cursor get through keel2 mcp
+ * (and an agent through keel's own MCP server). `connection`: each connection's Access; `private`: at most "Results only
+ * to you" (the rows go to the person, the client gets a link); `none`: no database at all. keel's own agents (KeelBot,
+ * flow agents through the keel-db server) follow each connection's Access.
+ */
+data class DbMcpAccess(val access: String = "connection")
 
 /** One connection as the web sees it: never the password. */
 data class DbConnection(
@@ -137,7 +146,30 @@ class DatabaseService(
     private val plugins: PluginService,
     private val store: DatabaseStore,
     private val props: KeelProperties,
+    private val kv: KvStore,
 ) {
+    // ---------------------------------------------------------------- #96 keel's MCP server: at most what Settings says
+
+    fun mcpAccess(): DbMcpAccess = kv.get<DbMcpAccess>(MCP_KEY)?.takeIf { it.access in MCP_ACCESS } ?: DbMcpAccess()
+
+    /** Only the person changes it: an MCP call never may (the controller refuses one). */
+    fun setMcpAccess(body: DbMcpAccess): DbMcpAccess {
+        if (body.access !in MCP_ACCESS) throw BadRequest("Pick connection, private or none")
+        kv.put(MCP_KEY, body)
+        return body
+    }
+
+    /** What an MCP call may do with this connection: its Access, kept to what Settings › Databases allows MCP clients. */
+    private fun forMcp(r: DbRow): String = capped(r.agentAccessEffective)
+
+    private fun capped(own: String): String {
+        return when (mcpAccess().access) {
+            "none" -> "none"
+            "private" -> if (ACCESS_ORDER.indexOf(own) > ACCESS_ORDER.indexOf("private")) "private" else own
+            else -> own
+        }
+    }
+
     private fun conn(r: DbRow) = DbConnection(r.name, r.kind, r.env, r.shown, r.source, r.ok, r.server, r.tables, r.error, r.checkedAt,
         r.env in CHANGE_ENVS, r.id, if (r.global) "global" else "project", r.driver)
 
@@ -165,18 +197,32 @@ class DatabaseService(
     private fun spec(pid: String, name: String, agent: Boolean = false, change: Boolean = false): Map<String, Any?> {
         val r = active(pid, name)
         if (agent) agentMay(r, change)
+        return specOf(r, pid)
+    }
+
+    private fun specOf(r: DbRow, pid: String): Map<String, Any?> {
+        val name = r.name
         val c = store.connect(r, pid)
         val url = c.url ?: throw Conflict(c.unavailable ?: "keel cannot connect to $name", c.hint)
         return mapOf("name" to r.name, "kind" to (DbUrls.driverOf(url)?.let(DbUrls::kindOf) ?: r.kind), "url" to url, "env" to r.env)
     }
 
-    private fun agentMay(r: DbRow, change: Boolean) {
-        val access = r.agentAccessEffective
-        if (access == "none") throw Forbidden("${r.name} is not offered to agents", "Its Access in Databases says agents may do nothing with it.")
+    private fun agentMay(r: DbRow, change: Boolean): String {
+        val access = forMcp(r)
+        if (access == "none") {
+            if (mcpAccess().access == "none") throw Forbidden("Databases are off for MCP clients",
+                "Settings › Databases › MCP clients says Claude Code, OpenCode and other MCP clients get no database.")
+            throw Forbidden("${r.name} is not offered to agents", "Its Access in Databases says agents may do nothing with it.")
+        }
+        if (change && access == "private") {
+            throw Forbidden("On ${r.name} agents only run reads, and the results go to the person",
+                "Give the change to the person instead, or change its Access in Databases.")
+        }
         if (change && access != "write_approve") {
             throw Forbidden("Agents may only read ${r.name}", if (r.env in CHANGE_ENVS) "Allow \"change after approval\" in its Access tab in Databases."
                 else "${r.name} is a ${r.env} database: agents only read there, always.")
         }
+        return access
     }
 
     // ---------------------------------------------------------------- the routes of keel 0.15 (by name, per project)
@@ -187,7 +233,7 @@ class DatabaseService(
     fun list(pid: String, agent: Boolean = false): List<DbConnection> {
         projects.require(pid)
         plugins.require(pid, "db")
-        return store.active(pid).filter { !agent || it.agentAccessEffective != "none" }.map(::conn)
+        return store.active(pid).filter { !agent || forMcp(it) != "none" }.map(::conn)
     }
 
     /** The databases the project names (compose, .env.example, Spring's config, SQLite files) that are not saved yet. */
@@ -258,13 +304,33 @@ class DatabaseService(
     /** The person's own query: a read, or a change on a local or test database (counted first, then `confirm`). An agent's
      *  (keel2 mcp) also needs the connection's Access: none refuses all, a change needs "change after approval"; and its
      *  rows are always masked (keel 0.18.55: `"mask": false` from an MCP client no longer shows a secret column). */
-    fun query(pid: String, body: DbQueryBody, agent: Boolean = false): JsonNode {
+    fun query(pid: String, body: DbQueryBody, agent: Boolean = false, client: String? = null): JsonNode {
         plugins.require(pid, "db")
         if (body.sql.isBlank()) throw BadRequest("Write a query first")
         if (body.sql.length > 20_000) throw BadRequest("The query is too long")
-        val name = body.connection.ifBlank { default(pid) }
-        return engine.post("/plugins/db/query", mapOf("root" to projects.root(pid).toString(), "connection" to spec(pid, name, agent, body.change),
-            "sql" to body.sql, "change" to body.change, "confirm" to body.confirm, "mask" to (body.mask || agent)), long = true)
+        val r = active(pid, body.connection.ifBlank { default(pid) })
+        // #96 an agent's query on a private connection: the engine keeps the rows for the person and answers an id
+        val onlyPerson = agent && agentMay(r, body.change) == "private"
+        return engine.post("/plugins/db/query", mapOf("root" to projects.root(pid).toString(), "connection" to specOf(r, pid),
+            "sql" to body.sql, "change" to body.change, "confirm" to body.confirm, "mask" to (body.mask || agent),
+            "private" to onlyPerson, "project" to pid, "who" to (client?.takeIf { it.isNotBlank() } ?: "an MCP client")), long = true)
+    }
+
+    // ---------------------------------------------------------------- #96 the person's private results (never an MCP call's)
+
+    fun results(pid: String): JsonNode {
+        plugins.require(pid, "db")
+        return engine.post("/plugins/db/results", mapOf("project" to pid))
+    }
+
+    fun result(pid: String, id: String): JsonNode {
+        plugins.require(pid, "db")
+        return engine.post("/plugins/db/result", mapOf("project" to pid, "id" to id))
+    }
+
+    fun forget(pid: String, id: String): JsonNode {
+        plugins.require(pid, "db")
+        return engine.post("/plugins/db/forget", mapOf("project" to pid, "id" to id))
     }
 
     /** The local connection, else the test one, else the first. */
@@ -277,21 +343,25 @@ class DatabaseService(
     // ---------------------------------------------------------------- global and per project (by id)
 
     /** Control › Databases: every global connection (an agent: those it may use). */
-    fun globals(agent: Boolean = false): List<DbEntry> = store.globals().filter { !agent || it.agentAccessEffective != "none" }.map { entry(it) }
+    fun globals(agent: Boolean = false): List<DbEntry> =
+        store.globals().filter { !agent || forMcp(it) != "none" }.map { entry(it) }.map { if (agent) mcpView(it) else it }
+
+    /** #96 an MCP caller reads what it really may do with a connection: its Access kept to the MCP switch. */
+    private fun mcpView(e: DbEntry): DbEntry = e.copy(agentAccessEffective = capped(e.agentAccessEffective))
 
     /** A project's Databases: its own, the globals it sees (overridden when it has its own of that name), the ones it hides.
      *  An agent (keel2 mcp) sees only the ones it may use. */
     fun effective(pid: String, agent: Boolean = false): List<DbEntry> {
         projects.require(pid)
         val seen = store.effective(pid).map { entry(it.row, it.overridden) } + store.hiddenGlobals(pid).map { entry(it, hidden = true) }
-        return if (agent) seen.filter { !it.hidden && !it.overridden && it.agentAccessEffective != "none" } else seen
+        return if (agent) seen.filter { e -> !e.hidden && !e.overridden && capped(e.agentAccessEffective) != "none" }.map(::mcpView) else seen
     }
 
     /** One connection; to an agent, one whose Access is none does not exist (keel 0.18.55: it showed host, port, user, db). */
     fun get(id: String, agent: Boolean = false): DbEntry {
         val r = byId(id)
-        if (agent && r.agentAccessEffective == "none") throw NotFound("No database connection with the id $id")
-        return entry(r)
+        if (agent && forMcp(r) == "none") throw NotFound("No database connection with the id $id")
+        return if (agent) mcpView(entry(r)) else entry(r)
     }
 
     fun createGlobal(body: DbConfigBody): DbEntry {
@@ -464,7 +534,7 @@ class DatabaseService(
             } else if (host.isNullOrBlank()) throw BadRequest("Give the database's host", "localhost is your computer.")
         }
         val access = (body.agentAccess ?: old?.agentAccess ?: "read").lowercase()
-        if (access !in ACCESS) throw BadRequest("Agents may do nothing, read, or change after approval")
+        if (access !in ACCESS) throw BadRequest("Agents may do nothing, run reads whose results only you see, read, or change after approval")
         val keep = if (drv == "sqlite") "keel" else (body.keepPassword ?: old?.keepPassword ?: "keel").lowercase()
         if (keep !in KEEPS) throw BadRequest("Keep the password in keel, for this session, or never")
         val note = (body.note ?: old?.note)?.trim()?.ifBlank { null }
@@ -603,7 +673,11 @@ class DatabaseService(
         val ENVS = setOf("local", "test", "staging", "prod")
         val CHANGE_ENVS = setOf("local", "test")
         val MODES = setOf("host", "socket", "url", "env")
-        val ACCESS = setOf("none", "read", "write_approve")
+        val ACCESS = setOf("none", "private", "read", "write_approve")
+        /** none < private < read < write_approve */
+        val ACCESS_ORDER = listOf("none", "private", "read", "write_approve")
+        val MCP_ACCESS = setOf("connection", "private", "none")
+        const val MCP_KEY = "db.mcp"
         val KEEPS = setOf("keel", "session", "never")
         val NAME = Regex("^[A-Za-z0-9][A-Za-z0-9 _.-]{0,47}$")
         private val ENV_NAME = Regex("^[A-Za-z_][A-Za-z0-9_]{0,127}$")

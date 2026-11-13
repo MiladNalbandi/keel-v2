@@ -107,6 +107,9 @@ export type { StepItem, StepState, Tone } from "../components/settingsUi";
 export { NOTE_SECTIONS, ProjectNotesOff, notesCostLabel, setNotes } from "../components/ProjectNotes";
 // a code block with keel's highlighting (the Database plugin's KeelBot card shows its SQL with it)
 export { CodeBlock } from "../components/Code";
+// #97 keel's small code editor (highlighting, line numbers, errors by line): the Org plugin's YAML, as keel's workflows
+export { CodeEditor } from "../components/CodeEditor";
+export type { LineError } from "../components/CodeEditor";
 // keel 0.18.9 a failed button's "Ask KeelBot to fix it" (KeelBot's chat provides AskKeelBot)
 export { AskFixButton, AskKeelBot, fixRequest as askFixRequest } from "../components/AskFix";
 export type { AskOptions } from "../components/AskFix";

@@ -7,6 +7,10 @@
                                                       the rows (a run it rolls back) and asks the person first, unless
                                                       the run mode is auto and the database is local
     db:migrate  {}                                    the project's migration command (commands.migrate, .keel/config.yml)
+
+On a connection whose Access is private (#96) the rows never go into the flow: agents read the flow's data and notes.
+db:query puts {private_result, columns} in data["<step id>"] and the person sees the rows in Results for you; db:check
+still passes or fails on the count, and keeps its rows for the person.
 """
 
 from __future__ import annotations
@@ -17,7 +21,7 @@ import hashlib
 from keel_engine import rules
 from keel_engine.runtime import run_mode as run_modes
 
-from . import core, tools
+from . import core, private, tools
 from .core import PluginError
 
 SHOWN = 20
@@ -49,7 +53,30 @@ def _read(a):
     return conn, core.query(conn, sql, root=a.root, mask=True)
 
 
+def _who(a) -> str:
+    return f"step:{a.step or 'db'}"
+
+
+def _private_query(a, conn: core.Conn):
+    try:
+        entry = private.run(conn, _sql(a), root=a.root, project=a.project or "", who=_who(a), thread=a.thread_id or None)
+    except (core.DbError, PluginError) as exc:
+        return _fail(exc)
+    answer = private.agent_answer(entry)
+    if answer.get("failed"):
+        return _result(False, f"Result {entry['id']} on {conn.name} failed: {answer['error']}", "")
+    data = {**(a.data or {}), (a.step or "db_query"): {"private_result": entry["id"], "columns": answer["columns"]}}
+    return _result(True, f"Result {entry['id']} from {conn.name}: only you see its rows ({tools.PLACE}).",
+                   f"```sql\n{entry['sql']}\n```", {"data": data})
+
+
 def _query(a):
+    try:
+        conn = _conn(a)
+    except (core.DbError, PluginError) as exc:
+        return _fail(exc)
+    if conn.agent_may == "private":
+        return _private_query(a, conn)
     try:
         conn, r = _read(a)
     except (core.DbError, PluginError) as exc:
@@ -83,6 +110,13 @@ def _check(a):
     want = {"none": "no rows", "some": "some rows", "count": f"{n} row(s)"}[mode]
     shown = f"{got}{'+' if r['truncated'] else ''} row(s)"
     note = f"Data check on {conn.name}: {shown}, as expected." if ok else f"Data check on {conn.name}: {shown}, expected {want}."
+    if conn.agent_may == "private":
+        # the check's answer is its count; its rows go only to the person (#96)
+        rows = ""
+        if got:
+            entry = private.keep(a.project or "", conn, r["sql"], _who(a), result=r, thread=a.thread_id or None)
+            rows = f"\nThe rows are result {entry['id']}: only you see them ({tools.PLACE})."
+        return _result(ok, note, f"```sql\n{r['sql']}\n```" + (rows or "\n(no rows)"))
     detail = f"```sql\n{r['sql']}\n```\n" + (tools.table_text(r["columns"], r["rows"], SHOWN) if got else "(no rows)")
     return _result(ok, note, detail)
 

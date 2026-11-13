@@ -106,6 +106,10 @@ describe("the ready-made orgs", () => {
     expect(within(startup).getByRole("button", { name: "Picked" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByLabelText(/Org id/)).toHaveValue("startup");
     expect(screen.getByLabelText("The org's YAML")).toHaveValue("name: Startup\nroles: {}\n");
+    // #97 keel's code editor: the YAML is highlighted under the text, with line numbers
+    const editor = screen.getByLabelText("The org's YAML").closest(".ce") as HTMLElement;
+    expect(editor.querySelector("code.language-yaml")).not.toBeNull();
+    expect(editor.querySelectorAll(".ce-gutter span")).toHaveLength(3);
     // another pick fills in its own
     await user.click(within(within(list).getAllByRole("listitem")[0]).getByRole("button", { name: "Start from this" }));
     expect(screen.getByLabelText(/Org id/)).toHaveValue("solo");

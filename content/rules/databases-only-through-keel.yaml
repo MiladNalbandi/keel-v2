@@ -1,0 +1,37 @@
+# keel rule pack: databases only through keel (#96). keel's Database tools decide what an agent sees of each connection
+# (its Access: nothing, results only to the person, read). A database client in the shell, a dump file or another
+# database MCP server would go around that, and what the agent reads goes to its AI provider.
+schema: 1
+kind: rules
+name: databases-only-through-keel
+title: Databases only through keel
+version: 1.0.0
+publisher: keel
+summary: Agents reach a database only through keel's Database tools, where each connection's Access decides what they see. No database clients in the shell, no dump files, no other database MCP servers.
+requires:
+  keel: ">=0.17.2"
+rules:
+  - id: no-db-clients
+    kind: bash
+    how: regex
+    match:
+      - '(^|[;&|(`]|\$\()\s*(sudo\s+(-\S+(\s+[^-\s]\S*)?\s+)*)?(env\s+)?(\w+=\S*\s+)*(\S*/)?(psql|pg_dump|pg_dumpall|pg_restore|pgcli|mysql|mysqldump|mysqlsh|mysqlpump|mariadb|mariadb-dump|mycli|sqlite3|litecli|duckdb|mongosh|mongo|mongodump|mongoexport|redis-cli|sqlcmd|clickhouse-client|cqlsh|usql)(\s|$)'
+      - '\b(docker|podman|kubectl|oc)\b[^;&|]*\b(exec|run)\b[^;&|]*\s(\S*/)?(psql|pg_dump|pg_dumpall|mysql|mysqldump|mariadb|mariadb-dump|sqlite3|mongosh|mongo|mongodump|redis-cli|sqlcmd|clickhouse-client|cqlsh)(\s|$)'
+    reason: A database client in the shell goes around keel's Database tools. Use db_query (keel decides what you may see), or give the person the SQL to run.
+  - id: no-db-scripts
+    kind: bash
+    how: regex
+    match:
+      - '\b(python3?|node|ruby|perl|php|deno|bun)\b[^;&|]*\s-(c|e|r)\s.*\b(psycopg2?|asyncpg|pg8000|pymysql|MySQLdb|mysql\.connector|sqlalchemy|sqlite3|pymongo|redis|mysql2|better-sqlite3|mongodb|knex|pg)\b'
+    reason: A script that opens a database connection goes around keel's Database tools. Use db_query, or give the person the SQL to run.
+  - id: no-db-dumps
+    kind: read
+    match: ["**/*.dump", "**/*.sql.gz", "**/*dump*.sql", "**/*backup*.sql", "**/*.bak", "**/*.sqlite", "**/*.sqlite3", "**/*.db", "**/*.mdb"]
+    reason: This file is a database or a copy of one; its rows would go to the AI provider. Ask the person, or use db_query.
+  - id: no-db-mcp-servers
+    kind: mcp
+    how: regex
+    match:
+      - '(^|__)[\w-]*(postgres|postgresql|mysql|mariadb|sqlite|mssql|sqlserver|mongo|redis|supabase|neon|dbhub|bigquery|snowflake|clickhouse|cockroach|planetscale|turso|duckdb|oracle)[\w-]*__'
+      - '__(execute_sql|run_sql|exec_sql|sql_query|query_sql|run_query|execute_query)$'
+    reason: This MCP server reads a database outside keel, so keel cannot keep its rows from the AI provider. Use keel's db_query, where each connection's Access decides.

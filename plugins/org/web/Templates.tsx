@@ -4,7 +4,7 @@
 // (GET /api/org/templates).
 
 import { useState } from "react";
-import { Drawer, ErrorBox, get, hashForScreen, Loading, SearchBox, useLoad } from "@keel/web-sdk";
+import { CodeBlock, Drawer, ErrorBox, get, hashForScreen, Loading, SearchBox, useLoad } from "@keel/web-sdk";
 import { Chart, type ChartLink, type ChartRole } from "./Chart";
 
 export type OrgTemplate = { id: string; title: string; summary: string; people: number; agents: number; levels: number;
@@ -60,7 +60,7 @@ export function TemplatePreview({ t, onClose }: { t: OrgTemplate; onClose: () =>
         <Chart roles={t.roles} links={t.links} compact />
         <details>
           <summary>Its YAML</summary>
-          <pre className="mono org-yaml-ro">{t.yaml}</pre>
+          <div className="org-yaml-ro"><CodeBlock text={t.yaml} lang="yaml" /></div>
         </details>
         <p className="sub" style={{ margin: 0 }}>Workflows it uses: {t.workflows.join(", ")}.</p>
       </div>

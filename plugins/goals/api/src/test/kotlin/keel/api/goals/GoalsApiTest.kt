@@ -205,4 +205,25 @@ class GoalsApiTest : ApiTest() {
         post("/api/projects/$other/goals/$id/plan").andExpect(status().isNotFound)
         assertThat(get("/api/projects/$other/goals").json().size()).isEqualTo(0)
     }
+
+    @Autowired lateinit var tokens: keel.api.mcp.McpTokens
+
+    @Test
+    fun `an MCP write token may do what the Goals tools do, a read token none of it, and limits stay admin`() {
+        val (pid, _) = newProject("goal-mcp")
+        val via = mapOf("X-Keel-Via" to "mcp", "X-Keel-Client" to "test", "X-Keel-Tool" to "t")
+        val read = via + mapOf("X-Keel-Mcp-Token" to tokens.tokenFor("read"))
+        val write = via + mapOf("X-Keel-Mcp-Token" to tokens.tokenFor("write"))
+        val body = mapOf("title" to "Export invoices", "done_when" to "People can export")
+        post("/api/projects/$pid/goals", body, read).andExpect(status().isForbidden)
+        val id = post("/api/projects/$pid/goals", body, write).andExpect(status().isOk).json()["id"].asText()
+        post("/api/projects/$pid/goals/$id/limits", mapOf("max_flows" to 2), write).andExpect(status().isForbidden)
+        post("/api/projects/$pid/goals/$id/plan", mapOf("allow_fake" to true), read).andExpect(status().isForbidden)
+        post("/api/projects/$pid/goals/$id/plan", mapOf("allow_fake" to true), write).andExpect(status().isOk)
+        val ready = planned(pid)
+        val step = get("/api/projects/$pid/goals/$ready").json()["steps"][1]["id"].asText()
+        post("/api/projects/$pid/goals/$ready/steps/$step/skip", null, write).andExpect(status().isOk)
+        post("/api/projects/$pid/goals/$ready/status/done", null, read).andExpect(status().isForbidden)
+        post("/api/projects/$pid/goals/$ready/status/done", null, write).andExpect(status().isOk)
+    }
 }

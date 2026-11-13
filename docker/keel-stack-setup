@@ -69,12 +69,32 @@ case "${1:-}" in
     sock=/var/run/docker.sock
     [ -S "$sock" ] || { echo "keel-stack-setup: no Docker socket at $sock" >&2; exit 1; }
     gid=$(stat -c %g "$sock")
-    [[ "$gid" =~ ^[0-9]+$ ]] && [ "$gid" != 0 ] || { echo "keel-stack-setup: the Docker socket's group is root's: not shared" >&2; exit 1; }
+    [[ "$gid" =~ ^[0-9]+$ ]] || { echo "keel-stack-setup: cannot read the Docker socket's group" >&2; exit 1; }
     id agent > /dev/null 2>&1 || { echo "keel-stack-setup: no user agent" >&2; exit 1; }
-    group=$(getent group "$gid" | cut -d: -f1)
-    if [ -z "$group" ]; then group=keel-docker; groupadd -g "$gid" "$group"; fi
-    usermod -aG "$group" agent
-    echo "keel-stack-setup: agent is in group $group ($gid) of the Docker socket"
+    if [ "$gid" != 0 ]; then
+      group=$(getent group "$gid" | cut -d: -f1)
+      if [ -z "$group" ]; then group=keel-docker; groupadd -g "$gid" "$group"; fi
+      usermod -aG "$group" agent
+      echo "keel-stack-setup: agent is in group $group ($gid) of the Docker socket"
+      exit 0
+    fi
+    # #100 Docker Desktop (Mac, Windows) gives the container a socket of root's group (gid 0). agent never joins root's
+    # group (it would reach every file of that group); it gets its own copy of the socket under a group only it is in:
+    # socat, as root, relays $relay to the real socket. keel-as-agent points DOCKER_HOST at the copy. The socket inside
+    # the container stays as it is (on Docker Desktop it is a proxy of the VM's: changing it would change it for others).
+    command -v socat > /dev/null 2>&1 || { echo "keel-stack-setup: the Docker socket's group is root's and socat is missing: not shared" >&2; exit 1; }
+    relay_dir=/run/keel-docker relay=/run/keel-docker/docker.sock
+    getent group keel-docker > /dev/null || groupadd keel-docker
+    usermod -aG keel-docker agent
+    install -d -o root -g keel-docker -m 0750 "$relay_dir"
+    if ! [ -S "$relay" ] || ! pgrep -f "UNIX-LISTEN:$relay" > /dev/null 2>&1; then
+      rm -f "$relay"
+      nohup socat "UNIX-LISTEN:$relay,fork,unlink-early,mode=0660,user=root,group=keel-docker" "UNIX-CONNECT:$sock" \
+        > /dev/null 2>&1 < /dev/null &
+      for _ in 1 2 3 4 5 6 7 8 9 10; do [ -S "$relay" ] && break; sleep 0.2; done
+    fi
+    [ -S "$relay" ] || { echo "keel-stack-setup: the relay of the Docker socket did not start" >&2; exit 1; }
+    echo "keel-stack-setup: agent reaches Docker through $relay (group keel-docker): the socket's own group is root's"
     ;;
   *) usage ;;
 esac

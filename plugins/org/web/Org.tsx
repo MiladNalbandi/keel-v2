@@ -4,7 +4,7 @@
 
 import { useState, type ReactNode } from "react";
 import {
-  EmptyState, ErrorBox, errorParts, get, go, hashForScreen, kfmt, Loading, Note, PageHead, Panel, Pill, post, put,
+  CodeEditor, EmptyState, ErrorBox, errorParts, get, go, hashForScreen, kfmt, Loading, Note, PageHead, Panel, Pill, post, put,
   Since, Tabs, useApp, useLoad, useNarrow, useRoute, type PillTone,
 } from "@keel/web-sdk";
 import { AUTONOMY, Chart } from "./Chart";
@@ -283,8 +283,7 @@ function YamlEditor({ id, text, onText, onSaved }: { id: string; text: string; o
   };
   return (
     <div className="grid" style={{ gap: 8 }}>
-      <textarea id="orgYaml" className="mono org-yaml" spellCheck={false} rows={22} value={shown} onChange={(e) => change(e.target.value)}
-        aria-label="The org's YAML" />
+      <CodeEditor id="orgYaml" lang="yaml" rows={22} value={shown} onChange={change} label="The org's YAML" />
       <p className="sub" style={{ margin: 0 }}>Roles are boxes; links say what may pass between them: delegate, report, ask, approve, notify. keel checks every hand-over against them. Agents cannot change this.</p>
       {problems && problems.length > 0 && <Note tone="warn"><ul style={{ margin: 0, paddingLeft: 18 }}>{problems.map((p) => <li key={p}>{p}</li>)}</ul></Note>}
       {problems && problems.length === 0 && !saved && <Note tone="ok">No problems.</Note>}

@@ -1,15 +1,21 @@
 """The Database plugin's tools in keel's own MCP server (keel2 mcp, keel_engine/mcp_server.py): through keel's api,
-under keel's rules; the acting one waits for the person's answer in keel's Inbox."""
+under keel's rules; the acting one waits for the person's answer in keel's Inbox.
+
+#96 on a connection whose Access is private, or when Settings › Databases keeps MCP clients to "results only to you",
+the api answers a query with a result id: the client gets a link to it, never the rows."""
 
 from __future__ import annotations
 
+import os
 import time
+from urllib.parse import quote
 
 from mcp.server.fastmcp import Context
 from keel_engine.mcp_server import KeelApi, _ask_person, _plugin_on, _project, inbox_refusal
 
 
-ACCESS = {"none": "not offered to agents", "read": "read only", "write_approve": "read; a change after the person's OK"}
+ACCESS = {"none": "not offered to agents", "private": "reads whose rows go only to the person (you get a result id)",
+          "read": "read only", "write_approve": "read; a change after the person's OK"}
 
 
 def db_connections(api: KeelApi, project: str | None = None) -> str:
@@ -52,13 +58,23 @@ def _client_of(ctx) -> str | None:
         return None
 
 
+def result_url(api: KeelApi, pid: str, rid: str) -> str:
+    """The person's page for one private result: KEEL_PUBLIC_URL (keel2 mcp sets it), else the api's address."""
+    base = (os.environ.get("KEEL_PUBLIC_URL") or api.url).rstrip("/")
+    return f"{base}/#/projects/{quote(pid, safe='')}/settings/databases/results/{quote(rid, safe='')}"
+
+
 def db_query(api: KeelApi, sql: str, project: str | None = None, connection: str | None = None) -> str:
+    from . import private
     from .tools import query_text
 
     api = _as_tool(api, "keel_db_query")
     pid = _project(api, project)["id"]
     _plugin_on(api, pid, "db")
-    return query_text(api.post(f"/projects/{pid}/db/query", {"sql": sql, "connection": connection or "", "mask": True}))
+    r = api.post(f"/projects/{pid}/db/query", {"sql": sql, "connection": connection or "", "mask": True})
+    if r.get("private"):
+        return private.agent_text(r, where=f"in keel, at this link (give it to them):\n{result_url(api, pid, r['id'])}")
+    return query_text(r)
 
 
 def db_change(api: KeelApi, sql: str, project: str | None = None, connection: str | None = None, sleep=time.sleep) -> str:
@@ -108,7 +124,8 @@ def register(srv, api: KeelApi, guard, write: bool) -> None:
         def keel_db_query(sql: str, project: str | None = None, connection: str | None = None,
                           ctx: Context | None = None) -> str:
             """Database plugin: one read-only query (SELECT, EXPLAIN, SHOW) under keel's rules: at most 200 rows and 15
-            seconds; columns that hold a secret show as •••."""
+            seconds; columns that hold a secret show as •••. Where the person keeps results to themselves, you get a
+            result id and a link for them, not the rows."""
             return guard(db_query, _as_tool(api, "keel_db_query", _client_of(ctx)), sql, project, connection)
 
         return

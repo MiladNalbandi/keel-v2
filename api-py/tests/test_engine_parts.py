@@ -54,7 +54,21 @@ def test_an_mcp_token_keeps_its_level_on_org_routes(keel):
     assert ok.status_code == 200
     n = len(keel.engine.seen)
     no = keel.client.post("/api/org/orgs/shop/missions", json={"role": "lead"}, headers={"X-Keel-Mcp-Token": read})
-    assert no.status_code == 403 and "admin level" in no.json()["error"]
+    assert no.status_code == 403 and "write level" in no.json()["error"]
     assert len(keel.engine.seen) == n                 # refused before the engine saw it
     yes = keel.client.post("/api/org/orgs/shop/missions", json={"role": "lead"}, headers={"X-Keel-Mcp-Token": admin})
     assert yes.status_code == 200 and keel.engine.seen[-1].method == "POST"
+
+
+def test_the_org_tools_routes_have_their_mcp_levels(keel):
+    """#98 what keel_org_* send: a YAML check is read; saving an org, a mission, stop and accept are write; a delete of
+    an org stays admin (no MCP tool deletes one)."""
+    tok = {lv: {"X-Keel-Mcp-Token": keel.ctx.mcp_tokens.token_for(lv)} for lv in ("read", "write", "admin")}
+    assert keel.client.post("/api/org/check", json={"yaml": "x"}, headers=tok["read"]).status_code == 200
+    for method, path in (("PUT", "/api/org/orgs/shop"), ("POST", "/api/org/orgs/shop/missions"),
+                         ("POST", "/api/org/missions/m1/stop"), ("POST", "/api/org/missions/m1/accept")):
+        assert keel.client.request(method, path, json={}, headers=tok["read"]).status_code == 403, path
+        assert keel.client.request(method, path, json={}, headers=tok["write"]).status_code == 200, path
+    gone = keel.client.delete("/api/org/orgs/shop", headers=tok["write"])
+    assert gone.status_code == 403 and "admin level" in gone.json()["error"]
+    assert keel.client.delete("/api/org/orgs/shop", headers=tok["admin"]).status_code == 200

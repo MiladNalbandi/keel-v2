@@ -38,6 +38,11 @@ const ADDRESS = new Set(["driver", "host", "port", "username", "default_db", "co
 const ACCESS: { v: Access; title: string; sub: string }[] = [
   { v: "none", title: "Nothing", sub: "Only you, in the Database tool." },
   {
+    v: "private",
+    title: "Run queries, results only to you",
+    sub: "Agents see the tables and write the SQL. The rows come to you, not to the agent or its AI provider.",
+  },
+  {
     v: "read",
     title: "Read only",
     sub: "SELECT and the schema. At most 200 rows, 15 s per query.",

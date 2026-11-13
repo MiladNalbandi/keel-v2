@@ -43,9 +43,8 @@
 .org-tpl-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
 .org-tpl .chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .org-chip-human { background: var(--warn-soft); color: var(--fg); }
-.org-yaml-ro { margin: 8px 0 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); font-size: 12.5px;
-  line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 50vh; overflow: auto; }
-.org-yaml { width: 100%; min-height: 320px; font-size: 13px; line-height: 1.5; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); color: var(--fg); resize: vertical; tab-size: 2; }
+/* #97 a ready-made org's YAML in its preview: keel's CodeBlock (highlighted), kept to half the screen */
+.org-yaml-ro { margin: 8px 0 0; max-height: 50vh; overflow: auto; }
 .org-tree, .org-tree ul { list-style: none; margin: 0; padding: 0; }
 .org-tree ul { margin-left: 14px; padding-left: 12px; border-left: 1px solid var(--rail); }
 .org-node { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 6px 0; min-width: 0; }
