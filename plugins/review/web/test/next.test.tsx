@@ -256,19 +256,23 @@ describe("the new Review view: one pull request", () => {
     const demo = start();
     const { pr } = await openPr(42);
     const card = (name: RegExp) => within(pr).getByRole("article", { name });
-    // bo's comment: keel says the reviewer is not right
+    // bo's comment: keel says the author (you) is right; the same words as the classic view
     expect(
-      within(card(/refunds\.py · line 13/)).getByText("Reviewer is not right"),
+      within(card(/refunds\.py · line 13/)).getByText("Author (you) is right"),
     ).toBeInTheDocument();
 
     const th2 = card(/refunds\.py · line 20/);
-    expect(within(th2).getByText("Reviewer is right")).toBeInTheDocument();
+    expect(
+      within(th2).getByText("Reviewer (alex) is right"),
+    ).toBeInTheDocument();
     await userEvent.click(within(th2).getByRole("button", { name: /alex/ }));
     const check = within(th2).getByRole("region", { name: "keel's check" });
     expect(
-      within(check).getByText("keel: Reviewer is right"),
+      within(check).getByText("keel: Reviewer (alex) is right"),
     ).toBeInTheDocument();
-    expect(within(check).getByText("Right:")).toBeInTheDocument();
+    expect(
+      within(check).getByText("Reviewer (alex) is right", { selector: ".rvn-pt" }),
+    ).toBeInTheDocument();
     expect(
       within(check).getByText(/add a test that posts "abc"/),
     ).toBeInTheDocument();
@@ -348,9 +352,11 @@ describe("the new Review view: one pull request", () => {
       }),
     );
     expect(
-      await within(th3).findByText("keel: Partly right"),
+      await within(th3).findByText("keel: Reviewer (bo) is partly right"),
     ).toBeInTheDocument();
-    expect(within(th3).getByText("Not sure:")).toBeInTheDocument();
+    expect(
+      within(th3).getByText("Unclear: keel could not decide"),
+    ).toBeInTheDocument();
     expect(demo.calls.some((c) => c.path.endsWith("/threads/th3/judge"))).toBe(
       true,
     );

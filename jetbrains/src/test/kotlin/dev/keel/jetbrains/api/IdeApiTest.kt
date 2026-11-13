@@ -83,14 +83,14 @@ class IdeApiTest {
             json(
                 200,
                 """{"judges":{"T1":{"id":"j1","status":"done","result":{"items":[{"claim":"Two saves can lose a write","verdict":"reviewer_right",
-                "why":"savePageSize writes to a plain mutableMapOf","fix":"ConcurrentHashMap<String, Int>()"}],"reply":"You're right, fixed.","tokens":4100}}}}""",
+                "why":"savePageSize writes to a plain mutableMapOf","fix":"ConcurrentHashMap<String, Int>()"}],"reply":"Good catch, fixed.","tokens":4100}}}}""",
             ),
         )
         val started = api().judge("p1", "pr:7", "T1", harder = true)
         assertEquals("running", started.judges["T1"]?.status)
         val done = api().ai("p1", "pr:7").judges.getValue("T1")
         assertEquals("REVIEWER IS RIGHT", verdictLabel(done.result!!.items.single().verdict))
-        assertEquals("You're right, fixed.", done.result?.reply)
+        assertEquals("Good catch, fixed.", done.result?.reply)
         assertEquals("""{"key":"pr:7","harder":true}""", server.takeRequest().body.readUtf8())
         assertEquals("/api/projects/p1/review/ai?key=pr%3A7", server.takeRequest().path)
     }

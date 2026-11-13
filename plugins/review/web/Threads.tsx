@@ -11,7 +11,7 @@
 //   │ (DH) bo · reviewer · Oct 21   Why raw SQL?     │
 //   │   (MN) You · Oct 21           On purpose: …    │
 //   │ ┌ k keel checked the code ── ~4k tokens ─────┐ │
-//   │ │ THEY'RE RIGHT  "indexes" — add one …      │ │
+//   │ │ Reviewer (bo) is right  "indexes" — add …  │ │
 //   │ └ [Use as my reply] [Address it] [Ask…]     ┘ │
 //   └ [Reply] [✦ Is the reviewer right?] [✦ Address it] [Resolve]
 //   ● RESOLVED
@@ -51,6 +51,7 @@ import {
   type Verdict,
 } from "./reviewApi";
 import * as R from "./store";
+import { checkLines, sidesOf, verdictLabel, type Sides } from "./verdict";
 
 type Open = (
   path: string,
@@ -171,18 +172,16 @@ export function estimate(t: ReviewThread): [number, number] {
   return [low, Math.round(low * 1.7)];
 }
 
-/** Whose point holds, said from where you stand: you wrote the change, you are the reviewer, or neither. */
-export function verdictLabel(
+/** The colour of a verdict, from where you stand (you wrote the change, you are the reviewer, or neither): "you" when
+ *  your side holds. Its words come from ./verdict, the same in both views. */
+export function verdictTone(
   v: Verdict,
   who: "author" | "reviewer" | "other",
-): [string, string] {
-  if (v === "partly") return ["PARTLY", "partly"];
-  if (v === "unclear") return ["UNCLEAR", "unclear"];
+): string {
+  if (v === "partly" || v === "unclear") return v;
   const reviewer = v === "reviewer_right";
-  if (who === "other")
-    return reviewer ? ["REVIEWER'S RIGHT", "them"] : ["AUTHOR'S RIGHT", "you"];
-  const yours = (who === "reviewer") === reviewer;
-  return yours ? ["YOU'RE RIGHT", "you"] : ["THEY'RE RIGHT", "them"];
+  if (who === "other") return reviewer ? "them" : "you";
+  return (who === "reviewer") === reviewer ? "you" : "them";
 }
 
 /** The parts of a path: the folder (ellipsized first) and the file name (bold). */
@@ -769,7 +768,7 @@ export function ThreadBox({
         `(commit ${view.head_sha.slice(0, 12)}):\n` +
         t.comments.map((c) => `${c.author}: ${c.body}`).join("\n\n") +
         (r?.items?.length
-          ? `\n\nkeel's check:\n${r.items.map((i) => `- ${i.verdict}: ${i.claim} — ${i.why}`).join("\n")}`
+          ? `\n\nkeel's check:\n${checkLines(r.items, sidesOf(view, t))}`
           : "") +
         "\n\nMy question: ",
     );
@@ -863,6 +862,7 @@ export function ThreadBox({
             run={judge}
             busy={judging}
             who={who}
+            sides={sidesOf(view, t)}
             quick={quick}
             canPost={view.can_post && !t.pending}
             assistant={assistant}
@@ -1136,6 +1136,7 @@ export function CheckBox({
   run,
   busy,
   who,
+  sides,
   quick,
   canPost,
   assistant,
@@ -1150,6 +1151,8 @@ export function CheckBox({
   run: AiRun<JudgeResult> | null;
   busy: boolean;
   who: "author" | "reviewer" | "other";
+  /** the thread's reviewer and author by name: the verdicts' words */
+  sides: Sides;
   quick: boolean;
   canPost: boolean;
   assistant: boolean;
@@ -1238,10 +1241,11 @@ export function CheckBox({
           )}
           <ul className="rv-verdicts">
             {items.map((it, i) => {
-              const [label, tone] = verdictLabel(it.verdict, who);
               return (
                 <li key={i}>
-                  <span className={`rv-verdict ${tone}`}>{label}</span>
+                  <span className={`rv-verdict ${verdictTone(it.verdict, who)}`}>
+                    {verdictLabel(it.verdict, sides)}
+                  </span>
                   <span className="rv-vtext">
                     <b>{it.claim}</b> {it.why}
                     {it.fix && <span className="rv-dim"> Fix: {it.fix}</span>}

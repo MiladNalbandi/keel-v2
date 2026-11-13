@@ -22,10 +22,10 @@ import {
   estimate,
   HIDDEN_RUNS_CAP,
   ThreadsView,
-  verdictLabel,
   waitsForYou,
 } from "../Threads";
 import { ThreadSettings } from "../ThreadSettings";
+import { checkLines, sidesOf, verdictLabel } from "../verdict";
 
 const PID = "p1";
 const KEY = "pr:7";
@@ -463,7 +463,13 @@ describe("the review threads", () => {
       name: "keel checked this thread",
     });
     expect(box).toHaveAttribute("aria-live", "polite");
-    for (const label of ["THEY'RE RIGHT", "YOU'RE RIGHT", "PARTLY", "UNCLEAR"])
+    // who is right, by role and name: bo opened the thread, you wrote the change
+    for (const label of [
+      "Reviewer (bo) is right",
+      "Author (you) is right",
+      "Reviewer (bo) is partly right",
+      "Unclear: keel could not decide",
+    ])
       expect(within(box).getByText(label)).toBeInTheDocument();
     expect(
       within(box).getByText(
@@ -483,9 +489,21 @@ describe("the review threads", () => {
       within(card(/line 2–3/)).getByRole("textbox", { name: "Your reply" }),
     ).toHaveValue("Good point on the index: I add one in the migration.");
     expect(calls.filter((x) => x.method === "POST")).toEqual([]); // nothing posted
-    // the labels from the reviewer's side, and from neither
-    expect(verdictLabel("reviewer_right", "reviewer")[0]).toBe("YOU'RE RIGHT");
-    expect(verdictLabel("author_right", "other")[0]).toBe("AUTHOR'S RIGHT");
+    // the same words from the reviewer's side, and from neither side
+    const t = view().threads[0];
+    expect(
+      verdictLabel("reviewer_right", sidesOf({ me: "bo", author: "me" }, t)),
+    ).toBe("Reviewer (you) is right");
+    expect(
+      verdictLabel("author_right", sidesOf({ me: "alex", author: "me" }, t)),
+    ).toBe("Author (me) is right");
+    // and in the text a follow-up question to KeelBot carries
+    expect(
+      checkLines(
+        [{ claim: "indexes", verdict: "reviewer_right", why: "no index" }],
+        sidesOf(view(), t),
+      ),
+    ).toBe("- Reviewer (bo) is right: indexes — no index");
   });
 
   it("asks keel to check a thread (with its estimate first) and says when it fails", async () => {
@@ -865,7 +883,7 @@ describe("dismissing keel's answer under a thread", () => {
       }),
     );
     expect(checkBox()).not.toBeNull();
-    expect(within(checkBox()!).getByText("UNCLEAR")).toBeInTheDocument();
+    expect(within(checkBox()!).getByText("Unclear: keel could not decide")).toBeInTheDocument();
     expect(calls.filter((x) => x.path.endsWith("/judge"))).toEqual([]);
     expect(JSON.parse(localStorage.getItem(HIDDEN)!)).toEqual([]);
   });

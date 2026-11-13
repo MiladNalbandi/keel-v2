@@ -4,12 +4,12 @@
 // confirm), ask KeelBot a follow-up, or let keel think harder. keel never posts by itself.
 //
 //   (Waiting for you 1) (Open 3) (Resolved 1)                      [Check all open (2)]
-//   ┌ refunds.py · line 20  alex  The amount comes from a form…  ● Reviewer is right  ▾ ┐
+//   ┌ refunds.py · line 20  alex  The amount comes from…  ● Reviewer (alex) is right  ▾ ┐
 //   │  19 + # never give back more than the customer paid                                 │
 //   │  20 + if amount > refundable_amount(order):                                         │
 //   │ (A) alex · 1 h ago  The amount comes from a form…                                   │
-//   │ ┌ keel: Reviewer is right ─────────────────────────────────────────────────┐       │
-//   │ │ • Right: A string can reach this check. … Fix: add a test …              │       │
+//   │ ┌ keel: Reviewer (alex) is right ──────────────────────────────────────────┐       │
+//   │ │ • Reviewer (alex) is right · A string can reach this check. … Fix: …     │       │
 //   │ │ [Use as my reply] [Address it] Ask a follow-up  Think harder             │       │
 //   │ └──────────────────────────────────────────────────────────────────────────┘       │
 //   │ [Reply] [Resolve] Show in the file                                                  │
@@ -40,14 +40,14 @@ import {
 } from "../reviewApi";
 import * as R from "../store";
 import { ago, estimate, firstLine, initials, quoteThread } from "../Threads";
+import { checkLines, sidesOf, verdictLabel } from "../verdict";
 import {
   doneCheck,
   needsChange,
-  POINT_LABEL,
   same,
   threadPill,
   threadsOf,
-  VERDICT_LABEL,
+  VERDICT_TONE,
   verdictOf,
   whereOf,
   type ThreadFilter,
@@ -327,6 +327,7 @@ function ThreadCard({
   const canWork = view.kind === "pr" && !t.pending;
   const [pill, tone] = threadPill(t, view, ai, checking);
   const sum = verdictOf(check?.items ?? []);
+  const sides = sidesOf(view, t);
   const first = t.comments[0];
   const [lo, hi] = estimate(t);
   const failed = (fallback: string) =>
@@ -379,7 +380,7 @@ function ThreadCard({
         `(commit ${view.head_sha.slice(0, 12)}):\n` +
         t.comments.map((c) => `${c.author}: ${c.body}`).join("\n\n") +
         (check?.items?.length
-          ? `\n\nkeel's check:\n${check.items.map((i) => `- ${i.verdict}: ${i.claim} — ${i.why}`).join("\n")}`
+          ? `\n\nkeel's check:\n${checkLines(check.items, sides)}`
           : "") +
         "\n\nMy question: ",
     );
@@ -481,10 +482,10 @@ function ThreadCard({
             )}
           {!checking && check && sum && (
             <section
-              className={`rvn-verdict t-${VERDICT_LABEL[sum][1]}`}
+              className={`rvn-verdict t-${VERDICT_TONE[sum]}`}
               aria-label="keel's check"
             >
-              <b className="rvn-verdict-h">keel: {VERDICT_LABEL[sum][0]}</b>
+              <b className="rvn-verdict-h">keel: {verdictLabel(sum, sides)}</b>
               {run?.stale && (
                 <p className="rvn-dim">
                   The code changed since keel checked it.
@@ -493,9 +494,10 @@ function ThreadCard({
               <ul>
                 {(check.items ?? []).map((it, i) => (
                   <li key={i}>
-                    <span className={`rvn-pt t-${POINT_LABEL[it.verdict][1]}`}>
-                      {POINT_LABEL[it.verdict][0]}
-                    </span>{" "}
+                    <span className={`rvn-pt t-${VERDICT_TONE[it.verdict]}`}>
+                      {verdictLabel(it.verdict, sides)}
+                    </span>
+                    {" · "}
                     <b>{it.claim.replace(/\.$/, "")}.</b> {it.why}
                     {it.fix && <span className="rvn-dim"> Fix: {it.fix}</span>}
                   </li>

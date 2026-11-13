@@ -3998,3 +3998,11 @@ A step that fails no longer ends the flow by itself, and every crash is kept so 
   last_at, steps, providers, where, example, advice}], recent, markdown}`; one crash per flow, step and kind.
   `GET /flow-doctor/crashes?days&limit`, `DELETE /flow-doctor/crashes`. The Python api passes `/api/flow-doctor/*` to
   the engine (an MCP token reads; clearing needs admin). MCP: `keel_flow_doctor {days}` (read) answers the Markdown.
+
+## Next: Code Review threads, clearer and cheaper
+
+- **Who is right** (web only): keel's check of a thread names the role and the person, the same words in the classic
+  Threads panel, the new Comments tab and a follow-up question to KeelBot (`plugins/review/web/verdict.ts`):
+  "Reviewer (ana) is right", "Author (you) is right", "Reviewer (ana) is partly right", "Unclear: keel could not decide".
+  The reviewer is the first one in the thread who did not write the change. The verdict values stay `reviewer_right |
+  author_right | partly | unclear`.
