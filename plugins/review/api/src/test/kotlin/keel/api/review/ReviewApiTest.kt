@@ -923,6 +923,71 @@ class ReviewApiTest : ApiTest() {
         assertThat(judgeOf(pid, b)["result"]["same_as"].single()["thread_id"].asText()).isEqualTo(a)
     }
 
+    /**
+     * A commit on the pull request with a refund module, its test and a money helper (each with its test). The thread
+     * on refunds.py line 2: bo asks, names money.py:2, and ana (the author) says it is covered by test_refunds.
+     */
+    private fun refundsThread(pid: String, root: Path): String {
+        git(root, "switch", "-q", "feat/paging")
+        Files.createDirectories(root.resolve("shop"))
+        Files.createDirectories(root.resolve("tests"))
+        Files.writeString(root.resolve("shop/refunds.py"), "def refund(order, amount):\n    if amount > order.paid:\n" +
+            "        raise ValueError(\"more than paid\")\n    order.refunded += amount\n    return order\n")
+        Files.writeString(root.resolve("shop/money.py"), "def cents(x):\n    return round(x * 100)\n")
+        Files.writeString(root.resolve("tests/test_refunds.py"), "from shop.refunds import refund\n\n\n" +
+            "def test_refund_more_than_paid_is_refused(order):\n    with pytest.raises(ValueError):\n        refund(order, order.paid + 1)\n")
+        Files.writeString(root.resolve("tests/test_money.py"), "def test_cents_rounds():\n    assert cents(0.125) == 12\n")
+        git(root, "add", "-A")
+        git(root, "commit", "-qm", "Refunds")
+        git(root, "push", "-q", remotes.resolve("acme/shop.git").toString(), "feat/paging", "feat/paging:refs/pull/7/head")
+        git(root, "switch", "-q", "main")
+        val pr = hosts.github["acme/shop"]!![7]!!
+        pr.headSha = sha(root, "feat/paging")
+        val t = hosts.thread(pr, "shop/refunds.py", 2, "bo", "What stops a refund of more than was paid? And shop/money.py:2 rounds it, does that matter?")
+        t.comments += StubCodeHost.Comment(9990, "ana", "Covered by test_refunds.")
+        return t.id.also { view(pid, "pr:7") }
+    }
+
+    @Test
+    fun `a check also reads the files the thread names, the test the author points to and the file's own test`() {
+        val (pid, root) = githubPr()
+        val tid = refundsThread(pid, root)
+        // the fake model: with the test's code in front of it, the author is right; without it, it cannot tell
+        engine.extraRoutes["/agents/ask"] = { b ->
+            val sees = b?.path("prompt")?.asText().orEmpty().contains("def test_refund_more_than_paid_is_refused")
+            200 to mapOf("ok" to true, "fake" to false, "tokens_in" to 3000, "tokens_out" to 300, "text" to "```keel-review-judge\n" +
+                "{\"items\": [{\"claim\": \"a refund above the paid amount\", \"verdict\": \"${if (sees) "author_right" else "unclear"}\", " +
+                "\"why\": \"tests/test_refunds.py:4\"}], \"reply\": \"\"}\n```")
+        }
+        try {
+            post("/api/projects/$pid/review/threads/$tid/judge", mapOf("key" to "pr:7")).andExpect(status().isOk)
+            val p = engine.lastBody("/agents/ask")!!["prompt"].asText()
+            assertThat(p).contains(">    2      if amount > order.paid:")                        // its own lines, as before
+                .contains("tests/test_refunds.py").contains("def test_refund_more_than_paid_is_refused(order):")
+                .contains("shop/money.py").contains("    return round(x * 100)")
+            assertThat(engine.lastBody("/agents/ask")!!["system"].asText()).contains("other code keel read for it")
+            val j = judgeOf(pid, tid)["result"]
+            assertThat(j["items"][0]["verdict"].asText()).isEqualTo("author_right")
+            assertThat(j["context"]["files"].asInt()).isEqualTo(3)
+            assertThat(j["context"]["paths"].map { it.asText() }).containsExactly("shop/refunds.py", "shop/money.py", "tests/test_refunds.py")
+
+            // a thread that names nothing: its file and the test paired with it (money.py ↔ test_money.py)
+            val pr = hosts.github["acme/shop"]!![7]!!
+            val money = hosts.thread(pr, "shop/money.py", 2, "alex", "Why round here?").id
+            post("/api/projects/$pid/review/threads/$money/judge", mapOf("key" to "pr:7")).andExpect(status().isOk)
+            assertThat(engine.lastBody("/agents/ask")!!["prompt"].asText()).contains("tests/test_money.py").contains("assert cents(0.125) == 12")
+            assertThat(judgeOf(pid, money)["result"]["context"]["paths"].map { it.asText() }).containsExactly("shop/money.py", "tests/test_money.py")
+
+            // at most 4 files, however many the thread names
+            val many = hosts.thread(pr, "src/Orders.kt", 2, "bo", "See README.md, src/Prefs.kt, src/PrefsTest.kt, shop/money.py and tests/test_money.py.").id
+            post("/api/projects/$pid/review/threads/$many/judge", mapOf("key" to "pr:7")).andExpect(status().isOk)
+            assertThat(judgeOf(pid, many)["result"]["context"]["files"].asInt()).isEqualTo(4)
+            assertThat(writes()).isEmpty()
+        } finally {
+            engine.extraRoutes.remove("/agents/ask")
+        }
+    }
+
     // ---------------------------------------------------------------- the thread settings
 
     @Test

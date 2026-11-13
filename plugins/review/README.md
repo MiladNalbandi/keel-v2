@@ -37,3 +37,19 @@ third of the shorter one's).
 - Each answer links the other threads: **Same point as the thread on line N (bo)** shows that thread.
 - **Use as my reply on both** puts keel's reply into each thread's reply box. You send each one.
 - keel never merges threads on GitHub or GitLab: they stay as they are.
+
+## What keel reads
+
+A check is one cheap model call with no tools, so keel puts the code in front of it. Before, that was the thread's own
+lines (±30) and its diff hunk only, and a thread that said "covered by test_refunds" came back unclear. Now it also
+reads, from the head commit:
+
+| what | example |
+| --- | --- |
+| the files the comments name | `shop/money.py`, `refunds.py:20` (the lines around 20) |
+| the tests the author points to | "covered by test_refunds": `tests/test_refunds.py`, else the test that declares `test_refunds` |
+| the test paired with the thread's file | `refunds.py` ↔ `test_refunds.py` / `refunds_test.py`, `Prefs.kt` ↔ `PrefsTest.kt` |
+
+At most 4 files with the thread's own, 60 lines of each other file and 150 in all, and the check's token cap (Settings ›
+Code Review threads) still holds: over the cap, keel reads fewer lines, then no other file. The answer says what it read
+("read 3 files"; the files are in its tooltip). Check all reads them too, with fewer lines.

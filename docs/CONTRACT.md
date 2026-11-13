@@ -4014,3 +4014,10 @@ A step that fails no longer ends the flow by itself, and every crash is kept so 
   `result.same_as: [{thread_id, path, line, author}]` names the others (`[]` alone). `batch_size` is the number of
   threads the call covered. The web counts Check all open by point and offers "Use as my reply on both" (it fills the
   reply drafts; nothing is posted). Threads on the host are never merged.
+- **What a check reads**: besides the thread's lines and diff hunk, the check reads from the head commit the files the
+  comments name (`path` or `path:line`), the tests they point to ("covered by test_refunds": a file named so, else the
+  test that declares it) and the test paired with the thread's file (`foo.py` ↔ `test_foo.py` / `foo_test.py`,
+  `Foo.kt` ↔ `FooTest.kt`, `foo.ts` ↔ `foo.test.ts`): at most 4 files in all, 60 lines of each other file and 150 in all
+  (30 each in Check all), fewer lines and then none when the token cap would be passed. `result.context` is
+  `{code_lines, hunk_lines, files, paths}` with the real count. `ReviewService.paths(pid, key)` lists the head commit's
+  files.

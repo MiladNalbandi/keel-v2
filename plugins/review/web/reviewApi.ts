@@ -270,7 +270,13 @@ export type JudgeResult = {
   batch_size?: number;
   /** the other threads of its group (the same point): the same answer is on each */
   same_as?: SameAs[];
-  context?: { code_lines: number; hunk_lines: number; files: number };
+  /** what the check read: lines, and the files (the thread's own, the ones its comments name, their tests) */
+  context?: {
+    code_lines: number;
+    hunk_lines: number;
+    files: number;
+    paths?: string[];
+  };
   /** a flow it started (workflow mode) */
   flow_id?: string;
   workflow?: string;

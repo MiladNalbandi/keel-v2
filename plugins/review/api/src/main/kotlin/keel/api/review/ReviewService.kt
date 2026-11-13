@@ -62,6 +62,8 @@ class ReviewService(
         const val MAX_FILE = 1_000_000
         /** your own pull requests the list reads approvals for (one host call each) */
         const val MAX_DECISIONS = 20
+        private val TEST_PATH = Regex("(^|/)(test|tests|spec|__tests__)/|[._-](test|spec)\\.[a-z]+$|Test\\.[a-z]+$", RegexOption.IGNORE_CASE)
+        fun isTest(path: String) = TEST_PATH.containsMatchIn(path)
     }
 
     private fun root(pid: String): Path {
@@ -348,7 +350,11 @@ class ReviewService(
             "(\\b$s\\s*[:=]\\s*(async\\s*)?(\\(|function\\b))")
     }
 
-    private fun isTest(path: String) = Regex("(^|/)(test|tests|spec|__tests__)/|[._-](test|spec)\\.[a-z]+$|Test\\.[a-z]+$", RegexOption.IGNORE_CASE).containsMatchIn(path)
+    /** Every file in the review's head commit (at most [max]): the check of a thread looks up the files it names. */
+    fun paths(pid: String, key: String, max: Int = 50_000): List<String> {
+        val res = ReviewGit.git(root(pid), "ls-tree", "-r", "--name-only", "-z", refs(pid, key).head, timeout = 20)
+        return if (res.ok) res.out.split('\u0000').filter { it.isNotBlank() }.take(max) else emptyList()
+    }
 
     private fun places(pid: String, key: String, symbol: String, declarationsOnly: Boolean): Places {
         if (!SYMBOL.matches(symbol)) throw BadRequest("That is not a name keel can look for")

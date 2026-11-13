@@ -1272,7 +1272,10 @@ export function CheckBox({
               : "keel checked the code"}
         </b>
         {done && (
-          <span className="rv-dim rv-check-cost">
+          <span
+            className="rv-dim rv-check-cost"
+            title={r?.context?.paths?.join("\n") || undefined}
+          >
             {costLine(r, run?.updated_at)}
           </span>
         )}
