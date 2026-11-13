@@ -139,9 +139,27 @@ def _grep(base: Path, pattern: str, glob: str | None, type_: str | None, mode: s
                 raw.append(f"./{name}:{len(hits)}")
             else:
                 lines = text.splitlines()
-                raw += [f"./{name}:{i}:{lines[i - 1]}" for i in hits]
+                b, a = max(context, before), max(context, after)
+                if not (b or a):
+                    raw += [f"./{name}:{i}:{lines[i - 1]}" for i in hits]
+                    continue
+                # lines before and after each match, as ripgrep prints them: path-N-text, groups apart by "--"
+                shown: list[int] = []
+                for i in hits:
+                    for j in range(max(1, i - b), min(len(lines), i + a) + 1):
+                        if not shown or j > shown[-1]:
+                            shown.append(j)
+                hit, last = set(hits), None
+                for j in shown:
+                    if last is not None and j > last + 1:
+                        raw.append("--")
+                    raw.append(f"./{name}:{j}:{lines[j - 1]}" if j in hit else f"./{name}-{j}-{lines[j - 1]}")
+                    last = j
     out, left = [], set()
     for line in raw:
+        if line == "--":
+            out.append(line)
+            continue
         path = line.split(":", 1)[0] if mode != "files_with_matches" else line
         if mode == "content" and "-" in line.split(":", 1)[0] and not (base / path).exists():
             path = re.split(r"-\d+-", line, maxsplit=1)[0]       # a context line: path-N-text

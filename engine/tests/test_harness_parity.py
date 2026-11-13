@@ -145,6 +145,15 @@ def test_grep_shows_lines_before_and_after(project):
     assert "src/app.py-5-def mean(xs):" in out and "src/app.py:6:" in out
 
 
+def test_grep_without_ripgrep_shows_the_same_lines_before_and_after(project, monkeypatch):
+    """CI found it: a machine without ripgrep (keel's Python fallback) left out the lines before and after."""
+    from keel_engine.tools import agent_tools
+
+    monkeypatch.setattr(agent_tools, "_rg", lambda: None)
+    out = box(project).grep("return total", mode="content", before=2, glob="*.py")
+    assert "src/app.py-5-def mean(xs):" in out and "src/app.py:6:" in out
+
+
 def test_skills_are_listed_and_loaded_when_needed(project):
     (project / ".claude" / "skills" / "house").mkdir(parents=True)
     (project / ".claude" / "skills" / "house" / "SKILL.md").write_text(
