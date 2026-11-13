@@ -87,7 +87,8 @@ export function NextReview({ pid, reviewKey }: { pid: string; reviewKey: string 
     ai?.overview?.status === "running" ||
     ai?.findings?.status === "running" ||
     Object.values(ai?.judges ?? {}).some((j) => j.status === "running") ||
-    Object.values(ai?.buttons ?? {}).some((j) => j.status === "running");
+    Object.values(ai?.buttons ?? {}).some((j) => j.status === "running") ||
+    Object.values(ai?.fixed ?? {}).some((j) => j.status === "running");
   useEffect(() => {
     if (!working) return;
     const t = window.setInterval(() => void R.loadAi(pid, reviewKey), 3000);

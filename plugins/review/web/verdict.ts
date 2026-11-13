@@ -4,6 +4,8 @@
 // words for the same point in two threads live here too.
 
 import type {
+  AiRun,
+  FixResult,
   JudgeItem,
   ReviewThread,
   ReviewView,
@@ -54,3 +56,20 @@ export function samePointLabel(o: SameAs, view: Pick<ReviewView, "me">): string 
 /** The button that puts keel's reply into every thread of the point: "Use as my reply on both" (or "on all 3"). */
 export const useOnAllLabel = (others: number) =>
   `Use as my reply on ${others === 1 ? "both" : `all ${others + 1}`}`;
+
+/** keel's check of the author's "fixed", in words: "Fixed in abc1234" (then Resolve) or "Still open: …". Null when
+ *  there is none to show: no check, not done, the head moved on since (a new one comes), or the thread is resolved. */
+export function fixNote(
+  run: AiRun<FixResult> | null | undefined,
+  t: Pick<ReviewThread, "resolved">,
+): { fixed: boolean; text: string } | null {
+  const r = run?.result;
+  if (!run || run.stale || t.resolved || run.status !== "done" || r?.stage !== "done")
+    return null;
+  return r.fixed
+    ? { fixed: true, text: `Fixed in ${r.sha ?? run.head_sha.slice(0, 7)}` }
+    : {
+        fixed: false,
+        text: `Still open: ${r.still_open || r.why || "keel does not see the fix in the new code"}`,
+      };
+}

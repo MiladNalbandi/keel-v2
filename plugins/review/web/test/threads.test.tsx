@@ -11,6 +11,7 @@ import { server } from "../../../../web/src/test/setup";
 import type {
   AiRun,
   AiState,
+  FixResult,
   JudgeResult,
   ReviewThread,
   ReviewView,
@@ -564,6 +565,48 @@ describe("the review threads", () => {
       reply,
     );
     expect(calls.filter((x) => x.method === "POST")).toEqual([]);
+  });
+
+  it("Fixed → Resolve: a fix keel saw in the new commit offers Resolve, one it did not says what is open, none shows nothing", async () => {
+    const { calls } = api();
+    const fix = (fixed: boolean, extra: Partial<AiRun<FixResult>> = {}): AiRun<FixResult> => ({
+      ...run({ stage: "done" }),
+      kind: "fixcheck:x",
+      result: {
+        stage: "done",
+        fixed,
+        sha: "abc1234",
+        why: "src/Prefs.kt:3 reads the limit now",
+        still_open: fixed ? "" : "the max is still hard-coded",
+      },
+      ...extra,
+    });
+    // T1: fixed; T2: not fixed; T4: fixed, but the head moved on since (a new check comes); T3 resolved; none for the rest
+    show(AI({ fixed: { T1: fix(true), T2: fix(false), T4: fix(true, { stale: true }) } }));
+    const fixed = within(card(/line 2–3/)).getByRole("group", {
+      name: "keel checked the fix",
+    });
+    expect(within(fixed).getByText("Fixed in abc1234")).toBeInTheDocument();
+    const open = within(
+      card(/Thread on src\/Prefs\.kt line 3$/),
+    ).getByRole("group", { name: "keel checked the fix" });
+    expect(
+      within(open).getByText("Still open: the max is still hard-coded"),
+    ).toBeInTheDocument();
+    expect(within(open).queryByRole("button", { name: "Resolve" })).toBeNull();
+    expect(
+      within(card(/line 40/)).queryByRole("group", {
+        name: "keel checked the fix",
+      }),
+    ).toBeNull();
+    // keel resolved nothing; the person's click calls Resolve
+    expect(calls.filter((x) => x.method === "POST")).toEqual([]);
+    await userEvent.click(within(fixed).getByRole("button", { name: "Resolve" }));
+    await waitFor(() =>
+      expect(
+        calls.find((x) => x.path.endsWith("/threads/T1/resolve"))?.body,
+      ).toEqual({ key: KEY, resolved: true }),
+    );
   });
 
   it("asks keel to check a thread (with its estimate first) and says when it fails", async () => {

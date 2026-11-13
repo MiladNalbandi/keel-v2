@@ -14,7 +14,7 @@ import type {
 } from "../reviewApi";
 import { decisionText } from "../reviewApi";
 import { waitsForYou } from "../Threads";
-import { sidesOf, verdictLabel } from "../verdict";
+import { fixNote, sidesOf, verdictLabel } from "../verdict";
 
 export type Tone = "ok" | "run" | "warn" | "bad" | "idle" | "accent";
 
@@ -165,7 +165,8 @@ export const needsChange = (r: JudgeResult | null): boolean =>
     (i) => i.verdict === "reviewer_right" || i.verdict === "partly",
   );
 
-/** The pill of a thread: resolved, a fix running, keel checking, keel's verdict, waiting for you, or not checked. */
+/** The pill of a thread: resolved, keel saw the author's fix (Resolve waits for you), a fix running, keel checking,
+ *  keel's verdict, waiting for you, or not checked. */
 export function threadPill(
   t: ReviewThread,
   v: ReviewView,
@@ -174,6 +175,8 @@ export function threadPill(
 ): [string, Tone] {
   if (t.resolved) return ["resolved", "idle"];
   if (t.pending) return ["pending", "run"];
+  const fix = fixNote(ai?.fixed?.[t.id], t);
+  if (fix?.fixed) return [fix.text, "ok"];
   if (ai?.addressed?.[t.id]) return ["fix running", "run"];
   if (checking) return ["keel is checking", "run"];
   const sum = verdictOf(doneCheck(ai?.judges?.[t.id])?.items ?? []);

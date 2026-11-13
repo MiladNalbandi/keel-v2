@@ -14,7 +14,7 @@ import { App } from "../../../../web/src/App";
 import { db, server } from "../../../../web/src/test/setup";
 import { registerReviewTab } from "../next/tabs";
 import { prPill } from "../next/model";
-import { judged, nextDemo, PRS } from "./nextDemo";
+import { judged, nextDemo, PRS, run } from "./nextDemo";
 
 const MODE = "keel2.review.view";
 
@@ -451,6 +451,46 @@ describe("the new Review view: one pull request", () => {
     );
     expect(within(th6).getByRole("textbox", { name: "Your reply" })).toHaveValue(reply);
     expect(demo.calls.some((c) => c.path.endsWith("/reply"))).toBe(false);
+  });
+
+  it("Fixed → Resolve: a fix keel saw in the new commit offers Resolve, one it did not says what is open, none shows nothing", async () => {
+    const demo = start();
+    const k = "pr:42";
+    const fix = (fixed: boolean) =>
+      run("fixcheck", {
+        stage: "done" as const,
+        fixed,
+        sha: "abc1234",
+        why: "refunds.py:13 takes paid_total",
+        still_open: fixed ? "" : "no test sends a bad value yet",
+      });
+    demo.ai[k] = { ...demo.ai[k], fixed: { th1: fix(true), th2: fix(false) } };
+    const { pr } = await openPr(42);
+    const card = (name: RegExp) => within(pr).getByRole("article", { name });
+    const th1 = card(/refunds\.py · line 13/);
+    // the pill says it before you open the comment
+    expect(within(th1).getByText("Fixed in abc1234")).toBeInTheDocument();
+    await userEvent.click(within(th1).getByRole("button", { name: /bo/ }));
+    const note = within(th1).getByRole("group", { name: "keel checked the fix" });
+    expect(within(note).getByText("Fixed in abc1234")).toBeInTheDocument();
+    expect(demo.calls.some((c) => c.path.endsWith("/resolve"))).toBe(false);
+    await userEvent.click(within(note).getByRole("button", { name: "Resolve" }));
+    await waitFor(() =>
+      expect(
+        demo.calls.find((c) => c.path.endsWith("/threads/th1/resolve"))?.body,
+      ).toMatchObject({ key: k, resolved: true }),
+    );
+
+    const th2 = card(/refunds\.py · line 20/);
+    await userEvent.click(within(th2).getByRole("button", { name: /alex/ }));
+    expect(
+      within(th2).getByText("Still open: no test sends a bad value yet"),
+    ).toBeInTheDocument();
+    const th3 = card(/views\.py · line 7/);
+    await userEvent.click(within(th3).getByRole("button", { name: /bo/ }));
+    expect(
+      within(th3).queryByRole("group", { name: "keel checked the fix" }),
+    ).toBeNull();
   });
 
   it("Files: ticks a file viewed, adds a pending comment on a line, and a comment's marker opens it in Comments", async () => {

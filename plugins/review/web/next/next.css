@@ -653,6 +653,16 @@
 .rvn-verdict .rvn-same {
   align-self: flex-start;
 }
+.rvn-fixed {
+  margin: 0;
+}
+.rvn-fixed.t-ok > span {
+  color: var(--ok);
+  font-weight: 600;
+}
+.rvn-fixed.t-warn > span {
+  color: var(--warn);
+}
 .rvn-verdict ul {
   margin: 0;
   padding: 0 0 0 18px;

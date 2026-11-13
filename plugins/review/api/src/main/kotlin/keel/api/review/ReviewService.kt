@@ -350,6 +350,13 @@ class ReviewService(
             "(\\b$s\\s*[:=]\\s*(async\\s*)?(\\(|function\\b))")
     }
 
+    /** One file's change from [from] to the review's head: what was pushed since a review point was made. */
+    fun changeSince(pid: String, key: String, from: String, path: String): String {
+        val r = ReviewGit.git(root(pid), "--literal-pathspecs", "diff", "--no-color", "--no-ext-diff", from, refs(pid, key).head, "--", cleanPath(path),
+            timeout = 30)
+        return if (r.ok) r.out.take(ReviewGit.MAX_DIFF) else ""
+    }
+
     /** Every file in the review's head commit (at most [max]): the check of a thread looks up the files it names. */
     fun paths(pid: String, key: String, max: Int = 50_000): List<String> {
         val res = ReviewGit.git(root(pid), "ls-tree", "-r", "--name-only", "-z", refs(pid, key).head, timeout = 20)

@@ -53,3 +53,27 @@ reads, from the head commit:
 At most 4 files with the thread's own, 60 lines of each other file and 150 in all, and the check's token cap (Settings ›
 Code Review threads) still holds: over the cap, keel reads fewer lines, then no other file. The answer says what it read
 ("read 3 files"; the files are in its tooltip). Check all reads them too, with fewer lines.
+
+## Fixed → Resolve
+
+When the author answers "fixed" (or "done", "addressed") and pushes, keel checks the point again against the new code:
+one cheap call, in the background, when the review is opened or the reply is sent. keel **never resolves** by itself.
+
+```
+ bo: "Read the page size from config"   ana: "Fixed."   ana pushes abc1234
+                                                              │
+                                    keel reads the new code ◀─┘  (once per thread, reply and head commit)
+                                       │                     │
+                              fixed    ▼                     ▼  not fixed
+              "Fixed in abc1234 · Resolve"         "Still open: the max is still hard-coded"
+                     │ your click
+                     ▼
+              the thread is resolved on the host
+```
+
+- It runs only for an open thread whose last comment is the author's "fixed / done / addressed" and only when the head
+  has a commit made after the point (the last comment before the reply). No new commit: nothing is checked or shown.
+- Both views show it under the thread; the new view's pill says "Fixed in abc1234" too. Resolve is the same button as
+  the thread's own Resolve.
+- When the head moves on again, the old answer is hidden and the new code is checked.
+- Only in quick mode (Settings › Code Review threads), under the same token cap.

@@ -283,6 +283,20 @@ export type JudgeResult = {
   title?: string;
   branch?: string | null;
 };
+/** keel's check of an author's "fixed" against the commits pushed since the point (it never resolves). */
+export type FixResult = {
+  stage: "check" | "done" | "capped";
+  thread_id?: string;
+  fixed?: boolean;
+  why?: string;
+  /** what keel still sees open, when it is not fixed */
+  still_open?: string;
+  /** the head commit it checked, short */
+  sha?: string;
+  commits?: string[];
+  model?: string;
+  tokens?: number;
+};
 export type ThreadButtonInfo = {
   id: string;
   label: string;
@@ -335,6 +349,8 @@ export type AiState = {
   config?: ThreadConfig;
   /** keel 0.18.65 per finding: the flow "Fix it" started */
   fixes?: Record<string, { flow_id: string; title: string; branch: string | null; workflow?: string; with?: number; at: string }>;
+  /** per thread: keel's check of the author's "fixed" against the new commits */
+  fixed?: Record<string, AiRun<FixResult>>;
 };
 export type AddressResult = {
   flow_id: string;

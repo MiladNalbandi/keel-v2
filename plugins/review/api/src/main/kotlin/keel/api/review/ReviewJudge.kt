@@ -12,6 +12,7 @@ import keel.api.engine.EngineClient
 import keel.api.events.AgentCalls
 import keel.api.events.EngineEvent
 import keel.api.events.EventHub
+import keel.api.repo.Commit
 import keel.api.settings.Model
 import keel.api.settings.SettingsService
 import org.slf4j.LoggerFactory
@@ -97,6 +98,26 @@ class ReviewJudgeService(
                 "$stem.test.$ext", "$stem.spec.$ext")
         }
         private val BLOCK = Regex("```[ \\t]*(keel-review-judge)[ \\t]*\\n(.*?)\\n[ \\t]*```", RegexOption.DOT_MATCHES_ALL)
+        private val FIXED_BLOCK = Regex("```[ \\t]*(keel-review-fixed)[ \\t]*\\n(.*?)\\n[ \\t]*```", RegexOption.DOT_MATCHES_ALL)
+        /** the author's reply that says a point is fixed */
+        private val FIXED = Regex("\\b(fixed|done|addressed)\\b", RegexOption.IGNORE_CASE)
+
+        private fun instant(at: String) = runCatching { java.time.OffsetDateTime.parse(at).toInstant() }.getOrNull()
+
+        /**
+         * A thread to check again for a fix: open, its last comment is the change's author saying fixed / done /
+         * addressed, and the head has commits made after the point it answers (the last comment before it that is not
+         * the author's). Those commits, oldest first; null when the thread does not wait for that check.
+         */
+        fun fixClaim(v: ReviewView, t: ReviewThread): List<Commit>? {
+            val author = v.author ?: return null
+            if (v.kind != "pr" || t.resolved || t.pending || t.comments.size < 2) return null
+            val reply = t.comments.last()
+            if (!reply.author.equals(author, true) || !FIXED.containsMatchIn(reply.body.take(300))) return null
+            val point = t.comments.dropLast(1).lastOrNull { !it.author.equals(author, true) } ?: return null
+            val since = instant(point.at) ?: return null
+            return v.commits.filter { c -> instant(c.at)?.isAfter(since) == true }.reversed().ifEmpty { null }
+        }
 
         /** The threads keel checks: open, sent, with a comment. */
         fun open(threads: List<ReviewThread>) = threads.filter { !it.resolved && !it.pending && it.comments.isNotEmpty() }
@@ -414,6 +435,78 @@ class ReviewJudgeService(
         return ai.state(pid, key)
     }
 
+    // ---------------------------------------------------------------- "fixed" → Resolve
+
+    internal fun fixSystem(agent: String): String = """
+        |You are keel's $agent agent doing one "check" job: the author of a pull request says a reviewer's point is fixed.
+        |Is it? You get the thread, the code there at the new head commit, what the commits since the point changed, and
+        |other code keel read for it. Judge from them only: you have no tools and read nothing else. Fixed means the code
+        |now does what the reviewer asked (or what the two agreed on in the thread). When you cannot tell, it is not fixed
+        |and "still_open" says what to check. Be short. Never post or resolve anything yourself: the person decides.
+        |End with exactly one fenced block named keel-review-fixed with this JSON:
+        |```keel-review-fixed
+        |{"fixed": true, "why": "1-2 sentences with file:line", "still_open": "what is still open, in one line, or empty"}
+        |```
+    """.trimMargin()
+
+    /**
+     * "Fixed" → Resolve: each open thread whose author says fixed / done / addressed and that has a commit since the
+     * point ([fixClaim]) is checked again against the new code, in the background: once per thread, last comment and
+     * head commit, quick mode only, [MAX_BATCH] at most. keel never resolves: its answer offers Resolve, the person
+     * clicks it. Answers [v].
+     */
+    fun fixChecks(pid: String, v: ReviewView): ReviewView {
+        if (v.kind != "pr" || v.state != "open") return v
+        // the review is shown whatever happens here
+        runCatching {
+            val cfg = conf.effective(pid).takeIf { it.judgeMode == "quick" } ?: return v
+            v.threads.mapNotNull { t -> fixClaim(v, t)?.let { t to it } }.filter { (t, _) ->
+                val last = ai.latest(pid, v.key, ReviewAiService.FIX_CHECK + t.id, v.headSha)
+                last?.status != "running" && last?.result?.path("cache_key")?.asText() != cacheKey(v, t)
+            }.take(MAX_BATCH).forEach { (t, since) -> fixCheck(pid, v, t, since, cfg) }
+        }.onFailure { log.warn("review fix checks on {}: {}", v.key, it.message) }
+        return v
+    }
+
+    private fun fixCheck(pid: String, v: ReviewView, t: ReviewThread, since: List<Commit>, cfg: ThreadConfig) {
+        val sys = fixSystem(cfg.judgeAgent)
+        val cap = cfg.judgeTokenCap
+        val change = t.path?.let { p -> runCatching { reviews.changeSince(pid, v.key, "${since.first().sha}~1", p) }.getOrNull() }
+            .orEmpty().lines().filter { it.isNotEmpty() }.take(120)
+        val commits = since.joinToString("; ") { "${it.sha.take(7)} ${it.message.take(80)}" }
+        fun build(step: Int, each: Int): Pair<One, String> {
+            val one = context(pid, v, t, AROUND[step], 0, MORE[step])
+            return one to head(v) + section(v, one, each) + "The commits since the point: $commits. The new head commit is ${v.headSha.take(7)}.\n" +
+                (if (change.isEmpty()) "" else "What they changed in ${t.path}:\n<<<\n${change.joinToString("\n")}\n>>>\n")
+        }
+        var (one, prompt) = build(0, 3000)
+        for (step in 1 until AROUND.size) {
+            if (estimate(sys, prompt, OUT_ONE) <= cap) break
+            build(step, 1500).let { one = it.first; prompt = it.second }
+        }
+        val est = estimate(sys, prompt, OUT_ONE)
+        val model = modelFor(pid, false, cfg)
+        val base = mapOf("stage" to "check", "thread_id" to t.id, "cache_key" to cacheKey(v, t), "last_comment" to lastId(t), "agent" to cfg.judgeAgent,
+            "estimate" to est, "cap" to cap, "model" to "${model.provider} · ${model.model}", "effort" to model.effort, "sha" to v.headSha.take(7),
+            "commits" to since.map { it.sha.take(7) }, "context" to contextOf(one))
+        val runId = insert(pid, v.key, ReviewAiService.FIX_CHECK + t.id, v.headSha, base)
+        if (est > cap) {
+            capped(runId, base, est, cap)
+            return
+        }
+        go { ask(pid, v.key, runId, listOf(t.id to runId), model, cfg.judgeAgent, sys, prompt, cap, ::parseFixed) }
+    }
+
+    /** The fix check's answer: fixed or not, why, and what is still open. */
+    internal fun parseFixed(answer: String): JudgeParse {
+        val (j, bad) = block(answer, FIXED_BLOCK)
+        if (j == null) return JudgeParse.Bad(bad!!)
+        val fixed = j.path("fixed")
+        if (!fixed.isBoolean) return JudgeParse.Bad("The model's check is not valid: \"fixed\" is true or false")
+        return JudgeParse.Ok(mapOf("fixed" to fixed.asBoolean(), "why" to j.path("why").asText("").trim().take(600),
+            "still_open" to j.path("still_open").asText("").trim().take(400)))
+    }
+
     // ---------------------------------------------------------------- the extra thread buttons
 
     /** {{thread}} {{file}} {{lines}} {{diff}} {{pr}} in a button's prompt; the thread goes in as data. */
@@ -578,8 +671,8 @@ class ReviewJudgeService(
         data class Bad(val why: String) : JudgeParse
     }
 
-    private fun block(answer: String): Pair<JsonNode?, String?> {
-        val found = BLOCK.findAll(answer).lastOrNull() ?: return null to "The model's answer had no keel-review-judge block"
+    private fun block(answer: String, re: Regex = BLOCK): Pair<JsonNode?, String?> {
+        val found = re.findAll(answer).lastOrNull() ?: return null to "The model's answer had no ${re.pattern.substringAfter("(").substringBefore(")")} block"
         return try {
             mapper.readTree(found.groupValues[2]) to null
         } catch (e: Exception) {

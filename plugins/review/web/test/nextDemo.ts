@@ -391,7 +391,7 @@ function view(n: number): ReviewView {
   };
 }
 
-const run = <R>(
+export const run = <R>(
   kind: string,
   result: R,
   status: AiRun<R>["status"] = "done",

@@ -3,7 +3,8 @@
 // marked, "new" since your last visit, long ones folded) and its actions: Reply, ✦ Is the reviewer right? (keel's
 // cheap check, point by point), ✦ Address it (a flow on the pull request's branch), Resolve, and the extra buttons
 // from Settings › Code Review threads. keel never posts: a suggested reply goes into your reply box. Threads that make
-// the same point are one check: each answer links the others, and one reply can go into all of their boxes.
+// the same point are one check: each answer links the others, and one reply can go into all of their boxes. When the
+// author says "fixed" and pushes, keel checks the new code: "Fixed in abc1234 · Resolve" (your click resolves it).
 //
 //   ┌ Waiting for you · 2 ┐ ┌ Open · 3 ┐ ┌ Resolved · 1 ┐ ┌ All · 4 ┐
 //   ● WAITING FOR YOUR ANSWER
@@ -54,6 +55,7 @@ import {
 import * as R from "./store";
 import {
   checkLines,
+  fixNote,
   samePointLabel,
   sidesOf,
   useOnAllLabel,
@@ -745,6 +747,8 @@ export function ThreadBox({
     : [{ id: flowName, name: flowName }];
   const [pickedFlow, setPickedFlow] = useState<string>(flowName);
   const judge = ai?.judges?.[t.id] ?? null;
+  // the author said fixed and pushed: keel's check of the new code (it never resolves; Resolve is your click)
+  const fix = fixNote(ai?.fixed?.[t.id], t);
   const addressed = ai?.addressed?.[t.id];
   const judging =
     running.includes(`judge:${t.id}`) || judge?.status === "running";
@@ -958,6 +962,33 @@ export function ThreadBox({
             />
           );
         })}
+        {fix && (
+          <p
+            className={`rv-tnote rv-fixed ${fix.fixed ? "ok" : "open"}`}
+            role="group"
+            aria-label="keel checked the fix"
+          >
+            <span>{fix.text}</span>
+            {fix.fixed && view.can_post && !t.pending && (
+              <>
+                {" · "}
+                <button
+                  type="button"
+                  className="rv-link"
+                  disabled={busy}
+                  onClick={() => {
+                    setBusy(true);
+                    void R.resolve(pid, reviewKey, t.id, true).finally(() =>
+                      setBusy(false),
+                    );
+                  }}
+                >
+                  Resolve
+                </button>
+              </>
+            )}
+          </p>
+        )}
         {sameAs.map((o) => (
           <FillDraft
             key={o.thread_id}

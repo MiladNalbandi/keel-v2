@@ -17,7 +17,8 @@
 //
 // The same store actions as the classic Threads panel (R.judge, R.judgeAll, R.address, R.reply, R.resolve), and the
 // same kept reply drafts (a reply you started in one view is in the other). Comments that make the same point are one
-// check: each answer links the others, and one reply can go into all of their drafts.
+// check: each answer links the others, and one reply can go into all of their drafts. When the author says "fixed" and
+// pushes, keel checks the new code: "Fixed in abc1234 · Resolve" (only your click resolves it).
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -51,6 +52,7 @@ import {
 } from "../Threads";
 import {
   checkLines,
+  fixNote,
   samePointLabel,
   sidesOf,
   useOnAllLabel,
@@ -344,6 +346,8 @@ function ThreadCard({
     running.includes(`judge:${t.id}`) || run?.status === "running";
   const addressing = running.includes(`address:${t.id}`);
   const addressed = ai?.addressed?.[t.id];
+  // the author said fixed and pushed: keel's check of the new code (Resolve is your click)
+  const fix = fixNote(ai?.fixed?.[t.id], t);
   const canWork = view.kind === "pr" && !t.pending;
   const [pill, tone] = threadPill(t, view, ai, checking);
   const sum = verdictOf(check?.items ?? []);
@@ -462,6 +466,33 @@ function ThreadCard({
             />
           ))}
 
+          {fix && (
+            <p
+              className={`rvn-fixed t-${fix.fixed ? "ok" : "warn"}`}
+              role="group"
+              aria-label="keel checked the fix"
+            >
+              <span>{fix.text}</span>
+              {fix.fixed && view.can_post && !t.pending && (
+                <>
+                  {" · "}
+                  <button
+                    type="button"
+                    className="rvn-link"
+                    disabled={busy}
+                    onClick={() => {
+                      setBusy(true);
+                      void R.resolve(pid, reviewKey, t.id, true).finally(() =>
+                        setBusy(false),
+                      );
+                    }}
+                  >
+                    Resolve
+                  </button>
+                </>
+              )}
+            </p>
+          )}
           {canWork && !t.resolved && !run && !checking && (
             <button
               type="button"

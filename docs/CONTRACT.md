@@ -4021,3 +4021,11 @@ A step that fails no longer ends the flow by itself, and every crash is kept so 
   (30 each in Check all), fewer lines and then none when the token cap would be passed. `result.context` is
   `{code_lines, hunk_lines, files, paths}` with the real count. `ReviewService.paths(pid, key)` lists the head commit's
   files.
+- **Fixed → Resolve**: `GET …/review/view` (and `POST …/threads/{id}/reply`) checks, in the background, each open thread
+  whose last comment is the change's author saying fixed / done / addressed and whose head has a commit made after the
+  point it answers (`ReviewJudgeService.fixClaim`; git's author date against the comment's time): one cheap call
+  (`keel-review-fixed {fixed, why, still_open}`) with the thread's code at the new head, what the commits since changed
+  in its file and the other code a check reads. Quick mode only, the same token cap, once per thread, last comment and
+  head commit. `AiState.fixed: {thread id: AiRun}` (kind `fixcheck:<thread>`), result `{fixed, why, still_open, sha,
+  commits, context, …}`. The web shows "Fixed in <short sha> · Resolve" or "Still open: …" (nothing while the run is
+  stale); Resolve calls the existing `POST …/threads/{id}/resolve`. keel never resolves by itself.

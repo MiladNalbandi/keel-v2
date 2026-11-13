@@ -988,6 +988,63 @@ class ReviewApiTest : ApiTest() {
         }
     }
 
+    @Test
+    fun `after the author says fixed and pushes, keel checks the new commit and offers Resolve, and never resolves itself`() {
+        val (pid, root) = githubPr()
+        val pr = hosts.github["acme/shop"]!![7]!!
+        val now = java.time.Instant.now()
+        fun later(min: Long) = now.plusSeconds(min * 60).toString()
+        // two points made after the pull request's commits; ana (the author) answers both
+        val fix = hosts.thread(pr, "src/Prefs.kt", 6, "bo", "Read the default page size from config, not 20.", later(10))
+        fix.comments += StubCodeHost.Comment(9001, "ana", "Fixed.", later(20))
+        val open = hosts.thread(pr, "src/Prefs.kt", 2, "alex", "Bound the cache: it has no limit at all.", later(10))
+        open.comments += StubCodeHost.Comment(9002, "ana", "Done, thanks.", later(20))
+        engine.extraRoutes["/agents/ask"] = { b ->
+            val fixed = b?.path("prompt")?.asText().orEmpty().contains("Read the default page size from config")
+            200 to mapOf("ok" to true, "fake" to false, "tokens_in" to 2500, "tokens_out" to 200, "text" to "```keel-review-fixed\n" +
+                (if (fixed) "{\"fixed\": true, \"why\": \"src/Prefs.kt:6 reads PagingConfig\", \"still_open\": \"\"}"
+                else "{\"fixed\": false, \"why\": \"src/Prefs.kt:2\", \"still_open\": \"the cache still has no limit\"}") + "\n```")
+        }
+        try {
+            // "fixed", but no commit since the point: nothing to check, nothing shown
+            view(pid, "pr:7")
+            assertThat(asks()).isEqualTo(0)
+            assertThat(get("/api/projects/$pid/review/ai?key=pr:7").json()["fixed"].size()).isEqualTo(0)
+
+            // the author pushes a commit: keel checks both threads again against the new code (once each)
+            git(root, "switch", "-q", "feat/paging")
+            Files.writeString(root.resolve("src/Prefs.kt"), Files.readString(root.resolve("src/Prefs.kt")).replace("?: 20", "?: PagingConfig.default"))
+            val date = "${now.plusSeconds(30 * 60).epochSecond} +0000"
+            gitEnv(root, mapOf("GIT_AUTHOR_DATE" to date, "GIT_COMMITTER_DATE" to date), "commit", "-qam", "Read the page size from config")
+            git(root, "push", "-q", remotes.resolve("acme/shop.git").toString(), "feat/paging", "feat/paging:refs/pull/7/head")
+            git(root, "switch", "-q", "main")
+            pr.headSha = sha(root, "feat/paging")
+            view(pid, "pr:7")
+            assertThat(asks()).isEqualTo(2)
+            val ask = engine.calls.filter { it.path == "/agents/ask" }.first { it.body!!["prompt"].asText().contains("Read the default page size") }.body!!
+            assertThat(ask["system"].asText()).contains("keel-review-fixed").contains("no tools")
+            assertThat(ask["prompt"].asText()).contains("Fixed.").contains("+    fun pageSize(user: String) = cache[user] ?: PagingConfig.default")
+                .contains("${pr.headSha.take(7)}")
+            val fixed = get("/api/projects/$pid/review/ai?key=pr:7").json()["fixed"]
+            assertThat(fixed[fix.id]["status"].asText()).isEqualTo("done")
+            assertThat(fixed[fix.id]["result"]["fixed"].asBoolean()).isTrue()
+            assertThat(fixed[fix.id]["result"]["sha"].asText()).isEqualTo(pr.headSha.take(7))
+            assertThat(fixed[open.id]["result"]["fixed"].asBoolean()).isFalse()
+            assertThat(fixed[open.id]["result"]["still_open"].asText()).isEqualTo("the cache still has no limit")
+            // the same head and replies: no second check; keel resolved nothing
+            view(pid, "pr:7")
+            assertThat(asks()).isEqualTo(2)
+            assertThat(writes()).isEmpty()
+            assertThat(pr.threads.first { it.id == fix.id }.resolved).isFalse()
+
+            // the person's click resolves it, with the route Resolve always used
+            post("/api/projects/$pid/review/threads/${fix.id}/resolve", mapOf("key" to "pr:7", "resolved" to true)).andExpect(status().isOk)
+            assertThat(pr.threads.first { it.id == fix.id }.resolved).isTrue()
+        } finally {
+            engine.extraRoutes.remove("/agents/ask")
+        }
+    }
+
     // ---------------------------------------------------------------- the thread settings
 
     @Test
