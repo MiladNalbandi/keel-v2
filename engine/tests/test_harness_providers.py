@@ -134,7 +134,7 @@ def test_anthropic_refusal_fallback_and_errors_are_named():
     rl = _error(anthropic.RateLimitError("slow down", response=resp(429, {"retry-after": "7"}), body=None))
     assert rl.retry and rl.after == 7.0 and rl.status == 429
     auth = _error(anthropic.AuthenticationError("bad key", response=resp(401), body=None))
-    assert not auth.retry and "Settings › Models & logins" in auth.hint
+    assert not auth.retry and "Settings › Models & keys" in auth.hint
     over = _error(anthropic.InternalServerError("overloaded", response=resp(529), body=None))
     assert over.retry
     bad = _error(anthropic.BadRequestError("no", response=resp(400), body=None))
