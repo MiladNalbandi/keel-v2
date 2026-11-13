@@ -207,7 +207,8 @@ tr.click:hover td { background: var(--panel-2); }
 .drawer footer { padding: 12px 18px calc(12px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
 .field { display: grid; gap: 6px; }
 .field > label:not(.radio):not(.chk), .field > .lab { font-size: 12px; font-weight: 600; color: var(--dim); text-transform: uppercase; letter-spacing: .05em; }
-.field input[type=text], .field input[type=password], .field select, .field textarea { border: 1px solid var(--border); background: var(--bg); border-radius: 7px; padding: 7px 9px; width: 100%; }
+/* #97 an input with no type is a text input: a plain one (no class of its own) looks like keel's too (Goals, Notify, Slack …) */
+.field input[type=text], .field input[type=password], .field input:not([type]):not([class]), .field select, .field textarea { border: 1px solid var(--border); background: var(--bg); border-radius: 7px; padding: 7px 9px; width: 100%; }
 .field textarea { min-height: 110px; font-family: var(--f-mono); font-size: 12.5px; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .row > * { min-width: 0; }

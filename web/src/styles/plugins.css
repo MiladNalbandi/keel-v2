@@ -120,6 +120,28 @@ textarea.dbx-input { padding: 8px 10px; resize: vertical; }
 .dbx-chip.add { background: transparent; border: 1px dashed var(--border); color: var(--dbx-on); }
 .dbx-checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .dbx-checks li::before { content: "✓"; color: var(--dbx-ok); margin-right: 10px; }
+/* #96 Results only to you (plugins/db Private.tsx): the list, one result (pick rows and columns), KeelBot's card */
+.pr-mcp, .pr-sec { margin-top: 16px; }
+.pr-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.pr-item { width: 100%; display: grid; gap: 4px; text-align: left; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--panel-2); color: var(--fg); cursor: pointer; min-width: 0; font: inherit; }
+.pr-item:hover, .pr-item:focus-visible { border-color: var(--accent); }
+.pr-item-h { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; min-width: 0; }
+.pr-item-h .chip { margin-left: auto; }
+.pr-item-sql { display: block; min-width: 0; font: 12px var(--f-mono); color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pr-sql { margin: 0; padding: 8px 10px; border-radius: 8px; background: var(--panel-2); font-size: 12px; white-space: pre-wrap; word-break: break-word; }
+.pr-view { display: grid; gap: 8px; min-width: 0; }
+.pr-meta, .pr-who { margin: 0; }
+.pr-cols { display: flex; flex-wrap: wrap; gap: 6px 12px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.pr-cols legend { padding: 0; margin-bottom: 4px; }
+.pr-col { display: inline-flex; gap: 4px; align-items: center; font: 12px var(--f-mono); }
+.pr-table { max-height: 420px; overflow: auto; }
+.pr-view.compact .pr-table { max-height: 260px; }
+.pr-pick { width: 28px; }
+.pr-table tr.off td:not(.pr-pick) { opacity: .45; }
+.pr-actions { gap: 8px; flex-wrap: wrap; align-items: center; }
+.pr-actions > .sub { margin-right: auto; }
+.pr-error { padding: 10px 12px; border: 1px solid var(--bad); border-radius: 8px; }
 .dbx-check { display: flex; align-items: center; gap: 10px; cursor: pointer; }
 .dbx-errwrap { padding: 0 24px; }
 .dbx-foot { margin-top: auto; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 14px 24px; border-top: 1px solid var(--border); }

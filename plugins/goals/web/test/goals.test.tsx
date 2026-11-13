@@ -62,6 +62,8 @@ describe("Goals", () => {
     const table = await main().findByRole("table", { name: "Goals" });
     expect(within(table).getByRole("link", { name: "Export invoices" }).getAttribute("href")).toBe("#/goals/g1");
     const form = main().getByRole("form", { name: "Add a goal" });
+    // #97 text fields say so: keel's field style is for text inputs (it looked like the browser's own boxes before)
+    for (const f of within(form).getAllByRole("textbox")) expect(f).toHaveAttribute("type", "text");
     await userEvent.type(within(form).getByLabelText(/^The goal/), "New goal");
     await userEvent.type(within(form).getByLabelText(/^Done when/), "It works");
     await userEvent.type(within(form).getByLabelText(/^Most tokens/), "5000");

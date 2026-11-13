@@ -3821,3 +3821,11 @@ psycopg, `node -e` with pg …) in the shell, reading database files and dumps (
 `execute_sql`, `run_query` …). keel's own `db_*` / `keel_db_*` tools pass. It applies where keel's guard runs (the agents
 keel starts: Claude Code, Codex, OpenCode through keel's hook, keel's own tools), not in a Claude Code session keel did
 not start.
+
+## Next: keel's look in Goals and Org (issue #97)
+
+keel's field style (`.field input[type=text]` …) also covers a plain text input without a `type` and without a class of
+its own (`.field input:not([type]):not([class])`), so the Goals, Notify, Slack, Library, Desk, Inbox and model-server
+forms look like the rest. Goals' fields say `type="text"`. `@keel/web-sdk` exports `CodeEditor` (and `LineError`):
+keel's editor with highlighting, line numbers and errors by line. The Org plugin's YAML (New org, an org's YAML tab) uses
+it, and a ready-made org's preview shows its YAML as a highlighted `CodeBlock`.
