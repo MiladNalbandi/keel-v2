@@ -47,8 +47,17 @@ class McpTokens:
 
 
 # (method, path regex) lists for this api's own non-GET routes, as in McpLevelGuard. What no list names needs admin.
-READ_POSTS: list[tuple[str, re.Pattern[str]]] = []
-WRITE: list[tuple[str, re.Pattern[str]]] = []
+# #98 the Org plugin's routes (engine_parts.py passes /api/org/* on): what its MCP tools send. A check of YAML changes
+# nothing (read); saving an org, a new mission, stopping and accepting one are write (keel_org_save, _stop_mission and
+# _accept ask the person first); deleting an org stays admin.
+READ_POSTS: list[tuple[str, re.Pattern[str]]] = [
+    ("POST", re.compile(r"/api/org/check")),
+]
+WRITE: list[tuple[str, re.Pattern[str]]] = [
+    ("PUT", re.compile(r"/api/org/orgs/[^/]+")),
+    ("POST", re.compile(r"/api/org/orgs/[^/]+/missions")),
+    ("POST", re.compile(r"/api/org/missions/[^/]+/(stop|accept)")),
+]
 
 
 def need(method: str, path: str) -> str:

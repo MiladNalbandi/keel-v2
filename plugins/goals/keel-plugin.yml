@@ -10,6 +10,7 @@ requires:
   sdk: 1
   keel: ">=0.20.2"   # the step key person: true (only a person answers a gate)
 parts:
+  engine: { path: engine, package: keel_plugin_goals }   # #98 only its tools in keel's MCP server
   api: { jars: [api/keel-plugin-goals.jar] }
   web: { entry: web/index.js }
   content: content

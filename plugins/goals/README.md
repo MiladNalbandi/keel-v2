@@ -17,6 +17,21 @@ that **you** start.
  YOU say: it is done
 ```
 
+## From an MCP client (#98)
+
+Claude Code, OpenCode, Codex or any client with `keel2 mcp` gets these tools. They live in the plugin's small engine part
+(`engine/keel_plugin_goals`); the goals stay in its api part.
+
+| Level | Tool | What it does |
+|---|---|---|
+| read | `keel_goals_list`, `keel_goal` | a project's goals; one goal's plan, steps and what may start next |
+| write | `keel_goal_create` | a new goal with its limits (nothing starts) |
+| write | `keel_goal_plan` | the planning flow: an agent proposes steps, you approve them at its gate |
+| write | `keel_goal_start_step` | start one step's flow (by its id or its number) |
+| write | `keel_goal_skip_step`, `keel_goal_status` | leave a step out; mark the goal done or stopped (both ask you first) |
+
+A goal's limits have no tool: over MCP they need the admin level.
+
 ## What it keeps to
 
 - **Nothing starts by itself.** There is no loop that works on the goal while you are away. You press Start for each step, or you open the

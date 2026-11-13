@@ -3829,3 +3829,18 @@ its own (`.field input:not([type]):not([class])`), so the Goals, Notify, Slack, 
 forms look like the rest. Goals' fields say `type="text"`. `@keel/web-sdk` exports `CodeEditor` (and `LineError`):
 keel's editor with highlighting, line numbers and errors by line. The Org plugin's YAML (New org, an org's YAML tab) uses
 it, and a ready-made org's preview shows its YAML as a highlighted `CodeBlock`.
+
+## Next: MCP tools for Org and Goals (issue #98)
+
+Org (its engine part's `keel_mcp`): read `keel_org_list`, `keel_org_show {org, yaml?}`, `keel_org_templates`,
+`keel_org_missions {org}`, `keel_org_mission {mission}`; write `keel_org_save {org, yaml? | template?}` (confirm),
+`keel_org_give_mission {org, role, title, request?, project?, workflow?, cap_tokens?}`, `keel_org_stop_mission {mission}`
+(confirm), `keel_org_accept {mission, why?}` (confirm). The Python api's MCP levels for the forwarded routes:
+`POST /api/org/check` read; `PUT /api/org/orgs/{id}`, `POST /api/org/orgs/{id}/missions`,
+`POST /api/org/missions/{id}/(stop|accept)` write; anything else non-GET (deleting an org) admin.
+
+Goals gets an engine part (`engine: { path: engine, package: keel_plugin_goals }`) that holds only its `keel_mcp`: read
+`keel_goals_list {project?}`, `keel_goal {goal, project?}`; write `keel_goal_create {title, done_when, why?, cap_tokens?,
+max_flows?, project?}`, `keel_goal_plan {goal}`, `keel_goal_start_step {goal, step}` (step: id or number),
+`keel_goal_skip_step` (confirm), `keel_goal_status {goal, status: done | stopped}` (confirm). `GoalsMcpRoutes` names their
+write routes; `POST …/goals/{id}/limits` stays admin.

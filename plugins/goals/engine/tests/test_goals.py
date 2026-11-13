@@ -18,7 +18,9 @@ PLAN = 'The plan.\n```json\n[{"title": "One", "request": "Do one", "workflow": "
 
 def test_the_manifest_names_its_parts_and_tables():
     m = manifests.parse((PLUGIN / "keel-plugin.yml").read_text())
-    assert m.name == "goals" and m.engine is None and m.content == "content" and m.migrations == "migrations"
+    # #98 its engine part holds only its tools in keel's MCP server
+    assert m.name == "goals" and m.engine == {"path": "engine", "package": "keel_plugin_goals"}
+    assert m.content == "content" and m.migrations == "migrations"
     raw = yaml.safe_load((PLUGIN / "keel-plugin.yml").read_text())
     assert raw["permissions"]["tables"] == ["goals_goal", "goals_step"] and "secrets" not in raw["permissions"]
 
