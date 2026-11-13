@@ -2369,7 +2369,7 @@ question to the person). The plugins' "ask in keel's Inbox" stays as a second ch
 Plan and decisions: `docs/plans/0.17.2.md`.
 
 - **Where rules live** (all files in the project, read by the guard on every tool call): `.keel/config.yml` blocks `guards` (`protected`, `generated`, `read_block`, `bash_deny_always`, `bash_deny_in_flow`, `read_guard_max_lines`, default 2000, 0 = off), `mcp.allow`, `rules` (`off: [<built-in id> | pack/<id>]`, `push_gate: true`, `push_gate_commands: ["git push", "gh pr create"]`), `boundaries.rules`; and rule packs `.keel/rules/<id>.yaml`. `rules.load_config(root)` adds `configured` (the config file exists), `packs` and `pack_errors` (files that could not be used, with why).
-- **Rule pack** (`engine/keel_engine/rules/packs.py`, final format: `docs/rules/pack-format.md`): one YAML file `{schema: 1, kind?: rules, name, title, version, publisher? (local), summary?, stack?, requires?: {keel: range, plugins: {name: range}}, rules: [{id, kind: bash|edit|read|mcp, match: [text], how?: contains|glob|name|regex (default per kind: contains, glob, glob, name), phases?: all|in-flow|none|[phase], lanes?: [api|web], except?: [glob], reason}]}`; `name` is the id and the file name; at most 64 KB; a pack whose `requires.keel` this keel does not meet is not used. A pack rule only refuses; it runs inside `check_edit` (after the always-deny buckets, after unlocks), `check_read`, `check_bash` and `hook.check_mcp`, so the hook, the ToolBox and the diff guard all apply it. The refusal reason ends with `(rule <pack>/<rule>)`. The library is `content/rules/*.yaml` (strict-secrets, no-new-dependencies, migrations-only-in-flow, frontend-not-api, stack-spring, stack-node, stack-python), each `version: 1.0.0`, `publisher: keel`. `.keel/rules/.installed.json` records `{name: {version, source: library|file|marketplace, at, edited?}}`; the pack file stays as published.
+- **Rule pack** (`engine/keel_engine/rules/packs.py`, final format: `docs/rules/pack-format.md`): one YAML file `{schema: 1, kind?: rules, name, title, version, publisher? (local), summary?, stack?, requires?: {keel: range, plugins: {name: range}}, rules: [{id, kind: bash|edit|read|mcp, match: [text], how?: contains|glob|name|regex (default per kind: contains, glob, glob, name), phases?: all|in-flow|none|[phase], lanes?: [api|web], except?: [glob], reason}]}`; `name` is the id and the file name; at most 64 KB; a pack whose `requires.keel` this keel does not meet is not used. A pack rule only refuses; it runs inside `check_edit` (after the always-deny buckets, after unlocks), `check_read`, `check_bash` and `hook.check_mcp`, so the hook, the ToolBox and the diff guard all apply it. The refusal reason ends with `(rule <pack>/<rule>)`. The library is `content/rules/*.yaml` (strict-secrets, no-new-dependencies, migrations-only-in-flow, frontend-not-api, stack-spring, stack-node, stack-python, databases-only-through-keel), each `version: 1.0.0`, `publisher: keel`. `.keel/rules/.installed.json` records `{name: {version, source: library|file|marketplace, at, edited?}}`; the pack file stays as published.
 - **Built-in rules** (`rules.BUILTINS`, `can_off`): never off — phase-matrix, env-files, keel-rules-files, migrations-immutable, force-push, no-verify, commit-in-flow, history-rewrite, secrets-at-write, disabled-tests; may be off (`rules.off`) — generated, read-build-output, skip-test-flags, new-dependency, read-twice, big-file-read, push-gate, mcp-writes, other-projects (0.18.64: off, the project keeps to itself both ways; opt-in, `rules.OPT_IN`: off until `rules.on` names it). The force-push commands and `--no-verify` (always) and `git reset --hard`, `git rebase -i` (in a flow) are refused even when the config's lists drop them (`rules.NEVER_DENY_ALWAYS`, `NEVER_DENY_IN_FLOW`).
 - **New bucket `keel-rules`**: `.keel/config.yml` and `.keel/rules/**`; always refused to agents (phase `setup` may write `.keel/config.yml`). The api's `KeelRules.classify` has it too.
 - **keel v1 hook gaps closed**: the push gate (`push_blockers` in the guard context, from `runtime/blockers.py for_agents` when the agent starts; only in a project with `.keel/config.yml`); secrets and disabled-test markers in the text an edit adds (Write `content`, Edit `new_string`, MultiEdit, NotebookEdit, a patch's `+` lines; `rules.check_content`) refused before the write, and the diff guard puts back a changed file whose new lines hold one (`bucket: "content"`); big files read with offset/limit; an agent's last failed shell command in `data.last_command_failure {command, output, step, agent}` (not `state.last_failure`); an agent whose answer has none of the step's registered result markers is asked once more (event `agent.reask {agent, missing}`).
@@ -3780,3 +3780,44 @@ not know goes to Build, so it is still in the menu. The Inbox is `home` 10; Live
 and so did the Record and Cluster plugins' pages (30, 40); KeelBot is `know` 45 and Safety & History `build` 55. A group
 with a header folds when its header is clicked (kept per browser under `keel.nav.folded`); a folded group still shows the
 page you are on and the counts of the pages it hides.
+
+## Next: results only the person sees (issue #96)
+
+**Access `private`** ("Run queries, results only to you") joins `none`, `read` and `write_approve` on a database
+connection (`agent_access`, order none < private < read < write_approve; staging and prod still never above read).
+Agents see the connection and its schema and run reads (`db_query`, `keel_db_query`), but the rows go only to the person:
+
+- the engine keeps the result in memory (`keel_plugin_db/private.py`: at most 100, none older than a day, never on disk,
+  gone at a restart; columns named like a secret stay `•••`; up to 1,000 rows)
+- the agent reads only `Done: result r_<12 hex> from <connection>, columns: …` and where the person sees it: no row, no
+  row count, no "more rows"
+- a database error reaches it only when its message names nothing but the query's own words (`core.sql_error`:
+  PostgreSQL SQLSTATE class 42 and 25006, MySQL's unknown-column/table/syntax codes, SQLite's "no such …", "near …");
+  otherwise a short general line, and the full message is kept with the result
+- `db_change` / `keel_db_change` are refused there; `db:query` puts `{private_result, columns}` in the flow's data;
+  `db:check` still passes or fails on the count and keeps its rows as a result
+
+Engine: `POST /plugins/db/query` takes `private`, `project`, `who` and then answers `{private: true, id, connection,
+columns}` (plus `failed`, `error`); `POST /plugins/db/results | result | forget` take `{project, id}`.
+Api: `GET /api/projects/{pid}/db/results`, `GET /api/projects/{pid}/db/results/{id}`, `DELETE …/{id}` refuse every MCP
+caller (403, any level). An MCP query on a private connection sends the engine `private: true`, the project and the
+client's name (`X-Keel-Client`).
+
+**What keel's MCP server may do with databases** (`GET|PUT /api/databases/mcp`, `{access: connection | private | none}`,
+kept in kv `db.mcp`, default `connection`): the most any MCP call gets (keel2 mcp in Claude Code, OpenCode, Codex,
+Cursor …, and keel's own MCP server in a harness). `private` keeps every connection to private results at most; `none`
+hides every connection from MCP calls and refuses schema and query ("Databases are off for MCP clients"). The PUT refuses
+every MCP caller. keel's own agents through the keel-db server (KeelBot, flow agents) follow each connection's Access.
+
+Web: Settings › Databases shows the switch (**MCP clients**) and **Results for you**;
+`#/projects/<pid>/settings/databases/results/<id>` (the link keel2 mcp gives) opens one. The person picks rows and
+columns, then copies them as a Markdown table, downloads CSV, or (in KeelBot's chat) sends only those to KeelBot. KeelBot
+shows a `keel-result {"id": …}` block as that card (slot `keelbot.card`, kind `keel-result`).
+
+**Rule pack `databases-only-through-keel`** (library): refuses database clients (`psql`, `mysql`, `pg_dump`,
+`sqlite3`, `mongosh`, `redis-cli` …, also inside `docker|kubectl exec`) and connection one-liners (`python -c` with
+psycopg, `node -e` with pg …) in the shell, reading database files and dumps (`*.db`, `*.sqlite*`, `*dump*.sql`,
+`*.sql.gz` …), and MCP tools of database servers (`postgres`, `mysql`, `supabase`, `dbhub` … or tools named
+`execute_sql`, `run_query` …). keel's own `db_*` / `keel_db_*` tools pass. It applies where keel's guard runs (the agents
+keel starts: Claude Code, Codex, OpenCode through keel's hook, keel's own tools), not in a Claude Code session keel did
+not start.

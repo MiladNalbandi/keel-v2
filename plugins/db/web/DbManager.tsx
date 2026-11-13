@@ -161,11 +161,15 @@ export function DbManager({ pid, projectName, place, startNew, select, onChanged
                   {g.items.map((c) => (
                     <li key={c.id}>
                       <button type="button" className="dbx-item" aria-current={pick?.kind === "entry" && pick.id === c.id ? "true" : undefined}
-                        aria-label={`${c.name}, ${c.driver}, ${c.env}`} onClick={() => setPick({ kind: "entry", id: c.id })}>
+                        aria-label={`${c.name}, ${c.driver}, ${c.env}${c.agent_access === "private" ? ", results only to you" : ""}`}
+                        onClick={() => setPick({ kind: "entry", id: c.id })}>
                         <DriverLogo driver={c.driver as Driver} />
                         <span className="dbx-itemname">{c.name}</span>
                         {c.overridden && <span className="dbx-tag">overridden here</span>}
                         {c.hidden && <span className="dbx-tag">off here</span>}
+                        {c.agent_access === "private" && (
+                          <span className="dbx-tag" title="Agents run queries; the rows come only to you (#96)">results to you</span>
+                        )}
                         {c.ok === false && <span className="dbx-dot bad" title="cannot connect" />}
                         <span className={`dbx-badge t-${envTone(c.env)}`}>{envBadge(c.env)}</span>
                       </button>

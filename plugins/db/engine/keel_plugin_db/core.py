@@ -4,6 +4,7 @@ A connection is {name, kind, url, env}: kind postgres | mysql | sqlite, env loca
 the url (with its password) encrypted; it reaches the engine in a call's keys and stays in memory. Since keel 0.18.38 a
 key also says what agents may do with it (agent_access none | read | write_approve, ask_first) and whether it is a
 project's own or a global one (scope); one keel cannot reach now comes with `unavailable` instead of a url.
+Access `private` (#96): agents run reads, but the rows go only to the person (private.py keeps them).
 
     classify(sql, kind)      read | change | schema | never, and why (sqlglot reads the SQL; no word search)
     query(conn, sql, ...)    a read runs in a read-only transaction (200 rows, 15 s); a change only on a local or test
@@ -87,13 +88,20 @@ def connections(keys: dict | None) -> dict[str, dict]:
 
 
 class DbError(Exception):
-    def __init__(self, status: int, message: str, hint: str = ""):
+    """keel's refusal of a database call. `safe` (#96): the message holds nothing from the data, so an agent on a
+    private connection may read it; a database's own message can quote values (a bad cast, a key that exists)."""
+
+    def __init__(self, status: int, message: str, hint: str = "", *, safe: bool = True, code: str = "", from_db: bool = False):
         super().__init__(message)
         self.status = status
         self.hint = hint
+        self.safe = safe
+        self.code = code
+        self.from_db = from_db          # the database ran the query and refused it (else keel refused it first)
 
 
-ACCESS = ("none", "read", "write_approve")
+# none < private < read < write_approve: what agents may do with a connection
+ACCESS = ("none", "private", "read", "write_approve")
 
 
 @dataclass
@@ -104,7 +112,7 @@ class Conn:
     env: str = "local"
     driver: str = ""
     scope: str = "project"
-    agent_access: str = "read"      # what agents may do: none | read | write_approve (the api already made prod read)
+    agent_access: str = "read"      # none | private | read | write_approve (the api already made prod read at most)
     ask_first: bool = False
 
     @property
@@ -527,9 +535,10 @@ def _run(c, conn: Conn, sql: str, limit: int, *, stream: bool = False) -> tuple[
 # ------------------------------------------------------------------ running
 
 def query(conn: Conn, sql: str, *, root: str = "", allow_change: bool = False, confirm: bool = False, mask: bool = False,
-          limit: int = MAX_ROWS) -> dict:
+          limit: int = MAX_ROWS, max_rows: int = MAX_ROWS) -> dict:
     """Run one query. A read: {columns, rows, count, truncated}. A change (allow_change, a local or test database):
-    {changed, done}; without `confirm` keel runs it in a transaction it rolls back, to count the rows."""
+    {changed, done}; without `confirm` keel runs it in a transaction it rolls back, to count the rows. `max_rows`: a
+    private result (only the person reads it) may hold more rows than a model gets."""
     cls, why = classify(sql, conn.kind)
     text = (sql or "").strip().rstrip(";").strip()
     out = {"connection": conn.name, "env": conn.env, "kind": cls, "sql": text}
@@ -549,7 +558,7 @@ def query(conn: Conn, sql: str, *, root: str = "", allow_change: bool = False, c
         raise
     except Exception as exc:
         raise _connect_error(conn, exc) from exc
-    limit = max(1, min(limit, MAX_ROWS))
+    limit = max(1, min(limit, max_rows))
     try:
         cols, rows, truncated, count = _run(c, conn, text, limit, stream=cls == "read")
         if cls == "change":
@@ -564,7 +573,9 @@ def query(conn: Conn, sql: str, *, root: str = "", allow_change: bool = False, c
         msg = str(exc).strip().splitlines()[0][:400] if str(exc).strip() else type(exc).__name__
         if "interrupted" in msg.lower() or "statement timeout" in msg.lower() or "max_execution_time" in msg.lower():
             raise DbError(408, f"The query took longer than {TIMEOUT_S} seconds.", "Add a WHERE or a LIMIT.") from exc
-        raise DbError(400, f"The database refused the query: {msg}") from exc
+        code, safe = sql_error(conn.kind, exc)
+        raise DbError(400, f"The database refused the query: {scrub(msg, conn.url)}", safe=safe, code=code,
+                      from_db=True) from exc
     finally:
         c.close()
     ms = int((time.monotonic() - t0) * 1000)
@@ -574,6 +585,27 @@ def query(conn: Conn, sql: str, *, root: str = "", allow_change: bool = False, c
     shown = [[("•••" if i in hidden and v is not None else _value(v, conn.kind)) for i, v in enumerate(r)] for r in rows]
     return {**out, "columns": cols, "rows": shown, "count": len(shown), "truncated": truncated, "masked": [cols[i] for i in hidden],
             "limit": limit, "ms": ms}
+
+
+# #96 a database's error messages that name only what the query itself says (a table, a column, a function, the syntax
+# near a word): an agent on a private connection may read these. Every other message can quote a value from the data
+# ("invalid input syntax for type integer: \"ann@example.com\"", "Truncated incorrect DOUBLE value: 'ann'").
+PG_SAFE = ("42", "25006")                   # syntax error or access rule violation; read-only transaction
+MYSQL_SAFE = {1044, 1046, 1049, 1051, 1052, 1054, 1064, 1109, 1142, 1143, 1146, 1149, 1222, 1241, 1248, 1305, 1630, 1792}
+SQLITE_SAFE = ("no such table", "no such column", "no such function", "near \"", "ambiguous column name", "incomplete input",
+               "unrecognized token", "wrong number of arguments", "misuse of aggregate", "attempt to write a readonly")
+
+
+def sql_error(kind: str, exc: Exception) -> tuple[str, bool]:
+    """(the database's error code, whether its message is safe for an agent that may not see the data)."""
+    if kind == "postgres":
+        code = str(getattr(exc, "sqlstate", "") or "")
+        return code, bool(code) and code.startswith(PG_SAFE)
+    if kind == "mysql":
+        n = exc.args[0] if exc.args and isinstance(exc.args[0], int) else None
+        return (str(n) if n is not None else ""), n in MYSQL_SAFE
+    msg = str(exc).strip().lower()
+    return getattr(exc, "sqlite_errorname", "") or "", msg.startswith(SQLITE_SAFE)
 
 
 def test(conn: Conn, root: str = "") -> dict:

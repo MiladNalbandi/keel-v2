@@ -3,6 +3,8 @@ model: a refusal says why instead of failing the call. Columns named like a secr
 
 What an agent may do is each connection's Access (keel 0.18.38, the api's agent_access):
     none            the connection is not offered to agents at all (not listed, not found)
+    private         db_schema and db_query, but the rows go only to the person (#96, private.py): the agent gets a
+                    result id and the column names
     read            db_schema and db_query, read only (keel 0.18.37's way)
     write_approve   and db_change: keel counts the rows, asks the person in the Inbox, and runs it only after Yes
 staging and prod are read only for agents, always (Conn.agent_may). With ask_first, an agent's first call on the
@@ -13,7 +15,7 @@ from __future__ import annotations
 
 import threading
 
-from . import core
+from . import core, private
 from .core import PluginError, connections
 
 ROWS_SHOWN = 50
@@ -140,7 +142,8 @@ def _first_ok(c: dict, conn: core.Conn) -> str | None:
 def _change(c: dict, conn: core.Conn, sql: str) -> str:
     """write_approve: count the rows (a run keel rolls back), ask the person in the Inbox, run it only after Yes."""
     if conn.agent_may != "write_approve":
-        why = (f"{conn.name} is a {conn.env} database: agents only read there, always." if conn.env not in core.CHANGE_ENVS
+        why = (f"On {conn.name} agents only run reads, and the results go to the person." if conn.agent_may == "private"
+               else f"{conn.name} is a {conn.env} database: agents only read there, always." if conn.env not in core.CHANGE_ENVS
                else f"Agents may only read {conn.name}.")
         return (f"Refused: {why} Give the change to the person as a keel-query block instead "
                 "(they press its button), or ask them to allow \"change after approval\" in Databases.")
@@ -152,8 +155,23 @@ def _change(c: dict, conn: core.Conn, sql: str) -> str:
     return f"{done['changed']} row(s) changed in {conn.name} after the person's OK."
 
 
+PLACE = "Settings › Databases › Results for you"
+WHERE = f"in keel ({PLACE})"
+
+
+def _private_query(c: dict, conn: core.Conn, sql: str) -> str:
+    """Access private: run the read for the person; the agent reads only the result's id and its columns."""
+    entry = private.run(conn, sql, root=c["root"], project=str(c.get("project") or ""), who=str(c.get("who") or ""),
+                        thread=c.get("thread"))
+    keelbot = c.get("who") == "keelbot"
+    return private.agent_text(private.agent_answer(entry), keelbot=keelbot,
+                              where="in the card under your answer" if keelbot else WHERE)
+
+
 def _access_line(conn: core.Conn) -> str:
     may = conn.agent_may
+    if may == "private":
+        return "you run reads, but the rows go only to the person: you get a result id and the column names"
     if may == "write_approve":
         return "you read; a change with db_change waits for the person's OK in the Inbox"
     if conn.env in core.CHANGE_ENVS:
@@ -184,6 +202,8 @@ def call(c: dict, tool: str, args: dict) -> str:
         if tool == "db_schema":
             return _schema_text(core.schema(conn, c["root"]), str(args.get("table") or ""))
         if tool == "db_query":
+            if conn.agent_may == "private":
+                return _private_query(c, conn, str(args.get("sql") or ""))
             return query_text(core.query(conn, str(args.get("sql") or ""), root=c["root"], mask=True,
                                          limit=_limit(args.get("limit"))))
         if tool == "db_change":

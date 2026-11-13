@@ -32,6 +32,8 @@ DOCS = {
         "steps": [
             "with: sql (one SELECT, EXPLAIN or SHOW) and connection (default: the project's local database).",
             "Runs in a read-only transaction: at most 200 rows and 15 seconds; columns named like a secret show as •••.",
+            "On a connection whose Access is \"Results only to you\", the rows go only to the person: data gets "
+            "{private_result, columns}.",
             "Fails when the plugin is off for the project, the connection is missing, or the SQL is not a read.",
         ],
     },
@@ -40,6 +42,8 @@ DOCS = {
         "steps": [
             "with: sql, expect (none: no row may come back, the default; some; or a number) and connection.",
             "A failed check shows the query and the first 20 rows; with soft: true a branch reads RESULT pass or fail.",
+            "On a connection whose Access is \"Results only to you\", it still passes or fails on the count; its rows "
+            "go only to the person.",
         ],
     },
     "db:change": {
@@ -64,10 +68,13 @@ change first, and runs it only on a local or test database:
 ```keel-query
 {"sql": "UPDATE scores SET value = 0 WHERE value IS NULL", "connection": "local"}
 ```
-Use the connection names db_connections gives. A schema change is never a button: it belongs in a migration."""
+Use the connection names db_connections gives. A schema change is never a button: it belongs in a migration.
+Where db_connections says the rows go only to the person, db_query gives you a result id and the column names, not the \
+rows: put the keel-result block it gives you in your answer, so the person sees the result, and never guess the data. \
+The person may then give you the rows they choose."""
 
 KEELBOT_ACTIONS = [
-    "db:query    {sql, connection?}: a read; its rows go to data.<step id>",
+    "db:query    {sql, connection?}: a read; its rows go to data.<step id> (private access: only a result id)",
     "db:check    {sql, expect: none | some | <n>, connection?}: a data check (soft: true + a branch on RESULT)",
     "db:change   {sql, connection?}: a change of data on a local or test database; keel asks the person first",
     "db:migrate  {}: the project's migration command (commands.migrate in .keel/config.yml)",

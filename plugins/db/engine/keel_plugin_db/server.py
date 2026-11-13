@@ -36,7 +36,8 @@ def build():
     @srv.tool(annotations=ro, structured_output=False)
     def db_query(sql: str, connection: str = "", limit: int = 200) -> str:
         """Run one read-only SQL query (SELECT, EXPLAIN, SHOW) and get the rows as a table: at most 200 rows and
-        15 seconds; columns named like a secret show as •••. A change of data is refused here."""
+        15 seconds; columns named like a secret show as •••. A change of data is refused here. On a connection whose
+        results go only to the person (db_connections says so) you get a result id and the columns, not the rows."""
         return _call("db_query", sql=sql, connection=connection, limit=limit)
 
     rx = ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=False)

@@ -7,7 +7,10 @@ import type { Driver } from "./logos";
 
 export type Env = "local" | "test" | "staging" | "prod";
 export type ConnectMode = "host" | "socket" | "url" | "env";
-export type Access = "none" | "read" | "write_approve";
+/** none < private (#96: agents run reads, the rows come only to you) < read < write_approve */
+export type Access = "none" | "private" | "read" | "write_approve";
+/** #96 the most keel's MCP server (Claude Code, OpenCode, Codex … through keel2 mcp) may do with databases */
+export type McpAccess = "connection" | "private" | "none";
 export type Keep = "keel" | "session" | "never";
 
 export const ENVS: Env[] = ["local", "test", "staging", "prod"];
@@ -132,6 +135,9 @@ export const dbxApi = {
     ),
   hide: (pid: string, id: string, hidden: boolean) =>
     put<DbEntry[]>(`/projects/${e(pid)}/databases/${e(id)}/hidden`, { hidden }),
+  mcp: () => get<{ access: McpAccess }>("/databases/mcp"),
+  setMcp: (access: McpAccess) =>
+    put<{ access: McpAccess }>("/databases/mcp", { access }),
 };
 
 export const DEFAULT_PORT: Partial<Record<Driver, number>> = {

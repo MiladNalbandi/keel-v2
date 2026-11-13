@@ -1319,7 +1319,8 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
     @reg(rw)
     async def keel_rule_install(pack: str, project: str | None = None, ctx: Context | None = None) -> str:
         """Install a rule pack from keel's library into the project (.keel/rules/<pack>.yaml): strict-secrets,
-        no-new-dependencies, migrations-only-in-flow, frontend-not-api, stack-spring, stack-node, stack-python."""
+        no-new-dependencies, migrations-only-in-flow, frontend-not-api, stack-spring, stack-node, stack-python,
+        databases-only-through-keel."""
         return await act(ctx, "keel_rule_install", f"install the rule pack {pack}", more.rule_install, api, pack, project)
 
     @reg(rx)

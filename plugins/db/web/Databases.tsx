@@ -4,8 +4,9 @@
 // test database may get changes of data (always after an OK); staging and prod are read only for agents, always.
 // The Database plugin's part (plugins/db): it imports only react and @keel/web-sdk.
 
-import { PageHead, Section, useApp, useLoad } from "@keel/web-sdk";
+import { PageHead, Section, useApp, useLoad, useRoute } from "@keel/web-sdk";
 import { QueryPanel } from "./QueryPanel";
+import { McpSwitch, PrivateResults } from "./Private";
 import { dbApi } from "./dbApi";
 import { DbManager } from "./DbManager";
 
@@ -33,13 +34,20 @@ export function DatabasesPage({ pid }: { pid: string }) {
   );
 }
 
-/** Settings › Databases: the connections (the list and the editor), then the Query of the chosen project's live
+/** Settings › Databases: the connections (the list and the editor), what MCP clients may do (#96), the results only
+ *  the person sees (#96; #/settings/databases/results/<id> opens one), then the Query of the chosen project's live
  *  database. keel draws the tab's head and menu. */
 export function DatabasesTab({ pid }: { pid: string }) {
   const { project } = useApp();
+  const route = useRoute();
+  const plugins = useLoad(pid ? `plugins:${pid}` : null, () => dbApi.plugins(pid), { live: false });
+  const on = !!plugins.data?.find((p) => p.name === "db")?.enabled;
+  const linked = route.page === "settings" ? /^databases\/results\/([^/]+)$/.exec(route.arg ?? "")?.[1] : undefined;
   return (
     <>
       <DbManager pid={pid} projectName={pid ? project?.name ?? pid : undefined} place="control" />
+      <McpSwitch />
+      {pid && on && <PrivateResults pid={pid} open={linked} />}
       {pid && <QueryPanel pid={pid} />}
     </>
   );
