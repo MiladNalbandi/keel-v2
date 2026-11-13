@@ -1,8 +1,15 @@
 // keel's check of a review thread says who is right in words that name the role and the person: "Reviewer (ana) is
 // right", "Author (you) is right", "Unclear: keel could not decide". One label set for the classic Threads panel, the
-// new Comments tab and the text a follow-up question to KeelBot carries, so the views never say it differently.
+// new Comments tab and the text a follow-up question to KeelBot carries, so the views never say it differently. The
+// words for the same point in two threads live here too.
 
-import type { JudgeItem, ReviewThread, ReviewView, Verdict } from "./reviewApi";
+import type {
+  JudgeItem,
+  ReviewThread,
+  ReviewView,
+  SameAs,
+  Verdict,
+} from "./reviewApi";
 
 /** The two sides of a thread by name ("you" when it is you; null when keel does not know the name). */
 export type Sides = { reviewer: string | null; author: string | null };
@@ -37,3 +44,13 @@ export function verdictLabel(v: Verdict, s: Sides): string {
 /** keel's points as text (a follow-up question to KeelBot): one line each, in the same words. */
 export const checkLines = (items: JudgeItem[], s: Sides): string =>
   items.map((i) => `- ${verdictLabel(i.verdict, s)}: ${i.claim} — ${i.why}`).join("\n");
+
+/** The link to another thread that makes the same point: "Same point as the thread on line 22 (bo)". */
+export function samePointLabel(o: SameAs, view: Pick<ReviewView, "me">): string {
+  const name = !o.author ? null : same(o.author, view.me) ? "you" : o.author;
+  return `Same point as the thread on ${o.line != null ? `line ${o.line}` : o.path ?? "the pull request"}${name ? ` (${name})` : ""}`;
+}
+
+/** The button that puts keel's reply into every thread of the point: "Use as my reply on both" (or "on all 3"). */
+export const useOnAllLabel = (others: number) =>
+  `Use as my reply on ${others === 1 ? "both" : `all ${others + 1}`}`;

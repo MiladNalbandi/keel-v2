@@ -875,6 +875,54 @@ class ReviewApiTest : ApiTest() {
         assertThat(asks()).isEqualTo(1)
     }
 
+    @Test
+    fun `two threads that make the same point are one check, and each answer links the other`() {
+        val (pid, _) = githubPr()
+        val pr = hosts.github["acme/shop"]!![7]!!
+        val config = threadId(pid)                                        // bo on line 6: "Should 20 come from config?"
+        val a = hosts.thread(pr, "src/Prefs.kt", 3, "bo", "The page size cache is never cleared: it grows for every user.").id
+        val b = hosts.thread(pr, "src/Prefs.kt", 4, "alex", "This cache grows for every user and is never cleared.").id
+        // the view says which open threads make the same point: Check all open counts them as one
+        assertThat(view(pid, "pr:7")["thread_groups"].map { g -> g.map { it.asText() } }).containsExactly(listOf(a, b))
+        answer("```keel-review-judge\n{\"threads\": [" +
+            "{\"id\": \"T1\", \"items\": [{\"claim\": \"config\", \"verdict\": \"partly\", \"why\": \"a\"}], \"reply\": \"r1\"}," +
+            " {\"id\": \"T2\", \"items\": [{\"claim\": \"the cache grows\", \"verdict\": \"reviewer_right\", \"why\": \"src/Prefs.kt:2 is never cleared\"}]," +
+            " \"reply\": \"Right, I clear it on logout.\"}]}\n```", 6000, 900)
+        post("/api/projects/$pid/review/threads/judge", mapOf("key" to "pr:7")).andExpect(status().isOk)
+        assertThat(asks()).isEqualTo(1)
+        val p = engine.lastBody("/agents/ask")!!["prompt"].asText()
+        // one section per point: the config thread, then the cache point with both threads in it
+        assertThat(p).contains("### T1").contains("### T2").doesNotContain("### T3")
+        assertThat(p.substringAfter("### T2")).contains("The page size cache is never cleared").contains("This cache grows for every user")
+            .contains("src/Prefs.kt line 4")
+        assertThat(judgeOf(pid, config)["result"]["items"][0]["verdict"].asText()).isEqualTo("partly")
+        assertThat(judgeOf(pid, config)["result"]["same_as"].isEmpty).isTrue()
+        // the same answer on both threads, each linking the other
+        for ((one, other) in listOf(a to b, b to a)) {
+            val j = judgeOf(pid, one)["result"]
+            assertThat(j["items"][0]["claim"].asText()).isEqualTo("the cache grows")
+            assertThat(j["reply"].asText()).isEqualTo("Right, I clear it on logout.")
+            assertThat(j["batch_size"].asInt()).isEqualTo(3)                                // one call for three threads
+            assertThat(j["same_as"].single()["thread_id"].asText()).isEqualTo(other)
+        }
+        assertThat(judgeOf(pid, a)["result"]["same_as"][0].let { it["line"].asInt() to it["author"].asText() }).isEqualTo(4 to "alex")
+        assertThat(judgeOf(pid, b)["result"]["same_as"][0].let { it["line"].asInt() to it["author"].asText() }).isEqualTo(3 to "bo")
+        // checking one of them again shows the kept answer; the host's threads stay as they are (never merged there)
+        post("/api/projects/$pid/review/threads/$b/judge", mapOf("key" to "pr:7")).andExpect(status().isOk)
+        assertThat(asks()).isEqualTo(1)
+        assertThat(writes()).isEmpty()
+        assertThat(pr.threads.map { it.id }).contains(a, b)
+
+        // a single check of a thread in a group asks once for the group, too
+        hosts.github["acme/shop"]!![7]!!.threads.first { it.id == a }.comments += StubCodeHost.Comment(9998, "bo", "Still growing?")
+        answer("```keel-review-judge\n{\"items\": [{\"claim\": \"the cache grows\", \"verdict\": \"reviewer_right\", \"why\": \"x\"}], \"reply\": \"Yes.\"}\n```")
+        post("/api/projects/$pid/review/threads/$a/judge", mapOf("key" to "pr:7")).andExpect(status().isOk)
+        assertThat(asks()).isEqualTo(2)
+        assertThat(engine.lastBody("/agents/ask")!!["prompt"].asText()).contains("Still growing?").contains("This cache grows for every user")
+        assertThat(judgeOf(pid, b)["result"]["reply"].asText()).isEqualTo("Yes.")
+        assertThat(judgeOf(pid, b)["result"]["same_as"].single()["thread_id"].asText()).isEqualTo(a)
+    }
+
     // ---------------------------------------------------------------- the thread settings
 
     @Test

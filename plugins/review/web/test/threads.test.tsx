@@ -506,6 +506,66 @@ describe("the review threads", () => {
     ).toBe("- Reviewer (bo) is right: indexes — no index");
   });
 
+  it("the same point in two threads: Check all counts it once, each answer links the other, one reply answers both", async () => {
+    const { calls } = api();
+    // bo (line 3) and ana (line 40) make the same point: the view says so
+    const v = { ...view(), thread_groups: [["T2", "T4"]] };
+    const first = show(AI(), v);
+    // three open threads keel has not checked, two points
+    expect(
+      screen.getByRole("button", { name: "✦ Check all open (2)" }),
+    ).toBeInTheDocument();
+    first.unmount();
+
+    const reply = "One factory is enough here: I keep it.";
+    const same = (id: string, line: number, author: string) =>
+      run(
+        {
+          stage: "done",
+          items: [
+            { claim: "a factory", verdict: "author_right", why: "one caller" },
+          ],
+          reply,
+          same_as: [{ thread_id: id, path: "src/Prefs.kt", line, author }],
+        },
+        { kind: `judge:${id}` },
+      );
+    show(AI({ judges: { T2: same("T4", 40, "ana"), T4: same("T2", 3, "bo") } }), v);
+    const t2 = card(/Thread on src\/Prefs\.kt line 3$/);
+    const t4 = card(/line 40/);
+    const scrolled: Element[] = [];
+    const before = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = function () {
+      scrolled.push(this as Element);
+    };
+    try {
+      await userEvent.click(
+        within(t2).getByRole("button", {
+          name: "Same point as the thread on line 40 (ana)",
+        }),
+      );
+    } finally {
+      HTMLElement.prototype.scrollIntoView = before;
+    }
+    expect(scrolled).toEqual([t4]);
+    expect(
+      within(t4).getByRole("button", {
+        name: "Same point as the thread on line 3 (bo)",
+      }),
+    ).toBeInTheDocument();
+    // one reply for both: each box has it, nothing is posted
+    await userEvent.click(
+      within(t2).getByRole("button", { name: "Use as my reply on both" }),
+    );
+    expect(within(t2).getByRole("textbox", { name: "Your reply" })).toHaveValue(
+      reply,
+    );
+    expect(within(t4).getByRole("textbox", { name: "Your reply" })).toHaveValue(
+      reply,
+    );
+    expect(calls.filter((x) => x.method === "POST")).toEqual([]);
+  });
+
   it("asks keel to check a thread (with its estimate first) and says when it fails", async () => {
     const { calls } = api();
     show();

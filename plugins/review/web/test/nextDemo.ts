@@ -408,7 +408,7 @@ const run = <R>(
   created_at: at(10),
   updated_at: at(5),
 });
-const judged = (items: JudgeItem[], reply: string): AiRun<JudgeResult> =>
+export const judged = (items: JudgeItem[], reply: string): AiRun<JudgeResult> =>
   run("judge", { stage: "done", items, reply, tokens: 3800, model: "quick" });
 
 /** keel's check when you ask for it (th3, th5 have none yet). */

@@ -16,7 +16,8 @@
 //   └─────────────────────────────────────────────────────────────────────────────────────┘
 //
 // The same store actions as the classic Threads panel (R.judge, R.judgeAll, R.address, R.reply, R.resolve), and the
-// same kept reply drafts (a reply you started in one view is in the other).
+// same kept reply drafts (a reply you started in one view is in the other). Comments that make the same point are one
+// check: each answer links the others, and one reply can go into all of their drafts.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -39,8 +40,22 @@ import {
   type ReviewView,
 } from "../reviewApi";
 import * as R from "../store";
-import { ago, estimate, firstLine, initials, quoteThread } from "../Threads";
-import { checkLines, sidesOf, verdictLabel } from "../verdict";
+import {
+  ago,
+  estimate,
+  FillDraft,
+  firstLine,
+  initials,
+  quoteThread,
+  uncheckedPoints,
+} from "../Threads";
+import {
+  checkLines,
+  samePointLabel,
+  sidesOf,
+  useOnAllLabel,
+  verdictLabel,
+} from "../verdict";
 import {
   doneCheck,
   needsChange,
@@ -83,27 +98,28 @@ export function CommentsTab({
     },
   );
   const [openId, setOpenId] = useState<string | null>(null);
-  useEffect(() => {
-    if (!focus) return;
-    const t = view.threads.find((x) => x.id === focus.id);
+  // opens one comment and shows it (a marker in Files, or the same point's link)
+  const go = (id: string) => {
+    const t = view.threads.find((x) => x.id === id);
     if (!t) return;
-    setOpenId(focus.id);
+    setOpenId(id);
     if (t.resolved && filter !== "resolved") setFilter("resolved");
     if (!t.resolved && filter === "resolved") setFilter("open");
     window.setTimeout(
       () =>
         document
-          .querySelector(`[data-rvn-thread="${CSS.escape(focus.id)}"]`)
+          .querySelector(`[data-rvn-thread="${CSS.escape(id)}"]`)
           ?.scrollIntoView?.({ block: "nearest" }),
       0,
     );
+  };
+  useEffect(() => {
+    if (focus) go(focus.id);
   }, [focus?.n]); // eslint-disable-line react-hooks/exhaustive-deps
   const cfg = ai?.config;
   const quick = (cfg?.judge?.mode ?? "quick") === "quick";
-  const open = threadsOf(view, "open");
-  const unchecked = open.filter(
-    (t) => !t.pending && ai?.judges?.[t.id]?.status !== "done",
-  ).length;
+  // the same point in two comments is one check
+  const unchecked = uncheckedPoints(view, ai);
   const checkAllBusy = running.includes("judge-all");
   const list = threadsOf(view, filter);
   const chips: [ThreadFilter, string][] = [
@@ -144,7 +160,7 @@ export function CommentsTab({
             type="button"
             className="rvn-btn ghost accent"
             disabled={checkAllBusy}
-            title="One cheap call for every open comment keel has not checked yet"
+            title="One cheap call for every open point keel has not checked yet (the same point in two comments is one)"
             onClick={() => void R.judgeAll(pid, reviewKey)}
           >
             {checkAllBusy ? "Checking…" : `Check all open (${unchecked})`}
@@ -175,6 +191,7 @@ export function CommentsTab({
           t={t}
           open={openId === t.id}
           onToggle={() => setOpenId((o) => (o === t.id ? null : t.id))}
+          onGo={go}
           onShowInFile={onShowInFile}
         />
       ))}
@@ -282,6 +299,7 @@ function ThreadCard({
   t,
   open,
   onToggle,
+  onGo,
   onShowInFile,
 }: {
   pid: string;
@@ -292,6 +310,8 @@ function ThreadCard({
   t: ReviewThread;
   open: boolean;
   onToggle: () => void;
+  /** opens another comment (the same point) */
+  onGo: (threadId: string) => void;
   onShowInFile: (path: string, line: number | null) => void;
 }) {
   const assistant = useSlot(SLOTS.assistant).length > 0;
@@ -342,6 +362,13 @@ function ThreadCard({
     setText(s);
     setReplying(true);
     window.setTimeout(() => ta.current?.focus(), 0);
+  };
+  // the same point in other comments: keel checked them as one; its reply can go into each one's draft
+  const sameAs = check?.same_as ?? [];
+  const [fillOthers, setFillOthers] = useState<{ text: string; n: number } | null>(null);
+  const useOnAll = (s: string) => {
+    useReply(s);
+    setFillOthers((f) => ({ text: s, n: (f?.n ?? 0) + 1 }));
   };
   const send = async () => {
     setBusy(true);
@@ -486,6 +513,16 @@ function ThreadCard({
               aria-label="keel's check"
             >
               <b className="rvn-verdict-h">keel: {verdictLabel(sum, sides)}</b>
+              {sameAs.map((o) => (
+                <button
+                  key={o.thread_id}
+                  type="button"
+                  className="rvn-link rvn-same"
+                  onClick={() => onGo(o.thread_id)}
+                >
+                  {samePointLabel(o, view)}
+                </button>
+              ))}
               {run?.stale && (
                 <p className="rvn-dim">
                   The code changed since keel checked it.
@@ -511,6 +548,16 @@ function ThreadCard({
                     onClick={() => useReply(check.reply!)}
                   >
                     Use as my reply
+                  </button>
+                )}
+                {view.can_post && !t.pending && check.reply && sameAs.length > 0 && (
+                  <button
+                    type="button"
+                    className="rvn-btn"
+                    title="keel's reply into the draft of each comment that makes this point (nothing is posted)"
+                    onClick={() => useOnAll(check.reply!)}
+                  >
+                    {useOnAllLabel(sameAs.length)}
                   </button>
                 )}
                 {canWork &&
@@ -612,6 +659,15 @@ function ThreadCard({
               </div>
             </div>
           )}
+          {sameAs.map((o) => (
+            <FillDraft
+              key={o.thread_id}
+              pid={pid}
+              reviewKey={reviewKey}
+              threadId={o.thread_id}
+              fill={fillOthers}
+            />
+          ))}
           {addressed && (
             <a
               className="rvn-flow"

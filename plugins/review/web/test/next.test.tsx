@@ -14,7 +14,7 @@ import { App } from "../../../../web/src/App";
 import { db, server } from "../../../../web/src/test/setup";
 import { registerReviewTab } from "../next/tabs";
 import { prPill } from "../next/model";
-import { nextDemo, PRS } from "./nextDemo";
+import { judged, nextDemo, PRS } from "./nextDemo";
 
 const MODE = "keel2.review.view";
 
@@ -376,6 +376,81 @@ describe("the new Review view: one pull request", () => {
           ?.body,
       ).toMatchObject({ harder: true, again: true }),
     );
+  });
+
+  it("the same point in two comments: Check all counts it once, each answer links the other, one reply for both", async () => {
+    const demo = start();
+    const k = "pr:42";
+    const comment = (id: string, author: string, body: string) => ({
+      id,
+      author,
+      body,
+      at: new Date(Date.now() - 30 * 60000).toISOString(),
+    });
+    const on = (id: string, line: number, c: ReturnType<typeof comment>) => ({
+      id,
+      path: "orders/refunds.py",
+      line,
+      side: "RIGHT" as const,
+      resolved: false,
+      outdated: false,
+      comments: [c],
+    });
+    demo.views[k] = {
+      ...demo.views[k],
+      threads: [
+        ...demo.views[k].threads,
+        on("th6", 22, comment("c6", "alex", "A refund of 0 is let through.")),
+        on("th7", 24, comment("c7", "bo", "Refund of 0 goes through here.")),
+      ],
+      thread_groups: [["th6", "th7"]],
+    };
+    const { pr } = await openPr(42);
+    // th3, th6 and th7 are not checked: two points
+    const all = within(pr).getByRole("button", { name: "Check all open (2)" });
+    const reply = "Right: a refund must be more than 0. I add the check.";
+    const same = (id: string, line: number, author: string) => {
+      const r = judged(
+        [{ claim: "0 passes", verdict: "reviewer_right", why: "amount > 0 is not checked" }],
+        reply,
+      );
+      const as = [{ thread_id: id, path: "orders/refunds.py", line, author }];
+      return { ...r, result: { ...r.result!, same_as: as } };
+    };
+    demo.ai[k] = {
+      ...demo.ai[k],
+      judges: { ...demo.ai[k].judges, th6: same("th7", 24, "bo"), th7: same("th6", 22, "alex") },
+    };
+    await userEvent.click(all);
+    const card = (name: RegExp) => within(pr).getByRole("article", { name });
+    const th6 = card(/refunds\.py · line 22/);
+    await userEvent.click(within(th6).getByRole("button", { name: /alex/ }));
+    const check = within(th6).getByRole("region", { name: "keel's check" });
+    // the link opens the other comment
+    await userEvent.click(
+      within(check).getByRole("button", {
+        name: "Same point as the thread on line 24 (bo)",
+      }),
+    );
+    const th7 = card(/refunds\.py · line 24/);
+    expect(within(th7).getByRole("button", { name: /^refunds\.py · line 24/ }))
+      .toHaveAttribute("aria-expanded", "true");
+    expect(
+      within(th7).getByRole("button", {
+        name: "Same point as the thread on line 22 (alex)",
+      }),
+    ).toBeInTheDocument();
+    // one reply for both: each one's reply box has it, nothing is posted
+    await userEvent.click(
+      within(th7).getByRole("button", { name: "Use as my reply on both" }),
+    );
+    expect(within(th7).getByRole("textbox", { name: "Your reply" })).toHaveValue(reply);
+    await userEvent.click(within(th6).getByRole("button", { name: /alex/ }));
+    await userEvent.click(
+      within(th6).getByRole("button", { name: "Reply (draft kept)" }),
+    );
+    expect(within(th6).getByRole("textbox", { name: "Your reply" })).toHaveValue(reply);
+    expect(demo.calls.some((c) => c.path.endsWith("/reply"))).toBe(false);
   });
 
   it("Files: ticks a file viewed, adds a pending comment on a line, and a comment's marker opens it in Comments", async () => {

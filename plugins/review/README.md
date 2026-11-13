@@ -19,3 +19,21 @@ panel, the new Comments tab and a follow-up question to KeelBot (`web/verdict.ts
 | `unclear` | Unclear: keel could not decide |
 
 The reviewer is the first one in the thread who did not write the change; "you" is the person signed in.
+
+## The same point in two threads
+
+Two reviewers often say the same thing on lines close together. keel treats open threads as one point when they are in
+one file and on one side, at most 10 lines apart, and their first comments share two telling words or more (at least a
+third of the shorter one's).
+
+```
+ bo · line 3   "The page size cache is never cleared"  ─┐
+                                                        ├─▶ one check ─▶ the same answer on both
+ alex · line 4 "This cache grows and is never cleared" ─┘      "Same point as the thread on line 4 (alex)"
+```
+
+- **Check all open (N)** counts points, not threads: one model call for all of them, one section per point.
+- **✦ Is the reviewer right?** on one of them checks the point once, for all of its threads.
+- Each answer links the other threads: **Same point as the thread on line N (bo)** shows that thread.
+- **Use as my reply on both** puts keel's reply into each thread's reply box. You send each one.
+- keel never merges threads on GitHub or GitLab: they stay as they are.

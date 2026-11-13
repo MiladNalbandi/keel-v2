@@ -293,7 +293,8 @@ class ReviewService(
         return ReviewView(key, "pr", n, pr.title, pr.author, pr.body, pr.base, pr.branch, r.base, r.head, pr.url, pr.state, pr.draft, pr.sameRepo,
             checks, decisions.approved, decisions.changes, files, files.sumOf { it.added }, files.sumOf { it.removed },
             repo.commits(root, 100, null, "${r.base}..${r.head}"), threads, conversation, drafts(pid, key), viewed(pid, key, r.head),
-            pr.state == "open", h.ref, me(h), notes, pr.author.equals(me(h), true), pr.mergeable, pr.mergeState)
+            pr.state == "open", h.ref, me(h), notes, pr.author.equals(me(h), true), pr.mergeable, pr.mergeState,
+            threadGroups = ReviewJudgeService.groups(ReviewJudgeService.open(threads)).filter { it.size > 1 }.map { g -> g.map { it.id } })
     }
 
     private fun fileOf(root: Path, r: Refs, path: String): ChangedFile =

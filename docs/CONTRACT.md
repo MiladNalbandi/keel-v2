@@ -4006,3 +4006,11 @@ A step that fails no longer ends the flow by itself, and every crash is kept so 
   "Reviewer (ana) is right", "Author (you) is right", "Reviewer (ana) is partly right", "Unclear: keel could not decide".
   The reviewer is the first one in the thread who did not write the change. The verdict values stay `reviewer_right |
   author_right | partly | unclear`.
+- **The same point in two threads**: open threads in one file and side, at most 10 lines apart, whose first comments
+  share two telling words or more (at least a third of the shorter one's), are one point
+  (`ReviewJudgeService.samePoint`). `ReviewView.thread_groups: string[][]` lists the groups (ids, two or more each).
+  Check all (`POST …/review/threads/judge`) asks once per point (one `T<n>` section with all of its threads) and a single
+  check (`POST …/threads/{id}/judge`) checks the whole group; each thread's run gets the same items and reply, and
+  `result.same_as: [{thread_id, path, line, author}]` names the others (`[]` alone). `batch_size` is the number of
+  threads the call covered. The web counts Check all open by point and offers "Use as my reply on both" (it fills the
+  reply drafts; nothing is posted). Threads on the host are never merged.

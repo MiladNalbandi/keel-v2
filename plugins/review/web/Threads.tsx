@@ -2,7 +2,8 @@
 // (Waiting for your answer, Open, Resolved), one card per thread with the code lines it is on, its messages (yours
 // marked, "new" since your last visit, long ones folded) and its actions: Reply, ✦ Is the reviewer right? (keel's
 // cheap check, point by point), ✦ Address it (a flow on the pull request's branch), Resolve, and the extra buttons
-// from Settings › Code Review threads. keel never posts: a suggested reply goes into your reply box.
+// from Settings › Code Review threads. keel never posts: a suggested reply goes into your reply box. Threads that make
+// the same point are one check: each answer links the others, and one reply can go into all of their boxes.
 //
 //   ┌ Waiting for you · 2 ┐ ┌ Open · 3 ┐ ┌ Resolved · 1 ┐ ┌ All · 4 ┐
 //   ● WAITING FOR YOUR ANSWER
@@ -51,7 +52,14 @@ import {
   type Verdict,
 } from "./reviewApi";
 import * as R from "./store";
-import { checkLines, sidesOf, verdictLabel, type Sides } from "./verdict";
+import {
+  checkLines,
+  samePointLabel,
+  sidesOf,
+  useOnAllLabel,
+  verdictLabel,
+  type Sides,
+} from "./verdict";
 
 type Open = (
   path: string,
@@ -144,6 +152,43 @@ export function ago(at: string | undefined, now = Date.now()): string {
   if (m < 60) return `${m} min ago`;
   const h = Math.round(m / 60);
   return h < 24 ? `${h} h ago` : `${Math.round(h / 24)} d ago`;
+}
+
+/** The open threads keel has not checked, counted by point: threads that make the same point (the view's
+ *  thread_groups) are one check. */
+export function uncheckedPoints(view: ReviewView, ai: AiState | null): number {
+  const group = new Map<string, number>();
+  (view.thread_groups ?? []).forEach((g, i) => g.forEach((id) => group.set(id, i)));
+  const points = new Set<string>();
+  view.threads
+    .filter(
+      (t) =>
+        !t.resolved && !t.pending && ai?.judges?.[t.id]?.status !== "done",
+    )
+    .forEach((t) =>
+      points.add(group.has(t.id) ? `group ${group.get(t.id)}` : t.id),
+    );
+  return points.size;
+}
+
+/** Puts [fill]'s text into another thread's reply draft each time [fill] changes (one reply for the same point in two
+ *  threads): a box of that thread shows it at once, one opened later finds it. */
+export function FillDraft({
+  pid,
+  reviewKey,
+  threadId,
+  fill,
+}: {
+  pid: string;
+  reviewKey: string;
+  threadId: string;
+  fill: { text: string; n: number } | null;
+}) {
+  const [, setText] = R.useReviewDraft(pid, reviewKey, `reply.${threadId}`);
+  useEffect(() => {
+    if (fill) setText(fill.text);
+  }, [fill?.n]); // eslint-disable-line react-hooks/exhaustive-deps
+  return null;
 }
 
 const SEEN = (pid: string, key: string) => `keel2.review.seen.${pid}.${key}`;
@@ -260,9 +305,7 @@ export function ThreadsView({
   const cfg = ai?.config;
   const quickOn = (cfg?.judge?.mode ?? "quick") === "quick";
   const checkAllBusy = running.includes("judge-all");
-  const unchecked = open.filter(
-    (t) => !t.pending && ai?.judges?.[t.id]?.status !== "done",
-  ).length;
+  const unchecked = uncheckedPoints(view, ai);
 
   if (!view.threads.length && !view.conversation.length) {
     return (
@@ -355,7 +398,7 @@ export function ThreadsView({
             type="button"
             className="btn sm ghost rv-checkall"
             disabled={checkAllBusy}
-            title="One cheap call for every open thread keel has not checked yet"
+            title="One cheap call for every open point keel has not checked yet (the same point in two threads is one)"
             onClick={() => void R.judgeAll(pid, reviewKey)}
           >
             {checkAllBusy ? "Checking…" : `✦ Check all open (${unchecked})`}
@@ -689,7 +732,10 @@ export function ThreadBox({
   const [confirm, setConfirm] = useState<null | { note?: string; fix?: string }>(null);
   const [err, setErr] = useState<R.Err | null>(null);
   const [started, setStarted] = useState<string | null>(null);
+  // keel's reply put into the other threads of the same point (FillDraft)
+  const [fillOthers, setFillOthers] = useState<{ text: string; n: number } | null>(null);
   const ta = useRef<HTMLTextAreaElement>(null);
+  const self = useRef<HTMLElement>(null);
   const cfg = ai?.config;
   const quick = (cfg?.judge?.mode ?? "quick") === "quick";
   const flowName = cfg?.address_workflow ?? "address";
@@ -739,6 +785,17 @@ export function ThreadBox({
     setReplying(true);
     window.setTimeout(() => ta.current?.focus(), 0);
   };
+  // the same point in other threads: keel checked them as one
+  const sameAs = (judge?.status === "done" && judge.result?.same_as) || [];
+  const useOnAll = (s: string) => {
+    useReply(s);
+    setFillOthers((f) => ({ text: s, n: (f?.n ?? 0) + 1 }));
+  };
+  // shows another thread of the same point (in this panel, or in the code)
+  const goTo = (id: string) =>
+    (self.current?.closest(".rv-threads") ?? document)
+      .querySelector<HTMLElement>(`article[data-thread="${CSS.escape(id)}"]`)
+      ?.scrollIntoView?.({ block: "nearest" });
   const check = async (opts: { again?: boolean; harder?: boolean } = {}) => {
     setErr(null);
     if (!(await R.judge(pid, reviewKey, t.id, opts)))
@@ -791,6 +848,7 @@ export function ThreadBox({
 
   return (
     <article
+      ref={self}
       className={`rv-tcard${waiting ? " waiting" : ""}${t.resolved ? " resolved" : ""}${inline ? " inline" : ""}`}
       data-thread={t.id}
       aria-label={`Thread on ${t.path ?? "the pull request"}${t.line ? ` line ${linesLabel(t)}` : ""}`}
@@ -869,6 +927,12 @@ export function ThreadBox({
             flowName={flowName}
             allowHarder={cfg?.judge?.allow_harder ?? true}
             onUse={useReply}
+            same={sameAs.map((o) => ({
+              id: o.thread_id,
+              label: samePointLabel(o, view),
+            }))}
+            onGo={goTo}
+            onUseAll={useOnAll}
             onAddress={(r) => askFix(judgeNote(r))}
             onAsk={followUp}
             onAgain={(harder) => void check({ again: true, harder })}
@@ -894,6 +958,15 @@ export function ThreadBox({
             />
           );
         })}
+        {sameAs.map((o) => (
+          <FillDraft
+            key={o.thread_id}
+            pid={pid}
+            reviewKey={reviewKey}
+            threadId={o.thread_id}
+            fill={fillOthers}
+          />
+        ))}
         {(addressed || started) && (
           <p className="rv-tnote" role="status">
             {started ??
@@ -1143,6 +1216,9 @@ export function CheckBox({
   flowName,
   allowHarder,
   onUse,
+  same = [],
+  onGo,
+  onUseAll,
   onAddress,
   onAsk,
   onAgain,
@@ -1159,6 +1235,11 @@ export function CheckBox({
   flowName: string;
   allowHarder: boolean;
   onUse: (text: string) => void;
+  /** the other threads of the same point: their ids and links' words */
+  same?: { id: string; label: string }[];
+  onGo?: (threadId: string) => void;
+  /** the reply into this thread's box and the other threads' of the point */
+  onUseAll?: (text: string) => void;
   onAddress: (r: JudgeResult | null) => void;
   onAsk: (r: JudgeResult | null) => void;
   onAgain: (harder: boolean) => void;
@@ -1239,6 +1320,16 @@ export function CheckBox({
               This check used more than its cap of {kfmt(r.cap ?? 0)} tokens.
             </p>
           )}
+          {same.map((o) => (
+            <button
+              key={o.id}
+              type="button"
+              className="rv-link rv-same"
+              onClick={() => onGo?.(o.id)}
+            >
+              {o.label}
+            </button>
+          ))}
           <ul className="rv-verdicts">
             {items.map((it, i) => {
               return (
@@ -1262,6 +1353,16 @@ export function CheckBox({
                 onClick={() => onUse(r.reply!)}
               >
                 Use as my reply
+              </button>
+            )}
+            {canPost && r?.reply && same.length > 0 && onUseAll && (
+              <button
+                type="button"
+                className="btn sm"
+                title="keel's reply into the reply box of each thread that makes this point (nothing is posted)"
+                onClick={() => onUseAll(r.reply!)}
+              >
+                {useOnAllLabel(same.length)}
               </button>
             )}
             {needsChange && (

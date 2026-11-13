@@ -153,6 +153,8 @@ export type ReviewView = {
   base_choice?: "remote" | "local" | null;
   /** 0.18.65 keel init's setup commits at the branch's bottom, left out of the review */
   setup_left_out?: string[];
+  /** open threads that make the same point, by id: keel checks each group once */
+  thread_groups?: string[][];
 };
 export type CodePlace = {
   path: string;
@@ -238,6 +240,13 @@ export type JudgeItem = {
   why: string;
   fix?: string | null;
 };
+/** Another open thread that makes the same point: keel checked them as one. */
+export type SameAs = {
+  thread_id: string;
+  path: string | null;
+  line: number | null;
+  author: string | null;
+};
 /** keel's check of one thread ("Is the reviewer right?"), an extra button's answer, or the flow one started. */
 export type JudgeResult = {
   stage: "check" | "done" | "capped" | "flow";
@@ -259,6 +268,8 @@ export type JudgeResult = {
   over_cap?: boolean;
   checked_at?: string;
   batch_size?: number;
+  /** the other threads of its group (the same point): the same answer is on each */
+  same_as?: SameAs[];
   context?: { code_lines: number; hunk_lines: number; files: number };
   /** a flow it started (workflow mode) */
   flow_id?: string;
