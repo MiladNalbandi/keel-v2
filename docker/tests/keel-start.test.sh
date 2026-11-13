@@ -274,16 +274,16 @@ check "exit code 1" is "$code" 1
 check "it says so" says "engine failed to start"
 check "the api never started" is "$(count 'api start')" 0
 
-new_case "the api's JVM: a quarter of the memory and Serial GC by default; JAVA_OPTS replaces them"
+new_case "the api's JVM: a quarter of the memory and Serial GC by default; JAVA_OPTS replaces them, never the crash guard"
 plan "up 3"
 start_bg KEEL_API_CMD=
 wait_exit
-check "default heap cap and GC" logs "java opts: -XX:MaxRAMPercentage=25 -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -Xss512k$"
+check "default heap cap and GC" logs "java opts: -XX:+PerfDisableSharedMem -XX:MaxRAMPercentage=25 -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -Xss512k$"
 new_case "JAVA_OPTS set: used as they are"
 plan "up 3"
 start_bg KEEL_API_CMD= JAVA_OPTS="-Xmx512m"
 wait_exit
-check "the person's options" logs "java opts: -Xmx512m$"
+check "the person's options, after the crash guard (#99: no hsperfdata file, so a full disk is no SIGBUS)" logs "java opts: -XX:+PerfDisableSharedMem -Xmx512m$"
 
 new_case "0.24.0 the Python api in front: the Kotlin api moves to 127.0.0.1:8081; TERM stops all three"
 start_bg KEEL_FRONT_CMD="$BIN/front" KEEL_BACK_HEALTH_URL="file://$T/api.up" KEEL_API_HEALTH_URL="file://$T/front.up"

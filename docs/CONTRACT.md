@@ -3844,3 +3844,9 @@ Goals gets an engine part (`engine: { path: engine, package: keel_plugin_goals }
 max_flows?, project?}`, `keel_goal_plan {goal}`, `keel_goal_start_step {goal, step}` (step: id or number),
 `keel_goal_skip_step` (confirm), `keel_goal_status {goal, status: done | stopped}` (confirm). `GoalsMcpRoutes` names their
 write routes; `POST …/goals/{id}/limits` stays admin.
+
+## Next: the api survives a full disk (issue #99)
+
+`docker/keel-start` starts the Kotlin api with `-XX:+PerfDisableSharedMem` always, ahead of the default options or the
+person's `JAVA_OPTS`. The JVM keeps its counters in memory instead of a file mapped from `/tmp` (`hsperfdata`): with a
+full disk, reading that file killed the api with SIGBUS, and every open `keel2 mcp` session dropped with it.
