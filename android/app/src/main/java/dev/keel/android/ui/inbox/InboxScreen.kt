@@ -43,6 +43,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.keel.android.data.isFailedStep
 import dev.keel.android.data.InboxItem
 import dev.keel.android.data.PrSummary
 import dev.keel.android.data.ago
@@ -117,7 +118,7 @@ fun InboxScreen(
                         item(key = (it.id ?: it.threadId) + it.kind) {
                             if (it.kind == "permission") PermissionCard(it, ui.busy == (it.permission?.id ?: it.id), vm::decide)
                             else QuestionCard(it, onClick = {
-                                if (it.kind == "fix") onFlow(it.projectId, it.threadId) else onQuestion(it.projectId, it.threadId)
+                                if (it.kind == "fix" || it.kind == "crash") onFlow(it.projectId, it.threadId) else onQuestion(it.projectId, it.threadId)
                             })
                         }
                     }
@@ -160,6 +161,7 @@ private data class Look(val tag: String, val soft: androidx.compose.ui.graphics.
 private fun lookOf(it: InboxItem): Look {
     val c = K.c
     return when {
+        isFailedStep(it.kind, it.title) -> Look("Step failed", c.badSoft, c.badInk, c.badBorder)
         it.kind == "fix" -> Look("Stuck", c.badSoft, c.badInk, c.badBorder)
         it.kind == "clarify" && it.questions.orEmpty().any { q -> q.multiple } -> Look("Pick any", c.warnSoft, c.warnInk, c.border)
         it.kind == "clarify" -> Look("Question", c.accentSoft, c.accentInk, c.accentBorder)

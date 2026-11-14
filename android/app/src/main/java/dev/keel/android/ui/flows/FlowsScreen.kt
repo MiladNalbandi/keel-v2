@@ -68,6 +68,7 @@ fun lookOf(status: String): StateLook = when (status) {
 fun stateText(r: RunRow): Pair<String, String> {
     val stuck = r.status == "waiting" && (r.waiting.orEmpty().contains("still red", true) || r.waiting.orEmpty().contains("stuck", true))
     return when {
+        r.status == "waiting" && r.waiting.orEmpty().endsWith(" failed") -> "stuck" to "Step failed · ${r.waiting.orEmpty().removeSuffix(" failed")}"
         stuck -> "stuck" to "Stuck · ${r.waiting}"
         r.status == "waiting" -> "waiting" to "◆ Waits for you"
         r.status == "running" -> "running" to "Running · ${r.current ?: r.phase ?: "…"}"

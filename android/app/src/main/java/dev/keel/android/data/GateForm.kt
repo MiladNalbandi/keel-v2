@@ -34,6 +34,7 @@ data class GateForm(
             val r = pickedRow ?: return null
             return when {
                 r.why == "none" -> null
+                plain && r.name == REJECT && waiting.kind == "fix" -> "A note for keel (optional)"
                 plain && r.name == REJECT -> "What should keel change?"
                 r.why == "required" -> "Why? (needed)"
                 else -> "A note for keel (optional)"
@@ -64,8 +65,8 @@ data class GateForm(
             val r = pickedRow
             return when {
                 r == null -> if (questions.isNotEmpty()) "Send the answers" else "Choose one first"
-                plain && r.name == APPROVE -> waiting.labels?.approve ?: "Approve"
-                plain && r.name == REJECT -> "Send it back"
+                plain && r.name == APPROVE -> waiting.labels?.approve ?: r.label
+                plain && r.name == REJECT -> if (waiting.kind == "fix") r.label else "Send it back"
                 plain && r.name == STOP -> "Stop the flow"
                 else -> r.label
             }
@@ -93,6 +94,14 @@ data class GateForm(
             val named = choiceRows(w.choices, w.choiceInfo)
             if (named.isNotEmpty()) {
                 return GateForm(threadId, w, named, plain = false, picked = (named.firstOrNull { it.default } ?: named.first()).name)
+            }
+            if (w.kind == "fix" && w.labels?.approve == null && APPROVE in w.options && REJECT in w.options) {
+                // a step that failed (the flow doctor) or got stuck: approve runs it again, reject stops the flow
+                val rows = listOf(
+                    ChoiceInfo(APPROVE, "Try again", "keel runs the step again. Fix what the message says first.", "none", true),
+                    ChoiceInfo(REJECT, "Stop the flow", "The flow ends here. Its commits so far stay.", "optional"),
+                )
+                return GateForm(threadId, w, rows, plain = true, picked = APPROVE)
             }
             val rows = buildList {
                 if (APPROVE in w.options) add(ChoiceInfo(APPROVE, w.labels?.approve ?: "Approve", "The flow goes on to its next step.", "none", true))

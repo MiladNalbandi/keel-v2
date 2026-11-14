@@ -224,6 +224,29 @@ fun toolLines(steps: List<JobStep>): String = steps.mapNotNull { s ->
     }
 }.joinToString("\n")
 
+/** How keel reaches a provider (the web's ModelPicker): its API, whatever mode a saved model still says (#101). */
+fun reachWord(provider: String): String = when (provider) {
+    "copilot" -> "API key (GitHub Models)"
+    "vertex" -> "Google Cloud"
+    "local" -> "Local server"
+    else -> "API key"
+}
+
+/** #101 the flow doctor's pause: a step failed and keel could not repair it by itself. Kind "crash" (any step), or an
+ *  agent step's "fix" whose title is "<step> failed" (flowdoctor/repair.py pause_of). */
+fun isFailedStep(kind: String?, title: String?, crash: CrashInfo? = null): Boolean =
+    crash != null || kind == "crash" || (kind == "fix" && title.orEmpty().endsWith(" failed"))
+
+/** A failed step's text without what the screen already says: the crash's title and advice (shown above it) and the
+ *  engine's "Approve to try again…" / "retry: …" lines (the buttons say it). What is left: what happened, and the repairs. */
+fun crashDetail(detail: String, crash: CrashInfo?): String {
+    if (crash == null) return detail.trim()
+    return detail.split(Regex("\n\\s*\n")).map { it.trim() }.filter { p ->
+        p.isNotEmpty() && !(crash.title.isNotBlank() && p.startsWith(crash.title)) &&
+            !p.startsWith("Approve to try again") && !p.startsWith("retry:")
+    }.joinToString("\n\n")
+}
+
 /** keel's verdict words for the check card. */
 fun verdictLabel(v: String): String = when (v) {
     "reviewer_right" -> "REVIEWER IS RIGHT"

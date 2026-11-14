@@ -70,6 +70,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.keel.android.data.ANSWERS_PREFIX
+import dev.keel.android.data.reachWord
 import dev.keel.android.data.ClarifyQuestion
 import dev.keel.android.data.HelperMessage
 import dev.keel.android.data.ago
@@ -431,7 +432,7 @@ private fun ModelSheet(ui: ChatUi, vm: ChatViewModel) {
                     ChipRow(ui.catalog.map { it.id to it.label }, provider) { provider = it }
                     if ((p?.modes?.size ?: 0) > 1) {
                         SheetLabel("Runs on")
-                        ChipRow(p!!.modes.keys.map { it to modeWord(provider, it) }, mode) { mode = it }
+                        ChipRow(p!!.modes.keys.map { it to reachWord(provider) }.distinctBy { it.second }, mode) { mode = it }
                     }
                     SheetLabel("Model")
                     models.forEach { cm -> ChoiceRowSmall(cm.label, cm.id == model) { model = cm.id } }
@@ -441,19 +442,11 @@ private fun ModelSheet(ui: ChatUi, vm: ChatViewModel) {
                 }
             }
             InlineError(ui.catalogError)
-            Text("Claude and Codex continue their own session; other models get the conversation so far.", fontSize = 12.sp, color = K.c.dim, lineHeight = 17.sp)
+            Text("Runs on ${reachWord(provider)}. keel keeps this chat: another model goes on with the same conversation.", fontSize = 12.sp, color = K.c.dim, lineHeight = 17.sp)
             dev.keel.android.ui.common.PrimaryButton("Use ${listOfNotNull(model.ifBlank { null }, effort).joinToString(" · ").ifBlank { "it" }}",
                 { vm.setModel(Model(provider, mode, model, effort)) }, enabled = model.isNotBlank())
         }
     }
-}
-
-private fun modeWord(p: String, m: String) = when {
-    p == "copilot" && m == "subscription" -> "Copilot CLI"
-    p == "copilot" && m == "opencode" -> "OpenCode"
-    m == "subscription" -> "Subscription"
-    m == "api" -> "API key"
-    else -> m
 }
 
 @Composable

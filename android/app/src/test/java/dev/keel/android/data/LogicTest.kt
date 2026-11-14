@@ -102,4 +102,20 @@ class LogicTest {
         assertTrue(!optionChangesFiles(QuestionOption("Start a fix flow", "test first")))
         assertTrue(!optionChangesFiles(QuestionOption("Explain more")))
     }
+
+    @Test
+    fun `names a failed step and how keel reaches a provider (0_26)`() {
+        org.junit.Assert.assertTrue(isFailedStep("crash", "commit failed"))
+        org.junit.Assert.assertTrue(isFailedStep("fix", "make the change failed"))
+        org.junit.Assert.assertTrue(isFailedStep("gate", "x", CrashInfo("auth")))
+        org.junit.Assert.assertFalse(isFailedStep("fix", "AC-3 is still red after 3 tries. What now?"))
+        assertEquals("API key", reachWord("claude"))
+        assertEquals("API key (GitHub Models)", reachWord("copilot"))
+        assertEquals("Local server", reachWord("local"))
+        val c = CrashInfo("auth", "The provider refused the key", "Check the key, then retry.")
+        val detail = "The provider refused the key. Check the key, then retry.\n\nWhat happened (auth): 401\n\nkeel tried 1 repair(s) by itself first.\n\n" +
+            "Approve to try again, reject to stop the flow."
+        assertEquals("What happened (auth): 401\n\nkeel tried 1 repair(s) by itself first.", crashDetail(detail, c))
+        assertEquals("x\n\ny", crashDetail("x\n\ny\n", null))
+    }
 }

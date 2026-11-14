@@ -139,7 +139,13 @@ data class Waiting(
     val choices: List<String>? = null,
     val choiceInfo: List<ChoiceInfo>? = null,
     val name: String? = null,
+    /** #101 the flow doctor's pause: what failed and what to do (flowdoctor/classify.py), when a step failed */
+    val crash: CrashInfo? = null,
 )
+
+/** #101 a crash the flow doctor named: its kind (auth, rate-limit, disk-full …), title and what to do. */
+@Serializable
+data class CrashInfo(val kind: String = "", val title: String = "", val fix: String = "", val repair: String? = null)
 
 @Serializable
 data class Usage(
@@ -421,7 +427,7 @@ data class PatchSession(val mode: String? = null, val title: String? = null, val
 /** One model of the catalog (GET /api/providers/models): its efforts, when it has its own list. */
 data class CatalogModel(val id: String, val label: String, val efforts: List<String>? = null)
 
-/** One provider of the catalog: the modes it runs on (subscription, api, opencode...) with their models. */
+/** One provider of the catalog: its models by mode (keel 0.26 sends only "api": every model runs on its API key). */
 data class CatalogProvider(val id: String, val label: String, val modes: Map<String, List<CatalogModel>>, val efforts: List<String>) {
     fun effortsOf(model: String, mode: String): List<String> = modes[mode]?.firstOrNull { it.id == model }?.efforts ?: efforts
 }
