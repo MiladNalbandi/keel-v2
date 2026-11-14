@@ -221,8 +221,8 @@ private fun InlineThread(t: ReviewThread, ui: ThreadUi, vm: ThreadViewModel, exp
         if (expanded) Column(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             ThreadComments(t, ui)
             val run = ui.ai.judges[t.id]
-            if (run != null && t.id !in ui.dismissed) CheckCard(t, run, ui, vm, busy = ui.busy == "judge")
-            dev.keel.android.data.fixNote(ui.ai.fixed[t.id], t)?.let { FixLine(it, t, ui, vm) }
+            dev.keel.android.ui.common.Reveal(run?.takeIf { t.id !in ui.dismissed }) { CheckCard(t, it, ui, vm, busy = ui.busy == "judge") }
+            dev.keel.android.ui.common.Reveal(dev.keel.android.data.fixNote(ui.ai.fixed[t.id], t)) { FixLine(it, t, ui, vm) }
             if (!t.resolved) ThreadActions(t, ui, vm)
         }
     }

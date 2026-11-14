@@ -83,6 +83,16 @@ import dev.keel.android.ui.common.InlineError
 import dev.keel.android.ui.common.KCard
 import dev.keel.android.ui.common.KeelMark
 import dev.keel.android.ui.common.Loading
+import dev.keel.android.ui.common.Reveal
+import dev.keel.android.ui.theme.KeelMotion
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import dev.keel.android.ui.common.Phases
 import dev.keel.android.ui.common.PillButton
 import dev.keel.android.ui.common.Tag
 import dev.keel.android.ui.pair.Banner
@@ -122,6 +132,8 @@ fun ThreadScreen(vm: ThreadViewModel, onBack: () -> Unit, onFile: (String) -> Un
             }
         }
         PullToRefreshBox(isRefreshing = ui.refreshing, onRefresh = vm::refresh, modifier = Modifier.weight(1f)) {
+            Phases(ui, { x -> when { x.loading -> 0; x.error != null -> 1; x.view == null -> 2; else -> 3 } }) { ui ->
+            val v = ui.view
             when {
                 ui.loading -> Loading()
                 ui.error != null -> ErrorState(ui.error!!, { vm.load() })
@@ -130,9 +142,19 @@ fun ThreadScreen(vm: ThreadViewModel, onBack: () -> Unit, onFile: (String) -> Un
                     Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    ui.note?.let { Banner(it, null, K.c.okSoft, K.c.okInk) }
+                    Reveal(ui.note) { Banner(it, null, K.c.okSoft, K.c.okInk) }
                     InlineError(ui.actionError, vm::clearNote)
-                    when (ui.tab) {
+                    // the tabs slide the way the tab row goes (#113)
+                    AnimatedContent(
+                        ui.tab,
+                        transitionSpec = {
+                            val on = targetState.ordinal > initialState.ordinal
+                            (slideInHorizontally(KeelMotion.defaultSpatialSpec()) { w -> if (on) w / 6 else -w / 6 } + fadeIn(KeelMotion.defaultEffectsSpec())) togetherWith
+                                (slideOutHorizontally(KeelMotion.defaultSpatialSpec()) { w -> if (on) -w / 6 else w / 6 } + fadeOut(KeelMotion.fastEffectsSpec()))
+                        },
+                        label = "pr tab",
+                    ) { tab -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    when (tab) {
                         PrTab.THREADS -> Threads(ui, vm)
                         PrTab.FILES -> {
                             if (v.files.isEmpty()) EmptyState("No files", "This pull request changes no file.")
@@ -164,11 +186,13 @@ fun ThreadScreen(vm: ThreadViewModel, onBack: () -> Unit, onFile: (String) -> Un
                             }
                         }
                     }
+                    } }
                 }
+            }
             }
         }
         PendingBar(ui, vm)
-        if (ui.tab == PrTab.THREADS && ui.current != null) ThreadFooter(ui, vm)
+        AnimatedVisibility(ui.tab == PrTab.THREADS && ui.current != null, enter = KeelMotion.reveal, exit = KeelMotion.hide, label = "thread footer") { ThreadFooter(ui, vm) }
     }
 }
 
@@ -199,8 +223,8 @@ private fun ThreadCard(t: ReviewThread, ui: ThreadUi, vm: ThreadViewModel, selec
         ui.snippets[t.id]?.takeIf { it.isNotEmpty() }?.let { Snippet(it) }
         ThreadComments(t, ui)
         val run = ui.ai.judges[t.id]
-        if (run != null && t.id !in ui.dismissed) CheckCard(t, run, ui, vm, busy = ui.busy == "judge")
-        fixNote(ui.ai.fixed[t.id], t)?.let { FixLine(it, t, ui, vm) }
+        Reveal(run?.takeIf { t.id !in ui.dismissed }) { CheckCard(t, it, ui, vm, busy = ui.busy == "judge") }
+        Reveal(fixNote(ui.ai.fixed[t.id], t)) { FixLine(it, t, ui, vm) }
         ui.ai.addressed[t.id]?.let { a -> Text("keel addresses it: ${a.title}${a.branch?.let { b -> " · $b" } ?: ""}", fontSize = 12.sp, color = K.c.okInk) }
     }
 }

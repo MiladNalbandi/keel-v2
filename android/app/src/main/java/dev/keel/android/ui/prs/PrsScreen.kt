@@ -33,6 +33,7 @@ import dev.keel.android.ui.common.EmptyState
 import dev.keel.android.ui.common.ErrorState
 import dev.keel.android.ui.common.KCard
 import dev.keel.android.ui.common.Loading
+import dev.keel.android.ui.common.Phases
 import dev.keel.android.ui.common.Segmented
 import dev.keel.android.ui.common.Tag
 import dev.keel.android.ui.theme.K
@@ -51,6 +52,7 @@ fun PrsScreen(vm: PrsViewModel, onOpen: (Int) -> Unit) {
             Segmented(listOf("review" to "To review", "mine" to "Mine", "all" to "All"), ui.filter, vm::setFilter, Modifier.fillMaxWidth(), height = 40.dp)
         }
         PullToRefreshBox(isRefreshing = ui.refreshing, onRefresh = vm::refresh, modifier = Modifier.fillMaxSize()) {
+            Phases(ui, { s -> when { s.loading && s.list == null -> 0; s.error != null && s.list == null -> 1; else -> 2 } }) { ui ->
             val list = ui.list
             when {
                 ui.loading && list == null -> Loading()
@@ -63,8 +65,9 @@ fun PrsScreen(vm: PrsViewModel, onOpen: (Int) -> Unit) {
                             if (list.host == null) "keel finds pull requests on GitHub or GitLab once the project has a remote and keel has a token." else "Pull down to look again.",
                         )
                     }
-                    items(list?.prs.orEmpty(), key = { it.number }) { p -> PrCard(p, list?.me) { onOpen(p.number) } }
+                    items(list?.prs.orEmpty(), key = { it.number }) { p -> Box(Modifier.animateItem()) { PrCard(p, list?.me) { onOpen(p.number) } } }
                 }
+            }
             }
         }
     }

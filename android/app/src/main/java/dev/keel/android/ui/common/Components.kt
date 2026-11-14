@@ -60,6 +60,22 @@ import androidx.compose.ui.unit.sp
 import dev.keel.android.data.KeelException
 import dev.keel.android.data.STEP_NAMES
 import dev.keel.android.ui.theme.K
+import dev.keel.android.ui.theme.KeelMotion
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.composed
 import dev.keel.android.ui.theme.Mono
 
 /** True while the app shows the demo keel's fake data (AppRoot provides it). */
@@ -131,9 +147,14 @@ fun KCard(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val shape = RoundedCornerShape(16.dp)
+    val press = remember { MutableInteractionSource() }
+    val edge by animateColorAsState(border, KeelMotion.defaultEffectsSpec(), label = "card border")
     Column(
-        modifier.fillMaxWidth().clip(shape).background(bg).border(1.dp, border, shape)
-            .then(if (onClick != null) Modifier.clickable(onClickLabel = clickLabel, role = Role.Button, onClick = onClick) else Modifier)
+        modifier.pressScale(press, 0.98f).fillMaxWidth().animateContentSize(KeelMotion.size).clip(shape).background(bg).border(1.dp, edge, shape)
+            .then(
+                if (onClick != null) Modifier.clickable(interactionSource = press, indication = LocalIndication.current, onClickLabel = clickLabel, role = Role.Button, onClick = onClick)
+                else Modifier,
+            )
             .padding(padding),
         verticalArrangement = Arrangement.spacedBy(10.dp),
         content = content,
@@ -177,12 +198,14 @@ fun ChoiceRow(
     multiple: Boolean = false,
 ) {
     val shape = RoundedCornerShape(14.dp)
+    val fill by animateColorAsState(if (selected) K.c.accentSoft else idleBg, KeelMotion.defaultEffectsSpec(), label = "choice fill")
+    val edge by animateColorAsState(if (selected) K.c.accent else K.c.border, KeelMotion.defaultEffectsSpec(), label = "choice edge")
     val sel = if (multiple) Modifier.toggleable(selected, role = Role.Checkbox, onValueChange = { onClick() })
     else Modifier.selectable(selected, role = Role.RadioButton, onClick = onClick)
     Row(
         Modifier.fillMaxWidth().heightIn(min = 52.dp).clip(shape)
-            .background(if (selected) K.c.accentSoft else idleBg)
-            .border(1.dp, if (selected) K.c.accent else K.c.border, shape)
+            .background(fill)
+            .border(1.dp, edge, shape)
             .then(sel)
             .padding(horizontal = 14.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -203,14 +226,19 @@ fun ChoiceRow(
 @Composable
 fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, busy: Boolean = false) {
     val shape = RoundedCornerShape(26.dp)
+    val press = remember { MutableInteractionSource() }
+    val fill by animateColorAsState(if (enabled) K.c.accent else K.c.accent.copy(alpha = 0.4f), KeelMotion.defaultEffectsSpec(), label = "button fill")
     Box(
-        modifier.fillMaxWidth().height(52.dp).clip(shape)
-            .background(if (enabled) K.c.accent else K.c.accent.copy(alpha = 0.4f))
-            .clickable(enabled = enabled && !busy, role = Role.Button, onClick = onClick),
+        modifier.pressScale(press, 0.97f).fillMaxWidth().height(52.dp).clip(shape)
+            .background(fill)
+            .clickable(interactionSource = press, indication = LocalIndication.current, enabled = enabled && !busy, role = Role.Button, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        if (busy) CircularProgressIndicator(Modifier.size(22.dp), color = K.c.onAccent, strokeWidth = 2.dp)
-        else Text(text, color = K.c.onAccent, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+        // the label, the spinner while it works, and a new label cross-fade
+        AnimatedContent(if (busy) null else text, transitionSpec = { fadeIn(KeelMotion.defaultEffectsSpec()) togetherWith fadeOut(KeelMotion.fastEffectsSpec()) }, label = "button label") { t ->
+            if (t == null) CircularProgressIndicator(Modifier.size(22.dp), color = K.c.onAccent, strokeWidth = 2.dp)
+            else Text(t, color = K.c.onAccent, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+        }
     }
 }
 
@@ -230,10 +258,11 @@ fun PillButton(
     val bg = when { filled -> K.c.accent; tinted -> K.c.checkBg; else -> Color.Transparent }
     val fg = when { filled -> K.c.onAccent; tinted -> K.c.accentInk; else -> K.c.fg }
     val border = when { filled -> null; tinted -> K.c.accentBorder; else -> K.c.border }
+    val press = remember { MutableInteractionSource() }
     Box(
-        modifier.heightIn(min = height).clip(shape).background(bg)
+        modifier.pressScale(press, 0.95f).heightIn(min = height).clip(shape).background(bg)
             .then(if (border != null) Modifier.border(1.dp, border, shape) else Modifier)
-            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .clickable(interactionSource = press, indication = LocalIndication.current, enabled = enabled, role = Role.Button, onClick = onClick)
             .padding(horizontal = 14.dp),
         contentAlignment = Alignment.Center,
     ) {
@@ -294,7 +323,11 @@ fun ErrorState(error: Throwable, onRetry: () -> Unit, modifier: Modifier = Modif
 /** An error inside a screen that still shows its data (a send that failed). */
 @Composable
 fun InlineError(error: Throwable?, onDismiss: (() -> Unit)? = null) {
-    if (error == null) return
+    Reveal(error) { e -> ErrorBox(e, onDismiss) }
+}
+
+@Composable
+private fun ErrorBox(error: Throwable, onDismiss: (() -> Unit)?) {
     val k = error as? KeelException
     val shape = RoundedCornerShape(12.dp)
     Row(
@@ -388,9 +421,10 @@ fun Segmented(options: List<Pair<String, String>>, picked: String, onPick: (Stri
     Row(modifier.height(height).clip(shape).border(1.dp, K.c.border, shape)) {
         options.forEachIndexed { i, (id, label) ->
             val on = id == picked
+            val fill by animateColorAsState(if (on) K.c.accentSoft else K.c.accentSoft.copy(alpha = 0f), KeelMotion.defaultEffectsSpec(), label = "segment")
             if (i > 0) Box(Modifier.width(1.dp).fillMaxHeight().background(K.c.border))
             Box(
-                Modifier.weight(1f).fillMaxHeight().background(if (on) K.c.accentSoft else Color.Transparent)
+                Modifier.weight(1f).fillMaxHeight().background(fill)
                     .selectable(on, role = Role.Tab, onClick = { onPick(id) }),
                 contentAlignment = Alignment.Center,
             ) {
@@ -405,12 +439,44 @@ fun Segmented(options: List<Pair<String, String>>, picked: String, onPick: (Stri
 @Composable
 fun FilterChipK(label: String, on: Boolean, onClick: () -> Unit) {
     val shape = RoundedCornerShape(8.dp)
+    val fill by animateColorAsState(if (on) K.c.accentSoft else K.c.accentSoft.copy(alpha = 0f), KeelMotion.defaultEffectsSpec(), label = "chip fill")
+    val edge by animateColorAsState(if (on) K.c.accent else K.c.border, KeelMotion.defaultEffectsSpec(), label = "chip edge")
     Box(
         Modifier.height(48.dp).padding(vertical = 6.dp).clip(shape)
-            .background(if (on) K.c.accentSoft else Color.Transparent)
-            .border(1.dp, if (on) K.c.accent else K.c.border, shape)
+            .background(fill)
+            .border(1.dp, edge, shape)
             .selectable(on, role = Role.Tab, onClick = onClick)
             .padding(horizontal = 14.dp),
         contentAlignment = Alignment.Center,
     ) { Text(label, color = if (on) K.c.accentInk else K.c.text2, fontSize = 13.sp, fontWeight = FontWeight.Medium) }
+}
+
+/** Sinks a little while pressed and springs back (Material 3 expressive): the finger feels the press land. */
+fun Modifier.pressScale(source: MutableInteractionSource, pressed: Float = 0.97f): Modifier = composed {
+    val down by source.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (down) pressed else 1f, KeelMotion.fastSpatialSpec(), label = "press")
+    graphicsLayer { scaleX = scale; scaleY = scale }
+}
+
+/** Shows [value] while it is there: it fades in and opens its room, and when it goes it fades and closes, still showing
+ *  what it showed last (a banner, keel's check, an error). */
+@Composable
+fun <T : Any> Reveal(value: T?, modifier: Modifier = Modifier, content: @Composable (T) -> Unit) {
+    val last = remember { arrayOfNulls<Any>(1) }
+    if (value != null) last[0] = value
+    AnimatedVisibility(value != null, modifier, enter = KeelMotion.reveal, exit = KeelMotion.hide, label = "reveal") {
+        @Suppress("UNCHECKED_CAST")
+        (value ?: last[0] as T?)?.let { content(it) }
+    }
+}
+
+/** A screen's states (loading, an error, nothing, its content) cross-fade instead of jumping. [phase] names the state;
+ *  [content] gets the screen's state as it was for that phase, so a leaving error still has its error. */
+@Composable
+fun <T> Phases(state: T, phase: (T) -> Any, modifier: Modifier = Modifier, content: @Composable (T) -> Unit) {
+    AnimatedContent(
+        state, modifier,
+        transitionSpec = { fadeIn(KeelMotion.slowEffectsSpec()) togetherWith fadeOut(KeelMotion.fastEffectsSpec()) },
+        contentKey = phase, label = "phases",
+    ) { content(it) }
 }

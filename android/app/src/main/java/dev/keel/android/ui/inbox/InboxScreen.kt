@@ -56,6 +56,7 @@ import dev.keel.android.ui.common.InlineError
 import dev.keel.android.ui.common.KCard
 import dev.keel.android.ui.common.KeelMark
 import dev.keel.android.ui.common.Loading
+import dev.keel.android.ui.common.Phases
 import dev.keel.android.ui.common.PillButton
 import dev.keel.android.ui.common.SectionLabel
 import dev.keel.android.ui.common.Tag
@@ -94,6 +95,7 @@ fun InboxScreen(
         }
         val demo = dev.keel.android.ui.common.LocalDemo.current
         PullToRefreshBox(isRefreshing = ui.refreshing, onRefresh = vm::refresh, modifier = Modifier.fillMaxSize()) {
+            Phases(ui, { s -> when { s.loading -> 0; s.error != null && s.items.isEmpty() -> 1; else -> 2 } }) { ui ->
             when {
                 ui.loading -> Loading()
                 ui.error != null && ui.items.isEmpty() -> ErrorState(ui.error!!, vm::refresh)
@@ -102,31 +104,35 @@ fun InboxScreen(
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    if (demo) item {
+                    if (demo) item(key = "demo") {
                         Text(
                             "Demo data — pair a keel in Settings to see yours",
                             fontSize = 13.sp, color = K.c.warnInk, maxLines = 2,
                             modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(K.c.warnSoft).clickable(role = Role.Button, onClick = onSettings).padding(horizontal = 12.dp, vertical = 8.dp),
                         )
                     }
-                    item { InlineError(ui.actionError, vm::clearActionError) }
+                    item(key = "error") { InlineError(ui.actionError, vm::clearActionError) }
                     if (ui.items.isEmpty() && ui.reviews.isEmpty()) {
-                        item { EmptyState("Nothing waits for you", "When a flow asks something, it shows here and the phone tells you.") }
+                        item(key = "empty") { Box(Modifier.animateItem()) { EmptyState("Nothing waits for you", "When a flow asks something, it shows here and the phone tells you.") } }
                     }
-                    if (ui.items.isNotEmpty()) item { SectionLabel("Questions") }
+                    if (ui.items.isNotEmpty()) item(key = "questions") { SectionLabel("Questions", Modifier.animateItem()) }
+                    // an answered card fades and the ones below slide up; a new one fades in (#113)
                     ui.items.forEach { it ->
                         item(key = (it.id ?: it.threadId) + it.kind) {
-                            if (it.kind == "permission") PermissionCard(it, ui.busy == (it.permission?.id ?: it.id), vm::decide)
-                            else QuestionCard(it, onClick = {
-                                if (it.kind == "fix" || it.kind == "crash") onFlow(it.projectId, it.threadId) else onQuestion(it.projectId, it.threadId)
-                            })
+                            Box(Modifier.animateItem()) {
+                                if (it.kind == "permission") PermissionCard(it, ui.busy == (it.permission?.id ?: it.id), vm::decide)
+                                else QuestionCard(it, onClick = {
+                                    if (it.kind == "fix" || it.kind == "crash") onFlow(it.projectId, it.threadId) else onQuestion(it.projectId, it.threadId)
+                                })
+                            }
                         }
                     }
                     if (ui.reviews.isNotEmpty()) {
-                        item { SectionLabel("Reviews", Modifier.padding(top = 6.dp)) }
-                        ui.reviews.forEach { p -> item(key = "pr${p.number}") { ReviewCard(p) { onPr(p.number) } } }
+                        item(key = "reviews") { SectionLabel("Reviews", Modifier.animateItem().padding(top = 6.dp)) }
+                        ui.reviews.forEach { p -> item(key = "pr${p.number}") { Box(Modifier.animateItem()) { ReviewCard(p) { onPr(p.number) } } } }
                     }
                 }
+            }
             }
         }
     }

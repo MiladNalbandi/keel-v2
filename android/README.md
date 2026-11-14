@@ -59,6 +59,6 @@ The debug build has a demo mode (fake data in `DemoBackend.kt`, no keel needed):
 app/src/main/java/dev/keel/android/
   data/      KeelApi (OkHttp + kotlinx.serialization), Models, KeelSession (active keel), KeelStore (Keystore-encrypted
              tokens), LiveHub (SSE), GateForm + Logic (answers as the web sends them), PairLink, DemoBackend
-  ui/        AppRoot (navigation, bottom bar), one package per screen (screen + ViewModel), common/, theme/ (keel's colours)
+  ui/        AppRoot (navigation, bottom bar), one package per screen (screen + ViewModel), common/, theme/ (keel's colours, and its motion in Motion.kt)
   notify/    Notifier, InboxCheckWorker
 ```
