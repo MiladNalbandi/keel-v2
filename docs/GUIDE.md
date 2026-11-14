@@ -658,8 +658,8 @@ changed.
 - **Chats**: a chat lives in keel's backend, so it goes on in keel TUI, the dashboard or on another computer. Chats name
   themselves after the first answer (3–6 words); a name you give is kept. When a chat's context is above 85% before a
   turn, keel compacts it by itself: a summary of the chat in a fresh session (every message stays stored).
-- **Costs**: each answer shows its tokens and time; the budget bar counts them. Claude and Codex continue their own
-  session, so a follow-up question is cheap (the context stays cached).
+- **Costs**: each answer shows its tokens and time; the budget bar counts them. keel's harness keeps the chat's
+  session for every model, so a follow-up question is cheap (the context stays cached).
 - The model is the `helper` agent's (Agents page); change it, and its thinking effort, for one chat in the panel.
 
 ## keel TUI (keel2 tui)
