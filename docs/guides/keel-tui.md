@@ -58,7 +58,7 @@ The first word of the bottom line is KeelBot's mode. **Shift+Tab** (or **Alt+Tab
 |---|---|
 | Flows | `/project`, `/flow [workflow] [idea…]`, `/flows`, `/resume`, `/stop`, `/run`, `/status`, `/next` |
 | Gates | `/inbox`, `/approve [n]`, `/reject [n] <why>`, `/answer` |
-| Look | `/jobs`, `/agent`, `/live`, `/steps`, `/timeline`, `/diagram`, `/rules`, `/budget`, `/dashboard` |
+| Look | `/jobs`, `/agent`, `/live`, `/steps`, `/timeline`, `/diagram`, `/rules`, `/budget`, `/doctor`, `/dashboard` |
 | KeelBot | `/model`, `/effort`, `/chats`, `/new`, `/mode`, `/changes`, `/keep`, `/undo`, `/redo`, `/compact`, `/fix` |
 | Screen | `/panel`, `/clear`, `/copy`, `/mouse`, `/theme`, `/follow`, `/settings`, `/quit` |
 

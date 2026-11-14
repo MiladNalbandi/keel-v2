@@ -730,7 +730,7 @@ dashboard. That window then follows no other and moves no other. What you do in 
 |---|---|
 | Flows | `/project`, `/flow [workflow] [idea…]`, `/flows`, `/resume [n]`, `/stop [all\|n]`, `/run [manual\|important\|auto\|readonly]`, `/status`, `/next`, `/workflows`, `/create <workflow\|rule\|agent\|skill\|stack> [what]` |
 | Gates | `/inbox`, `/approve [n]`, `/reject [n] <why>`, `/answer [choice \| q1=answer …]` |
-| Look | `/jobs`, `/agent [n \| new <task>]`, `/live`, `/steps`, `/timeline`, `/diagram …`, `/rules`, `/skills`, `/skill …`, `/stacks`, `/stack …`, `/plugins`, `/budget`, `/dashboard` |
+| Look | `/jobs`, `/agent [n \| new <task>]`, `/live`, `/steps`, `/timeline`, `/diagram …`, `/rules`, `/skills`, `/skill …`, `/stacks`, `/stack …`, `/plugins`, `/budget`, `/doctor [days]`, `/dashboard` |
 | KeelBot | `/model`, `/effort`, `/chats`, `/rename`, `/export`, `/compact`, `/fix`, `/new`, `/mode`, `/changes`, `/keep`, `/undo`, `/redo` |
 | Screen | `/help`, `/panel`, `/clear`, `/copy [n]`, `/mouse [on\|off]`, `/follow [on\|off]`, `/settings`, `/editor`, `/quit` |
 

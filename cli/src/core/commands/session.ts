@@ -87,6 +87,7 @@ export function dashboardUrl(ctx: Ctx, view: string): string {
   const base = ctx.core.snapshot.publicUrl;
   const pid = ctx.core.pid;
   if (view === "inbox") return `${base}/#/inbox`;
+  if (view === "doctor") return `${base}/#/doctor`;
   if (!pid) return base;
   const path = { flow: "flow", map: "map", er: "map/er", keelbot: "keelbot" }[view] ?? view;
   return `${base}/#/projects/${encodeURIComponent(pid)}/${path}`;
@@ -158,8 +159,20 @@ export const SESSION_IMPLS: Impl[] = [
   },
   { name: "budget", run: async (ctx) => text(fmt.budget(await api.budgetNow(needProject(ctx).id), P(ctx))) },
   {
+    // #115 the flow doctor's report: every project's flows, the last [days] days (1–90, 7 when not given)
+    name: "doctor",
+    complete: (_c, a) => ["1", "7", "30", "90"].filter((x) => x.startsWith(a)),
+    run: async (ctx, a) => {
+      const arg = a.trim();
+      const days = /^\d+$/.test(arg) ? Math.min(90, Math.max(1, Number(arg))) : 7;
+      if (arg && !/^\d+$/.test(arg)) return fail("/doctor [days]: the days are a number, 1 to 90 (7 when not given).");
+      const r = await api.doctorReport(days);
+      return text(fmt.doctor(r, P(ctx)) + "\n\n" + P(ctx).dim(`All of it, with copy as Markdown: ${dashboardUrl(ctx, "doctor")}`));
+    },
+  },
+  {
     name: "dashboard",
-    complete: (_c, a) => ["flow", "map", "er", "keelbot", "inbox"].filter((x) => x.startsWith(a)),
+    complete: (_c, a) => ["flow", "map", "er", "keelbot", "inbox", "doctor"].filter((x) => x.startsWith(a)),
     run: (ctx, a) => text(dashboardUrl(ctx, a.trim() || "flow") + "\nOpen it in your browser: the same keel, the same flows and chats."),
   },
   {

@@ -2,7 +2,7 @@
 // the web's typed data. Pure functions, no UI: keel TUI prints them, another front end (an xal plugin, OpenTUI) can too.
 
 import type { HelperChange } from "./sdk";
-import type { BudgetNow, Checkpoint, FlowView, Health, Job, JobStep, Project, RunRow, ThreadState, Workflow } from "./sdk";
+import type { BudgetNow, Checkpoint, CrashEnd, DoctorReport, FlowView, Health, Job, JobStep, Project, RunRow, ThreadState, Workflow } from "./sdk";
 import type { InboxItem } from "../../../web/src/inboxApi";
 import { PLAIN, type Paint } from "./theme";
 import { renderDiff } from "./diff";
@@ -317,6 +317,39 @@ export function budget(now: BudgetNow, c: Paint = PLAIN): string {
     const x = cp as unknown as Record<string, unknown>;
     out.push(`${c.warn("cap  ")}  ${x.scope} ${x.window ?? ""}: ${x.left} of ${x.limit} ${x.unit} left` + c.dim(x.resets_at ? ` (resets ${x.resets_at})` : "") + ` · then ${x.action}`);
   });
+  return out.join("\n");
+}
+
+/** #115 how a crash ended, in words: keel repaired it, you retried or stopped, it waits for you, or the flow failed. */
+const END_WORD: Record<CrashEnd, string> = {
+  repaired: "keel repaired it", repairing: "keel repairs it", retried: "retried", waiting: "waits for you", stopped: "stopped", failed: "the flow failed",
+};
+
+/** #115 the flow doctor's report (the dashboard's Watch › Flow doctor): how many crashes and how they ended, each kind with
+ *  what to improve and, for a bug in keel, where in its code, and the latest crashes. */
+export function doctor(r: DoctorReport, c: Paint = PLAIN, now = Date.now()): string {
+  const days = `last ${r.days} day${r.days === 1 ? "" : "s"}`;
+  if (!r.total) return `${label("flow doctor", c)}  ${c.dim(days)}\nNo step crashed in keel's flows: nothing to repair.`;
+  const tone = (e: CrashEnd) => (e === "repaired" || e === "retried" ? c.ok : e === "waiting" ? c.warn : e === "failed" ? c.bad : c.dim);
+  const ends = (x: Partial<Record<CrashEnd, number>>) => (["repaired", "retried", "waiting", "stopped", "failed"] as const)
+    .filter((e) => (x[e] ?? 0) > 0).map((e) => tone(e)(`${e} ${x[e]}`)).join(c.dim(" · "));
+  const out = [`${label("flow doctor", c)}  ${c.dim(days)}`,
+    `${c.bold(String(r.total))} crash${r.total === 1 ? "" : "es"} in ${r.flows} flow${r.flows === 1 ? "" : "s"}: ${ends(r)}`];
+  out.push("", label("what crashed", c));
+  for (const k of r.kinds) {
+    out.push(`  ${c.bold(k.title)} ${c.dim(`(${k.kind}) · ${k.count}×`)}${ends(k) ? ` ${c.dim("·")} ${ends(k)}` : ""}`);
+    out.push(`    ${k.advice}`);
+    const e = (k.example?.error ?? "").split("\n").find((l) => l.trim())?.trim();
+    if (e) out.push(c.dim(`    e.g. ${e.length > 110 ? e.slice(0, 109) + "…" : e}`));
+    if (k.where.length) out.push(c.dim(`    in keel's code: ${k.where.slice(0, 3).join(", ")}`));
+  }
+  if (r.recent.length) {
+    out.push("", label("latest", c));
+    for (const x of r.recent.slice(0, 6)) {
+      const where = [x.project, x.workflow, x.step].filter(Boolean).join(" · ");
+      out.push(`  ${c.dim(age(x.at, now).padEnd(9))} ${where} ${c.dim("·")} ${x.title ?? x.kind ?? "a crash"}${x.end ? ` ${c.dim("→")} ${tone(x.end)(END_WORD[x.end] ?? x.end)}` : ""}`);
+    }
+  }
   return out.join("\n");
 }
 
