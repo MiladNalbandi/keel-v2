@@ -234,12 +234,15 @@ class DemoBackend {
                 judges.replaceAll { tid, run ->
                     if (run.status == "running" && (judgeAsked.merge(tid, 1, Int::plus) ?: 0) >= 2) run.copy(status = "done", result = judgeResult(tid)) else run
                 }
-                ok(AiState.serializer(), AiState(judges.toMap()))
+                ok(AiState.serializer(), AiState(judges.toMap(), fixed = FIXED))
             }
             seg.size == 7 && seg[3] == "review" && seg[4] == "threads" && seg[6] == "judge" -> {
-                judges[seg[5]] = AiRun("j-${seg[5]}", "judge", "running")
-                judgeAsked[seg[5]] = 0
-                ok(AiState.serializer(), AiState(judges.toMap()))
+                // one check for the point: the same run is on each thread of its group
+                (SAME_POINT.firstOrNull { seg[5] in it } ?: listOf(seg[5])).forEach { id ->
+                    judges[id] = AiRun("j-${seg[5]}", "judge", "running")
+                    judgeAsked[id] = 0
+                }
+                ok(AiState.serializer(), AiState(judges.toMap(), fixed = FIXED))
             }
             seg.size == 7 && seg[3] == "review" && seg[4] == "threads" && seg[6] == "reply" -> {
                 ok(ReviewView.serializer(), reviews.reply(seg[5], bodyObj().s("body").orEmpty()))
@@ -291,7 +294,24 @@ class DemoBackend {
         }
     }
 
-    private fun judgeResult(tid: String) = JudgeResult(
+    private fun sameAs(tid: String): List<SameAs> = (SAME_POINT.firstOrNull { tid in it } ?: emptyList()).filter { it != tid }.map { id ->
+        if (id == "412-1") SameAs(id, "tests/Integration/Vat/VatAbsentKeepsStoredTest.php", 15, "sara.k")
+        else SameAs(id, "tests/Integration/Vat/VatAbsentKeepsStoredTest.php", 17, "j.berg")
+    }
+
+    private fun judgeResult(tid: String) = if (tid == "412-1" || tid == "412-4") JudgeResult(
+        stage = "done",
+        items = listOf(
+            JudgeItem(
+                "the test's setUp() should use the factories", "reviewer_right",
+                "setUp() inserts the supplier, resolver and order rows by hand. tests/Factory/OrderFactory.php already builds all three, so the test would be shorter and follow schema changes.",
+                "Use OrderFactory and SupplierFactory in setUp().",
+            ),
+        ),
+        reply = "Good point: setUp() now uses OrderFactory and SupplierFactory.",
+        agent = "judge", model = "claude · sonnet", effort = "high", tokens = 3_400, sameAs = sameAs(tid), checkedAt = Instant.now().toString(),
+        context = JudgeContext(60, 14, 3, listOf("tests/Integration/Vat/VatAbsentKeepsStoredTest.php", "tests/Factory/OrderFactory.php", "src/Vat/VatWebhook.php")),
+    ) else JudgeResult(
         stage = "done",
         items = listOf(
             JudgeItem(
@@ -333,3 +353,14 @@ private val CATALOG = """
 "copilot":{"label":"GitHub Models","modes":{"api":[{"id":"openai/gpt-5","label":"openai/gpt-5"},{"id":"openai/gpt-5-mini","label":"openai/gpt-5-mini"}]},
 "efforts":[],"default":{"mode":"api","model":"openai/gpt-5"},"source":"builtin"}}
 """.trimIndent()
+
+/** keel's checks of an author's "fixed" in the demo: one went through, one did not (keel never resolves). */
+private val FIXED = mapOf(
+    "412-2" to FixRun(
+        "f-412-2", "done", headSha = "9f3c2e1aa0", result = FixResult("done", "412-2", fixed = true, why = "The log line now has order_id next to supplier.", sha = "9f3c2e1", commits = listOf("9f3c2e1")),
+    ),
+    "409-1" to FixRun(
+        "f-409-1", "done", headSha = "4b7d0c2ee1",
+        result = FixResult("done", "409-1", fixed = false, why = "Jitter is added.", stillOpen = "the jitter is added, but the maximum delay is still hard-coded to 30 s", sha = "4b7d0c2"),
+    ),
+)

@@ -32,7 +32,11 @@ data class ThreadUi(
     val snippets: Map<String, List<DiffLine>> = emptyMap(),
     /** keel's checks the person dismissed (on this phone only) */
     val dismissed: Set<String> = emptySet(),
-    val reply: String = "",
+    /** the reply drafts by thread: keel's reply for the same point can go into several boxes (0.26.1) */
+    val replies: Map<String, String> = emptyMap(),
+    /** a thread to scroll to (a "Same point as the thread on line N" link), and a count so the same one can be asked again */
+    val focus: String? = null,
+    val focusN: Int = 0,
     val busy: String? = null,
     val actionError: Throwable? = null,
     val note: String? = null,
@@ -44,6 +48,7 @@ data class ThreadUi(
     val open get() = view?.threads.orEmpty().filter { !it.resolved }
     val resolved get() = view?.threads.orEmpty().filter { it.resolved }
     val current: ReviewThread? get() = open.firstOrNull { it.id == selected } ?: open.firstOrNull()
+    fun replyOf(id: String) = replies[id].orEmpty()
     fun waitsForMe(t: ReviewThread) = !t.resolved && t.comments.lastOrNull()?.author.let { it != null && it != me }
 }
 
@@ -76,7 +81,7 @@ class ThreadViewModel(session: KeelSession, live: LiveHub?, private val projectI
                     s.copy(loading = false, refreshing = false, error = null, view = v, ai = ai, selected = s.selected?.takeIf { id -> v.threads.any { it.id == id && !it.resolved } } ?: firstWaiting?.id)
                 }
                 snippets(v)
-                if (ai.judges.values.any { it.status == "running" }) startPoll()
+                if (ai.running()) startPoll()
             } catch (e: Exception) {
                 _ui.update { it.copy(loading = false, refreshing = false, error = if (it.view == null) e else null, actionError = if (it.view != null) e else null) }
             }
@@ -96,9 +101,12 @@ class ThreadViewModel(session: KeelSession, live: LiveHub?, private val projectI
         }
     }
 
-    fun select(id: String) = _ui.update { it.copy(selected = id, reply = if (it.selected == id) it.reply else "") }
+    fun select(id: String) = _ui.update { it.copy(selected = id) }
     fun setTab(t: PrTab) = _ui.update { it.copy(tab = t) }
-    fun setReply(v: String) = _ui.update { it.copy(reply = v) }
+    fun setReply(threadId: String, v: String) = _ui.update { it.copy(replies = it.replies + (threadId to v)) }
+
+    /** Show another thread of the same point: pick it and scroll to it. */
+    fun goTo(threadId: String) = _ui.update { it.copy(selected = threadId, tab = PrTab.THREADS, focus = threadId, focusN = it.focusN + 1) }
     fun dismiss(id: String) = _ui.update { it.copy(dismissed = it.dismissed + id) }
     fun clearNote() = _ui.update { it.copy(note = null, actionError = null) }
 
@@ -123,7 +131,7 @@ class ThreadViewModel(session: KeelSession, live: LiveHub?, private val projectI
                 delay(2_000)
                 val ai = runCatching { api.ai(projectId, key) }.getOrNull() ?: return@repeat
                 _ui.update { it.copy(ai = ai) }
-                if (ai.judges.values.none { it.status == "running" }) return@launch
+                if (!ai.running()) return@launch
             }
         }
     }
@@ -131,7 +139,19 @@ class ThreadViewModel(session: KeelSession, live: LiveHub?, private val projectI
     fun useAsReply(threadId: String) {
         val r = _ui.value.ai.judges[threadId]?.result ?: return
         val text = r.reply ?: r.items.firstOrNull()?.fix ?: return
-        _ui.update { it.copy(selected = threadId, reply = text) }
+        _ui.update { it.copy(selected = threadId, replies = it.replies + (threadId to text)) }
+    }
+
+    /** keel's reply into this thread's box and into the box of each other thread of the same point. Nothing is posted:
+     *  the person sends each one. */
+    fun useOnAll(threadId: String) {
+        val r = _ui.value.ai.judges[threadId]?.result ?: return
+        val text = r.reply ?: return
+        val ids = listOf(threadId) + r.sameAs.map { it.threadId }
+        _ui.update { s ->
+            s.copy(selected = threadId, replies = s.replies + ids.associateWith { text },
+                note = "keel's reply is in the reply box of ${if (ids.size == 2) "both threads" else "all ${ids.size} threads"}. You send each one.")
+        }
     }
 
     fun address(threadId: String) {
@@ -210,19 +230,26 @@ class ThreadViewModel(session: KeelSession, live: LiveHub?, private val projectI
         }
     }
 
-    fun sendReply() {
+    fun sendReply(threadId: String) {
         val s = _ui.value
-        val t = s.current ?: return
-        val body = s.reply.trim()
+        val body = s.replyOf(threadId).trim()
         if (body.isEmpty() || s.busy != null) return
         _ui.update { it.copy(busy = "reply", actionError = null) }
         viewModelScope.launch {
             try {
-                val v = api.reply(projectId, key, t.id, body)
-                _ui.update { it.copy(busy = null, view = v, reply = "", note = "Reply posted.") }
+                val v = api.reply(projectId, key, threadId, body)
+                _ui.update { it.copy(busy = null, view = v, replies = it.replies - threadId, note = "Reply posted.") }
+                // an author's "fixed" after a new commit: keel checks it in the background (it never resolves)
+                runCatching { api.ai(projectId, key) }.getOrNull()?.let { ai ->
+                    _ui.update { it.copy(ai = ai) }
+                    if (ai.running()) startPoll()
+                }
             } catch (e: Exception) {
                 _ui.update { it.copy(busy = null, actionError = e) }
             }
         }
     }
 }
+
+/** A check of keel's still runs: "Is the reviewer right?" or the check of an author's "fixed". */
+private fun AiState.running() = judges.values.any { it.status == "running" } || fixed.values.any { it.status == "running" }
