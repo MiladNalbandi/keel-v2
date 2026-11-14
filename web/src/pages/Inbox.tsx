@@ -27,10 +27,12 @@ import { go, useApp, useLoad, useRoute } from "../state";
 import "../components/inbox.css";
 
 const KIND_LABEL: Record<string, string> = {
-  gate: "gate", clarify: "questions", fix: "needs a fix", budget: "budget", dependency: "new dependency",
+  gate: "gate", clarify: "questions", fix: "needs a fix", crash: "step failed", budget: "budget", dependency: "new dependency",
   permission: "may it run?", "plugin-install": "install request", "stack-setup": "stack setup", "product-jira-send": "send to Jira",
 };
 const kindLabel = (k: string) => KIND_LABEL[k] ?? k;
+/** The pauses keel answers with named choices: a gate, a stuck step (fix) and, #116, a step that crashed (crash). */
+const NAMED = new Set(["gate", "fix", "crash"]);
 const PLUGIN_INSTALL = "plugin-install";
 const STACK_SETUP = "stack-setup";
 /** P4 an approval keel or a part asks itself (no flow behind it): answered at /approvals/{id}/decide. */
@@ -81,6 +83,8 @@ function buttonsFor(it: InboxItem): Buttons {
   if (it.kind === "dependency") return { approve: l.approve ?? "Allow", reject: l.reject ?? "Refuse", needWhy: false, whyLabel: "Why (optional)" };
   if (it.kind === "budget") return { approve: "Continue over the cap", reject: "Stop here", needWhy: false, whyLabel: "Note (optional)" };
   if (it.kind === "fix") return { approve: l.approve ?? "Try again", reject: l.reject ?? "Stop the flow", needWhy: false, whyLabel: "Note (optional)" };
+  // #116 the flow doctor's pause for a step that crashed (not an agent step): Retry the step / Stop the flow
+  if (it.kind === "crash") return { approve: l.approve ?? "Retry the step", reject: l.reject ?? "Stop the flow", needWhy: false, whyLabel: "Note (optional)" };
   if (it.kind === "clarify") return { approve: l.approve ?? "Send my answers", reject: "Send back", needWhy: false, whyLabel: "Anything else the explorer should know (optional)" };
   // a commit check asks whether to escalate; keeping the change flow is a send back, which needs a reason
   if (/escalat/i.test(it.title)) return { approve: "Yes, switch to a feature flow", reject: "No, keep the change flow", needWhy: true, whyLabel: "Why (needed to keep the change flow)" };
@@ -201,7 +205,7 @@ function InboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) => Pro
   const [choiceForm, setChoiceForm] = useState(0);
 
   // keel 0.18.13 the engine says what each named choice means: one card each (ChoiceForm), its own reason box
-  const info = (it.kind === "gate" || it.kind === "fix") && it.choice_info?.length ? it.choice_info : null;
+  const info = NAMED.has(it.kind) && it.choice_info?.length ? it.choice_info : null;
   const act = async (decision: "approve" | "reject", payload?: Record<string, unknown>, msg?: string, said = why) => {
     // a gate's exit named "reject" sends back too: the engine wants the reason for it as well
     if ((decision === "reject" && b.needWhy || (payload?.choice === "reject" && !info)) && !said.trim()) {
@@ -256,7 +260,7 @@ function InboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) => Pro
   return (
     <article className={`inbox-item k-${it.kind}`} aria-labelledby={hid} data-testid="inbox-item" data-key={keyOf(it)} tabIndex={-1}>
       <div className="inbox-meta">
-        <Pill tone={it.kind === "fix" || it.kind === "budget" ? "bad" : "warn"}>{kindLabel(it.kind)}</Pill>
+        <Pill tone={it.kind === "fix" || it.kind === "crash" || it.kind === "budget" ? "bad" : "warn"}>{kindLabel(it.kind)}</Pill>
         <span className="sub"><b>{it.project_name}</b> · {it.flow}{it.workflow_id ? <> · <span className="mono">{it.workflow_id}</span></> : null}</span>
         {it.since && <span className="hint inbox-since">waiting <Since from={it.since} /></span>}
       </div>
@@ -285,7 +289,7 @@ function InboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) => Pro
           onSend={(choice, said) => act("approve", { choice }, `${it.project_name}: ${info.find((c) => c.name === choice)?.label || choice}.`, said)} />
       )}
       <div className="row inbox-actions">
-        {info ? null : (it.kind === "gate" || it.kind === "fix") && choices.length ? (
+        {info ? null : NAMED.has(it.kind) && choices.length ? (
           <>
             {choices.map((c, n) => (
               <button key={c} className={`btn sm${n === 0 ? " warn" : ""}`} type="button" disabled={busy}
