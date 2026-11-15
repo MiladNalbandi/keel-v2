@@ -157,9 +157,8 @@ describe("Code page: Focus and KeelBot's room", () => {
     const page = await screen.findByRole("complementary", { name: "KeelBot" });
     expect(page).toHaveClass("page");
     expect(screen.queryByRole("region", { name: "Editor" })).toBeNull(); // only KeelBot
-    await user.click(
-      within(page).getByRole("button", { name: "Back to the code" }),
-    );
+    // keel 0.28: Back to the code sits in KeelBot's page head, above the chat
+    await user.click(screen.getByRole("button", { name: "Back to the code" }));
     await waitFor(() => expect(location.hash).toBe("#/repo"));
   });
 
