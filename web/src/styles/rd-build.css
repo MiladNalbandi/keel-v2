@@ -146,11 +146,35 @@ body:has(.rdb) .drawer header h2 { font-size: 16px; font-weight: 600; letter-spa
 .rdb .ss-btn.link { min-height: 0; padding: 0; }
 .rdb .ss-btn.link:hover { background: none; }
 
+/* the folding sections: the arrow as a small icon button, the whole head lights up on hover */
+.rdb .ss-fold { transition: background .16s ease; border-radius: 14px; }
+.rdb .ss-fold:hover { background: color-mix(in srgb, var(--panel-2) 55%, transparent); }
+.rdb .ss-fold[aria-expanded="true"] { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.rdb .ss-fold-a { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; flex: none; border-radius: 8px;
+  background: var(--panel-2); color: var(--dim); font-size: 13px; transition: background .16s ease, color .16s ease; }
+.rdb .ss-fold:hover .ss-fold-a { color: var(--fg); }
+.rdb .ss-fold-a { font-size: 0; }
+.rdb .ss-fold-a::before { content: ""; width: 6px; height: 6px; border: solid currentColor; border-width: 0 1.6px 1.6px 0; transform: translateX(-1px) rotate(-45deg);
+  transition: transform .2s ease; }
+.rdb .ss-fold[aria-expanded="true"] .ss-fold-a::before { transform: translateY(-1px) rotate(45deg); }
+
+/* ---------- Safety & History: a rule's "on" checkbox drawn as a switch (the design's .sw) ---------- */
+.rdb-rules label.chk:has(> input[type="checkbox"]) { display: inline-flex; align-items: center; gap: 8px; }
+.rdb-rules label.chk > input[type="checkbox"] {
+  appearance: none; -webkit-appearance: none; position: relative; width: 34px; height: 20px; margin: 0; border-radius: 999px; background: var(--rail); cursor: pointer; flex: none;
+  transition: background .2s ease; }
+.rdb-rules label.chk > input[type="checkbox"]::after {
+  content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: transform .22s cubic-bezier(.2,.9,.3,1.2); }
+.rdb-rules label.chk > input[type="checkbox"]:checked { background: var(--accent); }
+.rdb-rules label.chk > input[type="checkbox"]:checked::after { transform: translateX(14px); }
+.rdb-rules label.chk > input[type="checkbox"]:disabled { opacity: .5; cursor: not-allowed; }
+.rdb-rules label.chk > input[type="checkbox"]:focus-visible, .rdb-workflows .wf-rules input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
 /* ---------- Help › Start here ---------- */
 .rdb-help .hs-page { max-width: none; }
 .rdb-help .hs-head.top { margin-bottom: 18px; }
 .rdb-help .hs-crumb { color: var(--dim); font-size: 13px; text-transform: none; letter-spacing: 0; font-weight: 400; }
-.rdb-help .rdb-progress { display: flex; flex-direction: column; gap: 12px; padding: 16px 18px; border-radius: 14px; border: 1px solid var(--border); background: var(--panel); }
+.rdb-help .rdb-progress { display: flex; flex-direction: column; align-items: stretch; gap: 12px; padding: 16px 18px; border-radius: 14px; border: 1px solid var(--border); background: var(--panel); }
 .rdb-progress-t { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
 .rdb-progress-t b { font-size: 16px; font-weight: 600; }
 .rdb-progress-t .sub { margin-left: auto; }
@@ -193,5 +217,7 @@ body:has(.rdb) .drawer header h2 { font-size: 16px; font-weight: 600; letter-spa
 @media (prefers-reduced-motion: reduce) {
   .rdb > *, .rdb > .hs-page > *, .rdb.ss-page > *, .rdb.ss-page .ss-content > *, body:has(.rdb) .drawer { animation: none !important; }
   .rdb-gcard:hover { transform: none; }
-  .rdb .btn:active, .rdb .ss-btn:active, .rdb-workflows .wf-rules input[type="checkbox"]::after { transform: none; transition: none; }
+  .rdb .btn:active, .rdb .ss-btn:active { transform: none; }
+  .rdb .ss-fold-a::before { transition: none; }
+  .rdb-workflows .wf-rules input[type="checkbox"]::after, .rdb-rules label.chk > input[type="checkbox"]::after { transition: none; }
 }
