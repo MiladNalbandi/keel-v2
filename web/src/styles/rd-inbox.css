@@ -1,0 +1,131 @@
+/* keel 0.28 the redesign, the Inbox: a list on the left (kind, project, age, title, one line), the selected item's card
+   on the right, the filters as chips, the keys drawn as keys. Everything is under .rdinbox (or .rdinbox-…), so the
+   cards keep their old look on any other page. Colours are keel's tokens (styles.css :root): both themes follow. */
+
+.rdinbox { --rdinbox-gate: #f5c142; --rdinbox-gate-ink: #2b1d00; }
+.rdinbox .top { margin-bottom: 14px; }
+
+/* the split: list | the selected item (stacks at phone width) */
+.rdinbox-split { display: grid; grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); border-top: 1px solid var(--border);
+  margin: 0 -4px; min-height: 60vh; }
+.rdinbox-list { border-right: 1px solid var(--border); padding: 14px 12px 16px 4px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.rdinbox-detail { padding: 20px 10px 40px 28px; min-width: 0; display: flex; flex-direction: column; }
+/* a long list scrolls under the selected item: the detail stays in view (and scrolls on its own when it is long) */
+@media (min-width: 901px) {
+  .rdinbox-detail { position: sticky; top: 44px; align-self: start; max-height: calc(100vh - 44px); overflow-y: auto; overscroll-behavior: contain; }
+}
+
+/* the filters: chips that hold a select (its label stays "In project" / "Kind") */
+.rdinbox-filters { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; padding: 0 4px; }
+.rdinbox-chip { position: relative; display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 28px 0 12px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--panel); font-size: 13px; cursor: pointer; transition: border-color .16s ease, background .16s ease; max-width: 100%; }
+.rdinbox-chip:hover { border-color: var(--rail); background: var(--panel-2); }
+.rdinbox-chip:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.rdinbox-chip.on { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); background: var(--accent-soft); }
+.rdinbox-chip::after { content: ""; position: absolute; right: 12px; top: 50%; width: 6px; height: 6px; margin-top: -5px; border: solid var(--dim);
+  border-width: 0 1.6px 1.6px 0; transform: rotate(45deg); pointer-events: none; }
+.rdinbox-chip-d { color: var(--dim); white-space: nowrap; }
+.rdinbox-chip select { appearance: none; -webkit-appearance: none; border: 0; background: transparent; color: var(--fg); font: inherit; font-weight: 600;
+  padding: 0; margin: 0; cursor: pointer; outline: none; min-width: 0; max-width: 190px; text-overflow: ellipsis; }
+.rdinbox-chip select option { background: var(--panel); color: var(--fg); font-weight: 400; }
+.rdinbox-count { width: 100%; font-size: 12.5px; }
+
+/* the rows */
+.rdinbox-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.rdinbox-row { display: flex; gap: 12px; width: 100%; padding: 11px 12px; border-radius: 12px; border: 1px solid transparent; background: transparent;
+  color: var(--fg); font: inherit; text-align: left; cursor: pointer; transition: background .16s ease, border-color .16s ease; animation: k-rise .3s cubic-bezier(.2,.7,.2,1) both; }
+.rdinbox-row:hover { background: var(--panel-2); }
+.rdinbox-row.on { background: var(--panel); border-color: var(--rail); box-shadow: 0 1px 0 rgba(0,0,0,.14); }
+.rdinbox-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.rdinbox-mark { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; flex: none; font-weight: 700; font-size: 13px; }
+.rdinbox-mark.t-warn { background: var(--warn-soft); color: var(--warn); }
+.rdinbox-mark.t-acc { background: var(--accent-soft); color: var(--accent); }
+.rdinbox-mark.t-bad { background: var(--bad-soft); color: var(--bad); }
+.rdinbox-mark.t-run { background: var(--run-soft); color: var(--run); }
+.rdinbox-row-b { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.rdinbox-row-m { display: flex; gap: 8px; font-size: 12.5px; color: var(--dim); min-width: 0; }
+.rdinbox-kind { font-weight: 600; white-space: nowrap; }
+/* the tone, a little nearer the text colour: 4.5:1 on the panel in both themes */
+.rdinbox-kind.t-warn { color: color-mix(in srgb, var(--warn) 80%, var(--fg)); } .rdinbox-kind.t-acc { color: color-mix(in srgb, var(--accent) 85%, var(--fg)); }
+.rdinbox-kind.t-bad { color: color-mix(in srgb, var(--bad) 85%, var(--fg)); } .rdinbox-kind.t-run { color: color-mix(in srgb, var(--run) 85%, var(--fg)); }
+.rdinbox-proj { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rdinbox-age { margin-left: auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.rdinbox-row-t { font-weight: 600; overflow-wrap: anywhere; line-height: 1.35; }
+.rdinbox-row-l { font-size: 13px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rdinbox-grp { display: flex; flex-direction: column; gap: 2px; }
+.rdinbox-grp-h { margin: 6px 0 2px; padding: 0 8px; font-size: 12px; font-weight: 600; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rdinbox-grp-h span { margin-left: 4px; }
+.rdinbox-list .inbox-empty { padding: 32px 8px; }
+
+/* the keys, at the list's foot */
+.rdinbox-keys { margin-top: auto; border-top: 1px solid var(--border); padding: 10px 8px 0; display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; color: var(--dim); }
+.rdinbox-keys-h { font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
+.rdinbox-key { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+.rdinbox-key > span { display: inline-flex; gap: 4px; }
+.rdinbox kbd { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box;
+  border-radius: 5px; border: 1px solid var(--rail); border-bottom-width: 2px; background: var(--panel-2); color: var(--dim);
+  font: 500 11px/1 var(--f-mono); }
+.rdinbox .btn.warn kbd, .rdinbox .btn.primary kbd { background: rgba(0,0,0,.14); border-color: rgba(0,0,0,.2); color: inherit; }
+
+/* the selected item: only its card shows (the others stay mounted, so what you typed in them is kept) */
+.rdinbox-card:not(.on) { display: none; }
+.rdinbox-card.on { animation: k-rise .26s cubic-bezier(.2,.7,.2,1) both; max-width: 800px; }
+.rdinbox-detail .inbox-group { display: contents; }
+.rdinbox-split.is-empty { grid-template-columns: minmax(0, 1fr); min-height: 0; }
+.rdinbox-split.is-empty .rdinbox-list { border-right: 0; }
+.rdinbox-split.is-empty .inbox-empty { padding: 56px 8px; }
+
+/* the card, as the detail: no box, room to read */
+.rdinbox-detail .inbox-item { background: transparent; border: 0; border-radius: 0; padding: 0; gap: 14px; outline: none; }
+.rdinbox-detail .inbox-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 6px; border-radius: 8px; }
+.rdinbox-detail .inbox-meta { font-size: 13px; color: var(--dim); gap: 6px 8px; }
+.rdinbox-detail .inbox-meta .sub b { color: var(--fg); font-weight: 600; }
+.rdinbox-detail .inbox-title { font-size: 22px; font-weight: 600; letter-spacing: -.01em; line-height: 1.25; }
+.rdinbox-detail .inbox-detail { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; max-height: 18em; }
+.rdinbox-detail .inbox-detail.md.folded { position: relative; }
+.rdinbox-detail .inbox-detail.md.folded::after { content: ""; position: sticky; display: block; left: 0; right: 0; bottom: -12px; height: 40px; margin: -40px -14px -12px;
+  background: linear-gradient(transparent, var(--panel)); pointer-events: none; }
+.rdinbox-detail .inbox-detail.md.open { max-height: none; }
+.rdinbox-detail .inbox-more { justify-self: start; margin-top: 6px; }
+.rdinbox-detail .inbox-detail-wrap { display: grid; }
+.rdinbox-detail .inbox-cmd { margin: 0; padding: 10px 12px; border-radius: 10px; font: 12.5px/1.6 var(--f-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.rdinbox-detail .field > label:not(.radio):not(.chk) { text-transform: none; letter-spacing: 0; font-size: 13px; font-weight: 500; color: var(--fg); }
+.rdinbox-detail .field textarea, .rdinbox-detail .field input { border-radius: 9px; background: var(--panel); font: 13.5px/1.5 var(--f-body); }
+.rdinbox-detail .field textarea:focus, .rdinbox-detail .field input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.rdinbox-detail .inbox-actions { gap: 8px; padding-top: 2px; }
+.rdinbox-detail .inbox-actions .btn, .rdinbox-detail .choice-form .btn, .rdinbox-detail .req-acts .btn { display: inline-flex; align-items: center; gap: 8px;
+  height: 34px; padding: 0 13px; border-radius: 9px; font-size: 14px; transition: background .16s ease, border-color .16s ease, transform .12s ease, filter .16s ease; }
+.rdinbox-detail .btn:active { transform: scale(.97); }
+.rdinbox-detail .btn.warn { background: var(--rdinbox-gate); border-color: var(--rdinbox-gate); color: var(--rdinbox-gate-ink); }
+.rdinbox-detail .btn.warn:hover:not(:disabled) { filter: brightness(1.06); }
+.rdinbox-detail .btn.ghost { border-color: transparent; color: var(--dim); }
+.rdinbox-detail .btn.ghost:hover { background: var(--panel-2); color: var(--fg); }
+.rdinbox-detail .runmode-note { font-size: 13px; color: var(--dim); }
+
+/* the questions and the named choices, as roomy options */
+.rdinbox-detail .clarify { gap: 18px; }
+.rdinbox-detail .clarify-opt { border-radius: 12px; padding: 11px 14px; background: var(--panel); transition: border-color .16s ease, background .16s ease; }
+.rdinbox-detail .clarify-opt.on { box-shadow: none; }
+.rdinbox-detail .choice-head { align-items: center; }
+.rdinbox-detail .choice-n { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 5px;
+  border: 1px solid var(--rail); border-bottom-width: 2px; background: var(--panel-2); color: var(--dim); font: 500 11px/1 var(--f-mono); }
+.rdinbox-detail .clarify-other { border: 1px solid var(--border); border-radius: 9px; background: var(--panel); padding: 7px 10px; font: inherit; color: var(--fg); }
+
+/* an install request inside the detail: one calm card */
+.rdinbox-detail .inbox-item.req { border: 1px solid var(--border); border-radius: 14px; background: var(--panel); gap: 0; }
+
+@media (max-width: 900px) {
+  .rdinbox-split { grid-template-columns: minmax(0, 1fr); margin: 0; border-top: 0; }
+  .rdinbox-list { border-right: 0; border-bottom: 1px solid var(--border); padding: 0 0 14px; }
+  .rdinbox-detail { padding: 18px 0 32px; }
+  .rdinbox-keys { display: none; }
+  .rdinbox-card { scroll-margin-top: 160px; }
+  .rdinbox-detail .inbox-title { font-size: 19px; }
+  .rdinbox-chip select { max-width: 150px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rdinbox-row, .rdinbox-card.on { animation: none; }
+  .rdinbox-detail .btn:active { transform: none; }
+}
+.rdinbox-row-t { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.rdinbox-detail .inbox-open { margin-left: 0; }

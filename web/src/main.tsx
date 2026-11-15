@@ -38,6 +38,7 @@ import "./styles/welcome.css";
 // keel 0.28 the redesign (menu, top bar, Home, Add features): last, so it wins over the older menu rules
 import "./styles/shell.css";
 import "./styles/rd-code.css";
+import "./styles/rd-inbox.css";
 
 // Plugins' web parts load at run time and use this React and @keel/web-sdk: the import map in index.html points their
 // bare imports to small shims that read window.__keel (src/sdk/shared.ts). So it is set before anything renders.

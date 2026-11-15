@@ -10,6 +10,7 @@ import { inboxApi, type InboxItem } from "../inboxApi";
 import { permissionLines, whoAsked, type InstallRequest } from "../marketplaceApi";
 import { PluginIcon, pluginMark } from "./CoreOnly";
 import { TrustTag } from "./Permissions";
+import { Key } from "./Key";
 import { ErrorBox, Pill, Since } from "./ui";
 
 /** How many permissions show before "See all". */
@@ -158,13 +159,13 @@ export function InstallRequestCard({ it, cardKey, onDone }: {
         </div>
 
         <div className="req-acts">
-          <button className="btn primary" type="button" disabled={busy} onClick={() => void answer("approve")}>
-            {update ? "Approve and update" : "Approve and install"}
+          <button className="btn primary" type="button" disabled={busy} aria-keyshortcuts="A" onClick={() => void answer("approve")}>
+            {update ? "Approve and update" : "Approve and install"} <Key k="A" />
           </button>
           <button className="btn" type="button" disabled={busy} onClick={() => void answer("deny")}>
             {update && p.installed ? `Keep ${p.installed}` : "Deny"}
           </button>
-          <input className="req-note" type="text" aria-label="Note (optional)" value={why} onChange={(e) => setWhy(e.target.value)}
+          <input className="req-note" type="text" aria-label="Note (optional)" aria-keyshortcuts="R" value={why} onChange={(e) => setWhy(e.target.value)}
             placeholder={who === "keel" ? "A note for the log (optional)" : `A note for ${who} (optional)`} />
           <span className="sub">An agent cannot install anything by itself.</span>
         </div>

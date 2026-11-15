@@ -269,6 +269,20 @@ export const AREAS: KeyArea[] = [
     ],
   },
   {
+    id: "inbox",
+    title: "Inbox",
+    pages: ["inbox"],
+    order: 75,
+    rows: () => [
+      { label: "Next or previous item", raw: ["J K", "↓ ↑"] },
+      { label: "Approve (the button that shows A)", raw: ["A"] },
+      { label: "Write why, to send back", raw: ["R"] },
+      { label: "Pick a choice", raw: ["1 … 9"] },
+      { label: "Open the flow", raw: ["O"] },
+      { label: "Later (a task)", raw: ["L"] },
+    ],
+  },
+  {
     id: "workflows",
     title: "Workflows",
     pages: ["workflows"],

@@ -155,7 +155,7 @@ describe("inbox", () => {
       await openInbox();
       const card = await screen.findByRole("article", { name: "The demo part asks" });
       expect(card).toHaveTextContent("demo question");
-      expect(within(screen.getByLabelText("Kind")).getByRole("option", { name: "demo question" })).toBeInTheDocument();
+      expect(within(screen.getByLabelText("Kind")).getByRole("option", { name: "demo question (1)" })).toBeInTheDocument();
       expect(screen.getAllByTestId("inbox-item")).toHaveLength(4);
       await user.click(within(card).getByRole("button", { name: "Answer demo" }));
       expect(await screen.findByText("demo answered")).toBeInTheDocument();
