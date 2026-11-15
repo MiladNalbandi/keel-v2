@@ -56,4 +56,15 @@ describe("Build pages: the page keys", () => {
     await user.click(library);
     await waitFor(() => expect(library).toHaveAttribute("aria-pressed", "true"));
   });
+
+  it("Start here: the keys card lists N, and All keys opens the key sheet", async () => {
+    const user = userEvent.setup();
+    location.hash = "#/help";
+    render(<App />);
+    const card = await screen.findByRole("complementary", { name: "keel is keyboard first" });
+    expect(card).toHaveTextContent("Start a flow");
+    expect(card).toHaveTextContent("N");
+    await user.click(screen.getByRole("button", { name: /^All keys/ }));
+    await waitFor(() => expect(document.getElementById("key-sheet")).not.toBeNull());
+  });
 });
