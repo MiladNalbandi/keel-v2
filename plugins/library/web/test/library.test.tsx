@@ -54,7 +54,8 @@ describe("the Library", () => {
     open("#/library");
     expect((await main().findByText(/What can go to the model company/)).parentElement?.textContent).toContain(SENDS);
     expect((await main().findByText(/off for this project/)).textContent).toContain("no agent reads it here");
-    expect(within(main().getByRole("table", { name: "Documents" })).getByRole("link", { name: "Data rules" }).getAttribute("href")).toBe("#/library/l1");
+    // the redesign: the documents are a list of cards beside the open one (they were a table)
+    expect(within(main().getByRole("list", { name: "Documents" })).getByRole("link", { name: /^Data rules/ }).getAttribute("href")).toBe("#/library/l1");
   });
 
   it("says when agents can read it", async () => {
@@ -100,6 +101,15 @@ describe("the Library", () => {
     await userEvent.type(box, "New words");
     await userEvent.click(main().getByRole("button", { name: "Save a new version" }));
     expect(await main().findByText("Version 2")).toBeTruthy();
+  });
+
+  it("shows the documents beside the open one, and N opens the add form", async () => {
+    open("#/library/l1");
+    const list = await main().findByRole("list", { name: "Documents" });
+    expect(within(list).getByRole("link", { name: /^Data rules/ }).getAttribute("aria-current")).toBe("page");
+    expect(main().queryByRole("form", { name: "Add a document" })).toBeNull();
+    await userEvent.keyboard("n");
+    expect(await main().findByRole("form", { name: "Add a document" })).toBeTruthy();
   });
 
   it("gives its documents to the launcher", () => {

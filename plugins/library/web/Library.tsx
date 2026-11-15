@@ -4,9 +4,10 @@
 
 import { useState } from "react";
 import {
-  Async, del, EmptyState, errorParts, get, go, goHash, hashForScreen, Markdown, Note, PageHead, Panel, Pill, post, Switch, useApp, useLoad, useRoute,
-  type LauncherSourceItem,
+  Async, del, EmptyState, errorParts, get, go, goHash, hashForScreen, Markdown, Note, PageHead, Pill, post, Switch, useApp, useLoad, useRoute,
+  type LauncherSourceItem, type Loaded,
 } from "@keel/web-sdk";
+import { usePageKey } from "./keys";
 
 export type DocRow = { id: string; project_id: string | null; title: string; source: string | null; for_agents: boolean; version: number; updated_at: string; size: number };
 export type Doc = DocRow & { body: string };
@@ -32,7 +33,7 @@ function AgentsLine({ pid }: { pid: string }) {
     : <Note tone="info">The Library is off for this project, so no agent reads it here. Turn it on in <a href="#/settings/plugins">Settings › Plugins</a>.</Note>;
 }
 
-function AddDoc({ pid, onAdded }: { pid: string; onAdded: (id: string) => void }) {
+function AddDoc({ pid, onAdded, onCancel }: { pid: string; onAdded: (id: string) => void; onCancel?: () => void }) {
   const [f, setF] = useState({ title: "", body: "", source: "", scope: "all", for_agents: true });
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -55,19 +56,25 @@ function AddDoc({ pid, onAdded }: { pid: string; onAdded: (id: string) => void }
     }
   };
   return (
-    <form onSubmit={add} aria-label="Add a document" className="grid" style={{ gap: 8 }}>
-      <div className="field"><label htmlFor="lb-f101">Title</label> <input id="lb-f101" required value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} /></div>
-      <div className="field"><label htmlFor="lb-f102">The text</label> <textarea id="lb-f102" required rows={6} value={f.body} onChange={(e) => setF({ ...f, body: e.target.value })} placeholder="Paste it, or choose a text file. Headings (# ...) help a search name the section." /></div>
-      <div className="field"><label htmlFor="lb-f103">Or a text file</label> <input id="lb-f103" type="file" accept=".txt,.md,.markdown,text/plain" onChange={(e) => void fromFile(e)} /></div>
-      <div className="field"><label htmlFor="lb-f104">Where it comes from (optional)</label> <input id="lb-f104" value={f.source} onChange={(e) => setF({ ...f, source: e.target.value })} placeholder="Security policy, March edition" /></div>
-      <div className="field"><label htmlFor="lb-f1">For</label> <select id="lb-f1" value={f.scope} onChange={(e) => setF({ ...f, scope: e.target.value })}>
-          <option value="all">every project</option>
-          <option value="project">only this project</option>
-        </select></div>
-      <label><input type="checkbox" checked={f.for_agents} onChange={(e) => setF({ ...f, for_agents: e.target.checked })} /> Agents may read it (what they read goes to your model company)</label>
-      {problem && <Note tone="err" role="alert">{problem}</Note>}
-      <div><button className="btn primary" type="submit" disabled={busy}>{busy ? "Adding…" : "Add it"}</button></div>
-    </form>
+    <section className="panel rise" aria-labelledby="lb-add-h">
+      <div className="panel-head"><h2 id="lb-add-h">Add a document</h2></div>
+      <form onSubmit={add} aria-label="Add a document" className="panel-body grid" style={{ gap: 10 }}>
+        <div className="field"><label htmlFor="lb-f101">Title</label> <input id="lb-f101" required value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} /></div>
+        <div className="field"><label htmlFor="lb-f102">The text</label> <textarea id="lb-f102" required rows={6} value={f.body} onChange={(e) => setF({ ...f, body: e.target.value })} placeholder="Paste it, or choose a text file. Headings (# ...) help a search name the section." /></div>
+        <div className="field"><label htmlFor="lb-f103">Or a text file</label> <input id="lb-f103" type="file" accept=".txt,.md,.markdown,text/plain" onChange={(e) => void fromFile(e)} /></div>
+        <div className="field"><label htmlFor="lb-f104">Where it comes from (optional)</label> <input id="lb-f104" value={f.source} onChange={(e) => setF({ ...f, source: e.target.value })} placeholder="Security policy, March edition" /></div>
+        <div className="field"><label htmlFor="lb-f1">For</label> <select id="lb-f1" value={f.scope} onChange={(e) => setF({ ...f, scope: e.target.value })}>
+            <option value="all">every project</option>
+            <option value="project">only this project</option>
+          </select></div>
+        <label className="lb-check"><input type="checkbox" checked={f.for_agents} onChange={(e) => setF({ ...f, for_agents: e.target.checked })} /> Agents may read it (what they read goes to your model company)</label>
+        {problem && <Note tone="err" role="alert">{problem}</Note>}
+        <div className="rdw-bar">
+          <button className="btn primary" type="submit" disabled={busy}>{busy ? "Adding…" : "Add it"}</button>
+          {onCancel && <button className="btn ghost" type="button" onClick={onCancel}>Cancel</button>}
+        </div>
+      </form>
+    </section>
   );
 }
 
@@ -79,62 +86,58 @@ function Search({ pid }: { pid: string }) {
     if (q.trim()) setHits(await libraryApi.search(pid, q));
   };
   return (
-    <form onSubmit={(e) => void run(e)} role="search" aria-label="Search the library">
-      <div className="row">
-        <input aria-label="Search words" value={q} onChange={(e) => setQ(e.target.value)} placeholder="What does it say about…" style={{ flex: 1 }} />
+    <form onSubmit={(e) => void run(e)} role="search" aria-label="Search the library" className="panel lb-search rise r1">
+      <div className="rdw-bar" style={{ gap: 8, flexWrap: "nowrap" }}>
+        <input className="rdw-inp" aria-label="Search words" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") { setQ(""); setHits(null); } }} placeholder="What does it say about…" style={{ flex: 1, minWidth: 0 }} />
         <button className="btn" type="submit">Search</button>
       </div>
       {hits && (hits.length ? (
-        <ul aria-label="Found" style={{ listStyle: "none", padding: 0 }}>
-          {hits.map((h, i) => (
-            <li key={i} style={{ padding: "8px 0", borderTop: "1px solid var(--border)" }}>
-              <a href={hashForScreen("library", h.doc_id)}>{h.title}</a>{h.section ? <span className="sub"> › {h.section}</span> : null} <span className="sub">version {h.version}</span>
-              {!h.for_agents && <> <Pill tone="idle">people only</Pill></>}
-              <blockquote style={{ whiteSpace: "pre-wrap", margin: "4px 0 0" }}>{h.quote}</blockquote>
-            </li>
-          ))}
-        </ul>
-      ) : <p className="sub">The library says nothing about that.</p>)}
+        <>
+          <p className="sub" style={{ margin: "10px 0 0" }}>{hits.length} {hits.length === 1 ? "passage" : "passages"} found on this computer, best first</p>
+          <ul aria-label="Found" className="lb-hits">
+            {hits.map((h, i) => (
+              <li key={i}>
+                <span className="rdw-bar" style={{ gap: 6 }}>
+                  <a href={hashForScreen("library", h.doc_id)}>{h.title}</a>{h.section ? <span className="sub"> › {h.section}</span> : null} <span className="sub">· version {h.version}</span>
+                  {!h.for_agents && <> <Pill tone="idle">people only</Pill></>}
+                </span>
+                <blockquote className="rdw-quote">{h.quote}</blockquote>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : <p className="sub" style={{ margin: "10px 0 0" }}>The library says nothing about that.</p>)}
     </form>
   );
 }
 
-function List({ pid }: { pid: string }) {
-  const list = useLoad(`library:${pid}`, () => libraryApi.list(pid));
+const scopeWord = (d: DocRow) => (d.project_id ? "this project" : "every project");
+
+/** The left column: the search and the documents. */
+function Docs({ pid, list, current }: { pid: string; list: Loaded<{ docs: DocRow[]; sends: string }>; current: string | null }) {
   return (
-    <>
-      <PageHead title="Library" sub="Your company's policies and rules in one place, which agents can search and quote with the source." />
+    <div className="rdw-list">
+      <Search pid={pid} />
       <Async r={list} what="Loading the library">
         {(v) => (
-          <div className="grid" style={{ gap: 12 }}>
-            <Note tone="info"><b>What can go to the model company.</b> {v.sends}</Note>
-            <AgentsLine pid={pid} />
-            <Panel title="Search"><Search pid={pid} /></Panel>
-            <Panel title={`Documents (${v.docs.length})`} body={false}>
-              {v.docs.length ? (
-                <div className="ss-tablewrap">
-                  <table className="ss-table" aria-label="Documents">
-                    <thead><tr><th>Title</th><th>From</th><th>For</th><th>Agents</th><th>Version</th></tr></thead>
-                    <tbody>
-                      {v.docs.map((d) => (
-                        <tr key={d.id}>
-                          <td><a href={hashForScreen("library", d.id)}>{d.title}</a></td>
-                          <td>{d.source ?? ""}</td>
-                          <td>{d.project_id ? "this project" : "every project"}</td>
-                          <td>{d.for_agents ? <Pill tone="ok">may read</Pill> : <Pill tone="idle">people only</Pill>}</td>
-                          <td>{d.version}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : <EmptyState title="The library is empty">Add your first document below.</EmptyState>}
-            </Panel>
-            <Panel title="Add a document"><AddDoc pid={pid} onAdded={(id) => go("library", id)} /></Panel>
-          </div>
+          <>
+            <div className="rdw-bar rise r2"><h2 className="lbl">Documents · {v.docs.length}</h2><span className="grow" /><span className="sub">Agents may read</span></div>
+            {v.docs.length ? (
+              <ul className="rdw-items rise r2" aria-label="Documents">
+                {v.docs.map((d) => (
+                  <li key={d.id}>
+                    <a className="rdw-item" href={hashForScreen("library", d.id)} aria-current={d.id === current ? "page" : undefined}>
+                      <span className="rdw-item-top"><b>{d.title}</b>{d.for_agents ? <Pill tone="ok">may read</Pill> : <Pill tone="idle">people only</Pill>}</span>
+                      <span className="sub">{[d.source, scopeWord(d), `version ${d.version}`].filter(Boolean).join(" · ")}</span>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            ) : <EmptyState title="The library is empty" compact>Add your first document in Add a document.</EmptyState>}
+          </>
         )}
       </Async>
-    </>
+    </div>
   );
 }
 
@@ -156,38 +159,75 @@ function One({ pid, id }: { pid: string; id: string }) {
     }
   };
   return (
-    <>
-      <PageHead title={doc.data?.title ?? "A document"} actions={<a className="btn sm ghost" href={hashForScreen("library")}>All documents</a>} />
-      <Async r={doc} what="Loading the document">
-        {(d) => (
-          <div className="grid" style={{ gap: 12 }}>
-            <Panel title={`Version ${d.version}`} extra={<span className="sub">{d.source ?? ""}</span>}>
-              <div className="row" style={{ alignItems: "center" }}>
-                <Switch on={d.for_agents} disabled={busy} onChange={(on: boolean) => void run(() => libraryApi.change(pid, id, { for_agents: on }))}>Agents may read it</Switch>
-                {edit === null && <button className="btn sm" type="button" onClick={() => setEdit(d.body)}>Change the text</button>}
-                <button className="btn sm ghost" type="button" disabled={busy} onClick={() => void libraryApi.remove(pid, id).then(() => go("library"))}>Delete it</button>
-              </div>
-              {d.for_agents ? <p className="sub">When an agent reads this, it goes to your model company.</p> : <p className="sub">For people only: no agent tool returns it.</p>}
-              {edit === null ? <Markdown text={d.body} /> : (
-                <div className="grid" style={{ gap: 8 }}>
-                  <div className="field"><label htmlFor="lb-f105">The text</label> <textarea id="lb-f105" rows={14} value={edit} onChange={(e) => setEdit(e.target.value)} /></div>
-                  <div className="row">
-                    <button className="btn primary" type="button" disabled={busy || !edit.trim()} onClick={() => void run(() => libraryApi.change(pid, id, { body: edit })).then(() => setEdit(null))}>Save a new version</button>
-                    <button className="btn ghost" type="button" onClick={() => setEdit(null)}>Cancel</button>
-                  </div>
-                </div>
-              )}
-            </Panel>
+    <Async r={doc} what="Loading the document">
+      {(d) => (
+        <section className="panel rdw-detail lb-doc rise" aria-labelledby="lb-title">
+          <div className="rdw-meta">
+            <span className="lb-ver">Version {d.version}</span>
+            <span>{[d.source, scopeWord(d)].filter(Boolean).join(" · ")}</span>
+            <span className="grow" />
+            {edit === null && <button className="btn sm" type="button" onClick={() => setEdit(d.body)}>Change the text</button>}
+            <button className="btn sm ghost" type="button" disabled={busy} onClick={() => void libraryApi.remove(pid, id).then(() => go("library"))}>Delete it</button>
+            <a className="btn sm ghost" href={hashForScreen("library")}>All documents</a>
           </div>
-        )}
-      </Async>
-    </>
+          <h2 id="lb-title" className="lb-title">{d.title}</h2>
+          <div className="rdw-bar lb-who">
+            <Switch on={d.for_agents} disabled={busy} onChange={(on: boolean) => void run(() => libraryApi.change(pid, id, { for_agents: on }))}>Agents may read it</Switch>
+            {d.for_agents ? <span className="sub">When an agent reads this, it goes to your model company.</span> : <span className="sub">For people only: no agent tool returns it.</span>}
+          </div>
+          {edit === null ? <div className="lb-body"><Markdown text={d.body} /></div> : (
+            <div className="grid" style={{ gap: 10 }}>
+              <div className="field"><label htmlFor="lb-f105">The text</label> <textarea id="lb-f105" rows={14} value={edit} onChange={(e) => setEdit(e.target.value)} /></div>
+              <div className="rdw-bar">
+                <button className="btn primary" type="button" disabled={busy || !edit.trim()} onClick={() => void run(() => libraryApi.change(pid, id, { body: edit })).then(() => setEdit(null))}>Save a new version</button>
+                <button className="btn ghost" type="button" onClick={() => setEdit(null)}>Cancel</button>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+    </Async>
   );
 }
 
+/** What can go to the model company, and whether agents read the library here: two notes side by side. */
+function Notes({ pid, list }: { pid: string; list: Loaded<{ docs: DocRow[]; sends: string }> }) {
+  return (
+    <div className="lb-notes rise r1">
+      {list.data && <Note tone="info"><b>What can go to the model company.</b> {list.data.sends}</Note>}
+      <AgentsLine pid={pid} />
+    </div>
+  );
+}
+
+/** #/library and #/library/<doc>: the documents on the left, the open one on the right (one column on a phone). */
 export function LibraryPage({ pid }: { pid: string }) {
   const { arg } = useRoute();
-  return arg ? <One key={arg} pid={pid} id={arg} /> : <List pid={pid} />;
+  const list = useLoad(`library:${pid}`, () => libraryApi.list(pid));
+  // the add form fills the right side while no document is open; on one it opens above it with its button (or N)
+  const [adding, setAdding] = useState(false);
+  const add = () => {
+    setAdding(true);
+    window.setTimeout(() => document.getElementById("lb-f101")?.focus(), 0);
+  };
+  usePageKey("n", add);
+  return (
+    <div className="rdw rdw-library">
+      <PageHead
+        title="Library"
+        sub="Your company's policies and rules in one place, which agents can search and quote with the source."
+        actions={<button className="btn primary" type="button" onClick={add} aria-keyshortcuts="N">Add a document <kbd aria-hidden="true">N</kbd></button>}
+      />
+      {!arg && <Notes pid={pid} list={list} />}
+      <div className="rdw-cols">
+        <Docs pid={pid} list={list} current={arg ?? null} />
+        <div className="rdw-detail">
+          {(adding || !arg) && <AddDoc pid={pid} onCancel={arg ? () => setAdding(false) : undefined} onAdded={(id) => { setAdding(false); void list.reload(); go("library", id); }} />}
+          {arg && <One key={arg} pid={pid} id={arg} />}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 /** ⌘K: the library's documents, by title. */

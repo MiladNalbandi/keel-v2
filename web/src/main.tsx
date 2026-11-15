@@ -39,6 +39,7 @@ import "./styles/welcome.css";
 import "./styles/shell.css";
 import "./styles/rd-code.css";
 import "./styles/rd-inbox.css";
+import "./styles/rd-work.css";
 
 // Plugins' web parts load at run time and use this React and @keel/web-sdk: the import map in index.html points their
 // bare imports to small shims that read window.__keel (src/sdk/shared.ts). So it is set before anything renders.

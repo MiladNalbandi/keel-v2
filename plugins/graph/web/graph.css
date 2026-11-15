@@ -105,3 +105,41 @@
   .gsearch { max-width: none; }
   .gfd-legend, .gfd .dg-help { display: none; }
 }
+
+/* keel 0.28 the redesign (the canvas board PgGraph): the page sits in `.rdw .rdw-graph` (web/src/styles/rd-work.css
+   has the shared head and buttons). Calm cards, a search box like the other boards, a segmented control for the
+   steps, the symbol's card beside the diagram. Colours are keel's tokens, so both themes follow. */
+.rdw-graph .gtop { position: relative; z-index: 5; margin: 0 0 14px; }
+.rdw-graph .gsearch { max-width: 560px; }
+.rdw-graph .gsearch input { min-height: 36px; border-radius: 9px; padding: 7px 11px; font-size: 14px; transition: border-color .16s ease, box-shadow .16s ease; }
+.rdw-graph .gsearch input:focus, .rdw-graph .gsearch input:focus-visible { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.rdw-graph .gsearch-list { border-radius: 12px; padding: 5px; animation: k-rise .18s ease both; }
+.rdw-graph .gsearch-list li { padding: 7px 10px; border-radius: 8px; }
+.rdw-graph .gbar { margin: 0 0 12px; }
+.rdw-graph .gcrumbs { font-size: 13.5px; }
+.rdw-graph .gctl { font-size: 13px; }
+.rdw-graph .gctl select { min-height: 32px; border-radius: 8px; padding: 0 8px; }
+.rdw-graph .gctl.check input { accent-color: var(--accent); }
+/* the board's .seg: a soft track, the chosen step raised on it */
+.rdw-graph .gseg { padding: 3px; gap: 2px; border: 0; border-radius: 10px; background: var(--panel-2); }
+.rdw-graph .gseg button { height: 28px; padding: 0 11px; border-radius: 8px; background: transparent; font-size: 13px; font-weight: 500; transition: background .18s ease, color .18s ease; }
+.rdw-graph .gseg button + button { border-left: 0; }
+.rdw-graph .gseg button:hover { color: var(--fg); }
+.rdw-graph .gseg button.on { background: var(--panel); color: var(--fg); font-weight: 500; box-shadow: 0 1px 3px rgba(0, 0, 0, .25); }
+.rdw-graph .gfocus-wrap { gap: 14px; }
+.rdw-graph .gpanel { gap: 14px; padding: 14px 16px; border-radius: 14px; }
+.rdw-graph .gp-head h2 { font-size: 17px; letter-spacing: -.01em; }
+.rdw-graph .gp-facts { font-size: 13px; gap: 6px 14px; }
+.rdw-graph .gp-facts dt { color: var(--dim); }
+.rdw-graph .gp-sig { padding: 9px 11px; border-radius: 9px; font-size: 12px; }
+.rdw-graph .gp-doc { font-size: 13.5px; line-height: 1.5; }
+.rdw-graph .gp-sel { padding: 9px 11px; border-radius: 9px; font-size: 13px; animation: k-rise .2s ease both; }
+.rdw-graph .gp-sec h3 { font-size: 11.5px; letter-spacing: .06em; }
+.rdw-graph .gp-list li { border-radius: 8px; transition: background .14s ease; }
+.rdw-graph .gp-list li:hover { background: var(--panel-2); }
+.rdw-graph .gp-list li.on { background: var(--accent-soft); }
+.rdw-graph .hint { margin-top: 10px; }
+@media (prefers-reduced-motion: reduce) {
+  .rdw-graph .gsearch-list, .rdw-graph .gp-sel { animation: none; }
+  .rdw-graph .gseg button, .rdw-graph .gp-list li { transition: none; }
+}

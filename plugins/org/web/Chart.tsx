@@ -147,7 +147,8 @@ function measure(el: HTMLElement, roles: ChartRole[], links: ChartLink[], title:
   return out;
 }
 
-export function Chart({ roles, links, compact }: { roles: ChartRole[]; links: ChartLink[]; compact?: boolean }) {
+/** `picked` and `onPick`: the Org page's chart says which role its side panel shows; a click (or ↩ on a focused box) picks one. */
+export function Chart({ roles, links, compact, picked, onPick }: { roles: ChartRole[]; links: ChartLink[]; compact?: boolean; picked?: string | null; onPick?: (id: string) => void }) {
   const box = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const centred = useRef(false);
@@ -199,9 +200,11 @@ export function Chart({ roles, links, compact }: { roles: ChartRole[]; links: Ch
           {levels(roles, links).map((row, i) => (
             <div key={i} className="org-level">
               {row.map((r) => (
-                <div key={r.id} data-role={r.id} className={`org-role${r.human ? " org-human" : ""}${hot === r.id ? " hot" : ""}`}
+                <div key={r.id} data-role={r.id} className={`org-role${r.human ? " org-human" : ""}${hot === r.id ? " hot" : ""}${picked === r.id ? " picked" : ""}${onPick ? " can-pick" : ""}`}
                   tabIndex={0} onMouseEnter={() => setHot(r.id)} onMouseLeave={() => setHot(null)} onFocus={() => setHot(r.id)}
-                  onBlur={() => setHot(null)} aria-label={`${r.title}${r.human ? ", a person" : ""}`}>
+                  onBlur={() => setHot(null)} aria-label={`${r.title}${r.human ? ", a person" : ""}`} aria-current={picked === r.id ? "true" : undefined}
+                  onClick={onPick ? () => onPick(r.id) : undefined}
+                  onKeyDown={onPick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPick(r.id); } } : undefined}>
                   <div className="org-role-head">
                     <b>{r.human ? "👤 " : ""}{r.title}</b><span className="sub mono">{r.id}</span>
                   </div>

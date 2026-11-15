@@ -169,7 +169,7 @@ function FocusView({ pid, id, o, depth, name }: { pid: string; id: string; o: Ov
         const key = o ? overviewBoxes(o, depth, true).keyOf.get(f.unit?.id ?? f.id) : undefined;
         return (
           <>
-            <div className="gbar">
+            <div className="gbar rise r2">
               <Crumbs items={[
                 { label: "All packages", href: "#/graph" },
                 ...(o && key ? [{ label: groupLabel(o, f.group, depth), href: `#/graph/${encodeURIComponent(`in:${key}`)}` }] : []),
@@ -185,7 +185,7 @@ function FocusView({ pid, id, o, depth, name }: { pid: string; id: string; o: Ov
                 ))}
               </div>
             </div>
-            <div className="gfocus-wrap">
+            <div className="gfocus-wrap rise r2">
               <FocusDiagram data={d} name={name} onOpen={(x) => go("graph", x)} selected={selected} onSelect={setSelected} />
               <FocusPanel data={d} o={o} depth={depth} selected={selected} />
             </div>
@@ -230,7 +230,7 @@ function Levels({ pid, o, arg, depth, setDepth, tests, setTests, name }: {
     }
     return (
       <>
-        <div className="gbar"><Crumbs items={[{ label: "All packages", href: "#/graph" }, { label: grp.label }]} />{controls}</div>
+        <div className="gbar rise r2"><Crumbs items={[{ label: "All packages", href: "#/graph" }, { label: grp.label }]} />{controls}</div>
         <BoxDiagram key={`grp:${inGroup}:${depth}:${tests}`} pid={pid} level={`graph.${inGroup}`} name={name} boxes={grp.boxes} edges={grp.edges}
           onDrill={open} label={`${grp.label} in ${name}: ${grp.units} classes and functions, and the packages they touch`} />
         <p className="hint">Lines point at what is used; a thick line is many uses. Grey boxes are other packages. Open a class or function to see who uses it and what it uses.</p>
@@ -239,7 +239,7 @@ function Levels({ pid, o, arg, depth, setDepth, tests, setTests, name }: {
   }
   return (
     <>
-      <div className="gbar"><Crumbs items={[{ label: "All packages" }]} />{controls}</div>
+      <div className="gbar rise r2"><Crumbs items={[{ label: "All packages" }]} />{controls}</div>
       {over.boxes.length ? (
         <BoxDiagram key={`all:${depth}:${tests}`} pid={pid} level={`graph.all.${depth}`} name={name} boxes={over.boxes} edges={over.edges}
           onDrill={open} label={`Packages of ${name}: ${over.boxes.length} boxes, ${over.edges.length} lines`} />
@@ -282,11 +282,11 @@ export function GraphPage({ pid }: { pid: string }) {
     ? `What uses what in ${name}: ${o.counts.units} classes, functions and files in ${o.groups.length} packages and folders, ${o.counts.uses} uses. Read from the code graph keel keeps for agents${o.indexed_at ? `, indexed ${agoText(o.indexed_at)}` : ""}.`
     : `What uses what in ${name}, from the code graph keel keeps for agents.`;
   return (
-    <>
+    <div className="rdw rdw-graph">
       <PageHead title="Graph" sub={sub}
         actions={<button className="btn" type="button" onClick={rebuild} disabled={busy || (r.data && !r.data.available && r.data.status === "indexing") || false}>{busy ? "Starting…" : "Rebuild index"}</button>} />
       {r.data && !r.data.available ? (
-        <div className="panel">
+        <div className="panel rise r1">
           <EmptyState title={r.data.status === "indexing" ? "Indexing the code…" : "No code graph yet"}
             action={r.data.status === "indexing" ? <button className="btn" type="button" onClick={() => void r.reload()}>Check again</button>
               : <button className="btn primary" type="button" onClick={rebuild} disabled={busy}>{busy ? "Starting…" : "Build the index"}</button>}>
@@ -296,7 +296,7 @@ export function GraphPage({ pid }: { pid: string }) {
       ) : (
         <>
           <svg width="0" height="0" style={{ position: "absolute" }} aria-hidden="true"><IconDefs /></svg>
-          <div className="gtop"><SymbolSearch pid={pid} /></div>
+          <div className="gtop rise r1"><SymbolSearch pid={pid} /></div>
           {focusId ? <FocusView pid={pid} id={focusId} o={o} depth={depth} name={name} />
             : r.error ? <ErrorBox error={r.error} onRetry={() => void r.reload()} />
               : <Async r={r} what="Reading the code graph">
@@ -304,6 +304,6 @@ export function GraphPage({ pid }: { pid: string }) {
               </Async>}
         </>
       )}
-    </>
+    </div>
   );
 }

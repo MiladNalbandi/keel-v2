@@ -118,6 +118,25 @@ describe("Map page", () => {
     expect(screen.getByLabelText("Legend")).toHaveTextContent("primary key");
   });
 
+  it("Rebuild is in the page head; R rebuilds the map", async () => {
+    localStorage.setItem("keel2.project", "ludus-engine");
+    localStorage.setItem("keel2.map.ludus-engine.tab", "er");
+    let rebuilt = 0;
+    server.use(
+      http.get("/api/projects/:pid/map", () => HttpResponse.json(withSchema)),
+      http.post("/api/projects/:pid/map/rebuild", () => {
+        rebuilt++;
+        return HttpResponse.json(withSchema);
+      }),
+    );
+    location.hash = "#/map";
+    render(<App />);
+    const btn = await main().findByRole("button", { name: "Rebuild" });
+    expect(btn).toHaveAttribute("aria-keyshortcuts", "R");
+    await userEvent.keyboard("r");
+    await waitFor(() => expect(rebuilt).toBe(1));
+  });
+
   it("an older map (only levels.er) still draws, and says a rebuild adds the details", async () => {
     localStorage.setItem("keel2.project", "ludus-engine");
     localStorage.setItem("keel2.map.ludus-engine.tab", "er");
