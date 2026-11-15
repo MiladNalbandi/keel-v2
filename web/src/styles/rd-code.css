@@ -1,0 +1,204 @@
+/* keel 0.28 the redesign, part "code": the Code page (plugins/code/web) as a calm, read-only reader. It loads after
+   repo.css and scm.css and only restyles: the layout stays theirs (grid areas, the phone's two screens, the scroll areas).
+   Colours are keel's own tokens (styles.css :root), so both themes follow. New parts: the Show switch (Code / Changes),
+   the keys strip, the column on the right (FileInfo.tsx: outline and "This file in keel") and quick open's keys. */
+
+/* ---------- the frame: quieter surfaces, a softer corner ---------- */
+.repo-page .ide {
+  --ide-bg: var(--panel);
+  --ide-side: color-mix(in srgb, var(--panel-2) 40%, var(--bg));
+  --ide-act: color-mix(in srgb, var(--panel-2) 40%, var(--bg));
+  --ide-line: var(--border);
+  --ide-hover: var(--panel-2);
+  --ide-sel: var(--accent-soft);
+  border-radius: 14px;
+  grid-template-rows: minmax(0, 1fr) 28px;
+  animation: rdc-rise .32s cubic-bezier(.2, .7, .2, 1) both;
+}
+.repo-page .ide.phone.s-side { grid-template-rows: auto minmax(0, 1fr) 28px; }
+.repo-page .ide.phone.s-editor { grid-template-rows: minmax(0, 1fr) 28px; }
+@keyframes rdc-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes rdc-pop { from { opacity: 0; transform: translateY(6px) scale(.98); } to { opacity: 1; transform: none; } }
+@keyframes rdc-fade { from { opacity: 0; } to { opacity: 1; } }
+.repo-page .top kbd { margin-left: 2px; }
+.ide button:focus-visible, .ide a:focus-visible, .ide input:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* ---------- activity bar: rounded keys, the open view in the accent's soft tone with a mark at its edge ---------- */
+.ide:not(.phone) .ide-act { gap: 4px; padding: 10px 0; }
+.ide:not(.phone) .act { width: 40px; height: 40px; border-left: 0; border-radius: 10px; color: var(--dim); transition: background .16s ease, color .16s ease; }
+.ide:not(.phone) .act:hover { background: var(--panel-2); color: var(--fg); }
+.ide:not(.phone) .act.on { background: var(--accent-soft); color: var(--fg); }
+.ide:not(.phone) .act.on::before { content: ""; position: absolute; left: -4px; top: 9px; bottom: 9px; width: 3px; border-radius: 2px; background: var(--accent); }
+.ide:not(.phone) .act-n { right: 1px; top: 2px; bottom: auto; min-width: 15px; height: 15px; font-size: 10px; line-height: 15px; }
+.ide.phone .act { color: var(--dim); }
+.ide.phone .act.on { color: var(--accent); }
+
+/* ---------- side bar: small caps titles, rounded rows ---------- */
+.ide .sv-head { min-height: 38px; padding: 10px 8px 6px 14px; }
+.ide .sv-title { font-size: 11.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+.ide .sv-sub { text-transform: none; letter-spacing: 0; font-size: 12.5px; }
+.ide .ib { width: 26px; height: 26px; border-radius: 7px; }
+.ide .sv-filter { padding: 0 10px 10px; }
+.ide .sv-filter input, .ide .sr-box input, .ide .sr-lab input { height: 30px; border-radius: 8px; padding: 0 10px; font-size: 13px; background: var(--panel); color: var(--fg); }
+.ide .sr-box input { padding-right: 86px; }
+.ide .ex-list, .ide .sr-list { padding-inline: 6px; }
+.ide .ex-row { height: 26px; border-radius: 7px; transition: background .14s ease; font-size: 13.5px; }
+.ide .ex-row.sel { background: var(--accent-soft); }
+.ide .ex-keel { border: 0; background: var(--accent-soft); color: var(--accent); border-radius: 5px; }
+.ide .sr-file, .ide .sr-hit, .ide .scm-row { border-radius: 7px; }
+.ide .sr-file { min-height: 26px; }
+.ide .sr-count { background: var(--panel-2); }
+.ide .kv-rule { border-radius: 9px; padding: 8px 10px; }
+.ide .kv-link { border-radius: 10px; background: var(--panel); transition: border-color .16s ease; }
+.ide .kv-sec h3 { font-size: 11.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+
+/* the keys strip at the foot of the side bar */
+.ide-keys { flex: none; display: flex; flex-wrap: wrap; gap: 6px 12px; padding: 9px 12px 10px; border-top: 1px solid var(--ide-line); font-size: 12px; color: var(--dim); }
+.ide-keys > span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.ide kbd, .qo kbd {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box;
+  border-radius: 5px; border: 1px solid var(--rail); border-bottom-width: 2px; background: var(--panel-2); color: var(--dim);
+  font: 500 11px/1 "JetBrains Mono", ui-monospace, monospace; }
+
+/* ---------- editor tabs ---------- */
+.ide .ed-head { background: var(--ide-side); min-height: 38px; }
+.ide .ed-tab { height: 38px; padding: 0 6px 0 14px; font-size: 13px; color: var(--dim); transition: color .14s ease, background .14s ease; }
+.ide .ed-tab:hover { background: color-mix(in srgb, var(--panel-2) 55%, transparent); }
+.ide .ed-tab.on { background: var(--ide-bg); color: var(--fg); }
+.ide .ed-tab-x { border-radius: 5px; }
+.ide .ed-tab-x:hover { background: var(--panel-2); }
+.ide.phone .ed-back { font-size: 13.5px; }
+
+/* ---------- the path and the tools: breadcrumbs, the Show switch, small quiet buttons ---------- */
+.ide .ed-bar { min-height: 42px; gap: 8px 12px; padding: 5px 10px 5px 16px; background: var(--ide-bg); }
+.ide .crumbs { font-size: 13px; }
+.ide .crumb-b { padding: 1px 3px; border-radius: 5px; }
+.ide .crumb-f { font-weight: 500; }
+.ide .crumb-sym { font: 500 12.5px var(--f-mono); color: var(--run); }
+.ide .crumb-sym.k-class, .ide .crumb-sym.k-type { color: var(--accent); }
+.ide .crumb-sym.k-head { font-family: inherit; color: var(--fg); }
+.ide .ed-tools { gap: 6px; padding: 0; }
+.ide .tb { height: 28px; padding: 0 9px; border-radius: 8px; font-size: 12.5px; gap: 6px; transition: background .16s ease, color .16s ease; }
+.ide .tb.on { background: var(--accent-soft); border-color: transparent; color: var(--fg); }
+
+/* every switch in the IDE (Show, Compare with, Diff layout, a log's branch): a track with the chosen part raised */
+.ide .seg { gap: 2px; padding: 3px; border: 0; border-radius: 10px; background: var(--panel-2); overflow: visible; }
+.ide .seg button { height: 26px; padding: 0 10px; border: 0; border-radius: 8px; font: 500 12.5px var(--f-body); color: var(--dim); transition: background .18s ease, color .18s ease, box-shadow .18s ease; }
+.ide .seg button + button { border-left: 0; }
+.ide .seg button:hover { color: var(--fg); }
+.ide .seg button[aria-pressed="true"] { background: var(--panel); color: var(--fg); box-shadow: 0 1px 3px rgba(0, 0, 0, .22); }
+.ide .seg .tb.on { background: var(--panel); }
+.ide .ed-show { flex: none; }
+/* the Show switch keeps its words in a narrow editor (the other tools keep their icons only there, repo.css) */
+@container (max-width: 700px) { .ide .ed-show button span { display: inline; } .ide .ed-show .tb { padding: 0 8px; } }
+.ide .ed-show .tb { height: 26px; }
+.ide .ed-show-m { font: 700 11px var(--f-mono); }
+.ide .ed-show-m.t-mod { color: var(--t-mod); } .ide .ed-show-m.t-add, .ide .ed-show-m.t-untracked { color: var(--t-add); }
+.ide .ed-show-m.t-del, .ide .ed-show-m.t-conflict { color: var(--t-del); } .ide .ed-show-m.t-ren { color: var(--t-ren); }
+
+/* ---------- the code ---------- */
+.ide .cv ::selection, .ide .dv-body ::selection { background: color-mix(in srgb, var(--accent) 32%, transparent); }
+.ide .cv-ln { color: var(--dim); opacity: .8; }
+.ide .cv-row.cur .cv-ln, .ide .cv-row.tgt .cv-ln { opacity: 1; }
+.ide .cv-row:hover { background: color-mix(in srgb, var(--panel-2) 55%, transparent); }
+.ide .cv-row.tgt { animation: rdc-fade .3s ease both; }
+.ide .find, .ide .goto { border-radius: 11px; padding: 5px; animation: rdc-pop .2s cubic-bezier(.2, .8, .2, 1) both; }
+.ide .find-in, .ide .goto input { border-radius: 7px; height: 28px; }
+.ide .dv-head { min-height: 34px; }
+.ide .ed-empty kbd { font-size: 11.5px; height: 20px; }
+.ide .ed-empty svg { opacity: .9; }
+.ide .ed-empty p { color: var(--fg); font-weight: 500; }
+
+/* ---------- the bar over selected code (components/SelectionBar.tsx, in the body): on this page Ask is its main action ---------- */
+body:has(.repo-page) .selbar { height: 38px; padding: 4px; border-radius: 11px; animation: rdc-pop .2s cubic-bezier(.2, .8, .2, 1) both; }
+body:has(.repo-page) .selbar-b { height: 30px; border-radius: 8px; }
+body:has(.repo-page) .selbar-b:first-child { color: var(--accent); font-weight: 600; }
+
+/* ---------- the column on the right: the outline and "This file in keel" (FileInfo.tsx) ---------- */
+.ide .ed-split { flex: 1; min-height: 0; display: flex; }
+.ide .ed-split > .ed-body { flex: 1 1 auto; min-width: 0; }
+.ed-info { flex: 0 0 236px; min-height: 0; display: flex; flex-direction: column; gap: 14px; padding: 12px 10px 12px; box-sizing: border-box;
+  border-left: 1px solid var(--ide-line); background: var(--ide-side); animation: rdc-fade .2s ease both; }
+.ei-sec { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+.ei-outline { flex: 0 1 auto; }
+.ei-keel { flex: none; gap: 8px; padding: 12px 6px 0; border-top: 1px solid var(--ide-line); }
+.ei-h { margin: 0; padding: 0 6px; font-size: 11.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
+.ei-keel .ei-h { padding: 0; }
+.ei-syms { position: relative; list-style: none; margin: 0; padding: 0; overflow-y: auto; min-height: 0; scrollbar-width: thin; }
+.ide .ei-syms { overscroll-behavior: contain; }
+.ei-sym { display: flex; align-items: center; gap: 8px; width: 100%; height: 28px; padding: 0 8px; box-sizing: border-box; border: 0; border-radius: 7px;
+  background: transparent; color: var(--fg); font: inherit; font-size: 13px; text-align: left; cursor: pointer; transition: background .14s ease; }
+.ei-sym:hover { background: var(--panel-2); }
+.ei-sym.on { background: var(--accent-soft); }
+.ei-sym.d1 { padding-left: 22px; } .ei-sym.d2 { padding-left: 36px; } .ei-sym.d3 { padding-left: 50px; }
+.ei-k { flex: none; width: 18px; height: 18px; border-radius: 5px; display: grid; place-items: center; font: 600 10.5px var(--f-mono);
+  background: color-mix(in srgb, var(--run) 16%, transparent); color: var(--run); }
+.ei-k.k-class, .ei-k.k-type { background: var(--accent-soft); color: var(--accent); }
+.ei-k.k-head { background: var(--panel-2); color: var(--dim); }
+.ei-n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--f-mono); font-size: 12.5px; }
+.ei-k.k-head + .ei-n { font-family: inherit; font-size: 13px; }
+.ei-l { margin-left: auto; flex: none; font: 11px var(--f-mono); color: var(--dim); opacity: 0; transition: opacity .14s ease; }
+.ei-sym:hover .ei-l, .ei-sym.on .ei-l, .ei-sym:focus-visible .ei-l { opacity: 1; }
+.ei-none { margin: 0; padding: 0 6px; font-size: 12.5px; color: var(--dim); }
+.ei-rule { margin: 0; display: flex; gap: 6px; align-items: flex-start; font-size: 13px; line-height: 1.45; }
+.ei-rule.t-open::before, .ei-rule.t-none::before { content: ""; flex: none; width: 7px; height: 7px; margin-top: 6px; border-radius: 50%; background: var(--ok); }
+.ei-rule.t-none::before { background: var(--dim); }
+.ei-rule.t-frozen { color: var(--fg); }
+.ei-rule.t-frozen .ide-svg { color: var(--warn); margin-top: 3px; flex: none; }
+.ei-dl { margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; font-size: 12.5px; }
+.ei-dl dt { color: var(--dim); white-space: nowrap; }
+.ei-dl dd { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ei-acts { display: flex; flex-wrap: wrap; gap: 6px; }
+/* a narrow editor (a laptop with the side bar and KeelBot open) has no room for it: the toggle goes too */
+@container (max-width: 740px) { .ed-info, .ed-info-tg { display: none !important; } }
+
+/* ---------- the status bar: quiet, like the rest; the frozen rule is the one thing in colour ---------- */
+.ide .ide-sb { background: var(--ide-side); color: var(--dim); border-top: 1px solid var(--ide-line); gap: 4px; padding: 0 8px; }
+.ide .sb-i { height: 28px; padding: 0 8px; border-radius: 0; }
+.ide button.sb-i:hover { background: var(--panel-2); color: var(--fg); }
+.ide .sb-i:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.ide .sb-branch { color: var(--fg); }
+.ide .sb-branch span { font: 500 12px var(--f-mono); }
+.ide .sb-rule.frozen { background: var(--warn-soft); color: var(--warn); }
+.ide .sb-k { font: 500 11px var(--f-mono); padding: 1px 5px; border: 1px solid var(--rail); border-radius: 5px; background: var(--panel-2); color: var(--dim); opacity: 1; }
+
+/* ---------- quick open (⌘P) and Recent files (⌘E): a clean box over the page ---------- */
+.qo-back { background: color-mix(in srgb, var(--bg) 45%, transparent); padding-top: 12vh; animation: rdc-fade .16s ease-out both; }
+.qo { width: min(620px, 100%); border-radius: 14px; animation: rdc-pop .18s cubic-bezier(.2, .8, .2, 1) both; }
+.qo-top { margin: 0; gap: 10px; padding: 4px 14px; border-bottom: 1px solid var(--border); color: var(--dim); }
+.qo-in { border: 0; background: transparent; color: var(--fg); padding: 12px 0; font-size: 16px; }
+.qo-in:focus-visible { outline: none; }
+.qo-list { padding: 6px; }
+.qo-list li { gap: 10px; padding: 7px 10px; border-radius: 9px; font-size: 13.5px; }
+.qo-list li.on { background: var(--accent-soft); }
+.qo-name b, .qo-dir b { color: var(--accent); font-weight: 600; }
+.qo-dir { color: var(--dim); font-size: 12.5px; }
+.qo-note { padding: 10px 16px 14px; }
+.qo-keys { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 8px 14px; border-top: 1px solid var(--border); font-size: 12px; color: var(--dim); }
+.qo-keys > span { display: inline-flex; align-items: center; gap: 4px; }
+
+/* ---------- up to 900 px keel's menu is a bar on top: it takes its own height, the Code page the rest of the window ---------- */
+@media (max-width: 900px) {
+  .app:has(.repo-page) { grid-template-rows: auto minmax(0, 1fr); }
+  .app:has(.repo-page) > aside.side { position: static; }
+}
+
+/* ---------- a phone (the IDE's own phone mode, 720 px): the tools scroll in one line, the Show switch is wide ---------- */
+.ide.phone .ed-bar { padding: 6px 10px; }
+.ide.phone .ed-tools { flex-wrap: wrap; overflow: visible; }
+.ide.phone .ed-show { flex: 1 1 100%; }
+.ide.phone .ed-show .tb { flex: 1; justify-content: center; height: 32px; }
+.ide.phone .tb { height: 32px; }
+.ide.phone .ex-row { height: 34px; }
+.ide.phone .ide-sb { padding: 0 4px; overflow-x: auto; scrollbar-width: none; }
+.ide.phone .sb-index { flex: none; }
+@media (max-width: 720px) {
+  .repo-page .top .actions kbd { display: none; }
+  .qo { border-radius: 0; animation: none; }
+  .qo-back { padding: 0; }
+  .qo-keys { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .repo-page .ide, .ed-info, .qo, .qo-back, .ide .find, .ide .goto, .ide .cv-row.tgt, body:has(.repo-page) .selbar { animation: none !important; }
+}
