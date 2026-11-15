@@ -27,6 +27,8 @@ keel runs. The only thing the computer needs is **git**.
   own API with it.
 - **More folders:** File › Add Project Folder. keel restarts with it; every git repository in it becomes a project.
 - **Open in Browser** (File menu): keel in your own browser, signed in.
+- **New Flow** (File menu, ⌘N / Ctrl+N) opens Start a flow; the **Go** menu opens keel's main places (Home, Inbox,
+  Flow, Code, KeelBot, Live Agents), All Pages, Add Features and Settings.
 - **Quit:** keel stops with the app. When agents are working, the app asks first (their step starts again later).
   On macOS, closing the window keeps keel running; the Dock icon opens it again.
 - **Help menu:** restart keel, restart in safe mode (only the plugins that came with keel), the logs, the sign-in
