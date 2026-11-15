@@ -17,6 +17,7 @@ import {
   type Cmd, type Cursor, type DiffMode, type Target,
 } from "./Editor";
 import { Explorer } from "./Explorer";
+import { FileInfo } from "./FileInfo";
 import { IndexItem } from "./IndexStatus";
 import { FileIcon, Icon, extOf, languageName } from "./icons";
 import { DocsView, KeelView, MemoryView, ruleText } from "./KeelView";
@@ -27,6 +28,7 @@ import {
 import { FileError, RefFilePane } from "./RefFile";
 import { logTitle, openLog, setLogBranch } from "./gitLog";
 import { LogTab } from "./Log";
+import { outlineOf, symbolAt } from "./outline";
 import { QuickOpen } from "./QuickOpen";
 import { RecentFiles } from "./Recent";
 import { ScmView } from "./Scm";
@@ -100,8 +102,10 @@ function tabTitle(t: EditorTab, kinds: CodeTabItem[]): string {
   return nameOf(t.path);
 }
 
-export function RepoIde({ pid, repo, version = 0, focus = false, onFocus, onRepoChanged }: {
+export function RepoIde({ pid, repo, version = 0, focus = false, onFocus, onRepoChanged, quickOpenKey = 0, askKey = 0 }: {
   pid: string; repo: RepoInfo | null; version?: number;
+  /** 0.28 the page head's Go to file and Ask buttons: each new number opens quick open, or asks as ⌘I does */
+  quickOpenKey?: number; askKey?: number;
   /** a switch, commit or push changed the branch: read it again */
   onRepoChanged?: () => void;
   /** the page head is hidden (Focus); the status bar can bring it back */
@@ -152,6 +156,8 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus, onRepo
   // KeelBot's column: drag its left edge (300 px up to all but 360 px of the IDE), remembered per browser
   const [helperW, setHelperW] = useState<number>(() => readJson(local, "keel2.repo.helper.w", 380));
   const [helperSel, setHelperSel] = useState<HelperSelection | null>(null);
+  // 0.28 the column on the right of a file (its outline and "This file in keel"), remembered per browser
+  const [infoOn, setInfoOn] = useState<boolean>(() => readJson(local, "keel2.repo.info", true));
   // the assistant's column (KeelBot), when a part answers askAssistant
   const assistant = useSlot<AssistantItem>(SLOTS.assistant)[0] ?? null;
   const helperName = assistant?.title ?? "";
@@ -191,6 +197,7 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus, onRepo
   useEffect(() => writeJson(local, "keel2.repo.wrap", wrap), [wrap]);
   useEffect(() => writeJson(local, "keel2.repo.helper", helperOpen), [helperOpen]);
   useEffect(() => writeJson(local, "keel2.repo.helper.w", helperW), [helperW]);
+  useEffect(() => writeJson(local, "keel2.repo.info", infoOn), [infoOn]);
   useEffect(() => {
     setCursor(null);
     setDims("");
@@ -372,7 +379,7 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus, onRepo
   // 0.18.63 the bar over selected code: Search for it, ask KeelBot about it, or have KeelBot review it
   const selActions = useMemo<SelectionAction[]>(() => {
     if (!codeActive) return [];
-    const out: SelectionAction[] = [{
+    const search: SelectionAction = {
       id: "search", label: "Search", title: "Search the project for the selected text (⇧⌘F)",
       run: () => {
         const text = searchTextOf(selectedLine());
@@ -380,10 +387,14 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus, onRepo
         showSide("search");
         setSearchQuery((q) => ({ text, n: (q?.n ?? 0) + 1 }));
       },
-    }];
-    if (assistant) {
+    };
+    const out: SelectionAction[] = [];
+    // 0.28 Ask first (the bar's main action), then Search and Review
+    if (!assistant) out.push(search);
+    else {
       out.push(
         { id: "ask", label: `Ask ${helperName}`, title: `Ask ${helperName} about the selected lines (⌘I)`, run: askHelper },
+        search,
         {
           id: "review", label: "Review", title: `${helperName} reviews the selected lines: bugs, missed cases, risks`,
           run: () => {
@@ -463,6 +474,25 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus, onRepo
     window.addEventListener("keydown", on);
     return () => window.removeEventListener("keydown", on);
   }, [showSide, toggleSide, hideActive, codeActive, helperOpen, codeSelection, askHelper, shownIds]);
+
+  // 0.28 the page head's buttons: Go to file (⌘P) and Ask (⌘I, the same toggle as the key)
+  const seenQo = useRef(quickOpenKey);
+  useEffect(() => {
+    if (quickOpenKey === seenQo.current) return;
+    seenQo.current = quickOpenKey;
+    setQo(true);
+  }, [quickOpenKey]);
+  const seenAsk = useRef(askKey);
+  const askNow = useRef<() => void>(() => undefined);
+  askNow.current = () => {
+    if (helperOpen && !codeSelection()) setHelperOpen(false);
+    else askHelper();
+  };
+  useEffect(() => {
+    if (askKey === seenAsk.current) return;
+    seenAsk.current = askKey;
+    askNow.current();
+  }, [askKey]);
 
   // the breadcrumbs keep the file name in view, the tab strip the active tab
   const crumbsRef = useRef<HTMLElement>(null);
@@ -659,26 +689,49 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus, onRepo
   const lineCount = useMemo(() => (lines ? lines.split("\n").length : 0), [lines]);
   const segs = active && (active.kind === "file" || active.kind === "commit" || active.kind === "ref") ? active.path.split("/") : [];
 
+  // 0.28 the open text file's outline (outline.ts), the symbol the cursor is in (the last crumb), and the column on the
+  // right that shows them with "This file in keel" (FileInfo.tsx); not on a phone, not beside a diff
+  const outlinePath = fileTab && metaData && kind === "text" ? metaData.path : null;
+  const syms = useMemo(() => (outlinePath && lines ? outlineOf(lines, outlinePath) : []), [outlinePath, lines]);
+  const symAt = view === "code" ? symbolAt(syms, cursor?.line) : null;
+  const infoFits = !phone && !!outlinePath && view !== "diff";
+  const goLine = (line: number) => {
+    if (!active) return;
+    if (view !== "code") setTabs((t) => setView(t, active.id, "code"));
+    setTargets((x) => ({ ...x, [active.id]: { line, n: Date.now() } }));
+    setLinks((x) => ({ ...x, [active.id]: line }));
+  };
+
   const toolbar = fileTab && active && (
     <div className="ed-tools" role="toolbar" aria-label="Editor">
-      {canPreview(active.path) && (
-        <button type="button" className={`tb${view === "preview" ? " on" : ""}`} aria-pressed={view === "preview"} aria-label="Preview"
-          title={view === "preview" ? "Show the code" : "Show it rendered (copying it gives the Markdown)"}
-          onClick={() => setTabs((t) => setView(t, active.id, view === "preview" ? "code" : "preview"))}>
-          <Icon name="preview" size={15} /><span>Preview</span>
+      {/* 0.28 one switch for what the tab shows: (Preview,) Code or Source, Changes. Pressing the pressed one goes back
+          to the file (Preview and Changes worked as toggles before, and still do). */}
+      <span className="seg ed-show" role="group" aria-label="Show">
+        {canPreview(active.path) && (
+          <button type="button" className={`tb${view === "preview" ? " on" : ""}`} aria-pressed={view === "preview"} aria-label="Preview"
+            title={view === "preview" ? "Show the code" : "Show it rendered (copying it gives the Markdown)"}
+            onClick={() => setTabs((t) => setView(t, active.id, view === "preview" ? "code" : "preview"))}>
+            <Icon name="preview" size={14} /><span>Preview</span>
+          </button>
+        )}
+        {extOf(active.path) === "svg" ? (
+          <button type="button" className={`tb${view === "code" ? " on" : ""}`} aria-pressed={view === "code"} aria-label="Source" title="Show the source"
+            onClick={() => setTabs((t) => setView(t, active.id, view === "code" ? "preview" : "code"))}>
+            <Icon name="files" size={14} /><span>Source</span>
+          </button>
+        ) : (
+          <button type="button" className={`tb${view === "code" ? " on" : ""}`} aria-pressed={view === "code"} aria-label="Code" title="Show the file"
+            onClick={() => setTabs((t) => setView(t, active.id, "code"))}>
+            <Icon name="files" size={14} /><span>Code</span>
+          </button>
+        )}
+        <button type="button" className={`tb${view === "diff" ? " on" : ""}`} aria-pressed={view === "diff"} aria-label="Changes"
+          title={change ? "Show what changed" : "Compare with HEAD or the base branch"}
+          onClick={() => setTabs((t) => setView(t, active.id, view === "diff" ? "code" : "diff"))}>
+          <Icon name="diff" size={14} /><span>Changes</span>
+          {deco && <span className={`ed-show-m t-${deco.tone}`} aria-hidden="true">{deco.letter}</span>}
         </button>
-      )}
-      {extOf(active.path) === "svg" && view !== "diff" && (
-        <button type="button" className={`tb${view === "code" ? " on" : ""}`} aria-pressed={view === "code"} aria-label="Source" title="Show the source"
-          onClick={() => setTabs((t) => setView(t, active.id, view === "code" ? "preview" : "code"))}>
-          <Icon name="files" size={15} /><span>Source</span>
-        </button>
-      )}
-      <button type="button" className={`tb${view === "diff" ? " on" : ""}`} aria-pressed={view === "diff"} aria-label="Changes"
-        title={change ? "Show what changed" : "Compare with HEAD or the base branch"}
-        onClick={() => setTabs((t) => setView(t, active.id, view === "diff" ? "code" : "diff"))}>
-        <Icon name="diff" size={15} /><span>Changes</span>
-      </button>
+      </span>
       {view === "diff" && (
         <span className="seg" role="group" aria-label="Compare with">
           <button type="button" aria-pressed={against === "head"} onClick={() => setAgainst("head")} title="Uncommitted changes (work tree against HEAD)">HEAD</button>
@@ -713,6 +766,14 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus, onRepo
         <Icon name="copy" size={15} /><span>{copied ? "Copied" : "Path"}</span>
       </button>
       {remoteUrl && <a className="tb" href={remoteUrl} target="_blank" rel="noreferrer" title="Open this file on the remote" aria-label="Open on the remote"><Icon name="link" size={15} /><span>Remote</span></a>}
+      {infoFits && (
+        <button type="button" className={`tb ed-info-tg${infoOn ? " on" : ""}`} aria-pressed={infoOn} aria-label="Outline"
+          title={infoOn ? "Hide the outline and what keel knows about this file" : "Show the outline and what keel knows about this file"}
+          onClick={() => setInfoOn(!infoOn)}>
+          <svg className="ide-svg" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M5 6h14M8 12h11M8 18h11" /></svg>
+          <span>Outline</span>
+        </button>
+      )}
     </div>
   );
 
@@ -748,7 +809,22 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus, onRepo
           </button>
         )}
       </nav>
-      <aside className="ide-side" aria-label={nameOfActivity(activity)}>{sideView}</aside>
+      <aside className="ide-side" aria-label={nameOfActivity(activity)}>
+        {sideView}
+        {/* 0.28 the keys strip: the reading keys at a glance (⌘/ lists them all) */}
+        {!phone && (
+          <div className="ide-keys" role="group" aria-label="Keys">
+            <span><kbd>{keyLabel("meta+p")}</kbd> file</span>
+            <span><kbd>{keyLabel("meta+e")}</kbd> recent</span>
+            <span><kbd>{keyLabel("shift+meta+f")}</kbd> search</span>
+            <span><kbd>{keyLabel("meta+f")}</kbd> find</span>
+            <span><kbd>{keyLabel("meta+g")}</kbd> line</span>
+            {assistant && <span><kbd>{keyLabel("meta+i")}</kbd> ask</span>}
+            <span><kbd>{keyLabel(FOCUS_KEYS)}</kbd> focus</span>
+            <span><kbd>{keyLabel("meta+/")}</kbd> all keys</span>
+          </div>
+        )}
+      </aside>
       {theirs.map((a) => (a.layer ? <a.layer key={a.id} pid={pid} active={active} open={open} /> : null))}
       {!phone && sideOpen && (
         <div className="ide-split" role="separator" aria-orientation="vertical" aria-label="Resize the side bar" tabIndex={0}
@@ -829,12 +905,26 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus, onRepo
                       : <b className="crumb-f">{active.kind === "commit" ? `${s} @ ${active.sha?.slice(0, 7)}` : s}</b>}
                   </span>
                 ))}
+                {symAt && (
+                  <span className="crumb-i">
+                    <span className="crumb-sep" aria-hidden="true">›</span>
+                    <button type="button" className={`crumb-b crumb-sym k-${symAt.kind}`} onClick={() => goLine(symAt.line)} title={`Go to ${symAt.name} (line ${symAt.line})`}>
+                      {symAt.kind === "fn" ? `${symAt.name}()` : symAt.name}
+                    </button>
+                  </span>
+                )}
               </nav>
             )}
             {toolbar}
           </div>
         )}
-        <div ref={edBody} className="ed-body">{body}</div>
+        <div className="ed-split">
+          <div ref={edBody} className="ed-body">{body}</div>
+          {infoFits && infoOn && metaData && (
+            <FileInfo file={metaData} syms={syms} at={symAt} onGo={goLine} onKeel={() => showSide("keel")}
+              onMemory={() => open({ kind: "memory", path: "memory" }, { pin: true })} />
+          )}
+        </div>
         <SelectionBar within={edBody} actions={selActions} />
       </section>
       {helperOpen && assistant && (
