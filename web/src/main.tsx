@@ -44,6 +44,8 @@ import "./styles/rd-work.css";
 import "./styles/rd-watch.css";
 // keel 0.28 the redesign, the Build pages (Workflows … Settings, Start here)
 import "./styles/rd-build.css";
+// keel 0.28 the redesign, Product and more: Jobs › Pipelines (CI/CD) and Jobs › Supervisor
+import "./styles/rd-product.css";
 
 // Plugins' web parts load at run time and use this React and @keel/web-sdk: the import map in index.html points their
 // bare imports to small shims that read window.__keel (src/sdk/shared.ts). So it is set before anything renders.

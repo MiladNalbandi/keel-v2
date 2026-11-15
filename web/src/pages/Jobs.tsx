@@ -22,7 +22,10 @@ function JobSteps({ id, onClose }: { id: string; onClose: () => void }) {
   const job = useLoad(`job:${id}`, () => api.job(id), { live: false });
   const live = useJobSteps(job.data?.status === "running" ? id : null);
   const box = useRef<HTMLDivElement>(null);
-  useEffect(() => box.current?.scrollIntoView?.({ block: "nearest" }), []);
+  // a block body: newer browsers return a Promise from scrollIntoView, and an effect may return only a clean-up
+  useEffect(() => {
+    box.current?.scrollIntoView?.({ block: "nearest" });
+  }, []);
   const steps = mergeSteps(job.data?.steps ?? [], live.steps);
   const anchor = `job-${id}`;
   const jump = useJumpToStep(anchor);

@@ -31,7 +31,15 @@ import {
   type TeamKnowledge,
   type TicketLink,
 } from "./productApi";
-import { fmtDate, goTeam, ProductHead, useAct } from "./shared";
+import {
+  Avatar,
+  fmtDate,
+  goTeam,
+  Key,
+  ProductHead,
+  useAct,
+  usePageKeys,
+} from "./shared";
 
 const lines = (v: string, sep: RegExp = /\n/) =>
   v
@@ -122,8 +130,9 @@ function TeamList() {
       void repos.reload();
     }
   };
+  usePageKeys({ n: () => setEditing("new") });
   return (
-    <div className="pd">
+    <div className="pd pdx">
       <ProductHead
         crumbs={[["Teams"]]}
         title="Teams"
@@ -143,14 +152,19 @@ function TeamList() {
               type="button"
               onClick={() => setEditing("new")}
             >
-              New team
+              <span aria-hidden="true">+</span> New team <Key k="N" />
             </button>
           </>
         }
       />
       {act.box}
-      {imported && (
+      {act.busy === "import" && (
         <p className="hint" role="status">
+          Working… reading the CODEOWNERS files of your projects
+        </p>
+      )}
+      {imported && (
+        <p className="pd-note n-good pd-pop" role="status">
           {imported}
         </p>
       )}
@@ -162,7 +176,7 @@ function TeamList() {
               projects.
             </Empty>
           ) : (
-            <div className="pd-teams">
+            <div className="pd-teams rise r1">
               {list.map((t) => (
                 <button
                   key={t.id}
@@ -171,22 +185,27 @@ function TeamList() {
                   onClick={() => goTeam(t.id)}
                   aria-label={`Team ${t.name}`}
                 >
-                  <span className="pd-card-top">
-                    <b>{t.name}</b>
-                    {t.source === "codeowners" && (
-                      <Pill tone="idle">CODEOWNERS</Pill>
-                    )}
-                  </span>
-                  <span className="sub">
-                    {t.lead ? `lead ${t.lead}` : "no lead"}
-                    {t.jira_project ? ` · Jira ${t.jira_project}` : ""}
-                    {t.capacity_days != null
-                      ? ` · ${t.capacity_days} d free`
-                      : ""}
+                  <span className="pd-who">
+                    <Avatar name={t.name} />
+                    <span>
+                      <span className="pd-card-top">
+                        <b>{t.name}</b>
+                        {t.source === "codeowners" && (
+                          <Pill tone="idle">CODEOWNERS</Pill>
+                        )}
+                      </span>
+                      <span className="sub">
+                        {t.lead ? `lead ${t.lead}` : "no lead"}
+                        {t.jira_project ? ` · Jira ${t.jira_project}` : ""}
+                        {t.capacity_days != null
+                          ? ` · ${t.capacity_days} d free`
+                          : ""}
+                      </span>
+                    </span>
                   </span>
                   <span className="pd-chips">
                     {t.owns.map((o) => (
-                      <span key={o.project_id + o.glob} className="chip">
+                      <span key={o.project_id + o.glob} className="chip mono">
                         {o.project_id}
                         {o.glob !== "**" ? `: ${o.glob}` : ""}
                       </span>
@@ -211,7 +230,7 @@ function TeamList() {
           );
         }}
       </Async>
-      <div className="pd-cards">
+      <div className="pd-cards rise r2">
         <KeelJira conns={conns} />
         <InitiativesInJira repos={repos.data ?? []} conns={conns} />
       </div>
@@ -296,6 +315,7 @@ function TeamForm({
       title={team ? `Edit ${team.name}` : "New team"}
       onClose={onClose}
       footer={footer}
+      className="pdx"
     >
       <div className="pd-form">
         <div className="field">
@@ -402,14 +422,23 @@ function TeamPage({ id }: { id: string }) {
   const remove = async () => {
     if (await act.run("delete", () => productApi.deleteTeam(id))) goTeam();
   };
+  usePageKeys({ e: k.data ? () => setEditing(true) : null });
   return (
-    <div className="pd">
+    <div className="pd pdx">
       <Async r={k} what={`Loading the team ${id}`}>
         {(t) => (
           <>
             <ProductHead
               crumbs={[["Teams", "#/teams"], [t.team.name]]}
-              title={t.team.name}
+              title={
+                <>
+                  <Avatar name={t.team.name} />
+                  {t.team.name}
+                  {t.team.source === "codeowners" && (
+                    <Pill tone="idle">CODEOWNERS</Pill>
+                  )}
+                </>
+              }
               sub={
                 `${t.team.lead ? `Lead ${t.team.lead}. ` : ""}${t.team.members.length ? `Members: ${t.team.members.join(", ")}. ` : ""}` +
                 `Owns ${t.team.owns.map((o) => o.project_id + (o.glob !== "**" ? ` (${o.glob})` : "")).join(", ") || "nothing yet"}.`
@@ -421,7 +450,7 @@ function TeamPage({ id }: { id: string }) {
                     type="button"
                     onClick={() => setEditing(true)}
                   >
-                    Edit
+                    Edit <Key k="E" />
                   </button>
                   <button
                     className="btn danger"
@@ -600,7 +629,7 @@ function PageEditor({
       extra={value !== saved ? <Pill tone="warn">not saved</Pill> : undefined}
     >
       <textarea
-        className="pd-text"
+        className="pd-text pd-page"
         aria-label={title}
         value={value}
         onChange={(e) => setValue(e.target.value)}

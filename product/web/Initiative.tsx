@@ -36,10 +36,12 @@ import {
 import {
   days,
   fmtDate,
+  Key,
   ProductHead,
   StatusPill,
   Tracker,
   useAct,
+  usePageKeys,
 } from "./shared";
 
 const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
@@ -69,7 +71,7 @@ const TAB_OF: Record<string, Tab> = {
 export function InitiativePage({ id }: { id: string }) {
   const r = useLoad(`initiative:${id}`, () => productApi.get(id));
   return (
-    <div className="pd">
+    <div className="pd pdx">
       <Async r={r} what={`Loading ${id}`}>
         {(d) => (
           <Loaded
@@ -459,6 +461,9 @@ function NextCard({
     }
   };
   const busy = act.busy !== null;
+  // the keys the buttons show: A approves (or Go), L is Not now, R goes to Send back, ↩ in a field sends it
+  const keys: Record<string, () => void> = {};
+  const focusBack = () => document.getElementById("pd-sendback")?.focus();
   let body: React.ReactNode = null;
   if (w?.kind === "clarify" && w.questions?.length) {
     const qs = w.questions as ClarifyQuestion[];
@@ -473,7 +478,7 @@ function NextCard({
         />
         <div className="pd-actions">
           <button
-            className="btn primary"
+            className="btn gate"
             type="button"
             disabled={busy}
             onClick={() =>
@@ -486,6 +491,7 @@ function NextCard({
           >
             Send my answers
           </button>
+          <span className="sub">keel then writes the brief.</span>
         </div>
       </>
     );
@@ -519,35 +525,33 @@ function NextCard({
         </div>
         <div className="pd-actions">
           <button
-            className="btn primary"
+            className="btn gate"
             type="button"
             disabled={busy}
-            onClick={() =>
+            onClick={(keys.a = () =>
               void doIt("go", () =>
                 productApi.decide(i.id, {
                   choice: "go",
                   option: option || undefined,
                   why: why || undefined,
                 }),
-              )
-            }
+              ))}
           >
-            Go
+            Go <Key k="A" />
           </button>
           <button
             className="btn"
             type="button"
             disabled={busy}
-            onClick={() =>
+            onClick={(keys.l = () =>
               void doIt("not_now", () =>
                 productApi.decide(i.id, {
                   choice: "not_now",
                   why: why || undefined,
                 }),
-              )
-            }
+              ))}
           >
-            Not now
+            Not now <Key k="L" />
           </button>
           <SendBack
             note={note}
@@ -579,14 +583,13 @@ function NextCard({
         </div>
         <div className="pd-actions">
           <button
-            className="btn primary"
+            className="btn gate"
             type="button"
             disabled={busy}
-            onClick={() =>
+            onClick={(keys.a = () =>
               void doIt("approve", () =>
                 productApi.approve(i.id, { why: why || undefined }),
-              )
-            }
+              ))}
           >
             {i.stage === "plan"
               ? "Agree the plan"
@@ -594,7 +597,8 @@ function NextCard({
                 ? "Confirm the impact"
                 : i.stage === "outcome"
                   ? "Close the initiative"
-                  : "Approve"}
+                  : "Approve"}{" "}
+            <Key k="A" />
           </button>
           <SendBack
             note={note}
@@ -691,8 +695,28 @@ function NextCard({
       </div>
     );
   }
+  if (w) keys.r = focusBack;
+  if (busy) for (const k of Object.keys(keys)) delete keys[k];
+  usePageKeys(keys);
+  const running = i.status === "running";
+  if (!body && running)
+    body = (
+      <>
+        <div className="pd-shims" aria-hidden="true">
+          <div className="pd-shim" style={{ width: "86%" }} />
+          <div className="pd-shim" style={{ width: "64%" }} />
+          <div className="pd-shim" style={{ width: "72%" }} />
+        </div>
+        <span className="sub">
+          You can leave: the Inbox tells you when it waits.
+        </span>
+      </>
+    );
   return (
-    <section className={`pd-next${w ? " is-wait" : ""}`} aria-label="Next">
+    <section
+      className={`pd-next${w ? " is-wait" : running ? " is-run" : ""}`}
+      aria-label="Next"
+    >
       <div className="pd-next-head">
         <span className="pd-next-label">Next</span>
         <b>{cap(w?.title && w.kind !== "clarify" ? w.title : d.stage.next)}</b>
@@ -723,6 +747,7 @@ function SendBack({
     <span className="pd-inline pd-sendback">
       {/* several lines: what to change is often more than a few words */}
       <textarea
+        id="pd-sendback"
         className="pd-text short"
         rows={3}
         aria-label="What to change"
@@ -736,7 +761,7 @@ function SendBack({
         disabled={busy || !note.trim()}
         onClick={onSend}
       >
-        Send back
+        Send back <Key k="R" />
       </button>
     </span>
   );
