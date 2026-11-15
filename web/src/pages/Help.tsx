@@ -6,10 +6,12 @@ import { useState, type ReactNode } from "react";
 import { AddProjectsDrawer } from "../components/AddProjects";
 import { useStartInit } from "../components/InitAsk";
 import { Markdown } from "../components/Markdown";
+import { RdPage } from "../components/rdBuild";
 import { FIRST_FLOWS, McpSetup, McpWaiting, STEP_TITLES, useStartStatus, type StepStatus } from "../components/StartSteps";
 import { StartFlowDrawer } from "../components/StartFlow";
 import { openWelcome } from "../components/welcomeState";
 import { GUIDES, guideById, longGuideUrl, searchGuides } from "../guides";
+import { AREAS, KEYS, keyLabel, readKeymap } from "../keys";
 import { hashFor } from "../routes";
 import { useApp, useRoute } from "../state";
 
@@ -60,16 +62,26 @@ function StartHerePage() {
   const hits = searchGuides(query);
   const { health } = useApp();
   return (
+    <RdPage name="help">
     <div className="hs-page">
-      <header className="hs-head">
-        <span className="hs-crumb">Help</span>
-        <h1>Start here</h1>
-        <p>Five steps, about ten minutes. Each step shows a green tick when keel sees it is done.</p>
-        <div className="hs-progress" role="progressbar" aria-label="Set-up steps done" aria-valuemin={0} aria-valuemax={5} aria-valuenow={st.done}>
-          <span className="hs-bar"><span style={{ width: `${st.done * 20}%` }} /></span>
-          <span>{st.data ? `${st.done} of 5 done` : "Looking…"}</span>
+      <header className="hs-head top">
+        <div>
+          <span className="hs-crumb">Help</span>
+          <h1>Start here</h1>
+          <p>Five steps, about ten minutes. Each step shows a green tick when keel sees it is done.</p>
+        </div>
+        <div className="actions">
+          <button type="button" className="btn ghost" onClick={() => openWelcome()}>See the welcome again</button>
+          <button type="button" className="btn rdb-keyhint" data-keys={`${keyLabel(KEYS.sheet)}`} onClick={openKeySheet}>All keys</button>
         </div>
       </header>
+      <div className="hs-progress rdb-progress" role="progressbar" aria-label="Set-up steps done" aria-valuemin={0} aria-valuemax={5} aria-valuenow={st.done}>
+        <div className="rdb-progress-t">
+          <b>{st.data ? `${st.done} of 5 done` : "Looking…"}</b>
+          {st.data && current && <span className="sub">Next: {STEP_TITLES[current]}</span>}
+        </div>
+        <span className="hs-bar"><span style={{ width: `${st.done * 20}%` }} /></span>
+      </div>
       {st.error && <p className="hs-warn" role="alert">keel could not read the steps: {st.error.message}</p>}
       {st.data && (
         <>
@@ -141,31 +153,58 @@ function StartHerePage() {
           </StepCard>
         </>
       )}
-      <section className="hs-guides" aria-labelledby="hs-guides-h">
-        <div className="hs-guides-top">
-          <h2 id="hs-guides-h">Short guides</h2>
-          <button type="button" className="btn sm ghost" onClick={() => openWelcome()}>See the welcome again</button>
-        </div>
-        <label className="hs-search">
-          <span>Search the help</span>
-          <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="gate, phone, mcp…" />
-        </label>
-        {query.trim() ? (
-          <GuideHits hits={hits} />
-        ) : (
-          <div className="hs-glist">
-            {GUIDES.map((g) => (
-              <a key={g.id} href={hashFor("help", g.id)} title={g.summary}>{g.title}</a>
-            ))}
-            <a href={longGuideUrl(health?.version)} target="_blank" rel="noreferrer">All of the guide (long) ›</a>
+      <div className="rdb-help-foot">
+        <section className="hs-guides" aria-labelledby="hs-guides-h">
+          <div className="hs-guides-top">
+            <h2 id="hs-guides-h">Short guides</h2>
+            <label className="hs-search">
+              <span className="sr-only">Search the help</span>
+              <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="gate, phone, mcp…" aria-label="Search the help" />
+            </label>
           </div>
-        )}
-      </section>
+          {query.trim() ? (
+            <GuideHits hits={hits} />
+          ) : (
+            <>
+              <div className="hs-glist rdb-gcards">
+                {GUIDES.map((g) => (
+                  <div key={g.id} className="rdb-gcard">
+                    <a href={hashFor("help", g.id)}>{g.title}</a>
+                    {g.summary && <span>{g.summary}</span>}
+                  </div>
+                ))}
+              </div>
+              <a className="rdb-glong" href={longGuideUrl(health?.version)} target="_blank" rel="noreferrer">All of the guide (long) ›</a>
+            </>
+          )}
+        </section>
+        <KeyCard />
+      </div>
       {drawer?.kind === "add" && <AddProjectsDrawer onClose={() => { setDrawer(null); void st.reload(); }} />}
       {drawer?.kind === "flow" && (
         <StartFlowDrawer workflowId={drawer.workflow} projectId={proj?.id} onClose={() => { setDrawer(null); void st.reload(); }} />
       )}
     </div>
+    </RdPage>
+  );
+}
+
+/** Opens the key cheat sheet (components/KeySheet), as ? does when you are not typing. */
+const openKeySheet = () => window.dispatchEvent(new KeyboardEvent("keydown", { key: KEYS.sheetPlain }));
+
+/** keel is keyboard first: the keys that work on every page, and the sheet with all of them. */
+function KeyCard() {
+  const rows = AREAS.find((a) => a.id === "everywhere")?.rows(readKeymap()).filter((r) => r.keys?.length).slice(0, 5) ?? [];
+  return (
+    <aside className="panel rdb-keycard" aria-labelledby="rdb-keys-h">
+      <div className="panel-head"><h2 id="rdb-keys-h">keel is keyboard first</h2></div>
+      <ul>
+        <li><span>Start a flow</span><kbd>N</kbd></li>
+        {rows.map((r) => <li key={r.label}><span>{r.label}</span><kbd>{keyLabel(r.keys![0])}</kbd></li>)}
+        <li><span>A page's own button</span><span className="sub">the key on it</span></li>
+      </ul>
+      <div className="panel-body"><button type="button" className="btn sm" onClick={openKeySheet}>Open the keys sheet</button></div>
+    </aside>
   );
 }
 
@@ -189,10 +228,13 @@ function GuidePage({ id }: { id: string }) {
   const [query, setQuery] = useState("");
   const body = g ? g.text.replace(/^# .*\n+/, "") : "";
   return (
+    <RdPage name="help">
     <div className="hs-page hs-guide">
-      <header className="hs-head">
-        <span className="hs-crumb"><a href={hashFor("help")}>Help</a> › Short guides</span>
-        <h1>{g?.title ?? "No such guide"}</h1>
+      <header className="hs-head top">
+        <div>
+          <span className="hs-crumb"><a href={hashFor("help")}>Help</a> › Short guides</span>
+          <h1>{g?.title ?? "No such guide"}</h1>
+        </div>
       </header>
       <div className="hs-guide-grid">
         <article className="hs-md" data-testid="guide">
@@ -215,5 +257,6 @@ function GuidePage({ id }: { id: string }) {
         </nav>
       </div>
     </div>
+    </RdPage>
   );
 }

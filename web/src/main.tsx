@@ -47,3 +47,5 @@ ReactDOMClient.createRoot(document.getElementById("root")!).render(
     <App />
   </React.StrictMode>,
 );
+// keel 0.28 the redesign, the Build pages (Workflows … Settings, Start here): last, so it wins
+import "./styles/rd-build.css";

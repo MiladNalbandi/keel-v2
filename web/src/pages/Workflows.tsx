@@ -19,6 +19,7 @@ import { WorkflowHelp } from "../components/WorkflowHelp";
 import { buildFlowMap, exitsOf, PHASES, phaseMeaning, phaseTitle, sumOf } from "../components/flowmap";
 import { Graph, GraphLegend } from "../components/Graph";
 import { infoRequest, StepInfoBody, useStepInfo } from "../components/StepInfo";
+import { pageKey, RdPage } from "../components/rdBuild";
 import { Async, Drawer, ErrorBox, Loading, PageHead, Tabs } from "../components/ui";
 import { useWide } from "../components/useWide";
 import { KIND, toYaml, tokensByStep } from "../components/workflow";
@@ -73,14 +74,21 @@ export function WorkflowsPage({ pid }: { pid: string }) {
     go("workflows", w.id);
   };
   const rail = (
-    <Rail wfs={list.data ?? []} current={library ? null : wid} library={library} pid={pid}
-      onPick={(id) => { setLibrary(false); go("workflows", id); }} onNew={() => setDrawer("new")} onImport={() => setDrawer("import")}
-      onLibrary={() => setLibrary(true)} onDelete={setDeleting} />
+    <Rail wfs={list.data ?? []} current={library ? null : wid} pid={pid}
+      onPick={(id) => { setLibrary(false); go("workflows", id); }} onDelete={setDeleting} />
   );
 
   return (
-    <>
-      <PageHead title="Workflows" sub={`What ${project?.name ?? pid} can run, as blocks. keel rules keep the gates and test checks locked.`} />
+    <RdPage name="workflows">
+      <PageHead title="Workflows" sub={`What ${project?.name ?? pid} can run, as blocks. keel rules keep the gates and test checks locked.`}
+        actions={<>
+          <span className="rdb-seg" role="group" aria-label="Show">
+            <button type="button" aria-pressed={!library} onClick={() => setLibrary(false)}>Workflows</button>
+            <button type="button" aria-pressed={library} onClick={() => setLibrary(true)}>Library</button>
+          </span>
+          <button className="btn" type="button" {...pageKey("I")} onClick={() => setDrawer("import")}>Import</button>
+          <button className="btn primary" type="button" id="wfnew" {...pageKey("N")} onClick={() => setDrawer("new")}>New workflow</button>
+        </>} />
       {library ? (
         <Wf cls="wf-lib">
           {rail}
@@ -119,14 +127,15 @@ export function WorkflowsPage({ pid }: { pid: string }) {
         if (gone === wid) go("workflows");
       }} />}
       {drawer === "import" && <ImportDrawer pid={pid} onClose={() => setDrawer(null)} onImported={opened} onChanged={() => void list.reload()} />}
-    </>
+    </RdPage>
   );
 }
 
-/** The workflow list: keel's templates and this project's own, with a search, New, Import and the Library. */
-function Rail({ wfs, current, library, pid, onPick, onNew, onImport, onLibrary, onDelete }: {
-  wfs: Workflow[]; current: string | null; library: boolean; pid: string;
-  onPick: (id: string) => void; onNew: () => void; onImport: () => void; onLibrary: () => void; onDelete: (w: Workflow) => void;
+/** The workflow list: keel's templates and this project's own, with a search (New, Import and the Library are in the
+ *  page head). */
+function Rail({ wfs, current, pid, onPick, onDelete }: {
+  wfs: Workflow[]; current: string | null; pid: string;
+  onPick: (id: string) => void; onDelete: (w: Workflow) => void;
 }) {
   const [q, setQ] = useState("");
   const needle = q.trim().toLowerCase();
@@ -139,11 +148,6 @@ function Rail({ wfs, current, library, pid, onPick, onNew, onImport, onLibrary, 
   ];
   return (
     <nav className="wf-rail" aria-label="Workflows">
-      <div className="wf-rail-actions">
-        <button className="btn sm primary" type="button" id="wfnew" onClick={onNew}>New workflow</button>
-        <button className="btn sm" type="button" onClick={onImport}>Import</button>
-        <button className={`btn sm ${library ? "is-on" : ""}`} type="button" aria-pressed={library} onClick={onLibrary}>Library</button>
-      </div>
       {/* Under 1360 px the list is a menu. */}
       <select className="wf-pick" id="wfpick" aria-label="Workflow" value={current ?? ""} onChange={(e) => onPick(e.target.value)}>
         {current === null && <option value="">Library</option>}
@@ -361,7 +365,7 @@ function Editor({ pid, wid, agents, rail, row, folders, onFolder, onSaved, onRep
                 }} /> keel rules {w.keel_rules ? "on" : "off"}</label>
               {dirty ? <span className="hint amber wf-dirty">unsaved changes</span> : <span className="hint">saved</span>}
               {dirty && <button className="btn sm ghost" type="button" onClick={discard}>Discard</button>}
-              <button className="btn primary" type="button" onClick={save} disabled={busy || !dirty || !!otherId || marks.length > 0}
+              <button className="btn primary" type="button" {...pageKey("S")} onClick={save} disabled={busy || !dirty || !!otherId || marks.length > 0}
                 title={otherId ? "This YAML is another workflow: use Import" : marks.length ? "Fix the marked lines in the YAML first" : undefined}>
                 {busy ? "Saving…" : dirty ? "Save" : "Saved"}</button>
             </div>
