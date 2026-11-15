@@ -2,6 +2,7 @@
 // right, once per new version: what is new (the first lines of the release notes), "All changes", a note when flows
 // run, "Copy the update command" (keel cannot update itself yet: that needs the host helper of a later release) and
 // "Later", which hides it until the next version. Which version was dismissed is kept in this browser (localStorage).
+// 0.27.0 in the keel desktop app there is no command: "Download the new app" opens the release page.
 
 import { useEffect, useState } from "react";
 import { copyText } from "../clipboard";
@@ -84,6 +85,18 @@ export function UpdateNotice() {
             {plural(flows, "flow")} {flows === 1 ? "is" : "are"} running. keel restarts for the update (about 30 s); they go on after it.
           </p>
         )}
+        {u.desktop ? (
+          <>
+            <div className="upd-btns">
+              <a className="btn primary" href={u.url} target="_blank" rel="noreferrer">Download the new app</a>
+              <button type="button" className="btn ghost" onClick={later}>Later</button>
+            </div>
+            <p className="upd-small">
+              Quit keel, then open the new app. Your projects and settings stay. ·{" "}
+              <a href="#/settings/access?at=updates" onClick={() => setGone(latest)}>Settings › Updates</a>
+            </p>
+          </>
+        ) : (<>
         <div className="upd-btns">
           <button type="button" className="btn primary" onClick={() => void copyText(u.command).then(setCopied)}>
             {copied ? "Copied" : "Copy the update command"}
@@ -95,6 +108,7 @@ export function UpdateNotice() {
         <p className="upd-small">
           In a terminal: <code>{u.command}</code> · <a href="#/settings/access?at=updates" onClick={() => setGone(latest)}>Settings › Updates</a>
         </p>
+        </>)}
       </div>
     </div>
   );

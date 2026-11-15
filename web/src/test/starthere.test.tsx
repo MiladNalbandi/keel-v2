@@ -284,6 +284,27 @@ describe("the update notice", () => {
     expect(await screen.findByRole("dialog", { name: "keel 0.18.67 is out" })).toBeInTheDocument();
   });
 
+  it("0.27.0 in the keel desktop app: Download the new app, no command", async () => {
+    newer();
+    db.updates = { ...db.updates, desktop: true, command: "",
+      command_why: "keel runs in the keel app: download the new app from the release page and open it. Your projects and settings stay." };
+    location.hash = "#/help";
+    render(<App />);
+    const pop = await screen.findByRole("dialog", { name: "keel 0.18.66 is out" });
+    expect(within(pop).getByRole("link", { name: "Download the new app" })).toHaveAttribute("href", expect.stringContaining("github.com"));
+    expect(pop).toHaveTextContent("Quit keel, then open the new app. Your projects and settings stay.");
+    expect(within(pop).queryByRole("button", { name: "Copy the update command" })).toBeNull();
+    expect(pop).not.toHaveTextContent("keel2 update");
+    cleanup();
+    location.hash = "#/settings/access?at=updates";
+    render(<App />);
+    await screen.findByRole("heading", { level: 1, name: "Access" });
+    const updates = await screen.findByRole("region", { name: "Updates" });
+    await waitFor(() => expect(updates).toHaveTextContent("keel runs in the keel app."));
+    expect(within(updates).queryByLabelText("update command")).toBeNull();
+    expect(within(updates).getByRole("link", { name: "The release page ›" })).toHaveAttribute("href", expect.stringContaining("github.com"));
+  });
+
   it("nothing when keel runs the newest", async () => {
     await openStart();
     await act(async () => new Promise((r) => setTimeout(r, 50)));

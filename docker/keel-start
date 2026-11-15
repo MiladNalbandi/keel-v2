@@ -21,7 +21,8 @@
 #
 # v0.16.1 native mode (keel2 start --native) runs this same loop: docker/keel-native-start sets KEEL_NATIVE=1 and the
 # release's own files (KEEL_ENGINE_EXE, KEEL_API_JAR, KEEL_PYTHON, KEEL_PLUGINS_IMAGE: paths may hold spaces) and the
-# ports (KEEL_ENGINE_PORT, KEEL_PORT), then sources this file. Native mode never writes into $HOME and does not use a
+# ports (KEEL_ENGINE_PORT, KEEL_PORT), then sources this file. 0.27.0 the keel desktop app runs it too, with its own
+# Python and Java (KEEL_JAVA). Native mode never writes into $HOME and does not use a
 # Docker socket's container settings.
 set -euo pipefail
 
@@ -120,6 +121,8 @@ RESOLVE_CMD="${KEEL_RESOLVE_CMD:-}"                 # tests: words, run as they 
 ENGINE_CMD="${KEEL_ENGINE_CMD:-}"
 API_JAR="${KEEL_API_JAR:-/opt/api/app.jar}"
 PYTHON="${KEEL_PYTHON:-python3}"
+# 0.27.0 the Java that runs the Kotlin api: the desktop app gives its own, so that Java is never on the agents' PATH
+JAVA="${KEEL_JAVA:-java}"
 ENGINE_PORT="${KEEL_ENGINE_PORT:-8090}"
 API_PORT="${KEEL_PORT:-8080}"
 ENGINE_HEALTH="${KEEL_ENGINE_HEALTH_URL:-http://127.0.0.1:$ENGINE_PORT/health}"
@@ -224,7 +227,7 @@ start_api() {
     # file it maps from /tmp (hsperfdata). When the disk filled, reading that file killed the api with SIGBUS, and with
     # it every open keel2 mcp session; now a full disk is an error the api answers, not its end.
     # shellcheck disable=SC2086  # JAVA_OPTS holds several options
-    env "${back[@]}" java -XX:+PerfDisableSharedMem ${JAVA_OPTS:--XX:MaxRAMPercentage=25 -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -Xss512k} -Dloader.path="$KEEL_PLUGIN_LOADER_PATH" \
+    env "${back[@]}" "$JAVA" -XX:+PerfDisableSharedMem ${JAVA_OPTS:--XX:MaxRAMPercentage=25 -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -Xss512k} -Dloader.path="$KEEL_PLUGIN_LOADER_PATH" \
       -Dloader.home="$(dirname "$API_JAR")" -Dspring.config.location=optional:classpath:/,optional:classpath:/config/ \
       -cp "$API_JAR" org.springframework.boot.loader.launch.PropertiesLauncher &
   fi
@@ -238,7 +241,12 @@ start_front() {
   front=$!
 }
 
-healthy() { curl -fs --max-time 5 "$1" > /dev/null 2>&1; }
+# 0.27.0 without curl (a desktop computer may lack it) keel's own Python asks (KEEL_START_NO_CURL=1: tests)
+if [ "${KEEL_START_NO_CURL:-0}" != 1 ] && command -v curl > /dev/null 2>&1; then
+  healthy() { curl -fs --max-time 5 "$1" > /dev/null 2>&1; }
+else
+  healthy() { "$PYTHON" -I -c 'import sys, urllib.request; urllib.request.urlopen(sys.argv[1], timeout=5)' "$1" > /dev/null 2>&1; }
+fi
 
 # wait_up <pid> <url> <seconds>: 0 healthy, 1 not healthy in time, 2 the process stopped
 wait_up() {

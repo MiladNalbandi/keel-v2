@@ -59,6 +59,20 @@ keel2 start ~/path/to/your/project
 
 **4. Start work:** **Flow › Start a flow**. Write what you want. Approve when keel asks you (◆).
 
+### Or: keel desktop, no Docker (preview)
+
+keel as an app for Linux and macOS (Apple chips). keel's engine, a small Java and a Python are inside: you only need
+git. Download it from the [newest release](https://github.com/MiladNalbandi/keel-v2/releases/latest):
+
+| Computer | File |
+|---|---|
+| Linux (x64) | `keel-desktop-<version>-linux-x86_64.AppImage`: make it executable (`chmod +x`), then open it |
+| macOS (Apple chips) | `keel-desktop-<version>-mac-arm64.dmg`: drag keel to Applications |
+
+The macOS app is not signed by Apple yet. The first time, macOS says it cannot check it: open **System Settings ›
+Privacy & Security** and choose **Open Anyway** (or run `xattr -dr com.apple.quarantine /Applications/keel.app`).
+How it works and its limits: [desktop/README.md](desktop/README.md).
+
 ## How it works
 
 ```

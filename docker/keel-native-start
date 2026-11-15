@@ -7,6 +7,8 @@
 #   KEEL_APP   the unpacked release (api.jar, engine/.venv, content/, plugins/, keel-start)      set by keel2
 #   KEEL_DATA, KEEL_WORKSPACE, KEEL_FOLDERS, KEEL_PORT, KEEL_ENGINE_PORT                         set by keel2
 #   KEEL_PLUGINS (on | image | off)                                                              keel2 --safe: image
+#   KEEL_BACK_PORT   the Kotlin api's port behind the Python api (default 8081)                  set by keel2
+#   KEEL_ENGINE_EXE, KEEL_PYTHON, KEEL_MCP_PYTHON, KEEL_API_JAR, KEEL_FRONT_EXE, KEEL_JAVA       the desktop app (desktop/)
 set -euo pipefail
 
 : "${KEEL_APP:?KEEL_APP is not set (keel2 start --native sets it)}"
@@ -19,15 +21,21 @@ export SERVER_ADDRESS="${KEEL_BIND:-127.0.0.1}"
 export KEEL_ENGINE_PORT="${KEEL_ENGINE_PORT:-8090}"
 export KEEL_ENGINE_URL="http://127.0.0.1:$KEEL_ENGINE_PORT"
 export KEEL_API_URL="http://127.0.0.1:$KEEL_PORT"
-export KEEL_MCP_PYTHON="$KEEL_APP/engine/.venv/bin/python"
 export KEEL_INTERNAL_TOKEN="${KEEL_INTERNAL_TOKEN:-$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')}"
 export CODEGRAPH_NO_DAEMON=1 CODEGRAPH_TELEMETRY=0 DO_NOT_TRACK=1 CODEGRAPH_NO_UPDATE_CHECK=1
 # the plugins that came in the release (as /opt/keel-v2/plugins in the image), with the installed ones in $KEEL_DATA
 export KEEL_PLUGINS_IMAGE="${KEEL_PLUGINS_IMAGE:-$KEEL_APP/plugins}"
-# keel-start's commands: the release's own engine, api and Python
-export KEEL_ENGINE_EXE="$KEEL_APP/engine/.venv/bin/keel-engine"
-export KEEL_API_JAR="$KEEL_APP/api.jar"
-export KEEL_PYTHON="$KEEL_APP/engine/.venv/bin/python"
+# keel-start's commands: the release's own engine, api and Python (keel2 installs them into engine/.venv). 0.27.0 the
+# keel desktop app sets its own (a Python and a Java inside the app, desktop/): these are only the defaults.
+export KEEL_ENGINE_EXE="${KEEL_ENGINE_EXE:-$KEEL_APP/engine/.venv/bin/keel-engine}"
+export KEEL_API_JAR="${KEEL_API_JAR:-$KEEL_APP/api.jar}"
+export KEEL_PYTHON="${KEEL_PYTHON:-$KEEL_APP/engine/.venv/bin/python}"
+export KEEL_MCP_PYTHON="${KEEL_MCP_PYTHON:-$KEEL_PYTHON}"
+# 0.27.0 the Python api in front of the Kotlin api, as in the image (docker/keel-start, KEEL_FRONT): the release's own
+# keel-api (keel2 installs it into api-py/.venv). The Kotlin api then listens on 127.0.0.1:KEEL_BACK_PORT.
+if [ -z "${KEEL_FRONT_EXE:-}" ] && [ -x "$KEEL_APP/api-py/.venv/bin/keel-api" ]; then
+  export KEEL_FRONT_EXE="$KEEL_APP/api-py/.venv/bin/keel-api"
+fi
 export JAVA_OPTS="${JAVA_OPTS:--Xmx1g}"
 # keel's own agent CLIs and codegraph first (keel2 installs them with npm --prefix), then the person's PATH
 if [ -n "${KEEL_NPM:-}" ]; then

@@ -285,3 +285,13 @@ jobs:
         with:
           name: keel-v2-native
           path: dist/
+
+  # 0.27.0 keel desktop (desktop/): the app for Linux and macOS, with this release's native tarball inside, attached
+  # to the same GitHub release (.github/workflows/desktop.yml)
+  desktop:
+    needs: native
+    uses: ./.github/workflows/desktop.yml
+    with:
+      tag: ${{ github.ref_name }}
+    permissions:
+      contents: write

@@ -79,7 +79,7 @@
 # data volume, so they survive restarts and new images. Nothing from your computer is copied into the container.
 set -euo pipefail
 
-KEEL2_VERSION="0.26.1"
+KEEL2_VERSION="0.27.0"
 IMAGE="${KEEL_IMAGE:-ghcr.io/miladnalbandi/keel-v2:latest}"
 # keel's core only (docs/plugins/16-steps5-7-contract.md, step 6): keel2 start --core, unless KEEL_IMAGE is set
 CORE_IMAGE="ghcr.io/miladnalbandi/keel-v2:core"
@@ -2680,6 +2680,10 @@ native_install() {  # native_install [tarball] [version] — a release (default 
   mv "$dir" "$ND/app/$v"
   info "Installing keel's engine (uv sync)…"
   (cd "$ND/app/$v/engine" && UV_PROJECT_ENVIRONMENT="$ND/app/$v/engine/.venv" uv sync --frozen --no-dev -q) || die "uv could not install the engine." "Run it again, or see: keel2 doctor"
+  # 0.27.0 the Python api in front of the Kotlin api, as in the image (a release before 0.27.0 has no api-py/)
+  if [ -f "$ND/app/$v/api-py/pyproject.toml" ]; then
+    (cd "$ND/app/$v/api-py" && UV_PROJECT_ENVIRONMENT="$ND/app/$v/api-py/.venv" uv sync --frozen --no-dev -q) || die "uv could not install keel's Python api." "Run it again, or see: keel2 doctor"
+  fi
   if [ -e "$ND/current" ] && [ "$(readlink "$ND/current")" != "$ND/app/$v" ]; then ln -sfn "$(readlink "$ND/current")" "$ND/previous"; fi
   rm -rf -- "$tmp"
   ln -sfn "$ND/app/$v" "$ND/current"
@@ -2696,12 +2700,13 @@ native_clis() {  # codegraph, pinned like the image, with npm --prefix (no sudo)
     || warn "npm could not install codegraph; see: keel2 doctor"
 }
 
-native_free() {  # native_free <from> [taken] — the first free port from <from>
-  local p="$1" i; for i in $(seq 0 20); do
-    if [ "$p" != "${2:-}" ] && ! port_busy "$p"; then echo "$p"; return 0; fi
+native_free() {  # native_free <from> [taken ...] — the first free port from <from> that is none of the taken ones
+  local from="$1" p="$1" i; shift
+  for i in $(seq 0 20); do
+    if [[ " $* " != *" $p "* ]] && ! port_busy "$p"; then echo "$p"; return 0; fi
     p=$((p + 1))
   done
-  die "No free port between $1 and $p." "Free one, or choose another: PORT=9090 keel2 start --native"
+  die "No free port between $from and $p." "Free one, or choose another: PORT=9090 keel2 start --native"
 }
 
 native_start() {  # native_start <project> <tarball or ""> <source checkout or "">
@@ -2728,8 +2733,9 @@ native_start() {  # native_start <project> <tarball or ""> <source checkout or "
   # keel's data (its database, logins, agent homes) and logs are this person's only
   (umask 077; mkdir -p "$ND/run" "$ND/logs" "$ND/data")
   chmod 700 "$ND" "$ND/run" "$ND/logs" "$ND/data" 2>/dev/null || true
-  local port eport folders f tok
-  port="$(native_free "$WANT_PORT")"; eport="$(native_free 8090 "$port")"
+  local port eport bport folders f tok
+  # the Kotlin api's own port behind the Python api (0.27.0): never 8081 by itself, a second keel may have it
+  port="$(native_free "$WANT_PORT")"; eport="$(native_free 8090 "$port")"; bport="$(native_free 8100 "$port" "$eport")"
   folders="$project"
   while IFS= read -r f; do
     [ "$f" = "$project" ] && continue
@@ -2739,14 +2745,14 @@ native_start() {  # native_start <project> <tarball or ""> <source checkout or "
   [ -f "$ND/logs/keel.log" ] && mv "$ND/logs/keel.log" "$ND/logs/keel.log.1"
   echo native > "$ND/mode"
   printf '%s\n' "$project" > "$ND/project"
-  printf 'api=%s\nengine=%s\n' "$port" "$eport" > "$ND/run/ports"
+  printf 'api=%s\nengine=%s\nback=%s\n' "$port" "$eport" "$bport" > "$ND/run/ports"
   # cmd_start sets NATIVE_BIND (a start without --wifi is 127.0.0.1); restart, update and restore keep the last one
   local bind="${NATIVE_BIND:-${KEEL_BIND:-$(cat "$ND/bind" 2>/dev/null || echo 127.0.0.1)}}"; printf '%s\n' "$bind" > "$ND/bind"
   tok="$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
   (umask 077; printf '%s' "$tok" > "$ND/run/token")
   info "Starting keel natively for ${B}$project${N}…"
   KEEL_APP="$ND/current" KEEL_DATA="$ND/data" KEEL_WORKSPACE="$project" KEEL_PROJECT_NAME="$(basename "$project")" KEEL_HOST_WORKSPACE="$project" \
-    KEEL_FOLDERS="$folders" KEEL_PORT="$port" KEEL_ENGINE_PORT="$eport" KEEL_NPM="$ND/npm" KEEL_INTERNAL_TOKEN="$tok" \
+    KEEL_FOLDERS="$folders" KEEL_PORT="$port" KEEL_ENGINE_PORT="$eport" KEEL_BACK_PORT="$bport" KEEL_NPM="$ND/npm" KEEL_INTERNAL_TOKEN="$tok" \
     KEEL_PLUGINS="${NATIVE_PLUGINS:-${KEEL_PLUGINS:-on}}" KEEL_BIND="$bind" KEEL_NAME="$NAME" KEEL2_PATH="$(self_path)" \
     KEEL_HOST_NAME="$(own_name)" nohup "$ND/current/keel-native-start" >> "$ND/logs/keel.log" 2>&1 < /dev/null &
   echo $! > "$ND/run/keel.pid"

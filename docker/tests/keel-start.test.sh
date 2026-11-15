@@ -285,6 +285,23 @@ start_bg KEEL_API_CMD= JAVA_OPTS="-Xmx512m"
 wait_exit
 check "the person's options, after the crash guard (#99: no hsperfdata file, so a full disk is no SIGBUS)" logs "java opts: -XX:+PerfDisableSharedMem -Xmx512m$"
 
+new_case "0.27.0 KEEL_JAVA: the desktop app's own Java runs the api, not the java on PATH"
+plan "up 3"
+mkdir -p "$T/jre/bin"
+printf '#!/bin/sh\necho "own java" >> "$KEEL_TEST_DIR/log"\nexec "%s/java" "$@"\n' "$BIN" > "$T/jre/bin/java"
+chmod +x "$T/jre/bin/java"
+start_bg KEEL_API_CMD= KEEL_JAVA="$T/jre/bin/java"
+wait_exit
+check "the given java started the api" logs "^own java$"
+check "with the same options" logs "java opts: -XX:+PerfDisableSharedMem -XX:MaxRAMPercentage=25"
+
+new_case "0.27.0 no curl: keel's Python checks the health urls"
+start_bg KEEL_START_NO_CURL=1
+wait_file "$T/data/plugins/last-good.json"
+check "healthy without curl (last-good.json written)" is "$(count 'api start')" 1
+kill -TERM "$pid"
+wait_exit
+
 new_case "0.24.0 the Python api in front: the Kotlin api moves to 127.0.0.1:8081; TERM stops all three"
 start_bg KEEL_FRONT_CMD="$BIN/front" KEEL_BACK_HEALTH_URL="file://$T/api.up" KEEL_API_HEALTH_URL="file://$T/front.up"
 wait_file "$T/data/plugins/last-good.json"

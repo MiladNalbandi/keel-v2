@@ -131,6 +131,10 @@ class UpdatesApiTest : ApiTest() {
         assertThat(Command.of("0.18.66", "stable", "full", "$repo:latest", false).first).isEqualTo("keel2 update")
         assertThat(Command.of("0.18.66", "product", "product", "$repo:product-beta", false).first).isEqualTo("keel2 update")
         assertThat(Command.of("0.18.66", "stable", "full", null, false).first).isEqualTo("keel2 update")
+        // 0.27.0 the desktop app: no command, the release page has the new app
+        val desktop = Command.of("0.18.66", "stable", "full", null, true, desktop = true)
+        assertThat(desktop.first).isEmpty()
+        assertThat(desktop.second).contains("download the new app")
         val pinned = Command.of("0.18.66", "stable", "full", "$repo:0.18.64", false)
         assertThat(pinned.first).isEqualTo("KEEL_IMAGE=$repo:0.18.66 keel2 update")
         assertThat(pinned.second).contains("pinned")
