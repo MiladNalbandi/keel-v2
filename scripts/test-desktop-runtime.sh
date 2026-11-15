@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Test keel desktop's bundle without Electron: start keel from <dir> (scripts/build-desktop-runtime.sh's out dir, or a
 # built app's resources/) the way the app does (desktop/src/keelenv.ts), from a copy in a folder with a space in its
-# name, with no Java, no uv and no keel Python on PATH. Then: healthy, a sign-in code, a flow on the fake model up to its
-# first gate, a clean stop with nothing left running.
+# name (writable, with new file times: keel must still write nothing into it), with no Java, no uv and no keel Python
+# on PATH. Then: healthy, a sign-in code, a flow on the fake model up to its first gate, a clean stop with nothing
+# left running.
 #
 #   scripts/test-desktop-runtime.sh <dir> [--in-place]      (--in-place: no copy, e.g. a read-only AppImage mount)
 #
@@ -26,9 +27,8 @@ if [ "${2:-}" = --in-place ]; then app="$dir"
 else
   app="$scratch/keel app copy"
   mkdir -p "$app"
+  # new file times (as a copy into the app gets) and writable: keel must still write nothing into its own files
   cp -R "$dir/runtime" "$dir/keel" "$app/"
-  # read-only, as an AppImage or a signed macOS app is: keel must not write into its own files
-  chmod -R a-w "$app"
 fi
 data="$scratch/data" repo="$scratch/my project"
 mkdir -p "$repo" "$scratch/logs"
@@ -102,8 +102,8 @@ else
   bad "no project: $pj"
 fi
 
-n="$(find "$app" -name '__pycache__' -newer "$repo/README.md" 2> /dev/null | wc -l | tr -d ' ')"
-[ "$n" = 0 ] && ok "nothing written into the app's files" || bad "$n new __pycache__ folders in the app"
+n="$(find "$app" -name '*.pyc' -newer "$repo/README.md" 2> /dev/null | wc -l | tr -d ' ')"
+[ "$n" = 0 ] && ok "nothing written into the app's files" || { bad "$n new .pyc files in the app"; find "$app" -name '*.pyc' -newer "$repo/README.md" | head -5; }
 
 kill -TERM "$pid"
 t1=$SECONDS
@@ -111,7 +111,7 @@ for _ in $(seq 1 60); do kill -0 "$pid" 2> /dev/null || break; sleep 0.5; done
 if kill -0 "$pid" 2> /dev/null; then bad "still running 30 s after TERM"; else ok "stopped $((SECONDS - t1)) s after TERM"; fi
 pid=""
 sleep 1
-left="$(pgrep -f "$app" || true)"
+left="$(pgrep -f "$app/(runtime|keel)/" || true)"
 [ -z "$left" ] && ok "no process left" || { bad "processes left: $left"; ps -o pid,command -p "$(echo "$left" | tr '\n' ',' | sed 's/,$//')" || true; }
 
 if [ "$fails" = 0 ]; then echo "desktop runtime: all checks passed"; else echo "desktop runtime: $fails check(s) failed"; tail -30 "$scratch/logs/keel.log"; exit 1; fi

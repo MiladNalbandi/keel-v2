@@ -106,7 +106,9 @@ jobs:
         run: |
           set -o pipefail
           export KEEL_DESKTOP_SMOKE=1 KEEL_DESKTOP_HOME="$RUNNER_TEMP/kd"
-          desktop/dist/linux-unpacked/keel --ozone-platform=headless 2>&1 | grep -v 'ERROR:\|^ERR:' | tee "$RUNNER_TEMP/smoke.txt"
+          # the unpacked folder has no setuid sandbox helper and Ubuntu 24.04 blocks the namespace sandbox: --no-sandbox
+          # here only (the AppImage below decides by itself, as it does on a person's computer)
+          desktop/dist/linux-unpacked/keel --no-sandbox --ozone-platform=headless 2>&1 | grep -v 'ERROR:\|^ERR:' | tee "$RUNNER_TEMP/smoke.txt"
           grep -q '^SMOKE OK' "$RUNNER_TEMP/smoke.txt"
           ! pgrep -f "$RUNNER_TEMP/kd"
           # the AppImage itself (unpacked by its own runtime: no FUSE needed here)

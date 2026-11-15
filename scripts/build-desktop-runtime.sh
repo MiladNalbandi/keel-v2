@@ -82,8 +82,19 @@ done
 
 echo "keel's files…"
 cp -R "$rel"/. "$out/keel/"
-# compiled once here; the check by hash, not by time: the app's files may get other times when they are copied
-"$py" -m compileall -q -j 0 --invalidation-mode unchecked-hash "$out/runtime/python/lib/python3.12" "$out/keel/plugins" > /dev/null
+# this Python never writes bytecode, also where PYTHONDONTWRITEBYTECODE does not reach (python -I in keel-start):
+# the app's files must not change (a signed macOS app; an AppImage cannot)
+cat > "$out/runtime/python/lib/python3.12/site-packages/sitecustomize.py" << 'PY'
+# keel desktop: this Python lives inside the app, whose files must not change. Everything was compiled when the app was
+# built (scripts/build-desktop-runtime.sh), so it never writes bytecode, also under python -I.
+import sys
+
+sys.dont_write_bytecode = True
+PY
+# compiled once here, all of it again (-f: Python's own library came compiled by file time), and checked by nothing:
+# the app's files get other times when they are copied into the app, and a time check would make Python compile and
+# write them again inside the app
+"$py" -m compileall -q -f -j 0 --invalidation-mode unchecked-hash "$out/runtime/python/lib/python3.12" "$out/keel/plugins" > /dev/null
 
 echo "Java…"
 jlink="${JAVA_HOME:+$JAVA_HOME/bin/}jlink"
