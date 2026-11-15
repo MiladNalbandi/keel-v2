@@ -12,6 +12,11 @@ import dev.keel.jetbrains.api.firstLine
 import dev.keel.jetbrains.api.initials
 import dev.keel.jetbrains.api.ktokens
 import dev.keel.jetbrains.api.threadStateOf
+import dev.keel.jetbrains.api.checkMeta
+import dev.keel.jetbrains.api.fixNote
+import dev.keel.jetbrains.api.samePointLabel
+import dev.keel.jetbrains.api.sidesOf
+import dev.keel.jetbrains.api.useOnAllLabel
 import dev.keel.jetbrains.api.verdictLabel
 import dev.keel.jetbrains.core.KeelProjectService
 import dev.keel.jetbrains.core.ReviewSession
@@ -59,6 +64,9 @@ class ThreadComponent(
         removeAll()
         val me = session.view?.me
         val state = threadStateOf(thread, me)
+        // 0.26.1 who is right, by role and name ("Reviewer (bo) is right"), as the web says it
+        val sides = sidesOf(me, session.view?.author, thread)
+        val fix = fixNote(session.fixOf(thread.id), thread)
         val first = thread.comments.firstOrNull()
         val body = KeelUi.stack()
         val head = KeelUi.row(
@@ -66,7 +74,8 @@ class ThreadComponent(
             KeelUi.bold(first?.author ?: "?"),
             KeelUi.muted("\"" + firstLine(first?.body.orEmpty(), 70) + "\""),
             if (thread.comments.size > 1) KeelUi.muted("· ${thread.comments.size - 1} repl${if (thread.comments.size == 2) "y" else "ies"}") else KeelUi.muted(""),
-            session.judgeOf(thread.id)?.result?.items?.firstOrNull()?.let { KeelUi.muted("· keel: ${verdictLabel(it.verdict).lowercase()}") } ?: KeelUi.muted(""),
+            session.judgeOf(thread.id)?.result?.items?.firstOrNull()?.let { KeelUi.muted("· keel: ${verdictLabel(it.verdict, sides)}") } ?: KeelUi.muted(""),
+            fix?.takeIf { it.fixed }?.let { KeelUi.muted("· ${it.text.replaceFirstChar { c -> c.lowercase() }}") } ?: KeelUi.muted(""),
             stateChip(state),
         ).apply {
             cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
@@ -85,10 +94,17 @@ class ThreadComponent(
                 body.add(who.full())
                 body.add(KeelUi.prose(c.body).apply { border = JBUI.Borders.emptyLeft(28) }.full())
             }
-            session.judgeOf(thread.id)?.let { body.add(KeelUi.gap(8)); body.add(judgeCard(it).full()) }
+            session.judgeOf(thread.id)?.let { body.add(KeelUi.gap(8)); body.add(judgeCard(it, sides).full()) }
+            // keel's check of the author's "fixed" against the new code: it never resolves, Resolve is your click
+            fix?.let { n ->
+                body.add(KeelUi.gap(8))
+                val text = KeelUi.bold(n.text).apply { foreground = if (n.fixed) KeelUi.OK else KeelUi.WARN }
+                val resolve = if (n.fixed && session.view?.canPost == true && !thread.resolved) KeelUi.link("Resolve") { resolve(true) } else KeelUi.muted("")
+                body.add(KeelUi.card(KeelUi.row(KeelUi.chip("k"), text, resolve, gap = 8), KeelUi.CARD_BG, if (n.fixed) KeelUi.OK else KeelUi.WARN).full())
+            }
             body.add(KeelUi.gap(8))
             val actions = mutableListOf<java.awt.Component>(
-                JButton("Reply").apply { addActionListener { reply(draftReply) } },
+                JButton("Reply").apply { addActionListener { reply(session.drafts[thread.id] ?: draftReply) } },
                 KeelUi.link("✦ Is the reviewer right?") { judge(again = session.ai.judges.containsKey(thread.id)) },
                 KeelUi.link("✦ Address it") { address() },
                 KeelUi.link(if (thread.resolved) "Reopen" else "Resolve") { resolve(!thread.resolved) },
@@ -109,11 +125,13 @@ class ThreadComponent(
         ThreadState2.RESOLVED -> KeelUi.chip(s.label, KeelUi.OK, KeelUi.CARD_BG)
     }
 
-    private fun judgeCard(run: AiRun): JPanel {
+    private fun judgeCard(run: AiRun, sides: dev.keel.jetbrains.api.Sides): JPanel {
         val c = KeelUi.stack()
         val res = run.result
-        val meta = listOfNotNull("keel checked the code", res?.tokens?.let { "~${ktokens(it)} tokens" }, res?.model).joinToString(" · ")
-        c.add(KeelUi.row(KeelUi.chip("k"), KeelUi.bold(meta), KeelUi.link("×") { session.dismiss(thread.id) }).full())
+        val meta = listOfNotNull("keel checked the code", res?.let { checkMeta(it) }?.ifBlank { null }).joinToString(" · ")
+        // what the check read (the thread's file, the files its comments name, their tests): the files in the tooltip
+        val head = KeelUi.bold(meta).apply { res?.context?.paths?.takeIf { it.isNotEmpty() }?.let { toolTipText = "keel read:\n" + it.joinToString("\n") } }
+        c.add(KeelUi.row(KeelUi.chip("k"), head, KeelUi.link("×") { session.dismiss(thread.id) }).full())
         when {
             run.status == "running" -> c.add(KeelUi.muted("keel reads the code…").full())
             run.error != null -> c.add(KeelUi.prose(run.error).apply { foreground = KeelUi.BAD }.full())
@@ -125,15 +143,26 @@ class ThreadComponent(
                         "author_right" -> KeelUi.BAD
                         else -> KeelUi.WARN
                     }
-                    c.add(KeelUi.line(KeelUi.chip(verdictLabel(item.verdict), color, KeelUi.CARD_BG), text = KeelUi.prose(item.claim)).full())
+                    c.add(KeelUi.line(KeelUi.chip(verdictLabel(item.verdict, sides), color, KeelUi.CARD_BG), text = KeelUi.prose(item.claim)).full())
                     if (item.why.isNotBlank()) c.add(KeelUi.prose(item.why).full())
                     item.fix?.takeIf { it.isNotBlank() }?.let { c.add(KeelUi.prose("Fix: $it").full()) }
                 }
                 res.text?.takeIf { res.items.isEmpty() && it.isNotBlank() }?.let { c.add(KeelUi.prose(it).full()) }
+                // the same point in other threads: keel checked them as one (it never merges them on the code host)
+                if (run.status == "done") res.sameAs.forEach { o ->
+                    c.add(KeelUi.link("↳ " + samePointLabel(o, session.view?.me)) { o.path?.let { PrDiffEditor.open(project, it, o.line) } }.full())
+                }
                 c.add(KeelUi.gap(6))
+                val onAll = res.reply?.takeIf { res.sameAs.isNotEmpty() && run.status == "done" && session.view?.canPost == true }?.let { text ->
+                    KeelUi.link(useOnAllLabel(res.sameAs.size)) {
+                        res.sameAs.forEach { session.drafts[it.threadId] = text }
+                        reply(text)
+                    }
+                }
                 c.add(
                     KeelUi.row(
                         KeelUi.link("Use as my reply") { reply(res.reply ?: res.items.joinToString("\n") { it.why }) },
+                        onAll ?: KeelUi.muted(""),
                         KeelUi.link("Address it (a small flow)") { address() },
                         KeelUi.link("Think harder") { judge(again = true, harder = true) },
                         KeelUi.link("Dismiss") { session.dismiss(thread.id) },
@@ -150,7 +179,12 @@ class ThreadComponent(
             ?: return
         if (text.isBlank()) return
         draftReply = ""
-        work("Sending…") { done -> session.act({ api, pid, key -> api.reply(pid, key, thread.id, text.trim()) }) { done(it, "Sent.") } }
+        work("Sending…") { done ->
+            session.act({ api, pid, key -> api.reply(pid, key, thread.id, text.trim()) }) {
+                if (it == null) session.drafts.remove(thread.id)
+                done(it, "Sent.")
+            }
+        }
     }
 
     private fun resolve(resolved: Boolean) =

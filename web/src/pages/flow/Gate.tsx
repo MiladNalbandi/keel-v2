@@ -27,6 +27,13 @@ export function gateLabels(w: NonNullable<ThreadState["waiting"]>, acId?: string
   if (w.kind === "budget") {
     return { approve: "Continue over the cap", reject: "Stop here", needWhy: false, approved: "The flow continues over its cap.", rejected: "Stopped.", special: true };
   }
+  if (w.kind === "crash") {
+    // #116 a step crashed and keel could not repair it (the flow doctor): keel's named choices answer it
+    return {
+      approve: w.labels?.approve ?? "Retry the step", reject: w.labels?.reject ?? "Stop the flow", needWhy: false, whyLabel: "A note (optional)",
+      approved: "keel runs the step again.", rejected: "Stopped. The commits so far stay.", special: true,
+    };
+  }
   if (w.kind === "fix" && /dependenc/.test(t)) {
     return {
       approve: "Approve the new dependency", reject: "Refuse it", needWhy: true, whyLabel: "Why (needed to refuse)",
@@ -162,7 +169,7 @@ export function GateCard({ thread, workflow, onDone }: { thread: ThreadState; wo
 
   const showAc = w.kind === "gate" && !labels.special;
   // keel 0.18.13 the engine says what each named choice means: one card each (ChoiceForm), its own reason box
-  const info = (w.kind === "gate" || w.kind === "fix") && w.choice_info?.length ? w.choice_info : null;
+  const info = (w.kind === "gate" || w.kind === "fix" || w.kind === "crash") && w.choice_info?.length ? w.choice_info : null;
   // keel 0.18.11 a plain approve / send back gate says in plain words what you approve and what each button does
   const plain = w.kind === "gate" && !labels.special && !w.choices?.length && w.options.includes("approve") && w.options.includes("reject");
   const after = plain ? afterApprove(workflow, thread, step) : "";
@@ -250,7 +257,7 @@ export function GateCard({ thread, workflow, onDone }: { thread: ThreadState; wo
       )}
       {info ? (
         <ChoiceForm key={w.id ?? w.title} id={`gate-${thread.thread_id}`} choices={info} busy={busy} draft={place} onSend={(choice, said) => decide("approve", { choice }, said)} />
-      ) : (w.kind === "gate" || w.kind === "fix") && w.choices?.length ? (
+      ) : (w.kind === "gate" || w.kind === "fix" || w.kind === "crash") && w.choices?.length ? (
         <div className="row" aria-label="Choose one">
           {w.choices.map((c, n) => (
             <button key={c} className={n === 0 ? "btn warn" : "btn"} type="button" id={n === 0 ? "approve" : undefined} disabled={busy}

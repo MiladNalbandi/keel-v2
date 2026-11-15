@@ -64,7 +64,16 @@ import dev.keel.android.data.DiffLine
 import dev.keel.android.data.ReviewThread
 import dev.keel.android.data.ago
 import dev.keel.android.data.initials
+import dev.keel.android.data.FixNote
+import dev.keel.android.data.checkMeta
+import dev.keel.android.data.fixNote
+import dev.keel.android.data.samePointLabel
+import dev.keel.android.data.sidesOf
+import dev.keel.android.data.useOnAllLabel
 import dev.keel.android.data.verdictLabel
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.runtime.LaunchedEffect
 import dev.keel.android.ui.common.Avatar
 import dev.keel.android.ui.common.DetailBar
 import dev.keel.android.ui.common.Dot
@@ -74,6 +83,16 @@ import dev.keel.android.ui.common.InlineError
 import dev.keel.android.ui.common.KCard
 import dev.keel.android.ui.common.KeelMark
 import dev.keel.android.ui.common.Loading
+import dev.keel.android.ui.common.Reveal
+import dev.keel.android.ui.theme.KeelMotion
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import dev.keel.android.ui.common.Phases
 import dev.keel.android.ui.common.PillButton
 import dev.keel.android.ui.common.Tag
 import dev.keel.android.ui.pair.Banner
@@ -113,6 +132,8 @@ fun ThreadScreen(vm: ThreadViewModel, onBack: () -> Unit, onFile: (String) -> Un
             }
         }
         PullToRefreshBox(isRefreshing = ui.refreshing, onRefresh = vm::refresh, modifier = Modifier.weight(1f)) {
+            Phases(ui, { x -> when { x.loading -> 0; x.error != null -> 1; x.view == null -> 2; else -> 3 } }) { ui ->
+            val v = ui.view
             when {
                 ui.loading -> Loading()
                 ui.error != null -> ErrorState(ui.error!!, { vm.load() })
@@ -121,9 +142,19 @@ fun ThreadScreen(vm: ThreadViewModel, onBack: () -> Unit, onFile: (String) -> Un
                     Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    ui.note?.let { Banner(it, null, K.c.okSoft, K.c.okInk) }
+                    Reveal(ui.note) { Banner(it, null, K.c.okSoft, K.c.okInk) }
                     InlineError(ui.actionError, vm::clearNote)
-                    when (ui.tab) {
+                    // the tabs slide the way the tab row goes (#113)
+                    AnimatedContent(
+                        ui.tab,
+                        transitionSpec = {
+                            val on = targetState.ordinal > initialState.ordinal
+                            (slideInHorizontally(KeelMotion.defaultSpatialSpec()) { w -> if (on) w / 6 else -w / 6 } + fadeIn(KeelMotion.defaultEffectsSpec())) togetherWith
+                                (slideOutHorizontally(KeelMotion.defaultSpatialSpec()) { w -> if (on) -w / 6 else w / 6 } + fadeOut(KeelMotion.fastEffectsSpec()))
+                        },
+                        label = "pr tab",
+                    ) { tab -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    when (tab) {
                         PrTab.THREADS -> Threads(ui, vm)
                         PrTab.FILES -> {
                             if (v.files.isEmpty()) EmptyState("No files", "This pull request changes no file.")
@@ -155,11 +186,13 @@ fun ThreadScreen(vm: ThreadViewModel, onBack: () -> Unit, onFile: (String) -> Un
                             }
                         }
                     }
+                    } }
                 }
+            }
             }
         }
         PendingBar(ui, vm)
-        if (ui.tab == PrTab.THREADS && ui.current != null) ThreadFooter(ui, vm)
+        AnimatedVisibility(ui.tab == PrTab.THREADS && ui.current != null, enter = KeelMotion.reveal, exit = KeelMotion.hide, label = "thread footer") { ThreadFooter(ui, vm) }
     }
 }
 
@@ -172,12 +205,15 @@ private fun Threads(ui: ThreadUi, vm: ThreadViewModel) {
 
 @Composable
 private fun ThreadCard(t: ReviewThread, ui: ThreadUi, vm: ThreadViewModel, selected: Boolean) {
+    // a "Same point as the thread on line N" link scrolls here
+    val bring = remember { BringIntoViewRequester() }
+    LaunchedEffect(ui.focusN) { if (ui.focus == t.id) bring.bringIntoView() }
     KCard(
         border = if (selected) K.c.accent else K.c.border,
         padding = androidx.compose.foundation.layout.PaddingValues(14.dp),
         onClick = if (selected) null else ({ vm.select(t.id) }),
         clickLabel = "Pick this thread",
-        modifier = Modifier.semantics { stateDescription = if (selected) "picked: the buttons below act on it" else "" },
+        modifier = Modifier.bringIntoViewRequester(bring).semantics { stateDescription = if (selected) "picked: the buttons below act on it" else "" },
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (ui.waitsForMe(t)) Tag("Waiting for you", K.c.warnSoft, K.c.warnInk) else Tag("Open", K.c.panel2, K.c.text2)
@@ -187,7 +223,8 @@ private fun ThreadCard(t: ReviewThread, ui: ThreadUi, vm: ThreadViewModel, selec
         ui.snippets[t.id]?.takeIf { it.isNotEmpty() }?.let { Snippet(it) }
         ThreadComments(t, ui)
         val run = ui.ai.judges[t.id]
-        if (run != null && t.id !in ui.dismissed) CheckCard(t.id, run, vm, busy = ui.busy == "judge")
+        Reveal(run?.takeIf { t.id !in ui.dismissed }) { CheckCard(t, it, ui, vm, busy = ui.busy == "judge") }
+        Reveal(fixNote(ui.ai.fixed[t.id], t)) { FixLine(it, t, ui, vm) }
         ui.ai.addressed[t.id]?.let { a -> Text("keel addresses it: ${a.title}${a.branch?.let { b -> " · $b" } ?: ""}", fontSize = 12.sp, color = K.c.okInk) }
     }
 }
@@ -234,9 +271,12 @@ private fun Snippet(lines: List<DiffLine>) {
     }
 }
 
-/** keel's answer to "Is the reviewer right?": the verdict, why, the fix, and what to do with it. */
+/** keel's answer to "Is the reviewer right?": who is right (by role and name), why, the fix, the other threads of the
+ *  same point, what it read, and what to do with it. */
 @Composable
-internal fun CheckCard(threadId: String, run: AiRun, vm: ThreadViewModel, busy: Boolean) {
+internal fun CheckCard(t: ReviewThread, run: AiRun, ui: ThreadUi, vm: ThreadViewModel, busy: Boolean) {
+    val threadId = t.id
+    val sides = sidesOf(ui.me, ui.view?.author, t)
     val shape = RoundedCornerShape(14.dp)
     Column(
         Modifier.fillMaxWidth().clip(shape).background(K.c.checkBg).border(1.dp, K.c.checkBorder, shape).padding(12.dp).semantics { contentDescription = "keel's check" },
@@ -250,8 +290,19 @@ internal fun CheckCard(threadId: String, run: AiRun, vm: ThreadViewModel, busy: 
         }
         val r = run.result
         if (r != null) {
-            val meta = listOfNotNull(r.tokens?.let { "~${(it + 500) / 1000}k tokens" }, r.model, r.effort).joinToString(" · ")
-            if (meta.isNotBlank()) Text(meta, fontFamily = Mono, fontSize = 11.sp, color = K.c.dim)
+            val meta = checkMeta(r)
+            val paths = r.context?.paths.orEmpty()
+            var showFiles by remember { mutableStateOf(false) }
+            if (meta.isNotBlank()) Box(
+                Modifier.fillMaxWidth().heightIn(min = 32.dp).then(
+                    if (paths.isEmpty()) Modifier
+                    else Modifier.clickable(role = Role.Button, onClickLabel = if (showFiles) "Hide the files keel read" else "Show the files keel read") { showFiles = !showFiles },
+                ),
+                contentAlignment = Alignment.CenterStart,
+            ) { Text(meta + if (paths.isEmpty()) "" else if (showFiles) "  ▾" else "  ▸", fontFamily = Mono, fontSize = 11.sp, lineHeight = 15.sp, color = K.c.dim) }
+            if (showFiles) Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                paths.forEach { Text(it, fontFamily = Mono, fontSize = 11.sp, lineHeight = 15.sp, color = K.c.text2) }
+            }
             r.items.forEach { item ->
                 val (soft, ink) = when (item.verdict) {
                     "reviewer_right" -> K.c.okSoft to K.c.okInk
@@ -260,20 +311,49 @@ internal fun CheckCard(threadId: String, run: AiRun, vm: ThreadViewModel, busy: 
                     else -> K.c.border to K.c.text2
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Tag(verdictLabel(item.verdict), soft, ink, upper = true)
+                    Tag(verdictLabel(item.verdict, sides), soft, ink)
+                    if (item.claim.isNotBlank()) Text(item.claim, fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold, color = K.c.fg)
                     Text(item.why, fontSize = 14.sp, lineHeight = 21.sp, color = K.c.body)
                     item.fix?.takeIf { it.isNotBlank() }?.let { Text("Fix: $it", fontSize = 13.sp, lineHeight = 19.sp, color = K.c.dim) }
                 }
             }
             if (r.items.isEmpty() && !r.text.isNullOrBlank()) Text(r.text, fontSize = 14.sp, color = K.c.body)
+            // the same point in other threads: keel checked them as one (it never merges them on the code host)
+            if (run.status == "done") r.sameAs.forEach { o -> SameLink(samePointLabel(o, ui.me)) { vm.goTo(o.threadId) } }
         }
         run.error?.let { Text(it, fontSize = 13.sp, color = K.c.badInk) }
         @OptIn(ExperimentalLayoutApi::class)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (r?.reply != null || r?.items?.firstOrNull()?.fix != null) PillButton("Use as my reply", { vm.useAsReply(threadId) }, filled = true, height = 44.dp)
+            if (r?.reply != null && r.sameAs.isNotEmpty() && run.status == "done" && ui.view?.canPost == true) PillButton(useOnAllLabel(r.sameAs.size), { vm.useOnAll(threadId) }, tinted = true, height = 44.dp)
             if (run.status != "running") PillButton("Check deeper", { vm.judge(threadId, harder = true) }, enabled = !busy, height = 44.dp)
             PillButton("Dismiss", { vm.dismiss(threadId) }, height = 44.dp)
         }
+    }
+}
+
+/** A link to another thread of the same point. */
+@Composable
+private fun SameLink(text: String, onClick: () -> Unit) {
+    Box(
+        Modifier.fillMaxWidth().heightIn(min = 40.dp).clip(RoundedCornerShape(8.dp)).clickable(role = Role.Button, onClickLabel = "Show that thread", onClick = onClick),
+        contentAlignment = Alignment.CenterStart,
+    ) { Text("↳ $text", fontSize = 13.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium, color = K.c.accentInk) }
+}
+
+/** keel's check of the author's "fixed" against the new code: "Fixed in abc1234 · Resolve" or "Still open: …". keel
+ *  never resolves: Resolve is the thread's own button, your click. */
+@Composable
+internal fun FixLine(n: FixNote, t: ReviewThread, ui: ThreadUi, vm: ThreadViewModel) {
+    val shape = RoundedCornerShape(12.dp)
+    Row(
+        Modifier.fillMaxWidth().clip(shape).background(if (n.fixed) K.c.okSoft else K.c.warnSoft).heightIn(min = 48.dp)
+            .padding(start = 12.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        KeelMark(20.dp, 6.dp)
+        Text(n.text, fontSize = 13.sp, lineHeight = 19.sp, fontWeight = FontWeight.Medium, color = if (n.fixed) K.c.okInk else K.c.warnInk, modifier = Modifier.weight(1f))
+        if (n.fixed && ui.view?.canPost == true) PillButton(if (ui.busy == "resolve") "Resolving…" else "Resolve", { vm.resolve(t.id) }, enabled = ui.busy == null, height = 40.dp, corner = 20.dp)
     }
 }
 
@@ -322,12 +402,12 @@ internal fun ThreadActions(t: ReviewThread, ui: ThreadUi, vm: ThreadViewModel) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             TextField(
-                value = ui.reply, onValueChange = vm::setReply, modifier = Modifier.weight(1f).semantics { contentDescription = "Reply to $other" },
+                value = ui.replyOf(t.id), onValueChange = { vm.setReply(t.id, it) }, modifier = Modifier.weight(1f).semantics { contentDescription = "Reply to $other" },
                 placeholder = { Text("Reply to $other…", color = K.c.dim) }, maxLines = 5,
                 colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent, cursorColor = K.c.accent, focusedTextColor = K.c.fg, unfocusedTextColor = K.c.fg),
             )
             IconButton(
-                onClick = vm::sendReply, enabled = ui.reply.isNotBlank() && ui.busy == null,
+                onClick = { vm.sendReply(t.id) }, enabled = ui.replyOf(t.id).isNotBlank() && ui.busy == null,
                 colors = IconButtonDefaults.iconButtonColors(containerColor = K.c.accent, contentColor = K.c.onAccent, disabledContainerColor = K.c.accent.copy(alpha = 0.4f), disabledContentColor = K.c.onAccent),
                 modifier = Modifier.size(44.dp),
             ) { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send the reply", modifier = Modifier.size(20.dp)) }

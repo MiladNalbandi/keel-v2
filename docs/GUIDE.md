@@ -658,8 +658,8 @@ changed.
 - **Chats**: a chat lives in keel's backend, so it goes on in keel TUI, the dashboard or on another computer. Chats name
   themselves after the first answer (3–6 words); a name you give is kept. When a chat's context is above 85% before a
   turn, keel compacts it by itself: a summary of the chat in a fresh session (every message stays stored).
-- **Costs**: each answer shows its tokens and time; the budget bar counts them. Claude and Codex continue their own
-  session, so a follow-up question is cheap (the context stays cached).
+- **Costs**: each answer shows its tokens and time; the budget bar counts them. keel's harness keeps the chat's
+  session for every model, so a follow-up question is cheap (the context stays cached).
 - The model is the `helper` agent's (Agents page); change it, and its thinking effort, for one chat in the panel.
 
 ## keel TUI (keel2 tui)
@@ -730,7 +730,7 @@ dashboard. That window then follows no other and moves no other. What you do in 
 |---|---|
 | Flows | `/project`, `/flow [workflow] [idea…]`, `/flows`, `/resume [n]`, `/stop [all\|n]`, `/run [manual\|important\|auto\|readonly]`, `/status`, `/next`, `/workflows`, `/create <workflow\|rule\|agent\|skill\|stack> [what]` |
 | Gates | `/inbox`, `/approve [n]`, `/reject [n] <why>`, `/answer [choice \| q1=answer …]` |
-| Look | `/jobs`, `/agent [n \| new <task>]`, `/live`, `/steps`, `/timeline`, `/diagram …`, `/rules`, `/skills`, `/skill …`, `/stacks`, `/stack …`, `/plugins`, `/budget`, `/dashboard` |
+| Look | `/jobs`, `/agent [n \| new <task>]`, `/live`, `/steps`, `/timeline`, `/diagram …`, `/rules`, `/skills`, `/skill …`, `/stacks`, `/stack …`, `/plugins`, `/budget`, `/doctor [days]`, `/dashboard` |
 | KeelBot | `/model`, `/effort`, `/chats`, `/rename`, `/export`, `/compact`, `/fix`, `/new`, `/mode`, `/changes`, `/keep`, `/undo`, `/redo` |
 | Screen | `/help`, `/panel`, `/clear`, `/copy [n]`, `/mouse [on\|off]`, `/follow [on\|off]`, `/settings`, `/editor`, `/quit` |
 

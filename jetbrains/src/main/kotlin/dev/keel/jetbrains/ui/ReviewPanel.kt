@@ -376,7 +376,16 @@ class ReviewPanel(private val project: Project, parent: Disposable) : JPanel(Car
             p.add(KeelUi.row(KeelUi.bold("${value.path ?: "PR"}${value.line?.let { " · L$it" } ?: ""}"), KeelUi.muted("${first?.author ?: ""} · ${firstLine(first?.body.orEmpty(), 50)}")).full())
             val state = threadStateOf(value, session.view?.me)
             val verdict = session.judgeOf(value.id)?.result?.items?.firstOrNull()?.verdict
-            p.add(KeelUi.row(KeelUi.chip(state.label), verdict?.let { KeelUi.muted("keel: ${verdictLabel(it).lowercase()}") } ?: KeelUi.muted("")).full())
+            val sides = dev.keel.jetbrains.api.sidesOf(session.view?.me, session.view?.author, value)
+            // 0.26.1 keel's check of an author's "fixed": "Fixed in abc1234" or "Still open: …"
+            val fix = dev.keel.jetbrains.api.fixNote(session.fixOf(value.id), value)
+            p.add(
+                KeelUi.row(
+                    KeelUi.chip(state.label),
+                    verdict?.let { KeelUi.muted("keel: ${verdictLabel(it, sides)}") } ?: KeelUi.muted(""),
+                    fix?.let { n -> KeelUi.muted(firstLine(n.text, 60)).apply { foreground = if (n.fixed) KeelUi.OK else KeelUi.WARN } } ?: KeelUi.muted(""),
+                ).full(),
+            )
             return p
         }
     }

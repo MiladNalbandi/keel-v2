@@ -50,6 +50,8 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.keel.android.data.crashDetail
+import dev.keel.android.data.isFailedStep
 import dev.keel.android.data.Ac
 import dev.keel.android.data.ThreadState
 import dev.keel.android.data.clock
@@ -61,6 +63,8 @@ import dev.keel.android.ui.common.EmptyState
 import dev.keel.android.ui.common.ErrorState
 import dev.keel.android.ui.common.InlineError
 import dev.keel.android.ui.common.Loading
+import dev.keel.android.ui.common.Reveal
+import dev.keel.android.ui.common.Phases
 import dev.keel.android.ui.common.SectionLabel
 import dev.keel.android.ui.common.Tag
 import dev.keel.android.ui.pair.Banner
@@ -92,6 +96,8 @@ fun FlowScreen(vm: FlowViewModel, onBack: () -> Unit) {
             }
         }
         PullToRefreshBox(isRefreshing = ui.refreshing, onRefresh = vm::refresh, modifier = Modifier.weight(1f)) {
+            Phases(ui, { x -> when { x.loading -> 0; x.error != null -> 1; x.thread == null -> 2; else -> 3 } }) { ui ->
+            val t = ui.thread
             when {
                 ui.loading -> Loading()
                 ui.error != null -> ErrorState(ui.error!!, { vm.load() })
@@ -107,7 +113,13 @@ fun FlowScreen(vm: FlowViewModel, onBack: () -> Unit) {
                         Text("${ktokens(tokens)} tokens · ${usd(t.usage.costUsd)}", fontFamily = Mono, fontSize = 12.sp, color = K.c.dim)
                         t.runMode?.let { Text("mode $it", fontFamily = Mono, fontSize = 12.sp, color = K.c.dim) }
                     }
-                    ui.sent?.let { Banner(it, null, K.c.okSoft, K.c.okInk) }
+                    Reveal(ui.sent) { Banner(it, null, K.c.okSoft, K.c.okInk) }
+                    // #101 a step failed and keel could not repair it: what failed, what to do, and the error itself
+                    t.waiting?.takeIf { t.status == "waiting" && isFailedStep(it.kind, it.title, it.crash) }?.let { w ->
+                        w.crash?.let { c -> Banner(c.title, c.fix, K.c.badSoft, K.c.badInk) }
+                        val what = crashDetail(w.detail, w.crash)
+                        if (t.acs.none { it.status == "red" } && what.isNotBlank()) CodeBlock(what, K.c.badInk, K.c.badSoft)
+                    }
                     if (t.acs.isNotEmpty()) Criteria(t)
                     else if (!t.error.isNullOrBlank()) CodeBlock(t.error, K.c.badInk, K.c.badSoft)
                     Timeline(ui)
@@ -121,6 +133,7 @@ fun FlowScreen(vm: FlowViewModel, onBack: () -> Unit) {
                     InlineError(ui.sendError, vm::clearError)
                 }
             }
+            }
         }
         ui.form?.let { Footer(it.sendLabel, ui.sending, vm::send, note = "") }
     }
@@ -129,7 +142,10 @@ fun FlowScreen(vm: FlowViewModel, onBack: () -> Unit) {
 @Composable
 private fun statusLook(t: ThreadState): Triple<String, Color, Color> {
     val c = K.c
+    val w = t.waiting
     return when {
+        t.status == "waiting" && w != null && isFailedStep(w.kind, w.title, w.crash) ->
+            Triple("Step failed · ${w.crash?.title ?: w.title.removeSuffix(" failed")}", c.badSoft, c.badInk)
         t.status == "waiting" && t.waiting?.kind == "fix" -> Triple("Stuck · ${t.phase}", c.badSoft, c.badInk)
         t.status == "waiting" -> Triple("◆ Waits for you · ${t.phase}", c.accentSoft, c.accentInk)
         t.status == "running" -> Triple("Running · ${t.current ?: t.phase}", c.runSoft, c.runInk)
@@ -168,7 +184,7 @@ private fun Criteria(t: ThreadState) {
     }
 }
 
-private fun failureText(t: ThreadState): String? = t.waiting?.takeIf { it.kind == "fix" }?.detail?.trim()?.takeIf { it.isNotEmpty() } ?: t.error
+private fun failureText(t: ThreadState): String? = t.waiting?.takeIf { it.kind == "fix" || it.kind == "crash" }?.let { crashDetail(it.detail, it.crash) }?.takeIf { it.isNotEmpty() } ?: t.error
 
 @Composable
 private fun AcMark(ac: Ac) {

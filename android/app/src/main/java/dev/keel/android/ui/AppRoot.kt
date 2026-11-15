@@ -63,6 +63,10 @@ import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.NamedNavArgument
+import androidx.navigation.NavBackStackEntry
+import androidx.navigation.NavGraphBuilder
+import androidx.compose.animation.AnimatedContentScope
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
@@ -88,6 +92,24 @@ import dev.keel.android.ui.thread.DiffScreen
 import dev.keel.android.ui.thread.ThreadScreen
 import dev.keel.android.ui.thread.ThreadViewModel
 import dev.keel.android.ui.theme.K
+import dev.keel.android.ui.theme.KeelMotion
+import dev.keel.android.ui.theme.enterScreen
+import dev.keel.android.ui.theme.exitScreen
+import dev.keel.android.ui.theme.popEnterScreen
+import dev.keel.android.ui.theme.popExitScreen
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 
 private data class Tab(val route: String, val label: String, val icon: ImageVector)
 
@@ -159,41 +181,54 @@ fun AppRoot(app: KeelApp, link: String?, onLinkUsed: () -> Unit, open: String?, 
         containerColor = K.c.bg,
         contentWindowInsets = WindowInsets(0),
         bottomBar = {
-            if (showBar) BottomBar(route, homeUi.inboxCount, homeUi.reviewCount) { r ->
-                nav.navigate(r) {
-                    popUpTo("inbox") { saveState = true }
-                    launchSingleTop = true
-                    restoreState = true
+            AnimatedVisibility(
+                showBar,
+                enter = expandVertically(KeelMotion.size, expandFrom = Alignment.Top) + fadeIn(KeelMotion.defaultEffectsSpec()),
+                exit = shrinkVertically(KeelMotion.size, shrinkTowards = Alignment.Top) + fadeOut(KeelMotion.fastEffectsSpec()),
+                label = "bottom bar",
+            ) {
+                BottomBar(route, homeUi.inboxCount, homeUi.reviewCount) { r ->
+                    nav.navigate(r) {
+                        popUpTo("inbox") { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
                 }
             }
         },
     ) { pad ->
         Box(
+            // the bar's height is consumed as insets: under the bar no extra room, without it the system bar's (and in between
+            // what is left of it, so nothing jumps while the bar slides)
             Modifier.fillMaxSize().background(K.c.bg).padding(pad).consumeWindowInsets(pad).statusBarsPadding()
-                .then(if (showBar) Modifier else Modifier.navigationBarsPadding()).imePadding(),
+                .navigationBarsPadding().imePadding(),
         ) {
-            NavHost(nav, startDestination = start) {
-                composable("pair") {
+            NavHost(
+                nav, startDestination = start,
+                enterTransition = { enterScreen() }, exitTransition = { exitScreen() },
+                popEnterTransition = { popEnterScreen() }, popExitTransition = { popExitScreen() },
+            ) {
+                screen("pair") {
                     PairScreen(pairVm, saved = session.store.keels.collectAsState().value, onBack = if (active != null) ({ nav.popBackStack() }) else null)
                 }
-                composable("inbox") {
+                screen("inbox") {
                     val vm: InboxViewModel = viewModel(factory = viewModelFactory { initializer { InboxViewModel(session, app.live) } })
                     InboxScreen(vm, home, onQuestion = { pid, tid -> nav.navigate(Routes.question(pid, tid)) }, onFlow = { pid, tid -> nav.navigate(Routes.flow(pid, tid)) },
                         onPr = { n -> homeUi.project?.let { nav.navigate(Routes.pr(it, n)) } }, onSettings = { nav.navigate("settings") })
                 }
-                composable("flows") {
+                screen("flows") {
                     val vm: FlowsViewModel = viewModel(factory = viewModelFactory { initializer { FlowsViewModel(session, app.live) } })
                     FlowsScreen(vm, onOpen = { r -> homeUi.project?.let { pid -> nav.navigate(if (r.status == "waiting") Routes.question(pid, r.threadId) else Routes.flow(pid, r.threadId)) } })
                 }
-                composable("prs") {
+                screen("prs") {
                     val vm: PrsViewModel = viewModel(factory = viewModelFactory { initializer { PrsViewModel(session, app.live) } })
                     PrsScreen(vm, onOpen = { n -> homeUi.project?.let { nav.navigate(Routes.pr(it, n)) } })
                 }
-                composable("chat") {
+                screen("chat") {
                     val vm: ChatViewModel = viewModel(factory = viewModelFactory { initializer { ChatViewModel(session, app.live) } })
                     ChatScreen(vm, onBack = { if (!nav.popBackStack()) nav.navigate("inbox") }, onStartFlow = { nav.navigate("flows") })
                 }
-                composable(
+                screen(
                     "question/{pid}/{tid}",
                     arguments = listOf(navArgument("pid") { type = NavType.StringType }, navArgument("tid") { type = NavType.StringType }),
                 ) { e ->
@@ -202,7 +237,7 @@ fun AppRoot(app: KeelApp, link: String?, onLinkUsed: () -> Unit, open: String?, 
                     val vm: QuestionViewModel = viewModel(factory = viewModelFactory { initializer { QuestionViewModel(session, app.live, pid, tid) } })
                     QuestionScreen(vm, onBack = { nav.popBackStack() }, onFlow = { nav.navigate(Routes.flow(pid, tid)) })
                 }
-                composable(
+                screen(
                     "flow/{pid}/{tid}",
                     arguments = listOf(navArgument("pid") { type = NavType.StringType }, navArgument("tid") { type = NavType.StringType }),
                 ) { e ->
@@ -211,7 +246,7 @@ fun AppRoot(app: KeelApp, link: String?, onLinkUsed: () -> Unit, open: String?, 
                     val vm: FlowViewModel = viewModel(factory = viewModelFactory { initializer { FlowViewModel(session, app.live, pid, tid, withHistory = true) } })
                     FlowScreen(vm, onBack = { nav.popBackStack() })
                 }
-                composable(
+                screen(
                     "pr/{pid}/{n}",
                     arguments = listOf(navArgument("pid") { type = NavType.StringType }, navArgument("n") { type = NavType.IntType }),
                 ) { e ->
@@ -220,7 +255,7 @@ fun AppRoot(app: KeelApp, link: String?, onLinkUsed: () -> Unit, open: String?, 
                     val vm: ThreadViewModel = viewModel(factory = viewModelFactory { initializer { ThreadViewModel(session, app.live, pid, n) } })
                     ThreadScreen(vm, onBack = { nav.popBackStack() }, onFile = { path -> nav.navigate(Routes.file(pid, n, path)) })
                 }
-                composable(
+                screen(
                     "pr/{pid}/{n}/file?path={path}",
                     arguments = listOf(
                         navArgument("pid") { type = NavType.StringType }, navArgument("n") { type = NavType.IntType },
@@ -236,13 +271,24 @@ fun AppRoot(app: KeelApp, link: String?, onLinkUsed: () -> Unit, open: String?, 
                     else viewModel(factory = viewModelFactory { initializer { ThreadViewModel(session, app.live, pid, n) } })
                     DiffScreen(vm, path, onBack = { nav.popBackStack() })
                 }
-                composable("settings") {
+                screen("settings") {
                     SettingsScreen(session, home, notifier = app.notifier, onBack = { nav.popBackStack() }, onPair = { nav.navigate("pair") })
                 }
             }
         }
     }
     }
+}
+
+/** A destination on keel's own background: while two screens move (a push, a back gesture) one never shows through the
+ *  other as text over text. */
+private fun NavGraphBuilder.screen(
+    route: String,
+    arguments: List<NamedNavArgument> = emptyList(),
+    content: @Composable AnimatedContentScope.(NavBackStackEntry) -> Unit,
+) = composable(route, arguments) { e ->
+    val scope = this
+    Box(Modifier.fillMaxSize().background(K.c.bg)) { scope.content(e) }
 }
 
 /** "inbox", "flows", "prs", "chat", "question:<pid>:<tid>", "flow:<pid>:<tid>", "pr:<pid>:<n>" (notifications, adb). */
@@ -274,15 +320,38 @@ private fun BottomBar(route: String?, inbox: Int, reviews: Int, go: (String) -> 
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
                 ) {
-                    Box(Modifier.size(56.dp, 28.dp).clip(RoundedCornerShape(14.dp)).background(if (on) K.c.accentSoft else Color.Transparent), contentAlignment = Alignment.Center) {
-                        Icon(t.icon, contentDescription = null, tint = if (on) K.c.accentInk else K.c.dim, modifier = Modifier.size(24.dp))
-                        if (badge > 0) Box(
-                            Modifier.align(Alignment.TopEnd).padding(end = 8.dp).heightIn(min = 14.dp).widthIn(min = 14.dp).clip(RoundedCornerShape(7.dp))
-                                .background(if (t.route == "prs") K.c.run else K.c.bad).padding(horizontal = 3.dp),
-                            contentAlignment = Alignment.Center,
-                        ) { Text(if (badge > 99) "99+" else "$badge", color = K.c.onAccent, fontSize = 9.sp, lineHeight = 10.sp, fontWeight = FontWeight.Bold) }
+                    val pill by animateDpAsState(if (on) 56.dp else 24.dp, KeelMotion.fastSpatialSpec(), label = "tab pill")
+                    val pillColor by animateColorAsState(if (on) K.c.accentSoft else K.c.accentSoft.copy(alpha = 0f), KeelMotion.defaultEffectsSpec(), label = "tab pill colour")
+                    val ink by animateColorAsState(if (on) K.c.accentInk else K.c.dim, KeelMotion.defaultEffectsSpec(), label = "tab icon")
+                    val word by animateColorAsState(if (on) K.c.fg else K.c.dim, KeelMotion.defaultEffectsSpec(), label = "tab label")
+                    Box(Modifier.size(56.dp, 28.dp), contentAlignment = Alignment.Center) {
+                        Box(Modifier.size(pill, 28.dp).clip(RoundedCornerShape(14.dp)).background(pillColor))
+                        Icon(t.icon, contentDescription = null, tint = ink, modifier = Modifier.size(24.dp))
+                        androidx.compose.animation.AnimatedVisibility(
+                            badge > 0, Modifier.align(Alignment.TopEnd).padding(end = 8.dp),
+                            enter = scaleIn(KeelMotion.fastSpatialSpec()) + fadeIn(KeelMotion.fastEffectsSpec()),
+                            exit = scaleOut(KeelMotion.fastEffectsSpec()) + fadeOut(KeelMotion.fastEffectsSpec()),
+                            label = "badge",
+                        ) {
+                            Box(
+                                Modifier.heightIn(min = 14.dp).widthIn(min = 14.dp).clip(RoundedCornerShape(7.dp))
+                                    .background(if (t.route == "prs") K.c.run else K.c.bad).padding(horizontal = 3.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                // a new count rolls in from below (or from above when it goes down)
+                                AnimatedContent(
+                                    badge,
+                                    transitionSpec = {
+                                        val up = targetState > initialState
+                                        (slideInVertically(KeelMotion.fastSpatialSpec()) { h -> if (up) h else -h } + fadeIn(KeelMotion.fastEffectsSpec())) togetherWith
+                                            (slideOutVertically(KeelMotion.fastSpatialSpec()) { h -> if (up) -h else h } + fadeOut(KeelMotion.fastEffectsSpec()))
+                                    },
+                                    label = "badge count",
+                                ) { n -> Text(if (n > 99) "99+" else "$n", color = K.c.onAccent, fontSize = 9.sp, lineHeight = 10.sp, fontWeight = FontWeight.Bold) }
+                            }
+                        }
                     }
-                    Text(t.label, fontSize = 12.sp, lineHeight = 14.sp, maxLines = 1, color = if (on) K.c.fg else K.c.dim,
+                    Text(t.label, fontSize = 12.sp, lineHeight = 14.sp, maxLines = 1, color = word,
                         fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium, modifier = Modifier.padding(top = 4.dp))
                 }
             }

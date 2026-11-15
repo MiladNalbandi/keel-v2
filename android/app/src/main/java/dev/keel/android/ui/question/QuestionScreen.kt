@@ -30,6 +30,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.keel.android.data.crashDetail
+import dev.keel.android.data.isFailedStep
 import dev.keel.android.data.Ac
 import dev.keel.android.data.ClarifyQuestion
 import dev.keel.android.data.GateForm
@@ -41,6 +43,8 @@ import dev.keel.android.ui.common.ErrorState
 import dev.keel.android.ui.common.InlineError
 import dev.keel.android.ui.common.KTextField
 import dev.keel.android.ui.common.Loading
+import dev.keel.android.ui.common.Reveal
+import dev.keel.android.ui.common.Phases
 import dev.keel.android.ui.common.PrimaryButton
 import dev.keel.android.ui.common.StepBars
 import dev.keel.android.ui.common.Tag
@@ -58,6 +62,7 @@ fun QuestionScreen(vm: FlowViewModel, onBack: () -> Unit, onFlow: () -> Unit) {
         w == null -> "Question"
         t.phase.startsWith("spec") && w.kind == "gate" -> "Spec gate"
         w.kind == "clarify" -> "A question"
+        isFailedStep(w.kind, w.title, w.crash) -> "Step failed"
         w.kind == "fix" -> "Stuck"
         w.kind == "usage" || w.kind == "budget" -> "Budget"
         else -> w.name ?: "Gate"
@@ -67,24 +72,31 @@ fun QuestionScreen(vm: FlowViewModel, onBack: () -> Unit, onFlow: () -> Unit) {
             TextButton(onClick = onFlow, modifier = Modifier.padding(end = 4.dp)) { Text("Flow", color = K.c.accentInk, fontSize = 14.sp, fontWeight = FontWeight.Medium) }
         }
         PullToRefreshBox(isRefreshing = ui.refreshing, onRefresh = vm::refresh, modifier = Modifier.weight(1f)) {
+            Phases(ui, { x -> when { x.loading -> 0; x.error != null -> 1; x.thread == null -> 2; else -> 3 } }) { ui ->
+            val t = ui.thread
+            val w = t?.waiting
             when {
                 ui.loading -> Loading()
                 ui.error != null -> ErrorState(ui.error!!, { vm.load() })
                 t == null -> EmptyState("This flow is gone", "keel does not know it any more.")
                 else -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     StepBars(stepOf(t.phase, t.status), K.c.accent, K.c.accentInk, big = true)
-                    ui.sent?.let {
-                        Banner(it, null, K.c.okSoft, K.c.okInk)
-                        dev.keel.android.ui.common.PillButton("Follow the flow", onFlow, Modifier.fillMaxWidth())
+                    Reveal(ui.sent) {
+                        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            Banner(it, null, K.c.okSoft, K.c.okInk)
+                            dev.keel.android.ui.common.PillButton("Follow the flow", onFlow, Modifier.fillMaxWidth())
+                        }
                     }
                     if (w == null || ui.form == null) {
                         if (ui.sent == null) EmptyState("Nothing to answer here now", "The flow is ${t.status}. Open the flow to see what it does.")
                     } else {
-                        QuestionContext(w.title, w.detail, t.acs, showAcs = w.kind == "gate" && t.phase.startsWith("spec"))
+                        w.crash?.let { c -> Banner(c.title, c.fix, K.c.badSoft, K.c.badInk) }
+                        QuestionContext(w.title, crashDetail(w.detail, w.crash), t.acs, showAcs = w.kind == "gate" && t.phase.startsWith("spec"))
                         GateFormView(ui.form!!, vm)
                     }
                     InlineError(ui.sendError, vm::clearError)
                 }
+            }
             }
         }
         if (ui.form != null) Footer(ui.form!!.sendLabel, ui.sending, vm::send)
@@ -137,7 +149,7 @@ fun GateFormView(form: GateForm, vm: FlowViewModel, idleBg: Color = K.c.panel, l
             ChoiceRow(selected = form.picked == r.name, label = r.label, description = r.description.ifBlank { null }, onClick = { vm.pick(r.name) }, idleBg = idleBg)
         }
         form.reasonLabel?.let { label ->
-            KTextField(form.why, vm::setWhy, label, placeholder = if (form.plain) "e.g. AC-3: log to the audit table, not the app log" else "e.g. returns are rows with status=returned, count them once")
+            KTextField(form.why, vm::setWhy, label, placeholder = if (form.plain && form.waiting.kind == "fix") "e.g. The key is wrong; I will fix it later." else if (form.plain) "e.g. AC-3: log to the audit table, not the app log" else "e.g. returns are rows with status=returned, count them once")
         }
         form.questions.forEach { q -> QuestionBlock(q, form, vm, idleBg) }
     }

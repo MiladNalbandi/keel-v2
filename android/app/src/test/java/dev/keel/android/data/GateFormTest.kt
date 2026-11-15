@@ -55,4 +55,35 @@ class GateFormTest {
         assertEquals("""{"answers":{"c":["A","B"]}}""", body.payload.toString())
         assertEquals("Send the answers", f.sendLabel)
     }
+
+    @Test
+    fun `a step that failed offers try again and stop (the flow doctor)`() {
+        val w = Waiting(
+            step = "change", kind = "fix", title = "make the change failed", id = "q4", options = listOf("approve", "reject"),
+            crash = CrashInfo("auth", "The provider refused the key", "Check the key, then retry."),
+        )
+        val f = GateForm.of("t4", w)
+        assertEquals(listOf("Try again", "Stop the flow"), f.rows.map { it.label })
+        assertEquals("Try again", f.sendLabel)
+        assertNull(f.reasonLabel)
+        assertEquals(InboxAnswer("approve", id = "q4"), (f.action() as GateAction.Answer).body)
+        val stop = f.pick(GateForm.REJECT)
+        assertEquals("Stop the flow", stop.sendLabel)
+        assertEquals("A note for keel (optional)", stop.reasonLabel)
+        assertEquals("", stop.problem())
+        assertEquals("reject", (stop.action() as GateAction.Answer).body.decision)
+    }
+
+    @Test
+    fun `a crashed step answers with keel's named choices`() {
+        val w = Waiting(
+            step = "commit", kind = "crash", title = "commit failed", id = "q5", options = listOf("approve", "reject"), choices = listOf("retry", "stop"),
+            choiceInfo = listOf(ChoiceInfo("retry", "Retry the step", "run it again", "none"), ChoiceInfo("stop", "Stop the flow", "end it", "optional")),
+        )
+        val f = GateForm.of("t5", w)
+        assertEquals(listOf("Retry the step", "Stop the flow"), f.rows.map { it.label })
+        val stop = (f.pick("stop").action() as GateAction.Answer).body
+        assertEquals("approve", stop.decision)
+        assertEquals("""{"choice":"stop"}""", stop.payload.toString())
+    }
 }

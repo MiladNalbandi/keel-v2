@@ -89,7 +89,7 @@ class IdeApiTest {
         val started = api().judge("p1", "pr:7", "T1", harder = true)
         assertEquals("running", started.judges["T1"]?.status)
         val done = api().ai("p1", "pr:7").judges.getValue("T1")
-        assertEquals("REVIEWER IS RIGHT", verdictLabel(done.result!!.items.single().verdict))
+        assertEquals("Reviewer (bo) is right", verdictLabel(done.result!!.items.single().verdict, Sides("bo", "you")))
         assertEquals("Good catch, fixed.", done.result?.reply)
         assertEquals("""{"key":"pr:7","harder":true}""", server.takeRequest().body.readUtf8())
         assertEquals("/api/projects/p1/review/ai?key=pr%3A7", server.takeRequest().path)

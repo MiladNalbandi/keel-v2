@@ -70,6 +70,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.keel.android.data.ANSWERS_PREFIX
+import dev.keel.android.data.reachWord
 import dev.keel.android.data.ClarifyQuestion
 import dev.keel.android.data.HelperMessage
 import dev.keel.android.data.ago
@@ -88,6 +89,8 @@ import dev.keel.android.ui.common.ErrorState
 import dev.keel.android.ui.common.InlineError
 import dev.keel.android.ui.common.KeelMark
 import dev.keel.android.ui.common.Loading
+import dev.keel.android.ui.common.Reveal
+import dev.keel.android.ui.common.Phases
 import dev.keel.android.ui.common.PillButton
 import dev.keel.android.ui.common.Segmented
 import dev.keel.android.ui.pair.Banner
@@ -143,6 +146,7 @@ fun ChatScreen(vm: ChatViewModel, onBack: () -> Unit, onStartFlow: () -> Unit) {
             }
         }
         Box(Modifier.weight(1f)) {
+            Phases(ui, { x -> when { x.loading -> 0; x.error != null && x.session == null -> 1; else -> 2 } }) { ui ->
             when {
                 ui.loading -> Loading()
                 ui.error != null && s == null -> ErrorState(ui.error!!, vm::start)
@@ -150,12 +154,14 @@ fun ChatScreen(vm: ChatViewModel, onBack: () -> Unit, onStartFlow: () -> Unit) {
                     if (messages.isEmpty() && streaming == null) item {
                         EmptyState("Ask KeelBot", "It reads this project and answers with file:line links. Ask mode changes nothing.")
                     }
-                    items(messages, key = { it.n }) { m -> Message(m, ui, vm) }
-                    if (streaming != null) item { HelperText(streaming) }
-                    else if (ui.busy) item { Text("KeelBot is writing…", fontSize = 13.sp, color = K.c.dim) }
-                    if (ui.changes.isNotEmpty()) item { ChangesCard(ui, vm) }
-                    item { ui.note?.let { Banner(it, null, K.c.okSoft, K.c.okInk) }; InlineError(ui.actionError, vm::clearNote) }
+                    // a new message fades in and the list makes room for it (#113)
+                    items(messages, key = { it.n }) { m -> Box(Modifier.animateItem()) { Message(m, ui, vm) } }
+                    if (streaming != null) item(key = "streaming") { Box(Modifier.animateItem()) { HelperText(streaming) } }
+                    else if (ui.busy) item(key = "writing") { Text("KeelBot is writing…", fontSize = 13.sp, color = K.c.dim, modifier = Modifier.animateItem()) }
+                    if (ui.changes.isNotEmpty()) item(key = "changes") { Box(Modifier.animateItem()) { ChangesCard(ui, vm) } }
+                    item(key = "note") { Reveal(ui.note) { Banner(it, null, K.c.okSoft, K.c.okInk) }; InlineError(ui.actionError, vm::clearNote) }
                 }
+            }
             }
         }
         Composer(ui, vm, onStartFlow)
@@ -431,7 +437,7 @@ private fun ModelSheet(ui: ChatUi, vm: ChatViewModel) {
                     ChipRow(ui.catalog.map { it.id to it.label }, provider) { provider = it }
                     if ((p?.modes?.size ?: 0) > 1) {
                         SheetLabel("Runs on")
-                        ChipRow(p!!.modes.keys.map { it to modeWord(provider, it) }, mode) { mode = it }
+                        ChipRow(p!!.modes.keys.map { it to reachWord(provider) }.distinctBy { it.second }, mode) { mode = it }
                     }
                     SheetLabel("Model")
                     models.forEach { cm -> ChoiceRowSmall(cm.label, cm.id == model) { model = cm.id } }
@@ -441,19 +447,11 @@ private fun ModelSheet(ui: ChatUi, vm: ChatViewModel) {
                 }
             }
             InlineError(ui.catalogError)
-            Text("Claude and Codex continue their own session; other models get the conversation so far.", fontSize = 12.sp, color = K.c.dim, lineHeight = 17.sp)
+            Text("Runs on ${reachWord(provider)}. keel keeps this chat: another model goes on with the same conversation.", fontSize = 12.sp, color = K.c.dim, lineHeight = 17.sp)
             dev.keel.android.ui.common.PrimaryButton("Use ${listOfNotNull(model.ifBlank { null }, effort).joinToString(" · ").ifBlank { "it" }}",
                 { vm.setModel(Model(provider, mode, model, effort)) }, enabled = model.isNotBlank())
         }
     }
-}
-
-private fun modeWord(p: String, m: String) = when {
-    p == "copilot" && m == "subscription" -> "Copilot CLI"
-    p == "copilot" && m == "opencode" -> "OpenCode"
-    m == "subscription" -> "Subscription"
-    m == "api" -> "API key"
-    else -> m
 }
 
 @Composable

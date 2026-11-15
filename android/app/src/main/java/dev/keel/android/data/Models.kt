@@ -139,7 +139,13 @@ data class Waiting(
     val choices: List<String>? = null,
     val choiceInfo: List<ChoiceInfo>? = null,
     val name: String? = null,
+    /** #101 the flow doctor's pause: what failed and what to do (flowdoctor/classify.py), when a step failed */
+    val crash: CrashInfo? = null,
 )
+
+/** #101 a crash the flow doctor named: its kind (auth, rate-limit, disk-full …), title and what to do. */
+@Serializable
+data class CrashInfo(val kind: String = "", val title: String = "", val fix: String = "", val repair: String? = null)
 
 @Serializable
 data class Usage(
@@ -312,6 +318,8 @@ data class ReviewView(
     val host: HostRef? = null,
     val me: String? = null,
     val notes: List<String> = emptyList(),
+    /** 0.26.1 open threads that make the same point, by id: keel checks each group once */
+    val threadGroups: List<List<String>> = emptyList(),
 )
 
 @Serializable
@@ -332,6 +340,48 @@ data class JudgeResult(
     val tokens: Long? = null,
     val flowId: String? = null,
     val title: String? = null,
+    /** 0.26.1 the other open threads of the same point: the same answer is on each */
+    val sameAs: List<SameAs> = emptyList(),
+    /** 0.26.1 what the check read: lines, and the files (the thread's own, the ones its comments name, their tests) */
+    val context: JudgeContext? = null,
+    val checkedAt: String? = null,
+    /** threads checked in one call ("Check all open") */
+    val batchSize: Int? = null,
+)
+
+/** Another open thread that makes the same point: keel checked them as one. */
+@Serializable
+data class SameAs(val threadId: String = "", val path: String? = null, val line: Int? = null, val author: String? = null)
+
+@Serializable
+data class JudgeContext(val codeLines: Int = 0, val hunkLines: Int = 0, val files: Int = 0, val paths: List<String> = emptyList())
+
+/** 0.26.1 keel's check of the author's "fixed" against the commits pushed since the point. keel never resolves. */
+@Serializable
+data class FixResult(
+    val stage: String = "check",
+    val threadId: String? = null,
+    val fixed: Boolean? = null,
+    val why: String? = null,
+    /** what keel still sees open, when it is not fixed */
+    val stillOpen: String? = null,
+    /** the head commit it checked, short */
+    val sha: String? = null,
+    val commits: List<String> = emptyList(),
+    val model: String? = null,
+    val tokens: Long? = null,
+)
+
+@Serializable
+data class FixRun(
+    val id: String = "",
+    /** running | done | failed */
+    val status: String = "running",
+    /** the head moved on since: a new check comes */
+    val stale: Boolean = false,
+    val headSha: String = "",
+    val result: FixResult? = null,
+    val error: String? = null,
 )
 
 @Serializable
@@ -352,6 +402,8 @@ data class Addressed(val flowId: String = "", val title: String = "", val branch
 data class AiState(
     val judges: Map<String, AiRun> = emptyMap(),
     val addressed: Map<String, Addressed> = emptyMap(),
+    /** 0.26.1 per thread: keel's check of the author's "fixed" against the new commits */
+    val fixed: Map<String, FixRun> = emptyMap(),
 )
 
 @Serializable
@@ -421,7 +473,7 @@ data class PatchSession(val mode: String? = null, val title: String? = null, val
 /** One model of the catalog (GET /api/providers/models): its efforts, when it has its own list. */
 data class CatalogModel(val id: String, val label: String, val efforts: List<String>? = null)
 
-/** One provider of the catalog: the modes it runs on (subscription, api, opencode...) with their models. */
+/** One provider of the catalog: its models by mode (keel 0.26 sends only "api": every model runs on its API key). */
 data class CatalogProvider(val id: String, val label: String, val modes: Map<String, List<CatalogModel>>, val efforts: List<String>) {
     fun effortsOf(model: String, mode: String): List<String> = modes[mode]?.firstOrNull { it.id == model }?.efforts ?: efforts
 }

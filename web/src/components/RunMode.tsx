@@ -27,6 +27,7 @@ const SAFETY_KINDS = new Set(["fix", "budget", "dependency"]);
 export function whyItWaits(mode: string | null | undefined, kind: string, title = ""): string | null {
   if (mode === "auto") {
     if (/^final review/i.test(title)) return "Still stops here: the final review is always yours (whether this branch is ready to merge).";
+    if (kind === "crash") return "Still stops here: a step crashed and keel could not repair it. Only you decide to retry it or stop.";
     if (SAFETY_KINDS.has(kind) || /secret|keeps failing|still no|read-only/i.test(title)) {
       return "Still stops here: keel never decides money, new dependencies, secrets or a check that keeps failing by itself.";
     }

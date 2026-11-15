@@ -156,7 +156,7 @@ export type ThreadState = {
   ac: string | null;
   acs: { id: string; layer: string; title: string; status: AcStatus }[];
   waiting?: {
-    step: string; kind: "gate" | "budget" | "fix" | "clarify"; title: string; detail: string; options: ("approve" | "reject")[];
+    step: string; kind: "gate" | "budget" | "fix" | "clarify" | "crash"; title: string; detail: string; options: ("approve" | "reject")[];
     /** v0.3.1: the question's id (the inbox sends it back so a stale page cannot answer the next question) */
     id?: string;
     labels?: { approve?: string; reject?: string }; questions?: ClarifyQuestion[];

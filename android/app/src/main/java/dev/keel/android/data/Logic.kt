@@ -224,13 +224,81 @@ fun toolLines(steps: List<JobStep>): String = steps.mapNotNull { s ->
     }
 }.joinToString("\n")
 
-/** keel's verdict words for the check card. */
-fun verdictLabel(v: String): String = when (v) {
-    "reviewer_right" -> "REVIEWER IS RIGHT"
-    "author_right" -> "AUTHOR IS RIGHT"
-    "partly" -> "PARTLY"
-    else -> "UNCLEAR"
+/** How keel reaches a provider (the web's ModelPicker): its API, whatever mode a saved model still says (#101). */
+fun reachWord(provider: String): String = when (provider) {
+    "copilot" -> "API key (GitHub Models)"
+    "vertex" -> "Google Cloud"
+    "local" -> "Local server"
+    else -> "API key"
 }
+
+/** #101 the flow doctor's pause: a step failed and keel could not repair it by itself. Kind "crash" (any step), or an
+ *  agent step's "fix" whose title is "<step> failed" (flowdoctor/repair.py pause_of). */
+fun isFailedStep(kind: String?, title: String?, crash: CrashInfo? = null): Boolean =
+    crash != null || kind == "crash" || (kind == "fix" && title.orEmpty().endsWith(" failed"))
+
+/** A failed step's text without what the screen already says: the crash's title and advice (shown above it) and the
+ *  engine's "Approve to try again…" / "retry: …" lines (the buttons say it). What is left: what happened, and the repairs. */
+fun crashDetail(detail: String, crash: CrashInfo?): String {
+    if (crash == null) return detail.trim()
+    return detail.split(Regex("\n\\s*\n")).map { it.trim() }.filter { p ->
+        p.isNotEmpty() && !(crash.title.isNotBlank() && p.startsWith(crash.title)) &&
+            !p.startsWith("Approve to try again") && !p.startsWith("retry:")
+    }.joinToString("\n\n")
+}
+
+/** The two sides of a review thread by name ("you" when it is you; null when keel does not know the name). */
+data class Sides(val reviewer: String?, val author: String?)
+
+private fun sameName(a: String?, b: String?) = !a.isNullOrEmpty() && !b.isNullOrEmpty() && a.equals(b, ignoreCase = true)
+
+/** A thread's reviewer (the first one in it who did not write the change) and the change's author (web verdict.ts). */
+fun sidesOf(me: String?, author: String?, t: ReviewThread): Sides {
+    fun name(n: String?) = if (n.isNullOrEmpty()) null else if (sameName(n, me)) "you" else n
+    val reviewer = t.comments.firstOrNull { !sameName(it.author, author) }?.author ?: t.comments.firstOrNull()?.author
+    return Sides(name(reviewer), name(author))
+}
+
+/** keel's verdict on one point in words that name the role and the person: "Reviewer (bo) is right" (0.26.1, the same
+ *  words as the web's both views). */
+fun verdictLabel(v: String, s: Sides): String {
+    fun who(role: String, name: String?) = if (name != null) "$role ($name)" else role
+    return when (v) {
+        "reviewer_right" -> "${who("Reviewer", s.reviewer)} is right"
+        "author_right" -> "${who("Author", s.author)} is right"
+        "partly" -> "${who("Reviewer", s.reviewer)} is partly right"
+        else -> "Unclear: keel could not decide"
+    }
+}
+
+/** The link to another thread that makes the same point: "Same point as the thread on line 22 (bo)". */
+fun samePointLabel(o: SameAs, me: String?): String {
+    val name = if (o.author.isNullOrEmpty()) null else if (sameName(o.author, me)) "you" else o.author
+    val where = if (o.line != null) "line ${o.line}" else o.path ?: "the pull request"
+    return "Same point as the thread on $where" + (name?.let { " ($it)" } ?: "")
+}
+
+/** The button that puts keel's reply into every thread of the point: "Use as my reply on both" (or "on all 3"). */
+fun useOnAllLabel(others: Int): String = "Use as my reply on ${if (others == 1) "both" else "all ${others + 1}"}"
+
+/** keel's check of the author's "fixed", in words: "Fixed in abc1234" (then Resolve) or "Still open: …". Null when there
+ *  is none to show: no check, not done, the head moved on since (a new one comes), or the thread is resolved. */
+data class FixNote(val fixed: Boolean, val text: String)
+
+fun fixNote(run: FixRun?, t: ReviewThread): FixNote? {
+    val r = run?.result
+    if (run == null || run.stale || t.resolved || run.status != "done" || r?.stage != "done") return null
+    return if (r.fixed == true) FixNote(true, "Fixed in ${r.sha ?: run.headSha.take(7)}")
+    else FixNote(false, "Still open: ${r.stillOpen?.ifBlank { null } ?: r.why?.ifBlank { null } ?: "keel does not see the fix in the new code"}")
+}
+
+/** The check's cost line: "checked 2 min ago · ~2k tokens for 2 threads · read 3 files · claude · sonnet · high". */
+fun checkMeta(r: JudgeResult, now: Instant = Instant.now()): String = listOfNotNull(
+    ago(r.checkedAt, now).takeIf { it.isNotEmpty() }?.let { if (it == "now") "checked just now" else "checked $it ago" },
+    r.tokens?.let { "~${(it + 500) / 1000}k tokens" + if ((r.batchSize ?: 0) > 1) " for ${r.batchSize} threads" else "" },
+    r.context?.files?.takeIf { it > 0 }?.let { "read $it file${if (it == 1) "" else "s"}" },
+    r.model?.let { m -> m + (r.effort?.let { " · $it" } ?: "") },
+).joinToString(" · ")
 
 /** Initials for an avatar: "sara.k" → "SK", "you" → "YO". */
 fun initials(name: String): String {

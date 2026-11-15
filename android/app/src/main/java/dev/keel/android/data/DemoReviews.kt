@@ -114,7 +114,17 @@ class DemoReviews {
                         ReviewComment("c2", "alex", "Fair point, thanks. Will update it.", ago(3600)),
                     ),
                 ),
-                ReviewThread("412-2", "src/Vat/VatWebhook.php", 56, comments = listOf(ReviewComment("c3", "sara.k", "Should this log the order too, not only the supplier (AC-3)?", ago(7000)))),
+                ReviewThread(
+                    "412-2", "src/Vat/VatWebhook.php", 56,
+                    comments = listOf(
+                        ReviewComment("c3", "sara.k", "Should this log the order too, not only the supplier (AC-3)?", ago(7000)),
+                        ReviewComment("c3b", "alex", "Fixed: the log line has the order id now.", ago(1800)),
+                    ),
+                ),
+                ReviewThread(
+                    "412-4", "tests/Integration/Vat/VatAbsentKeepsStoredTest.php", 17,
+                    comments = listOf(ReviewComment("c3c", "j.berg", "These raw inserts could use the factories we already have.", ago(5400))),
+                ),
                 ReviewThread(
                     "412-3", "migrations/Version20261020.php", 11, resolved = true,
                     comments = listOf(ReviewComment("c4", "j.berg", "rename vat_at to vat_updated_at", ago(20_000)), ReviewComment("c5", "alex", "Renamed in 3c1f9a2. Thanks!", ago(18_000))),
@@ -293,6 +303,8 @@ class DemoReviews {
             url = "https://github.com/acme/checkout/pull/${s.number}", state = "open", checks = p.checks, approved = p.approved,
             files = p.files.map { ChangedFile(it.path, it.status, it.added, it.removed) }, added = p.files.sumOf { it.added }, removed = p.files.sumOf { it.removed },
             threads = p.threads.toList(), drafts = p.drafts.toList(), canPost = true,
+            // 0.26.1 two reviewers asked for the same thing on lines close together: keel checks them as one point
+            threadGroups = SAME_POINT.filter { g -> g.all { id -> p.threads.any { it.id == id && !it.resolved } } },
             host = HostRef("github", "github.com", "acme/checkout", "https://github.com/acme/checkout"), me = "alex",
         )
     }
@@ -335,3 +347,6 @@ class DemoReviews {
         return SubmitResult(n, "COMMENT", null, view(key))
     }
 }
+
+/** The demo's threads that make the same point (keel's ReviewJudgeService.samePoint finds them on a real keel). */
+internal val SAME_POINT = listOf(listOf("412-1", "412-4"))

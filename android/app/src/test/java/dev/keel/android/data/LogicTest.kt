@@ -102,4 +102,49 @@ class LogicTest {
         assertTrue(!optionChangesFiles(QuestionOption("Start a fix flow", "test first")))
         assertTrue(!optionChangesFiles(QuestionOption("Explain more")))
     }
+
+    @Test
+    fun `names a failed step and how keel reaches a provider (0_26)`() {
+        org.junit.Assert.assertTrue(isFailedStep("crash", "commit failed"))
+        org.junit.Assert.assertTrue(isFailedStep("fix", "make the change failed"))
+        org.junit.Assert.assertTrue(isFailedStep("gate", "x", CrashInfo("auth")))
+        org.junit.Assert.assertFalse(isFailedStep("fix", "AC-3 is still red after 3 tries. What now?"))
+        assertEquals("API key", reachWord("claude"))
+        assertEquals("API key (GitHub Models)", reachWord("copilot"))
+        assertEquals("Local server", reachWord("local"))
+        val c = CrashInfo("auth", "The provider refused the key", "Check the key, then retry.")
+        val detail = "The provider refused the key. Check the key, then retry.\n\nWhat happened (auth): 401\n\nkeel tried 1 repair(s) by itself first.\n\n" +
+            "Approve to try again, reject to stop the flow."
+        assertEquals("What happened (auth): 401\n\nkeel tried 1 repair(s) by itself first.", crashDetail(detail, c))
+        assertEquals("x\n\ny", crashDetail("x\n\ny\n", null))
+    }
+
+    @Test
+    fun `says who is right by role and name, the same point and the fix check (0_26_1)`() {
+        val t = ReviewThread("a", comments = listOf(ReviewComment("1", "bo", "x"), ReviewComment("2", "ana", "y")))
+        val mine = sidesOf("ana", "ana", t)
+        assertEquals(Sides("bo", "you"), mine)
+        assertEquals("Reviewer (bo) is right", verdictLabel("reviewer_right", mine))
+        assertEquals("Author (you) is right", verdictLabel("author_right", mine))
+        assertEquals("Reviewer (bo) is partly right", verdictLabel("partly", mine))
+        assertEquals("Unclear: keel could not decide", verdictLabel("unclear", mine))
+        assertEquals("Reviewer is right", verdictLabel("reviewer_right", Sides(null, null)))
+        // you review someone else's change: you are the reviewer
+        assertEquals(Sides("you", "bo"), sidesOf("ana", "bo", ReviewThread("b", comments = listOf(ReviewComment("1", "ana", "x")))))
+        assertEquals("Same point as the thread on line 22 (bo)", samePointLabel(SameAs("b", "a.py", 22, "bo"), "ana"))
+        assertEquals("Same point as the thread on a.py (you)", samePointLabel(SameAs("b", "a.py", null, "ana"), "ana"))
+        assertEquals("Use as my reply on both", useOnAllLabel(1))
+        assertEquals("Use as my reply on all 3", useOnAllLabel(2))
+        val done = FixRun("f", "done", headSha = "abc1234ff", result = FixResult("done", fixed = true))
+        assertEquals(FixNote(true, "Fixed in abc1234"), fixNote(done, t))
+        assertEquals(FixNote(false, "Still open: the max is hard-coded"), fixNote(done.copy(result = FixResult("done", fixed = false, stillOpen = "the max is hard-coded")), t))
+        assertEquals(null, fixNote(done.copy(stale = true), t))
+        assertEquals(null, fixNote(done, t.copy(resolved = true)))
+        assertEquals(null, fixNote(done.copy(status = "running"), t))
+        val now = Instant.parse("2026-11-14T12:00:00Z")
+        assertEquals(
+            "checked 2 min ago · ~3k tokens for 2 threads · read 3 files · claude · sonnet · high",
+            checkMeta(JudgeResult(tokens = 3_400, model = "claude · sonnet", effort = "high", checkedAt = "2026-11-14T11:58:00Z", batchSize = 2, context = JudgeContext(files = 3)), now),
+        )
+    }
 }

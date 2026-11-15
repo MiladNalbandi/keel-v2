@@ -134,7 +134,7 @@ wheels = [
 
 [[package]]
 name = "keel-api"
-version = "0.27.0"
+version = "0.27.1"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },

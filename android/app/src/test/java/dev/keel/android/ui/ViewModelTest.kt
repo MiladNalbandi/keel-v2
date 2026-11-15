@@ -6,6 +6,7 @@ import dev.keel.android.data.SavedKeel
 import dev.keel.android.ui.inbox.InboxViewModel
 import dev.keel.android.ui.pair.PairViewModel
 import dev.keel.android.ui.question.QuestionViewModel
+import dev.keel.android.ui.thread.ThreadViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.StateFlow
@@ -166,5 +167,38 @@ class ViewModelTest {
         val ui = vm.ui.await { it.sent != null && !it.sending }
         assertTrue(ui.sent!!.startsWith("Approve"))
         assertEquals("""{"decision":"approve","id":"q2"}""", seen.first { it.first == "POST /api/inbox/t2/act" }.second)
+    }
+
+    @Test
+    fun `the same point fills both reply boxes, links the other thread and reads the fix check (0_26_1)`() {
+        routes["GET /api/projects/p1/review/view"] = json("""{"key":"pr:412","number":412,"title":"VAT","author":"alex","me":"alex","can_post":true,
+            "threads":[{"id":"a","path":"t.php","comments":[{"id":"1","author":"sara.k","body":"Use a factory?"}]},
+                       {"id":"b","path":"t.php","comments":[{"id":"2","author":"j.berg","body":"Factories here?"}]},
+                       {"id":"c","path":"w.php","comments":[{"id":"3","author":"sara.k","body":"Log the order?"},{"id":"4","author":"alex","body":"Fixed."}]}],
+            "thread_groups":[["a","b"]]}""")
+        routes["GET /api/projects/p1/review/ai"] = json("""{"judges":{"a":{"id":"j","kind":"judge","status":"done","result":{"stage":"done","reply":"Done: factories now.",
+            "items":[{"claim":"use factories","verdict":"reviewer_right","why":"they exist"}],"same_as":[{"thread_id":"b","path":"t.php","line":17,"author":"j.berg"}],
+            "context":{"code_lines":60,"hunk_lines":14,"files":3,"paths":["t.php","f.php","w.php"]}}}},
+            "fixed":{"c":{"id":"f","status":"done","stale":false,"head_sha":"9f3c2e1aa","result":{"stage":"done","fixed":true,"sha":"9f3c2e1"}}}}""")
+        routes["POST /api/projects/p1/review/threads/b/reply"] = json("""{"key":"pr:412","threads":[]}""")
+        val vm = ThreadViewModel(pairedSession(), null, "p1", 412)
+        val ui = vm.ui.await { !it.loading }
+        assertEquals(listOf(listOf("a", "b")), ui.view!!.threadGroups)
+        val r = ui.ai.judges.getValue("a").result!!
+        assertEquals("b", r.sameAs.single().threadId)
+        assertEquals(3, r.context!!.files)
+        assertEquals(dev.keel.android.data.FixNote(true, "Fixed in 9f3c2e1"), dev.keel.android.data.fixNote(ui.ai.fixed["c"], ui.view!!.threads[2]))
+        vm.useOnAll("a")
+        val both = vm.ui.value
+        assertEquals("Done: factories now.", both.replyOf("a"))
+        assertEquals("Done: factories now.", both.replyOf("b"))
+        assertTrue(both.note!!.contains("both threads"))
+        vm.goTo("b")
+        assertEquals("b", vm.ui.value.focus)
+        assertEquals("b", vm.ui.value.current?.id)
+        vm.sendReply("b")
+        vm.ui.await { it.busy == null && it.note == "Reply posted." }
+        assertEquals("""{"key":"pr:412","body":"Done: factories now."}""", seen.first { it.first == "POST /api/projects/p1/review/threads/b/reply" }.second)
+        assertEquals("Done: factories now.", vm.ui.value.replyOf("a"))
     }
 }

@@ -37,6 +37,18 @@ describe("Flow gate", () => {
     await waitFor(() => expect(db.calls.find((c) => c.path.endsWith("/resume"))?.body).toEqual({ decision: "approve", payload: { choice: "skip" } }));
   });
 
+  it("#116 a step that crashed answers with Retry the step / Stop the flow, not Approve / Send back", async () => {
+    const user = userEvent.setup();
+    db.flows["ludus-engine"].thread!.waiting = { step: "commit", kind: "crash", title: "commit failed",
+      detail: "git was locked by a lock file.", options: ["approve", "reject"], choices: ["retry", "stop"] };
+    render(<App />);
+    expect(await screen.findByRole("button", { name: "retry" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Approve/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Stop the flow" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "retry" }));
+    await waitFor(() => expect(db.calls.find((c) => c.path.endsWith("/resume"))?.body).toEqual({ decision: "approve", payload: { choice: "retry" } }));
+  });
+
   it("0.18.13 with choice_info: one card per choice with its words, the default marked, a reason only where it is needed", async () => {
     const user = userEvent.setup();
     db.flows["ludus-engine"].thread!.waiting = { step: "verify_green", kind: "fix", title: "AC-002 is stuck at verify_green",

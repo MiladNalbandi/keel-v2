@@ -57,6 +57,7 @@ export const SPECS: Spec[] = [
   },
   { name: "rules", usage: "", describe: "what each phase allows and the rule packs", tool: "keel_rules" },
   { name: "budget", usage: "", describe: "tokens and money: this flow, today, the caps", tool: "keel_budget" },
+  { name: "doctor", usage: "[days]", describe: "what crashed in keel's flows, what keel repaired, what to improve", tool: "keel_flow_doctor", args: (a) => ({ days: num(a[0]) }) },
   {
     name: "dashboard",
     usage: "[flow|map|er]",

@@ -208,8 +208,15 @@
       "group": "Look"
     },
     {
+      "name": "doctor",
+      "args": "[days]",
+      "summary": "what crashed in keel's flows, what keel repaired by itself, and what to improve (the flow doctor)",
+      "writes": false,
+      "group": "Look"
+    },
+    {
       "name": "dashboard",
-      "args": "[flow|map|er|keelbot|inbox]",
+      "args": "[flow|map|er|keelbot|inbox|doctor]",
       "summary": "the dashboard's link for this project",
       "writes": false,
       "complete": "dashboard",

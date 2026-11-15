@@ -89,12 +89,26 @@ class DemoBackend {
             usage = Usage(tokensIn = 33_000, tokensOut = 8_000, costUsd = 0.96), updatedAt = ago(600),
             gateLog = listOf("spec approved by you"),
         ),
+        "t-1785" to ThreadState(
+            threadId = "t-1785", projectId = pid, workflowId = "quick", title = "Order search: accept lower-case references",
+            status = "waiting", current = "change", phase = "change",
+            waiting = Waiting(
+                step = "change", kind = "fix", title = "make the change failed", id = "q-crash-1785",
+                detail = "The provider refused the key. Check the key in Settings › Models & keys (Test says what is wrong), then retry.\n\n" +
+                    "What happened (auth): Error code: 401 - invalid x-api-key\n\nApprove to try again, reject to stop the flow.",
+                options = listOf("approve", "reject"),
+                crash = CrashInfo("auth", "The provider refused the key", "Check the key in Settings › Models & keys (Test says what is wrong), then retry."),
+            ),
+            usage = Usage(tokensIn = 4_100, tokensOut = 500, costUsd = 0.02), updatedAt = ago(240),
+            gateLog = listOf("plan approved by you", "make the change: the provider refused the key"),
+        ),
     )
 
     private val runs = mutableListOf(
         RunRow("t-1769", "Keep the stored VAT when it is absent", "feature", "waiting", "spec", "spec-gate", "Approve the spec?", 0, 4, 18_000, "worktree", "feature/SHOPS-1769", costUsd = 0.42, updatedAt = ago(720)),
         RunRow("t-1771", "Supplier VAT sync for Acme and Globex", "interview", "running", "green", "green", null, 2, 5, 52_000, "worktree", "feature/SHOPS-1771", costUsd = 1.08, updatedAt = ago(300)),
         RunRow("t-1702", "Checkout page totals", "feature", "waiting", "green", "green", "AC-3 is still red after 3 tries", 2, 3, 41_000, "folder", "feature/SHOPS-1702-totals", costUsd = 0.96, updatedAt = ago(600)),
+        RunRow("t-1785", "Order search: accept lower-case references", "quick", "waiting", "change", "change", "make the change failed", 0, 0, 4_600, "worktree", "quick/order-search-case", costUsd = 0.02, updatedAt = ago(240)),
         RunRow("t-fix-9", "Fix: duplicate webhook events", "fix", "running", "gate", "review", null, 1, 1, 12_000, "worktree", "fix/dup-webhooks", costUsd = 0.31, updatedAt = ago(120)),
         RunRow("t-1650", "Order search by reference", "feature", "done", "done", null, null, 6, 6, 88_000, "worktree", "feature/SHOPS-1650", costUsd = 2.10, updatedAt = ago(172_800)),
     )
@@ -132,12 +146,12 @@ class DemoBackend {
                 "{\"label\":\"Fix the webhook\",\"description\":\"Keep the stored VAT when none comes. 1 file, the test stays.\",\"recommended\":true}," +
                 "{\"label\":\"Fix it and log it\",\"description\":\"Also log a cleared VAT with the supplier (AC-3).\"}," +
                 "{\"label\":\"Start a fix flow\",\"description\":\"Test first, then the change, then a review.\"}]}]}\n```",
-            callId = "call-2", data = HelperMessageData(status = "done", provider = "copilot", model = "sonnet 5.5", effort = "high", tokensIn = 12_000, tokensOut = 2_200, costUsd = 0.09),
+            callId = "call-2", data = HelperMessageData(status = "done", provider = "claude", model = "sonnet", effort = "high", tokensIn = 12_000, tokensOut = 2_200, costUsd = 0.09),
             at = ago(380),
         ),
     )
     private var chatMode = "ask"
-    private var chatModel = Model("copilot", "subscription", "sonnet 5.5", "high")
+    private var chatModel = Model("claude", "api", "sonnet", "high")
 
     private fun session(withMessages: Boolean) = HelperSession(
         id = "chat-1", project = pid, mode = chatMode, title = "Why does the VAT test fail?",
@@ -220,12 +234,15 @@ class DemoBackend {
                 judges.replaceAll { tid, run ->
                     if (run.status == "running" && (judgeAsked.merge(tid, 1, Int::plus) ?: 0) >= 2) run.copy(status = "done", result = judgeResult(tid)) else run
                 }
-                ok(AiState.serializer(), AiState(judges.toMap()))
+                ok(AiState.serializer(), AiState(judges.toMap(), fixed = FIXED))
             }
             seg.size == 7 && seg[3] == "review" && seg[4] == "threads" && seg[6] == "judge" -> {
-                judges[seg[5]] = AiRun("j-${seg[5]}", "judge", "running")
-                judgeAsked[seg[5]] = 0
-                ok(AiState.serializer(), AiState(judges.toMap()))
+                // one check for the point: the same run is on each thread of its group
+                (SAME_POINT.firstOrNull { seg[5] in it } ?: listOf(seg[5])).forEach { id ->
+                    judges[id] = AiRun("j-${seg[5]}", "judge", "running")
+                    judgeAsked[id] = 0
+                }
+                ok(AiState.serializer(), AiState(judges.toMap(), fixed = FIXED))
             }
             seg.size == 7 && seg[3] == "review" && seg[4] == "threads" && seg[6] == "reply" -> {
                 ok(ReviewView.serializer(), reviews.reply(seg[5], bodyObj().s("body").orEmpty()))
@@ -256,7 +273,7 @@ class DemoBackend {
                     n + 1, "helper",
                     if (text.startsWith(ANSWERS_PREFIX)) "Sent. I start the change in Edit mode: `src/Vat/VatWebhook.php` keeps the stored VAT when none comes."
                     else "This is the demo keel: a real keel answers here, reading your project.",
-                    callId = "call-${n + 1}", data = HelperMessageData(status = "done", provider = "copilot", model = "sonnet 5.5"), at = Instant.now().toString(),
+                    callId = "call-${n + 1}", data = HelperMessageData(status = "done", provider = "claude", model = "sonnet"), at = Instant.now().toString(),
                 )
                 ok(TurnStarted.serializer(), TurnStarted("chat-1", "call-${n + 1}", n))
             }
@@ -277,7 +294,24 @@ class DemoBackend {
         }
     }
 
-    private fun judgeResult(tid: String) = JudgeResult(
+    private fun sameAs(tid: String): List<SameAs> = (SAME_POINT.firstOrNull { tid in it } ?: emptyList()).filter { it != tid }.map { id ->
+        if (id == "412-1") SameAs(id, "tests/Integration/Vat/VatAbsentKeepsStoredTest.php", 15, "sara.k")
+        else SameAs(id, "tests/Integration/Vat/VatAbsentKeepsStoredTest.php", 17, "j.berg")
+    }
+
+    private fun judgeResult(tid: String) = if (tid == "412-1" || tid == "412-4") JudgeResult(
+        stage = "done",
+        items = listOf(
+            JudgeItem(
+                "the test's setUp() should use the factories", "reviewer_right",
+                "setUp() inserts the supplier, resolver and order rows by hand. tests/Factory/OrderFactory.php already builds all three, so the test would be shorter and follow schema changes.",
+                "Use OrderFactory and SupplierFactory in setUp().",
+            ),
+        ),
+        reply = "Good point: setUp() now uses OrderFactory and SupplierFactory.",
+        agent = "judge", model = "claude · sonnet", effort = "high", tokens = 3_400, sameAs = sameAs(tid), checkedAt = Instant.now().toString(),
+        context = JudgeContext(60, 14, 3, listOf("tests/Integration/Vat/VatAbsentKeepsStoredTest.php", "tests/Factory/OrderFactory.php", "src/Vat/VatWebhook.php")),
+    ) else JudgeResult(
         stage = "done",
         items = listOf(
             JudgeItem(
@@ -292,7 +326,7 @@ class DemoBackend {
             "409-1" -> "Thanks, the jitter looks right to me."
             else -> "Thanks, I will look at it."
         },
-        agent = "judge", model = "copilot · sonnet 5.5", effort = "high", tokens = 2_000,
+        agent = "judge", model = "claude · sonnet", effort = "high", tokens = 2_000,
     )
 
     /** The interceptor: every call to the demo address is answered here. */
@@ -310,13 +344,23 @@ class DemoBackend {
     fun client(): OkHttpClient = OkHttpClient.Builder().addInterceptor(interceptor()).build()
 }
 
-/** The demo's model catalog (GET /api/providers/models), in the shape keel sends. */
+/** The demo's model catalog (GET /api/providers/models), in the shape keel 0.26 sends: every model on its API key. */
 private val CATALOG = """
-{"copilot":{"label":"GitHub Copilot","modes":{"subscription":[{"id":"sonnet 5.5","label":"sonnet 5.5","efforts":["none","low","medium","high","xhigh","max"]},
-{"id":"gpt-5.6","label":"gpt-5.6","efforts":["low","medium","high"]},{"id":"haiku 5","label":"haiku 5"}],
-"api":[{"id":"gpt-5-mini","label":"gpt-5-mini"}]},"efforts":[],"default":{"mode":"subscription","model":"sonnet 5.5"},"source":"cli"},
-"claude":{"label":"Claude","modes":{"subscription":[{"id":"opus","label":"opus"},{"id":"sonnet","label":"sonnet"},{"id":"haiku","label":"haiku"}],
-"api":[{"id":"sonnet","label":"sonnet"}]},"efforts":["low","medium","high","max"],"default":{"mode":"subscription","model":"sonnet"},"source":"builtin"},
-"codex":{"label":"Codex","modes":{"subscription":[{"id":"gpt-5.6-sol","label":"gpt-5.6-sol"},{"id":"gpt-5-mini","label":"gpt-5-mini"}]},
-"efforts":["minimal","low","medium","high"],"default":{"mode":"subscription","model":"gpt-5.6-sol"},"source":"builtin"}}
+{"claude":{"label":"Anthropic (Claude)","modes":{"api":[{"id":"opus","label":"opus"},{"id":"sonnet","label":"sonnet"},{"id":"haiku","label":"haiku","efforts":[]}]},
+"efforts":["low","medium","high","xhigh","max"],"default":{"mode":"api","model":"sonnet","effort":"high"},"source":"builtin"},
+"codex":{"label":"OpenAI","modes":{"api":[{"id":"gpt-5.5","label":"gpt-5.5"},{"id":"gpt-5.5-mini","label":"gpt-5.5-mini"}]},
+"efforts":["minimal","low","medium","high"],"default":{"mode":"api","model":"gpt-5.5","effort":"medium"},"source":"builtin"},
+"copilot":{"label":"GitHub Models","modes":{"api":[{"id":"openai/gpt-5","label":"openai/gpt-5"},{"id":"openai/gpt-5-mini","label":"openai/gpt-5-mini"}]},
+"efforts":[],"default":{"mode":"api","model":"openai/gpt-5"},"source":"builtin"}}
 """.trimIndent()
+
+/** keel's checks of an author's "fixed" in the demo: one went through, one did not (keel never resolves). */
+private val FIXED = mapOf(
+    "412-2" to FixRun(
+        "f-412-2", "done", headSha = "9f3c2e1aa0", result = FixResult("done", "412-2", fixed = true, why = "The log line now has order_id next to supplier.", sha = "9f3c2e1", commits = listOf("9f3c2e1")),
+    ),
+    "409-1" to FixRun(
+        "f-409-1", "done", headSha = "4b7d0c2ee1",
+        result = FixResult("done", "409-1", fixed = false, why = "Jitter is added.", stillOpen = "the jitter is added, but the maximum delay is still hard-coded to 30 s", sha = "4b7d0c2"),
+    ),
+)

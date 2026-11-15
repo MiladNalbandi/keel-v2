@@ -45,6 +45,7 @@ import dev.keel.android.ui.common.InlineError
 import dev.keel.android.ui.common.KCard
 import dev.keel.android.ui.common.KTextField
 import dev.keel.android.ui.common.Loading
+import dev.keel.android.ui.common.Phases
 import dev.keel.android.ui.common.PrimaryButton
 import dev.keel.android.ui.common.SectionLabel
 import dev.keel.android.ui.common.StepBars
@@ -68,6 +69,7 @@ fun lookOf(status: String): StateLook = when (status) {
 fun stateText(r: RunRow): Pair<String, String> {
     val stuck = r.status == "waiting" && (r.waiting.orEmpty().contains("still red", true) || r.waiting.orEmpty().contains("stuck", true))
     return when {
+        r.status == "waiting" && r.waiting.orEmpty().endsWith(" failed") -> "stuck" to "Step failed · ${r.waiting.orEmpty().removeSuffix(" failed")}"
         stuck -> "stuck" to "Stuck · ${r.waiting}"
         r.status == "waiting" -> "waiting" to "◆ Waits for you"
         r.status == "running" -> "running" to "Running · ${r.current ?: r.phase ?: "…"}"
@@ -109,6 +111,7 @@ fun FlowsScreen(vm: FlowsViewModel, onOpen: (RunRow) -> Unit) {
                 }
             }
             PullToRefreshBox(isRefreshing = ui.refreshing, onRefresh = vm::refresh, modifier = Modifier.fillMaxSize()) {
+                Phases(ui, { s -> when { s.loading -> 0; s.error != null && s.runs.isEmpty() -> 1; s.shown.isEmpty() -> 2; else -> 3 } }) { ui ->
                 when {
                     ui.loading -> Loading()
                     ui.error != null && ui.runs.isEmpty() -> ErrorState(ui.error!!, vm::refresh)
@@ -125,8 +128,10 @@ fun FlowsScreen(vm: FlowsViewModel, onOpen: (RunRow) -> Unit) {
                         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        items(ui.shown, key = { it.threadId }) { r -> FlowCard(r) { onOpen(r) } }
+                        // a filter or a new state moves the cards instead of redrawing the list (#113)
+                        items(ui.shown, key = { it.threadId }) { r -> Box(Modifier.animateItem()) { FlowCard(r) { onOpen(r) } } }
                     }
+                }
                 }
             }
         }

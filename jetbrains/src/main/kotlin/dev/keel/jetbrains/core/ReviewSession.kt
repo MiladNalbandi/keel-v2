@@ -7,6 +7,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import dev.keel.jetbrains.api.AiRun
 import dev.keel.jetbrains.api.AiState
+import dev.keel.jetbrains.api.FixRun
 import dev.keel.jetbrains.api.KeelApi
 import dev.keel.jetbrains.api.ReviewView
 import kotlinx.coroutines.Job
@@ -63,7 +64,7 @@ class ReviewSession(private val project: Project) {
                 view = v
                 if (a != null) ai = a
                 error = null
-                if (ai.judges.values.any { it.status == "running" }) pollAi()
+                if (ai.running()) pollAi()
             }.onFailure { error = KeelProjectService.say(it) }
             changed()
         }
@@ -77,8 +78,26 @@ class ReviewSession(private val project: Project) {
             r.onSuccess { if (key == k) view = it }
             done(r.exceptionOrNull())
             changed()
+            // 0.26.1 an author's "fixed" after a new commit: keel checks it in the background (it never resolves)
+            if (r.isSuccess) refreshAi()
         }
     }
+
+    /** keel's checks read again (after a reply: a fix check may have started); polled while one runs. */
+    fun refreshAi() {
+        val k = key ?: return
+        val pid = svc.pid ?: return
+        svc.io({ it.ai(pid, k) }) { r ->
+            if (key != k) return@io
+            r.onSuccess { ai = it; changed(); if (it.running()) pollAi() }
+        }
+    }
+
+    /** keel's check of the author's "fixed" for a thread (0.26.1). */
+    fun fixOf(threadId: String): FixRun? = ai.fixed[threadId]
+
+    /** Reply drafts by thread: keel's reply for the same point waits in each thread's Reply (0.26.1). Nothing is posted. */
+    val drafts: MutableMap<String, String> = java.util.concurrent.ConcurrentHashMap()
 
     /** Any other call; the view is read again after it. */
     fun <T> call(work: suspend (KeelApi, String, String) -> T, done: (Result<T>) -> Unit = {}) {
@@ -116,9 +135,16 @@ class ReviewSession(private val project: Project) {
                 val a = runCatching { KeelConnection.get().ensure().ai(pid, k) }.getOrNull() ?: return@repeat
                 ai = a
                 com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater({ changed() }, com.intellij.openapi.application.ModalityState.any())
-                if (a.judges.values.none { it.status == "running" }) return@launch
+                if (!a.running()) return@launch
             }
         }
+    }
+
+    /** Tests: a review and keel's checks as keel would answer them, without a keel. */
+    @org.jetbrains.annotations.TestOnly
+    internal fun showForTest(v: ReviewView, a: AiState) {
+        view = v
+        ai = a
     }
 
     fun dismiss(threadId: String) {
@@ -130,3 +156,6 @@ class ReviewSession(private val project: Project) {
         fun of(project: Project): ReviewSession = project.service()
     }
 }
+
+/** A check of keel's still runs: "Is the reviewer right?" or the check of an author's "fixed". */
+private fun AiState.running() = judges.values.any { it.status == "running" } || fixed.values.any { it.status == "running" }

@@ -231,6 +231,21 @@ describe("0.18.13 named choices in the Inbox", () => {
     await waitFor(() => expect(calls("POST", "/api/inbox/th_7f3a/act")[0]?.body).toEqual({ decision: "approve", id: "q-stuck", payload: { choice: "skip" } }));
   });
 
+  it("#116 a step that crashed: \"step failed\" and keel's choices Retry the step / Stop the flow, no reason needed", async () => {
+    const user = userEvent.setup();
+    inboxServer([stuck({ kind: "crash", step: "commit", title: "commit failed", id: "q-crash", choices: ["retry", "stop"], choice_info: [
+      { name: "retry", label: "Retry the step", description: "run this step again (after you fixed what the message says)", why: "none", default: false },
+      { name: "stop", label: "Stop the flow", description: "end the flow here; its commits so far stay", why: "optional", default: false }] })]);
+    await openInbox();
+    const card = await screen.findByRole("article", { name: "commit failed" });
+    expect(card).toHaveTextContent("step failed");
+    expect(within(card).queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
+    expect(within(card).queryByRole("button", { name: "Send back" })).not.toBeInTheDocument();
+    await user.click(within(card).getByRole("radio", { name: /Stop the flow/ }));
+    await user.click(within(card).getByRole("button", { name: "Send: Stop the flow" }));
+    await waitFor(() => expect(calls("POST", "/api/inbox/th_7f3a/act")[0]?.body).toEqual({ decision: "approve", id: "q-crash", payload: { choice: "stop" } }));
+  });
+
   it("an escalation: keeping the change flow needs a reason (the engine refuses it without)", async () => {
     const user = userEvent.setup();
     inboxServer([stuck({ kind: "gate", title: "Escalate to a feature flow?", choices: null, step: "commit", id: "q-esc" })]);
