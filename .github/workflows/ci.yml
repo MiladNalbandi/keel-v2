@@ -57,7 +57,7 @@ jobs:
       - run: scripts/no-v1.sh --strict
       # the e2e suites share e2e/lib.py (a free port and unique names per run): they must at least compile
       - run: python3 -m py_compile e2e/lib.py e2e/keelauth.py e2e/*/*.py && find e2e -name __pycache__ -prune -exec rm -rf {} +
-      - run: shellcheck -S warning keel2 install.sh docker/keel-start docker/keel-native-start docker/keel-stack-setup scripts/no-v1.sh scripts/test-keel-tui.sh scripts/test-keel-tui-review.sh scripts/build-native.sh scripts/test-keel2-native.sh product/build-plugin.sh docker/tests/keel-start.test.sh docker/tests/keel2.test.sh scripts/build-plugin.sh scripts/test-plugins.sh scripts/plugin-check.sh
+      - run: shellcheck -S warning keel2 install.sh docker/keel-start docker/keel-native-start docker/keel-stack-setup scripts/no-v1.sh scripts/test-keel-tui.sh scripts/test-keel-tui-review.sh scripts/build-native.sh scripts/test-keel2-native.sh product/build-plugin.sh docker/tests/keel-start.test.sh docker/tests/keel2.test.sh scripts/build-plugin.sh scripts/test-plugins.sh scripts/plugin-check.sh scripts/build-desktop-runtime.sh scripts/test-desktop-runtime.sh
       # v0.17.2 keel2's data volume: its own per KEEL_NAME, never one another running keel uses (fake docker)
       - run: shellcheck -S warning scripts/test-keel2-volume.sh && bash scripts/test-keel2-volume.sh
       - run: shellcheck -S warning scripts/test-keel2-auth.sh && bash scripts/test-keel2-auth.sh

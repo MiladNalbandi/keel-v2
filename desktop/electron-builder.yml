@@ -1,0 +1,51 @@
+# keel desktop (desktop/README.md). The app's version is keel's version (package.json, chore: version X).
+appId: io.github.miladnalbandi.keel
+productName: keel
+copyright: Copyright © 2025-2026 Milad Nalbandi
+artifactName: keel-desktop-${version}-${os}-${arch}.${ext}
+directories:
+  output: dist
+  buildResources: build
+files:
+  - package.json
+  - out/src/**
+  - ui/**
+# keel and its runtimes, outside the asar archive: the child processes read them as plain files
+# (scripts/build-desktop-runtime.sh makes build/stage)
+extraResources:
+  - from: build/stage/runtime
+    to: runtime
+  - from: build/stage/keel
+    to: keel
+asar: true
+publish: null
+afterPack: build/after-pack.js
+linux:
+  executableName: keel
+  target:
+    - target: AppImage
+      arch: [x64]
+  category: Development
+  syncDesktopName: true
+  icon: build/icon.png
+  synopsis: keel, the control room for coding agents, on your computer
+  description: keel's engine and api run inside the app. Your agents work on your own folders; nothing else to install but git.
+# the static AppImage runtime: no libfuse2 needed (the default one needs libfuse.so.2, which new distributions lack)
+toolsets:
+  appimage: "1.0.3"
+mac:
+  target:
+    - target: dmg
+      arch: [arm64]
+    - target: zip
+      arch: [arm64]
+  category: public.app-category.developer-tools
+  icon: build/icon.png
+  # not signed yet (no Apple Developer ID): the person opens it once with System Settings › Privacy & Security ›
+  # Open Anyway, or xattr -dr com.apple.quarantine /Applications/keel.app. Without a Developer ID the hardened
+  # runtime's library check would block the bundled Python's and Java's libraries.
+  identity: null
+  hardenedRuntime: false
+  gatekeeperAssess: false
+dmg:
+  title: keel ${version}

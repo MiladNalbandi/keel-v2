@@ -1,0 +1,158 @@
+# 0.27.0 keel desktop (desktop/README.md): keel without Docker, as an app. Builds it for Linux (AppImage, x64) and
+# macOS (dmg + zip, Apple chips; signed ad hoc: no Apple Developer ID yet), from the same native release tarball that
+# keel2 start --native installs, and tests each one: the bundle on its own (scripts/test-desktop-runtime.sh: healthy,
+# sign-in, a flow on the fake model to its first gate, a clean stop) and the app itself (KEEL_DESKTOP_SMOKE=1: it
+# starts keel, signs in, shows keel's page and quits).
+#
+#   a pull request that changes the app or keel's native start   build and test, files kept as the run's artifacts
+#   workflow_dispatch                                             the same, on any branch
+#   docker.yml on a release tag (workflow_call, after `native`)   the same, and the files go to that GitHub release
+name: desktop
+on:
+  pull_request:
+    paths:
+      - desktop/**
+      - scripts/build-desktop-runtime.sh
+      - scripts/test-desktop-runtime.sh
+      - scripts/build-native.sh
+      - docker/keel-start
+      - docker/keel-native-start
+      - .github/workflows/desktop.yml
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      tag:
+        description: the release tag (v0.27.0) whose native tarball the app carries and whose release gets the files
+        type: string
+        required: true
+permissions:
+  contents: read
+jobs:
+  # the native release: the release's own file on a tag (the bits keel2 installs), else built here
+  native:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: the release's tarball
+        id: rel
+        if: inputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          mkdir -p dist
+          if gh release download "$TAG" --repo "$GITHUB_REPOSITORY" -p 'keel-v2-*-native.tar.gz' -D dist; then
+            echo "found=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "No native tarball on the release $TAG yet: building it."
+          fi
+      - if: steps.rel.outputs.found != '1'
+        uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "21" }
+      - if: steps.rel.outputs.found != '1'
+        uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - if: steps.rel.outputs.found != '1'
+        run: scripts/build-native.sh dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: keel-native-for-desktop
+          path: dist/keel-v2-*-native.tar.gz
+          retention-days: 3
+
+  app:
+    needs: native
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, target: linux }
+          - { os: macos-15, target: mac }
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "21" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "22", cache: npm, cache-dependency-path: desktop/package-lock.json }
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/download-artifact@v4
+        with: { name: keel-native-for-desktop, path: native }
+      - name: the app's version is keel's
+        run: |
+          tgz="$(ls native/keel-v2-*-native.tar.gz)"
+          v="$(basename "$tgz" | sed 's/^keel-v2-\(.*\)-native.tar.gz$/\1/')"
+          app="$(node -p 'require("./desktop/package.json").version')"
+          test "$v" = "$app" || { echo "::error::desktop/package.json says $app, the native release is $v"; exit 1; }
+          if [ -n "${{ inputs.tag }}" ]; then test "v$app" = "${{ inputs.tag }}"; fi
+      - run: scripts/build-desktop-runtime.sh native/keel-v2-*-native.tar.gz
+      - run: npm ci --no-audit --no-fund && npm test
+        working-directory: desktop
+      - name: the bundle alone (moved, read-only, no Java or uv on PATH)
+        run: scripts/test-desktop-runtime.sh desktop/build/stage
+      - name: build (Linux)
+        if: matrix.target == 'linux'
+        working-directory: desktop
+        run: npx electron-builder --linux AppImage --x64 --publish never
+      - name: build (macOS)
+        if: matrix.target == 'mac'
+        working-directory: desktop
+        run: npx electron-builder --mac dmg zip --arm64 --publish never
+      - name: the app starts keel, signs in and shows it (Linux)
+        if: matrix.target == 'linux'
+        run: |
+          set -o pipefail
+          export KEEL_DESKTOP_SMOKE=1 KEEL_DESKTOP_HOME="$RUNNER_TEMP/kd"
+          desktop/dist/linux-unpacked/keel --ozone-platform=headless 2>&1 | grep -v 'ERROR:\|^ERR:' | tee "$RUNNER_TEMP/smoke.txt"
+          grep -q '^SMOKE OK' "$RUNNER_TEMP/smoke.txt"
+          ! pgrep -f "$RUNNER_TEMP/kd"
+          # the AppImage itself (unpacked by its own runtime: no FUSE needed here)
+          export KEEL_DESKTOP_HOME="$RUNNER_TEMP/kd2"
+          APPIMAGE_EXTRACT_AND_RUN=1 desktop/dist/keel-desktop-*.AppImage --ozone-platform=headless 2>&1 | grep -v 'ERROR:\|^ERR:' | tee "$RUNNER_TEMP/smoke2.txt"
+          grep -q '^SMOKE OK' "$RUNNER_TEMP/smoke2.txt"
+      - name: the app starts keel, signs in and shows it (macOS)
+        if: matrix.target == 'mac'
+        run: |
+          set -o pipefail
+          app="desktop/dist/mac-arm64/keel.app"
+          codesign --verify --deep --strict "$app"
+          scripts/test-desktop-runtime.sh "$app/Contents/Resources" --in-place
+          KEEL_DESKTOP_SMOKE=1 KEEL_DESKTOP_HOME="$RUNNER_TEMP/kd" "$app/Contents/MacOS/keel" 2>&1 | tee "$RUNNER_TEMP/smoke.txt"
+          grep -q '^SMOKE OK' "$RUNNER_TEMP/smoke.txt"
+          ! pgrep -f "$RUNNER_TEMP/kd"
+      - name: checksums
+        working-directory: desktop/dist
+        run: |
+          shopt -s nullglob
+          files=(keel-desktop-*.AppImage keel-desktop-*.dmg keel-desktop-*.zip)
+          { command -v sha256sum > /dev/null && sha256sum "${files[@]}" || shasum -a 256 "${files[@]}"; } > "SHA256SUMS-desktop-${{ matrix.target }}.txt"
+          cat "SHA256SUMS-desktop-${{ matrix.target }}.txt"
+      - name: attach to the release
+        id: attach
+        if: inputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          shopt -s nullglob
+          cd desktop/dist
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+              keel-desktop-*.AppImage keel-desktop-*.dmg keel-desktop-*.zip "SHA256SUMS-desktop-${{ matrix.target }}.txt"
+            echo "attached=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "No GitHub release for $TAG: the files are kept as this run's artifact."
+          fi
+      - if: steps.attach.outputs.attached != '1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: keel-desktop-${{ matrix.target }}
+          path: |
+            desktop/dist/keel-desktop-*.AppImage
+            desktop/dist/keel-desktop-*.dmg
+            desktop/dist/keel-desktop-*.zip
+            desktop/dist/SHA256SUMS-desktop-*.txt
+          retention-days: 14
