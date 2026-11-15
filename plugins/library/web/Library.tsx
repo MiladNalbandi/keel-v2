@@ -4,7 +4,7 @@
 
 import { useState } from "react";
 import {
-  Async, del, EmptyState, errorParts, get, go, goHash, hashForScreen, Markdown, Note, PageHead, Panel, Pill, post, Switch, useApp, useLoad, useRoute,
+  Async, del, EmptyState, errorParts, get, go, goHash, hashForScreen, Markdown, Note, PageHead, Pill, post, Switch, useApp, useLoad, useRoute,
   type LauncherSourceItem, type Loaded,
 } from "@keel/web-sdk";
 import { usePageKey } from "./keys";

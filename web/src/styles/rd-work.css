@@ -35,6 +35,7 @@
 .rdw .field > label:not(.radio):not(.chk), .rdw .field > .lab { font-size: 13px; font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--fg); }
 .rdw .field input[type=text], .rdw .field input:not([type]):not([class]), .rdw .field select, .rdw .field textarea, .rdw input.rdw-inp {
   border-radius: 9px; min-height: 36px; box-sizing: border-box; padding: 7px 11px; background: var(--panel); font-size: 14px; transition: border-color .16s ease, box-shadow .16s ease; }
+.rdw input.rdw-inp { border: 1px solid var(--border); color: var(--fg); font-family: inherit; }
 .rdw .field textarea { font-family: inherit; font-size: 14px; line-height: 1.5; }
 .rdw .field input:focus, .rdw .field select:focus, .rdw .field textarea:focus, .rdw input.rdw-inp:focus { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .rdw .lbl { margin: 0; font-size: 11.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
@@ -114,11 +115,49 @@
 .rdw-library .lb-body h1, .rdw-library .lb-body h2, .rdw-library .lb-body h3 { font-size: 15px; margin: 16px 0 4px; }
 .rdw-library .lb-check { display: flex; gap: 8px; align-items: flex-start; font-size: 13.5px; }
 
+/* Map and Graph: the diagram pages. The line under the head says what the map was built from; the levels are tabs */
+.rdw-map .mapbar { padding: 0; border: 0; background: transparent; font-size: 13px; gap: 8px; }
+.rdw-map .mapbar .tag { font-size: 12px; padding: 2px 8px; border-radius: 6px; background: var(--panel-2); color: var(--fg); border: 0; }
+.rdw-map .map-tabs { align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.rdw-map .map-tabs .tabs[role="tablist"] { flex: 1 1 auto; }
+.rdw-map .map-tabs select { min-height: 32px; border-radius: 8px; padding: 0 8px; }
+.rdw-map > .panel { border-radius: 14px; }
+
+/* Wiki: the pages on the left (the board's .wk-wnav), the open page as one calm card on the right */
+.rdw-wiki .wiki-grid { grid-template-columns: minmax(230px, 280px) minmax(0, 1fr); gap: 20px; }
+.rdw-wiki .wk-search { margin-bottom: 10px; }
+.rdw-wiki .wk-search .pg-search { min-height: 36px; box-sizing: border-box; border-radius: 9px; padding: 7px 11px; font-size: 14px; transition: border-color .16s ease, box-shadow .16s ease; }
+.rdw-wiki .wk-search .pg-search:focus { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.rdw-wiki .wtree { gap: 2px; }
+.rdw-wiki .wtree a { min-height: 30px; box-sizing: border-box; padding: 4px 8px 4px 24px; border-radius: 8px; font-size: 13px; transition: background .14s ease, color .14s ease; }
+.rdw-wiki .wt-top a { padding-left: 8px; color: var(--fg); font-weight: 500; }
+.rdw-wiki .wtree a[aria-current="page"] { background: var(--accent-soft); box-shadow: none; font-weight: 500; }
+.rdw-wiki .wtree a:focus-visible, .rdw-wiki button.wt-h:focus-visible, .rdw-wiki button.wt-fold:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.rdw-wiki button.wt-h { min-height: 30px; padding: 0 8px; margin-top: 6px; border-radius: 8px; font-size: 13px; font-weight: 600; }
+.rdw-wiki button.wt-fold { border-radius: 8px; }
+.rdw-wiki .wt-list a { padding-left: 24px; }
+.rdw-wiki .wt-fold-sub .wt-list a, .rdw-wiki .wt-fold-missing .wt-list a { padding-left: 38px; }
+.rdw-wiki .wk-article { border-radius: 14px; }
+.rdw-wiki .wk-article > .panel-body { padding: 20px 24px; display: flex; flex-direction: column; gap: 12px; }
+.rdw-wiki .wk-article .wk-crumbs { font-size: 13px; color: var(--dim); margin: 0; }
+.rdw-wiki .wk-article .wh { margin: 0; font-size: 20px; font-weight: 600; line-height: 1.25; }
+.rdw-wiki .wk-article p.sub { margin: 0; }
+.rdw-wiki .wk-article .hint { margin: 0; }
+.rdw-wiki .wk-build { margin: 0; padding: 12px 14px; border-radius: 12px; gap: 10px; max-width: 740px; background: var(--panel); animation: k-pop .25s ease both; }
+.rdw-wiki .wk-toc { margin: 0; padding: 2px 0 2px 12px; border: 0; border-left: 2px solid var(--border); border-radius: 0; max-width: 740px; }
+.rdw-wiki .wk-toc summary { font-weight: 500; font-size: 13px; color: var(--dim); }
+.rdw-wiki .wdoc { max-width: 740px; font-size: 14.5px; line-height: 1.65; }
+.rdw-wiki .wdoc h1, .rdw-wiki .wdoc h2, .rdw-wiki .wdoc h3 { font-weight: 600; letter-spacing: -.005em; }
+.rdw-wiki .wdoc h3 { font-size: 16px; }
+.rdw-wiki .wdoc code { font-size: 12.5px; padding: 1px 5px; border-radius: 5px; background: var(--panel-2); }
+.rdw-wiki .wk-pick-btn, .rdw-wiki .wk-pick-list { border-radius: 10px; }
+
 /* motion: sections rise in once (the .rise .r1–.r5 classes are in shell.css); reduced motion turns it off */
 @media (prefers-reduced-motion: reduce) {
   .rdw > .top, .rdw .rdw-head > .top { animation: none; }
   .rdw .btn:active:not(:disabled) { transform: none; }
   .rdw-goals .gl-track > span, .rdw-goals .gl-box, .rdw-goals .gl-dot { transition: none; animation: none; }
+  .rdw-wiki .wk-build, .rdw-wiki .wtree a { animation: none; transition: none; }
 }
 
 @media (max-width: 900px) {
@@ -126,4 +165,11 @@
   .rdw .top .actions { margin-left: 0; }
   .rdw .top h1 { font-size: 21px; }
   .rdw-goals .gl-two { grid-template-columns: minmax(0, 1fr); }
+  .rdw-wiki .wiki-grid { grid-template-columns: minmax(0, 1fr); }
+  .rdw-wiki .wk-article > .panel-body { padding: 16px; }
 }
+
+/* a file field: its button drawn like the page's buttons */
+.rdw input[type=file]::file-selector-button { margin-right: 10px; min-height: 30px; padding: 0 11px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--panel-2); color: var(--fg); font: inherit; font-size: 13px; cursor: pointer; }
+.rdw input[type=file]::file-selector-button:hover { border-color: var(--rail); }

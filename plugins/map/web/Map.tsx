@@ -202,12 +202,12 @@ function MapView({ m, onRebuild, busy, pid }: { m: KeelMap; onRebuild: () => voi
 
   return (
     <>
-      <div className="mapbar">
+      <div className="mapbar rise r1">
         <span className="sub">built from <span className="mono">{m.sha?.slice(0, 7)}</span>{m.at ? ` · ${clock(m.at, false)}` : ""}</span>
         {Object.entries(m.counts ?? {}).filter(([, v]) => v).map(([k, v]) => <span key={k} className="tag">{v} {v === 1 ? k.replace(/s$/, "") : k}</span>)}
         {m.demo && <span className="mapwarn">⚠ demo map</span>}
       </div>
-      <div className="row map-tabs" style={{ margin: "12px 0", justifyContent: "space-between" }}>
+      <div className="row map-tabs rise r2" style={{ margin: "12px 0", justifyContent: "space-between" }}>
         <Tabs value={tab} onChange={setTab} label="Map level" options={LEVELS.map(([k, l]) => [k, l] as [LevelId, string])} />
         {picker}
       </div>
