@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 import { api, errorParts, type Budget, type Cap, type CapLeft, type CapScope, type CapsLeft, type Limit, type Model } from "../api";
 import { EmptyState, Skeleton } from "../components/page";
+import { pageKey } from "../components/rdBuild";
 import { Note, RadioCards, Seg } from "../components/settingsUi";
 import { Drawer, ErrorBox, NoProject, Prov } from "../components/ui";
 import { kfmt, parseTokens, PROV, usd } from "../format";
@@ -447,7 +448,7 @@ export function BudgetPage({ pid }: { pid: string }) {
     );
   return (
     <SettingsFrame tab="budget" title="Budget" line={line}
-      actions={<button className="ss-btn p" type="button" onClick={() => setCapEdit("new")}>Add cap</button>}>
+      actions={<button className="ss-btn p" type="button" {...pageKey("C")} onClick={() => setCapEdit("new")}>Add cap</button>}>
       <BudgetBody pid={pid} name={name} capEdit={capEdit} setCapEdit={setCapEdit} />
     </SettingsFrame>
   );

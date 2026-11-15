@@ -7,6 +7,7 @@
 
 import { useRef, useState, type ReactNode } from "react";
 import { errorParts } from "../api";
+import { pageKey, RdPage } from "../components/rdBuild";
 import { Async, Confirm, ErrorBox, PageHead, Panel, Tabs } from "../components/ui";
 import { SafetyHistory } from "../components/SafetyHistory";
 import { LibraryDrawer, PackDrawer, ImportPackDrawer } from "../components/RuleDrawers";
@@ -41,20 +42,28 @@ type Tab = "rules" | "history";
 export function RulesPage({ pid }: { pid: string }) {
   const { arg } = useRoute();
   const tab: Tab = arg === "history" ? "history" : "rules";
+  // the rules tab's drawers open from the page head (Library, Import, New rule)
+  const [drawer, setDrawer] = useState<RuleDrawer>(null);
   return (
-    <>
+    <RdPage name="rules">
       <PageHead title="Safety & History"
-        sub="What agents may and may not do in this project, and a record of every tool call they made and what keel decided." />
-      <Tabs<Tab> label="Safety & History" value={tab} onChange={(t) => go(SCREEN.rules, t === "history" ? "history" : undefined)}
+        sub="What agents may and may not do in this project, and a record of every tool call they made and what keel decided."
+        actions={tab === "rules" ? <>
+          <button className="btn" type="button" id="rulesLibrary" {...pageKey("L")} onClick={() => setDrawer("library")}>Library</button>
+          <button className="btn" type="button" onClick={() => setDrawer("import")}>Import</button>
+          <button className="btn primary" type="button" id="newRule" {...pageKey("N")} onClick={() => setDrawer("new")}>New rule</button>
+        </> : undefined} />
+      <Tabs<Tab> label="Safety & History" value={tab} onChange={(t) => { setDrawer(null); go(SCREEN.rules, t === "history" ? "history" : undefined); }}
         options={[["rules", "Safety rules"], ["history", "History"]]} />
-      {tab === "history" ? <SafetyHistory pid={pid} /> : <RulesTab pid={pid} />}
-    </>
+      {tab === "history" ? <SafetyHistory pid={pid} /> : <RulesTab pid={pid} drawer={drawer} setDrawer={setDrawer} />}
+    </RdPage>
   );
 }
 
-function RulesTab({ pid }: { pid: string }) {
+type RuleDrawer = "library" | "new" | "import" | null;
+
+function RulesTab({ pid, drawer, setDrawer }: { pid: string; drawer: RuleDrawer; setDrawer: (d: RuleDrawer) => void }) {
   const view = useLoad(`rules:${pid}`, () => rulesApi.view(pid), { live: false });
-  const [drawer, setDrawer] = useState<"library" | "new" | "import" | null>(null);
   const [editing, setEditing] = useState<RulePack | null>(null);
   // The latest view, kept in a ref and updated the moment an answer arrives: two quick switches must not both build
   // rules.off from the same old view (the second would undo the first). Writes to rules.off also go one after another.
@@ -80,18 +89,13 @@ function RulesTab({ pid }: { pid: string }) {
   };
   return (
     <>
-      <div className="row rl-actions">
-        <p className="sub" style={{ margin: 0 }}>keel's harness checks every rule before the action runs; after each step keel also puts back a file the phase does not allow.</p>
-        <span className="row" style={{ marginLeft: "auto" }}>
-          <button className="btn" type="button" id="rulesLibrary" onClick={() => setDrawer("library")}>Library</button>
-          <button className="btn" type="button" onClick={() => setDrawer("import")}>Import</button>
-          <button className="btn primary" type="button" id="newRule" onClick={() => setDrawer("new")}>New rule</button>
-        </span>
-      </div>
       <Async r={view} what="Loading the rules">
         {(v) => (
           <div className="grid rl-page">
-            <RulesLegend />
+            <div className="rdb-note rl-actions">
+              <p>keel's harness checks every rule before the action runs; after each step keel also puts back a file the phase does not allow.</p>
+              <RulesLegend />
+            </div>
             <Engines v={v} />
             <Packs pid={pid} v={v} onView={set} setOff={setOff} onEdit={setEditing} onLibrary={() => setDrawer("library")} />
             <Builtins v={v} setOff={setOff} />

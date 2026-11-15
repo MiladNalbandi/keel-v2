@@ -5,6 +5,7 @@ import { useState } from "react";
 import { api, errorParts, KNOWLEDGE_SECTIONS, type Agent, type AgentKnowledge, type AgentLane, type Catalog, type CustomAgent, type McpServer, type Model } from "../api";
 import { effortsOf, MODES_FOR, ModelPicker, modeLabel, useCatalog } from "../components/ModelPicker";
 import { EmptyState, SearchBox, Skeleton, Toolbar } from "../components/page";
+import { Count, pageKey, RdPage } from "../components/rdBuild";
 import { Confirm, Drawer, ErrorBox, GoButton, PageHead, Tabs } from "../components/ui";
 import { kfmt, PROV, slug } from "../format";
 import { useApp, useLoad } from "../state";
@@ -293,7 +294,7 @@ export function AgentsPage({ pid }: { pid: string }) {
   const keel = all.filter((a) => !a.custom), custom = all.filter((a) => a.custom);
   const needle = q.trim().toLowerCase();
   const list = (tab === "keel" ? keel : custom).filter((a) => !needle || [a.id, a.label, a.about, ...a.phases, a.model?.model ?? ""].join(" ").toLowerCase().includes(needle));
-  const count = (n: number) => (agents.data ? ` (${n})` : "");
+  const count = (n: number) => (agents.data ? <> <Count n={n} /></> : null);
   const testAll = async () => {
     setAskTestAll(false);
     setTesting(true);
@@ -303,16 +304,16 @@ export function AgentsPage({ pid }: { pid: string }) {
     setTesting(false);
   };
   return (
-    <>
+    <RdPage name="agents">
       <PageHead title="Agents" sub={`What each agent does, the model it runs on and what it may touch, for ${project?.name ?? pid}. A change here is for this project only.`}
         actions={<>
-          <button className="btn" type="button" onClick={() => setAskTestAll(true)} disabled={testing || !all.length}>{testing ? "Testing…" : "Test all"}</button>
-          <button className="btn primary" type="button" id="newAgent" onClick={() => setCreating(true)}>New agent</button>
+          <button className="btn" type="button" {...pageKey("T")} onClick={() => setAskTestAll(true)} disabled={testing || !all.length}>{testing ? "Testing…" : "Test all"}</button>
+          <button className="btn primary" type="button" id="newAgent" {...pageKey("N")} onClick={() => setCreating(true)}>New agent</button>
         </>} />
       {askTestAll && <Confirm text={`Send one test message to ${all.filter((a) => a.enabled).length} agents? Each one is a paid model call.`} yes="Test all"
         onYes={() => void testAll()} onNo={() => setAskTestAll(false)} />}
       <Toolbar>
-        <Tabs value={tab} onChange={setTab} label="Agents" options={[["keel", `keel agents${count(keel.length)}`], ["custom", `Custom${count(custom.length)}`]]} />
+        <Tabs value={tab} onChange={setTab} label="Agents" options={[["keel", <>keel agents{count(keel.length)}</>], ["custom", <>Custom{count(custom.length)}</>]]} />
         <SearchBox value={q} onChange={setQ} label="Search agents" />
       </Toolbar>
       <div className="panel">
@@ -336,6 +337,6 @@ export function AgentsPage({ pid }: { pid: string }) {
         onDeleted={() => agents.setData((l) => (l ? l.filter((x) => x.id !== open.id) : l))} />}
       {creating && <NewAgentDrawer pid={pid} servers={servers.data ?? []} onClose={() => setCreating(false)}
         onCreated={(a) => { agents.setData((l) => (l ? [...l, a] : [a])); setTab("custom"); }} />}
-    </>
+    </RdPage>
   );
 }

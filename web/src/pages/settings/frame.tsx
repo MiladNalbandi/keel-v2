@@ -4,6 +4,7 @@
 
 import { useSyncExternalStore, type ReactNode } from "react";
 import { useNarrow } from "../../components/page";
+import { usePageKeys } from "../../components/rdBuild";
 import { CORE_SETTINGS_TABS, settingsHash } from "../../routes";
 import { useSlot } from "../../sdk/registry";
 import { SLOTS, type SettingsTabItem } from "../../sdk/slots";
@@ -123,8 +124,9 @@ export function SettingsFrame({
 }) {
   // one menu at a time: the chips on a phone (and a narrow window), the column beside the tab on a wide screen
   const phone = useNarrow(900);
+  usePageKeys();
   return (
-    <div className="ss-page" data-testid={`settings-${tab}`}>
+    <div className="ss-page rdb rdb-settings" data-testid={`settings-${tab}`}>
       <div className="ss-head">
         <div className="ss-head-t">
           <span className="ss-crumb">Settings ›</span>

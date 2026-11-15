@@ -1,0 +1,223 @@
+/* keel 0.28 the redesign, the Build pages: Workflows (and the builder), Agents, Skills, Stacks, Tools, Safety & History,
+   Quality, Settings (every tab) and Help › Start here. Each page sits in `.rdb .rdb-<page>` (components/rdBuild.tsx),
+   so these rules touch only them (and the drawers they open, while one of them is on screen). The look is the design
+   canvas (keel.css): a page head (title, one line, actions with their keys), calm cards and tables, underline tabs,
+   segments, and the shared motion (.rise in shell.css). Colours are keel's tokens, so light and dark both follow. */
+
+/* ---------- motion: the head and the first sections rise in once ---------- */
+.rdb > *, .rdb > .hs-page > *, .rdb.ss-page > *, .rdb.ss-page .ss-content > * { animation: k-rise .36s cubic-bezier(.2,.7,.2,1) both; }
+.rdb > :nth-child(2), .rdb > .hs-page > :nth-child(2), .rdb .ss-content > :nth-child(1) { animation-delay: .04s; }
+.rdb > :nth-child(3), .rdb > .hs-page > :nth-child(3), .rdb .ss-content > :nth-child(2) { animation-delay: .09s; }
+.rdb > :nth-child(4), .rdb > .hs-page > :nth-child(4), .rdb .ss-content > :nth-child(3) { animation-delay: .14s; }
+.rdb > :nth-child(5), .rdb > .hs-page > :nth-child(5), .rdb .ss-content > :nth-child(4) { animation-delay: .19s; }
+.rdb > :nth-child(n+6), .rdb > .hs-page > :nth-child(n+6), .rdb .ss-content > :nth-child(n+5) { animation-delay: .24s; }
+
+/* ---------- the page head: title, one line, the actions (with keys) on the right ---------- */
+.rdb .top { display: flex; flex-direction: row; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin: 4px 0 20px; }
+.rdb .top > div:first-child { flex: 1 1 360px; min-width: 0; }
+.rdb .top .crumb { display: none; }
+.rdb .top h1, .rdb .ss-head h1 { margin: 0; font-size: 24px; line-height: 1.2; font-weight: 600; letter-spacing: -.015em; }
+.rdb .top p { margin: 4px 0 0; color: var(--dim); max-width: 720px; font-size: 14px; }
+.rdb .top .actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+/* ---------- buttons and keys ---------- */
+:is(.rdb, body:has(.rdb) .drawer) .btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 34px; padding: 0 13px; box-sizing: border-box;
+  border-radius: 9px; border: 1px solid var(--border); background: var(--panel); color: var(--fg); font: inherit; font-weight: 500;
+  text-decoration: none; transition: background .16s ease, border-color .16s ease, transform .12s ease, filter .16s ease; }
+:is(.rdb, body:has(.rdb) .drawer) .btn:hover:not(:disabled) { background: var(--panel-2); border-color: var(--rail); }
+:is(.rdb, body:has(.rdb) .drawer) .btn:active:not(:disabled) { transform: scale(.97); }
+:is(.rdb, body:has(.rdb) .drawer) .btn.sm { min-height: 28px; padding: 0 10px; font-size: 13px; border-radius: 8px; gap: 6px; }
+:is(.rdb, body:has(.rdb) .drawer) .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+:is(.rdb, body:has(.rdb) .drawer) .btn.primary:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); filter: brightness(1.08); }
+:is(.rdb, body:has(.rdb) .drawer) .btn.warn { background: var(--b-gate, var(--warn)); border-color: var(--b-gate, var(--warn)); color: var(--b-gate-ink, var(--bg)); }
+:is(.rdb, body:has(.rdb) .drawer) .btn.ghost { background: transparent; border-color: transparent; color: var(--dim); }
+:is(.rdb, body:has(.rdb) .drawer) .btn.ghost:hover:not(:disabled) { background: var(--panel-2); color: var(--fg); }
+.rdb [data-pagekey]::after, .rdb .rdb-keyhint::after {
+  content: attr(data-pagekey); display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 5px;
+  box-sizing: border-box; border-radius: 5px; border: 1px solid var(--rail); border-bottom-width: 2px; background: var(--panel-2); color: var(--dim);
+  font: 500 11px/1 "JetBrains Mono", ui-monospace, monospace; }
+.rdb .rdb-keyhint::after { content: attr(data-keys); }
+.rdb .btn.primary[data-pagekey]::after, .rdb .ss-btn.p[data-pagekey]::after { background: rgba(0,0,0,.14); border-color: rgba(0,0,0,.2); color: inherit; }
+.rdb .btn.sm[data-pagekey]::after { min-width: 18px; height: 18px; font-size: 10.5px; }
+.rdb kbd { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 5px; box-sizing: border-box; border-radius: 5px;
+  border: 1px solid var(--rail); border-bottom-width: 2px; background: var(--panel-2); color: var(--dim); font: 500 11px/1 "JetBrains Mono", ui-monospace, monospace; }
+/* a two-way switch in the head (Workflows | Library) */
+.rdb-seg { display: inline-flex; padding: 3px; border-radius: 10px; background: var(--panel-2); gap: 2px; }
+.rdb-seg button { min-height: 28px; padding: 0 11px; border: 0; border-radius: 8px; background: transparent; color: var(--dim); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer;
+  transition: background .18s ease, color .18s ease; }
+.rdb-seg button:hover { color: var(--fg); }
+.rdb-seg button[aria-pressed="true"] { background: var(--panel); color: var(--fg); box-shadow: 0 1px 3px rgba(0,0,0,.22); }
+
+/* ---------- surfaces: calm cards, tables ---------- */
+.rdb .panel { border-radius: 14px; }
+.rdb .panel-head { padding: 12px 16px; }
+.rdb .panel-head h2, .rdb .panel-head h3 { margin: 0; font-size: 14.5px; font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--fg); }
+.rdb .panel-body { padding: 14px 16px; }
+.rdb .pg-sec-h h2 { font-size: 15px; font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--fg); }
+.rdb th { font-size: 12px; text-transform: none; letter-spacing: 0; color: var(--dim); font-weight: 600; padding: 9px 12px; }
+.rdb td { padding: 10px 12px; }
+.rdb tbody tr { transition: background .16s ease; }
+.rdb table.rt > tbody > tr.click:hover > td { background: color-mix(in srgb, var(--panel-2) 60%, transparent); }
+.rdb table.rt > tbody > tr.rowsel > td { background: var(--accent-soft); }
+.rdb .panel > .table-wrap:last-child tbody tr:last-child td, .rdb .panel > table:last-child tbody tr:last-child td { border-bottom: 0; }
+.rdb .errbox, .rdb .confirm { border-radius: 12px; }
+.rdb .wbar { border-radius: 12px; padding: 10px 14px; }
+.rdb .hint { font-size: 12.5px; }
+.rdb .empty { padding: 32px 16px; }
+.rdb-bar-a { margin-left: auto; display: inline-flex; gap: 6px; align-items: center; }
+
+/* ---------- tabs: underline at page level, a segment inside a card; the count as a small badge ---------- */
+.rdb > .tabs, .rdb > .pg-bar > .tabs {
+  display: flex; flex-wrap: wrap; gap: 2px; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; padding: 0; background: transparent; }
+.rdb > .tabs { margin-bottom: 18px; }
+.rdb > .pg-bar > .tabs { flex: 1 1 auto; }
+.rdb > .tabs > button, .rdb > .pg-bar > .tabs > button {
+  display: inline-flex; align-items: center; gap: 7px; height: 38px; padding: 0 12px; margin-bottom: -1px; border: 0; border-bottom: 2px solid transparent; border-radius: 0;
+  background: transparent; color: var(--dim); font: inherit; font-size: 13.5px; font-weight: 500; cursor: pointer; transition: color .16s ease, border-color .2s ease; }
+.rdb > .tabs > button:hover, .rdb > .pg-bar > .tabs > button:hover { color: var(--fg); }
+.rdb > .tabs > button[aria-selected="true"], .rdb > .pg-bar > .tabs > button[aria-selected="true"] { background: transparent; color: var(--fg); border-bottom-color: var(--accent); }
+.rdb .tabs:not(.rdb > .tabs, .rdb > .pg-bar > .tabs) { border: 0; border-radius: 10px; padding: 3px; gap: 2px; background: var(--panel-2); }
+.rdb .tabs:not(.rdb > .tabs, .rdb > .pg-bar > .tabs) > button { min-height: 28px; padding: 0 11px; border-radius: 8px; font-size: 13px; transition: background .18s ease, color .18s ease; }
+.rdb .tabs:not(.rdb > .tabs, .rdb > .pg-bar > .tabs) > button[aria-selected="true"] { background: var(--panel); color: var(--fg); box-shadow: 0 1px 3px rgba(0,0,0,.22); }
+.rdb-n, .rdb .sh-n { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 6px; box-sizing: border-box;
+  border-radius: 999px; background: var(--panel-2); color: var(--dim); font-size: 11.5px; font-weight: 600; }
+[aria-selected="true"] > .rdb-n { background: var(--accent-soft); color: var(--accent); }
+.rdb .pg-bar { gap: 10px 16px; margin-bottom: 18px; align-items: flex-end; }
+.rdb .pg-search, .rdb .inline-input { min-height: 36px; box-sizing: border-box; border-radius: 9px; border: 1px solid var(--border); background: var(--panel); color: var(--fg); padding: 0 11px;
+  transition: border-color .16s ease, box-shadow .16s ease; }
+.rdb .pg-search { width: 260px; }
+:is(.rdb, body:has(.rdb) .drawer) :is(input[type="text"], input[type="search"], input[type="url"], input[type="number"], input:not([type]), select, textarea):focus {
+  outline: 0; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.rdb :is(a, button, summary):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* the drawers these pages open: a calmer head, the slide in */
+body:has(.rdb) .drawer { animation: rdb-drawer .26s cubic-bezier(.2,.8,.2,1) both; border-radius: 0; }
+body:has(.rdb) .drawer header h2 { font-size: 16px; font-weight: 600; letter-spacing: -.01em; }
+@keyframes rdb-drawer { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: none; } }
+
+/* ---------- Workflows: list | blocks | editor; the head carries Workflows/Library, Import and New ---------- */
+.rdb-workflows .wf-rail .wf-search { min-height: 36px; border-radius: 9px; }
+.rdb-workflows .wf-group-h { font-size: 11.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
+.rdb-workflows .wf-item { border-radius: 10px; transition: background .16s ease, border-color .16s ease; }
+.rdb-workflows .wf-item[aria-current="page"] { background: var(--panel); border-color: var(--rail); box-shadow: 0 1px 0 var(--border); }
+.rdb-workflows .wf-top { border-radius: 14px; }
+.rdb-workflows .wf-title h2 { font-size: 18px; font-weight: 600; letter-spacing: -.01em; }
+/* keel rules: the checkbox drawn as a switch */
+.rdb-workflows .wf-rules { display: inline-flex; align-items: center; gap: 8px; }
+.rdb-workflows .wf-rules input[type="checkbox"] {
+  appearance: none; -webkit-appearance: none; position: relative; width: 38px; height: 22px; margin: 0; border-radius: 999px; background: var(--rail); cursor: pointer; flex: none;
+  transition: background .2s ease; }
+.rdb-workflows .wf-rules input[type="checkbox"]::after {
+  content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .22s cubic-bezier(.2,.9,.3,1.2); }
+.rdb-workflows .wf-rules input[type="checkbox"]:checked { background: var(--accent); }
+.rdb-workflows .wf-rules input[type="checkbox"]:checked::after { transform: translateX(16px); }
+
+/* ---------- Agents, Skills, Stacks, Tools: tables in cards, chips as filters ---------- */
+.rdb-skills > .pg-bar > .tabs { border-bottom: 0; gap: 6px; }
+.rdb-skills > .pg-bar > .tabs > button { height: 30px; padding: 0 11px; margin: 0; border: 1px solid var(--border); border-radius: 999px; background: var(--panel); color: var(--fg); font-size: 13px; }
+.rdb-skills > .pg-bar > .tabs > button:hover { background: var(--panel-2); border-color: var(--rail); }
+.rdb-skills > .pg-bar > .tabs > button[aria-selected="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.rdb-skills > .pg-bar > .tabs > button .sh-n { background: transparent; min-width: 0; padding: 0 0 0 2px; color: inherit; opacity: .7; font-weight: 500; }
+.rdb .stk-detail .panel-head h2 { font-size: 18px; }
+.rdb-tools .tl-top { gap: 18px; }
+
+/* ---------- Safety & History ---------- */
+.rdb-note { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; padding: 10px 14px; border-radius: 12px; background: var(--panel-2); }
+.rdb-note > p { margin: 0; flex: 1 1 320px; font-size: 13.5px; }
+.rdb-note .rl-legend { margin: 0; color: var(--dim); font-size: 12.5px; }
+
+/* ---------- Quality ---------- */
+.rdb-quality .q-drop { display: flex; align-items: center; gap: 10px; }
+.rdb-quality .q-drop > span:first-child { flex: 1 1 320px; }
+
+/* ---------- Settings: the menu on the left, the tab on the right ---------- */
+.rdb.ss-page { gap: 22px; }
+.rdb .ss-crumb { font-size: 13px; }
+.rdb .ss-menu-h { font-size: 11.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+.rdb .ss-menu a { border-radius: 9px; transition: background .16s ease, color .16s ease; }
+.rdb .ss-card, .rdb .ss-cardp, .rdb .ss-list { border-radius: 14px; }
+.rdb .ss-btn { min-height: 34px; padding: 0 13px; border-radius: 9px; gap: 8px; transition: background .16s ease, border-color .16s ease, transform .12s ease, filter .16s ease; }
+.rdb .ss-btn:hover:not(:disabled) { background: var(--panel-2); border-color: var(--rail); }
+.rdb .ss-btn:active:not(:disabled) { transform: scale(.97); }
+.rdb .ss-btn.sm { min-height: 28px; padding: 0 10px; border-radius: 8px; }
+.rdb .ss-btn.p:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); filter: brightness(1.08); }
+.rdb .ss-btn.g, .rdb .ss-btn.q { padding: 0 8px; }
+.rdb .ss-btn.link { min-height: 0; padding: 0; }
+.rdb .ss-btn.link:hover { background: none; }
+
+/* the folding sections: the arrow as a small icon button, the whole head lights up on hover */
+.rdb .ss-fold { transition: background .16s ease; border-radius: 14px; }
+.rdb .ss-fold:hover { background: color-mix(in srgb, var(--panel-2) 55%, transparent); }
+.rdb .ss-fold[aria-expanded="true"] { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.rdb .ss-fold-a { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; flex: none; border-radius: 8px;
+  background: var(--panel-2); color: var(--dim); font-size: 13px; transition: background .16s ease, color .16s ease; }
+.rdb .ss-fold:hover .ss-fold-a { color: var(--fg); }
+.rdb .ss-fold-a { font-size: 0; }
+.rdb .ss-fold-a::before { content: ""; width: 6px; height: 6px; border: solid currentColor; border-width: 0 1.6px 1.6px 0; transform: translateX(-1px) rotate(-45deg);
+  transition: transform .2s ease; }
+.rdb .ss-fold[aria-expanded="true"] .ss-fold-a::before { transform: translateY(-1px) rotate(45deg); }
+
+/* ---------- Safety & History: a rule's "on" checkbox drawn as a switch (the design's .sw) ---------- */
+.rdb-rules label.chk:has(> input[type="checkbox"]) { display: inline-flex; align-items: center; gap: 8px; }
+.rdb-rules label.chk > input[type="checkbox"] {
+  appearance: none; -webkit-appearance: none; position: relative; width: 34px; height: 20px; margin: 0; border-radius: 999px; background: var(--rail); cursor: pointer; flex: none;
+  transition: background .2s ease; }
+.rdb-rules label.chk > input[type="checkbox"]::after {
+  content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: transform .22s cubic-bezier(.2,.9,.3,1.2); }
+.rdb-rules label.chk > input[type="checkbox"]:checked { background: var(--accent); }
+.rdb-rules label.chk > input[type="checkbox"]:checked::after { transform: translateX(14px); }
+.rdb-rules label.chk > input[type="checkbox"]:disabled { opacity: .5; cursor: not-allowed; }
+.rdb-rules label.chk > input[type="checkbox"]:focus-visible, .rdb-workflows .wf-rules input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ---------- Help › Start here ---------- */
+.rdb-help .hs-page { max-width: none; }
+.rdb-help .hs-head.top { margin-bottom: 18px; }
+.rdb-help .hs-crumb { color: var(--dim); font-size: 13px; text-transform: none; letter-spacing: 0; font-weight: 400; }
+.rdb-help .rdb-progress { display: flex; flex-direction: column; align-items: stretch; gap: 12px; padding: 16px 18px; border-radius: 14px; border: 1px solid var(--border); background: var(--panel); }
+.rdb-progress-t { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.rdb-progress-t b { font-size: 16px; font-weight: 600; }
+.rdb-progress-t .sub { margin-left: auto; }
+.rdb-help .rdb-progress .hs-bar { flex: none; width: 100%; height: 8px; border-radius: 4px; }
+.rdb-help .hs-step { border-radius: 14px; transition: border-color .2s ease, box-shadow .2s ease; }
+.rdb-help .hs-step.now { box-shadow: 0 0 0 3px var(--accent-soft); }
+.rdb-help-foot { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 18px; align-items: start; }
+.rdb-help-foot .hs-guides { margin: 0; }
+.rdb-help .hs-guides-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.rdb-help .hs-guides-top h2 { flex: 1; }
+.rdb-help .hs-guides-top .hs-search { flex: 0 1 260px; }
+.rdb-help .hs-guides-top .hs-search input { width: 100%; min-height: 36px; box-sizing: border-box; border-radius: 9px; }
+.rdb-gcards.hs-glist { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.rdb-gcard { position: relative; display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--panel);
+  transition: transform .2s cubic-bezier(.2,.7,.2,1), border-color .2s ease, box-shadow .2s ease; }
+.rdb-gcard:hover { transform: translateY(-2px); border-color: var(--rail); box-shadow: var(--shadow); }
+.rdb-gcard a { color: var(--fg); font-weight: 600; text-decoration: none; }
+.rdb-gcard a::after { content: ""; position: absolute; inset: 0; border-radius: inherit; }
+.rdb-gcard a:focus-visible { outline: 0; }
+.rdb-gcard:has(a:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.rdb-gcard > span { color: var(--dim); font-size: 12.5px; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.rdb-glong { display: inline-block; margin-top: 10px; font-size: 13px; }
+.rdb-keycard ul { list-style: none; margin: 0; padding: 6px 16px 0; display: flex; flex-direction: column; }
+.rdb-keycard li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 0; font-size: 13px; border-bottom: 1px solid var(--border); }
+.rdb-keycard li:last-child { border-bottom: 0; }
+
+/* ---------- a phone (and a narrow window): everything stacks ---------- */
+@media (max-width: 900px) {
+  .rdb .top { margin-top: 0; }
+  .rdb .top h1, .rdb .ss-head h1 { font-size: 21px; }
+  .rdb .top .actions { margin-left: 0; width: 100%; }
+  .rdb > .pg-bar > .tabs, .rdb > .tabs { overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; }
+  .rdb-skills > .pg-bar > .tabs { flex-wrap: wrap; }
+  .rdb .pg-search { width: 100%; }
+  .rdb-help-foot { grid-template-columns: minmax(0, 1fr); }
+  .rdb-help .hs-guides-top .hs-search { flex: 1 1 100%; }
+  .rdb-progress-t .sub { margin-left: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rdb > *, .rdb > .hs-page > *, .rdb.ss-page > *, .rdb.ss-page .ss-content > *, body:has(.rdb) .drawer { animation: none !important; }
+  .rdb-gcard:hover { transform: none; }
+  .rdb .btn:active, .rdb .ss-btn:active { transform: none; }
+  .rdb .ss-fold-a::before { transition: none; }
+  .rdb-workflows .wf-rules input[type="checkbox"]::after, .rdb-rules label.chk > input[type="checkbox"]::after { transition: none; }
+}

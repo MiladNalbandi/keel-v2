@@ -40,7 +40,9 @@ describe("Tools: no Plugins section", () => {
     expect(screen.queryByRole("article", { name: "Database plugin" })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Install for / })).toBeNull();
     expect(screen.queryByText(/Plugins keel adds/)).toBeNull();
-    expect(screen.getByText(/Plugins are turned on in Settings › Plugins/)).toBeInTheDocument();
+    // keel 0.28 the redesign: the plugins that bring tools are turned on in Add features
+    const head = screen.getByRole("heading", { name: "Tools (MCP servers)", level: 1 }).parentElement!;
+    expect(within(head).getByRole("link", { name: "Add features" })).toHaveAttribute("href", "#/features");
     expect(screen.queryByRole("checkbox", { name: "explorer may use keel-db" })).toBeNull();
   });
 

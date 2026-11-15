@@ -13,8 +13,10 @@ import {
   type QualityView,
 } from "../api";
 import { ModelPicker } from "../components/ModelPicker";
+import { pageKey, RdPage } from "../components/rdBuild";
 import {
   ErrorBox,
+  GoButton,
   Loading,
   PageHead,
   Panel,
@@ -389,6 +391,7 @@ function StartPanel({
         <button
           className="btn primary"
           type="button"
+          {...pageKey("R")}
           disabled={busy || !cases || !!view.active}
           onClick={() => void start()}
         >
@@ -425,6 +428,7 @@ export function QualityPage() {
   const r = useLoad("quality", () => api.quality());
   const view = r.data;
   const drops = (view?.lines ?? []).filter((l) => l.drop);
+  const [dropHidden, setDropHidden] = useState(false);
   const past = (view?.runs ?? [])
     .filter((x) => x.id !== view?.active?.id)
     .slice(0, 5);
@@ -438,7 +442,7 @@ export function QualityPage() {
     }
   };
   return (
-    <>
+    <RdPage name="quality">
       <PageHead
         title="Quality"
         sub="keel runs its flows on small eval projects with the models you pick and scores every run, so a change to a prompt, an agent or a model shows up before it ships."
@@ -449,7 +453,7 @@ export function QualityPage() {
         <Loading what="Loading the scores" />
       ) : (
         <>
-          {drops.length > 0 && (
+          {drops.length > 0 && !dropHidden && (
             <div className="wbar warn q-drop" role="alert">
               <span>
                 <b>A score dropped.</b>{" "}
@@ -461,6 +465,17 @@ export function QualityPage() {
                   .join("; ")}{" "}
                 since the run before. Check the last change to a prompt, an
                 agent, a skill or a model.
+              </span>
+              <span className="rdb-bar-a">
+                <GoButton to="agents">Open Agents</GoButton>
+                <button
+                  className="btn sm ghost"
+                  type="button"
+                  aria-label="Hide this note"
+                  onClick={() => setDropHidden(true)}
+                >
+                  ×
+                </button>
               </span>
             </div>
           )}
@@ -482,7 +497,7 @@ export function QualityPage() {
           ))}
         </>
       )}
-    </>
+    </RdPage>
   );
 }
 

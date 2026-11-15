@@ -10,6 +10,7 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { api, errorParts, type Stack, type StackCheck, type StackForm, type StackSuggestion } from "../api";
 import { EmptyState, Skeleton, useNarrow } from "../components/page";
+import { pageKey, RdPage } from "../components/rdBuild";
 import { Confirm, Drawer, ErrorBox, Loading, PageHead, Panel, Pill } from "../components/ui";
 import { MARKET_STACKS, stackHref } from "../stackMarketApi";
 import { useApp, useLoad } from "../state";
@@ -114,12 +115,12 @@ export function StacksPage({ pid }: { pid: string }) {
       onClick={(e) => { e.stopPropagation(); void install(x.name); }}>{installing === x.name ? "Installing…" : "Install pack"}</button>
   ) : null;
   return (
-    <>
+    <RdPage name="stacks">
       <PageHead title="Stacks" sub="How each project builds and tests. A stack is one YAML file plus its skills; the flow is the same for every language."
         actions={<>
-          <button className="btn" type="button" onClick={() => void detect()} disabled={detecting}>{detecting ? "Detecting…" : "Detect again"}</button>
+          <button className="btn" type="button" {...pageKey("D")} onClick={() => void detect()} disabled={detecting}>{detecting ? "Detecting…" : "Detect again"}</button>
           <a className="btn" href={MARKET_STACKS} style={{ textDecoration: "none" }}>Find stacks</a>
-          <button className="btn primary" type="button" onClick={() => setCreating(true)}>New stack</button>
+          <button className="btn primary" type="button" {...pageKey("N")} onClick={() => setCreating(true)}>New stack</button>
         </>} />
       {stacks.error ? <ErrorBox error={stacks.error} onRetry={() => void stacks.reload()} /> : !stacks.data ? <div className="panel"><Skeleton lines={5} label="Reading stacks" /></div> : (() => {
         const list = stacks.data;
@@ -213,7 +214,7 @@ export function StacksPage({ pid }: { pid: string }) {
       })()}
       {creating && <NewStackDrawer pid={pid} onClose={() => setCreating(false)}
         onCreated={(st) => { put(st); setSel(st.name); }} />}
-    </>
+    </RdPage>
   );
 }
 
