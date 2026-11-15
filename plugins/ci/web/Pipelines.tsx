@@ -98,12 +98,21 @@ function usePageKeys(keys: Record<string, (() => void) | null | undefined>) {
 
 const Key = ({ k }: { k: string }) => <kbd aria-hidden="true">{k}</kbd>;
 
-type Show = "all" | "failed" | "running";
+type Show = "all" | "failed" | "running" | "passed";
 const SHOW: [Show, string][] = [
   ["all", "All"],
   ["failed", "Failed"],
   ["running", "Running"],
+  ["passed", "Passed"],
 ];
+
+/** Whether a run is in one of the Show choices. */
+function shows(r: CiRun, show: Show) {
+  if (show === "failed") return r.failed;
+  if (show === "running") return r.status !== "completed";
+  if (show === "passed") return r.status === "completed" && r.conclusion === "success";
+  return true;
+}
 
 function resultText(r: CiRun) {
   return r.status === "completed"
@@ -168,8 +177,7 @@ export function PipelinesView({ pid }: { pid: string }) {
   const words = q.trim().toLowerCase();
   const list = all.filter(
     (r) =>
-      (show === "all" ||
-        (show === "failed" ? r.failed : r.status !== "completed")) &&
+      shows(r, show) &&
       (!words ||
         `${r.workflow} ${r.title} ${r.branch} ${r.sha}`
           .toLowerCase()
@@ -253,6 +261,12 @@ export function PipelinesView({ pid }: { pid: string }) {
                   onClick={() => setShow(k)}
                 >
                   {l}
+                  {k !== "all" && (
+                    // the count is drawn, not read: the button's name stays "Failed"
+                    <span className="rdp-n" aria-hidden="true">
+                      {all.filter((r) => shows(r, k)).length}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
@@ -443,7 +457,8 @@ function RunDetail({ pid, id }: { pid: string; id: number }) {
               className={`rdp-dot ${j.conclusion === "success" ? "ok" : j.conclusion ? "bad" : "run"}`}
               aria-hidden="true"
             />
-            <b>{j.name}</b>: {j.conclusion ?? j.status}
+            <b>{j.name}</b>
+            <span className="sub">{j.conclusion ?? j.status}</span>
             {j.failed_steps.length ? (
               <span className="sub"> at {j.failed_steps.join(", ")}</span>
             ) : null}

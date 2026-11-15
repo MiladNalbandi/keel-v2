@@ -84,6 +84,12 @@ describe("keel 0.28 the redesign of Pipelines", () => {
     await user.click(within(screen.getByRole("group", { name: "Show" })).getByRole("button", { name: "Failed" }));
     expect(within(table).getAllByRole("row")).toHaveLength(2);
     expect(within(table).getByRole("button", { name: "Open run #12" })).toBeInTheDocument();
+    // Passed: the runs that succeeded; each choice shows its count, its name stays the plain word
+    const passed = within(screen.getByRole("group", { name: "Show" })).getByRole("button", { name: "Passed" });
+    expect(passed).toHaveTextContent("Passed1");
+    await user.click(passed);
+    expect(within(table).getAllByRole("row")).toHaveLength(2);
+    expect(within(table).getByRole("button", { name: "Open run #11" })).toBeInTheDocument();
     await user.click(within(screen.getByRole("group", { name: "Show" })).getByRole("button", { name: "All" }));
     await user.type(screen.getByRole("searchbox", { name: "Search runs" }), "main");
     expect(within(table).getAllByRole("row")).toHaveLength(2);
