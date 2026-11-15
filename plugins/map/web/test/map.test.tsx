@@ -23,6 +23,7 @@ import { restorePlugins, withoutPages } from "../../../../web/src/test/coreOnly"
 import { db, server } from "../../../../web/src/test/setup";
 import plugin from "../index";
 import { missingWhy } from "../Map";
+import { allPageNames } from "../../../../web/src/test/menu";
 
 const schema = shop as unknown as DbSchema;
 const main = () => within(document.getElementById("main")!);
@@ -50,10 +51,8 @@ describe("the Map plugin's web part", () => {
     expect(typeof plugin.setup).toBe("function");
     location.hash = "#/flow";
     render(<App />);
-    const nav = await screen.findByRole("navigation", { name: "Screens" });
-    const links = within(nav)
-      .getAllByRole("link")
-      .map((l) => l.textContent?.trim());
+    // keel 0.28 every page is in All pages, by group
+    const links = await allPageNames();
     expect(links.indexOf("Map")).toBe(links.indexOf("Review") + 1);
     expect(links.indexOf("Graph")).toBe(links.indexOf("Map") + 1);
   });

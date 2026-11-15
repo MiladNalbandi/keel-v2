@@ -2,10 +2,9 @@
 // that scrolls on its own, then the plan usage, engine + live status and the theme switch). Phones (≤ 900px): one compact bar — menu,
 // project picker, bell — over one horizontally scrollable row of every screen; Theme and the status live in the menu.
 
-import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
-  navGroups,
   saveView,
   useFeatures,
   useView,
@@ -18,22 +17,19 @@ import {
   KEYS,
   keyLabel,
   matchesAny,
-  menuPageKey,
   menuPageOf,
 } from "../keys";
-import { hashFor, hashForScreen, type ScreenId } from "../routes";
-import { usePages, useSlot } from "../sdk/registry";
-import { SLOTS, type NavBadgeItem, type ShellWatchItem } from "../sdk/slots";
+import { useSlot } from "../sdk/registry";
+import { SLOTS, type ShellWatchItem } from "../sdk/slots";
 import { useApp, useRoute } from "../state";
-import { useStored } from "../storage";
 import { Mascot } from "./Mascot";
 import { BudgetBar } from "./BudgetBar";
 import { Launcher, openLauncher } from "./launcher/Launcher";
 import { KeySheet } from "./KeySheet";
-import { NavIcon } from "./NavIcons";
 import { NotificationDrawer, Popups } from "./Notifications";
-import { isCoreOnly, NoPagesYet, useCoreOnly } from "./CoreOnly";
+import { useCoreOnly } from "./CoreOnly";
 import { ProjectSwitcher, projectLine } from "./ProjectSwitcher";
+import { AllPages, Crumb, MainNav, NavFoot, openStartFlow, StartFlowHost } from "./ShellNav";
 import { api, type StackSetup } from "../api";
 import { LOGO_PATH } from "./logo";
 import { UpdateNotice } from "./UpdateNotice";
@@ -192,23 +188,6 @@ function keepVisible(box: HTMLElement, el: HTMLElement) {
   else if (r.right > b.right - 36) box.scrollLeft += r.right - b.right + 40;
 }
 
-/** v0.15.4 a menu link's tooltip names its key: ⌃1–⌃9 open the first nine pages. */
-const keyTip = (label: string, n: number) =>
-  n <= 9 ? `${label} (${keyLabel(menuPageKey(n))})` : label;
-
-/** v0.15.2 a part's count on a menu page (slot nav.badge: KeelBot's new answers on KeelBot), in the menu or the rail. */
-function PartBadges({ page, kind }: { page: string; kind: "nav" | "rail" }) {
-  const items = useSlot<NavBadgeItem>(SLOTS.navBadge).filter(
-    (b) => b.page === page,
-  );
-  return (
-    <>
-      {items.map((b) => (
-        <b.component key={b.id} kind={kind} />
-      ))}
-    </>
-  );
-}
 
 /** v0.15.2 what the parts watch on every page (slot shell.watch: KeelBot counts its new answers and plays its sound). */
 function PartWatches() {
@@ -219,170 +198,6 @@ function PartWatches() {
         <w.component key={w.id} />
       ))}
     </>
-  );
-}
-
-/** #93 the groups a person folded, kept in this browser (the side menu and the phone menu share them). */
-const FOLDED_KEY = "keel.nav.folded";
-const isNames = (v: unknown) => Array.isArray(v) && v.every((x) => typeof x === "string");
-
-/** The screens: All projects, the Inbox, the groups, then Settings and Start here at the foot. A group with a header
- *  folds when its header is clicked; a folded group still shows the page you are on, and the counts of the pages it
- *  hides. `onPick` runs after a link is used (the phone menu closes). */
-function NavLinks({ onPick, hints }: { onPick?: () => void; hints?: boolean }) {
-  const route = useRoute();
-  const { page } = route;
-  const features = useFeatures();
-  const view = useView();
-  // the menu follows the page registry (a plugin's page shows when it registers)
-  const pages = usePages();
-  // v0.16.0 a keel with only its core has no Project pages: the group is one small box (+ Add pages) instead
-  const coreOnly = isCoreOnly(features, view, pages);
-  const current = page === "addon" ? route.screen : page;
-  const { project, projects } = useApp();
-  const [folded, setFolded] = useStored<string[]>(FOLDED_KEY, [], { store: "local", valid: isNames });
-  const fold = (id: string) =>
-    setFolded((f) => (f.includes(id) ? f.filter((x) => x !== id) : [...f, id]));
-  const running = project?.running ?? 0;
-  // flows that wait for a person in every project (the project list follows the event stream)
-  const waitingAll = projects.reduce((a, p) => a + (p.waiting || 0), 0);
-  const badge = (id: ScreenId) =>
-    id === "inbox" ? (
-      waitingAll > 0 ? (
-        <span
-          className="count"
-          data-testid={onPick ? undefined : "inbox-count"}
-          title="waiting for you in all projects"
-          aria-label={`${waitingAll} waiting`}
-        >
-          {waitingAll}
-        </span>
-      ) : null
-    ) : (id === "jobs" || id === "live") && running > 0 ? (
-      <span
-        className="count run"
-        title="running now"
-        aria-label={`${running} running`}
-      >
-        {running}
-      </span>
-    ) : null;
-  let n = 1;
-  return (
-    <>
-      <a
-        href={hashFor("projects")}
-        className="nav-home"
-        aria-current={page === "projects" ? "page" : undefined}
-        onClick={onPick}
-        title={keyTip("All projects", 1)}
-      >
-        <span className="nav-l">All projects</span>
-        {waitingAll > 0 && (
-          <span className="count" title="waiting for you in all projects">
-            ◆ {waitingAll}
-          </span>
-        )}
-      </a>
-      {navGroups(features, view).map((g, i, all) => {
-        const shut = !g.bare && folded.includes(g.id);
-        const firstFoot = g.foot && !all[i - 1]?.foot;
-        return (
-          <Fragment key={g.id}>
-            {firstFoot && <div className="nav-foot-gap" aria-hidden="true" />}
-            <div
-              className={`nav-sec${g.pages.some((p) => p.id === current) ? " cur" : ""}${g.bare ? " bare" : ""}${firstFoot ? " foot" : ""}`}
-              data-folded={shut ? "" : undefined}
-            >
-              {!g.bare && (
-                <button
-                  type="button"
-                  className="nav-h"
-                  title={shut ? `${g.hint} (folded: click to open)` : `${g.hint} (click to fold)`}
-                  aria-expanded={!shut}
-                  onClick={() => fold(g.id)}
-                >
-                  <span>{g.label}</span>
-                  {hints && g.hint && <small>{g.hint}</small>}
-                  {shut && (
-                    <span className="nav-h-counts">
-                      {g.pages.filter((p) => p.id !== current && !p.addon).map((p) => (
-                        <Fragment key={p.id}>{badge(p.id)}</Fragment>
-                      ))}
-                    </span>
-                  )}
-                </button>
-              )}
-              {g.pages.map((p) => (
-                <a
-                  key={p.id}
-                  href={p.addon ? hashForScreen(p.id) : hashFor(p.id)}
-                  className={shut && current !== p.id ? "nav-folded" : undefined}
-                  aria-current={current === p.id ? "page" : undefined}
-                  onClick={onPick}
-                  title={keyTip(p.label, ++n)}
-                >
-                  <span className="nav-l">{p.label}</span>
-                  {p.addon ? null : badge(p.id)}
-                  <PartBadges page={p.id} kind="nav" />
-                </a>
-              ))}
-            </div>
-            {coreOnly && g.id === "run" && <NoPagesYet onPick={onPick} />}
-          </Fragment>
-        );
-      })}
-    </>
-  );
-}
-
-/** The folded menu: one icon per screen, grouped like the menu, with the same counts; ☰ opens the full menu again. */
-function RailLinks() {
-  const route = useRoute();
-  const { page } = route;
-  const features = useFeatures();
-  const view = useView();
-  usePages();
-  const current = page === "addon" ? route.screen : page;
-  const { project, projects } = useApp();
-  const running = project?.running ?? 0;
-  const waitingAll = projects.reduce((a, p) => a + (p.waiting || 0), 0);
-  const count = (id: ScreenId) =>
-    id === "inbox" && waitingAll > 0 ? (
-      <span className="rail-count" aria-hidden="true">
-        {waitingAll > 9 ? "9+" : waitingAll}
-      </span>
-    ) : (id === "jobs" || id === "live") && running > 0 ? (
-      <span className="rail-count run" aria-hidden="true">
-        {running}
-      </span>
-    ) : null;
-  let n = 0;
-  const link = (id: string, label: string, addon?: string) => (
-    <a
-      key={id}
-      href={addon ? hashForScreen(id) : hashFor(id)}
-      className="rail-link"
-      aria-current={current === id ? "page" : undefined}
-      title={keyTip(label, ++n)}
-      aria-label={
-        id === "inbox" && waitingAll ? `${label}, ${waitingAll} waiting` : label
-      }
-    >
-      <NavIcon id={addon ? "addon" : id} />
-      {addon ? null : count(id)}
-      <PartBadges page={id} kind="rail" />
-    </a>
-  );
-  return (
-    <nav className="rail-nav" aria-label="Screens (icons)">
-      {link("projects", "All projects")}
-      {navGroups(features, view).map((g, i, all) => (
-        <div key={g.id} className={`rail-group${g.foot && !all[i - 1]?.foot ? " foot" : ""}`} title={g.label}>
-          {g.pages.map((p) => link(p.id, p.label, p.addon))}
-        </div>
-      ))}
-    </nav>
   );
 }
 
@@ -429,7 +244,8 @@ function Nav() {
       ref={ref}
       aria-keyshortcuts={KEYS.menuJump[0].toUpperCase()}
     >
-      <NavLinks />
+      <MainNav />
+      <NavFoot />
     </nav>
   );
 }
@@ -672,7 +488,8 @@ function MenuSheet({
           </div>
         )}
         <nav className="ms-nav" aria-label="All screens">
-          <NavLinks onPick={onClose} hints />
+          <MainNav onPick={onClose} />
+          <NavFoot onPick={onClose} />
         </nav>
         <div className="ms-foot">
           <div className="row">
@@ -742,6 +559,17 @@ export function Shell({ children }: { children: ReactNode }) {
   useEffect(() => {
     const on = (e: KeyboardEvent) => {
       // KEYS.menuToggle (⌘\); ⌘ or Ctrl on every system, as before
+      if (
+        e.key === "n" &&
+        !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey &&
+        !e.defaultPrevented &&
+        !isTyping(e.target) &&
+        !document.querySelector('[aria-modal="true"]')
+      ) {
+        e.preventDefault();
+        openStartFlow();
+        return;
+      }
       if (
         (e.metaKey || e.ctrlKey) &&
         !e.altKey &&
@@ -857,7 +685,9 @@ export function Shell({ children }: { children: ReactNode }) {
           </button>
           {/* v0.15.7 the project switcher in the folded rail too */}
           <ProjectSwitcher rail />
-          <RailLinks />
+          <nav className="rail-nav" aria-label="Screens (icons)">
+            <MainNav rail />
+          </nav>
           <div className="rail-foot">
             <SearchButton className="rail-btn" />
             <Bell onClick={() => setNotesOpen(true)} />
@@ -917,7 +747,6 @@ export function Shell({ children }: { children: ReactNode }) {
           <span className="side-tools">
             <Mascot />
             <SearchButton className="bell" />
-            <Bell onClick={() => setNotesOpen(true)} />
             <button
               className="hide-nav"
               type="button"
@@ -944,6 +773,13 @@ export function Shell({ children }: { children: ReactNode }) {
           </span>
           <ProjectPicker />
           <ViewSwitch />
+          <button type="button" className="new-flow" onClick={() => openStartFlow()} title="Start a flow (N)">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+              <path fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" d="M12 5v14M5 12h14" />
+            </svg>
+            <span>New flow</span>
+            <kbd>N</kbd>
+          </button>
         </div>
         <Nav />
         <div className="side-foot">
@@ -975,7 +811,12 @@ export function Shell({ children }: { children: ReactNode }) {
       </aside>
       {/* the budget bar stays on top while the page scrolls (a phone scrolls it away under its own header) */}
       <div className="app-col">
-        <BudgetBar />
+        <div className="topbar">
+          <Crumb />
+          <BudgetBar />
+          <SearchButton className="tb-btn" />
+          <Bell onClick={() => setNotesOpen(true)} />
+        </div>
         <main id="main" tabIndex={-1}>
           {children}
         </main>
@@ -992,6 +833,8 @@ export function Shell({ children }: { children: ReactNode }) {
         openNotes={() => setNotesOpen(true)}
       />
       <KeySheet />
+      <AllPages />
+      <StartFlowHost />
       {/* keel 0.18.66 a newer keel is out (once per version, top right), and the first-run welcome */}
       <UpdateNotice />
       <Welcome />

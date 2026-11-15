@@ -198,6 +198,8 @@ export function handlers(db: Db) {
     return body as Record<string, unknown>;
   };
   return [
+    // keel 0.28 Home lists what waits (the Inbox's own tests answer with their items: their handler comes first)
+    http.get("/api/inbox", () => HttpResponse.json({ items: [], count: 0, kinds: [], projects: [] })),
     // phone access (Settings › Access): the list, remove, and a code for this computer only unless a test says otherwise
     http.get("/api/devices", () => HttpResponse.json(db.devices)),
     http.delete("/api/devices/:id", async ({ request, params }) => {

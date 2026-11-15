@@ -1,7 +1,7 @@
 // Step 2 (docs/plugins/09-step2-contract.md §5): the page registry and the slots in @keel/web-sdk, askAssistant, and
 // that keel's menu and links stay exactly as they were now that every page comes from the registry.
 
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import {
@@ -24,8 +24,8 @@ import "../corePages";
 import { NavIcon } from "../components/NavIcons";
 import { GROUP_HEADS, hashFor, menuGroups, parseHash } from "../routes";
 import type { Features } from "../api";
+import { allPageNames } from "./menu";
 
-const nav = () => screen.getByRole("navigation", { name: "Screens" });
 // where KeelBot's own page finds the text another part handed over (its plugin: plugins/keelbot/web/model.ts)
 const PREFILL_KEY = "keel2.keelbot.prefill";
 
@@ -67,9 +67,8 @@ describe("registerPage", () => {
   it("a page that registers after the first render shows in the menu and opens", async () => {
     render(<App />);
     await screen.findByRole("button", { name: /^Project: ludus-engine/ });
-    expect(
-      within(nav()).queryByRole("link", { name: "Late page" }),
-    ).not.toBeInTheDocument();
+    expect(await allPageNames()).not.toContain("Late page");
+    fireEvent.keyDown(document, { key: "Escape" });
     let off = () => {};
     act(() => {
       off = registerPage({
@@ -81,9 +80,9 @@ describe("registerPage", () => {
       });
     });
     try {
-      const link = await within(nav()).findByRole("link", {
-        name: "Late page",
-      });
+      const names = await allPageNames();
+      expect(names.indexOf("Late page")).toBe(names.indexOf("Safety & History") + 1);
+      const link = within(screen.getByRole("navigation", { name: "All pages" })).getByRole("link", { name: "Late page" });
       expect(link).toHaveAttribute("href", "#/late");
       await act(async () => {
         location.hash = "#/late";
@@ -265,7 +264,8 @@ describe("askAssistant", () => {
 describe("the menu and the links stay as they were", () => {
   // #93 the groups by what a person comes to do; every page and link of before is still here
   const TODAY = [
-    { id: "home", label: "Inbox", hint: "what waits for you", bare: true, pages: [["inbox", "Inbox"]] },
+    // keel 0.28 Home first (the start page), then the Inbox
+    { id: "home", label: "Inbox", hint: "what waits for you", bare: true, pages: [["home", "Home"], ["inbox", "Inbox"]] },
     {
       id: "run",
       label: "Work",
@@ -328,7 +328,8 @@ describe("the menu and the links stay as they were", () => {
       pages: [["settings", "Settings"]],
     },
     // keel 0.18.66 Help › Start here and the short guides
-    { id: "help", label: "Help", hint: "start here, short guides", bare: true, foot: true, pages: [["help", "Start here"]] },
+    // keel 0.28 Add features: keel's plugins as cards (the menu's foot)
+    { id: "help", label: "Help", hint: "start here, short guides", bare: true, foot: true, pages: [["help", "Start here"], ["features", "Add features"]] },
   ];
 
   it("has the same groups, pages, labels and order as before the registry", () => {
@@ -365,10 +366,10 @@ describe("the menu and the links stay as they were", () => {
     expect(
       navGroups(product, "all").map((g) => [g.id, g.pages.map((p) => p.id)]),
     ).toEqual([
-      ["home", ["inbox"]],
+      ["home", ["home", "inbox"]],
       ["know", ["helper"]],
       ["control", ["settings"]],
-      ["help", ["help"]],
+      ["help", ["help", "features"]],
     ]);
   });
 
@@ -390,7 +391,8 @@ describe("the menu and the links stay as they were", () => {
       screen: "initiatives",
       arg: "INI-2",
     });
-    expect(parseHash("#/")).toEqual({ page: "flow", arg: undefined });
+    // keel 0.28 an empty link opens Home; an unknown page still shows Flow
+    expect(parseHash("#/")).toEqual({ page: "home" });
     expect(parseHash("#/Not_A_Page")).toEqual({ page: "flow", arg: undefined });
   });
 

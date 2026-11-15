@@ -16,6 +16,7 @@ import { GraphPage } from "../Graph";
 import type { GraphOverview } from "../graphApi";
 import plugin from "../index";
 import { autoDepth, fold, groupBoxes, isTest, overviewBoxes, usesText } from "../model";
+import { allPageNames } from "../../../../web/src/test/menu";
 
 type Overview = Extract<GraphOverview, { available: true }>;
 const o = () => fx.graphOverview() as Overview;
@@ -82,9 +83,11 @@ describe("Graph page", () => {
   it("is in the Project group under Map, and draws the packages", async () => {
     location.hash = "#/graph";
     render(<App />);
-    const links = [...document.querySelectorAll(".side .nav a")].map((a) => a.textContent?.trim());
-    expect(links.indexOf("Graph")).toBe(links.indexOf("Map") + 1);
     expect(await main().findByRole("heading", { name: "Graph" })).toBeInTheDocument();
+    // keel 0.28 every page is in All pages, by group: Graph right under Map
+    const links = await allPageNames();
+    expect(links.indexOf("Graph")).toBe(links.indexOf("Map") + 1);
+    fireEvent.keyDown(document, { key: "Escape" });
     // the summary needs the graph, which comes after the heading
     expect(await main().findByText(/6 classes, functions and files in 5 packages and folders, 9 uses/)).toBeInTheDocument();
     await waitFor(() => expect(box("p:app")).not.toBeNull());

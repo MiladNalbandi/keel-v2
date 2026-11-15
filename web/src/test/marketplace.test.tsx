@@ -3,7 +3,7 @@
 // #/settings/plugins?set=<id> installs a set. v0.16.1: the look of docs/plugins/mockup.html: keel core's row, nested rows,
 // cards without a catalog, a plugin's own page, ?tab=. The Inbox card and the core welcome: corehome.test.tsx.
 
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { afterEach, describe, expect, it } from "vitest";
@@ -19,6 +19,7 @@ import {
 } from "../sdk/registry";
 import { SLOTS } from "../sdk/slots";
 import { db, server } from "./setup";
+import { allPageNames, allPagesNav } from "./menu";
 
 const calls = (method: string, path: string) =>
   db.calls.filter((c) => c.method === method && c.path === path);
@@ -468,13 +469,15 @@ describe("Control › Plugins: what a change does now", () => {
       }));
       await openPlugins();
       const row = await screen.findByTestId("plugin-notes");
-      const nav = screen.getByRole("navigation", { name: "Screens" });
-      expect(within(nav).queryByRole("link", { name: "Notes board" })).toBeNull();
+      // keel 0.28 a plugin's page shows in All pages (the menu keeps the main places and the pins)
+      expect(await allPageNames()).not.toContain("Notes board");
+      fireEvent.keyDown(document, { key: "Escape" });
 
       await user.click(within(row).getByRole("switch", { name: "Notes on" }));
       expect(await within(screen.getByTestId("plugin-notes")).findByText("applied")).toBeInTheDocument();
       expect(await screen.findByText("Notes is on now.")).toBeInTheDocument();
-      expect(await within(nav).findByRole("link", { name: "Notes board" })).toBeInTheDocument();
+      expect(await within(await allPagesNav()).findByRole("link", { name: "Notes board" })).toBeInTheDocument();
+      fireEvent.keyDown(document, { key: "Escape" });
       expect(screen.queryByText("Changes wait for a restart")).toBeNull();
       expect(screen.queryByText("applies after restart")).toBeNull();
       expect(within(screen.getByTestId("plugin-notes")).queryByText("after restart")).toBeNull(); // its status: On

@@ -18,8 +18,10 @@ const ON_CAP: [OnCap, string][] = [["pause", "pause and ask me"], ["cheaper", "s
  *  and its criteria (options.spec); acs is its number of criteria, for the estimate. */
 export type StartFromSpec = { path: string; acs?: number };
 
-export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0, spec }: {
+export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0, spec, request: request0 }: {
   onClose: () => void; workflowId?: string; projectId?: string; title?: string; spec?: StartFromSpec;
+  /** keel 0.28 "Describe it for the agents", already written (Add features › Build your own feature) */
+  request?: string;
 }) {
   const { projects, pid, setProjectId, reloadProjects, toast } = useApp();
   const [p, setP] = useState(projectId ?? pid ?? projects[0]?.id ?? "");
@@ -27,7 +29,7 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
   const [wid, setWid] = useState(workflowId ?? "");
   const [title, setTitle] = useState(title0 ?? "");
   const [titleErr, setTitleErr] = useState(false);
-  const [request, setRequest] = useState("");
+  const [request, setRequest] = useState(request0 ?? "");
   // a flow from a spec has its words in the spec
   const vague = !spec && (title + " " + request).trim().split(/\s+/).filter(Boolean).length < 6;
   const [acs, setAcs] = useState(spec?.acs ? Math.min(10, Math.max(1, spec.acs)) : 3);

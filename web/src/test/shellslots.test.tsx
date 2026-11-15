@@ -21,7 +21,8 @@ describe("nav.badge", () => {
   it("shows a part's count on its page's link, in the menu and on the folded menu's icon", async () => {
     const badge: NavBadgeItem = {
       id: "pt-demo",
-      page: "workflows",
+      // keel 0.28 KeelBot's new answers: a main place of the menu and the rail
+      page: "helper",
       component: ({ kind }: { kind: "nav" | "rail" }) => <span data-testid={`pt-badge-${kind}`}>3</span>,
     };
     const off = registerSlot(SLOTS.navBadge, badge);
@@ -29,7 +30,7 @@ describe("nav.badge", () => {
       location.hash = "#/flow";
       const { unmount } = render(<App />);
       const nav = await screen.findByRole("navigation", { name: "Screens" });
-      const link = within(nav).getByRole("link", { name: /Workflows/ });
+      const link = within(nav).getByRole("link", { name: /KeelBot/ });
       expect(within(link).getByTestId("pt-badge-nav")).toHaveTextContent("3");
       // only on its own page's link
       expect(within(nav).getAllByTestId("pt-badge-nav")).toHaveLength(1);
@@ -42,7 +43,7 @@ describe("nav.badge", () => {
       });
       expect(
         within(
-          within(rail).getByRole("link", { name: "Workflows" }),
+          within(rail).getByRole("link", { name: "KeelBot" }),
         ).getByTestId("pt-badge-rail"),
       ).toBeInTheDocument();
     } finally {

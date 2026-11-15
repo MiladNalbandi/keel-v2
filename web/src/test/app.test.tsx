@@ -2,47 +2,53 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { App } from "../App";
+import { allPageNames, allPagesNav } from "./menu";
 
 const nav = () => screen.getByRole("navigation", { name: "Screens" });
 
 describe("navigation and project switching", () => {
-  it("shows the grouped nav like the mockup", async () => {
+  it("shows the redesigned menu: the main places, the pins, the recent flows and the foot (keel 0.28)", async () => {
     render(<App />);
     await screen.findByRole("button", { name: /^Project: ludus-engine/ });
     const n = within(nav());
-    // #93 the groups with a header; the Inbox right under All projects; Settings and Start here at the foot
-    for (const g of ["Work", "Watch", "Project", "Build"]) expect(n.getByRole("button", { name: new RegExp(`^${g}`) })).toHaveAttribute("aria-expanded", "true");
-    const links = n.getAllByRole("link").map((a) => a.querySelector(".nav-l")?.textContent);
-    expect(links.slice(0, 2)).toEqual(["All projects", "Inbox"]);
-    expect(links.slice(-2)).toEqual(["Settings", "Start here"]);
-    for (const l of ["Flow", "Live agents", "Jobs", "Code", "Map", "Graph", "Wiki", "Workflows", "Agents", "Skill hub", "Stacks", "Tools (MCP)", "Settings"]) {
-      // (?! doctor): Watch › Flow doctor (#101) is not the Flow page
-      expect(n.getByRole("link", { name: new RegExp(`^${l.replace(/[()]/g, "\\$&")}(?! doctor)`) })).toBeInTheDocument();
-    }
+    const names = n.getAllByRole("link").map((a) => a.querySelector(".nav-l")?.textContent);
+    // the six main places first, then the first pins (Review, Tasks, Wiki)
+    expect(names.slice(0, 6)).toEqual(["Home", "Inbox", "Flow", "Code", "KeelBot", "Live agents"]);
+    expect(names.slice(6, 9)).toEqual(["Review", "Tasks", "Wiki"]);
+    // the foot: All pages (a button), Add features, Settings, Start here
+    expect(names.slice(-3)).toEqual(["Add features", "Settings", "Start here"]);
+    expect(n.getByRole("button", { name: "All pages" })).toBeInTheDocument();
     // keel 0.18.57 Control has one entry: Budget, Connections, Databases and Plugins are Settings tabs
-    for (const l of ["Budget", "Connections", "Databases", "Plugins"]) expect(n.queryByRole("link", { name: new RegExp(`^${l}`) })).toBeNull();
-    expect(screen.getByRole("link", { name: /All projects/ })).toHaveTextContent("◆ 1");
+    for (const l of ["Budget", "Connections", "Databases", "Plugins", "Workflows", "Jobs"]) expect(n.queryByRole("link", { name: new RegExp(`^${l}`) })).toBeNull();
+    // every page is in All pages, group by group
+    const all = await allPageNames();
+    for (const l of ["Home", "Inbox", "Flow", "Tasks", "Live agents", "Jobs", "Flow doctor", "Code", "Map", "Graph", "Wiki", "Workflows", "Agents", "Skill hub", "Stacks", "Tools (MCP)", "Safety & History", "Settings", "Start here", "Add features"])
+      expect(all).toContain(l);
+    expect(all.indexOf("Jobs")).toBe(all.indexOf("Live agents") + 1);
   });
 
-  it("#93 folds a group from its header, keeps the page you are on, and remembers the fold", async () => {
+  it("pins a page from All pages and from its top bar; the pins stay in this browser", async () => {
     const user = userEvent.setup();
     render(<App />);
     await screen.findByText(/AC gate — AC-002/);
-    const n = within(nav());
-    const build = n.getByRole("button", { name: /^Build/ });
-    await user.click(build);
-    expect(build).toHaveAttribute("aria-expanded", "false");
-    expect(n.getByRole("link", { name: "Workflows" })).toHaveClass("nav-folded");
-    expect(JSON.parse(localStorage.getItem("keel.nav.folded") ?? "[]")).toEqual(["build"]);
-    // the Flow page is open: folding Work hides the other pages and keeps Flow
-    await user.click(n.getByRole("button", { name: /^Work/ }));
-    expect(n.getByRole("link", { name: /^Flow(?! doctor)/ })).not.toHaveClass("nav-folded");
-    expect(n.getByRole("link", { name: /^Tasks/ })).toHaveClass("nav-folded");
-    // the keys still count every page: Tasks keeps its number
-    expect(n.getByRole("link", { name: /^Tasks/ })).toHaveAttribute("title", expect.stringMatching(/Tasks/));
-    await user.click(build);
-    expect(n.getByRole("link", { name: "Workflows" })).not.toHaveClass("nav-folded");
-    expect(JSON.parse(localStorage.getItem("keel.nav.folded") ?? "[]")).toEqual(["run"]);
+    // All pages: ◇ pins Map, ◆ unpins it
+    await allPagesNav();
+    await user.click(screen.getByRole("button", { name: "Pin Map" }));
+    expect(screen.getByRole("button", { name: "Unpin Map" })).toHaveAttribute("aria-pressed", "true");
+    await user.keyboard("{Escape}");
+    expect(within(nav()).getByRole("link", { name: "Map" })).toHaveAttribute("href", "#/map");
+    expect(JSON.parse(localStorage.getItem("keel.nav.pins") ?? "[]")).toEqual(["review", "tasks", "wiki", "map"]);
+    // the top bar of a page that is not a main place pins and unpins it too
+    await act(async () => {
+      location.hash = "#/workflows";
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+    const pin = await screen.findByRole("button", { name: "◇ Pin" });
+    await user.click(pin);
+    expect(await screen.findByRole("button", { name: "◆ Pinned" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(nav()).getByRole("link", { name: "Workflows" })).toHaveAttribute("aria-current", "page");
+    await user.click(screen.getByRole("button", { name: "◆ Pinned" }));
+    await waitFor(() => expect(within(nav()).queryByRole("link", { name: "Workflows" })).toBeNull());
   });
 
   it("moves between screens with the hash and shows the breadcrumb", async () => {

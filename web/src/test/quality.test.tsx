@@ -186,12 +186,8 @@ describe("the Quality page", () => {
     expect(
       await screen.findByRole("heading", { name: "Quality" }),
     ).toBeInTheDocument();
-    expect(
-      within(screen.getByRole("navigation", { name: "Screens" })).getByRole(
-        "link",
-        { name: "Quality" },
-      ),
-    ).toHaveAttribute("aria-current", "page");
+    // keel 0.28 the top bar says where you are; the page is in All pages (Build)
+    expect(document.querySelector(".tb-page")).toHaveTextContent("Quality");
     expect(screen.getByRole("alert")).toHaveTextContent(
       "A score dropped. change · Claude haiku went from 82 to 41 since the run before.",
     );

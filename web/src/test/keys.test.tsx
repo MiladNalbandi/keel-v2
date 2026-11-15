@@ -175,7 +175,8 @@ describe("the menu by keyboard", () => {
     const flow = within(rail).getByRole("link", { name: "Flow" });
     expect(flow).toHaveFocus();
     key({ key: "ArrowDown" }, flow);
-    expect(within(rail).getByRole("link", { name: "Tasks" })).toHaveFocus();
+    // keel 0.28 the rail has the main places, then the pins: Code comes after Flow
+    expect(within(rail).getByRole("link", { name: "Code" })).toHaveFocus();
     key({ key: "Escape" }, document.activeElement!);
     expect(document.getElementById("main")).toHaveFocus();
     expect(
@@ -188,7 +189,8 @@ describe("the menu by keyboard", () => {
     render(<App />);
     const nav = await screen.findByRole("navigation", { name: "Screens" });
     const links = within(nav).getAllByRole("link");
-    expect(links[0]).toHaveAttribute("title", "All projects (Ctrl+Alt+1)");
+    // keel 0.28 the menu starts with the main places: Home is ⌃1
+    expect(links[0]).toHaveAttribute("title", "Home (Ctrl+Alt+1)");
     expect(links[2]).toHaveAttribute(
       "title",
       expect.stringContaining("(Ctrl+Alt+3)"),
@@ -199,9 +201,9 @@ describe("the menu by keyboard", () => {
       expect(location.hash).toBe(links[2].getAttribute("href")),
     );
     key({ key: "1", code: "Digit1", ctrlKey: true, altKey: true });
-    await waitFor(() => expect(location.hash).toBe("#/projects"));
+    await waitFor(() => expect(location.hash).toBe("#/home"));
     // Ctrl+1 alone stays the browser's (and Code's ⌘1): no page change
     key({ key: "2", code: "Digit2", ctrlKey: true });
-    expect(location.hash).toBe("#/projects");
+    expect(location.hash).toBe("#/home");
   });
 });

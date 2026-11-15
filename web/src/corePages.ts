@@ -15,6 +15,8 @@
 
 import { createElement, Fragment } from "react";
 import { AgentsPage } from "./pages/Agents";
+import { FeaturesPage } from "./pages/Features";
+import { HomePage } from "./pages/Home";
 import { HelpPage } from "./pages/Help";
 import { GitHubSection } from "./components/GitHubToken";
 import { FlowPage } from "./pages/Flow";
@@ -33,6 +35,28 @@ import { SCREEN } from "./routes";
 import { registerPage, registerSlot } from "./sdk/registry";
 import { SLOTS, type ConnectionKindItem } from "./sdk/slots";
 
+// keel 0.28 Home: the first page (the menu's first main place; an empty link opens it). It works without a project.
+registerPage({
+  id: SCREEN.home,
+  label: "Home",
+  group: "home",
+  order: 5,
+  needsProject: "optional",
+  product: true,
+  icon: createElement("path", { d: "M3.5 11L12 4l8.5 7M5.5 9.5V20h13V9.5" }),
+  component: HomePage,
+});
+// keel 0.28 Add features: keel's plugins as cards, on or off, pinned, or a new one built by a flow (the menu's foot)
+registerPage({
+  id: SCREEN.features,
+  label: "Add features",
+  group: "help",
+  order: 30,
+  needsProject: "optional",
+  product: true,
+  icon: createElement("path", { d: "M12 3v6M12 15v6M3 12h6M15 12h6" }),
+  component: FeaturesPage,
+});
 registerPage({
   id: SCREEN.flow,
   label: "Flow",

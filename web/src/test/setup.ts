@@ -38,7 +38,8 @@ beforeEach(() => {
   (globalThis as unknown as { __db: Db }).__db = db;
   localStorage.clear();
   sessionStorage.clear();
-  location.hash = "";
+  // keel 0.28 an empty link opens Home; the older tests start on the Flow page they were written for
+  location.hash = "#/flow";
   FakeEventSource.instances = [];
   audioLog.length = 0;
   resetAudio();

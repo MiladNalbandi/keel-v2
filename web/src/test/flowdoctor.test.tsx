@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { App } from "../App";
 import type { DoctorReport } from "../api";
 import { server } from "./setup";
+import { allPageNames } from "./menu";
 
 const REPORT: DoctorReport = {
   days: 7, since: "2026-11-06T12:00:00+00:00", until: "2026-11-13T12:00:00+00:00", total: 3, flows: 3,
@@ -77,7 +78,9 @@ describe("Watch › Flow doctor (#101 part 3)", () => {
     server.use(http.get("/api/flow-doctor/report", () => HttpResponse.json(REPORT)));
     location.hash = "#/projects";
     render(<App />);
-    const link = await screen.findByRole("link", { name: /Flow doctor/ });
-    expect(link).toHaveAttribute("href", "#/doctor");
+    // keel 0.28 every page is in All pages, by group: Flow doctor in Watch, after Jobs
+    const names = await allPageNames();
+    expect(names.indexOf("Flow doctor")).toBe(names.indexOf("Jobs") + 1);
+    expect(screen.getByRole("link", { name: "Flow doctor" })).toHaveAttribute("href", "#/doctor");
   });
 });

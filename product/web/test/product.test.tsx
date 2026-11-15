@@ -1,7 +1,7 @@
 // keel Product's pages in keel's web: the menu and the View, the board, a new idea, an initiative at each kind of stop
 // (keel's questions, a gate, the decision, the hand-off), disagreements, follow-ups, and the teams with their pages.
 
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
@@ -26,6 +26,7 @@ import type {
   TeamTickets,
   TicketPreview,
 } from "../productApi";
+import { allPageNames, sideMenu } from "../../../web/src/test/menu";
 
 const PRODUCT: Features = {
   mode: "both",
@@ -220,19 +221,19 @@ describe("keel Product in keel's web", () => {
   it("adds a Product group to the menu, and the View shows Product, Dev or both", async () => {
     await open("#/initiatives", { "/api/initiatives": board });
     await main().findByRole("heading", { name: "Initiatives", level: 1 });
-    const nav = screen.getByRole("navigation", { name: "Screens" });
-    const links = within(nav)
-      .getAllByRole("link")
-      .map((a) => a.textContent ?? "");
+    // keel 0.28 All pages lists Product's group before keel's own; the menu's main places follow the view
+    const links = await allPageNames();
     expect(links.indexOf("Initiatives")).toBeLessThan(links.indexOf("Flow"));
     expect(links).toContain("Teams");
+    fireEvent.keyDown(document, { key: "Escape" });
+    const nav = sideMenu();
     const view = screen.getByRole("group", { name: "View" });
     await userEvent.click(
       within(view).getByRole("button", { name: "Product" }),
     );
     await waitFor(() =>
       expect(
-        within(nav).queryByRole("link", { name: "Flow" }),
+        within(nav).queryByRole("link", { name: /^Flow/ }),
       ).not.toBeInTheDocument(),
     );
     expect(
@@ -245,7 +246,8 @@ describe("keel Product in keel's web", () => {
         within(nav).queryByRole("link", { name: "Initiatives" }),
       ).not.toBeInTheDocument(),
     );
-    expect(within(nav).getByRole("link", { name: "Flow" })).toBeInTheDocument();
+    // keel 0.28 a main place's link names its count too ("Flow 1 running now")
+    expect(within(nav).getByRole("link", { name: /^Flow/ })).toBeInTheDocument();
   });
 
   it("shows the initiatives on a board by stage, the parked ones apart, and opens one", async () => {

@@ -12,6 +12,7 @@ import { App } from "../../../../web/src/App";
 import * as fx from "../../../../web/src/test/fixtures";
 import { db, server } from "../../../../web/src/test/setup";
 import plugin from "../index";
+import { allPageNames, sideMenu } from "../../../../web/src/test/menu";
 
 const main = () => within(document.getElementById("main")!);
 const calls = (method: string, path: string) =>
@@ -25,11 +26,10 @@ describe("the Wiki plugin's web part", () => {
     expect(typeof plugin.setup).toBe("function");
     location.hash = "#/flow";
     render(<App />);
-    const nav = await screen.findByRole("navigation", { name: "Screens" });
-    const links = within(nav).getAllByRole("link");
-    const names = links.map((l) => l.textContent?.trim());
+    // keel 0.28 every page is in All pages, by group; Wiki is also one of the first pins
+    const names = await allPageNames();
     expect(names.indexOf("Wiki")).toBe(names.indexOf("KeelBot") + 1);
-    expect(links[names.indexOf("Wiki")]).toHaveAttribute("href", "#/wiki");
+    expect(within(sideMenu()).getByRole("link", { name: "Wiki" })).toHaveAttribute("href", "#/wiki");
   });
 });
 
