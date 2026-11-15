@@ -110,8 +110,9 @@ describe("the new Review view: the list", () => {
     const rows = () =>
       within(side).queryAllByRole("button", { name: /^#\d+ / });
     await waitFor(() => expect(rows()).toHaveLength(4));
+    // 0.28 the line and "Review #N" are the page head's now, over the list and the pull request
     expect(
-      within(side).getByText(
+      screen.getByText(
         "2 reviews are asked of you · 1 pull request of yours is open",
       ),
     ).toBeInTheDocument();
@@ -168,12 +169,28 @@ describe("the new Review view: the list", () => {
 
     // the draft #44 asks too, but #45 is the next one ready for review
     await userEvent.click(
-      within(side).getByRole("button", { name: "Review #45" }),
+      screen.getByRole("button", { name: "Review #45" }),
     );
     expect(
       await screen.findByRole("region", { name: "Review of #45" }),
     ).toBeInTheDocument();
     await waitFor(() => expect(location.hash).toMatch(/^#\/review\/pr(:|%3A)45$/));
+  });
+
+  it("0.28 ⇧N opens the next pull request that asks for you, as the head's button says (not while typing)", async () => {
+    start();
+    const { side } = await openSide();
+    const btn = await screen.findByRole("button", { name: "Review #45" });
+    expect(btn).toHaveAttribute("aria-keyshortcuts", "Shift+N");
+    // typing a capital N in the search is only a letter
+    await userEvent.type(within(side).getByRole("searchbox"), "N");
+    expect(screen.queryByRole("region", { name: "Review of #45" })).not.toBeInTheDocument();
+    await userEvent.clear(within(side).getByRole("searchbox"));
+    (document.activeElement as HTMLElement | null)?.blur();
+    await userEvent.keyboard("{Shift>}N{/Shift}");
+    expect(
+      await screen.findByRole("region", { name: "Review of #45" }),
+    ).toBeInTheDocument();
   });
 
   it("opens a review's link (#/review/pr:45) on the Review page", async () => {
@@ -792,7 +809,7 @@ describe("the new Review view: Submit", () => {
     expect(within(row).getByText("you approved")).toBeInTheDocument();
     // #44 is a draft: nothing else waits for you
     expect(
-      within(side).getByRole("button", { name: "All reviewed" }),
+      screen.getByRole("button", { name: "All reviewed" }),
     ).toBeInTheDocument();
     expect(within(pr).getByText("approved")).toBeInTheDocument();
   });

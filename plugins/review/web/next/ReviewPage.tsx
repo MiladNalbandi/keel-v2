@@ -2,11 +2,12 @@
 // left (NextSide, without the Classic | New view switch) and the one you picked on the right (NextReview). The classic
 // view stays in Code › Review as it was.
 //
-//   ┌ Review ─────────────┬──────────────────────────────────────────┐
-//   │ 2 reviews are asked │  Review #42  Fix the cart total          │
-//   │ #42 Fix the cart …  │  Comments · Files · Problems · Submit    │
-//   │ #41 Euro prices     │  …                                       │
-//   └─────────────────────┴──────────────────────────────────────────┘
+//   Review                                               [Refresh] [Review #42 ⇧N]
+//   2 reviews are asked of you · 1 pull request of yours is open
+//   ┌ This branch ────────┐ ┌ #42  open  checks pass        Open on GitHub ↗ [Submit] ┐
+//   (All 4) (To review 2) …  │ Fix the cart total                                     │
+//   │ #42 Fix the cart …  │ └────────────────────────────────────────────────────────┘
+//   │ #41 Euro prices     │   Comments · Files · Problems · Commits · Checklist
 //
 // On a phone one at a time: the list, then the pull request with "‹ All pull requests" back to the list.
 
@@ -53,34 +54,36 @@ export function ReviewPage({ pid }: PageProps) {
         Pick a project to see its pull requests.
       </p>
     );
-  return (
-    <div className={`rvn-page${phone ? ` phone ${key ? "s-pr" : "s-list"}` : ""}`}>
-      {!(phone && key) && (
-        <aside className="rvn-page-side">
-          <NextSide pid={pid} open={open} activeKey={key} />
-        </aside>
+  const main = (
+    <main className="rvn-page-main rise r2" aria-label="Pull request">
+      {phone && key && (
+        <button
+          type="button"
+          className="rvn-btn rvn-page-back"
+          onClick={() => {
+            setKey(null);
+            go("review");
+          }}
+        >
+          ‹ All pull requests
+        </button>
       )}
-      <main className="rvn-page-main" aria-label="Pull request">
-        {phone && key && (
-          <button
-            type="button"
-            className="rvn-btn rvn-page-back"
-            onClick={() => {
-              setKey(null);
-              go("review");
-            }}
-          >
-            ‹ All pull requests
-          </button>
-        )}
-        {key ? (
-          <NextReview key={key} pid={pid} reviewKey={key} />
-        ) : phone ? null : (
-          <p className="rvn-dim rvn-page-empty">
-            Pick a pull request on the left, or press “Review #…” for the next one that asks you.
-          </p>
-        )}
-      </main>
-    </div>
+      {key ? (
+        <NextReview key={key} pid={pid} reviewKey={key} />
+      ) : phone ? null : (
+        <p className="rvn-dim rvn-page-empty">
+          Pick a pull request on the left, or press “Review #…” for the next one that asks you.
+        </p>
+      )}
+    </main>
+  );
+  // the page head, the list and this column (0.28: NextSide draws the page; on a phone the list or the pull request)
+  return (
+    <NextSide
+      pid={pid}
+      open={open}
+      activeKey={key}
+      page={{ main, showList: !(phone && key), phone }}
+    />
   );
 }

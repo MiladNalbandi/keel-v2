@@ -421,6 +421,7 @@ function ThreadCard({
     <article
       className={`rvn-thread${open ? " open" : ""}`}
       data-rvn-thread={t.id}
+      data-tone={tone}
       aria-label={`Comment on ${whereOf(t.path, t.line)}`}
     >
       <button

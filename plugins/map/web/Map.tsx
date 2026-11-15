@@ -10,6 +10,7 @@ import {
   schemaOf, systemBoxes, useApp, useLoad, usePages, useRoute, useSlot,
   type GBox, type KeelMap, type MapErQueryItem, type MapLevel, type MapNode, type MapResponse, type Memory,
 } from "@keel/web-sdk";
+import { usePageKey } from "./keys";
 
 type LevelId = "system" | "flow" | "modules" | "classes" | "er";
 const LEVELS: [LevelId, string][] = [["system", "System"], ["flow", "Journeys"], ["modules", "Modules"], ["classes", "Classes"], ["er", "Database (ER)"]];
@@ -205,9 +206,8 @@ function MapView({ m, onRebuild, busy, pid }: { m: KeelMap; onRebuild: () => voi
         <span className="sub">built from <span className="mono">{m.sha?.slice(0, 7)}</span>{m.at ? ` · ${clock(m.at, false)}` : ""}</span>
         {Object.entries(m.counts ?? {}).filter(([, v]) => v).map(([k, v]) => <span key={k} className="tag">{v} {v === 1 ? k.replace(/s$/, "") : k}</span>)}
         {m.demo && <span className="mapwarn">⚠ demo map</span>}
-        <span style={{ marginLeft: "auto" }}><button className="btn sm" type="button" onClick={onRebuild} disabled={busy}>{busy ? "Rebuilding…" : "Rebuild"}</button></span>
       </div>
-      <div className="row" style={{ margin: "12px 0", justifyContent: "space-between" }}>
+      <div className="row map-tabs" style={{ margin: "12px 0", justifyContent: "space-between" }}>
         <Tabs value={tab} onChange={setTab} label="Map level" options={LEVELS.map(([k, l]) => [k, l] as [LevelId, string])} />
         {picker}
       </div>
@@ -235,9 +235,12 @@ export function MapPage({ pid }: { pid: string }) {
       setBusy(false);
     }
   };
+  const built = !!map.data && !isMissing(map.data);
+  usePageKey("r", () => { if (!busy) void rebuild(); }, built);
   return (
-    <>
-      <PageHead title="Map" sub={`How ${project?.name ?? pid} is built — read from the code, migrations and API contract. Nothing connects to a running system.`} />
+    <div className="rdw rdw-map">
+      <PageHead title="Map" sub={`How ${project?.name ?? pid} is built — read from the code, migrations and API contract. Nothing connects to a running system.`}
+        actions={built ? <button className="btn" type="button" onClick={() => void rebuild()} disabled={busy} aria-keyshortcuts="R">{busy ? "Rebuilding…" : "Rebuild"} <kbd aria-hidden="true">R</kbd></button> : undefined} />
       <Async r={map} what="Reading the map">
         {(m) => isMissing(m) ? (
           <div className="panel">
@@ -247,7 +250,7 @@ export function MapPage({ pid }: { pid: string }) {
           </div>
         ) : <MapView m={m} onRebuild={rebuild} busy={busy} pid={pid} />}
       </Async>
-      {map.data && !isMissing(map.data) && <p className="hint">Tables come from the migration files, endpoints from the API contract, modules from the folders. The map is pinned to a commit, so agents and you look at the same picture.</p>}
-    </>
+      {built && <p className="hint">Tables come from the migration files, endpoints from the API contract, modules from the folders. The map is pinned to a commit, so agents and you look at the same picture.</p>}
+    </div>
   );
 }

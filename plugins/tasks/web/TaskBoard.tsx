@@ -35,6 +35,7 @@ import {
   nameOf,
   needsYou,
 } from "./taskModel";
+import { usePageKey } from "./keys";
 import "./tasks.css";
 
 type Source = "all" | "jira" | "github" | "local";
@@ -69,6 +70,13 @@ function Seg<T extends string>({
     </div>
   );
 }
+
+/** A person's mark: the same soft colour for the same name, in both themes. */
+const avTone = (who: string) => {
+  let h = 0;
+  for (const c of who) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return `av-${h % 5}`;
+};
 
 function Card({
   t,
@@ -107,7 +115,7 @@ function Card({
           <span className="tkn-reason">{t.blocked_reason}</span>
         )}
         <span className="tkn-card-meta">
-          <span className="tkn-avatar" aria-hidden="true">
+          <span className={`tkn-avatar ${t.assignee ? avTone(who) : "av-none"}`} aria-hidden="true">
             {who.slice(0, 1).toUpperCase()}
           </span>
           <span>{[who, ...meta].join(" · ")}</span>
@@ -162,6 +170,14 @@ function SyncLine({
       >
         {busy ? "Syncing…" : "Sync now"}
       </button>
+      {s.connected && (
+        <>
+          <span className="tkn-grow" />
+          <a className="tkn-link tkn-conn" href={settingsHash("connections")}>
+            Settings › Connections
+          </a>
+        </>
+      )}
       {s.last_sync_error && (
         <span className="badc tkn-sync-err" role="alert">
           Last sync failed: {s.last_sync_error}
@@ -209,6 +225,8 @@ export function TaskBoardPage({
   const [syncing, setSyncing] = useState(false);
   const [automations, setAutomations] = useState(false);
   useEffect(() => setOpen(arg ?? null), [arg]);
+  // N: New task on this page (the button shows it); keel's own N (New flow) stays on every other page
+  usePageKey("n", () => setMaking(true), !making && !open && !automations);
 
   const all = r.data?.tasks ?? [];
   const me = r.data?.sync.me ?? null;
@@ -263,7 +281,7 @@ export function TaskBoardPage({
   };
 
   return (
-    <div className="tkn-page">
+    <div className="rdw rdw-tasks tkn-page">
       <PageHead
         title="Tasks"
         sub="Your tickets as a board. Open one to start a flow; keel moves it through review and testing, and asks you at PP and the release."
@@ -282,14 +300,21 @@ export function TaskBoardPage({
               type="button"
               onClick={() => setAutomations(true)}
             >
+              <svg className="tkn-ic" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M13 3L5 13h6l-1 8 8-10h-6z" />
+              </svg>
               Automations
             </button>
             <button
               className="btn primary"
               type="button"
               onClick={() => setMaking(true)}
+              aria-keyshortcuts="N"
             >
-              New task
+              <svg className="tkn-ic" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+              New task <kbd aria-hidden="true">N</kbd>
             </button>
           </>
         }
@@ -299,11 +324,16 @@ export function TaskBoardPage({
       )}
 
       {needy.length > 0 && (
-        <section className="tkn-needs" aria-label="Tasks that need you">
-          <b className="tkn-needs-h">
-            {needy.length} {needy.length === 1 ? "task needs" : "tasks need"}{" "}
-            you
-          </b>
+        <section className="tkn-needs rise r1" aria-label="Tasks that need you">
+          <div className="tkn-needs-bar">
+            <span className="tkn-dia" aria-hidden="true" />
+            <b className="tkn-needs-h">
+              {needy.length} {needy.length === 1 ? "task needs" : "tasks need"}{" "}
+              you
+            </b>
+            <span className="tkn-grow" />
+            <span className="sub tkn-needs-tip">Open one to answer. The Inbox has them too.</span>
+          </div>
           <ul>
             {needy.map((t) => (
               <li key={t.id}>
@@ -312,10 +342,12 @@ export function TaskBoardPage({
                   onClick={() => setOpen(t.id)}
                   aria-label={`Open ${nameOf(t)}: ${askOf(t)}`}
                 >
-                  <span className="mono sub">{keyOf(t)}</span>
-                  <span className="tkn-needs-t">{t.title}</span>
-                  <span className="sub">{askOf(t)}</span>
-                  <span className="tkn-link">Open ▸</span>
+                  <span className="mono sub tkn-needs-k">{keyOf(t)}</span>
+                  <span className="tkn-needs-txt">
+                    <span className="tkn-needs-t">{t.title}</span>
+                    <span className="sub">{askOf(t)}</span>
+                  </span>
+                  <span className="tkn-link">Open ›</span>
                 </button>
               </li>
             ))}
@@ -323,6 +355,7 @@ export function TaskBoardPage({
         </section>
       )}
 
+      <div className="tkn-top rise r2">
       <div className="tkn-filters" role="group" aria-label="Filters">
         <Seg
           label="Source"
@@ -400,13 +433,14 @@ export function TaskBoardPage({
       {r.data && (
         <SyncLine data={r.data} busy={syncing} onSync={() => void sync()} />
       )}
+      </div>
 
       {r.error && !r.data ? (
         <ErrorBox error={r.error} onRetry={() => void r.reload()} />
       ) : !r.data ? (
         <Loading what="Loading tasks" />
       ) : !total ? (
-        <div className="panel">
+        <div className="panel tkn-empty rise r3">
           <EmptyState
             title="No task yet"
             action={
@@ -439,14 +473,14 @@ export function TaskBoardPage({
           </EmptyState>
         </div>
       ) : !shown.length ? (
-        <p className="tkn-nomatch">
+        <p className="tkn-nomatch rise r3">
           No task fits these filters.{" "}
           <button className="linkbtn tkn-link" type="button" onClick={clear}>
             Show all tasks
           </button>
         </p>
       ) : list ? (
-        <div className="tkn-list" aria-label="Task list">
+        <div className="tkn-list rise r3" aria-label="Task list">
           {groups.map((g) => {
             const items = shown.filter((t) => groupOf(t.status) === g.id);
             const isOpen = !folded[g.id];
@@ -493,7 +527,7 @@ export function TaskBoardPage({
           })}
         </div>
       ) : (
-        <div className="tkn-board" aria-label="Task board">
+        <div className="tkn-board rise r3" aria-label="Task board">
           {groups.map((g) => {
             const items = shown.filter((t) => groupOf(t.status) === g.id);
             return (

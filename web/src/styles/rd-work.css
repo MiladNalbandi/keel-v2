@@ -1,0 +1,129 @@
+/* keel 0.28 the redesign, the work pages: Tasks, Goals, Org, Desk, Review, Map, Graph, Wiki and Library (the canvas
+   boards PgTasks … PgLibrary). Each page's root has the class `rdw` (and `rdw-<page>`), so these rules never reach
+   another page. A plugin with its own css (tasks.css, org.css, graph.css, review/next.css) keeps its page-only rules
+   there; this file holds the shared look: the page head, calm cards, the list-and-detail columns and the keys. Colours
+   are keel's own tokens (styles.css :root), so both themes follow. */
+
+/* the page head: title, one line, actions with their keys (the board's .ph); the top bar already says where you are */
+.rdw > .top, .rdw .rdw-head > .top { align-items: flex-end; gap: 16px; margin-bottom: 20px; animation: k-rise .36s cubic-bezier(.2,.7,.2,1) both; }
+.rdw .top .crumb { display: none; }
+.rdw .top h1 { font-size: 24px; font-weight: 600; letter-spacing: -.015em; }
+.rdw .top p { max-width: 720px; font-size: 14px; }
+.rdw .top .actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+/* buttons: the board's sizes, one accent per page, keys drawn as keys */
+.rdw .btn { display: inline-flex; align-items: center; gap: 8px; min-height: 34px; padding: 0 13px; border-radius: 9px; box-sizing: border-box;
+  text-decoration: none; color: var(--fg); transition: background .16s ease, border-color .16s ease, transform .12s ease, filter .16s ease; }
+.rdw .btn:hover:not(:disabled) { background: var(--panel-2); border-color: var(--rail); }
+.rdw .btn:active:not(:disabled) { transform: scale(.97); }
+.rdw .btn.primary { color: var(--on-accent); }
+.rdw .btn.primary:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); filter: brightness(1.08); }
+.rdw .btn.ghost { border-color: transparent; color: var(--dim); }
+.rdw .btn.ghost:hover:not(:disabled) { color: var(--fg); background: var(--panel-2); border-color: transparent; }
+.rdw .btn.sm { min-height: 28px; padding: 0 10px; font-size: 13px; border-radius: 8px; }
+.rdw .btn:focus-visible, .rdw a:focus-visible, .rdw [role="tab"]:focus-visible, .rdw .rdw-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.rdw kbd { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box;
+  border-radius: 5px; border: 1px solid var(--rail); border-bottom-width: 2px; background: var(--panel-2); color: var(--dim);
+  font: 500 11px/1 "JetBrains Mono", ui-monospace, monospace; }
+.rdw .btn.primary kbd { background: rgba(0,0,0,.14); border-color: rgba(0,0,0,.2); color: inherit; }
+
+/* calm cards: the old panels lose their shouting heads */
+.rdw .panel { border-radius: 14px; }
+.rdw .panel-head { padding: 14px 16px 0; border-bottom: 0; }
+.rdw .panel-head h2 { font-size: 14.5px; text-transform: none; letter-spacing: 0; color: var(--fg); }
+.rdw .panel-body { padding: 14px 16px; }
+.rdw .field > label:not(.radio):not(.chk), .rdw .field > .lab { font-size: 13px; font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--fg); }
+.rdw .field input[type=text], .rdw .field input:not([type]):not([class]), .rdw .field select, .rdw .field textarea, .rdw input.rdw-inp {
+  border-radius: 9px; min-height: 36px; box-sizing: border-box; padding: 7px 11px; background: var(--panel); font-size: 14px; transition: border-color .16s ease, box-shadow .16s ease; }
+.rdw .field textarea { font-family: inherit; font-size: 14px; line-height: 1.5; }
+.rdw .field input:focus, .rdw .field select:focus, .rdw .field textarea:focus, .rdw input.rdw-inp:focus { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.rdw .lbl { margin: 0; font-size: 11.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
+
+/* tabs: an underline under the one that is open (the board's .tabs) */
+.rdw .tabs[role="tablist"] { display: flex; gap: 2px; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; padding: 0; background: transparent; flex-wrap: wrap; }
+.rdw .tabs[role="tablist"] > button { height: 36px; padding: 0 12px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--dim);
+  font: inherit; font-size: 13.5px; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; transition: color .16s ease, border-color .2s ease; }
+.rdw .tabs[role="tablist"] > button:hover { color: var(--fg); }
+.rdw .tabs[role="tablist"] > button[aria-selected="true"] { color: var(--fg); background: transparent; border-bottom-color: var(--accent); }
+
+/* list and detail: a list on the left, the open thing on the right (the board's .wk-cols) */
+.rdw-cols { display: grid; grid-template-columns: minmax(260px, 360px) minmax(0, 1fr); gap: 18px; align-items: start; }
+.rdw-list { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.rdw-detail { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.rdw-items { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.rdw-item { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 12px; border: 1px solid transparent; color: var(--fg);
+  text-decoration: none; transition: background .16s ease, border-color .16s ease; }
+.rdw-item:hover { background: var(--panel-2); }
+.rdw-item[aria-current="page"] { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+.rdw-item-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.rdw-item-top b { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rdw-item .sub { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.rdw-pick { padding: 40px 16px; text-align: center; color: var(--dim); border: 1px dashed var(--border); border-radius: 14px; }
+.rdw-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.rdw-bar .grow { flex: 1; }
+.rdw-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; color: var(--dim); }
+.rdw-quote { margin: 0; padding: 10px 14px; border-left: 3px solid var(--rail); background: var(--panel-2); border-radius: 0 9px 9px 0; white-space: pre-wrap; line-height: 1.55; }
+
+/* Desk */
+.rdw-desk .dk-title { margin: 0; font-size: 19px; font-weight: 600; letter-spacing: -.01em; }
+.rdw-desk .dk-type { font-size: 11.5px; padding: 1px 7px; border-radius: 6px; background: var(--panel-2); color: var(--dim); flex: none; }
+.rdw-desk .dk-past .rdw-item-top b { font-weight: 500; }
+.rdw .grow { flex: 1; }
+
+/* Goals */
+.rdw-goals .gl-title { margin: 0; font-size: 19px; font-weight: 600; letter-spacing: -.01em; }
+.rdw-goals .gl-kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; font-size: 13.5px; }
+.rdw-goals .gl-kv dt { color: var(--dim); }
+.rdw-goals .gl-kv dd { margin: 0; }
+.rdw-goals .gl-track { display: block; height: 4px; border-radius: 3px; background: var(--panel-2); overflow: hidden; }
+.rdw-goals .gl-track.big { height: 8px; }
+.rdw-goals .gl-track > span { display: block; height: 100%; border-radius: 3px; background: var(--accent); transition: width .5s cubic-bezier(.2,.7,.2,1); }
+.rdw-goals .gl-track.gl-done > span { background: var(--ok); }
+.rdw-goals .gl-track.gl-stopped > span { background: var(--dim); }
+.rdw-goals .gl-stats { gap: 22px; font-size: 13px; }
+.rdw-goals .gl-stats > span:not(.grow) { display: flex; flex-direction: column; }
+.rdw-goals .gl-stats b { font-weight: 500; }
+.rdw-goals .gl-box { padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel-2); animation: k-pop .25s ease both; }
+.rdw-goals .gl-two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: end; }
+.rdw-goals .gl-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.rdw-goals .gl-steps > li { display: flex; gap: 12px; align-items: flex-start; padding: 12px 0; }
+.rdw-goals .gl-steps > li + li { border-top: 1px solid var(--border); }
+.rdw-goals .gl-n { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; flex: none; background: var(--panel-2); color: var(--dim); font-size: 12px; font-weight: 600; }
+.rdw-goals .gl-s-done .gl-n { background: var(--ok-soft); color: var(--ok); }
+.rdw-goals .gl-s-running .gl-n { background: var(--run-soft); color: var(--run); }
+.rdw-goals .gl-s-waiting .gl-n { background: var(--warn-soft); color: var(--warn); }
+.rdw-goals .gl-s-skipped { opacity: .65; }
+.rdw-goals .gl-wf { font-size: 11.5px; padding: 1px 7px; border-radius: 6px; background: var(--panel-2); color: var(--dim); }
+.rdw-goals .gl-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--run); animation: k-pulse 1.6s ease-in-out infinite; flex: none; }
+.rdw-goals .gl-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; align-items: start; }
+.rdw-goals .gl-know { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 13.5px; }
+
+/* Library */
+.rdw-library .lb-notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.rdw-library .lb-search { padding: 10px; }
+.rdw-library .lb-hits { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; }
+.rdw-library .lb-hits > li { padding: 10px 2px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
+.rdw-library .lb-hits .rdw-quote { font-size: 13px; }
+.rdw-library .lb-hits a { font-weight: 600; color: var(--accent); text-decoration: none; }
+.rdw-library .lb-hits a:hover { text-decoration: underline; }
+.rdw-library .lb-doc { padding: 16px 18px 20px; }
+.rdw-library .lb-ver { font-size: 12px; padding: 2px 8px; border-radius: 6px; background: var(--panel-2); color: var(--fg); font-weight: 500; }
+.rdw-library .lb-title { margin: 0; font-size: 19px; font-weight: 600; letter-spacing: -.01em; }
+.rdw-library .lb-who { padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.rdw-library .lb-body { line-height: 1.6; }
+.rdw-library .lb-body h1, .rdw-library .lb-body h2, .rdw-library .lb-body h3 { font-size: 15px; margin: 16px 0 4px; }
+.rdw-library .lb-check { display: flex; gap: 8px; align-items: flex-start; font-size: 13.5px; }
+
+/* motion: sections rise in once (the .rise .r1–.r5 classes are in shell.css); reduced motion turns it off */
+@media (prefers-reduced-motion: reduce) {
+  .rdw > .top, .rdw .rdw-head > .top { animation: none; }
+  .rdw .btn:active:not(:disabled) { transform: none; }
+  .rdw-goals .gl-track > span, .rdw-goals .gl-box, .rdw-goals .gl-dot { transition: none; animation: none; }
+}
+
+@media (max-width: 900px) {
+  .rdw-cols { grid-template-columns: minmax(0, 1fr); }
+  .rdw .top .actions { margin-left: 0; }
+  .rdw .top h1 { font-size: 21px; }
+  .rdw-goals .gl-two { grid-template-columns: minmax(0, 1fr); }
+}

@@ -4,9 +4,10 @@
 
 import { useState } from "react";
 import {
-  Async, del, EmptyState, errorParts, get, go, hashForScreen, Markdown, Note, PageHead, Panel, Pill, post, Since, useApp, useLoad, useRoute,
-  type InboxCardProps, type PillTone,
+  agoText, Async, del, EmptyState, errorParts, get, go, hashForScreen, Markdown, Note, PageHead, Panel, Pill, post, Since, useApp, useLoad, useRoute,
+  type InboxCardProps, type Loaded, type PillTone,
 } from "@keel/web-sdk";
+import { usePageKey } from "./keys";
 
 export type DeskRequest = {
   id: string; project_id: string; title: string; body: string; origin: string | null; status: "new" | "sorting" | "sorted" | "handed" | "closed";
@@ -31,7 +32,7 @@ const TONE: Record<string, PillTone> = { new: "warn", sorting: "run", sorted: "w
 const WORD: Record<string, string> = { new: "new", sorting: "being sorted", sorted: "waits for your choice", handed: "handed over", closed: "closed" };
 const URGENT: Record<string, PillTone> = { high: "bad", normal: "idle", low: "idle" };
 
-function AddRequest({ pid, onAdded }: { pid: string; onAdded: (id: string) => void }) {
+function AddRequest({ pid, onAdded, onHide }: { pid: string; onAdded: (id: string) => void; onHide?: () => void }) {
   const [f, setF] = useState({ title: "", body: "", origin: "" });
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -51,51 +52,80 @@ function AddRequest({ pid, onAdded }: { pid: string; onAdded: (id: string) => vo
       setBusy(false);
     }
   };
+  // ⌘↩ adds it from the text box, as the button says
+  const send = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      (e.currentTarget as HTMLElement).closest("form")?.requestSubmit();
+    }
+  };
   return (
-    <form onSubmit={add} aria-label="Add a request" className="grid" style={{ gap: 8 }}>
-      <div className="field"><label htmlFor="dk-f1">Title (optional)</label> <input id="dk-f1" value={f.title} onChange={set("title")} placeholder="The first line, when you leave it empty" /></div>
-      <div className="field"><label htmlFor="dk-f2">The request</label> <textarea id="dk-f2" required rows={5} value={f.body} onChange={set("body")} placeholder="What the person wrote, in their words" /></div>
-      <div className="field"><label htmlFor="dk-f3">From (optional)</label> <input id="dk-f3" value={f.origin} onChange={set("origin")} placeholder="Who or where: this stays in keel and never goes to a model" /></div>
-      {problem && <Note tone="err" role="alert">{problem}</Note>}
-      <div><button className="btn primary" type="submit" disabled={busy}>{busy ? "Adding…" : "Add it"}</button></div>
-    </form>
+    <section className="panel rise" aria-labelledby="dk-add-h">
+      <div className="panel-head"><h2 id="dk-add-h">Add a request</h2>{onHide && <button type="button" className="btn sm ghost" onClick={onHide}>Hide</button>}</div>
+      <form onSubmit={add} aria-label="Add a request" className="panel-body grid" style={{ gap: 10 }} onKeyDown={send}>
+        <div className="field"><label htmlFor="dk-f1">Title (optional)</label> <input id="dk-f1" value={f.title} onChange={set("title")} placeholder="The first line, when you leave it empty" /></div>
+        <div className="field"><label htmlFor="dk-f2">The request</label> <textarea id="dk-f2" required rows={5} value={f.body} onChange={set("body")} placeholder="What the person wrote, in their words" /></div>
+        <div className="field"><label htmlFor="dk-f3">From (optional)</label> <input id="dk-f3" value={f.origin} onChange={set("origin")} placeholder="Who or where: this stays in keel and never goes to a model" /></div>
+        {problem && <Note tone="err" role="alert">{problem}</Note>}
+        <div className="rdw-bar">
+          <button className="btn primary" type="submit" disabled={busy} aria-keyshortcuts="Meta+Enter Control+Enter">{busy ? "Adding…" : "Add it"} <kbd aria-hidden="true">⌘↩</kbd></button>
+          <span className="sub">Nothing goes to a model yet.</span>
+        </div>
+      </form>
+    </section>
   );
 }
 
-function List({ pid }: { pid: string }) {
-  const list = useLoad(`desk:${pid}`, () => deskApi.list(pid));
+type Show = "open" | "done" | "all";
+const SHOWN: Record<Show, (r: DeskRequest) => boolean> = { open: (r) => r.status !== "closed", done: (r) => r.status === "closed", all: () => true };
+
+/** The left column: what can go to the model company, and the requests. */
+function Requests({ list, current }: { list: Loaded<DeskList>; current: string | null }) {
+  const [show, setShow] = useState<Show>("open");
   return (
-    <>
-      <PageHead title="Desk" sub="Paste a support request. An agent sorts it, keel finds past cases, and you choose what happens next." />
+    <div className="rdw-list">
       <Async r={list} what="Loading the requests">
-        {(v) => (
-          <div className="grid" style={{ gap: 12 }}>
-            <Note tone="info"><b>What can go to the model company.</b> {v.sends}</Note>
-            <Panel title="Add a request"><AddRequest pid={pid} onAdded={(id) => go("desk", id)} /></Panel>
-            <Panel title={`Requests (${v.requests.length})`} body={false}>
-              {v.requests.length ? (
-                <div className="ss-tablewrap">
-                  <table className="ss-table" aria-label="Requests">
-                    <thead><tr><th>Request</th><th>Status</th><th>Kind</th><th>Urgency</th><th>Area</th></tr></thead>
-                    <tbody>
-                      {v.requests.map((r) => (
-                        <tr key={r.id}>
-                          <td><a href={hashForScreen("desk", r.id)}>{r.title}</a></td>
-                          <td><Pill tone={TONE[r.status] ?? "idle"}>{WORD[r.status] ?? r.status}</Pill></td>
-                          <td>{r.kind ?? ""}</td>
-                          <td>{r.urgency ? <Pill tone={URGENT[r.urgency] ?? "idle"}>{r.urgency}</Pill> : ""}</td>
-                          <td>{r.area ?? ""}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+        {(v) => {
+          const shown = v.requests.filter(SHOWN[show]);
+          return (
+            <>
+              <Note tone="info"><b>What can go to the model company.</b> {v.sends}</Note>
+              <div className="rdw-bar rise r1">
+                <h2 className="lbl">Requests · {v.requests.length}</h2>
+                <span className="grow" />
+                <div className="seg2" role="group" aria-label="Show">
+                  {(["open", "done", "all"] as const).map((s) => (
+                    <button key={s} type="button" aria-pressed={show === s} onClick={() => setShow(s)}>{s === "open" ? "Open" : s === "done" ? "Done" : "All"}</button>
+                  ))}
                 </div>
-              ) : <EmptyState title="No request yet">Paste the first one above.</EmptyState>}
-            </Panel>
-          </div>
-        )}
+              </div>
+              {shown.length ? (
+                <ul className="rdw-items rise r2" aria-label="Requests">
+                  {shown.map((r) => (
+                    <li key={r.id}>
+                      <a className="rdw-item" href={hashForScreen("desk", r.id)} aria-current={r.id === current ? "page" : undefined}>
+                        <span className="rdw-item-top"><b>{r.title}</b><Pill tone={TONE[r.status] ?? "idle"}>{WORD[r.status] ?? r.status}</Pill></span>
+                        <span className="sub">
+                          {r.kind && <span className="mono">{r.kind}</span>}
+                          {r.urgency && <Pill tone={URGENT[r.urgency] ?? "idle"}>{r.urgency}</Pill>}
+                          {r.area && <span>{r.area}</span>}
+                          <span className="grow" />
+                          <span>{agoText(r.created_at)}</span>
+                        </span>
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              ) : v.requests.length ? (
+                <p className="sub">No {show === "done" ? "closed" : "open"} request.</p>
+              ) : (
+                <EmptyState title="No request yet" compact>Paste the first one in Add a request.</EmptyState>
+              )}
+            </>
+          );
+        }}
       </Async>
-    </>
+    </div>
   );
 }
 
@@ -121,63 +151,109 @@ function One({ pid, id }: { pid: string; id: string }) {
       setBusy(false);
     }
   };
+  const sort = () => void run(() => deskApi.sort(pid, id), () => toast("Sorting. It waits for you at its gate."));
+  usePageKey("s", () => { if (!busy) sort(); }, view.data?.request.status === "new");
   return (
-    <>
-      <PageHead title={view.data?.request.title ?? "A request"} actions={<a className="btn sm ghost" href={hashForScreen("desk")}>All requests</a>} />
-      <Async r={view} what="Loading the request">
-        {({ request: r, past, warnings }) => (
-          <div className="grid" style={{ gap: 12 }}>
-            <Panel title="The request" extra={<Pill tone={TONE[r.status] ?? "idle"}>{WORD[r.status] ?? r.status}</Pill>}>
-              <blockquote style={{ whiteSpace: "pre-wrap", margin: 0 }}>{r.body}</blockquote>
-              {r.origin && <p className="sub">From: {r.origin} (stays in keel)</p>}
-              {r.note && <p className="sub">Closed: {r.note}</p>}
-              {r.task_id && <p><a href={hashForScreen("tasks", r.task_id)}>Open its task</a></p>}
-              {r.thread_id && <p><a href={hashForScreen("flow", r.thread_id)}>Open its sorting flow</a></p>}
-            </Panel>
-            <Panel title={`Past cases (${past.length})`}>
-              {past.length ? (
-                <ul aria-label="Past cases">
-                  {past.map((c) => <li key={`${c.type}:${c.id}`}>{c.type}: <a href={pastHref(c)}>{c.title}</a> {c.status ? <span className="sub">({c.status})</span> : null}</li>)}
-                </ul>
-              ) : <p className="sub">No request, task or flow of this project shares words with this one.</p>}
-              <p className="sub">Found on this computer by shared words, with no model. Their titles go to the model company when you press Sort.</p>
-            </Panel>
-            {r.status === "new" && (
-              <Panel title="Sort it">
+    <Async r={view} what="Loading the request">
+      {({ request: r, past, warnings }) => (
+        <div className="rdw-detail">
+          <section className="panel rise" aria-labelledby="dk-title">
+            <div className="panel-body grid" style={{ gap: 10 }}>
+              <div className="rdw-meta">
+                <Pill tone={TONE[r.status] ?? "idle"}>{WORD[r.status] ?? r.status}</Pill>
+                <span>{agoText(r.created_at)}</span>
+                <span className="grow" />
+                <a className="btn sm ghost" href={hashForScreen("desk")}>All requests</a>
+              </div>
+              <h2 id="dk-title" className="dk-title">{r.title}</h2>
+              <blockquote className="rdw-quote">{r.body}</blockquote>
+              {r.origin && <p className="sub" style={{ margin: 0 }}>From: {r.origin} (stays in keel)</p>}
+              {r.note && <p className="sub" style={{ margin: 0 }}>Closed: {r.note}</p>}
+              {(r.task_id || r.thread_id) && (
+                <p className="rdw-bar" style={{ margin: 0 }}>
+                  {r.task_id && <a href={hashForScreen("tasks", r.task_id)}>Open its task</a>}
+                  {r.thread_id && <a href={hashForScreen("flow", r.thread_id)}>Open its sorting flow</a>}
+                </p>
+              )}
+            </div>
+          </section>
+          <Panel title={`Past cases · ${past.length}`} className="rise r1">
+            {past.length ? (
+              <ul aria-label="Past cases" className="rdw-items">
+                {past.map((c) => (
+                  <li key={`${c.type}:${c.id}`}>
+                    <a className="rdw-item dk-past" href={pastHref(c)}>
+                      <span className="rdw-item-top"><span className="mono dk-type">{c.type}</span><b>{c.title}</b>{c.status ? <span className="sub">{c.status}</span> : null}<span aria-hidden="true" className="sub">›</span></span>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="sub" style={{ marginTop: 0 }}>No request, task or flow of this project shares words with this one.</p>}
+            <p className="sub" style={{ marginBottom: 0 }}>Found on this computer by shared words, with no model. Their titles go to the model company when you press Sort.</p>
+          </Panel>
+          {r.status === "new" && (
+            <Panel title="Sort it" className="rise r2">
+              <div className="grid" style={{ gap: 10 }}>
                 {warnings.length > 0 && <Note tone="warn" role="alert">This text seems to hold {warnings.join(", ")}. It goes to your model company if you press Sort. Delete this request and add it again without that, if you may not share it.</Note>}
-                <p>Sort sends this text and the titles of the past cases to your model company, and an agent reads this project's repo. Then you choose: a fix flow, a change flow, a task, or close it.</p>
+                <p style={{ margin: 0 }}>Sort sends this text and the titles of the past cases to your model company, and an agent reads this project's repo. Then you choose: a fix flow, a change flow, a task, or close it.</p>
                 {problem && <Note tone="err" role="alert">{problem}</Note>}
-                <div className="row">
-                  <button className="btn primary" type="button" disabled={busy} onClick={() => void run(() => deskApi.sort(pid, id), () => toast("Sorting. It waits for you at its gate."))}>Sort it</button>
+                <div className="rdw-bar">
+                  <button className="btn primary" type="button" disabled={busy} onClick={sort} aria-keyshortcuts="S">Sort it <kbd aria-hidden="true">S</kbd></button>
                 </div>
-              </Panel>
-            )}
-            {r.sorted_text && (
-              <Panel title="How it was sorted">
-                <p>{r.kind && <Pill tone="run">{r.kind}</Pill>} {r.urgency && <Pill tone={URGENT[r.urgency] ?? "idle"}>{r.urgency}</Pill>} {r.area && <span className="mono">{r.area}</span>} {r.suggest && <span>· keel suggests <b>{r.suggest}</b></span>}</p>
-                <Markdown text={r.sorted_text} />
-                {r.status === "sorted" && r.thread_id && <p><a className="btn primary" href={hashForScreen("flow", r.thread_id)}>Choose what happens next</a></p>}
-              </Panel>
-            )}
-            {r.status !== "closed" && (
-              <Panel title="Close it">
+              </div>
+            </Panel>
+          )}
+          {r.sorted_text && (
+            <Panel title="How it was sorted" className="rise r2">
+              <p className="rdw-bar" style={{ marginTop: 0 }}>{r.kind && <Pill tone="run">{r.kind}</Pill>} {r.urgency && <Pill tone={URGENT[r.urgency] ?? "idle"}>{r.urgency}</Pill>} {r.area && <span className="mono">{r.area}</span>} {r.suggest && <span>· keel suggests <b>{r.suggest}</b></span>}</p>
+              <Markdown text={r.sorted_text} />
+              {r.status === "sorted" && r.thread_id && <p style={{ marginBottom: 0 }}><a className="btn primary" href={hashForScreen("flow", r.thread_id)}>Choose what happens next</a></p>}
+            </Panel>
+          )}
+          {r.status !== "closed" && (
+            <Panel title="Close it" className="rise r3">
+              <div className="grid" style={{ gap: 10 }}>
                 <div className="field"><label htmlFor="dk-f101">Why (optional)</label> <input id="dk-f101" value={note} onChange={(e) => setNote(e.target.value)} /></div>
-                <div className="row">
+                <div className="rdw-bar">
                   <button className="btn" type="button" disabled={busy} onClick={() => void run(() => deskApi.close(pid, id, note))}>Close the request</button>
                   <button className="btn ghost" type="button" disabled={busy} onClick={() => void run(() => deskApi.remove(pid, id), () => go("desk"))}>Delete it from keel</button>
                 </div>
-              </Panel>
-            )}
-          </div>
-        )}
-      </Async>
-    </>
+              </div>
+            </Panel>
+          )}
+        </div>
+      )}
+    </Async>
   );
 }
 
+/** #/desk and #/desk/<request>: the requests on the left, the open one on the right (one column on a phone). */
 export function DeskPage({ pid }: { pid: string }) {
   const { arg } = useRoute();
-  return arg ? <One key={arg} pid={pid} id={arg} /> : <List pid={pid} />;
+  const list = useLoad(`desk:${pid}`, () => deskApi.list(pid));
+  // the add form fills the right side while no request is open; on a request it opens above it with its button (or N)
+  const [adding, setAdding] = useState(false);
+  const add = () => {
+    setAdding(true);
+    window.setTimeout(() => document.getElementById("dk-f2")?.focus(), 0);
+  };
+  usePageKey("n", add);
+  return (
+    <div className="rdw rdw-desk">
+      <PageHead
+        title="Desk"
+        sub="Paste a support request. An agent sorts it, keel finds past cases, and you choose what happens next."
+        actions={<button className="btn primary" type="button" onClick={add} aria-keyshortcuts="N">Add a request <kbd aria-hidden="true">N</kbd></button>}
+      />
+      <div className="rdw-cols">
+        <Requests list={list} current={arg ?? null} />
+        <div className="rdw-detail">
+          {(adding || !arg) && <AddRequest pid={pid} onHide={arg ? () => setAdding(false) : undefined} onAdded={(id) => { setAdding(false); void list.reload(); go("desk", id); }} />}
+          {arg && <One key={arg} pid={pid} id={arg} />}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 /** The Inbox: a new request nobody sorted yet. Sort stays one click further, on the page that says what goes where. */

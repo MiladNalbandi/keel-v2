@@ -117,4 +117,33 @@ describe("the ready-made orgs", () => {
     await user.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(saved).toEqual({ id: "solo", yaml: "name: Solo developer\nroles: {}\n" }));
   });
+  it("opens on the chart with a role panel; a picked role gets a mission, and M opens the form", async () => {
+    const full = ROLES.map((r) => ({ ...r, agent: r.human ? null : `org-${r.id}`, plan: null, review: null }));
+    const ORG = { id: "team", name: "Small team", yaml: "name: Small team\n", updated_at: "", problems: [], roles: full, links: LINKS };
+    server.use(
+      http.get("/api/org/orgs", () => HttpResponse.json([ORG])),
+      http.get("/api/org/orgs/:id/missions", () => HttpResponse.json([])),
+    );
+    const user = userEvent.setup();
+    location.hash = "#/org/team";
+    render(<App />);
+    expect(await screen.findByRole("tab", { name: "Chart" })).toHaveAttribute("aria-selected", "true");
+    const panel = screen.getByRole("complementary", { name: "A role" });
+    expect(within(panel).getByRole("heading", { level: 2 })).toHaveTextContent("Tech lead");
+    expect(within(panel).getByText("Frontend engineer, Backend engineer")).toBeInTheDocument();
+    // a click on a box shows that role
+    await user.click(screen.getByRole("generic", { name: "Frontend engineer" }));
+    expect(within(panel).getByRole("heading", { level: 2 })).toHaveTextContent("Frontend engineer");
+    expect(within(panel).getByText("Frontend engineer asks Backend engineer")).toBeInTheDocument();
+    // the lead takes work from you: its button opens the form with it picked
+    await user.selectOptions(within(panel).getByLabelText("A role"), "lead");
+    await user.click(within(panel).getByRole("button", { name: "Give Tech lead a mission" }));
+    expect(screen.getByRole("tab", { name: /Missions/ })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByLabelText("To")).toHaveValue("lead");
+    // M from the chart opens the form too
+    await user.click(screen.getByRole("tab", { name: "Chart" }));
+    (document.activeElement as HTMLElement | null)?.blur();
+    await user.keyboard("m");
+    expect(await screen.findByLabelText("Title")).toBeInTheDocument();
+  });
 });

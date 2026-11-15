@@ -174,46 +174,7 @@ export function NextReview({ pid, reviewKey }: { pid: string; reviewKey: string 
       <div className="rvn-review-in">
         <header className="rvn-prhead">
           <div className="rvn-prhead-1">
-            <h2>
-              {v.kind === "pr" && <span className="rvn-dim">{label}</span>}{" "}
-              {v.title}
-            </h2>
-            <span className="rvn-grow" />
-            {v.url && (
-              <a
-                className="rvn-link"
-                href={v.url}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Open on {where} ↗
-              </a>
-            )}
-            {v.can_post && (
-              <button
-                type="button"
-                className="rvn-btn primary"
-                onClick={() => setSubmitting(true)}
-              >
-                Submit review{pendingN ? ` (${pendingN})` : ""}
-              </button>
-            )}
-          </div>
-          <div className="rvn-prmeta">
             <Tag tone={stTone}>{st}</Tag>
-            <span>
-              {v.kind === "pr"
-                ? `${you ? "You want" : `${v.author} wants`} to merge`
-                : "Branch"}
-            </span>
-            <span className="rvn-mono rvn-fg">{v.branch}</span>
-            <span>into</span>
-            <span className="rvn-mono rvn-fg">{v.base}</span>
-            <span>
-              <span className="rvn-add">+{v.added}</span>{" "}
-              <span className="rvn-del">−{v.removed}</span> · {v.files.length}{" "}
-              file{v.files.length === 1 ? "" : "s"}
-            </span>
             {checks && (
               <ChecksList
                 checks={v.checks}
@@ -224,11 +185,50 @@ export function NextReview({ pid, reviewKey }: { pid: string; reviewKey: string 
               />
             )}
             {v.approved.length > 0 && (
-              <span>approved by {v.approved.join(", ")}</span>
+              <span className="rvn-dim">approved by {v.approved.join(", ")}</span>
             )}
             {v.changes_requested.length > 0 && (
-              <span>changes asked by {v.changes_requested.join(", ")}</span>
+              <span className="rvn-dim">changes asked by {v.changes_requested.join(", ")}</span>
             )}
+            <span className="rvn-grow" />
+            {v.url && (
+              <a
+                className="rvn-btn ghost rvn-btn-sm"
+                href={v.url}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open on {where} ↗
+              </a>
+            )}
+            {v.can_post && (
+              <button
+                type="button"
+                className="rvn-btn primary rvn-btn-sm"
+                onClick={() => setSubmitting(true)}
+              >
+                Submit review{pendingN ? ` (${pendingN})` : ""}
+              </button>
+            )}
+          </div>
+          <h2 className="rvn-prtitle">
+            {v.kind === "pr" && <span className="rvn-mono rvn-dim">{label}</span>}{" "}
+            {v.title}
+          </h2>
+          <div className="rvn-prmeta">
+            <span>
+              {v.kind === "pr"
+                ? `${you ? "You want" : `${v.author} wants`} to merge`
+                : "Branch"}
+            </span>
+            <span className="rvn-mono rvn-fg">{v.branch}</span>
+            <span>into</span>
+            <span className="rvn-mono rvn-fg">{v.base}</span>
+            <span>
+              · <span className="rvn-add">+{v.added}</span>{" "}
+              <span className="rvn-del">−{v.removed}</span> · {v.files.length}{" "}
+              file{v.files.length === 1 ? "" : "s"}
+            </span>
           </div>
           <BaseLine pid={pid} view={v} className="rvn-base" />
           <details className="rvn-overview">

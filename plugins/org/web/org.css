@@ -59,3 +59,33 @@
 .org-cards li { display: grid; gap: 6px; padding: 12px 16px; border-bottom: 1px solid var(--border); min-width: 0; }
 .org-cards li:last-child { border-bottom: 0; }
 .org-cards a { color: var(--accent); text-decoration: none; overflow-wrap: anywhere; }
+/* keel 0.28 the redesign (board PgOrg): the chart on a dotted canvas with a role panel beside it, calm tabs, a count */
+.rdw-org .org-tabs { margin-bottom: 14px; }
+.rdw-org .org-count { min-width: 18px; height: 18px; padding: 0 6px; box-sizing: border-box; border-radius: 999px; background: var(--panel-2); color: var(--dim);
+  font-size: 11.5px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; }
+.rdw-org .org-count.warn { background: var(--warn-soft); color: var(--warn); }
+.rdw-org .org-pick { height: 34px; border-radius: 9px; border: 1px solid var(--border); background: var(--panel); color: var(--fg); font: inherit; padding: 0 10px; }
+.rdw-org .org-pick.sm { height: 28px; font-size: 12.5px; max-width: 60%; }
+.rdw-org .org-chart-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 300px); gap: 16px; align-items: start; }
+.rdw-org .org-canvas { padding: 16px; background-color: var(--panel);
+  background-image: radial-gradient(color-mix(in srgb, var(--dim) 28%, transparent) 1px, transparent 1px); background-size: 18px 18px; }
+.rdw-org .org-role { border-radius: 12px; background: var(--panel); box-shadow: 0 1px 0 rgba(0,0,0,.08); }
+.rdw-org .org-role.can-pick { cursor: pointer; }
+.rdw-org .org-role.can-pick:hover { border-color: var(--rail); }
+.rdw-org .org-role.picked { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.rdw-org .org-human { background: var(--warn-soft); border-style: dashed; }
+.rdw-org .org-rolepanel { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; position: sticky; top: 60px; animation: k-pop .25s ease both; }
+.rdw-org .org-role-title { margin: 0; font-size: 18px; font-weight: 600; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.rdw-org .org-kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 14px; margin: 0; font-size: 13px; }
+.rdw-org .org-kv dt { color: var(--dim); }
+.rdw-org .org-kv dd { margin: 0; overflow-wrap: anywhere; }
+.rdw-org .org-links { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; font-size: 13px; }
+.rdw-org .org-tpl { border-radius: 14px; transition: transform .2s cubic-bezier(.2,.7,.2,1), border-color .2s ease, box-shadow .2s ease; }
+.rdw-org .org-tpl:hover { transform: translateY(-2px); border-color: var(--rail); box-shadow: var(--shadow); }
+.rdw-org .org-tpl.picked { border-color: var(--accent); }
+.rdw-org .org-cols { gap: 14px; }
+@media (prefers-reduced-motion: reduce) { .rdw-org .org-rolepanel { animation: none; } .rdw-org .org-tpl:hover { transform: none; } }
+@media (max-width: 900px) {
+  .rdw-org .org-chart-cols { grid-template-columns: minmax(0, 1fr); }
+  .rdw-org .org-rolepanel { position: static; }
+}

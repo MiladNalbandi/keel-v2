@@ -59,79 +59,124 @@ a.tkn-link,
   background: var(--faint);
 }
 
-/* N tasks need you */
+/* N tasks need you: one amber card, the asks in columns (keel 0.28 the redesign, board PgTasks) */
 .tkn-needs {
-  display: grid;
-  gap: 2px;
-  padding: 12px 16px;
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--warn);
-  border-radius: 12px;
-  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--warn) 50%, var(--border));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--warn-soft) 40%, var(--panel));
+}
+.tkn-needs-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+.tkn-dia {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  background: var(--warn);
+  transform: rotate(45deg);
+  border-radius: 2px;
 }
 .tkn-needs-h {
-  font-size: 13px;
+  font-size: 13.5px;
   font-weight: 600;
-  color: var(--warn);
+  color: var(--fg);
+}
+.tkn-needs-tip {
+  font-size: 12.5px;
 }
 .tkn-needs ul {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 2px 16px;
 }
 .tkn-needs li button {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 4px 10px;
+  gap: 10px;
   width: 100%;
-  min-height: 40px;
-  padding: 4px 0;
+  min-height: 44px;
+  padding: 6px 8px;
   border: 0;
+  border-radius: 8px;
   background: transparent;
   color: var(--fg);
   text-align: left;
   cursor: pointer;
   font: inherit;
+  transition: background 0.16s ease;
 }
-.tkn-needs li button:hover .tkn-needs-t {
-  text-decoration: underline;
+.tkn-needs li button:hover {
+  background: color-mix(in srgb, var(--warn-soft) 70%, var(--panel));
 }
 .tkn-needs li button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
-  border-radius: 6px;
+}
+.tkn-needs-k {
+  flex: none;
+  width: 60px;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tkn-needs-txt {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 .tkn-needs-t {
-  flex: 1 1 200px;
   min-width: 0;
   font-weight: 500;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.tkn-needs .sub {
+.tkn-needs-txt .sub {
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tkn-needs .tkn-link {
+  flex: none;
   font-size: 13px;
 }
 
-/* the filters */
+/* the filters and the tracker line, one block */
+.tkn-top {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
 .tkn-filters {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 8px 10px;
 }
 .tkn-seg {
   display: inline-flex;
   padding: 3px;
-  border: 1px solid var(--border);
+  gap: 2px;
   border-radius: 10px;
-  background: var(--panel);
+  background: var(--panel-2);
 }
 .tkn-seg button {
-  min-height: 34px;
-  padding: 0 12px;
+  min-height: 30px;
+  padding: 0 11px;
   border: 0;
-  border-radius: 7px;
+  border-radius: 8px;
   background: transparent;
   color: var(--dim);
   font: inherit;
@@ -139,10 +184,15 @@ a.tkn-link,
   font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
+  transition: background 0.18s ease, color 0.18s ease;
+}
+.tkn-seg button:hover {
+  color: var(--fg);
 }
 .tkn-seg button[aria-pressed="true"] {
-  background: var(--panel-2);
+  background: var(--panel);
   color: var(--fg);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 .tkn-seg button:focus-visible {
   outline: 2px solid var(--accent);
@@ -152,21 +202,46 @@ a.tkn-link,
   color: var(--dim);
   font-weight: 400;
 }
+.tkn-named {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--dim);
+}
+.tkn-named select {
+  min-height: 34px;
+  min-width: 120px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13.5px;
+}
+.tkn-named select:focus {
+  outline: 0;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
 .tkn-search {
-  flex: 1 1 200px;
-  max-width: 320px;
+  flex: 0 1 240px;
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 40px;
-  padding: 0 12px;
+  min-height: 34px;
+  padding: 0 11px;
+  box-sizing: border-box;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 9px;
   background: var(--panel);
   color: var(--dim);
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
 }
 .tkn-search:focus-within {
   border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 .tkn-search input {
   flex: 1;
@@ -181,20 +256,24 @@ a.tkn-link,
 }
 .tkn-count {
   white-space: nowrap;
+  font-size: 12.5px;
 }
 
-/* the Jira sync line */
+/* the tracker sync line */
 .tkn-sync {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 4px 8px;
-  margin-top: -6px;
   font-size: 13px;
 }
 .tkn-sync .linkbtn {
-  min-height: 32px;
+  min-height: 30px;
   padding: 0 4px;
+}
+.tkn-conn {
+  font-size: 13px;
+  text-decoration: none;
 }
 .tkn-sync-err {
   flex: 1 1 100%;
@@ -202,51 +281,58 @@ a.tkn-link,
   overflow-wrap: anywhere;
 }
 
-/* the board: columns side by side, scrolls sideways when narrow */
+/* the board: calm columns side by side, scrolls sideways when narrow */
 .tkn-board {
-  display: flex;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(184px, 1fr);
   gap: 12px;
   overflow-x: auto;
   padding-bottom: 8px;
-  align-items: flex-start;
+  align-items: stretch;
   scrollbar-width: thin;
   overscroll-behavior-x: contain;
 }
 .tkn-col {
-  flex: 1 0 196px;
-  min-width: 196px;
+  min-width: 0;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-height: 420px;
   padding: 10px;
   border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--panel);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--panel-2) 45%, var(--bg));
 }
 .tkn-col.g-blocked {
-  border-color: color-mix(in srgb, var(--bad) 45%, var(--border));
+  border-color: color-mix(in srgb, var(--bad) 40%, var(--border));
 }
 .tkn-col-h {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 2px 4px 0;
+  margin: 0;
+  padding: 2px 4px;
   font-size: 13px;
   font-weight: 600;
 }
 .tkn-n {
   min-width: 20px;
+  height: 20px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 0 6px;
   border-radius: 999px;
   background: var(--panel-2);
   color: var(--dim);
-  font-size: 12px;
-  font-weight: 500;
-  text-align: center;
+  font-size: 11.5px;
+  font-weight: 600;
 }
 .tkn-hint {
-  margin: 0 4px;
+  margin: -4px 4px 0;
   color: var(--dim);
   font-size: 12px;
 }
@@ -260,15 +346,15 @@ a.tkn-link,
 }
 .tkn-none {
   margin: 0;
-  padding: 16px 8px;
+  padding: 18px 4px;
   border: 1px dashed var(--border);
   border-radius: 10px;
   color: var(--dim);
-  font-size: 13px;
+  font-size: 12.5px;
   text-align: center;
 }
 
-/* a card */
+/* a card: key · type, the title, its state, who has it */
 .tkn-card {
   min-width: 0;
 }
@@ -276,29 +362,33 @@ a.tkn-link,
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 8px;
+  gap: 6px;
   width: 100%;
-  padding: 12px;
+  padding: 10px 12px;
   border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--panel-2);
+  border-radius: 11px;
+  background: var(--panel);
   color: var(--fg);
   text-align: left;
   cursor: pointer;
   font: inherit;
+  transition: border-color 0.16s ease, box-shadow 0.2s ease, transform 0.2s cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 .tkn-card > button:hover {
-  border-color: var(--faint);
+  border-color: var(--rail);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.18);
 }
 .tkn-card > button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
 .tkn-card.is-needs > button {
-  border-color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 55%, var(--border));
+  background: color-mix(in srgb, var(--warn-soft) 38%, var(--panel));
 }
 .tkn-card.s-cancelled > button {
-  opacity: 0.7;
+  opacity: 0.75;
 }
 .tkn-card .pill {
   align-self: flex-start;
@@ -316,17 +406,26 @@ a.tkn-link,
   font-weight: 500;
 }
 .tkn-high {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--bad-soft);
   color: var(--bad);
+  font-size: 11px;
+  font-weight: 600;
 }
 .tkn-card-title {
-  font-weight: 500;
-  line-height: 1.4;
+  font-weight: 600;
+  font-size: 13.5px;
+  line-height: 1.35;
   overflow-wrap: anywhere;
 }
 .tkn-card-meta {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   color: var(--dim);
   font-size: 12px;
   min-width: 0;
@@ -334,37 +433,47 @@ a.tkn-link,
 }
 .tkn-avatar {
   flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
   background: var(--accent-soft);
   color: var(--accent);
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 10px;
+  font-weight: 700;
 }
+.tkn-avatar.av-0 { background: var(--accent-soft); color: var(--accent); }
+.tkn-avatar.av-1 { background: var(--run-soft); color: var(--run); }
+.tkn-avatar.av-2 { background: var(--ok-soft); color: var(--ok); }
+.tkn-avatar.av-3 { background: var(--warn-soft); color: var(--warn); }
+.tkn-avatar.av-4 { background: var(--bad-soft); color: var(--bad); }
+.tkn-avatar.av-none { background: var(--panel-2); color: var(--dim); }
 .tkn-reason {
   color: var(--bad);
   font-size: 12px;
   overflow-wrap: anywhere;
 }
 
-/* the list: groups by status that fold; each task a row */
+/* the list: groups by status that fold, in one card; each task a row */
 .tkn-list {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel);
+  overflow: hidden;
 }
 .tkn-group {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+}
+.tkn-group + .tkn-group {
+  border-top: 1px solid var(--border);
 }
 .tkn-group-h {
   margin: 0;
-  font-size: 14px;
+  font-size: 13.5px;
 }
 .tkn-group-h button {
   display: flex;
@@ -372,7 +481,7 @@ a.tkn-link,
   gap: 8px;
   width: 100%;
   min-height: 44px;
-  padding: 0 4px;
+  padding: 0 12px;
   border: 0;
   background: transparent;
   color: var(--fg);
@@ -381,37 +490,38 @@ a.tkn-link,
   text-align: left;
   cursor: pointer;
 }
+.tkn-group-h button:hover {
+  background: var(--panel-2);
+}
 .tkn-group-h button:focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 1px;
-  border-radius: 8px;
-}
-.tkn-group-h .tkn-n {
-  background: transparent;
-  padding: 0;
+  outline-offset: -2px;
 }
 .tkn-rows {
   gap: 0;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  overflow: hidden;
+}
+.tkn-group .tkn-none {
+  margin: 0 12px 12px;
 }
 .tkn-card.is-row {
   position: relative;
-  border-bottom: 1px solid var(--border);
-}
-.tkn-card.is-row:last-child {
-  border-bottom: 0;
+  border-top: 1px solid var(--border);
 }
 .tkn-card.is-row > button {
-  min-height: 64px;
-  padding: 12px 40px 12px 16px;
+  min-height: 56px;
+  padding: 10px 40px 10px 16px;
   border: 0;
   border-radius: 0;
-  background: var(--panel);
-  gap: 6px;
+  background: transparent;
+  gap: 4px;
+}
+.tkn-card.is-row > button:hover {
+  transform: none;
+  box-shadow: none;
+  background: var(--panel-2);
 }
 .tkn-card.is-row.is-needs > button {
+  background: transparent;
   box-shadow: inset 3px 0 0 var(--warn);
 }
 .tkn-chev {
@@ -424,11 +534,31 @@ a.tkn-link,
 }
 .tkn-nomatch {
   margin: 0;
-  padding: 20px;
+  padding: 32px 20px;
   border: 1px dashed var(--border);
-  border-radius: 12px;
+  border-radius: 14px;
   color: var(--dim);
+  text-align: center;
 }
+.tkn-empty {
+  border-radius: 14px;
+}
+.tkn-ic {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tkn-card > button:hover {
+    transform: none;
+  }
+}
+
 
 /* ---------- the task drawer ---------- */
 .drawer.tkn-drawer {
@@ -927,3 +1057,147 @@ a.tkn-link,
   .tkn-sec .btn, .tkn-foot .btn { min-height: 44px; }
 }
 .tkn-map-note { display: block; margin-top: 4px; }
+
+/* keel 0.28 the redesign: the drawers (a task, New task, Automations) after the board's: a big title under the key, the
+   asks as soft boxes, buttons and keys like the page's. The drawer sits outside the page (a portal), so it is scoped here. */
+.drawer.tkn-drawer {
+  animation: tkn-in 0.26s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes tkn-in {
+  from { transform: translateX(24px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+.drawer.tkn-drawer > header {
+  padding-top: calc(16px + env(safe-area-inset-top, 0px));
+  padding-bottom: 12px;
+}
+.drawer.tkn-drawer > header h2 {
+  font-size: 18px;
+  letter-spacing: -0.01em;
+}
+.drawer.tkn-drawer .tag {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--panel-2);
+  color: var(--dim);
+  font-size: 12px;
+}
+.drawer.tkn-drawer .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 9px;
+  transition: background 0.16s ease, border-color 0.16s ease, transform 0.12s ease, filter 0.16s ease;
+}
+.drawer.tkn-drawer .btn:hover:not(:disabled) {
+  background: var(--panel-2);
+  border-color: var(--rail);
+}
+.drawer.tkn-drawer .btn.primary:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+  filter: brightness(1.08);
+}
+.drawer.tkn-drawer .btn.ghost {
+  border-color: transparent;
+}
+.drawer.tkn-drawer .btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+.drawer.tkn-drawer .btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.drawer.tkn-drawer .tkn-facts {
+  font-size: 13.5px;
+}
+.drawer.tkn-drawer .tkn-wait {
+  border: 1px solid color-mix(in srgb, var(--warn) 55%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--warn-soft) 45%, var(--panel));
+}
+.drawer.tkn-drawer .tkn-suggest {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: color-mix(in srgb, var(--accent-soft) 50%, var(--panel));
+}
+.drawer.tkn-drawer .tkn-flow,
+.drawer.tkn-drawer .tkn-pr,
+.drawer.tkn-drawer .tkn-rule,
+.drawer.tkn-drawer .tkn-map {
+  background: var(--panel);
+  border-radius: 12px;
+}
+.drawer.tkn-drawer .field > label:not(.radio):not(.chk) {
+  font-size: 13px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--fg);
+}
+.drawer.tkn-drawer .field input:not([type="checkbox"]):not([type="radio"]),
+.drawer.tkn-drawer .field select,
+.drawer.tkn-drawer .field textarea {
+  border-radius: 9px;
+  min-height: 36px;
+  box-sizing: border-box;
+  padding: 7px 11px;
+  font-size: 14px;
+  background: var(--panel);
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+.drawer.tkn-drawer .field textarea {
+  font-family: inherit;
+  line-height: 1.5;
+}
+.drawer.tkn-drawer .field input:focus,
+.drawer.tkn-drawer .field select:focus,
+.drawer.tkn-drawer .field textarea:focus {
+  outline: 0;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+@media (prefers-reduced-motion: reduce) {
+  .drawer.tkn-drawer {
+    animation: none;
+  }
+  .drawer.tkn-drawer .btn:active:not(:disabled) {
+    transform: none;
+  }
+}
+@media (max-width: 760px) {
+  .tkn-needs ul {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .tkn-named {
+    flex: 1 1 auto;
+  }
+  .tkn-named select {
+    flex: 1;
+  }
+}
+.drawer.tkn-drawer fieldset {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px 12px;
+  margin: 0;
+}
+.drawer.tkn-drawer legend {
+  padding: 0 6px;
+  font-size: 13px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--fg);
+}
+@media (max-width: 760px) {
+  .tkn-sync { align-items: flex-start; }
+  .tkn-sync > .tkn-dot { margin-top: 6px; }
+  .tkn-sync > .sub { flex: 1 1 0; min-width: 0; }
+  .tkn-sync .linkbtn { flex-basis: 100%; justify-content: flex-start; text-align: left; }
+  /* a phone has no N key: the button keeps its words */
+  .rdw-tasks .top kbd { display: none; }
+}
