@@ -269,6 +269,11 @@
   .rdw > .top .actions { margin-left: 0; }
   .rdw-proj .rdw-sum > .btn { margin-left: 0; }
 }
+@media (max-width: 600px) {
+  .rdw-fixlist li { grid-template-columns: 18px minmax(0, 1fr) auto; }
+  .rdw-fixlist li > .pill { grid-column: 2; grid-row: 2; justify-self: start; }
+  .rdw-fixlist li > .rdw-ago { grid-column: 3; grid-row: 1; }
+}
 @media (prefers-reduced-motion: reduce) {
   .rdw > .top, .rdw-dot.run, .rdw-dotted.on::before, .rdw-dots i, .rdw-feed .step.flash { animation: none !important; }
   .rdw-switch input, .rdw-switch input::after { transition: none; }
