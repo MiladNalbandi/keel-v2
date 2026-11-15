@@ -228,6 +228,12 @@ function Updates() {
               : u.check_daily ? "Not checked yet: keel looks once a day." : "Off: keel makes no network call for this. Check now asks once."}
           </p>
           {err && <p className="ss-note t-err" role="alert">{err}</p>}
+          {u.desktop ? (
+          <div className="acc-cmd">
+            <span className="ss-label">keel runs in the keel app.</span>
+            <span className="ss-meta">{u.command_why} <a href={u.url} target="_blank" rel="noreferrer">The release page ›</a></span>
+          </div>
+          ) : (
           <div className="acc-cmd">
             <span className="ss-label">The update command (a terminal on this computer):</span>
             <CopyBlock text={u.command} label="update command" />
@@ -238,6 +244,7 @@ function Updates() {
               tag needs the new one named: <code>KEEL_IMAGE=&lt;image&gt; keel2 update</code>.
             </span>
           </div>
+          )}
         </>
       )}
     </section>

@@ -48,6 +48,8 @@ data class UpdatesView(
     val edition: String,
     val image: String?,
     val native: Boolean,
+    /** 0.27.0 keel runs in the keel desktop app (KEEL_DESKTOP=1): a new version is a new download of the app. */
+    val desktop: Boolean,
     val command: String,
     val commandWhy: String,
 )
@@ -135,15 +137,16 @@ class ReleaseCheck(
         val r = c.release
         val edition = (System.getenv("KEEL_EDITION") ?: "full").ifBlank { "full" }
         val native = System.getenv("KEEL_NATIVE") == "1"
+        val desktop = System.getenv("KEEL_DESKTOP") == "1"
         val image = System.getenv("KEEL_IMAGE")?.trim()?.ifEmpty { null }
         val channel = s.channel ?: if (edition == "product") "product" else "stable"
         val latest = r?.version
-        val (command, why) = Command.of(latest, channel, edition, image, native)
+        val (command, why) = Command.of(latest, channel, edition, image, native, desktop)
         return UpdatesView(
             current = version, latest = latest, newer = latest != null && Semver.newer(latest, version), name = r?.name,
             notes = r?.notes ?: "", url = r?.url ?: "https://github.com/${repo.trim()}/releases",
             publishedAt = r?.publishedAt, checkedAt = c.checkedAt, error = c.error, checkDaily = s.checkDaily,
-            channel = channel, edition = edition, image = image, native = native, command = command, commandWhy = why,
+            channel = channel, edition = edition, image = image, native = native, desktop = desktop, command = command, commandWhy = why,
         )
     }
 
@@ -233,7 +236,9 @@ object Command {
     const val REPO = "ghcr.io/miladnalbandi/keel-v2"
     private val PINNED = Regex(":v?\\d+\\.\\d+(\\.\\d+)?(-[0-9A-Za-z.-]+)?$")
 
-    fun of(latest: String?, channel: String, edition: String, image: String?, native: Boolean): Pair<String, String> {
+    fun of(latest: String?, channel: String, edition: String, image: String?, native: Boolean, desktop: Boolean = false): Pair<String, String> {
+        // the desktop app has no update command: the new app is a download (its page has the files), the data stays
+        if (desktop) return "" to "keel runs in the keel app: download the new app from the release page and open it. Your projects and settings stay."
         if (native) return "keel2 update" to "keel runs without Docker: keel2 update gets the newest release and restarts keel."
         if (edition == "core" && image == null) return "keel2 update" to "keel runs its core image: keel2 update gets the newest core image."
         val repo = image?.let { repoOf(it) }

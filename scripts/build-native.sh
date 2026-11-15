@@ -3,6 +3,7 @@
 #
 #   api.jar            the api with the web app inside (the same bootJar as the image)
 #   engine/            the engine's source, pyproject.toml and uv.lock (keel2 runs `uv sync --frozen` on install)
+#   api-py/            0.27.0 the Python api's source, pyproject.toml and uv.lock: the front door, as in the image
 #   content/           agents, skills, stacks, templates
 #   plugins/           every plugin of plugins/, packed as the full image has them (<name>/<version>/: scripts/build-plugin.sh)
 #   cli/keel-tui.mjs   keel TUI, keel in the terminal (keel2 tui runs it with this computer's Node)
@@ -52,12 +53,15 @@ for d in "$repo"/plugins/*/; do
 done
 rm -f "$stage/plugins"/*.kplug
 
-echo "engine, content…"
+echo "engine, Python api, content…"
 mkdir -p "$stage/engine"
 # .python-version pins the engine to the Python the image uses (3.12): without it uv takes the newest Python on
 # the computer, and a dependency may have no build for it yet (ormsgpack on 3.15)
 cp "$src/engine/pyproject.toml" "$src/engine/uv.lock" "$src/engine/.python-version" "$stage/engine/"
 (cd "$src/engine" && tar --exclude '__pycache__' --exclude '.pytest_cache' -cf - keel_engine) | (cd "$stage/engine" && tar -xf -)
+mkdir -p "$stage/api-py"
+cp "$src/api-py/pyproject.toml" "$src/api-py/uv.lock" "$src/engine/.python-version" "$stage/api-py/"
+(cd "$src/api-py" && tar --exclude '__pycache__' --exclude '.pytest_cache' -cf - keel_api) | (cd "$stage/api-py" && tar -xf -)
 cp -R "$src/content" "$stage/content"
 cp "$src/docker/keel-native-start" "$stage/keel-native-start"
 cp "$src/docker/keel-start" "$stage/keel-start"

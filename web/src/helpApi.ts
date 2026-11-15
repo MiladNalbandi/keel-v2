@@ -60,6 +60,8 @@ export type UpdatesView = {
   edition: string;
   image: string | null;
   native: boolean;
+  /** 0.27.0 keel runs in the keel desktop app: no update command, the new app is a download from `url` */
+  desktop?: boolean;
   command: string;
   command_why: string;
 };
