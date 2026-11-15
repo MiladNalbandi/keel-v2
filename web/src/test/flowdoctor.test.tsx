@@ -74,6 +74,32 @@ describe("Watch › Flow doctor (#101 part 3)", () => {
     expect(await screen.findByText("No crash today")).toBeInTheDocument();
   });
 
+  it("keel 0.28: puts what waits for you first, lists what keel repaired, folds each kind and copies with C", async () => {
+    const write = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText: write }, configurable: true });
+    const rep = { ...REPORT, recent: REPORT.recent.map((c, i) => ({ ...c, thread: `th${i}`, action: i ? "wait" : undefined })) };
+    server.use(http.get("/api/flow-doctor/report", () => HttpResponse.json(rep)));
+    location.hash = "#/doctor";
+    render(<App />);
+    const waits = await screen.findByRole("region", { name: /Waits for you/ });
+    expect(waits).toHaveTextContent("The provider refused the key");
+    expect(waits).toHaveTextContent("What to do: Check the key in Settings › Models & keys, then retry.");
+    expect(within(waits).getByRole("button", { name: "Open the flow ›" })).toBeInTheDocument();
+    const fixed = screen.getByRole("region", { name: "Repaired and retried" });
+    expect(fixed).toHaveTextContent("waited, then ran it again");
+    // the first kind opens unfolded, the others fold
+    const kinds = screen.getByRole("region", { name: "What to improve" });
+    const first = within(kinds).getByRole("button", { name: /The provider refused the key/ });
+    const second = within(kinds).getByRole("button", { name: /The provider was overloaded/ });
+    expect(first).toHaveAttribute("aria-expanded", "true");
+    expect(second).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("Steps: change › impl")).not.toBeInTheDocument();
+    await userEvent.click(second);
+    expect(screen.getByText("Steps: change › impl")).toBeInTheDocument();
+    await userEvent.keyboard("c");
+    expect(write).toHaveBeenCalledWith("# keel flow doctor: the last 7 days\n");
+  });
+
   it("is in the Watch group of the menu", async () => {
     server.use(http.get("/api/flow-doctor/report", () => HttpResponse.json(REPORT)));
     location.hash = "#/projects";
