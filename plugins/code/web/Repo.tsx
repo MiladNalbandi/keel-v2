@@ -4,7 +4,7 @@
 // and Focus are in the status bar (./IndexStatus.tsx, ./Ide.tsx); KeelBot's own page opens from its panel.
 
 import { useEffect, useState } from "react";
-import { ErrorBox, errorParts, isMac, PageHead, useApp, useLoad } from "@keel/web-sdk";
+import { ErrorBox, errorParts, isMac, keyLabel, PageHead, SLOTS, useApp, useLoad, useSlot, type AssistantItem } from "@keel/web-sdk";
 import { codeApi as api, type RepoInfo, type UpdateFromBase } from "./codeApi";
 import { RepoIde } from "./Ide";
 import { FOCUS_EVENT } from "./model";
@@ -15,6 +15,10 @@ export function RepoPage({ pid }: { pid: string }) {
   const [result, setResult] = useState<UpdateFromBase | { error: { message: string; hint?: string } } | null>(null);
   /** Bumped after a merge brought new files: the explorer reads the tree again. */
   const [version, setVersion] = useState(0);
+  // 0.28 the head's Go to file (⌘P) and Ask (⌘I): each click is a new number the IDE answers
+  const [qoKey, setQoKey] = useState(0);
+  const [askKey, setAskKey] = useState(0);
+  const assistant = useSlot<AssistantItem>(SLOTS.assistant)[0] ?? null;
   // Focus: the page head (title, Update from base) goes, so the code and KeelBot get the room
   const [focus, setFocus] = useState<boolean>(() => {
     try { return localStorage.getItem("keel2.repo.focus") === "1"; } catch { return false; }
@@ -62,10 +66,21 @@ export function RepoPage({ pid }: { pid: string }) {
               if ("merged" in x && x.merged) setVersion((v) => v + 1);
             }} />
           )}
+          <button className="btn sm" type="button" onClick={() => setQoKey((n) => n + 1)} title="Find a file by name; type : and a number to go to a line">
+            Go to file <kbd>{keyLabel("meta+p")}</kbd>
+          </button>
+          {assistant && (
+            // a press keeps the selected lines: they go along with the question
+            <button className="btn sm primary" type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => setAskKey((n) => n + 1)}
+              title={`Ask ${assistant.title} about the selected lines, or this file`}>
+              Ask {assistant.title} <kbd>{keyLabel("meta+i")}</kbd>
+            </button>
+          )}
         </>} />}
       {repo.error && <div style={{ marginBottom: 12 }}><ErrorBox error={repo.error} onRetry={() => void repo.reload()} /></div>}
       {result && <UpdateResult result={result} base={repo.data?.base ?? "base"} onClose={() => setResult(null)} />}
-      <RepoIde pid={pid} repo={repo.data} version={version} focus={focus} onFocus={setFocus} onRepoChanged={() => void repo.reload()} />
+      <RepoIde pid={pid} repo={repo.data} version={version} focus={focus} onFocus={setFocus} onRepoChanged={() => void repo.reload()}
+        quickOpenKey={qoKey} askKey={askKey} />
     </div>
   );
 }
