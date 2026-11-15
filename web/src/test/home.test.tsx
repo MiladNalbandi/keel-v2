@@ -18,7 +18,8 @@ const row = (o: Partial<RunRow>): RunRow => ({
 function openHome() {
   location.hash = "";
   render(<App />);
-  return screen.findByRole("heading", { name: "What should keel build in ludus-engine?" });
+  // Ask comes first (the person's wish); ⇥ in the empty box goes to Build a flow
+  return screen.findByRole("heading", { name: "Ask keel about ludus-engine" });
 }
 
 describe("Home (keel 0.28)", () => {
@@ -49,11 +50,17 @@ describe("Home (keel 0.28)", () => {
     expect(within(screen.getByRole("navigation", { name: "Screens" })).getByRole("link", { name: "Home" })).toHaveAttribute("aria-current", "page");
   });
 
-  it("↩ opens Start a flow with what to build; an empty box says so first", async () => {
+  it("asks first; ⇥ in the empty box goes to Build a flow, whose ↩ opens Start a flow with what to build", async () => {
     const user = userEvent.setup();
     await openHome();
+    const modes = within(screen.getByRole("group", { name: "What the box does" })).getAllByRole("button");
+    expect(modes.map((b) => b.textContent)).toEqual(["Ask KeelBot", "Build a flow"]);
+    expect(modes[0]).toHaveAttribute("aria-pressed", "true");
+    await user.click(screen.getByRole("textbox", { name: "Your question" }));
+    await user.keyboard("{Tab}");
+    expect(screen.getByRole("heading", { name: "What should keel build in ludus-engine?" })).toBeInTheDocument();
     const box = screen.getByRole("textbox", { name: "What to build" });
-    await user.click(box);
+    expect(box).toHaveFocus();
     await user.keyboard("{Enter}");
     expect(screen.getByText("Say what to build first.")).toBeInTheDocument();
     await user.type(box, "Players see their rank next to the top 10{Enter}");
@@ -64,8 +71,6 @@ describe("Home (keel 0.28)", () => {
   it("Ask KeelBot opens ⌘K with the question, where KeelBot answers", async () => {
     const user = userEvent.setup();
     await openHome();
-    await user.click(screen.getByRole("button", { name: "Ask KeelBot" }));
-    expect(screen.getByRole("heading", { name: "Ask about ludus-engine" })).toBeInTheDocument();
     await user.type(screen.getByRole("textbox", { name: "Your question" }), "where is the score saved?");
     await user.click(screen.getByRole("button", { name: "Ask ↩" }));
     const launcher = await screen.findByRole("dialog", { name: "Launcher" });
@@ -81,7 +86,7 @@ describe("Home (keel 0.28)", () => {
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: /Start a flow/ })).toBeNull());
     // typing n in Home's box types it
-    await user.type(screen.getByRole("textbox", { name: "What to build" }), "n");
+    await user.type(screen.getByRole("textbox", { name: "Your question" }), "n");
     expect(screen.queryByRole("dialog", { name: /Start a flow/ })).toBeNull();
     act(() => (document.activeElement as HTMLElement | null)?.blur());
     fireEvent.keyDown(window, { key: "n" });

@@ -1,12 +1,12 @@
-// keel 0.28 Home: one box to start a flow or ask KeelBot, then what waits for you, what runs now and the recent flows.
-// Starting opens the Start a flow drawer with the text in it (its estimate, size and cap stay there); asking opens ⌘K
-// in KeelBot mode with the question, where the answer shows.
+// keel 0.28 Home: one box to ask KeelBot or start a flow, then what waits for you, what runs now and the recent flows.
+// Asking comes first (⇥ in the empty box goes to Build a flow): it opens ⌘K in KeelBot mode with the question, where
+// the answer shows. Starting opens the Start a flow drawer with the text in it (its estimate, size and cap stay there).
 //
-//          What should keel build in greeter?
+//            Ask keel about greeter
 //   ┌───────────────────────────────────────────────┐
-//   │ [Build a flow | Ask KeelBot]                  │
-//   │ Players see their rank next to the top 10…    │
-//   │                        More options  Start ↩  │
+//   │ [Ask KeelBot | Build a flow]       ⇥ switches │
+//   │ Where is the scoreboard sorted?               │
+//   │                                         Ask ↩ │
 //   └───────────────────────────────────────────────┘
 //   Waiting for you (2) · Running now · Recent
 
@@ -33,7 +33,8 @@ const KIND: Record<string, string> = {
 
 export function HomePage({ pid }: PageProps) {
   const { project } = useApp();
-  const [mode, setMode] = useState<"build" | "ask">("build");
+  // the person's wish: Ask first, Build a flow second (⇥ switches)
+  const [mode, setMode] = useState<"build" | "ask">("ask");
   const [text, setText] = useState("");
   const [err, setErr] = useState(false);
   const box = useRef<HTMLTextAreaElement>(null);
@@ -61,15 +62,15 @@ export function HomePage({ pid }: PageProps) {
   return (
     <div className="home2">
       <section className="h2-hero rise">
-        <h1>{mode === "build" ? `What should keel build${project ? ` in ${project.name}` : ""}?` : `Ask about ${project?.name ?? "this project"}`}</h1>
+        <h1>{mode === "build" ? `What should keel build${project ? ` in ${project.name}` : ""}?` : `Ask keel about ${project?.name ?? "this project"}`}</h1>
         <div className={`h2-box${err ? " bad" : ""}`}>
           <div className="h2-top">
             <div className="seg2" role="group" aria-label="What the box does">
-              <button type="button" aria-pressed={mode === "build"} onClick={() => setMode("build")}>
-                Build a flow
-              </button>
               <button type="button" aria-pressed={mode === "ask"} onClick={() => setMode("ask")}>
                 Ask KeelBot
+              </button>
+              <button type="button" aria-pressed={mode === "build"} onClick={() => setMode("build")}>
+                Build a flow
               </button>
             </div>
             <span className="h2-tip">
