@@ -190,12 +190,16 @@ describe("Code page: Focus and KeelBot's room", () => {
 describe("Code with other plugins off", () => {
   afterEach(() => restorePlugins());
 
-  it("without KeelBot: no KeelBot in the menu, and the head has only Update from main", async () => {
+  // 0.28 the redesign put Go to file (⌘P) in the head, and Ask KeelBot (⌘I) while KeelBot's column is there; without
+  // KeelBot the head keeps Update from main and Go to file only
+  it("without KeelBot: no KeelBot in the menu, and the head has only Update from main and Go to file", async () => {
     withoutPages("helper");
+    withoutSlot(SLOTS.assistant);
     at("#/repo");
     render(<App />);
     const update = await screen.findByRole("button", { name: "Update from main" });
-    expect(within(update.closest(".top") as HTMLElement).getAllByRole("button")).toHaveLength(1);
+    expect(within(update.closest(".top") as HTMLElement).getAllByRole("button").map((b) => b.textContent))
+      .toEqual(["Update from main", expect.stringMatching(/^Go to file/)]);
     expect(within(screen.getByRole("navigation", { name: "Screens" })).queryByRole("link", { name: "KeelBot" })).toBeNull();
   });
 

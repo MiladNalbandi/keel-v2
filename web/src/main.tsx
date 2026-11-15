@@ -37,6 +37,7 @@ import "./styles/help.css";
 import "./styles/welcome.css";
 // keel 0.28 the redesign (menu, top bar, Home, Add features): last, so it wins over the older menu rules
 import "./styles/shell.css";
+import "./styles/rd-code.css";
 // keel 0.28 the redesign, the watch pages (Live agents, Jobs, Flow doctor, All projects)
 import "./styles/rd-watch.css";
 
