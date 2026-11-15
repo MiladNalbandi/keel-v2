@@ -289,6 +289,35 @@ describe("keel Product in keel's web", () => {
     await waitFor(() => expect(location.hash).toBe("#/initiatives/INI-2"));
   });
 
+  it("keel 0.28 the board says what waits and runs, filters by team and words, and N opens a new idea", async () => {
+    await open("#/initiatives", {
+      "/api/initiatives": [...board, { ...board[1], id: "INI-5", title: "Coupons", status: "running", teams: ["payments"], stage: "plan" }],
+      "/api/initiatives/repos": [],
+    });
+    const decision = await main().findByTestId("stage-decision");
+    expect(main().getByText("1 waits for you")).toBeInTheDocument();
+    expect(main().getByText("1 keel works")).toBeInTheDocument();
+    expect(within(main().getByTestId("stage-idea")).getByText("Nothing here.")).toBeInTheDocument();
+    // a team: only its initiatives
+    const teams = main().getByRole("group", { name: "Team" });
+    await userEvent.click(within(teams).getByRole("button", { name: "payments" }));
+    expect(within(teams).getByRole("button", { name: "payments" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(main().getByTestId("stage-delivery")).queryByText("Gift cards")).not.toBeInTheDocument();
+    expect(within(decision).getByRole("button", { name: "INI-2: Euro prices" })).toBeInTheDocument();
+    await userEvent.click(within(teams).getByRole("button", { name: "All teams" }));
+    // words: the id, the title, the next step or a team
+    await userEvent.type(main().getByRole("searchbox", { name: "Search the initiatives" }), "gift");
+    expect(within(main().getByTestId("stage-delivery")).getByText("Gift cards")).toBeInTheDocument();
+    expect(within(main().getByTestId("stage-decision")).queryByText("Euro prices")).not.toBeInTheDocument();
+    await userEvent.type(main().getByRole("searchbox", { name: "Search the initiatives" }), "zzz");
+    expect(main().getByText(/No initiative matches/)).toBeInTheDocument();
+    // N (not while typing in the search) opens the new idea, not keel's Start a flow
+    await userEvent.click(main().getByRole("heading", { name: "Initiatives", level: 1 }));
+    fireEvent.keyDown(document.body, { key: "n" });
+    expect(await screen.findByRole("dialog", { name: "New initiative" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: /Start a flow/ })).not.toBeInTheDocument();
+  });
+
   it("writes a new idea with its repos and starts discovery", async () => {
     const calls = await open("#/initiatives", {
       "GET /api/initiatives": [],
@@ -1668,6 +1697,14 @@ describe("keel Product in keel's web", () => {
     );
     expect(await within(flows).findByRole("button", { name: "Show 1 hidden" })).toBeInTheDocument();
 
+
+    // keel 0.28 the teams are chips: one team filters the Teams column
+    await userEvent.click(within(main().getByRole("group", { name: "Team" })).getByRole("button", { name: "SW" }));
+    await waitFor(() =>
+      expect(within(main().getByRole("region", { name: "Teams" })).getByRole("button", { name: "Team SW" })).toBeInTheDocument(),
+    );
+    expect(within(main().getByRole("region", { name: "Teams" })).queryByRole("button", { name: "Team Orders" })).not.toBeInTheDocument();
+    await userEvent.click(within(main().getByRole("group", { name: "Team" })).getByRole("button", { name: "All teams" }));
 
     await userEvent.click(main().getByRole("button", { name: "Find flows again" }));
     await waitFor(() =>

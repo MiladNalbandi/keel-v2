@@ -6,6 +6,7 @@ import {
   Async,
   Drawer,
   Empty,
+  hashForScreen,
   Tabs,
   useLoad,
   type AddonPageProps,
@@ -20,10 +21,12 @@ import {
 import {
   fmtDate,
   goInitiative,
+  Key,
   ProductHead,
   StatusPill,
   TRACK,
   useAct,
+  usePageKeys,
 } from "./shared";
 
 const COLUMNS = ["idea", ...TRACK] as const;
@@ -37,8 +40,25 @@ function Board() {
   const board = useLoad("initiatives", productApi.board);
   const [tab, setTab] = useState<"board" | "list">("board");
   const [adding, setAdding] = useState(false);
+  const [team, setTeam] = useState("");
+  const [q, setQ] = useState("");
+  usePageKeys({ n: () => setAdding(true) });
+  const all = board.data ?? [];
+  const teams = [...new Set(all.flatMap((i) => i.teams))].sort();
+  const waits = all.filter((i) => i.waiting).length;
+  const runs = all.filter((i) => i.status === "running").length;
+  const words = q.trim().toLowerCase();
+  const shown = (items: BoardItem[]) =>
+    items.filter(
+      (i) =>
+        (!team || i.teams.includes(team)) &&
+        (!words ||
+          `${i.id} ${i.title} ${i.next} ${i.teams.join(" ")}`
+            .toLowerCase()
+            .includes(words)),
+    );
   return (
-    <div className="pd">
+    <div className="pd pdx">
       <ProductHead
         crumbs={[["Initiatives"]]}
         title="Initiatives"
@@ -49,11 +69,11 @@ function Board() {
             type="button"
             onClick={() => setAdding(true)}
           >
-            New initiative
+            <span aria-hidden="true">+</span> New initiative <Key k="N" />
           </button>
         }
       />
-      <div className="pd-bar">
+      <div className="pd-bar rise r1">
         <Tabs
           label="Show"
           value={tab}
@@ -63,6 +83,44 @@ function Board() {
             ["list", "All, with history"],
           ]}
         />
+        {waits > 0 && (
+          <span className="pd-count c-warn">
+            <span className="dia" aria-hidden="true" />
+            {waits} wait{waits === 1 ? "s" : ""} for you
+          </span>
+        )}
+        {runs > 0 && (
+          <span className="pd-count c-run">
+            <span className="dot" aria-hidden="true" />
+            {runs} keel works
+          </span>
+        )}
+        <span className="grow" />
+        {teams.length > 1 && (
+          <div className="pd-fchips" role="group" aria-label="Team">
+            {["", ...teams].map((t) => (
+              <button
+                key={t || "all"}
+                type="button"
+                className="pd-fchip"
+                aria-pressed={team === t}
+                onClick={() => setTeam(t)}
+              >
+                {t || "All teams"}
+              </button>
+            ))}
+          </div>
+        )}
+        {all.length > 0 && (
+          <input
+            type="search"
+            className="pd-q-search"
+            aria-label="Search the initiatives"
+            placeholder="Search ideas…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+        )}
       </div>
       <Async r={board} what="Loading the initiatives">
         {(items) =>
@@ -71,13 +129,19 @@ function Board() {
               No initiative yet. Write an idea in a few sentences: keel turns it
               into a brief and asks what it needs to know.
             </Empty>
+          ) : shown(items).length === 0 ? (
+            <Empty>No initiative matches. Clear the search, or pick All teams.</Empty>
           ) : tab === "board" ? (
-            <Columns items={items} />
+            <Columns items={shown(items)} />
           ) : (
-            <List items={items} />
+            <List items={shown(items)} />
           )
         }
       </Async>
+      <p className="pd-lnk rise r4">
+        See where the work lands: <a href={hashForScreen("product-map")}>Product map ›</a>
+        <a href={hashForScreen("teams")}>Teams ›</a>
+      </p>
       {adding && <NewInitiative onClose={() => setAdding(false)} />}
     </div>
   );
@@ -129,7 +193,7 @@ function Columns({ items }: { items: BoardItem[] }) {
   const parked = items.filter((i) => i.status === "parked");
   return (
     <>
-      <div className="pd-board">
+      <div className="pd-board rise r2">
         {COLUMNS.map((s) => {
           const list = active.filter((i) => i.stage === s);
           return (
@@ -140,17 +204,18 @@ function Columns({ items }: { items: BoardItem[] }) {
               aria-label={STAGE_LABEL[s]}
             >
               <h2>
-                {STAGE_LABEL[s]} <span className="sub">{list.length}</span>
+                {STAGE_LABEL[s]} <span className="pd-n">{list.length}</span>
               </h2>
               {list.map((i) => (
                 <Card key={i.id} i={i} />
               ))}
+              {list.length === 0 && <span className="pd-none">Nothing here.</span>}
             </section>
           );
         })}
       </div>
       {parked.length > 0 && (
-        <section className="pd-parked" aria-label="Not now">
+        <section className="pd-parked rise r3" aria-label="Not now">
           <h2>Not now</h2>
           {parked.map((i) => (
             <button
@@ -159,8 +224,8 @@ function Columns({ items }: { items: BoardItem[] }) {
               className="btn sm"
               onClick={() => goInitiative(i.id)}
             >
-              <span className="mono">{i.id}</span> {i.title} · back{" "}
-              {fmtDate(i.revisit_at)}
+              <span className="mono">{i.id}</span> {i.title}
+              <span className="sub"> · back {fmtDate(i.revisit_at)}</span>
             </button>
           ))}
         </section>
@@ -171,7 +236,7 @@ function Columns({ items }: { items: BoardItem[] }) {
 
 function List({ items }: { items: BoardItem[] }) {
   return (
-    <div className="pd-table-wrap">
+    <div className="pd-table-wrap pd-list-box rise r2">
       <table className="pd-table">
         <thead>
           <tr>
@@ -200,7 +265,7 @@ function List({ items }: { items: BoardItem[] }) {
               </td>
               <td>{i.teams.join(", ") || "—"}</td>
               <td className="sub">{i.next}</td>
-              <td className="sub">{fmtDate(i.updated_at)}</td>
+              <td className="sub mono">{fmtDate(i.updated_at)}</td>
             </tr>
           ))}
         </tbody>
@@ -261,7 +326,7 @@ export function NewInitiative({
     </>
   );
   return (
-    <Drawer title="New initiative" onClose={onClose} footer={footer}>
+    <Drawer title="New initiative" onClose={onClose} footer={footer} className="pdx">
       <div className="pd-form">
         <div className="field">
           <label htmlFor="ni-title">Title</label>
