@@ -179,6 +179,8 @@ describe("Workflow YAML", () => {
 describe("Flow v0.2", () => {
   it("Before ship lists the blockers with why and fix", async () => {
     render(<App />);
+    // keel 0.28 Before ship is a tab of the Details drawer
+    await userEvent.setup().click(await screen.findByRole("tab", { name: "Before ship" }));
     const head = await screen.findByRole("heading", { name: "Before ship" });
     const panel = head.closest(".panel") as HTMLElement;
     expect(within(panel).getByText("coverage")).toBeInTheDocument();
@@ -196,6 +198,7 @@ describe("Flow v0.2", () => {
   it("Before ship says ready when nothing blocks", async () => {
     db.flows["ludus-engine"].thread!.blockers = [];
     render(<App />);
+    await userEvent.setup().click(await screen.findByRole("tab", { name: "Before ship" }));
     const head = await screen.findByRole("heading", { name: "Before ship" });
     expect(
       within(head.closest(".panel") as HTMLElement).getByText(

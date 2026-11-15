@@ -9,9 +9,10 @@ import { clearDraft, DraftKept, dropOtherDrafts, noKeys, questionKey, useAnswerD
 import { Markdown, type FoldLabels } from "../../components/Markdown";
 import { autoLines, RunModeNote } from "../../components/RunMode";
 import { ErrorBox, Panel, Pill, Ticks } from "../../components/ui";
-import { kfmt, usd } from "../../format";
+import { codeHref, kfmt, usd } from "../../format";
 import { go, useApp, useLoad } from "../../state";
 import { useHasPage } from "../../sdk/registry";
+import { hashFor } from "../../routes";
 import { askAssistant } from "../../sdk/assistant";
 import { fixRequest } from "../../askFix";
 import { AcCodeSection, dropSection } from "./AcCode";
@@ -140,7 +141,14 @@ export function CopyId({ id }: { id: string }) {
   );
 }
 
-export function GateCard({ thread, workflow, onDone }: { thread: ThreadState; workflow: Workflow; onDone: () => Promise<void> }) {
+/** keel 0.28 what the person just answered at a gate (the Flow page's feed says it, with the way back). */
+export type GateSaid = { decision: "approve" | "reject"; label: string; title: string; at: number };
+
+export function GateCard({ thread, workflow, onDone, onDecided }: {
+  thread: ThreadState; workflow: Workflow; onDone: () => Promise<void>;
+  /** keel 0.28 called once an answer went through */
+  onDecided?: (said: GateSaid) => void;
+}) {
   const { toast, reloadProjects } = useApp();
   const w = thread.waiting!;
   // keel 0.18.64 what the person typed or picked is kept until it is sent (another project or page and back: still
@@ -166,6 +174,25 @@ export function GateCard({ thread, workflow, onDone }: { thread: ThreadState; wo
   const code = useLoad(acId ? `ac-code:${pid}:${thread.thread_id}:${acId}:${w.id ?? w.title}` : null,
     () => api.acCode(pid, thread.thread_id, acId!), { live: false });
   const detail = acId && code.data ? dropSection(w.detail, "Commits") : w.detail;
+  // keel 0.28 "Read the change" (O): the criterion's code in Code (its GREEN commit, else RED), else its branch in Review
+  const hasCode = useHasPage("repo");
+  const hasReview = useHasPage("review");
+  const changeHref = (() => {
+    const c = code.data;
+    if (!acId || !c) return null;
+    const commit = c.green ?? c.red;
+    const file = commit?.files.find((f) => !f.folded && !f.binary) ?? commit?.files[0];
+    if (hasCode && commit && file) return codeHref(file.path, null, commit.sha);
+    if (hasReview && c.commits > 0) return hashFor("review", c.branch ? `branch:${c.branch}` : undefined);
+    return null;
+  })();
+  const readChange = () => {
+    if (changeHref) { window.location.hash = changeHref.replace(/^#/, ""); return; }
+    const sec = document.querySelector<HTMLElement>('[aria-label="The code of this criterion"]');
+    sec?.scrollIntoView?.({ block: "start" });
+    sec?.querySelector<HTMLElement>("[role=tab], button, a")?.focus({ preventScroll: true });
+  };
+  const canRead = !!acId && !!code.data && code.data.commits > 0;
 
   const showAc = w.kind === "gate" && !labels.special;
   // keel 0.18.13 the engine says what each named choice means: one card each (ChoiceForm), its own reason box
@@ -185,6 +212,7 @@ export function GateCard({ thread, workflow, onDone }: { thread: ThreadState; wo
     if (busy || inFlight.current || e.metaKey || e.ctrlKey || e.altKey || tag === "TEXTAREA" || tag === "INPUT" || tag === "SELECT") return;
     if (plain && e.key.toLowerCase() === "a") { e.preventDefault(); void decide("approve"); }
     if (w.options.includes("reject") && labels.whyLabel && e.key.toLowerCase() === "r") { e.preventDefault(); document.getElementById("why")?.focus(); }
+    if (canRead && e.key.toLowerCase() === "o") { e.preventDefault(); readChange(); }
   };
 
   const decide = async (decision: "approve" | "reject", extra?: Record<string, unknown>, said = why) => {
@@ -212,6 +240,8 @@ export function GateCard({ thread, workflow, onDone }: { thread: ThreadState; wo
       setPicked({});
       setTyped({});
       toast(decision === "approve" ? labels.approved : labels.rejected);
+      const choice = typeof extra?.choice === "string" ? extra.choice : null;
+      onDecided?.({ decision, label: choice ?? (decision === "approve" ? labels.approve : labels.reject), title: w.title, at: Date.now() });
       setWhy("");
       clearDraft(place);
       await Promise.all([onDone(), reloadProjects()]);
@@ -276,7 +306,11 @@ export function GateCard({ thread, workflow, onDone }: { thread: ThreadState; wo
             {labels.reject}{plain && labels.whyLabel && <kbd className="gc-kbd" aria-hidden="true">R</kbd>}
           </button>
         )}
+        {canRead && <ReadChange href={changeHref} onRead={readChange} />}
       </div>}
+      {canRead && (info || ((w.kind === "gate" || w.kind === "fix" || w.kind === "crash") && w.choices?.length)) ? (
+        <div className="row"><ReadChange href={changeHref} onRead={readChange} /></div>
+      ) : null}
       <DraftKept shown={keptWhy || keptPicked || keptTyped} />
       {err && <ErrorBox error={err} />}
       {err && keelbot && (
@@ -289,6 +323,14 @@ export function GateCard({ thread, workflow, onDone }: { thread: ThreadState; wo
   );
 }
 
+
+/** keel 0.28 "Read the change" with its key: a link to Code (or Review), else a button to the criterion's code below. */
+function ReadChange({ href, onRead }: { href: string | null; onRead: () => void }) {
+  const inner = <>Read the change<kbd className="gc-kbd" aria-hidden="true">O</kbd></>;
+  return href
+    ? <a className="btn ghost gc-read" href={href} aria-keyshortcuts="O">{inner}</a>
+    : <button type="button" className="btn ghost gc-read" onClick={onRead} aria-keyshortcuts="O">{inner}</button>;
+}
 
 /** Lines shown before a gate's code or diff block folds (more than elsewhere: the diff is what you decide on). */
 export const GATE_FOLD = 30;

@@ -125,6 +125,8 @@ describe("Flow page: the gate card (0.18.11)", () => {
     expect(card.querySelector("h3")).not.toHaveTextContent("`");
     expect(card.querySelector("dl.gc-lines")).toHaveTextContent("You approveAC-002 “Refuse a score below 0 with 400”");
     expect(codes(card.querySelector("dl.gc-lines dd"))).toEqual(["score"]);
+    // keel 0.28 the criteria are a tab of the Details drawer
+    fireEvent.click(screen.getByRole("tab", { name: "Criteria" }));
     const list = (await screen.findByText("Acceptance criteria")).closest(".panel");
     expect(codes(list)).toContain("score");
     expect(list).not.toHaveTextContent("`score`");
