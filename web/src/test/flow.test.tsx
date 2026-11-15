@@ -123,7 +123,10 @@ describe("Flow gate", () => {
     render(<App />);
     await user.click(await screen.findByRole("tab", { name: "Checkpoints" }));
     expect(await screen.findByText("#31")).toBeInTheDocument();
+    // keel 0.28 the criteria and the budget are tabs of the Details drawer
+    await user.click(screen.getByRole("tab", { name: "Criteria" }));
     expect(screen.getByText("[API] Refuse a negative score with 400")).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "Budget" }));
     expect(screen.getByRole("meter", { name: "Tokens used of the cap" })).toHaveAttribute("aria-valuenow", "182000");
     expect(await screen.findByText("estimate 410k")).toBeInTheDocument();
   });

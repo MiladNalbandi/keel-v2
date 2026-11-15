@@ -380,13 +380,16 @@ describe("Blocks of a flow that is over (0.18.11)", () => {
 });
 
 describe("Flow page (live blocks)", () => {
-  it("the waiting gate's card sits under its block; the bar shows tokens, cost and Jump to current", async () => {
+  it("the waiting gate's card sits in the feed (its block waits); the bar shows tokens, cost and Jump to current", async () => {
     render(<App />);
     await screen.findByRole("region", { name: "Gate waits for you" });
     const block = document.querySelector('[data-block="s8"]') as HTMLElement;
     expect(block).toHaveAttribute("data-state", "wait");
-    expect(within(block).getByRole("region", { name: "Gate waits for you" })).toBeInTheDocument();
-    expect(within(block).getByRole("button", { name: "Approve AC-002" })).toBeInTheDocument();
+    // keel 0.28 the card is in "What happens", after the steps' turns, not in the narrow steps rail
+    const feed = screen.getByRole("region", { name: "What happens" });
+    expect(within(feed).getByRole("region", { name: "Gate waits for you" })).toBeInTheDocument();
+    expect(within(feed).getByRole("button", { name: "Approve AC-002" })).toBeInTheDocument();
+    expect(within(block).queryByRole("region", { name: "Gate waits for you" })).toBeNull();
     const bar = screen.getByRole("region", { name: "This flow" });
     expect(bar).toHaveTextContent("182k");
     expect(bar).toHaveTextContent("$2.86");
