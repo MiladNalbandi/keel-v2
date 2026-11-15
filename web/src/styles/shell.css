@@ -179,3 +179,13 @@
   .h2-hero h1 { font-size: 24px; }
   .feat2 { padding: 18px 16px 32px; }
 }
+
+/* a short screen (about 900 px): fewer recent flows, so the menu's foot (Start here) stays in view */
+@media (min-width: 901px) and (max-height: 980px) {
+  .side .nav-recent a:nth-of-type(n+4) { display: none; }
+  .side { gap: 10px; }
+  .nav { gap: 10px; }
+}
+@media (min-width: 901px) and (max-height: 820px) {
+  .side .nav-recent { display: none; }
+}
