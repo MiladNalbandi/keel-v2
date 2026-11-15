@@ -47,7 +47,8 @@ describe("the Record plugin", () => {
   it("lists the project's flows with their counts and a link to each record", async () => {
     server.use(http.get("/api/projects/:pid/record/flows", () => HttpResponse.json([ROW])));
     open("#/record");
-    const table = await main().findByRole("table", { name: "Flows" });
+    // keel 0.28 the redesign: the flows are a list beside the open record, not a table
+    const table = await main().findByRole("list", { name: "Flows" });
     const link = within(table).getByRole("link", { name: "Export invoices" });
     expect(link.getAttribute("href")).toBe("#/record/t1");
     expect(within(table).getByText("$0.50")).toBeTruthy();
@@ -81,6 +82,8 @@ describe("the Record plugin", () => {
   it("gives the export as a file, Markdown or JSON", async () => {
     const asked: string[] = [];
     server.use(
+      // keel 0.28 the redesign: the flows' list stays beside the open record
+      http.get("/api/projects/:pid/record/flows", () => HttpResponse.json([ROW])),
       http.get("/api/projects/:pid/record/flows/t1", () => HttpResponse.json(FLOW)),
       http.get("/api/projects/:pid/record/flows/t1/export", ({ request }) => {
         asked.push(new URL(request.url).searchParams.get("format") ?? "");

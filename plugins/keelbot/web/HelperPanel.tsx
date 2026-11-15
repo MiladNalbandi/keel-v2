@@ -773,8 +773,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
                 aria-label="Open KeelBot full screen">⤢</button>
               <button type="button" className="hp-tb hp-x" onClick={onClose} title="Close KeelBot (⌘I)" aria-label="Close KeelBot">×</button>
             </>
-            : <button type="button" className="hp-tb" onClick={onClose} title="The Code page, with the code and KeelBot side by side"
-              aria-label="Back to the code">Back to the code</button>}
+            : null /* keel 0.28 the page's head has Back to the code (HelperPage) */}
         </div>
       </header>
       {showModel && (

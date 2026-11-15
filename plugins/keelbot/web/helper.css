@@ -135,19 +135,76 @@
 .hp-fixbar.hp-side { background: color-mix(in srgb, var(--run) 8%, var(--ide-side)); }
 .hp-fixbar code, .hp-fixbar .mono { font: 500 11.5px var(--f-mono); overflow-wrap: anywhere; }
 
-/* KeelBot on a page of its own (#/helper, HelperPage.tsx): one wide, readable chat column */
-.helper-page { height: calc(100dvh - var(--hp-top, 150px) - 14px); min-height: 420px; display: flex;
-  border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--panel); }
+/* KeelBot on a page of its own (#/helper, HelperPage.tsx). keel 0.28 the redesign (canvas board PgKeelBot): a page head,
+   then two calm cards, the chats and the chat, like a good chat app: the person's words in a soft bubble on the right,
+   KeelBot's answers on the page with its mark, and one rounded box to write in. */
+.kb-ph { display: flex; align-items: flex-end; gap: 12px 16px; flex-wrap: wrap; margin-bottom: 16px; animation: kb-rise .36s cubic-bezier(.2,.7,.2,1) both; }
+.kb-ph-t { flex: 1 1 380px; min-width: 0; }
+.kb-ph h1 { margin: 0; font-size: 24px; line-height: 1.2; font-weight: 600; letter-spacing: -.015em; }
+.kb-ph p { margin: 4px 0 0; color: var(--dim); max-width: 720px; }
+.kb-ph-a { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+.kb-ph .btn { display: inline-flex; align-items: center; gap: 8px; min-height: 34px; box-sizing: border-box; padding: 0 13px; border-radius: 9px; font-weight: 500;
+  transition: background .16s ease, color .16s ease; }
+.kb-ph .btn.ghost { border-color: transparent; color: var(--dim); }
+.kb-ph .btn.ghost:hover { background: var(--panel-2); color: var(--fg); }
+.helper-page { height: calc(100dvh - var(--hp-top, 150px) - 14px); min-height: 420px; display: flex; gap: 16px; align-items: stretch;
+  animation: kb-rise .36s cubic-bezier(.2,.7,.2,1) .05s both; }
 /* KeelBot alone (#/keelbot) sits outside the Code page's .ide: the same colours, so its cards keep their borders */
-.hp.page { --hp-col: 920px; --ide-bg: var(--panel); --ide-side: var(--bg); --ide-line: var(--border);
-  --ide-hover: color-mix(in srgb, var(--fg) 6%, transparent); }
+.hp.page { --hp-col: 860px; --ide-bg: var(--panel); --ide-side: var(--bg); --ide-line: var(--border);
+  --ide-hover: color-mix(in srgb, var(--fg) 6%, transparent);
+  border: 1px solid var(--border); border-radius: 14px; overflow: hidden; background: var(--panel); }
 .hp.page .hp-head, .hp.page .hp-sessions, .hp.page .hp-fixbar, .hp.page .hp-model { padding-inline: max(16px, calc((100% - var(--hp-col)) / 2)); }
-.hp.page .hp-body { padding-inline: max(16px, calc((100% - var(--hp-col)) / 2)); gap: 18px; }
-.hp.page .hp-compose { padding-inline: max(14px, calc((100% - var(--hp-col)) / 2)); }
-.hp.page .hp-answer, .hp.page .hp-text { font-size: 14.5px; }
-.hp.page .hp-compose textarea { min-height: 70px; font-size: 14px; }
+.hp.page .hp-head { min-height: 54px; padding-block: 10px; border-bottom: 1px solid var(--border); }
+.hp.page .hp-title b { display: none; }
+.hp.page .hp-title { align-items: center; }
+.hp.page .hp-modes { border: 0; border-radius: 10px; padding: 3px; gap: 2px; background: var(--panel-2); }
+.hp.page .hp-modes button { height: 28px; padding: 0 11px; border-radius: 8px; font: 500 13px var(--f-body); color: var(--dim); transition: background .18s ease, color .18s ease; }
+.hp.page .hp-modes button:hover:not(:disabled) { color: var(--fg); }
+.hp.page .hp-modes button[aria-pressed="true"] { background: var(--panel); color: var(--fg); box-shadow: 0 1px 3px rgba(0,0,0,.25); }
+.hp.page .hp-mode { font: 600 11.5px var(--f-body); border-radius: 6px; padding: 2px 7px; color: var(--dim); background: var(--panel-2); }
+.hp.page .hp-mode.fix { color: var(--warn); background: var(--warn-soft); }
+.hp.page .hp-mode.hp-side { color: var(--run); background: var(--run-soft); }
+.hp.page .hp-tb { font-size: 13px; padding: 4px 9px; border-radius: 8px; max-width: 220px; }
+.hp.page .hp-tools > .hp-tb[aria-label="Model"] { border-color: var(--border); color: var(--fg); }
+.hp.page .hp-sessions { min-height: 44px; padding-block: 6px; border-bottom: 1px solid var(--border); }
+.hp.page .hp-cur { font-size: 13.5px; }
+.hp.page .hp-usage { font-size: 12px; }
+.hp.page .hp-body { padding-inline: max(18px, calc((100% - var(--hp-col)) / 2)); padding-block: 18px; gap: 22px; }
+.hp.page .hp-compose { padding: 12px max(16px, calc((100% - var(--hp-col)) / 2)) 16px; border-top: 0; background: transparent; }
+.hp.page .hp-compose textarea { min-height: 76px; font-size: 15px; line-height: 1.5; padding: 12px 14px; border-radius: 16px; background: var(--panel);
+  border-color: var(--border); box-shadow: var(--shadow); transition: border-color .2s ease, box-shadow .2s ease; }
+.hp.page .hp-compose textarea:focus-visible { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+.hp.page .hp-send .btn { min-height: 30px; border-radius: 9px; padding: 0 14px; }
+.hp.page .hp-answer, .hp.page .hp-text { font-size: 14.5px; line-height: 1.6; }
 .hp.page .hp-sessions select { max-width: 420px; }
+/* the person's words: a soft bubble on the right */
+.hp.page .hp-user { align-self: flex-end; max-width: min(78%, 640px); background: var(--panel-2); border-radius: 16px 16px 4px 16px; padding: 10px 14px; }
+/* KeelBot's answer: its mark on the left, the answer beside it */
+.hp.page .hp-help { grid-template-columns: 28px minmax(0, 1fr); column-gap: 12px; max-width: 820px; }
+.hp.page .hp-help > * { grid-column: 2; }
+.hp.page .hp-help::before { content: ""; grid-column: 1; grid-row: 1; width: 28px; height: 28px; border-radius: 9px; align-self: start;
+  background: var(--accent-soft); }
+.hp.page .hp-help::after { content: ""; grid-column: 1; grid-row: 1; width: 16px; height: 16px; margin: 6px; align-self: start; background: var(--accent);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'%3E%3Cpath d='M4 5h16v11H10l-5 4v-4H4z'/%3E%3Cpath d='M12 8l.8 1.7 1.7.8-1.7.8L12 13l-.8-1.7-1.7-.8 1.7-.8z' fill='black' stroke='none'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'%3E%3Cpath d='M4 5h16v11H10l-5 4v-4H4z'/%3E%3Cpath d='M12 8l.8 1.7 1.7.8-1.7.8L12 13l-.8-1.7-1.7-.8 1.7-.8z' fill='black' stroke='none'/%3E%3C/svg%3E") center / contain no-repeat; }
+.hp.page .hp-msg { animation: kb-rise .3s cubic-bezier(.2,.7,.2,1) both; }
+.hp.page .hp-meta { font-size: 12px; color: var(--dim); }
+.hp.page .hp-steps-btn { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px; border-radius: 8px; border: 1px solid var(--border);
+  text-decoration: none; font-size: 12.5px; }
+.hp.page .hp-steps-btn:hover { background: var(--panel-2); }
+.hp.page .hp-steps { border-left-color: var(--border); padding-left: 12px; gap: 10px; }
+.hp.page .hp-guide { border-radius: 14px; padding: 14px 16px; }
+.hp.page .hp-starters { gap: 8px; }
+.hp.page .hp-starters button { border-radius: 12px; padding: 10px 12px; font-size: 13.5px; background: var(--panel);
+  transition: border-color .16s ease, background .16s ease; }
+.hp.page .hp-starters button:hover { border-color: var(--accent); background: var(--accent-soft); }
+.hp.page .kb-card { border-radius: 12px; padding: 12px 14px; font-size: 13.5px; }
 main:has(> .helper-page) { padding-bottom: 14px; }
+@keyframes kb-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .kb-ph, .helper-page, .hp.page .hp-msg { animation: none; }
+  .hp.page .hp-compose textarea, .hp.page .hp-modes button, .hp.page .hp-starters button { transition: none; }
+}
 
 /* v0.9.0 KeelBot's buttons in an answer (Actions.tsx): start a flow, save a workflow it wrote */
 .kb-card { display: grid; gap: 8px; margin: 8px 0; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--ide-line)); border-radius: 10px;
@@ -236,11 +293,25 @@ main:has(> .helper-page) { padding-bottom: 14px; }
   background: var(--ide-bg); color: var(--fg); }
 .hp-list .hp-confirm { margin: 2px 0 6px; }
 
-/* the KeelBot page on a wide screen: the chat list is a column on the left */
-.hp-list-col { flex: none; width: 290px; min-height: 0; display: flex; border-right: 1px solid var(--border); background: var(--bg);
+/* the KeelBot page on a wide screen: the chat list is a card on the left (keel 0.28) */
+.hp-list-col { flex: none; width: 292px; min-height: 0; display: flex; border: 1px solid var(--border); border-radius: 14px; overflow: hidden; background: var(--panel);
   --ide-bg: var(--panel); --ide-side: var(--bg); --ide-line: var(--border); --ide-hover: color-mix(in srgb, var(--fg) 6%, transparent); }
-.hp-list-col .hp-list { padding: 12px 10px 10px 12px; }
-@media (max-width: 1280px) { .hp-list-col { width: 250px; } }
+.hp-list-col .hp-list { padding: 12px; gap: 10px; }
+.hp-list-col .hp-list-head { font-size: 13px; }
+.hp-list-col .hp-search { height: 36px; box-sizing: border-box; border-radius: 9px; font-size: 13.5px; padding: 0 11px; background: var(--bg); }
+.hp-list-col .hp-search:focus-visible { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.hp-list-col .hp-tb-new { color: var(--fg); border-color: var(--border); }
+.hp-list-col .hp-chats { gap: 2px; }
+.hp-list-col .hp-chat-row { border-radius: 12px; border: 1px solid transparent; transition: background .16s ease, border-color .16s ease; }
+.hp-list-col .hp-chat.on .hp-chat-row { background: var(--bg); border-color: var(--rail); }
+.hp-list-col .hp-chat-open { padding: 9px 10px; }
+.hp-list-col .hp-chat-t { font-size: 13.5px; font-weight: 500; }
+.hp-list-col .hp-chat-m { font: 500 12px var(--f-body); color: var(--dim); }
+.hp-list-col .hp-chat-mode { font-size: 11px; font-weight: 600; border-radius: 5px; padding: 0 6px; background: var(--ok-soft); }
+.hp-list-col .hp-chat-mode.hp-fix { background: var(--warn-soft); }
+.hp-list-col .hp-chat-mode.hp-side { background: var(--run-soft); }
+.hp-list-col .hp-fold-btn { font-size: 11.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--dim); }
+@media (max-width: 1280px) { .hp-list-col { width: 256px; } }
 
 .hp-guide { display: grid; gap: 6px; border: 1px solid var(--ide-line); border-radius: 10px; padding: 10px 12px; background: var(--ide-bg); color: var(--fg); }
 .hp-guide-h { margin: 0; font-size: 13px; }
