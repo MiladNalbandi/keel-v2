@@ -61,7 +61,9 @@ describe("0.28 the Inbox: a list and the selected item", () => {
     expect(rows).toHaveLength(3);
     expect(rows[0]).toHaveAttribute("aria-current", "true");
     expect(rows[0]).toHaveTextContent("gate");
-    expect(rows[0]).toHaveTextContent("ludus-engine · Scores for players");
+    // two flows of one project wait, so the rows sit under "project · flow" headings (the row does not say the flow again)
+    expect(screen.getByRole("heading", { name: /ludus-engine · Scores for players/ })).toBeInTheDocument();
+    expect(rows[0]).toHaveTextContent("ludus-engine");
     expect(rows[0]).toHaveTextContent("AC gate · AC-002");
     expect(rows[0]).toHaveTextContent("Review");               // the detail's first line, without its Markdown marks
     expect(rows[0]).not.toHaveTextContent("##");
