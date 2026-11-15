@@ -3,11 +3,12 @@
 // actions (Answer, Watch live, Open flow, Start a flow). v0.15.7 "Add projects" ticks repos from your folders
 // (components/AddProjects); #/projects/add opens it (the menu's switcher and ⌘K link there).
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api, type Job, type Project } from "../api";
 import { AddProjectsDrawer } from "../components/AddProjects";
 import { EmptyState } from "../components/EmptyState";
 import { needsInit } from "../components/InitAsk";
+import { isTyping, modalOpen } from "../keys";
 import { StartFlowDrawer } from "../components/StartFlow";
 import { ErrorBox, Loading, PageHead, Pill } from "../components/ui";
 import { agoText, plural } from "../format";
@@ -41,7 +42,7 @@ function ProjectRow({ p, shown, act, onStart }: { p: Project; shown: boolean; ac
       <div className="proj-id">
         <h2 className="proj-name" id={`proj-${p.id}`}>
           <button type="button" className="linkbtn" onClick={(e) => { e.stopPropagation(); open("flow"); }} title={`Open ${p.name}`}>{p.name}</button>
-          {shown && <span className="tag" title="The project the other screens show now">current</span>}
+          {shown && <span className="tag rdw-cur" title="The project the other screens show now">current</span>}
           {needsInit(p) && <span className="tag" data-testid="not-set-up" title="keel does not know this project yet: open it to set it up (init)">not set up</span>}
         </h2>
         <span className="sub mono proj-root" title={p.root}>{p.root}</span>
@@ -49,7 +50,7 @@ function ProjectRow({ p, shown, act, onStart }: { p: Project; shown: boolean; ac
       <div className="proj-flow">
         {p.flow ? (
           <span className="proj-now">
-            <span className="tag keel">{p.flow}</span>
+            <span className="tag keel rdw-wf">{p.flow}</span>
             <span><span className="sub">at</span> <b className="mono">{p.phase || "—"}</b></span>
             {p.acs?.[1] ? <span className="sub num">ACs {p.acs[0]} / {p.acs[1]}</span> : null}
           </span>
@@ -98,14 +99,34 @@ export function ProjectsPage() {
   const waitingAll = projects.reduce((a, p) => a + (p.waiting || 0), 0);
   const waitingIn = projects.filter((p) => p.waiting > 0).length;
   const runningAll = projects.reduce((a, p) => a + (p.running || 0), 0);
+  // keel 0.28 the keys on the head's buttons: A adds projects, I opens the inbox while something waits (N is the shell's)
+  useEffect(() => {
+    const on = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || e.defaultPrevented || isTyping(e.target) || modalOpen()) return;
+      if (drawer || arg === "add") return;
+      if (e.key === "a") {
+        e.preventDefault();
+        setDrawer({ kind: "add" });
+      } else if (e.key === "i" && waitingAll > 0) {
+        e.preventDefault();
+        go("inbox");
+      }
+    };
+    window.addEventListener("keydown", on);
+    return () => window.removeEventListener("keydown", on);
+  }, [drawer, arg, waitingAll]);
   return (
-    <>
+    <div className="rdw rdw-proj">
       <PageHead
         title="Projects"
         sub="Every repo keel knows on this machine. Answer what waits for you, watch what runs, or start a flow."
         actions={<>
-          <button className="btn" type="button" onClick={() => setDrawer({ kind: "add" })}>Add projects</button>
-          <button className="btn primary" type="button" id="startFlow" onClick={() => setDrawer({ kind: "start" })} disabled={!projects.length}>Start a flow</button>
+          <button className="btn" type="button" aria-keyshortcuts="A" onClick={() => setDrawer({ kind: "add" })}>
+            <FolderPlus /> Add projects <kbd aria-hidden="true">A</kbd>
+          </button>
+          <button className="btn primary" type="button" id="startFlow" aria-keyshortcuts="N" onClick={() => setDrawer({ kind: "start" })} disabled={!projects.length}>
+            <span aria-hidden="true" className="rdw-plus">+</span> Start a flow <kbd aria-hidden="true">N</kbd>
+          </button>
         </>}
       />
       {projectsError && !projects.length ? (
@@ -118,23 +139,34 @@ export function ProjectsPage() {
         </EmptyState></div>
       ) : (
         <>
-          <div className="home-sum" aria-label="Across all projects">
+          <div className="home-sum rdw-sum rise r1" aria-label="Across all projects">
             {waitingAll > 0 ? (
               <span className="home-wait"><b className="amber">◆ {waitingAll} waiting for you</b> <span className="sub">in {plural(waitingIn, "project")}</span></span>
             ) : <span className="sub">Nothing waits for you.</span>}
-            <span className="sub">{runningAll ? `${plural(runningAll, "agent")} working` : "No agent is working"}</span>
-            {waitingAll > 0 && <a className="btn sm" href={hashFor("inbox")}>Open the inbox</a>}
+            <span className={`sub rdw-dotted${runningAll ? " on" : ""}`}>{runningAll ? `${plural(runningAll, "agent")} working` : "No agent is working"}</span>
+            {waitingAll > 0 && <a className="btn sm" href={hashFor("inbox")} aria-keyshortcuts="I">Open the inbox <kbd aria-hidden="true">I</kbd></a>}
           </div>
           {projectsError && <div className="errbox" role="alert" style={{ marginBottom: 12 }}><b>{projectsError}</b></div>}
-          <ul className="proj-list" aria-label="Projects">
+          <ul className="proj-list rdw-list rise r2" aria-label="Projects">
             {projects.map((p) => (
               <ProjectRow key={p.id} p={p} shown={p.id === pid} act={acts[p.id]} onStart={() => setDrawer({ kind: "start", project: p.id })} />
             ))}
           </ul>
+          <p className="rdw-foot rise r3">
+            New to keel? <a href="#/help">Help › Start here</a> walks you through the first steps. A repo you mount at{" "}
+            <span className="mono">/workspace</span> shows up in Add projects.
+          </p>
         </>
       )}
       {adding && <AddProjectsDrawer onClose={closeDrawer} />}
       {drawer?.kind === "start" && <StartFlowDrawer projectId={drawer.project} onClose={closeDrawer} />}
-    </>
+    </div>
   );
 }
+
+/** A folder with a plus (Add projects). */
+const FolderPlus = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><path d="M12 11v5M9.5 13.5h5" />
+  </svg>
+);

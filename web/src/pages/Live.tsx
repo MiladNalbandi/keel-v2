@@ -10,7 +10,9 @@ import { kindClass, mergeSteps } from "../components/StepFeed";
 import { FilesTouched, kindLabel, Outcome, StepView, useJumpToStep } from "../components/StepView";
 import { EmptyState } from "../components/EmptyState";
 import { jobMatches, RunSearch, RunTabs, searchWords, useDebounced, useFinished, useRunTab } from "../components/RunSearch";
+import { openStartFlow } from "../components/ShellNav";
 import { StartFlowDrawer } from "../components/StartFlow";
+import { isTyping, modalOpen } from "../keys";
 import { ErrorBox, GoButton, Loading, PageHead, Panel, Pill, Prov, Since, Tabs } from "../components/ui";
 import { agoText, kfmt, plainText, PROV, since } from "../format";
 import { go, useApp, useLoad, useRoute } from "../state";
@@ -69,7 +71,7 @@ function AgentCard({ j, sel, steps }: { j: Job; sel: boolean; steps?: JobStep[] 
   const pname = projects.find((p) => p.id === j.project_id)?.name ?? j.project_id;
   return (
     <button type="button" className={`agent-card ${sel ? "sel" : ""}`} onClick={() => go("live", j.id)} aria-pressed={sel}>
-      <div className="row" style={{ justifyContent: "space-between" }}><b>{j.agent}</b><span className="sub num"><Since from={j.started_at} /></span></div>
+      <div className="row" style={{ justifyContent: "space-between" }}><b className="rdw-who"><span className="rdw-dot run" aria-hidden="true" />{j.agent}</b><span className="sub num mono"><Since from={j.started_at} /></span></div>
       <span className="sub">{pname} · node <span className="mono">{j.phase || j.step}</span>{j.ac ? ` · ${j.ac}` : ""} · <Prov p={j.provider} m={j.model} e={j.effort} /></span>
       {sel && steps && (
         <div className="grid agent-mini" style={{ gap: 3 }}>
@@ -82,8 +84,11 @@ function AgentCard({ j, sel, steps }: { j: Job; sel: boolean; steps?: JobStep[] 
   );
 }
 
+/** Two letters for the agent's mark in the feed's head ("co" for coder). */
+const initials = (name: string) => (name.replace(/[^a-z0-9]/gi, "").slice(0, 2) || "ag").toLowerCase();
+
 function Feed({ job, note }: { job: Job; note?: string }) {
-  const { toast } = useApp();
+  const { toast, projects } = useApp();
   const { steps, running, error } = useJobSteps(job.id);
   const [filter, setFilter] = useState<Filter>("all");
   // a finished feed opens at its start (no jump down the page); a running one follows the newest step
@@ -103,20 +108,53 @@ function Feed({ job, note }: { job: Job; note?: string }) {
     if (follow && b) b.scrollTop = b.scrollHeight;
   }, [shown.length, follow]);
   const tokens = job.tokens_in + job.tokens_out + Math.floor((job.tokens_cached ?? 0) / 10);
+  const stop = async () => {
+    try {
+      await api.stopJob(job.id);
+      toast("Stop sent; the thread keeps its last checkpoint.");
+    } catch (e) {
+      toast(errorParts(e).message);
+    }
+  };
+  // O opens the flow this agent works for (the key on the button)
+  useEffect(() => {
+    if (!job.thread_id) return;
+    const on = (e: KeyboardEvent) => {
+      if (e.key !== "o" || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || e.defaultPrevented || isTyping(e.target) || modalOpen()) return;
+      e.preventDefault();
+      go("flow", job.thread_id);
+    };
+    window.addEventListener("keydown", on);
+    return () => window.removeEventListener("keydown", on);
+  }, [job.thread_id]);
+  const pname = projects.find((p) => p.id === job.project_id)?.name ?? job.project_id;
   return (
     <Panel
-      title={<h2>{job.agent}{job.ac ? ` · ${job.ac}` : ""}</h2>}
-      extra={<div className="row">
+      className="rdw-feedcard rise r2"
+      title={<div className="rdw-fhead">
+        <span className="rdw-av" aria-hidden="true">{initials(job.agent)}</span>
+        <div className="rdw-ft">
+          <h2>{job.agent}{job.ac ? ` · ${job.ac}` : ""}</h2>
+          <span className="sub">{pname} · <span className="mono">{job.phase || job.step}</span> · <Prov p={job.provider} m={job.model} e={job.effort} /></span>
+        </div>
+      </div>}
+      extra={<div className="row rdw-facts-r">
         {isRunning ? <Pill tone="run">working · step {steps.length}</Pill> : <Pill tone={job.status === "done" ? "ok" : "bad"}>{job.status === "done" ? "finished" : job.status}</Pill>}
         <span className="tag num">tokens {kfmt(tokens)}</span>
+        {job.thread_id && (
+          <button className="btn sm" type="button" aria-keyshortcuts="O" onClick={() => go("flow", job.thread_id)}>
+            Open its flow <kbd aria-hidden="true">O</kbd>
+          </button>
+        )}
+        {isRunning && <button className="btn sm rdw-stop" type="button" onClick={() => void stop()}>Stop</button>}
       </div>}
       body="grid"
     >
-      <div className="grid" style={{ gap: 10 }}>
+      <div className="grid rdw-feed" style={{ gap: 10 }}>
         {note && <p className="hint live-note">{note}</p>}
-        <div className="row" style={{ justifyContent: "space-between" }}>
-          <Tabs value={filter} onChange={setFilter} label="Show" options={[["all", "Everything"], ["code", "Code & commands"], ["msg", "Messages"]]} />
-          <label className="chk"><input type="checkbox" id="follow" checked={follow} onChange={(e) => setFollow(e.target.checked)} /> Follow the newest step</label>
+        <div className="row rdw-feedbar" style={{ justifyContent: "space-between" }}>
+          <span className="rdw-seg"><Tabs value={filter} onChange={setFilter} label="Show" options={[["all", "Everything"], ["code", "Code & commands"], ["msg", "Messages"]]} /></span>
+          <label className="chk rdw-switch"><input type="checkbox" role="switch" id="follow" checked={follow} onChange={(e) => setFollow(e.target.checked)} /> Follow the newest step</label>
         </div>
         <FilesTouched steps={steps} onJump={jump} />
         {error && <ErrorBox error={error} />}
@@ -124,18 +162,7 @@ function Feed({ job, note }: { job: Job; note?: string }) {
           {shown.length ? shown.map((s) => <StepView key={s.n} s={s} idPrefix={anchor} />) : <div className="empty">{isRunning ? "Waiting for the first step…" : "No steps."}</div>}
         </div>
         {!isRunning && <Outcome job={job} steps={steps} onJump={jump} />}
-        {isRunning && (
-          <div className="row">
-            <button className="btn sm" type="button" onClick={async () => {
-              try {
-                await api.stopJob(job.id);
-                toast("Stop sent; the thread keeps its last checkpoint.");
-              } catch (e) {
-                toast(errorParts(e).message);
-              }
-            }}>Stop</button>
-          </div>
-        )}
+        {isRunning && <p className="rdw-working"><span className="rdw-dots" aria-hidden="true"><i /><i /><i /></span> {job.agent} is working…</p>}
       </div>
     </Panel>
   );
@@ -200,13 +227,21 @@ export function LivePage({ pid }: { pid: string }) {
     ? "No agent is working right now. This is the last one that ran." : undefined;
 
   return (
-    <>
+    <div className="rdw rdw-live">
       <PageHead
         title="Live agents"
         sub={`Watch each agent while it works in ${project?.name ?? pid}: what it says, which tools it calls, what code it writes, and what it returns.`}
-        actions={running.data ? (runningList.length
-          ? <Pill tone="run">{runningList.length} agent{runningList.length === 1 ? "" : "s"} working now</Pill>
-          : <Pill tone="idle">no agent working</Pill>) : undefined}
+        actions={<>
+          {running.data ? (runningList.length
+            ? <Pill tone="run">{runningList.length} agent{runningList.length === 1 ? "" : "s"} working now</Pill>
+            : <Pill tone="idle">no agent working</Pill>) : null}
+          {/* the empty page offers Start a flow itself */}
+          {!never && (
+            <button className="btn primary" type="button" aria-keyshortcuts="N" onClick={() => openStartFlow()}>
+              <span aria-hidden="true" className="rdw-plus">+</span> Start a flow <kbd aria-hidden="true">N</kbd>
+            </button>
+          )}
+        </>}
       />
       {never ? (
         <div className="panel">
@@ -217,7 +252,7 @@ export function LivePage({ pid }: { pid: string }) {
         </div>
       ) : (
         <div className="live-grid">
-          <div className="live-list live-tabbed">
+          <div className="live-list live-tabbed rise r1">
             <div className="live-bar">
               <RunTabs value={tab ?? "running"} onChange={setTab} label="Working or finished" first="Working now" running={running.data ? runShown.length : null} finished={finCount} />
               <RunSearch value={search} onChange={setSearch} label="Search agents" placeholder="Search agent, model, step, AC, status" />
@@ -258,6 +293,6 @@ export function LivePage({ pid }: { pid: string }) {
         </div>
       )}
       {start && <StartFlowDrawer onClose={() => setStart(false)} />}
-    </>
+    </div>
   );
 }

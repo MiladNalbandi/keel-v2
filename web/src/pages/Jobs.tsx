@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, errorParts, type Job } from "../api";
 import { EmptyState } from "../components/EmptyState";
 import { jobMatches, RunSearch, RunTabs, searchWords, useDebounced, useFinished, useRunTab } from "../components/RunSearch";
+import { openStartFlow } from "../components/ShellNav";
 import { StartFlowDrawer } from "../components/StartFlow";
 import { mergeSteps } from "../components/StepFeed";
 import { FilesTouched, Outcome, StepView, useJumpToStep } from "../components/StepView";
@@ -27,7 +28,7 @@ function JobSteps({ id, onClose }: { id: string; onClose: () => void }) {
   const jump = useJumpToStep(anchor);
   const running = job.data?.status === "running" || live.running;
   return (
-    <div ref={box} className="job-steps">
+    <div ref={box} className="job-steps rdw-feed">
       <Panel title={<h2>{job.data ? `${job.data.agent} · ${job.data.phase || job.data.step}` : id} · step feed</h2>}
         extra={<div className="row">
           {job.data && <GoButton to="live" arg={id} className="btn sm">{running ? "Watch live" : "Open in Live agents"}</GoButton>}
@@ -49,15 +50,16 @@ function JobSteps({ id, onClose }: { id: string; onClose: () => void }) {
 function RunningCard({ j }: { j: Job }) {
   const { projects, toast } = useApp();
   return (
-    <div className="panel run-card"><div className="panel-body grid" style={{ gap: 6 }}>
-      <div className="row" style={{ justifyContent: "space-between" }}><b>{j.agent}</b><span className="pill p-run num"><Since from={j.started_at} /></span></div>
+    <div className="panel run-card rdw-runcard lift"><div className="panel-body grid" style={{ gap: 6 }}>
+      <div className="row" style={{ justifyContent: "space-between" }}><b className="rdw-who"><span className="rdw-dot run" aria-hidden="true" />{j.agent}</b><span className="pill p-run num"><Since from={j.started_at} /></span></div>
       <span className="sub">{projects.find((p) => p.id === j.project_id)?.name ?? j.project_id} · node <span className="mono">{j.phase || j.step}</span>{j.ac ? ` · ${j.ac}` : ""}</span>
       <span><Prov p={j.provider} m={j.model} e={j.effort} /></span>
-      <span className="sub num">{j.steps_count} steps · keel calls {j.mcp_calls}</span>
-      <div className="row">
-        <GoButton to="live" arg={j.id}>Watch live</GoButton>
-        <button className="btn sm ghost" type="button" onClick={() => go("jobs", j.id)}>Steps</button>
-        <button className="btn sm ghost" type="button" onClick={async () => {
+      <span className="sub num mono rdw-facts">{j.steps_count} steps · keel calls {j.mcp_calls}{j.tokens_in + j.tokens_out > 0 ? ` · ${kfmt(j.tokens_in)} / ${kfmt(j.tokens_out)} tokens` : ""}</span>
+      <div className="row rdw-acts">
+        <GoButton to="live" arg={j.id} className="btn sm primary">Watch live</GoButton>
+        <button className="btn sm" type="button" onClick={() => go("jobs", j.id)}>Steps</button>
+        <span className="grow" />
+        <button className="btn sm rdw-stop" type="button" onClick={async () => {
           try {
             await api.stopJob(j.id);
             toast("Stop sent.");
@@ -153,21 +155,30 @@ export function JobsPage({ pid }: { pid: string }) {
   if (partTab) {
     const View = partTab.component;
     return (
-      <>
+      <div className="rdw rdw-jobs">
         <PageHead title="Jobs" sub={partTab.sub} />
-        <div style={{ marginBottom: 12 }}>{tabs}</div>
+        <div className="rdw-jtabs">{tabs}</div>
         <View pid={pid} />
-      </>
+      </div>
     );
   }
+  // the empty Finished tab offers Start a flow itself; elsewhere the head does (N, as everywhere)
+  const emptyStart = tab === "finished" && !!fin.rows && !list.length && !words.length && !filtered;
   return (
-    <>
+    <div className="rdw rdw-jobs">
       <PageHead title="Jobs" sub="Every agent call: what runs now, and everything before. Open a row to see its steps."
-        actions={running.data ? (n ? <Pill tone="run">{n} running now</Pill> : <Pill tone="idle">nothing running</Pill>) : undefined} />
-      {tabs && <div style={{ marginBottom: 12 }}>{tabs}</div>}
+        actions={<>
+          {running.data ? (n ? <Pill tone="run">{n} running now</Pill> : <Pill tone="idle">nothing running</Pill>) : null}
+          {!emptyStart && (
+            <button className="btn primary" type="button" aria-keyshortcuts="N" onClick={() => openStartFlow()}>
+              <span aria-hidden="true" className="rdw-plus">+</span> Start a flow <kbd aria-hidden="true">N</kbd>
+            </button>
+          )}
+        </>} />
+      {tabs && <div className="rdw-jtabs">{tabs}</div>}
       {running.error && <div style={{ marginBottom: 16 }}><ErrorBox error={running.error} onRetry={() => void running.reload()} /></div>}
-      <div className="pg-bar run-bar">
-        <RunTabs value={tab ?? "running"} onChange={setTab} label="Running or finished" running={running.data ? runList.length : null} finished={finCount} />
+      <div className="pg-bar run-bar rdw-bar">
+        <span className="rdw-seg rdw-runseg"><RunTabs value={tab ?? "running"} onChange={setTab} label="Running or finished" running={running.data ? runList.length : null} finished={finCount} /></span>
         <div className="row jobs-filters" role="group" aria-label="Filters">
           <RunSearch value={search} onChange={setSearch} label="Search calls" placeholder="Search agent, model, project, step, status" />
           <select aria-label="Filter by project" value={fProject} onChange={(e) => setFProject(e.target.value)}>
@@ -190,7 +201,7 @@ export function JobsPage({ pid }: { pid: string }) {
       {tab === null ? (
         !running.error && <div className="panel"><Loading what="Loading the calls" /></div>
       ) : tab === "running" ? (
-        <section className="jobs-sec" aria-label="Running now">
+        <section className="jobs-sec rise r1" aria-label="Running now">
           {!running.data ? (!running.error && <div className="panel"><Loading what="Loading the running calls" /></div>)
             : runList.length ? <div className="run-cards">{runList.map((j) => <RunningCard key={j.id} j={j} />)}</div>
               : (
@@ -208,7 +219,7 @@ export function JobsPage({ pid }: { pid: string }) {
               )}
         </section>
       ) : (
-        <section className="jobs-sec" aria-label="Finished calls">
+        <section className="jobs-sec rise r1" aria-label="Finished calls">
           {fin.error && !fin.rows ? <ErrorBox error={fin.error} onRetry={fin.reload} />
             : !fin.rows ? <div className="panel"><Loading what="Loading the history" /></div>
               : !list.length ? (
@@ -248,7 +259,7 @@ export function JobsPage({ pid }: { pid: string }) {
         </section>
       )}
       {start && <StartFlowDrawer onClose={() => setStart(false)} />}
-    </>
+    </div>
   );
 }
 

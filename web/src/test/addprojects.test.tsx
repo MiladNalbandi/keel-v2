@@ -291,6 +291,15 @@ describe("Add projects", () => {
     expect(screen.getByRole("status")).toHaveTextContent("added.");
   });
 
+  it("keel 0.28: A on All projects opens Add projects (the key on its button)", async () => {
+    folders();
+    location.hash = "#/projects";
+    render(<App />);
+    await screen.findByText("/workspace/platform");
+    await userEvent.keyboard("a");
+    expect(await screen.findByRole("dialog", { name: "Add projects" })).toBeInTheDocument();
+  });
+
   it("opens from #/projects/add, and closing it goes back to #/projects", async () => {
     folders();
     location.hash = "#/projects/add";
