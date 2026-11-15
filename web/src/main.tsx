@@ -42,6 +42,8 @@ import "./styles/rd-inbox.css";
 import "./styles/rd-work.css";
 // keel 0.28 the redesign, the watch pages (Live agents, Jobs, Flow doctor, All projects)
 import "./styles/rd-watch.css";
+// keel 0.28 the redesign, the Build pages (Workflows … Settings, Start here)
+import "./styles/rd-build.css";
 
 // Plugins' web parts load at run time and use this React and @keel/web-sdk: the import map in index.html points their
 // bare imports to small shims that read window.__keel (src/sdk/shared.ts). So it is set before anything renders.
@@ -52,5 +54,3 @@ ReactDOMClient.createRoot(document.getElementById("root")!).render(
     <App />
   </React.StrictMode>,
 );
-// keel 0.28 the redesign, the Build pages (Workflows … Settings, Start here): last, so it wins
-import "./styles/rd-build.css";
