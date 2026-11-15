@@ -102,11 +102,17 @@ function TaskItemCard({ item: it, cardKey, kindLabel, onDone }: InboxCardProps) 
         </div>
       )}
       <div className="row inbox-actions">
-        {t.actions.map((a, n) => (
-          <button key={a.id} className={`btn sm${n === 0 ? " warn" : ""}`} type="button" disabled={busy} onClick={() => void act(a)}>{a.label}</button>
-        ))}
+        {t.actions.map((a, n) => {
+          // the Inbox's keys (keel 0.28): A the first answer, L "later"; the page presses the button that carries its key
+          const key = a.id === "later" ? "L" : n === 0 ? "A" : undefined;
+          return (
+            <button key={a.id} className={`btn sm${n === 0 ? " warn" : ""}`} type="button" disabled={busy} aria-keyshortcuts={key}
+              onClick={() => void act(a)}>{a.label}{key && <> <kbd aria-hidden="true">{key}</kbd></>}</button>
+          );
+        })}
         {t.url && <a className="btn sm ghost" href={t.url} target="_blank" rel="noreferrer">Open in {trackerName(null, t.url)} ↗</a>}
-        <button className="btn sm ghost inbox-open" type="button" onClick={openTask} aria-label={`Open task ${t.key ?? t.title} in ${it.project_name}`}>Open task ▸</button>
+        <button className="btn sm ghost inbox-open" type="button" onClick={openTask} aria-label={`Open task ${t.key ?? t.title} in ${it.project_name}`}
+          aria-keyshortcuts="O">Open task ▸ <kbd aria-hidden="true">O</kbd></button>
       </div>
       {err && <ErrorBox error={err} />}
     </article>

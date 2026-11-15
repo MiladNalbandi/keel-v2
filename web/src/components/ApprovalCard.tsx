@@ -7,6 +7,7 @@ import { errorParts } from "../api";
 import { inboxApi, type InboxItem } from "../inboxApi";
 import { useHasPage } from "../sdk/registry";
 import { go, useApp } from "../state";
+import { Key } from "./Key";
 import { ErrorBox, Pill, Since, Ticks } from "./ui";
 
 type OpenTarget = { page?: string; arg?: string; label?: string };
@@ -52,15 +53,16 @@ export function ApprovalCard({ it, cardKey, kindLabel, onDone }: {
       {it.detail && <pre className="sub inbox-detail" style={{ whiteSpace: "pre-wrap", margin: 0 }}>{it.detail}</pre>}
       <div className="field">
         <label htmlFor={`${hid}-why`}>Note (optional)</label>
-        <input id={`${hid}-why`} type="text" value={why} onChange={(e) => setWhy(e.target.value)} />
+        <input id={`${hid}-why`} type="text" value={why} aria-keyshortcuts="R" onChange={(e) => setWhy(e.target.value)} />
       </div>
       <div className="row inbox-actions">
         {decisions.map((d, n) => (
-          <button key={d} className={`btn sm${n === 0 ? " primary" : ""}`} type="button" disabled={busy} onClick={() => void answer(d)}>{label(d)}</button>
+          <button key={d} className={`btn sm${n === 0 ? " primary" : ""}`} type="button" disabled={busy} aria-keyshortcuts={n === 0 ? "A" : undefined}
+            onClick={() => void answer(d)}>{label(d)}{n === 0 && <> <Key k="A" /></>}</button>
         ))}
         {open?.page && canOpen && (
-          <button className="btn sm ghost inbox-open" type="button" onClick={() => { if (it.project_id) setProjectId(it.project_id); go(open.page!, open.arg); }}>
-            {open.label ?? "Open"} ▸
+          <button className="btn sm ghost inbox-open" type="button" aria-keyshortcuts="O" onClick={() => { if (it.project_id) setProjectId(it.project_id); go(open.page!, open.arg); }}>
+            {open.label ?? "Open"} ▸ <Key k="O" />
           </button>
         )}
       </div>

@@ -4,7 +4,9 @@
 // shows the box as optional. The number keys 1–9 pick a choice while the focus is in the form (not while typing).
 // Flow's gate card and the Inbox send the same answer: approve with payload {choice: name} and the reason.
 // keel 0.18.64 `draft`: the picked choice and the reason are kept until sent (drafts.tsx), with a quiet "draft kept".
+// keel 0.28 `sendKey`: the page's key that sends (the Inbox's A), drawn on Send; R then goes to the reason box.
 import { useState } from "react";
+import { Key } from "./Key";
 import type { ChoiceInfo } from "../api";
 import { DraftKept, useAnswerDraft, type DraftPlace } from "../drafts";
 import { choiceProblem } from "../questions";
@@ -16,6 +18,7 @@ export function ChoiceForm({
   id,
   sendLabel = "Send",
   draft = null,
+  sendKey,
 }: {
   choices: ChoiceInfo[];
   onSend: (choice: string, why: string) => void | Promise<void>;
@@ -25,6 +28,8 @@ export function ChoiceForm({
   sendLabel?: string;
   /** where the unsent choice and reason are kept (null: not kept) */
   draft?: DraftPlace | null;
+  /** the page's key for Send (the Inbox: A); its page's key handler presses it */
+  sendKey?: string;
 }) {
   const first = (choices.find((c) => c.default) ?? choices[0])?.name ?? "";
   // the default choice is no draft: only a choice the person clicked is kept
@@ -119,6 +124,7 @@ export function ChoiceForm({
             rows={2}
             value={why}
             aria-invalid={!!problem || undefined}
+            aria-keyshortcuts={sendKey ? "R" : undefined}
             onChange={(e) => {
               setWhy(e.target.value);
               if (e.target.value.trim()) setProblem("");
@@ -136,6 +142,7 @@ export function ChoiceForm({
           type="button"
           className="btn warn"
           disabled={busy || !chosen}
+          aria-keyshortcuts={sendKey}
           onClick={send}
         >
           {busy
@@ -143,6 +150,7 @@ export function ChoiceForm({
             : chosen
               ? `${sendLabel}: ${chosen.label || chosen.name}`
               : sendLabel}
+          {sendKey && !busy && <> <Key k={sendKey} /></>}
         </button>
         <DraftKept shown={keptChoice || keptWhy} />
       </div>
