@@ -179,3 +179,15 @@
   .fb-card:hover { transform: none; }
   .rdfl-chev { transition: none; }
 }
+
+/* the flow's one line (NowLine) sticks on top once the header scrolled away: the rail and Details stick under it */
+.fl-now ~ .fl.rdfl { --now-h: 58px; }
+/* the gate's pill has its own ◆, not the pill's dot */
+.rdfl-gate .interrupt h3 .pill::before { content: none; }
+/* a key on a header button sits apart from its word */
+.fl-bar > .actions .btn > kbd { margin-left: 8px; }
+/* the run mode keeps its word readable when the header's buttons wrap (a phone) */
+@media (max-width: 600px) {
+  .fl-bar .actions { flex-wrap: wrap; }
+  .fl-bar .actions .runmode-switch.compact { flex: 1 1 8.5em; }
+}

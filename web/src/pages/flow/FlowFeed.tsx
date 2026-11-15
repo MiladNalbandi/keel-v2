@@ -4,7 +4,7 @@
 // come, the line that says what you just answered, and the gate that waits for you with its keys. A click on a block
 // (or J / K) follows one step: the feed shows only that step's turns.
 
-import { useMemo, useState, type ReactNode } from "react";
+import { Fragment, useMemo, useState, type ReactNode } from "react";
 import type { Job, JobStep, StepRunFacts, ThreadState, Workflow } from "../../api";
 import { Markdown } from "../../components/Markdown";
 import { StepView, isShell, mcpOf, ms } from "../../components/StepView";
@@ -49,6 +49,22 @@ export function FlowFeed({ thread, workflow, runs, job, selected, onClear, gate,
   const extra = liveId && !turns.some((t) => t.r.call_id === liveId) && (!selected || selected === jobStep) ? job : null;
   const over = thread.status === "done" || thread.status === "failed" || thread.status === "stopped";
   const selName = selected ? nameOf(selected, selected) : "";
+  // what you answered last sits where it happened: before the first turn that started after it (else at the end)
+  const saidAt = said ? shown.findIndex((t) => Date.parse(t.r.started_at) > said.at) : -1;
+  const saidLine = said && !gate ? (
+    <li className="rdfl-said-li">
+      <div className={`rdfl-said ${said.decision === "approve" ? "is-ok" : ""}`} role="status">
+        <span aria-hidden="true">{said.decision === "approve" ? "✓" : "↩"}</span>
+        <span className="rdfl-said-t"><b>You answered “{said.label}”</b> · {said.title}</span>
+        {!readOnly && (
+          <button type="button" className="btn sm ghost" onClick={onBack}
+            title="keel cannot take an answer back by itself: rewind to the checkpoint before it, and the gate asks again">
+            Go back to a checkpoint…
+          </button>
+        )}
+      </div>
+    </li>
+  ) : null;
   return (
     <section className="rdfl-feed" aria-label="What happens">
       <div className="rdfl-feed-h">
@@ -60,10 +76,13 @@ export function FlowFeed({ thread, workflow, runs, job, selected, onClear, gate,
         ) : <span className="sub">The whole flow · newest at the bottom · click a block to follow one step</span>}
       </div>
       <ol className="rdfl-turns" aria-label={selected ? `What ${selName} did` : "What the steps did"}>
-        {shown.map(({ r, id }) => (
-          <Turn key={`${r.call_id}:${r.ac ?? ""}`} run={r} name={nameOf(id, r.step)} kind={workflow.steps.find((s) => s.id === id)?.kind ?? "agent"}
-            live={r.call_id === liveId} />
+        {shown.map(({ r, id }, n) => (
+          <Fragment key={`${r.call_id}:${r.ac ?? ""}`}>
+            {n === saidAt && saidLine}
+            <Turn run={r} name={nameOf(id, r.step)} kind={workflow.steps.find((s) => s.id === id)?.kind ?? "agent"} live={r.call_id === liveId} />
+          </Fragment>
         ))}
+        {saidAt < 0 && saidLine}
         {extra && <LiveJobTurn job={extra} name={nameOf(jobStep, extra.step)} kind={workflow.steps.find((s) => s.id === jobStep)?.kind ?? "agent"} />}
         {!shown.length && !extra && (
           <li className="rdfl-none">
@@ -73,21 +92,9 @@ export function FlowFeed({ thread, workflow, runs, job, selected, onClear, gate,
           </li>
         )}
       </ol>
-      {said && !gate && (
-        <div className={`rdfl-said ${said.decision === "approve" ? "is-ok" : ""}`} role="status">
-          <span aria-hidden="true">{said.decision === "approve" ? "✓" : "↩"}</span>
-          <span className="rdfl-said-t"><b>You answered “{said.label}”</b> · {said.title}</span>
-          {!readOnly && (
-            <button type="button" className="btn sm ghost" onClick={onBack}
-              title="keel cannot take an answer back by itself: rewind to the checkpoint before it, and the gate asks again">
-              Go back to a checkpoint…
-            </button>
-          )}
-        </div>
-      )}
       {gate && <div className="rdfl-gate">{gate}</div>}
       {over && (
-        <div className={`rdfl-end is-${thread.status}`} role="status">
+        <div className={`rdfl-end is-${thread.status}`}>
           <span><b>{thread.status === "done" ? "Flow done" : thread.status === "failed" ? "Flow failed" : "Flow stopped"}</b>
             {thread.error ? <span className="sub"> · {thread.error}</span> : null}</span>
           {thread.status !== "done" && !readOnly && <button type="button" className="btn sm" onClick={onDetails}>What now: Details</button>}

@@ -5,8 +5,10 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
+import { http, HttpResponse } from "msw";
 import { App } from "../App";
-import { db } from "./setup";
+import * as fx from "./fixtures";
+import { db, server } from "./setup";
 
 const feed = () => screen.findByRole("region", { name: "What happens" });
 
@@ -54,6 +56,22 @@ describe("Flow page: the feed (keel 0.28)", () => {
     // keel has no undo for an answer: the way back is a checkpoint (Rewind runs the step again, and the gate asks again)
     await user.click(within(line.closest(".rdfl-said") as HTMLElement).getByRole("button", { name: "Go back to a checkpoint…" }));
     expect(screen.getByRole("tab", { name: "Checkpoints" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("the answer's line sits where it happened: before the turns that started after it", async () => {
+    const user = userEvent.setup();
+    const later = { ...fx.jobs[1], id: "j-490", agent: "test-author", step: "s9", started_at: new Date(Date.now() + 60_000).toISOString(), ended_at: null };
+    server.use(http.get("/api/projects/:pid/flows/:tid/step-runs", () => HttpResponse.json(fx.stepRunsOf([fx.jobs[1], later]))));
+    render(<App />);
+    const f = await feed();
+    const card = await within(f).findByRole("region", { name: "Gate waits for you" });
+    await user.click(within(card).getByRole("button", { name: "Approve AC-002" }));
+    const said = (await within(f).findByText("You answered “Approve AC-002”")).closest("li") as HTMLElement;
+    const turns = [...f.querySelectorAll(".rdfl-turn")];
+    // the running agent's turn (no row yet) comes last
+    expect(turns.map((t) => t.querySelector(".rdfl-turn-h b")?.textContent)).toEqual(["implementer", "test-author", "criterion-reviewer"]);
+    expect(turns[0].compareDocumentPosition(said) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(said.compareDocumentPosition(turns[1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("O in the gate's card reads the change", async () => {
