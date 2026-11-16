@@ -4,13 +4,14 @@
 
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { http, HttpResponse } from "msw";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { SessionsView, ThreadState, Workflow } from "../api";
 import { App } from "../App";
 import { SESSION_SENTENCE } from "../components/Session";
 import { closeWelcome } from "../components/welcomeState";
 import * as fx from "./fixtures";
-import { db } from "./setup";
+import { db, server } from "./setup";
 
 const now = new Date().toISOString();
 const PID = "ludus-engine";
@@ -175,5 +176,31 @@ describe("Help › Start here: connect your session (0.29)", () => {
     await user.click(within(help).getByRole("button", { name: "Copy: What to tell the session" }));
     expect(await navigator.clipboard.readText()).toBe(
       "Work for keel: call keel_session_open, then keel_session_next, and follow its work orders.");
+  });
+});
+
+describe("Inbox: a gone connected session (0.29)", () => {
+  it("offers keep waiting, keel's harness for this step, and stop, as named choices", async () => {
+    const user = userEvent.setup();
+    const posted: unknown[] = [];
+    server.use(
+      http.get("/api/inbox", () => HttpResponse.json({ count: 1, kinds: ["session"], projects: [], items: [{
+        project_id: PID, project_name: PID, thread_id: "th_sess1", flow: "Show the owner name", workflow_id: "harness", step: "build",
+        kind: "session", title: "The connected session is gone", detail: "No session was seen for 11 minutes.", more: false,
+        options: ["approve", "reject"], choices: ["wait", "harness", "stop"], id: "q-build", since: now,
+        labels: { approve: "Keep waiting", reject: "Stop the flow" },
+        choice_info: [
+          { name: "wait", label: "Keep waiting", description: "the work order stays", why: "none", default: true },
+          { name: "harness", label: "Run this step on keel's harness", description: "your API key", why: "none", default: false },
+          { name: "stop", label: "Stop the flow", description: "nothing is committed", why: "optional", default: false }] }] })),
+      http.post("/api/inbox/:tid/act", async ({ request }) => { posted.push(await request.json()); return HttpResponse.json({ ok: true }); }),
+    );
+    location.hash = "#/inbox";
+    render(<App />);
+    const card = await screen.findByRole("article", { name: "The connected session is gone" });
+    expect(card).toHaveTextContent("session gone");
+    await user.click(within(card).getByRole("radio", { name: /Run this step on keel's harness/ }));
+    await user.click(within(card).getByRole("button", { name: "Send: Run this step on keel's harness" }));
+    await waitFor(() => expect(posted).toEqual([{ decision: "approve", id: "q-build", payload: { choice: "harness" } }]));
   });
 });
