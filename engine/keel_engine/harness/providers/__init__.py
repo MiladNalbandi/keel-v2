@@ -18,6 +18,11 @@ import re
 from ...models import catalog
 from .base import Provider, ProviderError
 
+# what to do when GitHub Models cannot run the saved model (a Copilot plan's models are only in GitHub's own apps)
+GITHUB_MODELS_PICK = ("A Copilot plan's models (such as Claude in Copilot) work only in GitHub's own apps. In Settings › "
+                      "Models & keys pick a GitHub Models model (openai/gpt-5, openai/gpt-4.1, …), or use an Anthropic or "
+                      "OpenAI API key.")
+
 LABEL = {"claude": "Anthropic", "codex": "OpenAI", "copilot": "GitHub Models", "vertex": "Vertex AI", "local": "a local model server"}
 
 
@@ -46,6 +51,10 @@ def resolve(model: dict, key: str | None) -> Provider:
     if provider == "codex":
         return OpenAICompatProvider(name, api_key=key, who="OpenAI")
     if provider == "copilot":
+        if "/" not in name:
+            # a model saved for the Copilot CLI that GitHub Models does not have (e.g. claude-sonnet-4.5): Copilot's own
+            # models are only in GitHub's apps, so say so instead of sending a name GitHub Models answers 404 to
+            raise ProviderError(f"GitHub Models has no model called {name!r}.", status=404, hint=GITHUB_MODELS_PICK)
         return OpenAICompatProvider(name, api_key=key, base_url=GITHUB_MODELS_URL, who="GitHub Models")
     if provider == "vertex":
         from ...models import vertex
@@ -74,4 +83,4 @@ def resolve(model: dict, key: str | None) -> Provider:
                         hint="Pick Anthropic, OpenAI, GitHub Models, Vertex AI or a local model in Settings › Models & keys.")
 
 
-__all__ = ["LABEL", "Provider", "ProviderError", "api_model", "resolve"]
+__all__ = ["GITHUB_MODELS_PICK", "LABEL", "Provider", "ProviderError", "api_model", "resolve"]
