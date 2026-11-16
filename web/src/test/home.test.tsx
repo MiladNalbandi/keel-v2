@@ -68,14 +68,15 @@ describe("Home (keel 0.28)", () => {
     expect(within(drawer).getByDisplayValue("Players see their rank next to the top 10")).toBeInTheDocument();
   });
 
-  it("Ask KeelBot opens ⌘K with the question, where KeelBot answers", async () => {
+  it("Ask KeelBot starts a chat with the question and opens KeelBot's page, no ⌘K pop-up", async () => {
     const user = userEvent.setup();
     await openHome();
     await user.type(screen.getByRole("textbox", { name: "Your question" }), "where is the score saved?");
     await user.click(screen.getByRole("button", { name: "Ask ↩" }));
-    const launcher = await screen.findByRole("dialog", { name: "Launcher" });
-    // the ? prefix is ⌘K's KeelBot mode: the question stays, the prefix shows as its chip
-    expect(within(launcher).getByDisplayValue(/where is the score saved\?/)).toBeInTheDocument();
+    await waitFor(() => expect(location.hash).toMatch(/helper|keelbot/));
+    expect(screen.queryByRole("dialog", { name: "Launcher" })).toBeNull();
+    const db = (globalThis as unknown as { __db: { helper: { sessions: { title: string; mode: string }[] } } }).__db;
+    expect(db.helper.sessions[0]).toMatchObject({ title: "where is the score saved?", mode: "ask" });
   });
 
   it("the menu's New flow and the N key open Start a flow; N does nothing while typing", async () => {
