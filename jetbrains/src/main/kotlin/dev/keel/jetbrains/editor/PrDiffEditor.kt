@@ -157,8 +157,13 @@ class AddReviewCommentAction : AnAction("keel: Comment on This Line") {
         val project = e.project ?: return
         val editor = e.getData(CommonDataKeys.EDITOR) ?: return
         val pf = e.getData(CommonDataKeys.VIRTUAL_FILE)?.getUserData(PrDiffEditor.KEY) ?: return
-        val row = pf.rows.getOrNull(editor.caretModel.logicalPosition.line) as? DiffRow.Line ?: return
+        val sel = editor.selectionModel
+        val endRow = if (sel.hasSelection()) editor.document.getLineNumber((sel.selectionEnd - 1).coerceAtLeast(sel.selectionStart)) else editor.caretModel.logicalPosition.line
+        val row = pf.rows.getOrNull(endRow) as? DiffRow.Line ?: return
         val (line, side) = if (row.new != null) row.new to "RIGHT" else row.old!! to "LEFT"
-        dev.keel.jetbrains.core.ReviewComments.add(project, pf.path, line, side)
+        val startRow = if (sel.hasSelection()) editor.document.getLineNumber(sel.selectionStart) else endRow
+        val start = (startRow until endRow).asSequence().mapNotNull { pf.rows.getOrNull(it) as? DiffRow.Line }
+            .mapNotNull { if (side == "RIGHT") it.new else it.old }.firstOrNull()
+        dev.keel.jetbrains.core.ReviewComments.add(project, pf.path, line, side, if (start != null) "${pf.path}:$start–$line" else "${pf.path}:$line", start, sel.selectedText)
     }
 }

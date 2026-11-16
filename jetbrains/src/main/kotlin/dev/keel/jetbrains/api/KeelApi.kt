@@ -128,8 +128,10 @@ class KeelApi(
         call("POST", "${r(pid)}/threads/${enc(threadId)}/address", KeyBody(key, note = note))
 
     /** A comment on a line, kept as a pending comment of your review (the web's line comment, PendingTab). */
-    suspend fun addDraft(pid: String, key: String, path: String, line: Int, side: String, body: String): Draft =
-        call("POST", "${r(pid)}/drafts", DraftBody(key, path, line, side, body))
+    suspend fun addDraft(pid: String, key: String, path: String, line: Int, side: String, body: String, startLine: Int? = null): Draft =
+        call("POST", "${r(pid)}/drafts", DraftBody(key, path, line, side, body, startLine?.takeIf { it < line }, startLine?.takeIf { it < line }?.let { side }))
+
+    suspend fun editDraft(pid: String, id: String, body: String): Draft = call("PUT", "${r(pid)}/drafts/${enc(id)}", DraftEdit(body))
 
     suspend fun deleteDraft(pid: String, id: String): Unit = callUnit("DELETE", "${r(pid)}/drafts/${enc(id)}")
 

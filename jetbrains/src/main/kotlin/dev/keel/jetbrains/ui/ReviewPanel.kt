@@ -258,12 +258,16 @@ class ReviewPanel(private val project: Project, parent: Disposable) : JPanel(Car
         if (v.drafts.isEmpty()) {
             pending.add(KeelUi.bold("No pending comments yet").full())
             pending.add(KeelUi.prose(
-                "To add one: open a changed file (Changed files tab), put the caret on a line, then right-click › " +
-                    "keel: Comment on This Line, or press Ctrl+Alt+Shift+C. It waits here, seen only by you, until you press Submit review.",
+                "To add one: open a changed file (Changed files tab), put the caret on a line or select some lines, then right-click › " +
+                    "keel: Comment on This Line (or Selection), or press Ctrl+Alt+Shift+C. It waits here, seen only by you, until you press Submit review.",
             ).full())
         }
         v.drafts.forEach { d ->
-            pending.add(KeelUi.row(KeelUi.bold("${d.path ?: "PR"}${d.line?.let { ":$it" } ?: ""}"), KeelUi.link("Delete") {
+            val where = "${d.path ?: "PR"}${d.line?.let { ":$it" } ?: ""}"
+            pending.add(KeelUi.row(KeelUi.link(where) { d.path?.let { p -> if (!KeelUi.openFile(project, p, d.line)) PrDiffEditor.open(project, p, d.line, d.side) } }, KeelUi.link("Edit") {
+                val now = Messages.showMultilineInputDialog(project, "Your pending comment on $where:", "Edit comment", d.body, null, null)?.trim()?.ifEmpty { null }
+                if (now != null && now != d.body) session.call({ api, pid, _ -> api.editDraft(pid, d.id, now) }) { r -> r.onFailure { prNote.text = KeelProjectService.say(it) } }
+            }, KeelUi.link("Delete") {
                 session.call({ api, pid, _ -> api.deleteDraft(pid, d.id) })
             }).full())
             pending.add(KeelUi.prose(d.body).full())

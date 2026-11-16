@@ -214,15 +214,28 @@ class CommentOnChangeAction : AnAction("Comment on This Change"), DumbAware {
         val mode = project?.getServiceIfCreated(ReviewMode::class.java)
         val inPr = project != null && editor != null && file != null && mode?.active == true && mode.relPath(file) != null
         e.presentation.isEnabledAndVisible = inPr
-        if (inPr) e.presentation.text = if (ReviewModeMarks.of(project!!).rangeAtCaret(editor!!, file) != null) "keel: Comment on This Change" else "keel: Comment on This Line"
+        if (inPr) e.presentation.text = when {
+            editor!!.selectionModel.hasSelection() -> "keel: Comment on Selection"
+            ReviewModeMarks.of(project!!).rangeAtCaret(editor, file) != null -> "keel: Comment on This Change"
+            else -> "keel: Comment on This Line"
+        }
     }
 
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         val editor = e.getData(CommonDataKeys.EDITOR) ?: return
         val file = e.getData(CommonDataKeys.VIRTUAL_FILE) ?: return
-        ReviewModeMarks.of(project).rangeAtCaret(editor, file)?.let { (path, r) -> return ReviewModeMarks.of(project).commentOn(path, r) }
         val path = ReviewMode.of(project).relPath(file) ?: return
+        val sel = editor.selectionModel
+        if (sel.hasSelection()) {
+            val doc = editor.document
+            val first = doc.getLineNumber(sel.selectionStart) + 1
+            var last = doc.getLineNumber(sel.selectionEnd) + 1
+            if (last > first && sel.selectionEnd == doc.getLineStartOffset(last - 1)) last-- // a selection that ends at a line's start
+            val where = if (last > first) "$path:$first–$last" else "$path:$last"
+            return dev.keel.jetbrains.core.ReviewComments.add(project, path, last, "RIGHT", where, first.takeIf { it < last }, sel.selectedText)
+        }
+        ReviewModeMarks.of(project).rangeAtCaret(editor, file)?.let { (p, r) -> return ReviewModeMarks.of(project).commentOn(p, r) }
         dev.keel.jetbrains.core.ReviewComments.add(project, path, editor.caretModel.logicalPosition.line + 1, "RIGHT")
     }
 }

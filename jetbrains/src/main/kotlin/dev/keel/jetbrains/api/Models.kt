@@ -290,7 +290,14 @@ data class ChangedFile(
 data class Draft(val id: String, val path: String? = null, val line: Int? = null, val side: String = "RIGHT", val body: String = "", val createdAt: String = "")
 
 @Serializable
-data class DraftBody(val key: String, val path: String?, val line: Int?, val side: String = "RIGHT", val body: String)
+data class DraftBody(
+    val key: String, val path: String?, val line: Int?, val side: String = "RIGHT", val body: String,
+    /** A comment on several lines: the first one (line is the last). */
+    val startLine: Int? = null, val startSide: String? = null,
+)
+
+@Serializable
+data class DraftEdit(val body: String)
 
 @Serializable
 data class SubmitBody(val key: String, val event: String = "COMMENT", val body: String = "")
